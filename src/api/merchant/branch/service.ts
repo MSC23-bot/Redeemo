@@ -2,6 +2,9 @@ import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
 import { resolveAdminMerchant } from '../shared'
+import { encrypt, decrypt } from '../../shared/encryption'
+
+const PIN_REGEX = /^\d{4}$/
 
 // Sensitive fields require admin approval via edit-request
 const SENSITIVE_FIELDS = [
@@ -375,4 +378,88 @@ export async function softDeleteBranch(
   })
 
   return { ok: true }
+}
+
+export async function getBranchPin(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string
+): Promise<{ pin: string | null }> {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, merchantId, deletedAt: null },
+    select: { redemptionPin: true },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+  if (!branch.redemptionPin) return { pin: null }
+  return { pin: decrypt(branch.redemptionPin) }
+}
+
+export async function setBranchPin(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  pin: string,
+  ctx: { ipAddress: string; userAgent: string }
+): Promise<{ message: string }> {
+  if (!PIN_REGEX.test(pin)) throw new AppError('INVALID_PIN_FORMAT')
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, merchantId, deletedAt: null },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+  await prisma.branch.update({
+    where: { id: branchId },
+    data:  { redemptionPin: encrypt(pin) },
+  })
+  writeAuditLog(prisma, {
+    entityId: merchantId, entityType: 'merchant',
+    event: 'BRANCH_PIN_CHANGED',
+    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    metadata: { branchId },
+  })
+  return { message: 'PIN updated' }
+}
+
+export async function sendBranchPin(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  ctx: { ipAddress: string; userAgent: string }
+): Promise<{ message: string }> {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, merchantId, deletedAt: null },
+    select: { redemptionPin: true, name: true, phone: true, email: true },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+  if (!branch.redemptionPin) throw new AppError('PIN_NOT_CONFIGURED')
+
+  const pin = decrypt(branch.redemptionPin)
+
+  // SMS via Twilio (fire-and-forget — errors are logged, not thrown)
+  if (branch.phone) {
+    import('twilio').then(({ default: twilio }) => {
+      const client = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
+      client.messages.create({
+        to:   branch.phone!,
+        from: process.env.TWILIO_FROM_NUMBER!,
+        body: `Your Redeemo branch PIN for ${branch.name} is: ${pin}. Keep this secure.`,
+      }).catch((err: unknown) => console.error('[pin-send] SMS failed:', err))
+    }).catch((err: unknown) => console.error('[pin-send] Twilio import failed:', err))
+  }
+
+  // Email via Resend (Phase 3 — log for now)
+  if (branch.email) {
+    console.info(`[dev] Branch PIN email for ${branch.email}: PIN=${pin}`)
+  }
+
+  writeAuditLog(prisma, {
+    entityId: merchantId, entityType: 'merchant',
+    event: 'BRANCH_PIN_SENT',
+    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    metadata: { branchId, channels: [branch.phone ? 'sms' : null, branch.email ? 'email' : null].filter(Boolean) },
+  })
+
+  return { message: 'PIN sent to branch staff' }
 }

@@ -13,6 +13,9 @@ import {
   setOpeningHours,
   setAmenities,
   softDeleteBranch,
+  getBranchPin,
+  setBranchPin,
+  sendBranchPin,
 } from './service'
 
 const idParam = z.object({ id: z.string() })
@@ -156,6 +159,32 @@ export async function branchRoutes(app: FastifyInstance) {
   app.delete(`${prefix}/:id`, async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
     const result = await softDeleteBranch(app.prisma, req.user.sub, id, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(result)
+  })
+
+  // GET /api/v1/merchant/branches/:id/pin — get branch redemption PIN (decrypted)
+  app.get(`${prefix}/:id/pin`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const result = await getBranchPin(app.prisma, req.user.sub, id)
+    return reply.send(result)
+  })
+
+  // PUT /api/v1/merchant/branches/:id/pin — set / update branch redemption PIN
+  app.put(`${prefix}/:id/pin`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const { pin } = z.object({ pin: z.string() }).parse(req.body)
+    const result = await setBranchPin(app.prisma, req.user.sub, id, pin, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(result)
+  })
+
+  // POST /api/v1/merchant/branches/:id/pin/send — send PIN to branch staff via SMS / email
+  app.post(`${prefix}/:id/pin/send`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const result = await sendBranchPin(app.prisma, req.user.sub, id, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     })
     return reply.send(result)
