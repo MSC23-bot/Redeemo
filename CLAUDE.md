@@ -143,6 +143,12 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Webhook handler: renewal, cancellation, payment failure, voucher cycle reset
 - stripeCouponId on PromoCode for explicit Stripe coupon mapping
 
+### ✅ Phase 2D Hardening — Subscription System (COMPLETE)
+- User.stripeCustomerId persisted after first customer creation — reused on repeat setup-intent calls (no orphaned Stripe customers)
+- Webhook idempotency via StripeWebhookEvent table: unique stripeEventId constraint; P2002 on duplicate → 200 immediately
+- Webhook status mapped via SubscriptionStatus enum values (no string casts)
+- Stripe v22: period dates read from items.data[0] (not top-level Subscription)
+
 ### 🔲 Phase 3 — Customer App + Website
 ### 🔲 Phase 4 — Merchant Portal + Mobile App
 ### 🔲 Phase 5 — Admin Panel
