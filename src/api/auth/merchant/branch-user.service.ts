@@ -1,6 +1,7 @@
 import { PrismaClient } from '../../../../generated/prisma/client'
 import type Redis from 'ioredis'
 import { hashPassword, validatePasswordPolicy } from '../../shared/password'
+import { encrypt } from '../../shared/encryption'
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import {
@@ -171,7 +172,7 @@ export async function setBranchPin(
 ): Promise<{ message: string }> {
   await assertBranchOwnership(prisma, data.merchantAdminId, data.branchId)
 
-  const pinHash = await hashPassword(data.pin)
+  const pinHash = encrypt(data.pin)
   await prisma.branch.update({ where: { id: data.branchId }, data: { redemptionPin: pinHash } })
 
   writeAuditLog(prisma, {

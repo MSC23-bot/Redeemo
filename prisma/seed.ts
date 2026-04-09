@@ -1,6 +1,9 @@
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import * as crypto from 'crypto'
+import { encrypt } from '../src/api/shared/encryption'
+
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
@@ -264,7 +267,7 @@ async function main() {
       longitude: -0.0988,
       phone: '+442071234567',
       email: 'london@thecoffeehouse.com',
-      redemptionPin: devHash('1234'),
+      redemptionPin: encrypt('1234'),
       isActive: true,
     },
   })
