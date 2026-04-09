@@ -23,4 +23,12 @@ describe('encryption', () => {
     const tampered = [iv, authTag, 'deadbeef'].join(':')
     expect(() => decrypt(tampered)).toThrow()
   })
+
+  it('decrypt throws when auth tag is tampered', () => {
+    const stored = encrypt('1234')
+    const parts = stored.split(':')
+    // Replace auth tag (index 1) with a different valid-length hex string
+    parts[1] = 'ff'.repeat(16)
+    expect(() => decrypt(parts.join(':'))).toThrow()
+  })
 })
