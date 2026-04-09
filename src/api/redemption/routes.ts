@@ -64,8 +64,6 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
     // Try branch session first
     let actor: VerifyActor | null = null
 
-    const jwtAny = app.jwt as any
-
     // Attempt branch token verification
     try {
       await (req as any).branchVerify()
@@ -73,7 +71,8 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
       const raw = await app.redis.get(RedisKey.authBranch(actorId))
       if (!raw) throw new AppError('BRANCH_ACCESS_DENIED')
 
-      const session = JSON.parse(raw) as { branchId: string; merchantId: string }
+      const session = JSON.parse(raw) as { branchId: string; merchantId: string; isActive: boolean }
+      if (!session.isActive) throw new AppError('BRANCH_ACCESS_DENIED')
       actor = { role: 'branch', branchId: session.branchId, merchantId: session.merchantId, actorId }
     } catch (branchErr) {
       if (branchErr instanceof AppError) throw branchErr
@@ -85,8 +84,9 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
         const raw = await app.redis.get(RedisKey.authMerchant(actorId))
         if (!raw) throw new AppError('BRANCH_ACCESS_DENIED')
 
-        const session = JSON.parse(raw) as { merchantId: string }
-        actor = { role: 'merchant', branchId: null, merchantId: session.merchantId, actorId }
+        const merchantSession = JSON.parse(raw) as { merchantId: string; isSuspended: boolean; approvalStatus: string }
+        if (merchantSession.isSuspended) throw new AppError('MERCHANT_SUSPENDED')
+        actor = { role: 'merchant', branchId: null, merchantId: merchantSession.merchantId, actorId }
       } catch (merchantErr) {
         if (merchantErr instanceof AppError) throw merchantErr
         throw new AppError('BRANCH_ACCESS_DENIED')
@@ -124,20 +124,32 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
       const raw = await app.redis.get(RedisKey.authBranch(actorId))
       if (!raw) throw new AppError('BRANCH_ACCESS_DENIED')
 
-      const session = JSON.parse(raw) as { branchId: string; merchantId: string }
+      const session = JSON.parse(raw) as { branchId: string; merchantId: string; isActive: boolean }
+      if (!session.isActive) throw new AppError('BRANCH_ACCESS_DENIED')
       if (session.branchId !== branchId) throw new AppError('BRANCH_ACCESS_DENIED')
 
       resolved = true
     } catch (branchErr) {
       if (branchErr instanceof AppError) throw branchErr
 
-      // Attempt merchant token verification — merchant admin can access any branch in their merchant
+      // Attempt merchant token verification — merchant admin can only access branches they own
       try {
         await (req as any).merchantVerify()
-        // Merchant admin can access any branch — no additional restriction needed
+        const actorId = req.user.sub
+        const merchantRaw = await app.redis.get(RedisKey.authMerchant(actorId))
+        if (!merchantRaw) throw new AppError('BRANCH_ACCESS_DENIED')
+
+        const merchantSession = JSON.parse(merchantRaw) as { merchantId: string; isSuspended: boolean; approvalStatus: string }
+        if (merchantSession.isSuspended) throw new AppError('MERCHANT_SUSPENDED')
+
+        // Verify branch belongs to this merchant
+        const branch = await app.prisma.branch.findUnique({ where: { id: branchId }, select: { merchantId: true } })
+        if (!branch || branch.merchantId !== merchantSession.merchantId) throw new AppError('BRANCH_ACCESS_DENIED')
+
         resolved = true
-      } catch {
-        // neither token worked
+      } catch (merchantErr) {
+        if (merchantErr instanceof AppError) throw merchantErr
+        // neither token worked — fall through to resolved check
       }
     }
 

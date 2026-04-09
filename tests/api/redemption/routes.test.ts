@@ -300,9 +300,10 @@ describe('redemption routes', () => {
     expect(JSON.parse(res.body).error.code).toBe('BRANCH_ACCESS_DENIED')
   })
 
-  it('GET /api/v1/branch/:branchId/redemptions returns 200 for merchant admin (any branch)', async () => {
+  it('GET /api/v1/branch/:branchId/redemptions returns 200 for merchant admin (branch owned by same merchant)', async () => {
     const mockResult = { total: 2, items: [] }
     vi.mocked(listBranchRedemptions).mockResolvedValue(mockResult as any)
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: MERCHANT_ID })
 
     const res = await app.inject({
       method:  'GET',
@@ -312,6 +313,19 @@ describe('redemption routes', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body).total).toBe(2)
+  })
+
+  it('GET /api/v1/branch/:branchId/redemptions returns 403 for merchant admin accessing branch owned by different merchant', async () => {
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: 'other-merchant-id' })
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/branch/${BRANCH_ID}/redemptions`,
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('BRANCH_ACCESS_DENIED')
   })
 
   it('GET /api/v1/branch/:branchId/redemptions returns 403 without token', async () => {
