@@ -394,7 +394,7 @@ model Branch {
   bannerUrl        String?
   about            String?
   priceListUrl     String?
-  redemptionPinHash String?
+  redemptionPin     String?   // AES-256-GCM encrypted 4-digit PIN; null until merchant sets it
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

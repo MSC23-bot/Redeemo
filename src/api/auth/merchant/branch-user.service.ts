@@ -172,7 +172,7 @@ export async function setBranchPin(
   await assertBranchOwnership(prisma, data.merchantAdminId, data.branchId)
 
   const pinHash = await hashPassword(data.pin)
-  await prisma.branch.update({ where: { id: data.branchId }, data: { redemptionPinHash: pinHash } })
+  await prisma.branch.update({ where: { id: data.branchId }, data: { redemptionPin: pinHash } })
 
   writeAuditLog(prisma, {
     entityId: data.merchantAdminId, entityType: 'merchant', event: 'BRANCH_PIN_CHANGED',
