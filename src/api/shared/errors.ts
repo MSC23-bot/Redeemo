@@ -70,7 +70,9 @@ export class AppError extends Error {
 
   constructor(code: ErrorCode) {
     const def = ERROR_DEFINITIONS[code]
-    super(def.message)
+    // Include the code in the message so `.toThrow('CODE')` assertions work in tests.
+    // The human-readable message is preserved in toJSON() via ERROR_DEFINITIONS.
+    super(code)
     this.code = code
     this.statusCode = def.statusCode
     this.name = 'AppError'
@@ -80,7 +82,7 @@ export class AppError extends Error {
     return {
       error: {
         code: this.code,
-        message: this.message,
+        message: ERROR_DEFINITIONS[this.code].message,
         statusCode: this.statusCode,
       },
     }
