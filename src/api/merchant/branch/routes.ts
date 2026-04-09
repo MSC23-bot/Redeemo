@@ -174,7 +174,7 @@ export async function branchRoutes(app: FastifyInstance) {
   // PUT /api/v1/merchant/branches/:id/pin — set / update branch redemption PIN
   app.put(`${prefix}/:id/pin`, async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
-    const { pin } = z.object({ pin: z.string() }).parse(req.body)
+    const { pin } = z.object({ pin: z.string().regex(/^\d{4}$/, 'PIN must be exactly 4 numeric digits') }).parse(req.body)
     const result = await setBranchPin(app.prisma, req.user.sub, id, pin, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     })

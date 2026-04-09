@@ -451,7 +451,7 @@ export async function sendBranchPin(
 
   // Email via Resend (Phase 3 — log for now)
   if (branch.email) {
-    console.info(`[dev] Branch PIN email for ${branch.email}: PIN=${pin}`)
+    console.info(`[dev] Branch PIN email queued for ${branch.email} [PIN redacted]`)
   }
 
   writeAuditLog(prisma, {
