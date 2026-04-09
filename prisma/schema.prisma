@@ -1,0 +1,1117 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// REDEEMO DATABASE SCHEMA
+// Prisma 7 — datasource URL is in prisma.config.ts, not here
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// ENTITY RELATIONSHIPS (summary)
+//
+// USER
+//   ├── UserSsoProvider (1:many)          — Google/Apple/Facebook SSO links
+//   ├── Subscription (1:1)                — one active subscription at a time
+//   ├── VoucherRedemption (1:many)        — events of redeeming vouchers
+//   ├── UserVoucherCycleState (1:many)    — monthly cycle state per voucher
+//   ├── FavouriteMerchant (1:many)
+//   ├── FavouriteVoucher (1:many)
+//   ├── Review (1:many)                   — reviews are on branches
+//   ├── Notification (1:many)
+//   ├── CommunicationLog (1:many)
+//   └── UserInterest (1:many)
+//
+// MERCHANT
+//   ├── MerchantAdmin (1:1)               — web portal login
+//   ├── Branch (1:many)
+//   │     ├── BranchUser (1:many)         — mobile app (scan/validate) logins
+//   │     ├── BranchOpeningHours
+//   │     ├── BranchPhoto
+//   │     ├── BranchAmenity → Amenity
+//   │     ├── VoucherRedemption           — where the redemption happened
+//   │     └── Review                      — reviews are per branch
+//   ├── Voucher (1:many)                  — vouchers belong to merchant,
+//   │                                        redeemable at any branch
+//   ├── MerchantDocument (1:many)
+//   ├── MerchantContract (1:1)
+//   ├── MerchantCategory → Category
+//   ├── MerchantTag (1:many)
+//   ├── CampaignMerchant → Campaign
+//   ├── FeaturedMerchant (1:many)
+//   └── FavouriteMerchant (1:many)
+//
+// VOUCHER
+//   ├── VoucherRedemption (1:many)
+//   ├── UserVoucherCycleState (1:many)    ← KEY TABLE: monthly cycle enforcement
+//   └── FavouriteVoucher (1:many)
+//
+// SUBSCRIPTION
+//   ├── SubscriptionPlan (many:1)
+//   └── PromoCode (many:1, optional)
+//
+// ADMIN
+//   ├── AdminUser                         — admin panel logins
+//   └── AdminApproval (1:many)            — merchant + voucher approval queue
+//
+// CAMPAIGNS
+//   ├── Campaign → CampaignMerchant → Merchant
+//   └── FeaturedMerchant → Merchant
+//
+// ADMIN-MANAGED REFERENCE DATA
+//   ├── Category (hierarchical, self-referential)
+//   ├── Amenity
+//   ├── Interest
+//   └── CmsContent (key-value store)
+//
+// COMMUNICATIONS
+//   ├── Notification (in-app + push, per user)
+//   └── CommunicationLog (email/SMS/push audit trail)
+//
+// ═══════════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  OPERATIONS
+  FINANCE
+  CONTENT
+  SUPPORT
+}
+
+// ─────────────────────────────────────────
+// CUSTOMER
+// ─────────────────────────────────────────
+
+model User {
+  id                   String     @id @default(uuid())
+  email                String     @unique
+  phone                String?    @unique
+  phoneCountryCode     String?
+  passwordHash         String?
+  firstName            String?
+  lastName             String?
+  dateOfBirth          DateTime?
+  gender               String?
+  addressLine1         String?
+  addressLine2         String?
+  city                 String?
+  postcode             String?
+  profileImageUrl      String?
+  status               UserStatus @default(ACTIVE)
+  newsletterConsent    Boolean    @default(false)
+  tcConsentVersion     String?
+  tcConsentAt          DateTime?
+  tutorialSeen         Boolean    @default(false)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  deletedAt            DateTime?
+  emailVerified        Boolean    @default(false)
+  phoneVerified        Boolean    @default(false)
+  marketingConsentAt   DateTime?
+
+  ssoProviders         UserSsoProvider[]
+  interests            UserInterest[]
+  redemptions          VoucherRedemption[]
+  voucherCycleStates   UserVoucherCycleState[]
+  subscription         Subscription?
+  reviews              Review[]
+  favouriteMerchants   FavouriteMerchant[]
+  favouriteVouchers    FavouriteVoucher[]
+  notifications        Notification[]
+  communications       CommunicationLog[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([status])
+}
+
+model UserSsoProvider {
+  id          String   @id @default(uuid())
+  userId      String
+  provider    String
+  providerUid String
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@unique([provider, providerUid])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────
+// MERCHANT ADMIN (Web Portal login)
+// ─────────────────────────────────────────
+
+model MerchantAdmin {
+  id               String     @id @default(uuid())
+  merchantId       String     @unique
+  email            String     @unique
+  phone            String?
+  phoneCountryCode String?
+  passwordHash     String?
+  firstName        String
+  lastName         String
+  jobTitle         String?
+  status           UserStatus @default(ACTIVE)
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  otpVerifiedAt    DateTime?
+  mustChangePassword Boolean  @default(false)
+
+  merchant         Merchant   @relation(fields: [merchantId], references: [id])
+
+  @@index([email])
+}
+
+// ─────────────────────────────────────────
+// BRANCH USER (Merchant Mobile App login)
+// ─────────────────────────────────────────
+
+model BranchUser {
+  id               String     @id @default(uuid())
+  branchId         String
+  email            String     @unique
+  phone            String?
+  phoneCountryCode String?
+  passwordHash     String
+  firstName        String
+  lastName         String
+  jobTitle         String?
+  status           UserStatus @default(ACTIVE)
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  mustChangePassword Boolean  @default(false)
+
+  branch           Branch     @relation(fields: [branchId], references: [id])
+  validations      VoucherRedemption[]
+
+  @@index([email])
+  @@index([branchId])
+}
+
+// ─────────────────────────────────────────
+// SESSION TRACKING
+// ─────────────────────────────────────────
+
+model UserSession {
+  id            String    @id @default(cuid())
+  entityId      String
+  entityType    String    // 'customer' | 'merchant' | 'branch' | 'admin'
+  sessionId     String    @unique
+  deviceId      String
+  deviceType    String    // 'ios' | 'android' | 'web'
+  deviceName    String?
+  ipAddress     String
+  userAgent     String
+  createdAt     DateTime  @default(now())
+  lastActiveAt  DateTime  @default(now())
+  revokedAt     DateTime?
+  revokedReason String?
+
+  @@index([entityId, entityType])
+  @@index([sessionId])
+}
+
+// ─────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityId   String
+  entityType String   // 'customer' | 'merchant' | 'branch' | 'admin'
+  event      String
+  ipAddress  String
+  userAgent  String
+  deviceId   String?
+  sessionId  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityId, entityType])
+  @@index([event])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────
+// ADMIN USER (Admin Panel login)
+// ─────────────────────────────────────────
+
+model AdminUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         AdminRole @default(SUPPORT)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  approvals    AdminApproval[]
+
+  @@index([email])
+}
+
+// ─────────────────────────────────────────
+// ENUMS (merchant)
+// ─────────────────────────────────────────
+
+enum MerchantStatus {
+  REGISTERED
+  PENDING_APPROVAL
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum VerificationStatus {
+  NOT_SUBMITTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ContractStatus {
+  NOT_SIGNED
+  SIGNED
+}
+
+enum DocumentType {
+  BUSINESS_VERIFICATION_1
+  BUSINESS_VERIFICATION_2
+  PRICE_LIST
+  AGREEMENT
+}
+
+enum SignatureMethod {
+  CLICK_TO_AGREE
+  ZOHO_SIGN
+}
+
+// ─────────────────────────────────────────
+// MERCHANT
+// ─────────────────────────────────────────
+
+model Merchant {
+  id                   String             @id @default(uuid())
+  businessName         String
+  tradingName          String?
+  companyNumber        String?
+  vatNumber            String?
+  status               MerchantStatus     @default(REGISTERED)
+  verificationStatus   VerificationStatus @default(NOT_SUBMITTED)
+  contractStatus       ContractStatus     @default(NOT_SIGNED)
+  contractStartDate    DateTime?
+  contractEndDate      DateTime?
+  websiteUrl           String?
+  logoUrl              String?
+  bannerUrl            String?
+  description          String?
+  primaryCategoryId    String?
+  onboardingStep       OnboardingStep     @default(REGISTERED)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  deletedAt            DateTime?
+
+  admin                MerchantAdmin?
+  branches             Branch[]
+  documents            MerchantDocument[]
+  contract             MerchantContract?
+  tags                 MerchantTag[]
+  categories           MerchantCategory[]
+  vouchers             Voucher[]
+  favouritedBy         FavouriteMerchant[]
+  campaignMerchants    CampaignMerchant[]
+  featuredListings     FeaturedMerchant[]
+  primaryCategory      Category?            @relation("MerchantPrimaryCategory", fields: [primaryCategoryId], references: [id])
+  pendingEdits         MerchantPendingEdit[]
+  branchPendingEdits   BranchPendingEdit[]
+
+  @@index([status])
+  @@index([primaryCategoryId])
+}
+
+// ─────────────────────────────────────────
+// MERCHANT PENDING EDIT
+// ─────────────────────────────────────────
+
+model MerchantPendingEdit {
+  id              String            @id @default(uuid())
+  merchantId      String
+  proposedChanges Json
+  status          PendingEditStatus @default(PENDING)
+  reviewedBy      String?
+  reviewNote      String?
+  createdAt       DateTime          @default(now())
+  reviewedAt      DateTime?
+
+  merchant        Merchant          @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId, status])
+}
+
+// ─────────────────────────────────────────
+// BRANCH
+// ─────────────────────────────────────────
+
+model Branch {
+  id               String   @id @default(uuid())
+  merchantId       String
+  name             String
+  isMainBranch     Boolean  @default(false)
+  addressLine1     String
+  addressLine2     String?
+  city             String
+  postcode         String
+  country          String   @default("GB")
+  latitude         Decimal? @db.Decimal(10, 8)
+  longitude        Decimal? @db.Decimal(11, 8)
+  phone            String?
+  email            String?
+  websiteUrl       String?
+  logoUrl          String?
+  bannerUrl        String?
+  about            String?
+  priceListUrl     String?
+  redemptionPinHash String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  merchant         Merchant             @relation(fields: [merchantId], references: [id])
+  openingHours     BranchOpeningHours[]
+  photos           BranchPhoto[]
+  users            BranchUser[]
+  amenities        BranchAmenity[]
+  redemptions      VoucherRedemption[]
+  reviews          Review[]
+  pendingEdits     BranchPendingEdit[]
+
+  @@index([merchantId])
+  @@index([latitude, longitude])
+  @@index([isActive])
+}
+
+model BranchOpeningHours {
+  id        String  @id @default(uuid())
+  branchId  String
+  dayOfWeek Int
+  openTime  String?
+  closeTime String?
+  isClosed  Boolean @default(false)
+
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, dayOfWeek])
+}
+
+model BranchPhoto {
+  id        String   @id @default(uuid())
+  branchId  String
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+// ─────────────────────────────────────────
+// BRANCH PENDING EDIT
+// ─────────────────────────────────────────
+
+model BranchPendingEdit {
+  id              String            @id @default(uuid())
+  branchId        String
+  merchantId      String
+  proposedChanges Json
+  includesPhotos  Boolean           @default(false)
+  status          PendingEditStatus @default(PENDING)
+  reviewedBy      String?
+  reviewNote      String?
+  createdAt       DateTime          @default(now())
+  reviewedAt      DateTime?
+
+  branch          Branch            @relation(fields: [branchId], references: [id])
+  merchant        Merchant          @relation(fields: [merchantId], references: [id])
+
+  @@index([branchId, status])
+  @@index([merchantId, status])
+}
+
+// ─────────────────────────────────────────
+// MERCHANT VERIFICATION
+// ─────────────────────────────────────────
+
+model MerchantDocument {
+  id           String       @id @default(uuid())
+  merchantId   String
+  documentType DocumentType
+  fileUrl      String
+  uploadedAt   DateTime     @default(now())
+
+  merchant     Merchant     @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId])
+}
+
+model MerchantContract {
+  id                String          @id @default(uuid())
+  merchantId        String          @unique
+  signedAt          DateTime        @default(now())
+  ipAddress         String
+  tcVersion         String
+  signatureMethod   SignatureMethod
+  zohoSignRequestId String?
+
+  merchant          Merchant        @relation(fields: [merchantId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// MERCHANT TAGS
+// ─────────────────────────────────────────
+
+model MerchantTag {
+  id         String   @id @default(uuid())
+  merchantId String
+  tag        String
+
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, tag])
+  @@index([tag])
+}
+
+// ─────────────────────────────────────────
+// CATEGORIES (admin-managed, hierarchical)
+// ─────────────────────────────────────────
+
+model Category {
+  id              String     @id @default(uuid())
+  name            String     @unique
+  iconUrl         String?
+  illustrationUrl String?
+  parentId        String?
+  sortOrder       Int        @default(0)
+  isActive        Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  parent           Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children         Category[]    @relation("CategoryHierarchy")
+  merchants        MerchantCategory[]
+  primaryMerchants Merchant[]    @relation("MerchantPrimaryCategory")
+  rmvTemplates     RmvTemplate[] @relation("CategoryRmvTemplates")
+
+  @@index([parentId])
+}
+
+model MerchantCategory {
+  id         String   @id @default(uuid())
+  merchantId String
+  categoryId String
+  isPrimary  Boolean  @default(false)
+
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([merchantId, categoryId])
+  @@index([categoryId])
+}
+
+// ─────────────────────────────────────────
+// RMV TEMPLATES (admin-managed, per category)
+// ─────────────────────────────────────────
+
+model RmvTemplate {
+  id            String      @id @default(uuid())
+  categoryId    String
+  voucherType   VoucherType
+  title         String
+  description   String
+  allowedFields Json
+  minimumSaving Decimal     @db.Decimal(10, 2)
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  category      Category    @relation("CategoryRmvTemplates", fields: [categoryId], references: [id])
+  vouchers      Voucher[]
+
+  @@unique([categoryId, title])
+  @@index([categoryId, isActive])
+}
+
+// ─────────────────────────────────────────
+// AMENITIES (admin-managed, assigned to branches)
+// ─────────────────────────────────────────
+
+model Amenity {
+  id       String  @id @default(uuid())
+  name     String  @unique
+  iconUrl  String?
+  isActive Boolean @default(true)
+
+  branches BranchAmenity[]
+}
+
+model BranchAmenity {
+  id        String  @id @default(uuid())
+  branchId  String
+  amenityId String
+
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  amenity   Amenity @relation(fields: [amenityId], references: [id])
+
+  @@unique([branchId, amenityId])
+}
+
+// ─────────────────────────────────────────
+// INTERESTS (admin-managed, assigned to users)
+// ─────────────────────────────────────────
+
+model Interest {
+  id       String   @id @default(uuid())
+  name     String   @unique
+  isActive Boolean  @default(true)
+
+  users    UserInterest[]
+}
+
+model UserInterest {
+  id         String   @id @default(uuid())
+  userId     String
+  interestId String
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interest   Interest @relation(fields: [interestId], references: [id])
+
+  @@unique([userId, interestId])
+}
+
+// ─────────────────────────────────────────
+// ENUMS (voucher)
+// ─────────────────────────────────────────
+
+enum VoucherType {
+  BOGO
+  SPEND_AND_SAVE
+  DISCOUNT_FIXED
+  DISCOUNT_PERCENT
+  FREEBIE
+  PACKAGE_DEAL
+  TIME_LIMITED
+  REUSABLE
+}
+
+enum VoucherStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ValidationMethod {
+  PIN
+  QR_SCAN
+  MANUAL
+}
+
+enum PendingEditStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+enum OnboardingStep {
+  REGISTERED
+  BRANCH_ADDED
+  CONTRACT_SIGNED
+  RMV_CONFIGURED
+  SUBMITTED
+  APPROVED
+  LIVE
+  SUSPENDED
+  NEEDS_CHANGES
+}
+
+// ─────────────────────────────────────────
+// VOUCHERS
+// ─────────────────────────────────────────
+
+model Voucher {
+  id              String         @id @default(uuid())
+  merchantId      String
+  code            String         @unique
+  isMandatory     Boolean        @default(false)
+  type            VoucherType
+  title           String
+  description     String?
+  terms           String?
+  imageUrl        String?
+  estimatedSaving Decimal        @db.Decimal(10, 2)
+  expiryDate      DateTime?
+  status          VoucherStatus  @default(DRAFT)
+  approvalStatus  ApprovalStatus @default(PENDING)
+  approvalComment String?
+  approvedAt      DateTime?
+  approvedBy      String?
+  isRmv           Boolean        @default(false)
+  rmvTemplateId   String?
+  merchantFields  Json?
+  publishedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  merchant        Merchant           @relation(fields: [merchantId], references: [id])
+  redemptions     VoucherRedemption[]
+  cycleStates     UserVoucherCycleState[]
+  favouritedBy    FavouriteVoucher[]
+  rmvTemplate     RmvTemplate?       @relation(fields: [rmvTemplateId], references: [id])
+
+  @@index([merchantId])
+  @@index([status])
+  @@index([approvalStatus])
+  @@index([code])
+  @@index([isRmv])
+}
+
+// ─────────────────────────────────────────
+// VOUCHER REDEMPTION (the event record)
+// ─────────────────────────────────────────
+
+model VoucherRedemption {
+  id               String           @id @default(uuid())
+  userId           String
+  voucherId        String
+  branchId         String
+  redemptionCode   String           @unique
+  validatedById    String?
+  validationMethod ValidationMethod?
+  isValidated      Boolean          @default(false)
+  validatedAt      DateTime?
+  estimatedSaving  Decimal          @db.Decimal(10, 2)
+  redeemedAt       DateTime         @default(now())
+
+  user             User         @relation(fields: [userId], references: [id])
+  voucher          Voucher      @relation(fields: [voucherId], references: [id])
+  branch           Branch       @relation(fields: [branchId], references: [id])
+  validatedBy      BranchUser?  @relation(fields: [validatedById], references: [id])
+
+  @@index([userId])
+  @@index([voucherId])
+  @@index([branchId])
+  @@index([redeemedAt])
+  @@index([userId, voucherId])
+  @@index([redemptionCode])
+}
+
+// ─────────────────────────────────────────
+// USER VOUCHER CYCLE STATE
+// One row per (user x voucher). Source of truth for monthly cycle enforcement.
+// Reset isRedeemedInCurrentCycle=false when subscription renews.
+// ─────────────────────────────────────────
+
+model UserVoucherCycleState {
+  id                       String    @id @default(uuid())
+  userId                   String
+  voucherId                String
+  cycleStartDate           DateTime
+  isRedeemedInCurrentCycle Boolean   @default(false)
+  lastRedeemedAt           DateTime?
+
+  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voucher                  Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, voucherId])
+  @@index([userId])
+  @@index([isRedeemedInCurrentCycle])
+}
+
+// ─────────────────────────────────────────
+// ENUMS (subscription)
+// ─────────────────────────────────────────
+
+enum SubscriptionStatus {
+  TRIALLING
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PAST_DUE
+}
+
+enum BillingInterval {
+  MONTHLY
+  ANNUAL
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_GBP
+}
+
+// ─────────────────────────────────────────
+// SUBSCRIPTION PLAN (admin-managed)
+// ─────────────────────────────────────────
+
+model SubscriptionPlan {
+  id              String          @id @default(uuid())
+  name            String
+  description     String?
+  priceGbp        Decimal         @db.Decimal(10, 2)
+  billingInterval BillingInterval
+  stripePriceId   String          @unique
+  isActive        Boolean         @default(true)
+  sortOrder       Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  subscriptions   Subscription[]
+}
+
+// ─────────────────────────────────────────
+// USER SUBSCRIPTION
+// ─────────────────────────────────────────
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  userId               String             @unique
+  planId               String
+  stripeSubscriptionId String             @unique
+  stripeCustomerId     String
+  status               SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelledAt          DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  promoCodeId          String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  user                 User             @relation(fields: [userId], references: [id])
+  plan                 SubscriptionPlan @relation(fields: [planId], references: [id])
+  promoCode            PromoCode?       @relation(fields: [promoCodeId], references: [id])
+
+  @@index([stripeSubscriptionId])
+  @@index([stripeCustomerId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+}
+
+// ─────────────────────────────────────────
+// PROMO CODES
+// ─────────────────────────────────────────
+
+model PromoCode {
+  id            String       @id @default(uuid())
+  code          String       @unique
+  discountType  DiscountType
+  discountValue Decimal      @db.Decimal(10, 2)
+  maxUses       Int?
+  usesCount     Int          @default(0)
+  expiresAt     DateTime?
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+
+  subscriptions Subscription[]
+
+  @@index([code])
+}
+
+// ─────────────────────────────────────────
+// REVIEWS (customers review branches)
+// ─────────────────────────────────────────
+
+model Review {
+  id           String   @id @default(uuid())
+  userId       String
+  branchId     String
+  rating       Int
+  comment      String?
+  isReported   Boolean  @default(false)
+  reportReason String?
+  isDeleted    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User   @relation(fields: [userId], references: [id])
+  branch       Branch @relation(fields: [branchId], references: [id])
+
+  @@unique([userId, branchId])
+  @@index([branchId])
+  @@index([isReported])
+}
+
+// ─────────────────────────────────────────
+// FAVOURITES
+// ─────────────────────────────────────────
+
+model FavouriteMerchant {
+  id         String   @id @default(uuid())
+  userId     String
+  merchantId String
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, merchantId])
+  @@index([userId])
+}
+
+model FavouriteVoucher {
+  id        String   @id @default(uuid())
+  userId    String
+  voucherId String
+  createdAt DateTime @default(now())
+
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, voucherId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────
+// ENUMS (campaigns)
+// ─────────────────────────────────────────
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+// ─────────────────────────────────────────
+// CAMPAIGNS
+// ─────────────────────────────────────────
+
+model Campaign {
+  id              String         @id @default(uuid())
+  name            String
+  description     String?
+  bannerImageUrl  String?
+  targetLocations String[]       @default([])
+  startDate       DateTime
+  endDate         DateTime
+  status          CampaignStatus @default(DRAFT)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  merchants       CampaignMerchant[]
+}
+
+model CampaignMerchant {
+  id                    String        @id @default(uuid())
+  campaignId            String
+  merchantId            String
+  startDate             DateTime
+  endDate               DateTime
+  costGbp               Decimal       @db.Decimal(10, 2)
+  paymentStatus         PaymentStatus @default(PENDING)
+  stripePaymentIntentId String?
+  isActive              Boolean       @default(false)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  campaign              Campaign @relation(fields: [campaignId], references: [id])
+  merchant              Merchant @relation(fields: [merchantId], references: [id])
+
+  @@unique([campaignId, merchantId])
+  @@index([campaignId])
+  @@index([merchantId])
+}
+
+// ─────────────────────────────────────────
+// FEATURED MERCHANTS
+// ─────────────────────────────────────────
+
+model FeaturedMerchant {
+  id                    String        @id @default(uuid())
+  merchantId            String
+  startDate             DateTime
+  endDate               DateTime
+  costGbp               Decimal       @db.Decimal(10, 2)
+  radiusMiles           Decimal       @db.Decimal(5, 2)
+  targetLocations       String[]      @default([])
+  sortByDistance        Boolean       @default(true)
+  paymentStatus         PaymentStatus @default(PENDING)
+  stripePaymentIntentId String?
+  isActive              Boolean       @default(false)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  merchant              Merchant @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId])
+  @@index([isActive])
+  @@index([startDate, endDate])
+}
+
+// ─────────────────────────────────────────
+// ENUMS (admin operations)
+// ─────────────────────────────────────────
+
+enum ApprovalType {
+  MERCHANT_ONBOARDING
+  VOUCHER
+  MERCHANT_PROFILE_EDIT
+  MERCHANT_IDENTITY_EDIT
+  BRANCH_IDENTITY_EDIT
+}
+
+enum NotificationRecipientType {
+  USER
+  MERCHANT_ADMIN
+  BRANCH_USER
+}
+
+enum NotificationChannel {
+  PUSH
+  EMAIL
+  SMS
+}
+
+enum NotificationType {
+  SUBSCRIPTION_REMINDER
+  VOUCHER_REDEEMED
+  ADMIN_BROADCAST
+  MERCHANT_VERIFICATION_UPDATE
+  VOUCHER_APPROVAL_UPDATE
+  CAMPAIGN_INVITE
+  FEATURED_LISTING_UPDATE
+  VOUCHER_EXPIRY_ALERT
+}
+
+enum CommunicationChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum CommunicationStatus {
+  SENT
+  FAILED
+  BOUNCED
+}
+
+// ─────────────────────────────────────────
+// ADMIN APPROVALS QUEUE
+// ─────────────────────────────────────────
+
+model AdminApproval {
+  id            String         @id @default(uuid())
+  type          ApprovalType
+  referenceId   String
+  referenceType String
+  status        ApprovalStatus @default(PENDING)
+  adminUserId   String?
+  comment       String?
+  submittedAt   DateTime       @default(now())
+  actionedAt    DateTime?
+
+  adminUser     AdminUser?     @relation(fields: [adminUserId], references: [id])
+
+  @@index([type])
+  @@index([status])
+  @@index([referenceId])
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────
+
+model Notification {
+  id            String                    @id @default(uuid())
+  recipientType NotificationRecipientType
+  userId        String?
+  title         String
+  body          String
+  type          NotificationType
+  channel       NotificationChannel
+  referenceId   String?
+  referenceType String?
+  isRead        Boolean                   @default(false)
+  readAt        DateTime?
+  sentAt        DateTime                  @default(now())
+
+  user          User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([recipientType])
+  @@index([isRead])
+  @@index([sentAt])
+}
+
+// ─────────────────────────────────────────
+// COMMUNICATION LOG
+// ─────────────────────────────────────────
+
+model CommunicationLog {
+  id            String               @id @default(uuid())
+  recipientType String
+  recipientId   String
+  channel       CommunicationChannel
+  type          String
+  subject       String?
+  status        CommunicationStatus  @default(SENT)
+  externalId    String?
+  sentAt        DateTime             @default(now())
+  userId        String?
+
+  user          User? @relation(fields: [userId], references: [id])
+
+  @@index([recipientId])
+  @@index([channel])
+  @@index([type])
+  @@index([sentAt])
+}
+
+// ─────────────────────────────────────────
+// CMS CONTENT
+// ─────────────────────────────────────────
+
+model CmsContent {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  content     String
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+}
