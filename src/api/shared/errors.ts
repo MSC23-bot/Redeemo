@@ -55,6 +55,17 @@ export const ERROR_DEFINITIONS = {
   WEBHOOK_SIGNATURE_INVALID:       { statusCode: 400, message: 'Webhook signature verification failed.' },
   SUBSCRIPTION_NOT_CANCELLABLE:    { statusCode: 409, message: 'This subscription cannot be cancelled in its current state.' },
   PAYMENT_METHOD_REQUIRED:         { statusCode: 400, message: 'No payment session found. Please restart the payment flow.' },
+  PIN_NOT_CONFIGURED:              { statusCode: 400, message: 'This branch has not configured a redemption PIN.' },
+  INVALID_PIN:                     { statusCode: 400, message: 'The PIN you entered is incorrect.' },
+  PIN_RATE_LIMIT_EXCEEDED:         { statusCode: 429, message: 'Too many incorrect PIN attempts. Please try again in 15 minutes.' },
+  INVALID_PIN_FORMAT:              { statusCode: 400, message: 'PIN must be exactly 4 numeric digits.' },
+  SUBSCRIPTION_REQUIRED:           { statusCode: 403, message: 'An active subscription is required to redeem vouchers.' },
+  BRANCH_MERCHANT_MISMATCH:        { statusCode: 400, message: 'This branch does not belong to the voucher\'s merchant.' },
+  ALREADY_REDEEMED:                { statusCode: 409, message: 'You have already redeemed this voucher in the current cycle.' },
+  REDEMPTION_NOT_FOUND:            { statusCode: 404, message: 'Redemption code not found.' },
+  ALREADY_VALIDATED:               { statusCode: 409, message: 'This redemption has already been validated.' },
+  MERCHANT_MISMATCH:               { statusCode: 403, message: 'This redemption code does not belong to your merchant.' },
+  BRANCH_ACCESS_DENIED:            { statusCode: 403, message: 'You do not have access to this branch.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS

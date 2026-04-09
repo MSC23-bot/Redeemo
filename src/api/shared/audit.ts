@@ -53,6 +53,9 @@ export type AuditEvent =
   | 'SUBSCRIPTION_PAYMENT_FAILED'
   | 'SUBSCRIPTION_PROMO_APPLIED'
   | 'VOUCHER_CYCLE_RESET'
+  | 'VOUCHER_REDEEMED'
+  | 'VOUCHER_VERIFIED'
+  | 'BRANCH_PIN_SENT'
 
 export interface AuditContext {
   entityId: string
