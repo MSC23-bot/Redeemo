@@ -157,18 +157,24 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Stripe v22: period dates read from items.data[0] (not top-level Subscription)
 - Plans: `docs/superpowers/plans/2026-04-09-subscription-system.md`, `docs/superpowers/plans/2026-04-09-subscription-hardening.md`
 
-### 🔲 Phase 2D — Redemption System (NEXT)
-- Customer initiates redemption → backend generates alphanumeric code + QR data
-- Code stored in VoucherRedemption; customer shows in-app
-- Merchant branch staff scan QR or enter code manually → validates redemption
-- UserVoucherCycleState updated: isRedeemedInCurrentCycle = true
-- Subscription gate enforced: free-tier users cannot redeem
-- One redemption per user per voucher per cycle across all branches
+### ✅ Phase 2D — Redemption System (COMPLETE)
+- Customer redemption flow: PIN entry → guard checks → `VoucherRedemption` created with `redemptionCode` (nanoid) + `UserVoucherCycleState` updated atomically
+- All guards enforced: subscription (ACTIVE/TRIALLING), voucher (ACTIVE+APPROVED), merchant (ACTIVE), branch-merchant coherence, one-per-cycle, rate limit (5 attempts / 15 min per userId+branchId)
+- Branch PINs stored AES-256-GCM encrypted (`Branch.redemptionPin`)
+- Staff verification: `POST /api/v1/redemption/verify` accepts branch staff OR merchant admin; sets `isValidated=true`, records `validationMethod` (QR_SCAN / MANUAL)
+- Branch reconciliation list scoped to own branch (staff) or own merchant (admin)
+- PIN management routes: GET / PUT / POST send — SMS via Twilio (live), email via Resend (deferred to Phase 6)
+- 145 tests passing, TypeScript clean
+- Plan: `docs/superpowers/plans/2026-04-10-redemption-system.md`
+
+**Deferred to Phase 6:** Email PIN delivery (Resend not yet integrated — logs placeholder when `branch.email` is set)
+
+**Pre-Phase 3 note:** `redemptionCode` uses nanoid default alphabet (includes `-`/`_`). If manual staff entry is a primary UX flow, switch to alphanumeric-only before the merchant mobile app is built.
 
 ### 🔲 Phase 3 — Customer App + Website (Next.js + React Native)
 ### 🔲 Phase 4 — Merchant Portal + Mobile App
 ### 🔲 Phase 5 — Admin Panel
-### 🔲 Phase 6 — Comms + Marketing Layer (Resend, FCM, Twilio)
+### 🔲 Phase 6 — Comms + Marketing Layer (Resend, FCM, Twilio — includes email PIN delivery)
 
 ---
 
