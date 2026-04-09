@@ -40,20 +40,29 @@ export async function createSetupIntent(
 ): Promise<{ clientSecret: string }> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true, firstName: true, lastName: true },
+    select: { email: true, firstName: true, lastName: true, stripeCustomerId: true },
   })
   if (!user) throw new AppError('INVALID_CREDENTIALS')
 
   let stripeCustomerId: string
-  try {
-    const customer = await stripe.customers.create({
-      email: user.email,
-      name: [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined,
-      metadata: { userId },
-    })
-    stripeCustomerId = customer.id
-  } catch {
-    throw new AppError('STRIPE_ERROR')
+  if (user.stripeCustomerId) {
+    // Reuse existing Stripe customer — prevents orphaned customer records on repeat calls
+    stripeCustomerId = user.stripeCustomerId
+  } else {
+    try {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        name: [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined,
+        metadata: { userId },
+      })
+      stripeCustomerId = customer.id
+      await prisma.user.update({
+        where: { id: userId },
+        data: { stripeCustomerId },
+      })
+    } catch {
+      throw new AppError('STRIPE_ERROR')
+    }
   }
 
   // Store server-side — client never sees this

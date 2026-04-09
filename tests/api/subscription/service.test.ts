@@ -22,7 +22,7 @@ import {
 const mockPrisma = () => ({
   subscriptionPlan: { findMany: vi.fn(), findUnique: vi.fn() },
   subscription: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-  user: { findUnique: vi.fn() },
+  user: { findUnique: vi.fn(), update: vi.fn().mockResolvedValue({}) },
   promoCode: { findUnique: vi.fn(), update: vi.fn() },
   auditLog: { create: vi.fn().mockResolvedValue({}) },
 } as any)
@@ -81,6 +81,7 @@ describe('createSetupIntent', () => {
     const redis = mockRedis()
     prisma.user.findUnique.mockResolvedValue({
       id: 'user-1', email: 'test@example.com', firstName: 'Test', lastName: 'User',
+      stripeCustomerId: null,
     })
     ;(stripe.customers.create as any).mockResolvedValue({ id: 'cus_abc' })
     ;(stripe.setupIntents.create as any).mockResolvedValue({
@@ -95,10 +96,34 @@ describe('createSetupIntent', () => {
       name: 'Test User',
       metadata: { userId: 'user-1' },
     })
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { stripeCustomerId: 'cus_abc' },
+    })
     expect(redis.set).toHaveBeenCalledWith('sub:setup:user-1', 'cus_abc', 'EX', 3600)
     // stripeCustomerId must NOT be in the returned object
     expect(result).toEqual({ clientSecret: 'seti_xyz_secret_abc' })
     expect((result as any).stripeCustomerId).toBeUndefined()
+  })
+
+  it('reuses existing Stripe customer without creating a new one', async () => {
+    const prisma = mockPrisma()
+    const redis = mockRedis()
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1', email: 'test@example.com', firstName: 'Test', lastName: 'User',
+      stripeCustomerId: 'cus_existing',
+    })
+    ;(stripe.setupIntents.create as any).mockResolvedValue({
+      id: 'seti_xyz',
+      client_secret: 'seti_xyz_secret_abc',
+    })
+
+    const result = await createSetupIntent(prisma, redis, 'user-1')
+
+    expect(stripe.customers.create).not.toHaveBeenCalled()
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(redis.set).toHaveBeenCalledWith('sub:setup:user-1', 'cus_existing', 'EX', 3600)
+    expect(result).toEqual({ clientSecret: 'seti_xyz_secret_abc' })
   })
 })
 
