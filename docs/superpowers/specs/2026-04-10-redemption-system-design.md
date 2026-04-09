@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The redemption system enables subscribed customers to redeem vouchers at merchant branches. Redemption is in-store only: the customer enters a branch-specific PIN in the app, which triggers the backend to validate eligibility and create a `VoucherRedemption` record. An optional second step allows branch staff to verify the redemption by scanning a QR code or entering the redemption code.
+The redemption system enables subscribed customers to redeem vouchers at merchant branches. Redemption is in-store only: the customer enters a branch-specific PIN in the app, which triggers the backend to validate eligibility and create a `VoucherRedemption` record. The PIN authorises the customer's redemption — it does not constitute merchant-side validation. An optional second step allows branch staff to verify the redemption by scanning a QR code or entering the redemption code; only this step sets `isValidated = true`.
 
 The system enforces Redeemo's core business rule: **one redemption per user per voucher per billing cycle, across all branches of the owning merchant.**
 
@@ -46,7 +46,7 @@ redemption/service.ts → createRedemption()
   ├─ Guard: branch belongs to voucher's merchant
   ├─ Guard: UserVoucherCycleState.isRedeemedInCurrentCycle == false
   ├─ prisma.$transaction([
-  │    subscription.create (VoucherRedemption),
+  │    VoucherRedemption.create (isValidated=false, validationMethod=null),
   │    userVoucherCycleState.upsert (isRedeemedInCurrentCycle = true)
   │  ])
   └─ Return VoucherRedemption with redemptionCode
@@ -56,15 +56,16 @@ redemption/service.ts → createRedemption()
 
 ```
 Branch staff app
-  │ POST /redemption/verify { code }
+  │ POST /redemption/verify { code, method }
   ▼
 Auth middleware (requires role=branch_staff OR merchant_admin)
   ▼
 redemption/service.ts → verifyRedemption()
   ├─ Find VoucherRedemption by redemptionCode
-  ├─ Guard: not already validated
-  ├─ Guard: staff's branchId or merchantId matches voucher's merchant
-  ├─ subscription.update (isValidated=true, validatedAt, validationMethod, validatedById)
+  ├─ Guard: not already validated (isValidated == false)
+  ├─ Guard (branch_staff): redemption.branchId == caller's assigned branchId
+  ├─ Guard (merchant_admin): voucher's merchantId == caller's merchantId
+  ├─ VoucherRedemption.update (isValidated=true, validatedAt, validationMethod, validatedById)
   └─ Return updated VoucherRedemption (customer name only — no email/phone)
 ```
 
@@ -167,7 +168,7 @@ Redeem a voucher. Requires active subscription.
 6. `UserVoucherCycleState.isRedeemedInCurrentCycle = false` for `(userId, voucherId)`
 
 **On success:** Prisma transaction:
-- `VoucherRedemption.create` with `redemptionCode = nanoid(10)` (alphanumeric)
+- `VoucherRedemption.create` with `redemptionCode = nanoid(10)` (alphanumeric), `isValidated = false`, `validationMethod = null`
 - `UserVoucherCycleState.upsert` setting `isRedeemedInCurrentCycle = true`
 
 **Response `201`:**
@@ -177,7 +178,8 @@ Redeem a voucher. Requires active subscription.
   "redemptionCode": "string",
   "voucherId": "string",
   "branchId": "string",
-  "redeemedAt": "ISO8601"
+  "redeemedAt": "ISO8601",
+  "isValidated": false
 }
 ```
 
@@ -256,7 +258,8 @@ Mark a redemption as validated. Used by branch staff after scanning QR or readin
 **Guards:**
 1. `VoucherRedemption` found by `redemptionCode`
 2. Not already validated (`isValidated = false`)
-3. Voucher's merchant matches the caller's merchant
+3. If `role=branch_staff`: `redemption.branchId` must equal the caller's assigned `branchId`
+4. If `role=merchant_admin`: the voucher's `merchantId` must equal the caller's `merchantId`
 
 **Response `200`:**
 ```json
@@ -348,11 +351,16 @@ Set or update the branch PIN.
 
 #### `POST /api/v1/merchant/branch/:branchId/pin/send`
 
-Send the branch PIN to branch staff via SMS.
+Send the branch PIN to branch staff via available contact channels.
 
 **Auth:** `role=merchant_admin`
 
-**Behaviour:** Looks up all `BranchUser` records for the branch, sends SMS via Twilio to each user's phone. Fire-and-forget — does not fail the request if Twilio fails (logs error instead).
+**Behaviour:** Looks up all `BranchUser` records for the branch. For each staff member:
+- If the branch has a registered email address, send PIN via email (Resend)
+- If the branch has a registered phone number, send PIN via SMS (Twilio)
+- If both are available, send via both channels
+
+Fire-and-forget — does not fail the request if a delivery attempt fails (logs error instead).
 
 **Response `200`:**
 ```json
@@ -365,9 +373,11 @@ Send the branch PIN to branch staff via SMS.
 
 The `POST /api/v1/redemption` endpoint is brute-force protected:
 
-- **Limit:** 5 failed PIN attempts per user per 15 minutes (keyed on `userId`)
-- **Implementation:** Redis counter with TTL — increment on bad PIN, reset on success
+- **Limit:** 5 failed PIN attempts per `(userId, branchId)` pair per 15 minutes
+- **Key:** `pin:fail:{userId}:{branchId}` — scoped to a specific branch so failures at one branch do not block the user from redeeming at a different branch
+- **Implementation:** Redis counter with TTL — increment on `INVALID_PIN`, reset on successful redemption
 - **On limit exceeded:** HTTP 429 with error code `PIN_RATE_LIMIT_EXCEEDED`
+- **Check order:** rate limit is checked immediately after the PIN mismatch is detected, before any other guard
 
 Implemented inside `createRedemption()` in service.ts using `app.redis`.
 
@@ -383,7 +393,8 @@ Implemented inside `createRedemption()` in service.ts using `app.redis`.
 | Branch is attribution and context only | `VoucherRedemption.branchId` recorded; guards check branch belongs to voucher's merchant |
 | Redemption requires active subscription | `ACTIVE` or `TRIALLING` status only |
 | PIN is branch-level, 4 digits, static | No auto-rotation; owner can change; stored AES-256-GCM encrypted |
-| Merchant verification is optional | `isValidated` defaults false; no guard blocks redemption if not verified |
+| PIN authorises customer redemption only | Successful PIN entry creates `VoucherRedemption` with `isValidated=false`; PIN does not constitute merchant validation |
+| Merchant verification is optional | Only `POST /redemption/verify` (QR scan or manual entry by branch staff/admin) sets `isValidated=true` |
 | Branch staff see customer name only | `verifyRedemption` and `GET /branch/redemptions` return `customer: { name }` only |
 | Website does NOT redeem | Redemption route is mobile-only (no website integration needed in this phase) |
 
@@ -407,7 +418,7 @@ All errors use the project's `AppError` class and return `{ error: { code, messa
 | `ALREADY_VALIDATED` | 409 | Redemption already validated |
 | `MERCHANT_MISMATCH` | 403 | Redemption code belongs to different merchant |
 | `INVALID_PIN_FORMAT` | 400 | PIN is not exactly 4 numeric digits |
-| `BRANCH_ACCESS_DENIED` | 403 | Staff trying to access a branch they are not assigned to |
+| `BRANCH_ACCESS_DENIED` | 403 | branch_staff attempting to access or verify a redemption for a branch they are not assigned to |
 
 ---
 
@@ -423,16 +434,19 @@ Cover each guard in `createRedemption`:
 - Returns `BRANCH_MERCHANT_MISMATCH` when branch is from different merchant
 - Returns `ALREADY_REDEEMED` when `isRedeemedInCurrentCycle = true`
 - Succeeds: creates `VoucherRedemption` and updates `UserVoucherCycleState` atomically
-- Increments Redis rate-limit counter on PIN failure
-- Resets Redis rate-limit counter on success
-- Returns `PIN_RATE_LIMIT_EXCEEDED` at limit
+- Increments Redis rate-limit counter keyed on `(userId, branchId)` on PIN failure
+- Resets Redis counter on successful redemption
+- Returns `PIN_RATE_LIMIT_EXCEEDED` at 5 failures within 15 minutes
+- PIN failure at branch A does not affect rate limit for branch B
 
 Cover `verifyRedemption`:
 - Returns `REDEMPTION_NOT_FOUND` for unknown code
 - Returns `ALREADY_VALIDATED` for already-verified redemption
-- Returns `MERCHANT_MISMATCH` when code belongs to different merchant
-- Succeeds: sets `isValidated`, `validatedAt`, `validationMethod`, `validatedById`
+- Returns `MERCHANT_MISMATCH` when merchant_admin's merchantId does not match voucher's merchantId
+- Returns `BRANCH_ACCESS_DENIED` when branch_staff's branchId does not match redemption.branchId
+- Succeeds: sets `isValidated=true`, `validatedAt`, `validationMethod`, `validatedById`
 - Response contains customer name only (no email, no phone)
+- Successful PIN entry creates VoucherRedemption with `isValidated=false` (PIN does not validate)
 
 ### Unit tests (`tests/api/merchant/branch/service.test.ts` — additions)
 
