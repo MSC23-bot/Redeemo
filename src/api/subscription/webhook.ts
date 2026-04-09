@@ -3,6 +3,7 @@ import { stripe } from '../shared/stripe'
 import { AppError } from '../shared/errors'
 import { writeAuditLog } from '../shared/audit'
 import { resetVoucherCycleForUser } from './cycle'
+import { SubscriptionStatus } from '../../../generated/prisma/enums'
 
 export async function webhookRoutes(app: FastifyInstance) {
   // Scoped raw-body parser — must NOT be wrapped in fp() so it stays scoped
@@ -24,7 +25,7 @@ export async function webhookRoutes(app: FastifyInstance) {
     switch (event.type) {
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        const stripeObj = event.data.object as {
+        const stripeObj = event.data.object as unknown as {
           id: string
           status: string
           current_period_start: number
@@ -36,9 +37,9 @@ export async function webhookRoutes(app: FastifyInstance) {
         })
         if (!sub) break
 
-        const status = event.type === 'customer.subscription.deleted'
+        const status = (event.type === 'customer.subscription.deleted'
           ? 'CANCELLED'
-          : mapStripeStatus(stripeObj.status)
+          : mapStripeStatus(stripeObj.status)) as SubscriptionStatus
 
         await app.prisma.subscription.update({
           where: { id: sub.id },
@@ -70,7 +71,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       }
 
       case 'invoice.payment_succeeded': {
-        const invoice = event.data.object as {
+        const invoice = event.data.object as unknown as {
           id: string
           billing_reason: string
           subscription: string
@@ -105,7 +106,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       }
 
       case 'invoice.payment_failed': {
-        const invoice = event.data.object as {
+        const invoice = event.data.object as unknown as {
           id: string
           subscription: string
         }
@@ -117,7 +118,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
         await app.prisma.subscription.update({
           where: { id: sub.id },
-          data: { status: 'PAST_DUE' },
+          data: { status: 'PAST_DUE' as SubscriptionStatus },
         })
 
         writeAuditLog(app.prisma as any, {

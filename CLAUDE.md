@@ -135,6 +135,14 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Subscription system (Stripe webhooks, cycle logic)
 - Redemption system (code generation, validation flow)
 
+### ✅ Phase 2D — Subscription System (COMPLETE)
+- Stripe SetupIntent-based payment flow (card collection via Stripe SDK)
+- stripeCustomerId stored server-side in Redis — never exposed to client
+- Subscription creation with confirmed payment method
+- Cancel at period end (access continues until currentPeriodEnd)
+- Webhook handler: renewal, cancellation, payment failure, voucher cycle reset
+- stripeCouponId on PromoCode for explicit Stripe coupon mapping
+
 ### 🔲 Phase 3 — Customer App + Website
 ### 🔲 Phase 4 — Merchant Portal + Mobile App
 ### 🔲 Phase 5 — Admin Panel
