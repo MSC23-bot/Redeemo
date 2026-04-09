@@ -127,32 +127,48 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - All 30+ models defined, migrated, and applied to Neon database
 - Seed script working (`npx prisma db seed`)
 - All migrations in `prisma/migrations/`
-- 13 commits on `main`
+- Plan: `docs/superpowers/plans/2026-04-07-data-model.md`
 
-### 🔲 Phase 2 — Core Backend API (NEXT)
-- Auth system (JWT, OTP via Twilio, SSO)
-- Merchant + branch + voucher CRUD
-- Subscription system (Stripe webhooks, cycle logic)
-- Redemption system (code generation, validation flow)
+### ✅ Phase 2A — Auth System (COMPLETE)
+- Customer auth: register, login (password + OTP), refresh, logout, device sessions
+- Merchant auth: login, refresh, logout; branch-user management (create, list, deactivate)
+- Branch staff auth: login, refresh, logout
+- Admin auth: login, refresh, logout
+- JWT (customer/merchant/branch/admin tokens), Redis session store, OTP via shared utility
+- Plan: `docs/superpowers/plans/2026-04-08-auth-api-structure.md`
 
-### ✅ Phase 2D — Subscription System (COMPLETE)
+### ✅ Phase 2B — Merchant, Branch & Voucher CRUD (COMPLETE)
+- Merchant onboarding: profile setup, document upload, contract acceptance, admin approval queue
+- Branch management: create, list, update branches
+- Voucher management: create (RMV mandatory + RCV custom), list, update, delete (with guards)
+- Merchant profile: read and update
+- Plan: `docs/superpowers/plans/2026-04-09-merchant-branch-voucher.md`
+
+### ✅ Phase 2C — Subscription System (COMPLETE)
 - Stripe SetupIntent-based payment flow (card collection via Stripe SDK)
 - stripeCustomerId stored server-side in Redis — never exposed to client
 - Subscription creation with confirmed payment method
 - Cancel at period end (access continues until currentPeriodEnd)
 - Webhook handler: renewal, cancellation, payment failure, voucher cycle reset
 - stripeCouponId on PromoCode for explicit Stripe coupon mapping
-
-### ✅ Phase 2D Hardening — Subscription System (COMPLETE)
-- User.stripeCustomerId persisted after first customer creation — reused on repeat setup-intent calls (no orphaned Stripe customers)
-- Webhook idempotency via StripeWebhookEvent table: unique stripeEventId constraint; P2002 on duplicate → 200 immediately
+- User.stripeCustomerId persisted — reused on repeat setup-intent calls (no orphaned customers)
+- Webhook idempotency via StripeWebhookEvent table (unique stripeEventId; P2002 → 200)
 - Webhook status mapped via SubscriptionStatus enum values (no string casts)
 - Stripe v22: period dates read from items.data[0] (not top-level Subscription)
+- Plans: `docs/superpowers/plans/2026-04-09-subscription-system.md`, `docs/superpowers/plans/2026-04-09-subscription-hardening.md`
 
-### 🔲 Phase 3 — Customer App + Website
+### 🔲 Phase 2D — Redemption System (NEXT)
+- Customer initiates redemption → backend generates alphanumeric code + QR data
+- Code stored in VoucherRedemption; customer shows in-app
+- Merchant branch staff scan QR or enter code manually → validates redemption
+- UserVoucherCycleState updated: isRedeemedInCurrentCycle = true
+- Subscription gate enforced: free-tier users cannot redeem
+- One redemption per user per voucher per cycle across all branches
+
+### 🔲 Phase 3 — Customer App + Website (Next.js + React Native)
 ### 🔲 Phase 4 — Merchant Portal + Mobile App
 ### 🔲 Phase 5 — Admin Panel
-### 🔲 Phase 6 — Comms + Marketing Layer
+### 🔲 Phase 6 — Comms + Marketing Layer (Resend, FCM, Twilio)
 
 ---
 
@@ -184,4 +200,8 @@ All models live in `prisma/schema.prisma`. Key relationships:
 | `prisma/seed.ts` | Dev seed script |
 | `prisma.config.ts` | Prisma 7 config (datasource URL, seed command) |
 | `.env` | Local environment variables (not committed) |
-| `docs/superpowers/plans/2026-04-07-data-model.md` | Completed data model implementation plan |
+| `docs/superpowers/plans/2026-04-07-data-model.md` | Phase 1: Data model plan |
+| `docs/superpowers/plans/2026-04-08-auth-api-structure.md` | Phase 2A: Auth system plan |
+| `docs/superpowers/plans/2026-04-09-merchant-branch-voucher.md` | Phase 2B: Merchant/branch/voucher plan |
+| `docs/superpowers/plans/2026-04-09-subscription-system.md` | Phase 2C: Subscription system plan |
+| `docs/superpowers/plans/2026-04-09-subscription-hardening.md` | Phase 2C: Subscription hardening plan |
