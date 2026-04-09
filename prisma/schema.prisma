@@ -123,6 +123,7 @@ model User {
   emailVerified        Boolean    @default(false)
   phoneVerified        Boolean    @default(false)
   marketingConsentAt   DateTime?
+  stripeCustomerId     String?    @unique  // set on first setup-intent call, reused on subsequent calls
 
   ssoProviders         UserSsoProvider[]
   interests            UserInterest[]
@@ -1115,4 +1116,15 @@ model CmsContent {
   content     String
   updatedAt   DateTime @updatedAt
   updatedById String?
+}
+
+// ─────────────────────────────────────────
+// STRIPE WEBHOOK IDEMPOTENCY
+// ─────────────────────────────────────────
+
+model StripeWebhookEvent {
+  id             String   @id @default(uuid())
+  stripeEventId  String   @unique
+  type           String
+  processedAt    DateTime @default(now())
 }
