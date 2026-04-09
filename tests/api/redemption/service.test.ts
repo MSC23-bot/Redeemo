@@ -110,7 +110,7 @@ describe('createRedemption', () => {
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
       estimatedSaving: 5.00,
-      merchant: { status: 'APPROVED' },
+      merchant: { status: 'ACTIVE' },
     })
 
     await expect(
@@ -127,7 +127,7 @@ describe('createRedemption', () => {
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
       estimatedSaving: 5.00,
-      merchant: { status: 'APPROVED' },
+      merchant: { status: 'ACTIVE' },
     })
     prisma.userVoucherCycleState.findUnique.mockResolvedValue({ isRedeemedInCurrentCycle: true })
 
@@ -145,7 +145,7 @@ describe('createRedemption', () => {
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
       estimatedSaving: 5.00,
-      merchant: { status: 'APPROVED' },
+      merchant: { status: 'ACTIVE' },
     })
     prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
     const redemption = {
@@ -176,7 +176,7 @@ describe('createRedemption', () => {
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
       estimatedSaving: 5.00,
-      merchant: { status: 'APPROVED' },
+      merchant: { status: 'ACTIVE' },
     })
     prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
     prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'TESTCODE123' })
@@ -288,7 +288,7 @@ describe('listMyRedemptions', () => {
     const prisma = mockPrisma()
     const redemptions = [
       { id: 'r1', redemptionCode: 'CODE1', redeemedAt: new Date(), isValidated: false,
-        voucher: { id: 'v1', title: 'Test', merchant: { name: 'Acme', logoUrl: null } },
+        voucher: { id: 'v1', title: 'Test', merchant: { businessName: 'Acme', logoUrl: null } },
         branch: { id: 'b1', name: 'Main Branch' } },
     ]
     prisma.voucherRedemption.findMany.mockResolvedValue(redemptions)

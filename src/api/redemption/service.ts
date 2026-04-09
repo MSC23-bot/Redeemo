@@ -1,4 +1,4 @@
-import { PrismaClient } from '../../../generated/prisma/client'
+import { PrismaClient, Prisma, MerchantStatus, VoucherStatus, ApprovalStatus } from '../../../generated/prisma/client'
 import type Redis from 'ioredis'
 import { nanoid } from 'nanoid'
 import crypto from 'crypto'
@@ -44,9 +44,9 @@ export async function createRedemption(
     if (decrypted.length !== data.pin.length) {
       pinMatches = false
     } else {
-      const pinBuffer = Buffer.from(data.pin.padEnd(8))
-      const decBuffer = Buffer.from(decrypted.padEnd(8))
-      pinMatches = crypto.timingSafeEqual(pinBuffer, decBuffer) && decrypted.length === data.pin.length
+      const pinBuffer = Buffer.from(data.pin, 'utf8')
+      const decBuffer = Buffer.from(decrypted, 'utf8')
+      pinMatches = crypto.timingSafeEqual(pinBuffer, decBuffer)
     }
   } catch {
     pinMatches = false
@@ -71,9 +71,9 @@ export async function createRedemption(
   })
   if (
     !voucher ||
-    (voucher.status as string) !== 'ACTIVE' ||
-    (voucher.approvalStatus as string) !== 'APPROVED' ||
-    (voucher.merchant.status as string) !== 'APPROVED'
+    voucher.status !== VoucherStatus.ACTIVE ||
+    voucher.approvalStatus !== ApprovalStatus.APPROVED ||
+    voucher.merchant.status !== MerchantStatus.ACTIVE
   ) {
     throw new AppError('VOUCHER_NOT_FOUND')
   }
@@ -229,7 +229,7 @@ export async function listBranchRedemptions(
   branchId: string,
   pagination: { limit: number; offset: number; from?: Date; to?: Date }
 ) {
-  const where: Record<string, unknown> = { branchId }
+  const where: Prisma.VoucherRedemptionWhereInput = { branchId }
   if (pagination.from || pagination.to) {
     where.redeemedAt = {
       ...(pagination.from ? { gte: pagination.from } : {}),
