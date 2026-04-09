@@ -93,7 +93,7 @@ describe('createRedemption', () => {
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'INACTIVE', approvalStatus: 'APPROVED',
       estimatedSaving: 5.00,
-      merchant: { status: 'APPROVED' },
+      merchant: { status: 'ACTIVE' },
     })
 
     await expect(
