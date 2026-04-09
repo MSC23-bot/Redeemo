@@ -178,8 +178,7 @@ describe('createSubscription', () => {
     ;(stripe.paymentMethods.attach as any).mockResolvedValue({})
     ;(stripe.subscriptions.create as any).mockResolvedValue({
       id: 'sub_xyz', status: 'active',
-      current_period_start: 1700000000,
-      current_period_end: 1702592000,
+      items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
     })
     prisma.subscription.create.mockResolvedValue({ id: 'db-sub-1', status: 'ACTIVE' })
 
@@ -218,8 +217,7 @@ describe('createSubscription', () => {
     ;(stripe.paymentMethods.attach as any).mockResolvedValue({})
     ;(stripe.subscriptions.create as any).mockResolvedValue({
       id: 'sub_xyz', status: 'active',
-      current_period_start: 1700000000,
-      current_period_end: 1702592000,
+      items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
     })
     prisma.subscription.create.mockResolvedValue({ id: 'db-sub-1', status: 'ACTIVE' })
     prisma.promoCode.update.mockResolvedValue({})

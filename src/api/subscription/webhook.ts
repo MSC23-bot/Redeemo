@@ -141,15 +141,15 @@ export async function webhookRoutes(app: FastifyInstance) {
   })
 }
 
-function mapStripeStatus(stripeStatus: string): string {
+function mapStripeStatus(stripeStatus: string): SubscriptionStatus {
   switch (stripeStatus) {
-    case 'active':           return 'ACTIVE'
-    case 'past_due':         return 'PAST_DUE'
-    case 'canceled':         return 'CANCELLED'
-    case 'unpaid':           return 'PAST_DUE'
-    case 'trialing':         return 'TRIALING'
-    case 'incomplete':       return 'INCOMPLETE'
-    case 'incomplete_expired': return 'INCOMPLETE_EXPIRED'
-    default:                 return 'INACTIVE'
+    case 'active':             return SubscriptionStatus.ACTIVE
+    case 'trialing':           return SubscriptionStatus.TRIALLING   // note double-L in our enum
+    case 'past_due':           return SubscriptionStatus.PAST_DUE
+    case 'unpaid':             return SubscriptionStatus.PAST_DUE
+    case 'canceled':           return SubscriptionStatus.CANCELLED
+    case 'incomplete':         return SubscriptionStatus.PAST_DUE    // payment not yet confirmed
+    case 'incomplete_expired': return SubscriptionStatus.EXPIRED     // card confirmation window elapsed
+    default:                   return SubscriptionStatus.EXPIRED
   }
 }

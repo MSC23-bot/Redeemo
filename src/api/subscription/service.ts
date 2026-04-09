@@ -123,10 +123,7 @@ export async function createSubscription(
   }
 
   // Create Stripe subscription
-  // Note: In Stripe v22 current_period_start/end moved to SubscriptionItem.
-  // We cast to any to handle both the live API response (items[0]) and test mocks
-  // (top-level fields). Period is stored for reference; authoritative source is Stripe.
-  let stripeSub: any
+  let stripeSub: Awaited<ReturnType<typeof stripe.subscriptions.create>>
   try {
     stripeSub = await stripe.subscriptions.create({
       customer: stripeCustomerId,
@@ -139,13 +136,12 @@ export async function createSubscription(
     throw new AppError('STRIPE_ERROR')
   }
 
-  // Resolve period dates: Stripe v22 puts these on the first SubscriptionItem.
-  // Fall back to top-level fields for test mock compatibility.
-  const firstItem = stripeSub.items?.data?.[0]
-  const periodStart: number =
-    firstItem?.current_period_start ?? stripeSub.current_period_start ?? stripeSub.billing_cycle_anchor
-  const periodEnd: number =
-    firstItem?.current_period_end ?? stripeSub.current_period_end ?? null
+  // In Stripe v22 billing period dates live on SubscriptionItem, not the top-level Subscription.
+  // We require the item to be present — a subscription with no items is not a valid state.
+  const firstItem = stripeSub.items.data[0]
+  if (!firstItem) throw new AppError('STRIPE_ERROR')
+  const periodStart = new Date(firstItem.current_period_start * 1000)
+  const periodEnd   = new Date(firstItem.current_period_end   * 1000)
 
   // Persist to DB
   const sub = await prisma.subscription.create({
@@ -155,8 +151,8 @@ export async function createSubscription(
       stripeSubscriptionId: stripeSub.id,
       stripeCustomerId,
       status: stripeStatusToLocal(stripeSub.status),
-      currentPeriodStart: periodStart ? new Date(periodStart * 1000) : new Date(),
-      currentPeriodEnd:   periodEnd   ? new Date(periodEnd   * 1000) : new Date(),
+      currentPeriodStart: periodStart,
+      currentPeriodEnd:   periodEnd,
       ...(promoCodeId ? { promoCodeId } : {}),
     },
   })
