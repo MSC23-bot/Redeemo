@@ -26,6 +26,9 @@ describe('Stripe webhook handler', () => {
       auditLog: {
         create: vi.fn().mockResolvedValue({}),
       },
+      stripeWebhookEvent: {
+        create: vi.fn().mockResolvedValue({}),
+      },
     } as any)
     app.decorate('redis', {
       get: vi.fn().mockResolvedValue(null),
@@ -183,5 +186,33 @@ describe('Stripe webhook handler', () => {
         data: expect.objectContaining({ status: 'PAST_DUE' }),
       })
     )
+  })
+
+  it('returns 200 immediately when event was already processed (idempotency)', async () => {
+    const { stripe } = await import('../../../src/api/shared/stripe')
+    ;(stripe.webhooks.constructEvent as any).mockReturnValue({
+      id: 'evt_duplicate',
+      type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_xyz', status: 'active', current_period_start: 0, current_period_end: 0 } },
+    })
+    // Simulate P2002 unique constraint violation — event already in DB
+    app.prisma.stripeWebhookEvent.create = vi.fn().mockRejectedValue(
+      Object.assign(new Error('Unique constraint failed'), { code: 'P2002' })
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/stripe/webhook',
+      headers: {
+        'content-type': 'application/json',
+        'stripe-signature': 'valid-sig',
+      },
+      payload: JSON.stringify({ id: 'evt_duplicate', type: 'customer.subscription.updated' }),
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ received: true })
+    // Must not proceed to process the event again
+    expect(app.prisma.subscription.findUnique).not.toHaveBeenCalled()
   })
 })

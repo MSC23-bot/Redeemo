@@ -20,7 +20,7 @@ describe('subscription routes', () => {
     app.decorate('prisma', {
       subscriptionPlan: { findMany: vi.fn(), findUnique: vi.fn() },
       subscription: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-      user: { findUnique: vi.fn() },
+      user: { findUnique: vi.fn(), update: vi.fn().mockResolvedValue({}) },
       promoCode: { findUnique: vi.fn(), update: vi.fn() },
       userVoucherCycleState: { updateMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -78,6 +78,7 @@ describe('subscription routes', () => {
   it('POST /api/v1/subscription/setup-intent returns 200 with clientSecret only (no customerId)', async () => {
     app.prisma.user.findUnique = vi.fn().mockResolvedValue({
       id: 'user-1', email: 'test@example.com', firstName: 'Test', lastName: 'User',
+      stripeCustomerId: null,
     })
     const { stripe } = await import('../../../src/api/shared/stripe')
     ;(stripe.customers.create as any).mockResolvedValue({ id: 'cus_abc' })

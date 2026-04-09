@@ -22,6 +22,20 @@ export async function webhookRoutes(app: FastifyInstance) {
       throw new AppError('WEBHOOK_SIGNATURE_INVALID')
     }
 
+    // Idempotency guard — insert stripeEventId; if it already exists, this event was already
+    // processed (duplicate delivery or Stripe retry). Acknowledge with 200 to stop retries.
+    try {
+      await app.prisma.stripeWebhookEvent.create({
+        data: { stripeEventId: event.id, type: event.type },
+      })
+    } catch (err: any) {
+      // P2002 = unique constraint violation — event already processed
+      if (err?.code === 'P2002') {
+        return reply.send({ received: true })
+      }
+      throw err
+    }
+
     switch (event.type) {
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
@@ -37,9 +51,9 @@ export async function webhookRoutes(app: FastifyInstance) {
         })
         if (!sub) break
 
-        const status = (event.type === 'customer.subscription.deleted'
-          ? 'CANCELLED'
-          : mapStripeStatus(stripeObj.status)) as SubscriptionStatus
+        const status: SubscriptionStatus = event.type === 'customer.subscription.deleted'
+          ? SubscriptionStatus.CANCELLED
+          : mapStripeStatus(stripeObj.status)
 
         await app.prisma.subscription.update({
           where: { id: sub.id },
@@ -118,7 +132,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
         await app.prisma.subscription.update({
           where: { id: sub.id },
-          data: { status: 'PAST_DUE' as SubscriptionStatus },
+          data: { status: SubscriptionStatus.PAST_DUE },
         })
 
         writeAuditLog(app.prisma as any, {
