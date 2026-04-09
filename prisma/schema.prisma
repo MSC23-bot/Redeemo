@@ -839,10 +839,11 @@ model PromoCode {
   maxUses       Int?
   usesCount     Int          @default(0)
   expiresAt     DateTime?
-  isActive      Boolean      @default(true)
-  createdAt     DateTime     @default(now())
+  isActive       Boolean      @default(true)
+  stripeCouponId String?
+  createdAt      DateTime     @default(now())
 
-  subscriptions Subscription[]
+  subscriptions  Subscription[]
 
   @@index([code])
 }
