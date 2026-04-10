@@ -179,12 +179,12 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Spec: `docs/superpowers/specs/2026-04-10-customer-ux-foundations-design.md`
 
 ### 🔲 Phase 3B — Customer-Facing API Gaps (backend)
-- Customer-facing merchant profile + voucher detail routes
-- Search + category browse routes
-- Branch selector route (for redemption flow)
-- Customer profile update + change password routes
-- Favourites routes (add, remove, list)
-- Savings aggregation query
+- Two-scope plugin: open (discovery, no auth) + authenticated (profile, favourites)
+- Discovery: home feed (featured merchants), merchant profile + branch list, voucher detail, search, categories
+- Profile: GET + PATCH (name, dob, gender, address, postcode, profileImageUrl, newsletterConsent) + interests read/update + change-password
+- Favourites: merchant + voucher add/remove/list
+- Deferred: savings aggregation, radius filtering, review listing, combined favourites endpoint
+- Plan: `docs/superpowers/plans/2026-04-10-customer-api-gaps.md`
 
 ### 🔲 Phase 3C — Customer App (React Native / Expo)
 ### 🔲 Phase 3D — Customer Website (Next.js)
