@@ -86,6 +86,11 @@ describe('customer profile routes', () => {
 
   // ── PATCH /api/v1/customer/profile ────────────────────────────────────────
 
+  it('PATCH /api/v1/customer/profile returns 401 without token', async () => {
+    const res = await app.inject({ method: 'PATCH', url: '/api/v1/customer/profile', payload: { city: 'London' } })
+    expect(res.statusCode).toBe(401)
+  })
+
   it('PATCH /api/v1/customer/profile returns 200 on valid update', async () => {
     ;(updateCustomerProfile as any).mockResolvedValue({
       id: 'user-1',
@@ -103,6 +108,11 @@ describe('customer profile routes', () => {
   })
 
   // ── PUT /api/v1/customer/profile/interests ────────────────────────────────
+
+  it('PUT /api/v1/customer/profile/interests returns 401 without token', async () => {
+    const res = await app.inject({ method: 'PUT', url: '/api/v1/customer/profile/interests', payload: { interestIds: [] } })
+    expect(res.statusCode).toBe(401)
+  })
 
   it('PUT /api/v1/customer/profile/interests returns 200 with valid interestIds', async () => {
     ;(updateCustomerInterests as any).mockResolvedValue({
@@ -132,6 +142,11 @@ describe('customer profile routes', () => {
   })
 
   // ── POST /api/v1/customer/profile/change-password ─────────────────────────
+
+  it('POST /api/v1/customer/profile/change-password returns 401 without token', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/customer/profile/change-password', payload: { currentPassword: 'OldPass1!', newPassword: 'NewPass1!' } })
+    expect(res.statusCode).toBe(401)
+  })
 
   it('POST /api/v1/customer/profile/change-password returns 200 with valid passwords', async () => {
     ;(changeCustomerPassword as any).mockResolvedValue({ success: true })

@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import { passwordSchema } from '../../shared/schemas'
+import { passwordSchema, phoneSchema } from '../../shared/schemas'
 import {
   getCustomerProfile,
   updateCustomerProfile,
@@ -16,7 +16,7 @@ const updateProfileBody = z.object({
   addressLine2:      z.string().max(100).optional(),
   city:              z.string().max(80).optional(),
   postcode:          z.string().max(10).optional(),
-  phone:             z.string().optional(),
+  phone:             phoneSchema.optional(),
   profileImageUrl:   z.string().url().optional(),
   newsletterConsent: z.boolean().optional(),
 })

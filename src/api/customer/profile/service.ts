@@ -5,15 +5,15 @@ import { writeAuditLog } from '../../shared/audit'
 
 // Profile completeness: 9 optional fields tracked. Percentage shown on profile screen.
 function computeProfileCompleteness(user: {
-  dateOfBirth: any
-  gender: any
-  addressLine1: any
-  city: any
-  postcode: any
-  profileImageUrl: any
+  dateOfBirth: Date | null
+  gender: string | null
+  addressLine1: string | null
+  city: string | null
+  postcode: string | null
+  profileImageUrl: string | null
   newsletterConsent: boolean
-  interests: any[]
-  phone: any
+  interests: unknown[]
+  phone: string | null
 }): number {
   const optionalFields = [
     user.dateOfBirth !== null,
@@ -146,15 +146,13 @@ export async function updateCustomerInterests(
     if (activeCount !== interestIds.length) throw new AppError('INVALID_INTERESTS')
   }
 
-  // Full replace — delete existing then insert new
-  await prisma.userInterest.deleteMany({ where: { userId } })
-
-  if (interestIds.length > 0) {
-    await prisma.userInterest.createMany({
-      data: interestIds.map((interestId) => ({ userId, interestId })),
-      skipDuplicates: true,
-    })
-  }
+  // Full replace — atomically delete existing then insert new
+  await prisma.$transaction([
+    prisma.userInterest.deleteMany({ where: { userId } }),
+    ...(interestIds.length > 0
+      ? [prisma.userInterest.createMany({ data: interestIds.map(interestId => ({ userId, interestId })), skipDuplicates: true })]
+      : []),
+  ])
 
   const interests = await prisma.interest.findMany({
     where: { id: { in: interestIds } },
