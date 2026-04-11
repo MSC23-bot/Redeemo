@@ -1,5 +1,6 @@
 import fp from 'fastify-plugin'
 import { FastifyInstance, FastifyRequest } from 'fastify'
+import { discoveryRoutes } from './discovery/routes'
 
 /**
  * Attempts to extract the `sub` (userId) from an Authorization: Bearer <token>
@@ -32,6 +33,9 @@ async function customerPlugin(app: FastifyInstance) {
   app.register(async (open) => {
     // Health check — useful for tests and monitoring
     open.get('/api/v1/customer/health', async () => ({ ok: true }))
+
+    // Discovery routes (no auth required)
+    open.register(discoveryRoutes)
   })
 
   // ------------------------------------------------------------------
