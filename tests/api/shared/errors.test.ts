@@ -67,4 +67,25 @@ describe('AppError', () => {
     expect(err.code).toBe('INVALID_INTERESTS')
     expect(err.statusCode).toBe(400)
   })
+
+  it('REVIEW_NOT_FOUND produces correct error', () => {
+    const err = new AppError('REVIEW_NOT_FOUND')
+    expect(err.code).toBe('REVIEW_NOT_FOUND')
+    expect(err.statusCode).toBe(404)
+  })
+  it('REVIEW_NOT_OWNED produces correct error', () => {
+    const err = new AppError('REVIEW_NOT_OWNED')
+    expect(err.code).toBe('REVIEW_NOT_OWNED')
+    expect(err.statusCode).toBe(403)
+  })
+  it('REVIEW_ALREADY_EXISTS produces correct error', () => {
+    const err = new AppError('REVIEW_ALREADY_EXISTS')
+    expect(err.code).toBe('REVIEW_ALREADY_EXISTS')
+    expect(err.statusCode).toBe(409)
+  })
+  it('BRANCH_UNAVAILABLE produces correct error', () => {
+    const err = new AppError('BRANCH_UNAVAILABLE')
+    expect(err.code).toBe('BRANCH_UNAVAILABLE')
+    expect(err.statusCode).toBe(404)
+  })
 })

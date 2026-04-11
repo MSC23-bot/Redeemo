@@ -30,6 +30,7 @@ export const ERROR_DEFINITIONS = {
   VERIFICATION_TOKEN_EXPIRED:     { statusCode: 400, message: 'This verification link has expired.' },
   MERCHANT_NOT_FOUND:             { statusCode: 404, message: 'Merchant not found.' },
   BRANCH_NOT_FOUND:               { statusCode: 404, message: 'Branch not found.' },
+  BRANCH_UNAVAILABLE:             { statusCode: 404, message: 'This branch is no longer available.' },
   VOUCHER_NOT_FOUND:              { statusCode: 404, message: 'Voucher not found.' },
   USER_NOT_FOUND:                 { statusCode: 404, message: 'User not found.' },
   PENDING_EDIT_EXISTS:            { statusCode: 409, message: 'A pending edit already exists. Withdraw it before submitting a new one.' },
@@ -75,6 +76,9 @@ export const ERROR_DEFINITIONS = {
   FAVOURITE_NOT_FOUND:             { statusCode: 404, message: 'This item is not in your favourites.' },
   CAMPAIGN_NOT_FOUND:              { statusCode: 404, message: 'Campaign not found.' },
   INVALID_INTERESTS:               { statusCode: 400, message: 'One or more interest IDs are invalid or inactive.' },
+  REVIEW_NOT_FOUND:                { statusCode: 404, message: 'Review not found.' },
+  REVIEW_NOT_OWNED:                { statusCode: 403, message: 'You can only edit or delete your own reviews.' },
+  REVIEW_ALREADY_EXISTS:           { statusCode: 409, message: 'You have already reviewed this branch.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS
