@@ -3,103 +3,26 @@ import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
 
 vi.mock('../../../src/api/customer/discovery/service', () => ({
-  getHomeFeed: vi.fn(),
-  getCustomerMerchant: vi.fn(),
-  getMerchantBranches: vi.fn(),
-  getCustomerVoucher: vi.fn(),
-  searchMerchants: vi.fn(),
-  listCategories: vi.fn(),
-  getCampaign: vi.fn(),
+  getHomeFeed:                 vi.fn(),
+  getCustomerMerchant:         vi.fn(),
+  getCustomerMerchantBranches: vi.fn(),
+  getCustomerVoucher:          vi.fn(),
+  searchMerchants:             vi.fn(),
+  listActiveCategories:        vi.fn(),
+  getActiveCampaigns:          vi.fn(),
+  getCampaignMerchants:        vi.fn(),
 }))
 
 import {
   getHomeFeed,
   getCustomerMerchant,
-  getMerchantBranches,
+  getCustomerMerchantBranches,
   getCustomerVoucher,
   searchMerchants,
-  listCategories,
-  getCampaign,
+  listActiveCategories,
+  getActiveCampaigns,
+  getCampaignMerchants,
 } from '../../../src/api/customer/discovery/service'
-
-const mockHomeFeed = {
-  featured: [
-    { id: 'm1', businessName: 'Coffee Co', tradingName: null, logoUrl: null, bannerUrl: null, description: null, primaryCategoryId: null },
-  ],
-  trending: [
-    { id: 'm2', businessName: 'Pizza Place', tradingName: null, logoUrl: null, bannerUrl: null, description: null, primaryCategoryId: null },
-  ],
-  campaigns: [
-    { id: 'c1', name: 'Summer Sale', description: null, bannerImageUrl: null, startDate: new Date(), endDate: new Date(), merchantCount: 3 },
-  ],
-}
-
-const mockMerchant = {
-  id: 'm1',
-  businessName: 'Coffee Co',
-  tradingName: null,
-  logoUrl: null,
-  bannerUrl: null,
-  description: 'Great coffee',
-  primaryCategoryId: 'cat1',
-  status: 'ACTIVE',
-  branches: [],
-  tags: [],
-  categories: [],
-  isFavourited: false,
-}
-
-const mockBranches = [
-  {
-    id: 'b1',
-    merchantId: 'm1',
-    name: 'Main Branch',
-    isMainBranch: true,
-    addressLine1: '1 Main St',
-    city: 'London',
-    postcode: 'EC1A 1BB',
-    isActive: true,
-    openingHours: [],
-    amenities: [],
-  },
-]
-
-const mockVoucher = {
-  id: 'v1',
-  merchantId: 'm1',
-  code: 'RMV-001',
-  title: '50% Off',
-  status: 'ACTIVE',
-  approvalStatus: 'APPROVED',
-  merchant: { id: 'm1', businessName: 'Coffee Co', tradingName: null, logoUrl: null, status: 'ACTIVE' },
-  isRedeemedThisCycle: false,
-  isFavourited: false,
-}
-
-const mockSearchResult = {
-  merchants: [
-    { id: 'm1', businessName: 'Pizza Palace', tradingName: null, logoUrl: null, bannerUrl: null, description: null, primaryCategoryId: null },
-  ],
-  total: 1,
-}
-
-const mockCategories = [
-  { id: 'cat1', name: 'Food & Drink', iconUrl: null, illustrationUrl: null, parentId: null, sortOrder: 0 },
-  { id: 'cat2', name: 'Coffee', iconUrl: null, illustrationUrl: null, parentId: 'cat1', sortOrder: 1 },
-]
-
-const mockCampaign = {
-  id: 'c1',
-  name: 'Summer Sale',
-  description: null,
-  bannerImageUrl: null,
-  startDate: new Date(),
-  endDate: new Date(),
-  status: 'ACTIVE',
-  merchants: [
-    { id: 'm1', businessName: 'Coffee Co', tradingName: null, logoUrl: null, bannerUrl: null, description: null, primaryCategoryId: null },
-  ],
-}
 
 describe('discovery routes', () => {
   let app: FastifyInstance
@@ -120,7 +43,6 @@ describe('discovery routes', () => {
       campaign:              { findMany: vi.fn(), findUnique: vi.fn() },
       campaignMerchant:      { findMany: vi.fn() },
       category:              { findMany: vi.fn() },
-      review:                { aggregate: vi.fn() },
       auditLog:              { create: vi.fn().mockResolvedValue({}) },
     } as any)
 
@@ -132,7 +54,6 @@ describe('discovery routes', () => {
 
     await app.ready()
 
-    // Sign a customer token for optional-auth tests
     const jwtAny = app.jwt as any
     customerToken = jwtAny.customer.sign(
       { sub: 'user-test-1', role: 'customer', deviceId: 'd1', sessionId: 's1' },
@@ -149,8 +70,14 @@ describe('discovery routes', () => {
   // Home feed
   // ────────────────────────────────────────────────
 
-  it('GET /api/v1/customer/home returns 200', async () => {
-    vi.mocked(getHomeFeed).mockResolvedValueOnce(mockHomeFeed as any)
+  it('GET /api/v1/customer/home returns 200 without token (guest)', async () => {
+    vi.mocked(getHomeFeed).mockResolvedValueOnce({
+      locationContext: { city: null, source: 'none' },
+      featured: [],
+      trending: [],
+      campaigns: [],
+      nearbyByCategory: [],
+    } as any)
 
     const res = await app.inject({
       method: 'GET',
@@ -162,54 +89,84 @@ describe('discovery routes', () => {
     expect(body).toHaveProperty('featured')
     expect(body).toHaveProperty('trending')
     expect(body).toHaveProperty('campaigns')
+    expect(body).toHaveProperty('locationContext')
+    expect(body).toHaveProperty('nearbyByCategory')
     expect(getHomeFeed).toHaveBeenCalledOnce()
   })
 
+  it('GET /api/v1/customer/home returns all sections in response shape', async () => {
+    const feed = {
+      locationContext: { city: 'London', source: 'coordinates' },
+      featured: [{ id: 'merchant-1', businessName: 'Acme' }],
+      trending: [{ id: 'merchant-2', businessName: 'Trendy' }],
+      campaigns: [{ id: 'campaign-1', name: 'Summer Sale', bannerImageUrl: 'https://example.com/banner.jpg' }],
+      nearbyByCategory: [{ category: { id: 'cat-1', name: 'Restaurants' }, merchants: [] }],
+    }
+    vi.mocked(getHomeFeed).mockResolvedValueOnce(feed as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/home?lat=51.5074&lng=-0.1278',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.featured).toHaveLength(1)
+    expect(body.trending).toHaveLength(1)
+    expect(body.campaigns).toHaveLength(1)
+    expect(body.locationContext.city).toBe('London')
+  })
+
   it('GET /api/v1/customer/home passes lat/lng to service', async () => {
-    vi.mocked(getHomeFeed).mockResolvedValueOnce({ featured: [], trending: [], campaigns: [] } as any)
+    vi.mocked(getHomeFeed).mockResolvedValueOnce({
+      locationContext: { city: null, source: 'coordinates' },
+      featured: [], trending: [], campaigns: [], nearbyByCategory: [],
+    } as any)
 
     await app.inject({
       method: 'GET',
       url: '/api/v1/customer/home?lat=51.5&lng=-0.1',
     })
 
-    expect(getHomeFeed).toHaveBeenCalledWith(expect.anything(), 51.5, -0.1)
+    expect(getHomeFeed).toHaveBeenCalledWith(expect.anything(), { userId: null, lat: 51.5, lng: -0.1 })
   })
 
   // ────────────────────────────────────────────────
   // Merchant detail
   // ────────────────────────────────────────────────
 
-  it('GET /api/v1/customer/merchants/:id returns 200 without token', async () => {
-    vi.mocked(getCustomerMerchant).mockResolvedValueOnce(mockMerchant as any)
+  it('GET /api/v1/customer/merchants/:id returns 200 without token (guest), isFavourited=false', async () => {
+    vi.mocked(getCustomerMerchant).mockResolvedValueOnce(
+      { id: 'merchant-1', businessName: 'Acme', isFavourited: false, vouchers: [], branches: [] } as any,
+    )
 
     const res = await app.inject({
       method: 'GET',
-      url: '/api/v1/customer/merchants/m1',
+      url: '/api/v1/customer/merchants/merchant-1',
     })
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.id).toBe('m1')
+    expect(body.id).toBe('merchant-1')
     expect(body.isFavourited).toBe(false)
-    expect(getCustomerMerchant).toHaveBeenCalledWith(expect.anything(), 'm1', null)
+    expect(getCustomerMerchant).toHaveBeenCalledWith(expect.anything(), 'merchant-1', null)
   })
 
-  it('GET /api/v1/customer/merchants/:id returns 200 with token and isFavourited present', async () => {
-    const merchantWithFav = { ...mockMerchant, isFavourited: true }
-    vi.mocked(getCustomerMerchant).mockResolvedValueOnce(merchantWithFav as any)
+  it('GET /api/v1/customer/merchants/:id returns isFavourited=true when authenticated and favourited', async () => {
+    vi.mocked(getCustomerMerchant).mockResolvedValueOnce(
+      { id: 'merchant-1', businessName: 'Acme', isFavourited: true, vouchers: [], branches: [] } as any,
+    )
 
     const res = await app.inject({
       method: 'GET',
-      url: '/api/v1/customer/merchants/m1',
+      url: '/api/v1/customer/merchants/merchant-1',
       headers: { authorization: `Bearer ${customerToken}` },
     })
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body).toHaveProperty('isFavourited')
-    // userId should be extracted from token and passed to service
-    expect(getCustomerMerchant).toHaveBeenCalledWith(expect.anything(), 'm1', 'user-test-1')
+    expect(body.isFavourited).toBe(true)
+    expect(getCustomerMerchant).toHaveBeenCalledWith(expect.anything(), 'merchant-1', 'user-test-1')
   })
 
   it('GET /api/v1/customer/merchants/:id returns 404 for unavailable merchant', async () => {
@@ -222,33 +179,37 @@ describe('discovery routes', () => {
     })
 
     expect(res.statusCode).toBe(404)
+    expect(res.json().error.code).toBe('MERCHANT_UNAVAILABLE')
   })
 
   // ────────────────────────────────────────────────
   // Branch list
   // ────────────────────────────────────────────────
 
-  it('GET /api/v1/customer/merchants/:id/branches returns 200', async () => {
-    vi.mocked(getMerchantBranches).mockResolvedValueOnce(mockBranches as any)
+  it('GET /api/v1/customer/merchants/:id/branches returns 200 without token (guest)', async () => {
+    vi.mocked(getCustomerMerchantBranches).mockResolvedValueOnce([{ id: 'b1', name: 'Main' }] as any)
 
     const res = await app.inject({
       method: 'GET',
-      url: '/api/v1/customer/merchants/m1/branches',
+      url: '/api/v1/customer/merchants/merchant-1/branches',
     })
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(Array.isArray(body)).toBe(true)
+    expect(body).toHaveLength(1)
     expect(body[0].id).toBe('b1')
-    expect(getMerchantBranches).toHaveBeenCalledWith(expect.anything(), 'm1')
+    expect(getCustomerMerchantBranches).toHaveBeenCalledWith(expect.anything(), 'merchant-1')
   })
 
   // ────────────────────────────────────────────────
   // Voucher detail
   // ────────────────────────────────────────────────
 
-  it('GET /api/v1/customer/vouchers/:id returns 200', async () => {
-    vi.mocked(getCustomerVoucher).mockResolvedValueOnce(mockVoucher as any)
+  it('GET /api/v1/customer/vouchers/:id returns 200 without token, isRedeemedThisCycle=false, isFavourited=false', async () => {
+    vi.mocked(getCustomerVoucher).mockResolvedValueOnce(
+      { id: 'v1', isRedeemedThisCycle: false, isFavourited: false } as any,
+    )
 
     const res = await app.inject({
       method: 'GET',
@@ -258,13 +219,15 @@ describe('discovery routes', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(body.id).toBe('v1')
-    expect(body).toHaveProperty('isRedeemedThisCycle')
-    expect(body).toHaveProperty('isFavourited')
+    expect(body.isRedeemedThisCycle).toBe(false)
+    expect(body.isFavourited).toBe(false)
     expect(getCustomerVoucher).toHaveBeenCalledWith(expect.anything(), 'v1', null)
   })
 
   it('GET /api/v1/customer/vouchers/:id passes userId when token present', async () => {
-    vi.mocked(getCustomerVoucher).mockResolvedValueOnce({ ...mockVoucher, isRedeemedThisCycle: true, isFavourited: true } as any)
+    vi.mocked(getCustomerVoucher).mockResolvedValueOnce(
+      { id: 'v1', isRedeemedThisCycle: true, isFavourited: true } as any,
+    )
 
     const res = await app.inject({
       method: 'GET',
@@ -273,6 +236,9 @@ describe('discovery routes', () => {
     })
 
     expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.isRedeemedThisCycle).toBe(true)
+    expect(body.isFavourited).toBe(true)
     expect(getCustomerVoucher).toHaveBeenCalledWith(expect.anything(), 'v1', 'user-test-1')
   })
 
@@ -280,20 +246,20 @@ describe('discovery routes', () => {
   // Search
   // ────────────────────────────────────────────────
 
-  it('GET /api/v1/customer/search returns 400 without q or category', async () => {
-    const { AppError } = await import('../../../src/api/shared/errors')
-    vi.mocked(searchMerchants).mockRejectedValueOnce(new AppError('SEARCH_QUERY_REQUIRED'))
-
+  it('GET /api/v1/customer/search returns 400 without q or categoryId', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/v1/customer/search',
     })
 
     expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('SEARCH_QUERY_REQUIRED')
   })
 
   it('GET /api/v1/customer/search?q=pizza returns 200', async () => {
-    vi.mocked(searchMerchants).mockResolvedValueOnce(mockSearchResult as any)
+    vi.mocked(searchMerchants).mockResolvedValueOnce({ merchants: [
+      { id: 'm1', businessName: 'Pizza Palace' },
+    ], total: 1 } as any)
 
     const res = await app.inject({
       method: 'GET',
@@ -306,32 +272,22 @@ describe('discovery routes', () => {
     expect(body).toHaveProperty('total')
     expect(searchMerchants).toHaveBeenCalledWith(
       expect.anything(),
-      'pizza',
-      undefined,
-      undefined,
-      undefined,
-      10,
-      0,
+      expect.objectContaining({ q: 'pizza' }),
     )
   })
 
-  it('GET /api/v1/customer/search?category=cat1 returns 200', async () => {
+  it('GET /api/v1/customer/search?categoryId=cat-1 returns 200', async () => {
     vi.mocked(searchMerchants).mockResolvedValueOnce({ merchants: [], total: 0 } as any)
 
     const res = await app.inject({
       method: 'GET',
-      url: '/api/v1/customer/search?category=cat1',
+      url: '/api/v1/customer/search?categoryId=cat-1',
     })
 
     expect(res.statusCode).toBe(200)
     expect(searchMerchants).toHaveBeenCalledWith(
       expect.anything(),
-      undefined,
-      'cat1',
-      undefined,
-      undefined,
-      10,
-      0,
+      expect.objectContaining({ categoryId: 'cat-1' }),
     )
   })
 
@@ -345,12 +301,7 @@ describe('discovery routes', () => {
 
     expect(searchMerchants).toHaveBeenCalledWith(
       expect.anything(),
-      'coffee',
-      undefined,
-      undefined,
-      undefined,
-      20,
-      40,
+      expect.objectContaining({ q: 'coffee', limit: 20, offset: 40 }),
     )
   })
 
@@ -358,8 +309,10 @@ describe('discovery routes', () => {
   // Categories
   // ────────────────────────────────────────────────
 
-  it('GET /api/v1/customer/categories returns 200', async () => {
-    vi.mocked(listCategories).mockResolvedValueOnce(mockCategories as any)
+  it('GET /api/v1/customer/categories returns 200 without token (guest)', async () => {
+    vi.mocked(listActiveCategories).mockResolvedValueOnce([
+      { id: 'cat-1', name: 'Food & Drink', iconUrl: null, illustrationUrl: null },
+    ] as any)
 
     const res = await app.inject({
       method: 'GET',
@@ -369,36 +322,59 @@ describe('discovery routes', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(Array.isArray(body)).toBe(true)
-    expect(body[0].id).toBe('cat1')
-    expect(listCategories).toHaveBeenCalledOnce()
+    expect(body[0].id).toBe('cat-1')
+    expect(listActiveCategories).toHaveBeenCalledOnce()
   })
 
   // ────────────────────────────────────────────────
-  // Campaign detail
+  // Campaigns
   // ────────────────────────────────────────────────
 
-  it('GET /api/v1/customer/campaigns/:id returns 200', async () => {
-    vi.mocked(getCampaign).mockResolvedValueOnce(mockCampaign as any)
+  it('GET /api/v1/customer/campaigns returns 200 without token (guest)', async () => {
+    vi.mocked(getActiveCampaigns).mockResolvedValueOnce([
+      { id: 'campaign-1', name: 'Summer Sale', bannerImageUrl: 'https://example.com/banner.jpg' },
+    ] as any)
 
     const res = await app.inject({
       method: 'GET',
-      url: '/api/v1/customer/campaigns/c1',
+      url: '/api/v1/customer/campaigns',
     })
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.id).toBe('c1')
-    expect(body).toHaveProperty('merchants')
-    expect(getCampaign).toHaveBeenCalledWith(expect.anything(), 'c1')
+    expect(Array.isArray(body)).toBe(true)
+    expect(body).toHaveLength(1)
+    expect(getActiveCampaigns).toHaveBeenCalledOnce()
   })
 
-  it('GET /api/v1/customer/campaigns/:id returns 404 for unavailable campaign', async () => {
-    const { AppError } = await import('../../../src/api/shared/errors')
-    vi.mocked(getCampaign).mockRejectedValueOnce(new AppError('CAMPAIGN_NOT_FOUND'))
+  it('GET /api/v1/customer/campaigns/:id/merchants returns 200', async () => {
+    vi.mocked(getCampaignMerchants).mockResolvedValueOnce([
+      { id: 'merchant-1', businessName: 'Acme' },
+    ] as any)
 
     const res = await app.inject({
       method: 'GET',
-      url: '/api/v1/customer/campaigns/nonexistent',
+      url: '/api/v1/customer/campaigns/campaign-1/merchants',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(Array.isArray(body)).toBe(true)
+    expect(body).toHaveLength(1)
+    expect(getCampaignMerchants).toHaveBeenCalledWith(
+      expect.anything(),
+      'campaign-1',
+      expect.objectContaining({ limit: 20, offset: 0 }),
+    )
+  })
+
+  it('GET /api/v1/customer/campaigns/:id/merchants returns 404 when CAMPAIGN_NOT_FOUND', async () => {
+    const { AppError } = await import('../../../src/api/shared/errors')
+    vi.mocked(getCampaignMerchants).mockRejectedValueOnce(new AppError('CAMPAIGN_NOT_FOUND'))
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/campaigns/bad-id/merchants',
     })
 
     expect(res.statusCode).toBe(404)

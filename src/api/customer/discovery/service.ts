@@ -1,143 +1,197 @@
-import { PrismaClient, MerchantStatus, VoucherStatus, ApprovalStatus, CampaignStatus } from '../../../generated/prisma/client'
+import {
+  PrismaClient, MerchantStatus, VoucherStatus, ApprovalStatus, CampaignStatus,
+} from '../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 
-export async function getHomeFeed(prisma: PrismaClient, lat?: number, lng?: number) {
-  // lat/lng accepted for future radius filtering — ignored in MVP
-  void lat
-  void lng
+// Location context helper — resolves what location label + source to return
+// Priority: live coordinates > stored profile city > none
+async function resolveLocationContext(
+  prisma: PrismaClient,
+  userId: string | null,
+  lat: number | null,
+  lng: number | null,
+): Promise<{ city: string | null; lat: number | null; lng: number | null; source: 'coordinates' | 'profile' | 'none' }> {
+  if (lat !== null && lng !== null) {
+    // Coordinates supplied — use them for proximity, reverse geocode label deferred to Phase 3C
+    return { city: null, lat, lng, source: 'coordinates' }
+  }
+  if (userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { city: true },
+    })
+    if (user?.city) return { city: user.city, lat: null, lng: null, source: 'profile' }
+  }
+  return { city: null, lat: null, lng: null, source: 'none' }
+}
 
+const MERCHANT_PREVIEW_SELECT = {
+  id: true, businessName: true, tradingName: true,
+  logoUrl: true, bannerUrl: true, description: true,
+  primaryCategory: { select: { id: true, name: true } },
+  vouchers: {
+    where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+    select: { id: true, title: true, estimatedSaving: true, type: true },
+    take: 2,
+  },
+} as const
+
+// ─── Home Feed ───────────────────────────────────────────────────────────────
+
+export async function getHomeFeed(
+  prisma: PrismaClient,
+  options: { userId: string | null; lat: number | null; lng: number | null },
+) {
   const now = new Date()
+  const { userId, lat, lng } = options
+  const locationCtx = await resolveLocationContext(prisma, userId, lat, lng)
 
-  // Featured merchants: FeaturedMerchant where isActive=true and endDate > now, ordered by cost desc (proxy for priority)
-  const featuredListings = await prisma.featuredMerchant.findMany({
+  // Featured merchants — active FeaturedMerchant records within date range
+  const featuredRows = await prisma.featuredMerchant.findMany({
     where: {
-      isActive: true,
-      endDate: { gt: now },
-      merchant: { status: MerchantStatus.ACTIVE },
+      isActive:  true,
+      startDate: { lte: now },
+      endDate:   { gte: now },
+      merchant:  { status: MerchantStatus.ACTIVE },
     },
-    orderBy: { costGbp: 'desc' },
-    include: {
-      merchant: {
-        select: {
-          id: true,
-          businessName: true,
-          tradingName: true,
-          logoUrl: true,
-          bannerUrl: true,
-          description: true,
-          primaryCategoryId: true,
-        },
-      },
+    select: {
+      id: true, radiusMiles: true,
+      merchant: { select: MERCHANT_PREVIEW_SELECT },
     },
+    orderBy: { startDate: 'asc' },
+    take: 10,
+  })
+  const featured = featuredRows.map(f => ({ ...f.merchant, featuredId: f.id, radiusMiles: f.radiusMiles }))
+
+  // Trending merchants — ACTIVE merchants with the most redemptions this calendar month,
+  // scoped to user's location (city match if no coordinates; unfiltered if no location context)
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const recentRedemptions = await prisma.voucherRedemption.findMany({
+    where: { redeemedAt: { gte: monthStart } },
+    select: { branch: { select: { merchantId: true, city: true } } },
   })
 
-  const featured = featuredListings.map((f) => ({
-    ...f.merchant,
-    featuredId: f.id,
-  }))
-
-  // Trending merchants: ACTIVE merchants with redemptions in current calendar month, limit 10
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-  const redemptionGroups = await prisma.voucherRedemption.groupBy({
-    by: ['voucherId'],
-    where: {
-      redeemedAt: { gte: startOfMonth },
-    },
-    _count: { voucherId: true },
-    orderBy: { _count: { voucherId: 'desc' } },
-  })
-
-  // Get merchant IDs from voucher IDs
-  const voucherIds = redemptionGroups.map((r) => r.voucherId)
-  const trendingVouchers = voucherIds.length > 0
-    ? await prisma.voucher.findMany({
-        where: { id: { in: voucherIds } },
-        select: { id: true, merchantId: true },
-      })
-    : []
-
-  // Map voucher redemption counts to merchants
-  const merchantRedemptionCount = new Map<string, number>()
-  for (const group of redemptionGroups) {
-    const voucher = trendingVouchers.find((v) => v.id === group.voucherId)
-    if (voucher) {
-      const current = merchantRedemptionCount.get(voucher.merchantId) ?? 0
-      merchantRedemptionCount.set(voucher.merchantId, current + group._count.voucherId)
-    }
+  // Count redemptions per merchant, apply city filter if available
+  const merchantRedemptionCount: Record<string, number> = {}
+  for (const r of recentRedemptions) {
+    const { merchantId, city } = r.branch
+    if (locationCtx.city && city.toLowerCase() !== locationCtx.city.toLowerCase()) continue
+    merchantRedemptionCount[merchantId] = (merchantRedemptionCount[merchantId] ?? 0) + 1
   }
 
-  const sortedMerchantIds = [...merchantRedemptionCount.entries()]
-    .sort((a, b) => b[1] - a[1])
+  const trendingMerchantIds = Object.entries(merchantRedemptionCount)
+    .sort(([, a], [, b]) => b - a)
     .slice(0, 10)
     .map(([id]) => id)
 
-  const trendingMerchants = sortedMerchantIds.length > 0
+  const trendingMerchants = trendingMerchantIds.length > 0
     ? await prisma.merchant.findMany({
-        where: { id: { in: sortedMerchantIds }, status: MerchantStatus.ACTIVE },
-        select: {
-          id: true,
-          businessName: true,
-          tradingName: true,
-          logoUrl: true,
-          bannerUrl: true,
-          description: true,
-          primaryCategoryId: true,
-        },
+        where: { id: { in: trendingMerchantIds }, status: MerchantStatus.ACTIVE },
+        select: MERCHANT_PREVIEW_SELECT,
       })
     : []
-
-  // Preserve ordering by redemption count
-  const trending = sortedMerchantIds
-    .map((id) => trendingMerchants.find((m) => m.id === id))
+  // Re-sort by redemption count order (Prisma `in` does not preserve order)
+  const trending = trendingMerchantIds
+    .map(id => trendingMerchants.find(m => m.id === id))
     .filter(Boolean)
 
-  // Active campaigns
+  // Active campaigns — for home carousel banners
   const campaigns = await prisma.campaign.findMany({
     where: {
-      status: CampaignStatus.ACTIVE,
+      status:    CampaignStatus.ACTIVE,
       startDate: { lte: now },
-      endDate: { gte: now },
+      endDate:   { gte: now },
     },
-    include: {
-      _count: { select: { merchants: true } },
-    },
-    orderBy: { startDate: 'desc' },
+    select: { id: true, name: true, description: true, bannerImageUrl: true },
+    orderBy: { startDate: 'asc' },
+    take: 5,
   })
 
-  const campaignSummaries = campaigns.map((c) => ({
-    id: c.id,
-    name: c.name,
-    description: c.description,
-    bannerImageUrl: c.bannerImageUrl,
-    startDate: c.startDate,
-    endDate: c.endDate,
-    merchantCount: c._count.merchants,
-  }))
+  // Nearby by category — active merchants grouped by primary category
+  // Phase 3B: "nearby" = city match (if location available); radius filtering deferred to Phase 3C
+  const nearbyByCategory: { category: { id: string; name: string }; merchants: any[] }[] = []
+  if (locationCtx.city || (locationCtx.lat !== null && locationCtx.lng !== null)) {
+    const activeCategories = await prisma.category.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { sortOrder: 'asc' },
+      take: 6,
+    })
 
-  return { featured, trending, campaigns: campaignSummaries }
+    for (const category of activeCategories) {
+      const nearbyMerchants = await prisma.merchant.findMany({
+        where: {
+          status: MerchantStatus.ACTIVE,
+          primaryCategoryId: category.id,
+          ...(locationCtx.city
+            ? { branches: { some: { isActive: true, city: { equals: locationCtx.city, mode: 'insensitive' } } } }
+            : {}),
+        },
+        select: MERCHANT_PREVIEW_SELECT,
+        take: 5,
+      })
+      if (nearbyMerchants.length > 0) {
+        nearbyByCategory.push({ category, merchants: nearbyMerchants })
+      }
+    }
+  }
+
+  return {
+    locationContext: { city: locationCtx.city, source: locationCtx.source },
+    featured,
+    trending,
+    campaigns,
+    nearbyByCategory,
+  }
 }
+
+// ─── Merchant Profile ─────────────────────────────────────────────────────────
 
 export async function getCustomerMerchant(
   prisma: PrismaClient,
   merchantId: string,
-  userId: string | null,
+  userId: string | null,   // null for guest — returns isFavourited: false
 ) {
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
-    include: {
+    select: {
+      id:           true,
+      businessName: true,
+      tradingName:  true,
+      status:       true,
+      logoUrl:      true,
+      bannerUrl:    true,
+      description:  true,
+      websiteUrl:   true,
+      primaryCategory: { select: { id: true, name: true } },
+      categories: {
+        select: { category: { select: { id: true, name: true } } },
+      },
+      vouchers: {
+        where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+        select: {
+          id: true, title: true, type: true, description: true,
+          terms: true, imageUrl: true, estimatedSaving: true,
+          expiryDate: true, code: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      },
       branches: {
         where: { isActive: true },
-        include: {
-          openingHours: true,
-          amenities: {
-            include: { amenity: true },
+        select: {
+          id: true, name: true, isMainBranch: true,
+          addressLine1: true, addressLine2: true, city: true, postcode: true,
+          phone: true, latitude: true, longitude: true,
+          openingHours: {
+            select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+            orderBy: { dayOfWeek: 'asc' },
           },
-          photos: { orderBy: { sortOrder: 'asc' } },
+          amenities: {
+            select: { amenity: { select: { id: true, name: true, iconUrl: true } } },
+          },
+          _count: { select: { reviews: { where: { isDeleted: false } } } },
         },
-      },
-      tags: true,
-      categories: {
-        include: { category: true },
+        orderBy: { isMainBranch: 'desc' },
       },
     },
   })
@@ -146,23 +200,21 @@ export async function getCustomerMerchant(
     throw new AppError('MERCHANT_UNAVAILABLE')
   }
 
-  // Get ratings per branch
-  const branchesWithRatings = await Promise.all(
-    merchant.branches.map(async (branch) => {
-      const agg = await prisma.review.aggregate({
-        where: { branchId: branch.id, isDeleted: false },
+  // Fix 4: Replace N+1 per-branch aggregate calls with a single groupBy
+  const branchIds = merchant.branches.map(b => b.id)
+  const ratingGroups = branchIds.length > 0
+    ? await prisma.review.groupBy({
+        by: ['branchId'],
+        where: { branchId: { in: branchIds }, isDeleted: false },
         _avg: { rating: true },
-        _count: { rating: true },
+        _count: { id: true },
       })
-      return {
-        ...branch,
-        avgRating: agg._avg.rating ?? null,
-        reviewCount: agg._count.rating,
-      }
-    }),
+    : []
+  const ratingByBranch = Object.fromEntries(
+    ratingGroups.map(g => [g.branchId, { avgRating: g._avg.rating, reviewCount: g._count.id }]),
   )
 
-  // isFavourited lookup
+  // isFavourited — optional-auth pattern: token decoded (not verified), not a security boundary
   let isFavourited = false
   if (userId) {
     const fav = await prisma.favouriteMerchant.findUnique({
@@ -172,48 +224,59 @@ export async function getCustomerMerchant(
     isFavourited = fav !== null
   }
 
-  return { ...merchant, branches: branchesWithRatings, isFavourited }
+  return {
+    ...merchant,
+    isFavourited,
+    branches: merchant.branches.map(b => ({
+      ...b,
+      avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
+      reviewCount: ratingByBranch[b.id]?.reviewCount ?? 0,
+    })),
+  }
 }
 
-export async function getMerchantBranches(prisma: PrismaClient, merchantId: string) {
+// ─── Branch List (for branch selector in redemption flow) ────────────────────
+
+export async function getCustomerMerchantBranches(prisma: PrismaClient, merchantId: string) {
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
     select: { status: true },
   })
-
   if (!merchant || merchant.status !== MerchantStatus.ACTIVE) {
     throw new AppError('MERCHANT_UNAVAILABLE')
   }
 
-  const branches = await prisma.branch.findMany({
+  return prisma.branch.findMany({
     where: { merchantId, isActive: true },
-    include: {
-      openingHours: true,
-      amenities: {
-        include: { amenity: true },
+    select: {
+      id: true, name: true, isMainBranch: true,
+      addressLine1: true, addressLine2: true, city: true, postcode: true,
+      phone: true, latitude: true, longitude: true,
+      openingHours: {
+        select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+        orderBy: { dayOfWeek: 'asc' },
       },
     },
-    orderBy: [{ isMainBranch: 'desc' }, { name: 'asc' }],
+    orderBy: { isMainBranch: 'desc' },
   })
-
-  return branches
 }
+
+// ─── Voucher Detail ───────────────────────────────────────────────────────────
 
 export async function getCustomerVoucher(
   prisma: PrismaClient,
   voucherId: string,
-  userId: string | null,
+  userId: string | null,   // null for guest — returns isRedeemedThisCycle: false
 ) {
   const voucher = await prisma.voucher.findUnique({
     where: { id: voucherId },
-    include: {
+    select: {
+      id: true, title: true, type: true, description: true,
+      terms: true, imageUrl: true, estimatedSaving: true,
+      expiryDate: true, code: true, status: true, approvalStatus: true,
       merchant: {
         select: {
-          id: true,
-          businessName: true,
-          tradingName: true,
-          logoUrl: true,
-          status: true,
+          id: true, businessName: true, tradingName: true, logoUrl: true, status: true,
         },
       },
     },
@@ -221,7 +284,7 @@ export async function getCustomerVoucher(
 
   if (
     !voucher ||
-    voucher.status !== VoucherStatus.ACTIVE ||
+    voucher.status         !== VoucherStatus.ACTIVE  ||
     voucher.approvalStatus !== ApprovalStatus.APPROVED ||
     voucher.merchant.status !== MerchantStatus.ACTIVE
   ) {
@@ -230,7 +293,6 @@ export async function getCustomerVoucher(
 
   let isRedeemedThisCycle = false
   let isFavourited = false
-
   if (userId) {
     const [cycleState, fav] = await Promise.all([
       prisma.userVoucherCycleState.findUnique({
@@ -249,148 +311,127 @@ export async function getCustomerVoucher(
   return { ...voucher, isRedeemedThisCycle, isFavourited }
 }
 
+// ─── Search ───────────────────────────────────────────────────────────────────
+
 export async function searchMerchants(
   prisma: PrismaClient,
-  q: string | undefined,
-  categoryId: string | undefined,
-  lat: number | undefined,
-  lng: number | undefined,
-  limit: number,
-  offset: number,
+  params: { q?: string; categoryId?: string; limit: number; offset: number },
 ) {
-  // lat/lng accepted for future radius filtering — ignored in MVP
-  void lat
-  void lng
+  const { q, categoryId, limit, offset } = params
 
-  if (!q && !categoryId) {
-    throw new AppError('SEARCH_QUERY_REQUIRED')
+  const where: any = { status: MerchantStatus.ACTIVE }
+
+  if (q) {
+    where.OR = [
+      { businessName: { contains: q, mode: 'insensitive' } },
+      { tradingName:  { contains: q, mode: 'insensitive' } },
+      { description:  { contains: q, mode: 'insensitive' } },
+    ]
   }
 
-  // Build category filter: include the category and its children
-  let categoryIds: string[] | undefined
   if (categoryId) {
-    const children = await prisma.category.findMany({
-      where: { parentId: categoryId },
-      select: { id: true },
-    })
-    categoryIds = [categoryId, ...children.map((c) => c.id)]
-  }
-
-  const whereClause = {
-    status: MerchantStatus.ACTIVE,
-    AND: [
-      // Text search
-      q
-        ? {
-            OR: [
-              { businessName: { contains: q, mode: 'insensitive' as const } },
-              { tradingName: { contains: q, mode: 'insensitive' as const } },
-              { description: { contains: q, mode: 'insensitive' as const } },
-              { tags: { some: { tag: { contains: q, mode: 'insensitive' as const } } } },
-              {
-                categories: {
-                  some: {
-                    category: { name: { contains: q, mode: 'insensitive' as const } },
-                  },
-                },
-              },
-            ],
-          }
-        : {},
-      // Category filter
-      categoryIds
-        ? {
-            OR: [
-              { primaryCategoryId: { in: categoryIds } },
-              { categories: { some: { categoryId: { in: categoryIds } } } },
-            ],
-          }
-        : {},
-    ],
+    where.AND = [
+      {
+        OR: [
+          { primaryCategoryId: categoryId },
+          { categories: { some: { categoryId: categoryId } } },
+        ],
+      },
+    ]
   }
 
   const [merchants, total] = await Promise.all([
     prisma.merchant.findMany({
-      where: whereClause,
+      where,
       select: {
-        id: true,
-        businessName: true,
-        tradingName: true,
-        logoUrl: true,
-        bannerUrl: true,
-        description: true,
-        primaryCategoryId: true,
+        id: true, businessName: true, tradingName: true,
+        logoUrl: true, description: true,
+        primaryCategory: { select: { id: true, name: true } },
+        vouchers: {
+          where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+          select: { id: true, title: true, estimatedSaving: true, type: true },
+          take: 2,
+        },
+        branches: {
+          where: { isActive: true },
+          select: { id: true, city: true, latitude: true, longitude: true },
+        },
       },
       orderBy: { businessName: 'asc' },
       take: limit,
       skip: offset,
     }),
-    prisma.merchant.count({ where: whereClause }),
+    prisma.merchant.count({ where }),
   ])
 
   return { merchants, total }
 }
 
-export async function listCategories(prisma: PrismaClient) {
-  const categories = await prisma.category.findMany({
-    where: { isActive: true },
-    select: {
-      id: true,
-      name: true,
-      iconUrl: true,
-      illustrationUrl: true,
-      parentId: true,
-      sortOrder: true,
+// ─── Categories ───────────────────────────────────────────────────────────────
+
+// Fix 5: filter by active merchants via the MerchantCategory join relation
+export async function listActiveCategories(prisma: PrismaClient) {
+  return prisma.category.findMany({
+    where: {
+      isActive: true,
+      merchants: { some: { merchant: { status: MerchantStatus.ACTIVE } } },
     },
-    orderBy: { name: 'asc' },
+    select: { id: true, name: true, iconUrl: true, illustrationUrl: true },
+    orderBy: { sortOrder: 'asc' },
   })
-  return categories
 }
 
-export async function getCampaign(prisma: PrismaClient, campaignId: string) {
-  const now = new Date()
+// ─── Campaigns ────────────────────────────────────────────────────────────────
 
+export async function getActiveCampaigns(prisma: PrismaClient) {
+  const now = new Date()
+  return prisma.campaign.findMany({
+    where: {
+      status:    CampaignStatus.ACTIVE,
+      startDate: { lte: now },
+      endDate:   { gte: now },
+    },
+    select: { id: true, name: true, description: true, bannerImageUrl: true },
+    orderBy: { startDate: 'asc' },
+  })
+}
+
+export async function getCampaignMerchants(
+  prisma: PrismaClient,
+  campaignId: string,
+  params: { categoryId?: string; limit: number; offset: number },
+) {
+  const now = new Date()
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
-    include: {
-      merchants: {
-        where: { isActive: true },
-        include: {
-          merchant: {
-            select: {
-              id: true,
-              businessName: true,
-              tradingName: true,
-              logoUrl: true,
-              bannerUrl: true,
-              description: true,
-              primaryCategoryId: true,
-            },
-          },
-        },
-      },
-    },
+    select: { id: true, status: true, startDate: true, endDate: true },
   })
 
-  if (
-    !campaign ||
-    campaign.status !== CampaignStatus.ACTIVE ||
-    campaign.startDate > now ||
-    campaign.endDate < now
-  ) {
+  if (!campaign || campaign.status !== CampaignStatus.ACTIVE || campaign.startDate > now || campaign.endDate < now) {
     throw new AppError('CAMPAIGN_NOT_FOUND')
   }
 
-  const participatingMerchants = campaign.merchants.map((cm) => cm.merchant)
+  const rows = await prisma.campaignMerchant.findMany({
+    where: {
+      campaignId,
+      isActive: true,
+      startDate: { lte: now },
+      endDate:   { gte: now },
+      merchant: {
+        status: MerchantStatus.ACTIVE,
+        ...(params.categoryId ? {
+          OR: [
+            { primaryCategoryId: params.categoryId },
+            { categories: { some: { categoryId: params.categoryId } } },
+          ],
+        } : {}),
+      },
+    },
+    select: { merchant: { select: MERCHANT_PREVIEW_SELECT } },
+    orderBy: { merchant: { businessName: 'asc' } },
+    take:   params.limit,
+    skip:   params.offset,
+  })
 
-  return {
-    id: campaign.id,
-    name: campaign.name,
-    description: campaign.description,
-    bannerImageUrl: campaign.bannerImageUrl,
-    startDate: campaign.startDate,
-    endDate: campaign.endDate,
-    status: campaign.status,
-    merchants: participatingMerchants,
-  }
+  return rows.map(r => r.merchant)
 }
