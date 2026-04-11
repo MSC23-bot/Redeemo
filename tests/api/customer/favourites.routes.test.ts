@@ -29,6 +29,19 @@ vi.mock('../../../src/api/customer/profile/service', () => ({
   changeCustomerPassword:  vi.fn(),
 }))
 
+vi.mock('../../../src/api/customer/reviews/service', () => ({
+  listMerchantReviews: vi.fn(),
+  listBranchReviews:   vi.fn(),
+  upsertBranchReview:  vi.fn(),
+  deleteBranchReview:  vi.fn(),
+  reportReview:        vi.fn(),
+}))
+
+vi.mock('../../../src/api/customer/savings/service', () => ({
+  getSavingsSummary:      vi.fn(),
+  getSavingsRedemptions:  vi.fn(),
+}))
+
 import {
   addFavouriteMerchant,
   removeFavouriteMerchant,

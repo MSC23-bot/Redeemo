@@ -3,6 +3,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify'
 import { discoveryRoutes } from './discovery/routes'
 import { profileRoutes } from './profile/routes'
 import { favouritesRoutes } from './favourites/routes'
+import { reviewOpenRoutes, reviewAuthRoutes } from './reviews/routes'
 
 /**
  * Attempts to extract the `sub` (userId) from an Authorization: Bearer <token>
@@ -38,6 +39,9 @@ async function customerPlugin(app: FastifyInstance) {
 
     // Discovery routes (no auth required)
     open.register(discoveryRoutes)
+
+    // Review list routes (no auth required, optional userId for isOwnReview)
+    open.register(reviewOpenRoutes)
   })
 
   // ------------------------------------------------------------------
@@ -57,6 +61,9 @@ async function customerPlugin(app: FastifyInstance) {
 
     // Favourites routes — merchant + voucher add/remove/list
     authed.register(favouritesRoutes)
+
+    // Review write routes — upsert, delete, report (auth required)
+    authed.register(reviewAuthRoutes)
   })
 }
 

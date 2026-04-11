@@ -20,6 +20,19 @@ vi.mock('../../../src/api/customer/discovery/service', () => ({
   getCampaignMerchants:        vi.fn(),
 }))
 
+vi.mock('../../../src/api/customer/reviews/service', () => ({
+  listMerchantReviews: vi.fn(),
+  listBranchReviews:   vi.fn(),
+  upsertBranchReview:  vi.fn(),
+  deleteBranchReview:  vi.fn(),
+  reportReview:        vi.fn(),
+}))
+
+vi.mock('../../../src/api/customer/savings/service', () => ({
+  getSavingsSummary:      vi.fn(),
+  getSavingsRedemptions:  vi.fn(),
+}))
+
 import {
   getCustomerProfile,
   updateCustomerProfile,

@@ -29,6 +29,19 @@ vi.mock('../../../src/api/customer/favourites/service', () => ({
   removeFavouriteVoucher:  vi.fn(),
 }))
 
+vi.mock('../../../src/api/customer/reviews/service', () => ({
+  listMerchantReviews: vi.fn(),
+  listBranchReviews:   vi.fn(),
+  upsertBranchReview:  vi.fn(),
+  deleteBranchReview:  vi.fn(),
+  reportReview:        vi.fn(),
+}))
+
+vi.mock('../../../src/api/customer/savings/service', () => ({
+  getSavingsSummary:      vi.fn(),
+  getSavingsRedemptions:  vi.fn(),
+}))
+
 describe('customer plugin', () => {
   let app: FastifyInstance
   let customerToken: string
