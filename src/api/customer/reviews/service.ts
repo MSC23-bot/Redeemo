@@ -1,7 +1,8 @@
-import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
+import { PrismaClient, Prisma, ReviewReportReason } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 
-function buildDisplayName(firstName: string, lastName: string | null): string {
+function buildDisplayName(firstName: string | null, lastName: string | null): string {
+  if (!firstName) return 'Anonymous'
   if (!lastName) return firstName
   return `${firstName} ${lastName.charAt(0)}.`
 }
@@ -22,7 +23,7 @@ function formatReview(
   review: {
     id: string; branchId: string
     branch: { name: string }
-    user: { firstName: string; lastName: string | null }
+    user: { firstName: string | null; lastName: string | null }
     rating: number; comment: string | null
     createdAt: Date; updatedAt: Date
   },
@@ -49,6 +50,8 @@ const REVIEW_SELECT = {
   user:   { select: { firstName: true, lastName: true } },
 } as const
 
+type ReviewRow = Prisma.ReviewGetPayload<{ select: typeof REVIEW_SELECT }>
+
 export async function listMerchantReviews(
   prisma: PrismaClient,
   merchantId: string,
@@ -63,16 +66,16 @@ export async function listMerchantReviews(
   const [reviews, total] = await Promise.all([
     prisma.review.findMany({
       where,
-      select: REVIEW_SELECT as any,
+      select: REVIEW_SELECT,
       orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
       take: params.limit,
       skip: params.offset,
-    }),
+    }) as Promise<ReviewRow[]>,
     prisma.review.count({ where }),
   ])
 
   const formatted = await Promise.all(
-    (reviews as any[]).map(async (r) => {
+    reviews.map(async (r) => {
       const isVerified = await computeIsVerified(prisma, r.userId, r.branchId)
       return formatReview(r, { isVerified, requestingUserId: params.requestingUserId, reviewUserId: r.userId })
     }),
@@ -98,16 +101,16 @@ export async function listBranchReviews(
   const [reviews, total] = await Promise.all([
     prisma.review.findMany({
       where,
-      select: REVIEW_SELECT as any,
+      select: REVIEW_SELECT,
       orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
       take: params.limit,
       skip: params.offset,
-    }),
+    }) as Promise<ReviewRow[]>,
     prisma.review.count({ where }),
   ])
 
   const formatted = await Promise.all(
-    (reviews as any[]).map(async (r) => {
+    reviews.map(async (r) => {
       const isVerified = await computeIsVerified(prisma, r.userId, r.branchId)
       return formatReview(r, { isVerified, requestingUserId: params.requestingUserId, reviewUserId: r.userId })
     }),
@@ -131,11 +134,11 @@ export async function upsertBranchReview(
     where:  { userId_branchId: { userId, branchId } },
     create: { userId, branchId, rating: data.rating, comment: data.comment ?? null },
     update: { rating: data.rating, comment: data.comment ?? null, isHidden: false },
-    select: REVIEW_SELECT as any,
-  })
+    select: REVIEW_SELECT,
+  }) as ReviewRow
 
   const isVerified = await computeIsVerified(prisma, userId, branchId)
-  return formatReview(review as any, { isVerified, requestingUserId: userId, reviewUserId: userId })
+  return formatReview(review, { isVerified, requestingUserId: userId, reviewUserId: userId })
 }
 
 export async function deleteBranchReview(
@@ -174,16 +177,16 @@ export async function reportReview(
       data: {
         reviewId,
         reportedByUserId: userId,
-        reason:  data.reason as any,
+        reason:  data.reason as ReviewReportReason,
         comment: data.comment ?? null,
       },
     })
   } catch (e) {
     // Duplicate report (same user, same review) — silently ignored
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      return { success: true }
+      return { success: true, created: false }
     }
     throw e
   }
-  return { success: true }
+  return { success: true, created: true }
 }

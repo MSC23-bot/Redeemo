@@ -49,14 +49,14 @@ export async function reviewAuthRoutes(app: FastifyInstance) {
   app.post('/api/v1/customer/branches/:branchId/reviews', async (req: FastifyRequest, reply) => {
     const { branchId } = branchIdParam.parse(req.params)
     const data         = reviewBody.parse(req.body)
-    const userId       = (req as any).user.sub as string
+    const userId       = req.user.sub
     const result = await upsertBranchReview(app.prisma, branchId, userId, data)
     return reply.status(201).send(result)
   })
 
   app.delete('/api/v1/customer/branches/:branchId/reviews/:reviewId', async (req: FastifyRequest, reply) => {
     const { reviewId } = branchReviewParam.parse(req.params)
-    const userId       = (req as any).user.sub as string
+    const userId       = req.user.sub
     const result = await deleteBranchReview(app.prisma, reviewId, userId)
     return reply.send(result)
   })
@@ -64,8 +64,8 @@ export async function reviewAuthRoutes(app: FastifyInstance) {
   app.post('/api/v1/customer/reviews/:reviewId/report', async (req: FastifyRequest, reply) => {
     const { reviewId } = reviewIdParam.parse(req.params)
     const data         = reportBody.parse(req.body)
-    const userId       = (req as any).user.sub as string
+    const userId       = req.user.sub
     const result = await reportReview(app.prisma, reviewId, userId, data)
-    return reply.status(201).send(result)
+    return reply.status(result.created ? 201 : 200).send({ success: result.success })
   })
 }

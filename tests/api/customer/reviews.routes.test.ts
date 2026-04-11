@@ -122,13 +122,23 @@ describe('reviews routes', () => {
     expect(res.statusCode).toBe(403)
   })
 
-  it('POST /api/v1/customer/reviews/:reviewId/report returns 201 with token', async () => {
-    ;(reportReview as any).mockResolvedValue({ success: true })
+  it('POST /api/v1/customer/reviews/:reviewId/report returns 201 for new report', async () => {
+    ;(reportReview as any).mockResolvedValue({ success: true, created: true })
     const res = await app.inject({
       method: 'POST', url: '/api/v1/customer/reviews/r1/report',
       headers: { authorization: `Bearer ${customerToken}` },
       payload: { reason: 'SPAM' },
     })
     expect(res.statusCode).toBe(201)
+  })
+
+  it('POST /api/v1/customer/reviews/:reviewId/report returns 200 for duplicate report', async () => {
+    ;(reportReview as any).mockResolvedValue({ success: true, created: false })
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/customer/reviews/r1/report',
+      headers: { authorization: `Bearer ${customerToken}` },
+      payload: { reason: 'SPAM' },
+    })
+    expect(res.statusCode).toBe(200)
   })
 })
