@@ -1,4 +1,5 @@
 import { PrismaClient } from '../../../../generated/prisma/client'
+import { SubscriptionStatus } from '../../../../generated/prisma/enums'
 
 export async function getSavingsSummary(
   prisma: PrismaClient,
@@ -25,8 +26,11 @@ export async function getSavingsSummary(
   let currentCycleSavedPence = 0
   let currentCycleRedemptionCount = 0
 
-  const activeStatuses = ['ACTIVE', 'TRIALLING']
-  if (subscription && activeStatuses.includes(subscription.status)) {
+  if (
+    subscription &&
+    (subscription.status === SubscriptionStatus.ACTIVE ||
+      subscription.status === SubscriptionStatus.TRIALLING)
+  ) {
     const cycleAgg = await prisma.voucherRedemption.aggregate({
       where: {
         userId,
