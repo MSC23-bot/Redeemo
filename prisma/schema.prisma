@@ -896,7 +896,7 @@ model ReviewReport {
   review           Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
   reporter         User   @relation(fields: [reportedByUserId], references: [id])
 
-  @@index([reviewId])
+  @@unique([reviewId, reportedByUserId])
 }
 
 enum ReviewReportReason {
