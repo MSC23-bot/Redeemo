@@ -73,10 +73,15 @@ describe('discovery routes', () => {
   it('GET /api/v1/customer/home returns 200 without token (guest)', async () => {
     vi.mocked(getHomeFeed).mockResolvedValueOnce({
       locationContext: { city: null, source: 'none' },
-      featured: [],
-      trending: [],
-      campaigns: [],
-      nearbyByCategory: [],
+      featured: [{
+        id: 'merchant-1', businessName: 'Acme', tradingName: null,
+        logoUrl: null, bannerUrl: null,
+        primaryCategory: { id: 'cat-1', name: 'Restaurants', pinColour: '#FF5733', pinIcon: 'fork-knife' },
+        subcategory: null, avgRating: 4.2, reviewCount: 10,
+        voucherCount: 3, maxEstimatedSaving: 15, isFavourited: false,
+        distance: 450, nearestBranchId: 'branch-1',
+      }],
+      trending: [], campaigns: [], nearbyByCategory: [],
     } as any)
 
     const res = await app.inject({
@@ -149,7 +154,7 @@ describe('discovery routes', () => {
     const body = res.json()
     expect(body.id).toBe('merchant-1')
     expect(body.isFavourited).toBe(false)
-    expect(getCustomerMerchant).toHaveBeenCalledWith(expect.anything(), 'merchant-1', null)
+    expect(getCustomerMerchant).toHaveBeenCalledWith(expect.anything(), 'merchant-1', null, expect.any(Object))
   })
 
   it('GET /api/v1/customer/merchants/:id returns isFavourited=true when authenticated and favourited', async () => {
@@ -166,7 +171,7 @@ describe('discovery routes', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(body.isFavourited).toBe(true)
-    expect(getCustomerMerchant).toHaveBeenCalledWith(expect.anything(), 'merchant-1', 'user-test-1')
+    expect(getCustomerMerchant).toHaveBeenCalledWith(expect.anything(), 'merchant-1', 'user-test-1', expect.any(Object))
   })
 
   it('GET /api/v1/customer/merchants/:id returns 404 for unavailable merchant', async () => {
@@ -247,6 +252,9 @@ describe('discovery routes', () => {
   // ────────────────────────────────────────────────
 
   it('GET /api/v1/customer/search returns 400 without q or categoryId', async () => {
+    const { AppError } = await import('../../../src/api/shared/errors')
+    vi.mocked(searchMerchants).mockRejectedValueOnce(new AppError('SEARCH_QUERY_REQUIRED'))
+
     const res = await app.inject({
       method: 'GET',
       url: '/api/v1/customer/search',

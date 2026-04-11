@@ -1,6 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import { AppError } from '../../shared/errors'
 import {
   getHomeFeed, getCustomerMerchant, getCustomerMerchantBranches,
   getCustomerVoucher, searchMerchants, listActiveCategories,
@@ -8,12 +7,32 @@ import {
 } from './service'
 import { optionalUserId } from '../plugin'
 
-const idParam     = z.object({ id: z.string().min(1) })
+const idParam       = z.object({ id: z.string().min(1) })
+const locationQuery = z.object({
+  lat: z.coerce.number().optional(),
+  lng: z.coerce.number().optional(),
+})
 const searchQuery = z.object({
-  q:          z.string().optional(),
-  categoryId: z.string().optional(),
-  limit:      z.coerce.number().int().min(1).max(50).default(20),
-  offset:     z.coerce.number().int().min(0).default(0),
+  q:               z.string().optional(),
+  categoryId:      z.string().optional(),
+  subcategoryId:   z.string().optional(),
+  lat:             z.coerce.number().optional(),
+  lng:             z.coerce.number().optional(),
+  minLat:          z.coerce.number().optional(),
+  maxLat:          z.coerce.number().optional(),
+  minLng:          z.coerce.number().optional(),
+  maxLng:          z.coerce.number().optional(),
+  maxDistanceMiles: z.coerce.number().optional(),
+  minSaving:       z.coerce.number().optional(),
+  voucherTypes:    z.string().optional().transform(v => v ? v.split(',') : undefined),
+  amenityIds:      z.string().optional().transform(v => v ? v.split(',') : undefined),
+  openNow:         z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
+  featured:        z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
+  topRated:        z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
+  sortBy:          z.enum(['relevance', 'nearest', 'top_rated', 'highest_saving']).optional(),
+  // NOTE: most_popular sort is NOT exposed — requires redemption count join; deferred to later phase
+  limit:           z.coerce.number().int().min(1).max(50).default(20),
+  offset:          z.coerce.number().int().min(0).default(0),
 })
 
 export async function discoveryRoutes(app: FastifyInstance) {
@@ -37,8 +56,9 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // Optional bearer token decoded (not verified) to derive isFavourited for authenticated users.
   app.get('/api/v1/customer/merchants/:id', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
+    const { lat, lng } = locationQuery.parse(req.query)
     const userId = optionalUserId(req)
-    const merchant = await getCustomerMerchant(app.prisma, id, userId)
+    const merchant = await getCustomerMerchant(app.prisma, id, userId, { lat: lat ?? undefined, lng: lng ?? undefined })
     return reply.send(merchant)
   })
 
@@ -59,11 +79,11 @@ export async function discoveryRoutes(app: FastifyInstance) {
   })
 
   // GET /api/v1/customer/search — merchant search (no auth)
-  // Requires q (text) or categoryId.
+  // Requires q (text), categoryId, subcategoryId, or bounding box (minLat/maxLat/minLng/maxLng).
   app.get('/api/v1/customer/search', async (req: FastifyRequest, reply) => {
     const params = searchQuery.parse(req.query)
-    if (!params.q && !params.categoryId) throw new AppError('SEARCH_QUERY_REQUIRED')
-    const results = await searchMerchants(app.prisma, params)
+    const userId = optionalUserId(req)
+    const results = await searchMerchants(app.prisma, { ...params, userId })
     return reply.send(results)
   })
 
