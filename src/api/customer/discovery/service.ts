@@ -1,5 +1,6 @@
 import {
   PrismaClient, MerchantStatus, VoucherStatus, ApprovalStatus, CampaignStatus,
+  type Prisma,
 } from '../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 
@@ -319,7 +320,7 @@ export async function searchMerchants(
 ) {
   const { q, categoryId, limit, offset } = params
 
-  const where: any = { status: MerchantStatus.ACTIVE }
+  const where: Prisma.MerchantWhereInput = { status: MerchantStatus.ACTIVE }
 
   if (q) {
     where.OR = [

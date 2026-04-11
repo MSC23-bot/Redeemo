@@ -74,7 +74,6 @@ export async function updateCustomerProfile(
     addressLine2?: string
     city?: string
     postcode?: string
-    phone?: string
     profileImageUrl?: string
     newsletterConsent?: boolean
   },
@@ -93,7 +92,6 @@ export async function updateCustomerProfile(
       ...(data.addressLine2 !== undefined ? { addressLine2: data.addressLine2 } : {}),
       ...(data.city !== undefined ? { city: data.city } : {}),
       ...(data.postcode !== undefined ? { postcode: data.postcode } : {}),
-      ...(data.phone !== undefined ? { phone: data.phone } : {}),
       ...(data.profileImageUrl !== undefined ? { profileImageUrl: data.profileImageUrl } : {}),
       ...(data.newsletterConsent !== undefined ? { newsletterConsent: data.newsletterConsent } : {}),
     },
