@@ -146,4 +146,31 @@ describe('customer favourites routes', () => {
     })
     expect(res.statusCode).toBe(200)
   })
+
+  it('GET /api/v1/customer/favourites/vouchers returns 401 without token', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/favourites/vouchers' })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('POST /api/v1/customer/favourites/vouchers/:voucherId returns 409 when already favourited', async () => {
+    const { AppError } = await import('../../../src/api/shared/errors')
+    ;(addFavouriteVoucher as any).mockRejectedValue(new AppError('ALREADY_FAVOURITED'))
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/customer/favourites/vouchers/v1',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('ALREADY_FAVOURITED')
+  })
+
+  it('DELETE /api/v1/customer/favourites/vouchers/:voucherId returns 404 when not found', async () => {
+    const { AppError } = await import('../../../src/api/shared/errors')
+    ;(removeFavouriteVoucher as any).mockRejectedValue(new AppError('FAVOURITE_NOT_FOUND'))
+    const res = await app.inject({
+      method: 'DELETE', url: '/api/v1/customer/favourites/vouchers/v1',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body).error.code).toBe('FAVOURITE_NOT_FOUND')
+  })
 })

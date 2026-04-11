@@ -5,20 +5,21 @@ import {
   addFavouriteVoucher,  removeFavouriteVoucher,  listFavouriteVouchers,
 } from './service'
 
-const idParam = z.object({ id: z.string().min(1) })
+const merchantIdParam = z.object({ merchantId: z.string().min(1) })
+const voucherIdParam  = z.object({ voucherId: z.string().min(1) })
 
 export async function favouritesRoutes(app: FastifyInstance) {
   const base = '/api/v1/customer/favourites'
 
-  app.post(`${base}/merchants/:id`, async (req: FastifyRequest, reply) => {
-    const { id } = idParam.parse(req.params)
-    const result = await addFavouriteMerchant(app.prisma, req.user.sub, id)
+  app.post(`${base}/merchants/:merchantId`, async (req: FastifyRequest, reply) => {
+    const { merchantId } = merchantIdParam.parse(req.params)
+    const result = await addFavouriteMerchant(app.prisma, req.user.sub, merchantId)
     return reply.status(201).send(result)
   })
 
-  app.delete(`${base}/merchants/:id`, async (req: FastifyRequest, reply) => {
-    const { id } = idParam.parse(req.params)
-    const result = await removeFavouriteMerchant(app.prisma, req.user.sub, id)
+  app.delete(`${base}/merchants/:merchantId`, async (req: FastifyRequest, reply) => {
+    const { merchantId } = merchantIdParam.parse(req.params)
+    const result = await removeFavouriteMerchant(app.prisma, req.user.sub, merchantId)
     return reply.send(result)
   })
 
@@ -27,15 +28,15 @@ export async function favouritesRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  app.post(`${base}/vouchers/:id`, async (req: FastifyRequest, reply) => {
-    const { id } = idParam.parse(req.params)
-    const result = await addFavouriteVoucher(app.prisma, req.user.sub, id)
+  app.post(`${base}/vouchers/:voucherId`, async (req: FastifyRequest, reply) => {
+    const { voucherId } = voucherIdParam.parse(req.params)
+    const result = await addFavouriteVoucher(app.prisma, req.user.sub, voucherId)
     return reply.status(201).send(result)
   })
 
-  app.delete(`${base}/vouchers/:id`, async (req: FastifyRequest, reply) => {
-    const { id } = idParam.parse(req.params)
-    const result = await removeFavouriteVoucher(app.prisma, req.user.sub, id)
+  app.delete(`${base}/vouchers/:voucherId`, async (req: FastifyRequest, reply) => {
+    const { voucherId } = voucherIdParam.parse(req.params)
+    const result = await removeFavouriteVoucher(app.prisma, req.user.sub, voucherId)
     return reply.send(result)
   })
 
