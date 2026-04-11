@@ -131,6 +131,7 @@ model User {
   voucherCycleStates   UserVoucherCycleState[]
   subscription         Subscription?
   reviews              Review[]
+  reviewReports        ReviewReport[]
   favouriteMerchants   FavouriteMerchant[]
   favouriteVouchers    FavouriteVoucher[]
   notifications        Notification[]
@@ -493,10 +494,17 @@ model MerchantContract {
 // MERCHANT TAGS
 // ─────────────────────────────────────────
 
+enum MerchantTagStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model MerchantTag {
-  id         String   @id @default(uuid())
+  id         String            @id @default(uuid())
   merchantId String
   tag        String
+  status     MerchantTagStatus @default(PENDING)
 
   merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
@@ -516,6 +524,8 @@ model Category {
   parentId        String?
   sortOrder       Int        @default(0)
   isActive        Boolean    @default(true)
+  pinColour       String?    // hex colour for map pin e.g. "#FF5733"
+  pinIcon         String?    // icon key from agreed icon set e.g. "fork-knife"
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -862,15 +872,38 @@ model Review {
   isReported   Boolean  @default(false)
   reportReason String?
   isDeleted    Boolean  @default(false)
+  isHidden     Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user         User   @relation(fields: [userId], references: [id])
-  branch       Branch @relation(fields: [branchId], references: [id])
+  user         User           @relation(fields: [userId], references: [id])
+  branch       Branch         @relation(fields: [branchId], references: [id])
+  reports      ReviewReport[]
 
   @@unique([userId, branchId])
   @@index([branchId])
   @@index([isReported])
+}
+
+model ReviewReport {
+  id               String             @id @default(uuid())
+  reviewId         String
+  reportedByUserId String
+  reason           ReviewReportReason
+  comment          String?
+  createdAt        DateTime           @default(now())
+
+  review           Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  reporter         User   @relation(fields: [reportedByUserId], references: [id])
+
+  @@index([reviewId])
+}
+
+enum ReviewReportReason {
+  OFFENSIVE
+  SPAM
+  FAKE
+  OTHER
 }
 
 // ─────────────────────────────────────────
