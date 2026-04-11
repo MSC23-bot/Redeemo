@@ -181,6 +181,8 @@ describe('customer discovery routes', () => {
       branch:                { findMany: vi.fn() },
       voucher:               { findUnique: vi.fn() },
       userVoucherCycleState: { findUnique: vi.fn() },
+      favouriteMerchant:     { findUnique: vi.fn() },
+      favouriteVoucher:      { findUnique: vi.fn() },
       featuredMerchant:      { findMany: vi.fn() },
       voucherRedemption:     { groupBy: vi.fn(), findMany: vi.fn() },
       campaign:              { findMany: vi.fn(), findUnique: vi.fn() },
@@ -349,6 +351,8 @@ describe('customer discovery routes', () => {
       branch:                { findMany: vi.fn() },
       voucher:               { findUnique: vi.fn() },
       userVoucherCycleState: { findUnique: vi.fn() },
+      favouriteMerchant:     { findUnique: vi.fn() },
+      favouriteVoucher:      { findUnique: vi.fn() },
       featuredMerchant:      { findMany: vi.fn() },
       voucherRedemption:     { groupBy: vi.fn(), findMany: vi.fn() },
       campaign:              { findMany: vi.fn(), findUnique: vi.fn() },
@@ -400,10 +404,21 @@ describe('customer discovery routes', () => {
   })
 
   // Merchant profile
-  it('GET /api/v1/customer/merchants/:id returns 200 without token (guest)', async () => {
-    ;(getCustomerMerchant as any).mockResolvedValue({ id: 'merchant-1', businessName: 'Acme', vouchers: [], branches: [] })
+  it('GET /api/v1/customer/merchants/:id returns 200 without token (guest), isFavourited=false', async () => {
+    ;(getCustomerMerchant as any).mockResolvedValue({ id: 'merchant-1', businessName: 'Acme', isFavourited: false, vouchers: [], branches: [] })
     const res = await app.inject({ method: 'GET', url: '/api/v1/customer/merchants/merchant-1' })
     expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).isFavourited).toBe(false)
+  })
+
+  it('GET /api/v1/customer/merchants/:id returns isFavourited=true when authenticated and favourited', async () => {
+    ;(getCustomerMerchant as any).mockResolvedValue({ id: 'merchant-1', businessName: 'Acme', isFavourited: true, vouchers: [], branches: [] })
+    const res = await app.inject({
+      method: 'GET', url: '/api/v1/customer/merchants/merchant-1',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).isFavourited).toBe(true)
   })
 
   it('GET /api/v1/customer/merchants/:id returns 404 when MERCHANT_UNAVAILABLE', async () => {
@@ -423,21 +438,23 @@ describe('customer discovery routes', () => {
   })
 
   // Voucher detail
-  it('GET /api/v1/customer/vouchers/:id returns 200 without token, isRedeemedThisCycle=false', async () => {
-    ;(getCustomerVoucher as any).mockResolvedValue({ id: 'v1', isRedeemedThisCycle: false })
+  it('GET /api/v1/customer/vouchers/:id returns 200 without token, isRedeemedThisCycle=false, isFavourited=false', async () => {
+    ;(getCustomerVoucher as any).mockResolvedValue({ id: 'v1', isRedeemedThisCycle: false, isFavourited: false })
     const res = await app.inject({ method: 'GET', url: '/api/v1/customer/vouchers/v1' })
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body).isRedeemedThisCycle).toBe(false)
+    expect(JSON.parse(res.body).isFavourited).toBe(false)
   })
 
-  it('GET /api/v1/customer/vouchers/:id returns isRedeemedThisCycle=true when authenticated and redeemed', async () => {
-    ;(getCustomerVoucher as any).mockResolvedValue({ id: 'v1', isRedeemedThisCycle: true })
+  it('GET /api/v1/customer/vouchers/:id returns isRedeemedThisCycle=true, isFavourited=true when authenticated', async () => {
+    ;(getCustomerVoucher as any).mockResolvedValue({ id: 'v1', isRedeemedThisCycle: true, isFavourited: true })
     const res = await app.inject({
       method: 'GET', url: '/api/v1/customer/vouchers/v1',
       headers: { authorization: `Bearer ${customerToken}` },
     })
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body).isRedeemedThisCycle).toBe(true)
+    expect(JSON.parse(res.body).isFavourited).toBe(true)
   })
 
   // Search
@@ -652,7 +669,11 @@ export async function getHomeFeed(
 
 // ─── Merchant Profile ─────────────────────────────────────────────────────────
 
-export async function getCustomerMerchant(prisma: PrismaClient, merchantId: string) {
+export async function getCustomerMerchant(
+  prisma: PrismaClient,
+  merchantId: string,
+  userId: string | null   // null for guest — returns isFavourited: false
+) {
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
     select: {
@@ -714,8 +735,19 @@ export async function getCustomerMerchant(prisma: PrismaClient, merchantId: stri
   )
   const ratingByBranch = Object.fromEntries(reviewAggregates.map(r => [r.branchId, r]))
 
+  // isFavourited — same optional-auth pattern as isRedeemedThisCycle on voucher detail
+  let isFavourited = false
+  if (userId) {
+    const fav = await prisma.favouriteMerchant.findUnique({
+      where: { userId_merchantId: { userId, merchantId } },
+      select: { id: true },
+    })
+    isFavourited = fav !== null
+  }
+
   return {
     ...merchant,
+    isFavourited,
     branches: merchant.branches.map(b => ({
       ...b,
       avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
@@ -781,15 +813,23 @@ export async function getCustomerVoucher(
   }
 
   let isRedeemedThisCycle = false
+  let isFavourited = false
   if (userId) {
-    const cycleState = await prisma.userVoucherCycleState.findUnique({
-      where: { userId_voucherId: { userId, voucherId } },
-      select: { isRedeemedInCurrentCycle: true },
-    })
+    const [cycleState, fav] = await Promise.all([
+      prisma.userVoucherCycleState.findUnique({
+        where: { userId_voucherId: { userId, voucherId } },
+        select: { isRedeemedInCurrentCycle: true },
+      }),
+      prisma.favouriteVoucher.findUnique({
+        where: { userId_voucherId: { userId, voucherId } },
+        select: { id: true },
+      }),
+    ])
     isRedeemedThisCycle = cycleState?.isRedeemedInCurrentCycle ?? false
+    isFavourited = fav !== null
   }
 
-  return { ...voucher, isRedeemedThisCycle }
+  return { ...voucher, isRedeemedThisCycle, isFavourited }
 }
 
 // ─── Search ───────────────────────────────────────────────────────────────────
@@ -969,9 +1009,11 @@ export async function customerDiscoveryRoutes(app: FastifyInstance) {
   })
 
   // GET /api/v1/customer/merchants/:id — merchant profile (no auth)
+  // Optional bearer token decoded (not verified) to derive isFavourited for authenticated users.
   app.get('/api/v1/customer/merchants/:id', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
-    const merchant = await getCustomerMerchant(app.prisma, id)
+    const userId = optionalUserId(req)
+    const merchant = await getCustomerMerchant(app.prisma, id, userId)
     return reply.send(merchant)
   })
 
@@ -1931,3 +1973,5 @@ git commit -m "feat: customer favourites routes — merchants and vouchers"
 - `FeaturedMerchant.radiusMiles` not yet used for filtering — proximity is frontend-side for now
 
 **Type consistency:** All function names consistent across service, routes, and test mocks. `hashPassword`/`verifyPassword` confirmed exported from `src/api/shared/password.ts`. `passwordSchema` enforces 8+ chars, uppercase, lowercase, number, special character. `computeProfileCompleteness` is module-private (not exported). `interest.count` (not `findMany`) used for interests validation — more efficient. `prisma.review.aggregate` called per-branch in `getCustomerMerchant` — cannot be inlined into `findUnique` select.
+
+**isFavourited pattern:** Both `getCustomerMerchant` and `getCustomerVoucher` accept `userId: string | null` and return `isFavourited: boolean`. Same optional-auth decode pattern as `isRedeemedThisCycle`. For voucher detail, `cycleState` and `favouriteVoucher` lookups are parallelised via `Promise.all`. For merchant detail, `favouriteMerchant.findUnique` uses the compound unique key `userId_merchantId`. Guests always receive `isFavourited: false`.
