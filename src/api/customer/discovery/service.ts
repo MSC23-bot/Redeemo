@@ -2,7 +2,7 @@ import {
   PrismaClient, MerchantStatus, VoucherStatus, ApprovalStatus, CampaignStatus,
   MerchantTagStatus,
   type Prisma,
-} from '../../../generated/prisma/client'
+} from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { haversineMetres } from '../../shared/haversine'
 import { isOpenNow } from '../../shared/isOpenNow'
@@ -652,7 +652,7 @@ export async function searchMerchants(
     const now = new Date()
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
-      { featuredPlacements: { some: { isActive: true, startDate: { lte: now }, endDate: { gte: now } } } },
+      { featuredListings: { some: { isActive: true, startDate: { lte: now }, endDate: { gte: now } } } },
     ]
   }
 
