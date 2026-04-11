@@ -2,6 +2,7 @@ import fp from 'fastify-plugin'
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { discoveryRoutes } from './discovery/routes'
 import { profileRoutes } from './profile/routes'
+import { favouritesRoutes } from './favourites/routes'
 
 /**
  * Attempts to extract the `sub` (userId) from an Authorization: Bearer <token>
@@ -53,6 +54,9 @@ async function customerPlugin(app: FastifyInstance) {
 
     // Profile routes — GET/PATCH profile, PUT interests, POST change-password
     authed.register(profileRoutes)
+
+    // Favourites routes — merchant + voucher add/remove/list
+    authed.register(favouritesRoutes)
   })
 }
 
