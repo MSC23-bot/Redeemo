@@ -66,6 +66,14 @@ export const ERROR_DEFINITIONS = {
   ALREADY_VALIDATED:               { statusCode: 409, message: 'This redemption has already been validated.' },
   MERCHANT_MISMATCH:               { statusCode: 403, message: 'This redemption code does not belong to your merchant.' },
   BRANCH_ACCESS_DENIED:            { statusCode: 403, message: 'You do not have access to this branch.' },
+  USER_NOT_FOUND:               { statusCode: 404, message: 'User not found.' },
+  CURRENT_PASSWORD_INCORRECT:   { statusCode: 400, message: 'Your current password is incorrect.' },
+  MERCHANT_UNAVAILABLE:         { statusCode: 404, message: 'This merchant is no longer available.' },
+  SEARCH_QUERY_REQUIRED:        { statusCode: 400, message: 'A search query or category is required.' },
+  ALREADY_FAVOURITED:           { statusCode: 409, message: 'Already in your favourites.' },
+  FAVOURITE_NOT_FOUND:          { statusCode: 404, message: 'This item is not in your favourites.' },
+  CAMPAIGN_NOT_FOUND:           { statusCode: 404, message: 'Campaign not found.' },
+  INVALID_INTERESTS:            { statusCode: 400, message: 'One or more interest IDs are invalid or inactive.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS
