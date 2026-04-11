@@ -20,12 +20,51 @@ describe('AppError', () => {
     })
   })
 
-  it('USER_NOT_FOUND is defined', () => { expect(ERROR_DEFINITIONS.USER_NOT_FOUND.statusCode).toBe(404) })
-  it('CURRENT_PASSWORD_INCORRECT is defined', () => { expect(ERROR_DEFINITIONS.CURRENT_PASSWORD_INCORRECT.statusCode).toBe(400) })
-  it('MERCHANT_UNAVAILABLE is defined', () => { expect(ERROR_DEFINITIONS.MERCHANT_UNAVAILABLE.statusCode).toBe(404) })
-  it('SEARCH_QUERY_REQUIRED is defined', () => { expect(ERROR_DEFINITIONS.SEARCH_QUERY_REQUIRED.statusCode).toBe(400) })
-  it('ALREADY_FAVOURITED is defined', () => { expect(ERROR_DEFINITIONS.ALREADY_FAVOURITED.statusCode).toBe(409) })
-  it('FAVOURITE_NOT_FOUND is defined', () => { expect(ERROR_DEFINITIONS.FAVOURITE_NOT_FOUND.statusCode).toBe(404) })
-  it('CAMPAIGN_NOT_FOUND is defined', () => { expect(ERROR_DEFINITIONS.CAMPAIGN_NOT_FOUND.statusCode).toBe(404) })
-  it('INVALID_INTERESTS is defined', () => { expect(ERROR_DEFINITIONS.INVALID_INTERESTS.statusCode).toBe(400) })
+  it('USER_NOT_FOUND produces correct error', () => {
+    const err = new AppError('USER_NOT_FOUND')
+    expect(err.code).toBe('USER_NOT_FOUND')
+    expect(err.statusCode).toBe(404)
+  })
+
+  it('CURRENT_PASSWORD_INCORRECT produces correct error', () => {
+    const err = new AppError('CURRENT_PASSWORD_INCORRECT')
+    expect(err.code).toBe('CURRENT_PASSWORD_INCORRECT')
+    expect(err.statusCode).toBe(400)
+  })
+
+  it('MERCHANT_UNAVAILABLE produces correct error', () => {
+    const err = new AppError('MERCHANT_UNAVAILABLE')
+    expect(err.code).toBe('MERCHANT_UNAVAILABLE')
+    expect(err.statusCode).toBe(404)
+  })
+
+  it('SEARCH_QUERY_REQUIRED produces correct error', () => {
+    const err = new AppError('SEARCH_QUERY_REQUIRED')
+    expect(err.code).toBe('SEARCH_QUERY_REQUIRED')
+    expect(err.statusCode).toBe(400)
+  })
+
+  it('ALREADY_FAVOURITED produces correct error', () => {
+    const err = new AppError('ALREADY_FAVOURITED')
+    expect(err.code).toBe('ALREADY_FAVOURITED')
+    expect(err.statusCode).toBe(409)
+  })
+
+  it('FAVOURITE_NOT_FOUND produces correct error', () => {
+    const err = new AppError('FAVOURITE_NOT_FOUND')
+    expect(err.code).toBe('FAVOURITE_NOT_FOUND')
+    expect(err.statusCode).toBe(404)
+  })
+
+  it('CAMPAIGN_NOT_FOUND produces correct error', () => {
+    const err = new AppError('CAMPAIGN_NOT_FOUND')
+    expect(err.code).toBe('CAMPAIGN_NOT_FOUND')
+    expect(err.statusCode).toBe(404)
+  })
+
+  it('INVALID_INTERESTS produces correct error', () => {
+    const err = new AppError('INVALID_INTERESTS')
+    expect(err.code).toBe('INVALID_INTERESTS')
+    expect(err.statusCode).toBe(400)
+  })
 })
