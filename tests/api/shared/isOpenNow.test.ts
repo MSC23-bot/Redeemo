@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isOpenNow } from '../../../src/api/shared/isOpenNow'
-
-// BranchOpeningHours: dayOfWeek 0=Sun,1=Mon,...,6=Sat; openTime/closeTime "HH:MM"; isClosed bool
-type Hours = { dayOfWeek: number; openTime: string | null; closeTime: string | null; isClosed: boolean }
+import { isOpenNow, type Hours } from '../../../src/api/shared/isOpenNow'
 
 describe('isOpenNow', () => {
   // Wednesday 15 April 2026 13:00:00 UTC = 14:00 BST (UTC+1)

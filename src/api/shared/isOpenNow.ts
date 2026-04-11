@@ -1,4 +1,4 @@
-type Hours = {
+export type Hours = {
   dayOfWeek: number        // 0=Sun, 1=Mon, ..., 6=Sat
   openTime: string | null  // "HH:MM"
   closeTime: string | null // "HH:MM"
@@ -9,6 +9,9 @@ type Hours = {
  * Returns true if the venue is currently open based on its BranchOpeningHours.
  * All comparisons are done in Europe/London time (handles BST/GMT automatically).
  * Pass `now` for testability (defaults to new Date()).
+ *
+ * Note: cross-midnight hours (e.g. openTime: "22:00", closeTime: "02:00") are not
+ * supported — closeTime must be greater than openTime within the same calendar day.
  */
 export function isOpenNow(hours: Hours[], now: Date = new Date()): boolean {
   // Convert `now` to GB local time
