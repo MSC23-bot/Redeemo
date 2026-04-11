@@ -106,6 +106,13 @@ describe('reviews routes', () => {
     expect(res.statusCode).toBe(200)
   })
 
+  it('DELETE /api/v1/customer/branches/:branchId/reviews/:reviewId returns 401 without token', async () => {
+    const res = await app.inject({
+      method: 'DELETE', url: '/api/v1/customer/branches/branch-1/reviews/r1',
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
   it('DELETE returns 403 when service throws REVIEW_NOT_OWNED', async () => {
     ;(deleteBranchReview as any).mockRejectedValue(new AppError('REVIEW_NOT_OWNED'))
     const res = await app.inject({

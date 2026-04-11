@@ -36,7 +36,7 @@ function formatReview(
     rating:      review.rating,
     comment:     review.comment,
     isVerified:  opts.isVerified,
-    isOwnReview: opts.requestingUserId === opts.reviewUserId,
+    isOwnReview: opts.requestingUserId == null ? null : opts.requestingUserId === opts.reviewUserId,
     createdAt:   review.createdAt.toISOString(),
     updatedAt:   review.updatedAt.toISOString(),
   }
@@ -80,7 +80,7 @@ export async function listMerchantReviews(
 
   formatted.sort((a, b) => {
     if (a.isVerified !== b.isVerified) return a.isVerified ? -1 : 1
-    return b.rating - a.rating
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   })
 
   return { reviews: formatted, total }
@@ -115,7 +115,7 @@ export async function listBranchReviews(
 
   formatted.sort((a, b) => {
     if (a.isVerified !== b.isVerified) return a.isVerified ? -1 : 1
-    return b.rating - a.rating
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   })
 
   return { reviews: formatted, total }
