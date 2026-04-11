@@ -2,6 +2,33 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
 
+vi.mock('../../../src/api/customer/discovery/service', () => ({
+  getHomeFeed:          vi.fn().mockResolvedValue({ locationContext: { city: null, source: 'none' }, featured: [], trending: [], campaigns: [], nearbyByCategory: [] }),
+  getCustomerMerchant:  vi.fn(),
+  getMerchantBranches:  vi.fn(),
+  getCustomerVoucher:   vi.fn(),
+  searchMerchants:      vi.fn(),
+  listActiveCategories: vi.fn().mockResolvedValue([]),
+  getActiveCampaigns:   vi.fn().mockResolvedValue([]),
+  getCampaignMerchants: vi.fn(),
+}))
+
+vi.mock('../../../src/api/customer/profile/service', () => ({
+  getCustomerProfile:      vi.fn(),
+  updateCustomerProfile:   vi.fn(),
+  updateCustomerInterests: vi.fn(),
+  changeCustomerPassword:  vi.fn(),
+}))
+
+vi.mock('../../../src/api/customer/favourites/service', () => ({
+  listFavouriteMerchants:  vi.fn(),
+  addFavouriteMerchant:    vi.fn(),
+  removeFavouriteMerchant: vi.fn(),
+  listFavouriteVouchers:   vi.fn(),
+  addFavouriteVoucher:     vi.fn(),
+  removeFavouriteVoucher:  vi.fn(),
+}))
+
 describe('customer plugin', () => {
   let app: FastifyInstance
   let customerToken: string
