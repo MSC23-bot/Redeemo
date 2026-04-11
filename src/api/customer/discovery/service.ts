@@ -299,12 +299,14 @@ export async function getHomeFeed(
     enrichMerchantTiles(prisma, trending as any, { lat: locationCtx.lat, lng: locationCtx.lng, userId }),
   ])
 
-  const enrichedNearby = await Promise.all(
-    nearbyByCategory.map(async (item) => ({
-      category: item.category,
-      merchants: await enrichMerchantTiles(prisma, item.merchants as any, { lat: locationCtx.lat, lng: locationCtx.lng, userId }),
-    })),
-  )
+  // Enrich all nearbyByCategory merchants in a single batch (one groupBy + one findMany total)
+  const allNearbyMerchants = nearbyByCategory.flatMap(item => item.merchants)
+  const allNearbyEnriched = await enrichMerchantTiles(prisma, allNearbyMerchants as any, { lat: locationCtx.lat, lng: locationCtx.lng, userId })
+  const enrichedById = Object.fromEntries(allNearbyEnriched.map(m => [m.id, m]))
+  const enrichedNearby = nearbyByCategory.map(item => ({
+    category: item.category,
+    merchants: item.merchants.map((m: any) => enrichedById[m.id]),
+  }))
 
   return {
     locationContext: { city: locationCtx.city, source: locationCtx.source },
