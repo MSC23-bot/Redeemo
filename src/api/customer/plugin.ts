@@ -4,6 +4,7 @@ import { discoveryRoutes } from './discovery/routes'
 import { profileRoutes } from './profile/routes'
 import { favouritesRoutes } from './favourites/routes'
 import { reviewOpenRoutes, reviewAuthRoutes } from './reviews/routes'
+import { savingsRoutes } from './savings/routes'
 
 /**
  * Attempts to extract the `sub` (userId) from an Authorization: Bearer <token>
@@ -64,6 +65,9 @@ async function customerPlugin(app: FastifyInstance) {
 
     // Review write routes — upsert, delete, report (auth required)
     authed.register(reviewAuthRoutes)
+
+    // Savings routes — summary + redemptions history
+    authed.register(savingsRoutes)
   })
 }
 
