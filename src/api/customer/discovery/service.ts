@@ -765,7 +765,7 @@ export async function getActiveCampaigns(prisma: PrismaClient) {
 export async function getCampaignMerchants(
   prisma: PrismaClient,
   campaignId: string,
-  params: { categoryId?: string; limit: number; offset: number },
+  params: { categoryId?: string; limit: number; offset: number; lat?: number; lng?: number; userId?: string | null },
 ) {
   const now = new Date()
   const campaign = await prisma.campaign.findUnique({
@@ -799,5 +799,10 @@ export async function getCampaignMerchants(
     skip:   params.offset,
   })
 
-  return rows.map((r: any) => r.merchant)
+  const rawMerchants = rows.map((r: any) => r.merchant)
+  return enrichMerchantTiles(prisma, rawMerchants, {
+    lat: params.lat ?? null,
+    lng: params.lng ?? null,
+    userId: params.userId ?? null,
+  })
 }

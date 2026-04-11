@@ -104,10 +104,13 @@ export async function discoveryRoutes(app: FastifyInstance) {
     const { id } = idParam.parse(req.params)
     const query = z.object({
       categoryId: z.string().optional(),
+      lat:    z.coerce.number().optional(),
+      lng:    z.coerce.number().optional(),
       limit:  z.coerce.number().int().min(1).max(100).default(20),
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(req.query)
-    const result = await getCampaignMerchants(app.prisma, id, query)
+    const userId = optionalUserId(req)
+    const result = await getCampaignMerchants(app.prisma, id, { ...query, userId })
     return reply.send(result)
   })
 }
