@@ -27,7 +27,7 @@ const INTERVAL_LABELS: Record<string, { period: string; badge: string | null }> 
 
 export function PlanSelector({ plans, selectedPlanId, onSelect }: Props) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div role="group" aria-label="Choose a subscription plan" className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {plans.map((plan, i) => {
         const isSelected = plan.id === selectedPlanId
         const isAnnual = plan.interval === 'ANNUAL'

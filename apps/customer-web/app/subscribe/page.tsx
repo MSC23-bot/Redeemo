@@ -20,7 +20,7 @@ type Subscription = {
   plan: { name: string } | null
 }
 
-type CheckStep = 'loading' | 'already_subscribed' | 'select_plan' | 'payment' | 'done'
+type CheckStep = 'loading' | 'already_subscribed' | 'select_plan' | 'payment' | 'done' | 'error'
 
 const STEPS = ['Plan', 'Payment', 'Done']
 const ACTIVE_STATUSES = ['ACTIVE', 'TRIALLING', 'PAST_DUE']
@@ -36,7 +36,7 @@ export default function SubscribePage() {
 
     Promise.all([
       subscriptionApi.getPlans(),
-      token ? subscriptionApi.getMySubscription() : Promise.resolve(null),
+      token ? subscriptionApi.getMySubscription().catch(() => null) : Promise.resolve(null),
     ]).then(([plansData, sub]) => {
       setPlans(plansData)
       if (sub && ACTIVE_STATUSES.includes(sub.status)) {
@@ -45,7 +45,7 @@ export default function SubscribePage() {
       } else {
         setCheckStep('select_plan')
       }
-    }).catch(() => setCheckStep('select_plan'))
+    }).catch(() => setCheckStep('error'))
   }, [])
 
   const handlePlanSelect = (planId: string) => {
@@ -59,6 +59,25 @@ export default function SubscribePage() {
     return (
       <div className="min-h-screen bg-[#FAF8F5] flex items-center justify-center">
         <span className="font-mono text-[12px] text-navy/35 animate-pulse">Loading…</span>
+      </div>
+    )
+  }
+
+  if (checkStep === 'error') {
+    return (
+      <div className="min-h-screen bg-[#FAF8F5] flex items-center justify-center px-6">
+        <div className="text-center max-w-sm">
+          <h1 className="font-display text-[28px] text-navy mb-3">Something went wrong</h1>
+          <p className="text-[15px] text-navy/50 mb-6">
+            We couldn&apos;t load subscription plans. Please refresh and try again.
+          </p>
+          <button
+            onClick={() => { setCheckStep('loading'); window.location.reload() }}
+            className="bg-navy text-white font-medium text-[14px] px-6 py-3 rounded-xl hover:bg-navy/90 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     )
   }

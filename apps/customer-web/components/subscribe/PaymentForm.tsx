@@ -94,18 +94,23 @@ export function PaymentForm({ planId, promoCode, onSuccess }: Props) {
   const [fetchError, setFetchError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     setClientSecret(null)
     setFetchError(null)
     subscriptionApi.createSetupIntent()
-      .then(data => setClientSecret(data.clientSecret))
+      .then(data => {
+        if (!cancelled) setClientSecret(data.clientSecret)
+      })
       .catch((err: unknown) => {
+        if (cancelled) return
         if (err instanceof ApiError && err.statusCode === 401) {
           router.push('/login?next=/subscribe')
           return
         }
         setFetchError('Could not initialise payment. Please refresh and try again.')
       })
-  }, [planId, router])
+    return () => { cancelled = true }
+  }, [planId]) // router is stable — intentionally excluded from deps
 
   if (fetchError) {
     return <p className="text-red text-[14px]">{fetchError}</p>
