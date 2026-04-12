@@ -119,7 +119,7 @@ export function HeroSection() {
 
         {/* Right: phone frame — overflows section bottom, Framer Motion float loop */}
         <motion.div
-          initial={{ opacity: 0, y: 30, rotate: 2 }}
+          initial={{ opacity: 0, rotate: 2 }}
           animate={{ opacity: 1, y: [0, -10, 0], rotate: 2 }}
           transition={{
             opacity: { duration: 0.7, delay: 0.4 },
