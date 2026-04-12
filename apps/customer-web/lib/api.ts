@@ -181,19 +181,48 @@ export const discoveryApi = {
     const qs = sp.toString() ? `?${sp.toString()}` : ''
     return apiFetch<{
       id: string
+      businessName: string
+      tradingName: string | null
       name: string
       description: string | null
       logoUrl: string | null
-      coverImageUrl: string | null
       bannerUrl: string | null
+      coverImageUrl: string | null
       websiteUrl: string | null
-      primaryCategory: { id: string; name: string }
-      branches: { id: string; name: string; address: string; distance: number | null }[]
-      vouchers: VoucherData[]
+      phone: string | null
+      email: string | null
+      primaryCategory: { id: string; name: string; pinColour: string | null } | null
+      branches: {
+        id: string
+        name: string
+        isOpenNow: boolean
+        addressLine1: string
+        addressLine2: string | null
+        city: string
+        postcode: string
+        phone: string | null
+        distance: number | null
+        avgRating: number | null
+        reviewCount: number
+      }[]
+      vouchers: {
+        id: string
+        title: string
+        type: string
+        description: string | null
+        terms: string | null
+        imageUrl: string | null
+        estimatedSaving: number | null
+        expiryDate: string | null
+      }[]
       avgRating: number | null
       reviewCount: number
-      amenities: string[]
-      openingHours: Record<string, string> | null
+      isFavourited: boolean
+      isOpenNow: boolean
+      distance: number | null
+      amenities: { id: string; name: string; iconUrl: string | null }[]
+      openingHours: { dayOfWeek: number; openTime: string; closeTime: string; isClosed: boolean }[]
+      photos: string[]
       status: string
     }>(`/api/v1/customer/merchants/${id}${qs}`)
   },
