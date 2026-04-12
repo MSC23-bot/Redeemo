@@ -1,5 +1,6 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 import { getAccessToken } from '@/lib/auth'
+
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
 export class ApiError extends Error {
   constructor(public status: number, public body: unknown) {
@@ -217,13 +218,22 @@ export type ProfileData = {
   profileCompleteness: number
 }
 
+export type ProfileUpdatePayload = {
+  firstName?: string
+  lastName?: string
+  dateOfBirth?: string | null
+  gender?: string | null
+  city?: string | null
+  postcode?: string | null
+  profileImageUrl?: string | null
+  newsletterConsent?: boolean
+}
+
 export const profileApi = {
   get: () => apiFetch<ProfileData>('/api/v1/customer/profile/me', { auth: true }),
-  update: (data: Partial<ProfileData>) =>
+  update: (data: ProfileUpdatePayload) =>
     apiFetch<ProfileData>('/api/v1/customer/profile/me', {
-      method: 'PATCH',
-      auth: true,
-      body: JSON.stringify(data),
+      method: 'PATCH', auth: true, body: JSON.stringify(data),
     }),
   changePassword: (currentPassword: string, newPassword: string) =>
     apiFetch<{ message: string }>('/api/v1/customer/profile/change-password', {

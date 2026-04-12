@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { authApi, type LoginResponse } from '@/lib/api'
-import { saveTokens, clearTokens, getAccessToken } from '@/lib/auth'
+import { saveTokens, clearTokens, getAccessToken, getRefreshToken, saveUser, getUser, clearUser } from '@/lib/auth'
 
 type User = LoginResponse['user']
 
@@ -20,27 +20,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const token = getAccessToken()
-    if (token) {
-      const stored = localStorage.getItem('redeemo_user')
-      if (stored) {
-        try { setUser(JSON.parse(stored)) } catch { /* ignore */ }
+    async function bootstrap() {
+      const accessToken = getAccessToken()
+      const refreshToken = getRefreshToken()
+
+      if (!accessToken && !refreshToken) {
+        setIsLoading(false)
+        return
       }
+
+      if (refreshToken) {
+        try {
+          const result = await authApi.refresh(refreshToken)
+          saveTokens(result.accessToken, result.refreshToken)
+          // After successful refresh, restore user from storage
+          const stored = getUser()
+          if (stored) setUser(stored)
+        } catch {
+          // Refresh failed — clear everything
+          clearTokens()
+          clearUser()
+        }
+      } else if (accessToken) {
+        // Have access token but no refresh token — restore user optimistically
+        const stored = getUser()
+        if (stored) setUser(stored)
+      }
+
+      setIsLoading(false)
     }
-    setIsLoading(false)
+
+    void bootstrap()
   }, [])
 
   const login = useCallback(async (email: string, password: string) => {
     const result = await authApi.login(email, password)
     saveTokens(result.accessToken, result.refreshToken)
-    localStorage.setItem('redeemo_user', JSON.stringify(result.user))
+    saveUser(result.user)
     setUser(result.user)
   }, [])
 
   const logout = useCallback(async () => {
     try { await authApi.logout() } catch { /* ignore network error on logout */ }
     clearTokens()
-    localStorage.removeItem('redeemo_user')
+    clearUser()
     setUser(null)
   }, [])
 
