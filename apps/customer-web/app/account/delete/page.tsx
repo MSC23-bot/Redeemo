@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AccountNav } from '@/components/account/AccountNav'
 import { authApi, ApiError } from '@/lib/api'
-import { clearTokens } from '@/lib/auth'
+import { clearTokens, clearUser } from '@/lib/auth'
 
 type Stage = 'confirm' | 'otp' | 'done'
 
@@ -49,6 +49,7 @@ export default function DeleteAccountPage() {
       const { actionToken } = await authApi.verifyDeletionOtp(code)
       await authApi.deleteAccount(actionToken)
       clearTokens()
+      clearUser()
       setStage('done')
     } catch (err: unknown) {
       const c = err instanceof ApiError ? err.code ?? '' : ''
