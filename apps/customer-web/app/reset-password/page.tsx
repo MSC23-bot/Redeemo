@@ -1,5 +1,5 @@
 'use client'
-import { useState, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -16,6 +16,12 @@ function ResetPasswordForm() {
   const [done, setDone]               = useState(false)
   const [error, setError]             = useState<string | null>(null)
 
+  useEffect(() => {
+    if (!done) return
+    const timer = setTimeout(() => router.push('/login'), 2500)
+    return () => clearTimeout(timer)
+  }, [done, router])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -31,7 +37,6 @@ function ResetPasswordForm() {
     try {
       await authApi.resetPassword(token, newPassword)
       setDone(true)
-      setTimeout(() => router.push('/login'), 2500)
     } catch (err: unknown) {
       const code = err instanceof ApiError ? err.code ?? '' : ''
       if (code === 'TOKEN_INVALID' || code === 'TOKEN_EXPIRED') {
@@ -99,6 +104,7 @@ function ResetPasswordForm() {
                   type="password"
                   required
                   autoFocus
+                  autoComplete="new-password"
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
                   className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition"
@@ -112,6 +118,7 @@ function ResetPasswordForm() {
                   id="confirm-password"
                   type="password"
                   required
+                  autoComplete="new-password"
                   value={confirm}
                   onChange={e => setConfirm(e.target.value)}
                   className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition"
