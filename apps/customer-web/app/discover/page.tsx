@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { discoveryApi } from '@/lib/api'
 import { DiscoverHero } from '@/components/discover/DiscoverHero'
 import { CampaignBanner } from '@/components/discover/CampaignBanner'
@@ -30,14 +31,16 @@ export default async function DiscoverPage({
   const activeCategory = params.categoryId
   const categoryRows = feedData?.nearbyByCategory ?? []
   const filteredRows = activeCategory
-    ? categoryRows.filter((row: { category: { id: string } }) => row.category.id === activeCategory)
+    ? categoryRows.filter(row => row.category.id === activeCategory)
     : categoryRows
 
   return (
     <div className="min-h-screen bg-[#FAF8F5]">
       <DiscoverHero locationContext={feedData?.locationContext ?? { city: null, source: 'none' }} />
 
-      <CategoryFilterBar categories={categories} />
+      <Suspense fallback={<div className="h-12 bg-[#FAF8F5] border-b border-navy/[0.06]" />}>
+        <CategoryFilterBar categories={categories} />
+      </Suspense>
 
       {feedData?.campaigns && feedData.campaigns.length > 0 && (
         <div className="pt-6">
@@ -61,16 +64,16 @@ export default async function DiscoverPage({
           />
         )}
 
-        {filteredRows.map((row: { category: { id: string; name: string }; merchants: unknown[] }) => (
+        {filteredRows.map(row => (
           <MerchantRow
             key={row.category.id}
             title={row.category.name}
             subtitle={`${row.merchants.length} merchants`}
-            merchants={row.merchants as Parameters<typeof MerchantRow>[0]['merchants']}
+            merchants={row.merchants}
           />
         ))}
 
-        {filteredRows.length === 0 && !feedData?.featured?.length && !feedData?.trending?.length && (
+        {filteredRows.length === 0 && (!activeCategory ? !feedData?.featured?.length && !feedData?.trending?.length : true) && (
           <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
             <span className="text-5xl mb-4" aria-hidden>🏪</span>
             <h2 className="font-display text-[28px] text-navy mb-2">No merchants near you yet</h2>

@@ -14,25 +14,26 @@ export function MerchantRow({ title, subtitle, merchants, initialFavourites }: P
   const [favourites, setFavourites] = useState<Set<string>>(initialFavourites ?? new Set())
 
   const handleFavouriteToggle = useCallback(async (merchantId: string) => {
-    const isFav = favourites.has(merchantId)
+    let wasFav = false
     setFavourites(prev => {
+      wasFav = prev.has(merchantId)
       const next = new Set(prev)
-      isFav ? next.delete(merchantId) : next.add(merchantId)
+      wasFav ? next.delete(merchantId) : next.add(merchantId)
       return next
     })
     try {
       await apiFetch(
         `/api/v1/customer/favourites/merchants/${merchantId}`,
-        { method: isFav ? 'DELETE' : 'POST', auth: true },
+        { method: wasFav ? 'DELETE' : 'POST', auth: true },
       )
     } catch {
       setFavourites(prev => {
         const next = new Set(prev)
-        isFav ? next.add(merchantId) : next.delete(merchantId)
+        wasFav ? next.add(merchantId) : next.delete(merchantId)
         return next
       })
     }
-  }, [favourites])
+  }, []) // no deps — reads state via functional updater
 
   if (merchants.length === 0) return null
 

@@ -10,7 +10,7 @@ export type MerchantTile = MerchantTileData
 function formatDistance(metres: number | null): string | null {
   if (metres === null) return null
   if (metres < 1000) return `${Math.round(metres)}m`
-  return `${(metres / 1000).toFixed(1)}mi`
+  return `${(metres / 1000).toFixed(1)}km`
 }
 
 type Props = {

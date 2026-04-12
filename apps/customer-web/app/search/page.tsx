@@ -1,6 +1,6 @@
 'use client'
 import { useSearchParams } from 'next/navigation'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { discoveryApi } from '@/lib/api'
 import { SearchBar } from '@/components/search/SearchBar'
 import { SearchResults } from '@/components/search/SearchResults'
@@ -20,10 +20,11 @@ export default function SearchPage() {
 
   const [results, setResults] = useState<MerchantTile[]>([])
   const [total, setTotal] = useState(0)
-  const [offset, setOffset] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
+  const offsetRef = useRef(0)
 
   const q = searchParams.get('q') ?? ''
   const categoryId = searchParams.get('categoryId') ?? undefined
@@ -36,7 +37,8 @@ export default function SearchPage() {
 
   const fetchResults = useCallback(async (reset = true) => {
     setIsLoading(true)
-    const currentOffset = reset ? 0 : offset
+    setError(null)
+    const currentOffset = reset ? 0 : offsetRef.current
     try {
       const data = await discoveryApi.search({
         q: q || undefined,
@@ -49,16 +51,18 @@ export default function SearchPage() {
       })
       if (reset) {
         setResults(data.results)
-        setOffset(PAGE_SIZE)
+        offsetRef.current = PAGE_SIZE
       } else {
         setResults(prev => [...prev, ...data.results])
-        setOffset(o => o + PAGE_SIZE)
+        offsetRef.current = offsetRef.current + PAGE_SIZE
       }
       setTotal(data.total)
+    } catch {
+      setError('Failed to load results. Please try again.')
     } finally {
       setIsLoading(false)
     }
-  }, [q, categoryId, filters, offset])
+  }, [q, categoryId, filters])
 
   useEffect(() => {
     fetchResults(true)
@@ -75,6 +79,10 @@ export default function SearchPage() {
         activeFilterCount={activeFilterCount}
         onFilterToggle={() => setFilterOpen(o => !o)}
       />
+
+      {error && (
+        <div className="px-6 py-4 text-[14px] text-red">{error}</div>
+      )}
 
       <div className="flex max-w-screen-xl mx-auto">
         <FilterDrawer

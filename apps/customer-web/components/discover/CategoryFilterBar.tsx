@@ -18,7 +18,11 @@ export function CategoryFilterBar({ categories }: { categories: Category[] }) {
     >
       <div className="flex gap-2 px-6 py-3" style={{ width: 'max-content' }}>
         <button
-          onClick={() => router.push('/discover')}
+          onClick={() => {
+            const next = new URLSearchParams(searchParams.toString())
+            next.delete('categoryId')
+            router.push(`/discover?${next}`)
+          }}
           className={`font-mono text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-full border transition-colors flex-shrink-0 ${
             !active
               ? 'bg-navy text-white border-navy'
@@ -30,7 +34,11 @@ export function CategoryFilterBar({ categories }: { categories: Category[] }) {
         {categories.map(cat => (
           <button
             key={cat.id}
-            onClick={() => router.push(`/discover?categoryId=${cat.id}`)}
+            onClick={() => {
+              const next = new URLSearchParams(searchParams.toString())
+              next.set('categoryId', cat.id)
+              router.push(`/discover?${next}`)
+            }}
             className={`font-mono text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-full border transition-colors flex-shrink-0 ${
               active === cat.id
                 ? 'bg-navy text-white border-navy'

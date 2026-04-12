@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { MerchantTile, type MerchantTile as MerchantTileType } from '@/components/ui/MerchantTile'
 import { apiFetch } from '@/lib/api'
@@ -18,25 +18,37 @@ export function SearchResults({ results, total, hasMore, onLoadMore, isLoading }
   )
 
   const handleFavouriteToggle = useCallback(async (merchantId: string) => {
-    const isFav = favourites.has(merchantId)
+    let wasFav = false
     setFavourites(prev => {
+      wasFav = prev.has(merchantId)
       const next = new Set(prev)
-      isFav ? next.delete(merchantId) : next.add(merchantId)
+      wasFav ? next.delete(merchantId) : next.add(merchantId)
       return next
     })
     try {
       await apiFetch(
         `/api/v1/customer/favourites/merchants/${merchantId}`,
-        { method: isFav ? 'DELETE' : 'POST', auth: true },
+        { method: wasFav ? 'DELETE' : 'POST', auth: true },
       )
     } catch {
       setFavourites(prev => {
         const next = new Set(prev)
-        isFav ? next.add(merchantId) : next.delete(merchantId)
+        wasFav ? next.add(merchantId) : next.delete(merchantId)
         return next
       })
     }
-  }, [favourites])
+  }, [])
+
+  useEffect(() => {
+    const newlyFavourited = results.filter(m => m.isFavourited).map(m => m.id)
+    if (newlyFavourited.length > 0) {
+      setFavourites(prev => {
+        const next = new Set(prev)
+        newlyFavourited.forEach(id => next.add(id))
+        return next
+      })
+    }
+  }, [results])
 
   if (results.length === 0 && !isLoading) {
     return (

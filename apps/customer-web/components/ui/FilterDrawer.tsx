@@ -153,11 +153,17 @@ function DrawerContent({
             const checked = filters.voucherTypes.includes(type)
             return (
               <label key={type} className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={checked}
+                  onChange={() => toggleVoucherType(type)}
+                />
                 <span
                   className={`w-5 h-5 rounded flex items-center justify-center border flex-shrink-0 transition-colors ${
                     checked ? 'bg-red border-red' : 'border-navy/20 group-hover:border-navy/40'
                   }`}
-                  onClick={() => toggleVoucherType(type)}
+                  aria-hidden="true"
                 >
                   {checked && <span className="text-white text-[11px]">✓</span>}
                 </span>
@@ -171,6 +177,9 @@ function DrawerContent({
       <div className="flex items-center justify-between">
         <p className="text-[14px] text-navy/70">Open now</p>
         <button
+          role="switch"
+          aria-checked={filters.openNow}
+          aria-label="Open now"
           onClick={() => onFiltersChange({ ...filters, openNow: !filters.openNow })}
           className={`relative w-11 h-6 rounded-full transition-colors ${filters.openNow ? 'bg-red' : 'bg-navy/15'}`}
         >
