@@ -37,7 +37,7 @@ function formatReview(
     rating:      review.rating,
     comment:     review.comment,
     isVerified:  opts.isVerified,
-    isOwnReview: opts.requestingUserId == null ? null : opts.requestingUserId === opts.reviewUserId,
+    isOwnReview: opts.requestingUserId !== null && opts.requestingUserId === opts.reviewUserId,
     createdAt:   review.createdAt.toISOString(),
     updatedAt:   review.updatedAt.toISOString(),
   }

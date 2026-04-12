@@ -45,24 +45,33 @@ describe('savings routes', () => {
   afterEach(() => app.close())
 
   const mockSummary = {
-    totalSavedPence: 5000,
-    redemptionCount: 10,
-    currentCycleSavedPence: 1500,
-    currentCycleRedemptionCount: 3,
-    allTimeRank: null,
+    lifetimeSaving: 50.00,
+    thisMonthSaving: 15.00,
+    thisMonthRedemptionCount: 3,
+    monthlyBreakdown: [
+      { month: '2026-04', saving: 15.00, count: 3 },
+      { month: '2026-03', saving: 20.00, count: 4 },
+      ...Array.from({ length: 10 }, (_, i) => ({ month: `2025-${String(6 + i).padStart(2, '0')}`, saving: 0, count: 0 })),
+    ],
+    byMerchant: [
+      { merchantId: 'm1', businessName: 'Pizza Place', logoUrl: null, saving: 15.00, count: 3 },
+    ],
+    byCategory: [
+      { categoryId: 'cat1', name: 'Food & Drink', saving: 15.00 },
+    ],
   }
 
   const mockRedemption = {
     id: 'r1',
-    createdAt: '2026-04-01T10:00:00Z',
-    estimatedSaving: 500,
+    redeemedAt: '2026-04-01T10:00:00Z',
+    estimatedSaving: 5.00,
     isValidated: true,
     merchant: { id: 'm1', name: 'Pizza Place', logoUrl: null },
     voucher: { id: 'v1', title: 'Free Dessert', voucherType: 'FREEBIE' },
     branch: { id: 'b1', name: 'Central Branch' },
   }
 
-  it('GET /savings/summary returns 200 with expected shape', async () => {
+  it('GET /savings/summary returns 200 with full contract shape', async () => {
     ;(getSavingsSummary as any).mockResolvedValue(mockSummary)
     const res = await app.inject({
       method: 'GET',
@@ -71,11 +80,16 @@ describe('savings routes', () => {
     })
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.totalSavedPence).toBe(5000)
-    expect(body.redemptionCount).toBe(10)
-    expect(body.currentCycleSavedPence).toBe(1500)
-    expect(body.currentCycleRedemptionCount).toBe(3)
-    expect(body.allTimeRank).toBeNull()
+    expect(body.lifetimeSaving).toBe(50.00)
+    expect(body.thisMonthSaving).toBe(15.00)
+    expect(body.thisMonthRedemptionCount).toBe(3)
+    expect(Array.isArray(body.monthlyBreakdown)).toBe(true)
+    expect(body.monthlyBreakdown).toHaveLength(12)
+    expect(body.monthlyBreakdown[0]).toMatchObject({ month: '2026-04', saving: 15.00, count: 3 })
+    expect(Array.isArray(body.byMerchant)).toBe(true)
+    expect(body.byMerchant[0]).toMatchObject({ merchantId: 'm1', businessName: 'Pizza Place', saving: 15.00 })
+    expect(Array.isArray(body.byCategory)).toBe(true)
+    expect(body.byCategory[0]).toMatchObject({ categoryId: 'cat1', name: 'Food & Drink' })
   })
 
   it('GET /savings/summary returns 401 without token', async () => {
@@ -103,7 +117,7 @@ describe('savings routes', () => {
     expect(body.total).toBe(1)
     const r = body.redemptions[0]
     expect(r.id).toBe('r1')
-    expect(r.estimatedSaving).toBe(500)
+    expect(r.estimatedSaving).toBe(5.00)
     expect(r.merchant.name).toBe('Pizza Place')
     expect(r.voucher.voucherType).toBe('FREEBIE')
     expect(r.branch.name).toBe('Central Branch')
