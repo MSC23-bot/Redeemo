@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand colours — these make bg-navy, text-red, etc. available as Tailwind utilities */
+  --color-red: #E2000C;
+  --color-orange-red: #E84A00;
+  --color-orange: #EE6904;
+  --color-navy: #010C35;
+  --color-deep-navy: #00041E;
+  --color-coral: #E04403;
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #F8F7F5;
+
+  /* Font families — CSS variables are set by next/font/google in layout.tsx */
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+/* Semantic CSS custom properties (used by components via var()) */
+:root {
+  --color-primary: #E2000C;
+  --color-anchor: #010C35;
+  --gradient-brand: linear-gradient(135deg, #E2000C 0%, #E84A00 50%, #EE6904 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color: #010C35;
+  background: #FFFFFF;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Gradient text utility — used in hero headings */
+.gradient-brand-text {
+  background: linear-gradient(135deg, #E2000C 0%, #EE6904 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
