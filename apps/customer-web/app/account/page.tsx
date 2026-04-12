@@ -14,6 +14,7 @@ function CompletenessArc({ pct }: { pct: number }) {
         className="w-full h-full rounded-full"
         style={{ background: gradient }}
         role="progressbar"
+        aria-label="Profile completeness"
         aria-valuenow={pct}
         aria-valuemin={0}
         aria-valuemax={100}
@@ -70,7 +71,9 @@ export default async function AccountPage() {
             {[
               { href: '/account/savings',    icon: '£',  label: 'My Savings',   sub: "See what you've saved" },
               { href: '/account/favourites', icon: '♡',  label: 'Favourites',   sub: 'Saved merchants & vouchers' },
-              { href: '/account/profile',    icon: '👤', label: 'Edit Profile', sub: 'Name, address, interests' },
+              { href: '/account/profile',    icon: (
+                <svg width="22" height="22" viewBox="0 0 14 14" fill="none" aria-hidden><circle cx="7" cy="4.5" r="2.5" fill="currentColor"/><path d="M2 12c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              ), label: 'Edit Profile', sub: 'Name, address, interests' },
             ].map((item) => (
               <Link
                 key={item.href}

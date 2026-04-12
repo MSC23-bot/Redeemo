@@ -14,13 +14,17 @@ const STATUS_LABELS: Record<string, { label: string; colour: string }> = {
 export function SubscriptionCard({ subscription }: { subscription: MySubscription | null }) {
   const [cancelling, setCancelling] = useState(false)
   const [cancelled, setCancelled] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   const handleCancel = async () => {
     if (!confirm("Cancel your subscription? You'll keep access until the end of your billing period.")) return
     setCancelling(true)
+    setCancelError(null)
     try {
       await subscriptionApi.cancel()
       setCancelled(true)
+    } catch {
+      setCancelError('Could not cancel subscription. Please try again.')
     } finally {
       setCancelling(false)
     }
@@ -89,6 +93,9 @@ export function SubscriptionCard({ subscription }: { subscription: MySubscriptio
         >
           {cancelling ? 'Cancelling…' : 'Cancel subscription'}
         </button>
+      )}
+      {cancelError && (
+        <p className="text-red text-[13px] mt-2" role="alert">{cancelError}</p>
       )}
     </motion.div>
   )

@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { profileApi, ApiError, type ProfileData } from '@/lib/api'
 
@@ -11,12 +11,14 @@ function Field({
   label: string; value: string; onChange?: (v: string) => void
   type?: string; readOnly?: boolean
 }) {
+  const id = label.toLowerCase().replace(/\s+/g, '-')
   return (
     <div>
-      <label className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/45 mb-2">
+      <label htmlFor={id} className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/45 mb-2">
         {label}
       </label>
       <input
+        id={id}
         type={type}
         value={value}
         onChange={e => onChange?.(e.target.value)}
@@ -44,6 +46,8 @@ export function ProfileForm({ profile }: Props) {
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const [pwOpen, setPwOpen] = useState(false)
   const [pwValues, setPwValues] = useState({ current: '', next: '', confirm: '' })
   const [pwSaving, setPwSaving] = useState(false)
@@ -67,8 +71,9 @@ export function ProfileForm({ profile }: Props) {
         postcode:     values.postcode || null,
         newsletterConsent: newsletter,
       })
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
       setSaveSuccess(true)
-      setTimeout(() => setSaveSuccess(false), 3000)
+      successTimerRef.current = setTimeout(() => setSaveSuccess(false), 3000)
     } catch {
       setSaveError('Could not save changes. Please try again.')
     } finally {
@@ -133,17 +138,20 @@ export function ProfileForm({ profile }: Props) {
 
         {/* Newsletter consent */}
         <label className="flex items-center gap-3 cursor-pointer mb-6">
+          <input
+            type="checkbox"
+            id="newsletter-consent"
+            checked={newsletter}
+            onChange={e => setNewsletter(e.target.checked)}
+            className="sr-only"
+          />
           <span
-            onClick={() => setNewsletter(v => !v)}
-            role="checkbox"
-            aria-checked={newsletter}
-            tabIndex={0}
-            onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') setNewsletter(v => !v) }}
+            aria-hidden
             className={`w-5 h-5 rounded flex items-center justify-center border flex-shrink-0 transition-colors ${
               newsletter ? 'bg-red border-red' : 'border-navy/20'
             }`}
           >
-            {newsletter && <span className="text-white text-[11px]" aria-hidden>✓</span>}
+            {newsletter && <span className="text-white text-[11px]">✓</span>}
           </span>
           <span className="text-[13px] text-navy/60">Receive offers and updates from Redeemo by email</span>
         </label>
@@ -207,15 +215,16 @@ export function ProfileForm({ profile }: Props) {
             >
               <div className="flex flex-col gap-4 mt-5 max-w-sm">
                 {[
-                  { field: 'current', label: 'Current password' },
-                  { field: 'next',    label: 'New password' },
-                  { field: 'confirm', label: 'Confirm new password' },
-                ].map(({ field, label }) => (
+                  { field: 'current', label: 'Current password', id: 'pw-current' },
+                  { field: 'next',    label: 'New password',      id: 'pw-new' },
+                  { field: 'confirm', label: 'Confirm new password', id: 'pw-confirm' },
+                ].map(({ field, label, id }) => (
                   <div key={field}>
-                    <label className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/45 mb-2">
+                    <label htmlFor={id} className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/45 mb-2">
                       {label}
                     </label>
                     <input
+                      id={id}
                       type="password"
                       value={pwValues[field as keyof typeof pwValues]}
                       onChange={e => setPwValues(v => ({ ...v, [field]: e.target.value }))}

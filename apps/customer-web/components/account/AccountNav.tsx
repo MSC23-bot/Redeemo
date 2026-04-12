@@ -32,7 +32,7 @@ export function AccountNav({ variant = 'both' }: { variant?: AccountNavVariant }
     <>
       {/* Mobile: horizontal scroll tab bar */}
       {(variant === 'mobile' || variant === 'both') && (
-        <nav className="lg:hidden overflow-x-auto scrollbar-none bg-[#FAF8F5] border-b border-navy/[0.06] sticky top-[64px] z-10">
+        <nav aria-label="Account tabs" className="lg:hidden overflow-x-auto scrollbar-none bg-[#FAF8F5] border-b border-navy/[0.06] sticky top-[64px] z-10">
           <div className="flex gap-1 px-6 py-2" style={{ width: 'max-content' }}>
             {NAV_ITEMS.map(item => {
               const isActive = pathname === item.href
@@ -57,7 +57,7 @@ export function AccountNav({ variant = 'both' }: { variant?: AccountNavVariant }
 
       {/* Desktop: sticky left sidebar */}
       {(variant === 'desktop' || variant === 'both') && (
-        <nav className="hidden lg:flex flex-col gap-1 w-56 flex-shrink-0 sticky top-24 self-start pt-2">
+        <nav aria-label="Account menu" className="hidden lg:flex flex-col gap-1 w-56 flex-shrink-0 sticky top-24 self-start pt-2">
           {NAV_ITEMS.map((item, i) => {
             const isActive = pathname === item.href
             return (
