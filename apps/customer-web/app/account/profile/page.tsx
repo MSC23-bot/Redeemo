@@ -15,9 +15,9 @@ export default async function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-[#FAF8F5]">
-      <AccountNav />
+      <AccountNav variant="mobile" />
       <div className="max-w-screen-xl mx-auto px-6 py-10 lg:flex lg:gap-12">
-        <div className="hidden lg:block w-56 flex-shrink-0" />
+        <AccountNav variant="desktop" />
         <main className="flex-1">
           <div className="mb-8">
             <p className="font-mono text-[11px] tracking-[0.12em] uppercase text-navy/35 mb-2">Account</p>

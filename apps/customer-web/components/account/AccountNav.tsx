@@ -23,67 +23,73 @@ const NAV_ITEMS = [
   },
 ]
 
-export function AccountNav() {
+type AccountNavVariant = 'mobile' | 'desktop' | 'both'
+
+export function AccountNav({ variant = 'both' }: { variant?: AccountNavVariant }) {
   const pathname = usePathname()
 
   return (
     <>
       {/* Mobile: horizontal scroll tab bar */}
-      <nav className="lg:hidden overflow-x-auto scrollbar-none bg-[#FAF8F5] border-b border-navy/[0.06] sticky top-[64px] z-10">
-        <div className="flex gap-1 px-6 py-2" style={{ width: 'max-content' }}>
-          {NAV_ITEMS.map(item => {
-            const isActive = pathname === item.href
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-1.5 font-mono text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-full whitespace-nowrap transition-colors ${
-                  isActive
-                    ? 'bg-navy text-white'
-                    : 'text-navy/55 hover:text-navy'
-                }`}
-              >
-                <span className="w-3.5 h-3.5 flex-shrink-0">{item.icon}</span>
-                {item.label}
-              </Link>
-            )
-          })}
-        </div>
-      </nav>
+      {(variant === 'mobile' || variant === 'both') && (
+        <nav className="lg:hidden overflow-x-auto scrollbar-none bg-[#FAF8F5] border-b border-navy/[0.06] sticky top-[64px] z-10">
+          <div className="flex gap-1 px-6 py-2" style={{ width: 'max-content' }}>
+            {NAV_ITEMS.map(item => {
+              const isActive = pathname === item.href
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-1.5 font-mono text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-full whitespace-nowrap transition-colors ${
+                    isActive
+                      ? 'bg-navy text-white'
+                      : 'text-navy/55 hover:text-navy'
+                  }`}
+                >
+                  <span className="w-3.5 h-3.5 flex-shrink-0">{item.icon}</span>
+                  {item.label}
+                </Link>
+              )
+            })}
+          </div>
+        </nav>
+      )}
 
       {/* Desktop: sticky left sidebar */}
-      <nav className="hidden lg:flex flex-col gap-1 w-56 flex-shrink-0 sticky top-24 self-start pt-2">
-        {NAV_ITEMS.map((item, i) => {
-          const isActive = pathname === item.href
-          return (
-            <motion.div
-              key={item.href}
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3, delay: i * 0.06 }}
-            >
-              <Link
-                href={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[14px] transition-colors relative group ${
-                  isActive
-                    ? 'bg-white text-navy font-medium shadow-sm'
-                    : 'text-navy/55 hover:text-navy hover:bg-white/60'
-                }`}
+      {(variant === 'desktop' || variant === 'both') && (
+        <nav className="hidden lg:flex flex-col gap-1 w-56 flex-shrink-0 sticky top-24 self-start pt-2">
+          {NAV_ITEMS.map((item, i) => {
+            const isActive = pathname === item.href
+            return (
+              <motion.div
+                key={item.href}
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3, delay: i * 0.06 }}
               >
-                {/* Active left-border accent */}
-                {isActive && (
-                  <motion.span
-                    layoutId="account-nav-indicator"
-                    className="absolute left-0 top-2 bottom-2 w-[3px] bg-gradient-to-b from-red to-orange-red rounded-full"
-                  />
-                )}
-                <span aria-hidden className="text-[16px] ml-2">{item.icon}</span>
-                {item.label}
-              </Link>
-            </motion.div>
-          )
-        })}
-      </nav>
+                <Link
+                  href={item.href}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[14px] transition-colors relative group ${
+                    isActive
+                      ? 'bg-white text-navy font-medium shadow-sm'
+                      : 'text-navy/55 hover:text-navy hover:bg-white/60'
+                  }`}
+                >
+                  {/* Active left-border accent */}
+                  {isActive && (
+                    <motion.span
+                      layoutId="account-nav-indicator"
+                      className="absolute left-0 top-2 bottom-2 w-[3px] bg-gradient-to-b from-red to-orange-red rounded-full"
+                    />
+                  )}
+                  <span aria-hidden className="text-[16px] ml-2">{item.icon}</span>
+                  {item.label}
+                </Link>
+              </motion.div>
+            )
+          })}
+        </nav>
+      )}
     </>
   )
 }

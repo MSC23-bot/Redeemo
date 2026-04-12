@@ -81,7 +81,7 @@ export function SubscriptionCard({ subscription }: { subscription: MySubscriptio
           : `Renews ${periodEnd}`}
       </p>
 
-      {!subscription.cancelAtPeriodEnd && (
+      {!subscription.cancelAtPeriodEnd && subscription.status !== 'CANCELLED' && (
         <button
           onClick={handleCancel}
           disabled={cancelling}
