@@ -3,8 +3,19 @@ import { getAccessToken } from '@/lib/auth'
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
 export class ApiError extends Error {
-  constructor(public status: number, public body: unknown) {
-    super(`API error ${status}`)
+  public status: number
+  public body: unknown
+  public code: string | undefined
+  public statusCode: number
+
+  constructor(status: number, body: unknown) {
+    const bodyObj = body as { error?: string; code?: string; message?: string } | null
+    const message = bodyObj?.error ?? bodyObj?.message ?? `API error ${status}`
+    super(message)
+    this.status = status
+    this.statusCode = status
+    this.body = body
+    this.code = bodyObj?.code
   }
 }
 
@@ -46,16 +57,28 @@ export type LoginResponse = {
 }
 
 export const authApi = {
-  login: (email: string, password: string) =>
+  login: (params: {
+    email: string
+    password: string
+    deviceId: string
+    deviceType: string
+    deviceName?: string
+  }) =>
     apiFetch<LoginResponse>('/api/v1/customer/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(params),
     }),
 
-  register: (name: string, email: string, password: string) =>
+  register: (params: {
+    email: string
+    password: string
+    firstName: string
+    lastName: string
+    marketingConsent?: boolean
+  }) =>
     apiFetch<{ message: string }>('/api/v1/customer/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify(params),
     }),
 
   logout: () =>
@@ -288,29 +311,62 @@ export const profileApi = {
 
 // ── Subscription ──────────────────────────────────────────────────────────────
 
+export type SubscriptionPlan = {
+  id: string
+  name: string
+  price: number
+  interval: 'MONTHLY' | 'ANNUAL'
+  currency: string
+}
+
+export type MySubscription = {
+  status: string
+  plan: { name: string } | null
+  currentPeriodEnd: string
+  cancelAtPeriodEnd: boolean
+}
+
 export const subscriptionApi = {
   plans: () =>
-    apiFetch<{ id: string; name: string; price: number; interval: string }[]>(
-      '/api/v1/subscription/plans'
-    ),
+    apiFetch<SubscriptionPlan[]>('/api/v1/subscription/plans'),
+
+  /** Alias for plans() — required by subscribe page */
+  getPlans: () =>
+    apiFetch<SubscriptionPlan[]>('/api/v1/subscription/plans'),
+
   setupIntent: () =>
     apiFetch<{ clientSecret: string }>('/api/v1/subscription/setup-intent', {
       method: 'POST',
       auth: true,
     }),
-  create: (planId: string, paymentMethodId: string) =>
+
+  /** Alias for setupIntent() — required by subscribe page */
+  createSetupIntent: () =>
+    apiFetch<{ clientSecret: string }>('/api/v1/subscription/setup-intent', {
+      method: 'POST',
+      auth: true,
+    }),
+
+  create: (params: { planId: string; paymentMethodId: string; promoCode?: string }) =>
     apiFetch<{ status: string }>('/api/v1/subscription', {
       method: 'POST',
       auth: true,
-      body: JSON.stringify({ planId, paymentMethodId }),
+      body: JSON.stringify(params),
     }),
+
   get: () =>
-    apiFetch<{
-      status: string
-      planName: string
-      currentPeriodEnd: string
-      cancelAtPeriodEnd: boolean
-    }>('/api/v1/subscription/me', { auth: true }),
+    apiFetch<MySubscription>('/api/v1/subscription/me', { auth: true }),
+
+  /** Returns subscription or null (handles 404 gracefully) */
+  getMySubscription: async (): Promise<MySubscription | null> => {
+    try {
+      return await apiFetch<MySubscription>('/api/v1/subscription/me', { auth: true })
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 404) return null
+      throw err
+    }
+  },
+
   cancel: () =>
     apiFetch<{ message: string }>('/api/v1/subscription', {
       method: 'DELETE',
