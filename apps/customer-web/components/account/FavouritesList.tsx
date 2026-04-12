@@ -153,9 +153,24 @@ export function FavouritesList({ merchants: initialMerchants, vouchers: initialV
         {(['merchants', 'vouchers'] as Tab[]).map(t => (
           <button
             key={t}
+            id={`fav-tab-${t}`}
             role="tab"
             aria-selected={tab === t}
+            aria-controls={`fav-panel-${t}`}
+            tabIndex={tab === t ? 0 : -1}
             onClick={() => setTab(t)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight') {
+                const next = t === 'merchants' ? 'vouchers' : 'merchants'
+                setTab(next)
+                document.getElementById(`fav-tab-${next}`)?.focus()
+              }
+              if (e.key === 'ArrowLeft') {
+                const prev = t === 'merchants' ? 'vouchers' : 'merchants'
+                setTab(prev)
+                document.getElementById(`fav-tab-${prev}`)?.focus()
+              }
+            }}
             className={`relative px-5 py-3 font-mono text-[12px] tracking-[0.08em] uppercase transition-colors ${
               tab === t ? 'text-navy' : 'text-navy/40 hover:text-navy/70'
             }`}
@@ -179,6 +194,9 @@ export function FavouritesList({ merchants: initialMerchants, vouchers: initialV
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            role="tabpanel"
+            id={`fav-panel-${tab}`}
+            aria-labelledby={`fav-tab-${tab}`}
             className="text-center py-16"
           >
             <span className="text-4xl mb-3 block" aria-hidden>
@@ -200,6 +218,9 @@ export function FavouritesList({ merchants: initialMerchants, vouchers: initialV
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.25 }}
+            role="tabpanel"
+            id={`fav-panel-${tab}`}
+            aria-labelledby={`fav-tab-${tab}`}
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
           >
             <AnimatePresence>
