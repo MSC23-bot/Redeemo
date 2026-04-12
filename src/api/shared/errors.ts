@@ -18,6 +18,7 @@ export const ERROR_DEFINITIONS = {
   MERCHANT_NOT_APPROVED:          { statusCode: 403, message: 'This merchant account is not yet approved.' },
   MERCHANT_DEACTIVATED:           { statusCode: 403, message: 'This merchant account is deactivated.' },
   MERCHANT_REACTIVATION_EXPIRED:  { statusCode: 403, message: 'The reactivation window has expired.' },
+  MERCHANT_UNAVAILABLE:           { statusCode: 404, message: 'This merchant is no longer available.' },
   BRANCH_USER_DEACTIVATED:        { statusCode: 403, message: 'This branch user account is deactivated.' },
   BRANCH_USER_NOT_FOUND:          { statusCode: 404, message: 'No user is assigned to this branch.' },
   BRANCH_NOT_OWNED:               { statusCode: 403, message: 'You do not have access to this branch.' },
@@ -29,7 +30,9 @@ export const ERROR_DEFINITIONS = {
   VERIFICATION_TOKEN_EXPIRED:     { statusCode: 400, message: 'This verification link has expired.' },
   MERCHANT_NOT_FOUND:             { statusCode: 404, message: 'Merchant not found.' },
   BRANCH_NOT_FOUND:               { statusCode: 404, message: 'Branch not found.' },
+  BRANCH_UNAVAILABLE:             { statusCode: 404, message: 'This branch is no longer available.' },
   VOUCHER_NOT_FOUND:              { statusCode: 404, message: 'Voucher not found.' },
+  USER_NOT_FOUND:                 { statusCode: 404, message: 'User not found.' },
   PENDING_EDIT_EXISTS:            { statusCode: 409, message: 'A pending edit already exists. Withdraw it before submitting a new one.' },
   PENDING_EDIT_NOT_FOUND:         { statusCode: 404, message: 'Pending edit not found.' },
   BRANCH_IS_MAIN:                 { statusCode: 409, message: 'Cannot delete the main branch. Promote another branch to main first.' },
@@ -66,6 +69,16 @@ export const ERROR_DEFINITIONS = {
   ALREADY_VALIDATED:               { statusCode: 409, message: 'This redemption has already been validated.' },
   MERCHANT_MISMATCH:               { statusCode: 403, message: 'This redemption code does not belong to your merchant.' },
   BRANCH_ACCESS_DENIED:            { statusCode: 403, message: 'You do not have access to this branch.' },
+
+  CURRENT_PASSWORD_INCORRECT:      { statusCode: 400, message: 'Your current password is incorrect.' },
+  SEARCH_QUERY_REQUIRED:           { statusCode: 400, message: 'A search query or category is required.' },
+  ALREADY_FAVOURITED:              { statusCode: 409, message: 'Already in your favourites.' },
+  FAVOURITE_NOT_FOUND:             { statusCode: 404, message: 'This item is not in your favourites.' },
+  CAMPAIGN_NOT_FOUND:              { statusCode: 404, message: 'Campaign not found.' },
+  INVALID_INTERESTS:               { statusCode: 400, message: 'One or more interest IDs are invalid or inactive.' },
+  REVIEW_NOT_FOUND:                { statusCode: 404, message: 'Review not found.' },
+  REVIEW_NOT_OWNED:                { statusCode: 403, message: 'You can only edit or delete your own reviews.' },
+  REVIEW_ALREADY_EXISTS:           { statusCode: 409, message: 'You have already reviewed this branch.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS

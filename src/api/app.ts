@@ -19,6 +19,7 @@ import merchantManagementPlugin from './merchant/plugin'
 import subscriptionPlugin from './subscription/plugin'
 import { webhookRoutes } from './subscription/webhook'
 import redemptionPlugin from './redemption/plugin'
+import customerPlugin from './customer/plugin'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -76,6 +77,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(subscriptionPlugin)
   await app.register(webhookRoutes)
   await app.register(redemptionPlugin)
+  await app.register(customerPlugin)
 
   app.get('/health', async () => ({ status: 'ok' }))
 

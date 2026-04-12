@@ -171,7 +171,23 @@ All models live in `prisma/schema.prisma`. Key relationships:
 
 **Pre-Phase 3 note:** `redemptionCode` uses nanoid default alphabet (includes `-`/`_`). If manual staff entry is a primary UX flow, switch to alphanumeric-only before the merchant mobile app is built.
 
-### 🔲 Phase 3 — Customer App + Website (Next.js + React Native)
+### ✅ Phase 3A — Customer UX Foundations Spec (COMPLETE)
+- Full UX spec covering both customer app (React Native) and customer website (Next.js)
+- Defines: user flows, screen inventory, state definitions, edge cases, backend dependencies, shared UX rules, web vs mobile distinction
+- Redemption is mobile-only by product design (not phase scope) — website shows "Redeem in the app"
+- Key backend gaps identified: customer-facing merchant/voucher/search APIs, branch selector route, favourites routes, customer profile/change-password routes, savings aggregation
+- Spec: `docs/superpowers/specs/2026-04-10-customer-ux-foundations-design.md`
+
+### 🔲 Phase 3B — Customer-Facing API Gaps (backend)
+- Two-scope plugin: open (discovery, no auth) + authenticated (profile, favourites)
+- Discovery: home feed (featured merchants), merchant profile + branch list, voucher detail, search, categories
+- Profile: GET + PATCH (name, dob, gender, address, postcode, profileImageUrl, newsletterConsent) + interests read/update + change-password
+- Favourites: merchant + voucher add/remove/list
+- Deferred: savings aggregation, radius filtering, review listing, combined favourites endpoint
+- Plan: `docs/superpowers/plans/2026-04-10-customer-api-gaps.md`
+
+### 🔲 Phase 3C — Customer App (React Native / Expo)
+### 🔲 Phase 3D — Customer Website (Next.js)
 ### 🔲 Phase 4 — Merchant Portal + Mobile App
 ### 🔲 Phase 5 — Admin Panel
 ### 🔲 Phase 6 — Comms + Marketing Layer (Resend, FCM, Twilio — includes email PIN delivery)
