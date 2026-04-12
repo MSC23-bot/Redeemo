@@ -1,4 +1,5 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
+import { getAccessToken } from '@/lib/auth'
 
 export class ApiError extends Error {
   constructor(public status: number, public body: unknown) {
@@ -18,7 +19,7 @@ async function apiFetch<T>(
   }
 
   if (auth && typeof window !== 'undefined') {
-    const token = localStorage.getItem('redeemo_access_token')
+    const token = getAccessToken()
     if (token) headers.set('Authorization', `Bearer ${token}`)
   }
 
