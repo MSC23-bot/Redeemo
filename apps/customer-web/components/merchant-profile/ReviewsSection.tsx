@@ -24,7 +24,7 @@ type Props = {
 
 function StarRating({ rating }: { rating: number }) {
   return (
-    <span className="text-[14px]" aria-label={`${rating} out of 5 stars`}>
+    <span role="img" className="text-[14px]" aria-label={`${rating} out of 5 stars`}>
       {[1,2,3,4,5].map(n => (
         <span key={n} className={n <= rating ? 'text-amber-500' : 'text-navy/15'}>★</span>
       ))}
@@ -37,12 +37,20 @@ export function ReviewsSection({ merchantId, avgRating, reviewCount }: Props) {
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
+    const controller = new AbortController()
+    setLoaded(false)
+    setReviews([])
     apiFetch<{ reviews: Review[]; total: number }>(
       `/api/v1/customer/merchants/${merchantId}/reviews?limit=5&offset=0`,
+      { signal: controller.signal },
     ).then(data => {
       setReviews(data.reviews)
       setLoaded(true)
-    }).catch(() => setLoaded(true))
+    }).catch((err: unknown) => {
+      if (err instanceof Error && err.name === 'AbortError') return
+      setLoaded(true)
+    })
+    return () => controller.abort()
   }, [merchantId])
 
   if (reviewCount === 0) return null
@@ -57,6 +65,10 @@ export function ReviewsSection({ merchantId, avgRating, reviewCount }: Props) {
           </span>
         )}
       </div>
+
+      {!loaded && (
+        <p className="text-[14px] text-navy/40">Loading reviews…</p>
+      )}
 
       {loaded && reviews.length === 0 && (
         <p className="text-[14px] text-navy/40">No reviews yet.</p>

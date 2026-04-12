@@ -33,7 +33,7 @@ export default async function MerchantProfilePage({ params, searchParams }: Prop
   const lat = sp.lat ? parseFloat(sp.lat) : undefined
   const lng = sp.lng ? parseFloat(sp.lng) : undefined
 
-  let merchant
+  let merchant: Awaited<ReturnType<typeof discoveryApi.getMerchant>>
   try {
     merchant = await discoveryApi.getMerchant(id, { lat, lng })
   } catch {

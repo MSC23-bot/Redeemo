@@ -28,11 +28,14 @@ function formatDistance(metres: number | null): string | null {
 
 export function MerchantProfileHeader({ merchant }: Props) {
   const [isFavourited, setIsFavourited] = useState(merchant.isFavourited)
+  const [pending, setPending] = useState(false)
   const displayName = merchant.tradingName ?? merchant.businessName
   const dist = formatDistance(merchant.distance)
 
   const toggleFavourite = async () => {
+    if (pending) return
     const prev = isFavourited
+    setPending(true)
     setIsFavourited(!prev)
     try {
       await apiFetch(
@@ -41,6 +44,8 @@ export function MerchantProfileHeader({ merchant }: Props) {
       )
     } catch {
       setIsFavourited(prev)
+    } finally {
+      setPending(false)
     }
   }
 
@@ -73,6 +78,8 @@ export function MerchantProfileHeader({ merchant }: Props) {
           onClick={toggleFavourite}
           className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-md hover:bg-white transition-colors"
           aria-label={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
+          disabled={pending}
+          aria-disabled={pending}
         >
           <span className="text-[17px]" aria-hidden="true">
             {isFavourited ? '❤️' : '🤍'}
@@ -85,6 +92,7 @@ export function MerchantProfileHeader({ merchant }: Props) {
         {/* Logo — absolute positioned to straddle banner/info boundary */}
         {merchant.logoUrl && (
           <div className="absolute -top-10 left-6 w-[72px] h-[72px] rounded-full border-4 border-white shadow-lg overflow-hidden bg-white">
+            {/* fill Image: 'absolute' on this div establishes the containing block */}
             <Image src={merchant.logoUrl} alt={displayName} fill className="object-cover" sizes="72px" />
           </div>
         )}

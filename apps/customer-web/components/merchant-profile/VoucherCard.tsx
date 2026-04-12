@@ -8,7 +8,7 @@ type Voucher = {
   description: string | null
   terms: string | null
   imageUrl: string | null
-  estimatedSaving: unknown
+  estimatedSaving: number | null
   expiryDate: Date | string | null
 }
 
@@ -29,9 +29,7 @@ const TYPE_COLOURS: Record<string, string> = {
 }
 
 export function VoucherCard({ voucher, index }: { voucher: Voucher; index: number }) {
-  const saving = typeof voucher.estimatedSaving === 'number' || typeof voucher.estimatedSaving === 'string'
-    ? Number(voucher.estimatedSaving)
-    : null
+  const saving = voucher.estimatedSaving
 
   const typeLabel = TYPE_LABELS[voucher.type] ?? voucher.type
   const typeColour = TYPE_COLOURS[voucher.type] ?? 'bg-navy/[0.05] text-navy/60 border-navy/10'
@@ -85,7 +83,7 @@ export function VoucherCard({ voucher, index }: { voucher: Voucher; index: numbe
 
         {/* Website-only redeem message — no button */}
         <p className="mt-3 text-[12px] font-mono text-orange-red tracking-wide">
-          📱 Redeem in the Redeemo app
+          Redeem in the Redeemo app
         </p>
       </div>
     </motion.div>
