@@ -19,12 +19,16 @@ type Props = { initial: Redemption[]; total: number }
 export function RedemptionList({ initial, total }: Props) {
   const [items, setItems] = useState<Redemption[]>(initial)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const loadMore = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const data = await savingsApi.redemptions({ limit: 20, offset: items.length })
       setItems(prev => [...prev, ...data.redemptions])
+    } catch {
+      setLoadError('Failed to load more. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -86,7 +90,7 @@ export function RedemptionList({ initial, total }: Props) {
       </div>
 
       {items.length < total && (
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex justify-center flex-col items-center">
           <button
             onClick={loadMore}
             disabled={loading}
@@ -94,6 +98,7 @@ export function RedemptionList({ initial, total }: Props) {
           >
             {loading ? 'Loading…' : 'Load more'}
           </button>
+          {loadError && <p className="text-red text-[13px] text-center mt-2" role="alert">{loadError}</p>}
         </div>
       )}
     </div>

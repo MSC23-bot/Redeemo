@@ -9,7 +9,11 @@ export function SavingsChart({ data }: { data: MonthData[] }) {
   const maxSaving = Math.max(...displayed.map(d => d.saving), 1)
 
   return (
-    <div className="bg-white border border-navy/[0.08] rounded-2xl p-6">
+    <div
+      className="bg-white border border-navy/[0.08] rounded-2xl p-6"
+      role="img"
+      aria-label={`Monthly savings bar chart — last 12 months. Highest month: £${maxSaving.toFixed(2)}`}
+    >
       <p className="font-mono text-[11px] tracking-[0.1em] uppercase text-navy/35 mb-6">
         Monthly savings — last 12 months
       </p>
@@ -17,7 +21,7 @@ export function SavingsChart({ data }: { data: MonthData[] }) {
       <div className="flex items-end gap-2 h-[120px]">
         {displayed.map((d, i) => {
           const heightPct = maxSaving > 0 ? (d.saving / maxSaving) * 100 : 0
-          const label = d.month.slice(5) // "MM" from "YYYY-MM"
+          const label = new Date(d.month + '-01').toLocaleDateString('en-GB', { month: 'short' })
 
           return (
             <div key={d.month} className="flex flex-col items-center gap-1 flex-1 group">
