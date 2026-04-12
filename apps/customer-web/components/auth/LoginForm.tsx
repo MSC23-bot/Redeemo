@@ -3,8 +3,14 @@ import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { authApi } from '@/lib/api'
+import { authApi, ApiError } from '@/lib/api'
 import { saveTokens } from '@/lib/auth'
+
+function sanitiseNext(raw: string | null): string {
+  if (!raw) return '/discover'
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/discover'
+  return raw
+}
 
 function getOrCreateDeviceId(): string {
   if (typeof window === 'undefined') return 'server'
@@ -25,7 +31,7 @@ const FIELDS = [
 export function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const next = searchParams.get('next') ?? '/discover'
+  const next = sanitiseNext(searchParams.get('next'))
 
   const [values, setValues] = useState({ email: '', password: '' })
   const [error, setError] = useState<string | null>(null)
@@ -48,7 +54,7 @@ export function LoginForm() {
       saveTokens(data.accessToken, data.refreshToken)
       router.push(next)
     } catch (err: unknown) {
-      const code = (err as { code?: string })?.code ?? ''
+      const code = err instanceof ApiError ? (err.code ?? '') : ''
       if (code === 'ACCOUNT_NOT_ACTIVE') {
         setError("Your account isn't active yet. Check your email for a verification link.")
       } else if (code === 'ACCOUNT_SUSPENDED') {
@@ -62,7 +68,7 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate>
+    <form onSubmit={handleSubmit} noValidate aria-describedby={error ? 'login-form-error' : undefined}>
       <div className="flex flex-col gap-4 mb-6">
         {FIELDS.map((field, i) => (
           <motion.div
@@ -71,10 +77,14 @@ export function LoginForm() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: i * 0.07 }}
           >
-            <label className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2">
+            <label
+              htmlFor={field.name}
+              className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2"
+            >
               {field.label}
             </label>
             <input
+              id={field.name}
               type={field.type}
               autoComplete={field.autoComplete}
               value={values[field.name]}
@@ -88,6 +98,8 @@ export function LoginForm() {
 
       {error && (
         <motion.p
+          id="login-form-error"
+          role="alert"
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-red text-[13px] mb-4"

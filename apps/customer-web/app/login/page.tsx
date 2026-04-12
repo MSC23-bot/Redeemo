@@ -14,7 +14,7 @@ export default function LoginPage() {
       heading="Welcome back."
       subheading="Sign in to access your vouchers and savings."
     >
-      <Suspense>
+      <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-navy/5" />}>
         <LoginForm />
       </Suspense>
     </AuthShell>

@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
-import { authApi } from '@/lib/api'
+import { authApi, ApiError } from '@/lib/api'
 
 type Step = 'form' | 'success'
 
@@ -39,7 +39,7 @@ export function RegisterForm() {
       })
       setStep('success')
     } catch (err: unknown) {
-      const code = (err as { code?: string })?.code ?? ''
+      const code = err instanceof ApiError ? (err.code ?? '') : ''
       if (code === 'EMAIL_ALREADY_EXISTS') {
         setError('An account with that email already exists. Try signing in instead.')
       } else if (code === 'PASSWORD_POLICY_VIOLATION') {
@@ -59,6 +59,7 @@ export function RegisterForm() {
           key="form"
           onSubmit={handleSubmit}
           noValidate
+          aria-describedby={error ? 'register-form-error' : undefined}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, x: -20 }}
@@ -72,10 +73,14 @@ export function RegisterForm() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: i * 0.07 }}
               >
-                <label className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2">
+                <label
+                  htmlFor={field.name}
+                  className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2"
+                >
                   {field.label}
                 </label>
                 <input
+                  id={field.name}
                   type={field.type}
                   autoComplete={field.autoComplete}
                   value={values[field.name]}
@@ -88,8 +93,9 @@ export function RegisterForm() {
           </div>
 
           {/* Marketing consent — proper input checkbox */}
-          <label className="flex items-start gap-3 cursor-pointer mb-6">
+          <label htmlFor="marketing-consent" className="flex items-start gap-3 cursor-pointer mb-6">
             <input
+              id="marketing-consent"
               type="checkbox"
               className="sr-only"
               checked={marketingConsent}
@@ -110,6 +116,8 @@ export function RegisterForm() {
 
           {error && (
             <motion.p
+              id="register-form-error"
+              role="alert"
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               className="text-red text-[13px] mb-4"
