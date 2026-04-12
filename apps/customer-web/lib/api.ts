@@ -104,6 +104,26 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ token, newPassword }),
     }),
+
+  sendDeletionOtp: () =>
+    apiFetch<{ message: string }>('/api/v1/customer/auth/otp/send', {
+      method: 'POST', auth: true,
+      body: JSON.stringify({ action: 'ACCOUNT_DELETION' }),
+    }),
+
+  verifyDeletionOtp: (code: string) =>
+    apiFetch<{ verified: boolean; actionToken: string; action: string }>(
+      '/api/v1/customer/auth/otp/verify', {
+        method: 'POST', auth: true,
+        body: JSON.stringify({ code }),
+      }
+    ),
+
+  deleteAccount: (actionToken: string) =>
+    apiFetch<{ message: string }>('/api/v1/customer/auth/delete-account', {
+      method: 'POST', auth: true,
+      body: JSON.stringify({ actionToken }),
+    }),
 }
 
 // ── Discovery ─────────────────────────────────────────────────────────────────

@@ -86,6 +86,16 @@ export default async function AccountPage() {
               </Link>
             ))}
           </div>
+
+          {/* Destructive zone — visually separated */}
+          <div className="mt-12 pt-8 border-t border-navy/[0.08]">
+            <Link
+              href="/account/delete"
+              className="text-[13px] text-navy/35 hover:text-red transition-colors"
+            >
+              Delete account
+            </Link>
+          </div>
         </main>
       </div>
     </div>
