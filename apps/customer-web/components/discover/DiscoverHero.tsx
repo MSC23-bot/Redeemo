@@ -6,7 +6,7 @@ type LocationContext = {
 export function DiscoverHero({ locationContext }: { locationContext: LocationContext }) {
   const locationLabel =
     locationContext.source === 'coordinates' ? 'Near your location' :
-    locationContext.city ? `Near ${locationContext.city}` :
+    locationContext.source === 'profile' ? (locationContext.city ? `Near ${locationContext.city}` : 'Near your saved location') :
     null
 
   return (
