@@ -8,7 +8,7 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(
+export async function apiFetch<T>(
   path: string,
   options: RequestInit & { auth?: boolean } = {}
 ): Promise<T> {
@@ -124,12 +124,26 @@ export const discoveryApi = {
   },
 
   // GET /api/v1/customer/search
-  search: (q: string, params?: { categoryId?: string; limit?: number; offset?: number }) => {
-    const sp = new URLSearchParams({ q })
-    if (params?.categoryId) sp.set('categoryId', params.categoryId)
-    sp.set('limit', String(params?.limit ?? 20))
-    sp.set('offset', String(params?.offset ?? 0))
-    return apiFetch<{ merchants: MerchantTileData[]; total: number }>(
+  search: (params: {
+    q?: string
+    categoryId?: string
+    sortBy?: 'relevance' | 'nearest' | 'top_rated' | 'highest_saving'
+    voucherTypes?: string[]
+    openNow?: boolean
+    limit?: number
+    offset?: number
+  }) => {
+    const sp = new URLSearchParams()
+    if (params.q) sp.set('q', params.q)
+    if (params.categoryId) sp.set('categoryId', params.categoryId)
+    if (params.sortBy) sp.set('sortBy', params.sortBy)
+    if (params.voucherTypes && params.voucherTypes.length > 0) {
+      params.voucherTypes.forEach(t => sp.append('voucherTypes', t))
+    }
+    if (params.openNow) sp.set('openNow', 'true')
+    sp.set('limit', String(params.limit ?? 20))
+    sp.set('offset', String(params.offset ?? 0))
+    return apiFetch<{ results: MerchantTileData[]; total: number }>(
       `/api/v1/customer/search?${sp}`
     )
   },
