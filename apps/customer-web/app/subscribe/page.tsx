@@ -202,17 +202,61 @@ export default function SubscribePage() {
               transition={{ duration: 0.5, type: 'spring', damping: 20 }}
               className="text-center py-10"
             >
-              <div className="text-6xl mb-5" aria-hidden="true">🎉</div>
-              <h1 className="font-display text-[36px] text-navy mb-2">You&apos;re subscribed!</h1>
-              <p className="text-[15px] text-navy/50 mb-8">
-                Start discovering exclusive vouchers from local businesses near you.
-              </p>
-              <Link
-                href="/discover"
-                className="inline-block bg-gradient-to-br from-red to-orange-red text-white font-bold text-[16px] px-10 py-4 rounded-xl no-underline shadow-[0_4px_24px_rgba(226,0,12,0.25)]"
+              {/* Animated checkmark ring */}
+              <motion.div
+                initial={{ scale: 0, rotate: -30 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ delay: 0.1, duration: 0.5, type: 'spring', damping: 14 }}
+                className="w-20 h-20 rounded-full bg-gradient-to-br from-red to-orange-red flex items-center justify-center mx-auto mb-6 shadow-[0_8px_32px_rgba(226,0,12,0.30)]"
+                aria-hidden="true"
               >
-                Discover local deals
-              </Link>
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+                  <motion.path
+                    d="M5 13l4 4L19 7"
+                    stroke="white"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    initial={{ pathLength: 0 }}
+                    animate={{ pathLength: 1 }}
+                    transition={{ delay: 0.35, duration: 0.45, ease: 'easeOut' }}
+                  />
+                </svg>
+              </motion.div>
+
+              <h1 className="font-display text-[clamp(32px,5vw,44px)] text-navy mb-2">You&apos;re subscribed!</h1>
+              <p className="text-[15px] text-navy/50 mb-6 leading-relaxed">
+                Your subscription is active. A confirmation receipt has been sent to your email.
+              </p>
+
+              {/* Trust signals */}
+              <div className="flex items-center justify-center gap-6 mb-8 flex-wrap">
+                {[
+                  { icon: '🔒', label: 'Secured by Stripe' },
+                  { icon: '✕',  label: 'Cancel anytime' },
+                  { icon: '📱', label: 'Download the app to redeem' },
+                ].map(({ icon, label }) => (
+                  <div key={label} className="flex items-center gap-1.5 text-[12px] text-navy/40 font-mono">
+                    <span aria-hidden>{icon}</span>
+                    <span>{label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Link
+                  href="/discover"
+                  className="inline-block bg-gradient-to-br from-red to-orange-red text-white font-bold text-[16px] px-10 py-4 rounded-xl no-underline shadow-[0_4px_24px_rgba(226,0,12,0.25)] hover:shadow-[0_4px_32px_rgba(226,0,12,0.4)] transition-shadow"
+                >
+                  Discover local deals
+                </Link>
+                <Link
+                  href="/account"
+                  className="inline-block bg-white border border-navy/[0.12] text-navy font-bold text-[16px] px-8 py-4 rounded-xl no-underline hover:border-navy/25 transition-colors"
+                >
+                  My account
+                </Link>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

@@ -6,6 +6,8 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import { getStripe } from '@/lib/stripe'
 import { subscriptionApi, ApiError } from '@/lib/api'
 
+const STRIPE_KEY_MISSING = !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+
 type Props = {
   planId: string
   promoCode?: string
@@ -91,9 +93,12 @@ function StripePaymentForm({ planId, promoCode, onSuccess }: Props) {
 export function PaymentForm({ planId, promoCode, onSuccess }: Props) {
   const router = useRouter()
   const [clientSecret, setClientSecret] = useState<string | null>(null)
-  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [fetchError, setFetchError] = useState<string | null>(
+    STRIPE_KEY_MISSING ? 'Payment is not available right now. Please contact support.' : null
+  )
 
   useEffect(() => {
+    if (STRIPE_KEY_MISSING) return
     let cancelled = false
     setClientSecret(null)
     setFetchError(null)
