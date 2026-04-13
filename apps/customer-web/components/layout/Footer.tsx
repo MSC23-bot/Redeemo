@@ -1,5 +1,7 @@
 import Link from 'next/link'
 
+const CURRENT_YEAR = new Date().getFullYear()
+
 const COMPANY_LINKS = [
   { href: '/about',          label: 'About' },
   { href: '/how-it-works',   label: 'How it works' },
@@ -16,8 +18,6 @@ const SUPPORT_LINKS = [
 ]
 
 export function Footer() {
-  const year = new Date().getFullYear()
-
   return (
     <footer className="bg-[#010C35] text-white pt-16 pb-10">
       <div className="max-w-7xl mx-auto px-6">
@@ -30,7 +30,7 @@ export function Footer() {
             {/* White wordmark: gradient R icon + white text */}
             <div className="flex items-center gap-2 mb-4">
               <span
-                aria-hidden
+                aria-hidden={true}
                 className="w-7 h-7 rounded-[6px] flex items-center justify-center text-white font-display font-semibold text-[15px] flex-shrink-0"
                 style={{ background: 'var(--brand-gradient)' }}
               >
@@ -46,7 +46,7 @@ export function Footer() {
           </div>
 
           {/* Company links */}
-          <div>
+          <nav aria-label="Company">
             <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-4">
               Company
             </p>
@@ -62,10 +62,10 @@ export function Footer() {
                 </li>
               ))}
             </ul>
-          </div>
+          </nav>
 
           {/* Support links */}
-          <div>
+          <nav aria-label="Support">
             <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-4">
               Support
             </p>
@@ -81,13 +81,13 @@ export function Footer() {
                 </li>
               ))}
             </ul>
-          </div>
+          </nav>
         </div>
 
         {/* Bottom row: copyright + gradient CTA */}
         <div className="border-t border-white/[0.08] pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
           <p className="text-[12px] text-white/30">
-            &copy; {year} Redeemo Ltd. All rights reserved. UK registered company.
+            &copy; {CURRENT_YEAR} Redeemo Ltd. All rights reserved. UK registered company.
           </p>
           <Link
             href="/register"
