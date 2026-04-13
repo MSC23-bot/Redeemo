@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -26,6 +26,14 @@ export function Navbar() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  useEffect(() => { setMenuOpen(false) }, [pathname])
+
+  const firstMobileLinkRef = useRef<HTMLAnchorElement>(null)
+
+  useEffect(() => {
+    if (menuOpen) firstMobileLinkRef.current?.focus()
+  }, [menuOpen])
+
   const isDark = scrolled || menuOpen
   const navBg = isDark
     ? 'bg-[#010C35] border-transparent'
@@ -33,7 +41,7 @@ export function Navbar() {
 
   return (
     <header className={`sticky top-0 z-50 border-b transition-colors duration-300 ${navBg}`}>
-      <nav className="max-w-7xl mx-auto px-6 h-[60px] flex items-center gap-6">
+      <nav aria-label="Main" className="max-w-7xl mx-auto px-6 h-[60px] flex items-center gap-6">
 
         {/* Logo: gradient R icon + wordmark */}
         <Link href="/" className="flex-shrink-0 flex items-center gap-2 no-underline">
@@ -132,6 +140,8 @@ export function Navbar() {
             isDark ? 'text-white/70 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
           }`}
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+          aria-controls="mobile-menu"
         >
           {menuOpen
             ? <X size={22} strokeWidth={1.8} />
@@ -144,6 +154,7 @@ export function Navbar() {
       <AnimatePresence>
         {menuOpen && (
           <motion.div
+            id="mobile-menu"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -151,12 +162,13 @@ export function Navbar() {
             className="md:hidden overflow-hidden bg-[#010C35] border-t border-white/[0.06]"
           >
             <div className="px-6 py-4 flex flex-col gap-1">
-              {NAV_LINKS.map(link => {
-                const isActive = pathname === link.href
+              {NAV_LINKS.map((link, i) => {
+                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
                 return (
                   <Link
                     key={link.href}
                     href={link.href}
+                    ref={i === 0 ? firstMobileLinkRef : undefined}
                     onClick={() => setMenuOpen(false)}
                     className={`px-3 py-3 rounded-lg text-[14px] font-medium transition-colors no-underline ${
                       isActive ? 'text-white bg-white/[0.08]' : 'text-white/65 hover:text-white'
