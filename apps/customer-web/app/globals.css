@@ -114,8 +114,8 @@
 }
 
 html {
-  color: #010C35;
-  background: #FFFFFF;
+  color: var(--text-primary);
+  background: var(--bg-page);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -125,7 +125,7 @@ body {
 
 /* Gradient text utility */
 .gradient-text {
-  background: linear-gradient(135deg, #E20C04 0%, #E84A00 100%);
+  background: var(--brand-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -133,7 +133,7 @@ body {
 
 /* Legacy alias — keeps existing usages working while migration completes */
 .gradient-brand-text {
-  background: linear-gradient(135deg, #E20C04 0%, #E84A00 100%);
+  background: var(--brand-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
