@@ -1,81 +1,101 @@
 import Link from 'next/link'
 
-const FOOTER_LINKS = {
-  Discover: [
-    { href: '/discover', label: 'Browse Merchants' },
-    { href: '/search', label: 'Search' },
-    { href: '/subscribe', label: 'Pricing' },
-  ],
-  Business: [
-    { href: '/merchants', label: 'For Merchants' },
-    { href: '/merchants#how-it-works', label: 'How It Works' },
-    { href: '/merchants#pricing', label: 'Merchant Pricing' },
-  ],
-  Account: [
-    { href: '/login', label: 'Log In' },
-    { href: '/register', label: 'Sign Up' },
-    { href: '/account', label: 'My Account' },
-  ],
-}
+const COMPANY_LINKS = [
+  { href: '/about',          label: 'About' },
+  { href: '/how-it-works',   label: 'How it works' },
+  { href: '/for-businesses', label: 'For businesses' },
+  { href: '/pricing',        label: 'Pricing' },
+  { href: '/insider',        label: 'Insider' },
+]
+
+const SUPPORT_LINKS = [
+  { href: '/faq',      label: 'FAQ' },
+  { href: '/privacy',  label: 'Privacy policy' },
+  { href: '/terms',    label: 'Terms' },
+  { href: '/contact',  label: 'Contact' },
+]
 
 export function Footer() {
   const year = new Date().getFullYear()
 
   return (
-    <footer className="bg-deep-navy text-white/70 pt-16 pb-10">
+    <footer className="bg-[#010C35] text-white pt-16 pb-10">
       <div className="max-w-7xl mx-auto px-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
-          {/* Brand column */}
-          <div>
-            <span className="font-display text-[28px] gradient-brand-text block mb-4">
-              Redeemo
-            </span>
-            <p className="text-sm leading-relaxed text-white/50 max-w-[220px]">
+
+        {/* Top row: brand + columns */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-12 mb-14">
+
+          {/* Brand */}
+          <div className="sm:col-span-1">
+            {/* White wordmark: gradient R icon + white text */}
+            <div className="flex items-center gap-2 mb-4">
+              <span
+                aria-hidden
+                className="w-7 h-7 rounded-[6px] flex items-center justify-center text-white font-display font-semibold text-[15px] flex-shrink-0"
+                style={{ background: 'var(--brand-gradient)' }}
+              >
+                R
+              </span>
+              <span className="font-display text-[18px] font-semibold text-white leading-none">
+                Redeemo
+              </span>
+            </div>
+            <p className="text-[13px] leading-relaxed text-white/45 max-w-[200px]">
               Exclusive vouchers from local businesses. Subscribe and save every month.
             </p>
           </div>
 
-          {/* Link columns */}
-          {Object.entries(FOOTER_LINKS).map(([section, items]) => (
-            <div key={section}>
-              <p className="text-xs font-semibold tracking-widest uppercase text-white/30 mb-4">
-                {section}
-              </p>
-              <ul className="flex flex-col gap-2.5">
-                {items.map(item => (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      className="text-sm text-white/60 hover:text-white/90 transition-colors"
-                    >
-                      {item.label}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          {/* Company links */}
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-4">
+              Company
+            </p>
+            <ul className="flex flex-col gap-3">
+              {COMPANY_LINKS.map(item => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className="text-[13px] text-white/55 hover:text-white/90 transition-colors no-underline"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Support links */}
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-4">
+              Support
+            </p>
+            <ul className="flex flex-col gap-3">
+              {SUPPORT_LINKS.map(item => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className="text-[13px] text-white/55 hover:text-white/90 transition-colors no-underline"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
 
+        {/* Bottom row: copyright + gradient CTA */}
         <div className="border-t border-white/[0.08] pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
-          <p className="text-xs text-white/30">
-            © {year} Redeemo Ltd. All rights reserved. UK registered company.
+          <p className="text-[12px] text-white/30">
+            &copy; {year} Redeemo Ltd. All rights reserved. UK registered company.
           </p>
-          <div className="flex gap-6">
-            {[
-              { href: '/privacy', label: 'Privacy' },
-              { href: '/terms', label: 'Terms' },
-              { href: '/cookies', label: 'Cookies' },
-            ].map(l => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className="text-xs text-white/30 hover:text-white/60 transition-colors"
-              >
-                {l.label}
-              </Link>
-            ))}
-          </div>
+          <Link
+            href="/register"
+            className="text-[13px] font-semibold text-white px-5 py-2.5 rounded-lg no-underline hover:opacity-90 transition-opacity"
+            style={{ background: 'var(--brand-gradient)' }}
+          >
+            Join free today
+          </Link>
         </div>
       </div>
     </footer>
