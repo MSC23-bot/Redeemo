@@ -2,7 +2,7 @@ import { VoucherCard } from './VoucherCard'
 
 type Voucher = {
   id: string; title: string; type: string; description: string | null
-  terms: string | null; imageUrl: string | null; estimatedSaving: unknown; expiryDate: Date | string | null
+  terms: string | null; imageUrl: string | null; estimatedSaving: number | null; expiryDate: Date | string | null
 }
 
 export function VouchersSection({ vouchers }: { vouchers: Voucher[] }) {

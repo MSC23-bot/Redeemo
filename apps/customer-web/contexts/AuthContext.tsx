@@ -54,7 +54,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const login = useCallback(async (email: string, password: string) => {
-    const result = await authApi.login(email, password)
+    // Generate or retrieve stable device ID
+    let deviceId = typeof window !== 'undefined' ? localStorage.getItem('deviceId') : null
+    if (!deviceId) {
+      deviceId = `web-${Date.now()}-${Math.random().toString(36).substring(7)}`
+      if (typeof window !== 'undefined') localStorage.setItem('deviceId', deviceId)
+    }
+
+    const result = await authApi.login({
+      email,
+      password,
+      deviceId,
+      deviceType: 'web',
+    })
     saveTokens(result.accessToken, result.refreshToken)
     saveUser(result.user)
     setUser(result.user)
