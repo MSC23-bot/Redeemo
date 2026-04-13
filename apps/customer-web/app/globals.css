@@ -53,29 +53,61 @@
 /* ── Tailwind theme tokens ─────────────────────────────────────────────── */
 
 @theme {
-  /* Brand colours */
-  --color-red: #E2000C;
-  --color-orange-red: #E84A00;
-  --color-orange: #EE6904;
-  --color-navy: #010C35;
-  --color-deep-navy: #00041E;
-  --color-coral: #E04403;
-  --color-surface: #FFFFFF;
-  --color-surface-muted: #F8F7F5;
+  --color-brand-rose:  #E20C04;
+  --color-brand-coral: #E84A00;
+  --color-navy:        #010C35;
+  --color-surface:     #FFFFFF;
+  --color-bg-tint:     #FEF6F5;
+  --color-bg-neutral:  #F8F9FA;
 
-  /* Font families */
   --font-display: 'Mustica Pro', serif;
-  --font-body: 'Lato', sans-serif;
-  --font-mono: 'Lato', sans-serif;
+  --font-body:    'Lato', sans-serif;
+  --font-mono:    'Lato', sans-serif;
+}
+
+/* ── CSS custom property tokens ────────────────────────────────────────── */
+
+:root {
+  /* Brand */
+  --brand-rose:     #E20C04;
+  --brand-coral:    #E84A00;
+  --brand-gradient: linear-gradient(135deg, #E20C04 0%, #E84A00 100%);
+  --on-brand:       #FFFFFF;
+
+  /* Navy — primary text AND footer background */
+  --navy:           #010C35;
+  --navy-border:    rgba(1,12,53,0.12);
+
+  /* Page surfaces */
+  --bg-page:        #FFFFFF;
+  --bg-tint:        #FEF6F5;
+  --bg-tint-deep:   #FEF0EE;
+  --bg-neutral:     #F8F9FA;
+
+  /* Text */
+  --text-primary:   #010C35;
+  --text-secondary: #4B5563;
+  --text-muted:     #9CA3AF;
+
+  /* UI chrome */
+  --border:         #EDE8E8;
+  --border-subtle:  #F5F0F0;
+  --ring:           #E20C04;
+
+  /* Functional */
+  --savings:        #16A34A;
+  --savings-bg:     #F0FDF4;
+  --featured:       #D97706;
+  --featured-bg:    #FFFBEB;
+  --trending:       #DB2777;
+  --trending-bg:    #FCE7F3;
+  --success:        #16A34A;
+  --success-bg:     #F0FDF4;
+  --destructive:    #B91C1C;
+  --destructive-bg: #FEF2F2;
 }
 
 /* ── Global base styles ────────────────────────────────────────────────── */
-
-:root {
-  --color-primary: #E2000C;
-  --color-anchor: #010C35;
-  --gradient-brand: linear-gradient(135deg, #E2000C 0%, #E84A00 50%, #EE6904 100%);
-}
 
 * {
   box-sizing: border-box;
@@ -91,10 +123,24 @@ body {
   font-family: 'Lato', sans-serif;
 }
 
-/* Gradient text utility — used in hero headings */
-.gradient-brand-text {
-  background: linear-gradient(135deg, #E2000C 0%, #EE6904 100%);
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, #E20C04 0%, #E84A00 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* Legacy alias — keeps existing usages working while migration completes */
+.gradient-brand-text {
+  background: linear-gradient(135deg, #E20C04 0%, #E84A00 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
