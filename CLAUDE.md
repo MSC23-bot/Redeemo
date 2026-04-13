@@ -178,16 +178,25 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Key backend gaps identified: customer-facing merchant/voucher/search APIs, branch selector route, favourites routes, customer profile/change-password routes, savings aggregation
 - Spec: `docs/superpowers/specs/2026-04-10-customer-ux-foundations-design.md`
 
-### 🔲 Phase 3B — Customer-Facing API Gaps (backend)
+### ✅ Phase 3B — Customer-Facing API Gaps (backend) (COMPLETE)
 - Two-scope plugin: open (discovery, no auth) + authenticated (profile, favourites)
 - Discovery: home feed (featured merchants), merchant profile + branch list, voucher detail, search, categories
 - Profile: GET + PATCH (name, dob, gender, address, postcode, profileImageUrl, newsletterConsent) + interests read/update + change-password
 - Favourites: merchant + voucher add/remove/list
-- Deferred: savings aggregation, radius filtering, review listing, combined favourites endpoint
+- Savings: lifetime + monthly summary, redemption history with pagination
 - Plan: `docs/superpowers/plans/2026-04-10-customer-api-gaps.md`
 
 ### 🔲 Phase 3C — Customer App (React Native / Expo)
-### 🔲 Phase 3D — Customer Website (Next.js)
+
+### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
+- Full Next.js 15 App Router site at `apps/customer-web/`
+- Pages: home, discover, merchant profile, voucher detail, search, subscribe, account, savings, favourites, profile, forgot/reset password, delete account
+- Auth: register, login (OTP flow), logout — tokens in localStorage, flag cookie for middleware
+- Subscribe: Stripe SetupIntent flow, plan selector, promo code support, animated success state
+- Account: profile edit, subscription management (cancel), savings dashboard (chart + redemption history), favourites (merchants + vouchers), delete account (OTP-gated)
+- Fonts: Mustica Pro SemiBold (display/headings) + Lato (body) — self-hosted from branding package
+- Key decisions: account pages are client components (getAccessToken() is localStorage-only); 401s redirect to /login?next=<page>
+- PR: MSC23-bot/Redeemo#3
 ### 🔲 Phase 4 — Merchant Portal + Mobile App
 ### 🔲 Phase 5 — Admin Panel
 ### 🔲 Phase 6 — Comms + Marketing Layer (Resend, FCM, Twilio — includes email PIN delivery)
@@ -211,6 +220,26 @@ All models live in `prisma/schema.prisma`. Key relationships:
 3. Check `docs/superpowers/plans/` for implementation plans
 4. Run `npx prisma db seed` to reset dev data if needed
 5. Ask Claude to continue from the current phase
+
+## Running Locally
+
+Two terminal tabs required simultaneously:
+
+**Tab 1 — Backend API (port 3000):**
+```bash
+cd "/Users/shebinchaliyath/Desktop/Claude Code/Redeemo"
+npm run dev
+```
+
+**Tab 2 — Customer Website (port 3001):**
+```bash
+cd "/Users/shebinchaliyath/Desktop/Claude Code/Redeemo/.worktrees/customer-web/apps/customer-web"
+npm run dev
+```
+
+Then open http://localhost:3001. Seed credentials: `customer@redeemo.com` / `Customer1234!`
+
+Customer website env file: `apps/customer-web/.env.local` — requires `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` for subscribe flow.
 
 ---
 
