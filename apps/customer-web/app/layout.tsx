@@ -1,26 +1,8 @@
 import type { Metadata } from 'next'
-import { Calistoga, DM_Sans, DM_Mono } from 'next/font/google'
 import './globals.css'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { AuthProvider } from '@/contexts/AuthContext'
-
-const calistoga = Calistoga({
-  weight: '400',
-  subsets: ['latin'],
-  variable: '--font-display',
-})
-
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  variable: '--font-body',
-})
-
-const dmMono = DM_Mono({
-  weight: ['400', '500'],
-  subsets: ['latin'],
-  variable: '--font-mono',
-})
 
 export const metadata: Metadata = {
   title: {
@@ -44,11 +26,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html
-      lang="en"
-      className={`${calistoga.variable} ${dmSans.variable} ${dmMono.variable}`}
-    >
-      <body style={{ fontFamily: 'var(--font-body), DM Sans, sans-serif' }}>
+    <html lang="en">
+      <body>
         <AuthProvider>
           <Navbar />
           <main>{children}</main>

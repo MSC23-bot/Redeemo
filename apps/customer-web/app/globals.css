@@ -1,7 +1,59 @@
 @import "tailwindcss";
 
+/* ── Self-hosted fonts ─────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'Mustica Pro';
+  src: url('/fonts/MusticaPro-SemiBold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Semibold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Tailwind theme tokens ─────────────────────────────────────────────── */
+
 @theme {
-  /* Brand colours — these make bg-navy, text-red, etc. available as Tailwind utilities */
+  /* Brand colours */
   --color-red: #E2000C;
   --color-orange-red: #E84A00;
   --color-orange: #EE6904;
@@ -11,13 +63,14 @@
   --color-surface: #FFFFFF;
   --color-surface-muted: #F8F7F5;
 
-  /* Font families — CSS variables are set by next/font/google in layout.tsx */
-  --font-display: var(--font-display);
-  --font-body: var(--font-body);
-  --font-mono: var(--font-mono);
+  /* Font families */
+  --font-display: 'Mustica Pro', serif;
+  --font-body: 'Lato', sans-serif;
+  --font-mono: 'Lato', sans-serif;
 }
 
-/* Semantic CSS custom properties (used by components via var()) */
+/* ── Global base styles ────────────────────────────────────────────────── */
+
 :root {
   --color-primary: #E2000C;
   --color-anchor: #010C35;
@@ -32,6 +85,10 @@ html {
   color: #010C35;
   background: #FFFFFF;
   -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: 'Lato', sans-serif;
 }
 
 /* Gradient text utility — used in hero headings */
