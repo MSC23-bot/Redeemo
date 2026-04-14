@@ -10,7 +10,7 @@ const steps = [
 
 export function HowItWorksSection() {
   return (
-    <section className="bg-surface-muted py-24 px-6 overflow-hidden">
+    <section className="bg-[#F8F9FA] py-24 px-6 overflow-hidden">
       <div className="max-w-screen-xl mx-auto">
 
         <motion.div
@@ -49,7 +49,7 @@ export function HowItWorksSection() {
               <div className="relative pt-12 lg:pt-16">
                 <div
                   className="w-4 h-4 rounded-full mb-8 relative z-10"
-                  style={{ background: 'linear-gradient(135deg, #E2000C, #EE6904)' }}
+                  style={{ background: 'var(--brand-gradient)' }}
                 />
                 <h3 className="font-display text-3xl text-navy mb-4 leading-tight">{step.title}</h3>
                 <p className="text-base leading-relaxed text-navy/55 max-w-[260px]">{step.body}</p>

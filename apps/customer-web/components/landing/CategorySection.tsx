@@ -4,19 +4,19 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 
 const CATEGORIES = [
-  { label: 'Restaurants',     dot: '#E2000C' },
-  { label: 'Cafés',           dot: '#E84A00' },
-  { label: 'Gyms & Fitness',  dot: '#EE6904' },
-  { label: 'Salons & Beauty', dot: '#E2000C' },
-  { label: 'Retail',          dot: '#E84A00' },
-  { label: 'Entertainment',   dot: '#EE6904' },
-  { label: 'Wellness',        dot: '#E2000C' },
-  { label: 'Food & Drink',    dot: '#E84A00' },
+  { label: 'Restaurants',       dot: '#E20C04' },
+  { label: 'Cafes',             dot: '#E84A00' },
+  { label: 'Gyms & Fitness',    dot: '#E20C04' },
+  { label: 'Salons & Beauty',   dot: '#E84A00' },
+  { label: 'Retail',            dot: '#E20C04' },
+  { label: 'Entertainment',     dot: '#E84A00' },
+  { label: 'Wellness',          dot: '#E20C04' },
+  { label: 'Food & Drink',      dot: '#E84A00' },
 ]
 
 export function CategorySection() {
   return (
-    <section className="bg-[#FAF8F5] py-20 px-6">
+    <section className="bg-[#FEF6F5] py-20 px-6">
       <div className="max-w-screen-xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 14 }}
