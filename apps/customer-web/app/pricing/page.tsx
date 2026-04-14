@@ -10,7 +10,7 @@ const PLANS = [
   {
     name: 'Free',
     price: '£0',
-    period: null,
+    period: 'always',
     badge: null,
     cta: { label: 'Start for free', href: '/register', style: 'ghost' as const },
     features: [
@@ -108,6 +108,8 @@ export default function PricingPage() {
               >
                 {plan.badge && (
                   <div
+                    role="note"
+                    aria-label={`${plan.name} plan: ${plan.badge}`}
                     className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-white text-[11px] font-bold px-4 py-1 rounded-full whitespace-nowrap"
                     style={{ background: 'var(--brand-gradient)' }}
                   >
@@ -115,19 +117,15 @@ export default function PricingPage() {
                   </div>
                 )}
 
-                <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-[#9CA3AF] mb-3">
+                <h2 className="text-[11px] font-bold tracking-[0.12em] uppercase text-[#9CA3AF] mb-3">
                   {plan.name}
-                </p>
+                </h2>
                 <div className="mb-1">
                   <span className="font-display text-[42px] leading-none text-[#010C35]">
                     {plan.price}
                   </span>
                 </div>
-                {plan.period ? (
-                  <p className="text-[13px] text-[#9CA3AF] mb-8">{plan.period}</p>
-                ) : (
-                  <p className="text-[13px] text-[#9CA3AF] mb-8">always</p>
-                )}
+                <p className="text-[13px] text-[#9CA3AF] mb-8">{plan.period}</p>
 
                 <ul className="flex flex-col gap-3 mb-8 flex-1">
                   {plan.features.map(f => (
@@ -145,6 +143,7 @@ export default function PricingPage() {
                           f.included ? 'text-[#4B5563]' : 'text-[#D1D5DB]'
                         }`}
                       >
+                        <span className="sr-only">{f.included ? 'Included: ' : 'Not included: '}</span>
                         {f.label}
                       </span>
                     </li>
@@ -185,7 +184,7 @@ export default function PricingPage() {
           <div className="flex flex-col divide-y divide-[#EDE8E8]">
             {FAQ_ITEMS.map(item => (
               <details key={item.q} className="group py-5">
-                <summary className="flex justify-between items-start gap-4 cursor-pointer list-none">
+                <summary className="flex justify-between items-start gap-4 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                   <span className="text-[15px] font-medium text-[#010C35] leading-snug">{item.q}</span>
                   <span className="text-[#9CA3AF] flex-shrink-0 mt-0.5 transition-transform group-open:rotate-45 text-[20px] leading-none" aria-hidden="true">+</span>
                 </summary>
