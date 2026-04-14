@@ -20,7 +20,7 @@ export function FinalCtaSection() {
           href="/subscribe"
           className="inline-block bg-white text-[#E20C04] font-bold text-[15px] px-8 py-3.5 rounded-lg no-underline hover:opacity-90 transition-opacity"
         >
-          Get started — from £6.99/mo
+          Get started, from £6.99/mo
         </Link>
         <p className="mt-4 text-[12px] text-white/50">No commitment. Cancel any time.</p>
       </div>

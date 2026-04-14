@@ -58,7 +58,7 @@ export function HeroSection() {
               className="inline-block text-white font-semibold text-[15px] px-7 py-3.5 rounded-lg no-underline hover:opacity-90 transition-opacity"
               style={{ background: 'var(--brand-gradient)' }}
             >
-              Get started — from £6.99/mo
+              Get started, from £6.99/mo
             </Link>
             <Link
               href="/how-it-works"

@@ -4,14 +4,14 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 
 const CATEGORIES = [
-  { label: 'Restaurants',       dot: '#E20C04' },
-  { label: 'Cafes',             dot: '#E84A00' },
-  { label: 'Gyms & Fitness',    dot: '#E20C04' },
-  { label: 'Salons & Beauty',   dot: '#E84A00' },
-  { label: 'Retail',            dot: '#E20C04' },
-  { label: 'Entertainment',     dot: '#E84A00' },
-  { label: 'Wellness',          dot: '#E20C04' },
-  { label: 'Food & Drink',      dot: '#E84A00' },
+  { label: 'Restaurants',       dot: 'var(--brand-rose)' },
+  { label: 'Cafes',             dot: 'var(--brand-coral)' },
+  { label: 'Gyms & Fitness',    dot: 'var(--brand-rose)' },
+  { label: 'Salons & Beauty',   dot: 'var(--brand-coral)' },
+  { label: 'Retail',            dot: 'var(--brand-rose)' },
+  { label: 'Entertainment',     dot: 'var(--brand-coral)' },
+  { label: 'Wellness',          dot: 'var(--brand-rose)' },
+  { label: 'Food & Drink',      dot: 'var(--brand-coral)' },
 ]
 
 export function CategorySection() {
