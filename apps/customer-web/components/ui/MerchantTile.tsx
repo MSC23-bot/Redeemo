@@ -2,9 +2,9 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
+import { Heart } from 'lucide-react'
 import type { MerchantTileData } from '@/lib/api'
 
-// Re-export the canonical type under the short name for local use.
 export type MerchantTile = MerchantTileData
 
 function formatDistance(metres: number | null): string | null {
@@ -30,85 +30,90 @@ export function MerchantTile({ merchant, onFavouriteToggle, index = 0, variant =
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.4, delay: index * 0.07 }}
-      className={`group relative flex flex-col bg-white rounded-2xl overflow-hidden border border-navy/[0.06] shadow-sm hover:shadow-md transition-shadow ${
+      className={`group relative flex flex-col bg-white rounded-xl overflow-hidden border border-[#EDE8E8] shadow-sm hover:shadow-md transition-shadow ${
         variant === 'grid' ? 'w-full' : 'flex-shrink-0 w-[220px] sm:w-[240px]'
       }`}
     >
-      {/* Banner image area */}
-      <Link href={`/merchants/${merchant.id}`} className="relative block h-[130px] bg-navy/10 flex-shrink-0">
-        {merchant.bannerUrl ? (
-          <Image
-            src={merchant.bannerUrl}
-            alt={displayName}
-            fill
-            className="object-cover"
-            sizes="240px"
-          />
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-navy/20 to-navy/5" />
-        )}
+      {/* Thumbnail — neutral gray placeholder, never warm tint */}
+      <Link
+        href={`/merchants/${merchant.id}`}
+        className="relative block flex-shrink-0"
+        style={{ paddingTop: '66.67%' /* 3:2 ratio */ }}
+      >
+        <div className="absolute inset-0 bg-[#EFEFEF]">
+          {merchant.bannerUrl && (
+            <Image
+              src={merchant.bannerUrl}
+              alt={displayName}
+              fill
+              className="object-cover"
+              sizes={variant === 'grid' ? '(max-width: 768px) 100vw, 33vw' : '240px'}
+            />
+          )}
+        </div>
 
-        {/* Logo circle — overlaps bottom-left of banner */}
+        {/* Logo circle */}
         {merchant.logoUrl && (
-          <div className="absolute bottom-0 left-3 translate-y-1/2 w-10 h-10 rounded-full border-2 border-white shadow overflow-hidden bg-white">
+          <div className="absolute bottom-0 left-3 translate-y-1/2 w-10 h-10 rounded-full border-2 border-white shadow overflow-hidden bg-white z-10">
             <Image src={merchant.logoUrl} alt="" fill className="object-cover" sizes="40px" />
           </div>
         )}
       </Link>
 
-      {/* Favourite heart — top right of image, always visible */}
+      {/* Favourite button — top right of thumbnail */}
       {onFavouriteToggle && (
         <button
           onClick={e => { e.preventDefault(); onFavouriteToggle(merchant.id) }}
-          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-sm hover:bg-white transition-colors"
+          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-sm hover:bg-white transition-colors z-10"
           aria-label={merchant.isFavourited ? 'Remove from favourites' : 'Add to favourites'}
         >
-          <span className="text-[15px]" aria-hidden>
-            {merchant.isFavourited ? '❤️' : '🤍'}
-          </span>
+          <Heart
+            size={15}
+            strokeWidth={1.8}
+            className={merchant.isFavourited ? 'text-[#E20C04] fill-[#E20C04]' : 'text-[#9CA3AF]'}
+          />
         </button>
       )}
 
       {/* Info area */}
       <Link href={`/merchants/${merchant.id}`} className="flex flex-col gap-2 p-4 pt-6 flex-1 no-underline">
-        {/* Category badge */}
         {merchant.primaryCategory && (
-          <span className="font-mono text-[10px] tracking-[0.1em] uppercase text-orange-red">
+          <span className="text-[10px] font-bold tracking-[0.12em] uppercase text-[#E20C04]">
             {merchant.primaryCategory.name}
           </span>
         )}
 
-        {/* Merchant name */}
-        <h3 className="font-display text-[17px] text-navy leading-snug line-clamp-2">
+        <h3 className="font-body text-[16px] font-bold text-[#010C35] leading-snug line-clamp-2">
           {displayName}
         </h3>
 
-        {/* Vouchers + saving row */}
         <div className="flex items-center gap-2 flex-wrap">
           {merchant.voucherCount > 0 && (
-            <span className="text-[12px] text-navy/55 font-mono">
+            <span className="text-[12px] text-[#4B5563]">
               {merchant.voucherCount} {merchant.voucherCount === 1 ? 'voucher' : 'vouchers'}
             </span>
           )}
           {merchant.maxEstimatedSaving !== null && (
-            <span className="text-[11px] font-semibold text-red bg-red/[0.08] px-2 py-0.5 rounded-full">
+            <span
+              className="text-[11px] font-semibold text-white px-2 py-0.5 rounded-full"
+              style={{ background: 'var(--brand-gradient)' }}
+            >
               Save up to £{merchant.maxEstimatedSaving.toFixed(0)}
             </span>
           )}
         </div>
 
-        {/* Rating + distance row */}
-        <div className="flex items-center justify-between mt-auto pt-2 border-t border-navy/[0.06]">
+        <div className="flex items-center justify-between mt-auto pt-2 border-t border-[#EDE8E8]">
           {merchant.avgRating !== null ? (
-            <span className="text-[12px] text-navy/60">
-              ★ {merchant.avgRating.toFixed(1)}
-              <span className="text-navy/35 ml-1">({merchant.reviewCount})</span>
+            <span className="text-[12px] text-[#4B5563]">
+              &#9733; {merchant.avgRating.toFixed(1)}
+              <span className="text-[#9CA3AF] ml-1">({merchant.reviewCount})</span>
             </span>
           ) : (
-            <span className="text-[11px] text-navy/30 font-mono">New</span>
+            <span className="text-[11px] text-[#9CA3AF] font-bold tracking-wide uppercase">New</span>
           )}
           {dist && (
-            <span className="text-[11px] text-navy/40 font-mono">{dist}</span>
+            <span className="text-[11px] text-[#9CA3AF]">{dist}</span>
           )}
         </div>
       </Link>
