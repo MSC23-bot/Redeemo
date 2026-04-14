@@ -5,11 +5,11 @@ import { useState } from 'react'
 const FAQS = [
   {
     q: 'What is the 12-month contract?',
-    a: 'Merchants sign a 12-month listing agreement, accepted digitally during onboarding. This ensures our subscriber base sees stable, committed local businesses — and gives you consistent exposure for a full year.',
+    a: 'Merchants sign a 12-month listing agreement, accepted digitally during onboarding. This ensures our subscriber base sees stable, committed local businesses and gives you consistent exposure for a full year.',
   },
   {
     q: 'Can I change my vouchers after approval?',
-    a: 'Your two mandatory vouchers are fixed once approved — they are the core of your Redeemo listing. You can add custom vouchers (RCV) at any time, subject to a quick admin review.',
+    a: 'Your two mandatory vouchers are fixed once approved. They are the core of your Redeemo listing. You can add custom vouchers (RCV) at any time, subject to a quick admin review.',
   },
   {
     q: 'What happens if I want to suspend or leave?',
@@ -122,7 +122,7 @@ export function MerchantSignupCta() {
             transition={{ duration: 0.5, delay: 0.16 }}
             className="text-[17px] leading-relaxed text-white/55 mb-12 max-w-lg mx-auto"
           >
-            Apply free. We review every merchant to maintain the quality our subscribers expect — so your listing is in good company from day one.
+            Apply free. We review every merchant to maintain the quality our subscribers expect, so your listing is in good company from day one.
           </motion.p>
 
           <motion.div
@@ -137,7 +137,7 @@ export function MerchantSignupCta() {
               className="inline-block text-white font-bold text-[20px] px-14 py-5 rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #E2000C, #E84A00)', boxShadow: '0 0 48px rgba(226,0,12,0.4)' }}
             >
-              Apply to join — it&apos;s free
+              Apply to join, it&apos;s free
             </a>
           </motion.div>
 

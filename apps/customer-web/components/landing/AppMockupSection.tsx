@@ -28,7 +28,7 @@ export function AppMockupSection() {
             <span className="gradient-brand-text">in seconds</span>
           </h2>
           <p className="text-[16px] leading-[1.75] text-navy/60 mb-8 max-w-[440px]">
-            The Redeemo app puts your vouchers at your fingertips. Tap to redeem in-store — no printing, no fuss. Your savings history is always there when you need it.
+            The Redeemo app puts your vouchers at your fingertips. Tap to redeem in-store. No printing, no fuss. Your savings history is always there when you need it.
           </p>
 
           <ul className="flex flex-col gap-3.5 mb-10">

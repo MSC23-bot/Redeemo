@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 
 const claims = [
   { headline: 'Save every month', body: 'Exclusive vouchers from local businesses, refreshed every cycle.' },
-  { headline: 'Local, not generic', body: 'Independent restaurants, gyms, salons — not the same chains everywhere.' },
+  { headline: 'Local, not generic', body: 'Independent restaurants, gyms, salons. Not the same chains everywhere.' },
   { headline: 'Redeem in seconds', body: 'Show your code. Validated instantly. No printing, no fuss.' },
 ]
 

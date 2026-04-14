@@ -6,7 +6,7 @@ const steps = [
     number: '01',
     title: 'Create your merchant profile',
     body: 'Register online. Fill in your business details, upload photos, and add your branch locations. The web portal guides you through every step.',
-    detail: 'Takes around 15 minutes. You control your profile — update it any time.',
+    detail: 'Takes around 15 minutes. You control your profile and can update it any time.',
   },
   {
     number: '02',

@@ -19,7 +19,7 @@ const plans = [
     name: 'Annual',
     price: '£69.99',
     period: 'per year',
-    badge: 'Best value — 2 months free' as string | null,
+    badge: 'Best value: 2 months free' as string | null,
     features: [
       'Everything in Monthly',
       'Save ~£14 vs monthly billing',
@@ -93,7 +93,7 @@ export function PricingSection() {
         </div>
 
         <p className="text-center mt-6 text-xs text-navy/40">
-          Free plan available — browse all merchants and vouchers without subscribing.
+          Free plan available. Browse all merchants and vouchers without subscribing.
         </p>
       </div>
     </section>

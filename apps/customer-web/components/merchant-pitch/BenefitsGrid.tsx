@@ -5,7 +5,7 @@ const HERO_BENEFITS = [
   {
     icon: '🎯',
     title: 'Reach motivated local buyers',
-    body: 'Redeemo subscribers pay for access to local offers. They are actively looking to spend — not passively browsing social media.',
+    body: 'Redeemo subscribers pay for access to local offers. They are actively looking to spend, not passively browsing social media.',
   },
   {
     icon: '£0',
@@ -16,7 +16,7 @@ const HERO_BENEFITS = [
 
 const SUB_BENEFITS = [
   { icon: '📊', title: 'Redemption analytics', body: 'See which vouchers drive footfall, tracked per branch and time period.' },
-  { icon: '📍', title: 'Location-targeted exposure', body: 'Your business appears to subscribers within your area — people who can actually visit.' },
+  { icon: '📍', title: 'Location-targeted exposure', body: 'Your business appears to subscribers within your area: people who can actually visit.' },
   { icon: '⚡', title: 'In-store validation in seconds', body: 'Staff scan a QR code or enter a code in the merchant app. No hardware needed.' },
   { icon: '🚀', title: 'Featured campaigns', body: 'Purchase featured placement to appear at the top of local discovery feeds when you want a boost.' },
 ]

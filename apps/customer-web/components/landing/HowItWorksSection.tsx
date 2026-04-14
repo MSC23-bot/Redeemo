@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion'
 
 const steps = [
-  { number: '01', title: 'Subscribe', body: 'Choose monthly or annual. Cancel any time — no lock-in, no hidden fees.' },
+  { number: '01', title: 'Subscribe', body: 'Choose monthly or annual. Cancel any time. No lock-in, no hidden fees.' },
   { number: '02', title: 'Discover', body: 'Browse exclusive offers from local restaurants, gyms, salons, and more near you.' },
   { number: '03', title: 'Redeem in-store', body: 'Show your code. The merchant validates it in seconds. Saving done.' },
 ]

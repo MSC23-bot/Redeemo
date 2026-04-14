@@ -43,7 +43,7 @@ export function HeroSection() {
             transition={{ duration: 0.5, delay: 0.22 }}
             className="text-[15px] leading-[1.65] text-[#4B5563] max-w-[440px] mb-10"
           >
-            One subscription unlocks exclusive vouchers from restaurants, cafes, gyms, salons, and more — all within your neighbourhood.
+            One subscription unlocks exclusive vouchers from restaurants, cafes, gyms, salons, and more. All within your neighbourhood.
           </motion.p>
 
           {/* CTAs */}

@@ -12,10 +12,10 @@ export function SavingsChart({ data }: { data: MonthData[] }) {
     <div
       className="bg-white border border-navy/[0.08] rounded-2xl p-6"
       role="img"
-      aria-label={`Monthly savings bar chart — last 12 months. Highest month: £${maxSaving.toFixed(2)}`}
+      aria-label={`Monthly savings bar chart, last 12 months. Highest month: £${maxSaving.toFixed(2)}`}
     >
       <p className="font-mono text-[11px] tracking-[0.1em] uppercase text-navy/35 mb-6">
-        Monthly savings — last 12 months
+        Monthly savings: last 12 months
       </p>
 
       <div className="flex items-end gap-2 h-[120px]">

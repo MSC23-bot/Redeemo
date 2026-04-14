@@ -74,7 +74,7 @@ export function MerchantHero() {
               className="inline-block text-white font-bold text-base px-10 py-[18px] rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #E2000C, #E84A00)', boxShadow: '0 0 32px rgba(226,0,12,0.35)' }}
             >
-              Apply to join — it&apos;s free
+              Apply to join, it&apos;s free
             </Link>
             <a
               href="#how-it-works"

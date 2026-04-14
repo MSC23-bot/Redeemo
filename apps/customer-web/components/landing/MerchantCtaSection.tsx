@@ -16,7 +16,7 @@ export function MerchantCtaSection() {
         >
           <p className="font-mono text-[11px] tracking-[0.12em] uppercase text-orange-red mb-3">For businesses</p>
           <h2 className="font-display text-white leading-[1.2] max-w-[480px]" style={{ fontSize: 'clamp(28px, 3vw, 40px)' }}>
-            Attract new local customers — free to list
+            Attract new local customers. Free to list.
           </h2>
         </motion.div>
 
