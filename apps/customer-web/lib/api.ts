@@ -124,6 +124,18 @@ export const authApi = {
       method: 'POST', auth: true,
       body: JSON.stringify({ actionToken }),
     }),
+
+  verifyEmail: (params: { email: string; code: string }) =>
+    apiFetch<{ message: string }>('/api/v1/customer/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  resendVerification: (email: string) =>
+    apiFetch<{ message: string }>('/api/v1/customer/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
 }
 
 // ── Discovery ─────────────────────────────────────────────────────────────────
