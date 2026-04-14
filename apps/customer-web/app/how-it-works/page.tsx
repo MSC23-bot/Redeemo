@@ -240,10 +240,10 @@ export default function HowItWorksPage() {
             Download the app to redeem vouchers in-store. Browse free on the website anytime.
           </p>
           <div className="flex justify-center gap-3 flex-wrap">
-            <button disabled aria-label="App Store — coming soon" className="h-11 px-6 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center cursor-not-allowed opacity-70">
+            <button disabled aria-label="App Store - coming soon" className="h-11 px-6 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center cursor-not-allowed opacity-70">
               <span className="text-[13px] font-semibold text-white">App Store</span>
             </button>
-            <button disabled aria-label="Google Play — coming soon" className="h-11 px-6 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center cursor-not-allowed opacity-70">
+            <button disabled aria-label="Google Play - coming soon" className="h-11 px-6 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center cursor-not-allowed opacity-70">
               <span className="text-[13px] font-semibold text-white">Google Play</span>
             </button>
           </div>
