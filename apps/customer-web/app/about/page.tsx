@@ -36,7 +36,7 @@ export default function AboutPage() {
   return (
     <>
       {/* Stat bar */}
-      <section className="bg-[#010C35] py-10 px-6">
+      <section className="bg-[#010C35] py-10 px-6" aria-label="Key facts about Redeemo">
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-0 md:divide-x md:divide-white/[0.08]">
             {STATS.map(stat => (
