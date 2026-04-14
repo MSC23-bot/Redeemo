@@ -7,19 +7,48 @@ import { motion } from 'framer-motion'
 const NAV_ITEMS = [
   {
     href: '/account', label: 'Overview',
-    icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden><rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/><rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/><rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/><rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/></svg>,
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+        <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+        <rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+        <rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+        <rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+      </svg>
+    ),
   },
   {
     href: '/account/profile', label: 'Profile',
-    icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden><circle cx="7" cy="4.5" r="2.5" fill="currentColor"/><path d="M2 12c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+        <circle cx="7" cy="4.5" r="2.5" fill="currentColor"/>
+        <path d="M2 12c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    ),
+  },
+  {
+    href: '/account/subscription', label: 'Subscription',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+        <rect x="1" y="3" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+        <path d="M1 6h12" stroke="currentColor" strokeWidth="1.4"/>
+      </svg>
+    ),
   },
   {
     href: '/account/savings', label: 'Savings',
-    icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden><text x="1" y="12" fontFamily="serif" fontSize="13" fill="currentColor">£</text></svg>,
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+        <text x="1" y="12" fontFamily="serif" fontSize="13" fill="currentColor">£</text>
+      </svg>
+    ),
   },
   {
     href: '/account/favourites', label: 'Favourites',
-    icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden><path d="M7 12L2.5 7.5C1.5 6.5 1.5 4.9 2.5 3.9 3.5 2.9 5.1 2.9 6.1 3.9L7 4.8l.9-.9c1-1 2.6-1 3.6 0 1 1 1 2.6 0 3.6L7 12z" fill="currentColor"/></svg>,
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+        <path d="M7 12L2.5 7.5C1.5 6.5 1.5 4.9 2.5 3.9 3.5 2.9 5.1 2.9 6.1 3.9L7 4.8l.9-.9c1-1 2.6-1 3.6 0 1 1 1 2.6 0 3.6L7 12z" fill="currentColor"/>
+      </svg>
+    ),
   },
 ]
 
