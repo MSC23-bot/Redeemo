@@ -82,9 +82,9 @@ export default function ForBusinessesPage() {
       {/* Three commercial facts */}
       <section className="bg-white py-16 px-6">
         <div className="max-w-7xl mx-auto">
-          <p className="text-[11px] font-bold tracking-[0.15em] uppercase text-[#9CA3AF] mb-10">
+          <h2 className="text-[11px] font-bold tracking-[0.15em] uppercase text-[#9CA3AF] mb-10">
             Three facts to know before deciding
-          </p>
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {COMMERCIAL_FACTS.map((fact, i) => (
               <div key={fact.title} className="border-l-[3px] border-[#010C35] pl-6">
@@ -142,14 +142,17 @@ export default function ForBusinessesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {WHAT_YOU_GET.map(section => (
               <div key={section.category} className="bg-[#F8F9FA] rounded-xl p-8">
-                <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-[#9CA3AF] mb-5">
+                <h3 className="text-[11px] font-bold tracking-[0.12em] uppercase text-[#9CA3AF] mb-5">
                   {section.category}
-                </p>
+                </h3>
                 <ul className="flex flex-col gap-3">
                   {section.items.map(item => (
                     <li key={item} className="flex items-start gap-3">
                       <span className="text-[#E20C04] font-bold text-[13px] flex-shrink-0 mt-0.5" aria-hidden="true">✓</span>
-                      <span className="text-[14px] text-[#4B5563]">{item}</span>
+                      <span className="text-[14px] text-[#4B5563]">
+                        <span className="sr-only">Included: </span>
+                        {item}
+                      </span>
                     </li>
                   ))}
                 </ul>
