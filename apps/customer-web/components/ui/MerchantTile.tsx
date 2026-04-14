@@ -5,8 +5,6 @@ import { motion } from 'framer-motion'
 import { Heart } from 'lucide-react'
 import type { MerchantTileData } from '@/lib/api'
 
-export type MerchantTile = MerchantTileData
-
 function formatDistance(metres: number | null): string | null {
   if (metres === null) return null
   if (metres < 1000) return `${Math.round(metres)}m`
@@ -14,7 +12,7 @@ function formatDistance(metres: number | null): string | null {
 }
 
 type Props = {
-  merchant: MerchantTile
+  merchant: MerchantTileData
   onFavouriteToggle?: (id: string) => void
   index?: number
   variant?: 'rail' | 'grid'
@@ -29,22 +27,28 @@ export function MerchantTile({ merchant, onFavouriteToggle, index = 0, variant =
       initial={{ opacity: 0, y: 16 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      transition={{ duration: 0.4, delay: index * 0.07 }}
+      transition={{ duration: 0.4, delay: Math.min(index, 5) * 0.07 }}
       className={`group relative flex flex-col bg-white rounded-xl overflow-hidden border border-[#EDE8E8] shadow-sm hover:shadow-md transition-shadow ${
         variant === 'grid' ? 'w-full' : 'flex-shrink-0 w-[220px] sm:w-[240px]'
       }`}
     >
-      {/* Thumbnail — neutral gray placeholder, never warm tint */}
+      {/* Stretched link — single focusable target for the whole card */}
       <Link
         href={`/merchants/${merchant.id}`}
-        className="relative block flex-shrink-0"
+        className="absolute inset-0 z-0 rounded-xl"
+        aria-label={displayName}
+      />
+
+      {/* Thumbnail — neutral gray placeholder */}
+      <div
+        className="relative flex-shrink-0"
         style={{ paddingTop: '66.67%' /* 3:2 ratio */ }}
       >
         <div className="absolute inset-0 bg-[#EFEFEF]">
           {merchant.bannerUrl && (
             <Image
               src={merchant.bannerUrl}
-              alt={displayName}
+              alt=""
               fill
               className="object-cover"
               sizes={variant === 'grid' ? '(max-width: 768px) 100vw, 33vw' : '240px'}
@@ -58,12 +62,12 @@ export function MerchantTile({ merchant, onFavouriteToggle, index = 0, variant =
             <Image src={merchant.logoUrl} alt="" fill className="object-cover" sizes="40px" />
           </div>
         )}
-      </Link>
+      </div>
 
-      {/* Favourite button — top right of thumbnail */}
+      {/* Favourite button — above stretched link */}
       {onFavouriteToggle && (
         <button
-          onClick={e => { e.preventDefault(); onFavouriteToggle(merchant.id) }}
+          onClick={e => { e.stopPropagation(); onFavouriteToggle(merchant.id) }}
           className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-sm hover:bg-white transition-colors z-10"
           aria-label={merchant.isFavourited ? 'Remove from favourites' : 'Add to favourites'}
         >
@@ -75,8 +79,8 @@ export function MerchantTile({ merchant, onFavouriteToggle, index = 0, variant =
         </button>
       )}
 
-      {/* Info area */}
-      <Link href={`/merchants/${merchant.id}`} className="flex flex-col gap-2 p-4 pt-6 flex-1 no-underline">
+      {/* Info area — non-interactive, pointer-events-none (card clickable via stretched link) */}
+      <div className="relative z-[1] pointer-events-none flex flex-col gap-2 p-4 pt-6 flex-1">
         {merchant.primaryCategory && (
           <span className="text-[10px] font-bold tracking-[0.12em] uppercase text-[#E20C04]">
             {merchant.primaryCategory.name}
@@ -98,7 +102,7 @@ export function MerchantTile({ merchant, onFavouriteToggle, index = 0, variant =
               className="text-[11px] font-semibold text-white px-2 py-0.5 rounded-full"
               style={{ background: 'var(--brand-gradient)' }}
             >
-              Save up to £{merchant.maxEstimatedSaving.toFixed(0)}
+              Save up to £{Math.floor(merchant.maxEstimatedSaving)}
             </span>
           )}
         </div>
@@ -116,7 +120,7 @@ export function MerchantTile({ merchant, onFavouriteToggle, index = 0, variant =
             <span className="text-[11px] text-[#9CA3AF]">{dist}</span>
           )}
         </div>
-      </Link>
+      </div>
     </motion.div>
   )
 }
