@@ -16,7 +16,7 @@ const PHASE1_STEPS = [
   {
     n: '02',
     title: 'Choose a subscription plan',
-    body: 'Browse free — no card needed. To unlock voucher redemptions, choose a Monthly (£6.99) or Annual (£69.99) plan. Cancel any time.',
+    body: 'Browse free. No card needed. To unlock voucher redemptions, choose a Monthly (£6.99) or Annual (£69.99) plan. Cancel any time.',
     note: null,
   },
   {
@@ -38,13 +38,13 @@ const PHASE2_STEPS = [
     n: '05',
     title: 'Enter the branch PIN shown in-venue',
     body: 'When you arrive at the venue, enter the branch PIN displayed in-store to verify your presence.',
-    note: 'The branch PIN is not a secret — it is displayed in-venue. If you cannot find it, ask a member of staff.',
+    note: 'The branch PIN is not a secret. It is displayed in-venue. If you cannot find it, ask a member of staff.',
   },
   {
     n: '06',
     title: 'Show your code to the member of staff to validate',
     body: 'The app generates a unique redemption code. Show it to the member of staff. They scan or enter it in the Redeemo merchant app to validate.',
-    note: 'If a merchant refuses a valid voucher, contact Redeemo support — not the merchant directly.',
+    note: 'If a merchant refuses a valid voucher, contact Redeemo support, not the merchant directly.',
   },
 ]
 
@@ -60,7 +60,7 @@ const FREE_FEATURES = [
 const FAQ_ITEMS = [
   {
     q: 'Do I need the app to browse merchants?',
-    a: 'No. You can browse all merchants and voucher details on this website for free. Redemption requires the mobile app — that is by design, not a restriction.',
+    a: 'No. You can browse all merchants and voucher details on this website for free. Redemption requires the mobile app. That is by design, not a restriction.',
   },
   {
     q: 'Can I use Redeemo in any city?',
@@ -68,7 +68,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'What happens if a merchant refuses my voucher?',
-    a: 'Contact Redeemo support directly — do not negotiate with the merchant. All merchants sign a contract committing to honour valid redemptions.',
+    a: 'Contact Redeemo support directly. Do not negotiate with the merchant. All merchants sign a contract committing to honour valid redemptions.',
   },
   {
     q: 'Can I use a voucher more than once per month?',
@@ -127,9 +127,9 @@ export default function HowItWorksPage() {
       {/* Phase 1 */}
       <section className="bg-[#F8F9FA] py-16 px-6">
         <div className="max-w-[640px] mx-auto">
-          <p className="text-[11px] font-bold tracking-[0.15em] uppercase text-[#9CA3AF] mb-8">
-            Phase 1 — Getting started
-          </p>
+          <h2 className="text-[11px] font-bold tracking-[0.15em] uppercase text-[#9CA3AF] mb-8">
+            Phase 1: Getting started
+          </h2>
           <div className="flex flex-col gap-10">
             {PHASE1_STEPS.map(step => (
               <StepBlock key={step.n} step={step} />
@@ -141,9 +141,9 @@ export default function HowItWorksPage() {
       {/* Phase 2 */}
       <section className="bg-white py-16 px-6">
         <div className="max-w-[640px] mx-auto">
-          <p className="text-[11px] font-bold tracking-[0.15em] uppercase text-[#9CA3AF] mb-8">
-            Phase 2 — Redeeming a voucher
-          </p>
+          <h2 className="text-[11px] font-bold tracking-[0.15em] uppercase text-[#9CA3AF] mb-8">
+            Phase 2: Redeeming a voucher
+          </h2>
           <div className="flex flex-col gap-10">
             {PHASE2_STEPS.map(step => (
               <StepBlock key={step.n} step={step} />
@@ -240,12 +240,12 @@ export default function HowItWorksPage() {
             Download the app to redeem vouchers in-store. Browse free on the website anytime.
           </p>
           <div className="flex justify-center gap-3 flex-wrap">
-            <div className="h-11 px-6 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center">
+            <button disabled aria-label="App Store — coming soon" className="h-11 px-6 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center cursor-not-allowed opacity-70">
               <span className="text-[13px] font-semibold text-white">App Store</span>
-            </div>
-            <div className="h-11 px-6 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center">
+            </button>
+            <button disabled aria-label="Google Play — coming soon" className="h-11 px-6 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center cursor-not-allowed opacity-70">
               <span className="text-[13px] font-semibold text-white">Google Play</span>
-            </div>
+            </button>
           </div>
           <p className="mt-4 text-[12px] text-white/50">Apps coming soon</p>
         </div>
