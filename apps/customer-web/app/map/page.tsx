@@ -29,7 +29,6 @@ export default function MapPage() {
         </div>
         <div
           className="flex-shrink-0 flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#EDE8E8] text-[13px] font-medium text-[#4B5563]"
-          aria-hidden="true"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path d="M2 4h10M4 7h6M5.5 10h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
