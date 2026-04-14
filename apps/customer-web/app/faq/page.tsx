@@ -105,26 +105,24 @@ export default function FaqPage() {
       <div className="max-w-7xl mx-auto px-6 py-12 lg:flex lg:gap-12">
 
         {/* Sidebar nav — desktop only */}
-        {!query && (
-          <nav aria-label="FAQ sections" className="hidden lg:flex flex-col gap-1 w-52 flex-shrink-0 sticky top-24 self-start">
-            {FAQ_SECTIONS.map(section => (
-              <button
-                key={section.id}
-                onClick={() => {
-                  setActiveSection(section.id)
-                  document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-                className={`text-left px-4 py-2.5 rounded-lg text-[14px] transition-colors ${
-                  activeSection === section.id
-                    ? 'bg-white text-[#010C35] font-semibold shadow-sm border border-[#EDE8E8]'
-                    : 'text-[#4B5563] hover:text-[#010C35] hover:bg-[#F8F9FA]'
-                }`}
-              >
-                {section.title}
-              </button>
-            ))}
-          </nav>
-        )}
+        <nav aria-label="FAQ sections" className="hidden lg:flex flex-col gap-1 w-52 flex-shrink-0 sticky top-24 self-start">
+          {FAQ_SECTIONS.map(section => (
+            <button
+              key={section.id}
+              onClick={() => {
+                setActiveSection(section.id)
+                document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+              className={`text-left px-4 py-2.5 rounded-lg text-[14px] transition-colors ${
+                activeSection === section.id
+                  ? 'bg-white text-[#010C35] font-semibold shadow-sm border border-[#EDE8E8]'
+                  : 'text-[#4B5563] hover:text-[#010C35] hover:bg-[#F8F9FA]'
+              }`}
+            >
+              {section.title}
+            </button>
+          ))}
+        </nav>
 
         {/* Accordion content */}
         <main className="flex-1">
@@ -162,8 +160,7 @@ export default function FaqPage() {
           ))}
 
           {/* Support CTA */}
-          {!query && (
-            <div className="mt-4 bg-[#F8F9FA] rounded-xl p-8 text-center">
+          <div className="mt-4 bg-[#F8F9FA] rounded-xl p-8 text-center">
               <h3 className="font-display text-[#010C35] text-[20px] mb-3">Still have questions?</h3>
               <p className="text-[14px] text-[#4B5563] mb-5">Our support team is here to help.</p>
               <Link
@@ -173,8 +170,7 @@ export default function FaqPage() {
               >
                 Contact support
               </Link>
-            </div>
-          )}
+          </div>
         </main>
       </div>
     </>
