@@ -196,6 +196,7 @@ The plan is 38 tasks in six batches. Each task is a self-contained commit — pa
 
 - **2026-04-15 — profileImageUrl null gap (§12.5):** Option A chosen. Backend now accepts `profileImageUrl: null`. PC4 will wire the Remove action.
 - **2026-04-15 — interests route verification:** `PUT /api/v1/customer/profile/interests` confirmed present at `src/api/customer/profile/routes.ts:66`.
+- **2026-04-15 — Moti compatibility (Task 2):** Moti INSTALLED. `npm view moti peerDependencies` returns `{ "react-native-reanimated": "*" }` — the wildcard range explicitly includes Reanimated 4. Installed `moti@^0.30.0` via `expo install`. react-native-reanimated resolved to `~4.1.1` (Expo SDK 54 default).
 
 ---
 
