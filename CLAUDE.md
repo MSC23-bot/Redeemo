@@ -186,7 +186,18 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Savings: lifetime + monthly summary, redemption history with pagination
 - Plan: `docs/superpowers/plans/2026-04-10-customer-api-gaps.md`
 
-### 🔲 Phase 3C — Customer App (React Native / Expo)
+### ✅ Phase 3C.1a — Customer App Foundations + Auth (COMPLETE — branch feature/customer-app)
+- Expo SDK 54 scaffold with expo-router v4, TypeScript strict, design tokens, motion primitives
+- Auth flows: register, login, forgot/reset password, email verification polling, phone OTP verification
+- Four-step profile completion wizard (About / Address / Interests / Avatar) with dismiss semantics
+- Subscribe wall stub (subscribe-prompt + subscribe-soon); subscription purchase deferred
+- Tab bar: Home enabled; Discover/Savings/Profile truly disabled (no onPress, no haptic, accessibilityState.disabled)
+- WCAG 2.1 AA contrast + VoiceOver/TalkBack audit documented
+- Maestro E2E: auth + login flows
+- 68+ tests passing; tsc/eslint clean
+- Plan: `docs/superpowers/plans/2026-04-15-customer-app-foundations-auth.md`
+
+### 🔲 Phase 3C (remaining) — Customer App Discovery, Savings, Profile, Redemption
 
 ### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
 - Full Next.js 15 App Router site at `apps/customer-web/`
