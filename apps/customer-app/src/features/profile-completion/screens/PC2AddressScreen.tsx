@@ -52,20 +52,20 @@ export function PC2AddressScreen() {
       <View style={{ padding: layout.screenPaddingH, gap: spacing[4] }}>
         <StepIndicator current={2} total={totalSteps} />
         <Text variant="display.sm">Where are you based?</Text>
-        <Button variant="secondary" size="md" loading={assist.loading} onPress={assist.request}>
+        <Button variant="secondary" size="md" loading={assist.loading} onPress={() => { void assist.request() }}>
           Use my location
         </Button>
         <Controller control={control} name="addressLine1" render={({ field, fieldState }) => (
-          <TextField label="Address line 1" value={field.value} onChangeText={field.onChange} error={fieldState.error?.message} />
+          <TextField label="Address line 1" value={field.value} onChangeText={field.onChange} {...(fieldState.error?.message ? { error: fieldState.error.message } : {})} />
         )} />
         <Controller control={control} name="addressLine2" render={({ field }) => (
           <TextField label="Address line 2 (optional)" value={field.value} onChangeText={field.onChange} />
         )} />
         <Controller control={control} name="city" render={({ field, fieldState }) => (
-          <TextField label="City" value={field.value} onChangeText={field.onChange} error={fieldState.error?.message} />
+          <TextField label="City" value={field.value} onChangeText={field.onChange} {...(fieldState.error?.message ? { error: fieldState.error.message } : {})} />
         )} />
         <Controller control={control} name="postcode" render={({ field, fieldState }) => (
-          <TextField label="Postcode" value={field.value} onChangeText={field.onChange} error={fieldState.error?.message} />
+          <TextField label="Postcode" value={field.value} onChangeText={field.onChange} {...(fieldState.error?.message ? { error: fieldState.error.message } : {})} />
         )} />
         <Button variant="primary" size="lg" loading={update.isPending} onPress={handleSubmit(onSave)}>Continue</Button>
         <Button variant="ghost" size="md" onPress={() => markStepComplete('pc2')}>Skip for now</Button>

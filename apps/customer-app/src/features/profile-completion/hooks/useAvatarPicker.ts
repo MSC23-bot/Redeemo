@@ -8,7 +8,7 @@ export function useAvatarPicker() {
   const [uri, setUri] = useState<string | null>(null)
   const [base64, setBase64] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading] = useState(false)
 
   async function pick() {
     setError(null)

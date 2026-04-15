@@ -36,10 +36,10 @@ export function PC1AboutScreen() {
         <StepIndicator current={1} total={totalSteps} />
         <Text variant="display.sm">Tell us a little about you</Text>
         <Controller control={control} name="name" render={({ field, fieldState }) => (
-          <TextField label="First name" value={field.value} onChangeText={field.onChange} error={fieldState.error?.message} />
+          <TextField label="First name" value={field.value} onChangeText={field.onChange} {...(fieldState.error?.message ? { error: fieldState.error.message } : {})} />
         )} />
         <Controller control={control} name="dateOfBirth" render={({ field, fieldState }) => (
-          <TextField label="Date of birth (YYYY-MM-DD)" value={field.value} onChangeText={field.onChange} error={fieldState.error?.message} />
+          <TextField label="Date of birth (YYYY-MM-DD)" value={field.value} onChangeText={field.onChange} {...(fieldState.error?.message ? { error: fieldState.error.message } : {})} />
         )} />
         <Controller control={control} name="gender" render={({ field }) => (
           <TextField label="Gender (optional)" value={field.value} onChangeText={field.onChange} />
