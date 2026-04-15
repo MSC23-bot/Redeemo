@@ -192,6 +192,13 @@ The plan is 38 tasks in six batches. Each task is a self-contained commit — pa
 
 ---
 
+## Decision Log
+
+- **2026-04-15 — profileImageUrl null gap (§12.5):** Option A chosen. Backend now accepts `profileImageUrl: null`. PC4 will wire the Remove action.
+- **2026-04-15 — interests route verification:** `PUT /api/v1/customer/profile/interests` confirmed present at `src/api/customer/profile/routes.ts:66`.
+
+---
+
 ## Batch A — Foundations
 
 ### Task 0: Backend verification gate (main repo, not worktree)
