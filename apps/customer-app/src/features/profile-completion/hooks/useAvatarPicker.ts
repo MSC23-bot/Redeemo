@@ -43,5 +43,7 @@ export function useAvatarPicker() {
     setUri(manipulated.uri)
   }
 
-  return { uri, base64, error, loading, pick }
+  const dataUrl = base64 ? `data:image/jpeg;base64,${base64}` : null
+
+  return { uri, dataUrl, base64, error, loading, pick }
 }

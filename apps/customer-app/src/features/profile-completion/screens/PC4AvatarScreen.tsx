@@ -15,8 +15,8 @@ export function PC4AvatarScreen() {
 
   async function onSave() {
     try {
-      if (picker.uri) {
-        await updateAvatar.mutateAsync(picker.uri)
+      if (picker.dataUrl) {
+        await updateAvatar.mutateAsync(picker.dataUrl)
       }
       await updateProfile.mutateAsync({ newsletterConsent })
       await markStepComplete('pc4')
