@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated'
 import { useAuthStore } from '@/stores/auth'
-import { authApi } from '@/lib/api/auth'
 import { ScreenContainer } from '@/design-system/components/ScreenContainer'
 import { AppBar } from '@/design-system/components/AppBar'
 import { OtpField } from '@/design-system/components/OtpField'
@@ -55,7 +54,7 @@ export function VerifyPhoneScreen() {
             We sent a 6-digit code to {user?.phone ?? 'your phone'}.
           </Text>
           <Animated.View style={shakeStyle}>
-            <OtpField onComplete={verify} error={error ?? undefined} disabled={busy} />
+            <OtpField onComplete={verify} {...(error ? { error } : {})} disabled={busy} />
           </Animated.View>
           <Button
             variant="secondary"

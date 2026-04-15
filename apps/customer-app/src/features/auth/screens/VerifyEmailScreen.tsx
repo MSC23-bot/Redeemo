@@ -8,7 +8,7 @@ import { ScreenContainer } from '@/design-system/components/ScreenContainer'
 import { AppBar } from '@/design-system/components/AppBar'
 import { Button } from '@/design-system/components/Button'
 import { Text } from '@/design-system/Text'
-import { color, spacing, radius, opacity as opacityTokens } from '@/design-system/tokens'
+import { color, spacing, radius, opacity as opacityTokens, typography } from '@/design-system/tokens'
 import { useVerifyEmail } from '@/features/auth/hooks/useVerifyEmail'
 
 const RESEND_COOLDOWN = 60_000
@@ -70,7 +70,7 @@ export function VerifyEmailScreen() {
             ) : (
               <RNText
                 accessibilityState={{ disabled: isDisabled }}
-                style={{ fontFamily: 'Lato-Medium', fontSize: 14, color: color.text.primary }}
+                style={{ ...typography['label.lg'], color: color.text.primary }}
               >
                 Resend email
               </RNText>

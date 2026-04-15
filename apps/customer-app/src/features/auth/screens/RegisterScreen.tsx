@@ -40,7 +40,7 @@ export function RegisterScreen() {
             label="First name"
             value={firstName}
             onChangeText={setFirstName}
-            error={fieldErrors.firstName}
+            {...(fieldErrors.firstName ? { error: fieldErrors.firstName } : {})}
             autoCapitalize="words"
             textContentType="givenName"
           />
@@ -48,7 +48,7 @@ export function RegisterScreen() {
             label="Last name"
             value={lastName}
             onChangeText={setLastName}
-            error={fieldErrors.lastName}
+            {...(fieldErrors.lastName ? { error: fieldErrors.lastName } : {})}
             autoCapitalize="words"
             textContentType="familyName"
           />
@@ -56,7 +56,7 @@ export function RegisterScreen() {
             label="Email"
             value={email}
             onChangeText={setEmail}
-            error={fieldErrors.email}
+            {...(fieldErrors.email ? { error: fieldErrors.email } : {})}
             keyboardType="email-address"
             autoCapitalize="none"
             textContentType="emailAddress"
@@ -65,7 +65,7 @@ export function RegisterScreen() {
             label="Password"
             value={password}
             onChangeText={setPassword}
-            error={fieldErrors.password}
+            {...(fieldErrors.password ? { error: fieldErrors.password } : {})}
             secure
             textContentType="newPassword"
           />
@@ -73,7 +73,7 @@ export function RegisterScreen() {
             label="Phone number (e.g. +447700900000)"
             value={phone}
             onChangeText={setPhone}
-            error={fieldErrors.phone}
+            {...(fieldErrors.phone ? { error: fieldErrors.phone } : {})}
             keyboardType="phone-pad"
             textContentType="telephoneNumber"
           />

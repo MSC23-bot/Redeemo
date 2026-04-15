@@ -47,7 +47,7 @@ export function ResetPasswordScreen() {
   function handleSubmit() {
     const parsed = passwordSchema.safeParse(password)
     if (!parsed.success) {
-      setValidationError(parsed.error.errors[0]?.message ?? 'Invalid password')
+      setValidationError(parsed.error.issues[0]?.message ?? 'Invalid password')
       return
     }
     if (password !== confirm) {
@@ -74,7 +74,7 @@ export function ResetPasswordScreen() {
             value={password}
             onChangeText={setPassword}
             secure
-            error={validationError ?? undefined}
+            {...(validationError ? { error: validationError } : {})}
             textContentType="newPassword"
           />
           <TextField

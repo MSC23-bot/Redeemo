@@ -12,11 +12,15 @@ import { DeepLinkListener } from '@/app-bootstrap/DeepLinkListener'
 import { ReduceMotionListener } from '@/app-bootstrap/ReduceMotionListener'
 import { SessionExpiredBridge } from '@/app-bootstrap/SessionExpiredBridge'
 
-let queryClient: InstanceType<typeof QueryClient> | null = null
+let queryClient: QueryClient | null = null
+
+function getQueryClient(): QueryClient {
+  if (!queryClient) queryClient = new QueryClient()
+  return queryClient
+}
 
 export default function RootLayout() {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (!queryClient) queryClient = new QueryClient()
+  const qc = getQueryClient()
   const [fontsReady] = useFonts({
     'MusticaPro-SemiBold': require('../assets/fonts/MusticaPro-SemiBold.otf'),
     'Lato-Regular': require('../assets/fonts/Lato-Regular.ttf'),
@@ -36,12 +40,8 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsReady && status !== 'bootstrapping' && !splashHidden.current) {
       splashHidden.current = true
-      // Hide splash screen when ready (expo-splash-screen may not be installed in all envs)
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const SplashScreen = require('expo-splash-screen') as { hideAsync: () => Promise<void> }
-        SplashScreen.hideAsync().catch(() => {})
-      } catch { /* not installed */ }
+      // Best-effort: hide splash screen when ready
+      import('expo-splash-screen').then((m) => m.hideAsync()).catch(() => {})
     }
   }, [fontsReady, status])
 
@@ -50,7 +50,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
+        <QueryClientProvider client={qc}>
           <ToastProvider>
             <View style={{ flex: 1 }}>
               <DeepLinkListener />

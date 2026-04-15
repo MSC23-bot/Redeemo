@@ -5,7 +5,6 @@ import { ScreenContainer } from '@/design-system/components/ScreenContainer'
 import { AppBar } from '@/design-system/components/AppBar'
 import { TextField } from '@/design-system/components/TextField'
 import { Button } from '@/design-system/components/Button'
-import { Text } from '@/design-system/Text'
 import { spacing } from '@/design-system/tokens'
 import { useLoginFlow } from '@/features/auth/hooks/useLoginFlow'
 
@@ -34,7 +33,7 @@ export function LoginScreen() {
             label="Email"
             value={email}
             onChangeText={setEmail}
-            error={fieldErrors.email}
+            {...(fieldErrors.email ? { error: fieldErrors.email } : {})}
             keyboardType="email-address"
             autoCapitalize="none"
             textContentType="emailAddress"
@@ -43,7 +42,7 @@ export function LoginScreen() {
             label="Password"
             value={password}
             onChangeText={setPassword}
-            error={fieldErrors.password}
+            {...(fieldErrors.password ? { error: fieldErrors.password } : {})}
             secure
             textContentType="password"
           />
