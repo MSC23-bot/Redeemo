@@ -1,0 +1,203 @@
+@import "tailwindcss";
+
+/* ── Self-hosted fonts ─────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'Mustica Pro';
+  src: url('/fonts/MusticaPro-SemiBold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Semibold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Lato';
+  src: url('/fonts/Lato-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Tailwind theme tokens ─────────────────────────────────────────────── */
+
+@theme {
+  --color-brand-rose:  #E20C04;
+  --color-brand-coral: #E84A00;
+  --color-navy:        #010C35;
+  --color-red:         #E20C04;
+  --color-orange-red:  #E84A00;
+  --color-surface:     #FFFFFF;
+  --color-bg-tint:     #FEF6F5;
+  --color-bg-neutral:  #F8F9FA;
+
+  --font-display: 'Mustica Pro', serif;
+  --font-body:    'Lato', sans-serif;
+  --font-mono:    'Lato', sans-serif;
+}
+
+/* ── CSS custom property tokens ────────────────────────────────────────── */
+
+:root {
+  /* Brand */
+  --brand-rose:     #E20C04;
+  --brand-coral:    #E84A00;
+  --brand-gradient: linear-gradient(135deg, #E20C04 0%, #E84A00 100%);
+  --on-brand:       #FFFFFF;
+
+  /* Navy — primary text AND footer background */
+  --navy:           #010C35;
+  --navy-border:    rgba(1,12,53,0.12);
+
+  /* Page surfaces */
+  --bg-page:        #FFFFFF;
+  --bg-tint:        #FEF6F5;
+  --bg-tint-deep:   #FEF0EE;
+  --bg-neutral:     #F8F9FA;
+
+  /* Text */
+  --text-primary:   #010C35;
+  --text-secondary: #4B5563;
+  --text-muted:     #9CA3AF;
+
+  /* UI chrome */
+  --border:         #EDE8E8;
+  --border-subtle:  #F5F0F0;
+  --ring:           #E20C04;
+
+  /* Functional */
+  --savings:        #16A34A;
+  --savings-bg:     #F0FDF4;
+  --featured:       #D97706;
+  --featured-bg:    #FFFBEB;
+  --trending:       #DB2777;
+  --trending-bg:    #FCE7F3;
+  --success:        #16A34A;
+  --success-bg:     #F0FDF4;
+  --destructive:    #B91C1C;
+  --destructive-bg: #FEF2F2;
+}
+
+/* ── Global base styles ────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color: var(--text-primary);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: 'Lato', sans-serif;
+}
+
+/* Gradient text utility */
+.gradient-text {
+  background: var(--brand-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Legacy alias — keeps existing usages working while migration completes */
+.gradient-brand-text {
+  background: var(--brand-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ── Legal prose styles ─────────────────────────────────────────────────── */
+
+.prose-legal h2 {
+  font-family: 'Mustica Pro', serif;
+  font-size: clamp(18px, 2.2vw, 24px);
+  color: #010C35;
+  letter-spacing: -0.15px;
+  margin-top: 2.4em;
+  margin-bottom: 0.6em;
+  line-height: 1.15;
+}
+.prose-legal h2:first-child {
+  margin-top: 0;
+}
+.prose-legal h3 {
+  font-family: 'Lato', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #010C35;
+  margin-top: 1.6em;
+  margin-bottom: 0.4em;
+}
+.prose-legal p {
+  font-size: 14.5px;
+  color: #4B5563;
+  line-height: 1.8;
+  margin-bottom: 1em;
+}
+.prose-legal ul, .prose-legal ol {
+  font-size: 14.5px;
+  color: #4B5563;
+  line-height: 1.8;
+  padding-left: 1.4em;
+  margin-bottom: 1em;
+}
+.prose-legal li {
+  margin-bottom: 0.35em;
+}
+.prose-legal a {
+  color: #E20C04;
+  text-decoration: none;
+}
+.prose-legal a:hover {
+  text-decoration: underline;
+}
+.prose-legal strong {
+  color: #010C35;
+  font-weight: 600;
+}
+.prose-legal hr {
+  border: none;
+  border-top: 1px solid #EDE8E8;
+  margin: 2em 0;
+}
