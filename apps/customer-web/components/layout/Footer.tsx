@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 
 const CURRENT_YEAR = new Date().getFullYear()
 
@@ -19,27 +20,34 @@ const SUPPORT_LINKS = [
 
 export function Footer() {
   return (
-    <footer className="bg-[#010C35] text-white pt-16 pb-10">
-      <div className="max-w-7xl mx-auto px-6">
+    <footer className="relative overflow-hidden bg-[#010C35] text-white pt-16 pb-10">
+
+      {/* Rose-red glow — top-left strong + bottom-right accent */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(580px circle at -6% 2%, rgba(226,12,4,0.32), transparent 54%), radial-gradient(420px circle at 106% 108%, rgba(226,12,4,0.22), transparent 54%)',
+        }}
+      />
+
+      <div className="relative max-w-7xl mx-auto px-6">
 
         {/* Top row: brand + columns */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-12 mb-14">
 
           {/* Brand */}
           <div className="sm:col-span-1">
-            {/* White wordmark: gradient R icon + white text */}
-            <div className="flex items-center gap-2 mb-4">
-              <span
-                aria-hidden={true}
-                className="w-7 h-7 rounded-[6px] flex items-center justify-center text-white font-display font-semibold text-[15px] flex-shrink-0"
-                style={{ background: 'var(--brand-gradient)' }}
-              >
-                R
-              </span>
-              <span className="font-display text-[18px] font-semibold text-white leading-none">
-                Redeemo
-              </span>
-            </div>
+            <Link href="/" className="inline-block mb-4 no-underline" aria-label="Redeemo home">
+              <Image
+                src="/logo-dark.png"
+                alt="Redeemo"
+                width={340}
+                height={96}
+                className="h-[96px] w-auto"
+              />
+            </Link>
             <p className="text-[13px] leading-relaxed text-white/45 max-w-[200px]">
               Exclusive vouchers from local businesses. Subscribe and save every month.
             </p>

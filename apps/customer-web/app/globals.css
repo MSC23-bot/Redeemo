@@ -56,6 +56,8 @@
   --color-brand-rose:  #E20C04;
   --color-brand-coral: #E84A00;
   --color-navy:        #010C35;
+  --color-red:         #E20C04;
+  --color-orange-red:  #E84A00;
   --color-surface:     #FFFFFF;
   --color-bg-tint:     #FEF6F5;
   --color-bg-neutral:  #F8F9FA;
@@ -143,4 +145,59 @@ body {
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/* ── Legal prose styles ─────────────────────────────────────────────────── */
+
+.prose-legal h2 {
+  font-family: 'Mustica Pro', serif;
+  font-size: clamp(18px, 2.2vw, 24px);
+  color: #010C35;
+  letter-spacing: -0.15px;
+  margin-top: 2.4em;
+  margin-bottom: 0.6em;
+  line-height: 1.15;
+}
+.prose-legal h2:first-child {
+  margin-top: 0;
+}
+.prose-legal h3 {
+  font-family: 'Lato', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #010C35;
+  margin-top: 1.6em;
+  margin-bottom: 0.4em;
+}
+.prose-legal p {
+  font-size: 14.5px;
+  color: #4B5563;
+  line-height: 1.8;
+  margin-bottom: 1em;
+}
+.prose-legal ul, .prose-legal ol {
+  font-size: 14.5px;
+  color: #4B5563;
+  line-height: 1.8;
+  padding-left: 1.4em;
+  margin-bottom: 1em;
+}
+.prose-legal li {
+  margin-bottom: 0.35em;
+}
+.prose-legal a {
+  color: #E20C04;
+  text-decoration: none;
+}
+.prose-legal a:hover {
+  text-decoration: underline;
+}
+.prose-legal strong {
+  color: #010C35;
+  font-weight: 600;
+}
+.prose-legal hr {
+  border: none;
+  border-top: 1px solid #EDE8E8;
+  margin: 2em 0;
 }

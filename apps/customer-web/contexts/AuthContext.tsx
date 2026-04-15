@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { authApi, type LoginResponse } from '@/lib/api'
-import { saveTokens, clearTokens, getAccessToken, getRefreshToken, saveUser, getUser, clearUser } from '@/lib/auth'
+import { saveTokens, clearTokens, getRefreshToken, saveUser, getUser, clearUser, saveSession, getSession, clearSession, getOrCreateDeviceId, patchStoredUser } from '@/lib/auth'
 
 type User = LoginResponse['user']
 
@@ -11,6 +11,7 @@ type AuthContextValue = {
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  updateUser: (partial: Partial<User>) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -21,30 +22,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function bootstrap() {
-      const accessToken = getAccessToken()
       const refreshToken = getRefreshToken()
+      const session = getSession()
+      const stored = getUser()
 
-      if (!accessToken && !refreshToken) {
+      if (!refreshToken && !stored) {
         setIsLoading(false)
         return
       }
 
-      if (refreshToken) {
+      const normalise = (u: ReturnType<typeof getUser>): User | null =>
+        u ? { ...u, profileImageUrl: u.profileImageUrl ?? null } : null
+
+      if (refreshToken && session) {
         try {
-          const result = await authApi.refresh(refreshToken)
+          const result = await authApi.refresh(refreshToken, session.sessionId, session.entityId)
           saveTokens(result.accessToken, result.refreshToken)
-          // After successful refresh, restore user from storage
-          const stored = getUser()
-          if (stored) setUser(stored)
+          if (stored) setUser(normalise(stored))
         } catch {
-          // Refresh failed — clear everything
-          clearTokens()
-          clearUser()
+          // Refresh failed — restore from stored user optimistically (access token may still be valid)
+          if (stored) {
+            setUser(normalise(stored))
+          } else {
+            clearTokens()
+            clearUser()
+            clearSession()
+          }
         }
-      } else if (accessToken) {
-        // Have access token but no refresh token — restore user optimistically
-        const stored = getUser()
-        if (stored) setUser(stored)
+      } else if (stored) {
+        // No refresh token / session — restore user optimistically from stored data
+        setUser(normalise(stored))
       }
 
       setIsLoading(false)
@@ -54,33 +61,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const login = useCallback(async (email: string, password: string) => {
-    // Generate or retrieve stable device ID
-    let deviceId = typeof window !== 'undefined' ? localStorage.getItem('deviceId') : null
-    if (!deviceId) {
-      deviceId = `web-${Date.now()}-${Math.random().toString(36).substring(7)}`
-      if (typeof window !== 'undefined') localStorage.setItem('deviceId', deviceId)
-    }
+    const deviceId = getOrCreateDeviceId()
 
     const result = await authApi.login({
       email,
       password,
       deviceId,
       deviceType: 'web',
+      deviceName: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 100) : undefined,
     })
     saveTokens(result.accessToken, result.refreshToken)
     saveUser(result.user)
     setUser(result.user)
+
+    // Decode JWT payload to extract sessionId for future refresh calls
+    try {
+      const payload = JSON.parse(atob(result.accessToken.split('.')[1]))
+      if (payload.sessionId) saveSession(result.user.id, payload.sessionId)
+    } catch { /* non-critical */ }
   }, [])
 
   const logout = useCallback(async () => {
     try { await authApi.logout() } catch { /* ignore network error on logout */ }
     clearTokens()
     clearUser()
+    clearSession()
     setUser(null)
   }, [])
 
+  const updateUser = useCallback((partial: Partial<User>) => {
+    setUser(prev => prev ? { ...prev, ...partial } : prev)
+    patchStoredUser(partial)
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   )

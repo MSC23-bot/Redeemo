@@ -1,6 +1,5 @@
 'use client'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { motion } from 'framer-motion'
 
 type Category = { id: string; name: string }
 
@@ -9,46 +8,63 @@ export function CategoryFilterBar({ categories }: { categories: Category[] }) {
   const searchParams = useSearchParams()
   const active = searchParams.get('categoryId')
 
+  function setCategory(id: string | null) {
+    const next = new URLSearchParams(searchParams.toString())
+    if (id) next.set('categoryId', id)
+    else next.delete('categoryId')
+    router.push(`/discover${next.toString() ? `?${next}` : ''}`, { scroll: false })
+  }
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: 0.15 }}
-      className="overflow-x-auto scrollbar-none bg-[#FAF8F5] border-b border-navy/[0.06] sticky top-[64px] z-10"
-    >
-      <div className="flex gap-2 px-6 py-3" style={{ width: 'max-content' }}>
-        <button
-          onClick={() => {
-            const next = new URLSearchParams(searchParams.toString())
-            next.delete('categoryId')
-            router.push(`/discover?${next}`)
-          }}
-          className={`font-mono text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-full border transition-colors flex-shrink-0 ${
-            !active
-              ? 'bg-navy text-white border-navy'
-              : 'bg-white text-navy/55 border-navy/[0.12] hover:border-navy/30'
-          }`}
+    <div className="sticky top-[64px] z-20 bg-white/95 backdrop-blur-sm border-b border-[#EDE8E8]">
+      <div className="max-w-7xl mx-auto">
+        <div
+          role="tablist"
+          aria-label="Filter by category"
+          className="overflow-x-auto scrollbar-none"
         >
-          All
-        </button>
-        {categories.map(cat => (
-          <button
-            key={cat.id}
-            onClick={() => {
-              const next = new URLSearchParams(searchParams.toString())
-              next.set('categoryId', cat.id)
-              router.push(`/discover?${next}`)
-            }}
-            className={`font-mono text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-full border transition-colors flex-shrink-0 ${
-              active === cat.id
-                ? 'bg-navy text-white border-navy'
-                : 'bg-white text-navy/55 border-navy/[0.12] hover:border-navy/30'
-            }`}
-          >
-            {cat.name}
-          </button>
-        ))}
+          <div className="flex items-center gap-2 px-6 py-3 min-w-max">
+            <Pill active={!active} onClick={() => setCategory(null)}>
+              All
+            </Pill>
+            {categories.map(cat => (
+              <Pill
+                key={cat.id}
+                active={active === cat.id}
+                onClick={() => setCategory(cat.id)}
+              >
+                {cat.name}
+              </Pill>
+            ))}
+          </div>
+        </div>
       </div>
-    </motion.div>
+    </div>
+  )
+}
+
+function Pill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`flex-shrink-0 h-10 px-4 rounded-full text-[13px] font-semibold whitespace-nowrap transition-all ${
+        active
+          ? 'text-white shadow-[0_2px_10px_rgba(226,12,4,0.22)]'
+          : 'text-[#374151] bg-[#F2F0EC] border border-[#C9C3BB] hover:border-[#010C35]/40 hover:bg-[#EAE7E1] hover:text-[#010C35]'
+      }`}
+      style={active ? { background: 'var(--brand-gradient)' } : undefined}
+    >
+      {children}
+    </button>
   )
 }

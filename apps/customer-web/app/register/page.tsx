@@ -9,10 +9,7 @@ export const metadata: Metadata = {
 
 export default function RegisterPage() {
   return (
-    <AuthShell
-      heading="Join Redeemo free."
-      subheading="Discover exclusive vouchers from local businesses near you."
-    >
+    <AuthShell>
       <RegisterForm />
     </AuthShell>
   )

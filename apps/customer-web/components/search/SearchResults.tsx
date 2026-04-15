@@ -1,11 +1,11 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { MerchantTile, type MerchantTile as MerchantTileType } from '@/components/ui/MerchantTile'
-import { apiFetch } from '@/lib/api'
+import { MerchantTile } from '@/components/ui/MerchantTile'
+import { apiFetch, type MerchantTileData } from '@/lib/api'
 
 type Props = {
-  results: MerchantTileType[]
+  results: MerchantTileData[]
   total: number
   hasMore: boolean
   onLoadMore: () => void

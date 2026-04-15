@@ -9,13 +9,15 @@ export class ApiError extends Error {
   public statusCode: number
 
   constructor(status: number, body: unknown) {
-    const bodyObj = body as { error?: string; code?: string; message?: string } | null
-    const message = bodyObj?.error ?? bodyObj?.message ?? `API error ${status}`
+    // API returns either { error: { code, message } } or { code, message }
+    const bodyObj = body as { error?: { code?: string; message?: string } | string; code?: string; message?: string } | null
+    const nestedErr = bodyObj?.error !== null && typeof bodyObj?.error === 'object' ? bodyObj.error as { code?: string; message?: string } : null
+    const message = nestedErr?.message ?? (typeof bodyObj?.error === 'string' ? bodyObj.error : undefined) ?? bodyObj?.message ?? `API error ${status}`
     super(message)
     this.status = status
     this.statusCode = status
     this.body = body
-    this.code = bodyObj?.code
+    this.code = bodyObj?.code ?? nestedErr?.code
   }
 }
 
@@ -53,7 +55,7 @@ export async function apiFetch<T>(
 export type LoginResponse = {
   accessToken: string
   refreshToken: string
-  user: { id: string; name: string; email: string }
+  user: { id: string; name: string; email: string; profileImageUrl: string | null }
 }
 
 export const authApi = {
@@ -87,10 +89,10 @@ export const authApi = {
       auth: true,
     }),
 
-  refresh: (refreshToken: string) =>
+  refresh: (refreshToken: string, sessionId: string, entityId: string) =>
     apiFetch<{ accessToken: string; refreshToken: string }>(
       '/api/v1/customer/auth/refresh',
-      { method: 'POST', body: JSON.stringify({ refreshToken }) }
+      { method: 'POST', body: JSON.stringify({ refreshToken, sessionId, entityId }) }
     ),
 
   forgotPassword: (email: string) =>
@@ -250,9 +252,22 @@ export const discoveryApi = {
       bannerUrl: string | null
       coverImageUrl: string | null
       websiteUrl: string | null
-      phone: string | null
-      email: string | null
-      primaryCategory: { id: string; name: string; pinColour: string | null } | null
+      primaryCategory: { id: string; name: string } | null
+      subcategory: { id: string; name: string } | null
+      nearestBranch: {
+        id: string
+        name: string
+        addressLine1: string
+        addressLine2: string | null
+        city: string
+        postcode: string
+        phone: string | null
+        email: string | null
+        latitude: number | null
+        longitude: number | null
+        distance: number | null
+        isOpenNow: boolean
+      } | null
       branches: {
         id: string
         name: string
@@ -309,9 +324,10 @@ export type ProfileData = {
   lastName: string
   name: string
   email: string
-  phoneNumber: string | null
+  phone: string | null
   dateOfBirth: string | null
   gender: string | null
+  addressLine1: string | null
   city: string | null
   postcode: string | null
   profileImageUrl: string | null
@@ -323,21 +339,27 @@ export type ProfileData = {
 }
 
 export type ProfileUpdatePayload = {
-  firstName?: string
-  lastName?: string
-  dateOfBirth?: string | null
-  gender?: string | null
-  city?: string | null
-  postcode?: string | null
-  profileImageUrl?: string | null
+  name?: string
+  dateOfBirth?: string
+  gender?: string
+  addressLine1?: string
+  city?: string
+  postcode?: string
+  profileImageUrl?: string
   newsletterConsent?: boolean
 }
 
 export const profileApi = {
-  get: () => apiFetch<ProfileData>('/api/v1/customer/profile/me', { auth: true }),
+  get: () => apiFetch<ProfileData>('/api/v1/customer/profile', { auth: true }),
   update: (data: ProfileUpdatePayload) =>
-    apiFetch<ProfileData>('/api/v1/customer/profile/me', {
+    apiFetch<ProfileData>('/api/v1/customer/profile', {
       method: 'PATCH', auth: true, body: JSON.stringify(data),
+    }),
+  listAvailableInterests: () =>
+    apiFetch<{ interests: { id: string; name: string }[] }>('/api/v1/customer/profile/available-interests', { auth: true }),
+  updateInterests: (interestIds: string[]) =>
+    apiFetch<{ interests: { id: string; name: string }[] }>('/api/v1/customer/profile/interests', {
+      method: 'PUT', auth: true, body: JSON.stringify({ interestIds }),
     }),
   changePassword: (currentPassword: string, newPassword: string) =>
     apiFetch<{ message: string }>('/api/v1/customer/profile/change-password', {

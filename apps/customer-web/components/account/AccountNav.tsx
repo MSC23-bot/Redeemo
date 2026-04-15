@@ -2,62 +2,36 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
+import { useAuth } from '@/contexts/AuthContext'
+import { LayoutDashboard, PiggyBank, Heart, CreditCard, User, Bell } from 'lucide-react'
 
-// Icons: inline SVGs render consistently cross-platform (no emoji rendering variance).
 const NAV_ITEMS = [
-  {
-    href: '/account', label: 'Overview',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
-        <rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/>
-        <rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/>
-        <rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/account/profile', label: 'Profile',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <circle cx="7" cy="4.5" r="2.5" fill="currentColor"/>
-        <path d="M2 12c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/account/subscription', label: 'Subscription',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <rect x="1" y="3" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-        <path d="M1 6h12" stroke="currentColor" strokeWidth="1.4"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/account/savings', label: 'Savings',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path d="M9 4C8 3 5.5 3 5 5.5V11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M3.5 7.5H7.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-        <path d="M3 11H10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/account/favourites', label: 'Favourites',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path d="M7 12L2.5 7.5C1.5 6.5 1.5 4.9 2.5 3.9 3.5 2.9 5.1 2.9 6.1 3.9L7 4.8l.9-.9c1-1 2.6-1 3.6 0 1 1 1 2.6 0 3.6L7 12z" fill="currentColor"/>
-      </svg>
-    ),
-  },
+  { href: '/account',                label: 'Overview',       icon: LayoutDashboard },
+  { href: '/account/profile',        label: 'Profile',        icon: User },
+  { href: '/account/subscription',   label: 'Subscription',   icon: CreditCard },
+  { href: '/account/savings',        label: 'Savings',        icon: PiggyBank },
+  { href: '/account/favourites',     label: 'Favourites',     icon: Heart },
+  { href: '/account/notifications',  label: 'Notifications',  icon: Bell },
 ]
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return (parts[0]?.[0] ?? '?').toUpperCase()
+}
+
+function getFirstName(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name
+}
 
 type AccountNavVariant = 'mobile' | 'desktop' | 'both'
 
 export function AccountNav({ variant = 'both' }: { variant?: AccountNavVariant }) {
   const pathname = usePathname()
+  const { user } = useAuth()
+
+  const initials = user?.name ? getInitials(user.name) : '?'
+  const firstName = user?.name ? getFirstName(user.name) : 'Member'
 
   return (
     <>
@@ -67,6 +41,7 @@ export function AccountNav({ variant = 'both' }: { variant?: AccountNavVariant }
           <div className="flex gap-1 px-6 py-2" style={{ width: 'max-content' }}>
             {NAV_ITEMS.map(item => {
               const isActive = pathname === item.href
+              const Icon = item.icon
               return (
                 <Link
                   key={item.href}
@@ -78,7 +53,7 @@ export function AccountNav({ variant = 'both' }: { variant?: AccountNavVariant }
                       : 'text-navy/55 hover:text-navy'
                   }`}
                 >
-                  <span className="w-3.5 h-3.5 flex-shrink-0">{item.icon}</span>
+                  <Icon size={12} strokeWidth={isActive ? 2.2 : 1.8} aria-hidden="true" />
                   {item.label}
                 </Link>
               )
@@ -89,38 +64,81 @@ export function AccountNav({ variant = 'both' }: { variant?: AccountNavVariant }
 
       {/* Desktop: sticky left sidebar */}
       {(variant === 'desktop' || variant === 'both') && (
-        <nav aria-label="Account menu" className="hidden lg:flex flex-col gap-1 w-56 flex-shrink-0 sticky top-24 self-start pt-2">
-          {NAV_ITEMS.map((item, i) => {
-            const isActive = pathname === item.href
-            return (
-              <motion.div
-                key={item.href}
-                initial={{ opacity: 0, x: -12 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.3, delay: i * 0.06 }}
-              >
-                <Link
-                  href={item.href}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[14px] transition-colors relative group ${
-                    isActive
-                      ? 'bg-white text-navy font-medium shadow-sm'
-                      : 'text-navy/55 hover:text-navy hover:bg-white/60'
-                  }`}
+        <nav aria-label="Account menu" className="hidden lg:flex flex-col gap-1 w-56 flex-shrink-0 sticky top-24 self-start">
+
+          {/* User profile card */}
+          {user && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="mb-4 p-4 rounded-2xl bg-navy"
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className="flex items-center justify-center rounded-full font-bold text-white text-[15px] flex-shrink-0"
+                  style={{
+                    width: 42,
+                    height: 42,
+                    background: 'var(--brand-gradient)',
+                    boxShadow: '0 2px 10px rgba(226,12,4,0.40)',
+                  }}
+                  aria-hidden="true"
                 >
-                  {/* Active left-border accent */}
-                  {isActive && (
-                    <motion.span
-                      layoutId="account-nav-indicator"
-                      className="absolute left-0 top-2 bottom-2 w-[3px] bg-gradient-to-b from-red to-orange-red rounded-full"
+                  {initials}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold text-white leading-tight truncate">
+                    {firstName}
+                  </p>
+                  <p className="text-[10px] text-white/40 font-mono tracking-wide uppercase mt-0.5">
+                    Member
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Nav items */}
+          <div className="pt-1">
+            {NAV_ITEMS.map((item, i) => {
+              const isActive = pathname === item.href
+              const Icon = item.icon
+              return (
+                <motion.div
+                  key={item.href}
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: i * 0.06 }}
+                >
+                  <Link
+                    href={item.href}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[14px] transition-all duration-150 relative group ${
+                      isActive
+                        ? 'bg-white text-navy font-medium shadow-sm'
+                        : 'text-navy/55 hover:text-navy hover:bg-white/60'
+                    }`}
+                  >
+                    {isActive && (
+                      <motion.span
+                        layoutId="account-nav-indicator"
+                        className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full"
+                        style={{ background: 'var(--brand-gradient)' }}
+                      />
+                    )}
+                    <Icon
+                      size={15}
+                      strokeWidth={isActive ? 2.2 : 1.7}
+                      className={`flex-shrink-0 ml-2 transition-colors ${isActive ? 'text-[#E20C04]' : 'text-current'}`}
+                      aria-hidden="true"
                     />
-                  )}
-                  <span className="text-[16px] ml-2">{item.icon}</span>
-                  {item.label}
-                </Link>
-              </motion.div>
-            )
-          })}
+                    {item.label}
+                  </Link>
+                </motion.div>
+              )
+            })}
+          </div>
         </nav>
       )}
     </>

@@ -35,7 +35,7 @@ export function MerchantTile({ merchant, onFavouriteToggle, index = 0, variant =
       {/* Stretched link — single focusable target for the whole card */}
       <Link
         href={`/merchants/${merchant.id}`}
-        className="absolute inset-0 z-0 rounded-xl"
+        className="absolute inset-0 z-[2] rounded-xl"
         aria-label={displayName}
       />
 

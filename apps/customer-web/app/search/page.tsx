@@ -5,7 +5,7 @@ import { discoveryApi } from '@/lib/api'
 import { SearchBar } from '@/components/search/SearchBar'
 import { SearchResults } from '@/components/search/SearchResults'
 import { FilterDrawer, type FilterState } from '@/components/ui/FilterDrawer'
-import type { MerchantTile } from '@/components/ui/MerchantTile'
+import type { MerchantTileData } from '@/lib/api'
 
 const DEFAULT_FILTERS: FilterState = {
   sortBy: 'relevance',
@@ -18,7 +18,7 @@ const PAGE_SIZE = 20
 export default function SearchPage() {
   const searchParams = useSearchParams()
 
-  const [results, setResults] = useState<MerchantTile[]>([])
+  const [results, setResults] = useState<MerchantTileData[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
