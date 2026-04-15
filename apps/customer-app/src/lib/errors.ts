@@ -21,16 +21,33 @@ const TABLE: Record<string, Omit<MappedError, 'code'>> = {
   SESSION_EXPIRED:        { message: 'Please sign in again.',                        surface: 'silent',   retryable: false },
 }
 
+function getCode(err: unknown): string | null {
+  if (err instanceof ApiClientError) return err.code
+  if (err !== null && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
+    return (err as { code: string }).code
+  }
+  return null
+}
+
+function getField(err: unknown): string | undefined {
+  if (err instanceof ApiClientError) return err.field
+  if (err !== null && typeof err === 'object' && 'field' in err && typeof (err as { field: unknown }).field === 'string') {
+    return (err as { field: string }).field
+  }
+  return undefined
+}
+
 export function mapError(err: unknown): MappedError {
-  if (err instanceof ApiClientError) {
-    const hit = TABLE[err.code]
+  const code = getCode(err)
+  if (code) {
+    const hit = TABLE[code]
     if (hit) {
-      const result: MappedError = { code: err.code, ...hit }
-      // field from ApiClientError overrides table default if present
-      if (err.field !== undefined) result.field = err.field
+      const result: MappedError = { code, ...hit }
+      const field = getField(err)
+      if (field !== undefined) result.field = field
       return result
     }
-    return { code: err.code, message: 'Something went wrong. Please try again.', surface: 'toast', retryable: true }
+    return { code, message: 'Something went wrong. Please try again.', surface: 'toast', retryable: true }
   }
   return { code: 'UNKNOWN', message: 'Something went wrong. Please try again.', surface: 'toast', retryable: true }
 }
