@@ -20,4 +20,10 @@ module.exports = [
     },
     settings: { react: { version: 'detect' } },
   },
+  {
+    files: ['tests/**/*.ts', 'tests/**/*.tsx'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
+    },
+  },
 ]
