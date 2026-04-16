@@ -24,6 +24,15 @@ export const color = {
   danger: '#B91C1C',
   info: '#0E7490',
   focus: '#010C35',
+  cream: '#FFF9F5',
+  navGradient: ['#E20C04', '#D10A03', '#E84A00'] as const,
+  pin: {
+    foodDrink:       '#E65100',
+    beautyWellness:  '#E91E8C',
+    fitnessSport:    '#4CAF50',
+    shopping:        '#7C4DFF',
+    default:         '#E20C04',
+  } as const,
 } as const
 
 export const spacing = [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64] as const
@@ -53,7 +62,7 @@ export const layer = { base: 0, raised: 1, sticky: 10, appBar: 20, tabBar: 20, s
 
 export const opacity = { disabled: 0.4, pressed: 0.85, overlay: 0.55, subtle: 0.72, full: 1 } as const
 
-export const layout = { screenPaddingH: 20, tabBarHeight: 64, appBarHeight: 56, minTouchTarget: 44 } as const
+export const layout = { screenPaddingH: 20, tabBarHeight: 64, appBarHeight: 56, minTouchTarget: 44, screenPaddingHNarrow: 18 } as const
 
 export type TypographyVariant = {
   fontFamily: 'MusticaPro-SemiBold' | 'Lato-Regular' | 'Lato-Medium' | 'Lato-SemiBold' | 'Lato-Bold'
