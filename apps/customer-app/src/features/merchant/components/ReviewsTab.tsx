@@ -1,0 +1,145 @@
+import React, { useState, useCallback } from 'react'
+import { View, StyleSheet, ActivityIndicator } from 'react-native'
+import { Text } from '@/design-system/Text'
+import { color, spacing } from '@/design-system/tokens'
+import { ReviewSummary } from './ReviewSummary'
+import { ReviewCard } from './ReviewCard'
+import { ReviewSortControl, type SortOption } from './ReviewSortControl'
+import { WriteReviewSheet } from './WriteReviewSheet'
+import { useReviewSummary, useMerchantReviews } from '../hooks/useMerchantReviews'
+import { useCreateReview, useDeleteReview, useToggleHelpful } from '../hooks/useWriteReview'
+import { useAuthStore } from '@/stores/auth'
+
+type Props = {
+  merchantId: string
+  defaultBranchId: string | null
+}
+
+export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
+  const { status } = useAuthStore()
+  const isAuthed = status === 'authed'
+  const { data: summary, isLoading: summaryLoading } = useReviewSummary(merchantId)
+  const { data: reviewData, isLoading: reviewsLoading } = useMerchantReviews(merchantId, { limit: 50 })
+  const createReview = useCreateReview(merchantId)
+  const deleteReview = useDeleteReview(merchantId)
+  const toggleHelpful = useToggleHelpful()
+
+  const [sort, setSort] = useState<SortOption>('recent')
+  const [showWriteSheet, setShowWriteSheet] = useState(false)
+
+  const reviews = reviewData?.reviews ?? []
+
+  const sorted = [...reviews].sort((a, b) => {
+    if (sort === 'recent') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    if (sort === 'highest') return b.rating - a.rating
+    if (sort === 'lowest') return a.rating - b.rating
+    return 0
+  })
+
+  const ownReview = sorted.find(r => r.isOwnReview)
+  const orderedReviews = ownReview
+    ? [ownReview, ...sorted.filter(r => !r.isOwnReview)]
+    : sorted
+
+  const handleWriteSubmit = useCallback(async (data: { rating: number; comment?: string }) => {
+    if (!defaultBranchId) return
+    await createReview.mutateAsync({ branchId: defaultBranchId, ...data })
+    setShowWriteSheet(false)
+  }, [defaultBranchId, createReview])
+
+  const handleDelete = useCallback(async (branchId: string, reviewId: string) => {
+    await deleteReview.mutateAsync({ branchId, reviewId })
+  }, [deleteReview])
+
+  if (summaryLoading || reviewsLoading) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={color.brandRose} />
+      </View>
+    )
+  }
+
+  if (!summary || summary.totalReviews === 0) {
+    return (
+      <View style={styles.empty}>
+        <Text variant="heading.md" color="secondary" align="center">No reviews yet</Text>
+        <Text variant="body.sm" color="tertiary" meta align="center" style={{ marginTop: 8 }}>
+          Be the first to review this merchant
+        </Text>
+        {isAuthed && summary && (
+          <ReviewSummary
+            averageRating={0}
+            totalReviews={0}
+            distribution={{ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }}
+            onWriteReview={() => setShowWriteSheet(true)}
+          />
+        )}
+        <WriteReviewSheet
+          visible={showWriteSheet}
+          onDismiss={() => setShowWriteSheet(false)}
+          onSubmit={handleWriteSubmit}
+          isLoading={createReview.isPending}
+          branchName="Main Branch"
+        />
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.container}>
+      <ReviewSummary
+        averageRating={summary.averageRating}
+        totalReviews={summary.totalReviews}
+        distribution={summary.distribution}
+        onWriteReview={() => setShowWriteSheet(true)}
+      />
+
+      <ReviewSortControl
+        totalReviews={summary.totalReviews}
+        sort={sort}
+        onSortChange={setSort}
+      />
+
+      <View style={styles.reviewList}>
+        {orderedReviews.map(review => (
+          <ReviewCard
+            key={review.id}
+            review={review}
+            onHelpful={isAuthed ? () => toggleHelpful.mutate(review.id) : undefined}
+            onEdit={review.isOwnReview ? () => setShowWriteSheet(true) : undefined}
+            onDelete={review.isOwnReview ? () => handleDelete(review.branchId, review.id) : undefined}
+          />
+        ))}
+      </View>
+
+      <WriteReviewSheet
+        visible={showWriteSheet}
+        onDismiss={() => setShowWriteSheet(false)}
+        onSubmit={handleWriteSubmit}
+        isLoading={createReview.isPending}
+        branchName={defaultBranchId ? 'Branch' : 'Main Branch'}
+        initialRating={ownReview?.rating}
+        initialComment={ownReview?.comment ?? ''}
+      />
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  container: {
+    gap: 16,
+  },
+  loading: {
+    paddingVertical: 60,
+    alignItems: 'center',
+  },
+  empty: {
+    paddingVertical: 40,
+    paddingHorizontal: spacing[5],
+    alignItems: 'center',
+    gap: 16,
+  },
+  reviewList: {
+    gap: 12,
+  },
+})

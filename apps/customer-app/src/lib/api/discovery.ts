@@ -117,11 +117,11 @@ export const discoveryApi = {
 
   getMerchant(id: string, opts: { lat?: number; lng?: number } = {}) {
     const qs = buildQuery({ lat: opts.lat, lng: opts.lng })
-    return api.get<unknown>(`/api/v1/customer/merchants/${id}${qs}`)
+    return api.get<import('./merchant').MerchantProfile>(`/api/v1/customer/merchants/${id}${qs}`)
   },
 
   getMerchantBranches(id: string) {
-    return api.get<unknown>(`/api/v1/customer/merchants/${id}/branches`)
+    return api.get<import('./merchant').BranchDetail[]>(`/api/v1/customer/merchants/${id}/branches`)
   },
 
   getCampaignMerchants(id: string, params: { categoryId?: string; lat?: number; lng?: number; limit?: number; offset?: number } = {}) {

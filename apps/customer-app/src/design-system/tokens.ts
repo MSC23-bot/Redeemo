@@ -52,6 +52,28 @@ export const color = {
       TIME_LIMITED: '#D97706',
       REUSABLE: '#0D9488',
     },
+    gradientByType: {
+      BOGO: ['#F5F3FF', '#EDE9FE'] as const,
+      DISCOUNT_FIXED: ['#FEF2F2', '#FEE2E2'] as const,
+      DISCOUNT_PERCENT: ['#FEF2F2', '#FEE2E2'] as const,
+      FREEBIE: ['#F0FDF4', '#DCFCE7'] as const,
+      SPEND_AND_SAVE: ['#FFF7ED', '#FFEDD5'] as const,
+      PACKAGE_DEAL: ['#EFF6FF', '#DBEAFE'] as const,
+      TIME_LIMITED: ['#FFFBEB', '#FEF3C7'] as const,
+      REUSABLE: ['#F0FDFA', '#CCFBF1'] as const,
+      REDEEMED: ['#F3F4F6', '#E5E7EB'] as const,
+    },
+    badgeTextByType: {
+      BOGO: '#6D28D9',
+      DISCOUNT_FIXED: '#B91C1C',
+      DISCOUNT_PERCENT: '#B91C1C',
+      FREEBIE: '#15803D',
+      SPEND_AND_SAVE: '#C2410C',
+      PACKAGE_DEAL: '#1D4ED8',
+      TIME_LIMITED: '#B45309',
+      REUSABLE: '#0F766E',
+      REDEEMED: '#9CA3AF',
+    },
   } as const,
 } as const
 
