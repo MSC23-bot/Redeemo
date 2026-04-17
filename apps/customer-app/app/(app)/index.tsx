@@ -1,1 +1,3 @@
-export { HomePlaceholderScreen as default } from '@/features/home/screens/HomePlaceholderScreen'
+import { HomeScreen } from '@/features/home/screens/HomeScreen'
+
+export default HomeScreen
