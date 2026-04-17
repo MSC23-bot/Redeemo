@@ -169,7 +169,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 
 **Deferred to Phase 6:** Email PIN delivery (Resend not yet integrated — logs placeholder when `branch.email` is set)
 
-**Pre-Phase 3 note:** `redemptionCode` uses nanoid default alphabet (includes `-`/`_`). If manual staff entry is a primary UX flow, switch to alphanumeric-only before the merchant mobile app is built.
+**Redemption codes:** `redemptionCode` uses `customAlphabet` from nanoid — alphanumeric only (A-Za-z0-9), 10 characters, ~839 quadrillion combinations. Database `@unique` constraint prevents collisions. Safe for manual staff entry.
 
 ### ✅ Phase 3A — Customer UX Foundations Spec (COMPLETE)
 - Full UX spec covering both customer app (React Native) and customer website (Next.js)
@@ -197,7 +197,47 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - 68+ tests passing; tsc/eslint clean
 - Plan: `docs/superpowers/plans/2026-04-15-customer-app-foundations-auth.md`
 
-### 🔲 Phase 3C (remaining) — Customer App Discovery, Savings, Profile, Redemption
+### ✅ Phase 3C.1b — Customer App Home + Discovery + Map (COMPLETE — branch feature/customer-app)
+- Home feed: featured merchants, trending merchants, nearby merchants
+- Map tab: interactive map with merchant pins, bottom sheet merchant cards
+- Search: full-text search with filters, categories, recent searches
+- Category browsing: category grid, filtered merchant list
+- All using customer discovery backend APIs
+- Plan: `docs/superpowers/plans/2026-04-16-home-discovery-map.md`
+
+### ✅ Phase 3C.1c — Voucher Detail + Redemption (COMPLETE — branch feature/customer-app)
+- Full coupon card design: header, perforation lines, body, terms
+- 12-state screen: free user, can redeem, redeemed, expired, time-limited variants
+- PIN entry sheet with error handling and lockout timer
+- Success popup with animated checkmark, auto-dismiss
+- Show to Staff screen with live clock, QR placeholder, LIVE badge
+- Redemption details card with persisted data (fresh redeem + return visit)
+- Branch picker for multi-branch merchants (auto-selects single-branch)
+- Time-limited voucher support: countdown, urgency banners, schedule labels
+- Favourite toggle with optimistic updates + prop sync
+- Code-reviewed and all fixes applied
+- Plan: `docs/superpowers/plans/2026-04-16-voucher-detail-redemption.md`
+
+### ✅ Phase 3C.1d — Merchant Profile (COMPLETE — branch feature/customer-app)
+- Hero section with banner, logo, featured/trending badges, favourite toggle
+- Meta section: name, category, rating, distance, open status, action buttons
+- Sticky tab bar: Vouchers / About / Branches / Reviews
+- Vouchers tab: sorted cards with redeemed-last ordering
+- About tab: description, photos carousel, amenities grid, opening hours
+- Branches tab: nearest-first sort, pulsing status dot, action buttons
+- Reviews tab: summary histogram, sort control, review cards, write review sheet
+- Contact sheet, directions sheet, free user gate modal
+- Code-reviewed and all fixes applied
+- Plan: `docs/superpowers/plans/2026-04-17-merchant-profile.md`
+
+### 🔲 Phase 3C (remaining) — Subscription Integration, Savings, Profile, Favourites
+**Remaining work (in order):**
+1. Subscription status integration — wire `GET /api/v1/subscription/me` into auth store (BLOCKER: free user gate non-functional without this)
+2. Savings tab — lifetime/monthly summary, redemption history (backend APIs exist)
+3. Profile tab — user profile view/edit, subscription management (backend APIs exist)
+4. Favourites screen — merchant + voucher lists (backend APIs exist)
+5. Subscribe flow — Stripe SetupIntent in-app (stub exists at `subscribe-prompt`)
+6. QR code rendering — add `react-native-qrcode-svg` for ShowToStaff and RedemptionDetailsCard
 
 ### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
 - Full Next.js 15 App Router site at `apps/customer-web/`
