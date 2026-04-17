@@ -9,7 +9,6 @@ type Props = {
   imageUrl: string | null
   voucherType: VoucherType
   expiryDate: string | null
-  terms: string | null
   isRedeemed?: boolean
 }
 

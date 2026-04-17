@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { View, ScrollView, StyleSheet, ActivityIndicator, Share } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Star } from 'lucide-react-native'
@@ -7,6 +7,8 @@ import { color, spacing, layout } from '@/design-system/tokens'
 import { useAuthStore } from '@/stores/auth'
 import { useVoucherDetail } from '../hooks/useVoucherDetail'
 import { useRedeem } from '../hooks/useRedeem'
+import { useMerchantBranches } from '../hooks/useMerchantBranches'
+import { useRedemptionForVoucher } from '../hooks/useRedemptionForVoucher'
 import { useTimeLimited } from '../hooks/useTimeLimited'
 import { useFavourite } from '@/hooks/useFavourite'
 import { CouponHeader } from '../components/CouponHeader'
@@ -23,6 +25,8 @@ import { SuccessPopup } from '../components/SuccessPopup'
 import { ShowToStaff } from '../components/ShowToStaff'
 import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
 import { UrgencyBanner } from '../components/UrgencyBanner'
+import { BranchPickerSheet } from '../components/BranchPickerSheet'
+import type { BranchDetail } from '@/lib/api/merchant'
 
 const PAGE_BG = '#F5F0EB'
 
@@ -32,9 +36,11 @@ export function VoucherDetailScreen() {
   const { status, user } = useAuthStore()
   const { data: voucher, isLoading } = useVoucherDetail(id)
   const redeemMutation = useRedeem()
+  const { data: branches } = useMerchantBranches(voucher?.merchant.id)
 
   const isAuthed = status === 'authed'
   const isRedeemed = voucher?.isRedeemedThisCycle ?? false
+  const { data: persistedRedemption } = useRedemptionForVoucher(voucher?.id, isRedeemed)
 
   const timeLimited = useTimeLimited({
     type: voucher?.type ?? 'BOGO',
@@ -47,11 +53,39 @@ export function VoucherDetailScreen() {
     isFavourited: voucher?.isFavourited ?? false,
   })
 
+  const [selectedBranch, setSelectedBranch] = useState<BranchDetail | null>(null)
+  const [showBranchPicker, setShowBranchPicker] = useState(false)
   const [showPinSheet, setShowPinSheet] = useState(false)
   const [showSuccessPopup, setShowSuccessPopup] = useState(false)
   const [showStaffScreen, setShowStaffScreen] = useState(false)
   const [pinError, setPinError] = useState<{ code: string; attemptsRemaining?: number } | null>(null)
   const [lockoutSeconds, setLockoutSeconds] = useState(0)
+
+  // Auto-select when merchant has a single branch
+  useEffect(() => {
+    if (branches && branches.length === 1 && !selectedBranch) {
+      setSelectedBranch(branches[0])
+    }
+  }, [branches, selectedBranch])
+
+  // Derive redemption info from mutation result (fresh redeem) or persisted data (returning visit)
+  const redemptionInfo = useMemo(() => {
+    if (redeemMutation.data) {
+      return {
+        redemptionCode: redeemMutation.data.redemptionCode,
+        redeemedAt: redeemMutation.data.redeemedAt,
+        branchName: selectedBranch?.name ?? 'Branch',
+      }
+    }
+    if (persistedRedemption) {
+      return {
+        redemptionCode: persistedRedemption.redemptionCode,
+        redeemedAt: persistedRedemption.redeemedAt,
+        branchName: persistedRedemption.branch.name,
+      }
+    }
+    return null
+  }, [redeemMutation.data, persistedRedemption, selectedBranch])
 
   const ctaState = useMemo(() => {
     if (!isAuthed) return 'subscribe' as const
@@ -67,17 +101,29 @@ export function VoucherDetailScreen() {
       return
     }
     if (ctaState === 'can_redeem') {
+      // Multi-branch merchant: pick branch first
+      if (branches && branches.length > 1 && !selectedBranch) {
+        setShowBranchPicker(true)
+        return
+      }
       setPinError(null)
       setShowPinSheet(true)
     }
-  }, [ctaState, router])
+  }, [ctaState, router, branches, selectedBranch])
+
+  const handleBranchSelect = useCallback((branch: BranchDetail) => {
+    setSelectedBranch(branch)
+    setShowBranchPicker(false)
+    setPinError(null)
+    setShowPinSheet(true)
+  }, [])
 
   const handlePinSubmit = useCallback(async (pin: string) => {
-    if (!voucher) return
+    if (!voucher || !selectedBranch) return
     try {
       await redeemMutation.mutateAsync({
         voucherId: voucher.id,
-        branchId: voucher.merchant.id,
+        branchId: selectedBranch.id,
         pin,
       })
       setPinError(null)
@@ -99,9 +145,12 @@ export function VoucherDetailScreen() {
       } else if (error.code === 'SUBSCRIPTION_REQUIRED') {
         setShowPinSheet(false)
         router.push('/(auth)/subscribe-prompt' as never)
+      } else {
+        // Fallback for PIN_NOT_CONFIGURED, VOUCHER_NOT_FOUND, BRANCH_MERCHANT_MISMATCH, MERCHANT_SUSPENDED, etc.
+        setPinError({ code: error.code ?? 'UNKNOWN_ERROR' })
       }
     }
-  }, [voucher, redeemMutation, router])
+  }, [voucher, selectedBranch, redeemMutation, router])
 
   const handleShare = useCallback(async () => {
     if (!voucher) return
@@ -164,7 +213,6 @@ export function VoucherDetailScreen() {
           imageUrl={voucher.imageUrl}
           voucherType={voucher.type}
           expiryDate={voucher.expiryDate}
-          terms={voucher.terms}
           isRedeemed={isRedeemed}
         />
 
@@ -196,11 +244,11 @@ export function VoucherDetailScreen() {
         />
 
         {/* Redemption details (Screen 8) */}
-        {isRedeemed && redeemMutation.data && (
+        {isRedeemed && redemptionInfo && (
           <RedemptionDetailsCard
-            redemptionCode={redeemMutation.data.redemptionCode}
-            branchName="Branch"
-            redeemedAt={redeemMutation.data.redeemedAt}
+            redemptionCode={redemptionInfo.redemptionCode}
+            branchName={redemptionInfo.branchName}
+            redeemedAt={redemptionInfo.redeemedAt}
           />
         )}
 
@@ -226,6 +274,15 @@ export function VoucherDetailScreen() {
         scheduleLabel={timeLimited.scheduleLabel}
       />
 
+      {/* Branch Picker Sheet (multi-branch merchants) */}
+      <BranchPickerSheet
+        visible={showBranchPicker}
+        onDismiss={() => setShowBranchPicker(false)}
+        branches={branches ?? []}
+        selectedBranchId={selectedBranch?.id ?? null}
+        onSelect={handleBranchSelect}
+      />
+
       {/* PIN Entry Sheet */}
       <PinEntrySheet
         visible={showPinSheet}
@@ -233,23 +290,23 @@ export function VoucherDetailScreen() {
         onSubmit={handlePinSubmit}
         merchantName={voucher.merchant.businessName}
         merchantLogo={voucher.merchant.logoUrl}
-        branchName="Branch"
+        branchName={selectedBranch?.name ?? 'Branch'}
         isLoading={redeemMutation.isPending}
         error={pinError}
         lockoutSeconds={lockoutSeconds}
       />
 
       {/* Success Popup (Screen 7) */}
-      {redeemMutation.data && (
+      {redemptionInfo && (
         <SuccessPopup
           visible={showSuccessPopup}
-          redemptionCode={redeemMutation.data.redemptionCode}
+          redemptionCode={redemptionInfo.redemptionCode}
           voucherTitle={voucher.title}
           voucherType={voucher.type}
           merchantName={voucher.merchant.businessName}
-          branchName="Branch"
+          branchName={redemptionInfo.branchName}
           imageUrl={voucher.imageUrl}
-          redeemedAt={redeemMutation.data.redeemedAt}
+          redeemedAt={redemptionInfo.redeemedAt}
           onShowToStaff={() => { setShowSuccessPopup(false); setShowStaffScreen(true) }}
           onRateReview={() => { /* navigate to review */ }}
           onDone={() => setShowSuccessPopup(false)}
@@ -257,17 +314,17 @@ export function VoucherDetailScreen() {
       )}
 
       {/* Show to Staff (Screen 7b) */}
-      {redeemMutation.data && (
+      {redemptionInfo && (
         <ShowToStaff
           visible={showStaffScreen}
-          redemptionCode={redeemMutation.data.redemptionCode}
+          redemptionCode={redemptionInfo.redemptionCode}
           voucherTitle={voucher.title}
           voucherType={voucher.type}
           merchantName={voucher.merchant.businessName}
-          branchName="Branch"
+          branchName={redemptionInfo.branchName}
           customerName={user ? `${user.firstName} ${user.email.charAt(0).toUpperCase()}.` : 'Customer'}
-          redeemedAt={redeemMutation.data.redeemedAt}
-          onDone={() => setShowStaffScreen(false)}
+          redeemedAt={redemptionInfo.redeemedAt}
+          onDone={() => { setShowStaffScreen(false); setShowSuccessPopup(true) }}
         />
       )}
     </View>

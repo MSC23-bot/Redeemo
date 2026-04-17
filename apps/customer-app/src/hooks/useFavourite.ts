@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 
@@ -11,6 +11,10 @@ type Params = {
 export function useFavourite({ type, id, isFavourited: initial }: Params) {
   const [isFavourited, setIsFavourited] = useState(initial)
   const queryClient = useQueryClient()
+
+  useEffect(() => {
+    setIsFavourited(initial)
+  }, [initial])
 
   const addMutation = useMutation({
     mutationFn: () => api.post(`/api/v1/customer/favourites/${type}s/${id}`, undefined),

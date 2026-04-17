@@ -58,7 +58,7 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
     <View style={styles.row}>
       <Text variant="label.md" color="tertiary" style={{ fontSize: 12 }}>{label}</Text>
       <Text
-        variant={mono ? 'label.lg' : 'label.lg'}
+        variant="label.lg"
         color="primary"
         style={[{ fontWeight: '700', fontSize: 12 }, mono && styles.monoValue]}
       >

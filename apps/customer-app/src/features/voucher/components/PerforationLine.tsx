@@ -1,6 +1,5 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
-import { color } from '@/design-system/tokens'
 
 type Props = {
   variant?: 'default' | 'small'
