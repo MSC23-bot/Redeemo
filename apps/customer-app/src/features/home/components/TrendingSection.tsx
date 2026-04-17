@@ -23,7 +23,7 @@ export function TrendingSection({ merchants, onMerchantPress, onFavourite }: Pro
       colors={['#FFF7ED', '#FEF3C7']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      style={{ paddingVertical: spacing[4] }}
+      style={{ paddingVertical: spacing[5] }}
     >
       {/* Section header */}
       <View
