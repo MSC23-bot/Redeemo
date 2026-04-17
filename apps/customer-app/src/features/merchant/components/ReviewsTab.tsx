@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { View, StyleSheet, ActivityIndicator } from 'react-native'
 import { Text } from '@/design-system/Text'
-import { color, spacing } from '@/design-system/tokens'
+import { color } from '@/design-system/tokens'
 import { ReviewSummary } from './ReviewSummary'
 import { ReviewCard } from './ReviewCard'
 import { ReviewSortControl, type SortOption } from './ReviewSortControl'
@@ -61,11 +61,13 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
 
   if (!summary || summary.totalReviews === 0) {
     return (
-      <View style={styles.empty}>
-        <Text variant="heading.md" color="secondary" align="center">No reviews yet</Text>
-        <Text variant="body.sm" color="tertiary" meta align="center" style={{ marginTop: 8 }}>
-          Be the first to review this merchant
-        </Text>
+      <View style={styles.container}>
+        <View style={styles.emptyText}>
+          <Text variant="heading.md" color="secondary" align="center">No reviews yet</Text>
+          <Text variant="body.sm" color="tertiary" meta align="center" style={{ marginTop: 8 }}>
+            Be the first to review this merchant
+          </Text>
+        </View>
         {isAuthed && summary && (
           <ReviewSummary
             averageRating={0}
@@ -133,11 +135,9 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     alignItems: 'center',
   },
-  empty: {
+  emptyText: {
     paddingVertical: 40,
-    paddingHorizontal: spacing[5],
     alignItems: 'center',
-    gap: 16,
   },
   reviewList: {
     gap: 12,

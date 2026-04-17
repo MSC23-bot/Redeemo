@@ -8,7 +8,7 @@ import { color, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 import Animated, {
   useAnimatedStyle, withRepeat, withTiming, withSequence,
-  Easing, FadeIn, SlideInDown,
+  Easing, SlideInDown,
 } from 'react-native-reanimated'
 
 type Props = {

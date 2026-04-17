@@ -5,7 +5,7 @@ import { Text } from '@/design-system/Text'
 import { color, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
-import type { BranchDetail, OpeningHourEntry } from '@/lib/api/merchant'
+import type { BranchDetail } from '@/lib/api/merchant'
 
 type Props = {
   branch: BranchDetail

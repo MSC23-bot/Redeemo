@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { View, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native'
 import { Star, X } from 'lucide-react-native'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -22,6 +22,13 @@ export function WriteReviewSheet({
 }: Props) {
   const [rating, setRating] = useState(initialRating)
   const [comment, setComment] = useState(initialComment)
+
+  useEffect(() => {
+    if (visible) {
+      setRating(initialRating)
+      setComment(initialComment)
+    }
+  }, [visible, initialRating, initialComment])
 
   const handleSubmit = useCallback(() => {
     if (rating === 0) return

@@ -10,11 +10,10 @@ type Props = {
   vouchers: MerchantVoucher[]
   redeemedVoucherIds: Set<string>
   favouritedVoucherIds: Set<string>
-  isSubscribed: boolean
   onVoucherPress: (voucherId: string) => void
 }
 
-export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds, isSubscribed, onVoucherPress }: Props) {
+export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds, onVoucherPress }: Props) {
   if (vouchers.length === 0) {
     return (
       <View style={styles.empty}>

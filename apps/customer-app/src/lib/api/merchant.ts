@@ -55,6 +55,8 @@ export type MerchantProfile = {
   avgRating: number | null
   reviewCount: number
   isFavourited: boolean
+  isFeatured?: boolean
+  isTrending?: boolean
   distance: number | null
   isOpenNow: boolean
   openingHours: OpeningHourEntry[]

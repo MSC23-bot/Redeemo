@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { View, Pressable, StyleSheet, Modal, FlatList } from 'react-native'
+import { View, Pressable, StyleSheet, Modal } from 'react-native'
 import { ChevronDown, Check } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'

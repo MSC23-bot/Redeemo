@@ -24,6 +24,8 @@ export function MerchantProfileScreen() {
   const router = useRouter()
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
+  // TODO: Replace with real subscription check once subscription purchase flow is integrated.
+  // Currently treats all authenticated users as subscribed — free user gate won't trigger for logged-in free users.
   const isSubscribed = isAuthed
 
   const { data: merchant, isLoading } = useMerchantProfile(id)
@@ -103,6 +105,8 @@ export function MerchantProfileScreen() {
     )
   }
 
+  // TODO: Populate from backend once per-voucher redemption/favourite state is returned
+  // by the merchant profile endpoint or a separate API call.
   const redeemedVoucherIds = new Set<string>()
   const favouritedVoucherIds = new Set<string>()
 
@@ -120,6 +124,8 @@ export function MerchantProfileScreen() {
         <HeroSection
           bannerUrl={merchant.bannerUrl}
           logoUrl={merchant.logoUrl}
+          isFeatured={merchant.isFeatured}
+          isTrending={merchant.isTrending}
           isFavourited={favourite.isFavourited}
           onToggleFavourite={favourite.toggle}
           onShare={handleShare}
@@ -152,7 +158,6 @@ export function MerchantProfileScreen() {
               vouchers={merchant.vouchers}
               redeemedVoucherIds={redeemedVoucherIds}
               favouritedVoucherIds={favouritedVoucherIds}
-              isSubscribed={isSubscribed}
               onVoucherPress={handleVoucherPress}
             />
           )}
