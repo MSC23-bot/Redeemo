@@ -22,6 +22,7 @@ import { PinEntrySheet } from '../components/PinEntrySheet'
 import { SuccessPopup } from '../components/SuccessPopup'
 import { ShowToStaff } from '../components/ShowToStaff'
 import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
+import { UrgencyBanner } from '../components/UrgencyBanner'
 
 const PAGE_BG = '#F5F0EB'
 
@@ -172,6 +173,16 @@ export function VoucherDetailScreen() {
 
         {/* Coupon body */}
         <CouponBody terms={voucher.terms} isRedeemed={isRedeemed} />
+
+        {/* Urgency banner for time-limited vouchers */}
+        {timeLimited.state !== 'inactive' && (
+          <UrgencyBanner
+            state={timeLimited.state}
+            expiryDateFormatted={timeLimited.expiryDateFormatted}
+            nextWindowLabel={timeLimited.nextWindowLabel}
+            scheduleLabel={timeLimited.scheduleLabel}
+          />
+        )}
 
         {/* Merchant card */}
         <MerchantRow
