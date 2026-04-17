@@ -18,7 +18,9 @@ export function HomeScreen() {
   const router = useRouter()
   const { location } = useUserLocation()
   const { data: me } = useMe()
-  const { data: feed, isLoading, refetch } = useHomeFeed({ lat: location?.lat, lng: location?.lng })
+  const { data: feed, isLoading, refetch } = useHomeFeed(
+    location ? { lat: location.lat, lng: location.lng } : {}
+  )
   const { data: categoriesData } = useCategories()
   const [refreshing, setRefreshing] = useState(false)
 
@@ -39,7 +41,7 @@ export function HomeScreen() {
           firstName={me?.firstName ?? null}
           area={location?.area ?? null}
           city={location?.city ?? null}
-          avatarUrl={me?.profileImageUrl}
+          {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
           onSearchPress={() => router.push('/search' as any)}
           onFilterPress={() => {}}
         />
