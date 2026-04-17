@@ -1,21 +1,21 @@
-import React, { useEffect, useRef } from 'react'
-import { Animated, View } from 'react-native'
+import React from 'react'
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import { useMotionScale } from '../useMotionScale'
 
 type Props = { loading: boolean; skeleton: React.ReactNode; children: React.ReactNode }
 
 export function SkeletonToContent({ loading, skeleton, children }: Props) {
-  const progress = useRef(new Animated.Value(loading ? 0 : 1)).current
-  useEffect(() => {
-    Animated.timing(progress, { toValue: loading ? 0 : 1, duration: 180, useNativeDriver: true }).start()
-  }, [loading, progress])
+  const progress = useSharedValue(loading ? 0 : 1)
+  const scale = useMotionScale()
+  React.useEffect(() => {
+    progress.value = withTiming(loading ? 0 : 1, { duration: scale === 0 ? 0 : 180 })
+  }, [loading, progress, scale])
+  const skelStyle = useAnimatedStyle(() => ({ opacity: 1 - progress.value, position: 'absolute', top: 0, left: 0, right: 0 }))
+  const bodyStyle = useAnimatedStyle(() => ({ opacity: progress.value }))
   return (
-    <View>
-      <Animated.View style={{ opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }), position: 'absolute', top: 0, left: 0, right: 0 }} pointerEvents={loading ? 'auto' : 'none'}>
-        {skeleton}
-      </Animated.View>
-      <Animated.View style={{ opacity: progress }} pointerEvents={loading ? 'none' : 'auto'}>
-        {children}
-      </Animated.View>
-    </View>
+    <Animated.View>
+      <Animated.View style={skelStyle} pointerEvents={loading ? 'auto' : 'none'}>{skeleton}</Animated.View>
+      <Animated.View style={bodyStyle} pointerEvents={loading ? 'none' : 'auto'}>{children}</Animated.View>
+    </Animated.View>
   )
 }
