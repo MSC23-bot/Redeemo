@@ -61,6 +61,9 @@ Each voucher type has a distinct solid colour used as the coupon header backgrou
 | # | Screen | Source File | State |
 |---|--------|------------|-------|
 | 1 | Voucher Detail — Subscribed User | v4 | Active voucher, can redeem |
+| 1a | Voucher Detail — Time-Limited (Active) | timelimited-v1 | Amber header, countdown, urgency |
+| 1b | Voucher Detail — Time-Limited (Expired) | timelimited-v1 | Washed out, red expired badge |
+| 1c | Voucher Detail — Outside Availability | timelimited-v1 | Full colour, blue banner, CTA disabled |
 | 2 | Voucher Detail — Free User | v4 | Browse only, subscribe CTA |
 | 3 | PIN Entry — Keyboard Visible | v4 | Bottom sheet with numeric keypad |
 | 4 | PIN Entered — Ready to Confirm | v4 | All 4 digits filled, button active |
@@ -156,6 +159,68 @@ Identical layout to Screen 1 except:
 - **CTA button:** navy background (`#010C35`), lock icon, text "Subscribe to Redeem — £6.99/mo"
 - **Shadow:** `0 6px 24px rgba(1,12,53,0.3)`
 - **Tapping:** navigates to subscription purchase screen
+
+---
+
+## Section 4b: Screens 1a/1b/1c — Time-Limited Voucher Variants
+
+Time-limited vouchers use the same coupon structure as Screen 1 but add urgency/availability treatments. All three variants share the amber header colour (`#D97706`).
+
+**Mockup:** `voucher-detail-timelimited-v1.html`
+
+### 4b.1 Screen 1a — Time-Limited (Active, Within Availability Window)
+
+Same layout as Screen 1 with these additions:
+
+- **Header colour:** amber `#D97706`
+- **Type badge:** clock icon + "Time-Limited Offer"
+- **Countdown banner in header:** frosted glass card (`rgba(0,0,0,0.25)` bg, `backdrop-filter: blur(8px)`, 14px border-radius) at the bottom of the header, above the perforation
+  - Clock icon in 32×32px frosted square
+  - "Expires in" label (9px, uppercase, 0.1em letter-spacing)
+  - Countdown: "2d 14h 32m" (16px, 800 weight, white, tabular-nums)
+  - Exact expiry date below (10px, `rgba(255,255,255,0.6)`)
+- **Expiry pill:** amber tint (`#FFFBEB` bg, `#B45309` text) with clock icon — "Expires 21 Apr 2026"
+- **Time restriction pill:** neutral style — e.g. "Mon–Fri, 11am–3pm"
+- **Urgency banner below coupon card:** amber card (`#FFFBEB` bg, `#FDE68A` border, 14px border-radius)
+  - Amber icon square (36×36px, 10px border-radius, `#D97706` bg)
+  - "Limited Time Remaining" title (12px, 800 weight, `#B45309`)
+  - "This voucher expires on 21 Apr 2026. Redeem before it's gone!" (11px, `#92400E`)
+- **CTA:** standard "Redeem This Voucher" — active and pressable
+
+### 4b.2 Screen 1b — Time-Limited (Expired)
+
+Same layout but washed out, matching the "Already Redeemed" treatment (Screen 8):
+
+- **Header:** `filter: grayscale(0.5) brightness(0.75); opacity: 0.6`
+- **"Voucher Expired" badge:** positioned OUTSIDE the filtered header (same pattern as Screen 8's green badge)
+  - Solid red `#B91C1C` background — vivid, not washed
+  - X-circle icon inside 28×28px frosted circle
+  - "Voucher Expired" — 15px, 800 weight, white
+  - Shadow: `0 8px 32px rgba(185,28,28,0.4), 0 2px 8px rgba(0,0,0,0.2)`
+- **No countdown banner** — not relevant
+- **Expiry pill:** red variant (`#FEF2F2` bg, `#B91C1C` text) — "Expired 21 Apr 2026" with X icon
+- **Coupon card + body:** dimmed (opacity 0.5–0.6), banner greyscaled
+- **CTA disabled:** muted grey background, "Voucher Has Expired" with X icon, opacity 0.6
+
+### 4b.3 Screen 1c — Outside Availability Window
+
+The voucher is still valid and hasn't expired, but the user is viewing it outside its operating hours (e.g. Saturday evening for a Mon–Fri 11am–3pm voucher).
+
+- **Header:** full colour amber — NOT washed out (voucher is active)
+- **All content fully visible** — terms, fair use, merchant card, how it works — nothing dimmed
+- **Header banner** (replaces countdown): same frosted glass card but shows availability instead
+  - "Available again in" label (9px, uppercase)
+  - Countdown to next window: "1d 14h 22m" (16px, 800 weight, white, tabular-nums)
+  - "Monday 11:00 AM · Mon–Fri, 11am–3pm" (10px, `rgba(255,255,255,0.6)`)
+- **Availability banner below coupon card:** blue card (`#EFF6FF` bg, `#BFDBFE` border, 14px border-radius)
+  - Blue icon square (36×36px, `#2563EB` bg, clock icon)
+  - "Not Currently Available" title (12px, 800 weight, `#1D4ED8`)
+  - "This voucher can only be redeemed Monday to Friday, 11:00 AM – 3:00 PM." (11px, `#1E40AF`)
+  - "Next available: Monday 11:00 AM" chip (`rgba(37,99,235,0.1)` bg, 8px border-radius, chevron icon, 11px, 700 weight, `#1D4ED8`)
+- **CTA disabled:** navy background (`#010C35`), two-line layout:
+  - "Not Available Right Now" (16px, 800 weight, white)
+  - "Mon–Fri, 11am–3pm" (11px, 600 weight, `rgba(255,255,255,0.65)`)
+  - Not pressable, opacity 0.85
 
 ---
 
@@ -507,6 +572,14 @@ New toggles in Account → Notification Preferences:
 | Customer screenshots Show to Staff screen | Animated border freezes, LIVE dot freezes, clock stops updating — trained staff can identify static screenshot |
 | Customer navigates away from success popup | Popup persists until "Done" tapped. If app backgrounded + returned, popup should still be visible |
 | Past-cycle redeemed voucher | Accessible from Account → Activity/History with full redemption details (code, date, time, branch, QR) |
+| Time-limited voucher, active window | Screen 1a — amber countdown banner shows remaining time. Countdown updates live (per-second). CTA enabled |
+| Time-limited voucher, countdown reaches zero while on screen | Transition to Screen 1b (expired). CTA disables. Countdown banner replaced with red "Voucher Expired" badge. No auto-navigation away |
+| Time-limited voucher, expired | Screen 1b — header washed out (grayscale 40%, brightness 80%, opacity 65%). Red badge positioned OUTSIDE filtered header. CTA disabled with "Voucher Expired" text |
+| Time-limited voucher, outside availability window | Screen 1c — full-colour header (not washed out). Blue availability banner with "Available again in" countdown + next active window details. CTA disabled with two-line text ("Not Available Right Now" / schedule) |
+| Time-limited voucher, availability window opens while on Screen 1c | Transition to Screen 1a. Blue banner replaced with amber countdown. CTA re-enables |
+| Time-limited voucher, user taps disabled CTA (expired) | No action. Button is visually and functionally disabled (opacity 0.5, no press handler) |
+| Time-limited voucher, user taps disabled CTA (outside window) | No action. Button is visually and functionally disabled |
+| Time-limited voucher, redeemed during active window, window closes | Screen 8 (already redeemed) — no change. Redemption is permanent for the cycle regardless of availability windows |
 
 ---
 
