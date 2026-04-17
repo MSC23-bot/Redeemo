@@ -25,6 +25,7 @@ export const color = {
   info: '#0E7490',
   focus: '#010C35',
   cream: '#FFF9F5',
+  savingsGreen: '#16A34A',
   navGradient: ['#E20C04', '#D10A03', '#E84A00'] as const,
   pin: {
     foodDrink:       '#E65100',
@@ -32,6 +33,25 @@ export const color = {
     fitnessSport:    '#4CAF50',
     shopping:        '#7C4DFF',
     default:         '#E20C04',
+  } as const,
+  voucher: {
+    bogo: '#7C3AED',
+    discount: '#E20C04',
+    freebie: '#16A34A',
+    spendSave: '#E84A00',
+    package: '#2563EB',
+    timeLimited: '#D97706',
+    reusable: '#0D9488',
+    byType: {
+      BOGO: '#7C3AED',
+      DISCOUNT_FIXED: '#E20C04',
+      DISCOUNT_PERCENT: '#E20C04',
+      FREEBIE: '#16A34A',
+      SPEND_AND_SAVE: '#E84A00',
+      PACKAGE_DEAL: '#2563EB',
+      TIME_LIMITED: '#D97706',
+      REUSABLE: '#0D9488',
+    },
   } as const,
 } as const
 
