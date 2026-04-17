@@ -29,7 +29,7 @@ export function CategoryGrid({ categories, onCategoryPress, onMorePress }: Props
       style={{
         flexDirection: 'row',
         flexWrap: 'wrap',
-        paddingHorizontal: spacing[3],
+        paddingHorizontal: 18,
       }}
     >
       {tiles.map((tile, index) => {
@@ -38,6 +38,7 @@ export function CategoryGrid({ categories, onCategoryPress, onMorePress }: Props
             <PressableScale
               key="more"
               onPress={onMorePress}
+              accessibilityLabel="More categories"
               style={{ width: '33.33%', alignItems: 'center', paddingVertical: spacing[3] }}
             >
               <View
@@ -51,7 +52,7 @@ export function CategoryGrid({ categories, onCategoryPress, onMorePress }: Props
                   marginBottom: spacing[1],
                 }}
               >
-                <Grid3X3 size={24} color="#FFFFFF" />
+                <Grid3X3 size={22} color="#FFFFFF" />
               </View>
               <Text
                 variant="body.sm"
@@ -71,6 +72,7 @@ export function CategoryGrid({ categories, onCategoryPress, onMorePress }: Props
           <PressableScale
             key={category.id}
             onPress={() => onCategoryPress(category.id)}
+            accessibilityLabel={`${category.name} category`}
             style={{ width: '33.33%', alignItems: 'center', paddingVertical: spacing[3] }}
           >
             <View

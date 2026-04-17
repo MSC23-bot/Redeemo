@@ -16,7 +16,7 @@ type Props = {
 function getGreeting(): string {
   const hour = new Date().getHours()
   if (hour < 12) return 'Good morning'
-  if (hour < 18) return 'Good afternoon'
+  if (hour < 17) return 'Good afternoon'
   return 'Good evening'
 }
 
@@ -52,7 +52,7 @@ export function HomeHeader({
           </Text>
           {showLocation && (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing[1] }}>
-              <MapPin size={12} color={color.text.secondary} />
+              <MapPin size={12} color={color.brandRose} />
               <Text
                 variant="body.sm"
                 color="secondary"
@@ -78,7 +78,7 @@ export function HomeHeader({
               justifyContent: 'center',
             }}
           >
-            <Search size={18} color={color.navy} />
+            <Search size={20} color={color.navy} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -93,7 +93,7 @@ export function HomeHeader({
               justifyContent: 'center',
             }}
           >
-            <SlidersHorizontal size={18} color={color.navy} />
+            <SlidersHorizontal size={20} color={color.navy} />
           </TouchableOpacity>
 
           {onNotificationPress && (
@@ -109,7 +109,7 @@ export function HomeHeader({
                 justifyContent: 'center',
               }}
             >
-              <Bell size={18} color={color.navy} />
+              <Bell size={20} color={color.navy} />
             </TouchableOpacity>
           )}
 

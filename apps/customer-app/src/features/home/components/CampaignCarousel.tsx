@@ -27,9 +27,10 @@ type Campaign = {
 
 type Props = {
   campaigns: Campaign[]
+  onCampaignPress: (id: string) => void
 }
 
-export function CampaignCarousel({ campaigns }: Props) {
+export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   const scrollRef = useRef<ScrollView>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -120,25 +121,24 @@ export function CampaignCarousel({ campaigns }: Props) {
                   {campaign.description}
                 </Text>
               )}
-              {campaign.ctaText && (
-                <TouchableOpacity
-                  style={{
-                    alignSelf: 'flex-start',
-                    backgroundColor: '#FFFFFF',
-                    paddingHorizontal: spacing[4],
-                    paddingVertical: spacing[2],
-                    borderRadius: radius.pill,
-                  }}
-                  accessibilityLabel={campaign.ctaText}
+              <TouchableOpacity
+                onPress={() => onCampaignPress(campaign.id)}
+                style={{
+                  alignSelf: 'flex-start',
+                  backgroundColor: '#FFFFFF',
+                  paddingHorizontal: spacing[4],
+                  paddingVertical: spacing[2],
+                  borderRadius: radius.pill,
+                }}
+                accessibilityLabel={campaign.ctaText ?? 'Learn More'}
+              >
+                <Text
+                  variant="label.md"
+                  style={{ color: color.navy, fontFamily: 'Lato-Bold', fontSize: 12 }}
                 >
-                  <Text
-                    variant="label.lg"
-                    style={{ color: color.navy }}
-                  >
-                    {campaign.ctaText}
-                  </Text>
-                </TouchableOpacity>
-              )}
+                  {campaign.ctaText ?? 'Learn More'}
+                </Text>
+              </TouchableOpacity>
             </LinearGradient>
           )
         })}
