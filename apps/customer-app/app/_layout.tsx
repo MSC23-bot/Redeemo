@@ -45,7 +45,7 @@ export default function RootLayout() {
     }
   }, [fontsReady, status])
 
-  if (!fontsReady || status === 'bootstrapping') return null
+  if (!fontsReady || status === 'bootstrapping') return <View style={{ flex: 1, backgroundColor: '#010C35' }} />
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

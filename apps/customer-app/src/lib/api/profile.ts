@@ -39,7 +39,7 @@ export type ProfileUpdate = Partial<{
 
 export const profileApi = {
   getMe: () => api.get<unknown>('/api/v1/customer/profile').then(profileSchema.parse),
-  updateProfile: (patch: ProfileUpdate) => api.patch<unknown>('/api/v1/customer/profile', patch).then(profileSchema.parse),
+  updateProfile: (patch: ProfileUpdate) => api.patch<unknown>('/api/v1/customer/profile', patch).then(profileSchema.partial().parse),
   getAvailableInterests: () => api.get<{ interests: { id: string; name: string }[] }>('/api/v1/customer/profile/available-interests'),
   updateInterests: (interestIds: string[]) => api.put<{ interests: { id: string; name: string }[] }>('/api/v1/customer/profile/interests', { interestIds }),
 }

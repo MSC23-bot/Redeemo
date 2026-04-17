@@ -24,7 +24,8 @@ export function PC1AboutScreen() {
 
   async function onSave(v: FormInput) {
     try {
-      await update.mutateAsync({ name: v.name, ...(v.dateOfBirth ? { dateOfBirth: v.dateOfBirth } : {}), ...(v.gender ? { gender: v.gender } : {}) })
+      const dob = v.dateOfBirth ? `${v.dateOfBirth}T00:00:00.000Z` : undefined
+      await update.mutateAsync({ name: v.name, ...(dob ? { dateOfBirth: dob } : {}), ...(v.gender ? { gender: v.gender } : {}) })
       await markStepComplete('pc1')
     } catch { /* toast handled by global error boundary */ }
   }
