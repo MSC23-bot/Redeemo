@@ -208,12 +208,14 @@ export async function cancelSubscription(
     throw new AppError('SUBSCRIPTION_NOT_CANCELLABLE')
   }
 
-  try {
-    await stripe.subscriptions.update(sub.stripeSubscriptionId, {
-      cancel_at_period_end: true,
-    })
-  } catch {
-    throw new AppError('STRIPE_ERROR')
+  if (sub.stripeSubscriptionId) {
+    try {
+      await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        cancel_at_period_end: true,
+      })
+    } catch {
+      throw new AppError('STRIPE_ERROR')
+    }
   }
 
   // cancelledAt = when the user requested cancellation (not when access ends)

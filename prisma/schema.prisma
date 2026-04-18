@@ -818,8 +818,8 @@ model Subscription {
   id                   String             @id @default(uuid())
   userId               String             @unique
   planId               String
-  stripeSubscriptionId String             @unique
-  stripeCustomerId     String
+  stripeSubscriptionId String?            @unique
+  stripeCustomerId     String?
   status               SubscriptionStatus @default(ACTIVE)
   currentPeriodStart   DateTime
   currentPeriodEnd     DateTime
@@ -833,11 +833,6 @@ model Subscription {
   // monthly voucher cycle resets. Set once by whichever payment flow creates
   // the subscription (Stripe, Apple IAP, Google Play, or admin-grant).
   // Stored as midnight UTC on the anchor day.
-  //
-  // NOTE: stripeSubscriptionId is currently Stripe-only and required. When
-  // admin-grant or Apple IAP / Google Play flows are built, this model will
-  // need a schema evolution to make stripeSubscriptionId nullable and add
-  // fields like appleOriginalTransactionId / googlePurchaseToken.
   //
   // RESUBSCRIBE: When a user resubscribes after cancellation, a NEW
   // Subscription record is created with a fresh cycleAnchorDate. If
