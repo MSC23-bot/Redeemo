@@ -26,6 +26,7 @@ import { ShowToStaff } from '../components/ShowToStaff'
 import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
 import { UrgencyBanner } from '../components/UrgencyBanner'
 import { BranchPickerSheet } from '../components/BranchPickerSheet'
+import { useSubscription } from '@/hooks/useSubscription'
 import type { BranchDetail } from '@/lib/api/merchant'
 
 const PAGE_BG = '#F5F0EB'
@@ -39,6 +40,7 @@ export function VoucherDetailScreen() {
   const { data: branches } = useMerchantBranches(voucher?.merchant.id)
 
   const isAuthed = status === 'authed'
+  const { isSubscribed } = useSubscription()
   const isRedeemed = voucher?.isRedeemedThisCycle ?? false
   const { data: persistedRedemption } = useRedemptionForVoucher(voucher?.id, isRedeemed)
 
@@ -88,12 +90,12 @@ export function VoucherDetailScreen() {
   }, [redeemMutation.data, persistedRedemption, selectedBranch])
 
   const ctaState = useMemo(() => {
-    if (!isAuthed) return 'subscribe' as const
+    if (!isSubscribed) return 'subscribe' as const
     if (isRedeemed) return 'already_redeemed' as const
     if (timeLimited.state === 'expired') return 'expired' as const
     if (timeLimited.state === 'outside_window') return 'outside_window' as const
     return 'can_redeem' as const
-  }, [isAuthed, isRedeemed, timeLimited.state])
+  }, [isSubscribed, isRedeemed, timeLimited.state])
 
   const handleCTAPress = useCallback(() => {
     if (ctaState === 'subscribe') {
@@ -261,7 +263,7 @@ export function VoucherDetailScreen() {
         )}
 
         {/* How It Works (Screen 1 only) */}
-        {isAuthed && !isRedeemed && !isExpired && <HowItWorks />}
+        {isSubscribed && !isRedeemed && !isExpired && <HowItWorks />}
 
         {/* Bottom spacing for sticky CTA */}
         <View style={{ height: 120 }} />

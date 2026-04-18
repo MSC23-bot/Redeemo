@@ -18,15 +18,14 @@ import { ContactSheet } from '../components/ContactSheet'
 import { DirectionsSheet } from '../components/DirectionsSheet'
 import { FreeUserGateModal } from '../components/FreeUserGateModal'
 import { useFavourite } from '@/hooks/useFavourite'
+import { useSubscription } from '@/hooks/useSubscription'
 
 export function MerchantProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
-  // TODO: Replace with real subscription check once subscription purchase flow is integrated.
-  // Currently treats all authenticated users as subscribed — free user gate won't trigger for logged-in free users.
-  const isSubscribed = isAuthed
+  const { isSubscribed } = useSubscription()
 
   const { data: merchant, isLoading } = useMerchantProfile(id)
 
