@@ -154,17 +154,20 @@ The hero card's lifetime/current-month stats always come from the existing `GET 
 Warm gradient card: `linear-gradient(135deg, #FFF1EE, #FEF3C7)`, `border: 1px solid rgba(226,12,4,0.15)`, `border-radius: 20px`.  
 After 1.8s delay, a shimmer sweep runs every 2.8s (`transform: translateX(-120% → 200%)`).
 
-### Three variants
+### Four variants
 
 | Condition | Copy |
 |---|---|
-| Monthly plan (£6.99/mo) | "Saved **£X** on your £6.99/mo plan — that's **4.6×** your money back" |
-| Annual plan (£69.99/yr = £5.83/mo equiv) | "Saved **£X** on your plan — that's **5.5×** your money back" |
-| Promo code applied (`subscription.promoCodeId != null`) | "You saved **£X** this month. Keep it up!" — **no multiplier shown** |
+| Below breakeven, no promo (`0 < thisMonthSaving < plan_monthly_cost`) | "You're on your way — **£X** saved this month" — no multiplier |
+| Monthly plan, at or above breakeven (`thisMonthSaving ≥ £6.99`) | "Saved **£X** on your £6.99/mo plan — that's **4.6×** your money back" |
+| Annual plan, at or above breakeven (`thisMonthSaving ≥ £5.83`) | "Saved **£X** on your plan — that's **5.5×** your money back" |
+| Promo code applied (`subscription.promoCodeId != null`, any amount > 0) | "You saved **£X** this month. Keep it up!" — **no multiplier shown** |
+
+**Breakeven thresholds:** Monthly = £6.99 / Annual = £69.99 ÷ 12 = £5.83
 
 **Hidden when:** `thisMonthSaving === 0` or a past month is selected.
 
-**Multiplier calculation:**
+**Multiplier calculation** (only shown when at or above breakeven, no promo):
 - Monthly: `thisMonthSaving / 6.99`, rounded to 1dp
 - Annual: `thisMonthSaving / (69.99 / 12)` = `thisMonthSaving / 5.83`, rounded to 1dp
 
