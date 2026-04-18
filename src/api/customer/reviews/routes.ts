@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { optionalUserId } from '../plugin'
 import {
   listMerchantReviews, listBranchReviews, upsertBranchReview,
-  deleteBranchReview, reportReview,
+  deleteBranchReview, reportReview, getReviewSummary, toggleHelpful,
 } from './service'
 
 const idParam           = z.object({ id: z.string().min(1) })
@@ -43,6 +43,12 @@ export async function reviewOpenRoutes(app: FastifyInstance) {
     const result = await listBranchReviews(app.prisma, branchId, { limit, offset, requestingUserId })
     return reply.send(result)
   })
+
+  app.get('/api/v1/customer/merchants/:id/reviews/summary', async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const result = await getReviewSummary(app.prisma, id)
+    return reply.send(result)
+  })
 }
 
 export async function reviewAuthRoutes(app: FastifyInstance) {
@@ -67,5 +73,12 @@ export async function reviewAuthRoutes(app: FastifyInstance) {
     const userId       = req.user.sub
     const result = await reportReview(app.prisma, reviewId, userId, data)
     return reply.status(result.created ? 201 : 200).send({ success: result.success })
+  })
+
+  app.post('/api/v1/customer/reviews/:reviewId/helpful', async (req: FastifyRequest, reply) => {
+    const { reviewId } = reviewIdParam.parse(req.params)
+    const userId = req.user.sub
+    const result = await toggleHelpful(app.prisma, reviewId, userId)
+    return reply.send(result)
   })
 }
