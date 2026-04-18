@@ -22,7 +22,8 @@ export type Subscription = z.infer<typeof subscriptionSchema>
 export const subscriptionApi = {
   getMySubscription: () =>
     api.get<unknown>('/api/v1/subscription/me').then((data) => {
-      if (data === null) return null
-      return subscriptionSchema.parse(data)
+      if (!data) return null
+      const result = subscriptionSchema.safeParse(data)
+      return result.success ? result.data : null
     }),
 }

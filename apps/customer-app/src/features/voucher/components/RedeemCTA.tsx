@@ -1,5 +1,5 @@
 import React from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
+import { View, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Tag, Lock, Check, X } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
@@ -12,9 +12,19 @@ type Props = {
   state: CTAState
   onPress: () => void
   scheduleLabel?: string | null
+  loading?: boolean
 }
 
-export function RedeemCTA({ state, onPress, scheduleLabel }: Props) {
+export function RedeemCTA({ state, onPress, scheduleLabel, loading }: Props) {
+  if (loading) {
+    return (
+      <View style={styles.wrapper}>
+        <View style={[styles.button, styles.loadingButton]}>
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        </View>
+      </View>
+    )
+  }
   const isDisabled = state === 'already_redeemed' || state === 'expired' || state === 'outside_window'
 
   const handlePress = () => {
@@ -142,6 +152,10 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
+  },
+  loadingButton: {
+    backgroundColor: '#9CA3AF',
+    opacity: 0.5,
   },
   disabledButton: {
     backgroundColor: '#9CA3AF',

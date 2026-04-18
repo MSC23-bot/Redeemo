@@ -25,7 +25,7 @@ export function MerchantProfileScreen() {
   const router = useRouter()
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
-  const { isSubscribed } = useSubscription()
+  const { isSubscribed, isSubLoading } = useSubscription()
 
   const { data: merchant, isLoading } = useMerchantProfile(id)
 
@@ -71,12 +71,13 @@ export function MerchantProfileScreen() {
   }, [merchant])
 
   const handleVoucherPress = useCallback((voucherId: string) => {
+    if (isSubLoading) return
     if (!isSubscribed) {
       setShowGateModal(true)
       return
     }
     router.push(`/voucher/${voucherId}` as never)
-  }, [isSubscribed, router])
+  }, [isSubscribed, isSubLoading, router])
 
   const singleBranchAddress = useMemo(() => {
     if (!isSingleBranch || !merchant?.branches[0]) return null

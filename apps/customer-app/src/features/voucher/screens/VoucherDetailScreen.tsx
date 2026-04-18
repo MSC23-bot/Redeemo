@@ -40,7 +40,7 @@ export function VoucherDetailScreen() {
   const { data: branches } = useMerchantBranches(voucher?.merchant.id)
 
   const isAuthed = status === 'authed'
-  const { isSubscribed } = useSubscription()
+  const { isSubscribed, isSubLoading } = useSubscription()
   const isRedeemed = voucher?.isRedeemedThisCycle ?? false
   const { data: persistedRedemption } = useRedemptionForVoucher(voucher?.id, isRedeemed)
 
@@ -274,6 +274,7 @@ export function VoucherDetailScreen() {
         state={ctaState}
         onPress={handleCTAPress}
         scheduleLabel={timeLimited.scheduleLabel}
+        loading={isSubLoading}
       />
 
       {/* Branch Picker Sheet (multi-branch merchants) */}
