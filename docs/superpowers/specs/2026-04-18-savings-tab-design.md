@@ -18,7 +18,8 @@ The Savings tab is a personal financial dashboard and a subscription conversion 
 - Everything above the redemption history (hero header, insight cards, ROI callout) is the `ListHeaderComponent`.
 - Redemption history rows are the list items.
 - The entire screen scrolls as one unit — no nested scroll conflicts.
-- Pagination via `onEndReached`.
+- Pagination via `onEndReached` (page size: 20).
+- Pull-to-refresh via `refreshControl` (brand red spinner). Re-fetches savings summary, redemption history, and the currently selected insight month if one is active. Selected month is preserved after refresh.
 
 ---
 
@@ -78,12 +79,14 @@ Three cards:
 
 ### Hero header
 - Same gradient + depth overlays
-- App bar: "Savings" title + settings icon action (top-right)
+- App bar: "Savings" title only — no action icons
 - **Eyebrow:** "Total saved" — `Lato` 10px, uppercase, 2px letter-spacing, `rgba(255,255,255,0.65)`
 - **Lifetime total:** `MusticaPro-SemiBold` 48px white — animates count-up from 0 on mount (900ms ease-out cubic)
 - **Two stat chips** (frosted glass, `rgba(255,255,255,0.12)`, `backdrop-filter: blur(12px)`, 1px white border):
   - "This month" — `MusticaPro-SemiBold` 22px white — count-up 650ms
   - "Redemptions" — `MusticaPro-SemiBold` 22px white — count-up 500ms
+
+**Count-up policy:** Runs on initial screen mount only. Does not replay on tab focus or navigation return. Re-animates from the previous value to the new value if data changes after a pull-to-refresh.
 
 ### Entrance animations (all use `transform/opacity` only — no layout thrash)
 - Hero header: `fadeUp` 0.55s `ease-enter` 0.05s
@@ -104,13 +107,15 @@ Three cards:
 Three cards in the `ListHeaderComponent`, each a white rounded card with `border-radius: 20px`, subtle shadow.
 
 ### Card 1 — 6-Month Trend
-- Bar chart: 6 bars (Nov–Apr), each bar column is tappable (44pt touch target minimum)
+- Bar chart: always 6 bars (trailing 6 months including current), each bar column is tappable (44pt touch target minimum)
+- Months with zero savings render as a minimal-height stub bar (3px), visually consistent with active bars but slightly subdued (`rgba(226,12,4,0.10)`). All bars — including stubs — are tappable and trigger the £0 month state.
 - Default state: current month bar full red + dot indicator above; all other bars `rgba(226,12,4,0.18)`
 - Bars animate `scaleY(0→1)` from bottom on mount with spring easing
 - Footer: min month label (left, muted) + max month label (right, `savings-green`)
 
 ### Card 2 — Top Places
-- Two merchant rows per month: logo placeholder, merchant name (`Lato` 14px bold), meta (`Lato` 11px muted), saving amount (`MusticaPro-SemiBold` 18px `#16A34A`)
+- Up to two merchant rows per month: logo placeholder, merchant name (`Lato` 14px bold), meta (`Lato` 11px muted), saving amount (`MusticaPro-SemiBold` 18px `#16A34A`)
+- If only one merchant exists for the selected month, render one row — no placeholder for the second. If no merchants exist, hide Card 2 entirely.
 - Entrance: `fadeRight` staggered 85ms/92ms
 
 ### Card 3 — By Category
@@ -175,7 +180,7 @@ After 1.8s delay, a shimmer sweep runs every 2.8s (`transform: translateX(-120% 
 
 ## Redemption History
 
-Full all-time list, paginated via `onEndReached` (page size: 20).
+Full all-time list, paginated via `onEndReached` (page size: 20). When all items are loaded, a subtle centred label renders at the bottom of the list: **"You're all caught up"** — `Lato` 13px, `#9CA3AF`, no additional UI.
 
 ### Row anatomy
 - Logo placeholder: 46×46pt, `border-radius: 14px`, coloured by voucher type
@@ -193,6 +198,37 @@ Full all-time list, paginated via `onEndReached` (page size: 20).
 **Tap action:** All rows navigate to `VoucherDetailScreen` in its redeemed state. The "Show to staff" badge is informational — tapping the row opens the detail screen where the customer can access the code again.
 
 **Press feedback:** `scale(0.98)` on press, restored on release — `transition: transform 100ms ease`.
+
+---
+
+## Loading States
+
+### Initial screen load
+On first navigation to the Savings tab, always show a skeleton regardless of known subscription status. Do not pre-render empty states from cached auth data.
+
+- **Skeleton layout:** Hero area shimmer block (full gradient height) + two skeleton insight card blocks below
+- Once the savings API resolves, render the correct state (State 1, 2, or 3) with entrance animations
+
+### Month drill-down fetch
+Skeleton shimmer inside insight Cards 2 and 3 while fetching. Card 1 bar chart remains interactive. Viewing chip appears immediately (optimistic).
+
+---
+
+## Error States
+
+### Initial load failure — no cached data
+Replace the hero and content area with an inline error card:
+- Icon + message: "Couldn't load your savings"
+- Retry button — re-triggers the savings API call
+- Screen background (`#F8F9FA`) visible around the card
+
+### Initial load failure — cached data exists
+Keep cached content visible. Show a subtle non-blocking error message (small muted banner below the app bar): "Couldn't refresh — showing last saved data". Auto-dismisses after 4s or on next successful load.
+
+### Month drill-down failure
+Keep the selected month active — do not auto-revert to current month. Show an inline error state within Cards 2 and 3:
+- Message: "Couldn't load [Month Year]"
+- Retry tap re-triggers `GET /api/v1/customer/savings/monthly-detail?month=YYYY-MM`
 
 ---
 
