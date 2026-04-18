@@ -132,6 +132,7 @@ model User {
   subscription         Subscription?
   reviews              Review[]
   reviewReports        ReviewReport[]
+  reviewHelpfuls       ReviewHelpful[]
   favouriteMerchants   FavouriteMerchant[]
   favouriteVouchers    FavouriteVoucher[]
   notifications        Notification[]
@@ -828,6 +829,22 @@ model Subscription {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
 
+  // Immutable after creation. Defines the day-of-month on which the user's
+  // monthly voucher cycle resets. Set once by whichever payment flow creates
+  // the subscription (Stripe, Apple IAP, Google Play, or admin-grant).
+  // Stored as midnight UTC on the anchor day.
+  //
+  // NOTE: stripeSubscriptionId is currently Stripe-only and required. When
+  // admin-grant or Apple IAP / Google Play flows are built, this model will
+  // need a schema evolution to make stripeSubscriptionId nullable and add
+  // fields like appleOriginalTransactionId / googlePurchaseToken.
+  //
+  // RESUBSCRIBE: When a user resubscribes after cancellation, a NEW
+  // Subscription record is created with a fresh cycleAnchorDate. If
+  // reactivation logic is added later (updating the existing record instead
+  // of creating a new one), it MUST explicitly reset cycleAnchorDate.
+  cycleAnchorDate      DateTime
+
   user                 User             @relation(fields: [userId], references: [id])
   plan                 SubscriptionPlan @relation(fields: [planId], references: [id])
   promoCode            PromoCode?       @relation(fields: [promoCodeId], references: [id])
@@ -879,6 +896,7 @@ model Review {
   user         User           @relation(fields: [userId], references: [id])
   branch       Branch         @relation(fields: [branchId], references: [id])
   reports      ReviewReport[]
+  helpfuls     ReviewHelpful[]
 
   @@unique([userId, branchId])
   @@index([branchId])
@@ -904,6 +922,19 @@ enum ReviewReportReason {
   SPAM
   FAKE
   OTHER
+}
+
+model ReviewHelpful {
+  id        String   @id @default(cuid())
+  userId    String
+  reviewId  String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  review Review @relation(fields: [reviewId], references: [id])
+
+  @@unique([userId, reviewId])
+  @@map("review_helpfuls")
 }
 
 // ─────────────────────────────────────────
