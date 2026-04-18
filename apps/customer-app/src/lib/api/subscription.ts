@@ -15,6 +15,7 @@ const subscriptionSchema = z.object({
   currentPeriodEnd: z.string().nullable(),
   cancelAtPeriodEnd: z.boolean(),
   plan: subscriptionPlanSchema,
+  promoCodeId: z.string().nullable().optional(),
 })
 
 export type Subscription = z.infer<typeof subscriptionSchema>
