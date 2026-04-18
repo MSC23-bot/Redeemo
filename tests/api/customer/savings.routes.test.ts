@@ -228,7 +228,6 @@ describe('savings routes', () => {
     }
 
     it('returns 200 with monthly detail for a valid month', async () => {
-      const { getMonthlyDetail } = await import('../../../src/api/customer/savings/service')
       ;(getMonthlyDetail as any).mockResolvedValue(mockMonthlyDetail)
       const res = await app.inject({
         method: 'GET',
