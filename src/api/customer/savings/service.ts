@@ -134,7 +134,7 @@ export async function getSavingsRedemptions(
             id: true,
             title: true,
             voucherType: true,
-            merchant: { select: { id: true, name: true, logoUrl: true } },
+            merchant: { select: { id: true, businessName: true, logoUrl: true } },
           },
         },
         branch: { select: { id: true, name: true } },
@@ -149,9 +149,9 @@ export async function getSavingsRedemptions(
     estimatedSaving: Number(r.estimatedSaving ?? 0),
     isValidated:     r.isValidated,
     merchant: {
-      id:      r.voucher.merchant.id,
-      name:    r.voucher.merchant.name,
-      logoUrl: r.voucher.merchant.logoUrl,
+      id:           r.voucher.merchant.id,
+      businessName: r.voucher.merchant.businessName,
+      logoUrl:      r.voucher.merchant.logoUrl,
     },
     voucher: {
       id:          r.voucher.id,
