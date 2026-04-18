@@ -163,4 +163,52 @@ describe('savings routes', () => {
     })
     expect(res.statusCode).toBe(400)
   })
+
+  it('GET /savings/redemptions includes validatedAt in each redemption', async () => {
+    ;(getSavingsRedemptions as any).mockResolvedValue({
+      redemptions: [{
+        id: 'r1',
+        redeemedAt: '2026-04-01T10:00:00Z',
+        estimatedSaving: 5.00,
+        isValidated: true,
+        validatedAt: '2026-04-01T10:30:00Z',
+        merchant: { id: 'm1', businessName: 'Pizza Place', logoUrl: null },
+        voucher: { id: 'v1', title: 'Free Dessert', voucherType: 'FREEBIE' },
+        branch: { id: 'b1', name: 'Central Branch' },
+      }],
+      total: 1,
+    })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/savings/redemptions',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.redemptions[0].validatedAt).toBe('2026-04-01T10:30:00Z')
+  })
+
+  it('GET /savings/redemptions returns validatedAt as null when not validated', async () => {
+    ;(getSavingsRedemptions as any).mockResolvedValue({
+      redemptions: [{
+        id: 'r2',
+        redeemedAt: '2026-04-01T10:00:00Z',
+        estimatedSaving: 5.00,
+        isValidated: false,
+        validatedAt: null,
+        merchant: { id: 'm1', businessName: 'Pizza Place', logoUrl: null },
+        voucher: { id: 'v1', title: 'Free Dessert', voucherType: 'FREEBIE' },
+        branch: { id: 'b1', name: 'Central Branch' },
+      }],
+      total: 1,
+    })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/savings/redemptions',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.redemptions[0].validatedAt).toBeNull()
+  })
 })

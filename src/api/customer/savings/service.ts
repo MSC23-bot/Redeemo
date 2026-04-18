@@ -129,6 +129,7 @@ export async function getSavingsRedemptions(
         redeemedAt: true,
         estimatedSaving: true,
         isValidated: true,
+        validatedAt: true,
         voucher: {
           select: {
             id: true,
@@ -148,6 +149,7 @@ export async function getSavingsRedemptions(
     redeemedAt:      r.redeemedAt,
     estimatedSaving: Number(r.estimatedSaving ?? 0),
     isValidated:     r.isValidated,
+    validatedAt:     r.validatedAt,
     merchant: {
       id:           r.voucher.merchant.id,
       businessName: r.voucher.merchant.businessName,
