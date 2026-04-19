@@ -3,6 +3,7 @@ import {
 } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { isOpenNow } from '../../shared/isOpenNow'
+import { getCurrentCycleWindow } from '../../subscription/cycle'
 
 export async function addFavouriteMerchant(prisma: PrismaClient, userId: string, merchantId: string) {
   try {
@@ -167,30 +168,85 @@ export async function removeFavouriteVoucher(prisma: PrismaClient, userId: strin
   }
 }
 
-export async function listFavouriteVouchers(prisma: PrismaClient, userId: string) {
-  const rows = await prisma.favouriteVoucher.findMany({
-    where: {
-      userId,
-      voucher: {
-        status: VoucherStatus.ACTIVE,
-        approvalStatus: ApprovalStatus.APPROVED,
-        merchant: { status: MerchantStatus.ACTIVE },
-      },
-    },
-    select: {
-      createdAt: true,
-      voucher: {
-        select: {
-          id: true, title: true, type: true, estimatedSaving: true,
-          imageUrl: true, status: true, approvalStatus: true,
-          merchant: {
-            select: { id: true, businessName: true, logoUrl: true, status: true },
+export async function listFavouriteVouchers(
+  prisma: PrismaClient,
+  userId: string,
+  opts: { page: number; limit: number },
+) {
+  const { page, limit } = opts
+  const skip = (page - 1) * limit
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { userId },
+    select: { cycleAnchorDate: true },
+  })
+  let cycleStart: Date | null = null
+  if (subscription?.cycleAnchorDate) {
+    const window = getCurrentCycleWindow(subscription.cycleAnchorDate)
+    cycleStart = window.cycleStart
+  }
+
+  const [rows, total] = await Promise.all([
+    prisma.favouriteVoucher.findMany({
+      where: { userId },
+      select: {
+        createdAt: true,
+        voucher: {
+          select: {
+            id: true, title: true, type: true, estimatedSaving: true,
+            description: true, expiryDate: true,
+            status: true, approvalStatus: true,
+            merchant: {
+              select: { id: true, businessName: true, logoUrl: true, status: true },
+            },
           },
         },
       },
-    },
-    orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.favouriteVoucher.count({ where: { userId } }),
+  ])
+
+  const voucherIds = rows.map(r => r.voucher.id)
+  const cycleStates = cycleStart && voucherIds.length > 0
+    ? await prisma.userVoucherCycleState.findMany({
+        where: {
+          userId,
+          voucherId: { in: voucherIds },
+          cycleStartDate: { gte: cycleStart },
+          isRedeemedInCurrentCycle: true,
+        },
+        select: { voucherId: true },
+      })
+    : []
+  const redeemedSet = new Set(cycleStates.map(s => s.voucherId))
+
+  const enriched = rows.map(r => {
+    const v = r.voucher
+    const voucherActive  = v.status === VoucherStatus.ACTIVE && v.approvalStatus === ApprovalStatus.APPROVED
+    const merchantActive = v.merchant.status === MerchantStatus.ACTIVE
+    const isUnavailable  = !voucherActive || !merchantActive
+    return {
+      id:                       v.id,
+      title:                    v.title,
+      type:                     v.type,
+      estimatedSaving:          Number(v.estimatedSaving),
+      description:              v.description ?? null,
+      expiresAt:                v.expiryDate ?? null,
+      status:                   v.status,
+      approvalStatus:           v.approvalStatus,
+      isRedeemedInCurrentCycle: redeemedSet.has(v.id),
+      merchant:                 v.merchant,
+      favouritedAt:             r.createdAt,
+      isUnavailable,
+    }
   })
 
-  return rows.map(r => ({ ...r.voucher, favouritedAt: r.createdAt }))
+  const sorted = enriched.sort((a, b) => {
+    if (a.isUnavailable !== b.isUnavailable) return a.isUnavailable ? 1 : -1
+    return 0
+  })
+
+  const items = sorted.slice(skip, skip + limit)
+  return { items, total, page, limit }
 }

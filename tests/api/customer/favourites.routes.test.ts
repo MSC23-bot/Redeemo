@@ -178,13 +178,35 @@ describe('customer favourites routes', () => {
   })
 
   it('GET /api/v1/customer/favourites/vouchers returns 200', async () => {
-    ;(listFavouriteVouchers as any).mockResolvedValue([{ id: 'v1', title: 'Free coffee' }])
+    ;(listFavouriteVouchers as any).mockResolvedValue({ items: [{ id: 'v1', title: 'Free coffee' }], total: 1, page: 1, limit: 20 })
     const res = await app.inject({
       method: 'GET', url: '/api/v1/customer/favourites/vouchers',
       headers: { authorization: `Bearer ${customerToken}` },
     })
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(1)
+    expect(JSON.parse(res.body).items).toHaveLength(1)
+  })
+
+  it('GET /api/v1/customer/favourites/vouchers returns enriched paginated response', async () => {
+    const enrichedVoucher = {
+      id: 'v1', title: 'Buy 1 Get 1 Free Pizza', type: 'BOGO',
+      description: 'Valid on any pizza over 10 inches',
+      estimatedSaving: 12.00, status: 'ACTIVE', approvalStatus: 'APPROVED',
+      expiresAt: null, isRedeemedInCurrentCycle: false,
+      merchant: { id: 'm1', businessName: 'Pizza Palace', logoUrl: null, status: 'ACTIVE' },
+      favouritedAt: '2026-04-01T10:00:00.000Z', isUnavailable: false,
+    }
+    ;(listFavouriteVouchers as any).mockResolvedValue({ items: [enrichedVoucher], total: 1, page: 1, limit: 20 })
+    const res = await app.inject({
+      method: 'GET', url: '/api/v1/customer/favourites/vouchers?page=1&limit=20',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].isRedeemedInCurrentCycle).toBe(false)
+    expect(body.items[0].description).toBe('Valid on any pizza over 10 inches')
+    expect(body.total).toBe(1)
   })
 
   it('POST /api/v1/customer/favourites/vouchers/:voucherId returns 201', async () => {

@@ -46,7 +46,8 @@ export async function favouritesRoutes(app: FastifyInstance) {
   })
 
   app.get(`${base}/vouchers`, async (req: FastifyRequest, reply) => {
-    const result = await listFavouriteVouchers(app.prisma, req.user.sub)
+    const { page, limit } = paginationSchema.parse(req.query)
+    const result = await listFavouriteVouchers(app.prisma, req.user.sub, { page, limit })
     return reply.send(result)
   })
 }
