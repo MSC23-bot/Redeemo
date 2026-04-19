@@ -1,11 +1,22 @@
 import { PrismaClient, Prisma, MerchantStatus, VoucherStatus, ApprovalStatus } from '../../../generated/prisma/client'
 import type Redis from 'ioredis'
-import { nanoid } from 'nanoid'
 import crypto from 'crypto'
 import { AppError } from '../shared/errors'
 import { decrypt } from '../shared/encryption'
 import { writeAuditLog } from '../shared/audit'
 import { RedisKey } from '../shared/redis-keys'
+import { getCurrentCycleWindow } from '../subscription/cycle'
+
+const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+
+function generateRedemptionCode(length = 10): string {
+  const bytes = crypto.randomBytes(length)
+  let code = ''
+  for (let i = 0; i < length; i++) {
+    code += ALPHANUMERIC[bytes[i] % ALPHANUMERIC.length]
+  }
+  return code
+}
 
 const PIN_FAIL_LIMIT = 5
 const PIN_FAIL_WINDOW = 15 * 60 // 15 minutes in seconds
@@ -83,17 +94,26 @@ export async function createRedemption(
     throw new AppError('BRANCH_MERCHANT_MISMATCH')
   }
 
-  // 7. Cycle state guard — merchant-scoped via (userId, voucherId)
+  // 7. Subscription-anchored cycle guard
+  //    Uses cycleAnchorDate as the single source of truth for monthly cycle windows.
+  //    Independent of billing interval (monthly/annual) and payment source
+  //    (Stripe, Apple IAP, Google Play, admin-grant).
+  const now = new Date()
+  const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
+
   const cycleState = await prisma.userVoucherCycleState.findUnique({
     where: { userId_voucherId: { userId, voucherId: data.voucherId } },
   })
-  if (cycleState?.isRedeemedInCurrentCycle) {
+
+  // If stored cycleStartDate is from a previous cycle, this is a fresh cycle — allow.
+  // If stored cycleStartDate matches the current cycle and already redeemed — block.
+  const isCurrentCycle = cycleState != null && cycleState.cycleStartDate >= cycleStart
+  if (isCurrentCycle && cycleState.isRedeemedInCurrentCycle) {
     throw new AppError('ALREADY_REDEEMED')
   }
 
   // 8. Atomic transaction
-  const redemptionCode = nanoid(10)
-  const now = new Date()
+  const redemptionCode = generateRedemptionCode()
 
   const redemption = await prisma.$transaction(async (tx) => {
     const created = await tx.voucherRedemption.create({
@@ -113,11 +133,12 @@ export async function createRedemption(
       create: {
         userId,
         voucherId:                data.voucherId,
-        cycleStartDate:           sub.currentPeriodStart ?? now,
+        cycleStartDate:           cycleStart,
         isRedeemedInCurrentCycle: true,
         lastRedeemedAt:           now,
       },
       update: {
+        cycleStartDate:           cycleStart,
         isRedeemedInCurrentCycle: true,
         lastRedeemedAt:           now,
       },

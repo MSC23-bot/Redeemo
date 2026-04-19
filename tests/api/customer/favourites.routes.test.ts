@@ -112,13 +112,58 @@ describe('customer favourites routes', () => {
   })
 
   it('GET /api/v1/customer/favourites/merchants returns 200 with list', async () => {
-    ;(listFavouriteMerchants as any).mockResolvedValue([{ id: 'merchant-1', businessName: 'Acme' }])
+    ;(listFavouriteMerchants as any).mockResolvedValue({ items: [{ id: 'merchant-1', businessName: 'Acme' }], total: 1, page: 1, limit: 20 })
     const res = await app.inject({
       method: 'GET', url: '/api/v1/customer/favourites/merchants',
       headers: { authorization: `Bearer ${customerToken}` },
     })
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(1)
+    expect(JSON.parse(res.body).items).toHaveLength(1)
+  })
+
+  it('GET /api/v1/customer/favourites/merchants returns enriched paginated response', async () => {
+    const enrichedMerchant = {
+      id: 'merchant-1',
+      businessName: 'Pizza Palace',
+      tradingName: null,
+      logoUrl: 'https://cdn.example.com/logo.jpg',
+      bannerUrl: 'https://cdn.example.com/banner.jpg',
+      status: 'ACTIVE',
+      primaryCategory: { id: 'cat-1', name: 'Food & Drink' },
+      voucherCount: 3,
+      maxEstimatedSaving: 15.00,
+      avgRating: 4.5,
+      reviewCount: 22,
+      isOpen: true,
+      branch: { id: 'b1', name: 'Central', addressLine1: '1 High St', latitude: 51.5, longitude: -0.1 },
+      favouritedAt: '2026-04-01T10:00:00.000Z',
+    }
+    ;(listFavouriteMerchants as any).mockResolvedValue({ items: [enrichedMerchant], total: 1, page: 1, limit: 20 })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/favourites/merchants?page=1&limit=20',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(1)
+    expect(body.total).toBe(1)
+    expect(body.items[0].bannerUrl).toBe('https://cdn.example.com/banner.jpg')
+    expect(body.items[0].isOpen).toBe(true)
+    expect(body.items[0].voucherCount).toBe(3)
+  })
+
+  it('GET /api/v1/customer/favourites/merchants uses default page=1 limit=20', async () => {
+    ;(listFavouriteMerchants as any).mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/favourites/merchants',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.page).toBe(1)
+    expect(body.limit).toBe(20)
   })
 
   it('DELETE /api/v1/customer/favourites/merchants/:merchantId returns 404 when not found', async () => {
