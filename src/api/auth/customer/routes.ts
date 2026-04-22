@@ -183,6 +183,28 @@ export async function customerAuthRoutes(app: FastifyInstance) {
     if (!storedToken || storedToken !== actionToken) throw new AppError('ACTION_TOKEN_INVALID')
     await app.redis.del(RedisKey.otpAction(req.user.sub, 'ACCOUNT_DELETION'))
 
+    // Cancel Stripe subscription immediately — required to make the warning copy truthful.
+    // If Stripe is unreachable, log but continue; the subscription will lapse on its own.
+    const userSub = await app.prisma.subscription.findUnique({
+      where: { userId: req.user.sub },
+      select: { stripeSubscriptionId: true, status: true },
+    })
+    if (
+      userSub?.stripeSubscriptionId &&
+      !['CANCELLED', 'EXPIRED'].includes(userSub.status)
+    ) {
+      const { stripe } = await import('../../shared/stripe')
+      try {
+        await stripe.subscriptions.cancel(userSub.stripeSubscriptionId)
+        await app.prisma.subscription.update({
+          where: { userId: req.user.sub },
+          data: { status: 'CANCELLED', cancelledAt: new Date() },
+        })
+      } catch {
+        // Cancellation best-effort — user anonymisation proceeds regardless
+      }
+    }
+
     const anonymisedEmail = `deleted_${req.user.sub}@deleted.redeemo.com`
     await app.prisma.user.update({
       where: { id: req.user.sub },

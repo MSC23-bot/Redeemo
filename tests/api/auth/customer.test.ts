@@ -2,8 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
 
+vi.mock('../../../src/api/shared/stripe', () => ({
+  stripe: {
+    subscriptions: { cancel: vi.fn().mockResolvedValue({}) },
+  },
+}))
+
 describe('customer auth routes', () => {
   let app: FastifyInstance
+  let customerToken: string
 
   beforeEach(async () => {
     app = await buildApp()
@@ -14,6 +21,10 @@ describe('customer auth routes', () => {
         findUnique: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+      },
+      subscription: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        update: vi.fn().mockResolvedValue({}),
       },
       userSession: { create: vi.fn(), updateMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -28,6 +39,13 @@ describe('customer auth routes', () => {
       expire: vi.fn().mockResolvedValue(1),
       keys: vi.fn().mockResolvedValue([]),
     } as any)
+
+    await app.ready()
+    const jwtAny = app.jwt as any
+    customerToken = jwtAny.customer.sign(
+      { sub: 'user-del-1', role: 'customer', deviceId: 'd1', sessionId: 's1' },
+      { expiresIn: '1h' }
+    )
   })
 
   afterEach(async () => { await app.close() })
@@ -106,5 +124,93 @@ describe('customer auth routes', () => {
     })
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error.code).toBe('ACCOUNT_NOT_ACTIVE')
+  })
+
+  it('POST /delete-account calls stripe.subscriptions.cancel when subscription has stripeSubscriptionId', async () => {
+    const { stripe } = await import('../../../src/api/shared/stripe')
+
+    // Subscription with an active Stripe subscription
+    app.prisma.subscription.findUnique = vi.fn().mockResolvedValue({
+      stripeSubscriptionId: 'sub_test123',
+      status: 'ACTIVE',
+    })
+    app.prisma.subscription.update = vi.fn().mockResolvedValue({})
+    app.prisma.user.update = vi.fn().mockResolvedValue({})
+
+    // actionToken: redis returns stored token matching what we send
+    const storedToken = 'valid-action-token'
+    app.redis.get = vi.fn().mockResolvedValue(storedToken)
+    app.redis.del = vi.fn().mockResolvedValue(1)
+    app.redis.keys = vi.fn().mockResolvedValue([])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/customer/auth/delete-account',
+      headers: { authorization: `Bearer ${customerToken}` },
+      payload: { actionToken: storedToken },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect((stripe.subscriptions.cancel as any)).toHaveBeenCalledWith('sub_test123')
+    expect(app.prisma.subscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'CANCELLED' }),
+      })
+    )
+  })
+
+  it('POST /delete-account does NOT call stripe.subscriptions.cancel when no stripeSubscriptionId', async () => {
+    const { stripe } = await import('../../../src/api/shared/stripe')
+    ;(stripe.subscriptions.cancel as any).mockClear()
+
+    // Subscription with no Stripe ID (e.g. admin-granted)
+    app.prisma.subscription.findUnique = vi.fn().mockResolvedValue({
+      stripeSubscriptionId: null,
+      status: 'ACTIVE',
+    })
+    app.prisma.subscription.update = vi.fn().mockResolvedValue({})
+    app.prisma.user.update = vi.fn().mockResolvedValue({})
+
+    const storedToken = 'valid-action-token-2'
+    app.redis.get = vi.fn().mockResolvedValue(storedToken)
+    app.redis.del = vi.fn().mockResolvedValue(1)
+    app.redis.keys = vi.fn().mockResolvedValue([])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/customer/auth/delete-account',
+      headers: { authorization: `Bearer ${customerToken}` },
+      payload: { actionToken: storedToken },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(stripe.subscriptions.cancel as any).not.toHaveBeenCalled()
+  })
+
+  it('POST /delete-account does NOT call stripe.subscriptions.cancel when subscription already CANCELLED', async () => {
+    const { stripe } = await import('../../../src/api/shared/stripe')
+    ;(stripe.subscriptions.cancel as any).mockClear()
+
+    app.prisma.subscription.findUnique = vi.fn().mockResolvedValue({
+      stripeSubscriptionId: 'sub_already_done',
+      status: 'CANCELLED',
+    })
+    app.prisma.subscription.update = vi.fn().mockResolvedValue({})
+    app.prisma.user.update = vi.fn().mockResolvedValue({})
+
+    const storedToken = 'valid-action-token-3'
+    app.redis.get = vi.fn().mockResolvedValue(storedToken)
+    app.redis.del = vi.fn().mockResolvedValue(1)
+    app.redis.keys = vi.fn().mockResolvedValue([])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/customer/auth/delete-account',
+      headers: { authorization: `Bearer ${customerToken}` },
+      payload: { actionToken: storedToken },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(stripe.subscriptions.cancel as any).not.toHaveBeenCalled()
   })
 })
