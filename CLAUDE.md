@@ -240,13 +240,29 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Wired into MerchantProfileScreen + VoucherDetailScreen
 - ACTIVE/TRIALLING = subscribed; PAST_DUE excluded (backend rejects, user sees subscribe CTA)
 
-### 🔲 Phase 3C (remaining) — Savings, Profile, Favourites
+### ✅ Phase 3C.1f — Savings Tab (COMPLETE — branch feature/customer-app)
+- Backend: `validatedAt` added to savings redemptions response + new `GET /api/v1/customer/savings/monthly-detail?month=YYYY-MM` endpoint
+- API client (`src/lib/api/savings.ts`): full typed client with 3 endpoints (summary, redemptions with pagination, monthly-detail)
+- Hooks: `useSavingsSummary`, `useSavingsRedemptions` (infinite query), `useMonthlyDetail`, `useCountUp` (reanimated)
+- Hero: 5-stop gradient, 3-state header (free/subscriber-empty/populated), animated pound count-up
+- Benefit cards: 4 cards (free) / 3 cards (subscriber-empty), FadeInDown entrance
+- Insight cards: 6-month trend bar chart (tappable), top 2 places, category breakdown (animated bars)
+- Month drill-down: 4 states (default/loading/loaded/£0), ViewingChip with spring entrance, InsightSkeleton
+- ROI callout: 4 variants (below-breakeven, monthly multiplier, annual multiplier, promo) with shimmer sweep
+- Redemption history: RedemptionRow with 24h badge logic (show-to-staff/validated/plain), infinite scroll, "You're all caught up" end label
+- SavingsScreen: FlatList + ListHeaderComponent composition, 5 user states (loading/error/free/subscriber-empty/populated), pull-to-refresh
+- Subscription schema: `promoCodeId` added to Zod schema for ROI callout promo detection
+- 261 backend tests passing (vitest). Frontend tests written; only `useCountUp.test.ts` executed and passing (4/4). Remaining 6 test files unconfirmed — jest-expo runs but is impractically slow (~28 min/file, see Known Issues).
+- Spec: `docs/superpowers/specs/2026-04-18-savings-tab-design.md`
+- Plan: `docs/superpowers/plans/2026-04-18-savings-tab.md`
+
+### 🔲 Phase 3C (remaining) — Profile, Favourites, Subscribe, QR
 **Remaining work (each needs brainstorming → spec → plan → implementation):**
-1. Savings tab — lifetime/monthly summary, redemption history (backend APIs exist)
-2. Profile tab — user profile view/edit, subscription management (backend APIs exist)
-3. Favourites screen — merchant + voucher lists (backend APIs exist)
-4. Subscribe flow — Stripe SetupIntent in-app (stub exists at `subscribe-prompt`). NOTE: iOS requires Apple IAP for digital subscriptions — Stripe cannot be used inside the app
-5. QR code rendering — add `react-native-qrcode-svg` for ShowToStaff and RedemptionDetailsCard
+1. Profile tab — user profile view/edit, subscription management (backend APIs exist)
+2. Favourites screen — merchant + voucher lists (backend APIs exist)
+3. Subscribe flow — Stripe SetupIntent in-app (stub exists at `subscribe-prompt`). NOTE: iOS requires Apple IAP for digital subscriptions — Stripe cannot be used inside the app
+4. QR code rendering — add `react-native-qrcode-svg` for ShowToStaff and RedemptionDetailsCard
+5. **Fix customer-app test performance** — Jest runs but is impractically slow (~28 min/file) in worktree. Needs investigation to reach practical speed (<60s/file). See Known Issues.
 
 ### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
 - Full Next.js 15 App Router site at `apps/customer-web/`
@@ -289,19 +305,33 @@ Two terminal tabs required simultaneously:
 
 **Tab 1 — Backend API (port 3000):**
 ```bash
-cd "/Users/shebinchaliyath/Desktop/Claude Code/Redeemo"
+cd /Users/shebinchaliyath/Developer/Redeemo
 npm run dev
 ```
 
 **Tab 2 — Customer Website (port 3001):**
 ```bash
-cd "/Users/shebinchaliyath/Desktop/Claude Code/Redeemo/.worktrees/customer-web/apps/customer-web"
+cd /Users/shebinchaliyath/Developer/Redeemo/apps/customer-web
 npm run dev
 ```
 
 Then open http://localhost:3001. Seed credentials: `customer@redeemo.com` / `Customer1234!`
 
 Customer website env file: `apps/customer-web/.env.local` — requires `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` for subscribe flow.
+
+## Running Tests
+
+**Backend tests (vitest) — safe to run via Claude Code Bash tool:**
+```bash
+npx vitest run
+```
+
+**Customer-app tests (jest-expo) — MUST be run in a real terminal, NOT via Claude Code:**
+```bash
+cd /Users/shebinchaliyath/Developer/Redeemo/.worktrees/customer-app/apps/customer-app
+npm test
+```
+Claude Code's Bash tool harness passes monitoring file descriptors (fd 4/5) to every child process. jest-expo reads from fd 4 and blocks indefinitely — tests appear to hang with 0% CPU. Running in a real terminal avoids this entirely. First cold run takes ~28 min to build the Babel cache; subsequent runs are much faster (cache at `/tmp/jest-redeemo-customer-app`).
 
 ---
 
@@ -320,3 +350,14 @@ Customer website env file: `apps/customer-web/.env.local` — requires `NEXT_PUB
 | `docs/superpowers/plans/2026-04-09-subscription-hardening.md` | Phase 2C: Subscription hardening plan |
 | `src/api/subscription/cycle.ts` | Subscription-anchored cycle logic: `getCurrentCycleWindow()`, `toMidnightUTC()`, `resetVoucherCycleForUser()` |
 | `src/api/redemption/service.ts` | Redemption flow with all guards (subscription, voucher, cycle, PIN, rate limit) |
+| `docs/superpowers/specs/2026-04-18-savings-tab-design.md` | Savings tab UX spec |
+| `docs/superpowers/plans/2026-04-18-savings-tab.md` | Savings tab implementation plan (13 tasks) |
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
