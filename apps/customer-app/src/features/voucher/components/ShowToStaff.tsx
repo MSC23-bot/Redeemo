@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Modal, Pressable, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Check, Tag } from 'lucide-react-native'
-import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated'
+import { Check, Tag } from '@/design-system/icons'
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { color, spacing, radius } from '@/design-system/tokens'
 import { successHaptic, lightHaptic } from '@/design-system/haptics'
-import { useMotionScale } from '@/design-system/useMotionScale'
+import { PulsingDot } from '@/design-system/motion/PulsingDot'
 import { QRCodeBlock } from './QRCodeBlock'
 import { formatCode } from '../utils/formatCode'
 import { useRedemptionPolling } from '../hooks/useRedemptionPolling'
@@ -59,18 +59,9 @@ function LiveClock() {
 }
 
 function LivePill() {
-  const scale = useSharedValue(1)
-  const opacity = useSharedValue(1)
-  const motion = useMotionScale()
-  useEffect(() => {
-    if (motion <= 0) return
-    scale.value   = withRepeat(withTiming(0.6, { duration: 700, easing: Easing.inOut(Easing.ease) }), -1, true)
-    opacity.value = withRepeat(withTiming(0.3, { duration: 700, easing: Easing.inOut(Easing.ease) }), -1, true)
-  }, [scale, opacity, motion])
-  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }], opacity: opacity.value }))
   return (
     <View style={styles.livePill}>
-      <Animated.View style={[styles.liveDot, style]} />
+      <PulsingDot color={color.brandRose} size={7} />
       <Text variant="label.eyebrow" style={styles.liveText}>LIVE</Text>
     </View>
   )
@@ -237,7 +228,6 @@ const styles = StyleSheet.create({
   voucherMeta: { color: 'rgba(255,255,255,0.75)', textAlign: 'center', fontSize: 13, marginBottom: spacing[6] },
   codeCard: { width: '100%', backgroundColor: '#FFF', borderRadius: radius.xl, paddingVertical: 24, paddingHorizontal: 20, alignItems: 'center' },
   livePill: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing[3] },
-  liveDot:  { width: 7, height: 7, borderRadius: 3.5, backgroundColor: color.brandRose },
   liveText: { color: color.brandRose, fontWeight: '800', fontSize: 10 },
   code:     { fontWeight: '800', fontSize: 34, letterSpacing: 6, fontVariant: ['tabular-nums'], marginBottom: spacing[5] },
   qrWrap:   { alignItems: 'center', justifyContent: 'center', minHeight: 240 },

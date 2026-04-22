@@ -10,11 +10,11 @@ type Options = {
   onBannerShown: () => void
 }
 
-export function useScreenshotGuard(code: string, opts: Options) {
+export function useScreenshotGuard(code: string, { active, onBannerShown }: Options) {
   const lastFireRef = useRef<number>(0)
 
   useEffect(() => {
-    if (!opts.active) return
+    if (!active) return
 
     if (Platform.OS === 'android') {
       try { void ScreenCapture.preventScreenCaptureAsync() } catch { /* best-effort */ }
@@ -25,7 +25,7 @@ export function useScreenshotGuard(code: string, opts: Options) {
       if (now - lastFireRef.current < DEBOUNCE_MS) return
       lastFireRef.current = now
 
-      opts.onBannerShown()
+      onBannerShown()
       redemptionApi
         .postScreenshotFlag(code, Platform.OS === 'ios' ? 'ios' : 'android')
         .catch(() => { /* best-effort — server dedupes anyway */ })
@@ -37,5 +37,5 @@ export function useScreenshotGuard(code: string, opts: Options) {
         try { void ScreenCapture.allowScreenCaptureAsync() } catch { /* best-effort */ }
       }
     }
-  }, [opts.active, code, opts.onBannerShown])
+  }, [active, code, onBannerShown])
 }
