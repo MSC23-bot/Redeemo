@@ -61,7 +61,7 @@ From top to bottom:
 1. **LIVE pill** — red dot with glow, uppercase "LIVE" label
 2. **QR code** — white card with soft shadow around it
 3. **Code text** — monospace, 22pt, letter-spaced, grouped 3-3 (e.g. `K3F 9P7`)
-4. **Live clock + date** — updates every second, e.g. `14:32:07 · 22 Apr 2026`
+4. **Live clock + date** — updates every second, e.g. `14:32:07 · 22 Apr 2026`. Screen-reader suppressed: the clock node sets `accessibilityElementsHidden={true}` on iOS and `importantForAccessibility="no-hide-descendants"` on Android, so VoiceOver/TalkBack do NOT re-announce the clock every second. The clock is a staff-facing liveness cue, not user-facing content.
 5. **Validation status line** — default text _"Waiting for staff to validate…"_ with a subtle pulsing dot; changes based on poll result (see §5)
 
 **Brightness:** On mount, screen brightness is boosted to 100% via `expo-brightness`. Previous brightness is captured and restored on unmount and on screen blur (navigation away). If iOS Low Power Mode is active, boost may be ignored by the OS — show a toast: _"For best scanning, switch off Low Power Mode."_
@@ -75,6 +75,7 @@ Compact version shown in "My Redeemed Vouchers".
 - Same visual QR design as above, at 80 × 80 pt
 - Code text below, smaller (14pt monospace, grouped 3-3)
 - When `isValidated = true`, the QR is hidden and replaced by a validated checkmark and "Validated on [date, time]" — the card becomes a read-only record. Screenshot of the card is therefore never presentable at another merchant.
+- **No stale cache:** the card's validation state must reflect the latest server value every time the card becomes visible. Implementation: use React Query with `refetchOnWindowFocus: true` and `refetchOnMount: 'always'` for the redemption query, plus an explicit invalidation on screen focus (`useFocusEffect` → `queryClient.invalidateQueries(['redemption', code])`). A customer who validated the voucher at a branch and then scrolls back to their voucher list must see the updated state without a manual refresh.
 
 ---
 
@@ -85,7 +86,9 @@ Compact version shown in "My Redeemed Vouchers".
 - On 15-min timeout without validation: polling stops silently, the status line changes to _"Still waiting for staff to validate — you can ask them to scan again"_, and the QR remains visible. The redemption itself is not cancelled; the customer can also dismiss and re-enter Show to Staff from the voucher card to restart polling.
 - On success:
   - Haptic success
+  - **Validated state pre-empts everything:** if the 2-minute blur is active or the auto-hide timer is mid-countdown, the Validated transition fires immediately, the blur is removed in the same animation as the fade, the auto-hide timer is cleared, and the QR is NOT re-revealed. Once validated, the QR must never come back on this screen instance.
   - QR and live clock fade out
+  - Screenshot detection registration is torn down (no further screenshot events will be posted from this screen)
   - Large animated green checkmark, "Validated ✓" headline, merchant/branch name, timestamp
   - Auto-dismiss back to voucher detail after 4 seconds, or tap "Done"
   - **Auto-dismiss is cancelled** if the user taps anywhere on the Validated state before it fires, so staff can re-check the confirmation. In that case the screen stays until "Done" is tapped or the user navigates away.
@@ -132,11 +135,11 @@ Locked as anti-fraud policy, not decoration. The live clock is the primary defen
 
 2. **Verify endpoint — normalisation + scope check** (`src/api/redemption/routes.ts`, verify handler)
    - **Normalisation:** uppercase input, strip whitespace and hyphens, then compare
-   - **Scope check (critical):** the verify handler MUST confirm the code belongs to the merchant/branch the verifying staff is authenticated for. Staff sends `{ code, branchId }` (branch context is always available — staff logs into a branch; merchant admin selects a branch before verifying). Reject with a generic "code not found" error if:
+   - **Scope check (critical) — branch-level match, not merchant-level:** the verify handler MUST confirm `redemption.branchId === authenticatedStaff.branchId`. A match at merchant level is NOT sufficient. Staff at Merchant A's Shoreditch branch cannot validate a code issued for Merchant A's Camden branch. Staff sends `{ code, branchId }` (branch context is always available — staff logs into a branch; merchant admin selects a branch before verifying).
+   - Reject with a generic "code not found" error if:
      - the code does not exist, OR
-     - the code exists but the redemption's `branchId` / `merchant.id` does not match the authenticated branch/merchant
-   - This prevents cross-merchant code leaks: staff at Merchant A cannot validate a code issued at Merchant B (whether by accident or attack).
-   - Error response is identical for "not found" and "wrong merchant" — no information leakage about code existence.
+     - the code exists but `redemption.branchId !== authenticatedStaff.branchId`
+   - Error response is identical for "not found" and "wrong branch" — no information leakage about code existence or cross-branch codes.
 
 3. **Validation after subscription expiry — explicit rule**
    - If a `VoucherRedemption` row exists (i.e. the customer successfully redeemed while their subscription was active), staff validation MUST still succeed even if the customer's subscription has since expired.
@@ -151,6 +154,7 @@ Locked as anti-fraud policy, not decoration. The live clock is the primary defen
 5. **Screenshot flag endpoint + table**
    - `POST /api/v1/redemption/:code/screenshot-flag` (customer-authenticated, own-redemption only)
    - New table `RedemptionScreenshotEvent { id, userId, redemptionId, occurredAt, platform }`
+   - **Only log pre-validation:** if `redemption.isValidated === true`, silently return 200 without inserting. Once a redemption has been validated, screenshots of the (now read-only) details card are no longer a fraud vector, and logging them creates noise.
    - **Deduplication / rate limit:** max 1 event per redemption per 5 seconds. iOS fires screenshot events reliably but some user behaviours (rapid successive screenshots, toast triggering detector in a loop) can spam the log. Server-side: if the most recent event for `(redemptionId)` is within 5 seconds, silently return 200 without inserting.
    - No admin review UI — deferred to Phase 5.
 
