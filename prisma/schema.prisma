@@ -136,6 +136,7 @@ model User {
   favouriteVouchers    FavouriteVoucher[]
   notifications        Notification[]
   communications       CommunicationLog[]
+  merchantRequests     MerchantRequest[]
 
   @@index([email])
   @@index([phone])
@@ -152,6 +153,22 @@ model UserSsoProvider {
   user        User     @relation(fields: [userId], references: [id])
 
   @@unique([provider, providerUid])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────
+// MERCHANT REQUEST (user-submitted suggestions)
+// ─────────────────────────────────────────
+
+model MerchantRequest {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName String
+  location     String
+  note         String?
+  createdAt    DateTime @default(now())
+
   @@index([userId])
 }
 
