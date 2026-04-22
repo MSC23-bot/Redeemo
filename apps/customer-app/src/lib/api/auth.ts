@@ -63,4 +63,13 @@ export const authApi = {
     api.post<{ success: boolean }>('/api/v1/customer/auth/forgot-password', { email }),
   resetPassword: (token: string, password: string) =>
     api.post<{ success: boolean }>('/api/v1/customer/auth/reset-password', { token, password }),
+  sendDeleteAccountOtp: () =>
+    api.post<{ success: boolean }>('/api/v1/customer/auth/otp/send', { action: 'ACCOUNT_DELETION' }),
+  verifyDeleteAccountOtp: (code: string) =>
+    api.post<{ verified: boolean; actionToken: string; action: string }>(
+      '/api/v1/customer/auth/otp/verify',
+      { code, action: 'ACCOUNT_DELETION' },
+    ),
+  deleteAccount: (actionToken: string) =>
+    api.post<{ message: string }>('/api/v1/customer/auth/delete-account', { actionToken }),
 }

@@ -27,4 +27,5 @@ export const subscriptionApi = {
       const result = subscriptionSchema.safeParse(data)
       return result.success ? result.data : null
     }),
+  cancel: () => api.del<{ success: boolean }>('/api/v1/subscription'),
 }
