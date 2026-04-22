@@ -32,6 +32,8 @@ Give subscribers a scannable, on-brand QR code at the point of redemption that m
 - **Uniqueness:** `VoucherRedemption.redemptionCode @unique` remains enforced. Codes are permanent and never reused; full history preserved for admin/merchant reports.
 - **Collision space:** 31⁶ ≈ 887 million. Generator retries on rare DB unique-constraint violation.
 
+**QR payload is intentionally context-free.** The QR encodes only the 6-character code — it does not embed merchant ID, branch ID, or URL. Merchant/branch context is supplied by the merchant app when it calls the verify endpoint (it already knows which branch the staff member is authenticated as). This keeps the QR small, fast to scan, and useful as a manual fallback. See §8 #2 for the server-side scope check that enforces the merchant/branch match.
+
 **Existing codes:** 10-character mixed-case codes from test/seed data stay in the database unchanged. Display logic renders whatever length the DB stores (6 or 10). New redemptions generate 6-character codes.
 
 ---
@@ -48,7 +50,7 @@ Single design used at both sizes.
 - **Library:** `react-native-qrcode-svg`
 
 **Rendered sizes:**
-- Show to Staff hero: 240 × 240 pt
+- Show to Staff hero: 240 × 240 pt, with a **hard minimum of 200 pt** on small-height devices or split-screen (Android multi-window). If the available height would force a smaller QR, reduce surrounding padding first; never render below 200 pt.
 - Redemption Details Card: 80 × 80 pt
 
 ---
@@ -80,12 +82,13 @@ Compact version shown in "My Redeemed Vouchers".
 
 - While Show to Staff is open, poll `GET /api/v1/redemption/me/:code` every **5 seconds**
 - Stop polling on: `isValidated = true`, screen exit, or 15 minutes of polling with no result
-- On 15-min timeout without validation: polling stops silently, the status line changes to _"Not validated yet — ask staff to scan again"_, and the QR remains visible. The redemption itself is not cancelled; the customer can also dismiss and re-enter Show to Staff from the voucher card to restart polling.
+- On 15-min timeout without validation: polling stops silently, the status line changes to _"Still waiting for staff to validate — you can ask them to scan again"_, and the QR remains visible. The redemption itself is not cancelled; the customer can also dismiss and re-enter Show to Staff from the voucher card to restart polling.
 - On success:
   - Haptic success
   - QR and live clock fade out
   - Large animated green checkmark, "Validated ✓" headline, merchant/branch name, timestamp
   - Auto-dismiss back to voucher detail after 4 seconds, or tap "Done"
+  - **Auto-dismiss is cancelled** if the user taps anywhere on the Validated state before it fires, so staff can re-check the confirmation. In that case the screen stays until "Done" is tapped or the user navigates away.
 
 Backend: the `/redemption/me/:code` endpoint must exist and return `{ isValidated, validatedAt, validationMethod }` for the authenticated customer's own redemption. If not already built, it's part of the backend changes for this feature.
 
@@ -106,7 +109,7 @@ Locked as anti-fraud policy, not decoration. The live clock is the primary defen
 ### 6c. Auto-hide after inactivity
 - 2-minute inactivity timer starts on mount. Any user touch anywhere on the screen resets the timer.
 - At 1:50 (10 seconds before blur), show a subtle countdown toast: _"Screen will dim in 10s. Tap to keep showing."_
-- At 2:00, overlay the QR with a blur and show a centred "Tap to show again" button. Tapping reveals the QR and restarts the timer. Live clock continues to tick underneath.
+- At 2:00, overlay the QR with a blur and show a centred "Tap to show again" button. Tapping reveals the QR and restarts the timer. Live clock continues to tick underneath. When the blur is active, the QR container sets `accessibilityLabel="Code hidden. Tap to show again."` so screen readers announce the state.
 - Timer and blur only apply on Show to Staff, not on Redemption Details Card.
 
 ---
@@ -127,24 +130,34 @@ Locked as anti-fraud policy, not decoration. The live clock is the primary defen
    - Change alphabet: uppercase + digits, exclude `0`, `O`, `1`, `I`, `L`
    - Keep retry-on-collision behaviour
 
-2. **Verify endpoint normalisation** (`src/api/redemption/routes.ts`, verify handler)
-   - Uppercase input
-   - Strip whitespace and hyphens
-   - Then compare against stored `redemptionCode`
+2. **Verify endpoint — normalisation + scope check** (`src/api/redemption/routes.ts`, verify handler)
+   - **Normalisation:** uppercase input, strip whitespace and hyphens, then compare
+   - **Scope check (critical):** the verify handler MUST confirm the code belongs to the merchant/branch the verifying staff is authenticated for. Staff sends `{ code, branchId }` (branch context is always available — staff logs into a branch; merchant admin selects a branch before verifying). Reject with a generic "code not found" error if:
+     - the code does not exist, OR
+     - the code exists but the redemption's `branchId` / `merchant.id` does not match the authenticated branch/merchant
+   - This prevents cross-merchant code leaks: staff at Merchant A cannot validate a code issued at Merchant B (whether by accident or attack).
+   - Error response is identical for "not found" and "wrong merchant" — no information leakage about code existence.
 
-3. **Rate limit on verify endpoint**
+3. **Validation after subscription expiry — explicit rule**
+   - If a `VoucherRedemption` row exists (i.e. the customer successfully redeemed while their subscription was active), staff validation MUST still succeed even if the customer's subscription has since expired.
+   - Verify endpoint does NOT re-check `subscription.status` on the customer — the redemption row itself is the entitlement, and was gated at creation time.
+   - Document as a code comment on the verify handler.
+
+4. **Rate limit on verify endpoint**
    - Separate from the existing customer-side PIN rate limit (5/15min per userId+branchId).
    - New limit keyed by `branchUserId` or `merchantAdminId`: e.g. 20 failed verify attempts / 5 min.
    - Prevents staff mistypes from locking out a customer's attempts; prevents a malicious device from brute-forcing codes.
 
-4. **Screenshot flag endpoint + table**
+5. **Screenshot flag endpoint + table**
    - `POST /api/v1/redemption/:code/screenshot-flag` (customer-authenticated, own-redemption only)
    - New table `RedemptionScreenshotEvent { id, userId, redemptionId, occurredAt, platform }`
+   - **Deduplication / rate limit:** max 1 event per redemption per 5 seconds. iOS fires screenshot events reliably but some user behaviours (rapid successive screenshots, toast triggering detector in a loop) can spam the log. Server-side: if the most recent event for `(redemptionId)` is within 5 seconds, silently return 200 without inserting.
    - No admin review UI — deferred to Phase 5.
 
-5. **Self-lookup endpoint** (for validation polling)
+6. **Self-lookup endpoint** (for validation polling)
    - `GET /api/v1/redemption/me/:code` returns `{ code, isValidated, validatedAt, validationMethod, voucherId, merchantName, branchName }` for the authenticated user's own redemption.
-   - If it doesn't already exist, add it.
+   - **Security:** query is scoped by `(userId = auth.userId, redemptionCode = :code)`. If the code doesn't exist OR belongs to a different user, return **404** with identical error body. No leakage about which codes exist globally.
+   - If the endpoint doesn't already exist, add it.
 
 ---
 
