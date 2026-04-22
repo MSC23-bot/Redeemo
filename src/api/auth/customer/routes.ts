@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { emailSchema, passwordSchema, phoneSchema, deviceSchema, otpCodeSchema } from '../../shared/schemas'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
+import { stripe } from '../../shared/stripe'
+import { ACTIVE_STATUSES } from '../../subscription/service'
 import {
   registerCustomer, verifyEmail, sendPhoneVerification, confirmPhoneVerification,
   loginCustomer, refreshCustomerToken, logoutCustomer,
@@ -191,17 +193,19 @@ export async function customerAuthRoutes(app: FastifyInstance) {
     })
     if (
       userSub?.stripeSubscriptionId &&
-      !['CANCELLED', 'EXPIRED'].includes(userSub.status)
+      (ACTIVE_STATUSES as readonly string[]).includes(userSub.status)
     ) {
-      const { stripe } = await import('../../shared/stripe')
       try {
         await stripe.subscriptions.cancel(userSub.stripeSubscriptionId)
         await app.prisma.subscription.update({
           where: { userId: req.user.sub },
           data: { status: 'CANCELLED', cancelledAt: new Date() },
         })
-      } catch {
-        // Cancellation best-effort — user anonymisation proceeds regardless
+      } catch (err) {
+        app.log.error(
+          { err, userId: req.user.sub },
+          'Stripe subscription cancel failed — proceeding with account deletion'
+        )
       }
     }
 

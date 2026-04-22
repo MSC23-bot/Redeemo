@@ -9,7 +9,7 @@ interface RequestCtx {
   userAgent: string
 }
 
-const ACTIVE_STATUSES = ['ACTIVE', 'TRIALLING', 'PAST_DUE'] as const
+export const ACTIVE_STATUSES = ['ACTIVE', 'TRIALLING', 'PAST_DUE'] as const
 const SETUP_KEY = (userId: string) => `sub:setup:${userId}`
 const SETUP_TTL = 3600 // 1 hour
 

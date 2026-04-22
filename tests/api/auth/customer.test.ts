@@ -213,4 +213,33 @@ describe('customer auth routes', () => {
     expect(res.statusCode).toBe(200)
     expect(stripe.subscriptions.cancel as any).not.toHaveBeenCalled()
   })
+
+  it('POST /delete-account still succeeds when stripe.subscriptions.cancel fails', async () => {
+    const { stripe } = await import('../../../src/api/shared/stripe')
+    ;(stripe.subscriptions.cancel as any).mockRejectedValueOnce(new Error('network'))
+
+    app.prisma.subscription.findUnique = vi.fn().mockResolvedValue({
+      stripeSubscriptionId: 'sub_fail',
+      status: 'ACTIVE',
+    })
+    app.prisma.subscription.update = vi.fn().mockResolvedValue({})
+    app.prisma.user.update = vi.fn().mockResolvedValue({})
+
+    const storedToken = 'valid-action-token-4'
+    app.redis.get = vi.fn().mockResolvedValue(storedToken)
+    app.redis.del = vi.fn().mockResolvedValue(1)
+    app.redis.keys = vi.fn().mockResolvedValue([])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/customer/auth/delete-account',
+      headers: { authorization: `Bearer ${customerToken}` },
+      payload: { actionToken: storedToken },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(stripe.subscriptions.cancel as any).toHaveBeenCalledWith('sub_fail')
+    // User anonymisation STILL ran despite Stripe failure
+    expect(app.prisma.user.update).toHaveBeenCalled()
+  })
 })
