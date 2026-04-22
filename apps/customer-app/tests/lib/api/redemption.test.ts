@@ -90,4 +90,27 @@ describe('redemptionApi', () => {
       expect(result).toEqual(detail)
     })
   })
+
+  describe('getMyRedemptionByCode', () => {
+    it('calls GET /api/v1/redemption/me/:code', async () => {
+      mockApi.get.mockResolvedValue({
+        code: 'K3F9P7', isValidated: false, validatedAt: null,
+        validationMethod: null, voucherId: 'v1',
+        merchantName: 'Acme', branchName: 'Shoreditch',
+      })
+      await redemptionApi.getMyRedemptionByCode('K3F9P7')
+      expect(mockApi.get).toHaveBeenCalledWith('/api/v1/redemption/me/K3F9P7')
+    })
+  })
+
+  describe('postScreenshotFlag', () => {
+    it('posts to /api/v1/redemption/:code/screenshot-flag', async () => {
+      mockApi.post.mockResolvedValue({ logged: true })
+      await redemptionApi.postScreenshotFlag('K3F9P7', 'ios')
+      expect(mockApi.post).toHaveBeenCalledWith(
+        '/api/v1/redemption/K3F9P7/screenshot-flag',
+        { platform: 'ios' }
+      )
+    })
+  })
 })

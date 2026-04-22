@@ -77,6 +77,16 @@ export type RedeemParams = {
   pin: string
 }
 
+export type RedemptionStatusByCode = {
+  code: string
+  isValidated: boolean
+  validatedAt: string | null
+  validationMethod: 'QR_SCAN' | 'MANUAL' | null
+  voucherId: string
+  merchantName: string
+  branchName: string
+}
+
 export const redemptionApi = {
   getVoucherDetail(id: string) {
     return api.get<VoucherDetail>(`/api/v1/customer/vouchers/${id}`)
@@ -96,5 +106,16 @@ export const redemptionApi = {
     if (params.offset) qs.set('offset', String(params.offset))
     const query = qs.toString()
     return api.get<RedemptionDetail[]>(`/api/v1/redemption/my${query ? `?${query}` : ''}`)
+  },
+
+  getMyRedemptionByCode(code: string) {
+    return api.get<RedemptionStatusByCode>(`/api/v1/redemption/me/${code}`)
+  },
+
+  postScreenshotFlag(code: string, platform: 'ios' | 'android') {
+    return api.post<{ logged: boolean }>(
+      `/api/v1/redemption/${code}/screenshot-flag`,
+      { platform }
+    )
   },
 }
