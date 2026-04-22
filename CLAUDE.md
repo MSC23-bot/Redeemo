@@ -252,17 +252,24 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Redemption history: RedemptionRow with 24h badge logic (show-to-staff/validated/plain), infinite scroll, "You're all caught up" end label
 - SavingsScreen: FlatList + ListHeaderComponent composition, 5 user states (loading/error/free/subscriber-empty/populated), pull-to-refresh
 - Subscription schema: `promoCodeId` added to Zod schema for ROI callout promo detection
-- 261 backend tests passing (vitest). Frontend tests written; only `useCountUp.test.ts` executed and passing (4/4). Remaining 6 test files unconfirmed — jest-expo runs but is impractically slow (~28 min/file, see Known Issues).
+- 264 backend tests passing (vitest). 268 frontend tests passing (jest-expo, 8–10s from Claude Code after environment fix).
 - Spec: `docs/superpowers/specs/2026-04-18-savings-tab-design.md`
 - Plan: `docs/superpowers/plans/2026-04-18-savings-tab.md`
 
-### 🔲 Phase 3C (remaining) — Profile, Favourites, Subscribe, QR
+### ✅ Phase 3C.1g — Favourites Screen (COMPLETE — branch feature/customer-app)
+- Backend: `listFavouriteMerchants` and `listFavouriteVouchers` enriched with pagination, isOpen, avgRating, reviewCount, voucherCount, maxEstimatedSaving, isRedeemedInCurrentCycle; unavailable items included with status flag; sorted (open-first / suspended-last)
+- API client (`src/lib/api/favourites.ts`): typed client with getMerchants, getVouchers, addMerchant, removeMerchant, addVoucher, removeVoucher
+- Hooks: `useFavouriteMerchants`, `useFavouriteVouchers` (infinite queries), `useRemoveFavourite` (optimistic removal + undo)
+- Components: FavouritesHeader (gradient, tab switcher with counts), MerchantFavCard, VoucherFavCard (pastel gradient per type), SwipeToRemove, NudgeBanner (free user subscribe prompt), FavouritesEmptyState (floating heart + discover CTA), FavouritesSkeleton
+- FavouritesScreen: FlatList + swipe-to-remove, undo toast, pull-to-refresh, infinite scroll, tab persistence
+- 23 component tests; 268 total frontend tests passing
+- Plan: `docs/superpowers/plans/2026-04-19-favourites-screen.md`
+
+### 🔲 Phase 3C (remaining) — Profile, Subscribe, QR
 **Remaining work (each needs brainstorming → spec → plan → implementation):**
 1. Profile tab — user profile view/edit, subscription management (backend APIs exist)
-2. Favourites screen — merchant + voucher lists (backend APIs exist)
-3. Subscribe flow — Stripe SetupIntent in-app (stub exists at `subscribe-prompt`). NOTE: iOS requires Apple IAP for digital subscriptions — Stripe cannot be used inside the app
-4. QR code rendering — add `react-native-qrcode-svg` for ShowToStaff and RedemptionDetailsCard
-5. **Fix customer-app test performance** — Jest runs but is impractically slow (~28 min/file) in worktree. Needs investigation to reach practical speed (<60s/file). See Known Issues.
+2. Subscribe flow — Stripe SetupIntent in-app (stub exists at `subscribe-prompt`). NOTE: iOS requires Apple IAP for digital subscriptions — Stripe cannot be used inside the app
+3. QR code rendering — add `react-native-qrcode-svg` for ShowToStaff and RedemptionDetailsCard
 
 ### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
 - Full Next.js 15 App Router site at `apps/customer-web/`
