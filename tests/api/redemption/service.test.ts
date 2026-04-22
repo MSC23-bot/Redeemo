@@ -346,6 +346,29 @@ describe('verifyRedemption', () => {
     expect((result.customer as any).phone).toBeUndefined()
   })
 
+  it('normalises input: uppercases, strips whitespace and hyphens before lookup', async () => {
+    const prisma = mockPrisma()
+    prisma.voucherRedemption.findUnique.mockResolvedValue({
+      id: 'r1', isValidated: false, branchId: 'b1',
+      voucher: { merchantId: 'm1' }, user: { firstName: 'Jane', lastName: 'Doe' },
+    })
+    prisma.voucherRedemption.update.mockResolvedValue({
+      id: 'r1', isValidated: true, validatedAt: new Date(), validationMethod: 'MANUAL',
+    })
+
+    await verifyRedemption(
+      prisma,
+      '  k3f-9P7  ',
+      'MANUAL',
+      { role: 'branch', branchId: 'b1', merchantId: 'm1', actorId: 'bu1' },
+      baseCtx
+    )
+
+    expect(prisma.voucherRedemption.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { redemptionCode: 'K3F9P7' } })
+    )
+  })
+
   it('succeeds for merchant_admin: uses merchantId scope check', async () => {
     const prisma = mockPrisma()
     prisma.voucherRedemption.findUnique.mockResolvedValue({

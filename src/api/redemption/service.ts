@@ -183,8 +183,10 @@ export async function verifyRedemption(
   actor: VerifyActor,
   ctx: RequestCtx
 ) {
+  const normalised = code.replace(/[\s-]/g, '').toUpperCase()
+
   const redemption = await prisma.voucherRedemption.findUnique({
-    where: { redemptionCode: code },
+    where: { redemptionCode: normalised },
     include: {
       voucher: { select: { merchantId: true } },
       user:    { select: { firstName: true, lastName: true } },
@@ -214,7 +216,7 @@ export async function verifyRedemption(
     entityId: redemption.userId, entityType: 'customer',
     event: 'VOUCHER_VERIFIED',
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    metadata: { redemptionCode: code, method, actorId: actor.actorId },
+    metadata: { redemptionCode: normalised, method, actorId: actor.actorId },
   })
 
   return {
