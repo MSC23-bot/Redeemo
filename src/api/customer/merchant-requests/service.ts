@@ -1,4 +1,4 @@
-import { PrismaClient } from '../../../generated/prisma/client'
+import { PrismaClient } from '../../../../generated/prisma/client'
 
 export async function createMerchantRequest(
   prisma: PrismaClient,
