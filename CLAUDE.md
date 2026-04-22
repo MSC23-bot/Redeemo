@@ -334,6 +334,20 @@ All models live in `prisma/schema.prisma`. Key relationships:
 4. Run `npx prisma db seed` to reset dev data if needed
 5. Ask Claude to continue from the current phase
 
+## Worktree CLAUDE.md Rule
+
+**Single source of truth:** Root `CLAUDE.md` only. Every worktree must symlink to it — never copy.
+
+`.worktrees/` is gitignored, so symlinks are local-only. Recreate after any worktree teardown:
+```bash
+rm -f .worktrees/customer-app/CLAUDE.md && ln -s ../../CLAUDE.md .worktrees/customer-app/CLAUDE.md
+```
+
+For any new worktree at `.worktrees/<name>/`:
+```bash
+rm -f .worktrees/<name>/CLAUDE.md && ln -s ../../CLAUDE.md .worktrees/<name>/CLAUDE.md
+```
+
 ## Running Locally
 
 Two terminal tabs required simultaneously:
@@ -361,12 +375,12 @@ Customer website env file: `apps/customer-web/.env.local` — requires `NEXT_PUB
 npx vitest run
 ```
 
-**Customer-app tests (jest-expo) — MUST be run in a real terminal, NOT via Claude Code:**
+**Customer-app tests (jest-expo) — run from within the worktree app directory:**
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo/.worktrees/customer-app/apps/customer-app
-npm test
+npx jest --forceExit
 ```
-Claude Code's Bash tool harness passes monitoring file descriptors (fd 4/5) to every child process. jest-expo reads from fd 4 and blocks indefinitely — tests appear to hang with 0% CPU. Running in a real terminal avoids this entirely. First cold run takes ~28 min to build the Babel cache; subsequent runs are much faster (cache at `/tmp/jest-redeemo-customer-app`).
+After moving off iCloud and switching to Node 20.19.4, jest-expo runs normally from Claude Code's Bash tool (~8–10s for full suite). Use `--forceExit` to avoid open-handle hangs from React Query + fake timer combinations. Babel cache at `/tmp/jest-redeemo-customer-app` (cold build is fast now). Node version: use `fnm use` or ensure Node 20.19.4 is active (`.nvmrc` is pinned at worktree root).
 
 ---
 
@@ -387,6 +401,14 @@ Claude Code's Bash tool harness passes monitoring file descriptors (fd 4/5) to e
 | `src/api/redemption/service.ts` | Redemption flow with all guards (subscription, voucher, cycle, PIN, rate limit) |
 | `docs/superpowers/specs/2026-04-18-savings-tab-design.md` | Savings tab UX spec |
 | `docs/superpowers/plans/2026-04-18-savings-tab.md` | Savings tab implementation plan (13 tasks) |
+| `docs/superpowers/specs/2026-04-22-qr-code-rendering-design.md` | QR code rendering UX spec |
+| `docs/superpowers/plans/2026-04-22-qr-code-rendering.md` | QR code rendering implementation plan |
+| `apps/customer-app/src/design-system/icons.ts` | Lucide icon re-export barrel (avoids barrel import ESLint rule in components) |
+| `apps/customer-app/src/design-system/motion/PulsingDot.tsx` | Pulsing dot animation primitive (withRepeat lives only in design-system) |
+| `apps/customer-app/src/features/voucher/components/QRCodeBlock.tsx` | Shared QR code component (hero + compact, blur state, a11y label) |
+| `apps/customer-app/src/features/voucher/hooks/useRedemptionPolling.ts` | Poll for validation status (5s interval, 15min timeout, stops on validated) |
+| `apps/customer-app/src/features/voucher/hooks/useAutoHideTimer.ts` | Auto-hide QR after 2min inactivity, 10s warning, frozen when validated |
+| `apps/customer-app/eas.json` | EAS build config (development/preview/production profiles) |
 
 ## graphify
 
