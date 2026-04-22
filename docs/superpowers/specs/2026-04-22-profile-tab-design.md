@@ -97,7 +97,7 @@ Compact card, white background, 14pt radius. Single horizontal row:
   - < 40%: "Add your date of birth, address, and interests to unlock more personalised deals"
   - 40–79%: "Add your address and interests to improve your recommendations"
   - 80–99%: "Almost there — add your profile photo to complete your profile"
-  - 100%: "Your profile is complete" (shown briefly, then hidden)
+  - 100%: tip text is hidden entirely (no auto-dismiss, no brief flash — just not shown)
 - Tip text must NOT feel nagging — framing is always benefit-led ("unlock", "improve", "personalise")
 
 **ACTIVE badge (top-right):**
@@ -183,6 +183,8 @@ Two rows.
 ### Push notifications row
 Rendered as a muted, non-interactive row. Where a toggle would be, instead shows a small "Coming soon" chip (grey, 10px). Row opacity: 0.45. No `Pressable`. This is a 🟡 stub — FCM infrastructure belongs in Phase 6. Must not look like a broken toggle.
 
+**Critical implementation constraint:** The push notifications stub must not trigger any OS permission request — no `Notifications.requestPermissionsAsync()`, no `Notifications.getPermissionsAsync()`, no FCM token registration anywhere in the Profile screen mount lifecycle. Any future notification permission request belongs in Phase 6 and must be explicitly triggered by a user action, not on screen load.
+
 ### Email newsletter row
 Fully live inline toggle. Reads `newsletterConsent` from `useMe()` / profile response. On toggle: optimistic update, call `PATCH /api/v1/customer/profile` with `{ newsletterConsent: bool }`. Roll back on error with toast "Couldn't update your preference."
 
@@ -261,7 +263,7 @@ This is the in-app support ticket system. Full-screen modal (not a sheet) becaus
 - Read-only — no reply in Phase 1
 
 **New ticket form (full-screen, navigated from My Tickets):**
-- Topic picker (same topics as website: Account issue / Subscription / Technical problem / Voucher dispute / General enquiry / Other)
+- Topic picker — topics must be defined as a shared constant/enum, not hardcoded strings in UI. Source of truth: `src/lib/constants/supportTopics.ts` (new file), exported as `SUPPORT_TOPICS` array. The backend validates submitted topic against this list. The website must also be updated to import from a shared constant (or match the list exactly) so topic values don't drift between platforms and admin view. Topics: `Account issue` / `Subscription` / `Technical problem` / `Voucher dispute` / `General enquiry` / `Other`
 - Subject (text input, required, max 100 chars)
 - Message (multiline, required, min 20 chars, max 2000 chars)
 - Attachments (image picker via `expo-image-picker`, max 3, images only — simpler than web which also accepts PDF)
@@ -290,6 +292,8 @@ updatedAt       DateTime @updatedAt
 `SupportTicketStatus` enum: `OPEN`, `IN_PROGRESS`, `RESOLVED`
 
 Ticket number generation: `RDM-` + `YYYYMMDD` + `-` + zero-padded 4-digit daily sequence (reset per day). Stored in Redis as a daily counter key: `ticket:seq:YYYYMMDD`, incremented atomically.
+
+**Redis unavailability:** If the Redis INCR fails (Redis down, timeout), ticket creation must fail with a user-safe error (`503 Service Unavailable`, user sees "We couldn't log your request. Please try again."). Do not create a ticket without a ticket number — a ticket with no number cannot be tracked or referenced.
 
 Routes:
 - `GET /api/v1/customer/support/tickets` — list own tickets, sorted by `updatedAt DESC`, paginated (page/limit)
@@ -325,13 +329,14 @@ All external URLs are constants in `src/lib/config/links.ts`.
 Visually separated from all other sections. Distinct card with additional top margin. Sign out row above, delete account row below with red text.
 
 ### Sign out
-Single tap. No confirmation prompt.
-1. Call `POST /api/v1/auth/customer/logout` (best-effort — do NOT await or block on failure)
-2. Clear AsyncStorage: access token, refresh token, user data
-3. Clear React Query cache (`queryClient.clear()`)
+Single tap. No confirmation prompt. Sequencing is explicit:
+
+1. Dispatch `POST /api/v1/auth/customer/logout` — fire and do not await (do not block on result)
+2. Immediately clear AsyncStorage: access token, refresh token, user data
+3. Immediately clear React Query cache (`queryClient.clear()`)
 4. Navigate to login screen
 
-**Sign out always succeeds locally** — even if the API call fails (offline, token already expired), the user is fully logged out of the app.
+Steps 2–4 execute unconditionally regardless of whether the logout API call succeeds, fails, or times out. **Local state is cleared before any API response.** The user is signed out locally the moment they tap — network state is irrelevant.
 
 ### Delete account (App Store + Play Store compliance — mandatory)
 Three-stage flow aligned exactly with the website's implementation:
@@ -344,6 +349,8 @@ Consequences list (exact copy from website):
 - "You will be signed out on all devices"
 
 GDPR note: "Your redemption history is retained in anonymised form for fraud prevention. All personal data is deleted in line with our Privacy Policy and UK GDPR."
+
+**Implementation note — removal vs. anonymisation:** These are not contradictory but must be handled carefully in copy and implementation. "Your favourites and redemption history will be removed" means removed from the user's visible account. Fraud-prevention records (anonymised redemption events) are retained with personal identifiers stripped — they are never visible to the user again. The distinction must be clear in both the user-facing copy and the backend delete logic. Do not use "deleted" and "anonymised" interchangeably in code comments or service calls.
 
 Dark navy card with red tint (`rgba(226,12,4,0.14)` overlay) — matches website's warning visual.
 
@@ -379,7 +386,13 @@ Full-screen confirmation, not a sheet:
 The auth service already enforces one active mobile session per user. When a new iOS/Android login occurs, the previous session is revoked immediately with reason `SUPERSEDED_BY_NEW_LOGIN`. This prevents subscription sharing via mobile.
 
 ### Session visibility (new UI row)
-A "Signed in on [device name]" read-only row inside the MY ACCOUNT section (below Change password). Shows the current device name from the stored session. Non-interactive — informational only. Gives users visibility into their active session; if someone else has their credentials, the original user's session was already killed by the backend (they'd be prompted to log in again).
+A read-only row inside the MY ACCOUNT section (below Change password). Non-interactive — informational only. Gives users visibility into their active session.
+
+Display logic:
+- If a reliable device name is available from session storage: "Signed in on iPhone 14 Pro"
+- If no device name is stored or it is ambiguous: fallback to "Signed in on this device"
+
+Implementation must not show a placeholder, empty string, or device ID. If the value is unavailable, use the fallback. Do not force-display a device name that cannot be reliably resolved.
 
 ### Email and phone — display-only
 Email and phone are read-only on both web and mobile. Self-service change is not supported in this phase. The message "For security, these can only be changed by our team" is benefit-framed and routes users to the Get Help flow. This prevents a bad actor with temporary access from changing contact details and locking out the real owner.
@@ -432,14 +445,16 @@ Placeholder URLs for app store listings — update when app is published.
 
 ## 16. Dependencies
 
-| Package | Use | Already installed? |
-|---------|-----|-------------------|
-| `expo-image-picker` | Avatar upload + support ticket attachments | Confirm |
-| `expo-store-review` | Rate Redeemo | Confirm |
-| `expo-web-browser` | External links (About, FAQs, T&Cs, Privacy) | Confirm |
-| `@react-native-community/datetimepicker` | Date of birth picker | Confirm |
-| `react-native` Share API | Share Redeemo | Built-in |
-| `@gorhom/bottom-sheet` | All edit sheets | Confirm (used in existing screens) |
+| Package | Use | Status |
+|---------|-----|--------|
+| `expo-image-picker` | Avatar upload + support ticket attachments | ✅ Installed (`~17.0.10`) |
+| `expo-store-review` | Rate Redeemo | ❌ Needs installing |
+| `expo-web-browser` | External links (About, FAQs, T&Cs, Privacy) | ❌ Needs installing |
+| `@react-native-community/datetimepicker` | Date of birth picker | ❌ Needs installing |
+| `react-native` Share API | Share Redeemo | ✅ Built-in |
+| Custom `BottomSheet` | All edit sheets | ✅ Built-in (`src/design-system/motion/BottomSheet.tsx`) |
+
+**Haptics module:** The app already has `src/design-system/haptics.ts` with `setHapticsEnabled(v: boolean)` and a module-level `enabled` guard on all haptic calls. The haptics toggle in Profile just needs to persist the preference to `AsyncStorage` and call `setHapticsEnabled()` on load — no new hook infrastructure required beyond reading/writing the persisted value.
 
 ---
 
