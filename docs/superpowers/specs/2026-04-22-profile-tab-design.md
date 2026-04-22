@@ -81,9 +81,10 @@ Compact card, white background, 14pt radius. Single horizontal row:
 **Avatar (52×52pt, 14pt radius):**
 - If `profileImageUrl` is set: display the image, cropped to fill
 - Otherwise: initials from `firstName + lastName[0]`, white text on brand gradient (`#E20C04 → #E84A00`)
-- Tapping the avatar opens the native image picker (`expo-image-picker`); selected image uploaded via `useUpdateAvatar()` hook
+- Tapping the avatar opens the native image picker (`expo-image-picker`); the picked image is converted to a base64 data URI and sent via `useUpdateAvatar()` → `PATCH /api/v1/customer/profile` with `{ profileImageUrl: "data:image/jpeg;base64,..." }`. The backend already accepts this format (`z.string().startsWith('data:image/')`).
 - Camera icon overlay (bottom-right, 20×20pt circle, white bg) indicates tappability
 - Tap feedback: scale 0.95 on press
+- Max image size: 3 MB (enforce client-side before encoding; show inline error if exceeded)
 
 **Name and email:**
 - Name: 15px semibold, #010C35, truncated with ellipsis after one line
@@ -282,7 +283,7 @@ This is the in-app support ticket system. Full-screen modal (not a sheet) becaus
 - Topic picker — topics must be defined as a shared constant/enum, not hardcoded strings in UI. Source of truth: `src/lib/constants/supportTopics.ts` (new file), exported as `SUPPORT_TOPICS` array. The backend validates submitted topic against this list. The website must also be updated to import from a shared constant (or match the list exactly) so topic values don't drift between platforms and admin view. Topics: `Account issue` / `Subscription` / `Technical problem` / `Voucher dispute` / `General enquiry` / `Other`
 - Subject (text input, required, max 100 chars)
 - Message (multiline, required, min 20 chars, max 2000 chars)
-- Attachments (image picker via `expo-image-picker`, max 3, images only — simpler than web which also accepts PDF)
+- Attachments: **out of scope for this phase** — omit the attachment UI entirely. No picker, no stub. The `SupportTicket` model includes `attachmentUrls String[]` ready for when presigned upload infrastructure is built in a follow-on phase.
 - Submit calls `POST /api/v1/customer/support/tickets`
 - Success: full-screen confirmation showing ticket number prominently ("Ticket logged · RDM-20260422-0042") + "View my tickets" CTA
 - Error: inline error, form stays open
@@ -313,7 +314,7 @@ Ticket number generation: `RDM-` + `YYYYMMDD` + `-` + zero-padded 4-digit daily 
 
 Routes:
 - `GET /api/v1/customer/support/tickets` — list own tickets, sorted by `updatedAt DESC`, paginated (page/limit)
-- `POST /api/v1/customer/support/tickets` — create ticket; attachments uploaded to S3/R2 first, URLs stored
+- `POST /api/v1/customer/support/tickets` — create ticket; `attachmentUrls` stored as empty array for now (upload infrastructure deferred)
 - `GET /api/v1/customer/support/tickets/:id` — ticket detail (must belong to authenticated user)
 
 Admin routes (Phase 5, schema supports it now):
@@ -499,6 +500,9 @@ All sections described above. Two new backend features: merchant request + suppo
 - Reply threads on support tickets — Phase 2 of support feature
 - Push notification on new device login — Phase 6
 - Location fallback behaviour in Home, Map, and Discovery screens — follow-on phase after Profile tab ships
+- Support ticket file attachments — deferred; requires presigned S3/R2 upload infrastructure (separate follow-on task)
+- Presigned S3/R2 upload infrastructure — separate follow-on task; unblocks both ticket attachments and a proper avatar upload path
+- Interest-based personalisation in Home/Discovery — follow-on backend feature (interests are saved correctly but not yet used for filtering/sorting)
 
 ---
 
@@ -508,7 +512,8 @@ These were resolved before implementation planning began:
 
 | Decision | Resolution |
 |----------|-----------|
-| Avatar + attachment upload | Presigned S3/R2 URL approach. Frontend requests presigned URL, uploads directly, passes resulting URL to API. One shared upload utility for both avatar and support attachments. |
+| Avatar upload | Base64 data URI path (existing backend already accepts `data:image/...`). Client enforces 3 MB max before encoding. Presigned S3/R2 infrastructure is a separate follow-on task. |
+| Support ticket attachments | Out of scope this phase. `attachmentUrls` field exists on the model, UI omits attachment picker entirely. |
 | Last name | Read-only on mobile (matches website). Backend `updateCustomerProfile` only updates `firstName`. No backend change required. |
 | Active session device name | Stored locally in AsyncStorage at login time (`redeemo:deviceName`). No new backend endpoint. Fallback: "Signed in on this device". |
 | Delete account + Stripe | Backend `delete-account` route must cancel the Stripe subscription before anonymising. Required to make warning copy truthful. |
