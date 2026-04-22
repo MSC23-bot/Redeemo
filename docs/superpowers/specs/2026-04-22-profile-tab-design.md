@@ -192,7 +192,7 @@ Fully live inline toggle. Reads `newsletterConsent` from `useMe()` / profile res
 
 ## 8. APP SETTINGS Section
 
-Two inline toggles — no sheets required.
+Two inline toggles and one navigation row — no sheets required.
 
 ### Haptics toggle
 - Persisted to `AsyncStorage` key `redeemo:haptics` (default: true)
@@ -205,6 +205,22 @@ Two inline toggles — no sheets required.
 - Also checks `AccessibilityInfo.isReduceMotionEnabled()` on mount; if the OS setting is on, the toggle is locked on and disabled (not interactive — shown at 0.45 opacity)
 - When on: Reanimated entrance animations are simplified (shorter spring, no stagger) — not removed entirely. The app still feels alive but less kinetic.
 - A `useReduceMotion()` hook exposes `prefersReducedMotion: boolean` consumed by animation components
+
+### Location access row
+A read-then-tap row (not a toggle). Reads the current permission status using `expo-location`'s `Location.getForegroundPermissionsAsync()` on mount and after the screen refocuses (`useFocusEffect`). Tapping always opens system settings via `Linking.openSettings()` — the app cannot programmatically grant or revoke location permission.
+
+Status display (right-hand label, muted):
+- `GRANTED` → "Allowed"
+- `GRANTED` with `ios.scope === 'whenInUse'` → "While using"
+- `DENIED` → "Denied"
+- `UNDETERMINED` → "Not set"
+
+The row is always interactive (tapping opens Settings regardless of status). A location pin icon on the left distinguishes it visually from the toggles.
+
+**Fallback behaviour (defined here, implemented in a follow-on phase):**
+The Location access row establishes the permission state that downstream screens use to determine fallback behaviour. The full fallback logic — using profile postcode/city as a geocoded centre point when GPS is denied, or showing unfiltered merchants with a prompt when neither GPS nor address is available — is out of scope for the Profile tab build and will be implemented as a follow-on to the Home, Map, and Discovery screens. The Profile tab only needs to surface the current permission state and route users to fix it.
+
+**Package required:** `expo-location` — check if already installed.
 
 ---
 
@@ -451,6 +467,7 @@ Placeholder URLs for app store listings — update when app is published.
 | `expo-store-review` | Rate Redeemo | ❌ Needs installing |
 | `expo-web-browser` | External links (About, FAQs, T&Cs, Privacy) | ❌ Needs installing |
 | `@react-native-community/datetimepicker` | Date of birth picker | ❌ Needs installing |
+| `expo-location` | Location access permission status | ✅ Installed (`~18.0.0`) |
 | `react-native` Share API | Share Redeemo | ✅ Built-in |
 | Custom `BottomSheet` | All edit sheets | ✅ Built-in (`src/design-system/motion/BottomSheet.tsx`) |
 
@@ -481,3 +498,21 @@ All sections described above. Two new backend features: merchant request + suppo
 - Admin panel support ticket UI — Phase 5 (schema supports it now)
 - Reply threads on support tickets — Phase 2 of support feature
 - Push notification on new device login — Phase 6
+- Location fallback behaviour in Home, Map, and Discovery screens — follow-on phase after Profile tab ships
+
+---
+
+## 19. Pre-Planning Decisions (locked)
+
+These were resolved before implementation planning began:
+
+| Decision | Resolution |
+|----------|-----------|
+| Avatar + attachment upload | Presigned S3/R2 URL approach. Frontend requests presigned URL, uploads directly, passes resulting URL to API. One shared upload utility for both avatar and support attachments. |
+| Last name | Read-only on mobile (matches website). Backend `updateCustomerProfile` only updates `firstName`. No backend change required. |
+| Active session device name | Stored locally in AsyncStorage at login time (`redeemo:deviceName`). No new backend endpoint. Fallback: "Signed in on this device". |
+| Delete account + Stripe | Backend `delete-account` route must cancel the Stripe subscription before anonymising. Required to make warning copy truthful. |
+| Free users in SUBSCRIPTION section | Section is always shown. Free users (no subscription) see a "No active plan" state with a Subscribe CTA row. Section is never hidden. |
+| Completeness tip text | Field-aware, not percentage-bucketed. Tip reflects the actual missing fields. Percentage bar is driven by the `profileCompleteness` number from the API. |
+| ACTIVE badge for non-ACTIVE statuses | ACTIVE + TRIALLING → gradient "ACTIVE" pill. CANCELLED → grey "CANCELLED" pill. PAST_DUE → amber "PAST DUE" pill. EXPIRED → grey "EXPIRED" pill. No subscription (null) → badge hidden. |
+| Location access row | Added to APP SETTINGS. Shows current OS permission status. Tapping opens system settings. Implemented with `expo-location`. |
