@@ -14,6 +14,7 @@ import {
   listMyRedemptions,
   getMyRedemption,
   listBranchRedemptions,
+  getMyRedemptionByCode,
 } from '../../../src/api/redemption/service'
 
 describe('generateRedemptionCode', () => {
@@ -462,5 +463,58 @@ describe('listBranchRedemptions', () => {
     expect(result.items).toHaveLength(1)
     expect(result.items[0].customer.name).toBe('Jane Doe')
     expect((result.items[0] as any).user).toBeUndefined()
+  })
+})
+
+describe('getMyRedemptionByCode', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('returns REDEMPTION_NOT_FOUND when code does not exist', async () => {
+    const prisma = mockPrisma()
+    prisma.voucherRedemption.findUnique.mockResolvedValue(null)
+
+    await expect(
+      getMyRedemptionByCode(prisma, 'user-1', 'NOTFOUND')
+    ).rejects.toThrow('REDEMPTION_NOT_FOUND')
+  })
+
+  it('returns REDEMPTION_NOT_FOUND when code belongs to another user', async () => {
+    const prisma = mockPrisma()
+    prisma.voucherRedemption.findUnique.mockResolvedValue({
+      userId: 'other', redemptionCode: 'CODE1',
+      isValidated: false, validatedAt: null, validationMethod: null, voucherId: 'v1',
+      voucher: { id: 'v1', merchant: { businessName: 'Acme' } },
+      branch: { name: 'Shoreditch' },
+    })
+
+    await expect(
+      getMyRedemptionByCode(prisma, 'user-1', 'CODE1')
+    ).rejects.toThrow('REDEMPTION_NOT_FOUND')
+  })
+
+  it('returns shape {code, isValidated, validatedAt, validationMethod, voucherId, merchantName, branchName}', async () => {
+    const prisma = mockPrisma()
+    prisma.voucherRedemption.findUnique.mockResolvedValue({
+      userId: 'user-1',
+      redemptionCode: 'CODE1',
+      isValidated: true,
+      validatedAt: new Date('2026-04-22T14:00:00Z'),
+      validationMethod: 'QR_SCAN',
+      voucherId: 'v1',
+      voucher: { id: 'v1', merchant: { businessName: 'Acme Café' } },
+      branch: { name: 'Shoreditch' },
+    })
+
+    const result = await getMyRedemptionByCode(prisma, 'user-1', 'code1')
+
+    expect(result).toEqual({
+      code: 'CODE1',
+      isValidated: true,
+      validatedAt: expect.any(Date),
+      validationMethod: 'QR_SCAN',
+      voucherId: 'v1',
+      merchantName: 'Acme Café',
+      branchName: 'Shoreditch',
+    })
   })
 })

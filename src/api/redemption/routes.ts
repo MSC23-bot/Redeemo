@@ -5,6 +5,7 @@ import {
   verifyRedemption,
   listMyRedemptions,
   getMyRedemption,
+  getMyRedemptionByCode,
   listBranchRedemptions,
   VerifyActor,
 } from './service'
@@ -61,6 +62,13 @@ export async function customerRedemptionRoutes(app: FastifyInstance) {
     const { code } = req.params as { code: string }
     const body = z.object({ platform: z.enum(['ios', 'android']) }).parse(req.body)
     const result = await flagRedemptionScreenshot(app.prisma, req.user.sub, code, body.platform)
+    return reply.send(result)
+  })
+
+  // GET /api/v1/redemption/me/:code — self-lookup by code, for polling (customer)
+  app.get(`${prefix}/redemption/me/:code`, async (req: FastifyRequest, reply) => {
+    const { code } = req.params as { code: string }
+    const result = await getMyRedemptionByCode(app.prisma, req.user.sub, code)
     return reply.send(result)
   })
 }

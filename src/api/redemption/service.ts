@@ -274,6 +274,36 @@ export async function getMyRedemption(
   return redemption
 }
 
+export async function getMyRedemptionByCode(
+  prisma: PrismaClient,
+  userId: string,
+  code: string
+) {
+  const normalised = code.replace(/[\s-]/g, '').toUpperCase()
+
+  const redemption = await prisma.voucherRedemption.findUnique({
+    where: { redemptionCode: normalised },
+    include: {
+      voucher: { select: { id: true, merchant: { select: { businessName: true } } } },
+      branch:  { select: { name: true } },
+    },
+  })
+
+  if (!redemption || redemption.userId !== userId) {
+    throw new AppError('REDEMPTION_NOT_FOUND')
+  }
+
+  return {
+    code:             redemption.redemptionCode,
+    isValidated:      redemption.isValidated,
+    validatedAt:      redemption.validatedAt,
+    validationMethod: redemption.validationMethod,
+    voucherId:        redemption.voucher.id,
+    merchantName:     redemption.voucher.merchant.businessName,
+    branchName:       redemption.branch.name,
+  }
+}
+
 export async function listBranchRedemptions(
   prisma: PrismaClient,
   branchId: string,
