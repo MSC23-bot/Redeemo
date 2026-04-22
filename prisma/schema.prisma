@@ -796,6 +796,28 @@ model VoucherRedemption {
   @@index([redeemedAt])
   @@index([userId, voucherId])
   @@index([redemptionCode])
+  screenshotEvents RedemptionScreenshotEvent[]
+}
+
+// ─────────────────────────────────────────
+// REDEMPTION SCREENSHOT EVENT
+// Logged when the app detects a screenshot on the ShowToStaff screen.
+// Used for fraud monitoring and analytics. Deduplicated per 5 seconds.
+// ─────────────────────────────────────────
+
+model RedemptionScreenshotEvent {
+  id           String            @id @default(uuid())
+  userId       String
+  redemptionId String
+  platform     String            // 'ios' | 'android'
+  occurredAt   DateTime          @default(now())
+
+  user         User              @relation(fields: [userId], references: [id])
+  redemption   VoucherRedemption @relation(fields: [redemptionId], references: [id])
+
+  @@index([redemptionId])
+  @@index([userId])
+  @@index([occurredAt])
 }
 
 model RedemptionScreenshotEvent {

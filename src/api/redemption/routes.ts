@@ -8,6 +8,7 @@ import {
   listBranchRedemptions,
   VerifyActor,
 } from './service'
+import { flagRedemptionScreenshot } from './screenshot-flag'
 import { RedisKey } from '../shared/redis-keys'
 import { AppError } from '../shared/errors'
 
@@ -53,6 +54,14 @@ export async function customerRedemptionRoutes(app: FastifyInstance) {
 
     const redemption = await getMyRedemption(app.prisma, req.user.sub, id)
     return reply.send(redemption)
+  })
+
+  // POST /api/v1/redemption/:code/screenshot-flag — log a screenshot event (customer only)
+  app.post(`${prefix}/redemption/:code/screenshot-flag`, async (req: FastifyRequest, reply) => {
+    const { code } = req.params as { code: string }
+    const body = z.object({ platform: z.enum(['ios', 'android']) }).parse(req.body)
+    const result = await flagRedemptionScreenshot(app.prisma, req.user.sub, code, body.platform)
+    return reply.send(result)
   })
 }
 
