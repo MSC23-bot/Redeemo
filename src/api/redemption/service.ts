@@ -74,8 +74,8 @@ export async function createRedemption(
   // 4. Subscription guard
   const sub = await prisma.subscription.findUnique({
     where: { userId },
-    select: { status: true, cycleAnchorDate: true } as any,
-  }) as { status: string; cycleAnchorDate: Date } | null
+    select: { status: true, cycleAnchorDate: true },
+  })
   if (!sub || !['ACTIVE', 'TRIALLING'].includes(sub.status)) {
     throw new AppError('SUBSCRIPTION_REQUIRED')
   }

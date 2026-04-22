@@ -3,6 +3,7 @@ import type Redis from 'ioredis'
 import { stripe } from '../shared/stripe'
 import { AppError } from '../shared/errors'
 import { writeAuditLog } from '../shared/audit'
+import { toMidnightUTC } from './cycle'
 
 interface RequestCtx {
   ipAddress: string
@@ -162,6 +163,7 @@ export async function createSubscription(
       status: stripeStatusToLocal(stripeSub.status),
       currentPeriodStart: periodStart,
       currentPeriodEnd:   periodEnd,
+      cycleAnchorDate:    toMidnightUTC(periodStart),
       ...(promoCodeId ? { promoCodeId } : {}),
     },
   })
@@ -204,12 +206,14 @@ export async function cancelSubscription(
     throw new AppError('SUBSCRIPTION_NOT_CANCELLABLE')
   }
 
-  try {
-    await stripe.subscriptions.update(sub.stripeSubscriptionId, {
-      cancel_at_period_end: true,
-    })
-  } catch {
-    throw new AppError('STRIPE_ERROR')
+  if (sub.stripeSubscriptionId) {
+    try {
+      await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        cancel_at_period_end: true,
+      })
+    } catch {
+      throw new AppError('STRIPE_ERROR')
+    }
   }
 
   // cancelledAt = when the user requested cancellation (not when access ends)

@@ -883,8 +883,8 @@ model Subscription {
   id                   String             @id @default(uuid())
   userId               String             @unique
   planId               String
-  stripeSubscriptionId String             @unique
-  stripeCustomerId     String
+  stripeSubscriptionId String?            @unique
+  stripeCustomerId     String?
   status               SubscriptionStatus @default(ACTIVE)
   currentPeriodStart   DateTime
   currentPeriodEnd     DateTime
@@ -893,6 +893,17 @@ model Subscription {
   promoCodeId          String?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
+
+  // Immutable after creation. Defines the day-of-month on which the user's
+  // monthly voucher cycle resets. Set once by whichever payment flow creates
+  // the subscription (Stripe, Apple IAP, Google Play, or admin-grant).
+  // Stored as midnight UTC on the anchor day.
+  //
+  // RESUBSCRIBE: When a user resubscribes after cancellation, a NEW
+  // Subscription record is created with a fresh cycleAnchorDate. If
+  // reactivation logic is added later (updating the existing record instead
+  // of creating a new one), it MUST explicitly reset cycleAnchorDate.
+  cycleAnchorDate      DateTime
 
   user                 User             @relation(fields: [userId], references: [id])
   plan                 SubscriptionPlan @relation(fields: [planId], references: [id])
