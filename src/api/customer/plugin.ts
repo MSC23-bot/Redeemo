@@ -6,6 +6,7 @@ import { favouritesRoutes } from './favourites/routes'
 import { reviewOpenRoutes, reviewAuthRoutes } from './reviews/routes'
 import { savingsRoutes } from './savings/routes'
 import { merchantRequestRoutes } from './merchant-requests/routes'
+import { supportRoutes } from './support/routes'
 
 /**
  * Attempts to extract the `sub` (userId) from an Authorization: Bearer <token>
@@ -72,6 +73,9 @@ async function customerPlugin(app: FastifyInstance) {
 
     // Merchant request routes — POST to suggest a new merchant
     authed.register(merchantRequestRoutes)
+
+    // Support ticket routes — list, create, get by id
+    authed.register(supportRoutes)
   })
 }
 

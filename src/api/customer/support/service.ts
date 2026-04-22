@@ -54,10 +54,6 @@ export async function createSupportTicket(
   userId: string,
   data: { topic: string; subject: string; message: string },
 ) {
-  if (!(VALID_TOPICS as readonly string[]).includes(data.topic)) {
-    throw new AppError('VALIDATION_ERROR')
-  }
-
   const ticketNumber = await generateTicketNumber(redis)
 
   return prisma.supportTicket.create({

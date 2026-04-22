@@ -58,6 +58,7 @@ export type AuditEvent =
   | 'BRANCH_PIN_SENT'
   | 'PROFILE_UPDATED'
   | 'PASSWORD_CHANGED'
+  | 'SUPPORT_TICKET_CREATED'
 
 export interface AuditContext {
   entityId: string

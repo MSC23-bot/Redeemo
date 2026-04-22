@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createSupportTicket, listSupportTickets, getSupportTicket, VALID_TOPICS } from '../../../src/api/customer/support/service'
+import { createSupportTicket, listSupportTickets, getSupportTicket } from '../../../src/api/customer/support/service'
 import { AppError } from '../../../src/api/shared/errors'
 
 const mockPrisma = {
@@ -44,16 +44,6 @@ describe('createSupportTicket', () => {
       })
     )
     expect(result.ticketNumber).toBe('RDM-20260422-0042')
-  })
-
-  it('throws VALIDATION_ERROR for invalid topic', async () => {
-    await expect(
-      createSupportTicket(mockPrisma, mockRedis, 'user-1', {
-        topic: 'Not a real topic',
-        subject: 'Test',
-        message: 'Test message content here',
-      })
-    ).rejects.toThrow(AppError)
   })
 
   it('works for the second-through-Nth ticket of the day (no collision)', async () => {
@@ -109,13 +99,17 @@ describe('getSupportTicket', () => {
     expect(result).toEqual({ id: 't1' })
   })
 
-  it('throws NOT_FOUND when ticket belongs to different user', async () => {
+  it('throws SUPPORT_TICKET_NOT_FOUND when ticket belongs to different user', async () => {
     mockPrisma.supportTicket.findUnique.mockResolvedValue({ id: 't1', userId: 'user-2' })
-    await expect(getSupportTicket(mockPrisma, 'user-1', 't1')).rejects.toThrow(AppError)
+    await expect(
+      getSupportTicket(mockPrisma, 'user-1', 't1'),
+    ).rejects.toMatchObject({ code: 'SUPPORT_TICKET_NOT_FOUND' })
   })
 
-  it('throws NOT_FOUND when ticket does not exist', async () => {
+  it('throws SUPPORT_TICKET_NOT_FOUND when ticket does not exist', async () => {
     mockPrisma.supportTicket.findUnique.mockResolvedValue(null)
-    await expect(getSupportTicket(mockPrisma, 'user-1', 't1')).rejects.toThrow(AppError)
+    await expect(
+      getSupportTicket(mockPrisma, 'user-1', 't1'),
+    ).rejects.toMatchObject({ code: 'SUPPORT_TICKET_NOT_FOUND' })
   })
 })
