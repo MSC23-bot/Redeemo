@@ -5,6 +5,7 @@ import { profileRoutes } from './profile/routes'
 import { favouritesRoutes } from './favourites/routes'
 import { reviewOpenRoutes, reviewAuthRoutes } from './reviews/routes'
 import { savingsRoutes } from './savings/routes'
+import { merchantRequestRoutes } from './merchant-requests/routes'
 
 /**
  * Attempts to extract the `sub` (userId) from an Authorization: Bearer <token>
@@ -68,6 +69,9 @@ async function customerPlugin(app: FastifyInstance) {
 
     // Savings routes — summary + redemptions history
     authed.register(savingsRoutes)
+
+    // Merchant request routes — POST to suggest a new merchant
+    authed.register(merchantRequestRoutes)
   })
 }
 
