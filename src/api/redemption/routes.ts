@@ -13,6 +13,9 @@ import { AppError } from '../shared/errors'
 
 const prefix = '/api/v1'
 
+const STAFF_VERIFY_FAIL_LIMIT = 20
+const STAFF_VERIFY_FAIL_WINDOW = 5 * 60 // seconds
+
 export async function customerRedemptionRoutes(app: FastifyInstance) {
   // POST /api/v1/redemption — initiate redemption (customer)
   app.post(`${prefix}/redemption`, async (req: FastifyRequest, reply) => {
@@ -101,13 +104,28 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
       }
     }
 
-    const result = await verifyRedemption(
-      app.prisma,
-      body.code,
-      body.method,
-      actor,
-      { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' }
-    )
+    const rateKey = RedisKey.staffVerifyFailCount(actor.actorId, actor.branchId ?? actor.merchantId)
+    const current = await app.redis.get(rateKey)
+    if (current !== null && parseInt(current, 10) >= STAFF_VERIFY_FAIL_LIMIT) {
+      throw new AppError('STAFF_VERIFY_RATE_LIMIT_EXCEEDED')
+    }
+
+    let result
+    try {
+      result = await verifyRedemption(
+        app.prisma,
+        body.code,
+        body.method,
+        actor,
+        { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' }
+      )
+    } catch (err) {
+      if (err instanceof AppError) {
+        await app.redis.incr(rateKey)
+        await app.redis.expire(rateKey, STAFF_VERIFY_FAIL_WINDOW)
+      }
+      throw err
+    }
 
     return reply.send(result)
   })

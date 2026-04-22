@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { buildApp } from '../../../src/api/app'
+import { AppError } from '../../../src/api/shared/errors'
 import type { FastifyInstance } from 'fastify'
 
 vi.mock('../../../src/api/redemption/service', () => ({
@@ -59,9 +60,10 @@ describe('redemption routes', () => {
         }
         return Promise.resolve(null)
       }),
-      set:  vi.fn().mockResolvedValue('OK'),
-      del:  vi.fn().mockResolvedValue(1),
-      incr: vi.fn().mockResolvedValue(1),
+      set:    vi.fn().mockResolvedValue('OK'),
+      del:    vi.fn().mockResolvedValue(1),
+      incr:   vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1),
     } as any)
 
     await app.ready()
@@ -373,5 +375,63 @@ describe('redemption routes', () => {
     })
 
     expect(res.statusCode).toBe(403)
+  })
+
+  // ------------------------------------------------------------------ //
+  // POST /api/v1/redemption/verify — staff verify rate limit
+  // ------------------------------------------------------------------ //
+
+  it('verify route: enforces 20-failure-per-5min rate limit per (actorId, branchId)', async () => {
+    // Seed the rate limit counter at the limit for this actor+branch
+    const rateKey = `verify:fail:${BRANCH_USER_ID}:${BRANCH_ID}`
+    vi.mocked(app.redis.get as any).mockImplementation((key: string) => {
+      if (key === `auth:branch:${BRANCH_USER_ID}`) {
+        return Promise.resolve(JSON.stringify({ branchId: BRANCH_ID, merchantId: MERCHANT_ID, isActive: true }))
+      }
+      if (key === rateKey) {
+        return Promise.resolve('20')
+      }
+      return Promise.resolve(null)
+    })
+
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${branchToken}` },
+      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+    })
+
+    expect(res.statusCode).toBe(429)
+    expect(JSON.parse(res.body).error.code).toBe('STAFF_VERIFY_RATE_LIMIT_EXCEEDED')
+  })
+
+  it('verify route: increments counter on failure, does NOT increment on success', async () => {
+    // First call: invalid code → verifyRedemption throws AppError → counter incremented
+    vi.mocked(verifyRedemption).mockRejectedValueOnce(new AppError('REDEMPTION_NOT_FOUND'))
+
+    const res1 = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${branchToken}` },
+      payload: { code: 'BADCODE', method: 'MANUAL' },
+    })
+    expect(res1.statusCode).toBe(404)
+    expect(app.redis.incr).toHaveBeenCalledTimes(1)
+
+    // Second call: valid code → counter NOT incremented again
+    vi.mocked(verifyRedemption).mockResolvedValueOnce({
+      id: 'r1', isValidated: true, validatedAt: new Date().toISOString(),
+      validationMethod: 'MANUAL', customer: { name: 'John Smith' },
+    } as any)
+
+    const incrCallsBefore = vi.mocked(app.redis.incr).mock.calls.length
+    const res2 = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${branchToken}` },
+      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+    })
+    expect(res2.statusCode).toBe(200)
+    expect(vi.mocked(app.redis.incr).mock.calls.length).toBe(incrCallsBefore)
   })
 })

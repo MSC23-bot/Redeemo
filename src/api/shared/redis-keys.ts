@@ -42,4 +42,8 @@ export const RedisKey = {
   // PIN brute-force counter — keyed per (userId, branchId) so failures at one branch
   // don't block the user at a different branch
   pinFailCount:        (userId: string, branchId: string) => `pin:fail:${userId}:${branchId}`,
+
+  // Staff verify fail counter — keyed per (actorId, branchId). Distinct from
+  // customer-side pinFailCount so staff mistypes don't lock out the customer.
+  staffVerifyFailCount: (actorId: string, branchId: string) => `verify:fail:${actorId}:${branchId}`,
 } as const

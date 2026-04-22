@@ -80,6 +80,7 @@ export const ERROR_DEFINITIONS = {
   REVIEW_NOT_FOUND:                { statusCode: 404, message: 'Review not found.' },
   REVIEW_NOT_OWNED:                { statusCode: 403, message: 'You can only edit or delete your own reviews.' },
   REVIEW_ALREADY_EXISTS:           { statusCode: 409, message: 'You have already reviewed this branch.' },
+  STAFF_VERIFY_RATE_LIMIT_EXCEEDED: { statusCode: 429, message: 'Too many failed verification attempts. Please try again in a few minutes.' },
 
   NOT_FOUND:                       { statusCode: 404, message: 'Resource not found.' },
   VALIDATION_ERROR:                { statusCode: 400, message: 'Validation failed.' },
