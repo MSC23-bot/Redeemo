@@ -79,6 +79,11 @@ export const ERROR_DEFINITIONS = {
   REVIEW_NOT_FOUND:                { statusCode: 404, message: 'Review not found.' },
   REVIEW_NOT_OWNED:                { statusCode: 403, message: 'You can only edit or delete your own reviews.' },
   REVIEW_ALREADY_EXISTS:           { statusCode: 409, message: 'You have already reviewed this branch.' },
+
+  NOT_FOUND:                       { statusCode: 404, message: 'Resource not found.' },
+  VALIDATION_ERROR:                { statusCode: 400, message: 'Validation failed.' },
+  SERVICE_UNAVAILABLE:             { statusCode: 503, message: 'Service temporarily unavailable. Please try again.' },
+  SUPPORT_TICKET_NOT_FOUND:        { statusCode: 404, message: 'Support ticket not found.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS
