@@ -2,7 +2,4 @@
 ALTER TYPE "MerchantStatus" ADD VALUE 'REGISTERED';
 
 -- AlterTable
-ALTER TABLE "Merchant" ALTER COLUMN "status" SET DEFAULT 'REGISTERED';
-
--- AlterTable
 ALTER TABLE "PromoCode" ADD COLUMN     "stripeCouponId" TEXT;
