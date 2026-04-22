@@ -42,6 +42,7 @@ type State = {
 
   bootstrap: () => Promise<void>
   signOut: () => Promise<void>
+  clearLocalAuth: () => Promise<void>
   syncVerificationState: (patch: Partial<Pick<MinimalUser, 'emailVerified' | 'phoneVerified'>>) => Promise<void>
   setTokens: (input: SetTokensInput) => Promise<void>
   updateOnboarding: (patch: Partial<OnboardingState>) => Promise<void>
@@ -52,6 +53,9 @@ type State = {
   setMotionScale: (scale: 0 | 1) => void
   __resetForTests: () => Promise<void>
 }
+
+const HAPTICS_KEY = 'redeemo:haptics'
+const REDUCE_MOTION_KEY = 'redeemo:reduceMotion'
 
 const INITIAL_ONBOARDING: OnboardingState = {
   profileCompletion: 'not_started',
@@ -81,6 +85,18 @@ export const useAuthStore = create<State>((set, get) => ({
   motionScale: 1,
 
   async bootstrap() {
+    // Restore persisted prefs (haptics + motion) before the auth check
+    try {
+      const [savedHaptics, savedReduceMotion] = await Promise.all([
+        prefsStorage.get<boolean>(HAPTICS_KEY),
+        prefsStorage.get<boolean>(REDUCE_MOTION_KEY),
+      ])
+      const hapticsEnabled = savedHaptics ?? true
+      const motionScale: 0 | 1 = savedReduceMotion === true ? 0 : 1
+      setHapticsEnabled(hapticsEnabled)
+      set({ hapticsEnabled, motionScale })
+    } catch { /* best-effort */ }
+
     const [access, refresh] = await Promise.all([
       secureStorage.get('accessToken'),
       secureStorage.get('refreshToken'),
@@ -112,8 +128,15 @@ export const useAuthStore = create<State>((set, get) => ({
   async signOut() {
     const refresh = get().refreshToken
     if (refresh) {
-      try { await authApi.logout({ refreshToken: refresh }) } catch { /* best-effort */ }
+      // Fire-and-forget: local state clears unconditionally even if the API call fails
+      void authApi.logout({ refreshToken: refresh }).catch(() => {})
     }
+    await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
+    apiSetTokens({ accessToken: null, refreshToken: null })
+    set({ status: 'unauthenticated', user: null, accessToken: null, refreshToken: null, onboarding: INITIAL_ONBOARDING })
+  },
+
+  async clearLocalAuth() {
     await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
     apiSetTokens({ accessToken: null, refreshToken: null })
     set({ status: 'unauthenticated', user: null, accessToken: null, refreshToken: null, onboarding: INITIAL_ONBOARDING })
@@ -162,10 +185,12 @@ export const useAuthStore = create<State>((set, get) => ({
   setHaptics(enabled) {
     setHapticsEnabled(enabled)
     set({ hapticsEnabled: enabled })
+    void prefsStorage.set(HAPTICS_KEY, enabled).catch(() => {})
   },
 
   setMotionScale(scale) {
     set({ motionScale: scale })
+    void prefsStorage.set(REDUCE_MOTION_KEY, scale === 0).catch(() => {})
   },
 
   async __resetForTests() {

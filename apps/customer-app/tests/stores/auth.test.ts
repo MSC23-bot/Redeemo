@@ -10,6 +10,7 @@ jest.mock('@/lib/storage', () => ({
     remove: jest.fn(async () => {}),
   },
 }))
+import { prefsStorage } from '@/lib/storage'
 jest.mock('@/lib/api', () => ({
   api: { setTokens: jest.fn(), onSessionExpired: jest.fn() },
   setTokens: jest.fn(),
@@ -76,5 +77,32 @@ describe('auth store', () => {
   it('stepIndex is used for comparison and orders pc1..done correctly', () => {
     expect(stepIndex('pc1')).toBeLessThan(stepIndex('pc3'))
     expect(stepIndex('pc4')).toBeLessThan(stepIndex('done'))
+  })
+
+  it('bootstrap restores hapticsEnabled from prefsStorage', async () => {
+    ;(prefsStorage.get as jest.Mock).mockImplementation(async (key: string) => {
+      if (key === 'redeemo:haptics') return false
+      return null
+    })
+    await useAuthStore.getState().bootstrap()
+    expect(useAuthStore.getState().hapticsEnabled).toBe(false)
+    ;(prefsStorage.get as jest.Mock).mockImplementation(async () => null)
+  })
+
+  it('setHaptics persists to prefsStorage', () => {
+    useAuthStore.getState().setHaptics(false)
+    expect(prefsStorage.set).toHaveBeenCalledWith('redeemo:haptics', false)
+  })
+
+  it('clearLocalAuth transitions to unauthenticated and clears tokens without API call', async () => {
+    await useAuthStore.getState().setTokens({
+      accessToken: 'a', refreshToken: 'r',
+      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: true, phoneVerified: true },
+    })
+    await useAuthStore.getState().clearLocalAuth()
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
+    expect(useAuthStore.getState().accessToken).toBeNull()
+    expect(useAuthStore.getState().refreshToken).toBeNull()
+    expect(useAuthStore.getState().user).toBeNull()
   })
 })
