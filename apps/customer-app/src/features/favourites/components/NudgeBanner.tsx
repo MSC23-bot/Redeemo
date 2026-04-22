@@ -30,7 +30,7 @@ export function NudgeBanner({ onSubscribe, onDismiss }: Props) {
         </Text>
 
         <Pressable
-          onPress={(e) => { e.stopPropagation(); onDismiss() }}
+          onPress={(e) => { e?.stopPropagation?.(); onDismiss() }}
           hitSlop={12}
           accessibilityLabel="Dismiss"
           style={styles.dismiss}
