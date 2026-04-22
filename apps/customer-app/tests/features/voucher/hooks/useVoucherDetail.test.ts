@@ -16,6 +16,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe('useVoucherDetail', () => {
+  beforeEach(() => { jest.clearAllMocks() })
   it('fetches voucher detail by id', async () => {
     const voucher = {
       id: 'v1', title: 'BOGO Pizza', type: 'BOGO' as const,

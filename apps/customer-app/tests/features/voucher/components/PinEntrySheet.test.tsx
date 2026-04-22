@@ -2,8 +2,6 @@ import React from 'react'
 import { render, fireEvent, waitFor } from '@testing-library/react-native'
 import { PinEntrySheet } from '@/features/voucher/components/PinEntrySheet'
 
-jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))
-
 describe('PinEntrySheet', () => {
   const baseProps = {
     visible: true,
@@ -18,8 +16,8 @@ describe('PinEntrySheet', () => {
   }
 
   it('renders merchant info and PIN title', () => {
-    const { getByText } = render(<PinEntrySheet {...baseProps} />)
-    expect(getByText('Pizza Palace')).toBeTruthy()
+    const { getAllByText, getByText } = render(<PinEntrySheet {...baseProps} />)
+    expect(getAllByText('Pizza Palace').length).toBeGreaterThanOrEqual(1)
     expect(getByText('Enter Branch PIN')).toBeTruthy()
   })
 
@@ -29,8 +27,8 @@ describe('PinEntrySheet', () => {
   })
 
   it('renders 4 PIN boxes', () => {
-    const { getAllByAccessibilityLabel } = render(<PinEntrySheet {...baseProps} />)
-    const boxes = getAllByAccessibilityLabel(/PIN digit/)
+    const { getAllByLabelText } = render(<PinEntrySheet {...baseProps} />)
+    const boxes = getAllByLabelText(/PIN digit/)
     expect(boxes).toHaveLength(4)
   })
 

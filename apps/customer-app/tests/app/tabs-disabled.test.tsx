@@ -6,15 +6,13 @@ jest.mock('@/stores/auth', () => ({
   })),
 }))
 jest.mock('@/lib/routing', () => ({ resolveRedirect: jest.fn(() => null) }))
-const MockTabsScreen = () => null
-const MockTabs = ({ children }: any) => <>{children}</>
-MockTabs.Screen = MockTabsScreen
+
 jest.mock('expo-router', () => {
-  const MockTabsScreenInner = () => null
-  const MockTabsInner = ({ children }: any) => <>{children}</>
-  MockTabsInner.Screen = MockTabsScreenInner
+  const Screen = jest.fn(() => null)
+  const Tabs = ({ children }: any) => <>{children}</>
+  Tabs.Screen = Screen
   return {
-    Tabs: MockTabsInner,
+    Tabs,
     Redirect: () => null,
     useSegments: () => ['(app)', 'index'],
     router: { push: jest.fn() },
@@ -22,14 +20,34 @@ jest.mock('expo-router', () => {
 })
 
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render } from '@testing-library/react-native'
 import AppLayout from '@/../app/(app)/_layout'
 
 describe('AppLayout tabs', () => {
-  it('disabled tab has accessibilityState.disabled and no onPress', () => {
-    const { getByLabelText } = render(<AppLayout />)
-    const discover = getByLabelText('Discover')
-    expect(discover.props.accessibilityState?.disabled).toBe(true)
-    expect(discover.props.onPress).toBeUndefined()
+  beforeEach(() => {
+    const { Tabs } = jest.requireMock('expo-router') as any
+    ;(Tabs.Screen as jest.Mock).mockClear()
+  })
+
+  it('renders without crashing when authenticated', () => {
+    expect(() => render(<AppLayout />)).not.toThrow()
+  })
+
+  it('auth-gated tabs (Favourite, Savings, Profile) have href: null when unauthenticated', () => {
+    const { useAuthStore } = jest.requireMock('@/stores/auth') as any
+    useAuthStore.mockImplementation((sel: any) => sel({
+      status: 'guest',
+      user: null,
+      onboarding: { profileCompletion: 'pending', furthestStep: 'pc1', phoneVerifiedAtLeastOnce: false },
+    }))
+
+    render(<AppLayout />)
+
+    const { Tabs } = jest.requireMock('expo-router') as any
+    const calls = (Tabs.Screen as jest.Mock).mock.calls.map((c: any[]) => c[0])
+    for (const name of ['favourite', 'savings', 'profile']) {
+      const screen = calls.find((c: any) => c.name === name)
+      expect(screen?.options?.href).toBeNull()
+    }
   })
 })

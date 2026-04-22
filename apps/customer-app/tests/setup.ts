@@ -1,5 +1,24 @@
 import '@testing-library/jest-native/extend-expect'
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+)
+
+// Fix: expo/src/winter/ImportMetaRegistry hangs jest in SDK 53/54 because it tries
+// to register import.meta.url for every module, which never resolves in jest.
+// Confirmed fix: https://github.com/expo/expo/issues/36831
+jest.mock('expo/src/winter/ImportMetaRegistry', () => ({
+  ImportMetaRegistry: {
+    get url() { return null },
+  },
+}))
+
+// structuredClone polyfill — required by some expo internals in jest environment
+if (typeof global.structuredClone === 'undefined') {
+  ;(global as unknown as Record<string, unknown>).structuredClone = (obj: unknown) =>
+    JSON.parse(JSON.stringify(obj))
+}
+
 jest.mock('react-native-reanimated', () => {
   const React = require('react')
   const { View } = require('react-native')

@@ -68,7 +68,7 @@ export function AppSettingsSection() {
         rightContent={
           <Switch
             value={motionScale === 0 || osReduceMotion}
-            onValueChange={v => !isReduceMotionLocked && setMotionScale(v ? 0 : 1)}
+            onValueChange={v => { if (!isReduceMotionLocked) setMotionScale(v ? 0 : 1) }}
             disabled={isReduceMotionLocked}
             trackColor={{ false: '#D1D5DB', true: '#E20C04' }}
             thumbColor="#FFFFFF"

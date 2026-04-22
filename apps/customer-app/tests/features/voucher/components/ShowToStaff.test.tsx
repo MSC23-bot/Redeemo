@@ -2,8 +2,6 @@ import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { ShowToStaff } from '@/features/voucher/components/ShowToStaff'
 
-jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))
-
 describe('ShowToStaff', () => {
   const baseProps = {
     visible: true,

@@ -16,6 +16,8 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe('useRedeem', () => {
+  beforeEach(() => { jest.clearAllMocks() })
+
   it('calls redemptionApi.redeem and returns redemption data', async () => {
     const response = {
       id: 'r1', userId: 'u1', voucherId: 'v1', branchId: 'b1',
@@ -31,7 +33,7 @@ describe('useRedeem', () => {
     })
 
     expect(mockRedeem).toHaveBeenCalledWith({ voucherId: 'v1', branchId: 'b1', pin: '1234' })
-    expect(result.current.data).toEqual(response)
+    await waitFor(() => expect(result.current.data).toEqual(response))
   })
 
   it('exposes error on failure', async () => {
@@ -45,6 +47,6 @@ describe('useRedeem', () => {
       } catch { /* expected */ }
     })
 
-    expect(result.current.isError).toBe(true)
+    await waitFor(() => expect(result.current.isError).toBe(true))
   })
 })

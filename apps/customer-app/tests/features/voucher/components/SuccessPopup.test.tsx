@@ -2,8 +2,6 @@ import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { SuccessPopup } from '@/features/voucher/components/SuccessPopup'
 
-jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))
-
 describe('SuccessPopup', () => {
   const baseProps = {
     visible: true,

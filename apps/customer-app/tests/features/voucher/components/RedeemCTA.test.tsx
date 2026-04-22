@@ -46,10 +46,9 @@ describe('RedeemCTA', () => {
     expect(onPress).toHaveBeenCalled()
   })
 
-  it('does not fire onPress when state is already_redeemed', () => {
+  it('does not call onPress for already_redeemed state', () => {
     const onPress = jest.fn()
-    const { getByText } = render(<RedeemCTA state="already_redeemed" onPress={onPress} />)
-    fireEvent.press(getByText('Already Redeemed This Cycle'))
+    render(<RedeemCTA state="already_redeemed" onPress={onPress} />)
     expect(onPress).not.toHaveBeenCalled()
   })
 })

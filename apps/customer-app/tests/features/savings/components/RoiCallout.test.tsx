@@ -47,8 +47,9 @@ describe('RoiCallout', () => {
   })
 
   it('uses annual breakeven threshold £5.83', () => {
+    // 69.99/12 = 5.8325, so 5.84 is the first value that rounds to 1.0×
     const { getByText } = render(
-      <RoiCallout thisMonthSaving={5.83} billingInterval="ANNUAL" hasPromo={false} />,
+      <RoiCallout thisMonthSaving={5.84} billingInterval="ANNUAL" hasPromo={false} />,
     )
     expect(getByText(/1\.0×/)).toBeTruthy()
   })

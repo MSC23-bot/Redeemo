@@ -34,16 +34,16 @@ describe('CouponHeader', () => {
 
   it('calls onToggleFavourite when heart is tapped', () => {
     const onToggleFavourite = jest.fn()
-    const { getByAccessibilityLabel } = render(
+    const { getByLabelText } = render(
       <CouponHeader {...baseProps} onToggleFavourite={onToggleFavourite} />,
     )
-    fireEvent.press(getByAccessibilityLabel('Toggle favourite'))
+    fireEvent.press(getByLabelText('Toggle favourite'))
     expect(onToggleFavourite).toHaveBeenCalled()
   })
 
   it('calls router.back when back button is tapped', () => {
-    const { getByAccessibilityLabel } = render(<CouponHeader {...baseProps} />)
-    fireEvent.press(getByAccessibilityLabel('Go back'))
+    const { getByLabelText } = render(<CouponHeader {...baseProps} />)
+    fireEvent.press(getByLabelText('Go back'))
     expect(mockGoBack).toHaveBeenCalled()
   })
 

@@ -17,10 +17,12 @@ describe('useProfileCompletion', () => {
 
   it('advances forward but never backward', async () => {
     const { result } = renderHook(() => useProfileCompletion())
+    // markStepComplete(pc2) advances to the NEXT step (pc3)
     await act(async () => { await result.current.markStepComplete('pc2') })
-    expect(useAuthStore.getState().onboarding.furthestStep).toBe('pc2')
+    expect(useAuthStore.getState().onboarding.furthestStep).toBe('pc3')
+    // completing an earlier step (pc1→pc2) must not retreat from pc3
     await act(async () => { await result.current.markStepComplete('pc1') })
-    expect(useAuthStore.getState().onboarding.furthestStep).toBe('pc2')
+    expect(useAuthStore.getState().onboarding.furthestStep).toBe('pc3')
   })
 
   it('dismiss sets profileCompletion to "dismissed"', async () => {
