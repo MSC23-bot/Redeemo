@@ -265,11 +265,39 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - 23 component tests; 268 total frontend tests passing
 - Plan: `docs/superpowers/plans/2026-04-19-favourites-screen.md`
 
-### 🔲 Phase 3C (remaining) — Profile, Subscribe, QR
-**Remaining work (each needs brainstorming → spec → plan → implementation):**
-1. Profile tab — user profile view/edit, subscription management (backend APIs exist)
-2. Subscribe flow — Stripe SetupIntent in-app (stub exists at `subscribe-prompt`). NOTE: iOS requires Apple IAP for digital subscriptions — Stripe cannot be used inside the app
-3. QR code rendering — add `react-native-qrcode-svg` for ShowToStaff and RedemptionDetailsCard
+### ✅ Phase 3C.1h — Profile Tab (COMPLETE — branch feature/customer-app)
+- ProfileHeader: completeness bar, initials avatar, subscription badge
+- PersonalInfoSheet: read-only email/phone, editable name/DOB/gender
+- AddressSheet, InterestsSheet, ChangePasswordSheet
+- SubscriptionManagementSheet with cancel flow
+- NotificationsSection: live email toggle + push stub
+- AppSettingsSection: haptics, reduce motion, location access
+- RedeemoSection: become merchant, request merchant, rate app, share
+- GetHelpModal: ticket list, ticket detail, new ticket form
+- SupportLegalSection, DeleteAccountFlow (2-stage OTP-gated deletion)
+- EAS build config added (eas.json, app.config.ts, expo-build-properties, ITSAppUsesNonExemptEncryption)
+- Pending: device review via EAS build
+
+### ✅ Phase 3C.1i — QR Code Rendering (COMPLETE — branch feature/customer-app)
+- Backend: `GET /api/v1/redemption/me/:code` (customer self-lookup) + `POST /api/v1/redemption/:code/screenshot-flag` (dedup, pre-validation gate)
+- `react-native-qrcode-svg`, `expo-brightness`, `expo-screen-capture`, `expo-blur` installed
+- `formatCode()` + `codeAccessibilityLabel()` helpers (3+3 grouping for 6-char codes)
+- `QRCodeBlock` shared component: Redeemo logo overlay, blur state, hero/compact sizes, a11y label
+- `useRedemptionPolling`: 5s poll, stops on validated or 15min timeout
+- `useBrightnessBoost`: captures and restores brightness, best-effort
+- `useScreenshotGuard`: iOS screenshot listener + debounced flag API call; Android FLAG_SECURE
+- `useAutoHideTimer`: dims QR after 2min inactivity, 10s warning, frozen when validated
+- `ShowToStaff` rewritten: all 4 hooks, live QR, validated state, screenshot banner, auto-dismiss
+- `RedemptionDetailsCard` rewritten: live poll via useQuery + useFocusEffect, QR pre-validation, validated timestamp post-validation
+- `PulsingDot` design-system primitive (withRepeat stays inside design-system/motion/)
+- `src/design-system/icons.ts` re-export barrel (satisfies no-barrel-lucide ESLint rule)
+- 85 frontend tests passing; 264 backend tests passing; ESLint clean
+- Spec: `docs/superpowers/specs/2026-04-22-qr-code-rendering-design.md`
+- Plan: `docs/superpowers/plans/2026-04-22-qr-code-rendering.md`
+
+### 🔲 Phase 3C (remaining) — Subscribe flow only
+- Subscribe flow — iOS requires Apple IAP (Stripe cannot be used inside iOS app). Android could use Stripe or Google Play Billing. Deferred pending IAP decision.
+- Stub screen exists at `subscribe-prompt`
 
 ### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
 - Full Next.js 15 App Router site at `apps/customer-web/`
