@@ -1,6 +1,5 @@
 import { PrismaClient, Prisma, MerchantStatus, VoucherStatus, ApprovalStatus } from '../../../generated/prisma/client'
 import type Redis from 'ioredis'
-import { nanoid } from 'nanoid'
 import crypto from 'crypto'
 import { AppError } from '../shared/errors'
 import { decrypt } from '../shared/encryption'
@@ -9,6 +8,19 @@ import { RedisKey } from '../shared/redis-keys'
 
 const PIN_FAIL_LIMIT = 5
 const PIN_FAIL_WINDOW = 15 * 60 // 15 minutes in seconds
+
+// Uppercase letters + digits, MINUS ambiguous characters (0 / O, 1 / I / L).
+// 31 chars × 6 positions = ~887M codes. Retries on DB unique-constraint collision.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+export function generateRedemptionCode(length = 6): string {
+  const bytes = crypto.randomBytes(length)
+  let code = ''
+  for (let i = 0; i < length; i++) {
+    code += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length]
+  }
+  return code
+}
 
 interface RequestCtx { ipAddress: string; userAgent: string }
 
@@ -91,40 +103,61 @@ export async function createRedemption(
     throw new AppError('ALREADY_REDEEMED')
   }
 
-  // 8. Atomic transaction
-  const redemptionCode = nanoid(10)
+  // 8. Atomic transaction with collision retry
   const now = new Date()
+  const cycleStart = sub.currentPeriodStart ?? now
+  const MAX_CODE_ATTEMPTS = 5
+  let redemption: Awaited<ReturnType<typeof prisma.voucherRedemption.create>> | null = null
 
-  const redemption = await prisma.$transaction(async (tx) => {
-    const created = await tx.voucherRedemption.create({
-      data: {
-        userId,
-        voucherId:       data.voucherId,
-        branchId:        data.branchId,
-        redemptionCode,
-        estimatedSaving: voucher.estimatedSaving,
-        isValidated:     false,
-        redeemedAt:      now,
-      },
-    })
+  for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
+    const redemptionCode = generateRedemptionCode()
+    try {
+      redemption = await prisma.$transaction(async (tx) => {
+        const created = await tx.voucherRedemption.create({
+          data: {
+            userId,
+            voucherId:       data.voucherId,
+            branchId:        data.branchId,
+            redemptionCode,
+            estimatedSaving: voucher.estimatedSaving,
+            isValidated:     false,
+            redeemedAt:      now,
+          },
+        })
 
-    await tx.userVoucherCycleState.upsert({
-      where:  { userId_voucherId: { userId, voucherId: data.voucherId } },
-      create: {
-        userId,
-        voucherId:                data.voucherId,
-        cycleStartDate:           sub.currentPeriodStart ?? now,
-        isRedeemedInCurrentCycle: true,
-        lastRedeemedAt:           now,
-      },
-      update: {
-        isRedeemedInCurrentCycle: true,
-        lastRedeemedAt:           now,
-      },
-    })
+        await tx.userVoucherCycleState.upsert({
+          where:  { userId_voucherId: { userId, voucherId: data.voucherId } },
+          create: {
+            userId,
+            voucherId:                data.voucherId,
+            cycleStartDate:           cycleStart,
+            isRedeemedInCurrentCycle: true,
+            lastRedeemedAt:           now,
+          },
+          update: {
+            cycleStartDate:           cycleStart,
+            isRedeemedInCurrentCycle: true,
+            lastRedeemedAt:           now,
+          },
+        })
 
-    return created
-  })
+        return created
+      })
+      break
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002' &&
+        Array.isArray((err.meta as { target?: string[] } | undefined)?.target) &&
+        (err.meta as { target: string[] }).target.includes('redemptionCode')
+      ) {
+        continue
+      }
+      throw err
+    }
+  }
+
+  if (!redemption) throw new AppError('REDEMPTION_CODE_COLLISION')
 
   // 9. Reset fail counter on success
   await redis.del(failKey)
@@ -133,7 +166,7 @@ export async function createRedemption(
     entityId: userId, entityType: 'customer',
     event: 'VOUCHER_REDEEMED',
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    metadata: { voucherId: data.voucherId, branchId: data.branchId, redemptionCode },
+    metadata: { voucherId: data.voucherId, branchId: data.branchId, redemptionCode: redemption.redemptionCode },
   })
 
   return redemption

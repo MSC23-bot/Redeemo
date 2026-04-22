@@ -69,6 +69,7 @@ export const ERROR_DEFINITIONS = {
   ALREADY_VALIDATED:               { statusCode: 409, message: 'This redemption has already been validated.' },
   MERCHANT_MISMATCH:               { statusCode: 403, message: 'This redemption code does not belong to your merchant.' },
   BRANCH_ACCESS_DENIED:            { statusCode: 403, message: 'You do not have access to this branch.' },
+  REDEMPTION_CODE_COLLISION:       { statusCode: 500, message: 'Failed to generate a unique redemption code. Please try again.' },
 
   CURRENT_PASSWORD_INCORRECT:      { statusCode: 400, message: 'Your current password is incorrect.' },
   SEARCH_QUERY_REQUIRED:           { statusCode: 400, message: 'A search query or category is required.' },

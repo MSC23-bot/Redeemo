@@ -10,11 +10,33 @@ vi.mock('nanoid', () => ({ nanoid: vi.fn(() => 'TESTCODE123') }))
 
 import {
   createRedemption,
+  generateRedemptionCode,
   verifyRedemption,
   listMyRedemptions,
   getMyRedemption,
   listBranchRedemptions,
 } from '../../../src/api/redemption/service'
+
+describe('generateRedemptionCode', () => {
+  it('produces a 6-character string by default', () => {
+    const code = generateRedemptionCode()
+    expect(code).toHaveLength(6)
+  })
+
+  it('only uses uppercase A-Z and digits, excluding 0 O 1 I L', () => {
+    const codes = Array.from({ length: 200 }, () => generateRedemptionCode())
+    const joined = codes.join('')
+    expect(joined).toMatch(/^[A-HJ-KM-NP-Z2-9]+$/)
+    expect(joined).not.toMatch(/[0O1IL]/)
+  })
+
+  it('generates different codes on repeated calls', () => {
+    const a = generateRedemptionCode()
+    const b = generateRedemptionCode()
+    const c = generateRedemptionCode()
+    expect(new Set([a, b, c]).size).toBe(3)
+  })
+})
 
 const mockPrisma = () => ({
   branch:                  { findUnique: vi.fn() },
