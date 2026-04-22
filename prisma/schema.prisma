@@ -138,6 +138,7 @@ model User {
   communications       CommunicationLog[]
   merchantRequests     MerchantRequest[]
   supportTickets       SupportTicket[]
+  redemptionScreenshotEvents RedemptionScreenshotEvent[]
 
   @@index([email])
   @@index([phone])
@@ -787,6 +788,7 @@ model VoucherRedemption {
   voucher          Voucher      @relation(fields: [voucherId], references: [id])
   branch           Branch       @relation(fields: [branchId], references: [id])
   validatedBy      BranchUser?  @relation(fields: [validatedById], references: [id])
+  screenshotEvents RedemptionScreenshotEvent[]
 
   @@index([userId])
   @@index([voucherId])
@@ -794,6 +796,20 @@ model VoucherRedemption {
   @@index([redeemedAt])
   @@index([userId, voucherId])
   @@index([redemptionCode])
+}
+
+model RedemptionScreenshotEvent {
+  id           String   @id @default(uuid())
+  userId       String
+  redemptionId String
+  platform     String   // "ios" | "android"
+  occurredAt   DateTime @default(now())
+
+  user       User              @relation(fields: [userId],       references: [id])
+  redemption VoucherRedemption @relation(fields: [redemptionId], references: [id])
+
+  @@index([redemptionId, occurredAt])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────
