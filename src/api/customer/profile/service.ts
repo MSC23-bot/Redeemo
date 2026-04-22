@@ -74,7 +74,7 @@ export async function updateCustomerProfile(
     addressLine2?: string
     city?: string
     postcode?: string
-    profileImageUrl?: string | null
+    profileImageUrl?: string
     newsletterConsent?: boolean
   },
   ctx?: { ipAddress: string; userAgent: string }
@@ -159,14 +159,6 @@ export async function updateCustomerInterests(
   })
 
   return { interests }
-}
-
-export async function getAvailableInterests(prisma: PrismaClient) {
-  return prisma.interest.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true },
-    orderBy: { name: 'asc' },
-  })
 }
 
 export async function changeCustomerPassword(

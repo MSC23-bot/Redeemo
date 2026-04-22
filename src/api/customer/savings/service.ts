@@ -129,13 +129,12 @@ export async function getSavingsRedemptions(
         redeemedAt: true,
         estimatedSaving: true,
         isValidated: true,
-        validatedAt: true,
         voucher: {
           select: {
             id: true,
             title: true,
             voucherType: true,
-            merchant: { select: { id: true, businessName: true, logoUrl: true } },
+            merchant: { select: { id: true, name: true, logoUrl: true } },
           },
         },
         branch: { select: { id: true, name: true } },
@@ -149,11 +148,10 @@ export async function getSavingsRedemptions(
     redeemedAt:      r.redeemedAt,
     estimatedSaving: Number(r.estimatedSaving ?? 0),
     isValidated:     r.isValidated,
-    validatedAt:     r.validatedAt,
     merchant: {
-      id:           r.voucher.merchant.id,
-      businessName: r.voucher.merchant.businessName,
-      logoUrl:      r.voucher.merchant.logoUrl,
+      id:      r.voucher.merchant.id,
+      name:    r.voucher.merchant.name,
+      logoUrl: r.voucher.merchant.logoUrl,
     },
     voucher: {
       id:          r.voucher.id,
@@ -164,81 +162,4 @@ export async function getSavingsRedemptions(
   }))
 
   return { redemptions, total }
-}
-
-export async function getMonthlyDetail(
-  prisma: PrismaClient,
-  userId: string,
-  month: string,
-) {
-  // month is "YYYY-MM" — already validated by the route
-  const [yearStr, monthStr] = month.split('-')
-  const year = parseInt(yearStr, 10)
-  const mon = parseInt(monthStr, 10)
-  const start = new Date(Date.UTC(year, mon - 1, 1))
-  const end = new Date(Date.UTC(year, mon, 1))
-
-  // Aggregate total + count
-  const agg = await prisma.voucherRedemption.aggregate({
-    where: { userId, redeemedAt: { gte: start, lt: end } },
-    _sum: { estimatedSaving: true },
-    _count: { id: true },
-  })
-
-  const totalSaving = Number(agg._sum.estimatedSaving ?? 0)
-  const redemptionCount = agg._count.id
-
-  // By merchant
-  const rows = await prisma.voucherRedemption.findMany({
-    where: { userId, redeemedAt: { gte: start, lt: end } },
-    select: {
-      estimatedSaving: true,
-      voucher: {
-        select: {
-          merchant: { select: { id: true, businessName: true, logoUrl: true } },
-        },
-      },
-    },
-  })
-
-  const byMerchantMap: Record<string, {
-    merchantId: string; businessName: string; logoUrl: string | null; saving: number; count: number
-  }> = {}
-  for (const r of rows) {
-    const m = r.voucher.merchant
-    if (!byMerchantMap[m.id]) {
-      byMerchantMap[m.id] = { merchantId: m.id, businessName: m.businessName, logoUrl: m.logoUrl, saving: 0, count: 0 }
-    }
-    byMerchantMap[m.id].saving += Number(r.estimatedSaving ?? 0)
-    byMerchantMap[m.id].count += 1
-  }
-  const byMerchant = Object.values(byMerchantMap).sort((a, b) => b.saving - a.saving)
-
-  // By category
-  const catRows = await prisma.voucherRedemption.findMany({
-    where: { userId, redeemedAt: { gte: start, lt: end } },
-    select: {
-      estimatedSaving: true,
-      voucher: {
-        select: {
-          merchant: {
-            select: { primaryCategory: { select: { id: true, name: true } } },
-          },
-        },
-      },
-    },
-  })
-
-  const byCategoryMap: Record<string, { categoryId: string; name: string; saving: number }> = {}
-  for (const r of catRows) {
-    const cat = r.voucher.merchant.primaryCategory
-    if (!cat) continue
-    if (!byCategoryMap[cat.id]) {
-      byCategoryMap[cat.id] = { categoryId: cat.id, name: cat.name, saving: 0 }
-    }
-    byCategoryMap[cat.id].saving += Number(r.estimatedSaving ?? 0)
-  }
-  const byCategory = Object.values(byCategoryMap).sort((a, b) => b.saving - a.saving)
-
-  return { totalSaving, redemptionCount, byMerchant, byCategory }
 }

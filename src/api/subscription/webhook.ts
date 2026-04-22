@@ -39,24 +39,17 @@ export async function webhookRoutes(app: FastifyInstance) {
     switch (event.type) {
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        // In Stripe v22, billing period dates live on items.data[0], not the top-level object.
-        // We read from the item first and fall back to top-level for safety.
         const stripeObj = event.data.object as unknown as {
           id: string
           status: string
           current_period_start: number
           current_period_end: number
-          items: { data: Array<{ current_period_start: number; current_period_end: number }> }
         }
 
         const sub = await app.prisma.subscription.findUnique({
           where: { stripeSubscriptionId: stripeObj.id },
         })
         if (!sub) break
-
-        const firstItem = stripeObj.items?.data?.[0]
-        const periodStart = firstItem?.current_period_start ?? stripeObj.current_period_start
-        const periodEnd   = firstItem?.current_period_end   ?? stripeObj.current_period_end
 
         const status: SubscriptionStatus = event.type === 'customer.subscription.deleted'
           ? SubscriptionStatus.CANCELLED
@@ -66,8 +59,8 @@ export async function webhookRoutes(app: FastifyInstance) {
           where: { id: sub.id },
           data: {
             status,
-            currentPeriodStart: new Date(periodStart * 1000),
-            currentPeriodEnd:   new Date(periodEnd   * 1000),
+            currentPeriodStart: new Date(stripeObj.current_period_start * 1000),
+            currentPeriodEnd: new Date(stripeObj.current_period_end * 1000),
           },
         })
 

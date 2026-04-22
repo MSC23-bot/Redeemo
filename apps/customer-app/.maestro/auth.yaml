@@ -1,0 +1,32 @@
+appId: com.redeemo.customer
+---
+- launchApp:
+    clearState: true
+- tapOn: "Create account"
+- tapOn: "First name"
+- inputText: "E2E"
+- tapOn: "Last name"
+- inputText: "Tester"
+- tapOn: "Email"
+- inputText: "e2e+${timestamp}@redeemo.com"
+- tapOn: "Mobile number"
+- inputText: "+447700900001"
+- tapOn: "Password"
+- inputText: "Passw0rd!!"
+- tapOn: "Create account"
+- assertVisible: "Check your inbox"
+- tapOn: "Resend email"
+- assertVisible:
+    text: "Enter the 6-digit code"
+    timeout: 15000
+- inputText: "000000"
+- assertVisible:
+    text: "Tell us a little about you"
+    timeout: 10000
+- tapOn: "Skip for now"
+- tapOn: "Skip for now"
+- tapOn: "Skip for now"
+- tapOn: "Skip for now"
+- assertVisible: "Unlock every reward."
+- tapOn: "Maybe later"
+- assertVisible: "Welcome to Redeemo"

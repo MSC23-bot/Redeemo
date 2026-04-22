@@ -70,7 +70,7 @@ Redeemo is a UK-based, location-first digital marketplace connecting consumers w
 ## Key Business Rules (must be preserved in all code)
 
 1. **Subscription gates redemption.** Free tier can browse and view vouchers but cannot redeem. Attempting to redeem redirects to subscription screen.
-2. **Monthly voucher cycle is subscription-anchored, not calendar-based.** Each user's cycle resets on the same day-of-month as their `cycleAnchorDate` (set once at subscription creation, immutable). `getCurrentCycleWindow(cycleAnchorDate, now)` is the single source of truth. Independent of billing interval (monthly/annual) and payment source (Stripe, Apple IAP, Google Play, admin-grant). Day clamping handles short months (e.g. anchor day 31 → 28 in Feb). Cycle state check is time-based at redemption time — no dependency on Stripe webhooks for correctness.
+2. **Monthly voucher cycle is subscription-based, not calendar-based.** Each user's cycle starts from their subscription date. At cycle end (renewal), `UserVoucherCycleState.isRedeemedInCurrentCycle` resets to `false` — only if user still has active subscription AND merchant still has voucher active.
 3. **Voucher redeemed once per user per cycle across ALL branches.** When redeemed at any branch, it becomes inactive for that user for the whole cycle.
 4. **Redemption flow:** Customer taps Redeem → backend creates `VoucherRedemption` record with a generated `redemptionCode` (alphanumeric + QR) → customer shows code to merchant in-store → merchant scans QR or manually enters code in merchant app → merchant validates → `isValidated = true`. The code persists (not time-limited) so customer can view it in "My Redeemed Vouchers" throughout the cycle.
 5. **In-store validation only.** Redemption requires merchant-side validation (QR scan, manual code entry, or merchant admin Quick Validate). Not self-serve.
@@ -95,8 +95,7 @@ Redeemo is a UK-based, location-first digital marketplace connecting consumers w
 
 - Cancel anytime, access until end of billing period
 - Free trials via promo codes only (not open — prevents abuse)
-- Stripe handles billing for standard subscriptions
-- Complimentary/admin-granted subscriptions: planned for Phase 5. Subscription model already supports nullable Stripe fields. When built, will also add a `source` enum (STRIPE / APPLE / GOOGLE / ADMIN) for clarity
+- Stripe handles all billing
 
 ---
 
@@ -109,8 +108,8 @@ BOGO, Spend & Save, Discount (fixed £ or %), Freebie, Package Deal, Time-Limite
 
 All models live in `prisma/schema.prisma`. Key relationships:
 
-- `User` → `Subscription` (1:1) → `SubscriptionPlan` — has `cycleAnchorDate` (immutable), `stripeSubscriptionId?`, `stripeCustomerId?`
-- `User` → `UserVoucherCycleState` (1:many) ← **monthly cycle enforcement table** — `cycleStartDate` compared against `getCurrentCycleWindow()` at redemption time
+- `User` → `Subscription` (1:1) → `SubscriptionPlan`
+- `User` → `UserVoucherCycleState` (1:many) ← **monthly cycle enforcement table**
 - `User` → `VoucherRedemption` (1:many) ← **redemption event + code**
 - `Merchant` → `Branch` (1:many) → `BranchUser` (merchant mobile app logins)
 - `Merchant` → `Voucher` (1:many, merchant-wide not per-branch)
@@ -156,9 +155,6 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Webhook idempotency via StripeWebhookEvent table (unique stripeEventId; P2002 → 200)
 - Webhook status mapped via SubscriptionStatus enum values (no string casts)
 - Stripe v22: period dates read from items.data[0] (not top-level Subscription)
-- **Subscription-anchored monthly voucher cycles:** `cycleAnchorDate` (immutable, set once at creation) is the single source of truth for monthly cycle windows. `getCurrentCycleWindow()` does pure date math with day-of-month clamping. Independent of billing interval and payment source.
-- **Nullable Stripe fields:** `stripeSubscriptionId` and `stripeCustomerId` are nullable — structural preparation for admin-grant, Apple IAP, Google Play subscriptions. `cancelSubscription()` guards Stripe API calls with null check.
-- 255 tests passing, TypeScript clean
 - Plans: `docs/superpowers/plans/2026-04-09-subscription-system.md`, `docs/superpowers/plans/2026-04-09-subscription-hardening.md`
 
 ### ✅ Phase 2D — Redemption System (COMPLETE)
@@ -168,11 +164,12 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Staff verification: `POST /api/v1/redemption/verify` accepts branch staff OR merchant admin; sets `isValidated=true`, records `validationMethod` (QR_SCAN / MANUAL)
 - Branch reconciliation list scoped to own branch (staff) or own merchant (admin)
 - PIN management routes: GET / PUT / POST send — SMS via Twilio (live), email via Resend (deferred to Phase 6)
+- 145 tests passing, TypeScript clean
 - Plan: `docs/superpowers/plans/2026-04-10-redemption-system.md`
 
 **Deferred to Phase 6:** Email PIN delivery (Resend not yet integrated — logs placeholder when `branch.email` is set)
 
-**Redemption codes:** `redemptionCode` uses `crypto.randomBytes` — alphanumeric only (A-Za-z0-9), 10 characters. Database `@unique` constraint prevents collisions. Safe for manual staff entry.
+**Pre-Phase 3 note:** `redemptionCode` uses nanoid default alphabet (includes `-`/`_`). If manual staff entry is a primary UX flow, switch to alphanumeric-only before the merchant mobile app is built.
 
 ### ✅ Phase 3A — Customer UX Foundations Spec (COMPLETE)
 - Full UX spec covering both customer app (React Native) and customer website (Next.js)
@@ -200,53 +197,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - 68+ tests passing; tsc/eslint clean
 - Plan: `docs/superpowers/plans/2026-04-15-customer-app-foundations-auth.md`
 
-### ✅ Phase 3C.1b — Customer App Home + Discovery + Map (COMPLETE — branch feature/customer-app)
-- Home feed: featured merchants, trending merchants, nearby merchants
-- Map tab: interactive map with merchant pins, bottom sheet merchant cards
-- Search: full-text search with filters, categories, recent searches
-- Category browsing: category grid, filtered merchant list
-- All using customer discovery backend APIs
-- Plan: `docs/superpowers/plans/2026-04-16-home-discovery-map.md`
-
-### ✅ Phase 3C.1c — Voucher Detail + Redemption (COMPLETE — branch feature/customer-app)
-- Full coupon card design: header, perforation lines, body, terms
-- 12-state screen: free user, can redeem, redeemed, expired, time-limited variants
-- PIN entry sheet with error handling and lockout timer
-- Success popup with animated checkmark, auto-dismiss
-- Show to Staff screen with live clock, QR placeholder, LIVE badge
-- Redemption details card with persisted data (fresh redeem + return visit)
-- Branch picker for multi-branch merchants (auto-selects single-branch)
-- Time-limited voucher support: countdown, urgency banners, schedule labels
-- Favourite toggle with optimistic updates + prop sync
-- Code-reviewed and all fixes applied
-- Plan: `docs/superpowers/plans/2026-04-16-voucher-detail-redemption.md`
-
-### ✅ Phase 3C.1d — Merchant Profile (COMPLETE — branch feature/customer-app)
-- Hero section with banner, logo, featured/trending badges, favourite toggle
-- Meta section: name, category, rating, distance, open status, action buttons
-- Sticky tab bar: Vouchers / About / Branches / Reviews
-- Vouchers tab: sorted cards with redeemed-last ordering
-- About tab: description, photos carousel, amenities grid, opening hours
-- Branches tab: nearest-first sort, pulsing status dot, action buttons
-- Reviews tab: summary histogram, sort control, review cards, write review sheet
-- Contact sheet, directions sheet, free user gate modal
-- Code-reviewed and all fixes applied
-- Plan: `docs/superpowers/plans/2026-04-17-merchant-profile.md`
-
-### ✅ Phase 3C.1e — Subscription Status Integration (COMPLETE — branch feature/customer-app)
-- `useSubscription()` hook with React Query calling `GET /api/v1/subscription/me`
-- Zod safeParse for graceful null handling (free users)
-- `isSubLoading` flag prevents CTA flash during fetch
-- Wired into MerchantProfileScreen + VoucherDetailScreen
-- ACTIVE/TRIALLING = subscribed; PAST_DUE excluded (backend rejects, user sees subscribe CTA)
-
-### 🔲 Phase 3C (remaining) — Savings, Profile, Favourites
-**Remaining work (each needs brainstorming → spec → plan → implementation):**
-1. Savings tab — lifetime/monthly summary, redemption history (backend APIs exist)
-2. Profile tab — user profile view/edit, subscription management (backend APIs exist)
-3. Favourites screen — merchant + voucher lists (backend APIs exist)
-4. Subscribe flow — Stripe SetupIntent in-app (stub exists at `subscribe-prompt`). NOTE: iOS requires Apple IAP for digital subscriptions — Stripe cannot be used inside the app
-5. QR code rendering — add `react-native-qrcode-svg` for ShowToStaff and RedemptionDetailsCard
+### 🔲 Phase 3C (remaining) — Customer App Discovery, Savings, Profile, Redemption
 
 ### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
 - Full Next.js 15 App Router site at `apps/customer-web/`
@@ -270,8 +221,6 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - GDPR: ICO registration required; DSAR + deletion flows must be built into customer account
 - Website scope: fully defined above — no redemption, subscription purchase supported
 - White-label: not in scope for now, possible future expansion
-- **Apple IAP requirement:** iOS App Store requires Apple In-App Purchase for digital subscriptions — Stripe cannot be used inside iOS app. Subscription model already supports this (nullable Stripe fields, payment-agnostic cycle logic). Implementation deferred.
-- **Subscription source enum:** When admin-grant flow is built (Phase 5), add `source` field to Subscription (STRIPE / APPLE / GOOGLE / ADMIN) for clarity
 
 ---
 
@@ -318,5 +267,3 @@ Customer website env file: `apps/customer-web/.env.local` — requires `NEXT_PUB
 | `docs/superpowers/plans/2026-04-09-merchant-branch-voucher.md` | Phase 2B: Merchant/branch/voucher plan |
 | `docs/superpowers/plans/2026-04-09-subscription-system.md` | Phase 2C: Subscription system plan |
 | `docs/superpowers/plans/2026-04-09-subscription-hardening.md` | Phase 2C: Subscription hardening plan |
-| `src/api/subscription/cycle.ts` | Subscription-anchored cycle logic: `getCurrentCycleWindow()`, `toMidnightUTC()`, `resetVoucherCycleForUser()` |
-| `src/api/redemption/service.ts` | Redemption flow with all guards (subscription, voucher, cycle, PIN, rate limit) |

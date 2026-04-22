@@ -5,7 +5,6 @@ import {
   getCustomerProfile,
   updateCustomerProfile,
   updateCustomerInterests,
-  getAvailableInterests,
   changeCustomerPassword,
 } from './service'
 
@@ -17,7 +16,7 @@ const updateProfileBody = z.object({
   addressLine2:      z.string().max(100).optional(),
   city:              z.string().max(80).optional(),
   postcode:          z.string().max(10).optional(),
-  profileImageUrl:   z.union([z.string().url(), z.string().startsWith('data:image/')]).nullable().optional(),
+  profileImageUrl:   z.string().url().optional(),
   newsletterConsent: z.boolean().optional(),
 })
 
@@ -47,12 +46,6 @@ export async function profileRoutes(app: FastifyInstance) {
       userAgent: req.headers['user-agent'] ?? '',
     })
     return reply.send(updated)
-  })
-
-  // GET /api/v1/customer/profile/available-interests — all active interests (for the selector UI)
-  app.get(`${prefix}/available-interests`, async (_req: FastifyRequest, reply) => {
-    const interests = await getAvailableInterests(app.prisma)
-    return reply.send({ interests })
   })
 
   // GET /api/v1/customer/profile/interests — get own interests

@@ -195,22 +195,4 @@ describe('customer profile routes', () => {
     })
     expect(res.statusCode).toBe(400)
   })
-
-  // ── PATCH profileImageUrl: null (avatar clear) ────────────────────────────
-
-  it('PATCH /api/v1/customer/profile accepts profileImageUrl: null to clear the avatar', async () => {
-    ;(updateCustomerProfile as any).mockResolvedValue({
-      id: 'user-1',
-      profileImageUrl: null,
-      profileCompleteness: 33,
-    })
-    const res = await app.inject({
-      method: 'PATCH',
-      url: '/api/v1/customer/profile',
-      headers: { authorization: `Bearer ${customerToken}` },
-      payload: { profileImageUrl: null },
-    })
-    expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body).profileImageUrl).toBeNull()
-  })
 })

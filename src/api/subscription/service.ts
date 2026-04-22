@@ -3,7 +3,6 @@ import type Redis from 'ioredis'
 import { stripe } from '../shared/stripe'
 import { AppError } from '../shared/errors'
 import { writeAuditLog } from '../shared/audit'
-import { toMidnightUTC } from './cycle'
 
 interface RequestCtx {
   ipAddress: string
@@ -153,9 +152,7 @@ export async function createSubscription(
   const periodStart = new Date(firstItem.current_period_start * 1000)
   const periodEnd   = new Date(firstItem.current_period_end   * 1000)
 
-  // Persist to DB.
-  // cycleAnchorDate is set once here and never changes during the subscription's lifetime.
-  // It defines the day-of-month on which the user's monthly voucher cycle resets.
+  // Persist to DB
   const sub = await prisma.subscription.create({
     data: {
       userId,
@@ -165,7 +162,6 @@ export async function createSubscription(
       status: stripeStatusToLocal(stripeSub.status),
       currentPeriodStart: periodStart,
       currentPeriodEnd:   periodEnd,
-      cycleAnchorDate:    toMidnightUTC(periodStart),
       ...(promoCodeId ? { promoCodeId } : {}),
     },
   })
@@ -208,14 +204,12 @@ export async function cancelSubscription(
     throw new AppError('SUBSCRIPTION_NOT_CANCELLABLE')
   }
 
-  if (sub.stripeSubscriptionId) {
-    try {
-      await stripe.subscriptions.update(sub.stripeSubscriptionId, {
-        cancel_at_period_end: true,
-      })
-    } catch {
-      throw new AppError('STRIPE_ERROR')
-    }
+  try {
+    await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+      cancel_at_period_end: true,
+    })
+  } catch {
+    throw new AppError('STRIPE_ERROR')
   }
 
   // cancelledAt = when the user requested cancellation (not when access ends)
