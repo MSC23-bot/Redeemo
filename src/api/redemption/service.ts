@@ -5,6 +5,7 @@ import { AppError } from '../shared/errors'
 import { decrypt } from '../shared/encryption'
 import { writeAuditLog } from '../shared/audit'
 import { RedisKey } from '../shared/redis-keys'
+import { getCurrentCycleWindow } from '../subscription/cycle'
 
 const PIN_FAIL_LIMIT = 5
 const PIN_FAIL_WINDOW = 15 * 60 // 15 minutes in seconds
@@ -71,7 +72,10 @@ export async function createRedemption(
   }
 
   // 4. Subscription guard
-  const sub = await prisma.subscription.findUnique({ where: { userId } })
+  const sub = await prisma.subscription.findUnique({
+    where: { userId },
+    select: { status: true, cycleAnchorDate: true } as any,
+  }) as { status: string; cycleAnchorDate: Date } | null
   if (!sub || !['ACTIVE', 'TRIALLING'].includes(sub.status)) {
     throw new AppError('SUBSCRIPTION_REQUIRED')
   }
@@ -105,7 +109,7 @@ export async function createRedemption(
 
   // 8. Atomic transaction with collision retry
   const now = new Date()
-  const cycleStart = sub.currentPeriodStart ?? now
+  const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
   const MAX_CODE_ATTEMPTS = 5
   let redemption: Awaited<ReturnType<typeof prisma.voucherRedemption.create>> | null = null
 

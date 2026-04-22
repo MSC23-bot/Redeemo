@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Prisma } from '../../../generated/prisma/client'
 import { AppError } from '../../../src/api/shared/errors'
 
 vi.mock('../../../src/api/shared/encryption', () => ({
   encrypt: vi.fn((v: string) => `enc:${v}`),
   decrypt: vi.fn((v: string) => v.replace('enc:', '')),
 }))
-
-vi.mock('nanoid', () => ({ nanoid: vi.fn(() => 'TESTCODE123') }))
 
 import {
   createRedemption,
@@ -163,7 +162,7 @@ describe('createRedemption', () => {
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
     prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
-    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', currentPeriodStart: new Date() })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: new Date('2026-01-01') })
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
       estimatedSaving: 5.00,
@@ -194,7 +193,7 @@ describe('createRedemption', () => {
     })
 
     prisma.branch.findUnique.mockResolvedValue({ id: 'b-branch-b', merchantId: 'm1', redemptionPin: 'enc:1234' })
-    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', currentPeriodStart: new Date() })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: new Date('2026-01-01') })
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
       estimatedSaving: 5.00,
@@ -206,6 +205,69 @@ describe('createRedemption', () => {
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b-branch-b', pin: '1234' }, baseCtx)
     ).resolves.toBeDefined()
+  })
+
+  it('retries on P2002 redemptionCode collision and succeeds on second attempt', async () => {
+    const prisma = mockPrisma()
+    const redis = mockRedis()
+    redis.get.mockResolvedValue(null)
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: new Date('2026-01-01') })
+    prisma.voucher.findUnique.mockResolvedValue({
+      id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
+      estimatedSaving: 5.00,
+      merchant: { status: 'ACTIVE' },
+    })
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+    const redemption = {
+      id: 'r1', redemptionCode: 'ABCDEF', voucherId: 'v1',
+      branchId: 'b1', redeemedAt: new Date(), isValidated: false,
+    }
+    const collision = Object.assign(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: '7.0.0',
+        meta: { target: ['redemptionCode'] },
+      }),
+      {}
+    )
+    prisma.$transaction
+      .mockRejectedValueOnce(collision)
+      .mockResolvedValueOnce(redemption)
+
+    const result = await createRedemption(
+      prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx
+    )
+    expect(result.redemptionCode).toBe(redemption.redemptionCode)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+  })
+
+  it('throws REDEMPTION_CODE_COLLISION after exhausting all retry attempts', async () => {
+    const prisma = mockPrisma()
+    const redis = mockRedis()
+    redis.get.mockResolvedValue(null)
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: new Date('2026-01-01') })
+    prisma.voucher.findUnique.mockResolvedValue({
+      id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
+      estimatedSaving: 5.00,
+      merchant: { status: 'ACTIVE' },
+    })
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+    const collision = Object.assign(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: '7.0.0',
+        meta: { target: ['redemptionCode'] },
+      }),
+      {}
+    )
+    prisma.$transaction.mockRejectedValue(collision)
+
+    await expect(
+      createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
+    ).rejects.toMatchObject({ code: 'REDEMPTION_CODE_COLLISION' })
+    expect(prisma.$transaction).toHaveBeenCalledTimes(5)
   })
 })
 
