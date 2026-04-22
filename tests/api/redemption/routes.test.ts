@@ -398,7 +398,7 @@ describe('redemption routes', () => {
       method:  'POST',
       url:     '/api/v1/redemption/verify',
       headers: { authorization: `Bearer ${branchToken}` },
-      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+      payload: { code: 'ABCDE12345', method: 'MANUAL', branchId: BRANCH_ID },
     })
 
     expect(res.statusCode).toBe(429)
@@ -413,7 +413,7 @@ describe('redemption routes', () => {
       method:  'POST',
       url:     '/api/v1/redemption/verify',
       headers: { authorization: `Bearer ${branchToken}` },
-      payload: { code: 'BADCODE', method: 'MANUAL' },
+      payload: { code: 'BADCODE', method: 'MANUAL', branchId: BRANCH_ID },
     })
     expect(res1.statusCode).toBe(404)
     expect(app.redis.incr).toHaveBeenCalledTimes(1)
@@ -429,7 +429,7 @@ describe('redemption routes', () => {
       method:  'POST',
       url:     '/api/v1/redemption/verify',
       headers: { authorization: `Bearer ${branchToken}` },
-      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+      payload: { code: 'ABCDE12345', method: 'MANUAL', branchId: BRANCH_ID },
     })
     expect(res2.statusCode).toBe(200)
     expect(vi.mocked(app.redis.incr).mock.calls.length).toBe(incrCallsBefore)
