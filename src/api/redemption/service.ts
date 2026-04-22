@@ -27,7 +27,7 @@ interface RequestCtx { ipAddress: string; userAgent: string }
 
 export interface VerifyActor {
   role: 'branch' | 'merchant'
-  branchId: string | null
+  branchId: string      // now REQUIRED for both roles — merchant admin must supply a branchId
   merchantId: string
   actorId: string
 }
@@ -193,13 +193,24 @@ export async function verifyRedemption(
     },
   })
 
+  // Validation-after-subscription-expiry rule:
+  // if a VoucherRedemption exists, staff validation MUST succeed even if the
+  // customer's subscription has since expired. Subscription is re-checked at
+  // createRedemption time, not at validation time.
   if (!redemption) throw new AppError('REDEMPTION_NOT_FOUND')
   if (redemption.isValidated) throw new AppError('ALREADY_VALIDATED')
 
-  if (actor.role === 'branch') {
-    if (redemption.branchId !== actor.branchId) throw new AppError('BRANCH_ACCESS_DENIED')
-  } else {
-    if (redemption.voucher.merchantId !== actor.merchantId) throw new AppError('MERCHANT_MISMATCH')
+  // Branch-level scope check applies to BOTH branch staff and merchant admins.
+  // Error is identical ("not found") for:
+  //   (a) code does not exist, or
+  //   (b) code exists but belongs to a different branch, or
+  //   (c) code's voucher belongs to a different merchant.
+  // This prevents information leakage about which codes exist globally.
+  if (
+    redemption.branchId !== actor.branchId ||
+    redemption.voucher.merchantId !== actor.merchantId
+  ) {
+    throw new AppError('REDEMPTION_NOT_FOUND')
   }
 
   const updated = await prisma.voucherRedemption.update({

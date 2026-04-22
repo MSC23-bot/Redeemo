@@ -295,7 +295,7 @@ describe('verifyRedemption', () => {
     ).rejects.toThrow('ALREADY_VALIDATED')
   })
 
-  it('throws BRANCH_ACCESS_DENIED when branch_staff branchId does not match redemption branchId', async () => {
+  it('throws REDEMPTION_NOT_FOUND when branch_staff branchId does not match redemption branchId', async () => {
     const prisma = mockPrisma()
     prisma.voucherRedemption.findUnique.mockResolvedValue({
       id: 'r1', isValidated: false, branchId: 'b-other',
@@ -304,19 +304,7 @@ describe('verifyRedemption', () => {
 
     await expect(
       verifyRedemption(prisma, 'CODE1', 'QR_SCAN', { role: 'branch', branchId: 'b1', merchantId: 'm1', actorId: 'bu1' }, baseCtx)
-    ).rejects.toThrow('BRANCH_ACCESS_DENIED')
-  })
-
-  it('throws MERCHANT_MISMATCH when merchant_admin merchantId does not match voucher merchantId', async () => {
-    const prisma = mockPrisma()
-    prisma.voucherRedemption.findUnique.mockResolvedValue({
-      id: 'r1', isValidated: false, branchId: 'b1',
-      voucher: { merchantId: 'm-other' }, user: { firstName: 'Jane', lastName: 'Doe' },
-    })
-
-    await expect(
-      verifyRedemption(prisma, 'CODE1', 'QR_SCAN', { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' }, baseCtx)
-    ).rejects.toThrow('MERCHANT_MISMATCH')
+    ).rejects.toThrow('REDEMPTION_NOT_FOUND')
   })
 
   it('succeeds for branch_staff: sets isValidated=true, returns customer name only', async () => {
@@ -369,10 +357,10 @@ describe('verifyRedemption', () => {
     )
   })
 
-  it('succeeds for merchant_admin: uses merchantId scope check', async () => {
+  it('merchant_admin: succeeds only when request branchId matches redemption branchId', async () => {
     const prisma = mockPrisma()
     prisma.voucherRedemption.findUnique.mockResolvedValue({
-      id: 'r1', isValidated: false, branchId: 'b-any',
+      id: 'r1', isValidated: false, branchId: 'b1',
       voucher: { merchantId: 'm1' },
       user: { firstName: 'Bob', lastName: 'Smith' },
     })
@@ -382,11 +370,44 @@ describe('verifyRedemption', () => {
 
     const result = await verifyRedemption(
       prisma, 'CODE1', 'MANUAL',
-      { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' },
+      { role: 'merchant', branchId: 'b1', merchantId: 'm1', actorId: 'ma1' },
       baseCtx
     )
-
     expect(result.customer.name).toBe('Bob Smith')
+  })
+
+  it('merchant_admin: rejects when request branchId does not match redemption branchId', async () => {
+    const prisma = mockPrisma()
+    prisma.voucherRedemption.findUnique.mockResolvedValue({
+      id: 'r1', isValidated: false, branchId: 'b-camden',
+      voucher: { merchantId: 'm1' },
+      user: { firstName: 'Bob', lastName: 'Smith' },
+    })
+
+    await expect(
+      verifyRedemption(
+        prisma, 'CODE1', 'MANUAL',
+        { role: 'merchant', branchId: 'b-shoreditch', merchantId: 'm1', actorId: 'ma1' },
+        baseCtx
+      )
+    ).rejects.toThrow('REDEMPTION_NOT_FOUND')
+  })
+
+  it('merchant_admin: rejects with REDEMPTION_NOT_FOUND (not MERCHANT_MISMATCH) on cross-merchant code', async () => {
+    const prisma = mockPrisma()
+    prisma.voucherRedemption.findUnique.mockResolvedValue({
+      id: 'r1', isValidated: false, branchId: 'b1',
+      voucher: { merchantId: 'm-other' },
+      user: { firstName: 'X', lastName: 'Y' },
+    })
+
+    await expect(
+      verifyRedemption(
+        prisma, 'CODE1', 'MANUAL',
+        { role: 'merchant', branchId: 'b1', merchantId: 'm1', actorId: 'ma1' },
+        baseCtx
+      )
+    ).rejects.toThrow('REDEMPTION_NOT_FOUND')
   })
 })
 

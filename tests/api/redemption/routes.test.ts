@@ -208,7 +208,7 @@ describe('redemption routes', () => {
       method:  'POST',
       url:     '/api/v1/redemption/verify',
       headers: { authorization: `Bearer ${branchToken}` },
-      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+      payload: { code: 'ABCDE12345', method: 'MANUAL', branchId: BRANCH_ID },
     })
 
     expect(res.statusCode).toBe(200)
@@ -229,12 +229,13 @@ describe('redemption routes', () => {
       validationMethod: 'QR_SCAN', customer: { name: 'Jane Doe' },
     }
     vi.mocked(verifyRedemption).mockResolvedValue(mockResult as any)
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: MERCHANT_ID })
 
     const res = await app.inject({
       method:  'POST',
       url:     '/api/v1/redemption/verify',
       headers: { authorization: `Bearer ${merchantToken}` },
-      payload: { code: 'XYZ123', method: 'QR_SCAN' },
+      payload: { code: 'XYZ123', method: 'QR_SCAN', branchId: BRANCH_ID },
     })
 
     expect(res.statusCode).toBe(200)
@@ -242,7 +243,7 @@ describe('redemption routes', () => {
       expect.anything(),
       'XYZ123',
       'QR_SCAN',
-      expect.objectContaining({ role: 'merchant', branchId: null, merchantId: MERCHANT_ID }),
+      expect.objectContaining({ role: 'merchant', branchId: BRANCH_ID, merchantId: MERCHANT_ID }),
       expect.any(Object)
     )
   })
@@ -252,7 +253,7 @@ describe('redemption routes', () => {
       method:  'POST',
       url:     '/api/v1/redemption/verify',
       headers: { authorization: `Bearer ${customerToken}` },
-      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+      payload: { code: 'ABCDE12345', method: 'MANUAL', branchId: BRANCH_ID },
     })
 
     expect(res.statusCode).toBe(403)
@@ -263,10 +264,47 @@ describe('redemption routes', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/api/v1/redemption/verify',
-      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+      payload: { code: 'ABCDE12345', method: 'MANUAL', branchId: BRANCH_ID },
     })
 
     expect(res.statusCode).toBe(403)
+  })
+
+  it('verify route: requires branchId in body', async () => {
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${branchToken}` },
+      payload: { code: 'ABCDE12345', method: 'MANUAL' }, // missing branchId
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('verify route: branch staff rejected when body branchId does not match session branchId', async () => {
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${branchToken}` },
+      payload: { code: 'ABCDE12345', method: 'MANUAL', branchId: 'wrong-branch-id' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('BRANCH_ACCESS_DENIED')
+  })
+
+  it('verify route: merchant admin must supply branchId belonging to their merchant', async () => {
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: 'other-merchant-id' })
+
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { code: 'XYZ123', method: 'QR_SCAN', branchId: 'branch-owned-by-other' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('BRANCH_ACCESS_DENIED')
   })
 
   // ------------------------------------------------------------------ //

@@ -57,8 +57,9 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
   // POST /api/v1/redemption/verify — verify a redemption code (branch staff OR merchant admin)
   app.post(`${prefix}/redemption/verify`, async (req: FastifyRequest, reply) => {
     const body = z.object({
-      code:   z.string().min(1),
-      method: z.enum(['QR_SCAN', 'MANUAL']),
+      code:     z.string().min(1),
+      method:   z.enum(['QR_SCAN', 'MANUAL']),
+      branchId: z.string().min(1),
     }).parse(req.body)
 
     // Try branch session first
@@ -73,6 +74,8 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
 
       const session = JSON.parse(raw) as { branchId: string; merchantId: string; isActive: boolean }
       if (!session.isActive) throw new AppError('BRANCH_ACCESS_DENIED')
+      // Branch staff can only verify codes for their own branch
+      if (session.branchId !== body.branchId) throw new AppError('BRANCH_ACCESS_DENIED')
       actor = { role: 'branch', branchId: session.branchId, merchantId: session.merchantId, actorId }
     } catch (branchErr) {
       if (branchErr instanceof AppError) throw branchErr
@@ -86,7 +89,12 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
 
         const merchantSession = JSON.parse(raw) as { merchantId: string; isSuspended: boolean; approvalStatus: string }
         if (merchantSession.isSuspended) throw new AppError('MERCHANT_SUSPENDED')
-        actor = { role: 'merchant', branchId: null, merchantId: merchantSession.merchantId, actorId }
+
+        // Verify that body.branchId belongs to this merchant
+        const branch = await app.prisma.branch.findUnique({ where: { id: body.branchId }, select: { merchantId: true } })
+        if (!branch || branch.merchantId !== merchantSession.merchantId) throw new AppError('BRANCH_ACCESS_DENIED')
+
+        actor = { role: 'merchant', branchId: body.branchId, merchantId: merchantSession.merchantId, actorId }
       } catch (merchantErr) {
         if (merchantErr instanceof AppError) throw merchantErr
         throw new AppError('BRANCH_ACCESS_DENIED')
