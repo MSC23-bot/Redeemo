@@ -1,4 +1,4 @@
-import { getAccessToken } from '@/lib/auth'
+import { getAccessToken, getOrCreateDeviceId } from '@/lib/auth'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -76,12 +76,20 @@ export const authApi = {
     password: string
     firstName: string
     lastName: string
+    phone: string
     marketingConsent?: boolean
   }) =>
-    apiFetch<{ message: string }>('/api/v1/customer/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    }),
+    apiFetch<{ accessToken: string; refreshToken: string; user: { id: string; name: string; email: string; profileImageUrl: string | null } }>(
+      '/api/v1/customer/auth/register',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          ...params,
+          deviceId: getOrCreateDeviceId(),
+          deviceType: 'web',
+        }),
+      },
+    ),
 
   logout: () =>
     apiFetch<{ message: string }>('/api/v1/customer/auth/logout', {
@@ -127,14 +135,13 @@ export const authApi = {
       body: JSON.stringify({ actionToken }),
     }),
 
-  verifyEmail: (params: { email: string; code: string }) =>
-    apiFetch<{ message: string }>('/api/v1/customer/auth/verify-email', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    }),
+  verifyEmail: (token: string) =>
+    apiFetch<{ message: string }>(
+      `/api/v1/customer/auth/verify-email?token=${encodeURIComponent(token)}`,
+    ),
 
   resendVerification: (email: string) =>
-    apiFetch<{ message: string }>('/api/v1/customer/auth/resend-verification', {
+    apiFetch<{ message: string }>('/api/v1/customer/auth/resend-verification-email', {
       method: 'POST',
       body: JSON.stringify({ email }),
     }),
@@ -339,10 +346,13 @@ export type ProfileData = {
 }
 
 export type ProfileUpdatePayload = {
+  firstName?: string
+  lastName?: string
   name?: string
   dateOfBirth?: string
   gender?: string
   addressLine1?: string
+  addressLine2?: string
   city?: string
   postcode?: string
   profileImageUrl?: string

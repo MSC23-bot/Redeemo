@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
+import { VerificationBanners } from '@/components/layout/VerificationBanners'
+import { SubscriptionNudge } from '@/components/layout/SubscriptionNudge'
 import { AuthProvider } from '@/contexts/AuthContext'
 
 export const metadata: Metadata = {
@@ -30,6 +32,8 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <Navbar />
+          <VerificationBanners />
+          <SubscriptionNudge />
           <main>{children}</main>
           <Footer />
         </AuthProvider>

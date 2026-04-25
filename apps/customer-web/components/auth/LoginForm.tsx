@@ -74,10 +74,12 @@ export function LoginForm() {
       router.push(next)
     } catch (err: unknown) {
       const code = err instanceof ApiError ? (err.code ?? '') : ''
-      if (code === 'ACCOUNT_NOT_ACTIVE') {
-        setError("Your account isn't active yet. Check your email for a verification link.")
+      // Note: web is soft-verify — EMAIL_NOT_VERIFIED / PHONE_NOT_VERIFIED are
+      // surfaced as in-app banners once signed in, not as login blockers.
+      if (code === 'ACCOUNT_INACTIVE') {
+        setError("This account isn't active. Please contact support.")
       } else if (code === 'ACCOUNT_SUSPENDED') {
-        setError('Your account has been suspended. Contact support.')
+        setError('Your account has been suspended. Please contact support.')
       } else {
         setError('Incorrect email or password.')
       }
