@@ -22,6 +22,7 @@ const mockPrisma = () => ({
   voucher:                 { findUnique: vi.fn() },
   userVoucherCycleState:   { findUnique: vi.fn() },
   voucherRedemption:       { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+  user:                    { findUnique: vi.fn().mockResolvedValue({ phoneVerified: true }) },
   auditLog:                { create: vi.fn().mockResolvedValue({}) },
   $transaction:            vi.fn(),
 } as any)
@@ -82,6 +83,25 @@ describe('createRedemption', () => {
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
     ).rejects.toThrow('SUBSCRIPTION_REQUIRED')
+  })
+
+  it('throws PHONE_NOT_VERIFIED when user.phoneVerified is false and does not proceed past the guard', async () => {
+    const prisma = mockPrisma()
+    const redis = mockRedis()
+    redis.get.mockResolvedValue(null)
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE' })
+    prisma.user.findUnique.mockResolvedValueOnce({ phoneVerified: false })
+
+    await expect(
+      createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
+    ).rejects.toThrow('PHONE_NOT_VERIFIED')
+
+    // Proves execution stopped at the phone-verified guard — voucher lookup
+    // and downstream cycle/transaction work were never reached.
+    expect(prisma.voucher.findUnique).not.toHaveBeenCalled()
+    expect(prisma.userVoucherCycleState.findUnique).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
   it('throws VOUCHER_NOT_FOUND when voucher is inactive', async () => {

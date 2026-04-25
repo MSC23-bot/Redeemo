@@ -2,12 +2,13 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema, passwordSchema, deviceSchema } from '../../shared/schemas'
 import { loginAdmin, verifyAdminOtp, refreshAdminToken, logoutAdmin, forgotPasswordAdmin, resetPasswordAdmin } from './service'
+import { routeRateLimit } from '../../plugins/rate-limit'
 
 export async function adminAuthRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/auth'
 
   app.post(`${prefix}/login`, {
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    config: { rateLimit: routeRateLimit('login') },
   }, async (req, reply) => {
     const body = z.object({ email: emailSchema, password: z.string(), ...deviceSchema.shape }).parse(req.body)
     const result = await loginAdmin(app.prisma, app.redis, {
@@ -41,7 +42,7 @@ export async function adminAuthRoutes(app: FastifyInstance) {
   })
 
   app.post(`${prefix}/forgot-password`, {
-    config: { rateLimit: { max: 3, timeWindow: '1 hour' } },
+    config: { rateLimit: routeRateLimit('forgotPassword') },
   }, async (req, reply) => {
     const { email } = z.object({ email: emailSchema }).parse(req.body)
     await forgotPasswordAdmin(app.prisma, app.redis, email)

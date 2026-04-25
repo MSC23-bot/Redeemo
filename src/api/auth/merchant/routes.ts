@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { emailSchema, passwordSchema, deviceSchema } from '../../shared/schemas'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
+import { routeRateLimit } from '../../plugins/rate-limit'
 import {
   loginMerchant, verifyMerchantOtp, refreshMerchantToken,
   logoutMerchant, forgotPasswordMerchant, resetPasswordMerchant,
@@ -12,7 +13,7 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/auth'
 
   app.post(`${prefix}/login`, {
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    config: { rateLimit: routeRateLimit('login') },
   }, async (req, reply) => {
     const body = z.object({
       email:    emailSchema,
@@ -59,7 +60,7 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
   })
 
   app.post(`${prefix}/forgot-password`, {
-    config: { rateLimit: { max: 3, timeWindow: '1 hour' } },
+    config: { rateLimit: routeRateLimit('forgotPassword') },
   }, async (req, reply) => {
     const { email } = z.object({ email: emailSchema }).parse(req.body)
     await forgotPasswordMerchant(app.prisma, app.redis, email)

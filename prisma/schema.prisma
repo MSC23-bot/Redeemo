@@ -124,6 +124,8 @@ model User {
   phoneVerified        Boolean    @default(false)
   marketingConsentAt   DateTime?
   stripeCustomerId     String?    @unique  // set on first setup-intent call, reused on subsequent calls
+  onboardingCompletedAt     DateTime?
+  subscriptionPromptSeenAt  DateTime?
 
   ssoProviders         UserSsoProvider[]
   interests            UserInterest[]

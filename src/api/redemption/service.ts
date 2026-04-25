@@ -75,6 +75,17 @@ export async function createRedemption(
     throw new AppError('SUBSCRIPTION_REQUIRED')
   }
 
+  // 4a. Phone-verified guard — required since phone verification is part of app
+  //     onboarding (website users may still have unverified phones, but they
+  //     cannot redeem because redemption is mobile-only anyway).
+  const userRow = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { phoneVerified: true },
+  })
+  if (!userRow || !userRow.phoneVerified) {
+    throw new AppError('PHONE_NOT_VERIFIED')
+  }
+
   // 5. Voucher guard — must be ACTIVE + APPROVED, with merchant APPROVED
   const voucher = await prisma.voucher.findUnique({
     where: { id: data.voucherId },

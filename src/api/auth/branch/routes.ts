@@ -5,12 +5,13 @@ import {
   loginBranchUser, changePasswordFirstLogin, changePasswordBranchUser,
   refreshBranchToken, logoutBranchUser,
 } from './service'
+import { routeRateLimit } from '../../plugins/rate-limit'
 
 export async function branchAuthRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/branch/auth'
 
   app.post(`${prefix}/login`, {
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    config: { rateLimit: routeRateLimit('login') },
   }, async (req, reply) => {
     const body = z.object({
       email:    z.string().email(),

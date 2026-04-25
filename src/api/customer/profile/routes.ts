@@ -7,10 +7,14 @@ import {
   updateCustomerInterests,
   getAvailableInterests,
   changeCustomerPassword,
+  markOnboardingComplete,
+  markSubscriptionPromptSeen,
 } from './service'
 
 const updateProfileBody = z.object({
-  name:              z.string().min(1).max(100).optional(),
+  firstName:         z.string().min(1).max(50).optional(),
+  lastName:          z.string().min(1).max(50).optional(),
+  name:              z.string().min(1).max(100).optional(), // deprecated: legacy single-name field; prefer firstName
   dateOfBirth:       z.string().datetime({ offset: true }).optional(),
   gender:            z.string().max(30).optional(),
   addressLine1:      z.string().max(100).optional(),
@@ -66,6 +70,18 @@ export async function profileRoutes(app: FastifyInstance) {
   app.put(`${prefix}/interests`, async (req: FastifyRequest, reply) => {
     const { interestIds } = updateInterestsBody.parse(req.body)
     const result = await updateCustomerInterests(app.prisma, req.user.sub, interestIds)
+    return reply.send(result)
+  })
+
+  // POST /api/v1/customer/profile/onboarding-complete — one-shot, sets onboardingCompletedAt
+  app.post(`${prefix}/onboarding-complete`, async (req: FastifyRequest, reply) => {
+    const result = await markOnboardingComplete(app.prisma, req.user.sub)
+    return reply.send(result)
+  })
+
+  // POST /api/v1/customer/profile/subscription-prompt-seen — one-shot, sets subscriptionPromptSeenAt
+  app.post(`${prefix}/subscription-prompt-seen`, async (req: FastifyRequest, reply) => {
+    const result = await markSubscriptionPromptSeen(app.prisma, req.user.sub)
     return reply.send(result)
   })
 

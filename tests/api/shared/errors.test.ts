@@ -88,4 +88,9 @@ describe('AppError', () => {
     expect(err.code).toBe('BRANCH_UNAVAILABLE')
     expect(err.statusCode).toBe(404)
   })
+  it('ALREADY_VERIFIED produces correct error', () => {
+    const err = new AppError('ALREADY_VERIFIED')
+    expect(err.code).toBe('ALREADY_VERIFIED')
+    expect(err.statusCode).toBe(409)
+  })
 })

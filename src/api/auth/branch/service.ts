@@ -71,7 +71,7 @@ export async function loginBranchUser(
     'EX', 3600
   )
 
-  const accessToken = app.branchSign(
+  const accessToken = app.jwt.branch.sign(
     { sub: branchUser.id, role: 'branch', deviceId: data.deviceId, sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
@@ -116,7 +116,7 @@ export async function changePasswordFirstLogin(
     where: { id: branchUserId }, include: { branch: true },
   })
 
-  const accessToken = app.branchSign(
+  const accessToken = app.jwt.branch.sign(
     { sub: branchUserId, role: 'branch', deviceId: data.deviceId, sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
@@ -178,7 +178,7 @@ export async function refreshBranchToken(
     data:  { lastActiveAt: new Date() },
   })
 
-  const accessToken = app.branchSign(
+  const accessToken = app.jwt.branch.sign(
     { sub: data.entityId, role: 'branch', deviceId: parsed.deviceId, sessionId: data.sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )

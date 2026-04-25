@@ -139,7 +139,7 @@ async function completeMerchantLogin(
     'EX', 3600
   )
 
-  const accessToken = app.merchantSign(
+  const accessToken = app.jwt.merchant.sign(
     { sub: admin.id, role: 'merchant', deviceId: data.deviceId, sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
@@ -190,7 +190,7 @@ export async function refreshMerchantToken(
     data:  { lastActiveAt: new Date() },
   })
 
-  const accessToken = app.merchantSign(
+  const accessToken = app.jwt.merchant.sign(
     { sub: data.entityId, role: 'merchant', deviceId: parsed.deviceId, sessionId: data.sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )

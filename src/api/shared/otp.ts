@@ -4,6 +4,8 @@ import { RedisKey } from './redis-keys'
 
 const OTP_SEND_LIMIT = 3
 const OTP_SEND_WINDOW_SECONDS = 3600 // 1 hour
+const OTP_USER_SEND_LIMIT = 5
+const OTP_USER_SEND_WINDOW_SECONDS = 3600 // 1 hour — counts sends regardless of destination so number-swapping can't bypass
 const OTP_MAX_ATTEMPTS = 3
 const OTP_LOCK_SECONDS = 300 // 5 minutes
 
@@ -21,6 +23,18 @@ export async function recordOtpSend(redis: Redis, phone: string): Promise<void> 
   const key = RedisKey.rateLimitOtpSend(phone)
   await redis.incr(key)
   await redis.expire(key, OTP_SEND_WINDOW_SECONDS)
+}
+
+export async function checkOtpUserRateLimit(redis: Redis, userId: string): Promise<boolean> {
+  const key = RedisKey.rateLimitOtpSendUser(userId)
+  const count = await redis.get(key)
+  return count === null || parseInt(count, 10) < OTP_USER_SEND_LIMIT
+}
+
+export async function recordOtpUserSend(redis: Redis, userId: string): Promise<void> {
+  const key = RedisKey.rateLimitOtpSendUser(userId)
+  await redis.incr(key)
+  await redis.expire(key, OTP_USER_SEND_WINDOW_SECONDS)
 }
 
 export async function sendOtp(phone: string): Promise<void> {
