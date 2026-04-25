@@ -1,0 +1,15 @@
+appId: com.redeemo.customer
+---
+- launchApp:
+    clearState: true
+- tapOn: "I already have an account"
+- tapOn:
+    text: "Email"
+    index: 0
+- inputText: "customer@redeemo.com"
+- tapOn: "Password"
+- inputText: "Customer1234!"
+- tapOn: "Sign in"
+- assertVisible:
+    text: "Welcome to Redeemo"
+    timeout: 15000
