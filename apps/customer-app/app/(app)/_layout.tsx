@@ -2,16 +2,16 @@ import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Redirect, Tabs, useSegments } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Home } from 'lucide-react-native'
 import { useAuthStore } from '@/stores/auth'
 import { resolveRedirect } from '@/lib/routing'
 import { color, spacing } from '@/design-system'
+import { Home } from '@/design-system/icons'
 
 function HomeIcon({ focused }: { focused: boolean }) {
   return (
     <View style={styles.iconWrapper}>
       {focused && <View style={styles.activeDot} />}
-      <Home size={22} color="#FFFFFF" style={{ opacity: focused ? 1 : 0.55 }} />
+      <Home size={22} color={color.onBrand} style={{ opacity: focused ? 1 : 0.55 }} />
     </View>
   )
 }
@@ -47,17 +47,15 @@ export default function AppLayout() {
         },
         tabBarBackground: () => (
           <LinearGradient
-            colors={[color.brandRose, '#D10A03', color.brandCoral]}
+            colors={color.navGradient}
             locations={[0, 0.4, 1]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
         ),
-        tabBarActiveTintColor: '#FFFFFF',
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.55)',
-        tabBarLabelStyle: { fontSize: 9.5, fontFamily: 'Lato-SemiBold', marginTop: -2 },
-        tabBarItemStyle: { paddingTop: spacing[2], paddingBottom: 28 },
+        tabBarActiveTintColor: color.onBrand,
+        tabBarItemStyle: { paddingTop: spacing[2], paddingBottom: spacing[7] },
       }}
     >
       <Tabs.Screen
@@ -79,6 +77,6 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: color.onBrand,
   },
 })
