@@ -200,7 +200,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - 68+ tests passing; tsc/eslint clean
 - Plan: `docs/superpowers/plans/2026-04-15-customer-app-foundations-auth.md`
 
-### ✅ Phase 3C.1b — Customer App Home + Discovery + Map (COMPLETE — branch feature/customer-app)
+### Phase 3C.1b — Customer App Home + Discovery + Map (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - Home feed: featured merchants, trending merchants, nearby merchants
 - Map tab: interactive map with merchant pins, bottom sheet merchant cards
 - Search: full-text search with filters, categories, recent searches
@@ -208,7 +208,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - All using customer discovery backend APIs
 - Plan: `docs/superpowers/plans/2026-04-16-home-discovery-map.md`
 
-### ✅ Phase 3C.1c — Voucher Detail + Redemption (COMPLETE — branch feature/customer-app)
+### Phase 3C.1c — Voucher Detail + Redemption (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - Full coupon card design: header, perforation lines, body, terms
 - 12-state screen: free user, can redeem, redeemed, expired, time-limited variants
 - PIN entry sheet with error handling and lockout timer
@@ -221,7 +221,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Code-reviewed and all fixes applied
 - Plan: `docs/superpowers/plans/2026-04-16-voucher-detail-redemption.md`
 
-### ✅ Phase 3C.1d — Merchant Profile (COMPLETE — branch feature/customer-app)
+### Phase 3C.1d — Merchant Profile (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - Hero section with banner, logo, featured/trending badges, favourite toggle
 - Meta section: name, category, rating, distance, open status, action buttons
 - Sticky tab bar: Vouchers / About / Branches / Reviews
@@ -233,14 +233,14 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Code-reviewed and all fixes applied
 - Plan: `docs/superpowers/plans/2026-04-17-merchant-profile.md`
 
-### ✅ Phase 3C.1e — Subscription Status Integration (COMPLETE — branch feature/customer-app)
+### Phase 3C.1e — Subscription Status Integration (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - `useSubscription()` hook with React Query calling `GET /api/v1/subscription/me`
 - Zod safeParse for graceful null handling (free users)
 - `isSubLoading` flag prevents CTA flash during fetch
 - Wired into MerchantProfileScreen + VoucherDetailScreen
 - ACTIVE/TRIALLING = subscribed; PAST_DUE excluded (backend rejects, user sees subscribe CTA)
 
-### ✅ Phase 3C.1f — Savings Tab (COMPLETE — branch feature/customer-app)
+### Phase 3C.1f — Savings Tab (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - Backend: `validatedAt` added to savings redemptions response + new `GET /api/v1/customer/savings/monthly-detail?month=YYYY-MM` endpoint
 - API client (`src/lib/api/savings.ts`): full typed client with 3 endpoints (summary, redemptions with pagination, monthly-detail)
 - Hooks: `useSavingsSummary`, `useSavingsRedemptions` (infinite query), `useMonthlyDetail`, `useCountUp` (reanimated)
@@ -256,7 +256,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Spec: `docs/superpowers/specs/2026-04-18-savings-tab-design.md`
 - Plan: `docs/superpowers/plans/2026-04-18-savings-tab.md`
 
-### ✅ Phase 3C.1g — Favourites Screen (COMPLETE — branch feature/customer-app)
+### Phase 3C.1g — Favourites Screen (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - Backend: `listFavouriteMerchants` and `listFavouriteVouchers` enriched with pagination, isOpen, avgRating, reviewCount, voucherCount, maxEstimatedSaving, isRedeemedInCurrentCycle; unavailable items included with status flag; sorted (open-first / suspended-last)
 - API client (`src/lib/api/favourites.ts`): typed client with getMerchants, getVouchers, addMerchant, removeMerchant, addVoucher, removeVoucher
 - Hooks: `useFavouriteMerchants`, `useFavouriteVouchers` (infinite queries), `useRemoveFavourite` (optimistic removal + undo)
@@ -265,7 +265,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - 23 component tests; 268 total frontend tests passing
 - Plan: `docs/superpowers/plans/2026-04-19-favourites-screen.md`
 
-### ✅ Phase 3C.1h — Profile Tab (COMPLETE — branch feature/customer-app)
+### Phase 3C.1h — Profile Tab (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - ProfileHeader: completeness bar, initials avatar, subscription badge
 - PersonalInfoSheet: read-only email/phone, editable name/DOB/gender
 - AddressSheet, InterestsSheet, ChangePasswordSheet
@@ -278,7 +278,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - EAS build config added (eas.json, app.config.ts, expo-build-properties, ITSAppUsesNonExemptEncryption)
 - Pending: device review via EAS build
 
-### ✅ Phase 3C.1i — QR Code Rendering (COMPLETE — branch feature/customer-app)
+### Phase 3C.1i — QR Code Rendering (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - Backend: `GET /api/v1/redemption/me/:code` (customer self-lookup) + `POST /api/v1/redemption/:code/screenshot-flag` (dedup, pre-validation gate)
 - `react-native-qrcode-svg`, `expo-brightness`, `expo-screen-capture`, `expo-blur` installed
 - `formatCode()` + `codeAccessibilityLabel()` helpers (3+3 grouping for 6-char codes)
@@ -294,6 +294,74 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - 85 frontend tests passing; 264 backend tests passing; ESLint clean
 - Spec: `docs/superpowers/specs/2026-04-22-qr-code-rendering-design.md`
 - Plan: `docs/superpowers/plans/2026-04-22-qr-code-rendering.md`
+
+### 🔒 Customer Flow — Locked Baseline v1.0 (2026-04-25)
+The customer onboarding + auth + subscription flow is now locked. Single source of truth for the as-built behaviour:
+
+- **Current spec:** `docs/customer-flow-current.md` — versioned, status `Locked`, covers login, registration, email/phone verification, profile completion (PC1–PC4), onboarding success, subscription prompt, `resolveRedirect` rules, and free vs premium placeholder behaviour.
+- **Change log:** `docs/customer-flow-changelog.md` — dated entries for every behaviour/logic/routing change. Visual styling iterations are NOT tracked here.
+
+**Rules going forward:**
+- Any change to the flows above MUST bump the version number at the top of `customer-flow-current.md` and add a dated entry in `customer-flow-changelog.md`.
+- The §11 "Deviations from Initial Spec" table in the current spec is the canonical list of deltas against `docs/superpowers/specs/2026-04-10-customer-ux-foundations-design.md`. Update it when a deviation closes or a new one opens.
+- Subscription prompt placeholder behaviour is locked: "Explore full access" → `Alert.alert('Coming soon', …)`, NO `markSubscriptionPromptSeen`, NO navigation. "Start with free access" is the only path that stamps the flag and routes to `/(app)/`. Do not collapse the two CTAs without a new design review.
+
+### ✅ Phase 3C — Device Review / Reconciliation (COMPLETE — 2026-04-24)
+Four-phase reconciliation pass against the approved specs after on-device review. Single ground-truth document captures every change, rationale, and file touched:
+**Plan: `docs/superpowers/plans/2026-04-24-reconciliation-phases-1-4.md`** — finalised baseline, do not revert without new design review. (Now superseded as the forward-facing reference by `docs/customer-flow-current.md`; the reconciliation plan remains the historical record of Phases 1–4.)
+
+Headline outcomes (full detail in the plan):
+- **Phase 1 (app).** Routing now driven entirely by server `/profile`; `(auth)/_layout` re-evaluates `resolveRedirect` on every render; subscribe-prompt stamps `subscriptionPromptSeenAt`.
+- **Phase 2 (web).** Register split into auth + profile + interests; login no longer blocks on unverified flags; `/verify` token flow added; `hydrateFromProfile` exposed in `AuthContext`.
+- **Phase 3 (web).** `VerificationBanners` — soft amber (email, with Resend) + blue (phone) banners, sessionStorage dismissal, pathname-scoped.
+- **Phase 4 (app + web).** Step auto-skipping via `firstIncompleteRequiredStep()`; canonical gender values (`female | male | non_binary | prefer_not_to_say`); retry-once + partial-save banner on web profile persistence; `SubscriptionNudge` component for non-subscribed web users.
+
+**Locked intentional asymmetry (do not collapse):** DOB/gender/postcode optional on web, mandatory on app (PC1 + PC2). Phone required at web register but verified only in app. Email verification hard-blocks in app, soft banner on web. `onboardingCompletedAt` + `subscriptionPromptSeenAt` are app-driven only.
+
+**Operating rule (historical, retained for future reconciliations):** no ad-hoc fixes — classify against spec → baseline → device behaviour, confirm priorities, implement in controlled batches. Per-issue template in the reconciliation plan.
+
+Test baselines after Phase 4: backend 282/282, app 350/350 (jest-expo), web tsc clean.
+
+### Customer app post-completion fixes (2026-04-23) — finalised baseline
+These fixes were applied after Phase 3C.1i and are part of the working baseline. They are not provisional.
+
+**Backend — Prisma Decimal serialization (impl bug, P1)**
+- `src/api/customer/discovery/service.ts` — coerce `estimatedSaving` → `Number` on voucher detail (line ~550) and merchant profile vouchers (line ~430).
+- `src/api/redemption/service.ts` — coerce `estimatedSaving` → `Number` on `redeem`, `listMyRedemptions`, `getMyRedemption`.
+- Root cause: Prisma Decimal serializes as string in JSON; client types declare `number`; `.toFixed` crashed.
+
+**Backend — Categories endpoint (impl bug, P1)**
+- `src/api/customer/discovery/routes.ts` — `GET /api/v1/customer/categories` returns `{ categories }` wrapper (not bare array).
+- `src/api/customer/discovery/service.ts` — `listActiveCategories` Prisma select includes `parentId` and `pinColour`.
+
+**Frontend — Auth rebuild to v7 brainstorm (spec alignment)**
+- `apps/customer-app/src/features/auth/screens/LoginScreen.tsx` — full rewrite: cream bg, small Redeemo logo, Apple/Google stubs, email + password (eye toggle), forgot-password link, gradient "Sign in" pill.
+- `apps/customer-app/src/features/auth/screens/RegisterScreen.tsx` — full rewrite: name row, email, password with 4-segment strength bar, phone, marketing consent, terms.
+
+**Frontend — Home CategoryGrid rebuild (spec alignment)**
+- `apps/customer-app/src/features/home/components/CategoryGrid.tsx` — 3-col liquid-glass grid; `LinearGradient` tiles; inline SVG icons; palette + `pinColour` fallback; purple "More" tile; `FadeInDown` stagger.
+
+**Frontend — Search rebuild (spec alignment)**
+- `apps/customer-app/src/features/search/components/SearchBar.tsx` — red SVG search icon, subtle red border, stronger shadow, circular grey clear button.
+- `apps/customer-app/src/features/search/components/TrendingSearches.tsx` — uppercase "TRENDING" + amber bolt; wrapping pill tags.
+- `apps/customer-app/src/features/search/components/SearchResultItem.tsx` — white card 12r, gradient fallback avatar, 12px name, 10px meta, save pill + open dot.
+- `apps/customer-app/src/features/search/screens/SearchScreen.tsx` — "Results for X" header with red `PulsingDot` + Loading text; card-style skeletons; empty state.
+
+**Frontend — Subscription recognition (impl bug, P1)**
+- `apps/customer-app/src/lib/api/subscription.ts` — `priceGbp: z.coerce.number()`. Prisma Decimal string was failing `z.number()` safeParse silently.
+- `apps/customer-app/src/features/voucher/components/CouponHeader.tsx` — defensive `Number(estimatedSaving).toFixed(2)`.
+
+**Frontend — Voucher detail + keyboard handling (impl bug, P1/P2)**
+- `apps/customer-app/app/(app)/_layout.tsx` — `tabBarStyle: { display: 'none' }` on `voucher/[id]` and `merchant/[id]` so the sticky Redeem CTA is not hidden behind the 80px tab bar.
+- `apps/customer-app/src/design-system/motion/BottomSheet.tsx` — listens to `keyboardWillShow/keyboardDidShow` and shifts `bottom: keyboardHeight`; sheet `zIndex: layer.overlay + 1` so the scrim (z=50) does not paint over the sheet when the keyboard lifts.
+- `apps/customer-app/src/features/voucher/components/PinEntrySheet.tsx` — auto-submits on 4th digit; `submittedRef` dedup guard prevents duplicate fire; clears `digits` on sheet hide.
+
+**Dev tooling scripts**
+- `prisma/grant-dev-subscription.ts` — grants 1-year ACTIVE monthly subscription to `customer@redeemo.com`. Stripe-free (uses nullable Stripe fields). Run: `npx tsx prisma/grant-dev-subscription.ts`.
+- `prisma/get-branch-pin.ts` — decrypts and prints branch PINs by merchant-name search. Run: `npx tsx prisma/get-branch-pin.ts "old foundry"`. Note: seed default PIN for all branches is `1234`.
+- `prisma/set-auth-state.ts` — flips a user's verification flags + status to exercise login auth-error UX without real email/SMS/admin. Modes: `verified` (restore), `email-unverified`, `phone-unverified`, `inactive`, `suspended`. Run: `npx tsx prisma/set-auth-state.ts <email> <mode>`. Always restore with `verified` before moving on.
+- `prisma/issue-reset-token.ts` — writes a real password-reset token into Redis (`pwd-reset:customer:<token>`) with configurable TTL so the reset-password flow can be tested without live email. Run: `npx tsx prisma/issue-reset-token.ts <email> [ttlSeconds=3600]`. Prints web + app deep links. For the expired/invalid path use any bogus token — Redis miss → `RESET_TOKEN_EXPIRED`.
+- UI-only auth cases (no script needed): `EMAIL_ALREADY_EXISTS` → register with a seeded email; `PASSWORD_POLICY_VIOLATION` → register with a weak password; `RESET_TOKEN_EXPIRED` → open reset link with `?token=nope`.
 
 ### 🔲 Phase 3C (remaining) — Subscribe flow only
 - Subscribe flow — iOS requires Apple IAP (Stripe cannot be used inside iOS app). Android could use Stripe or Google Play Billing. Deferred pending IAP decision.
@@ -388,6 +456,8 @@ After moving off iCloud and switching to Node 20.19.4, jest-expo runs normally f
 
 | File | Purpose |
 |---|---|
+| `docs/customer-flow-current.md` | 🔒 Customer flow locked baseline (v1.0) — login, register, verification, PC1–PC4, onboarding success, subscription prompt, `resolveRedirect`, free vs premium placeholder |
+| `docs/customer-flow-changelog.md` | Customer flow change log — dated behaviour/logic/routing changes |
 | `prisma/schema.prisma` | Complete database schema — source of truth |
 | `prisma/seed.ts` | Dev seed script |
 | `prisma.config.ts` | Prisma 7 config (datasource URL, seed command) |
@@ -403,6 +473,11 @@ After moving off iCloud and switching to Node 20.19.4, jest-expo runs normally f
 | `docs/superpowers/plans/2026-04-18-savings-tab.md` | Savings tab implementation plan (13 tasks) |
 | `docs/superpowers/specs/2026-04-22-qr-code-rendering-design.md` | QR code rendering UX spec |
 | `docs/superpowers/plans/2026-04-22-qr-code-rendering.md` | QR code rendering implementation plan |
+| `docs/superpowers/plans/2026-04-24-reconciliation-phases-1-4.md` | Phase 3C reconciliation (Phases 1–4) — finalised baseline: routing, verification, gender normalisation, subscription nudge |
+| `apps/customer-web/components/layout/VerificationBanners.tsx` | Soft email + phone verification banners for web (Phase 3) |
+| `apps/customer-web/components/layout/SubscriptionNudge.tsx` | Soft subscription nudge for non-subscribed web users (Phase 4) |
+| `apps/customer-app/src/lib/routing.ts` | `resolveRedirect` + `firstIncompleteRequiredStep` — single source of routing truth |
+| `apps/customer-app/src/features/profile-completion/hooks/useProfileCompletion.ts` | Step auto-skipping via `nextRouteAfter` (Phase 4) |
 | `apps/customer-app/src/design-system/icons.ts` | Lucide icon re-export barrel (avoids barrel import ESLint rule in components) |
 | `apps/customer-app/src/design-system/motion/PulsingDot.tsx` | Pulsing dot animation primitive (withRepeat lives only in design-system) |
 | `apps/customer-app/src/features/voucher/components/QRCodeBlock.tsx` | Shared QR code component (hero + compact, blur state, a11y label) |
