@@ -428,6 +428,10 @@ export async function getCustomerMerchant(
 
   return {
     ...merchant,
+    vouchers: merchant.vouchers.map((v: any) => ({
+      ...v,
+      estimatedSaving: Number(v.estimatedSaving),
+    })),
     about:       merchant.description,
     subcategory: subcategory ? { id: subcategory.id, name: subcategory.name } : null,
     avgRating,
@@ -542,7 +546,12 @@ export async function getCustomerVoucher(
     isFavourited = fav !== null
   }
 
-  return { ...voucher, isRedeemedThisCycle, isFavourited }
+  return {
+    ...voucher,
+    estimatedSaving: Number(voucher.estimatedSaving),
+    isRedeemedThisCycle,
+    isFavourited,
+  }
 }
 
 // ─── Search ───────────────────────────────────────────────────────────────────
@@ -742,7 +751,7 @@ export async function listActiveCategories(prisma: PrismaClient) {
       isActive: true,
       merchants: { some: { merchant: { status: MerchantStatus.ACTIVE } } },
     },
-    select: { id: true, name: true, iconUrl: true, illustrationUrl: true },
+    select: { id: true, name: true, iconUrl: true, illustrationUrl: true, parentId: true, pinColour: true },
     orderBy: { sortOrder: 'asc' },
   })
 }

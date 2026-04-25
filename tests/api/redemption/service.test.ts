@@ -202,6 +202,7 @@ describe('createRedemption', () => {
     const redemption = {
       id: 'r1', redemptionCode: 'TESTCODE123', voucherId: 'v1',
       branchId: 'b1', redeemedAt: new Date(), isValidated: false,
+      estimatedSaving: 5.00,
     }
     prisma.$transaction.mockResolvedValue(redemption)
 
@@ -211,7 +212,7 @@ describe('createRedemption', () => {
 
     expect(prisma.$transaction).toHaveBeenCalled()
     expect(redis.del).toHaveBeenCalled()
-    expect(result).toEqual(redemption)
+    expect(result).toEqual({ ...redemption, estimatedSaving: Number(redemption.estimatedSaving) })
   })
 
   it('PIN failure at branch A does not block at branch B', async () => {
@@ -460,13 +461,14 @@ describe('listMyRedemptions', () => {
     const prisma = mockPrisma()
     const redemptions = [
       { id: 'r1', redemptionCode: 'CODE1', redeemedAt: new Date(), isValidated: false,
+        estimatedSaving: 5.00,
         voucher: { id: 'v1', title: 'Test', merchant: { businessName: 'Acme', logoUrl: null } },
         branch: { id: 'b1', name: 'Main Branch' } },
     ]
     prisma.voucherRedemption.findMany.mockResolvedValue(redemptions)
 
     const result = await listMyRedemptions(prisma, 'user-1', { limit: 10, offset: 0 })
-    expect(result).toEqual(redemptions)
+    expect(result).toEqual(redemptions.map((r) => ({ ...r, estimatedSaving: Number(r.estimatedSaving) })))
     expect(prisma.voucherRedemption.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { userId: 'user-1' },
       take: 10,
@@ -485,11 +487,11 @@ describe('getMyRedemption', () => {
 
   it('returns redemption with voucher and branch details', async () => {
     const prisma = mockPrisma()
-    const redemption = { id: 'r1', userId: 'user-1', redemptionCode: 'CODE1' }
+    const redemption = { id: 'r1', userId: 'user-1', redemptionCode: 'CODE1', estimatedSaving: 5.00 }
     prisma.voucherRedemption.findUnique.mockResolvedValue(redemption)
 
     const result = await getMyRedemption(prisma, 'user-1', 'r1')
-    expect(result).toEqual(redemption)
+    expect(result).toEqual({ ...redemption, estimatedSaving: Number(redemption.estimatedSaving) })
   })
 })
 

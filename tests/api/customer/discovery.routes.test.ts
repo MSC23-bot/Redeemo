@@ -342,8 +342,8 @@ describe('discovery routes', () => {
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(Array.isArray(body)).toBe(true)
-    expect(body[0].id).toBe('cat-1')
+    expect(Array.isArray(body.categories)).toBe(true)
+    expect(body.categories[0].id).toBe('cat-1')
     expect(listActiveCategories).toHaveBeenCalledOnce()
   })
 

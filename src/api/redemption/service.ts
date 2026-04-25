@@ -168,7 +168,7 @@ export async function createRedemption(
     metadata: { voucherId: data.voucherId, branchId: data.branchId, redemptionCode },
   })
 
-  return redemption
+  return { ...redemption, estimatedSaving: Number(redemption.estimatedSaving) }
 }
 
 export async function verifyRedemption(
@@ -228,7 +228,7 @@ export async function listMyRedemptions(
   userId: string,
   pagination: { limit: number; offset: number }
 ) {
-  return prisma.voucherRedemption.findMany({
+  const rows = await prisma.voucherRedemption.findMany({
     where:   { userId },
     orderBy: { redeemedAt: 'desc' },
     take:    pagination.limit,
@@ -238,6 +238,7 @@ export async function listMyRedemptions(
       branch:  { select: { id: true, name: true } },
     },
   })
+  return rows.map((r) => ({ ...r, estimatedSaving: Number(r.estimatedSaving) }))
 }
 
 export async function getMyRedemption(
@@ -253,7 +254,7 @@ export async function getMyRedemption(
     },
   })
   if (!redemption || redemption.userId !== userId) throw new AppError('REDEMPTION_NOT_FOUND')
-  return redemption
+  return { ...redemption, estimatedSaving: Number(redemption.estimatedSaving) }
 }
 
 export async function listBranchRedemptions(
