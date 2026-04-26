@@ -3,7 +3,8 @@ import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { Eye, EyeOff, ArrowLeft, CheckCircle2, Check, MapPin, Loader2, X } from 'lucide-react'
-import { authApi, ApiError } from '@/lib/api'
+import { authApi, profileApi, ApiError } from '@/lib/api'
+import { saveTokens, saveUser } from '@/lib/auth'
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
 
@@ -155,6 +156,7 @@ function ErrorBanner({ message }: { message: string }) {
 export function RegisterForm() {
   const [step, setStep] = useState(0)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [partialSave, setPartialSave] = useState(false)
   const direction = useRef<1 | -1>(1)
 
   // Step 0 — credentials
@@ -166,9 +168,11 @@ export function RegisterForm() {
   // Step 1 — about you
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [phone, setPhone] = useState('')
   const [dob, setDob] = useState('')
   const [gender, setGender] = useState('')
   const [marketingConsent, setMarketingConsent] = useState(false)
+
   // Postcode lookup
   const [postcode, setPostcode] = useState('')
   const [postcodeState, setPostcodeState] = useState<PostcodeState>('idle')
@@ -246,6 +250,9 @@ export function RegisterForm() {
   const validateStep1 = (): string | null => {
     if (!firstName.trim()) return 'Please enter your first name.'
     if (!lastName.trim()) return 'Please enter your last name.'
+    if (!/^\+[1-9]\d{7,14}$/.test(phone.trim())) {
+      return 'Please enter a valid phone number with country code (e.g. +447700900000).'
+    }
     return null
   }
 
@@ -267,26 +274,52 @@ export function RegisterForm() {
     setIsLoading(true)
     const interestsToSave = interestsOverride ?? selectedInterests
     try {
-      await authApi.register({ email, password, firstName, lastName, marketingConsent })
-      // Persist pending data for post-login profile update
-      if (interestsToSave.size > 0) {
-        localStorage.setItem('redeemo_pending_interests', JSON.stringify([...interestsToSave]))
-      }
-      const pendingProfile: Record<string, string> = {}
-      if (dob) pendingProfile.dateOfBirth = new Date(dob).toISOString()
-      if (gender) pendingProfile.gender = gender
+      const res = await authApi.register({ email, password, firstName, lastName, phone, marketingConsent })
+      saveTokens(res.accessToken, res.refreshToken)
+      saveUser(res.user)
+
+      // Persist the rest of the onboarding data straight to the backend (no localStorage).
+      const profilePatch: Record<string, string | boolean> = { newsletterConsent: marketingConsent }
+      if (dob) profilePatch.dateOfBirth = new Date(dob).toISOString()
+      if (gender) profilePatch.gender = gender
       if (postcode && postcodeState === 'valid') {
-        pendingProfile.postcode = postcode
-        if (postcodeArea) pendingProfile.city = postcodeArea
+        profilePatch.postcode = postcode
+        if (postcodeArea) profilePatch.city = postcodeArea
       }
-      if (Object.keys(pendingProfile).length > 0) {
-        localStorage.setItem('redeemo_pending_profile', JSON.stringify(pendingProfile))
+
+      // Retry once on failure, then surface a non-blocking partial-save notice.
+      // Registration itself already succeeded — never block the user here.
+      let anyFailed = false
+      const retryOnce = async (fn: () => Promise<unknown>): Promise<boolean> => {
+        try { await fn(); return true } catch {
+          try { await fn(); return true } catch { return false }
+        }
       }
+
+      const profileOk = await retryOnce(() => profileApi.update(profilePatch))
+      if (!profileOk) anyFailed = true
+
+      if (interestsToSave.size > 0) {
+        const interestsOk = await retryOnce(async () => {
+          const { interests: avail } = await profileApi.listAvailableInterests()
+          const byName = new Map(avail.map((i) => [i.name.toLowerCase(), i.id]))
+          const ids = [...interestsToSave]
+            .map((n) => byName.get(n.toLowerCase()))
+            .filter((id): id is string => typeof id === 'string')
+          if (ids.length > 0) await profileApi.updateInterests(ids)
+        })
+        if (!interestsOk) anyFailed = true
+      }
+
+      if (anyFailed) setPartialSave(true)
       setIsSuccess(true)
     } catch (err) {
       const code = err instanceof ApiError ? (err.code ?? '') : ''
       if (code === 'EMAIL_ALREADY_EXISTS') {
         setError('An account with that email already exists. Try signing in instead.')
+      } else if (code === 'PHONE_ALREADY_EXISTS') {
+        setError('This phone number is already linked to another account. Please use a different number.')
+        goTo(1)
       } else if (code === 'PASSWORD_POLICY_VIOLATION') {
         setError('Password must be at least 8 characters with a number and uppercase letter.')
       } else {
@@ -343,11 +376,19 @@ export function RegisterForm() {
           transition={{ delay: 0.22, duration: 0.4, ease }}
         >
           <h2 className="font-display text-[32px] text-navy leading-tight mb-2">You&apos;re in.</h2>
-          <p className="text-[15px] text-navy/50 leading-relaxed max-w-[300px] mx-auto">
+          <p className="text-[15px] text-navy/50 leading-relaxed max-w-[340px] mx-auto">
             We&apos;ve sent a verification link to{' '}
             <strong className="text-navy font-semibold">{email}</strong>.
-            Click it to activate your account.
+            Click it, then open the Redeemo app to verify your mobile number and finish setting up.
           </p>
+          {partialSave && (
+            <p
+              role="status"
+              className="mt-4 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 max-w-[340px] mx-auto"
+            >
+              Some details couldn&apos;t be saved. You can complete them later from your profile.
+            </p>
+          )}
         </motion.div>
 
         <motion.div
@@ -559,6 +600,27 @@ export function RegisterForm() {
                 ))}
               </div>
 
+              {/* Phone */}
+              <div>
+                <label htmlFor="phone" className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2">
+                  Mobile number
+                </label>
+                <input
+                  id="phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value.replace(/[^\d+]/g, ''))}
+                  placeholder="+447700900000"
+                  required
+                  className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition"
+                />
+                <p className="text-[11px] text-navy/35 mt-2 leading-relaxed">
+                  We&apos;ll send a verification code by SMS. Include the country code (e.g. +44 for the UK).
+                </p>
+              </div>
+
               {/* DOB + Gender */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -592,10 +654,11 @@ export function RegisterForm() {
                     onChange={e => setGender(e.target.value)}
                     className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition appearance-none"
                   >
-                    <option value="">Prefer not to say</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Non-binary">Non-binary</option>
+                    <option value="" disabled>Select (optional)</option>
+                    <option value="female">Female</option>
+                    <option value="male">Male</option>
+                    <option value="non_binary">Non-binary</option>
+                    <option value="prefer_not_to_say">Prefer not to say</option>
                   </select>
                 </div>
               </div>

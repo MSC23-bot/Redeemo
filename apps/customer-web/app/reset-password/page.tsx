@@ -39,7 +39,7 @@ function ResetPasswordForm() {
       setDone(true)
     } catch (err: unknown) {
       const code = err instanceof ApiError ? err.code ?? '' : ''
-      if (code === 'TOKEN_INVALID' || code === 'TOKEN_EXPIRED') {
+      if (code === 'RESET_TOKEN_INVALID' || code === 'RESET_TOKEN_EXPIRED') {
         setError('This reset link has expired or already been used. Please request a new one.')
       } else if (code === 'PASSWORD_POLICY_VIOLATION') {
         setError('Password must be at least 8 characters and include a number and uppercase letter.')

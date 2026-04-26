@@ -110,17 +110,13 @@ export async function registerCustomer(
     prisma.user.findUnique({ where: { phone: data.phone } }),
   ])
 
-  // If the matching account was never email-verified, the user abandoned a
-  // previous registration attempt. Delete it so they can start fresh.
-  if (emailExisting) {
-    if (emailExisting.emailVerified) throw new AppError('EMAIL_ALREADY_EXISTS')
-    await prisma.user.delete({ where: { id: emailExisting.id } })
-  }
-  // phoneExisting may be the same record we just deleted above — skip it if so.
-  if (phoneExisting && phoneExisting.id !== emailExisting?.id) {
-    if (phoneExisting.emailVerified) throw new AppError('PHONE_ALREADY_EXISTS')
-    await prisma.user.delete({ where: { id: phoneExisting.id } })
-  }
+  // Reject collisions outright. Users with abandoned unverified registrations
+  // must continue from their existing record (resend verification email, then
+  // sign in) rather than have their row silently destroyed by a colliding
+  // registration — that path is a takeover primitive once a verified phone
+  // number is leaked.
+  if (emailExisting) throw new AppError('EMAIL_ALREADY_EXISTS')
+  if (phoneExisting) throw new AppError('PHONE_ALREADY_EXISTS')
 
   const passwordHash = await hashPassword(data.password)
   const user = await prisma.user.create({
