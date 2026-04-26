@@ -14,3 +14,13 @@ coverage/
 .vscode/
 .idea/
 .worktrees/
+
+# Tooling scratch / session state
+.claude/
+.superpowers/
+graphify-out/
+
+# Brand assets — large reference package; keep out of the repo until a
+# dedicated artefact store (S3 / R2 / Git LFS) is chosen. See workspace
+# hygiene audit, 2026-04-26.
+docs/branding/
