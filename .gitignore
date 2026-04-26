@@ -16,7 +16,10 @@ coverage/
 .worktrees/
 
 # Tooling scratch / session state
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
 .superpowers/
 graphify-out/
 

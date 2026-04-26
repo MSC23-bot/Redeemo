@@ -451,6 +451,41 @@ For any new worktree at `.worktrees/<name>/`:
 rm -f .worktrees/<name>/CLAUDE.md && ln -s ../../CLAUDE.md .worktrees/<name>/CLAUDE.md
 ```
 
+## Workflow Hooks (v1 — high-risk Git rules only)
+
+Project-level Claude Code hooks at `.claude/settings.json` + `.claude/hooks/pre-bash/01-git-safety.sh` enforce a small set of high-risk Git rules inside the Bash tool. The hook runs as a `PreToolUse` step on every Bash invocation; it inspects the command, then either blocks (exit 2 with an instructive message) or allows (exit 0, optionally with a stderr warning).
+
+**Blocked commands:**
+
+| Pattern | Override |
+|---|---|
+| `git add . / -A / --all / *` | (no override — use explicit paths) |
+| `git push origin main` (any refspec where destination is `main`) | (no override — open a PR via `gh pr create`) |
+| `git push --force` / `-f` (without `--force-with-lease`) | (no override — use `--force-with-lease`) |
+| `git reset --hard` | `REDEEMO_CONFIRM_HARD_RESET=1` |
+| `git clean -f / -d / -x / --force` | `REDEEMO_CONFIRM_GIT_CLEAN=1` |
+| `gh pr merge` without scope verification | `REDEEMO_PR_SCOPE_VERIFIED=<head-sha>` (run `gh api compare` first; the env var binds to the PR's current head SHA so the gate re-blocks if a new commit lands between verification and merge) |
+
+**Warned (printed to stderr, not blocked):**
+
+- `npm install` — `package-lock.json` may change; verify diff before staging
+- `git commit` with > 30 files staged — confirm scope before committing
+- `git push` when local `main` is ahead of `origin/main` — those commits will ride along on a feature branch built off local main; verify scope via `git log --oneline origin/main..HEAD`
+
+**Override usage:**
+
+Set the named env var on the same command line as the blocked command, never as a session-level export:
+```bash
+REDEEMO_CONFIRM_HARD_RESET=1 git reset --hard origin/main
+REDEEMO_PR_SCOPE_VERIFIED=$(gh pr view 5 --json headRefOid --jq .headRefOid) gh pr merge 5 --merge
+```
+
+For per-user persistent overrides (rare), edit `.claude/settings.local.json` (gitignored) — never disable the shared `.claude/settings.json` without owner approval.
+
+**Dependencies:** the hook script requires `jq` (macOS Homebrew default) plus `git` and `gh` (already required for project workflow). If `jq` is missing the hook prints a one-line warning and no-ops.
+
+**Updating hooks:** changes to `.claude/settings.json` or `.claude/hooks/**` go via PR like any other code. v1 covers only the high-risk rules above; pre-commit / pre-push / pre-merge full checklists and session-start checks are deferred to future PR B and PR C.
+
 ## Running Locally
 
 Two terminal tabs required simultaneously:
