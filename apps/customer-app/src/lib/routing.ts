@@ -7,7 +7,12 @@ const stepToRoute: Record<string, string> = {
   pc4: 'avatar',
 }
 
-type MinUser = { emailVerified: boolean; phoneVerified: boolean }
+type MinUser = {
+  emailVerified: boolean
+  phoneVerified: boolean
+  onboardingCompletedAt: string | null
+  subscriptionPromptSeenAt: string | null
+}
 
 export function resolveRedirect(input: {
   status: AuthStatus
@@ -24,17 +29,22 @@ export function resolveRedirect(input: {
   if (status === 'authed' && user && onboarding) {
     if (!user.emailVerified) return currentSegment === 'verify-email' ? null : '/(auth)/verify-email'
     if (!user.phoneVerified) return currentSegment === 'verify-phone' ? null : '/(auth)/verify-phone'
-    if (onboarding.profileCompletion === 'completed' || onboarding.profileCompletion === 'dismissed') {
-      if (currentGroup === 'auth') return '/(app)'
+    const profileInProgress =
+      onboarding.profileCompletion === 'not_started' || onboarding.profileCompletion === 'in_progress'
+    const isOnProfileCompletion = currentSegment?.startsWith('profile-completion') ?? false
+    if (profileInProgress && currentGroup === 'auth' && !isOnProfileCompletion) {
+      const step = onboarding.furthestStep === 'done' ? 'pc1' : onboarding.furthestStep
+      const route = stepToRoute[step] ?? 'about'
+      return `/(auth)/profile-completion/${route}`
     }
-    if (onboarding.profileCompletion === 'not_started' || onboarding.profileCompletion === 'in_progress') {
-      const isOnProfileCompletion = currentSegment?.startsWith('profile-completion')
-      if (currentGroup === 'auth' && !isOnProfileCompletion) {
-        const step = onboarding.furthestStep === 'done' ? 'pc1' : onboarding.furthestStep
-        const route = stepToRoute[step] ?? 'about'
-        return `/(auth)/profile-completion/${route}`
-      }
+    if (!user.onboardingCompletedAt) {
+      if (isOnProfileCompletion) return null
+      return currentSegment === 'onboarding-success' ? null : '/(auth)/onboarding-success'
     }
+    if (!user.subscriptionPromptSeenAt) {
+      return currentSegment === 'subscription-prompt' ? null : '/(auth)/subscription-prompt'
+    }
+    if (currentGroup === 'auth') return '/(app)'
   }
   return null
 }

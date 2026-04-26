@@ -23,6 +23,8 @@ export type MinimalUser = {
   phone: string
   emailVerified: boolean
   phoneVerified: boolean
+  onboardingCompletedAt: string | null
+  subscriptionPromptSeenAt: string | null
 }
 
 type SetTokensInput = {
@@ -49,6 +51,8 @@ type State = {
   advanceProfileStep: (step: ProfileStep) => Promise<void>
   markProfileCompletion: (status: ProfileCompletionStatus) => Promise<void>
   markPhoneVerifiedOnce: () => Promise<void>
+  markOnboardingCompleteNow: () => Promise<void>
+  markSubscriptionPromptSeenNow: () => Promise<void>
   setHaptics: (enabled: boolean) => void
   setMotionScale: (scale: 0 | 1) => void
   __resetForTests: () => Promise<void>
@@ -115,6 +119,8 @@ export const useAuthStore = create<State>((set, get) => ({
         phone: me.phone ?? '',
         emailVerified: me.emailVerified,
         phoneVerified: me.phoneVerified,
+        onboardingCompletedAt: me.onboardingCompletedAt,
+        subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
       }
       const onboarding = await loadOnboarding(me.id)
       set({ status: 'authed', user: minimal, accessToken: access, refreshToken: refresh, onboarding })
@@ -152,8 +158,24 @@ export const useAuthStore = create<State>((set, get) => ({
     await secureStorage.set('accessToken', accessToken)
     await secureStorage.set('refreshToken', refreshToken)
     apiSetTokens({ accessToken, refreshToken })
+    // Hydrate server-side onboarding flags from /profile so resolveRedirect
+    // can enforce the locked routing rules immediately after auth, without
+    // bouncing through the next render cycle. Fail-soft: if /profile errors,
+    // proceed with the caller-supplied user; the next layout render will
+    // re-attempt via bootstrap on the next launch.
+    let hydrated: MinimalUser = user
+    try {
+      const me = await profileApi.getMe()
+      hydrated = {
+        ...user,
+        emailVerified: me.emailVerified,
+        phoneVerified: me.phoneVerified,
+        onboardingCompletedAt: me.onboardingCompletedAt,
+        subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
+      }
+    } catch { /* keep caller-supplied user */ }
     const onboarding = await loadOnboarding(user.id)
-    set({ status: 'authed', user, accessToken, refreshToken, onboarding })
+    set({ status: 'authed', user: hydrated, accessToken, refreshToken, onboarding })
   },
 
   async updateOnboarding(patch) {
@@ -180,6 +202,20 @@ export const useAuthStore = create<State>((set, get) => ({
 
   async markPhoneVerifiedOnce() {
     await get().updateOnboarding({ phoneVerifiedAtLeastOnce: true })
+  },
+
+  async markOnboardingCompleteNow() {
+    const { onboardingCompletedAt } = await profileApi.markOnboardingComplete()
+    const current = get().user
+    if (!current) return
+    set({ user: { ...current, onboardingCompletedAt } })
+  },
+
+  async markSubscriptionPromptSeenNow() {
+    const { subscriptionPromptSeenAt } = await profileApi.markSubscriptionPromptSeen()
+    const current = get().user
+    if (!current) return
+    set({ user: { ...current, subscriptionPromptSeenAt } })
   },
 
   setHaptics(enabled) {

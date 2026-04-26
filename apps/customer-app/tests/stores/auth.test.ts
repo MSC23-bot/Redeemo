@@ -19,7 +19,11 @@ jest.mock('@/lib/api/auth', () => ({
   authApi: { logout: jest.fn(async () => ({ success: true })) },
 }))
 jest.mock('@/lib/api/profile', () => ({
-  profileApi: { getMe: jest.fn() },
+  profileApi: {
+    getMe: jest.fn(),
+    markOnboardingComplete: jest.fn(),
+    markSubscriptionPromptSeen: jest.fn(),
+  },
 }))
 jest.mock('@/design-system/haptics', () => ({
   setHapticsEnabled: jest.fn(),
@@ -28,6 +32,7 @@ jest.mock('@/design-system/haptics', () => ({
 
 import { useAuthStore } from '@/stores/auth'
 import { stepIndex } from '@/features/profile-completion/steps'
+import { profileApi } from '@/lib/api/profile'
 
 describe('auth store', () => {
   beforeEach(async () => {
@@ -42,7 +47,7 @@ describe('auth store', () => {
     await useAuthStore.getState().setTokens({
       accessToken: 'a',
       refreshToken: 'r',
-      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: false, phoneVerified: false },
+      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: false, phoneVerified: false, onboardingCompletedAt: null, subscriptionPromptSeenAt: null },
     })
     expect(useAuthStore.getState().status).toBe('authed')
     expect(useAuthStore.getState().user?.emailVerified).toBe(false)
@@ -51,7 +56,7 @@ describe('auth store', () => {
   it('syncVerificationState patches only provided fields', async () => {
     await useAuthStore.getState().setTokens({
       accessToken: 'a', refreshToken: 'r',
-      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: false, phoneVerified: false },
+      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: false, phoneVerified: false, onboardingCompletedAt: null, subscriptionPromptSeenAt: null },
     })
     await useAuthStore.getState().syncVerificationState({ emailVerified: true })
     expect(useAuthStore.getState().user?.emailVerified).toBe(true)
@@ -67,7 +72,7 @@ describe('auth store', () => {
   it('markProfileCompletion("dismissed") keeps user authed', async () => {
     await useAuthStore.getState().setTokens({
       accessToken: 'a', refreshToken: 'r',
-      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: true, phoneVerified: true },
+      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: true, phoneVerified: true, onboardingCompletedAt: null, subscriptionPromptSeenAt: null },
     })
     await useAuthStore.getState().markProfileCompletion('dismissed')
     expect(useAuthStore.getState().status).toBe('authed')
@@ -94,10 +99,36 @@ describe('auth store', () => {
     expect(prefsStorage.set).toHaveBeenCalledWith('redeemo:haptics', false)
   })
 
+  it('markOnboardingCompleteNow stamps onboardingCompletedAt on the user', async () => {
+    ;(profileApi.markOnboardingComplete as jest.Mock).mockResolvedValueOnce({
+      onboardingCompletedAt: '2026-04-26T00:00:00.000Z',
+    })
+    await useAuthStore.getState().setTokens({
+      accessToken: 'a', refreshToken: 'r',
+      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: true, phoneVerified: true, onboardingCompletedAt: null, subscriptionPromptSeenAt: null },
+    })
+    await useAuthStore.getState().markOnboardingCompleteNow()
+    expect(profileApi.markOnboardingComplete).toHaveBeenCalledTimes(1)
+    expect(useAuthStore.getState().user?.onboardingCompletedAt).toBe('2026-04-26T00:00:00.000Z')
+  })
+
+  it('markSubscriptionPromptSeenNow stamps subscriptionPromptSeenAt on the user', async () => {
+    ;(profileApi.markSubscriptionPromptSeen as jest.Mock).mockResolvedValueOnce({
+      subscriptionPromptSeenAt: '2026-04-26T00:05:00.000Z',
+    })
+    await useAuthStore.getState().setTokens({
+      accessToken: 'a', refreshToken: 'r',
+      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: true, phoneVerified: true, onboardingCompletedAt: '2026-04-26T00:00:00.000Z', subscriptionPromptSeenAt: null },
+    })
+    await useAuthStore.getState().markSubscriptionPromptSeenNow()
+    expect(profileApi.markSubscriptionPromptSeen).toHaveBeenCalledTimes(1)
+    expect(useAuthStore.getState().user?.subscriptionPromptSeenAt).toBe('2026-04-26T00:05:00.000Z')
+  })
+
   it('clearLocalAuth transitions to unauthenticated and clears tokens without API call', async () => {
     await useAuthStore.getState().setTokens({
       accessToken: 'a', refreshToken: 'r',
-      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: true, phoneVerified: true },
+      user: { id: 'u1', email: 'a@x.com', firstName: 'Ada', phone: '+44', emailVerified: true, phoneVerified: true, onboardingCompletedAt: null, subscriptionPromptSeenAt: null },
     })
     await useAuthStore.getState().clearLocalAuth()
     expect(useAuthStore.getState().status).toBe('unauthenticated')

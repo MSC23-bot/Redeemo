@@ -31,6 +31,8 @@ export function useLoginFlow() {
           phone: me.phone ?? '',
           emailVerified: me.emailVerified,
           phoneVerified: me.phoneVerified,
+          onboardingCompletedAt: me.onboardingCompletedAt,
+          subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
         },
       })
       if (me.profileCompleteness >= 100) {

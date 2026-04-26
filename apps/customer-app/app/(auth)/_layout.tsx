@@ -14,7 +14,12 @@ export default function AuthLayout() {
     onboarding,
     currentGroup: 'auth',
     currentSegment: segment,
-    user: user ? { emailVerified: user.emailVerified, phoneVerified: user.phoneVerified } : null,
+    user: user ? {
+      emailVerified: user.emailVerified,
+      phoneVerified: user.phoneVerified,
+      onboardingCompletedAt: user.onboardingCompletedAt,
+      subscriptionPromptSeenAt: user.subscriptionPromptSeenAt,
+    } : null,
   })
   if (target) return <Redirect href={target as Parameters<typeof Redirect>[0]['href']} />
   return <Stack screenOptions={{ headerShown: false }} />

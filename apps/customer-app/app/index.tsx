@@ -12,7 +12,12 @@ export default function Index() {
   const target = resolveRedirect({
     status,
     onboarding,
-    user: user ? { emailVerified: user.emailVerified, phoneVerified: user.phoneVerified } : null,
+    user: user ? {
+      emailVerified: user.emailVerified,
+      phoneVerified: user.phoneVerified,
+      onboardingCompletedAt: user.onboardingCompletedAt,
+      subscriptionPromptSeenAt: user.subscriptionPromptSeenAt,
+    } : null,
     currentGroup: 'auth',
     currentSegment: 'welcome',
   })

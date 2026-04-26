@@ -19,6 +19,8 @@ const profileSchema = z.object({
   newsletterConsent: z.boolean(),
   emailVerified: z.boolean(),
   phoneVerified: z.boolean(),
+  onboardingCompletedAt: z.string().nullable(),
+  subscriptionPromptSeenAt: z.string().nullable(),
   interests: z.array(interestSchema),
   profileCompleteness: z.number(),
   createdAt: z.string(),
@@ -37,9 +39,14 @@ export type ProfileUpdate = Partial<{
   newsletterConsent: boolean
 }>
 
+const onboardingCompleteSchema = z.object({ onboardingCompletedAt: z.string() })
+const subscriptionPromptSeenSchema = z.object({ subscriptionPromptSeenAt: z.string() })
+
 export const profileApi = {
   getMe: () => api.get<unknown>('/api/v1/customer/profile').then(profileSchema.parse),
   updateProfile: (patch: ProfileUpdate) => api.patch<unknown>('/api/v1/customer/profile', patch).then(profileSchema.partial().parse),
   getAvailableInterests: () => api.get<{ interests: { id: string; name: string }[] }>('/api/v1/customer/profile/available-interests'),
   updateInterests: (interestIds: string[]) => api.put<{ interests: { id: string; name: string }[] }>('/api/v1/customer/profile/interests', { interestIds }),
+  markOnboardingComplete: () => api.post<unknown>('/api/v1/customer/profile/onboarding-complete', {}).then(onboardingCompleteSchema.parse),
+  markSubscriptionPromptSeen: () => api.post<unknown>('/api/v1/customer/profile/subscription-prompt-seen', {}).then(subscriptionPromptSeenSchema.parse),
 }

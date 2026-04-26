@@ -27,6 +27,8 @@ export function useRegisterFlow() {
           phone: res.user.phone ?? '',
           emailVerified: !!res.user.emailVerifiedAt,
           phoneVerified: !!res.user.phoneVerifiedAt,
+          onboardingCompletedAt: null,
+          subscriptionPromptSeenAt: null,
         },
       })
       router.replace('/(auth)/verify-email')
