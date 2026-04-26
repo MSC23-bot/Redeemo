@@ -1,7 +1,7 @@
 import React from 'react'
-import { View, ScrollView, StyleSheet } from 'react-native'
-import { Zap } from 'lucide-react-native'
-import { Text, PressableScale, color, spacing, radius } from '@/design-system'
+import { View, TouchableOpacity, StyleSheet } from 'react-native'
+import Svg, { Path } from 'react-native-svg'
+import { Text } from '@/design-system/Text'
 
 const TRENDING_TAGS = ['Pizza', 'Brunch', 'Nail salon', 'Barber', 'Gym', 'Coffee']
 
@@ -9,59 +9,79 @@ type Props = {
   onTagPress: (tag: string) => void
 }
 
+function BoltIcon({ size = 12, color = '#D97706' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round">
+      <Path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+    </Svg>
+  )
+}
+
 export function TrendingSearches({ onTagPress }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Zap size={14} color="#F59E0B" fill="#F59E0B" />
-        <Text variant="label.eyebrow" color="secondary">
-          Trending
-        </Text>
+        <BoltIcon size={12} color="#D97706" />
+        <Text style={styles.headerText}>Trending</Text>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tagsRow}
-      >
-        {TRENDING_TAGS.map((tag) => (
-          <PressableScale key={tag} onPress={() => onTagPress(tag)} hapticStyle="light">
-            <View style={styles.tag}>
-              <Text style={styles.tagText}>{tag}</Text>
-            </View>
-          </PressableScale>
+      <View style={styles.tagsRow}>
+        {TRENDING_TAGS.map((tag, i) => (
+          <TouchableOpacity
+            key={tag}
+            onPress={() => onTagPress(tag)}
+            activeOpacity={0.7}
+            style={styles.tag}
+            accessibilityRole="button"
+            accessibilityLabel={`Search for ${tag}`}
+          >
+            {i === 0 && (
+              <BoltIcon size={10} color="#D97706" />
+            )}
+            <Text style={styles.tagText}>{tag}</Text>
+          </TouchableOpacity>
         ))}
-      </ScrollView>
+      </View>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing[3],
-    paddingTop: spacing[4],
+    paddingHorizontal: 18,
+    marginBottom: 14,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing[2],
-    paddingHorizontal: 18,
+    gap: 5,
+    marginBottom: 8,
+  },
+  headerText: {
+    fontSize: 11,
+    fontFamily: 'Lato-Bold',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   tagsRow: {
     flexDirection: 'row',
-    gap: spacing[2],
-    paddingHorizontal: 18,
-    flexWrap: 'nowrap',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   tag: {
-    backgroundColor: color.surface.neutral,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 50,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   tagText: {
+    fontSize: 10,
     fontFamily: 'Lato-SemiBold',
-    fontSize: 13,
-    lineHeight: 18,
-    color: color.navy,
+    color: '#374151',
   },
 })

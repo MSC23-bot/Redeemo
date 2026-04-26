@@ -73,19 +73,19 @@ export function HomeScreen() {
         ) : (
           <FeaturedCarousel
             merchants={feed?.featured ?? []}
-            onMerchantPress={(_id) => {}}
+            onMerchantPress={(id) => router.push(`/merchant/${id}`)}
             onSeeAll={() => {}}
           />
         )}
 
         <TrendingSection
           merchants={feed?.trending ?? []}
-          onMerchantPress={(_id) => {}}
+          onMerchantPress={(id) => router.push(`/merchant/${id}`)}
         />
 
         <NearbyByCategory
           sections={feed?.nearbyByCategory ?? []}
-          onMerchantPress={(_id) => {}}
+          onMerchantPress={(id) => router.push(`/merchant/${id}`)}
         />
       </ScrollView>
     </View>

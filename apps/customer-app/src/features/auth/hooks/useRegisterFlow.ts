@@ -6,34 +6,55 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/design-system/motion/Toast'
 import type { RegisterInput } from '@/features/auth/schemas'
 
+// Each field error carries its mapped error code so the screen can render
+// special UI for cases like EMAIL_ALREADY_EXISTS (tappable "Sign in" link).
+// 'LOCAL' is reserved for client-side validation errors that never hit the API.
+export type FieldError = { code: string; message: string }
+
 export function useRegisterFlow() {
   const [submitting, setSubmitting] = useState(false)
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [fieldErrors, setFieldErrorsState] = useState<Record<string, FieldError>>({})
   const setTokens = useAuthStore((s) => s.setTokens)
   const toast = useToast()
 
+  function setFieldErrors(errors: Record<string, FieldError>) {
+    setFieldErrorsState(errors)
+  }
+
+  // Set or clear a single field's error without touching the others. Used by
+  // on-blur validation: pass `null` when the field has become valid.
+  function setFieldError(field: string, error: FieldError | null) {
+    setFieldErrorsState((prev) => {
+      if (error === null) {
+        if (!prev[field]) return prev
+        const next = { ...prev }
+        delete next[field]
+        return next
+      }
+      return { ...prev, [field]: error }
+    })
+  }
+
+  function clearFieldError(field: string) {
+    setFieldErrorsState((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
   async function submit(input: RegisterInput) {
     setSubmitting(true)
-    setFieldErrors({})
+    setFieldErrorsState({})
     try {
       const res = await authApi.register(input)
-      await setTokens({
-        accessToken: res.accessToken,
-        refreshToken: res.refreshToken,
-        user: {
-          id: res.user.id,
-          email: res.user.email,
-          firstName: res.user.firstName ?? '',
-          phone: res.user.phone ?? '',
-          emailVerified: !!res.user.emailVerifiedAt,
-          phoneVerified: !!res.user.phoneVerifiedAt,
-        },
-      })
+      await setTokens({ accessToken: res.accessToken, refreshToken: res.refreshToken })
       router.replace('/(auth)/verify-email')
     } catch (e) {
       const mapped = mapError(e)
       if (mapped.surface === 'field' && mapped.field) {
-        setFieldErrors({ [mapped.field]: mapped.message })
+        setFieldErrorsState({ [mapped.field]: { code: mapped.code, message: mapped.message } })
       } else {
         toast.show(mapped.message, 'danger')
       }
@@ -42,5 +63,5 @@ export function useRegisterFlow() {
     }
   }
 
-  return { submit, submitting, fieldErrors }
+  return { submit, submitting, fieldErrors, setFieldErrors, setFieldError, clearFieldError }
 }

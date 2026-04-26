@@ -38,6 +38,10 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'com.redeemo.customer',
+    // 'pan' ensures the layout does not resize when the keyboard opens.
+    // Without this, Android adjustResize + KAV behavior="height" double-shrinks
+    // the form. Requires a native rebuild to take effect.
+    softwareKeyboardLayoutMode: 'pan',
     intentFilters: [
       {
         action: 'VIEW',

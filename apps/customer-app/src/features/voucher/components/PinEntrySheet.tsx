@@ -85,11 +85,29 @@ export function PinEntrySheet({
     setDigits(cleaned.split(''))
   }, [])
 
+  const submittedRef = useRef<string | null>(null)
+
   const handleSubmit = useCallback(() => {
     if (digits.length !== 4 || isLoading || isLocked) return
+    const pin = digits.join('')
+    if (submittedRef.current === pin) return
+    submittedRef.current = pin
     lightHaptic()
-    onSubmit(digits.join(''))
+    onSubmit(pin)
   }, [digits, isLoading, isLocked, onSubmit])
+
+  useEffect(() => {
+    if (visible && digits.length === 4 && !isLoading && !isLocked && !isError) {
+      handleSubmit()
+    }
+  }, [visible, digits, isLoading, isLocked, isError, handleSubmit])
+
+  useEffect(() => {
+    if (!visible) {
+      setDigits([])
+      submittedRef.current = null
+    }
+  }, [visible])
 
   if (isLocked) {
     return (

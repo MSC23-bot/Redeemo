@@ -5,7 +5,7 @@ const subscriptionPlanSchema = z.object({
   id: z.string(),
   name: z.string(),
   billingInterval: z.enum(['MONTHLY', 'ANNUAL']),
-  priceGbp: z.number(),
+  priceGbp: z.coerce.number(),
 })
 
 const subscriptionSchema = z.object({

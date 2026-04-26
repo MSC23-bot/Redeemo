@@ -29,14 +29,25 @@ export default function AppLayout() {
   const segments = useSegments() as string[]
   const status = useAuthStore((s) => s.status)
   const user = useAuthStore((s) => s.user)
-  const onboarding = useAuthStore((s) => s.onboarding)
   const segment = segments.slice(1).join('/')
   const target = resolveRedirect({
     status,
-    onboarding,
     currentGroup: 'app',
     currentSegment: segment,
-    user: user ? { emailVerified: user.emailVerified, phoneVerified: user.phoneVerified } : null,
+    user: user
+      ? {
+          emailVerified: user.emailVerified,
+          phoneVerified: user.phoneVerified,
+          phone: user.phone || null,
+          firstName: user.firstName || null,
+          lastName: user.lastName || null,
+          dateOfBirth: user.dateOfBirth,
+          gender: user.gender,
+          postcode: user.postcode,
+          onboardingCompletedAt: user.onboardingCompletedAt,
+          subscriptionPromptSeenAt: user.subscriptionPromptSeenAt,
+        }
+      : null,
   })
   if (target) return <Redirect href={target as Parameters<typeof Redirect>[0]['href']} />
 
@@ -114,6 +125,9 @@ export default function AppLayout() {
       <Tabs.Screen name="search" options={{ href: null }} />
       <Tabs.Screen name="categories" options={{ href: null }} />
       <Tabs.Screen name="category/[id]" options={{ href: null }} />
+      <Tabs.Screen name="discover" options={{ href: null }} />
+      <Tabs.Screen name="merchant/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="voucher/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
     </Tabs>
   )
 }

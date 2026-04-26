@@ -109,7 +109,7 @@ export function CouponHeader({
         <View style={styles.saveBadge}>
           <Text variant="label.md" color="inverse" style={styles.saveLabel}>Save</Text>
           <Text variant="heading.md" color="inverse" style={styles.saveAmount}>
-            £{estimatedSaving.toFixed(2)}
+            £{Number(estimatedSaving).toFixed(2)}
           </Text>
         </View>
 

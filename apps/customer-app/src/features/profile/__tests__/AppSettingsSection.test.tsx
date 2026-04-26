@@ -14,6 +14,8 @@ jest.mock('expo-location', () => ({
   getForegroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'denied' }),
 }))
 
+jest.mock('expo-router', () => ({ useFocusEffect: (_cb: unknown) => {} }))
+
 jest.mock('@/features/profile/hooks/useReduceMotion', () => ({ useReduceMotion: jest.fn(() => false) }))
 
 import { AppSettingsSection } from '../components/AppSettingsSection'

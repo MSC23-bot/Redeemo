@@ -1,5 +1,5 @@
 import React from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
+import { View, Pressable, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Heart, X } from 'lucide-react-native'
 import { Text, color, radius, spacing, elevation } from '@/design-system'
@@ -49,7 +49,7 @@ export function MerchantTile({
       {/* Banner */}
       <View style={styles.banner}>
         {merchant.bannerUrl ? (
-          <View style={[styles.bannerImage, { backgroundColor: '#E5E7EB' }]} />
+          <Image source={{ uri: merchant.bannerUrl }} style={styles.bannerImage} />
         ) : (
           <LinearGradient
             colors={['#667EEA', '#764BA2']}
@@ -102,7 +102,7 @@ export function MerchantTile({
         {/* Logo overlay */}
         <View style={styles.logoWrapper}>
           {merchant.logoUrl ? (
-            <View style={[styles.logo, { backgroundColor: '#D1D5DB' }]} />
+            <Image source={{ uri: merchant.logoUrl }} style={styles.logo} />
           ) : (
             <View style={[styles.logo, { backgroundColor: color.navy }]}>
               <Text
