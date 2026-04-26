@@ -16,12 +16,12 @@ describe('WelcomeScreen', () => {
   beforeEach(() => mockPush.mockClear())
   it('navigates to register on primary CTA', () => {
     const { getByText } = render(<WelcomeScreen />)
-    fireEvent.press(getByText('Create account'))
+    fireEvent.press(getByText('Create your free account'))
     expect(mockPush).toHaveBeenCalledWith('/(auth)/register')
   })
-  it('navigates to login on secondary CTA', () => {
+  it('navigates to login on Sign in link', () => {
     const { getByText } = render(<WelcomeScreen />)
-    fireEvent.press(getByText('I already have an account'))
+    fireEvent.press(getByText('Sign in'))
     expect(mockPush).toHaveBeenCalledWith('/(auth)/login')
   })
 })

@@ -1,8 +1,7 @@
 import React from 'react'
 import { View, TouchableOpacity, StyleSheet, Image } from 'react-native'
-import { Text, color, spacing, radius } from '@/design-system'
-import { SavePill } from '@/features/shared/SavePill'
-import { OpenStatusBadge } from '@/features/shared/OpenStatusBadge'
+import { LinearGradient } from 'expo-linear-gradient'
+import { Text } from '@/design-system/Text'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
 
 type Props = {
@@ -15,30 +14,20 @@ function formatDistance(metres: number | null): string | null {
   if (metres === null) return null
   if (metres < 1000) return `${Math.round(metres)}m`
   const miles = metres / 1609.34
-  return `${miles.toFixed(1)}mi`
+  return `${miles.toFixed(1)} mi`
 }
 
 function HighlightedName({ name, query }: { name: string; query: string }) {
-  if (!query.trim()) {
-    return <Text style={styles.merchantName}>{name}</Text>
-  }
+  if (!query.trim()) return <Text style={styles.merchantName}>{name}</Text>
   const lower = name.toLowerCase()
   const lowerQuery = query.toLowerCase()
   const idx = lower.indexOf(lowerQuery)
-
-  if (idx === -1) {
-    return <Text style={styles.merchantName}>{name}</Text>
-  }
-
-  const before = name.slice(0, idx)
-  const match = name.slice(idx, idx + query.length)
-  const after = name.slice(idx + query.length)
-
+  if (idx === -1) return <Text style={styles.merchantName}>{name}</Text>
   return (
     <Text style={styles.merchantName} numberOfLines={1}>
-      {before}
-      <Text style={[styles.merchantName, { color: color.brandRose }]}>{match}</Text>
-      {after}
+      {name.slice(0, idx)}
+      <Text style={[styles.merchantName, { color: '#E20C04' }]}>{name.slice(idx, idx + query.length)}</Text>
+      {name.slice(idx + query.length)}
     </Text>
   )
 }
@@ -47,10 +36,13 @@ export function SearchResultItem({ merchant, query, onPress }: Props) {
   const displayName = merchant.tradingName ?? merchant.businessName
   const distanceStr = formatDistance(merchant.distance)
   const categoryName = merchant.primaryCategory?.name ?? null
-
   const metaParts: string[] = []
   if (categoryName) metaParts.push(categoryName)
   if (distanceStr) metaParts.push(distanceStr)
+
+  const savingText = merchant.maxEstimatedSaving != null && merchant.maxEstimatedSaving > 0
+    ? `Save £${merchant.maxEstimatedSaving}`
+    : null
 
   return (
     <TouchableOpacity
@@ -61,13 +53,18 @@ export function SearchResultItem({ merchant, query, onPress }: Props) {
       activeOpacity={0.7}
     >
       {/* Logo */}
-      <View style={styles.logo}>
+      <View style={styles.logoWrapper}>
         {merchant.logoUrl ? (
-          <Image source={{ uri: merchant.logoUrl }} style={styles.logoImage} />
+          <Image source={{ uri: merchant.logoUrl }} style={styles.logo} />
         ) : (
-          <View style={styles.logoPlaceholder}>
+          <LinearGradient
+            colors={['#2d1810', '#4a2520']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.logo}
+          >
             <Text style={styles.logoInitial}>{displayName.charAt(0).toUpperCase()}</Text>
-          </View>
+          </LinearGradient>
         )}
       </View>
 
@@ -75,16 +72,21 @@ export function SearchResultItem({ merchant, query, onPress }: Props) {
       <View style={styles.info}>
         <HighlightedName name={displayName} query={query} />
         {metaParts.length > 0 && (
-          <Text style={styles.meta} numberOfLines={1}>
-            {metaParts.join(' · ')}
-          </Text>
+          <Text style={styles.meta} numberOfLines={1}>{metaParts.join(' · ')}</Text>
         )}
       </View>
 
-      {/* Right side */}
+      {/* Right */}
       <View style={styles.right}>
-        <SavePill amount={merchant.maxEstimatedSaving} />
-        <OpenStatusBadge isOpen />
+        {savingText && (
+          <View style={styles.savePill}>
+            <Text style={styles.saveText}>{savingText}</Text>
+          </View>
+        )}
+        <View style={styles.openBadge}>
+          <View style={styles.openDot} />
+          <Text style={styles.openText}>Open</Text>
+        </View>
       </View>
     </TouchableOpacity>
   )
@@ -94,52 +96,84 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: spacing[3],
-    gap: spacing[3],
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 10,
+    paddingHorizontal: 12,
+    marginHorizontal: 18,
+    marginBottom: 6,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  logoWrapper: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    overflow: 'hidden',
+    flexShrink: 0,
   },
   logo: {
     width: 42,
     height: 42,
     borderRadius: 10,
-    overflow: 'hidden',
-  },
-  logoImage: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-  },
-  logoPlaceholder: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: color.surface.neutral,
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoInitial: {
+    fontSize: 16,
     fontFamily: 'Lato-Bold',
-    fontSize: 18,
-    color: color.navy,
+    color: 'rgba(255,255,255,0.7)',
   },
   info: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   merchantName: {
-    fontFamily: 'Lato-SemiBold',
-    fontSize: 15,
-    lineHeight: 20,
-    color: color.text.primary,
+    fontSize: 12,
+    fontFamily: 'Lato-Bold',
+    color: '#010C35',
   },
   meta: {
+    fontSize: 10,
     fontFamily: 'Lato-Regular',
-    fontSize: 12,
-    lineHeight: 16,
-    color: color.text.secondary,
+    color: '#6B7280',
   },
   right: {
     alignItems: 'flex-end',
-    gap: spacing[1],
+    gap: 2,
+  },
+  savePill: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 50,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(5,150,105,0.12)',
+  },
+  saveText: {
+    fontSize: 8,
+    fontFamily: 'Lato-Bold',
+    color: '#047857',
+  },
+  openBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  openDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#059669',
+  },
+  openText: {
+    fontSize: 9,
+    fontFamily: 'Lato-SemiBold',
+    color: '#059669',
   },
 })

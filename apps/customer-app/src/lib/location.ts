@@ -2,7 +2,14 @@ import { useCallback, useState } from 'react'
 import * as Location from 'expo-location'
 
 export type LocationStatus = 'idle' | 'loading' | 'denied' | 'unavailable'
-export type ResolvedAddress = { addressLine1?: string; addressLine2?: string; city?: string; postcode?: string }
+export type ResolvedAddress = {
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  postcode?: string
+  country?: string
+  isoCountryCode?: string
+}
 
 export function useLocationAssist() {
   const [status, setStatus] = useState<LocationStatus>('idle')
@@ -25,6 +32,8 @@ export function useLocationAssist() {
       if (place.subregion) result.addressLine2 = place.subregion
       if (place.city) result.city = place.city
       if (place.postalCode) result.postcode = place.postalCode
+      if (place.country) result.country = place.country
+      if (place.isoCountryCode) result.isoCountryCode = place.isoCountryCode
       setAddress(result); setStatus('idle'); return result
     } catch { setStatus('idle'); return null }
   }, [])

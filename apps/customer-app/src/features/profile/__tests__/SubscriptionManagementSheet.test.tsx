@@ -31,7 +31,7 @@ describe('SubscriptionManagementSheet', () => {
       />,
     )
     expect(screen.getByText(/Monthly/)).toBeTruthy()
-    expect(screen.getByText(/12 May 2026/)).toBeTruthy()
+    expect(screen.getAllByText(/12 May 2026/).length).toBeGreaterThan(0)
   })
 
   it('shows cancel subscription button when not already cancelling', () => {

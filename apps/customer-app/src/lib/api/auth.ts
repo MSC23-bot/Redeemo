@@ -29,8 +29,8 @@ const authResponseSchema = z.object({
     firstName: z.string().nullable().optional(),
     lastName: z.string().nullable().optional(),
     phone: z.string().nullable().optional(),
-    emailVerifiedAt: z.string().nullable().optional(),
-    phoneVerifiedAt: z.string().nullable().optional(),
+    emailVerified: z.boolean().default(false),
+    phoneVerified: z.boolean().default(false),
     profileImageUrl: z.string().nullable().optional(),
   }),
   accessToken: z.string(),
@@ -53,8 +53,11 @@ export const authApi = {
     api.post<{ success: boolean }>('/api/v1/customer/auth/logout', data),
   refresh: (refreshToken: string) =>
     api.post<{ accessToken: string; refreshToken: string }>('/api/v1/customer/auth/refresh', { refreshToken }),
-  sendPhoneOtp: () =>
-    api.post<{ success: boolean }>('/api/v1/customer/auth/verify-phone/send', {}),
+  sendPhoneOtp: (opts?: { phoneNumber?: string }) =>
+    api.post<{ success: boolean }>(
+      '/api/v1/customer/auth/verify-phone/send',
+      opts?.phoneNumber ? { phoneNumber: opts.phoneNumber } : {},
+    ),
   confirmPhoneOtp: (code: string) =>
     api.post<{ user: AuthResponse['user'] }>('/api/v1/customer/auth/verify-phone/confirm', { code }),
   resendEmailVerification: () =>

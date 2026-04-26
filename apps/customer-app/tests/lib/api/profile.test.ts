@@ -12,6 +12,7 @@ describe('profileApi', () => {
       dateOfBirth: null, gender: null, addressLine1: null, addressLine2: null,
       city: null, postcode: null, profileImageUrl: null,
       newsletterConsent: false, emailVerified: true, phoneVerified: false,
+      onboardingCompletedAt: null, subscriptionPromptSeenAt: null,
       interests: [], profileCompleteness: 10, createdAt: new Date().toISOString(),
     })
     const me = await profileApi.getMe()
