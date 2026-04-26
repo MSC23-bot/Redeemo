@@ -295,8 +295,24 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Spec: `docs/superpowers/specs/2026-04-22-qr-code-rendering-design.md`
 - Plan: `docs/superpowers/plans/2026-04-22-qr-code-rendering.md`
 
-### 🔒 Customer Flow — Locked Baseline v1.0 (2026-04-25)
-The customer onboarding + auth + subscription flow is now locked. Single source of truth for the as-built behaviour:
+### 🚀 v1.0 Customer Auth + Onboarding Baseline — LIVE on origin/main (2026-04-26)
+
+The locked v1.0 customer auth + onboarding baseline (described in the section below) is now **on `origin/main`**. Local `main` and `origin/main` are aligned at merge commit `42f9768`. New feature branches must be created from updated `main` (not from the merged baseline branch).
+
+**PR sequence that landed v1.0:**
+
+1. **PR #6 (`chore/main-catchup`) — merged first** at `628d1e7`. Published a 34-commit pre-existing local-main backlog covering Phase 2C/2D/3B/3C backbone work that PR #5 depended on: 4 Prisma migrations (review-helpful, cycle-anchor-date, nullable-stripe-fields, onboarding-completion-flags), subscription-anchored cycles, alphanumeric redemption codes, savings/favourites/reviews endpoints, and 24 docs/specs.
+2. **PR #5 (`feature/customer-auth-baseline`) — merged second** at `4932633`. Established the locked v1.0 baseline: 5 commits including B1–B8 customer-app baseline, W1–W3 customer-web mirror, raw-token cleanup, and two Critical fixes from code review (account-collision auto-delete removal + server-flag onboarding contract wiring).
+3. **PR #7 (`chore/workspace-hygiene`) — merged third** at `42f9768`. `.gitignore` adds (`.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`), 6 future-phase docs/specs published, 8 approved Prisma dev scripts published.
+
+**Test baselines as of merge:** backend 285/285 (vitest), customer-app jest-expo 27+ on the modified suites passing in worktree (full suite still subject to the install-tree mismatch — see follow-ups). TypeScript clean across backend, customer-app, customer-web.
+
+**Safety tags pushed to origin:** `baseline-v1.0-rc1` (= PR #5 head `7c3964d`), `main-pre-catchup` (= local main tip pre-publish `56d6903`), `main-pre-publish`. Merged branches retained on origin: `feature/customer-auth-baseline`, `chore/main-catchup`, `chore/workspace-hygiene`.
+
+**PR scope verification rule (mandatory going forward):** before merging any PR, verify GitHub's *live* `compare` endpoint diff (commit count + file list) against expectation. PR-level cached fields (`gh pr view N --json commits/additions/changed_files`) are stale snapshots. Local `main` and `origin/main` can drift; that gap will be included in any PR off a head branch built on local `main`. See `feedback_pr_scope_verification.md` for the full pre-merge checklist.
+
+### 🔒 Customer Flow — Locked Baseline v1.0 (locked 2026-04-25 → live on origin/main 2026-04-26)
+The customer onboarding + auth + subscription flow is now locked **and live on `origin/main`**. Single source of truth for the as-built behaviour:
 
 - **Current spec:** `docs/customer-flow-current.md` — versioned, status `Locked`, covers login, registration, email/phone verification, profile completion (PC1–PC4), onboarding success, subscription prompt, `resolveRedirect` rules, and free vs premium placeholder behaviour.
 - **Change log:** `docs/customer-flow-changelog.md` — dated entries for every behaviour/logic/routing change. Visual styling iterations are NOT tracked here.
@@ -363,9 +379,28 @@ These fixes were applied after Phase 3C.1i and are part of the working baseline.
 - `prisma/issue-reset-token.ts` — writes a real password-reset token into Redis (`pwd-reset:customer:<token>`) with configurable TTL so the reset-password flow can be tested without live email. Run: `npx tsx prisma/issue-reset-token.ts <email> [ttlSeconds=3600]`. Prints web + app deep links. For the expired/invalid path use any bogus token — Redis miss → `RESET_TOKEN_EXPIRED`.
 - UI-only auth cases (no script needed): `EMAIL_ALREADY_EXISTS` → register with a seeded email; `PASSWORD_POLICY_VIOLATION` → register with a weak password; `RESET_TOKEN_EXPIRED` → open reset link with `?token=nope`.
 
-### 🔲 Phase 3C (remaining) — Subscribe flow only
-- Subscribe flow — iOS requires Apple IAP (Stripe cannot be used inside iOS app). Android could use Stripe or Google Play Billing. Deferred pending IAP decision.
-- Stub screen exists at `subscribe-prompt`
+### Pending local-only artefacts (2026-04-26) — not on main, not deleted
+
+The following 5 artefacts intentionally stayed off `origin/main` during the v1.0 publish. They remain on disk in the working tree. Do not commit without refactor/review. Do not delete without owner approval.
+
+**Untracked Prisma scripts** (will keep showing as `??` in `git status` until committed or deleted):
+- `prisma/check-user.ts` — hardcoded to a personal email; refactor to take `<email>` as argv before publishing.
+- `prisma/reset-user-password.ts` — hardcoded to a personal email + plaintext password (`Redeemo1!`). **Caught in PR #7 code review.** Functionality is already covered by `issue-reset-token.ts` + `set-auth-state.ts` — most likely action is delete with approval rather than refactor.
+- `prisma/test-login.ts`, `prisma/test-session.ts` — one-off auth/session probes from earlier scaffolding. No documentation, no clear ongoing utility. Decision pending: refactor + document, or delete.
+
+**Git stash — discovery merchant phone/email privacy review**
+
+On the project owner's local clone there is a stash labelled `discovery: drop merchant phone/email from customer-facing select — pending privacy review`. It contains a 1-line removal from the Prisma `select` in `getCustomerMerchant` (`src/api/customer/discovery/service.ts` ~line 331). Treat as **pending merchant/API privacy review, NOT part of the v1.0 baseline.** Three viable interpretations: (a) intentional privacy fix → small follow-up PR with a test pinning the new behaviour; (b) accidental deletion → drop the stash; (c) in-progress refactor → keep stashed. Do not auto-classify — ask the owner before acting. (Two older unrelated stashes also exist on the owner's clone from prior sessions — leave them alone.) Note: stashes are local-only and don't replicate to origin, so any specific stash index is owner-machine-specific; identify the stash by its label, not by `stash@{N}`.
+
+**Workspace hygiene gitignored dirs** (still on disk, just not in `git status`): `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`. The last one is 556 MB of brand assets and remains gitignored pending a decision on whether to move to S3/R2 or use Git LFS.
+
+### 🔲 Next planned work (post-v1.0 baseline)
+
+1. **Claude Code workflow hooks for scope discipline** — first deliverable. Set up before any feature work to prevent the kind of PR scope drift hit during PR #5 prep (initially showed 42 commits because origin/main was 34 commits behind local main). See `feedback_pr_scope_verification.md` in memory.
+2. **Phase 3C.1b — Home / Discovery / Map.** Plan: `docs/superpowers/plans/2026-04-17-customer-app-home-discovery-map.md`. Implementation already exists on `feature/customer-app` (the source branch with all 3C.1b–3C.1i work) — but a fresh branch must be created off updated `main` and the screens re-baselined surface-by-surface, the same way Phase 3C.1a was. **Do NOT continue work on the merged `feature/customer-auth-baseline` branch.**
+
+### 🔲 Phase 3C — explicitly deferred items
+- **Subscribe purchase flow** — iOS requires Apple IAP (Stripe cannot be used inside iOS app). Android could use Stripe or Google Play Billing. Deferred pending IAP decision. Placeholder screen exists at `subscription-prompt` (renamed from `subscribe-prompt` in PR #5; the locked CTA contract — alert-only premium, stamp+nav free — is preserved).
 
 ### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
 - Full Next.js 15 App Router site at `apps/customer-web/`
