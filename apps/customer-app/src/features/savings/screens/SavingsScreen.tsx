@@ -83,7 +83,7 @@ export function SavingsScreen() {
 
   // ── Navigation ──────────────────────────────────────────────────────────
   const handleSubscribe = useCallback(() => {
-    router.push('/(app)/subscribe-prompt' as never)
+    router.push('/(auth)/subscription-prompt' as never)
   }, [router])
 
   const handleBrowse = useCallback(() => {

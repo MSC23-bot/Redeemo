@@ -76,7 +76,7 @@ export function FreeUserGateModal({ visible, onDismiss, merchantName, voucherCou
 
           {/* Monthly CTA */}
           <Pressable
-            onPress={() => { lightHaptic(); onDismiss(); router.push('/(auth)/subscribe-prompt' as never) }}
+            onPress={() => { lightHaptic(); onDismiss(); router.push('/(auth)/subscription-prompt' as never) }}
             style={styles.monthlyBtn}
           >
             <LinearGradient
@@ -98,7 +98,7 @@ export function FreeUserGateModal({ visible, onDismiss, merchantName, voucherCou
 
           {/* Annual CTA */}
           <Pressable
-            onPress={() => { lightHaptic(); onDismiss(); router.push('/(auth)/subscribe-prompt' as never) }}
+            onPress={() => { lightHaptic(); onDismiss(); router.push('/(auth)/subscription-prompt' as never) }}
             style={styles.annualBtn}
           >
             <Text variant="label.lg" style={styles.annualText}>£69.99/year</Text>

@@ -108,3 +108,11 @@ jest.mock('react-native-gesture-handler', () => {
     Directions: { RIGHT: 1, LEFT: 2, UP: 4, DOWN: 8 },
   }
 })
+
+// useIsFocused is called unconditionally by the verify-email/phone polling
+// hooks. In production every screen mounts inside a React Navigation context.
+// In tests we render hooks/components in isolation outside any nav container,
+// so we mock the hook to return `true` (treat all rendered hooks as focused).
+jest.mock('@react-navigation/native', () => ({
+  useIsFocused: () => true,
+}))

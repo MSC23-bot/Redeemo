@@ -99,7 +99,7 @@ export function VoucherDetailScreen() {
 
   const handleCTAPress = useCallback(() => {
     if (ctaState === 'subscribe') {
-      router.push('/(auth)/subscribe-prompt' as never)
+      router.push('/(auth)/subscription-prompt' as never)
       return
     }
     if (ctaState === 'can_redeem') {
@@ -146,7 +146,7 @@ export function VoucherDetailScreen() {
         setShowPinSheet(false)
       } else if (error.code === 'SUBSCRIPTION_REQUIRED') {
         setShowPinSheet(false)
-        router.push('/(auth)/subscribe-prompt' as never)
+        router.push('/(auth)/subscription-prompt' as never)
       } else {
         // Fallback for PIN_NOT_CONFIGURED, VOUCHER_NOT_FOUND, BRANCH_MERCHANT_MISMATCH, MERCHANT_SUSPENDED, etc.
         setPinError({ code: error.code ?? 'UNKNOWN_ERROR' })
