@@ -11,6 +11,9 @@
 # Override env vars (must be set on the same command line as the blocked call):
 #   REDEEMO_CONFIRM_HARD_RESET=1     — allow `git reset --hard`
 #   REDEEMO_CONFIRM_GIT_CLEAN=1      — allow `git clean -f / -d / -x / --force`
+#   REDEEMO_CONFIRM_DISCARD=1        — allow `git checkout … -- <paths>` /
+#                                      `git restore <paths>` when the working
+#                                      tree has unstaged modifications
 #   REDEEMO_PR_SCOPE_VERIFIED=<sha>  — allow `gh pr merge` for the PR whose
 #                                      head matches <sha> (run live compare first)
 #
@@ -125,6 +128,39 @@ if [[ "$CMD" =~ (^|[[:space:]])git[[:space:]]+clean[[:space:]] ]]; then
             "This deletes untracked files irreversibly." \
             "Run with --dry-run (-n) first to see what would be deleted." \
             "If intentional: REDEEMO_CONFIRM_GIT_CLEAN=1 git clean ..."
+    fi
+  fi
+fi
+
+# 5b. git checkout/restore that would discard tracked working-tree changes.
+# Catches the class of incident from 2026-04-26 where `git checkout HEAD -- src`
+# silently wiped 615 unstaged edits that represented uncommitted v7 UI work.
+NEEDS_DISCARD_CHECK=0
+# Path-form checkout: `git checkout [<ref>] -- <paths>` (the ` -- ` separator
+# distinguishes path-form from branch-switch, which is safe when clean).
+if [[ "$CMD" =~ (^|[[:space:]])git[[:space:]]+checkout[[:space:]].*[[:space:]]--[[:space:]] ]]; then
+  NEEDS_DISCARD_CHECK=1
+fi
+# git restore: any form except `--staged` alone (which only unstages and does
+# not touch the working tree).
+if [[ "$CMD" =~ (^|[[:space:]])git[[:space:]]+restore[[:space:]] ]]; then
+  RESTORE_SAFE=0
+  if [[ "$CMD" =~ --staged ]] && ! [[ "$CMD" =~ --worktree ]]; then
+    RESTORE_SAFE=1
+  fi
+  if [ "$RESTORE_SAFE" = "0" ]; then
+    NEEDS_DISCARD_CHECK=1
+  fi
+fi
+if [ "$NEEDS_DISCARD_CHECK" = "1" ]; then
+  # Count unstaged modifications to tracked files (column 2 of porcelain output).
+  DIRTY=$(git status --porcelain 2>/dev/null | awk 'substr($0, 2, 1) == "M" { c++ } END { print c+0 }' || echo 0)
+  if [ "${DIRTY:-0}" -gt 0 ]; then
+    if [ "$(override_value REDEEMO_CONFIRM_DISCARD)" != "1" ]; then
+      block "git checkout/restore would discard ${DIRTY} unstaged change(s)" \
+            "Working tree has ${DIRTY} unstaged modification(s) that this command would discard." \
+            "Run 'git status --short' in the affected directory to see them." \
+            "If intentional: REDEEMO_CONFIRM_DISCARD=1 <command>"
     fi
   fi
 fi

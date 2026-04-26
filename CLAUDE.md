@@ -464,6 +464,7 @@ Project-level Claude Code hooks at `.claude/settings.json` + `.claude/hooks/pre-
 | `git push --force` / `-f` (without `--force-with-lease`) | (no override — use `--force-with-lease`) |
 | `git reset --hard` | `REDEEMO_CONFIRM_HARD_RESET=1` |
 | `git clean -f / -d / -x / --force` | `REDEEMO_CONFIRM_GIT_CLEAN=1` |
+| `git checkout … -- <paths>` / `git restore <paths>` against a dirty working tree | `REDEEMO_CONFIRM_DISCARD=1` (added 2026-04-26 after the v7 UI loss incident — see "Incident" below) |
 | `gh pr merge` without scope verification | `REDEEMO_PR_SCOPE_VERIFIED=<head-sha>` (run `gh api compare` first; the env var binds to the PR's current head SHA so the gate re-blocks if a new commit lands between verification and merge) |
 
 **Warned (printed to stderr, not blocked):**
@@ -485,6 +486,23 @@ For per-user persistent overrides (rare), edit `.claude/settings.local.json` (gi
 **Dependencies:** the hook script requires `jq` (macOS Homebrew default) plus `git` and `gh` (already required for project workflow). If `jq` is missing the hook prints a one-line warning and no-ops.
 
 **Updating hooks:** changes to `.claude/settings.json` or `.claude/hooks/**` go via PR like any other code. v1 covers only the high-risk rules above; pre-commit / pre-push / pre-merge full checklists and session-start checks are deferred to future PR B and PR C.
+
+### Incident: v7 UI loss + recovery (2026-04-26)
+
+The v7 auth/onboarding/subscription redesign was developed iteratively in `.worktrees/customer-app/` and existed only as uncommitted changes. A later cleanup (`git checkout HEAD -- src tests app`) intended to revert unrelated test-overlay residue also wiped that uncommitted v7 work. Recovered via deterministic transcript replay (PR #10 + PR #11 into `feature/customer-app`); owner-verified on-device.
+
+**Root causes:**
+- Significant work existed only as uncommitted changes — no checkpoint commit, no stash.
+- Conversation compaction summary referenced the work in past tense as if completed; subsequent agents trusted that framing without verifying against `git status`.
+- The destructive `git checkout HEAD -- <paths>` was not blocked by hooks at the time, despite having equivalent destructive power to `git reset --hard` on a dirty working tree.
+
+**Hard rules going forward (also apply to humans, not just AI):**
+1. **Before ANY destructive command** (`reset --hard`, `checkout … -- <paths>`, `restore <paths>`, `clean -f`, `stash drop`, branch switch with dirty tree), run `git status --short` in the target directory and classify every entry. Do not run the command until each entry is either intended-to-discard or preserved (commit / stash / copy).
+2. **Compaction summaries are hypotheses, not facts.** "We did X" describes the conversation, not the repository. Verify with `git log --all -- <path>` before assuming X is in a commit.
+3. **Worktree state is per-worktree.** `git status` in the main checkout says nothing about `.worktrees/<name>/`. Always check the right working tree.
+4. **Work is "done" only when it's in a commit or PR** — never when it's only on disk.
+
+The `git checkout … -- <paths>` / `git restore <paths>` block (with `REDEEMO_CONFIRM_DISCARD=1` override) was added to the workflow hooks specifically to catch this class of incident.
 
 ## Running Locally
 
