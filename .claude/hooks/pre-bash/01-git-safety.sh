@@ -56,6 +56,30 @@ warn() {
   printf '[hook warn] %s\n' "$1" >&2
 }
 
+# Read an override env var from the command string (inline assignment) OR the
+# hook's own environment (export). The inline-assignment form is what the user
+# types on the command line: `REDEEMO_FOO=value command ...`. That assignment
+# is set for the eventual command's subprocess, NOT for this hook (which runs
+# pre-tool), so we must parse $CMD to see it.
+override_value() {
+  local var_name="$1"
+  local from_cmd
+  from_cmd=$(printf '%s' "$CMD" | grep -oE "(^|[[:space:]])${var_name}=[^[:space:]]+" | head -1 | sed -E "s/^[[:space:]]*${var_name}=//")
+  if [ -n "$from_cmd" ]; then
+    printf '%s' "$from_cmd"
+    return
+  fi
+  # Fall back to hook's own environment (only set if user exported, which is
+  # discouraged but supported).
+  printf '%s' "${!var_name:-}"
+}
+
+# Strip any inline `REDEEMO_*=value` prefix from a command, used when building
+# corrected-command suggestions in block messages.
+strip_inline_overrides() {
+  printf '%s' "$1" | sed -E 's/(^|[[:space:]])REDEEMO_[A-Z_]+=[^[:space:]]+[[:space:]]*//g' | sed -E 's/^[[:space:]]+//'
+}
+
 # ── Block rules ─────────────────────────────────────────────────────────────
 
 # 1. Broad git add (.,  -A, --all, *).
@@ -86,7 +110,7 @@ fi
 
 # 4. git reset --hard (always block; require explicit override).
 if [[ "$CMD" =~ (^|[[:space:]])git[[:space:]]+reset[[:space:]]+(.*[[:space:]])?--hard([[:space:]]|$) ]]; then
-  if [ "${REDEEMO_CONFIRM_HARD_RESET:-}" != "1" ]; then
+  if [ "$(override_value REDEEMO_CONFIRM_HARD_RESET)" != "1" ]; then
     block "git reset --hard is blocked" \
           "This discards uncommitted work and rewrites HEAD irreversibly." \
           "If intentional, re-run with: REDEEMO_CONFIRM_HARD_RESET=1 git reset --hard ..."
@@ -96,7 +120,7 @@ fi
 # 5. Destructive git clean (-f / -d / -x / --force).
 if [[ "$CMD" =~ (^|[[:space:]])git[[:space:]]+clean[[:space:]] ]]; then
   if [[ "$CMD" =~ ([[:space:]]-[a-zA-Z]*[fdx][a-zA-Z]*([[:space:]]|$)|--force) ]]; then
-    if [ "${REDEEMO_CONFIRM_GIT_CLEAN:-}" != "1" ]; then
+    if [ "$(override_value REDEEMO_CONFIRM_GIT_CLEAN)" != "1" ]; then
       block "git clean -f / -d / -x is blocked" \
             "This deletes untracked files irreversibly." \
             "Run with --dry-run (-n) first to see what would be deleted." \
@@ -124,9 +148,18 @@ if [[ "$CMD" =~ (^|[[:space:]])gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$) 
           "Check: gh auth status"
   fi
 
-  if [ "${REDEEMO_PR_SCOPE_VERIFIED:-}" != "$HEAD_SHA" ]; then
+  PROVIDED_SHA=$(override_value REDEEMO_PR_SCOPE_VERIFIED)
+  if [ "$PROVIDED_SHA" != "$HEAD_SHA" ]; then
     REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo "<owner>/<repo>")
+    BARE_CMD=$(strip_inline_overrides "$CMD")
+    if [ -n "$PROVIDED_SHA" ]; then
+      mismatch_note="(supplied SHA was '${PROVIDED_SHA}', but PR head is '${HEAD_SHA}')"
+    else
+      mismatch_note="(no REDEEMO_PR_SCOPE_VERIFIED supplied)"
+    fi
     block "PR #${PR_NUM} merge blocked — scope verification required" \
+          "${mismatch_note}" \
+          "" \
           "Run live compare to see actual commit/file scope:" \
           "" \
           "  gh api \"repos/${REPO}/compare/main...${HEAD_SHA}\" \\" \
@@ -134,7 +167,7 @@ if [[ "$CMD" =~ (^|[[:space:]])gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$) 
           "" \
           "Confirm scope matches expectation, then re-run with:" \
           "" \
-          "  REDEEMO_PR_SCOPE_VERIFIED=${HEAD_SHA} ${CMD}" \
+          "  REDEEMO_PR_SCOPE_VERIFIED=${HEAD_SHA} ${BARE_CMD}" \
           "" \
           "The env var binds to the head SHA, so a new commit on the PR head" \
           "between verification and merge causes this gate to re-block."
