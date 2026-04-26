@@ -119,7 +119,7 @@ export function FavouritesScreen() {
       />
       {!isSubscribed && !nudgeDismissed && !isEmpty && (
         <NudgeBanner
-          onSubscribe={() => router.push('/(auth)/subscribe-prompt' as any)}
+          onSubscribe={() => router.push('/(auth)/subscription-prompt' as any)}
           onDismiss={() => setNudgeDismissed(true)}
         />
       )}

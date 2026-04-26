@@ -107,6 +107,31 @@ describe('resolveRedirect', () => {
     expect(resolveRedirect({ status: 'authed', user: user({ onboardingCompletedAt: null }), currentGroup: 'auth', currentSegment: 'welcome' })).toBe('/(auth)/onboarding-success')
   })
 
+  // Within-wizard fall-through allows: when the user is currently INSIDE the
+  // profile-completion stack, resolveRedirect must return null even if their
+  // required fields are still incomplete OR their onboardingCompletedAt is
+  // still null. This lets the user navigate backwards to edit a previous step
+  // (e.g. PC2 → PC1 to fix the year on their DOB) and lets them reach optional
+  // steps (PC3 interests, PC4 avatar) without being bounced back to a required
+  // step or forward to onboarding-success.
+  it('allows staying on profile-completion when required fields are incomplete and user is already inside the wizard', () => {
+    expect(resolveRedirect({
+      status: 'authed',
+      user: user({ postcode: null }),
+      currentGroup: 'auth',
+      currentSegment: 'profile-completion/about',
+    })).toBeNull()
+  })
+
+  it('allows staying on profile-completion (e.g. PC3 interests, PC4 avatar) when required fields are complete but onboardingCompletedAt is still null', () => {
+    expect(resolveRedirect({
+      status: 'authed',
+      user: user({ onboardingCompletedAt: null }),
+      currentGroup: 'auth',
+      currentSegment: 'profile-completion/interests',
+    })).toBeNull()
+  })
+
   it('sends user who completed onboarding but not subscription prompt to subscription-prompt', () => {
     expect(resolveRedirect({ status: 'authed', user: user({ subscriptionPromptSeenAt: null }), currentGroup: 'auth', currentSegment: 'welcome' })).toBe('/(auth)/subscription-prompt')
   })

@@ -153,7 +153,7 @@ export function ProfileScreen() {
             label="No active plan"
             isFirst
             preview={subPreview}
-            onPress={() => router.push('/(auth)/subscribe-prompt')}
+            onPress={() => router.push('/(auth)/subscription-prompt')}
           />
         )}
         <ProfileRow

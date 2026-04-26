@@ -6,13 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 export function useVerifyPhone() {
   const user = useAuthStore((s) => s.user)
   const syncVerificationState = useAuthStore((s) => s.syncVerificationState)
-  let isFocused = true
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    isFocused = useIsFocused()
-  } catch {
-    // not inside a react navigation context — assume focused
-  }
+  const isFocused = useIsFocused()
 
   useEffect(() => {
     if (!isFocused || user?.phoneVerified) return
