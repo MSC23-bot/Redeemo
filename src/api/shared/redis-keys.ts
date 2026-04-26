@@ -37,6 +37,7 @@ export const RedisKey = {
 
   // Rate limiting counters
   rateLimitOtpSend:    (phone: string)            => `rl:otp:${phone}`,
+  rateLimitOtpSendUser:(userId: string)           => `rl:otp:user:${userId}`,
   rateLimitPwdReset:   (email: string)            => `rl:pwd-reset:${email}`,
 
   // PIN brute-force counter — keyed per (userId, branchId) so failures at one branch

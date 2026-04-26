@@ -197,3 +197,62 @@ export async function reportReview(
   }
   return { success: true, created: true }
 }
+
+export async function getReviewSummary(
+  prisma: PrismaClient,
+  merchantId: string,
+) {
+  const where: Prisma.ReviewWhereInput = {
+    isDeleted: false,
+    branch: { merchantId, isActive: true },
+  }
+
+  const [total, avgAgg, dist] = await Promise.all([
+    prisma.review.count({ where }),
+    prisma.review.aggregate({ where, _avg: { rating: true } }),
+    prisma.review.groupBy({
+      by: ['rating'],
+      where,
+      _count: { id: true },
+    }),
+  ])
+
+  const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+  for (const d of dist) {
+    distribution[d.rating] = d._count.id
+  }
+
+  return {
+    averageRating: avgAgg._avg.rating !== null ? Math.round(avgAgg._avg.rating * 10) / 10 : 0,
+    totalReviews: total,
+    distribution,
+  }
+}
+
+export async function toggleHelpful(
+  prisma: PrismaClient,
+  reviewId: string,
+  userId: string,
+) {
+  const review = await prisma.review.findUnique({
+    where: { id: reviewId },
+    select: { id: true },
+  })
+  if (!review) throw new AppError('REVIEW_NOT_FOUND')
+
+  const existing = await prisma.reviewHelpful.findUnique({
+    where: { userId_reviewId: { userId, reviewId } },
+  })
+
+  if (existing) {
+    await prisma.reviewHelpful.delete({
+      where: { userId_reviewId: { userId, reviewId } },
+    })
+    return { helpful: false }
+  }
+
+  await prisma.reviewHelpful.create({
+    data: { userId, reviewId },
+  })
+  return { helpful: true }
+}

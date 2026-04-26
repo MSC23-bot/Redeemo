@@ -1,10 +1,10 @@
 export const ERROR_DEFINITIONS = {
   INVALID_CREDENTIALS:            { statusCode: 401, message: 'The email or password is incorrect.' },
-  ACCOUNT_NOT_ACTIVE:             { statusCode: 403, message: 'Your account is not yet active. Please complete verification.' },
-  ACCOUNT_LOCKED:                 { statusCode: 423, message: 'Your account is temporarily locked. Please try again later.' },
+  ACCOUNT_INACTIVE:               { statusCode: 403, message: "This account isn't active. Please contact support." },
   ACCOUNT_SUSPENDED:              { statusCode: 403, message: 'Your account has been suspended. Please contact support.' },
   EMAIL_NOT_VERIFIED:             { statusCode: 403, message: 'Please verify your email address.' },
   PHONE_NOT_VERIFIED:             { statusCode: 403, message: 'Please verify your phone number.' },
+  ALREADY_VERIFIED:               { statusCode: 409, message: 'This account is already verified.' },
   EMAIL_ALREADY_EXISTS:           { statusCode: 409, message: 'An account with this email already exists.' },
   PHONE_ALREADY_EXISTS:           { statusCode: 409, message: 'This phone number is already linked to a verified account.' },
   OTP_REQUIRED:                   { statusCode: 403, message: 'A one-time code is required to continue.' },

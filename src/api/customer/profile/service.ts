@@ -49,6 +49,8 @@ export async function getCustomerProfile(prisma: PrismaClient, userId: string) {
       newsletterConsent: true,
       emailVerified: true,
       phoneVerified: true,
+      onboardingCompletedAt: true,
+      subscriptionPromptSeenAt: true,
       createdAt: true,
       interests: { select: { interest: { select: { id: true, name: true } } } },
     },
@@ -67,14 +69,16 @@ export async function updateCustomerProfile(
   prisma: PrismaClient,
   userId: string,
   data: {
-    name?: string
+    firstName?: string
+    lastName?: string
+    name?: string // deprecated legacy alias; maps to firstName if firstName not provided
     dateOfBirth?: string
     gender?: string
     addressLine1?: string
     addressLine2?: string
     city?: string
     postcode?: string
-    profileImageUrl?: string
+    profileImageUrl?: string | null
     newsletterConsent?: boolean
   },
   ctx?: { ipAddress: string; userAgent: string }
@@ -82,10 +86,16 @@ export async function updateCustomerProfile(
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
   if (!user) throw new AppError('USER_NOT_FOUND')
 
+  const resolvedFirstName =
+    data.firstName !== undefined ? data.firstName
+    : data.name !== undefined ? data.name
+    : undefined
+
   const updated = await prisma.user.update({
     where: { id: userId },
     data: {
-      ...(data.name !== undefined ? { firstName: data.name } : {}),
+      ...(resolvedFirstName !== undefined ? { firstName: resolvedFirstName } : {}),
+      ...(data.lastName !== undefined ? { lastName: data.lastName } : {}),
       ...(data.dateOfBirth !== undefined ? { dateOfBirth: new Date(data.dateOfBirth) } : {}),
       ...(data.gender !== undefined ? { gender: data.gender } : {}),
       ...(data.addressLine1 !== undefined ? { addressLine1: data.addressLine1 } : {}),
@@ -109,6 +119,10 @@ export async function updateCustomerProfile(
       city: true,
       postcode: true,
       newsletterConsent: true,
+      emailVerified: true,
+      phoneVerified: true,
+      onboardingCompletedAt: true,
+      subscriptionPromptSeenAt: true,
       interests: { select: { interest: { select: { id: true, name: true } } } },
     },
   })
@@ -159,6 +173,54 @@ export async function updateCustomerInterests(
   })
 
   return { interests }
+}
+
+export async function getAvailableInterests(prisma: PrismaClient) {
+  return prisma.interest.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  })
+}
+
+// One-shot marker: sets `onboardingCompletedAt` once and returns idempotently thereafter.
+// The app uses this to gate the "Success" screen before the subscription prompt.
+export async function markOnboardingComplete(prisma: PrismaClient, userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, onboardingCompletedAt: true },
+  })
+  if (!user) throw new AppError('USER_NOT_FOUND')
+
+  if (user.onboardingCompletedAt) {
+    return { onboardingCompletedAt: user.onboardingCompletedAt }
+  }
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { onboardingCompletedAt: new Date() },
+    select: { onboardingCompletedAt: true },
+  })
+  return updated
+}
+
+// One-shot marker: sets `subscriptionPromptSeenAt` so the soft subscribe prompt
+// is shown at most once between onboarding-success and entering the app.
+export async function markSubscriptionPromptSeen(prisma: PrismaClient, userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, subscriptionPromptSeenAt: true },
+  })
+  if (!user) throw new AppError('USER_NOT_FOUND')
+
+  if (user.subscriptionPromptSeenAt) {
+    return { subscriptionPromptSeenAt: user.subscriptionPromptSeenAt }
+  }
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { subscriptionPromptSeenAt: new Date() },
+    select: { subscriptionPromptSeenAt: true },
+  })
+  return updated
 }
 
 export async function changeCustomerPassword(

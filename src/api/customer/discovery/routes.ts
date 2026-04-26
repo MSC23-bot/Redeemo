@@ -90,7 +90,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // GET /api/v1/customer/categories — active categories with at least one active merchant (no auth)
   app.get('/api/v1/customer/categories', async (_req: FastifyRequest, reply) => {
     const categories = await listActiveCategories(app.prisma)
-    return reply.send(categories)
+    return reply.send({ categories })
   })
 
   // GET /api/v1/customer/campaigns — active campaigns with banner (no auth)

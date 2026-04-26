@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { emailSchema, passwordSchema, phoneSchema, deviceSchema, otpCodeSchema } from '../../shared/schemas'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
+import { routeRateLimit } from '../../plugins/rate-limit'
 import {
   registerCustomer, verifyEmail, sendPhoneVerification, confirmPhoneVerification,
   loginCustomer, refreshCustomerToken, logoutCustomer,
@@ -19,10 +20,16 @@ export async function customerAuthRoutes(app: FastifyInstance) {
       password:          passwordSchema,
       firstName:         z.string().min(1).max(50),
       lastName:          z.string().min(1).max(50),
+      phone:             phoneSchema,
       marketingConsent:  z.boolean().default(false),
+      ...deviceSchema.shape,
     }).parse(req.body)
 
-    const result = await registerCustomer(app.prisma, app.redis, body)
+    const result = await registerCustomer(app.prisma, app.redis, app, {
+      ...body,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] ?? '',
+    })
     return reply.send(result)
   })
 
@@ -33,23 +40,28 @@ export async function customerAuthRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  // Send phone OTP
-  app.post(`${prefix}/verify-phone/send`, async (req, reply) => {
-    const body = z.object({ phoneNumber: phoneSchema, userId: z.string() }).parse(req.body)
-    const result = await sendPhoneVerification(app.prisma, app.redis, body.userId, body.phoneNumber)
+  // Send phone OTP (authenticated; server derives userId from session, optional phoneNumber override
+  // for the "use a different number" flow)
+  app.post(`${prefix}/verify-phone/send`, {
+    preHandler: [app.authenticateCustomer],
+  }, async (req: any, reply) => {
+    const body = z.object({ phoneNumber: phoneSchema.optional() }).parse(req.body ?? {})
+    const result = await sendPhoneVerification(app.prisma, app.redis, req.user.sub, body.phoneNumber)
     return reply.send(result)
   })
 
-  // Confirm phone OTP
-  app.post(`${prefix}/verify-phone/confirm`, async (req, reply) => {
-    const body = z.object({ userId: z.string(), code: otpCodeSchema }).parse(req.body)
-    const result = await confirmPhoneVerification(app.prisma, app.redis, body.userId, body.code)
+  // Confirm phone OTP (authenticated)
+  app.post(`${prefix}/verify-phone/confirm`, {
+    preHandler: [app.authenticateCustomer],
+  }, async (req: any, reply) => {
+    const { code } = z.object({ code: otpCodeSchema }).parse(req.body)
+    const result = await confirmPhoneVerification(app.prisma, app.redis, req.user.sub, code)
     return reply.send(result)
   })
 
   // Login
   app.post(`${prefix}/login`, {
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    config: { rateLimit: routeRateLimit('login') },
   }, async (req, reply) => {
     const body = z.object({
       email:    emailSchema,
@@ -96,7 +108,7 @@ export async function customerAuthRoutes(app: FastifyInstance) {
 
   // Forgot password
   app.post(`${prefix}/forgot-password`, {
-    config: { rateLimit: { max: 3, timeWindow: '1 hour' } },
+    config: { rateLimit: routeRateLimit('forgotPassword') },
   }, async (req, reply) => {
     const { email } = z.object({ email: emailSchema }).parse(req.body)
     await forgotPasswordCustomer(app.prisma, app.redis, email)

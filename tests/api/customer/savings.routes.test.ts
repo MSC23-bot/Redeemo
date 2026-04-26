@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 vi.mock('../../../src/api/customer/savings/service', () => ({
   getSavingsSummary: vi.fn(),
   getSavingsRedemptions: vi.fn(),
+  getMonthlyDetail: vi.fn(),
 }))
 vi.mock('../../../src/api/customer/discovery/service', () => ({
   getHomeFeed: vi.fn(), getCustomerMerchant: vi.fn(), getCustomerMerchantBranches: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('../../../src/api/customer/reviews/service', () => ({
   upsertBranchReview: vi.fn(), deleteBranchReview: vi.fn(), reportReview: vi.fn(),
 }))
 
-import { getSavingsSummary, getSavingsRedemptions } from '../../../src/api/customer/savings/service'
+import { getSavingsSummary, getSavingsRedemptions, getMonthlyDetail } from '../../../src/api/customer/savings/service'
 
 describe('savings routes', () => {
   let app: FastifyInstance
@@ -66,7 +67,8 @@ describe('savings routes', () => {
     redeemedAt: '2026-04-01T10:00:00Z',
     estimatedSaving: 5.00,
     isValidated: true,
-    merchant: { id: 'm1', name: 'Pizza Place', logoUrl: null },
+    validatedAt: null,
+    merchant: { id: 'm1', businessName: 'Pizza Place', logoUrl: null },
     voucher: { id: 'v1', title: 'Free Dessert', voucherType: 'FREEBIE' },
     branch: { id: 'b1', name: 'Central Branch' },
   }
@@ -118,7 +120,7 @@ describe('savings routes', () => {
     const r = body.redemptions[0]
     expect(r.id).toBe('r1')
     expect(r.estimatedSaving).toBe(5.00)
-    expect(r.merchant.name).toBe('Pizza Place')
+    expect(r.merchant.businessName).toBe('Pizza Place')
     expect(r.voucher.voucherType).toBe('FREEBIE')
     expect(r.branch.name).toBe('Central Branch')
   })
@@ -162,5 +164,109 @@ describe('savings routes', () => {
       headers: { authorization: `Bearer ${customerToken}` },
     })
     expect(res.statusCode).toBe(400)
+  })
+
+  it('GET /savings/redemptions includes validatedAt in each redemption', async () => {
+    ;(getSavingsRedemptions as any).mockResolvedValue({
+      redemptions: [{
+        id: 'r1',
+        redeemedAt: '2026-04-01T10:00:00Z',
+        estimatedSaving: 5.00,
+        isValidated: true,
+        validatedAt: '2026-04-01T10:30:00Z',
+        merchant: { id: 'm1', businessName: 'Pizza Place', logoUrl: null },
+        voucher: { id: 'v1', title: 'Free Dessert', voucherType: 'FREEBIE' },
+        branch: { id: 'b1', name: 'Central Branch' },
+      }],
+      total: 1,
+    })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/savings/redemptions',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.redemptions[0].validatedAt).toBe('2026-04-01T10:30:00Z')
+  })
+
+  it('GET /savings/redemptions returns validatedAt as null when not validated', async () => {
+    ;(getSavingsRedemptions as any).mockResolvedValue({
+      redemptions: [{
+        id: 'r2',
+        redeemedAt: '2026-04-01T10:00:00Z',
+        estimatedSaving: 5.00,
+        isValidated: false,
+        validatedAt: null,
+        merchant: { id: 'm1', businessName: 'Pizza Place', logoUrl: null },
+        voucher: { id: 'v1', title: 'Free Dessert', voucherType: 'FREEBIE' },
+        branch: { id: 'b1', name: 'Central Branch' },
+      }],
+      total: 1,
+    })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/savings/redemptions',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.redemptions[0].validatedAt).toBeNull()
+  })
+
+  describe('GET /savings/monthly-detail', () => {
+    const mockMonthlyDetail = {
+      totalSaving: 20.00,
+      redemptionCount: 4,
+      byMerchant: [
+        { merchantId: 'm1', businessName: 'Pizza Place', logoUrl: null, saving: 12.00, count: 2 },
+        { merchantId: 'm2', businessName: 'Coffee Shop', logoUrl: null, saving: 8.00, count: 2 },
+      ],
+      byCategory: [
+        { categoryId: 'cat1', name: 'Food & Drink', saving: 20.00 },
+      ],
+    }
+
+    it('returns 200 with monthly detail for a valid month', async () => {
+      ;(getMonthlyDetail as any).mockResolvedValue(mockMonthlyDetail)
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/customer/savings/monthly-detail?month=2026-03',
+        headers: { authorization: `Bearer ${customerToken}` },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json()
+      expect(body.totalSaving).toBe(20.00)
+      expect(body.redemptionCount).toBe(4)
+      expect(body.byMerchant).toHaveLength(2)
+      expect(body.byMerchant[0].businessName).toBe('Pizza Place')
+      expect(body.byCategory).toHaveLength(1)
+    })
+
+    it('returns 400 for invalid month format', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/customer/savings/monthly-detail?month=invalid',
+        headers: { authorization: `Bearer ${customerToken}` },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('returns 400 when month param is missing', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/customer/savings/monthly-detail',
+        headers: { authorization: `Bearer ${customerToken}` },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('returns 401 without token', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/customer/savings/monthly-detail?month=2026-03',
+      })
+      expect(res.statusCode).toBe(401)
+    })
   })
 })

@@ -84,7 +84,7 @@ export async function verifyAdminOtp(
     'EX', 3600
   )
 
-  const accessToken = app.adminSign(
+  const accessToken = app.jwt.admin.sign(
     { sub: admin.id, role: 'admin', adminRole: admin.role, sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
@@ -127,7 +127,7 @@ export async function refreshAdminToken(
 
   const admin = await prisma.adminUser.findUnique({ where: { id: data.entityId } })
 
-  const accessToken = app.adminSign(
+  const accessToken = app.jwt.admin.sign(
     { sub: data.entityId, role: 'admin', adminRole: admin?.role, sessionId: data.sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )

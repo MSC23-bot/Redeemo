@@ -8,6 +8,8 @@ vi.mock('../../../src/api/customer/reviews/service', () => ({
   upsertBranchReview:  vi.fn(),
   deleteBranchReview:  vi.fn(),
   reportReview:        vi.fn(),
+  getReviewSummary:    vi.fn(),
+  toggleHelpful:       vi.fn(),
 }))
 vi.mock('../../../src/api/customer/discovery/service', () => ({
   getHomeFeed: vi.fn(), getCustomerMerchant: vi.fn(), getCustomerMerchantBranches: vi.fn(),
@@ -28,6 +30,7 @@ vi.mock('../../../src/api/customer/savings/service', () => ({
 
 import {
   listMerchantReviews, listBranchReviews, upsertBranchReview, deleteBranchReview, reportReview,
+  getReviewSummary, toggleHelpful,
 } from '../../../src/api/customer/reviews/service'
 import { AppError } from '../../../src/api/shared/errors'
 
@@ -140,5 +143,55 @@ describe('reviews routes', () => {
       payload: { reason: 'SPAM' },
     })
     expect(res.statusCode).toBe(200)
+  })
+
+  it('GET /api/v1/customer/merchants/:id/reviews/summary returns 200 without token', async () => {
+    ;(getReviewSummary as any).mockResolvedValue({
+      averageRating: 4.3,
+      totalReviews: 12,
+      distribution: { 1: 0, 2: 1, 3: 2, 4: 4, 5: 5 },
+    })
+    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/merchants/m1/reviews/summary' })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.averageRating).toBe(4.3)
+    expect(body.totalReviews).toBe(12)
+    expect(body.distribution).toBeDefined()
+  })
+
+  it('POST /api/v1/customer/reviews/:reviewId/helpful returns 200 when toggled on', async () => {
+    ;(toggleHelpful as any).mockResolvedValue({ helpful: true })
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/customer/reviews/r1/helpful',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().helpful).toBe(true)
+  })
+
+  it('POST /api/v1/customer/reviews/:reviewId/helpful returns 200 when toggled off', async () => {
+    ;(toggleHelpful as any).mockResolvedValue({ helpful: false })
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/customer/reviews/r1/helpful',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().helpful).toBe(false)
+  })
+
+  it('POST /api/v1/customer/reviews/:reviewId/helpful returns 401 without token', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/customer/reviews/r1/helpful',
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('POST /api/v1/customer/reviews/:reviewId/helpful returns 404 when review not found', async () => {
+    ;(toggleHelpful as any).mockRejectedValue(new AppError('REVIEW_NOT_FOUND'))
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/customer/reviews/not-found/helpful',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(404)
   })
 })

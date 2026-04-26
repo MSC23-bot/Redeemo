@@ -7,6 +7,10 @@ import {
 
 const merchantIdParam = z.object({ merchantId: z.string().min(1) })
 const voucherIdParam  = z.object({ voucherId: z.string().min(1) })
+const paginationSchema = z.object({
+  page:  z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+})
 
 export async function favouritesRoutes(app: FastifyInstance) {
   const base = '/api/v1/customer/favourites'
@@ -24,7 +28,8 @@ export async function favouritesRoutes(app: FastifyInstance) {
   })
 
   app.get(`${base}/merchants`, async (req: FastifyRequest, reply) => {
-    const result = await listFavouriteMerchants(app.prisma, req.user.sub)
+    const { page, limit } = paginationSchema.parse(req.query)
+    const result = await listFavouriteMerchants(app.prisma, req.user.sub, { page, limit })
     return reply.send(result)
   })
 
@@ -41,7 +46,8 @@ export async function favouritesRoutes(app: FastifyInstance) {
   })
 
   app.get(`${base}/vouchers`, async (req: FastifyRequest, reply) => {
-    const result = await listFavouriteVouchers(app.prisma, req.user.sub)
+    const { page, limit } = paginationSchema.parse(req.query)
+    const result = await listFavouriteVouchers(app.prisma, req.user.sub, { page, limit })
     return reply.send(result)
   })
 }

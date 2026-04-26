@@ -2,6 +2,10 @@
 .env.local
 node_modules/
 dist/
+
+# Next.js build output
+.next/
+next-env.d.ts
 generated/
 .DS_Store
 *.log

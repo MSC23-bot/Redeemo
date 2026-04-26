@@ -1,8 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 describe('stripe client', () => {
-  it('exports a stripe instance', async () => {
+  beforeEach(() => {
+    vi.resetModules()
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake'
+  })
+
+  it('exports a stripe instance', async () => {
     const { stripe } = await import('../../../src/api/shared/stripe')
     expect(stripe).toBeDefined()
     expect(typeof stripe.subscriptions.retrieve).toBe('function')
