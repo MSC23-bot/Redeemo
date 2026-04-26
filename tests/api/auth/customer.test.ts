@@ -92,6 +92,8 @@ describe('customer auth routes', () => {
     app.prisma.user.findUnique = vi.fn()
       .mockResolvedValueOnce({ id: 'u-other', emailVerified: true })  // email hit — verified
       .mockResolvedValueOnce(null)                                     // phone free
+    app.prisma.user.delete = vi.fn()
+    app.prisma.user.create = vi.fn()
 
     const res = await app.inject({
       method: 'POST',
@@ -105,12 +107,16 @@ describe('customer auth routes', () => {
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body).error.code).toBe('EMAIL_ALREADY_EXISTS')
+    expect(app.prisma.user.delete).not.toHaveBeenCalled()
+    expect(app.prisma.user.create).not.toHaveBeenCalled()
   })
 
   it('POST /register returns 409 PHONE_ALREADY_EXISTS when verified phone is taken', async () => {
     app.prisma.user.findUnique = vi.fn()
       .mockResolvedValueOnce(null)                                     // email free
       .mockResolvedValueOnce({ id: 'u-other', emailVerified: true })  // phone hit — verified
+    app.prisma.user.delete = vi.fn()
+    app.prisma.user.create = vi.fn()
 
     const res = await app.inject({
       method: 'POST',
@@ -124,18 +130,17 @@ describe('customer auth routes', () => {
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body).error.code).toBe('PHONE_ALREADY_EXISTS')
+    expect(app.prisma.user.delete).not.toHaveBeenCalled()
+    expect(app.prisma.user.create).not.toHaveBeenCalled()
   })
 
-  it('POST /register succeeds when existing email account is unverified (re-registration)', async () => {
+  it('POST /register returns 409 EMAIL_ALREADY_EXISTS even when the existing email account is unverified (no auto-delete)', async () => {
     const staleUser = { id: 'u-stale', emailVerified: false }
     app.prisma.user.findUnique = vi.fn()
       .mockResolvedValueOnce(staleUser)  // email hit — unverified
       .mockResolvedValueOnce(null)       // phone free
-    app.prisma.user.delete = vi.fn().mockResolvedValue(staleUser)
-    app.prisma.user.create = vi.fn().mockResolvedValue({
-      id: 'u-new', email: 'retry@example.com', firstName: 'Test', lastName: 'User',
-      phone: '+447700900003', emailVerified: false, phoneVerified: false,
-    })
+    app.prisma.user.delete = vi.fn()
+    app.prisma.user.create = vi.fn()
 
     const res = await app.inject({
       method: 'POST',
@@ -147,8 +152,34 @@ describe('customer auth routes', () => {
         ...DEVICE,
       },
     })
-    expect(res.statusCode).toBe(200)
-    expect(app.prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'u-stale' } })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('EMAIL_ALREADY_EXISTS')
+    expect(app.prisma.user.delete).not.toHaveBeenCalled()
+    expect(app.prisma.user.create).not.toHaveBeenCalled()
+  })
+
+  it('POST /register returns 409 PHONE_ALREADY_EXISTS even when the existing phone account is unverified (no auto-delete)', async () => {
+    const staleUser = { id: 'u-stale', emailVerified: false }
+    app.prisma.user.findUnique = vi.fn()
+      .mockResolvedValueOnce(null)       // email free
+      .mockResolvedValueOnce(staleUser)  // phone hit — unverified
+    app.prisma.user.delete = vi.fn()
+    app.prisma.user.create = vi.fn()
+
+    const res = await app.inject({
+      method: 'POST',
+      url:    '/api/v1/customer/auth/register',
+      payload: {
+        email: 'attacker@example.com', password: 'MyPass123!',
+        firstName: 'Attacker', lastName: 'Tester',
+        phone: '+447700900004', marketingConsent: false,
+        ...DEVICE,
+      },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('PHONE_ALREADY_EXISTS')
+    expect(app.prisma.user.delete).not.toHaveBeenCalled()
+    expect(app.prisma.user.create).not.toHaveBeenCalled()
   })
 
   it('POST /register returns 400 for weak password', async () => {
