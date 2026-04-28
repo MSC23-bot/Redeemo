@@ -88,7 +88,7 @@ The taxonomy is optimised for the locked primary persona, "Maya" (UK urban/subur
 
 89 subcategories total. Format-only: subcategory describes the *type of business*, never cuisine, specialty, or attribute. Closed list at launch; admin can add new subcategories via owner-approved curation, never via merchant self-onboarding.
 
-Each merchant has exactly one *primary* subcategory plus optional secondaries (`MerchantSubcategory.isPrimary`). The primary subcategory feeds the Primary Descriptor (§3.6).
+Each merchant has exactly one *primary* subcategory plus optional secondaries (`MerchantCategory.isPrimary` on a row pointing at a subcategory). The primary subcategory feeds the Primary Descriptor (§3.6).
 
 ### 2.1 Food & Drink (8)
 
