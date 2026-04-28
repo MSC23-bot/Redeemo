@@ -26,6 +26,8 @@ const searchQuery = z.object({
   minSaving:       z.coerce.number().optional(),
   voucherTypes:    z.string().optional().transform(v => v ? v.split(',') : undefined),
   amenityIds:      z.string().optional().transform(v => v ? v.split(',') : undefined),
+  tagIds:          z.string().optional().transform(v => v ? v.split(',') : undefined),
+  scope:           z.enum(['nearby','city','region','platform']).optional(),
   openNow:         z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
   featured:        z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
   topRated:        z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),

@@ -6,6 +6,8 @@ import {
 import { AppError } from '../../shared/errors'
 import { haversineMetres } from '../../shared/haversine'
 import { isOpenNow } from '../../shared/isOpenNow'
+import { resolveScope } from '../../lib/scope'
+import { resolveProfileCity } from '../../lib/userCity'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -569,6 +571,8 @@ export async function searchMerchants(
     minSaving?: number
     voucherTypes?: string[]
     amenityIds?: string[]
+    tagIds?: string[]
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
     openNow?: boolean
     featured?: boolean
     topRated?: boolean
@@ -580,7 +584,7 @@ export async function searchMerchants(
   },
 ) {
   const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
-          minSaving, voucherTypes, amenityIds, openNow, featured, topRated,
+          minSaving, voucherTypes, amenityIds, tagIds, scope, openNow, featured, topRated,
           sortBy, limit, offset, userId } = params
 
   if (!q && !categoryId && !subcategoryId && minLat === undefined) {
@@ -657,6 +661,35 @@ export async function searchMerchants(
         { branches: { some: { isActive: true, amenities: { some: { amenityId } } } } },
       ]
     }
+  }
+
+  if (tagIds && tagIds.length > 0) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        OR: [
+          { tags:       { some: { tagId:          { in: tagIds } } } },
+          { highlights: { some: { highlightTagId: { in: tagIds } } } },
+          { primaryDescriptorTagId: { in: tagIds } },
+        ],
+      },
+    ]
+  }
+
+  // Scope-based location filter (city fallback). 'nearby' continues to use the
+  // existing maxDistanceMiles radius logic below; 'platform' adds no clause.
+  const profileCity = await resolveProfileCity(prisma, userId)
+  const resolved = resolveScope({
+    scope,
+    lat: lat ?? null,
+    lng: lng ?? null,
+    profileCity,
+  })
+  if (resolved.scope === 'city' && profileCity) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { branches: { some: { city: profileCity, isMainBranch: true } } },
+    ]
   }
 
   if (featured) {
@@ -739,7 +772,16 @@ export async function searchMerchants(
   }
 
   const paginated = needsPostSort ? final.slice(offset, offset + limit) : final
-  return { merchants: paginated, total: final.length }
+  return {
+    merchants: paginated,
+    total: final.length,
+    meta: {
+      scope: resolved.scope,
+      resolvedArea: resolved.resolvedArea,
+      scopeExpanded: scope != null && scope !== 'nearby',
+      chipsHidden: false,
+    },
+  }
 }
 
 // ─── Categories ───────────────────────────────────────────────────────────────
