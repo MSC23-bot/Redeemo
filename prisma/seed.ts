@@ -1,4 +1,4 @@
-import { PrismaClient, TagType, TagCreatedBy, CategoryDescriptorState } from '../generated/prisma/client'
+import { PrismaClient, TagType, TagCreatedBy } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import * as crypto from 'crypto'
 import { encrypt } from '../src/api/shared/encryption'
@@ -30,6 +30,13 @@ const tagIdByLabelAndType = new Map<string, string>()     // `${label}:${type}` 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Taxonomy seeding
+//
+// Phase order (called from main() in this sequence):
+//   1. seedCategories()          — 11 top-level + 89 subcategories
+//   2. seedTags()                — 262 tags (32 cuisine + 182 specialty + 18 highlight + 30 detail)
+//   3. seedSubcategoryTags()     — Cuisine/Specialty/Highlight/Detail joins
+//   4. seedRedundantHighlights() — admin-curated redundancy rules
+// Each phase is idempotent; re-running the seed produces zero new rows.
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function seedCategories(): Promise<void> {
@@ -50,14 +57,28 @@ async function seedCategories(): Promise<void> {
 
   // Migration step: delete legacy 5 sample subcategories. None of these names
   // match the new 89; if left in place they would collide with the integrity
-  // test. MerchantCategory rows pointing at them are absent in the existing
-  // seed (test merchants link only to top-levels). Cascade is safe.
-  await prisma.category.deleteMany({
+  // test. Guard: if any MerchantCategory rows reference these legacy subcats,
+  // skip the delete and warn — refuses to silently orphan merchant linkages.
+  const LEGACY_SUBCAT_NAMES = ['Restaurants', 'Cafes & Coffee', 'Bars & Pubs', 'Hair Salons', 'Nail & Beauty']
+  const orphanCount = await prisma.merchantCategory.count({
     where: {
-      name: { in: ['Restaurants', 'Cafes & Coffee', 'Bars & Pubs', 'Hair Salons', 'Nail & Beauty'] },
-      parentId: { not: null },
+      category: { name: { in: LEGACY_SUBCAT_NAMES }, parentId: { not: null } },
     },
   })
+  if (orphanCount > 0) {
+    console.warn(
+      `⚠ seedCategories: ${orphanCount} MerchantCategory row(s) reference legacy subcategories ` +
+      `(${LEGACY_SUBCAT_NAMES.join(', ')}). Skipping deleteMany to avoid orphaning. ` +
+      `Run a one-off migration to relink merchants before re-running seed.`
+    )
+  } else {
+    await prisma.category.deleteMany({
+      where: {
+        name: { in: LEGACY_SUBCAT_NAMES },
+        parentId: { not: null },
+      },
+    })
+  }
 
   // Top-level categories (11). The Category compound unique
   // `(name, parentId)` is `NULLS NOT DISTINCT` at the DB level, but Prisma's
@@ -108,7 +129,7 @@ async function seedCategories(): Promise<void> {
       where: { name_parentId: { name: sub.name, parentId } },
       update: {
         sortOrder: sub.sortOrder,
-        descriptorState: sub.descriptorState as CategoryDescriptorState,
+        descriptorState: sub.descriptorState,
         descriptorSuffix: sub.descriptorSuffix ?? null,
         minSubcategoryCountForChips: 3,
         isActive: true,
@@ -117,7 +138,7 @@ async function seedCategories(): Promise<void> {
         name: sub.name,
         parentId,
         sortOrder: sub.sortOrder,
-        descriptorState: sub.descriptorState as CategoryDescriptorState,
+        descriptorState: sub.descriptorState,
         descriptorSuffix: sub.descriptorSuffix ?? null,
         minSubcategoryCountForChips: 3,
         isActive: true,
