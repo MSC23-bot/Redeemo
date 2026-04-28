@@ -33,7 +33,8 @@
 - `prisma/seed.ts` — replace category/tag seeding logic; wire denormalisation backfill
 - `src/api/customer/discovery/routes.ts` — extend `/search` query schema with `tagIds` and `scope`; add `meta` envelope to relevant responses; ensure `MerchantSuggestedTag` rename is reflected
 - `src/api/customer/discovery/service.ts` — extend `searchMerchants` to filter by tag IDs; extend `listActiveCategories` to be supply-aware per scope; add `getCategoryMerchants(categoryId, scope)`; add tile descriptor + highlights to merchant responses; rename `merchantTag` references to `merchantSuggestedTag`
-- `tests/api/customer/discovery/discovery.routes.test.ts` — extend with new tag filter, meta envelope, scope expansion, supply-aware subcategory cases
+- `tests/api/customer/discovery.routes.test.ts` — extend with route-level tests for new query params (mocked service layer, matching the existing pattern)
+- `tests/api/customer/discovery.service.test.ts` — NEW file: service-level tests with mocked Prisma covering tag filters, meta envelope construction, supply-aware filtering, descriptor + redundancy, de-dup rule end-to-end
 
 ---
 
@@ -140,7 +141,7 @@ const tags = await prisma.merchantSuggestedTag.findMany({
 - [ ] **Step 3: Run tests to confirm rename is consistent**
 
 ```bash
-npx vitest run tests/api/customer/discovery/discovery.routes.test.ts
+npx vitest run tests/api/customer/discovery.routes.test.ts
 ```
 
 Expected: existing tests still pass (after the migration is applied in Task 4 — for now, expect type errors only on uncompiled code).
@@ -333,23 +334,53 @@ npx prisma migrate dev --name category_taxonomy --create-only
 
 Expected: a new directory `prisma/migrations/<timestamp>_category_taxonomy/` containing `migration.sql`.
 
-- [ ] **Step 2: Review the generated SQL**
+- [ ] **Step 2: Review and edit the generated SQL — ensure RENAME, not DROP+CREATE**
 
-Open `prisma/migrations/<timestamp>_category_taxonomy/migration.sql`. Verify it includes:
-- `ALTER TABLE "MerchantTag" RENAME TO "MerchantSuggestedTag"` (or DROP + CREATE in the right order)
-- `ALTER TYPE "MerchantTagStatus" RENAME TO "MerchantSuggestedTagStatus"`
+Open `prisma/migrations/<timestamp>_category_taxonomy/migration.sql`. Prisma's heuristics SHOULD detect the existing `MerchantTag` rename via the shadow DB, but if Prisma's schema diff renders it as **DROP TABLE "MerchantTag"; CREATE TABLE "MerchantSuggestedTag"** (or DROP TYPE / CREATE TYPE for the enum), this is **unsafe** — it loses any existing data.
+
+Verify the migration includes:
+
+- `ALTER TABLE "MerchantTag" RENAME TO "MerchantSuggestedTag"` ✅ (safe — preserves rows and indexes)
+- `ALTER TYPE "MerchantTagStatus" RENAME TO "MerchantSuggestedTagStatus"` ✅
 - `CREATE TYPE "TagType" / "TagCreatedBy" / "CategoryDescriptorState"`
-- `CREATE TABLE "Tag" / "SubcategoryTag" / "MerchantTag" / "MerchantHighlight" / "RedundantHighlight"`
+- `CREATE TABLE "Tag" / "SubcategoryTag" / "MerchantTag" / "MerchantHighlight" / "RedundantHighlight"` (this is a NEW `MerchantTag` model, after the rename)
 - `ALTER TABLE "Category" ADD COLUMN "descriptorState" / "descriptorSuffix" / "minSubcategoryCountForChips" / "merchantCountByCity"`
 - `ALTER TABLE "Merchant" ADD COLUMN "primaryDescriptorTagId"`
 - All needed indexes and unique constraints
 
-- [ ] **Step 3: Append the 3-cap CHECK constraint for MerchantHighlight**
+**If Prisma generated DROP+CREATE** for the rename, manually rewrite the relevant block to use `ALTER TABLE … RENAME TO …` and `ALTER TYPE … RENAME TO …`. The new `MerchantTag` table (curated taxonomy) must be created AFTER the rename completes, otherwise the new table name collides with the old one mid-migration.
+
+Sequencing in the SQL file:
+
+```sql
+-- 1) Rename old MerchantTag artefacts first (preserves data)
+ALTER TABLE "MerchantTag" RENAME TO "MerchantSuggestedTag";
+ALTER TYPE "MerchantTagStatus" RENAME TO "MerchantSuggestedTagStatus";
+-- (Prisma rename also covers the foreign-key constraint and indexes — verify in the diff)
+
+-- 2) Create the new tag-system enums and tables (after the name is freed)
+CREATE TYPE "TagType" AS ENUM (...);
+CREATE TYPE "TagCreatedBy" AS ENUM (...);
+CREATE TYPE "CategoryDescriptorState" AS ENUM (...);
+CREATE TABLE "Tag" (...);
+CREATE TABLE "SubcategoryTag" (...);
+CREATE TABLE "MerchantTag" (...);  -- new curated join, name freed by step 1
+CREATE TABLE "MerchantHighlight" (...);
+CREATE TABLE "RedundantHighlight" (...);
+
+-- 3) ALTER existing Category and Merchant to add new columns
+ALTER TABLE "Category" ADD COLUMN ...;
+ALTER TABLE "Merchant" ADD COLUMN "primaryDescriptorTagId" TEXT;
+```
+
+- [ ] **Step 3: Append the 3-cap database trigger for MerchantHighlight**
 
 Prisma can't express the 3-row-per-merchant constraint declaratively. Append at the end of `migration.sql`:
 
 ```sql
--- Enforce hard cap of 3 highlights per merchant (§3.4)
+-- Enforce hard cap of 3 highlights per merchant (§3.4).
+-- Fires on INSERT and on UPDATE of merchantId so an UPDATE can't move
+-- a row into a merchant already at the cap.
 CREATE OR REPLACE FUNCTION enforce_merchant_highlight_cap()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -361,7 +392,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER merchant_highlight_cap_trigger
-BEFORE INSERT ON "MerchantHighlight"
+BEFORE INSERT OR UPDATE OF "merchantId" ON "MerchantHighlight"
 FOR EACH ROW EXECUTE FUNCTION enforce_merchant_highlight_cap();
 ```
 
@@ -940,13 +971,31 @@ Read `prisma/seed.ts` end-to-end to understand the current flow (subscription pl
 
 - [ ] **Step 2: Replace the category/tag seeding block**
 
-In `prisma/seed.ts`, replace the existing categories block (the `await prisma.category.upsert({...})` calls around lines 60–115) with this orchestrator. The seed should be idempotent (safe to re-run):
+In `prisma/seed.ts`, replace the existing categories block (the `await prisma.category.upsert({...})` calls around lines 60–115) with this orchestrator. The seed should be idempotent (safe to re-run) AND must safely migrate from the previous 6+5 taxonomy without leaving orphaned rows:
 
 ```ts
 import { TOP_LEVEL_CATEGORIES, SUBCATEGORIES } from './seed-data/categories'
 import { ALL_TAGS, CUISINE_TAGS } from './seed-data/tags'
 import { SPECIALTY_PARENT, FOOD_DRINK_SUBCATS_FOR_CUISINE, PRIMARY_CUISINE_SUBCATEGORIES } from './seed-data/subcategoryTags'
 import { REDUNDANT_HIGHLIGHTS } from './seed-data/redundantHighlights'
+
+// ── Migration step: rename old top-levels in place (preserves Category IDs ──
+//    so existing RmvTemplate and MerchantCategory FK rows stay valid) ─────────
+await prisma.category.updateMany({ where: { name: 'Retail & Shopping' },     data: { name: 'Shopping' } })
+await prisma.category.updateMany({ where: { name: 'Entertainment' },         data: { name: 'Out & About' } })
+await prisma.category.updateMany({ where: { name: 'Professional Services' }, data: { name: 'Home & Local Services' } })
+
+// ── Migration step: delete legacy 5 sample subcategories ─────────────────────
+//    None of these names match the new 89; if left in place they would collide
+//    with the integrity test (§Group 5). MerchantCategory rows pointing at
+//    them are absent in the existing seed (test merchants link only to
+//    top-levels). Cascade is safe.
+await prisma.category.deleteMany({
+  where: {
+    name: { in: ['Restaurants', 'Cafes & Coffee', 'Bars & Pubs', 'Hair Salons', 'Nail & Beauty'] },
+    parentId: { not: null },
+  },
+})
 
 // ── Top-level Categories (11) ──
 const topLevelByName = new Map<string, string>()  // name → id
@@ -1456,11 +1505,7 @@ git commit -m "feat(api): descriptor construction with de-dup rule (spec §3.6)"
 
 - [ ] **Step 1: Determine the city resolver strategy**
 
-City for a merchant is derived from the primary branch's coordinates or postcode. For the foundation phase, the simplest robust resolver is: the `Branch.area` field if it exists, falling back to a postcode prefix lookup. Read `prisma/schema.prisma` Branch model lines 382–420 to see what's available.
-
-If `Branch.area` exists (a string set during onboarding, e.g. "Shoreditch", "Manchester"), use it as the city key.
-
-If not, this task includes a placeholder `cityFor(branch) → string | null` that returns `branch.area ?? null` and a TODO comment that geocoding-based city resolution is deferred to Plan 2.
+City for a merchant is derived from its main branch (`Branch.isMainBranch === true`). Schema confirms `Branch.city: String` is set during onboarding (e.g. "Shoreditch", "Manchester"). Use it directly as the city key — no geocoding needed for Plan 1.
 
 - [ ] **Step 2: Write failing test**
 
@@ -1521,15 +1566,11 @@ Create `src/api/lib/merchantCount.ts`:
 import type { PrismaClient } from '../../generated/prisma/client'
 
 /**
- * Returns a city key for a merchant, derived from its primary branch.
- * Phase-1 resolver: Branch.area (string set during onboarding).
- * Returns null if no city can be resolved (excluded from counts).
- *
- * TODO(Plan-2): replace with geocoding-based city resolution when
- * coordinate-to-city service is wired up.
+ * Returns a city key for a merchant, derived from its main branch.
+ * Branch.city is a non-null string set during merchant onboarding.
  */
-function cityFor(branch: { area: string | null } | null): string | null {
-  return branch?.area ?? null
+function cityFor(branch: { city: string } | null): string | null {
+  return branch?.city ?? null
 }
 
 /**
@@ -1550,7 +1591,7 @@ export async function recomputeCategoryCounts(prisma: PrismaClient): Promise<voi
         status: 'ACTIVE',
       },
       include: {
-        branches: { where: { isPrimary: true }, select: { area: true } },
+        branches: { where: { isMainBranch: true }, select: { city: true } },
       },
     })
 
@@ -1586,7 +1627,7 @@ export async function recomputeTagCounts(prisma: PrismaClient): Promise<void> {
         status: 'ACTIVE',
       },
       include: {
-        branches: { where: { isPrimary: true }, select: { area: true } },
+        branches: { where: { isMainBranch: true }, select: { city: true } },
       },
     })
 
@@ -1620,8 +1661,7 @@ git add src/api/lib/merchantCount.ts tests/api/lib/merchantCount.test.ts
 git commit -m "feat(api): merchantCount denormalisation helper
 
 Recomputes Category.merchantCountByCity and Tag.merchantCountByCity
-based on Branch.area as the phase-1 city key. Replace with geocoding
-in Plan 2.
+keyed on Branch.city for the merchant's main branch (isMainBranch).
 "
 ```
 
@@ -1723,7 +1763,7 @@ This matches merchants carrying ANY of the requested tags via any of the three p
 
 - [ ] **Step 3: Add scope-based location filter**
 
-Use the new `resolveScope` helper. If `scope === 'nearby'` and lat/lng available, the existing radius filter applies. If `scope === 'city'`, filter by `branches.area === resolvedArea`. If `scope === 'platform'`, no location filter.
+Use the new `resolveScope` helper. If `scope === 'nearby'` and lat/lng available, the existing radius filter applies. If `scope === 'city'`, filter by `branches.city === profileCity` (where the user is). If `scope === 'platform'`, no location filter.
 
 ```ts
 import { resolveScope } from '../../lib/scope'
@@ -1732,28 +1772,33 @@ import { resolveScope } from '../../lib/scope'
 const profileCity = await resolveProfileCity(prisma, userId)  // helper below
 const resolved = resolveScope({ scope, lat, lng, profileCity })
 
-if (resolved.scope === 'city' && resolved.resolvedArea) {
+if (resolved.scope === 'city' && profileCity) {
   where.branches = {
-    some: { area: resolved.resolvedArea, isPrimary: true },
+    some: { city: profileCity, isMainBranch: true },
   }
 }
 // nearby uses existing radius logic; platform uses no location clause
 ```
 
-Where `resolveProfileCity` is a small helper (add it in the same file or `src/api/lib/scope.ts`):
+Where `resolveProfileCity` is a small helper (place it in `src/api/lib/scope.ts` for reuse):
 
 ```ts
-async function resolveProfileCity(prisma: PrismaClient, userId: string | null): Promise<string | null> {
+import type { PrismaClient } from '../../generated/prisma/client'
+
+export async function resolveProfileCity(
+  prisma: PrismaClient,
+  userId: string | null,
+): Promise<string | null> {
   if (!userId) return null
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { city: true, postcode: true },
+    select: { city: true },
   })
   return user?.city ?? null
 }
 ```
 
-(Check the actual `User` model fields — adapt the field names if `city` doesn't exist; use `postcode` to derive city via a TODO-marked stub for now.)
+(`User.city` is a nullable `String?` per `prisma/schema.prisma` line 112 — verified.)
 
 - [ ] **Step 4: Return the meta envelope**
 
@@ -1907,7 +1952,7 @@ export async function getCategoryMerchants(
   }
 
   if (resolved.scope === 'city' && profileCity) {
-    where.branches = { some: { area: profileCity, isPrimary: true } }
+    where.branches = { some: { city: profileCity, isMainBranch: true } }
   }
   // nearby + radius logic uses existing helpers (mirror searchMerchants)
   // platform: no location filter
@@ -1918,10 +1963,10 @@ export async function getCategoryMerchants(
     skip: options.offset,
     // Include the same select shape used by searchMerchants for consistency
     include: {
-      primaryCategory: { select: { id: true, name: true } },
+      primaryCategory: { select: { id: true, name: true, descriptorSuffix: true } },
       primaryDescriptorTag: { select: { id: true, label: true } },
       highlights: { include: { tag: { select: { id: true, label: true } } }, orderBy: { sortOrder: 'asc' }, take: 3 },
-      branches: { where: { isPrimary: true }, select: { id: true, area: true, lat: true, lng: true } },
+      branches: { where: { isMainBranch: true }, select: { id: true, city: true, latitude: true, longitude: true } },
     },
   })
 
@@ -1982,19 +2027,14 @@ git commit -m "feat(discovery): add /category/:id/merchants endpoint with scope 
 **Files:**
 - Modify: `src/api/customer/discovery/service.ts` — extend `getCustomerMerchant` and `searchMerchants` shape
 
-- [ ] **Step 1: Extend the merchant tile shape**
+- [ ] **Step 1: Extend the Prisma `select` shape**
 
-The shared merchant-tile shape (used by /home, /search, /category/:id/merchants, /merchants/:id) needs to include:
-- `primaryDescriptorTag: { id, label } | null`
-- `subcategoryDescriptorSuffix: string | null` (from the merchant's primary subcategory)
-- `highlights: { id, label }[]` (max 3, with redundancy filter applied)
-
-In service.ts, locate the existing `MERCHANT_TILE_SELECT` constant (or the inline `select` used by `searchMerchants`). Add:
+In `src/api/customer/discovery/service.ts`, locate the shared merchant-tile select shape (used by /home, /search, /category/:id/merchants, /merchants/:id). Add fields needed to construct the descriptor and resolve highlights:
 
 ```ts
 primaryDescriptorTag: { select: { id: true, label: true } },
 primaryCategory: {
-  select: { id: true, name: true, descriptorSuffix: true },  // for the suffix
+  select: { id: true, name: true, descriptorSuffix: true },  // name + override suffix for buildDescriptor
 },
 highlights: {
   include: { tag: { select: { id: true, label: true } } },
@@ -2003,9 +2043,11 @@ highlights: {
 },
 ```
 
-- [ ] **Step 2: Apply redundancy filter at the response layer**
+(`Merchant.primaryCategoryId` points at the merchant's primary subcategory after Task 11; the `primaryCategory` Prisma relation resolves to that subcategory's row.)
 
-Add a helper in `src/api/lib/tile.ts`:
+- [ ] **Step 2: Add the `filterRedundantHighlights` helper**
+
+Add to `src/api/lib/tile.ts`:
 
 ```ts
 export function filterRedundantHighlights<T extends { highlightTagId: string }>(
@@ -2016,26 +2058,56 @@ export function filterRedundantHighlights<T extends { highlightTagId: string }>(
 }
 ```
 
-In service.ts, when assembling each merchant's response:
+- [ ] **Step 3: Construct descriptor + filter highlights inside the service response**
+
+The service is the single place that knows the descriptor construction rule (buildDescriptor + de-dup). Clients just render the returned string. Inside `searchMerchants` / `getCategoryMerchants` / `getCustomerMerchant`, after the Prisma fetch, transform each merchant:
 
 ```ts
-// Pre-fetch redundancy rules for the merchant's primary subcategory
-const redundantRules = await prisma.redundantHighlight.findMany({
-  where: { subcategoryId: merchant.primarySubcategoryId },
-  select: { highlightTagId: true },
-})
-const redundantSet = new Set(redundantRules.map((r) => r.highlightTagId))
+import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 
-const visibleHighlights = filterRedundantHighlights(merchant.highlights, redundantSet)
+// Batch-fetch redundancy rules for all primary subcategory ids in this result set
+const subcategoryIds = [...new Set(merchants.map((m) => m.primaryCategoryId).filter(Boolean) as string[])]
+const redundantRows = subcategoryIds.length === 0 ? [] : await prisma.redundantHighlight.findMany({
+  where: { subcategoryId: { in: subcategoryIds } },
+  select: { subcategoryId: true, highlightTagId: true },
+})
+const redundantBySubcat = new Map<string, Set<string>>()
+for (const r of redundantRows) {
+  if (!redundantBySubcat.has(r.subcategoryId)) redundantBySubcat.set(r.subcategoryId, new Set())
+  redundantBySubcat.get(r.subcategoryId)!.add(r.highlightTagId)
+}
+
+const transformed = merchants.map((m) => {
+  const tagLabel = m.primaryDescriptorTag?.label ?? null
+  const suffix = m.primaryCategory ? descriptorSuffixFor(m.primaryCategory) : (m.primaryCategory?.name ?? '')
+  const descriptor = m.primaryCategory ? buildDescriptor(tagLabel, suffix) : null
+
+  const redundantSet = m.primaryCategoryId
+    ? redundantBySubcat.get(m.primaryCategoryId) ?? new Set<string>()
+    : new Set<string>()
+  const visibleHighlights = filterRedundantHighlights(m.highlights, redundantSet).slice(0, 3)
+
+  return {
+    ...m,
+    descriptor,                  // rendered string with de-dup applied (null if no primary subcategory)
+    highlights: visibleHighlights,
+  }
+})
 ```
 
-(Or batch the redundancy fetch across all merchants in the response for efficiency.)
+Apply the same transform in `getCustomerMerchant` for the merchant-detail response.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/api/customer/discovery/service.ts src/api/lib/tile.ts
-git commit -m "feat(discovery): include descriptor + filtered highlights on merchant responses"
+git commit -m "feat(discovery): construct descriptor + filtered highlights server-side
+
+Adds the rendered descriptor string (with de-dup rule from §3.6
+applied) to merchant responses, plus filters highlights through
+the RedundantHighlight rule table. Both happen at the service
+layer so the API contract carries a fully-resolved tile shape.
+"
 ```
 
 ---
@@ -2194,303 +2266,186 @@ git commit -m "test: MerchantHighlight 3-cap database trigger"
 
 ---
 
-### Task 23: Test discovery `/search` filters by tagIds
+### Task 23: Route-level tests for /search (mocked service, matches existing convention)
 
 **Files:**
-- Modify: `tests/api/customer/discovery/discovery.routes.test.ts` — extend with new cases
+- Modify: `tests/api/customer/discovery.routes.test.ts` — add cases that the route correctly forwards new query params to the service and returns the meta envelope unchanged.
 
-- [ ] **Step 1: Add test case for tagIds filter**
+The existing file already does `vi.mock('../../../src/api/customer/discovery/service', ...)` at module level. We extend that pattern.
 
-Append to the existing search test block:
+- [ ] **Step 1: Add test cases for query-param forwarding**
+
+Append to the existing route-test file:
 
 ```ts
-describe('GET /api/v1/customer/search — tagIds filter', () => {
-  it('returns only merchants carrying the requested tag', async () => {
-    // Find an active merchant and assign a known tag
-    const merchant = await prisma.merchant.findFirst({ where: { status: 'ACTIVE' } })
-    const cuisineTag = await prisma.tag.findFirst({ where: { type: 'CUISINE', label: 'Italian' } })
+describe('GET /api/v1/customer/search — new query params and meta envelope', () => {
+  beforeEach(() => {
+    vi.mocked(searchMerchants).mockReset()
+  })
 
-    await prisma.merchantTag.upsert({
-      where: { merchantId_tagId: { merchantId: merchant!.id, tagId: cuisineTag!.id } },
-      update: {},
-      create: { merchantId: merchant!.id, tagId: cuisineTag!.id },
-    })
+  it('forwards tagIds and scope to the service', async () => {
+    vi.mocked(searchMerchants).mockResolvedValueOnce({
+      results: [],
+      meta: { scope: 'nearby', resolvedArea: 'Nearby', scopeExpanded: false, chipsHidden: false },
+    } as any)
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/v1/customer/search?tagIds=${cuisineTag!.id}`,
+      url: '/api/v1/customer/search?tagIds=t1,t2&scope=city',
     })
 
     expect(res.statusCode).toBe(200)
-    const body = JSON.parse(res.body)
-    expect(body.results).toEqual(expect.arrayContaining([expect.objectContaining({ id: merchant!.id })]))
-
-    // Cleanup
-    await prisma.merchantTag.delete({
-      where: { merchantId_tagId: { merchantId: merchant!.id, tagId: cuisineTag!.id } },
-    })
+    expect(searchMerchants).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tagIds: ['t1', 't2'],
+        scope: 'city',
+      }),
+    )
   })
 
-  it('returns empty results when no merchant carries the tag', async () => {
-    const orphanTag = await prisma.tag.findFirst({ where: { type: 'SPECIALTY', label: 'Helicopter Tour' } })
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/v1/customer/search?tagIds=${orphanTag!.id}`,
+  it('passes through the meta envelope from the service to the response body', async () => {
+    vi.mocked(searchMerchants).mockResolvedValueOnce({
+      results: [{ id: 'm1' }],
+      meta: { scope: 'platform', resolvedArea: 'United Kingdom', scopeExpanded: true, chipsHidden: false },
+    } as any)
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/search?scope=platform' })
+    const body = JSON.parse(res.body)
+    expect(body.meta).toEqual({
+      scope: 'platform',
+      resolvedArea: 'United Kingdom',
+      scopeExpanded: true,
+      chipsHidden: false,
     })
-    expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body).results.length).toBe(0)
   })
 })
 ```
 
-- [ ] **Step 2: Run tests**
-
-```bash
-npx vitest run tests/api/customer/discovery/discovery.routes.test.ts
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/api/customer/discovery/discovery.routes.test.ts
-git commit -m "test(discovery): /search tagIds filter"
-```
-
----
-
-### Task 24: Test `meta` envelope on `/search`
-
-**Files:**
-- Modify: `tests/api/customer/discovery/discovery.routes.test.ts`
-
-- [ ] **Step 1: Append test for meta envelope**
+- [ ] **Step 2: Add route test for `/categories` (chipsHidden + supply-aware children)**
 
 ```ts
-describe('GET /api/v1/customer/search — meta envelope', () => {
-  it('returns meta with scope=nearby when location given', async () => {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/v1/customer/search?lat=51.5&lng=-0.1',
-    })
-    const body = JSON.parse(res.body)
-    expect(body.meta).toMatchObject({
-      scope: 'nearby',
-      resolvedArea: 'Nearby',
-      scopeExpanded: false,
-    })
+describe('GET /api/v1/customer/categories — chipsHidden flag passes through', () => {
+  beforeEach(() => {
+    vi.mocked(listActiveCategories).mockReset()
   })
 
-  it('returns meta with scope=platform and scopeExpanded=true when scope=platform requested', async () => {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/v1/customer/search?scope=platform',
-    })
+  it('returns the categories array with chipsHidden as the service returns it', async () => {
+    vi.mocked(listActiveCategories).mockResolvedValueOnce([
+      { id: 'c1', name: 'Pet Services', children: [{ id: 's1', name: 'Vet' }], chipsHidden: true } as any,
+    ])
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/categories' })
     const body = JSON.parse(res.body)
-    expect(body.meta.scope).toBe('platform')
-    expect(body.meta.scopeExpanded).toBe(true)
-    expect(body.meta.resolvedArea).toBe('United Kingdom')
+    expect(body.categories[0].chipsHidden).toBe(true)
   })
 })
 ```
 
-- [ ] **Step 2: Run tests**
-
-```bash
-npx vitest run tests/api/customer/discovery/discovery.routes.test.ts
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/api/customer/discovery/discovery.routes.test.ts
-git commit -m "test(discovery): meta envelope on /search response"
-```
-
----
-
-### Task 25: Test supply-aware `/categories` and chip-density flag
-
-**Files:**
-- Modify: `tests/api/customer/discovery/discovery.routes.test.ts`
-
-- [ ] **Step 1: Append test for category supply-awareness**
-
-```ts
-describe('GET /api/v1/customer/categories — supply-aware children', () => {
-  it('returns top-level categories with subcategory children', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/categories' })
-    const body = JSON.parse(res.body)
-    expect(body.categories.length).toBe(11)
-    const foodDrink = body.categories.find((c: any) => c.name === 'Food & Drink')
-    expect(foodDrink).toBeDefined()
-    expect(Array.isArray(foodDrink.children)).toBe(true)
-  })
-
-  it('hides subcategory chips when fewer than 3 subcategories have supply in city scope', async () => {
-    // This test depends on test seed having sparse supply in some category — verify against
-    // a category likely to have few merchants in seed (e.g. Pet Services).
-    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/categories' })
-    const body = JSON.parse(res.body)
-    const petServices = body.categories.find((c: any) => c.name === 'Pet Services')
-    // chipsHidden may be true or false depending on seed; just assert the field exists
-    expect(typeof petServices.chipsHidden).toBe('boolean')
-  })
-})
-```
-
-- [ ] **Step 2: Run tests**
-
-```bash
-npx vitest run tests/api/customer/discovery/discovery.routes.test.ts
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/api/customer/discovery/discovery.routes.test.ts
-git commit -m "test(discovery): supply-aware /categories with chipsHidden flag"
-```
-
----
-
-### Task 26: Test `/category/:id/merchants` endpoint
-
-**Files:**
-- Modify: `tests/api/customer/discovery/discovery.routes.test.ts`
-
-- [ ] **Step 1: Append test**
+- [ ] **Step 3: Add route test for `/categories/:id/merchants`**
 
 ```ts
 describe('GET /api/v1/customer/categories/:id/merchants', () => {
-  it('returns merchants in a category with meta envelope', async () => {
-    const foodCat = await prisma.category.findFirst({ where: { name: 'Food & Drink', parentId: null } })
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/v1/customer/categories/${foodCat!.id}/merchants`,
-    })
-    expect(res.statusCode).toBe(200)
-    const body = JSON.parse(res.body)
-    expect(body.results).toBeInstanceOf(Array)
-    expect(body.meta).toMatchObject({
-      scope: expect.any(String),
-      resolvedArea: expect.any(String),
-      scopeExpanded: expect.any(Boolean),
-      chipsHidden: expect.any(Boolean),
-    })
+  beforeEach(() => {
+    vi.mocked(getCategoryMerchants).mockReset()
   })
 
-  it('respects scope=platform query param', async () => {
-    const foodCat = await prisma.category.findFirst({ where: { name: 'Food & Drink', parentId: null } })
+  it('forwards path id and scope query to the service', async () => {
+    vi.mocked(getCategoryMerchants).mockResolvedValueOnce({
+      results: [],
+      meta: { scope: 'city', resolvedArea: 'London', scopeExpanded: true, chipsHidden: false },
+    } as any)
+
     const res = await app.inject({
       method: 'GET',
-      url: `/api/v1/customer/categories/${foodCat!.id}/merchants?scope=platform`,
+      url: '/api/v1/customer/categories/cat-id-1/merchants?scope=city',
     })
+
     expect(res.statusCode).toBe(200)
-    const body = JSON.parse(res.body)
-    expect(body.meta.scope).toBe('platform')
-    expect(body.meta.scopeExpanded).toBe(true)
+    expect(getCategoryMerchants).toHaveBeenCalledWith(
+      expect.anything(),
+      'cat-id-1',
+      expect.objectContaining({ scope: 'city' }),
+    )
   })
 })
 ```
 
-- [ ] **Step 2: Run tests**
+(Add `getCategoryMerchants` to the existing `vi.mock(...)` of the discovery service module at the top of the file.)
+
+- [ ] **Step 4: Run tests**
 
 ```bash
-npx vitest run tests/api/customer/discovery/discovery.routes.test.ts
+npx vitest run tests/api/customer/discovery.routes.test.ts
 ```
 
-Expected: PASS.
+Expected: PASS — all new cases plus existing route tests still green.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add tests/api/customer/discovery/discovery.routes.test.ts
-git commit -m "test(discovery): /category/:id/merchants endpoint + meta envelope"
+git add tests/api/customer/discovery.routes.test.ts
+git commit -m "test(discovery): route forwards tagIds/scope/chipsHidden through service"
 ```
 
 ---
 
-### Task 27: Test descriptor + highlights on merchant tile responses
+### Task 24: Service-level test for tagIds filter (mocked Prisma)
 
 **Files:**
-- Modify: `tests/api/customer/discovery/discovery.routes.test.ts`
+- Create: `tests/api/customer/discovery.service.test.ts`
 
-- [ ] **Step 1: Append integration test**
+This is a NEW test file. Pattern matches `tests/api/auth/merchant.test.ts` lines 9–14: build a mock prisma object, exercise the real service code, assert the `prisma.*` calls have the expected shape.
+
+- [ ] **Step 1: Write the test**
 
 ```ts
-describe('Merchant tile response includes descriptor + highlights', () => {
-  it('includes primaryDescriptorTag and highlights array on /search results', async () => {
-    // Set up a merchant with a descriptor tag and a highlight
-    const merchant = await prisma.merchant.findFirst({ where: { status: 'ACTIVE' } })
-    const italianTag = await prisma.tag.findFirst({ where: { type: 'CUISINE', label: 'Italian' } })
-    const independentTag = await prisma.tag.findFirst({ where: { type: 'HIGHLIGHT', label: 'Independent' } })
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { searchMerchants } from '../../../src/api/customer/discovery/service'
 
-    await prisma.merchant.update({
-      where: { id: merchant!.id },
-      data: { primaryDescriptorTagId: italianTag!.id },
-    })
-    await prisma.merchantHighlight.upsert({
-      where: { merchantId_highlightTagId: { merchantId: merchant!.id, highlightTagId: independentTag!.id } },
-      update: {},
-      create: { merchantId: merchant!.id, highlightTagId: independentTag!.id, sortOrder: 0 },
-    })
+function makePrismaMock() {
+  return {
+    merchant: { findMany: vi.fn().mockResolvedValue([]) },
+    user:     { findUnique: vi.fn().mockResolvedValue(null) },
+    redundantHighlight: { findMany: vi.fn().mockResolvedValue([]) },
+  } as any
+}
 
-    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/search' })
-    const body = JSON.parse(res.body)
-    const found = body.results.find((m: any) => m.id === merchant!.id)
-    expect(found).toBeDefined()
-    expect(found.primaryDescriptorTag).toEqual(expect.objectContaining({ label: 'Italian' }))
-    expect(found.highlights).toEqual(expect.arrayContaining([
-      expect.objectContaining({ tag: expect.objectContaining({ label: 'Independent' }) }),
-    ]))
+describe('searchMerchants — tagIds filter builds correct where clause', () => {
+  let prisma: ReturnType<typeof makePrismaMock>
 
-    // Cleanup
-    await prisma.merchant.update({ where: { id: merchant!.id }, data: { primaryDescriptorTagId: null } })
-    await prisma.merchantHighlight.delete({
-      where: { merchantId_highlightTagId: { merchantId: merchant!.id, highlightTagId: independentTag!.id } },
-    })
+  beforeEach(() => { prisma = makePrismaMock() })
+
+  it('includes a tag-membership clause when tagIds is non-empty', async () => {
+    await searchMerchants(prisma, { tagIds: ['tag-id-1', 'tag-id-2'], limit: 20, offset: 0 } as any)
+
+    expect(prisma.merchant.findMany).toHaveBeenCalledTimes(1)
+    const call = prisma.merchant.findMany.mock.calls[0][0]
+    const where = call.where
+
+    // The implementation builds AND[*].OR with three pathways: MerchantTag, MerchantHighlight,
+    // primaryDescriptorTagId. Assert any of these clauses references the requested ids.
+    const stringified = JSON.stringify(where)
+    expect(stringified).toContain('tag-id-1')
+    expect(stringified).toContain('tag-id-2')
+    expect(stringified).toContain('primaryDescriptorTagId')
+    expect(stringified).toContain('tags')          // MerchantTag.tagId path
+    expect(stringified).toContain('highlights')    // MerchantHighlight.highlightTagId path
   })
 
-  it('hides redundant highlights via RedundantHighlight rule', async () => {
-    // Use a Vet merchant (or assign one to Vet subcategory) and add Pet-Friendly
-    // Verify the response excludes Pet-Friendly even though MerchantHighlight row exists.
-    // Skip if no Vet seeded; mark test as conditional.
-    const vetSubcat = await prisma.category.findFirst({ where: { name: 'Vet' } })
-    const vetMerchant = await prisma.merchant.findFirst({
-      where: { categories: { some: { categoryId: vetSubcat!.id } }, status: 'ACTIVE' },
-    })
-    if (!vetMerchant) return  // skip if no Vet test merchant
-
-    const petFriendly = await prisma.tag.findFirst({ where: { label: 'Pet-Friendly', type: 'HIGHLIGHT' } })
-    await prisma.merchantHighlight.upsert({
-      where: { merchantId_highlightTagId: { merchantId: vetMerchant.id, highlightTagId: petFriendly!.id } },
-      update: {},
-      create: { merchantId: vetMerchant.id, highlightTagId: petFriendly!.id, sortOrder: 0 },
-    })
-
-    const res = await app.inject({ method: 'GET', url: `/api/v1/customer/merchants/${vetMerchant.id}` })
-    const body = JSON.parse(res.body)
-    const labels = (body.highlights ?? []).map((h: any) => h.tag.label)
-    expect(labels).not.toContain('Pet-Friendly')
-
-    // Cleanup
-    await prisma.merchantHighlight.delete({
-      where: { merchantId_highlightTagId: { merchantId: vetMerchant.id, highlightTagId: petFriendly!.id } },
-    })
+  it('omits the tag-membership clause when tagIds is undefined', async () => {
+    await searchMerchants(prisma, { limit: 20, offset: 0 } as any)
+    const call = prisma.merchant.findMany.mock.calls[0][0]
+    const stringified = JSON.stringify(call.where ?? {})
+    expect(stringified).not.toContain('primaryDescriptorTagId')
   })
 })
 ```
 
-- [ ] **Step 2: Run tests**
+- [ ] **Step 2: Run the test**
 
 ```bash
-npx vitest run tests/api/customer/discovery/discovery.routes.test.ts
+npx vitest run tests/api/customer/discovery.service.test.ts
 ```
 
 Expected: PASS.
@@ -2498,8 +2453,280 @@ Expected: PASS.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add tests/api/customer/discovery/discovery.routes.test.ts
-git commit -m "test(discovery): merchant tile descriptor + highlight redundancy filter"
+git add tests/api/customer/discovery.service.test.ts
+git commit -m "test(discovery): service-level tagIds where-clause test (mocked prisma)"
+```
+
+---
+
+### Task 25: Service-level test for `meta` envelope on `searchMerchants`
+
+**Files:**
+- Modify: `tests/api/customer/discovery.service.test.ts`
+
+- [ ] **Step 1: Append meta-envelope tests**
+
+```ts
+describe('searchMerchants — meta envelope', () => {
+  let prisma: ReturnType<typeof makePrismaMock>
+  beforeEach(() => { prisma = makePrismaMock() })
+
+  it('returns scope=nearby and scopeExpanded=false when no scope requested but lat/lng given', async () => {
+    const res = await searchMerchants(prisma, { lat: 51.5, lng: -0.1, limit: 20, offset: 0 } as any)
+    expect(res.meta).toEqual(expect.objectContaining({
+      scope: 'nearby',
+      resolvedArea: 'Nearby',
+      scopeExpanded: false,
+    }))
+  })
+
+  it('returns scope=platform and scopeExpanded=true when scope=platform requested', async () => {
+    const res = await searchMerchants(prisma, { scope: 'platform', limit: 20, offset: 0 } as any)
+    expect(res.meta).toEqual(expect.objectContaining({
+      scope: 'platform',
+      resolvedArea: 'United Kingdom',
+      scopeExpanded: true,
+    }))
+  })
+
+  it('returns scope=city when scope=city is requested and a profileCity is resolvable', async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({ city: 'London' })
+
+    const res = await searchMerchants(prisma, {
+      scope: 'city', userId: 'user-1', lat: 51.5, lng: -0.1, limit: 20, offset: 0,
+    } as any)
+    expect(res.meta).toEqual(expect.objectContaining({
+      scope: 'city',
+      resolvedArea: 'London',
+      scopeExpanded: true,
+    }))
+  })
+})
+```
+
+- [ ] **Step 2: Run tests**
+
+```bash
+npx vitest run tests/api/customer/discovery.service.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/api/customer/discovery.service.test.ts
+git commit -m "test(discovery): service meta envelope (scope, resolvedArea, scopeExpanded)"
+```
+
+---
+
+### Task 26: Service-level tests for `listActiveCategories` and `getCategoryMerchants`
+
+**Files:**
+- Modify: `tests/api/customer/discovery.service.test.ts`
+
+- [ ] **Step 1: Append `listActiveCategories` chip-density test**
+
+```ts
+import { listActiveCategories, getCategoryMerchants } from '../../../src/api/customer/discovery/service'
+
+describe('listActiveCategories — supply-aware children + chipsHidden', () => {
+  it('hides chip row when fewer than 3 subcategories have supply in the city', async () => {
+    const prisma = {
+      category: {
+        findMany: vi.fn().mockResolvedValueOnce([
+          {
+            id: 'pet', name: 'Pet Services', sortOrder: 11, iconUrl: null, illustrationUrl: null,
+            pinColour: '#795548', pinIcon: 'paw',
+            merchantCountByCity: { London: 5 },
+            children: [
+              { id: 's1', name: 'Vet',         sortOrder: 4, descriptorState: 'HIDDEN', descriptorSuffix: null, merchantCountByCity: { London: 3 } },
+              { id: 's2', name: 'Pet Groomer', sortOrder: 1, descriptorState: 'HIDDEN', descriptorSuffix: null, merchantCountByCity: { London: 2 } },
+              { id: 's3', name: 'Pet Boutique',sortOrder: 6, descriptorState: 'OPTIONAL',descriptorSuffix: null, merchantCountByCity: { Manchester: 1 } },  // no London supply
+            ],
+          },
+        ]),
+      },
+      user: { findUnique: vi.fn().mockResolvedValue({ city: 'London' }) },
+    } as any
+
+    const cats = await listActiveCategories(prisma, { userId: 'u1', scope: 'city' })
+
+    const pets = cats[0]
+    expect(pets.children.map((c: any) => c.name)).toEqual(['Vet', 'Pet Groomer'])  // s3 filtered out (no London supply)
+    expect(pets.chipsHidden).toBe(true)  // 2 visible subcats, below the default 3
+  })
+})
+
+describe('getCategoryMerchants — meta envelope and chipsHidden', () => {
+  it('returns meta with chipsHidden=true when subcategories with supply < 3', async () => {
+    const prisma = {
+      merchant: { findMany: vi.fn().mockResolvedValue([]) },
+      user: { findUnique: vi.fn().mockResolvedValue({ city: 'London' }) },
+      category: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 's1', merchantCountByCity: { London: 2 } },
+          { id: 's2', merchantCountByCity: { Manchester: 5 } },  // no London supply
+        ]),
+      },
+      redundantHighlight: { findMany: vi.fn().mockResolvedValue([]) },
+    } as any
+
+    const res = await getCategoryMerchants(prisma, 'cat-id-1', {
+      userId: 'u1', scope: 'city', limit: 20, offset: 0,
+    } as any)
+
+    expect(res.meta.chipsHidden).toBe(true)
+    expect(res.meta.scope).toBe('city')
+    expect(res.meta.scopeExpanded).toBe(true)
+  })
+})
+```
+
+- [ ] **Step 2: Run tests**
+
+```bash
+npx vitest run tests/api/customer/discovery.service.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/api/customer/discovery.service.test.ts
+git commit -m "test(discovery): listActiveCategories + getCategoryMerchants supply-aware logic"
+```
+
+---
+
+### Task 27: Service-level tests for descriptor construction, redundancy filter, and de-dup E2E
+
+**Files:**
+- Modify: `tests/api/customer/discovery.service.test.ts`
+
+This task covers the user-locked end-to-end test for the de-duplication rule via API response.
+
+- [ ] **Step 1: Append descriptor + redundancy tests**
+
+```ts
+describe('Merchant tile shape — descriptor + filtered highlights', () => {
+  it('returns the constructed descriptor on a Restaurant + Italian merchant', async () => {
+    const merchantRow = {
+      id: 'm-1', businessName: 'Franco Manca', primaryCategoryId: 'sub-restaurant',
+      primaryDescriptorTag: { id: 't-italian', label: 'Italian' },
+      primaryCategory: { id: 'sub-restaurant', name: 'Restaurant', descriptorSuffix: 'Restaurant' },
+      highlights: [
+        { id: 'mh-1', highlightTagId: 't-indep',  sortOrder: 0, tag: { id: 't-indep', label: 'Independent' } },
+      ],
+    }
+    const prisma = {
+      merchant: { findMany: vi.fn().mockResolvedValue([merchantRow]) },
+      user:     { findUnique: vi.fn().mockResolvedValue(null) },
+      redundantHighlight: { findMany: vi.fn().mockResolvedValue([]) },
+    } as any
+
+    const res = await searchMerchants(prisma, { limit: 20, offset: 0 } as any)
+    expect(res.results).toHaveLength(1)
+    expect(res.results[0].descriptor).toBe('Italian Restaurant')
+    expect(res.results[0].highlights.map((h: any) => h.tag.label)).toEqual(['Independent'])
+  })
+
+  it('filters out a redundant highlight (Pet-Friendly under Vet)', async () => {
+    const vetMerchant = {
+      id: 'm-vet', businessName: 'Suburban Vet', primaryCategoryId: 'sub-vet',
+      primaryDescriptorTag: null,
+      primaryCategory: { id: 'sub-vet', name: 'Vet', descriptorSuffix: null },
+      highlights: [
+        { id: 'mh-pf',    highlightTagId: 't-pet',   sortOrder: 0, tag: { id: 't-pet',   label: 'Pet-Friendly' } },
+        { id: 'mh-indep', highlightTagId: 't-indep', sortOrder: 1, tag: { id: 't-indep', label: 'Independent' } },
+      ],
+    }
+    const prisma = {
+      merchant: { findMany: vi.fn().mockResolvedValue([vetMerchant]) },
+      user:     { findUnique: vi.fn().mockResolvedValue(null) },
+      redundantHighlight: { findMany: vi.fn().mockResolvedValue([
+        { subcategoryId: 'sub-vet', highlightTagId: 't-pet' },  // Pet-Friendly is redundant under Vet
+      ]) },
+    } as any
+
+    const res = await searchMerchants(prisma, { limit: 20, offset: 0 } as any)
+    const labels = res.results[0].highlights.map((h: any) => h.tag.label)
+    expect(labels).not.toContain('Pet-Friendly')
+    expect(labels).toContain('Independent')
+  })
+
+  it('applies the descriptor de-dup rule (Cookery Class + Class & Workshop → "Cookery Class")', async () => {
+    // End-to-end: merchant has primary descriptor tag "Cookery Class" and primary subcategory
+    // "Class & Workshop". The de-dup rule (§3.6) collapses to the longer of the two alone.
+    const cookerySchool = {
+      id: 'm-csl', businessName: 'Cookery School London', primaryCategoryId: 'sub-cw',
+      primaryDescriptorTag: { id: 't-cc', label: 'Cookery Class' },
+      primaryCategory: { id: 'sub-cw', name: 'Class & Workshop', descriptorSuffix: 'Class & Workshop' },
+      highlights: [],
+    }
+    const prisma = {
+      merchant: { findMany: vi.fn().mockResolvedValue([cookerySchool]) },
+      user:     { findUnique: vi.fn().mockResolvedValue(null) },
+      redundantHighlight: { findMany: vi.fn().mockResolvedValue([]) },
+    } as any
+
+    const res = await searchMerchants(prisma, { limit: 20, offset: 0 } as any)
+    expect(res.results[0].descriptor).toBe('Class & Workshop')
+    // Per §3.6: when one string contains the other, render the LONGER alone.
+    // "Class & Workshop" (16 chars) is longer than "Cookery Class" (13 chars), but neither
+    // contains the other, so this assertion is wrong. Adjust:
+  })
+
+  it('applies the descriptor de-dup rule when tag contains the suffix', async () => {
+    const merchant = {
+      id: 'm-bh', businessName: 'Boutique-only Hotel', primaryCategoryId: 'sub-bh',
+      // Subcategory "Boutique Hotel" already contains the tag "Boutique" — render subcategory alone.
+      primaryDescriptorTag: { id: 't-b', label: 'Boutique' },
+      primaryCategory: { id: 'sub-bh', name: 'Boutique Hotel', descriptorSuffix: 'Boutique Hotel' },
+      highlights: [],
+    }
+    const prisma = {
+      merchant: { findMany: vi.fn().mockResolvedValue([merchant]) },
+      user:     { findUnique: vi.fn().mockResolvedValue(null) },
+      redundantHighlight: { findMany: vi.fn().mockResolvedValue([]) },
+    } as any
+
+    const res = await searchMerchants(prisma, { limit: 20, offset: 0 } as any)
+    expect(res.results[0].descriptor).toBe('Boutique Hotel')   // de-dup: not "Boutique Boutique Hotel"
+  })
+})
+```
+
+> Note for the implementer: the third "Cookery Class" test in step 1 above contains a deliberate self-correction comment — neither "Cookery Class" nor "Class & Workshop" contains the other, so the de-dup rule does NOT fire and the rendered descriptor is `"Cookery Class Class & Workshop"`. This is awkward and is the genuine behaviour. To get a cleaner descriptor, the seed for the `Class & Workshop` subcategory could set `descriptorSuffix: "Class"` (which IS contained in "Cookery Class" — de-dup would fire). Decide: either (a) leave the awkward two-string descriptor for this edge case, or (b) update Task 6's `SUBCATEGORIES` array to set `descriptorSuffix: 'Class'` for the "Class & Workshop" entry. Option (b) is cleaner; mark a TODO if not done.
+
+- [ ] **Step 2: If you chose option (b), update Task 6's data and adjust the test**
+
+In `prisma/seed-data/categories.ts`, change the `Class & Workshop` row to:
+```ts
+{ parent: 'Out & About', name: 'Class & Workshop', sortOrder: 7, descriptorState: 'RECOMMENDED', descriptorSuffix: 'Class' },
+```
+
+Then in the failing third test above, swap the assertion to:
+```ts
+expect(res.results[0].descriptor).toBe('Cookery Class')
+```
+because suffix `"Class"` is contained in tag `"Cookery Class"`, so de-dup renders the tag alone.
+
+- [ ] **Step 3: Run tests**
+
+```bash
+npx vitest run tests/api/customer/discovery.service.test.ts
+```
+
+Expected: PASS — all four cases (Italian Restaurant, redundancy filter, Boutique Hotel de-dup, Cookery Class de-dup with the suffix override).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/api/customer/discovery.service.test.ts prisma/seed-data/categories.ts
+git commit -m "test(discovery): descriptor + redundancy + de-dup rule (incl. Class & Workshop suffix)"
 ```
 
 ---
@@ -2519,7 +2746,7 @@ Expected: all tests pass. Original 285 + new ~25 = ~310 passing.
 If any existing test fails, the most likely cause is:
 - A merchant fixture references a category by old name (`'Retail & Shopping'`, `'Entertainment'`, `'Professional Services'`)
 - Old `MerchantTagStatus` import not yet renamed somewhere
-- A test fixture needs `primarySubcategoryId` populated
+- A test fixture needs `primaryCategoryId` to point at a subcategory (Task 11 already did this for seed data; check if any unit-test fixtures still point at a top-level)
 
 Fix in place; do not skip tests.
 
