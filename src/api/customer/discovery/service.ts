@@ -1,6 +1,6 @@
 import {
   PrismaClient, MerchantStatus, VoucherStatus, ApprovalStatus, CampaignStatus,
-  MerchantTagStatus,
+  MerchantSuggestedTagStatus,
   type Prisma,
 } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
@@ -590,8 +590,8 @@ export async function searchMerchants(
   const where: Prisma.MerchantWhereInput = { status: MerchantStatus.ACTIVE }
 
   if (q) {
-    const tags = await prisma.merchantTag.findMany({
-      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantTagStatus.APPROVED },
+    const tags = await prisma.merchantSuggestedTag.findMany({
+      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
       select: { merchantId: true },
     })
     const tagMerchantIds = [...new Set(tags.map((t: any) => t.merchantId))]
