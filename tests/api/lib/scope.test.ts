@@ -13,6 +13,11 @@ describe('resolveScope', () => {
     expect(r.resolvedArea).toBe('London')
   })
 
+  it('returns region when scope=region', () => {
+    const r = resolveScope({ scope: 'region', lat: 51.5, lng: -0.1, profileCity: 'London' })
+    expect(r).toEqual({ scope: 'region', resolvedArea: 'Wider area', radiusMiles: 25 })
+  })
+
   it('returns platform when scope=platform', () => {
     const r = resolveScope({ scope: 'platform', lat: null, lng: null, profileCity: null })
     expect(r).toEqual({ scope: 'platform', resolvedArea: 'United Kingdom', radiusMiles: null })

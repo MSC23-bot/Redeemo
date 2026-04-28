@@ -10,7 +10,7 @@ export type ResolveScopeInput = {
 export type ResolvedScope = {
   scope: Scope
   resolvedArea: string
-  radiusMiles: number | null   // null for region/platform
+  radiusMiles: number | null   // miles for nearby/region; null for city/platform (no bounded radius)
 }
 
 const NEARBY_RADIUS_MILES = 2
