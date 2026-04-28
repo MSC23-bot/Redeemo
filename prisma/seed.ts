@@ -1,7 +1,15 @@
-import { PrismaClient } from '../generated/prisma/client'
+import { PrismaClient, TagType, TagCreatedBy, CategoryDescriptorState } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import * as crypto from 'crypto'
 import { encrypt } from '../src/api/shared/encryption'
+import { TOP_LEVEL_CATEGORIES, SUBCATEGORIES } from './seed-data/categories'
+import { ALL_TAGS, CUISINE_TAGS } from './seed-data/tags'
+import {
+  SPECIALTY_PARENT,
+  FOOD_DRINK_SUBCATS_FOR_CUISINE,
+  PRIMARY_CUISINE_SUBCATEGORIES,
+} from './seed-data/subcategoryTags'
+import { REDUNDANT_HIGHLIGHTS } from './seed-data/redundantHighlights'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
 
@@ -12,6 +20,266 @@ const prisma = new PrismaClient({ adapter })
 function devHash(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex')
 }
+
+// ── Maps populated by the taxonomy phases below; consumed by later phases ──
+type SubcatKey = `${string}::${string}`  // `${name}::${parentId}`
+const topLevelIdByName = new Map<string, string>()
+const subcategoryIdByNameAndParent = new Map<SubcatKey, string>()
+const subcategoryIdsByName = new Map<string, string[]>()  // handles cross-listings (e.g. Aesthetics Clinic)
+const tagIdByLabelAndType = new Map<string, string>()     // `${label}:${type}` → id
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Taxonomy seeding
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function seedCategories(): Promise<void> {
+  // Migration step: rename old top-levels in place (preserves Category IDs so
+  // existing RmvTemplate and MerchantCategory FK rows stay valid).
+  await prisma.category.updateMany({
+    where: { name: 'Retail & Shopping' },
+    data: { name: 'Shopping' },
+  })
+  await prisma.category.updateMany({
+    where: { name: 'Entertainment' },
+    data: { name: 'Out & About' },
+  })
+  await prisma.category.updateMany({
+    where: { name: 'Professional Services' },
+    data: { name: 'Home & Local Services' },
+  })
+
+  // Migration step: delete legacy 5 sample subcategories. None of these names
+  // match the new 89; if left in place they would collide with the integrity
+  // test. MerchantCategory rows pointing at them are absent in the existing
+  // seed (test merchants link only to top-levels). Cascade is safe.
+  await prisma.category.deleteMany({
+    where: {
+      name: { in: ['Restaurants', 'Cafes & Coffee', 'Bars & Pubs', 'Hair Salons', 'Nail & Beauty'] },
+      parentId: { not: null },
+    },
+  })
+
+  // Top-level categories (11). The Category compound unique
+  // `(name, parentId)` is `NULLS NOT DISTINCT` at the DB level, but Prisma's
+  // generated TS types disallow `parentId: null` in the compound where clause.
+  // Manual find-then-upsert keeps the seed type-safe and idempotent.
+  for (const cat of TOP_LEVEL_CATEGORIES) {
+    const existing = await prisma.category.findFirst({
+      where: { name: cat.name, parentId: null },
+      select: { id: true },
+    })
+    const row = existing
+      ? await prisma.category.update({
+          where: { id: existing.id },
+          data: {
+            sortOrder: cat.sortOrder,
+            pinColour: cat.pinColour,
+            pinIcon: cat.pinIcon,
+            descriptorState: null,
+            minSubcategoryCountForChips: 3,
+            isActive: true,
+          },
+        })
+      : await prisma.category.create({
+          data: {
+            name: cat.name,
+            parentId: null,
+            sortOrder: cat.sortOrder,
+            pinColour: cat.pinColour,
+            pinIcon: cat.pinIcon,
+            descriptorState: null,
+            minSubcategoryCountForChips: 3,
+            isActive: true,
+          },
+        })
+    topLevelIdByName.set(cat.name, row.id)
+  }
+
+  // Subcategories (89). Aesthetics Clinic appears under both Beauty & Wellness
+  // and Health & Medical — the compound (name, parentId) unique gives us two
+  // distinct IDs. We track both per-parent lookup AND a name → ids[] map for
+  // RedundantHighlight fan-out.
+  for (const sub of SUBCATEGORIES) {
+    const parentId = topLevelIdByName.get(sub.parent)
+    if (!parentId) {
+      throw new Error(`seedCategories: subcategory '${sub.name}' references unknown parent '${sub.parent}'`)
+    }
+    const row = await prisma.category.upsert({
+      where: { name_parentId: { name: sub.name, parentId } },
+      update: {
+        sortOrder: sub.sortOrder,
+        descriptorState: sub.descriptorState as CategoryDescriptorState,
+        descriptorSuffix: sub.descriptorSuffix ?? null,
+        minSubcategoryCountForChips: 3,
+        isActive: true,
+      },
+      create: {
+        name: sub.name,
+        parentId,
+        sortOrder: sub.sortOrder,
+        descriptorState: sub.descriptorState as CategoryDescriptorState,
+        descriptorSuffix: sub.descriptorSuffix ?? null,
+        minSubcategoryCountForChips: 3,
+        isActive: true,
+      },
+    })
+    subcategoryIdByNameAndParent.set(`${sub.name}::${parentId}`, row.id)
+    const existing = subcategoryIdsByName.get(sub.name) ?? []
+    existing.push(row.id)
+    subcategoryIdsByName.set(sub.name, existing)
+  }
+
+  console.log(`✓ Seeded ${TOP_LEVEL_CATEGORIES.length} top-level categories, ${SUBCATEGORIES.length} subcategories`)
+}
+
+async function seedTags(): Promise<void> {
+  for (const t of ALL_TAGS) {
+    const row = await prisma.tag.upsert({
+      where: { label_type: { label: t.label, type: t.type } },
+      update: {
+        descriptorEligible: t.descriptorEligible,
+        isActive: true,
+        createdBy: TagCreatedBy.SYSTEM,
+      },
+      create: {
+        label: t.label,
+        type: t.type as TagType,
+        descriptorEligible: t.descriptorEligible,
+        isActive: true,
+        createdBy: TagCreatedBy.SYSTEM,
+      },
+    })
+    tagIdByLabelAndType.set(`${t.label}:${t.type}`, row.id)
+  }
+  console.log(`✓ Seeded ${ALL_TAGS.length} tags`)
+}
+
+async function seedSubcategoryTags(): Promise<void> {
+  type Link = { subcategoryId: string; tagId: string; isPrimaryEligible: boolean }
+  const links: Link[] = []
+  // Some pairs may collide (e.g. specialty + universal both target the same
+  // subcategory if a specialty tag were also a highlight — not in our data,
+  // but defend anyway). Dedupe via `${subcategoryId}|${tagId}` key, preferring
+  // isPrimaryEligible=true wins.
+  const seen = new Map<string, Link>()
+  const push = (link: Link) => {
+    const k = `${link.subcategoryId}|${link.tagId}`
+    const prior = seen.get(k)
+    if (!prior) {
+      seen.set(k, link)
+      return
+    }
+    if (link.isPrimaryEligible && !prior.isPrimaryEligible) {
+      seen.set(k, link)
+    }
+  }
+
+  // Cuisine → all Food & Drink subcategories listed in FOOD_DRINK_SUBCATS_FOR_CUISINE.
+  // isPrimaryEligible follows PRIMARY_CUISINE_SUBCATEGORIES.
+  for (const cuisine of CUISINE_TAGS) {
+    const tagId = tagIdByLabelAndType.get(`${cuisine.label}:${cuisine.type}`)
+    if (!tagId) {
+      throw new Error(`seedSubcategoryTags: missing tag id for cuisine '${cuisine.label}'`)
+    }
+    for (const subName of FOOD_DRINK_SUBCATS_FOR_CUISINE) {
+      const subIds = subcategoryIdsByName.get(subName) ?? []
+      if (subIds.length === 0) {
+        throw new Error(`seedSubcategoryTags: missing subcategory '${subName}' for cuisine wiring`)
+      }
+      for (const subcategoryId of subIds) {
+        push({
+          subcategoryId,
+          tagId,
+          isPrimaryEligible: PRIMARY_CUISINE_SUBCATEGORIES.has(subName),
+        })
+      }
+    }
+  }
+
+  // Specialty → every subcategory whose parent matches the specialty's parent
+  // (per SPECIALTY_PARENT). isPrimaryEligible follows the tag's
+  // descriptorEligible flag.
+  for (const [specialtyLabel, parentName] of Object.entries(SPECIALTY_PARENT)) {
+    const tagId = tagIdByLabelAndType.get(`${specialtyLabel}:SPECIALTY`)
+    if (!tagId) {
+      throw new Error(`seedSubcategoryTags: missing tag id for specialty '${specialtyLabel}'`)
+    }
+    const tag = ALL_TAGS.find((t) => t.label === specialtyLabel && t.type === 'SPECIALTY')
+    const isPrimaryEligible = tag?.descriptorEligible ?? false
+    const subcatsUnderParent = SUBCATEGORIES.filter((s) => s.parent === parentName)
+    for (const sub of subcatsUnderParent) {
+      const parentId = topLevelIdByName.get(sub.parent)
+      if (!parentId) continue
+      const subId = subcategoryIdByNameAndParent.get(`${sub.name}::${parentId}`)
+      if (!subId) continue
+      push({ subcategoryId: subId, tagId, isPrimaryEligible })
+    }
+  }
+
+  // Highlights & Details → universal: link every tag to every subcategory.
+  // isPrimaryEligible: false (highlights/details are never descriptor-eligible).
+  const universalTagIds: string[] = []
+  for (const t of ALL_TAGS) {
+    if (t.type === 'HIGHLIGHT' || t.type === 'DETAIL') {
+      const tagId = tagIdByLabelAndType.get(`${t.label}:${t.type}`)
+      if (tagId) universalTagIds.push(tagId)
+    }
+  }
+  for (const sub of SUBCATEGORIES) {
+    const parentId = topLevelIdByName.get(sub.parent)
+    if (!parentId) continue
+    const subId = subcategoryIdByNameAndParent.get(`${sub.name}::${parentId}`)
+    if (!subId) continue
+    for (const tagId of universalTagIds) {
+      push({ subcategoryId: subId, tagId, isPrimaryEligible: false })
+    }
+  }
+
+  for (const link of seen.values()) {
+    links.push(link)
+  }
+
+  // Idempotent: createMany skipDuplicates relies on the
+  // (subcategoryId, tagId) compound unique. Re-running seed is safe.
+  const result = await prisma.subcategoryTag.createMany({
+    data: links,
+    skipDuplicates: true,
+  })
+
+  console.log(`✓ Wired ${links.length} subcategory-tag link candidates (${result.count} new rows inserted)`)
+}
+
+async function seedRedundantHighlights(): Promise<void> {
+  let rowsWritten = 0
+  for (const rule of REDUNDANT_HIGHLIGHTS) {
+    const subIds = subcategoryIdsByName.get(rule.subcategoryName) ?? []
+    if (subIds.length === 0) {
+      // Spec note: rules referencing names not in seed inventory are silently
+      // skipped (Cocktail Bar / Dog-Friendly etc.). Current data has no such
+      // gap, but stay defensive.
+      continue
+    }
+    for (const highlightLabel of rule.highlightLabels) {
+      const highlightId = tagIdByLabelAndType.get(`${highlightLabel}:HIGHLIGHT`)
+      if (!highlightId) continue
+      for (const subcategoryId of subIds) {
+        await prisma.redundantHighlight.upsert({
+          where: {
+            subcategoryId_highlightTagId: { subcategoryId, highlightTagId: highlightId },
+          },
+          update: { reason: rule.reason },
+          create: { subcategoryId, highlightTagId: highlightId, reason: rule.reason },
+        })
+        rowsWritten += 1
+      }
+    }
+  }
+  console.log(`✓ Seeded ${rowsWritten} redundant-highlight rows from ${REDUNDANT_HIGHLIGHTS.length} rules`)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main orchestrator
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('Seeding database...')
@@ -60,39 +328,18 @@ async function main() {
   })
   console.log('Created subscription plans:', monthlyPlan.name, annualPlan.name)
 
-  // ── Categories ──
-  const foodCat = await prisma.category.upsert({
-    where: { name: 'Food & Drink' },
-    update: {},
-    create: { name: 'Food & Drink', sortOrder: 1, isActive: true },
-  })
-  const beautyCat = await prisma.category.upsert({
-    where: { name: 'Beauty & Wellness' },
-    update: {},
-    create: { name: 'Beauty & Wellness', sortOrder: 2, isActive: true },
-  })
-  for (const [name, order] of [['Health & Fitness', 3], ['Retail & Shopping', 4], ['Entertainment', 5], ['Professional Services', 6]] as [string, number][]) {
-    await prisma.category.upsert({
-      where: { name },
-      update: {},
-      create: { name, sortOrder: order, isActive: true },
-    })
+  // ── Categories + Tags + Joins (taxonomy) ──
+  await seedCategories()
+  await seedTags()
+  await seedSubcategoryTags()
+  await seedRedundantHighlights()
+
+  // Resolve top-level IDs needed for downstream RMV/merchant seeding.
+  const foodCatId = topLevelIdByName.get('Food & Drink')
+  const beautyCatId = topLevelIdByName.get('Beauty & Wellness')
+  if (!foodCatId || !beautyCatId) {
+    throw new Error('Expected top-level categories Food & Drink and Beauty & Wellness to exist after seedCategories')
   }
-  // Subcategories
-  for (const [name, parentId, order] of [
-    ['Restaurants', foodCat.id, 1],
-    ['Cafes & Coffee', foodCat.id, 2],
-    ['Bars & Pubs', foodCat.id, 3],
-    ['Hair Salons', beautyCat.id, 1],
-    ['Nail & Beauty', beautyCat.id, 2],
-  ] as [string, string, number][]) {
-    await prisma.category.upsert({
-      where: { name },
-      update: {},
-      create: { name, parentId, sortOrder: order, isActive: true },
-    })
-  }
-  console.log('Created categories')
 
   // ── RMV Templates ──
   // Food & Drink — suitable for restaurants, cafes, bars
@@ -114,9 +361,9 @@ async function main() {
   ]
   for (const t of rmvFoodTemplates) {
     await prisma.rmvTemplate.upsert({
-      where: { categoryId_title: { categoryId: foodCat.id, title: t.title } },
+      where: { categoryId_title: { categoryId: foodCatId, title: t.title } },
       update: {},
-      create: { ...t, categoryId: foodCat.id, isActive: true },
+      create: { ...t, categoryId: foodCatId, isActive: true },
     })
   }
 
@@ -139,15 +386,20 @@ async function main() {
   ]
   for (const t of rmvBeautyTemplates) {
     await prisma.rmvTemplate.upsert({
-      where: { categoryId_title: { categoryId: beautyCat.id, title: t.title } },
+      where: { categoryId_title: { categoryId: beautyCatId, title: t.title } },
       update: {},
-      create: { ...t, categoryId: beautyCat.id, isActive: true },
+      create: { ...t, categoryId: beautyCatId, isActive: true },
     })
   }
 
-  // Generic fallback templates for remaining top-level categories
+  // Generic fallback templates for remaining top-level categories.
+  // Note: top-level names changed in this seed (Retail & Shopping → Shopping,
+  // Entertainment → Out & About, Professional Services → Home & Local Services).
   const otherCats = await prisma.category.findMany({
-    where: { name: { in: ['Health & Fitness', 'Retail & Shopping', 'Entertainment', 'Professional Services'] }, parentId: null },
+    where: {
+      name: { in: ['Health & Fitness', 'Shopping', 'Out & About', 'Home & Local Services'] },
+      parentId: null,
+    },
   })
   for (const cat of otherCats) {
     const genericTemplates = [
@@ -230,7 +482,7 @@ async function main() {
       contractEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       description: 'A cosy independent coffee shop in central London.',
       categories: {
-        create: [{ categoryId: foodCat.id, isPrimary: true }],
+        create: [{ categoryId: foodCatId, isPrimary: true }],
       },
     },
   })
