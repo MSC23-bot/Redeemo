@@ -639,7 +639,7 @@ export type SeedTag = { label: string; type: TagType; descriptorEligible: boolea
 export const CUISINE_TAGS: SeedTag[] = [
   'British','Modern British','Modern European','Italian','French','Spanish','Portuguese','Greek','Turkish','Lebanese','Mediterranean',
   'Indian','Pakistani','Nepalese','Bangladeshi','Sri Lankan','Persian',
-  'Chinese','Cantonese','Sichuan','Japanese','Korean','Thai','Vietnamese','Malaysian','Pan-Asian',
+  'Chinese','Japanese','Korean','Thai','Vietnamese','Malaysian','Pan-Asian',
   'Mexican','American','Caribbean','Brazilian','African','Ethiopian',
   'Middle Eastern','Fusion',
 ].map((label) => ({ label, type: 'CUISINE' as const, descriptorEligible: true }))

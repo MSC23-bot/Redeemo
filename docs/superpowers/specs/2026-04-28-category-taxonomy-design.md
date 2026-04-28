@@ -184,7 +184,7 @@ The hard 3-cap on Highlights is the discipline that prevents tile clutter.
 
 **South Asian:** Indian · Pakistani · Nepalese · Bangladeshi · Sri Lankan · Persian
 
-**East & South-East Asian:** Chinese · Cantonese · Sichuan · Japanese · Korean · Thai · Vietnamese · Malaysian · Pan-Asian
+**East & South-East Asian:** Chinese · Japanese · Korean · Thai · Vietnamese · Malaysian · Pan-Asian
 
 **Americas & Africa:** Mexican · American · Caribbean · Brazilian · African · Ethiopian
 
