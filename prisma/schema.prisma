@@ -594,7 +594,6 @@ model MerchantHighlight {
   tag      Tag      @relation(fields: [highlightTagId], references: [id])
 
   @@unique([merchantId, highlightTagId])
-  @@index([merchantId])
 }
 
 model RedundantHighlight {
@@ -607,6 +606,7 @@ model RedundantHighlight {
   tag         Tag      @relation(fields: [highlightTagId], references: [id])
 
   @@unique([subcategoryId, highlightTagId])
+  @@index([highlightTagId])
 }
 
 // ─────────────────────────────────────────
@@ -641,7 +641,7 @@ model Category {
   merchants        MerchantCategory[]
   primaryMerchants Merchant[]    @relation("MerchantPrimaryCategory")
   rmvTemplates     RmvTemplate[] @relation("CategoryRmvTemplates")
-  subcategoryTags  SubcategoryTag[]
+  tagLinks         SubcategoryTag[]
   redundantHighlights RedundantHighlight[] @relation("CategoryRedundantHighlights")
 
   @@index([parentId])
