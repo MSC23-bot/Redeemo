@@ -30,7 +30,9 @@ describe('recomputeCategoryCounts', () => {
 })
 
 describe('recomputeTagCounts', () => {
-  it('updates Tag.merchantCountByCity for tags that have merchant assignments', { timeout: 120000 }, async () => {
+  // 180s timeout: 262 tags × 2 serial Neon round-trips ≈ 95s observed; bumped
+  // headroom for slow Neon cold starts.
+  it('updates Tag.merchantCountByCity for tags that have merchant assignments', { timeout: 180000 }, async () => {
     await recomputeTagCounts(prisma)
 
     const sampleTag = await prisma.tag.findFirst({ where: { type: 'CUISINE' } })

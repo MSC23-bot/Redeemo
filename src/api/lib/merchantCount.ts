@@ -11,6 +11,11 @@ function cityFor(branch: { city: string } | null): string | null {
 /**
  * Recomputes Category.merchantCountByCity for all categories.
  * Called nightly; also invalidated on merchant create/suspend/category-change.
+ *
+ * Performance: this is intentionally a serial findMany per category. Acceptable
+ * for nightly batch jobs, admin-triggered recomputes, and the seed phase. If
+ * this ever becomes hot-path (e.g. on every merchant write), rewrite as a
+ * single SQL aggregate keyed on Branch.city (GROUP BY) and a bulk update.
  */
 export async function recomputeCategoryCounts(prisma: PrismaClient): Promise<void> {
   const categories = await prisma.category.findMany({ select: { id: true } })
@@ -46,6 +51,10 @@ export async function recomputeCategoryCounts(prisma: PrismaClient): Promise<voi
 
 /**
  * Recomputes Tag.merchantCountByCity for all tags.
+ *
+ * Performance: serial findMany per tag — acceptable for nightly/admin/seed
+ * recompute (262 tags). If made hot-path, batch into one SQL aggregate keyed
+ * on Branch.city and a bulk update (same shape as recomputeCategoryCounts).
  */
 export async function recomputeTagCounts(prisma: PrismaClient): Promise<void> {
   const tags = await prisma.tag.findMany({ select: { id: true } })
