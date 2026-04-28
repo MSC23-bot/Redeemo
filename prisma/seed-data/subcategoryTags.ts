@@ -1,9 +1,19 @@
-import { TOP_LEVEL_CATEGORIES, SUBCATEGORIES } from './categories'
-import { CUISINE_TAGS, SPECIALTY_TAGS, HIGHLIGHT_TAGS, DETAIL_TAGS, type SeedTag } from './tags'
-
 // Maps SPECIALTY tag label → parent top-level category name.
 // Built by walking the §3.3 groups in tags.ts in declaration order
 // and tagging each tag with its parent group as we go.
+//
+// Aesthetics Clinic cross-listing note: Aesthetics Clinic exists as a
+// subcategory under both Beauty & Wellness and Health & Medical (see
+// categories.ts). With this map, each cross-listing inherits ONLY its own
+// parent's specialty world:
+//   - Beauty & Wellness → Aesthetics Clinic gets Botox, Dermal Fillers,
+//     IV Drip, etc. (Beauty specialties)
+//   - Health & Medical  → Aesthetics Clinic gets Cosmetic Dentistry,
+//     Sports Physio, Pre/Post-Natal, etc. (Medical specialties)
+// This asymmetry is intentional per spec §2.8 — cross-listing exists for
+// findability (which tab Maya browses to), and each tab carries its own
+// tag world. A merchant picks ONE primary listing; the secondary listing
+// is just a discoverability surface, not a tag-merge.
 export const SPECIALTY_PARENT: Record<string, string> = {
   // Food & Drink
   'Pizza':'Food & Drink','Burgers':'Food & Drink','Sushi':'Food & Drink','Ramen':'Food & Drink','Dim Sum':'Food & Drink',
