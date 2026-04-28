@@ -342,7 +342,7 @@ model Merchant {
   branches             Branch[]
   documents            MerchantDocument[]
   contract             MerchantContract?
-  tags                 MerchantTag[]
+  suggestedTags        MerchantSuggestedTag[]
   categories           MerchantCategory[]
   vouchers             Voucher[]
   favouritedBy         FavouriteMerchant[]
@@ -494,20 +494,22 @@ model MerchantContract {
 }
 
 // ─────────────────────────────────────────
-// MERCHANT TAGS
+// MERCHANT-SUGGESTED TAGS
+// (free-text tags merchants submit during onboarding,
+//  moderated by admin. NOT the curated taxonomy Tag system.)
 // ─────────────────────────────────────────
 
-enum MerchantTagStatus {
+enum MerchantSuggestedTagStatus {
   PENDING
   APPROVED
   REJECTED
 }
 
-model MerchantTag {
-  id         String            @id @default(uuid())
+model MerchantSuggestedTag {
+  id         String                       @id @default(uuid())
   merchantId String
   tag        String
-  status     MerchantTagStatus @default(PENDING)
+  status     MerchantSuggestedTagStatus   @default(PENDING)
 
   merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
