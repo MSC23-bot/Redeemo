@@ -90,8 +90,24 @@ export async function discoveryRoutes(app: FastifyInstance) {
   })
 
   // GET /api/v1/customer/categories — active categories with at least one active merchant (no auth)
-  app.get('/api/v1/customer/categories', async (_req: FastifyRequest, reply) => {
-    const categories = await listActiveCategories(app.prisma)
+  // Optional ?scope, ?lat, ?lng enable supply-aware filtering: when these
+  // resolve to a city (per spec §4.6 fallback ladder), the response is
+  // filtered to categories with supply in that city, and top-level rows
+  // gain a chipsHidden boolean. Without these params, behaviour is
+  // unchanged — flat list, no chipsHidden, no filter.
+  app.get('/api/v1/customer/categories', async (req: FastifyRequest, reply) => {
+    const query = z.object({
+      scope: z.enum(['nearby','city','region','platform']).optional(),
+      lat:   z.coerce.number().optional(),
+      lng:   z.coerce.number().optional(),
+    }).parse(req.query)
+    const userId = optionalUserId(req)
+    const categories = await listActiveCategories(app.prisma, {
+      scope:  query.scope,
+      lat:    query.lat ?? null,
+      lng:    query.lng ?? null,
+      userId,
+    })
     return reply.send({ categories })
   })
 
