@@ -10,6 +10,7 @@ import {
   PRIMARY_CUISINE_SUBCATEGORIES,
 } from './seed-data/subcategoryTags'
 import { REDUNDANT_HIGHLIGHTS } from './seed-data/redundantHighlights'
+import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
 
@@ -1049,6 +1050,11 @@ async function main() {
 
   // ── Test merchants exercising taxonomy descriptor + highlight scenarios ──
   await seedTaxonomyTestMerchants()
+
+  // ── Backfill denormalised merchant counts ──
+  await recomputeCategoryCounts(prisma)
+  await recomputeTagCounts(prisma)
+  console.log('✓ Recomputed merchantCountByCity for categories and tags')
 
   console.log('✅ Seed complete.')
 }
