@@ -319,7 +319,10 @@ async function seedRedundantHighlights(): Promise<void> {
 //   - 1–3 MerchantHighlight rows (HIGHLIGHT-type tags only, ≤3 per the DB trigger)
 //   - primaryDescriptorTagId set per scenario (null for HIDDEN)
 //
-// Idempotent: every block uses upsert OR createMany skipDuplicates.
+// Idempotent: each block uses upsert, createMany skipDuplicates, OR
+// upsertMerchantHighlights() — the latter is required because the
+// MerchantHighlight 3-cap trigger fires BEFORE INSERT and would reject
+// duplicate-row inserts that ON CONFLICT DO NOTHING would otherwise skip.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type TestMerchantSpec = {

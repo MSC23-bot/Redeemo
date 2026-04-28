@@ -1149,6 +1149,8 @@ Out & About, Home & Local Services).
 
 ### Task 11: Backfill test merchants — rename references, link to subcategories, add descriptors and highlights
 
+> **Status — superseded by implementation brief (2026-04-29).** The wording below references a "Doha merchant seeding block" with seven specific merchants (Doha Diwan, The Pearl Roastery, Spice Route, etc.) that did NOT exist in `prisma/seed.ts` at the time Task 11 was implemented; the only pre-existing merchant was `dev-merchant-001`. Task 11 was implemented against a 6-scenario brief instead — see commit `6c063c9` for the canonical merchant set: dev-merchant-001 (Italian Restaurant, cuisine descriptor), tax-merchant-cafe-001 (Specialty Coffee Cafe), tax-merchant-pilates-001 (Reformer Pilates Studio), tax-merchant-foodhall-001 (HIDDEN descriptor), tax-merchant-aesthetics-001 (B&W Aesthetics Clinic cross-listing), tax-merchant-vet-001 (Vet × Pet-Friendly redundancy fixture). The Step 1 top-level rename (Retail & Shopping → Shopping etc.) happens in `seedCategories()` at the database level (commit `0fb8904`) and is unaffected. The text below is retained for historical context only — do not follow it for re-implementation.
+
 **Files:**
 - Modify: `prisma/seed.ts` — the Doha merchant seeding block (around line 332+)
 
