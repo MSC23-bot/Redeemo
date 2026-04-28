@@ -621,7 +621,7 @@ enum CategoryDescriptorState {
 
 model Category {
   id              String     @id @default(uuid())
-  name            String     @unique
+  name            String
   iconUrl         String?
   illustrationUrl String?
   parentId        String?
@@ -644,6 +644,7 @@ model Category {
   tagLinks         SubcategoryTag[]
   redundantHighlights RedundantHighlight[] @relation("CategoryRedundantHighlights")
 
+  @@unique([name, parentId], name: "name_parentId", map: "Category_name_parentId_key")
   @@index([parentId])
 }
 

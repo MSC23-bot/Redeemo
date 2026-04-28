@@ -1001,7 +1001,7 @@ await prisma.category.deleteMany({
 const topLevelByName = new Map<string, string>()  // name → id
 for (const cat of TOP_LEVEL_CATEGORIES) {
   const row = await prisma.category.upsert({
-    where: { name: cat.name },
+    where: { name_parentId: { name: cat.name, parentId: null } },
     update: { sortOrder: cat.sortOrder, pinColour: cat.pinColour, pinIcon: cat.pinIcon, isActive: true, parentId: null },
     create: { name: cat.name, sortOrder: cat.sortOrder, pinColour: cat.pinColour, pinIcon: cat.pinIcon, isActive: true },
   })
@@ -1013,9 +1013,9 @@ const subcatByName = new Map<string, string>()
 for (const sub of SUBCATEGORIES) {
   const parentId = topLevelByName.get(sub.parent)!
   const row = await prisma.category.upsert({
-    where: { name: sub.name },
+    where: { name_parentId: { name: sub.name, parentId } },
     update: {
-      parentId, sortOrder: sub.sortOrder, isActive: true,
+      sortOrder: sub.sortOrder, isActive: true,
       descriptorState: sub.descriptorState,
       descriptorSuffix: sub.descriptorSuffix ?? null,
     },
