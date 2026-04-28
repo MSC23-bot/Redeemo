@@ -25,12 +25,21 @@ export function buildDescriptor(
   const suffixLower = subcategoryDescriptorSuffix.toLowerCase()
 
   // Case 1 — full substring containment.
+  // Note: when the suffix is empty, `tagLower.includes('')` is always true,
+  // so we fall through to returning `tagLabel` alone. That is the intended
+  // behaviour — an empty suffix means the subcategory has no descriptor
+  // suffix configured, so the tag is the entire descriptor.
   if (suffixLower.includes(tagLower)) return subcategoryDescriptorSuffix
   if (tagLower.includes(suffixLower)) return tagLabel
 
   // Case 2 — word-boundary overlap (tag ends with same words suffix starts with).
-  // Tag wins: it is the admin-tagged primary descriptor and is more specific
-  // (e.g. "Cookery Class" + "Class & Workshop" → "Cookery Class").
+  // Required by the spec's worked example in §3.6 / §3.7 row 11:
+  //   "Cookery Class" + "Class & Workshop" → "Cookery Class".
+  // Pure substring containment (Case 1) cannot produce that output — neither
+  // string contains the other in full — so the worked example forces this
+  // additional rule. Tag wins: §3.7 prescribes the tag-only rendering, which
+  // also matches the convention that the admin-tagged primary descriptor is
+  // the more specific label.
   const tagWords = tagLower.split(/\s+/).filter(Boolean)
   const suffixWords = suffixLower.split(/\s+/).filter(Boolean)
   const maxOverlap = Math.min(tagWords.length, suffixWords.length)
