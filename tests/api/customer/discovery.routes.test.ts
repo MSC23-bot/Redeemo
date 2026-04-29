@@ -326,6 +326,29 @@ describe('discovery routes', () => {
     )
   })
 
+  it('GET /api/v1/customer/search?tagIds=t1,t2&scope=city passes parsed params and returns meta envelope', async () => {
+    vi.mocked(searchMerchants).mockResolvedValueOnce({
+      merchants: [{ id: 'm1', businessName: 'Cafe' }],
+      total: 1,
+      meta: { scope: 'city', resolvedArea: 'London', scopeExpanded: true, chipsHidden: false },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/search?q=cafe&tagIds=t1,t2&scope=city',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.meta.scope).toBe('city')
+    expect(body.meta.scopeExpanded).toBe(true)
+    expect(body.meta.chipsHidden).toBe(false)
+    expect(searchMerchants).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tagIds: ['t1', 't2'], scope: 'city' }),
+    )
+  })
+
   // ────────────────────────────────────────────────
   // Categories
   // ────────────────────────────────────────────────
