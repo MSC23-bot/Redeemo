@@ -83,3 +83,25 @@ export function filterVisibleHighlights<T extends { id: string }>(
   if (redundantTagIds.size === 0) return highlights.slice()
   return highlights.filter((h) => !redundantTagIds.has(h.id))
 }
+
+/**
+ * Filters MerchantHighlight rows by removing those whose `highlightTagId` is in
+ * the redundant set for the merchant's subcategory (per spec §3.4).
+ *
+ * Use this when filtering MerchantHighlight rows directly. For filtering Tag
+ * rows (keyed on `id` rather than `highlightTagId`), use `filterVisibleHighlights`
+ * instead.
+ *
+ * Pure helper — caller pre-resolves the redundant tag-id set from the DB
+ * (typically batched per result-set in a discovery API route).
+ *
+ * Order is preserved from the input array. Input is not mutated; a new array
+ * is returned.
+ */
+export function filterRedundantHighlights<T extends { highlightTagId: string }>(
+  highlights: T[],
+  redundantHighlightTagIds: ReadonlySet<string>,
+): T[] {
+  if (redundantHighlightTagIds.size === 0) return highlights.slice()
+  return highlights.filter((h) => !redundantHighlightTagIds.has(h.highlightTagId))
+}

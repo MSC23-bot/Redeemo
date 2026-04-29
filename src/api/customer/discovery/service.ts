@@ -8,6 +8,7 @@ import { haversineMetres } from '../../shared/haversine'
 import { isOpenNow } from '../../shared/isOpenNow'
 import { resolveScope } from '../../lib/scope'
 import { resolveProfileCity } from '../../lib/userCity'
+import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -38,13 +39,24 @@ const MERCHANT_TILE_SELECT = {
   logoUrl:      true,
   bannerUrl:    true,
   primaryCategoryId: true,
-  primaryCategory: { select: { id: true, name: true, pinColour: true, pinIcon: true } },
+  primaryCategory: {
+    select: {
+      id: true, name: true, pinColour: true, pinIcon: true,
+      descriptorSuffix: true, parentId: true,
+    },
+  },
+  primaryDescriptorTag: { select: { id: true, label: true } },
   categories: {
     select: {
       category: {
         select: { id: true, name: true, parentId: true },
       },
     },
+  },
+  highlights: {
+    include: { tag: { select: { id: true, label: true } } },
+    orderBy: { sortOrder: 'asc' },
+    take: 3,
   },
   vouchers: {
     where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
@@ -63,6 +75,38 @@ const MERCHANT_TILE_SELECT = {
   },
 } as const
 
+// Tile-shape of a `MerchantHighlight` row with the `tag` join included.
+type TileHighlight = {
+  id: string
+  highlightTagId: string
+  sortOrder: number
+  tag: { id: string; label: string }
+}
+
+// Pure helper: given a merchant's primary subcategory + descriptor tag, build
+// the rendered descriptor string with the §3.6 de-dup rule applied. Returns
+// null when no primary subcategory is set. Shared by `enrichMerchantTile`
+// (list endpoints) and `getCustomerMerchant` (single-merchant detail).
+function descriptorForMerchant(merchant: {
+  primaryCategory: { name: string; descriptorSuffix: string | null } | null
+  primaryDescriptorTag: { label: string } | null
+}): string | null {
+  if (!merchant.primaryCategory) return null
+  const tagLabel = merchant.primaryDescriptorTag?.label ?? null
+  const suffix = descriptorSuffixFor(merchant.primaryCategory)
+  return buildDescriptor(tagLabel, suffix)
+}
+
+// Pure helper: given a merchant's `MerchantHighlight` rows and the redundant
+// tag-id set for its subcategory (per §3.4), return the visible subset capped
+// at 3. Shared by both the list and detail paths.
+function visibleHighlightsFor<T extends { highlightTagId: string }>(
+  highlights: T[],
+  redundantSet: ReadonlySet<string>,
+): T[] {
+  return filterRedundantHighlights(highlights, redundantSet).slice(0, 3)
+}
+
 function enrichMerchantTile(
   merchant: {
     id: string
@@ -70,8 +114,11 @@ function enrichMerchantTile(
     tradingName: string | null
     logoUrl: string | null
     bannerUrl: string | null
-    primaryCategory: { id: string; name: string; pinColour: string | null; pinIcon: string | null } | null
+    primaryCategoryId: string | null
+    primaryCategory: { id: string; name: string; pinColour: string | null; pinIcon: string | null; descriptorSuffix: string | null; parentId: string | null } | null
+    primaryDescriptorTag: { id: string; label: string } | null
     categories: { category: { id: string; name: string; parentId: string | null } }[]
+    highlights: TileHighlight[]
     vouchers: { id: string; estimatedSaving: unknown }[]
     branches: { id: string; latitude: unknown; longitude: unknown }[]
     _count: { vouchers: number }
@@ -82,6 +129,7 @@ function enrichMerchantTile(
     isFavourited: boolean
     avgRating: number | null
     reviewCount: number
+    redundantHighlightTagIds: ReadonlySet<string>
   },
 ) {
   let distance: number | null = null
@@ -106,6 +154,9 @@ function enrichMerchantTile(
   const savings = merchant.vouchers.map(v => Number(v.estimatedSaving)).filter(n => !isNaN(n))
   const maxEstimatedSaving = savings.length > 0 ? Math.max(...savings) : null
 
+  const descriptor = descriptorForMerchant(merchant)
+  const visibleHighlights = visibleHighlightsFor(merchant.highlights ?? [], opts.redundantHighlightTagIds)
+
   return {
     id:                  merchant.id,
     businessName:        merchant.businessName,
@@ -113,7 +164,10 @@ function enrichMerchantTile(
     logoUrl:             merchant.logoUrl,
     bannerUrl:           merchant.bannerUrl,
     primaryCategory:     merchant.primaryCategory,
+    primaryDescriptorTag: merchant.primaryDescriptorTag,
     subcategory:         subcategory ? { id: subcategory.id, name: subcategory.name } : null,
+    descriptor,
+    highlights:          visibleHighlights,
     avgRating:           opts.avgRating,
     reviewCount:         opts.reviewCount,
     voucherCount:        merchant._count.vouchers,
@@ -132,8 +186,11 @@ async function enrichMerchantTiles(
     tradingName: string | null
     logoUrl: string | null
     bannerUrl: string | null
-    primaryCategory: { id: string; name: string; pinColour: string | null; pinIcon: string | null } | null
+    primaryCategoryId: string | null
+    primaryCategory: { id: string; name: string; pinColour: string | null; pinIcon: string | null; descriptorSuffix: string | null; parentId: string | null } | null
+    primaryDescriptorTag: { id: string; label: string } | null
     categories: { category: { id: string; name: string; parentId: string | null } }[]
+    highlights: TileHighlight[]
     vouchers: { id: string; estimatedSaving: unknown }[]
     branches: { id: string; latitude: unknown; longitude: unknown }[]
     _count: { vouchers: number }
@@ -144,6 +201,30 @@ async function enrichMerchantTiles(
 
   const merchantIds = merchants.map(m => m.id)
   const branchIds = merchants.flatMap(m => m.branches.map(b => b.id))
+
+  // Batch-fetch RedundantHighlight rules for every primary subcategory in this
+  // result set. Group by subcategoryId so each per-merchant call below can look
+  // up its own redundant set in O(1). Empty set when the merchant has no
+  // primaryCategoryId, or when the subcategory has no rules configured.
+  const subcategoryIds = [
+    ...new Set(merchants.map(m => m.primaryCategoryId).filter((id): id is string => Boolean(id))),
+  ]
+  const redundantRows = subcategoryIds.length === 0
+    ? []
+    : await prisma.redundantHighlight.findMany({
+        where:  { subcategoryId: { in: subcategoryIds } },
+        select: { subcategoryId: true, highlightTagId: true },
+      })
+  const redundantBySubcat = new Map<string, Set<string>>()
+  for (const r of redundantRows) {
+    let bucket = redundantBySubcat.get(r.subcategoryId)
+    if (!bucket) {
+      bucket = new Set<string>()
+      redundantBySubcat.set(r.subcategoryId, bucket)
+    }
+    bucket.add(r.highlightTagId)
+  }
+  const EMPTY_SET: ReadonlySet<string> = new Set<string>()
 
   // Single groupBy for all branch ratings
   const ratingGroups = branchIds.length > 0
@@ -188,6 +269,9 @@ async function enrichMerchantTiles(
       isFavourited: favouritedSet.has(m.id),
       avgRating:    ratingByMerchant[m.id]?.avgRating ?? null,
       reviewCount:  ratingByMerchant[m.id]?.reviewCount ?? 0,
+      redundantHighlightTagIds: m.primaryCategoryId
+        ? (redundantBySubcat.get(m.primaryCategoryId) ?? EMPTY_SET)
+        : EMPTY_SET,
     }),
   )
 }
@@ -334,7 +418,19 @@ export async function getCustomerMerchant(
       status: true, logoUrl: true, bannerUrl: true,
       description: true, websiteUrl: true,
       phone: true, email: true,
-      primaryCategory: { select: { id: true, name: true, pinColour: true, pinIcon: true } },
+      primaryCategoryId: true,
+      primaryCategory: {
+        select: {
+          id: true, name: true, pinColour: true, pinIcon: true,
+          descriptorSuffix: true, parentId: true,
+        },
+      },
+      primaryDescriptorTag: { select: { id: true, label: true } },
+      highlights: {
+        include: { tag: { select: { id: true, label: true } } },
+        orderBy: { sortOrder: 'asc' },
+        take: 3,
+      },
       categories: { select: { category: { select: { id: true, name: true, parentId: true } } } },
       vouchers: {
         where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
@@ -428,6 +524,20 @@ export async function getCustomerMerchant(
 
   const photos = merchant.branches.flatMap((b: any) => b.photos.map((p: any) => p.url))
 
+  // Descriptor + filtered highlights — same logic as the list endpoints (see
+  // enrichMerchantTile + the helper extractions above). Single fetch by
+  // subcategoryId rather than the batch path used for lists.
+  const redundantSet: ReadonlySet<string> = (merchant as any).primaryCategoryId
+    ? new Set(
+        (await prisma.redundantHighlight.findMany({
+          where:  { subcategoryId: (merchant as any).primaryCategoryId },
+          select: { highlightTagId: true },
+        })).map((r: { highlightTagId: string }) => r.highlightTagId),
+      )
+    : new Set<string>()
+  const descriptor = descriptorForMerchant(merchant as any)
+  const visibleHighlights = visibleHighlightsFor((merchant as any).highlights ?? [], redundantSet)
+
   return {
     ...merchant,
     vouchers: merchant.vouchers.map((v: any) => ({
@@ -436,6 +546,8 @@ export async function getCustomerMerchant(
     })),
     about:       merchant.description,
     subcategory: subcategory ? { id: subcategory.id, name: subcategory.name } : null,
+    descriptor,
+    highlights:  visibleHighlights,
     avgRating,
     reviewCount,
     isFavourited,
