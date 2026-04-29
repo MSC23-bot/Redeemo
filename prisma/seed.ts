@@ -969,16 +969,6 @@ async function main() {
   }
   console.log('Created RMV templates')
 
-  // ── Amenities ──
-  for (const name of ['Free WiFi', 'Parking', 'Accessible', 'Outdoor Seating', 'Takeaway', 'Delivery', 'Card Payment', 'Cash Only']) {
-    await prisma.amenity.upsert({
-      where: { name },
-      update: {},
-      create: { name, isActive: true },
-    })
-  }
-  console.log('Created amenities')
-
   // ── Interests ──
   for (const name of ['Food & Dining', 'Beauty & Skincare', 'Fitness & Sport', 'Shopping', 'Entertainment & Events', 'Travel & Leisure', 'Health & Wellbeing', 'Professional Development']) {
     await prisma.interest.upsert({
