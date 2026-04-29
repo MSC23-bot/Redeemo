@@ -93,7 +93,9 @@ describe('rankMerchants — DESTINATION intent', () => {
     const userLat = 51.5074, userLng = -0.1278
     // mLocal must use the same shape as the test helper
     const merchants = [
-      // Unrated city (alphabetical fallback)
+      // City below review-count threshold — avgRating present (4.9) but
+      // reviewCount=1 < MIN_REVIEW_COUNT_FOR_RATING_SORT (3), so qualityComparator
+      // treats this as unrated and falls back to alphabetical ordering.
       { id: 'city-z', businessName: 'Z City', branches: [{ isActive: true, city: 'London', latitude: 51.55, longitude: -0.15 }],
         avgRating: 4.9, reviewCount: 1 },
       // Rated distant — should beat unrated city
