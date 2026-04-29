@@ -51,6 +51,8 @@ describe('getCustomerMerchant — phone/email privacy contract', () => {
 
 describe('getCustomerMerchant — descriptor pipeline', () => {
   it('returns descriptor="Italian Restaurant" for dev-merchant-001 (tag + subcategory suffix pipeline)', async () => {
+    // seed scenario 1 — Restaurant subcategory (descriptorSuffix:'Restaurant') + Italian CUISINE tag
+    // → buildDescriptor('Italian', 'Restaurant') → 'Italian Restaurant'
     const result = await getCustomerMerchant(prisma, devMerchantId, null)
     expect(result.descriptor).toBe('Italian Restaurant')
   })
