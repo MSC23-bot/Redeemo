@@ -784,6 +784,117 @@ export async function searchMerchants(
   }
 }
 
+// ─── Category Merchants ──────────────────────────────────────────────────────
+//
+// Group 4c (Task 19) — paginated merchants for a single category id, with the
+// same scope/meta envelope used by /search. Matches against merchants linked
+// via primaryCategoryId OR the MerchantCategory join, so callers can pass
+// either a top-level or subcategory id without precomputing the union.
+//
+// Response shape mirrors /search: { merchants, total, meta }.
+//
+// chipsHidden follows spec §4.5: count subcategories of `categoryId` whose
+// merchantCountByCity[cityKey] > 0; hide chips when below the parent's
+// minSubcategoryCountForChips threshold. cityKey comes from the §4.6 ladder
+// via resolveScope + resolveProfileCity. If no city resolves, chipsHidden
+// is false (matches the supply-aware interim behaviour in /categories).
+export async function getCategoryMerchants(
+  prisma: PrismaClient,
+  categoryId: string,
+  options: {
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
+    lat?: number | null
+    lng?: number | null
+    userId?: string | null
+    limit: number
+    offset: number
+  },
+) {
+  const profileCity = await resolveProfileCity(prisma, options.userId ?? null)
+  const resolved = resolveScope({
+    scope:       options.scope,
+    lat:         options.lat ?? null,
+    lng:         options.lng ?? null,
+    profileCity,
+  })
+
+  const where: Prisma.MerchantWhereInput = {
+    status: MerchantStatus.ACTIVE,
+    OR: [
+      { primaryCategoryId: categoryId },
+      { categories: { some: { categoryId } } },
+    ],
+  }
+
+  // City scope: filter to merchants with a main branch in the resolved city.
+  // 'nearby' falls through to enrichMerchantTiles' distance computation (no
+  // dedicated radius DB filter here — mirrors /search's behaviour for now).
+  // 'region' and 'platform' add no location filter.
+  if (resolved.scope === 'city' && profileCity) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { branches: { some: { city: profileCity, isMainBranch: true } } },
+    ]
+  }
+
+  const [total, rawMerchants] = await Promise.all([
+    prisma.merchant.count({ where }),
+    prisma.merchant.findMany({
+      where,
+      select: MERCHANT_TILE_SELECT as any,
+      orderBy: { businessName: 'asc' },
+      take: options.limit,
+      skip: options.offset,
+    }),
+  ])
+
+  const merchants = await enrichMerchantTiles(prisma, rawMerchants as any, {
+    lat:    options.lat ?? null,
+    lng:    options.lng ?? null,
+    userId: options.userId ?? null,
+  })
+
+  // chipsHidden — count surviving subcategories with supply for the resolved
+  // city, compare to the parent's minSubcategoryCountForChips threshold.
+  // When no city resolves, chips remain visible (chipsHidden=false).
+  const cityKey =
+    (resolved.scope === 'city' || resolved.scope === 'nearby') && profileCity
+      ? profileCity
+      : null
+
+  let chipsHidden = false
+  if (cityKey !== null) {
+    const [parent, subcats] = await Promise.all([
+      prisma.category.findUnique({
+        where:  { id: categoryId },
+        select: { minSubcategoryCountForChips: true },
+      }),
+      prisma.category.findMany({
+        where:  { parentId: categoryId, isActive: true },
+        select: { id: true, merchantCountByCity: true },
+      }),
+    ])
+    if (parent) {
+      const subcatsWithSupply = subcats.filter(s => {
+        const counts = (s.merchantCountByCity ?? {}) as Record<string, number>
+        return (counts[cityKey] ?? 0) > 0
+      })
+      chipsHidden = subcatsWithSupply.length < parent.minSubcategoryCountForChips
+    }
+  }
+
+  return {
+    merchants,
+    total,
+    meta: {
+      scope:         resolved.scope,
+      resolvedArea:  resolved.resolvedArea,
+      scopeExpanded: options.scope != null && options.scope !== 'nearby',
+      chipsHidden,
+    },
+  }
+}
+
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 // Fix 5: filter by active merchants via the MerchantCategory join relation
