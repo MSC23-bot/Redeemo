@@ -10,6 +10,8 @@ import {
   PRIMARY_CUISINE_SUBCATEGORIES,
 } from './seed-data/subcategoryTags'
 import { REDUNDANT_HIGHLIGHTS } from './seed-data/redundantHighlights'
+import { AMENITIES } from './seed-data/amenities'
+import { CATEGORY_AMENITIES } from './seed-data/categoryAmenities'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
@@ -28,6 +30,7 @@ const topLevelIdByName = new Map<string, string>()
 const subcategoryIdByNameAndParent = new Map<SubcatKey, string>()
 const subcategoryIdsByName = new Map<string, string[]>()  // handles cross-listings (e.g. Aesthetics Clinic)
 const tagIdByLabelAndType = new Map<string, string>()     // `${label}:${type}` → id
+const amenityIdByName = new Map<string, string>()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Taxonomy seeding
@@ -734,6 +737,49 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
   )
 }
 
+async function seedAmenities(): Promise<void> {
+  for (const a of AMENITIES) {
+    const row = await prisma.amenity.upsert({
+      where:  { name: a.name },
+      update: {},
+      create: { name: a.name, iconUrl: a.iconUrl, isActive: true },
+    })
+    amenityIdByName.set(a.name, row.id)
+  }
+  console.log(`Seeded ${AMENITIES.length} amenities`)
+}
+
+async function seedCategoryAmenities(): Promise<void> {
+  const rows: { categoryId: string; amenityId: string }[] = []
+  for (const rule of CATEGORY_AMENITIES) {
+    const amenityId = amenityIdByName.get(rule.amenityName)
+    if (!amenityId) {
+      throw new Error(`seedCategoryAmenities: amenity '${rule.amenityName}' not found`)
+    }
+
+    let categoryId: string | undefined
+    if (rule.parentCategoryName) {
+      const parentId = topLevelIdByName.get(rule.parentCategoryName)
+      if (!parentId) throw new Error(`seedCategoryAmenities: parent '${rule.parentCategoryName}' not found`)
+      categoryId = subcategoryIdByNameAndParent.get(`${rule.categoryName}::${parentId}`)
+    } else {
+      categoryId = topLevelIdByName.get(rule.categoryName)
+    }
+    if (!categoryId) {
+      throw new Error(
+        `seedCategoryAmenities: category '${rule.categoryName}'` +
+        (rule.parentCategoryName ? ` (under '${rule.parentCategoryName}')` : '') +
+        ' not found',
+      )
+    }
+
+    rows.push({ categoryId, amenityId })
+  }
+
+  await prisma.categoryAmenity.createMany({ data: rows, skipDuplicates: true })
+  console.log(`Seeded ${rows.length} CategoryAmenity rules`)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
@@ -790,6 +836,8 @@ async function main() {
   await seedTags()
   await seedSubcategoryTags()
   await seedRedundantHighlights()
+  await seedAmenities()
+  await seedCategoryAmenities()
 
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
