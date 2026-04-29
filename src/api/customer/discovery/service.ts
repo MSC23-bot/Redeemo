@@ -414,10 +414,12 @@ export async function getCustomerMerchant(
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
     select: {
+      // phone + email intentionally omitted — they live on Branch (per
+      // privacy-review note in CLAUDE.md). Customer-facing /merchants/:id
+      // exposes contact details only via nearestBranch + branches[].
       id: true, businessName: true, tradingName: true,
       status: true, logoUrl: true, bannerUrl: true,
       description: true, websiteUrl: true,
-      phone: true, email: true,
       primaryCategoryId: true,
       primaryCategory: {
         select: {
