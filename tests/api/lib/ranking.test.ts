@@ -87,3 +87,112 @@ describe('rankMerchants — LOCAL intent', () => {
     expect(counts).toEqual({ nearbyCount: 2, cityCount: 2, distantCount: 2 })
   })
 })
+
+describe('rankMerchants — DESTINATION intent', () => {
+  it('NEARBY first by distance, then CITY+DISTANT merged with rated-by-rating, unrated-alphabetical fallback', () => {
+    const userLat = 51.5074, userLng = -0.1278
+    // mLocal must use the same shape as the test helper
+    const merchants = [
+      // Unrated city (alphabetical fallback)
+      { id: 'city-z', businessName: 'Z City', branches: [{ isActive: true, city: 'London', latitude: 51.55, longitude: -0.15 }],
+        avgRating: 4.9, reviewCount: 1 },
+      // Rated distant — should beat unrated city
+      { id: 'distant-rated', businessName: 'B Distant', branches: [{ isActive: true, city: 'Manchester', latitude: 53.48, longitude: -2.24 }],
+        avgRating: 4.5, reviewCount: 10 },
+      // Higher-rated distant
+      { id: 'distant-best', businessName: 'A Distant', branches: [{ isActive: true, city: 'Edinburgh', latitude: 55.95, longitude: -3.19 }],
+        avgRating: 4.8, reviewCount: 20 },
+      // Unrated city (alphabetical fallback) — A
+      { id: 'city-a', businessName: 'A City', branches: [{ isActive: true, city: 'London', latitude: 51.6, longitude: -0.2 }],
+        avgRating: null, reviewCount: 0 },
+      // Nearby
+      { id: 'nearby', businessName: 'N1', branches: [{ isActive: true, city: 'London', latitude: 51.5074, longitude: -0.128 }],
+        avgRating: 3.0, reviewCount: 5 },
+    ]
+
+    const { ordered } = rankMerchants(merchants, {
+      intentType: 'DESTINATION',
+      userLat, userLng,
+      profileCity: 'London',
+    })
+
+    // Order:
+    //   1. nearby (NEARBY tier first)
+    //   2-3. distant-best (4.8) then distant-rated (4.5) — rated, sorted DESC
+    //   4-5. city-a then city-z — unrated, alphabetical
+    expect(ordered.map(o => o.id)).toEqual([
+      'nearby',
+      'distant-best',
+      'distant-rated',
+      'city-a',
+      'city-z',
+    ])
+  })
+})
+
+describe('rankMerchants — MIXED intent', () => {
+  it('matches LOCAL for NEARBY+CITY, but DISTANT uses quality-aware comparator', () => {
+    const userLat = 51.5074, userLng = -0.1278
+    const merchants = [
+      { id: 'city-a', businessName: 'A City', branches: [{ isActive: true, city: 'London', latitude: 51.55, longitude: -0.15 }],
+        avgRating: 2.0, reviewCount: 100 },  // CITY: alphabetical, ignores rating
+      { id: 'city-b', businessName: 'B City', branches: [{ isActive: true, city: 'London', latitude: 51.6, longitude: -0.2 }],
+        avgRating: 5.0, reviewCount: 100 },
+      { id: 'distant-low', businessName: 'A Distant', branches: [{ isActive: true, city: 'Edinburgh', latitude: 55.95, longitude: -3.19 }],
+        avgRating: 2.0, reviewCount: 10 },  // DISTANT: rating-aware
+      { id: 'distant-high', businessName: 'Z Distant', branches: [{ isActive: true, city: 'Manchester', latitude: 53.48, longitude: -2.24 }],
+        avgRating: 4.8, reviewCount: 10 },
+    ]
+
+    const { ordered } = rankMerchants(merchants, {
+      intentType: 'MIXED',
+      userLat, userLng,
+      profileCity: 'London',
+    })
+
+    expect(ordered.map(o => o.id)).toEqual([
+      'city-a',       // CITY alphabetical — A before B (ignores 2.0 vs 5.0)
+      'city-b',
+      'distant-high', // DISTANT rating DESC — 4.8 before 2.0 (despite Z > A alphabetically)
+      'distant-low',
+    ])
+  })
+})
+
+describe('rankMerchants — empty input', () => {
+  it('returns ordered=[], counts all 0 for empty merchant array', () => {
+    const { ordered, counts } = rankMerchants([], {
+      intentType: 'LOCAL',
+      userLat: null, userLng: null, profileCity: null,
+    })
+    expect(ordered).toEqual([])
+    expect(counts).toEqual({ nearbyCount: 0, cityCount: 0, distantCount: 0 })
+  })
+})
+
+describe('rankMerchants — tier counts', () => {
+  it('tier counts reflect input regardless of intent', () => {
+    const merchants = [
+      { id: 'a', businessName: 'A', branches: [{ isActive: true, city: 'London', latitude: 51.5074, longitude: -0.128 }],
+        avgRating: null, reviewCount: 0 },
+      { id: 'b', businessName: 'B', branches: [{ isActive: true, city: 'London', latitude: 51.6, longitude: -0.2 }],
+        avgRating: null, reviewCount: 0 },
+      { id: 'c', businessName: 'C', branches: [{ isActive: true, city: 'Manchester', latitude: 53.48, longitude: -2.24 }],
+        avgRating: null, reviewCount: 0 },
+    ]
+    const ctx = { userLat: 51.5074, userLng: -0.1278, profileCity: 'London' }
+    const local = rankMerchants(merchants, { ...ctx, intentType: 'LOCAL' })
+    const dest  = rankMerchants(merchants, { ...ctx, intentType: 'DESTINATION' })
+    const mixed = rankMerchants(merchants, { ...ctx, intentType: 'MIXED' })
+    expect(local.counts).toEqual({ nearbyCount: 1, cityCount: 1, distantCount: 1 })
+    expect(dest.counts).toEqual(local.counts)
+    expect(mixed.counts).toEqual(local.counts)
+  })
+})
+
+describe('MIN_REVIEW_COUNT_FOR_RATING_SORT', () => {
+  it('is 3', async () => {
+    const { MIN_REVIEW_COUNT_FOR_RATING_SORT } = await import('../../../src/api/lib/ranking')
+    expect(MIN_REVIEW_COUNT_FOR_RATING_SORT).toBe(3)
+  })
+})

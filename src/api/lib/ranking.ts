@@ -97,12 +97,40 @@ export function rankMerchants<T extends MerchantForRanking>(
       ]
       break
     case 'DESTINATION':
+      ordered = [
+        ...nearby,
+        ...[...city, ...distant].sort(qualityComparator),
+      ]
+      break
     case 'MIXED':
-      // Implemented in Task 5
-      throw new Error(`rankMerchants: intentType=${ctx.intentType} not yet implemented`)
+      // MIXED differs from LOCAL ONLY in the DISTANT tier sort.
+      // NEARBY + CITY behave identically to LOCAL.
+      ordered = [
+        ...nearby,
+        ...city.sort((a, b) => a.businessName.localeCompare(b.businessName)),
+        ...distant.sort(qualityComparator),
+      ]
+      break
   }
 
   return { ordered, counts }
+}
+
+export const MIN_REVIEW_COUNT_FOR_RATING_SORT = 3
+
+// At launch, most merchants have <3 reviews. Rated merchants come first
+// (sorted by avgRating DESC), unrated alphabetical after. As reviews
+// accumulate, the rated tier expands; alphabetical recedes naturally.
+function qualityComparator(
+  a: { avgRating: number | null; reviewCount: number; businessName: string },
+  b: { avgRating: number | null; reviewCount: number; businessName: string },
+): number {
+  const aRated = (a.reviewCount ?? 0) >= MIN_REVIEW_COUNT_FOR_RATING_SORT
+  const bRated = (b.reviewCount ?? 0) >= MIN_REVIEW_COUNT_FOR_RATING_SORT
+  if (aRated && bRated) return (b.avgRating ?? 0) - (a.avgRating ?? 0)
+  if (aRated) return -1
+  if (bRated) return 1
+  return a.businessName.localeCompare(b.businessName)
 }
 
 /**
