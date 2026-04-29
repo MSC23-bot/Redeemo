@@ -98,19 +98,16 @@ async function seedCategories(): Promise<void> {
             pinColour: cat.pinColour,
             pinIcon: cat.pinIcon,
             descriptorState: null,
-            minSubcategoryCountForChips: 3,
             isActive: true,
           },
         })
       : await prisma.category.create({
           data: {
             name: cat.name,
-            parentId: null,
             sortOrder: cat.sortOrder,
             pinColour: cat.pinColour,
             pinIcon: cat.pinIcon,
             descriptorState: null,
-            minSubcategoryCountForChips: 3,
             isActive: true,
           },
         })
@@ -132,16 +129,14 @@ async function seedCategories(): Promise<void> {
         sortOrder: sub.sortOrder,
         descriptorState: sub.descriptorState,
         descriptorSuffix: sub.descriptorSuffix ?? null,
-        minSubcategoryCountForChips: 3,
         isActive: true,
       },
       create: {
         name: sub.name,
-        parentId,
+        parent: { connect: { id: parentId } },
         sortOrder: sub.sortOrder,
         descriptorState: sub.descriptorState,
         descriptorSuffix: sub.descriptorSuffix ?? null,
-        minSubcategoryCountForChips: 3,
         isActive: true,
       },
     })
