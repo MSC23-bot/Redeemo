@@ -25,10 +25,12 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  // Cleanup runs even if the test fails. Delete the highlights first so the
-  // FK from MerchantHighlight → Merchant does not block the merchant delete.
-  await prisma.merchantHighlight.deleteMany({ where: { merchantId: testMerchantId } })
-  await prisma.merchant.delete({ where: { id: testMerchantId } })
+  // Guard: if beforeAll failed (e.g. DB unreachable) testMerchantId is
+  // undefined — skip the deletes so we don't hit a runtime crash in cleanup.
+  if (testMerchantId) {
+    await prisma.merchantHighlight.deleteMany({ where: { merchantId: testMerchantId } })
+    await prisma.merchant.delete({ where: { id: testMerchantId } })
+  }
   await prisma.$disconnect()
 })
 

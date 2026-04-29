@@ -83,6 +83,10 @@ type TileHighlight = {
   tag: { id: string; label: string }
 }
 
+// Shared empty set used as the redundant-highlight fallback. Module-level so
+// it is allocated once rather than once per enrichMerchantTiles call.
+const EMPTY_REDUNDANT_SET: ReadonlySet<string> = new Set<string>()
+
 // Pure helper: given a merchant's primary subcategory + descriptor tag, build
 // the rendered descriptor string with the §3.6 de-dup rule applied. Returns
 // null when no primary subcategory is set. Shared by `enrichMerchantTile`
@@ -224,7 +228,6 @@ async function enrichMerchantTiles(
     }
     bucket.add(r.highlightTagId)
   }
-  const EMPTY_SET: ReadonlySet<string> = new Set<string>()
 
   // Single groupBy for all branch ratings
   const ratingGroups = branchIds.length > 0
@@ -259,7 +262,7 @@ async function enrichMerchantTiles(
       where: { userId: opts.userId, merchantId: { in: merchantIds } },
       select: { merchantId: true },
     })
-    for (const f of favs as any[]) favouritedSet.add(f.merchantId)
+    for (const f of favs) favouritedSet.add(f.merchantId)
   }
 
   return merchants.map(m =>
@@ -270,8 +273,8 @@ async function enrichMerchantTiles(
       avgRating:    ratingByMerchant[m.id]?.avgRating ?? null,
       reviewCount:  ratingByMerchant[m.id]?.reviewCount ?? 0,
       redundantHighlightTagIds: m.primaryCategoryId
-        ? (redundantBySubcat.get(m.primaryCategoryId) ?? EMPTY_SET)
-        : EMPTY_SET,
+        ? (redundantBySubcat.get(m.primaryCategoryId) ?? EMPTY_REDUNDANT_SET)
+        : EMPTY_REDUNDANT_SET,
     }),
   )
 }
