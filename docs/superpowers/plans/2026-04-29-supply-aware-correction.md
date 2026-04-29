@@ -189,6 +189,32 @@ git add prisma/schema.prisma prisma/migrations/
 git commit -m "feat(prisma): supply-aware correction migration — intentType, CategoryAmenity, drop chipsHidden column"
 ```
 
+- [ ] **Step 9: Seed-compatibility follow-up — fix references to dropped column + Prisma 7 create-shape**
+
+Dropping `Category.minSubcategoryCountForChips` in Step 8 leaves `prisma/seed.ts` referencing a column that no longer exists. Plan 1's seed wrote to that column in 4 places (top-level + subcategory create/update paths). Two related issues surface in the same edit:
+
+1. **Remove all `minSubcategoryCountForChips` writes from `prisma/seed.ts`.** There are 4 occurrences inside `seedCategories` (top-level update, top-level create, subcategory update, subcategory create). Delete each line. The column is gone from the schema, so any write fails immediately.
+
+2. **Fix Prisma 7's `CategoryCreateInput` shape for `parentId`.** Prisma 7's generated type doesn't accept `parentId` directly in create operations when there's a corresponding `parent` relation — it expects either:
+   - For top-level creates (no parent): omit the `parentId: null` line entirely. The column is nullable and not setting it = null by default. Found at the top-level create block in `seedCategories`.
+   - For subcategory creates (linking to parent): replace `parentId,` shorthand with `parent: { connect: { id: parentId } }`. Found at the subcategory create block in `seedCategories`.
+
+   `parentId: null` in `where` clauses (`findFirst`, `findMany`) is unaffected — Prisma's WhereInput accepts it. Only CreateInput rejects it.
+
+After applying both fixes, run:
+```bash
+cd /Users/shebinchaliyath/Developer/Redeemo/.worktrees/supply-aware-correction && npx prisma db seed
+```
+Expected: seed completes cleanly. Output shows `Seeded 11 top-level categories, 89 subcategories`, `Seeded 262 tags`, etc.
+
+Commit:
+```bash
+git add prisma/seed.ts
+git commit -m "fix(seed): drop minSubcategoryCountForChips refs + parentId-null create after Task 1"
+```
+
+**Why this step exists:** Task 1's column drop is a destructive schema change that breaks the only writer of that column (the seed). The plan-as-originally-written did not include this step — it was discovered during execution when the seed failed to populate the new database. Treating it as Task 1's responsibility (rather than deferring to Task 8) is correct: Task 1 should leave the system in a working state, including a runnable seed. The Prisma 7 `parentId` create-shape issue surfaced in the same fix because the regenerated client (after Task 1's schema change) is stricter than the prior generated client about FK fields in CreateInput.
+
 ---
 
 ### Task 2: Verify migration on dev DB
