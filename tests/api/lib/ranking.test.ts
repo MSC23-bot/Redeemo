@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyTier, NEARBY_RADIUS_MILES } from '../../../src/api/lib/ranking'
+import { classifyTier, NEARBY_RADIUS_MILES, rankMerchants } from '../../../src/api/lib/ranking'
 
 describe('classifyTier', () => {
   const merchantWithBranches = (branches: { city: string; latitude: number | null; longitude: number | null }[]) =>
@@ -35,5 +35,55 @@ describe('classifyTier', () => {
 
   it('exposes NEARBY_RADIUS_MILES as a constant', () => {
     expect(NEARBY_RADIUS_MILES).toBe(2)
+  })
+})
+
+describe('rankMerchants — LOCAL intent', () => {
+  const m = (id: string, opts: Partial<{
+    businessName: string
+    branches: { city: string; lat: number | null; lng: number | null }[]
+    avgRating: number | null
+    reviewCount: number
+  }>) => ({
+    id,
+    businessName: opts.businessName ?? id,
+    branches: (opts.branches ?? []).map(b => ({
+      isActive: true,
+      city: b.city,
+      latitude: b.lat,
+      longitude: b.lng,
+    })),
+    avgRating: opts.avgRating ?? null,
+    reviewCount: opts.reviewCount ?? 0,
+  })
+
+  it('orders strict NEARBY → CITY → DISTANT, distance ASC within NEARBY, alphabetical within CITY/DISTANT', () => {
+    // London user
+    const userLat = 51.5074, userLng = -0.1278
+    const merchants = [
+      m('m-distant-z',   { businessName: 'Z Distant',   branches: [{ city: 'Edinburgh', lat: 55.95, lng: -3.19 }] }),
+      m('m-city-b',      { businessName: 'B City',      branches: [{ city: 'London', lat: 51.6, lng: -0.2 }] }),
+      m('m-nearby-far',  { businessName: 'N1',          branches: [{ city: 'London', lat: 51.5074, lng: -0.130 }] }),  // 0.5km
+      m('m-distant-a',   { businessName: 'A Distant',   branches: [{ city: 'Manchester', lat: 53.48, lng: -2.24 }] }),
+      m('m-city-a',      { businessName: 'A City',      branches: [{ city: 'London', lat: 51.55, lng: -0.15 }] }),
+      m('m-nearby-near', { businessName: 'N2',          branches: [{ city: 'London', lat: 51.5074, lng: -0.1280 }] }),  // very close
+    ]
+
+    const { ordered, counts } = rankMerchants(merchants, {
+      intentType: 'LOCAL',
+      userLat, userLng,
+      profileCity: 'London',
+    })
+
+    // Tiers in order: 2 NEARBY (by distance), 2 CITY (alphabetical), 2 DISTANT (alphabetical)
+    expect(ordered.map(o => o.id)).toEqual([
+      'm-nearby-near',  // closer of the two NEARBY
+      'm-nearby-far',
+      'm-city-a',       // CITY: A then B
+      'm-city-b',
+      'm-distant-a',    // DISTANT: A then Z
+      'm-distant-z',
+    ])
+    expect(counts).toEqual({ nearbyCount: 2, cityCount: 2, distantCount: 2 })
   })
 })
