@@ -639,7 +639,7 @@ export type SeedTag = { label: string; type: TagType; descriptorEligible: boolea
 export const CUISINE_TAGS: SeedTag[] = [
   'British','Modern British','Modern European','Italian','French','Spanish','Portuguese','Greek','Turkish','Lebanese','Mediterranean',
   'Indian','Pakistani','Nepalese','Bangladeshi','Sri Lankan','Persian',
-  'Chinese','Cantonese','Sichuan','Japanese','Korean','Thai','Vietnamese','Malaysian','Pan-Asian',
+  'Chinese','Japanese','Korean','Thai','Vietnamese','Malaysian','Pan-Asian',
   'Mexican','American','Caribbean','Brazilian','African','Ethiopian',
   'Middle Eastern','Fusion',
 ].map((label) => ({ label, type: 'CUISINE' as const, descriptorEligible: true }))
@@ -1001,7 +1001,7 @@ await prisma.category.deleteMany({
 const topLevelByName = new Map<string, string>()  // name → id
 for (const cat of TOP_LEVEL_CATEGORIES) {
   const row = await prisma.category.upsert({
-    where: { name: cat.name },
+    where: { name_parentId: { name: cat.name, parentId: null } },
     update: { sortOrder: cat.sortOrder, pinColour: cat.pinColour, pinIcon: cat.pinIcon, isActive: true, parentId: null },
     create: { name: cat.name, sortOrder: cat.sortOrder, pinColour: cat.pinColour, pinIcon: cat.pinIcon, isActive: true },
   })
@@ -1013,9 +1013,9 @@ const subcatByName = new Map<string, string>()
 for (const sub of SUBCATEGORIES) {
   const parentId = topLevelByName.get(sub.parent)!
   const row = await prisma.category.upsert({
-    where: { name: sub.name },
+    where: { name_parentId: { name: sub.name, parentId } },
     update: {
-      parentId, sortOrder: sub.sortOrder, isActive: true,
+      sortOrder: sub.sortOrder, isActive: true,
       descriptorState: sub.descriptorState,
       descriptorSuffix: sub.descriptorSuffix ?? null,
     },
@@ -1148,6 +1148,8 @@ Out & About, Home & Local Services).
 ---
 
 ### Task 11: Backfill test merchants — rename references, link to subcategories, add descriptors and highlights
+
+> **Status — superseded by implementation brief (2026-04-29).** The wording below references a "Doha merchant seeding block" with seven specific merchants (Doha Diwan, The Pearl Roastery, Spice Route, etc.) that did NOT exist in `prisma/seed.ts` at the time Task 11 was implemented; the only pre-existing merchant was `dev-merchant-001`. Task 11 was implemented against a 6-scenario brief instead — see commit `6c063c9` for the canonical merchant set: dev-merchant-001 (Italian Restaurant, cuisine descriptor), tax-merchant-cafe-001 (Specialty Coffee Cafe), tax-merchant-pilates-001 (Reformer Pilates Studio), tax-merchant-foodhall-001 (HIDDEN descriptor), tax-merchant-aesthetics-001 (B&W Aesthetics Clinic cross-listing), tax-merchant-vet-001 (Vet × Pet-Friendly redundancy fixture). The Step 1 top-level rename (Retail & Shopping → Shopping etc.) happens in `seedCategories()` at the database level (commit `0fb8904`) and is unaffected. The text below is retained for historical context only — do not follow it for re-implementation.
 
 **Files:**
 - Modify: `prisma/seed.ts` — the Doha merchant seeding block (around line 332+)

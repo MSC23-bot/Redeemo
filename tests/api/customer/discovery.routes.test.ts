@@ -11,6 +11,7 @@ vi.mock('../../../src/api/customer/discovery/service', () => ({
   listActiveCategories:        vi.fn(),
   getActiveCampaigns:          vi.fn(),
   getCampaignMerchants:        vi.fn(),
+  getCategoryMerchants:        vi.fn(),
 }))
 
 vi.mock('../../../src/api/customer/reviews/service', () => ({
@@ -35,6 +36,7 @@ import {
   listActiveCategories,
   getActiveCampaigns,
   getCampaignMerchants,
+  getCategoryMerchants,
 } from '../../../src/api/customer/discovery/service'
 
 describe('discovery routes', () => {
@@ -326,6 +328,29 @@ describe('discovery routes', () => {
     )
   })
 
+  it('GET /api/v1/customer/search?tagIds=t1,t2&scope=city passes parsed params and returns meta envelope', async () => {
+    vi.mocked(searchMerchants).mockResolvedValueOnce({
+      merchants: [{ id: 'm1', businessName: 'Cafe' }],
+      total: 1,
+      meta: { scope: 'city', resolvedArea: 'London', scopeExpanded: true, chipsHidden: false },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/search?q=cafe&tagIds=t1,t2&scope=city',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.meta.scope).toBe('city')
+    expect(body.meta.scopeExpanded).toBe(true)
+    expect(body.meta.chipsHidden).toBe(false)
+    expect(searchMerchants).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tagIds: ['t1', 't2'], scope: 'city' }),
+    )
+  })
+
   // ────────────────────────────────────────────────
   // Categories
   // ────────────────────────────────────────────────
@@ -345,6 +370,36 @@ describe('discovery routes', () => {
     expect(Array.isArray(body.categories)).toBe(true)
     expect(body.categories[0].id).toBe('cat-1')
     expect(listActiveCategories).toHaveBeenCalledOnce()
+  })
+
+  // ────────────────────────────────────────────────
+  // Category merchants
+  // ────────────────────────────────────────────────
+
+  it('GET /api/v1/customer/categories/:id/merchants forwards id, scope, lat, lng and returns { merchants, total, meta }', async () => {
+    vi.mocked(getCategoryMerchants).mockResolvedValueOnce({
+      merchants: [{ id: 'm1', businessName: 'Pizza Palace' }],
+      total: 1,
+      meta: { scope: 'city', resolvedArea: 'London', scopeExpanded: true, chipsHidden: false },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/categories/cat-123/merchants?scope=city&lat=51.5&lng=-0.1',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body).toHaveProperty('merchants')
+    expect(body).toHaveProperty('total')
+    expect(body).toHaveProperty('meta')
+    expect(body.meta.scope).toBe('city')
+    expect(body.meta.chipsHidden).toBe(false)
+    expect(getCategoryMerchants).toHaveBeenCalledWith(
+      expect.anything(),
+      'cat-123',
+      expect.objectContaining({ scope: 'city', lat: 51.5, lng: -0.1 }),
+    )
   })
 
   // ────────────────────────────────────────────────

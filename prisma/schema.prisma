@@ -333,6 +333,7 @@ model Merchant {
   bannerUrl            String?
   description          String?
   primaryCategoryId    String?
+  primaryDescriptorTagId String?
   onboardingStep       OnboardingStep     @default(REGISTERED)
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
@@ -342,18 +343,22 @@ model Merchant {
   branches             Branch[]
   documents            MerchantDocument[]
   contract             MerchantContract?
-  tags                 MerchantTag[]
+  suggestedTags        MerchantSuggestedTag[]
   categories           MerchantCategory[]
   vouchers             Voucher[]
   favouritedBy         FavouriteMerchant[]
   campaignMerchants    CampaignMerchant[]
   featuredListings     FeaturedMerchant[]
   primaryCategory      Category?            @relation("MerchantPrimaryCategory", fields: [primaryCategoryId], references: [id])
+  primaryDescriptorTag Tag?                 @relation("MerchantPrimaryDescriptorTag", fields: [primaryDescriptorTagId], references: [id])
+  tags                 MerchantTag[]
+  highlights           MerchantHighlight[]
   pendingEdits         MerchantPendingEdit[]
   branchPendingEdits   BranchPendingEdit[]
 
   @@index([status])
   @@index([primaryCategoryId])
+  @@index([primaryDescriptorTagId])
 }
 
 // ─────────────────────────────────────────
@@ -494,20 +499,22 @@ model MerchantContract {
 }
 
 // ─────────────────────────────────────────
-// MERCHANT TAGS
+// MERCHANT-SUGGESTED TAGS
+// (free-text tags merchants submit during onboarding,
+//  moderated by admin. NOT the curated taxonomy Tag system.)
 // ─────────────────────────────────────────
 
-enum MerchantTagStatus {
+enum MerchantSuggestedTagStatus {
   PENDING
   APPROVED
   REJECTED
 }
 
-model MerchantTag {
-  id         String            @id @default(uuid())
+model MerchantSuggestedTag {
+  id         String                       @id @default(uuid())
   merchantId String
   tag        String
-  status     MerchantTagStatus @default(PENDING)
+  status     MerchantSuggestedTagStatus   @default(PENDING)
 
   merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
@@ -516,12 +523,105 @@ model MerchantTag {
 }
 
 // ─────────────────────────────────────────
+// CURATED TAG TAXONOMY
+// See docs/superpowers/specs/2026-04-28-category-taxonomy-design.md
+// ─────────────────────────────────────────
+
+enum TagType {
+  CUISINE
+  SPECIALTY
+  HIGHLIGHT
+  DETAIL
+}
+
+enum TagCreatedBy {
+  SYSTEM
+  ADMIN
+}
+
+model Tag {
+  id                  String         @id @default(uuid())
+  label               String
+  type                TagType
+  descriptorEligible  Boolean        @default(false)
+  isActive            Boolean        @default(true)
+  createdBy           TagCreatedBy   @default(SYSTEM)
+  createdAt           DateTime       @default(now())
+  merchantCountByCity Json           @default("{}")    // { cityId: count }
+
+  subcategoryLinks    SubcategoryTag[]
+  merchantLinks       MerchantTag[]
+  merchantHighlights  MerchantHighlight[]
+  redundantFor        RedundantHighlight[]
+  primaryFor          Merchant[]     @relation("MerchantPrimaryDescriptorTag")
+
+  @@unique([label, type])
+  @@index([type, isActive])
+}
+
+model SubcategoryTag {
+  id                String   @id @default(uuid())
+  subcategoryId     String
+  tagId             String
+  isPrimaryEligible Boolean  @default(false)
+
+  subcategory Category @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  tag         Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([subcategoryId, tagId])
+  @@index([tagId])
+}
+
+model MerchantTag {
+  id         String @id @default(uuid())
+  merchantId String
+  tagId      String
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id])
+
+  @@unique([merchantId, tagId])
+  @@index([tagId])
+}
+
+model MerchantHighlight {
+  id             String @id @default(uuid())
+  merchantId     String
+  highlightTagId String
+  sortOrder      Int    @default(0)
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [highlightTagId], references: [id])
+
+  @@unique([merchantId, highlightTagId])
+}
+
+model RedundantHighlight {
+  id             String  @id @default(uuid())
+  subcategoryId  String
+  highlightTagId String
+  reason         String?
+
+  subcategory Category @relation("CategoryRedundantHighlights", fields: [subcategoryId], references: [id], onDelete: Cascade)
+  tag         Tag      @relation(fields: [highlightTagId], references: [id])
+
+  @@unique([subcategoryId, highlightTagId])
+  @@index([highlightTagId])
+}
+
+// ─────────────────────────────────────────
 // CATEGORIES (admin-managed, hierarchical)
 // ─────────────────────────────────────────
 
+enum CategoryDescriptorState {
+  RECOMMENDED
+  OPTIONAL
+  HIDDEN
+}
+
 model Category {
   id              String     @id @default(uuid())
-  name            String     @unique
+  name            String
   iconUrl         String?
   illustrationUrl String?
   parentId        String?
@@ -529,6 +629,10 @@ model Category {
   isActive        Boolean    @default(true)
   pinColour       String?    // hex colour for map pin e.g. "#FF5733"
   pinIcon         String?    // icon key from agreed icon set e.g. "fork-knife"
+  descriptorState              CategoryDescriptorState?  // subcategories only
+  descriptorSuffix             String?                    // override; defaults to category name
+  minSubcategoryCountForChips  Int     @default(3)
+  merchantCountByCity          Json    @default("{}")     // { cityId: count }
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -537,7 +641,10 @@ model Category {
   merchants        MerchantCategory[]
   primaryMerchants Merchant[]    @relation("MerchantPrimaryCategory")
   rmvTemplates     RmvTemplate[] @relation("CategoryRmvTemplates")
+  tagLinks         SubcategoryTag[]
+  redundantHighlights RedundantHighlight[] @relation("CategoryRedundantHighlights")
 
+  @@unique([name, parentId], name: "name_parentId", map: "Category_name_parentId_key")
   @@index([parentId])
 }
 

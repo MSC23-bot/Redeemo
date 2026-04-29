@@ -3,7 +3,7 @@ import { z } from 'zod'
 import {
   getHomeFeed, getCustomerMerchant, getCustomerMerchantBranches,
   getCustomerVoucher, searchMerchants, listActiveCategories,
-  getActiveCampaigns, getCampaignMerchants,
+  getActiveCampaigns, getCampaignMerchants, getCategoryMerchants,
 } from './service'
 import { optionalUserId } from '../plugin'
 
@@ -26,6 +26,8 @@ const searchQuery = z.object({
   minSaving:       z.coerce.number().optional(),
   voucherTypes:    z.string().optional().transform(v => v ? v.split(',') : undefined),
   amenityIds:      z.string().optional().transform(v => v ? v.split(',') : undefined),
+  tagIds:          z.string().optional().transform(v => v ? v.split(',') : undefined),
+  scope:           z.enum(['nearby','city','region','platform']).optional(),
   openNow:         z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
   featured:        z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
   topRated:        z.enum(['true', 'false']).optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
@@ -88,9 +90,50 @@ export async function discoveryRoutes(app: FastifyInstance) {
   })
 
   // GET /api/v1/customer/categories — active categories with at least one active merchant (no auth)
-  app.get('/api/v1/customer/categories', async (_req: FastifyRequest, reply) => {
-    const categories = await listActiveCategories(app.prisma)
+  // Optional ?scope, ?lat, ?lng enable supply-aware filtering: when these
+  // resolve to a city (per spec §4.6 fallback ladder), the response is
+  // filtered to categories with supply in that city, and top-level rows
+  // gain a chipsHidden boolean. Without these params, behaviour is
+  // unchanged — flat list, no chipsHidden, no filter.
+  app.get('/api/v1/customer/categories', async (req: FastifyRequest, reply) => {
+    const query = z.object({
+      scope: z.enum(['nearby','city','region','platform']).optional(),
+      lat:   z.coerce.number().optional(),
+      lng:   z.coerce.number().optional(),
+    }).parse(req.query)
+    const userId = optionalUserId(req)
+    const categories = await listActiveCategories(app.prisma, {
+      scope:  query.scope,
+      lat:    query.lat ?? null,
+      lng:    query.lng ?? null,
+      userId,
+    })
     return reply.send({ categories })
+  })
+
+  // GET /api/v1/customer/categories/:id/merchants — paginated merchants for a
+  // single category id (top-level OR subcategory) with the same scope/meta
+  // envelope used by /search. No auth; bearer token decoded (not verified) to
+  // extract userId for profile-city resolution.
+  app.get('/api/v1/customer/categories/:id/merchants', async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const query = z.object({
+      scope:  z.enum(['nearby','city','region','platform']).optional(),
+      lat:    z.coerce.number().optional(),
+      lng:    z.coerce.number().optional(),
+      limit:  z.coerce.number().int().min(1).max(50).default(20),
+      offset: z.coerce.number().int().min(0).default(0),
+    }).parse(req.query)
+    const userId = optionalUserId(req)
+    const result = await getCategoryMerchants(app.prisma, id, {
+      scope:  query.scope,
+      lat:    query.lat ?? null,
+      lng:    query.lng ?? null,
+      userId,
+      limit:  query.limit,
+      offset: query.offset,
+    })
+    return reply.send(result)
   })
 
   // GET /api/v1/customer/campaigns — active campaigns with banner (no auth)

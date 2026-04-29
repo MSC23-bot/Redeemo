@@ -1,11 +1,14 @@
 import {
   PrismaClient, MerchantStatus, VoucherStatus, ApprovalStatus, CampaignStatus,
-  MerchantTagStatus,
+  MerchantSuggestedTagStatus,
   type Prisma,
 } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { haversineMetres } from '../../shared/haversine'
 import { isOpenNow } from '../../shared/isOpenNow'
+import { resolveScope } from '../../lib/scope'
+import { resolveProfileCity } from '../../lib/userCity'
+import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -36,13 +39,24 @@ const MERCHANT_TILE_SELECT = {
   logoUrl:      true,
   bannerUrl:    true,
   primaryCategoryId: true,
-  primaryCategory: { select: { id: true, name: true, pinColour: true, pinIcon: true } },
+  primaryCategory: {
+    select: {
+      id: true, name: true, pinColour: true, pinIcon: true,
+      descriptorSuffix: true, parentId: true,
+    },
+  },
+  primaryDescriptorTag: { select: { id: true, label: true } },
   categories: {
     select: {
       category: {
         select: { id: true, name: true, parentId: true },
       },
     },
+  },
+  highlights: {
+    include: { tag: { select: { id: true, label: true } } },
+    orderBy: { sortOrder: 'asc' },
+    take: 3,
   },
   vouchers: {
     where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
@@ -61,6 +75,42 @@ const MERCHANT_TILE_SELECT = {
   },
 } as const
 
+// Tile-shape of a `MerchantHighlight` row with the `tag` join included.
+type TileHighlight = {
+  id: string
+  highlightTagId: string
+  sortOrder: number
+  tag: { id: string; label: string }
+}
+
+// Shared empty set used as the redundant-highlight fallback. Module-level so
+// it is allocated once rather than once per enrichMerchantTiles call.
+const EMPTY_REDUNDANT_SET: ReadonlySet<string> = new Set<string>()
+
+// Pure helper: given a merchant's primary subcategory + descriptor tag, build
+// the rendered descriptor string with the §3.6 de-dup rule applied. Returns
+// null when no primary subcategory is set. Shared by `enrichMerchantTile`
+// (list endpoints) and `getCustomerMerchant` (single-merchant detail).
+function descriptorForMerchant(merchant: {
+  primaryCategory: { name: string; descriptorSuffix: string | null } | null
+  primaryDescriptorTag: { label: string } | null
+}): string | null {
+  if (!merchant.primaryCategory) return null
+  const tagLabel = merchant.primaryDescriptorTag?.label ?? null
+  const suffix = descriptorSuffixFor(merchant.primaryCategory)
+  return buildDescriptor(tagLabel, suffix)
+}
+
+// Pure helper: given a merchant's `MerchantHighlight` rows and the redundant
+// tag-id set for its subcategory (per §3.4), return the visible subset capped
+// at 3. Shared by both the list and detail paths.
+function visibleHighlightsFor<T extends { highlightTagId: string }>(
+  highlights: T[],
+  redundantSet: ReadonlySet<string>,
+): T[] {
+  return filterRedundantHighlights(highlights, redundantSet).slice(0, 3)
+}
+
 function enrichMerchantTile(
   merchant: {
     id: string
@@ -68,8 +118,11 @@ function enrichMerchantTile(
     tradingName: string | null
     logoUrl: string | null
     bannerUrl: string | null
-    primaryCategory: { id: string; name: string; pinColour: string | null; pinIcon: string | null } | null
+    primaryCategoryId: string | null
+    primaryCategory: { id: string; name: string; pinColour: string | null; pinIcon: string | null; descriptorSuffix: string | null; parentId: string | null } | null
+    primaryDescriptorTag: { id: string; label: string } | null
     categories: { category: { id: string; name: string; parentId: string | null } }[]
+    highlights: TileHighlight[]
     vouchers: { id: string; estimatedSaving: unknown }[]
     branches: { id: string; latitude: unknown; longitude: unknown }[]
     _count: { vouchers: number }
@@ -80,6 +133,7 @@ function enrichMerchantTile(
     isFavourited: boolean
     avgRating: number | null
     reviewCount: number
+    redundantHighlightTagIds: ReadonlySet<string>
   },
 ) {
   let distance: number | null = null
@@ -104,6 +158,9 @@ function enrichMerchantTile(
   const savings = merchant.vouchers.map(v => Number(v.estimatedSaving)).filter(n => !isNaN(n))
   const maxEstimatedSaving = savings.length > 0 ? Math.max(...savings) : null
 
+  const descriptor = descriptorForMerchant(merchant)
+  const visibleHighlights = visibleHighlightsFor(merchant.highlights ?? [], opts.redundantHighlightTagIds)
+
   return {
     id:                  merchant.id,
     businessName:        merchant.businessName,
@@ -111,7 +168,10 @@ function enrichMerchantTile(
     logoUrl:             merchant.logoUrl,
     bannerUrl:           merchant.bannerUrl,
     primaryCategory:     merchant.primaryCategory,
+    primaryDescriptorTag: merchant.primaryDescriptorTag,
     subcategory:         subcategory ? { id: subcategory.id, name: subcategory.name } : null,
+    descriptor,
+    highlights:          visibleHighlights,
     avgRating:           opts.avgRating,
     reviewCount:         opts.reviewCount,
     voucherCount:        merchant._count.vouchers,
@@ -130,8 +190,11 @@ async function enrichMerchantTiles(
     tradingName: string | null
     logoUrl: string | null
     bannerUrl: string | null
-    primaryCategory: { id: string; name: string; pinColour: string | null; pinIcon: string | null } | null
+    primaryCategoryId: string | null
+    primaryCategory: { id: string; name: string; pinColour: string | null; pinIcon: string | null; descriptorSuffix: string | null; parentId: string | null } | null
+    primaryDescriptorTag: { id: string; label: string } | null
     categories: { category: { id: string; name: string; parentId: string | null } }[]
+    highlights: TileHighlight[]
     vouchers: { id: string; estimatedSaving: unknown }[]
     branches: { id: string; latitude: unknown; longitude: unknown }[]
     _count: { vouchers: number }
@@ -142,6 +205,29 @@ async function enrichMerchantTiles(
 
   const merchantIds = merchants.map(m => m.id)
   const branchIds = merchants.flatMap(m => m.branches.map(b => b.id))
+
+  // Batch-fetch RedundantHighlight rules for every primary subcategory in this
+  // result set. Group by subcategoryId so each per-merchant call below can look
+  // up its own redundant set in O(1). Empty set when the merchant has no
+  // primaryCategoryId, or when the subcategory has no rules configured.
+  const subcategoryIds = [
+    ...new Set(merchants.map(m => m.primaryCategoryId).filter((id): id is string => Boolean(id))),
+  ]
+  const redundantRows = subcategoryIds.length === 0
+    ? []
+    : await prisma.redundantHighlight.findMany({
+        where:  { subcategoryId: { in: subcategoryIds } },
+        select: { subcategoryId: true, highlightTagId: true },
+      })
+  const redundantBySubcat = new Map<string, Set<string>>()
+  for (const r of redundantRows) {
+    let bucket = redundantBySubcat.get(r.subcategoryId)
+    if (!bucket) {
+      bucket = new Set<string>()
+      redundantBySubcat.set(r.subcategoryId, bucket)
+    }
+    bucket.add(r.highlightTagId)
+  }
 
   // Single groupBy for all branch ratings
   const ratingGroups = branchIds.length > 0
@@ -176,7 +262,7 @@ async function enrichMerchantTiles(
       where: { userId: opts.userId, merchantId: { in: merchantIds } },
       select: { merchantId: true },
     })
-    for (const f of favs as any[]) favouritedSet.add(f.merchantId)
+    for (const f of favs) favouritedSet.add(f.merchantId)
   }
 
   return merchants.map(m =>
@@ -186,6 +272,9 @@ async function enrichMerchantTiles(
       isFavourited: favouritedSet.has(m.id),
       avgRating:    ratingByMerchant[m.id]?.avgRating ?? null,
       reviewCount:  ratingByMerchant[m.id]?.reviewCount ?? 0,
+      redundantHighlightTagIds: m.primaryCategoryId
+        ? (redundantBySubcat.get(m.primaryCategoryId) ?? EMPTY_REDUNDANT_SET)
+        : EMPTY_REDUNDANT_SET,
     }),
   )
 }
@@ -328,11 +417,25 @@ export async function getCustomerMerchant(
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
     select: {
+      // phone + email intentionally omitted — they live on Branch (per
+      // privacy-review note in CLAUDE.md). Customer-facing /merchants/:id
+      // exposes contact details only via nearestBranch + branches[].
       id: true, businessName: true, tradingName: true,
       status: true, logoUrl: true, bannerUrl: true,
       description: true, websiteUrl: true,
-      phone: true, email: true,
-      primaryCategory: { select: { id: true, name: true, pinColour: true, pinIcon: true } },
+      primaryCategoryId: true,
+      primaryCategory: {
+        select: {
+          id: true, name: true, pinColour: true, pinIcon: true,
+          descriptorSuffix: true, parentId: true,
+        },
+      },
+      primaryDescriptorTag: { select: { id: true, label: true } },
+      highlights: {
+        include: { tag: { select: { id: true, label: true } } },
+        orderBy: { sortOrder: 'asc' },
+        take: 3,
+      },
       categories: { select: { category: { select: { id: true, name: true, parentId: true } } } },
       vouchers: {
         where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
@@ -426,6 +529,20 @@ export async function getCustomerMerchant(
 
   const photos = merchant.branches.flatMap((b: any) => b.photos.map((p: any) => p.url))
 
+  // Descriptor + filtered highlights — same logic as the list endpoints (see
+  // enrichMerchantTile + the helper extractions above). Single fetch by
+  // subcategoryId rather than the batch path used for lists.
+  const redundantSet: ReadonlySet<string> = (merchant as any).primaryCategoryId
+    ? new Set(
+        (await prisma.redundantHighlight.findMany({
+          where:  { subcategoryId: (merchant as any).primaryCategoryId },
+          select: { highlightTagId: true },
+        })).map((r: { highlightTagId: string }) => r.highlightTagId),
+      )
+    : new Set<string>()
+  const descriptor = descriptorForMerchant(merchant as any)
+  const visibleHighlights = visibleHighlightsFor((merchant as any).highlights ?? [], redundantSet)
+
   return {
     ...merchant,
     vouchers: merchant.vouchers.map((v: any) => ({
@@ -434,6 +551,8 @@ export async function getCustomerMerchant(
     })),
     about:       merchant.description,
     subcategory: subcategory ? { id: subcategory.id, name: subcategory.name } : null,
+    descriptor,
+    highlights:  visibleHighlights,
     avgRating,
     reviewCount,
     isFavourited,
@@ -569,6 +688,8 @@ export async function searchMerchants(
     minSaving?: number
     voucherTypes?: string[]
     amenityIds?: string[]
+    tagIds?: string[]
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
     openNow?: boolean
     featured?: boolean
     topRated?: boolean
@@ -580,7 +701,7 @@ export async function searchMerchants(
   },
 ) {
   const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
-          minSaving, voucherTypes, amenityIds, openNow, featured, topRated,
+          minSaving, voucherTypes, amenityIds, tagIds, scope, openNow, featured, topRated,
           sortBy, limit, offset, userId } = params
 
   if (!q && !categoryId && !subcategoryId && minLat === undefined) {
@@ -590,8 +711,8 @@ export async function searchMerchants(
   const where: Prisma.MerchantWhereInput = { status: MerchantStatus.ACTIVE }
 
   if (q) {
-    const tags = await prisma.merchantTag.findMany({
-      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantTagStatus.APPROVED },
+    const tags = await prisma.merchantSuggestedTag.findMany({
+      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
       select: { merchantId: true },
     })
     const tagMerchantIds = [...new Set(tags.map((t: any) => t.merchantId))]
@@ -657,6 +778,35 @@ export async function searchMerchants(
         { branches: { some: { isActive: true, amenities: { some: { amenityId } } } } },
       ]
     }
+  }
+
+  if (tagIds && tagIds.length > 0) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        OR: [
+          { tags:       { some: { tagId:          { in: tagIds } } } },
+          { highlights: { some: { highlightTagId: { in: tagIds } } } },
+          { primaryDescriptorTagId: { in: tagIds } },
+        ],
+      },
+    ]
+  }
+
+  // Scope-based location filter (city fallback). 'nearby' continues to use the
+  // existing maxDistanceMiles radius logic below; 'platform' adds no clause.
+  const profileCity = await resolveProfileCity(prisma, userId)
+  const resolved = resolveScope({
+    scope,
+    lat: lat ?? null,
+    lng: lng ?? null,
+    profileCity,
+  })
+  if (resolved.scope === 'city' && profileCity) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { branches: { some: { city: profileCity, isMainBranch: true } } },
+    ]
   }
 
   if (featured) {
@@ -739,20 +889,237 @@ export async function searchMerchants(
   }
 
   const paginated = needsPostSort ? final.slice(offset, offset + limit) : final
-  return { merchants: paginated, total: final.length }
+  return {
+    merchants: paginated,
+    total: final.length,
+    meta: {
+      scope: resolved.scope,
+      resolvedArea: resolved.resolvedArea,
+      scopeExpanded: scope != null && scope !== 'nearby',
+      chipsHidden: false,
+    },
+  }
+}
+
+// ─── Category Merchants ──────────────────────────────────────────────────────
+//
+// Group 4c (Task 19) — paginated merchants for a single category id, with the
+// same scope/meta envelope used by /search. Matches against merchants linked
+// via primaryCategoryId OR the MerchantCategory join, so callers can pass
+// either a top-level or subcategory id without precomputing the union.
+//
+// Response shape mirrors /search: { merchants, total, meta }.
+//
+// chipsHidden follows spec §4.5: count subcategories of `categoryId` whose
+// merchantCountByCity[cityKey] > 0; hide chips when below the parent's
+// minSubcategoryCountForChips threshold. cityKey comes from the §4.6 ladder
+// via resolveScope + resolveProfileCity. If no city resolves, chipsHidden
+// is false (matches the supply-aware interim behaviour in /categories).
+// chipsHidden is only meaningful when categoryId is a top-level category
+// (parentId === null). Subcategory pages have no chip strip, so chipsHidden
+// is always false for them regardless of supply.
+export async function getCategoryMerchants(
+  prisma: PrismaClient,
+  categoryId: string,
+  options: {
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
+    lat?: number | null
+    lng?: number | null
+    userId?: string | null
+    limit: number
+    offset: number
+  },
+) {
+  const profileCity = await resolveProfileCity(prisma, options.userId ?? null)
+  const resolved = resolveScope({
+    scope:       options.scope,
+    lat:         options.lat ?? null,
+    lng:         options.lng ?? null,
+    profileCity,
+  })
+
+  const where: Prisma.MerchantWhereInput = {
+    status: MerchantStatus.ACTIVE,
+    OR: [
+      { primaryCategoryId: categoryId },
+      { categories: { some: { categoryId } } },
+    ],
+  }
+
+  // City scope: filter to merchants with a main branch in the resolved city.
+  // 'nearby' falls through to enrichMerchantTiles' distance computation (no
+  // dedicated radius DB filter here — mirrors /search's behaviour for now).
+  // 'region' and 'platform' add no location filter.
+  if (resolved.scope === 'city' && profileCity) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { branches: { some: { city: profileCity, isMainBranch: true } } },
+    ]
+  }
+
+  const [total, rawMerchants] = await Promise.all([
+    prisma.merchant.count({ where }),
+    prisma.merchant.findMany({
+      where,
+      select: MERCHANT_TILE_SELECT as any,
+      orderBy: { businessName: 'asc' },
+      take: options.limit,
+      skip: options.offset,
+    }),
+  ])
+
+  const merchants = await enrichMerchantTiles(prisma, rawMerchants as any, {
+    lat:    options.lat ?? null,
+    lng:    options.lng ?? null,
+    userId: options.userId ?? null,
+  })
+
+  // chipsHidden — count surviving subcategories with supply for the resolved
+  // city, compare to the parent's minSubcategoryCountForChips threshold.
+  // When no city resolves, chips remain visible (chipsHidden=false).
+  const cityKey =
+    (resolved.scope === 'city' || resolved.scope === 'nearby') && profileCity
+      ? profileCity
+      : null
+
+  let chipsHidden = false
+  if (cityKey !== null) {
+    const [parent, subcats] = await Promise.all([
+      prisma.category.findUnique({
+        where:  { id: categoryId },
+        select: { minSubcategoryCountForChips: true, parentId: true },
+      }),
+      prisma.category.findMany({
+        where:  { parentId: categoryId, isActive: true },
+        select: { id: true, merchantCountByCity: true },
+      }),
+    ])
+    // chipsHidden only carries meaning for top-level category pages — a
+    // subcategory (leaf) page has no chip strip to hide, so default false.
+    if (parent && parent.parentId === null) {
+      const subcatsWithSupply = subcats.filter(s => {
+        const counts = (s.merchantCountByCity ?? {}) as Record<string, number>
+        return (counts[cityKey] ?? 0) > 0
+      })
+      chipsHidden = subcatsWithSupply.length < parent.minSubcategoryCountForChips
+    }
+  }
+
+  return {
+    merchants,
+    total,
+    meta: {
+      scope:         resolved.scope,
+      resolvedArea:  resolved.resolvedArea,
+      scopeExpanded: options.scope != null && options.scope !== 'nearby',
+      chipsHidden,
+    },
+  }
 }
 
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 // Fix 5: filter by active merchants via the MerchantCategory join relation
-export async function listActiveCategories(prisma: PrismaClient) {
-  return prisma.category.findMany({
+//
+// Group 4b (Task 18) — supply-aware overlay (strictly additive):
+//   - Without options or when scope cannot resolve to a city, behaviour is
+//     identical to before: flat list of active categories that have at least
+//     one ACTIVE merchant, sorted by sortOrder.
+//   - With { scope, lat, lng, userId } supplied AND the spec §4.6 fallback
+//     ladder resolving to a city (current scope === 'city' or 'nearby' AND
+//     the user has a profileCity), the list is filtered to rows whose
+//     merchantCountByCity[cityKey] > 0, and each top-level row is annotated
+//     with a chipsHidden boolean derived from minSubcategoryCountForChips.
+//   - Per-row metadata fields newly exposed: sortOrder, pinIcon,
+//     merchantCountByCity, descriptorState, descriptorSuffix,
+//     minSubcategoryCountForChips. None of these remove or rename existing
+//     fields. descriptorState/descriptorSuffix are null on top-level rows
+//     (we leave Prisma's output untouched rather than post-process — keeps
+//     the function simple and the additive contract clear).
+//   - chipsHidden appears ONLY on top-level rows (parentId === null) AND
+//     ONLY when supply-aware filtering is active. Subcategory rows never
+//     have it; when scope is omitted or no city resolves, top-level rows
+//     do not have it either.
+export async function listActiveCategories(
+  prisma: PrismaClient,
+  options: {
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
+    lat?: number | null
+    lng?: number | null
+    userId?: string | null
+  } = {},
+) {
+  const rows = await prisma.category.findMany({
     where: {
       isActive: true,
       merchants: { some: { merchant: { status: MerchantStatus.ACTIVE } } },
     },
-    select: { id: true, name: true, iconUrl: true, illustrationUrl: true, parentId: true, pinColour: true },
+    select: {
+      id:                          true,
+      name:                        true,
+      iconUrl:                     true,
+      illustrationUrl:             true,
+      parentId:                    true,
+      pinColour:                   true,
+      pinIcon:                     true,
+      sortOrder:                   true,
+      merchantCountByCity:         true,
+      minSubcategoryCountForChips: true,
+      descriptorState:             true,
+      descriptorSuffix:            true,
+    },
     orderBy: { sortOrder: 'asc' },
+  })
+
+  // Determine whether any scope-aware filtering should run. If the caller did
+  // not provide ANY of scope/lat/lng/userId, behave exactly as before — flat
+  // list, no chipsHidden, no filter.
+  const scopeProvided =
+    options.scope !== undefined ||
+    options.lat   !== undefined ||
+    options.lng   !== undefined ||
+    options.userId !== undefined
+
+  if (!scopeProvided) {
+    return rows as any[]
+  }
+
+  // Resolve a cityKey via the spec §4.6 ladder. Note the EXPLICIT null
+  // fallback for profileCity — do NOT default to '' (the plan's
+  // `profileCity ?? ''` was a bug).
+  const profileCity = await resolveProfileCity(prisma, options.userId ?? null)
+  const resolved = resolveScope({
+    scope:       options.scope,
+    lat:         options.lat ?? null,
+    lng:         options.lng ?? null,
+    profileCity,
+  })
+  const cityKey =
+    (resolved.scope === 'city' || resolved.scope === 'nearby') && profileCity
+      ? profileCity
+      : null
+
+  // No city resolvable → return flat list with the additive metadata only.
+  if (cityKey === null) {
+    return rows as any[]
+  }
+
+  // Filter to rows with supply in this city (layered on top of the existing
+  // "has any active merchant" base filter — both must be satisfied).
+  const filtered = rows.filter(r => {
+    const counts = (r.merchantCountByCity ?? {}) as Record<string, number>
+    return (counts[cityKey] ?? 0) > 0
+  })
+
+  // For each top-level row, compute chipsHidden from the count of surviving
+  // subcategories vs. the per-category threshold.
+  return filtered.map(r => {
+    if (r.parentId === null) {
+      const survivingSubcats = filtered.filter(s => s.parentId === r.id).length
+      const chipsHidden = survivingSubcats < r.minSubcategoryCountForChips
+      return { ...r, chipsHidden } as any
+    }
+    return r as any
   })
 }
 
