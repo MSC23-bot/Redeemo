@@ -103,16 +103,18 @@ describe('searchMerchants — meta envelope', () => {
       userId: null,
     })
 
-    expect(result.meta.scope).toEqual(expect.any(String))
+    expect(result.meta.scope).toBe('nearby')
     expect(result.meta.chipsHidden).toBe(false)
     expect(result.meta.scopeExpanded).toBe(false)
-    expect(result.meta.resolvedArea).toEqual(expect.any(String))
+    expect(result.meta.resolvedArea).toBe('Nearby')
   })
 
   it('returns scopeExpanded=true when scope=city', async () => {
     const result = await searchMerchants(prisma, {
       q: 'cafe',
       scope: 'city',
+      lat: 51.5,
+      lng: -0.1,
       limit: 20,
       offset: 0,
       userId: null,
