@@ -915,6 +915,9 @@ export async function searchMerchants(
 // minSubcategoryCountForChips threshold. cityKey comes from the §4.6 ladder
 // via resolveScope + resolveProfileCity. If no city resolves, chipsHidden
 // is false (matches the supply-aware interim behaviour in /categories).
+// chipsHidden is only meaningful when categoryId is a top-level category
+// (parentId === null). Subcategory pages have no chip strip, so chipsHidden
+// is always false for them regardless of supply.
 export async function getCategoryMerchants(
   prisma: PrismaClient,
   categoryId: string,
@@ -984,14 +987,16 @@ export async function getCategoryMerchants(
     const [parent, subcats] = await Promise.all([
       prisma.category.findUnique({
         where:  { id: categoryId },
-        select: { minSubcategoryCountForChips: true },
+        select: { minSubcategoryCountForChips: true, parentId: true },
       }),
       prisma.category.findMany({
         where:  { parentId: categoryId, isActive: true },
         select: { id: true, merchantCountByCity: true },
       }),
     ])
-    if (parent) {
+    // chipsHidden only carries meaning for top-level category pages — a
+    // subcategory (leaf) page has no chip strip to hide, so default false.
+    if (parent && parent.parentId === null) {
       const subcatsWithSupply = subcats.filter(s => {
         const counts = (s.merchantCountByCity ?? {}) as Record<string, number>
         return (counts[cityKey] ?? 0) > 0
