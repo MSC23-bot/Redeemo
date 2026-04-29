@@ -5,6 +5,7 @@ export type SeedTopLevelCategory = {
   sortOrder: number
   pinColour?: string
   pinIcon?: string
+  intentType: 'LOCAL' | 'DESTINATION' | 'MIXED'
 }
 
 export type SeedSubcategory = {
@@ -16,17 +17,17 @@ export type SeedSubcategory = {
 }
 
 export const TOP_LEVEL_CATEGORIES: SeedTopLevelCategory[] = [
-  { name: 'Food & Drink',           sortOrder: 1,  pinColour: '#E65100', pinIcon: 'fork-knife' },
-  { name: 'Beauty & Wellness',      sortOrder: 2,  pinColour: '#E91E8C', pinIcon: 'sparkles' },
-  { name: 'Health & Fitness',       sortOrder: 3,  pinColour: '#4CAF50', pinIcon: 'dumbbell' },
-  { name: 'Out & About',            sortOrder: 4,  pinColour: '#9C27B0', pinIcon: 'compass' },
-  { name: 'Shopping',               sortOrder: 5,  pinColour: '#7C4DFF', pinIcon: 'bag' },
-  { name: 'Home & Local Services',  sortOrder: 6,  pinColour: '#607D8B', pinIcon: 'tools' },
-  { name: 'Travel & Hotels',        sortOrder: 7,  pinColour: '#0097A7', pinIcon: 'bed' },
-  { name: 'Health & Medical',       sortOrder: 8,  pinColour: '#F44336', pinIcon: 'stethoscope' },
-  { name: 'Family & Kids',          sortOrder: 9,  pinColour: '#FF9800', pinIcon: 'family' },
-  { name: 'Auto & Garage',          sortOrder: 10, pinColour: '#455A64', pinIcon: 'car' },
-  { name: 'Pet Services',           sortOrder: 11, pinColour: '#795548', pinIcon: 'paw' },
+  { name: 'Food & Drink',           sortOrder: 1,  pinColour: '#E65100', pinIcon: 'fork-knife',   intentType: 'LOCAL' },
+  { name: 'Beauty & Wellness',      sortOrder: 2,  pinColour: '#E91E8C', pinIcon: 'sparkles',     intentType: 'LOCAL' },
+  { name: 'Health & Fitness',       sortOrder: 3,  pinColour: '#4CAF50', pinIcon: 'dumbbell',     intentType: 'LOCAL' },
+  { name: 'Out & About',            sortOrder: 4,  pinColour: '#9C27B0', pinIcon: 'compass',      intentType: 'MIXED' },
+  { name: 'Shopping',               sortOrder: 5,  pinColour: '#7C4DFF', pinIcon: 'bag',          intentType: 'MIXED' },
+  { name: 'Home & Local Services',  sortOrder: 6,  pinColour: '#607D8B', pinIcon: 'tools',        intentType: 'LOCAL' },
+  { name: 'Travel & Hotels',        sortOrder: 7,  pinColour: '#0097A7', pinIcon: 'bed',          intentType: 'DESTINATION' },
+  { name: 'Health & Medical',       sortOrder: 8,  pinColour: '#F44336', pinIcon: 'stethoscope',  intentType: 'LOCAL' },
+  { name: 'Family & Kids',          sortOrder: 9,  pinColour: '#FF9800', pinIcon: 'family',       intentType: 'LOCAL' },
+  { name: 'Auto & Garage',          sortOrder: 10, pinColour: '#455A64', pinIcon: 'car',          intentType: 'LOCAL' },
+  { name: 'Pet Services',           sortOrder: 11, pinColour: '#795548', pinIcon: 'paw',          intentType: 'LOCAL' },
 ]
 
 export const SUBCATEGORIES: SeedSubcategory[] = [

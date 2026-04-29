@@ -99,6 +99,7 @@ async function seedCategories(): Promise<void> {
             pinIcon: cat.pinIcon,
             descriptorState: null,
             isActive: true,
+            intentType: cat.intentType,
           },
         })
       : await prisma.category.create({
@@ -109,6 +110,7 @@ async function seedCategories(): Promise<void> {
             pinIcon: cat.pinIcon,
             descriptorState: null,
             isActive: true,
+            intentType: cat.intentType,
           },
         })
     topLevelIdByName.set(cat.name, row.id)
