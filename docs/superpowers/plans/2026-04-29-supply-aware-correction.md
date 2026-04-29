@@ -1382,6 +1382,8 @@ git commit -m "data(seed): add seedAmenities + seedCategoryAmenities phases"
 **Files:**
 - Modify: `prisma/seed.ts`
 
+**Architectural reminder:** Amenities are **branch-level**, not merchant-level (per spec §3.3). The helper signature `linkBranchAmenities(branchId, …)` reflects this. Plan 1.5's test merchants happen to have a single (main) branch each, so per-branch differentiation isn't exercised in this seed — but the model supports a multi-branch merchant having different amenities per branch (e.g., Branch A: Wi-Fi + Outdoor Seating; Branch B: Wi-Fi only). Do NOT introduce a `merchantId`-based amenity assignment helper.
+
 - [ ] **Step 1: Add a helper that links a branch to amenities**
 
 In `prisma/seed.ts`, near the other helpers, add:

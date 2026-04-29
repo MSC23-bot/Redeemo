@@ -84,6 +84,21 @@ model CategoryAmenity {
 
 - **`BranchAmenity.amenityId` FK** — Plan 1.5 makes the existing PostgreSQL default behaviour explicit by adding `onDelete: Restrict`. Hard-deleting an `Amenity` row is rejected when any `BranchAmenity` references it — admins must reassign or soft-deactivate first.
 
+- **Three-layer amenity model — amenities are branch-level, NOT merchant-level.** The amenity system has three distinct concerns, each in its own model:
+  - `Amenity` — the master list of possible amenities (the canonical set of options, admin-managed)
+  - `CategoryAmenity` (new in Plan 1.5) — eligibility rules: which amenities are allowed/relevant for a category or subcategory
+  - `BranchAmenity` — the actual selected amenities for a *specific branch*
+
+  A merchant with multiple branches may have different amenities per branch. Concrete example:
+  - Coffee shop "Acme Coffee" with three branches:
+    - Branch A: Wi-Fi + Outdoor Seating
+    - Branch B: Wi-Fi only
+    - Branch C: Click & Collect + Wheelchair Access
+
+  Downstream consumers (merchant onboarding in Phase 4, customer-facing display in Plan 2, admin UI in Phase 5) **must always treat amenities as branch-level data**. There is no "merchant amenities" concept; queries and aggregations operate at the branch grain. This distinction is preserved by the existing schema (`BranchAmenity.branchId` not `merchantId`) and Plan 1.5's helpers (`getEligibleAmenitiesForSubcategory` returns the eligible *list*, not assignments — assignments live on `BranchAmenity`).
+
+  In Plan 1.5's seed data, all 6 taxonomy test merchants happen to have a single branch each. The seed does not exercise the per-branch differentiation, but the helper signature (`linkBranchAmenities(branchId, ...)`) reflects the correct level. See §4.5 for details.
+
 ### 3.4 Unchanged
 
 - `Amenity` model itself: `{ id, name, iconUrl, isActive }` — no new fields.
@@ -187,16 +202,16 @@ Approximately 25–35 rows derived from the eligibility table above. Top-level r
 
 ### 4.5 Test merchant amenity coverage
 
-Plan 1's 6 taxonomy test merchants get a few `BranchAmenity` rows seeded so integration tests can pin realistic eligibility behaviour:
+Plan 1's 6 taxonomy test merchants each have a single (main) branch in the seed. `BranchAmenity` rows are added to those branches so integration tests can pin realistic eligibility behaviour. **Amenities are branch-level (see §3.3)** — the bullets below name the merchant for readability, but the `linkBranchAmenities(branchId, …)` helper assigns to a specific branch:
 
-- `dev-merchant-001` (Restaurant + Italian) → Outdoor Seating, Wi-Fi, Online Booking
-- `tax-merchant-cafe-001` (Cafe & Coffee + Specialty Coffee) → Wi-Fi, Outdoor Seating
-- `tax-merchant-foodhall-001` (Food Hall, no descriptor tag) → Wi-Fi, Group Bookings
-- `tax-merchant-pilates-001` (Boutique Studio) → Showers, Lockers, Online Booking
-- `tax-merchant-aesthetics-001` (Aesthetics Clinic) → Same-Day Appointments, Online Booking, Wheelchair Access
-- `tax-merchant-vet-001` (Vet) → Online Booking, Pickup & Drop-off
+- `dev-merchant-001` main branch (Restaurant + Italian) → Outdoor Seating, Wi-Fi, Online Booking
+- `tax-merchant-cafe-001` main branch (Cafe & Coffee + Specialty Coffee) → Wi-Fi, Outdoor Seating
+- `tax-merchant-foodhall-001` main branch (Food Hall, no descriptor tag) → Wi-Fi, Group Bookings
+- `tax-merchant-pilates-001` main branch (Boutique Studio) → Showers, Lockers, Online Booking
+- `tax-merchant-aesthetics-001` main branch (Aesthetics Clinic) → Same-Day Appointments, Online Booking, Wheelchair Access
+- `tax-merchant-vet-001` main branch (Vet) → Online Booking, Pickup & Drop-off
 
-Conservative set — just enough to exercise the eligibility helper across different branches.
+Conservative set — just enough to exercise the eligibility helper. Per-branch differentiation isn't exercised in this seed because every test merchant has a single branch; that's a deliberate scope choice (the model already supports per-branch amenities — Plan 1.5 doesn't need to demonstrate it). When the customer app or merchant portal later seeds richer multi-branch test data, those entries can vary amenities per branch directly.
 
 ### 4.6 Unchanged in seed
 
