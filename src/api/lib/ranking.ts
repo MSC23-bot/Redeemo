@@ -134,6 +134,19 @@ function qualityComparator(
 }
 
 /**
+ * Resolves the effective intentType for a category, with parent inheritance.
+ * Returns the category's own intentType if set; otherwise inherits parent's;
+ * otherwise falls back to 'LOCAL' (proximity-first is the safe default when
+ * classification is missing).
+ */
+export function resolveCategoryIntent(category: {
+  intentType: CategoryIntentType | null
+  parent: { intentType: CategoryIntentType | null } | null
+}): CategoryIntentType {
+  return category.intentType ?? category.parent?.intentType ?? 'LOCAL'
+}
+
+/**
  * Classifies a merchant into a supply tier relative to user location context.
  * NEARBY: any active branch within NEARBY_RADIUS_MILES of user coords
  * CITY:   any active branch's city matches profileCity (case-insensitive)

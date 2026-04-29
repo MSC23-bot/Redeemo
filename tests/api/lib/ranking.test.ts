@@ -196,3 +196,26 @@ describe('MIN_REVIEW_COUNT_FOR_RATING_SORT', () => {
     expect(MIN_REVIEW_COUNT_FOR_RATING_SORT).toBe(3)
   })
 })
+
+describe('resolveCategoryIntent', () => {
+  it("returns category's intentType when set", async () => {
+    const { resolveCategoryIntent } = await import('../../../src/api/lib/ranking')
+    expect(resolveCategoryIntent({ intentType: 'DESTINATION', parent: null })).toBe('DESTINATION')
+  })
+
+  it("inherits parent's intentType when category's is NULL", async () => {
+    const { resolveCategoryIntent } = await import('../../../src/api/lib/ranking')
+    expect(resolveCategoryIntent({ intentType: null, parent: { intentType: 'MIXED' } })).toBe('MIXED')
+  })
+
+  it("falls back to 'LOCAL' when both NULL", async () => {
+    const { resolveCategoryIntent } = await import('../../../src/api/lib/ranking')
+    expect(resolveCategoryIntent({ intentType: null, parent: null })).toBe('LOCAL')
+    expect(resolveCategoryIntent({ intentType: null, parent: { intentType: null } })).toBe('LOCAL')
+  })
+
+  it("subcategory's own intentType wins over parent's", async () => {
+    const { resolveCategoryIntent } = await import('../../../src/api/lib/ranking')
+    expect(resolveCategoryIntent({ intentType: 'LOCAL', parent: { intentType: 'DESTINATION' } })).toBe('LOCAL')
+  })
+})
