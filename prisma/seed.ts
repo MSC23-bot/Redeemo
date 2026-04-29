@@ -338,6 +338,8 @@ type TestMerchantSpec = {
   tags: Array<{ label: string; type: 'CUISINE' | 'SPECIALTY' | 'HIGHLIGHT' | 'DETAIL' }>
   // MerchantHighlight rows (HIGHLIGHT-type tags only); cap is 3
   highlights: Array<{ label: string; sortOrder: number }>
+  // BranchAmenity rows for the merchant's single main branch (branch-level, not merchant-level)
+  amenities: string[]
   branch: {
     id: string
     name: string
@@ -375,6 +377,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Independent', sortOrder: 0 },
       { label: 'Vegan-Friendly', sortOrder: 1 },
     ],
+    amenities: ['Wi-Fi', 'Outdoor Seating'],
     branch: {
       id: 'tax-branch-cafe-001',
       name: 'Bean & Brew — Shoreditch',
@@ -411,6 +414,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Women-Owned', sortOrder: 0 },
       { label: 'Independent', sortOrder: 1 },
     ],
+    amenities: ['Showers', 'Lockers', 'Online Booking'],
     branch: {
       id: 'tax-branch-pilates-001',
       name: 'Core Reform — Clapham',
@@ -446,6 +450,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Family-Friendly', sortOrder: 1 },
       { label: 'Vegan-Friendly', sortOrder: 2 },
     ],
+    amenities: ['Wi-Fi', 'Group Bookings'],
     branch: {
       id: 'tax-branch-foodhall-001',
       name: 'Market Quarter — Borough',
@@ -482,6 +487,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
     highlights: [
       { label: 'Women-Owned', sortOrder: 0 },
     ],
+    amenities: ['Same-Day Appointments', 'Online Booking', 'Wheelchair Access'],
     branch: {
       id: 'tax-branch-aesthetics-001',
       name: 'Lumière — Marylebone',
@@ -521,6 +527,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Independent', sortOrder: 1 },
       { label: 'Wheelchair Accessible', sortOrder: 2 },
     ],
+    amenities: ['Online Booking', 'Pickup & Drop-off'],
     branch: {
       id: 'tax-branch-vet-001',
       name: 'Wagtail Vets — Hackney',
@@ -534,6 +541,23 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
     },
   },
 ]
+
+/**
+ * Link a branch to amenities via BranchAmenity rows (idempotent — safe to call
+ * on re-seed). Amenities are branch-level: a multi-branch merchant may have
+ * different amenities per branch.
+ */
+async function linkBranchAmenities(branchId: string, amenityNames: string[]): Promise<void> {
+  for (const name of amenityNames) {
+    const amenityId = amenityIdByName.get(name)
+    if (!amenityId) throw new Error(`linkBranchAmenities: amenity '${name}' not found`)
+    await prisma.branchAmenity.upsert({
+      where:  { branchId_amenityId: { branchId, amenityId } },
+      update: {},
+      create: { branchId, amenityId },
+    })
+  }
+}
 
 /**
  * Insert MerchantHighlight rows defensively against the 3-cap trigger.
@@ -636,6 +660,15 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
   })
   await upsertMerchantHighlights(devHighlightRows)
 
+  // BranchAmenity rows for dev-merchant-001's main branch.
+  const devMerchantMainBranch = await prisma.branch.findFirst({
+    where: { merchantId: 'dev-merchant-001', isMainBranch: true },
+    select: { id: true },
+  })
+  if (devMerchantMainBranch) {
+    await linkBranchAmenities(devMerchantMainBranch.id, ['Outdoor Seating', 'Wi-Fi', 'Online Booking'])
+  }
+
   // ── Scenarios 2–6: create the new test merchants ──
   for (const spec of TEST_MERCHANT_SPECS) {
     const parentId = topLevelIdByName.get(spec.parentCategoryName)
@@ -730,6 +763,9 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
       return { merchantId: spec.id, highlightTagId: tagId, sortOrder }
     })
     await upsertMerchantHighlights(highlightRows)
+
+    // BranchAmenity rows for this merchant's main branch (branch-level, not merchant-level).
+    await linkBranchAmenities(spec.branch.id, spec.amenities)
   }
 
   console.log(
