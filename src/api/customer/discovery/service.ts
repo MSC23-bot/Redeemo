@@ -909,8 +909,6 @@ export async function searchMerchants(
     ]
   }
 
-  const needsPostSort = ['highest_saving', 'top_rated', 'nearest'].includes(sortBy ?? '')
-
   const rawMerchants = await prisma.merchant.findMany({
     where,
     select: MERCHANT_TILE_SELECT as any,
@@ -927,10 +925,6 @@ export async function searchMerchants(
   }
 
   let final: any[] = sorted
-
-  if (topRated) {
-    // topRated filter applied post-rank; avgRating not yet computed so defer to post-augment
-  }
 
   if (params.maxDistanceMiles && lat !== undefined && lng !== undefined) {
     const maxMetres = params.maxDistanceMiles * 1609.34
@@ -1004,11 +998,17 @@ export async function searchMerchants(
       .sort((a: any, b: any) => (b.avgRating ?? 0) - (a.avgRating ?? 0))
       .concat(rankedTiles.filter((m: any) => !((m.avgRating ?? 0) >= 4.0 && m.reviewCount >= 3)))
   } else if (sortBy === 'highest_saving') {
-    const withSaving = (rankedTiles as any[]).map((m: any) => {
+    // Compute max saving per merchant in a side map so the sort key never
+    // spreads onto the merchant object (would otherwise leak into the API
+    // response via the post-enrich spread below).
+    const maxSavingById = new Map<string, number>()
+    for (const m of rankedTiles as any[]) {
       const savings = (m.vouchers as any[]).map((v: any) => Number(v.estimatedSaving)).filter((n: number) => !isNaN(n))
-      return { ...m, _maxSaving: savings.length > 0 ? Math.max(...savings) : 0 }
-    })
-    postSorted = withSaving.sort((a: any, b: any) => b._maxSaving - a._maxSaving)
+      maxSavingById.set(m.id, savings.length > 0 ? Math.max(...savings) : 0)
+    }
+    postSorted = [...rankedTiles].sort(
+      (a: any, b: any) => (maxSavingById.get(b.id) ?? 0) - (maxSavingById.get(a.id) ?? 0),
+    )
   }
 
   // Filter to retained tiers (default-by-intent or explicit scope, with cascade).
@@ -1017,7 +1017,7 @@ export async function searchMerchants(
   const total = filteredByTier.length
 
   // Paginate.
-  const page = needsPostSort ? filteredByTier.slice(offset, offset + limit) : filteredByTier.slice(offset, offset + limit)
+  const page = filteredByTier.slice(offset, offset + limit)
 
   // Enrich the page slice (descriptor, redundancy filter, favourites).
   const enriched = await enrichMerchantTiles(prisma, page as any, {
