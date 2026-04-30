@@ -330,9 +330,17 @@ describe('discovery routes', () => {
 
   it('GET /api/v1/customer/search?tagIds=t1,t2&scope=city passes parsed params and returns meta envelope', async () => {
     vi.mocked(searchMerchants).mockResolvedValueOnce({
-      merchants: [{ id: 'm1', businessName: 'Cafe' }],
+      merchants: [{ id: 'm1', businessName: 'Cafe', supplyTier: 'CITY' }],
       total: 1,
-      meta: { scope: 'city', resolvedArea: 'London', scopeExpanded: true, chipsHidden: false },
+      meta: {
+        scope:            'city',
+        resolvedArea:     'London',
+        scopeExpanded:    true,
+        nearbyCount:      0,
+        cityCount:        1,
+        distantCount:     0,
+        emptyStateReason: 'none',
+      },
     } as any)
 
     const res = await app.inject({
@@ -344,7 +352,11 @@ describe('discovery routes', () => {
     const body = res.json()
     expect(body.meta.scope).toBe('city')
     expect(body.meta.scopeExpanded).toBe(true)
-    expect(body.meta.chipsHidden).toBe(false)
+    expect(body.meta.nearbyCount).toBeDefined()
+    expect(body.meta.cityCount).toBeDefined()
+    expect(body.meta.distantCount).toBeDefined()
+    expect(body.meta.emptyStateReason).toBeDefined()
+    expect(body.merchants[0].supplyTier).toBe('CITY')
     expect(searchMerchants).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ tagIds: ['t1', 't2'], scope: 'city' }),
@@ -378,9 +390,17 @@ describe('discovery routes', () => {
 
   it('GET /api/v1/customer/categories/:id/merchants forwards id, scope, lat, lng and returns { merchants, total, meta }', async () => {
     vi.mocked(getCategoryMerchants).mockResolvedValueOnce({
-      merchants: [{ id: 'm1', businessName: 'Pizza Palace' }],
+      merchants: [{ id: 'm1', businessName: 'Pizza Palace', supplyTier: 'CITY' }],
       total: 1,
-      meta: { scope: 'city', resolvedArea: 'London', scopeExpanded: true, chipsHidden: false },
+      meta: {
+        scope:            'city',
+        resolvedArea:     'London',
+        scopeExpanded:    true,
+        nearbyCount:      0,
+        cityCount:        1,
+        distantCount:     0,
+        emptyStateReason: 'none',
+      },
     } as any)
 
     const res = await app.inject({
@@ -394,7 +414,11 @@ describe('discovery routes', () => {
     expect(body).toHaveProperty('total')
     expect(body).toHaveProperty('meta')
     expect(body.meta.scope).toBe('city')
-    expect(body.meta.chipsHidden).toBe(false)
+    expect(body.meta.nearbyCount).toBeDefined()
+    expect(body.meta.cityCount).toBeDefined()
+    expect(body.meta.distantCount).toBeDefined()
+    expect(body.meta.emptyStateReason).toBeDefined()
+    expect(body.merchants[0].supplyTier).toBe('CITY')
     expect(getCategoryMerchants).toHaveBeenCalledWith(
       expect.anything(),
       'cat-123',
