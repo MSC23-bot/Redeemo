@@ -10,6 +10,8 @@ import {
   PRIMARY_CUISINE_SUBCATEGORIES,
 } from './seed-data/subcategoryTags'
 import { REDUNDANT_HIGHLIGHTS } from './seed-data/redundantHighlights'
+import { AMENITIES } from './seed-data/amenities'
+import { CATEGORY_AMENITIES } from './seed-data/categoryAmenities'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
@@ -28,6 +30,7 @@ const topLevelIdByName = new Map<string, string>()
 const subcategoryIdByNameAndParent = new Map<SubcatKey, string>()
 const subcategoryIdsByName = new Map<string, string[]>()  // handles cross-listings (e.g. Aesthetics Clinic)
 const tagIdByLabelAndType = new Map<string, string>()     // `${label}:${type}` → id
+const amenityIdByName = new Map<string, string>()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Taxonomy seeding
@@ -98,20 +101,19 @@ async function seedCategories(): Promise<void> {
             pinColour: cat.pinColour,
             pinIcon: cat.pinIcon,
             descriptorState: null,
-            minSubcategoryCountForChips: 3,
             isActive: true,
+            intentType: cat.intentType,
           },
         })
       : await prisma.category.create({
           data: {
             name: cat.name,
-            parentId: null,
             sortOrder: cat.sortOrder,
             pinColour: cat.pinColour,
             pinIcon: cat.pinIcon,
             descriptorState: null,
-            minSubcategoryCountForChips: 3,
             isActive: true,
+            intentType: cat.intentType,
           },
         })
     topLevelIdByName.set(cat.name, row.id)
@@ -132,16 +134,14 @@ async function seedCategories(): Promise<void> {
         sortOrder: sub.sortOrder,
         descriptorState: sub.descriptorState,
         descriptorSuffix: sub.descriptorSuffix ?? null,
-        minSubcategoryCountForChips: 3,
         isActive: true,
       },
       create: {
         name: sub.name,
-        parentId,
+        parent: { connect: { id: parentId } },
         sortOrder: sub.sortOrder,
         descriptorState: sub.descriptorState,
         descriptorSuffix: sub.descriptorSuffix ?? null,
-        minSubcategoryCountForChips: 3,
         isActive: true,
       },
     })
@@ -338,6 +338,8 @@ type TestMerchantSpec = {
   tags: Array<{ label: string; type: 'CUISINE' | 'SPECIALTY' | 'HIGHLIGHT' | 'DETAIL' }>
   // MerchantHighlight rows (HIGHLIGHT-type tags only); cap is 3
   highlights: Array<{ label: string; sortOrder: number }>
+  // BranchAmenity rows for the merchant's single main branch (branch-level, not merchant-level)
+  amenities: string[]
   branch: {
     id: string
     name: string
@@ -375,6 +377,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Independent', sortOrder: 0 },
       { label: 'Vegan-Friendly', sortOrder: 1 },
     ],
+    amenities: ['Wi-Fi', 'Outdoor Seating'],
     branch: {
       id: 'tax-branch-cafe-001',
       name: 'Bean & Brew — Shoreditch',
@@ -411,6 +414,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Women-Owned', sortOrder: 0 },
       { label: 'Independent', sortOrder: 1 },
     ],
+    amenities: ['Showers', 'Lockers', 'Online Booking'],
     branch: {
       id: 'tax-branch-pilates-001',
       name: 'Core Reform — Clapham',
@@ -446,6 +450,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Family-Friendly', sortOrder: 1 },
       { label: 'Vegan-Friendly', sortOrder: 2 },
     ],
+    amenities: ['Wi-Fi', 'Group Bookings'],
     branch: {
       id: 'tax-branch-foodhall-001',
       name: 'Market Quarter — Borough',
@@ -482,6 +487,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
     highlights: [
       { label: 'Women-Owned', sortOrder: 0 },
     ],
+    amenities: ['Same-Day Appointments', 'Online Booking', 'Wheelchair Access'],
     branch: {
       id: 'tax-branch-aesthetics-001',
       name: 'Lumière — Marylebone',
@@ -521,6 +527,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Independent', sortOrder: 1 },
       { label: 'Wheelchair Accessible', sortOrder: 2 },
     ],
+    amenities: ['Online Booking', 'Pickup & Drop-off'],
     branch: {
       id: 'tax-branch-vet-001',
       name: 'Wagtail Vets — Hackney',
@@ -534,6 +541,23 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
     },
   },
 ]
+
+/**
+ * Link a branch to amenities via BranchAmenity rows (idempotent — safe to call
+ * on re-seed). Amenities are branch-level: a multi-branch merchant may have
+ * different amenities per branch.
+ */
+async function linkBranchAmenities(branchId: string, amenityNames: string[]): Promise<void> {
+  for (const name of amenityNames) {
+    const amenityId = amenityIdByName.get(name)
+    if (!amenityId) throw new Error(`linkBranchAmenities: amenity '${name}' not found`)
+    await prisma.branchAmenity.upsert({
+      where:  { branchId_amenityId: { branchId, amenityId } },
+      update: {},
+      create: { branchId, amenityId },
+    })
+  }
+}
 
 /**
  * Insert MerchantHighlight rows defensively against the 3-cap trigger.
@@ -636,6 +660,15 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
   })
   await upsertMerchantHighlights(devHighlightRows)
 
+  // BranchAmenity rows for dev-merchant-001's main branch.
+  const devMerchantMainBranch = await prisma.branch.findFirst({
+    where: { merchantId: 'dev-merchant-001', isMainBranch: true },
+    select: { id: true },
+  })
+  if (devMerchantMainBranch) {
+    await linkBranchAmenities(devMerchantMainBranch.id, ['Outdoor Seating', 'Wi-Fi', 'Online Booking'])
+  }
+
   // ── Scenarios 2–6: create the new test merchants ──
   for (const spec of TEST_MERCHANT_SPECS) {
     const parentId = topLevelIdByName.get(spec.parentCategoryName)
@@ -730,11 +763,57 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
       return { merchantId: spec.id, highlightTagId: tagId, sortOrder }
     })
     await upsertMerchantHighlights(highlightRows)
+
+    // BranchAmenity rows for this merchant's main branch (branch-level, not merchant-level).
+    await linkBranchAmenities(spec.branch.id, spec.amenities)
   }
 
   console.log(
     `✓ Seeded taxonomy test merchants: dev-merchant-001 (Restaurant + Italian) + ${TEST_MERCHANT_SPECS.length} new`,
   )
+}
+
+async function seedAmenities(): Promise<void> {
+  for (const a of AMENITIES) {
+    const row = await prisma.amenity.upsert({
+      where:  { name: a.name },
+      update: {},
+      create: { name: a.name, iconUrl: a.iconUrl, isActive: true },
+    })
+    amenityIdByName.set(a.name, row.id)
+  }
+  console.log(`Seeded ${AMENITIES.length} amenities`)
+}
+
+async function seedCategoryAmenities(): Promise<void> {
+  const rows: { categoryId: string; amenityId: string }[] = []
+  for (const rule of CATEGORY_AMENITIES) {
+    const amenityId = amenityIdByName.get(rule.amenityName)
+    if (!amenityId) {
+      throw new Error(`seedCategoryAmenities: amenity '${rule.amenityName}' not found`)
+    }
+
+    let categoryId: string | undefined
+    if (rule.parentCategoryName) {
+      const parentId = topLevelIdByName.get(rule.parentCategoryName)
+      if (!parentId) throw new Error(`seedCategoryAmenities: parent '${rule.parentCategoryName}' not found`)
+      categoryId = subcategoryIdByNameAndParent.get(`${rule.categoryName}::${parentId}`)
+    } else {
+      categoryId = topLevelIdByName.get(rule.categoryName)
+    }
+    if (!categoryId) {
+      throw new Error(
+        `seedCategoryAmenities: category '${rule.categoryName}'` +
+        (rule.parentCategoryName ? ` (under '${rule.parentCategoryName}')` : '') +
+        ' not found',
+      )
+    }
+
+    rows.push({ categoryId, amenityId })
+  }
+
+  await prisma.categoryAmenity.createMany({ data: rows, skipDuplicates: true })
+  console.log(`Seeded ${rows.length} CategoryAmenity rules`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -793,6 +872,8 @@ async function main() {
   await seedTags()
   await seedSubcategoryTags()
   await seedRedundantHighlights()
+  await seedAmenities()
+  await seedCategoryAmenities()
 
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
@@ -887,16 +968,6 @@ async function main() {
     }
   }
   console.log('Created RMV templates')
-
-  // ── Amenities ──
-  for (const name of ['Free WiFi', 'Parking', 'Accessible', 'Outdoor Seating', 'Takeaway', 'Delivery', 'Card Payment', 'Cash Only']) {
-    await prisma.amenity.upsert({
-      where: { name },
-      update: {},
-      create: { name, isActive: true },
-    })
-  }
-  console.log('Created amenities')
 
   // ── Interests ──
   for (const name of ['Food & Dining', 'Beauty & Skincare', 'Fitness & Sport', 'Shopping', 'Entertainment & Events', 'Travel & Leisure', 'Health & Wellbeing', 'Professional Development']) {

@@ -289,6 +289,12 @@ enum MerchantStatus {
   DELETED
 }
 
+enum CategoryIntentType {
+  LOCAL
+  DESTINATION
+  MIXED
+}
+
 enum VerificationStatus {
   NOT_SUBMITTED
   PENDING
@@ -631,7 +637,7 @@ model Category {
   pinIcon         String?    // icon key from agreed icon set e.g. "fork-knife"
   descriptorState              CategoryDescriptorState?  // subcategories only
   descriptorSuffix             String?                    // override; defaults to category name
-  minSubcategoryCountForChips  Int     @default(3)
+  intentType                   CategoryIntentType?
   merchantCountByCity          Json    @default("{}")     // { cityId: count }
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
@@ -643,6 +649,7 @@ model Category {
   rmvTemplates     RmvTemplate[] @relation("CategoryRmvTemplates")
   tagLinks         SubcategoryTag[]
   redundantHighlights RedundantHighlight[] @relation("CategoryRedundantHighlights")
+  amenityRules     CategoryAmenity[]
 
   @@unique([name, parentId], name: "name_parentId", map: "Category_name_parentId_key")
   @@index([parentId])
@@ -694,7 +701,8 @@ model Amenity {
   iconUrl  String?
   isActive Boolean @default(true)
 
-  branches BranchAmenity[]
+  branches      BranchAmenity[]
+  categoryRules CategoryAmenity[]
 }
 
 model BranchAmenity {
@@ -703,9 +711,20 @@ model BranchAmenity {
   amenityId String
 
   branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  amenity   Amenity @relation(fields: [amenityId], references: [id])
+  amenity   Amenity @relation(fields: [amenityId], references: [id], onDelete: Restrict)
 
   @@unique([branchId, amenityId])
+}
+
+model CategoryAmenity {
+  id         String   @id @default(uuid())
+  categoryId String
+  amenityId  String
+
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  amenity    Amenity  @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, amenityId])
 }
 
 // ─────────────────────────────────────────
