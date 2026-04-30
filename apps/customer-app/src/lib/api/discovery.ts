@@ -188,12 +188,21 @@ export type InAreaResponse = z.infer<typeof inAreaResponseSchema>
 // Search query params. `scope` exposed as a user-controllable filter
 // (decision: scope-control pill row in PR B). Not all backend params are
 // surfaced — Distance/Min-Savings/Tag.label expansion are deferred.
+//
+// Bounding-box params (minLat / maxLat / minLng / maxLng) are accepted by
+// the backend search route and used by Map (PR C M2) when non-scope
+// filters are active so we can keep viewport scoping while routing
+// through /search to gain sortBy / voucherTypes / amenityIds / openNow.
 export type SearchParams = {
   q?:                string
   categoryId?:       string
   subcategoryId?:    string
   lat?:              number
   lng?:              number
+  minLat?:           number
+  maxLat?:           number
+  minLng?:           number
+  maxLng?:           number
   scope?:            'nearby' | 'city' | 'platform'   // 'region' reserved, not surfaced
   voucherTypes?:     string[]
   amenityIds?:       string[]
