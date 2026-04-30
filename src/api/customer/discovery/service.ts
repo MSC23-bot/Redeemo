@@ -6,8 +6,14 @@ import {
 import { AppError } from '../../shared/errors'
 import { haversineMetres } from '../../shared/haversine'
 import { isOpenNow } from '../../shared/isOpenNow'
-import { resolveScope } from '../../lib/scope'
 import { resolveProfileCity } from '../../lib/userCity'
+import {
+  rankMerchants,
+  resolveCategoryIntent,
+  computeRatingsByMerchant,
+  type CategoryIntentType,
+  type SupplyTier,
+} from '../../lib/ranking'
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 
 // Location context helper — resolves what location label + source to return
@@ -74,6 +80,93 @@ const MERCHANT_TILE_SELECT = {
     },
   },
 } as const
+
+type RequestedScope = 'nearby' | 'city' | 'region' | 'platform' | undefined
+
+type ScopeResolution = {
+  retainedTiers: SupplyTier[]
+  scopeExpanded: boolean
+  resolvedScope: 'nearby' | 'city' | 'region' | 'platform'
+}
+
+/**
+ * Determines which tiers to keep, given the caller's requested scope (or
+ * default-by-intent), tier counts of available supply, and cascading expansion.
+ *
+ *   LOCAL/MIXED default = NEARBY+CITY → cascade to DISTANT if both empty
+ *   DESTINATION default = ALL tiers
+ *   scope=nearby   = NEARBY only → cascade through CITY → DISTANT if empty
+ *   scope=city     = NEARBY+CITY → cascade to DISTANT if both empty
+ *   scope=platform = ALL tiers (no expansion possible)
+ */
+function resolveScopeForRanking(
+  requested: RequestedScope,
+  intent: CategoryIntentType,
+  counts: { nearbyCount: number; cityCount: number; distantCount: number },
+): ScopeResolution {
+  const initial: SupplyTier[] = (() => {
+    if (requested === 'platform') return ['NEARBY', 'CITY', 'DISTANT']
+    if (requested === 'nearby')   return ['NEARBY']
+    if (requested === 'city' || requested === 'region') return ['NEARBY', 'CITY']
+    if (intent === 'DESTINATION') return ['NEARBY', 'CITY', 'DISTANT']
+    return ['NEARBY', 'CITY']
+  })()
+
+  let retained = initial
+  let expanded = false
+  while (retained.length < 3 && retainedHasZeroSupply(retained, counts)) {
+    if (!retained.includes('CITY'))    { retained = [...retained, 'CITY'];    expanded = true; continue }
+    if (!retained.includes('DISTANT')) { retained = [...retained, 'DISTANT']; expanded = true; continue }
+    break
+  }
+
+  const resolvedScope: ScopeResolution['resolvedScope'] =
+    retained.includes('DISTANT') ? 'platform' :
+    retained.includes('CITY')    ? 'city' :
+    'nearby'
+
+  return { retainedTiers: retained, scopeExpanded: expanded, resolvedScope }
+}
+
+function retainedHasZeroSupply(
+  retained: SupplyTier[],
+  counts: { nearbyCount: number; cityCount: number; distantCount: number },
+): boolean {
+  let total = 0
+  if (retained.includes('NEARBY'))  total += counts.nearbyCount
+  if (retained.includes('CITY'))    total += counts.cityCount
+  if (retained.includes('DISTANT')) total += counts.distantCount
+  return total === 0
+}
+
+/**
+ * Computes the empty-state reason from total (post-tier-filter, pre-pagination)
+ * and total-supply (sum of all tier counts, regardless of which tiers were retained).
+ *
+ * Pre-pagination `total` is the right signal — `paginated.length === 0` can happen
+ * when offset > total even though supply exists. Using `total` avoids false
+ * `'no_uk_supply'` on infinite-scroll pagination overflow.
+ */
+function buildEmptyStateReason(
+  total: number,
+  scopeExpanded: boolean,
+  totalSupply: number,
+): 'none' | 'expanded_to_wider' | 'no_uk_supply' {
+  if (totalSupply === 0) return 'no_uk_supply'
+  if (total === 0)       return 'no_uk_supply'
+  if (scopeExpanded)     return 'expanded_to_wider'
+  return 'none'
+}
+
+function buildResolvedArea(
+  resolvedScope: ScopeResolution['resolvedScope'],
+  profileCity: string | null,
+): string {
+  if (resolvedScope === 'nearby') return 'Nearby'
+  if (resolvedScope === 'city')   return profileCity ?? 'Your city'
+  if (resolvedScope === 'region') return 'Wider area'
+  return 'United Kingdom'
+}
 
 // Tile-shape of a `MerchantHighlight` row with the `tag` join included.
 type TileHighlight = {
@@ -793,21 +886,9 @@ export async function searchMerchants(
     ]
   }
 
-  // Scope-based location filter (city fallback). 'nearby' continues to use the
-  // existing maxDistanceMiles radius logic below; 'platform' adds no clause.
+  // Resolve user location context (no scope filtering at the SQL level — done
+  // by tier classification + filter post-rank).
   const profileCity = await resolveProfileCity(prisma, userId)
-  const resolved = resolveScope({
-    scope,
-    lat: lat ?? null,
-    lng: lng ?? null,
-    profileCity,
-  })
-  if (resolved.scope === 'city' && profileCity) {
-    where.AND = [
-      ...(Array.isArray(where.AND) ? where.AND : []),
-      { branches: { some: { city: profileCity, isMainBranch: true } } },
-    ]
-  }
 
   if (featured) {
     const now = new Date()
@@ -834,38 +915,34 @@ export async function searchMerchants(
     where,
     select: MERCHANT_TILE_SELECT as any,
     orderBy: { businessName: 'asc' },
-    take: needsPostSort ? 500 : limit,
-    skip: needsPostSort ? 0 : offset,
   })
 
-  const enriched = await enrichMerchantTiles(prisma, rawMerchants as any, { lat: lat ?? null, lng: lng ?? null, userId })
-
-  let sorted = enriched
-  if (sortBy === 'nearest') {
-    sorted = enriched
-      .filter(m => m.distance !== null)
-      .sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))
-      .concat(enriched.filter(m => m.distance === null))
-  } else if (sortBy === 'top_rated') {
-    sorted = enriched.filter(m => (m.avgRating ?? 0) >= 4.0 && m.reviewCount >= 3)
-      .sort((a, b) => (b.avgRating ?? 0) - (a.avgRating ?? 0))
-      .concat(enriched.filter(m => !((m.avgRating ?? 0) >= 4.0 && m.reviewCount >= 3)))
-  } else if (sortBy === 'highest_saving') {
-    sorted = [...enriched].sort((a, b) => (b.maxEstimatedSaving ?? 0) - (a.maxEstimatedSaving ?? 0))
+  let sorted = rawMerchants as any[]
+  if (sortBy === 'nearest' && lat !== undefined && lng !== undefined) {
+    sorted = [...rawMerchants].sort((a: any, b: any) => {
+      const distA = Math.min(...(a.branches as any[]).filter((br: any) => br.latitude !== null && br.longitude !== null).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
+      const distB = Math.min(...(b.branches as any[]).filter((br: any) => br.latitude !== null && br.longitude !== null).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
+      return distA - distB
+    })
   }
 
-  let final = topRated
-    ? sorted.filter(m => (m.avgRating ?? 0) >= 4.0 && m.reviewCount >= 5)
-    : sorted
+  let final: any[] = sorted
+
+  if (topRated) {
+    // topRated filter applied post-rank; avgRating not yet computed so defer to post-augment
+  }
 
   if (params.maxDistanceMiles && lat !== undefined && lng !== undefined) {
     const maxMetres = params.maxDistanceMiles * 1609.34
-    final = final.filter(m => m.distance !== null && m.distance <= maxMetres)
+    final = final.filter((m: any) => {
+      const minDist = Math.min(...(m.branches as any[]).filter((br: any) => br.latitude !== null && br.longitude !== null).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
+      return minDist <= maxMetres
+    })
   }
 
   // openNow secondary query — intentional for MVP (small result set after other filters)
   if (openNow) {
-    const finalIds = final.map(m => m.id)
+    const finalIds = final.map((m: any) => m.id)
     const merchantsWithHours = await prisma.merchant.findMany({
       where: { id: { in: finalIds } },
       select: {
@@ -885,18 +962,87 @@ export async function searchMerchants(
         .filter((m: any) => m.branches.some((b: any) => isOpenNow(b.openingHours)))
         .map((m: any) => m.id),
     )
-    final = final.filter(m => openMerchantIds.has(m.id))
+    final = final.filter((m: any) => openMerchantIds.has(m.id))
   }
 
-  const paginated = needsPostSort ? final.slice(offset, offset + limit) : final
+  // Determine intent: from category if categoryId given, else default LOCAL for free-text.
+  let intentType: CategoryIntentType = 'LOCAL'
+  if (categoryId) {
+    const catRow = await prisma.category.findUnique({
+      where:  { id: categoryId },
+      select: { intentType: true, parent: { select: { intentType: true } } },
+    })
+    if (catRow) intentType = resolveCategoryIntent(catRow)
+  }
+
+  // Pre-compute ratings for ranking (the existing search filters give us `final`,
+  // a list of merchants matching the search criteria UK-wide).
+  const ratingByMerchant = await computeRatingsByMerchant(
+    prisma,
+    final.map((m: any) => ({ id: m.id, branches: m.branches })),
+  )
+  const augmented = final.map((m: any) => ({
+    ...m,
+    avgRating:   ratingByMerchant.get(m.id)?.avgRating   ?? null,
+    reviewCount: ratingByMerchant.get(m.id)?.reviewCount ?? 0,
+  }))
+
+  // Apply topRated filter now that ratings are available.
+  const augmentedFiltered = topRated
+    ? augmented.filter((m: any) => (m.avgRating ?? 0) >= 4.0 && m.reviewCount >= 5)
+    : augmented
+
+  // Rank by intent.
+  const { ordered: rankedTiles, counts: tierCounts } = rankMerchants(augmentedFiltered as any, {
+    intentType, userLat: lat ?? null, userLng: lng ?? null, profileCity,
+  })
+
+  // Apply sort overrides post-rank.
+  let postSorted = rankedTiles as any[]
+  if (sortBy === 'top_rated') {
+    postSorted = rankedTiles.filter((m: any) => (m.avgRating ?? 0) >= 4.0 && m.reviewCount >= 3)
+      .sort((a: any, b: any) => (b.avgRating ?? 0) - (a.avgRating ?? 0))
+      .concat(rankedTiles.filter((m: any) => !((m.avgRating ?? 0) >= 4.0 && m.reviewCount >= 3)))
+  } else if (sortBy === 'highest_saving') {
+    const withSaving = (rankedTiles as any[]).map((m: any) => {
+      const savings = (m.vouchers as any[]).map((v: any) => Number(v.estimatedSaving)).filter((n: number) => !isNaN(n))
+      return { ...m, _maxSaving: savings.length > 0 ? Math.max(...savings) : 0 }
+    })
+    postSorted = withSaving.sort((a: any, b: any) => b._maxSaving - a._maxSaving)
+  }
+
+  // Filter to retained tiers (default-by-intent or explicit scope, with cascade).
+  const resolution = resolveScopeForRanking(scope as RequestedScope, intentType, tierCounts)
+  const filteredByTier = postSorted.filter((m: any) => resolution.retainedTiers.includes(m.supplyTier))
+  const total = filteredByTier.length
+
+  // Paginate.
+  const page = needsPostSort ? filteredByTier.slice(offset, offset + limit) : filteredByTier.slice(offset, offset + limit)
+
+  // Enrich the page slice (descriptor, redundancy filter, favourites).
+  const enriched = await enrichMerchantTiles(prisma, page as any, {
+    lat: lat ?? null, lng: lng ?? null, userId,
+  })
+  const merchants = enriched.map((tile: any, i: number) => ({
+    ...tile,
+    supplyTier: page[i].supplyTier,
+  }))
+
   return {
-    merchants: paginated,
-    total: final.length,
+    merchants,
+    total,
     meta: {
-      scope: resolved.scope,
-      resolvedArea: resolved.resolvedArea,
-      scopeExpanded: scope != null && scope !== 'nearby',
-      chipsHidden: false,
+      scope:            resolution.resolvedScope,
+      resolvedArea:     buildResolvedArea(resolution.resolvedScope, profileCity),
+      scopeExpanded:    resolution.scopeExpanded,
+      nearbyCount:      tierCounts.nearbyCount,
+      cityCount:        tierCounts.cityCount,
+      distantCount:     tierCounts.distantCount,
+      emptyStateReason: buildEmptyStateReason(
+        total,
+        resolution.scopeExpanded,
+        tierCounts.nearbyCount + tierCounts.cityCount + tierCounts.distantCount,
+      ),
     },
   }
 }
@@ -910,19 +1056,14 @@ export async function searchMerchants(
 //
 // Response shape mirrors /search: { merchants, total, meta }.
 //
-// chipsHidden follows spec §4.5: count subcategories of `categoryId` whose
-// merchantCountByCity[cityKey] > 0; hide chips when below the parent's
-// minSubcategoryCountForChips threshold. cityKey comes from the §4.6 ladder
-// via resolveScope + resolveProfileCity. If no city resolves, chipsHidden
-// is false (matches the supply-aware interim behaviour in /categories).
-// chipsHidden is only meaningful when categoryId is a top-level category
-// (parentId === null). Subcategory pages have no chip strip, so chipsHidden
-// is always false for them regardless of supply.
+// Uses the rank-then-enrich pipeline: fetch raw (UK-wide) → compute ratings →
+// augment → rank → filter by retained tiers (with cascade expansion) →
+// paginate → enrich page slice → attach supplyTier.
 export async function getCategoryMerchants(
   prisma: PrismaClient,
   categoryId: string,
   options: {
-    scope?: 'nearby' | 'city' | 'region' | 'platform'
+    scope?: RequestedScope
     lat?: number | null
     lng?: number | null
     userId?: string | null
@@ -931,13 +1072,17 @@ export async function getCategoryMerchants(
   },
 ) {
   const profileCity = await resolveProfileCity(prisma, options.userId ?? null)
-  const resolved = resolveScope({
-    scope:       options.scope,
-    lat:         options.lat ?? null,
-    lng:         options.lng ?? null,
-    profileCity,
-  })
+  const userLat = options.lat ?? null
+  const userLng = options.lng ?? null
 
+  // 1. Resolve effective intent (with parent inheritance)
+  const cat = await prisma.category.findUnique({
+    where:  { id: categoryId },
+    select: { id: true, intentType: true, parent: { select: { intentType: true } } },
+  })
+  const intentType: CategoryIntentType = cat ? resolveCategoryIntent(cat) : 'LOCAL'
+
+  // 2. Fetch UK-wide matching merchants (raw, with branches)
   const where: Prisma.MerchantWhereInput = {
     status: MerchantStatus.ACTIVE,
     OR: [
@@ -945,74 +1090,64 @@ export async function getCategoryMerchants(
       { categories: { some: { categoryId } } },
     ],
   }
-
-  // City scope: filter to merchants with a main branch in the resolved city.
-  // 'nearby' falls through to enrichMerchantTiles' distance computation (no
-  // dedicated radius DB filter here — mirrors /search's behaviour for now).
-  // 'region' and 'platform' add no location filter.
-  if (resolved.scope === 'city' && profileCity) {
-    where.AND = [
-      ...(Array.isArray(where.AND) ? where.AND : []),
-      { branches: { some: { city: profileCity, isMainBranch: true } } },
-    ]
-  }
-
-  const [total, rawMerchants] = await Promise.all([
-    prisma.merchant.count({ where }),
-    prisma.merchant.findMany({
-      where,
-      select: MERCHANT_TILE_SELECT as any,
-      orderBy: { businessName: 'asc' },
-      take: options.limit,
-      skip: options.offset,
-    }),
-  ])
-
-  const merchants = await enrichMerchantTiles(prisma, rawMerchants as any, {
-    lat:    options.lat ?? null,
-    lng:    options.lng ?? null,
-    userId: options.userId ?? null,
+  const rawMerchants = await prisma.merchant.findMany({
+    where,
+    select: MERCHANT_TILE_SELECT as any,
+    orderBy: { businessName: 'asc' },
   })
 
-  // chipsHidden — count surviving subcategories with supply for the resolved
-  // city, compare to the parent's minSubcategoryCountForChips threshold.
-  // When no city resolves, chips remain visible (chipsHidden=false).
-  const cityKey =
-    (resolved.scope === 'city' || resolved.scope === 'nearby') && profileCity
-      ? profileCity
-      : null
+  // 3. Pre-compute ratings (single review.groupBy across all branches)
+  const ratingByMerchant = await computeRatingsByMerchant(
+    prisma,
+    rawMerchants.map((m: any) => ({ id: m.id, branches: m.branches })),
+  )
 
-  let chipsHidden = false
-  if (cityKey !== null) {
-    const [parent, subcats] = await Promise.all([
-      prisma.category.findUnique({
-        where:  { id: categoryId },
-        select: { minSubcategoryCountForChips: true, parentId: true },
-      }),
-      prisma.category.findMany({
-        where:  { parentId: categoryId, isActive: true },
-        select: { id: true, merchantCountByCity: true },
-      }),
-    ])
-    // chipsHidden only carries meaning for top-level category pages — a
-    // subcategory (leaf) page has no chip strip to hide, so default false.
-    if (parent && parent.parentId === null) {
-      const subcatsWithSupply = subcats.filter(s => {
-        const counts = (s.merchantCountByCity ?? {}) as Record<string, number>
-        return (counts[cityKey] ?? 0) > 0
-      })
-      chipsHidden = subcatsWithSupply.length < parent.minSubcategoryCountForChips
-    }
-  }
+  // 4. Augment raw merchants with rating fields for ranking
+  const augmented = rawMerchants.map((m: any) => ({
+    ...m,
+    avgRating:   ratingByMerchant.get(m.id)?.avgRating   ?? null,
+    reviewCount: ratingByMerchant.get(m.id)?.reviewCount ?? 0,
+  }))
+
+  // 5. Rank by intent (raw merchants — branches still present for classifyTier)
+  const { ordered, counts } = rankMerchants(augmented as any, {
+    intentType, userLat, userLng, profileCity,
+  })
+
+  // 6. Filter to retained tiers (default-by-intent or explicit scope, with cascade)
+  const resolution = resolveScopeForRanking(options.scope, intentType, counts)
+  const filtered = ordered.filter(m => resolution.retainedTiers.includes(m.supplyTier))
+  const total = filtered.length
+
+  // 7. Paginate
+  const page = filtered.slice(options.offset, options.offset + options.limit)
+
+  // 8. Enrich the page slice (descriptor, redundancy filter, favourites, distances)
+  const enriched = await enrichMerchantTiles(prisma, page as any, {
+    lat: userLat, lng: userLng, userId: options.userId ?? null,
+  })
+
+  // 9. Forward supplyTier from the rank step onto each enriched tile
+  const merchants = enriched.map((tile: any, i: number) => ({
+    ...tile,
+    supplyTier: page[i].supplyTier,
+  }))
 
   return {
     merchants,
     total,
     meta: {
-      scope:         resolved.scope,
-      resolvedArea:  resolved.resolvedArea,
-      scopeExpanded: options.scope != null && options.scope !== 'nearby',
-      chipsHidden,
+      scope:            resolution.resolvedScope,
+      resolvedArea:     buildResolvedArea(resolution.resolvedScope, profileCity),
+      scopeExpanded:    resolution.scopeExpanded,
+      nearbyCount:      counts.nearbyCount,
+      cityCount:        counts.cityCount,
+      distantCount:     counts.distantCount,
+      emptyStateReason: buildEmptyStateReason(
+        total,
+        resolution.scopeExpanded,
+        counts.nearbyCount + counts.cityCount + counts.distantCount,
+      ),
     },
   }
 }
