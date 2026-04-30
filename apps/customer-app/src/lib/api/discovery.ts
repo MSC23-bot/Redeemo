@@ -18,9 +18,23 @@ import { api } from '../api'
 const supplyTierSchema = z.enum(['NEARBY', 'CITY', 'DISTANT'])
 export type SupplyTier = z.infer<typeof supplyTierSchema>
 
+// Highlight tile-row shape — backend emits the full join-row including the
+// nested tag object. Capped to 3 by the backend (`take: 3` on the Prisma
+// select). Tile UI does not render these yet (deferred — see PR B M4 audit
+// follow-ups), but the type round-trips correctly so future renderers can
+// consume them without a schema migration.
+const highlightSchema = z.object({
+  id:             z.string(),
+  highlightTagId: z.string(),
+  sortOrder:      z.number(),
+  tag: z.object({ id: z.string(), label: z.string() }),
+})
+export type MerchantTileHighlight = z.infer<typeof highlightSchema>
+
 // Always-present-but-nullable fields use `.nullable()` (not `.nullable().optional()`)
 // so consumers can rely on `T | null` rather than `T | null | undefined`.
-// `.optional()` is reserved for fields the backend may omit entirely.
+// `.optional()` is reserved for fields the backend may omit entirely
+// (e.g. `featuredId` is only set on home-feed featured tiles).
 const merchantTileSchema = z.object({
   id:                  z.string(),
   businessName:        z.string(),
@@ -28,11 +42,21 @@ const merchantTileSchema = z.object({
   logoUrl:             z.string().nullable(),
   bannerUrl:           z.string().nullable(),
   primaryCategory: z.object({
-    id:        z.string(),
-    name:      z.string(),
-    pinColour: z.string().nullable(),
-    pinIcon:   z.string().nullable(),
+    id:               z.string(),
+    name:             z.string(),
+    pinColour:        z.string().nullable(),
+    pinIcon:          z.string().nullable(),
+    descriptorSuffix: z.string().nullable().optional(),
+    parentId:         z.string().nullable().optional(),
   }).nullable(),
+  // primaryDescriptorTag is the curated tag (Cuisine / Specialty) the
+  // descriptor is built from. Backend emits this on every tile. Used for
+  // descriptor de-dup logic at the detail layer; tile UI doesn't read it
+  // directly yet but it's part of the locked contract.
+  primaryDescriptorTag: z.object({
+    id:    z.string(),
+    label: z.string(),
+  }).nullable().optional(),
   subcategory: z.object({
     id:   z.string(),
     name: z.string(),
@@ -45,15 +69,12 @@ const merchantTileSchema = z.object({
   reviewCount:         z.number(),
   isFavourited:        z.boolean(),
   supplyTier:          supplyTierSchema,
-  // descriptor + highlights are emitted by Plan 1 Task 20 on every list-tile
-  // response. Treated as optional in the schema for backwards compatibility
-  // with home-feed paths that may not yet be re-indexed against the new
-  // contract — defaulted to null/[] at consumer sites.
   descriptor:          z.string().nullable().optional(),
-  highlights: z.array(z.object({
-    id:    z.string(),
-    label: z.string(),
-  })).optional(),
+  highlights:          z.array(highlightSchema).optional(),
+  // Set ONLY on tiles that came back from the home feed's `featured` array.
+  // Search / category-merchants / in-area routes do NOT set this — featured
+  // status is positional (which array the tile is in) for those routes.
+  featuredId:          z.string().optional(),
 })
 export type MerchantTile = z.infer<typeof merchantTileSchema>
 

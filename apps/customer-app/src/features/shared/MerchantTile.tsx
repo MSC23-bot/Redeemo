@@ -7,8 +7,13 @@ import { PressableScale } from '@/design-system/motion/PressableScale'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
 import { SavePill } from './SavePill'
 import { VoucherCountPill } from './VoucherCountPill'
-import { OpenStatusBadge } from './OpenStatusBadge'
 import { StarRating } from './StarRating'
+// NOTE: `OpenStatusBadge` was previously rendered with a hardcoded
+// `isOpen={true}` value. Removed in PR B M4 audit because the backend
+// MerchantTile contract does NOT expose an isOpen / isOpenNow field on
+// list responses (only on merchant detail + branch list responses). Showing
+// a green "Open" badge on every tile was misleading. Re-enable when the
+// backend extends the tile contract to include per-tile open state.
 
 function formatDistance(metres: number | null): string {
   if (metres === null) return ''
@@ -37,13 +42,16 @@ export function MerchantTile({
   width,
 }: Props) {
   const distanceStr = formatDistance(merchant.distance)
-  const area = merchant.primaryCategory?.name ?? ''
-  const infoText = [area, distanceStr].filter(Boolean).join(' · ')
+  // Prefer the Plan-1 descriptor ("Italian Restaurant", "Boutique Hotel")
+  // when present; fall back to the category name. Avoids showing just
+  // "Restaurant" on a merchant tagged as Italian.
+  const labelText = merchant.descriptor ?? merchant.primaryCategory?.name ?? ''
+  const infoText = [labelText, distanceStr].filter(Boolean).join(' · ')
 
   return (
     <PressableScale
       onPress={() => onPress(merchant.id)}
-      accessibilityLabel={`${merchant.businessName}, ${area}`}
+      accessibilityLabel={`${merchant.businessName}, ${labelText}`}
       style={[styles.card, width ? { width } : undefined]}
     >
       {/* Banner */}
@@ -130,7 +138,8 @@ export function MerchantTile({
         <View style={styles.pillRow}>
           <VoucherCountPill count={merchant.voucherCount} />
           <SavePill amount={merchant.maxEstimatedSaving} />
-          <OpenStatusBadge isOpen={true} />
+          {/* OpenStatusBadge intentionally omitted — backend tile contract
+              does not include isOpen state. See follow-up notes. */}
         </View>
       </View>
     </PressableScale>
