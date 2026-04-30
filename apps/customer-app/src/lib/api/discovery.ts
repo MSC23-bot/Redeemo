@@ -18,30 +18,37 @@ import { api } from '../api'
 const supplyTierSchema = z.enum(['NEARBY', 'CITY', 'DISTANT'])
 export type SupplyTier = z.infer<typeof supplyTierSchema>
 
+// Always-present-but-nullable fields use `.nullable()` (not `.nullable().optional()`)
+// so consumers can rely on `T | null` rather than `T | null | undefined`.
+// `.optional()` is reserved for fields the backend may omit entirely.
 const merchantTileSchema = z.object({
   id:                  z.string(),
   businessName:        z.string(),
-  tradingName:         z.string().nullable().optional(),
-  logoUrl:             z.string().nullable().optional(),
-  bannerUrl:           z.string().nullable().optional(),
+  tradingName:         z.string().nullable(),
+  logoUrl:             z.string().nullable(),
+  bannerUrl:           z.string().nullable(),
   primaryCategory: z.object({
     id:        z.string(),
     name:      z.string(),
-    pinColour: z.string().nullable().optional(),
-    pinIcon:   z.string().nullable().optional(),
-  }).nullable().optional(),
+    pinColour: z.string().nullable(),
+    pinIcon:   z.string().nullable(),
+  }).nullable(),
   subcategory: z.object({
     id:   z.string(),
     name: z.string(),
-  }).nullable().optional(),
+  }).nullable(),
   voucherCount:        z.number(),
-  maxEstimatedSaving:  z.coerce.number().nullable().optional(),
-  distance:            z.number().nullable().optional(),
-  nearestBranchId:     z.string().nullable().optional(),
-  avgRating:           z.number().nullable().optional(),
+  maxEstimatedSaving:  z.coerce.number().nullable(),
+  distance:            z.number().nullable(),
+  nearestBranchId:     z.string().nullable(),
+  avgRating:           z.number().nullable(),
   reviewCount:         z.number(),
   isFavourited:        z.boolean(),
   supplyTier:          supplyTierSchema,
+  // descriptor + highlights are emitted by Plan 1 Task 20 on every list-tile
+  // response. Treated as optional in the schema for backwards compatibility
+  // with home-feed paths that may not yet be re-indexed against the new
+  // contract — defaulted to null/[] at consumer sites.
   descriptor:          z.string().nullable().optional(),
   highlights: z.array(z.object({
     id:    z.string(),
@@ -83,19 +90,27 @@ const locationContextSchema = z.object({
 })
 export type LocationContext = z.infer<typeof locationContextSchema>
 
+// Campaign tile shape on the home feed. `bannerImageUrl` matches the Prisma
+// Campaign field (NOT the older `bannerUrl` PR #4 invented). gradientStart/
+// gradientEnd/ctaText are NOT in the current backend select — kept as
+// optional for forward compatibility; CampaignCarousel falls back to default
+// gradients when absent.
+const campaignSchema = z.object({
+  id:             z.string(),
+  name:           z.string(),
+  description:    z.string().nullable(),
+  bannerImageUrl: z.string().nullable(),
+  gradientStart:  z.string().nullable().optional(),
+  gradientEnd:    z.string().nullable().optional(),
+  ctaText:        z.string().nullable().optional(),
+})
+export type CampaignTile = z.infer<typeof campaignSchema>
+
 const homeFeedResponseSchema = z.object({
   locationContext: locationContextSchema,
   featured:        z.array(merchantTileSchema),
   trending:        z.array(merchantTileSchema),
-  campaigns: z.array(z.object({
-    id:             z.string(),
-    name:           z.string(),
-    description:    z.string().nullable().optional(),
-    bannerImageUrl: z.string().nullable().optional(),
-    gradientStart:  z.string().nullable().optional(),
-    gradientEnd:    z.string().nullable().optional(),
-    ctaText:        z.string().nullable().optional(),
-  })),
+  campaigns:       z.array(campaignSchema),
   nearbyByCategory: z.array(z.object({
     category: z.object({ id: z.string(), name: z.string() }),
     merchants: z.array(merchantTileSchema),
