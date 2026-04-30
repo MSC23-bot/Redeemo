@@ -4,7 +4,9 @@ import {
   getHomeFeed, getCustomerMerchant, getCustomerMerchantBranches,
   getCustomerVoucher, searchMerchants, listActiveCategories,
   getActiveCampaigns, getCampaignMerchants, getCategoryMerchants,
+  getInAreaMerchants,
 } from './service'
+import { getEligibleAmenitiesForSubcategory } from '../../lib/amenity'
 import { optionalUserId } from '../plugin'
 
 const idParam       = z.object({ id: z.string().min(1) })
@@ -117,6 +119,49 @@ export async function discoveryRoutes(app: FastifyInstance) {
       userId,
       limit:  query.limit,
       offset: query.offset,
+    })
+    return reply.send(result)
+  })
+
+  // GET /api/v1/customer/categories/:id/amenities — eligible amenities for a
+  // category (top-level OR subcategory). Subcategory rules ∪ parent top-level
+  // rules, filtered to Amenity.isActive=true, deduped, sorted by name.
+  // Used by FilterSheet (Plan A — Discovery Surface Rebaseline). No auth.
+  app.get('/api/v1/customer/categories/:id/amenities', async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const amenities = await getEligibleAmenitiesForSubcategory(app.prisma, id)
+    return reply.send({ amenities })
+  })
+
+  // GET /api/v1/customer/discovery/in-area — merchants whose active branches
+  // intersect a viewport bbox. Map-specific endpoint. Bbox filter is applied
+  // at the application level (post-rank) so tier counts reflect UK-wide
+  // supply, not the viewport slice (Plan 1.5 invariant). Meta envelope is a
+  // SUBSET of search/category meta — `scope` and `scopeExpanded` are dropped
+  // because in-area has no scope cascade. No auth; bearer token decoded (not
+  // verified) to extract userId for profile-city resolution.
+  app.get('/api/v1/customer/discovery/in-area', async (req: FastifyRequest, reply) => {
+    const query = z.object({
+      minLat:     z.coerce.number().min(-90).max(90),
+      maxLat:     z.coerce.number().min(-90).max(90),
+      minLng:     z.coerce.number().min(-180).max(180),
+      maxLng:     z.coerce.number().min(-180).max(180),
+      categoryId: z.string().optional(),
+      lat:        z.coerce.number().optional(),
+      lng:        z.coerce.number().optional(),
+      limit:      z.coerce.number().int().min(1).max(200).default(50),
+    }).parse(req.query)
+    if (query.minLat > query.maxLat || query.minLng > query.maxLng) {
+      return reply.status(400).send({ error: { code: 'INVALID_BBOX', message: 'minLat/minLng must be ≤ maxLat/maxLng' } })
+    }
+    const userId = optionalUserId(req)
+    const result = await getInAreaMerchants(app.prisma, {
+      bbox:       { minLat: query.minLat, maxLat: query.maxLat, minLng: query.minLng, maxLng: query.maxLng },
+      categoryId: query.categoryId,
+      lat:        query.lat ?? null,
+      lng:        query.lng ?? null,
+      userId,
+      limit:      query.limit,
     })
     return reply.send(result)
   })

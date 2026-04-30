@@ -35,7 +35,7 @@ vi.mock('../../../src/api/lib/userCity', () => ({
 }))
 
 // ── Real service under test ───────────────────────────────────────────────────
-import { searchMerchants, listActiveCategories } from '../../../src/api/customer/discovery/service'
+import { searchMerchants, listActiveCategories, getInAreaMerchants } from '../../../src/api/customer/discovery/service'
 import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 
@@ -333,5 +333,167 @@ describe('listActiveCategories — top-level visibility', () => {
     const result = await listActiveCategories(prisma)
 
     expect(result.map((c: any) => c.id)).toEqual(['top', 'sub-restaurant', 'sub-cafe'])
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PR A — getInAreaMerchants. Map endpoint reuses the rank-then-enrich pipeline
+// but applies the bbox filter at the application level (post-rank), so tier
+// counts reflect the full UK input set, not the viewport slice. Meta drops
+// `scope` and `scopeExpanded` (no scope cascade for in-area). emptyStateReason
+// only ever takes `'none' | 'no_uk_supply'` — `'expanded_to_wider'` is impossible.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getInAreaMerchants — bbox + ranking pipeline', () => {
+  let prisma: any
+  // London centre bbox (~ 0.4° square — generous enough that London merchants
+  // at 51.5074,-0.128 fall inside, while Manchester / Edinburgh fall outside)
+  const LONDON_BBOX = { minLat: 51.4, maxLat: 51.7, minLng: -0.3, maxLng: 0.0 }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    const adapter = new PrismaPg({ connectionString: 'postgresql://mock' })
+    prisma = new PrismaClient({ adapter } as any)
+  })
+
+  it('filters to merchants whose active branches intersect the bbox', async () => {
+    prisma.merchant.findMany.mockResolvedValueOnce([
+      // Inside London bbox
+      fixtureMerchant({ id: 'in-london',      branches: [{ id: 'b1', city: 'London',     latitude: 51.5074, longitude: -0.128 }] }),
+      // Outside (Manchester) — should be filtered out
+      fixtureMerchant({ id: 'in-manchester',  branches: [{ id: 'b2', city: 'Manchester', latitude: 53.5,    longitude: -2.2   }] }),
+      // Outside (Edinburgh) — should be filtered out
+      fixtureMerchant({ id: 'in-edinburgh',   branches: [{ id: 'b3', city: 'Edinburgh',  latitude: 55.95,   longitude: -3.19  }] }),
+    ])
+
+    const result = await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, limit: 50, lat: 51.5074, lng: -0.1278, userId: null,
+    })
+
+    expect(result.merchants.map((m: any) => m.id)).toEqual(['in-london'])
+    expect(result.total).toBe(1)
+  })
+
+  it('tier counts reflect the full UK input set, NOT the bbox slice', async () => {
+    // 1 NEARBY (London, in bbox) + 2 DISTANT (out of bbox). User coords in
+    // London → London merchant gets NEARBY tier; the others fall to DISTANT
+    // (no profileCity match). Bbox keeps only the London merchant in the
+    // returned list, but counts must still see all 3.
+    prisma.merchant.findMany.mockResolvedValueOnce([
+      fixtureMerchant({ id: 'in-london',     branches: [{ id: 'b1', city: 'London',     latitude: 51.5074, longitude: -0.128 }] }),
+      fixtureMerchant({ id: 'manchester',    branches: [{ id: 'b2', city: 'Manchester', latitude: 53.5,    longitude: -2.2   }] }),
+      fixtureMerchant({ id: 'edinburgh',     branches: [{ id: 'b3', city: 'Edinburgh',  latitude: 55.95,   longitude: -3.19  }] }),
+    ])
+
+    const result = await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, limit: 50, lat: 51.5074, lng: -0.1278, userId: null,
+    })
+
+    expect(result.merchants).toHaveLength(1)
+    expect(result.meta.nearbyCount).toBe(1)
+    expect(result.meta.distantCount).toBe(2)
+    expect(result.meta.cityCount).toBe(0)
+  })
+
+  it('every returned merchant tile carries supplyTier', async () => {
+    prisma.merchant.findMany.mockResolvedValueOnce([
+      fixtureMerchant({ id: 'm', branches: [{ id: 'b1', city: 'London', latitude: 51.5074, longitude: -0.128 }] }),
+    ])
+
+    const result = await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, limit: 50, lat: 51.5074, lng: -0.1278, userId: null,
+    })
+
+    expect(result.merchants[0]).toHaveProperty('supplyTier')
+    expect(['NEARBY', 'CITY', 'DISTANT']).toContain(result.merchants[0].supplyTier)
+  })
+
+  it('meta does NOT include scope or scopeExpanded (in-area-specific shape)', async () => {
+    prisma.merchant.findMany.mockResolvedValueOnce([
+      fixtureMerchant({ id: 'm', branches: [{ id: 'b1', city: 'London', latitude: 51.5074, longitude: -0.128 }] }),
+    ])
+
+    const result = await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, limit: 50, lat: 51.5074, lng: -0.1278, userId: null,
+    })
+
+    expect((result.meta as any).scope).toBeUndefined()
+    expect((result.meta as any).scopeExpanded).toBeUndefined()
+  })
+
+  it("emptyStateReason='no_uk_supply' when no UK merchants exist for the category", async () => {
+    prisma.category.findUnique.mockResolvedValueOnce({ intentType: 'LOCAL', parent: null })
+    prisma.merchant.findMany.mockResolvedValueOnce([])
+
+    const result = await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, categoryId: 'cat-1', limit: 50, userId: null,
+    })
+
+    expect(result.merchants).toHaveLength(0)
+    expect(result.meta.emptyStateReason).toBe('no_uk_supply')
+  })
+
+  it("emptyStateReason='none' when UK has supply (even if viewport is empty — client derives 'no in viewport' state)", async () => {
+    // UK has supply (Manchester) but bbox is London-only → viewport is empty.
+    // Per architectural decision, backend returns emptyStateReason='none' when
+    // totalSupply > 0; the Map UI derives "viewport empty but UK has supply"
+    // client-side from merchants.length === 0 + tier counts > 0.
+    prisma.category.findUnique.mockResolvedValueOnce({ intentType: 'LOCAL', parent: null })
+    prisma.merchant.findMany.mockResolvedValueOnce([
+      fixtureMerchant({ id: 'manchester', branches: [{ id: 'b1', city: 'Manchester', latitude: 53.5, longitude: -2.2 }] }),
+    ])
+
+    const result = await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, categoryId: 'cat-1', limit: 50, lat: 51.5074, lng: -0.1278, userId: null,
+    })
+
+    expect(result.merchants).toHaveLength(0)
+    expect(result.total).toBe(0)
+    expect(result.meta.emptyStateReason).toBe('none')
+    // distantCount surfaces UK-wide supply for Map's "X elsewhere — tap to expand" affordance
+    expect(result.meta.distantCount).toBe(1)
+  })
+
+  it('caps the response at limit (no offset, no pagination)', async () => {
+    // 5 in-bbox merchants, limit=2 → 2 returned, total=5
+    prisma.merchant.findMany.mockResolvedValueOnce([
+      fixtureMerchant({ id: 'm1', branches: [{ id: 'b1', city: 'London', latitude: 51.5074, longitude: -0.128 }] }),
+      fixtureMerchant({ id: 'm2', branches: [{ id: 'b2', city: 'London', latitude: 51.51,   longitude: -0.13  }] }),
+      fixtureMerchant({ id: 'm3', branches: [{ id: 'b3', city: 'London', latitude: 51.52,   longitude: -0.14  }] }),
+      fixtureMerchant({ id: 'm4', branches: [{ id: 'b4', city: 'London', latitude: 51.53,   longitude: -0.15  }] }),
+      fixtureMerchant({ id: 'm5', branches: [{ id: 'b5', city: 'London', latitude: 51.54,   longitude: -0.16  }] }),
+    ])
+
+    const result = await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, limit: 2, lat: 51.5074, lng: -0.1278, userId: null,
+    })
+
+    expect(result.merchants).toHaveLength(2)
+    expect(result.total).toBe(5)
+  })
+
+  it('resolves intent from categoryId (with parent inheritance) when given', async () => {
+    prisma.category.findUnique.mockResolvedValueOnce({ intentType: 'DESTINATION', parent: null })
+    prisma.merchant.findMany.mockResolvedValueOnce([
+      fixtureMerchant({ id: 'm', branches: [{ id: 'b1', city: 'London', latitude: 51.5074, longitude: -0.128 }] }),
+    ])
+
+    await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, categoryId: 'cat-travel', limit: 50, lat: 51.5074, lng: -0.1278, userId: null,
+    })
+
+    expect(prisma.category.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'cat-travel' } }),
+    )
+  })
+
+  it('skips category lookup entirely when categoryId is omitted', async () => {
+    prisma.merchant.findMany.mockResolvedValueOnce([])
+
+    await getInAreaMerchants(prisma, {
+      bbox: LONDON_BBOX, limit: 50, userId: null,
+    })
+
+    expect(prisma.category.findUnique).not.toHaveBeenCalled()
   })
 })
