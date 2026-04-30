@@ -1019,108 +1019,60 @@ export async function getCategoryMerchants(
 
 // ─── Categories ───────────────────────────────────────────────────────────────
 
-// Fix 5: filter by active merchants via the MerchantCategory join relation
-//
-// Group 4b (Task 18) — supply-aware overlay (strictly additive):
-//   - Without options or when scope cannot resolve to a city, behaviour is
-//     identical to before: flat list of active categories that have at least
-//     one ACTIVE merchant, sorted by sortOrder.
-//   - With { scope, lat, lng, userId } supplied AND the spec §4.6 fallback
-//     ladder resolving to a city (current scope === 'city' or 'nearby' AND
-//     the user has a profileCity), the list is filtered to rows whose
-//     merchantCountByCity[cityKey] > 0, and each top-level row is annotated
-//     with a chipsHidden boolean derived from minSubcategoryCountForChips.
-//   - Per-row metadata fields newly exposed: sortOrder, pinIcon,
-//     merchantCountByCity, descriptorState, descriptorSuffix,
-//     minSubcategoryCountForChips. None of these remove or rename existing
-//     fields. descriptorState/descriptorSuffix are null on top-level rows
-//     (we leave Prisma's output untouched rather than post-process — keeps
-//     the function simple and the additive contract clear).
-//   - chipsHidden appears ONLY on top-level rows (parentId === null) AND
-//     ONLY when supply-aware filtering is active. Subcategory rows never
-//     have it; when scope is omitted or no city resolves, top-level rows
-//     do not have it either.
-export async function listActiveCategories(
-  prisma: PrismaClient,
-  options: {
-    scope?: 'nearby' | 'city' | 'region' | 'platform'
-    lat?: number | null
-    lng?: number | null
-    userId?: string | null
-  } = {},
-) {
-  const rows = await prisma.category.findMany({
-    where: {
-      isActive: true,
-      merchants: { some: { merchant: { status: MerchantStatus.ACTIVE } } },
-    },
+/**
+ * Returns the locked discovery taxonomy:
+ *   - Top-level categories: ALWAYS visible (all 11 returned regardless of supply).
+ *   - Subcategories: returned only when ≥1 active UK merchant exists.
+ *
+ * Parameter-less. Earlier scope/lat/lng/userId options were tied to the rejected
+ * hide-on-low-supply rule and have been removed (see Plan 1.5 spec).
+ */
+export async function listActiveCategories(prisma: PrismaClient) {
+  // Top-levels — always visible
+  const topLevels = await prisma.category.findMany({
+    where: { parentId: null, isActive: true },
     select: {
-      id:                          true,
-      name:                        true,
-      iconUrl:                     true,
-      illustrationUrl:             true,
-      parentId:                    true,
-      pinColour:                   true,
-      pinIcon:                     true,
-      sortOrder:                   true,
-      merchantCountByCity:         true,
-      minSubcategoryCountForChips: true,
-      descriptorState:             true,
-      descriptorSuffix:            true,
+      id:               true,
+      name:             true,
+      iconUrl:          true,
+      illustrationUrl:  true,
+      parentId:         true,
+      pinColour:        true,
+      pinIcon:          true,
+      sortOrder:        true,
+      intentType:       true,
+      descriptorState:  true,
+      descriptorSuffix: true,
+      merchantCountByCity: true,
     },
     orderBy: { sortOrder: 'asc' },
   })
 
-  // Determine whether any scope-aware filtering should run. If the caller did
-  // not provide ANY of scope/lat/lng/userId, behave exactly as before — flat
-  // list, no chipsHidden, no filter.
-  const scopeProvided =
-    options.scope !== undefined ||
-    options.lat   !== undefined ||
-    options.lng   !== undefined ||
-    options.userId !== undefined
-
-  if (!scopeProvided) {
-    return rows as any[]
-  }
-
-  // Resolve a cityKey via the spec §4.6 ladder. Note the EXPLICIT null
-  // fallback for profileCity — do NOT default to '' (the plan's
-  // `profileCity ?? ''` was a bug).
-  const profileCity = await resolveProfileCity(prisma, options.userId ?? null)
-  const resolved = resolveScope({
-    scope:       options.scope,
-    lat:         options.lat ?? null,
-    lng:         options.lng ?? null,
-    profileCity,
-  })
-  const cityKey =
-    (resolved.scope === 'city' || resolved.scope === 'nearby') && profileCity
-      ? profileCity
-      : null
-
-  // No city resolvable → return flat list with the additive metadata only.
-  if (cityKey === null) {
-    return rows as any[]
-  }
-
-  // Filter to rows with supply in this city (layered on top of the existing
-  // "has any active merchant" base filter — both must be satisfied).
-  const filtered = rows.filter(r => {
-    const counts = (r.merchantCountByCity ?? {}) as Record<string, number>
-    return (counts[cityKey] ?? 0) > 0
+  // Subcategories — only those with ≥1 ACTIVE merchant UK-wide
+  const subs = await prisma.category.findMany({
+    where: {
+      parentId:  { not: null },
+      isActive:  true,
+      merchants: { some: { merchant: { status: MerchantStatus.ACTIVE } } },
+    },
+    select: {
+      id:               true,
+      name:             true,
+      iconUrl:          true,
+      illustrationUrl:  true,
+      parentId:         true,
+      pinColour:        true,
+      pinIcon:          true,
+      sortOrder:        true,
+      intentType:       true,
+      descriptorState:  true,
+      descriptorSuffix: true,
+      merchantCountByCity: true,
+    },
+    orderBy: { sortOrder: 'asc' },
   })
 
-  // For each top-level row, compute chipsHidden from the count of surviving
-  // subcategories vs. the per-category threshold.
-  return filtered.map(r => {
-    if (r.parentId === null) {
-      const survivingSubcats = filtered.filter(s => s.parentId === r.id).length
-      const chipsHidden = survivingSubcats < r.minSubcategoryCountForChips
-      return { ...r, chipsHidden } as any
-    }
-    return r as any
-  })
+  return [...topLevels, ...subs]
 }
 
 // ─── Campaigns ────────────────────────────────────────────────────────────────
