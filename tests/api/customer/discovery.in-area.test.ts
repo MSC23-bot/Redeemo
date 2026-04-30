@@ -160,6 +160,59 @@ describe('getInAreaMerchants — end-to-end against Plan 1.5 Neon branch', () =>
     // No category filter → should include dev-merchant-001 (London Restaurant)
     expect(result.merchants.find((m: any) => m.id === 'dev-merchant-001')).toBeDefined()
   })
+
+  // ─── Guest path (userId=null) — Map's most common state ────────────────────
+  // Independent code-review (PR #18) flagged that all prior integration tests
+  // assumed an authenticated user with city='London', which is the LEAST common
+  // Map state, not the most. These two tests pin the contract for guest /
+  // unauthenticated browsing — first-load Map experience for new users.
+
+  it("guest (userId=null) without coords: all merchants DISTANT, nearbyCount/cityCount === 0", async () => {
+    const result = await getInAreaMerchants(prisma, {
+      bbox:       LONDON_BBOX,
+      categoryId: restaurantSubcatId,
+      lat:        null,
+      lng:        null,
+      userId:     null,
+      limit:      50,
+    })
+
+    // dev-merchant-001 has a London branch → bbox keeps it. Without user coords
+    // (no NEARBY possible) AND without profileCity (no CITY possible),
+    // classifyTier collapses every merchant to DISTANT — the documented
+    // "no location signal" behaviour from ranking.ts.
+    expect(result.merchants.length).toBeGreaterThan(0)
+    for (const m of result.merchants) {
+      expect((m as any).supplyTier).toBe('DISTANT')
+    }
+    expect(result.meta.nearbyCount).toBe(0)
+    expect(result.meta.cityCount).toBe(0)
+    expect(result.meta.distantCount).toBeGreaterThan(0)
+    // resolvedArea fallback when no profileCity available
+    expect(result.meta.resolvedArea).toBe('Your area')
+  })
+
+  it("guest (userId=null) WITH user coords: NEARBY classification still works (no profileCity needed)", async () => {
+    const result = await getInAreaMerchants(prisma, {
+      bbox:       LONDON_BBOX,
+      categoryId: restaurantSubcatId,
+      lat:        LONDON_LAT,
+      lng:        LONDON_LNG,
+      userId:     null,
+      limit:      50,
+    })
+
+    // dev-merchant-001's London branch is ~2.4 km from London centre coords
+    // (within the 2-mile / 3.2 km NEARBY radius). NEARBY is purely
+    // distance-based — it does NOT need profileCity. The CITY check is what
+    // requires profileCity, so cityCount must remain 0 for guests.
+    const dev = result.merchants.find((m: any) => m.id === 'dev-merchant-001')
+    expect(dev).toBeDefined()
+    expect((dev as any).supplyTier).toBe('NEARBY')
+    expect(result.meta.nearbyCount).toBeGreaterThanOrEqual(1)
+    expect(result.meta.cityCount).toBe(0)
+    expect(result.meta.resolvedArea).toBe('Your area')
+  })
 })
 
 describe('getEligibleAmenitiesForSubcategory — end-to-end (used by /categories/:id/amenities)', () => {
