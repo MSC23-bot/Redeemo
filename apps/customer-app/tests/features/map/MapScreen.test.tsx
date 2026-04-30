@@ -245,6 +245,21 @@ describe('MapScreen', () => {
     })
   })
 
+  // ─── Category pill row top-level filtering ─────────────────────────────────
+  // useCategories() returns top-levels + subcategories flattened. The pill
+  // row must render top-levels only — subcategories surface inside the
+  // FilterSheet drill-down, not here. Mirrors CategoryGrid's behaviour.
+  describe('category pill row', () => {
+    it('renders top-level categories only — subcategories are NOT shown as pills', () => {
+      const { getByText, queryByText } = render(<MapScreen />, { wrapper })
+      // Top-levels (parentId === null) are rendered.
+      expect(getByText('Food & Drink')).toBeTruthy()
+      expect(getByText('Beauty')).toBeTruthy()
+      // Subcategory `s1` (parentId === 'c1') must NOT appear in the pill row.
+      expect(queryByText('Italian')).toBeNull()
+    })
+  })
+
   // ─── FilterSheet ⇄ category pill row sync (M2) ─────────────────────────────
   describe('FilterSheet ⇄ category pill sync', () => {
     it('a category selected via the pill row pre-selects the same top-level inside FilterSheet', () => {

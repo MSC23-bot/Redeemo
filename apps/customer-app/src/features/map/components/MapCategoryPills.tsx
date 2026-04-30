@@ -14,6 +14,12 @@ function getCategoryColor(category: Category): string {
 }
 
 export function MapCategoryPills({ categories, activeId, onSelect }: Props) {
+  // Top-levels only — `useCategories()` returns top-levels + subcategories
+  // (`listActiveCategories` flattens them). The pill row is a top-level
+  // entry-point row; subcategories surface inside FilterSheet's drill-down,
+  // not here. Mirrors CategoryGrid's `categories.filter((c) => c.parentId === null)`.
+  const topLevel = categories.filter((c) => c.parentId === null)
+
   return (
     <ScrollView
       horizontal
@@ -37,7 +43,7 @@ export function MapCategoryPills({ categories, activeId, onSelect }: Props) {
         </Text>
       </Pressable>
 
-      {categories.map((cat) => {
+      {topLevel.map((cat) => {
         const isActive = activeId === cat.id
         const dotColor = getCategoryColor(cat)
         return (
