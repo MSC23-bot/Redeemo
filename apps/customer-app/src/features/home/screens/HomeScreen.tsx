@@ -86,6 +86,7 @@ export function HomeScreen() {
         <NearbyByCategory
           sections={feed?.nearbyByCategory ?? []}
           onMerchantPress={(id) => router.push(`/merchant/${id}`)}
+          onCategoryPress={(id) => router.push(`/category/${id}` as any)}
         />
       </ScrollView>
     </View>
