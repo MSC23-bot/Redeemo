@@ -36,14 +36,15 @@ const mockMeta: {
 // rendering.
 const mockState = {
   intentType:        'LOCAL'   as 'LOCAL' | 'DESTINATION' | 'MIXED',
-  categoryHookData:  { merchants: [mockTile], total: 1, meta: mockMeta },
+  categoryHookData:  { merchants: [mockTile], total: 1, meta: mockMeta } as any,
+  categoryHookLoading: false,
   searchHookData:    null as any,
 }
 
 jest.mock('@/hooks/useCategoryMerchants', () => ({
   useCategoryMerchants: (id: string | null) => ({
-    data: id ? mockState.categoryHookData : undefined,
-    isLoading: false,
+    data:      id ? mockState.categoryHookData : undefined,
+    isLoading: id ? mockState.categoryHookLoading : false,
   }),
 }))
 
@@ -87,9 +88,10 @@ function wrapper({ children }: { children: React.ReactNode }) {
 
 describe('CategoryResultsScreen', () => {
   beforeEach(() => {
-    mockState.intentType        = 'LOCAL'
-    mockState.categoryHookData  = { merchants: [mockTile], total: 1, meta: mockMeta }
-    mockState.searchHookData    = null
+    mockState.intentType          = 'LOCAL'
+    mockState.categoryHookData    = { merchants: [mockTile], total: 1, meta: mockMeta }
+    mockState.categoryHookLoading = false
+    mockState.searchHookData      = null
   })
 
   it('renders merchant results from useCategoryMerchants by default', async () => {
@@ -155,5 +157,16 @@ describe('CategoryResultsScreen', () => {
   it('exposes a Back button (returns to Home / previous screen)', () => {
     const { getByLabelText } = render(<CategoryResultsScreen />, { wrapper })
     expect(getByLabelText('Go back')).toBeTruthy()
+  })
+
+  it('does NOT render the empty-state copy while the active query is still loading', () => {
+    // Reproduces the cold-mount + filter-handoff flash bug: when the query
+    // is in flight, data is undefined → merchants=[] → previously rendered
+    // "No merchants found" until the network round-trip settled.
+    mockState.categoryHookLoading = true
+    mockState.categoryHookData    = undefined
+    const { queryByText } = render(<CategoryResultsScreen />, { wrapper })
+    expect(queryByText('No merchants found')).toBeNull()
+    expect(queryByText(/No matches in the UK yet/)).toBeNull()
   })
 })

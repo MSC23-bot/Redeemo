@@ -83,10 +83,15 @@ export function SearchResultItem({ merchant, query, onPress }: Props) {
             <Text style={styles.saveText}>{savingText}</Text>
           </View>
         )}
-        <View style={styles.openBadge}>
-          <View style={styles.openDot} />
-          <Text style={styles.openText}>Open</Text>
-        </View>
+        {/*
+          Open/closed badge intentionally omitted — backend MerchantTile
+          contract does not include isOpen / isOpenNow on list responses
+          (only on getCustomerMerchant / getCustomerMerchantBranches detail
+          responses). PR B M4 audit removed the matching hardcoded badge in
+          MerchantTile.tsx; this is the same fix for SearchResultItem.
+          Re-enable when the backend extends the tile contract to include
+          per-tile open state.
+        */}
       </View>
     </TouchableOpacity>
   )
@@ -159,21 +164,5 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontFamily: 'Lato-Bold',
     color: '#047857',
-  },
-  openBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  openDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#059669',
-  },
-  openText: {
-    fontSize: 9,
-    fontFamily: 'Lato-SemiBold',
-    color: '#059669',
   },
 })

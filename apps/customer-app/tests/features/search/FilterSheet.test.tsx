@@ -157,6 +157,36 @@ describe('FilterSheet', () => {
     )
   })
 
+  it('tapping the parent of a currently-selected subcategory promotes to parent (does NOT clear)', () => {
+    // User starts on Italian (subcategory of Food & Drink) and taps the
+    // Food & Drink top-level pill — should switch to the parent, not
+    // clear everything.
+    const startFilters: FilterState = { ...defaultFilters, categoryId: 's1' }
+    const onApply = jest.fn()
+    const { getByText } = render(
+      <FilterSheet visible filters={startFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
+    )
+    fireEvent.press(getByText('Food & Drink'))
+    fireEvent.press(getByText('Show 42 results'))
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: 'c1' }),
+    )
+  })
+
+  it('tapping the same currently-selected top-level CLEARS the filter', () => {
+    const startFilters: FilterState = { ...defaultFilters, categoryId: 'c1' }
+    const onApply = jest.fn()
+    const { getAllByText, getByText } = render(
+      <FilterSheet visible filters={startFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
+    )
+    // The active pill renders its label twice (the pill body); use the first.
+    fireEvent.press(getAllByText('Food & Drink')[0]!)
+    fireEvent.press(getByText('Show 42 results'))
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: null }),
+    )
+  })
+
   it('does NOT include Distance or Min Savings sections (deferred to Plan 2)', () => {
     const { queryByText } = render(
       <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,

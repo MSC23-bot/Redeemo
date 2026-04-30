@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { View, FlatList, Pressable, StyleSheet } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { ArrowLeft, SlidersHorizontal } from 'lucide-react-native'
@@ -77,15 +77,34 @@ export function CategoryResultsScreen() {
     openNow:      false,
   })
 
+  // Sync filter.categoryId from the URL once `id` resolves. The useState
+  // initialiser captures `id` at first render — but expo-router's
+  // useLocalSearchParams() can return undefined briefly on first mount,
+  // before re-running with the resolved id. Without this sync the
+  // FilterSheet's "selected top-level" pill would not pre-select on cold
+  // start, and the categoryId-mismatch guard below would have to handle
+  // the null case forever.
+  useEffect(() => {
+    if (id && filters.categoryId === null) {
+      setFilters((prev) => ({ ...prev, categoryId: id }))
+    }
+  }, [id, filters.categoryId])
+
   // The default view (no non-scope filters) uses useCategoryMerchants for
   // intent-aware ranking. The moment any non-scope filter is applied, we
   // switch to useSearch which supports the full filter set.
+  //
+  // Subtle correctness guard: only treat categoryId as "user changed it"
+  // when both `id` and `filters.categoryId` are defined and genuinely
+  // different. Avoids the race where `id` is briefly undefined on first
+  // mount, which would otherwise flip hasNonScopeFilters→true and route
+  // through useSearch before the user has interacted with anything.
   const hasNonScopeFilters =
     filters.sortBy !== 'relevance' ||
     filters.voucherTypes.length > 0 ||
     filters.amenityIds.length > 0 ||
     filters.openNow ||
-    filters.categoryId !== id   // user picked a different category/subcategory in the sheet
+    (id !== undefined && filters.categoryId !== null && filters.categoryId !== id)
 
   const effectiveCategoryId = filters.categoryId ?? id
 
@@ -113,7 +132,8 @@ export function CategoryResultsScreen() {
   )
 
   // Pick the active dataset from whichever hook is enabled.
-  const data      = hasNonScopeFilters ? searchQuery.data : categoryQuery.data
+  const data      = hasNonScopeFilters ? searchQuery.data      : categoryQuery.data
+  const isLoading = hasNonScopeFilters ? searchQuery.isLoading : categoryQuery.isLoading
   const merchants = data?.merchants ?? []
   const total     = data?.total ?? 0
   const meta      = data?.meta
@@ -123,7 +143,12 @@ export function CategoryResultsScreen() {
     : undefined
 
   const expandedBanner = merchants.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'
-  const emptyReason    = merchants.length === 0
+  // Suppress the empty-state copy while the active query is still loading.
+  // Otherwise on first mount and on filter-handoff between hooks, `data` is
+  // briefly `undefined` → `merchants=[]` → `emptyReason='none'` → the
+  // "No merchants found" copy flashes for the duration of the network round-
+  // trip. Only render the empty state once the request has settled.
+  const emptyReason    = merchants.length === 0 && !isLoading
     ? (meta?.emptyStateReason ?? 'none')
     : null
 

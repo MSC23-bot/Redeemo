@@ -88,10 +88,12 @@ export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss 
   function selectTopLevel(id: string) {
     setLocal((prev) => ({
       ...prev,
-      // Toggling clears the category back to null (deselect).
-      categoryId: prev.categoryId === id || (allCategories.find((c) => c.id === prev.categoryId)?.parentId === id)
-        ? null
-        : id,
+      // Tap-same → clear (deselect).
+      // Tap-different (incl. parent of currently-selected subcategory) → set.
+      // Note: tapping the parent pill while a subcategory is selected
+      // PROMOTES to the parent (drops the subcategory) rather than clearing
+      // — matches user intent of "broaden to all of this category".
+      categoryId: prev.categoryId === id ? null : id,
       // Eligibility differs per category — clear amenities to avoid sending
       // amenityIds that don't apply under the new category.
       amenityIds: [],
