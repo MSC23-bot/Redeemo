@@ -45,5 +45,13 @@ jest.mock('react-native-reanimated', () => {
       in: (fn: unknown) => fn,
       linear: (x: number) => x,
     },
+    // Layout-animation entering/exiting helpers used by Home components
+    // (CategoryGrid uses FadeInDown.delay(...).springify()). Test mock just
+    // returns a chainable no-op stub so the props can be evaluated without
+    // running real animations.
+    FadeInDown: { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
+    FadeIn:     { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
+    FadeInUp:   { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
+    FadeOut:    { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
   }
 })

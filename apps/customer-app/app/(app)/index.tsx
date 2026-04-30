@@ -1,10 +1,4 @@
 import React from 'react'
-import { ScreenContainer, Text } from '@/design-system'
+import { HomeScreen } from '@/features/home/screens/HomeScreen'
 
-export default function HomeStubScreen() {
-  return (
-    <ScreenContainer>
-      <Text variant="display.md">Home</Text>
-    </ScreenContainer>
-  )
-}
+export default HomeScreen
