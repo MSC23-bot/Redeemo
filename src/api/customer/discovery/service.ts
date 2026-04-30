@@ -1152,6 +1152,153 @@ export async function getCategoryMerchants(
   }
 }
 
+// ─── In-area (Map) ────────────────────────────────────────────────────────────
+
+type Bbox = { minLat: number; maxLat: number; minLng: number; maxLng: number }
+
+/**
+ * True iff at least one of the merchant's active branches lies inside the bbox.
+ * Branches in MERCHANT_TILE_SELECT are pre-filtered to isActive=true, so we
+ * only check lat/lng presence and bounds. Coords are coerced from Decimal-like
+ * to Number consistent with the rest of the discovery pipeline.
+ */
+function merchantHasBranchInBbox(
+  merchant: { branches: Array<{ latitude: unknown; longitude: unknown }> },
+  bbox: Bbox,
+): boolean {
+  for (const b of merchant.branches) {
+    if (b.latitude === null || b.longitude === null) continue
+    const lat = Number(b.latitude)
+    const lng = Number(b.longitude)
+    if (lat >= bbox.minLat && lat <= bbox.maxLat && lng >= bbox.minLng && lng <= bbox.maxLng) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Returns merchants whose active branches intersect the given bbox.
+ *
+ * Pipeline mirrors getCategoryMerchants step-by-step (same intent resolution,
+ * same rankMerchants + computeRatingsByMerchant, same enrichment) with two
+ * deliberate divergences per the Discovery Surface Rebaseline plan:
+ *
+ *   1. **bbox filter is applied at the application level (post-rank), NOT at
+ *      the SQL level.** This preserves the Plan 1.5 invariant that tier counts
+ *      reflect the full UK input set, not the post-filter slice. Map UI needs
+ *      `nearbyCount`/`cityCount`/`distantCount` to message things like
+ *      "47 in your city — tap to expand".
+ *
+ *   2. **Meta envelope drops `scope` and `scopeExpanded`.** The bbox IS the
+ *      user's chosen area; in-area has no scope cascade, so forcing those
+ *      fields would be artificial. emptyStateReason narrows in practice to
+ *      `'none' | 'no_uk_supply'` — the enum union is unchanged. Map UI derives
+ *      "viewport empty but UK has supply" client-side from
+ *      `merchants.length === 0 && (nearbyCount + cityCount + distantCount) > 0`.
+ *
+ * No pagination — Map shows all pins in the viewport up to `limit`. Total
+ * reflects pre-cap matches inside the bbox.
+ */
+export async function getInAreaMerchants(
+  prisma: PrismaClient,
+  options: {
+    bbox: Bbox
+    categoryId?: string
+    lat?: number | null
+    lng?: number | null
+    userId?: string | null
+    limit: number
+  },
+) {
+  const profileCity = await resolveProfileCity(prisma, options.userId ?? null)
+  const userLat = options.lat ?? null
+  const userLng = options.lng ?? null
+
+  // 1. Resolve effective intent — from category if given, else default LOCAL
+  let intentType: CategoryIntentType = 'LOCAL'
+  if (options.categoryId) {
+    const cat = await prisma.category.findUnique({
+      where:  { id: options.categoryId },
+      select: { id: true, intentType: true, parent: { select: { intentType: true } } },
+    })
+    if (cat) intentType = resolveCategoryIntent(cat)
+  }
+
+  // 2. Fetch UK-wide matching merchants (categoryId filter only — NO bbox at SQL)
+  const where: Prisma.MerchantWhereInput = {
+    status: MerchantStatus.ACTIVE,
+    ...(options.categoryId
+      ? { OR: [
+          { primaryCategoryId: options.categoryId },
+          { categories: { some: { categoryId: options.categoryId } } },
+        ] }
+      : {}),
+  }
+  const rawMerchants = await prisma.merchant.findMany({
+    where,
+    select: MERCHANT_TILE_SELECT as any,
+    orderBy: { businessName: 'asc' },
+  })
+
+  // 3. Pre-compute ratings (single review.groupBy across all branches)
+  const ratingByMerchant = await computeRatingsByMerchant(
+    prisma,
+    rawMerchants.map((m: any) => ({ id: m.id, branches: m.branches })),
+  )
+
+  // 4. Augment for ranking
+  const augmented = rawMerchants.map((m: any) => ({
+    ...m,
+    avgRating:   ratingByMerchant.get(m.id)?.avgRating   ?? null,
+    reviewCount: ratingByMerchant.get(m.id)?.reviewCount ?? 0,
+  }))
+
+  // 5. Rank by intent — counts reflect the UK-wide input set (Plan 1.5 invariant)
+  const { ordered, counts } = rankMerchants(augmented as any, {
+    intentType, userLat, userLng, profileCity,
+  })
+
+  // 6. Filter by bbox (application level — see docstring)
+  const filtered = ordered.filter(m => merchantHasBranchInBbox(m as any, options.bbox))
+  const total = filtered.length
+
+  // 7. Cap at limit (no offset; Map shows all pins in viewport up to cap)
+  const page = filtered.slice(0, options.limit)
+
+  // 8. Enrich the page slice
+  const enriched = await enrichMerchantTiles(prisma, page as any, {
+    lat: userLat, lng: userLng, userId: options.userId ?? null,
+  })
+
+  // 9. Forward supplyTier from the rank step onto each enriched tile
+  const merchants = enriched.map((tile: any, i: number) => ({
+    ...tile,
+    supplyTier: page[i].supplyTier,
+  }))
+
+  // emptyStateReason for in-area: only 'none' or 'no_uk_supply'. The
+  // 'expanded_to_wider' value is impossible (no scope cascade). The
+  // "viewport empty but UK has supply" state is derived client-side.
+  const totalSupply = counts.nearbyCount + counts.cityCount + counts.distantCount
+  const emptyStateReason: 'none' | 'no_uk_supply' = totalSupply === 0 ? 'no_uk_supply' : 'none'
+
+  // resolvedArea labels the user's location context (used by Map UI for
+  // messaging like "47 in {resolvedArea}"), NOT the viewport. The viewport
+  // doesn't carry a name without geocoding.
+  return {
+    merchants,
+    total,
+    meta: {
+      resolvedArea:     profileCity ?? 'Your area',
+      nearbyCount:      counts.nearbyCount,
+      cityCount:        counts.cityCount,
+      distantCount:     counts.distantCount,
+      emptyStateReason,
+    },
+  }
+}
+
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 /**

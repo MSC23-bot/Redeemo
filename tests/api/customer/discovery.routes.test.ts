@@ -12,6 +12,11 @@ vi.mock('../../../src/api/customer/discovery/service', () => ({
   getActiveCampaigns:          vi.fn(),
   getCampaignMerchants:        vi.fn(),
   getCategoryMerchants:        vi.fn(),
+  getInAreaMerchants:          vi.fn(),
+}))
+
+vi.mock('../../../src/api/lib/amenity', () => ({
+  getEligibleAmenitiesForSubcategory: vi.fn(),
 }))
 
 vi.mock('../../../src/api/customer/reviews/service', () => ({
@@ -37,7 +42,9 @@ import {
   getActiveCampaigns,
   getCampaignMerchants,
   getCategoryMerchants,
+  getInAreaMerchants,
 } from '../../../src/api/customer/discovery/service'
+import { getEligibleAmenitiesForSubcategory } from '../../../src/api/lib/amenity'
 
 describe('discovery routes', () => {
   let app: FastifyInstance
@@ -478,5 +485,133 @@ describe('discovery routes', () => {
     })
 
     expect(res.statusCode).toBe(404)
+  })
+
+  // ────────────────────────────────────────────────
+  // Eligible amenities (PR A — Discovery Surface Rebaseline)
+  // ────────────────────────────────────────────────
+
+  it('GET /api/v1/customer/categories/:id/amenities returns { amenities } envelope', async () => {
+    vi.mocked(getEligibleAmenitiesForSubcategory).mockResolvedValueOnce([
+      { id: 'a1', name: 'Wi-Fi',             iconUrl: null, isActive: true },
+      { id: 'a2', name: 'Wheelchair Access', iconUrl: null, isActive: true },
+    ])
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/categories/cat-restaurant/amenities',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(Array.isArray(body.amenities)).toBe(true)
+    expect(body.amenities).toHaveLength(2)
+    expect(body.amenities[0]).toMatchObject({ name: 'Wi-Fi' })
+    expect(getEligibleAmenitiesForSubcategory).toHaveBeenCalledWith(expect.anything(), 'cat-restaurant')
+  })
+
+  it('GET /api/v1/customer/categories/:id/amenities returns empty array for unknown category', async () => {
+    vi.mocked(getEligibleAmenitiesForSubcategory).mockResolvedValueOnce([])
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/categories/nonexistent/amenities',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().amenities).toEqual([])
+  })
+
+  // ────────────────────────────────────────────────
+  // In-area / Map (PR A — Discovery Surface Rebaseline)
+  // ────────────────────────────────────────────────
+
+  it('GET /api/v1/customer/discovery/in-area parses bbox + categoryId, returns merchants + meta', async () => {
+    vi.mocked(getInAreaMerchants).mockResolvedValueOnce({
+      merchants: [{ id: 'm1', businessName: 'Cafe', supplyTier: 'NEARBY' }],
+      total:     1,
+      meta: {
+        resolvedArea:     'London',
+        nearbyCount:      1,
+        cityCount:        0,
+        distantCount:     0,
+        emptyStateReason: 'none',
+      },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.4&maxLat=51.6&minLng=-0.2&maxLng=0&categoryId=cat-1&lat=51.5&lng=-0.1',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.merchants).toHaveLength(1)
+    expect(body.merchants[0].supplyTier).toBe('NEARBY')
+    expect(body.meta.resolvedArea).toBe('London')
+    expect(body.meta.nearbyCount).toBeDefined()
+    expect(body.meta.cityCount).toBeDefined()
+    expect(body.meta.distantCount).toBeDefined()
+    expect(body.meta.emptyStateReason).toBe('none')
+    // Critical: in-area meta must NOT carry scope or scopeExpanded
+    expect(body.meta.scope).toBeUndefined()
+    expect(body.meta.scopeExpanded).toBeUndefined()
+    expect(getInAreaMerchants).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        bbox:       { minLat: 51.4, maxLat: 51.6, minLng: -0.2, maxLng: 0 },
+        categoryId: 'cat-1',
+        lat:        51.5,
+        lng:        -0.1,
+      }),
+    )
+  })
+
+  it('GET /api/v1/customer/discovery/in-area defaults limit to 50 and accepts up to 200', async () => {
+    vi.mocked(getInAreaMerchants).mockResolvedValueOnce({
+      merchants: [], total: 0,
+      meta: { resolvedArea: 'Your area', nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
+    } as any)
+
+    await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.4&maxLat=51.6&minLng=-0.2&maxLng=0',
+    })
+
+    expect(getInAreaMerchants).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ limit: 50 }),
+    )
+  })
+
+  it('GET /api/v1/customer/discovery/in-area returns 400 when bbox is inverted (minLat > maxLat)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.6&maxLat=51.4&minLng=-0.2&maxLng=0',
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('INVALID_BBOX')
+    expect(getInAreaMerchants).not.toHaveBeenCalled()
+  })
+
+  it('GET /api/v1/customer/discovery/in-area returns 400 when limit exceeds 200', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.4&maxLat=51.6&minLng=-0.2&maxLng=0&limit=999',
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(getInAreaMerchants).not.toHaveBeenCalled()
+  })
+
+  it('GET /api/v1/customer/discovery/in-area returns 400 when bbox lat/lng are out of valid range', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=-91&maxLat=51.6&minLng=-0.2&maxLng=0',
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(getInAreaMerchants).not.toHaveBeenCalled()
   })
 })
