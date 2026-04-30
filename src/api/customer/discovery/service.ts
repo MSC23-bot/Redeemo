@@ -64,7 +64,7 @@ const MERCHANT_TILE_SELECT = {
   },
   branches: {
     where: { isActive: true },
-    select: { id: true, latitude: true, longitude: true },
+    select: { id: true, latitude: true, longitude: true, city: true, isActive: true },
   },
   _count: {
     select: {

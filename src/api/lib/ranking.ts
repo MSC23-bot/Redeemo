@@ -1,4 +1,5 @@
 import { haversineMetres } from '../shared/haversine'
+import type { PrismaClient } from '../../../generated/prisma/client'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -186,4 +187,51 @@ export function resolveCategoryIntent(category: {
   parent: { intentType: CategoryIntentType | null } | null
 }): CategoryIntentType {
   return category.intentType ?? category.parent?.intentType ?? 'LOCAL'
+}
+
+/**
+ * Computes per-merchant rating aggregates from a single review.groupBy across
+ * all branchIds in the input set. Pure-ish — hits the DB once.
+ *
+ * Used by `searchMerchants` and `getCategoryMerchants` to feed avgRating +
+ * reviewCount into `rankMerchants` BEFORE enrichment. enrichMerchantTiles also
+ * computes ratings (via its own groupBy on the page slice) for tile display —
+ * the duplicate fetch on the smaller paginated set is acceptable in Plan 1.5.
+ */
+export async function computeRatingsByMerchant(
+  prisma: PrismaClient,
+  merchants: Array<{ id: string; branches: Array<{ id: string }> }>,
+): Promise<Map<string, { avgRating: number | null; reviewCount: number }>> {
+  const branchIds = merchants.flatMap(m => m.branches.map(b => b.id))
+  const result = new Map<string, { avgRating: number | null; reviewCount: number }>()
+
+  if (branchIds.length === 0) {
+    for (const m of merchants) result.set(m.id, { avgRating: null, reviewCount: 0 })
+    return result
+  }
+
+  const groups = await prisma.review.groupBy({
+    by: ['branchId'],
+    where: { branchId: { in: branchIds }, isHidden: false },
+    _avg: { rating: true },
+    _count: { id: true },
+  })
+  const byBranch = Object.fromEntries(
+    groups.map((g: any) => [g.branchId, { avg: g._avg.rating ?? 0, count: g._count.id }])
+  )
+
+  for (const m of merchants) {
+    let totalRating = 0
+    let totalCount = 0
+    for (const b of m.branches) {
+      const r = byBranch[b.id]
+      if (r) { totalRating += r.avg * r.count; totalCount += r.count }
+    }
+    result.set(m.id, {
+      avgRating:   totalCount > 0 ? Math.round((totalRating / totalCount) * 10) / 10 : null,
+      reviewCount: totalCount,
+    })
+  }
+
+  return result
 }

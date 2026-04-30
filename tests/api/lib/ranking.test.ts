@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { classifyTier, NEARBY_RADIUS_MILES, rankMerchants } from '../../../src/api/lib/ranking'
 
 describe('classifyTier', () => {
@@ -219,5 +219,39 @@ describe('resolveCategoryIntent', () => {
   it("subcategory's own intentType wins over parent's", async () => {
     const { resolveCategoryIntent } = await import('../../../src/api/lib/ranking')
     expect(resolveCategoryIntent({ intentType: 'LOCAL', parent: { intentType: 'DESTINATION' } })).toBe('LOCAL')
+  })
+})
+
+describe('computeRatingsByMerchant', () => {
+  let prisma: any
+  beforeEach(() => {
+    vi.clearAllMocks()
+    prisma = { review: { groupBy: vi.fn() } }
+  })
+
+  it('returns null avgRating + 0 reviewCount when no reviews exist', async () => {
+    const { computeRatingsByMerchant } = await import('../../../src/api/lib/ranking')
+    prisma.review.groupBy.mockResolvedValueOnce([])
+    const merchants = [{ id: 'm1', branches: [{ id: 'b1' }] }]
+    const result = await computeRatingsByMerchant(prisma, merchants)
+    expect(result.get('m1')).toEqual({ avgRating: null, reviewCount: 0 })
+  })
+
+  it('aggregates per-branch ratings into per-merchant weighted average', async () => {
+    const { computeRatingsByMerchant } = await import('../../../src/api/lib/ranking')
+    prisma.review.groupBy.mockResolvedValueOnce([
+      { branchId: 'b1', _avg: { rating: 4.0 }, _count: { id: 5 } },
+      { branchId: 'b2', _avg: { rating: 5.0 }, _count: { id: 5 } },
+    ])
+    const merchants = [{ id: 'm1', branches: [{ id: 'b1' }, { id: 'b2' }] }]
+    const result = await computeRatingsByMerchant(prisma, merchants)
+    expect(result.get('m1')).toEqual({ avgRating: 4.5, reviewCount: 10 })
+  })
+
+  it('returns empty map entries for merchants with no branches', async () => {
+    const { computeRatingsByMerchant } = await import('../../../src/api/lib/ranking')
+    const result = await computeRatingsByMerchant(prisma, [{ id: 'm-no-branches', branches: [] }])
+    expect(result.get('m-no-branches')).toEqual({ avgRating: null, reviewCount: 0 })
+    expect(prisma.review.groupBy).not.toHaveBeenCalled()
   })
 })
