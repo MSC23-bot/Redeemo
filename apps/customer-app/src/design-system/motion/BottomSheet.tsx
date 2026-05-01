@@ -74,7 +74,13 @@ export function BottomSheet({ visible, onDismiss, children, accessibilityLabel }
       <Animated.View
         accessibilityViewIsModal
         accessibilityLabel={accessibilityLabel}
-        style={[{ position: 'absolute', left: 0, right: 0, bottom: keyboardHeight, backgroundColor: color.surface.raised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing[5], zIndex: layer.sheet }, sheet]}
+        // Sheet is anchored to the bottom edge of the screen and content is
+        // inset by `keyboardHeight`. Anchoring at `bottom: 0` (rather than
+        // `bottom: keyboardHeight`) lets the white background extend BEHIND
+        // the keyboard so iOS's keyboard rounded-corner gaps don't leak the
+        // dark scrim through. `paddingBottom` keeps the visible content above
+        // the keyboard.
+        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: color.surface.raised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing[5], paddingBottom: spacing[5] + keyboardHeight, zIndex: layer.sheet }, sheet]}
       >
         {/* Grabber bar — owns the drag-to-dismiss gesture. Inner content
             (FlatLists, ScrollViews) is unaffected and scrolls normally. */}

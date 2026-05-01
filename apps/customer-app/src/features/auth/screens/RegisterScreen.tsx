@@ -555,7 +555,14 @@ export function RegisterScreen() {
                 onFocus={() => setFocusedField('password')}
                 onBlur={() => {
                   setFocusedField(null)
-                  setFieldError('password', validatePassword(password))
+                  // Don't surface a "weak password" error for an empty field on
+                  // blur — empty means the user hasn't started typing yet.
+                  // Required-field errors only fire on submit (see handleSubmit).
+                  if (password.length > 0) {
+                    setFieldError('password', validatePassword(password))
+                  } else {
+                    clearFieldError('password')
+                  }
                 }}
                 secureTextEntry={!showPassword}
                 textContentType="newPassword"
@@ -618,7 +625,13 @@ export function RegisterScreen() {
                   onFocus={() => setFocusedField('phone')}
                   onBlur={() => {
                     setFocusedField(null)
-                    setFieldError('phone', validatePhone(country, nationalNumber))
+                    // Same rule as password: empty fields don't surface an
+                    // error on blur — required is only enforced on submit.
+                    if (nationalNumber.length > 0) {
+                      setFieldError('phone', validatePhone(country, nationalNumber))
+                    } else {
+                      clearFieldError('phone')
+                    }
                   }}
                   keyboardType="phone-pad"
                   textContentType="telephoneNumber"
