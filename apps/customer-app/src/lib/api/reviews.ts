@@ -19,6 +19,8 @@ const reviewSchema = z.object({
   updatedAt:   z.string(),    // ISO
 })
 export type Review = z.infer<typeof reviewSchema>
+// Alias for cefaf45 component imports during M2 salvage.
+export type ReviewItem = Review
 
 const reviewsResponseSchema = z.object({
   reviews: z.array(reviewSchema),
@@ -60,5 +62,38 @@ export const reviewsApi = {
   async getReviewSummary(merchantId: string): Promise<ReviewSummary> {
     const res = await api.get<unknown>(`/api/v1/customer/merchants/${encodeURIComponent(merchantId)}/reviews/summary`)
     return reviewSummarySchema.parse(res)
+  },
+
+  /**
+   * POST /api/v1/customer/branches/:branchId/reviews — create or update.
+   * Auth required. Returns the formatted review.
+   */
+  async createReview(branchId: string, data: { rating: number; comment?: string }): Promise<Review> {
+    // Backend Zod schema rejects `comment: undefined` with exactOptionalPropertyTypes;
+    // omit the key entirely when caller didn't provide one.
+    const body: { rating: number; comment?: string } = { rating: data.rating }
+    if (data.comment !== undefined) body.comment = data.comment
+    const res = await api.post<unknown>(`/api/v1/customer/branches/${encodeURIComponent(branchId)}/reviews`, body)
+    return reviewSchema.parse(res)
+  },
+
+  /**
+   * DELETE /api/v1/customer/branches/:branchId/reviews/:reviewId
+   * Auth required. Soft-deletes (isHidden=true) so analytics stays intact.
+   */
+  async deleteReview(branchId: string, reviewId: string): Promise<{ success: boolean }> {
+    const res = await api.del<unknown>(
+      `/api/v1/customer/branches/${encodeURIComponent(branchId)}/reviews/${encodeURIComponent(reviewId)}`,
+    )
+    return z.object({ success: z.boolean() }).parse(res)
+  },
+
+  /**
+   * POST /api/v1/customer/reviews/:reviewId/helpful — toggle helpful flag.
+   * Auth required. Returns whether the helpful flag is now on or off.
+   */
+  async toggleHelpful(reviewId: string): Promise<{ success: boolean; helpful: boolean }> {
+    const res = await api.post<unknown>(`/api/v1/customer/reviews/${encodeURIComponent(reviewId)}/helpful`, undefined)
+    return z.object({ success: z.boolean(), helpful: z.boolean().optional().default(false) }).parse(res)
   },
 }

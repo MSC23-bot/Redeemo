@@ -27,11 +27,11 @@ export function useOpenStatus(hours: OpeningHourEntry[]) {
       const entry = hours.find(h => h.dayOfWeek === i)
       const isToday = i === todayDow
       if (!entry || entry.isClosed) {
-        return { day: name, shortDay: SHORT_DAYS[i], hours: 'Closed', isToday, isClosed: true }
+        return { day: name, shortDay: SHORT_DAYS[i]!, hours: 'Closed', isToday, isClosed: true }
       }
       return {
         day: name,
-        shortDay: SHORT_DAYS[i],
+        shortDay: SHORT_DAYS[i]!,
         hours: `${entry.openTime} – ${entry.closeTime}`,
         isToday,
         isClosed: false,

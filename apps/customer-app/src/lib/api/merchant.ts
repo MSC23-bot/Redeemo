@@ -83,6 +83,9 @@ const branchTileSchema = z.object({
   reviewCount:  z.number(),
 })
 export type BranchTile = z.infer<typeof branchTileSchema>
+// Alias kept for cefaf45 component imports during M2 salvage. New code
+// should use `BranchTile` directly.
+export type BranchDetail = BranchTile
 
 const nearestBranchSchema = z.object({
   id:           z.string(),
