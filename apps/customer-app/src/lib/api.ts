@@ -39,11 +39,21 @@ async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): P
   const text = await res.text()
   const json = text ? (JSON.parse(text) as Record<string, unknown>) : {}
   if (!res.ok) {
+    // Backend serialises errors as `{ error: { code, message, statusCode, field? } }`
+    // (see src/api/app.ts setErrorHandler + AppError.toJSON()). Unwrap the
+    // envelope so `code` / `message` / `field` are read from the inner object.
+    // Falls back to top-level fields for backwards compatibility with anything
+    // that doesn't wrap.
+    const nested =
+      json.error && typeof json.error === 'object' && !Array.isArray(json.error)
+        ? (json.error as Record<string, unknown>)
+        : null
+    const errorBody = nested ?? json
     throw new ApiClientError(
-      (json?.message as string | undefined) ?? res.statusText,
-      (json?.code as string | undefined) ?? 'UNKNOWN',
+      (errorBody.message as string | undefined) ?? res.statusText,
+      (errorBody.code as string | undefined) ?? 'UNKNOWN',
       res.status,
-      json?.field as string | undefined,
+      errorBody.field as string | undefined,
     )
   }
   return json as T

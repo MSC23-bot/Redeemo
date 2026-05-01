@@ -21,8 +21,8 @@ jest.mock('expo-status-bar', () => ({ StatusBar: () => null }))
 jest.mock('@/app-bootstrap/DeepLinkListener', () => ({ DeepLinkListener: () => null }))
 jest.mock('@/app-bootstrap/ReduceMotionListener', () => ({ ReduceMotionListener: () => null }))
 jest.mock('@/app-bootstrap/SessionExpiredBridge', () => ({ SessionExpiredBridge: () => null }))
-jest.mock('@/design-system/motion/Toast', () => ({ ToastProvider: ({ children }: any) => children }))
-jest.mock('@tanstack/react-query', () => ({ QueryClient: jest.fn(), QueryClientProvider: ({ children }: any) => children }))
+jest.mock('@/design-system/motion/Toast', () => ({ ToastProvider: ({ children }: any) => children, emitToast: jest.fn() }))
+jest.mock('@tanstack/react-query', () => ({ QueryClient: jest.fn(), QueryClientProvider: ({ children }: any) => children, MutationCache: jest.fn() }))
 
 import React from 'react'
 import { render, waitFor } from '@testing-library/react-native'

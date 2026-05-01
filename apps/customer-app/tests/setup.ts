@@ -28,6 +28,10 @@ jest.mock('react-native-reanimated', () => {
       View: React.forwardRef((p: object, r: unknown) => React.createElement(View, { ...p, ref: r })),
       Text: React.forwardRef((p: object, r: unknown) => React.createElement(View, { ...p, ref: r })),
       ScrollView: React.forwardRef((p: object, r: unknown) => React.createElement(View, { ...p, ref: r })),
+      // RNGH calls Animated.createAnimatedComponent() at module-load time to
+      // wrap its gesture detector. Stub returns the component unchanged so
+      // tests that import gesture-handler don't crash on load.
+      createAnimatedComponent: (C: React.ComponentType<unknown>) => C,
     },
     useSharedValue: (v: unknown) => ({ value: v }),
     useAnimatedStyle: () => ({}),
@@ -38,6 +42,15 @@ jest.mock('react-native-reanimated', () => {
     withSequence: (...args: unknown[]) => args[args.length - 1],
     withRepeat: (v: unknown) => v,
     runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
+    runOnUI: (fn: (...args: unknown[]) => unknown) => fn,
+    // RNGH internal hooks — return identity functions so gesture-handler
+    // module-load + render code paths don't crash. Tests don't actually
+    // exercise gestures.
+    useEvent: () => () => {},
+    useHandler: () => ({ context: {}, doDependenciesDiffer: false }),
+    useAnimatedReaction: () => {},
+    useAnimatedScrollHandler: () => () => {},
+    useAnimatedGestureHandler: () => () => {},
     Easing: {
       bezier: () => (x: number) => x,
       inOut: (fn: unknown) => fn,
@@ -45,13 +58,20 @@ jest.mock('react-native-reanimated', () => {
       in: (fn: unknown) => fn,
       linear: (x: number) => x,
     },
-    // Layout-animation entering/exiting helpers used by Home components
-    // (CategoryGrid uses FadeInDown.delay(...).springify()). Test mock just
-    // returns a chainable no-op stub so the props can be evaluated without
-    // running real animations.
-    FadeInDown: { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
-    FadeIn:     { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
-    FadeInUp:   { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
-    FadeOut:    { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
+    // Layout-animation entering/exiting helpers — chainable no-op stub.
+    // Self-referential so arbitrary chains resolve (e.g. FadeInDown.delay(80)
+    // .duration(300).springify()). Each method returns the same object so any
+    // sequence of `.delay().duration().springify().damping().mass()` etc.
+    // works for the test render without running real animations.
+    FadeInDown:  (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    FadeIn:      (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    FadeInUp:    (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    FadeOut:     (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    FadeOutUp:   (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    FadeOutDown: (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    SlideInDown: (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    SlideInUp:   (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    SlideOutDown:(() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    SlideOutUp:  (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
   }
 })

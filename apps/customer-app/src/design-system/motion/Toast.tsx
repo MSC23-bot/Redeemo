@@ -11,6 +11,14 @@ type Ctx = { show: (m: string, tone?: Tone) => void }
 const ToastCtx = createContext<Ctx>({ show: () => {} })
 export const useToast = () => useContext(ToastCtx)
 
+// Module-level imperative handle so non-React contexts (e.g. React Query's
+// MutationCache.onError) can surface a toast. Mirrors the same pattern as
+// `api.onSessionExpired(cb)`. Registered by ToastProvider on mount.
+let toastSink: Ctx['show'] | null = null
+export function emitToast(message: string, tone: Tone = 'neutral'): void {
+  toastSink?.(message, tone)
+}
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<Toast | null>(null)
   const ms = useMotionScale()
@@ -21,6 +29,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     opacity.value = withTiming(1, { duration: ms === 0 ? 0 : 180 })
     ty.value = withTiming(0, { duration: ms === 0 ? 0 : 180 })
   }, [ms, opacity, ty])
+  // Register the imperative sink so callers outside React (MutationCache, etc.)
+  // can show toasts via `emitToast(...)`.
+  useEffect(() => {
+    toastSink = show
+    return () => { toastSink = null }
+  }, [show])
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => {

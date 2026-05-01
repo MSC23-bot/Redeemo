@@ -1,10 +1,11 @@
 import { z } from 'zod'
 
 export const passwordSchema = z.string()
-  .min(8, 'Use at least 8 characters')
-  .regex(/[A-Z]/, 'Include an uppercase letter')
-  .regex(/[a-z]/, 'Include a lowercase letter')
-  .regex(/\d/, 'Include a number')
+  .min(8, 'Password must include uppercase, lowercase, a number, and a special character.')
+  .regex(/[A-Z]/, 'Password must include uppercase, lowercase, a number, and a special character.')
+  .regex(/[a-z]/, 'Password must include uppercase, lowercase, a number, and a special character.')
+  .regex(/\d/, 'Password must include uppercase, lowercase, a number, and a special character.')
+  .regex(/[^A-Za-z0-9]/, 'Password must include uppercase, lowercase, a number, and a special character.')
 
 export const registerSchema = z.object({
   firstName: z.string().min(1, 'First name is required'),

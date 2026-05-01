@@ -28,7 +28,9 @@ const profileSchema = z.object({
 export type Profile = z.infer<typeof profileSchema>
 
 export type ProfileUpdate = Partial<{
-  name: string
+  firstName: string
+  lastName: string
+  name: string // deprecated alias
   dateOfBirth: string
   gender: string
   addressLine1: string
@@ -39,14 +41,13 @@ export type ProfileUpdate = Partial<{
   newsletterConsent: boolean
 }>
 
-const onboardingCompleteSchema = z.object({ onboardingCompletedAt: z.string() })
-const subscriptionPromptSeenSchema = z.object({ subscriptionPromptSeenAt: z.string() })
-
 export const profileApi = {
   getMe: () => api.get<unknown>('/api/v1/customer/profile').then(profileSchema.parse),
   updateProfile: (patch: ProfileUpdate) => api.patch<unknown>('/api/v1/customer/profile', patch).then(profileSchema.partial().parse),
   getAvailableInterests: () => api.get<{ interests: { id: string; name: string }[] }>('/api/v1/customer/profile/available-interests'),
   updateInterests: (interestIds: string[]) => api.put<{ interests: { id: string; name: string }[] }>('/api/v1/customer/profile/interests', { interestIds }),
-  markOnboardingComplete: () => api.post<unknown>('/api/v1/customer/profile/onboarding-complete', {}).then(onboardingCompleteSchema.parse),
-  markSubscriptionPromptSeen: () => api.post<unknown>('/api/v1/customer/profile/subscription-prompt-seen', {}).then(subscriptionPromptSeenSchema.parse),
+  markOnboardingComplete: () =>
+    api.post<{ onboardingCompletedAt: string }>('/api/v1/customer/profile/onboarding-complete', {}),
+  markSubscriptionPromptSeen: () =>
+    api.post<{ subscriptionPromptSeenAt: string }>('/api/v1/customer/profile/subscription-prompt-seen', {}),
 }

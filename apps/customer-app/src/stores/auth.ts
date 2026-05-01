@@ -16,13 +16,19 @@ export type OnboardingState = {
   phoneVerifiedAtLeastOnce: boolean
 }
 
+// Routing-relevant subset of the customer Profile. Source of truth for resolveRedirect.
+// Kept separate from full Profile to avoid oversharing PII everywhere a component reads `user`.
 export type MinimalUser = {
   id: string
   email: string
   firstName: string
+  lastName: string
   phone: string
   emailVerified: boolean
   phoneVerified: boolean
+  dateOfBirth: string | null
+  gender: string | null
+  postcode: string | null
   onboardingCompletedAt: string | null
   subscriptionPromptSeenAt: string | null
 }
@@ -30,7 +36,8 @@ export type MinimalUser = {
 type SetTokensInput = {
   accessToken: string
   refreshToken: string
-  user: MinimalUser
+  /** Optional bootstrap snapshot used only if /profile fetch fails. */
+  user?: MinimalUser
 }
 
 type State = {
@@ -46,13 +53,13 @@ type State = {
   signOut: () => Promise<void>
   clearLocalAuth: () => Promise<void>
   syncVerificationState: (patch: Partial<Pick<MinimalUser, 'emailVerified' | 'phoneVerified'>>) => Promise<void>
+  /** Refetch /profile and replace the MinimalUser — call after any profile mutation that changes routing-relevant fields. */
+  refreshUser: () => Promise<void>
   setTokens: (input: SetTokensInput) => Promise<void>
   updateOnboarding: (patch: Partial<OnboardingState>) => Promise<void>
   advanceProfileStep: (step: ProfileStep) => Promise<void>
   markProfileCompletion: (status: ProfileCompletionStatus) => Promise<void>
   markPhoneVerifiedOnce: () => Promise<void>
-  markOnboardingCompleteNow: () => Promise<void>
-  markSubscriptionPromptSeenNow: () => Promise<void>
   setHaptics: (enabled: boolean) => void
   setMotionScale: (scale: 0 | 1) => void
   __resetForTests: () => Promise<void>
@@ -116,9 +123,13 @@ export const useAuthStore = create<State>((set, get) => ({
         id: me.id,
         email: me.email,
         firstName: me.firstName ?? '',
+        lastName: me.lastName ?? '',
         phone: me.phone ?? '',
         emailVerified: me.emailVerified,
         phoneVerified: me.phoneVerified,
+        dateOfBirth: me.dateOfBirth,
+        gender: me.gender,
+        postcode: me.postcode,
         onboardingCompletedAt: me.onboardingCompletedAt,
         subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
       }
@@ -154,28 +165,60 @@ export const useAuthStore = create<State>((set, get) => ({
     set({ user: { ...current, ...patch } })
   },
 
+  async refreshUser() {
+    if (get().status !== 'authed') return
+    try {
+      const me = await profileApi.getMe()
+      const minimal: MinimalUser = {
+        id: me.id,
+        email: me.email,
+        firstName: me.firstName ?? '',
+        lastName: me.lastName ?? '',
+        phone: me.phone ?? '',
+        emailVerified: me.emailVerified,
+        phoneVerified: me.phoneVerified,
+        dateOfBirth: me.dateOfBirth,
+        gender: me.gender,
+        postcode: me.postcode,
+        onboardingCompletedAt: me.onboardingCompletedAt,
+        subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
+      }
+      set({ user: minimal })
+    } catch { /* best-effort — stale user remains until next bootstrap */ }
+  },
+
   async setTokens({ accessToken, refreshToken, user }) {
     await secureStorage.set('accessToken', accessToken)
     await secureStorage.set('refreshToken', refreshToken)
     apiSetTokens({ accessToken, refreshToken })
-    // Hydrate server-side onboarding flags from /profile so resolveRedirect
-    // can enforce the locked routing rules immediately after auth, without
-    // bouncing through the next render cycle. Fail-soft: if /profile errors,
-    // proceed with the caller-supplied user; the next layout render will
-    // re-attempt via bootstrap on the next launch.
-    let hydrated: MinimalUser = user
+    // Fetch full profile so resolveRedirect has server-authoritative flags
+    // (emailVerified / phoneVerified / onboardingCompletedAt / required profile fields).
+    // Falls back to the snapshot from register/login response if /profile fails.
+    let minimal: MinimalUser | null = null
     try {
       const me = await profileApi.getMe()
-      hydrated = {
-        ...user,
+      minimal = {
+        id: me.id,
+        email: me.email,
+        firstName: me.firstName ?? '',
+        lastName: me.lastName ?? '',
+        phone: me.phone ?? '',
         emailVerified: me.emailVerified,
         phoneVerified: me.phoneVerified,
+        dateOfBirth: me.dateOfBirth,
+        gender: me.gender,
+        postcode: me.postcode,
         onboardingCompletedAt: me.onboardingCompletedAt,
         subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
       }
-    } catch { /* keep caller-supplied user */ }
-    const onboarding = await loadOnboarding(user.id)
-    set({ status: 'authed', user: hydrated, accessToken, refreshToken, onboarding })
+    } catch {
+      if (user) minimal = user
+    }
+    if (!minimal) {
+      throw new Error('Failed to load profile after authentication')
+    }
+    const onboarding = await loadOnboarding(minimal.id)
+    set({ status: 'authed', user: minimal, accessToken, refreshToken, onboarding })
   },
 
   async updateOnboarding(patch) {
@@ -202,20 +245,6 @@ export const useAuthStore = create<State>((set, get) => ({
 
   async markPhoneVerifiedOnce() {
     await get().updateOnboarding({ phoneVerifiedAtLeastOnce: true })
-  },
-
-  async markOnboardingCompleteNow() {
-    const { onboardingCompletedAt } = await profileApi.markOnboardingComplete()
-    const current = get().user
-    if (!current) return
-    set({ user: { ...current, onboardingCompletedAt } })
-  },
-
-  async markSubscriptionPromptSeenNow() {
-    const { subscriptionPromptSeenAt } = await profileApi.markSubscriptionPromptSeen()
-    const current = get().user
-    if (!current) return
-    set({ user: { ...current, subscriptionPromptSeenAt } })
   },
 
   setHaptics(enabled) {
