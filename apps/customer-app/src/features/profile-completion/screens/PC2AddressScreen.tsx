@@ -245,8 +245,12 @@ export function PC2AddressScreen() {
       </View>
 
       {/* ── Scrollable body ───────────────────────────────────────────────── */}
+      {/* KAV behavior undefined on iOS so we don't double-compensate with
+          ScrollView's automaticallyAdjustKeyboardInsets — aaki handles iOS
+          focus-into-view natively. Android relies on softwareKeyboardLayoutMode:
+          'pan' set in app.config.ts. */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={undefined}
         style={{ flex: 1 }}
       >
         <ScrollView

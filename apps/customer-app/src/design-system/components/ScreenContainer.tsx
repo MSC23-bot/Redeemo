@@ -13,8 +13,12 @@ type Props = {
 export function ScreenContainer({ children, scroll = true, surface = 'page', footer }: Props) {
   const insets = useSafeAreaInsets()
   const Body = scroll ? ScrollView : View
+  // KAV behavior is undefined on iOS so we don't double-compensate with
+  // ScrollView's automaticallyAdjustKeyboardInsets — aaki handles iOS
+  // focus-into-view natively. Android relies on softwareKeyboardLayoutMode:
+  // 'pan' set in app.config.ts.
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: color.surface[surface] }}>
+    <KeyboardAvoidingView behavior={undefined} style={{ flex: 1, backgroundColor: color.surface[surface] }}>
       <Body
         contentContainerStyle={scroll ? { padding: layout.screenPaddingH, paddingBottom: insets.bottom + spacing[6] } : undefined}
         style={!scroll ? { flex: 1, padding: layout.screenPaddingH, paddingBottom: insets.bottom + spacing[6] } : undefined}
