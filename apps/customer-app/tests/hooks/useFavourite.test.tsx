@@ -4,10 +4,18 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useFavourite } from '@/hooks/useFavourite'
 
-// Plan §12 self-review: "favourite-toggle optimistic + rollback".
-// Implementation note: useFavourite is pessimistic-with-onSuccess (state
-// flips after the API resolves successfully). On error, state stays at
-// the prior value — that's the rollback we test.
+// Covers plan §12's "favourite-toggle" requirement.
+//
+// Implementation note: useFavourite is **pessimistic-with-onSuccess** — state
+// only advances after the API resolves successfully. On failure, state never
+// advances at all (so there's nothing to roll back, the prior value is just
+// retained). The plan's "optimistic + rollback" wording predated the salvaged
+// hook; the tests below assert the *actual* observable behaviour:
+//   - success path: state transitions on resolve
+//   - failure path: state stays at the prior value (mutation throws, state
+//     never advanced — equivalent to a rollback from the consumer's view)
+// Switching to a truly optimistic implementation (advance immediately, revert
+// on error) is a deliberate behaviour change and is left as a follow-up.
 
 jest.spyOn(api, 'post')
 jest.spyOn(api, 'del')
@@ -47,7 +55,7 @@ describe('useFavourite', () => {
     expect(result.current.isFavourited).toBe(false)
   })
 
-  it('rolls back: if the add API fails, isFavourited stays false', async () => {
+  it('failure: if the add API rejects, isFavourited stays false (state never advances)', async () => {
     ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('boom'))
     const { result } = renderHook(
       () => useFavourite({ type: 'merchant', id: 'm1', isFavourited: false }),
@@ -59,7 +67,7 @@ describe('useFavourite', () => {
     expect(result.current.isFavourited).toBe(false)
   })
 
-  it('rolls back: if the remove API fails, isFavourited stays true', async () => {
+  it('failure: if the remove API rejects, isFavourited stays true (state never advances)', async () => {
     ;(api.del as jest.Mock).mockRejectedValueOnce(new Error('boom'))
     const { result } = renderHook(
       () => useFavourite({ type: 'merchant', id: 'm1', isFavourited: true }),

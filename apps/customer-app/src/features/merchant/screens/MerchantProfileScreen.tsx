@@ -1,12 +1,8 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react'
-import {
-  View, ScrollView, StyleSheet, ActivityIndicator, Share, Linking,
-  NativeSyntheticEvent, NativeScrollEvent, Pressable,
-} from 'react-native'
+import React, { useState, useCallback, useMemo } from 'react'
+import { View, ScrollView, StyleSheet, ActivityIndicator, Share, Linking, Pressable } from 'react-native'
 import { router } from 'expo-router'
 import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
-import { useAuthStore } from '@/stores/auth'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
 import { useOpenStatus } from '../hooks/useOpenStatus'
 import { HeroSection } from '../components/HeroSection'
@@ -32,8 +28,6 @@ import { useSubscription } from '@/hooks/useSubscription'
 type Props = { id: string | undefined }
 
 export function MerchantProfileScreen({ id }: Props) {
-  const status = useAuthStore((s) => s.status)
-  const isAuthed = status === 'authed'
   const { isSubscribed, isSubLoading } = useSubscription()
 
   const { data: merchant, isLoading, isError, error } = useMerchantProfile(id)
@@ -50,10 +44,6 @@ export function MerchantProfileScreen({ id }: Props) {
   const [showContact,  setShowContact]  = useState(false)
   const [showDirs,     setShowDirs]     = useState(false)
   const [showGate,     setShowGate]     = useState(false)
-  // Sticky tab-bar state retained for parity with cefaf45's scroll observer.
-  // ScrollView's `stickyHeaderIndices` does the visual stickiness; the bool
-  // is reserved for future state-driven animations.
-  const tabBarOffsetRef = useRef(0)
 
   const isSingleBranch  = (merchant?.branches.length ?? 0) <= 1
   const nearestBranchId = merchant?.nearestBranch?.id ?? merchant?.branches[0]?.id ?? null
@@ -86,7 +76,11 @@ export function MerchantProfileScreen({ id }: Props) {
   const handleVoucherPress = useCallback((voucherId: string) => {
     if (isSubLoading) return
     if (!isSubscribed) { setShowGate(true); return }
-    router.push(`/voucher/${voucherId}` as never)
+    // `as any` matches the existing codebase pattern for typed-route holes
+    // (e.g. HomeScreen's `/merchant/${id}` push pre-M1). When the Voucher
+    // Detail rebaseline lands and adds `app/(app)/voucher/[id].tsx`, the
+    // cast becomes unnecessary and can be removed.
+    router.push(`/voucher/${voucherId}` as any)
   }, [isSubscribed, isSubLoading])
 
   const singleBranchAddress = useMemo(() => {
@@ -99,12 +93,6 @@ export function MerchantProfileScreen({ id }: Props) {
   const dirAddress = contactBranch
     ? [contactBranch.addressLine1, contactBranch.city, contactBranch.postcode].filter(Boolean).join(', ')
     : ''
-
-  const handleScroll = useCallback((_e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    // Reserved for future scroll-position-driven UI. cefaf45 used this to
-    // toggle a `isTabBarSticky` state for animation; the visual stickiness
-    // works correctly via ScrollView.stickyHeaderIndices alone.
-  }, [])
 
   // ─── Loading / error early returns ──────────────────────────────────────────
   if (!id) {
@@ -155,8 +143,6 @@ export function MerchantProfileScreen({ id }: Props) {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
         stickyHeaderIndices={[2]}
       >
         <HeroSection
@@ -249,11 +235,6 @@ export function MerchantProfileScreen({ id }: Props) {
         merchantName={merchant.businessName}
         voucherCount={merchant.vouchers.length}
       />
-
-      {/* Suppress unused-warning on tabBarOffsetRef without removing the ref
-          — keep the cefaf45 hook in place for future scroll-driven animation. */}
-      {tabBarOffsetRef.current === -1 ? null : null}
-      {isAuthed ? null : null}
     </View>
   )
 }
