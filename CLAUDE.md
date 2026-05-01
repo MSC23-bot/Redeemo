@@ -504,6 +504,42 @@ The v7 auth/onboarding/subscription redesign was developed iteratively in `.work
 
 The `git checkout … -- <paths>` / `git restore <paths>` block (with `REDEEMO_CONFIRM_DISCARD=1` override) was added to the workflow hooks specifically to catch this class of incident.
 
+## Workflow Tier Calibration
+
+Every Redeemo task is classified into one of four tiers BEFORE implementation begins. The tier determines whether a plan/spec doc is required and what process to follow. The tier should be surfaced in the first reply on a task ("This is a Tier 1 — small fix to PC2 postcode display") so scope and process are explicit from the start.
+
+### Tier 0 — Tiny fix
+One-line / one-file / obvious fix. No plan doc. Commit message + short PR description sufficient.
+
+### Tier 1 — Small bounded change
+Small change inside ONE existing surface. No plan doc required, but the PR description MUST explain scope, risk, and tests covered.
+
+### Tier 2 — Surface rebaseline / multi-file UI work
+Examples: auth/onboarding rebaseline (PR #25), merchant profile rebaseline, voucher detail rebaseline, Favourites / Savings / Profile tabs, any customer-app surface moved from `feature/customer-app` to `main`.
+
+Rules:
+- MUST have a written plan doc first (`docs/superpowers/plans/YYYY-MM-DD-<topic>.md`).
+- Owner decisions surfaced BEFORE implementation.
+- Implementation follows milestones; PAUSE at each milestone for review.
+- If a contract / dependency gap appears mid-execution, PAUSE and amend the plan — do NOT hack around it. Document amendments in the plan doc itself.
+- Docs must be updated in the SAME PR if behaviour changes (`customer-flow-current.md` + `customer-flow-changelog.md` etc.).
+- Tests required before PR.
+- No merge until review + QA complete.
+
+### Tier 3 — New architecture / backend contract / schema change
+Examples: Plan 4 location model, PC3 → category-preference migration, new backend flows, subscription/payment architecture.
+
+Rules:
+- Use the full Superpower flow: `superpowers:brainstorming` → spec doc → `superpowers:writing-plans` → implementation → review → lock.
+
+### Standing rules
+
+- **All rebaseline work is Tier 2 by default.**
+- **Never start Tier 2 or Tier 3 implementation** without the correct plan/spec process first.
+- **If the tier is unclear, PAUSE and ask the owner.** Do not guess.
+
+**Why this exists:** Locked 2026-05-01 after PR #25 (the auth/onboarding rebaseline) demonstrated that Tier 2 work without a plan-first discipline can balloon mid-execution and require multiple in-flight amendments, with each amendment costing a pause-for-review cycle. Plan-first discipline keeps scope honest, surfaces dependency gaps as decisions rather than fait-accomplis, and keeps the final PR diff explainable to reviewers.
+
 ## Running Locally
 
 Two terminal tabs required simultaneously:
