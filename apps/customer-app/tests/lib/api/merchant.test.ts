@@ -24,7 +24,15 @@ const fullProfile = {
   primaryDescriptorTag: null,
   subcategory:          null,
   descriptor:           'Cafe',
-  highlights:           [{ id: 'h1', label: 'Outdoor seating' }],
+  // Real shape from `include: { tag: { select: { id, label } } }`. Label is
+  // at .tag.label, NOT at the top level. The `{ id, label }` flat shape was
+  // an early misread of the Prisma include — fixing the regression that
+  // broke Covelum on device 2026-05-01 (highlights[i].label was undefined
+  // because the schema looked at the wrong path).
+  highlights: [
+    { id: 'mh1', merchantId: 'm1', highlightTagId: 't1', sortOrder: 0,
+      tag: { id: 't1', label: 'Outdoor seating' } },
+  ],
   vouchers: [{
     id:              'v1',
     title:           'BOGO',
@@ -110,6 +118,38 @@ describe('merchantApi.getProfile', () => {
 
   it('rejects a payload missing required fields', async () => {
     ;(api.get as jest.Mock).mockResolvedValueOnce({ id: 'm1' })
+    await expect(merchantApi.getProfile('m1')).rejects.toThrow()
+  })
+
+  // Regression for the on-device Covelum failure 2026-05-01: an earlier
+  // schema read `highlights[i] = { id, label }` (flat) but the real
+  // backend response from `include: { tag: ... }` is the full
+  // MerchantHighlight model with a nested `tag` object. The UI's error
+  // boundary surfaced "expected string, received undefined" at
+  // path "highlights.0.label". This test pins the correct shape.
+  it('parses real merchant highlights shape (Prisma include with tag relation)', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      ...fullProfile,
+      highlights: [
+        { id: 'mh1', merchantId: 'm1', highlightTagId: 't1', sortOrder: 0,
+          tag: { id: 't1', label: 'Outdoor seating' } },
+        { id: 'mh2', merchantId: 'm1', highlightTagId: 't2', sortOrder: 1,
+          tag: { id: 't2', label: 'Vegan-friendly' } },
+        { id: 'mh3', merchantId: 'm1', highlightTagId: 't3', sortOrder: 2,
+          tag: { id: 't3', label: 'Dog-friendly' } },
+      ],
+    })
+    const r = await merchantApi.getProfile('m1')
+    expect(r.highlights).toHaveLength(3)
+    expect(r.highlights[0]!.tag.label).toBe('Outdoor seating')
+    expect(r.highlights[2]!.tag.label).toBe('Dog-friendly')
+  })
+
+  it('rejects a flat-shape highlight (the bug shape)', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      ...fullProfile,
+      highlights: [{ id: 'h1', label: 'Wrong shape' }],   // missing merchantId/highlightTagId/sortOrder/tag
+    })
     await expect(merchantApi.getProfile('m1')).rejects.toThrow()
   })
 })

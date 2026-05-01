@@ -25,11 +25,22 @@ const amenitySchema = z.object({
 })
 export type Amenity = z.infer<typeof amenitySchema>
 
-const highlightTagSchema = z.object({
-  id:    z.string(),
-  label: z.string(),
+// Highlight items come from the server's Prisma include
+// `highlights: { include: { tag: { select: { id, label } } } }` —
+// each row is the full MerchantHighlight model with the tag relation
+// nested. Label lives at `.tag.label`, NOT at the top level. UI consumers
+// (when M2 lands) read via `highlight.tag.label`.
+const merchantHighlightSchema = z.object({
+  id:             z.string(),
+  merchantId:     z.string(),
+  highlightTagId: z.string(),
+  sortOrder:      z.number().int(),
+  tag: z.object({
+    id:    z.string(),
+    label: z.string(),
+  }),
 })
-export type HighlightTag = z.infer<typeof highlightTagSchema>
+export type MerchantHighlight = z.infer<typeof merchantHighlightSchema>
 
 const subcategoryRefSchema = z.object({ id: z.string(), name: z.string() })
 
@@ -104,7 +115,7 @@ const merchantProfileSchema = z.object({
   primaryDescriptorTag: z.object({ id: z.string(), label: z.string() }).nullable(),
   subcategory:          subcategoryRefSchema.nullable(),
   descriptor:           z.string(),
-  highlights:           z.array(highlightTagSchema),
+  highlights:           z.array(merchantHighlightSchema),
 
   vouchers:             z.array(merchantVoucherSchema),
 
