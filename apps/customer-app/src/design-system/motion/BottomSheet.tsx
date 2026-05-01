@@ -1,10 +1,16 @@
 import React, { useEffect, useState } from 'react'
 import { Keyboard, Modal, Platform, Pressable, View } from 'react-native'
-import Animated, { Easing, useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import Animated, { Easing, runOnJS, useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated'
 import { color, layer, motion, opacity, radius, spacing } from '../tokens'
 import { useMotionScale } from '../useMotionScale'
 
 type Props = { visible: boolean; onDismiss: () => void; children: React.ReactNode; accessibilityLabel?: string }
+
+// Swipe-down-to-dismiss thresholds. Either passing the distance OR the
+// flick velocity dismisses; both checked at gesture-end.
+const DISMISS_DISTANCE = 100   // px dragged down from rest
+const DISMISS_VELOCITY = 600   // px/s downward flick speed
 
 export function BottomSheet({ visible, onDismiss, children, accessibilityLabel }: Props) {
   const ty = useSharedValue(500)
@@ -31,6 +37,28 @@ export function BottomSheet({ visible, onDismiss, children, accessibilityLabel }
   }, [visible, ty, scrim, scale])
   const sheet = useAnimatedStyle(() => ({ transform: [{ translateY: ty.value }] }))
   const scrimStyle = useAnimatedStyle(() => ({ opacity: scrim.value }))
+
+  // Drag-to-dismiss — bound to the grabber bar only so inner scrolling
+  // (FlatList of countries, ScrollView in FilterSheet) keeps working.
+  // Downward drag follows the finger; release past threshold dismisses,
+  // otherwise springs back to rest.
+  const dragGesture = Gesture.Pan()
+    .onChange((e) => {
+      'worklet'
+      // Only follow downward motion. Upward drags clamp at 0 to prevent
+      // the sheet pulling above the screen.
+      ty.value = e.translationY > 0 ? e.translationY : 0
+    })
+    .onEnd((e) => {
+      'worklet'
+      const shouldDismiss = e.translationY > DISMISS_DISTANCE || e.velocityY > DISMISS_VELOCITY
+      if (shouldDismiss) {
+        runOnJS(onDismiss)()
+      } else {
+        ty.value = withTiming(0, { duration: 200, easing: Easing.bezier(0.2, 0.8, 0.2, 1) })
+      }
+    })
+
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={onDismiss}>
       {/* Scrim — visual backdrop only (`pointerEvents: none`). Tap-out dismiss
@@ -48,7 +76,13 @@ export function BottomSheet({ visible, onDismiss, children, accessibilityLabel }
         accessibilityLabel={accessibilityLabel}
         style={[{ position: 'absolute', left: 0, right: 0, bottom: keyboardHeight, backgroundColor: color.surface.raised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing[5], zIndex: layer.sheet }, sheet]}
       >
-        <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: color.border.default, marginBottom: spacing[3] }} />
+        {/* Grabber bar — owns the drag-to-dismiss gesture. Inner content
+            (FlatLists, ScrollViews) is unaffected and scrolls normally. */}
+        <GestureDetector gesture={dragGesture}>
+          <Animated.View style={{ paddingVertical: spacing[2], alignItems: 'center', marginBottom: spacing[1] }}>
+            <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: color.border.default }} />
+          </Animated.View>
+        </GestureDetector>
         {children}
       </Animated.View>
     </Modal>

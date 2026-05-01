@@ -399,13 +399,15 @@ export function VerifyPhoneScreen() {
   }
 
   function openPicker() {
-    // Dismiss phone keyboard so the picker sheet opens cleanly. Explicit blur
-    // first because iOS's contact-suggestion keypad ignores Keyboard.dismiss()
-    // when the underlying TextInput still has focus.
+    // iOS's phone-pad with contact-autofill suggestions doesn't always
+    // dismiss synchronously: even after blur() + Keyboard.dismiss(), if
+    // the modal mounts immediately, iOS re-presents the keypad because
+    // it considers the underlying TextInput still in focus. Defer the
+    // modal mount 150ms to let iOS hide the keyboard first.
     phoneInputRef.current?.blur()
     Keyboard.dismiss()
     setSearchQuery('')
-    setPickerOpen(true)
+    setTimeout(() => setPickerOpen(true), 150)
   }
 
   function closePicker() {

@@ -272,14 +272,18 @@ export function RegisterScreen() {
   // ─── actions ────────────────────────────────────────────────────────────────
 
   function openPicker() {
-    // Explicitly blur the phone input first — iOS's contact-suggestion
-    // keypad ignores Keyboard.dismiss() when the underlying TextInput still
-    // has focus, so the picker would open with the suggestion keypad
-    // overlapping the country list.
+    // iOS's phone-pad with contact-autofill suggestions doesn't always
+    // dismiss synchronously: even after blur() + Keyboard.dismiss(), if
+    // the modal mounts immediately, iOS re-presents the keypad because
+    // it considers the underlying TextInput still in focus during the
+    // mount transition. Blur first, dismiss the keyboard, THEN defer the
+    // modal mount until iOS has had a frame to actually hide the keyboard.
+    // 150ms is enough on iPhone hardware (keyboard hide animation is
+    // ~120ms) and barely perceptible to the user.
     phoneInputRef.current?.blur()
     Keyboard.dismiss()
     setSearchQuery('')
-    setPickerOpen(true)
+    setTimeout(() => setPickerOpen(true), 150)
   }
 
   function closePicker() {
