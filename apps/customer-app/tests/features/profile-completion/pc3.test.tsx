@@ -6,7 +6,7 @@ jest.mock('@/lib/storage', () => ({
 }))
 jest.mock('@/lib/api', () => ({ api: { setTokens: jest.fn(), onSessionExpired: jest.fn() }, setTokens: jest.fn() }))
 jest.mock('@/lib/api/auth', () => ({ authApi: { logout: jest.fn(async () => ({})) } }))
-jest.mock('@/design-system/haptics', () => ({ setHapticsEnabled: jest.fn(), haptics: { selection: jest.fn() } }))
+jest.mock('@/design-system/haptics', () => ({ setHapticsEnabled: jest.fn(), haptics: { selection: jest.fn(), touch: { light: jest.fn() } } }))
 jest.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: jest.fn() }),
   useQuery: ({ queryFn }: any) => ({ data: { interests: [{ id: 'i1', name: 'Coffee' }] }, isLoading: false }),
