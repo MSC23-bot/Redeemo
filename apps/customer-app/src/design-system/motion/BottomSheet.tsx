@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
-import { Modal, Pressable, View } from 'react-native'
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated'
+import { Easing, Modal, Pressable, View } from 'react-native'
+import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated'
 import { color, layer, motion, opacity, radius, spacing } from '../tokens'
 import { useMotionScale } from '../useMotionScale'
 
@@ -12,16 +12,27 @@ export function BottomSheet({ visible, onDismiss, children, accessibilityLabel }
   const scale = useMotionScale()
   useEffect(() => {
     const ms = scale === 0 ? 0 : motion.duration.base
-    ty.value = withSpring(visible ? 0 : 500, visible ? motion.spring.gentle : { damping: 22, stiffness: 220 })
+    // Smooth, controlled timing animation — no spring overshoot. Open and close
+    // both ease in/out so the sheet glides into rest rather than bouncing.
+    ty.value = withTiming(visible ? 0 : 500, { duration: ms, easing: Easing.bezier(0.2, 0.8, 0.2, 1) })
     scrim.value = withTiming(visible ? opacity.overlay : 0, { duration: ms })
   }, [visible, ty, scrim, scale])
   const sheet = useAnimatedStyle(() => ({ transform: [{ translateY: ty.value }] }))
   const scrimStyle = useAnimatedStyle(() => ({ opacity: scrim.value }))
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={onDismiss}>
-      <Animated.View style={[{ position: 'absolute', inset: 0, backgroundColor: '#000', zIndex: layer.overlay }, scrimStyle]}>
-        <Pressable onPress={onDismiss} accessibilityLabel="Dismiss sheet" style={{ flex: 1 }} />
-      </Animated.View>
+      {/* Scrim — visual backdrop only. Drop the inner full-flex Pressable that
+          was catching ALL taps (including taps over the sheet) because the
+          scrim's zIndex was set higher than the sheet's. The sibling sheet
+          below now owns input; tap-out dismissal is handled by the small
+          backdrop Pressable rendered as a second sibling, which sits BELOW
+          the sheet by zIndex. */}
+      <Animated.View pointerEvents="none" style={[{ position: 'absolute', inset: 0, backgroundColor: '#000', zIndex: layer.base }, scrimStyle]} />
+      <Pressable
+        accessibilityLabel="Dismiss sheet"
+        onPress={onDismiss}
+        style={{ position: 'absolute', inset: 0, zIndex: layer.raised }}
+      />
       <Animated.View
         accessibilityViewIsModal
         accessibilityLabel={accessibilityLabel}

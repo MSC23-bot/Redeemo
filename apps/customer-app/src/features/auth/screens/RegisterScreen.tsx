@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   FlatList,
@@ -310,6 +310,20 @@ export function RegisterScreen() {
     }
   }
 
+  // Focus the first errored field whenever fieldErrors changes — keeps the
+  // error visible above the keyboard for both LOCAL validation errors AND
+  // API errors (EMAIL_ALREADY_EXISTS, PHONE_ALREADY_EXISTS, etc.). Without
+  // this, an API error appearing after the user has scrolled down past the
+  // errored field would be invisible behind the keyboard or above the
+  // viewport. Combined with the ScrollView's automaticallyAdjustKeyboardInsets,
+  // refocusing brings the field + its inline error card back into view.
+  useEffect(() => {
+    if (Object.keys(fieldErrors).length > 0) {
+      focusFirstInvalid(fieldErrors)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldErrors])
+
   async function handleSubmit() {
     // Prevent double-submits while a request is in flight.
     if (submitting) return
@@ -614,7 +628,24 @@ export function RegisterScreen() {
                   returnKeyType="done"
                 />
               </View>
-              {fieldErrors.phone ? <InlineError message={fieldErrors.phone.message} /> : null}
+              {fieldErrors.phone?.code === 'PHONE_ALREADY_EXISTS' ? (
+                <View style={styles.specialError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+                  <Text style={styles.specialErrorText}>
+                    This phone number is already registered.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => router.replace('/(auth)/login')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Sign in instead"
+                    activeOpacity={0.75}
+                    style={styles.specialErrorBtn}
+                  >
+                    <Text style={styles.specialErrorBtnText}>Sign in instead →</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : fieldErrors.phone ? (
+                <InlineError message={fieldErrors.phone.message} />
+              ) : null}
             </View>
 
             {/* Marketing consent */}
