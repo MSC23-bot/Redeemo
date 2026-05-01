@@ -17,6 +17,7 @@ import { DirectionsSheet } from '../components/DirectionsSheet'
 import { FreeUserGateModal } from '../components/FreeUserGateModal'
 import { useFavourite } from '@/hooks/useFavourite'
 import { useSubscription } from '@/hooks/useSubscription'
+import { useUserLocation } from '@/hooks/useLocation'
 
 // M2 — full Merchant Profile surface. Composes hero / meta / sticky tab bar
 // and the four tabs (vouchers / about / branches / reviews) plus three
@@ -30,7 +31,14 @@ type Props = { id: string | undefined }
 export function MerchantProfileScreen({ id }: Props) {
   const { isSubscribed, isSubLoading } = useSubscription()
 
-  const { data: merchant, isLoading, isError, error } = useMerchantProfile(id)
+  // Pass GPS to the profile endpoint so the server can compute `distance` and
+  // resolve `nearestBranch`. Without lat/lng both come back null and the meta
+  // row falls back to "Multiple locations". `opts` is built with conditional
+  // assignment to satisfy `exactOptionalPropertyTypes` (no `lat: undefined`).
+  const { location } = useUserLocation()
+  const profileOpts: { lat?: number; lng?: number } =
+    location ? { lat: location.lat, lng: location.lng } : {}
+  const { data: merchant, isLoading, isError, error } = useMerchantProfile(id, profileOpts)
 
   const favourite = useFavourite({
     type: 'merchant',
@@ -42,6 +50,10 @@ export function MerchantProfileScreen({ id }: Props) {
 
   const [activeTab,    setActiveTab]    = useState<TabId>('vouchers')
   const [showContact,  setShowContact]  = useState(false)
+  // `dirsBranchId` overrides which branch the DirectionsSheet shows. When
+  // null + showDirs=true → defaults to nearest/first branch (the legacy
+  // MetaSection "Directions" CTA behaviour). Set by BranchesTab card tap.
+  const [dirsBranchId, setDirsBranchId] = useState<string | null>(null)
   const [showDirs,     setShowDirs]     = useState(false)
   const [showGate,     setShowGate]     = useState(false)
 
@@ -62,7 +74,14 @@ export function MerchantProfileScreen({ id }: Props) {
 
   const handleShare = useCallback(async () => {
     if (!merchant) return
-    await Share.share({ message: `Check out ${merchant.businessName} on Redeemo!` })
+    // Web canonical lives at `/merchants/:id` (see apps/customer-web). iOS uses
+    // `url` directly; Android only reads `message`, so the URL is also embedded
+    // inline so recipients on either platform get a clickable link.
+    const shareUrl = `https://redeemo.com/merchants/${merchant.id}`
+    await Share.share({
+      message: `Check out ${merchant.businessName} on Redeemo! ${shareUrl}`,
+      url: shareUrl,
+    })
   }, [merchant])
 
   const handleWebsite = useCallback(() => {
@@ -90,8 +109,14 @@ export function MerchantProfileScreen({ id }: Props) {
   }, [isSingleBranch, merchant])
 
   const contactBranch = merchant?.nearestBranch ?? merchant?.branches[0]
-  const dirAddress = contactBranch
-    ? [contactBranch.addressLine1, contactBranch.city, contactBranch.postcode].filter(Boolean).join(', ')
+
+  // DirectionsSheet target — when BranchesTab sets `dirsBranchId`, point at
+  // that branch; otherwise fall back to nearest/first (MetaSection default).
+  const dirsBranch = dirsBranchId
+    ? merchant?.branches.find(b => b.id === dirsBranchId) ?? contactBranch
+    : contactBranch
+  const dirAddress = dirsBranch
+    ? [dirsBranch.addressLine1, dirsBranch.city, dirsBranch.postcode].filter(Boolean).join(', ')
     : ''
 
   // ─── Loading / error early returns ──────────────────────────────────────────
@@ -173,7 +198,7 @@ export function MerchantProfileScreen({ id }: Props) {
           hasWebsite={!!merchant.websiteUrl}
           onWebsite={handleWebsite}
           onContact={() => setShowContact(true)}
-          onDirections={() => setShowDirs(true)}
+          onDirections={() => { setDirsBranchId(null); setShowDirs(true) }}
         />
 
         <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
@@ -200,6 +225,8 @@ export function MerchantProfileScreen({ id }: Props) {
             <BranchesTab
               branches={merchant.branches}
               nearestBranchId={nearestBranchId}
+              onBranchPress={(branchId) => { setDirsBranchId(branchId); setShowDirs(true) }}
+              onHoursPress={() => setActiveTab('about')}
             />
           )}
           {activeTab === 'reviews' && (
@@ -222,11 +249,11 @@ export function MerchantProfileScreen({ id }: Props) {
 
       <DirectionsSheet
         visible={showDirs}
-        onDismiss={() => setShowDirs(false)}
+        onDismiss={() => { setShowDirs(false); setDirsBranchId(null) }}
         address={dirAddress}
-        distance={merchant.distance}
-        latitude={contactBranch?.latitude ?? null}
-        longitude={contactBranch?.longitude ?? null}
+        distance={dirsBranch?.distance ?? merchant.distance}
+        latitude={dirsBranch?.latitude ?? null}
+        longitude={dirsBranch?.longitude ?? null}
       />
 
       <FreeUserGateModal

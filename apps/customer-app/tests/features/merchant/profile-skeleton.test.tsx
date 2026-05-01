@@ -68,6 +68,12 @@ jest.mock('@/features/merchant/components/FreeUserGateModal', () => ({
 jest.mock('@/hooks/useFavourite', () => ({
   useFavourite: () => ({ isFavourited: false, toggle: jest.fn(), isLoading: false }),
 }))
+// MerchantProfileScreen now reads GPS via useUserLocation so the server can
+// compute distance + nearestBranch. Stub it idle so these tests don't touch
+// expo-location's native module (which throws at module-load in jest).
+jest.mock('@/hooks/useLocation', () => ({
+  useUserLocation: () => ({ status: 'idle', location: null, requestPermission: jest.fn() }),
+}))
 let mockSubscribed = true
 jest.mock('@/hooks/useSubscription', () => ({
   useSubscription: () => ({ isSubscribed: mockSubscribed, isSubLoading: false, subscription: null }),

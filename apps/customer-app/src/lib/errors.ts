@@ -36,6 +36,10 @@ const TABLE: Record<string, Omit<MappedError, 'code'>> = {
   VERIFICATION_TOKEN_EXPIRED: { message: 'This verification link has expired.',                 surface: 'fullpage', retryable: true  },
   ACTION_TOKEN_INVALID:       { message: 'This action has expired. Please start again.',       surface: 'fullpage', retryable: true  },
 
+  // Reviews
+  REVIEW_NOT_FOUND:           { message: "We couldn't find that review. It may have been removed.", surface: 'toast', retryable: false },
+  REVIEW_NOT_OWNED:           { message: 'You can only edit or delete your own reviews.',          surface: 'toast', retryable: false },
+
   // Transport
   RATE_LIMITED:               { message: 'Too many attempts. Please wait a moment and try again.', surface: 'toast', retryable: false },
   NETWORK_ERROR:              { message: 'Connection lost. Check your network.',                surface: 'toast',    retryable: true  },

@@ -18,9 +18,15 @@ export class ApiClientError extends Error {
 }
 
 async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+  // Only set Content-Type when there's an actual body. Fastify's body parser
+  // throws FST_ERR_CTP_EMPTY_JSON_BODY when `application/json` is announced
+  // but the body is empty — which surfaced on bodyless DELETEs (delete review)
+  // and bodyless POSTs (favourite add) as a generic 500 INTERNAL_ERROR toast.
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(init.headers as Record<string, string> | undefined),
+  }
+  if (init.body !== undefined && init.body !== null) {
+    headers['Content-Type'] = 'application/json'
   }
   if (tokens.access) headers['Authorization'] = `Bearer ${tokens.access}` as string
   const res = await fetch(`${BASE_URL}${path}`, { ...init, headers })

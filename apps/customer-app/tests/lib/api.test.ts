@@ -36,4 +36,56 @@ describe('api client', () => {
     global.fetch = jest.fn(async () => new Response(JSON.stringify({ code: 'EMAIL_TAKEN', message: 'x' }), { status: 400, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
     await expect(api.post('/x', {})).rejects.toMatchObject({ code: 'EMAIL_TAKEN', status: 400 })
   })
+
+  // Regression: Fastify's body parser throws FST_ERR_CTP_EMPTY_JSON_BODY when
+  // `Content-Type: application/json` is announced with an empty body. This
+  // surfaced as a 500 toast on bodyless DELETEs (delete-review) and bodyless
+  // POSTs (favourite add). Pin: bodyless requests must NOT set Content-Type.
+  it('does not set Content-Type on bodyless DELETE', async () => {
+    api.__setTokensForTests('A', 'R')
+    const calls: RequestInit[] = []
+    global.fetch = jest.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(init!)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    await api.del('/api/v1/customer/branches/b1/reviews/r1')
+    const headers = calls[0]!.headers as Record<string, string>
+    expect(headers['Content-Type']).toBeUndefined()
+  })
+
+  it('does not set Content-Type on bodyless POST (favourite add)', async () => {
+    api.__setTokensForTests('A', 'R')
+    const calls: RequestInit[] = []
+    global.fetch = jest.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(init!)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    await api.post('/api/v1/customer/favourites/merchants/m1', undefined)
+    const headers = calls[0]!.headers as Record<string, string>
+    expect(headers['Content-Type']).toBeUndefined()
+  })
+
+  it('does not set Content-Type on GET', async () => {
+    api.__setTokensForTests('A', 'R')
+    const calls: RequestInit[] = []
+    global.fetch = jest.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(init!)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    await api.get('/anything')
+    const headers = calls[0]!.headers as Record<string, string>
+    expect(headers['Content-Type']).toBeUndefined()
+  })
+
+  it('sets Content-Type:application/json when a body is present', async () => {
+    api.__setTokensForTests('A', 'R')
+    const calls: RequestInit[] = []
+    global.fetch = jest.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(init!)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    await api.post('/x', { foo: 'bar' })
+    const headers = calls[0]!.headers as Record<string, string>
+    expect(headers['Content-Type']).toBe('application/json')
+  })
 })
