@@ -90,16 +90,23 @@ Stack: `(auth)/profile-completion/_layout.tsx` with four step screens. Step gati
 ### 5.4 PC4 — Avatar (OPTIONAL)
 - Route: `(auth)/profile-completion/avatar`. Component: [`src/features/profile-completion/screens/PC4AvatarScreen.tsx`](../apps/customer-app/src/features/profile-completion/screens/PC4AvatarScreen.tsx).
 - User can upload photo or skip. Newsletter consent toggle lives here.
-- Marking PC4 complete sets `onboardingCompletedAt` server-side.
+- Marking PC4 complete (or tapping "Skip for now") routes to `(auth)/onboarding-success`. **PC4 does NOT stamp `onboardingCompletedAt`** — that flag is stamped one screen later, by the success screen. See §6.
 
-### 5.5 Step auto-skipping (Phase 4 reconciliation)
-- `useProfileCompletion.nextRouteAfter()` consults `firstIncompleteRequiredStep` and routes the user to the first incomplete required step rather than blindly advancing one step at a time. Optional steps (interests, avatar) are reachable but not forced.
+### 5.5 Step routing — entry side vs forward side
+Two distinct mechanisms; do not conflate them:
+
+- **Entry side (auto-skip past completed required steps):** `resolveRedirect` calls `firstIncompleteRequiredStep(user)` and routes the user directly to the first incomplete required step (`pc1` if firstName/lastName/dob/gender missing, otherwise `pc2` if address/postcode missing). Implementation: [`apps/customer-app/src/lib/routing.ts`](../apps/customer-app/src/lib/routing.ts) §8 rule 5.
+- **Forward side (advance through the wizard step-by-step):** `useProfileCompletion.nextRouteAfter(step)` is a strict map (pc1→address, pc2→interests, pc3→avatar, pc4→onboarding-success). It does NOT consult `firstIncompleteRequiredStep` — earlier iterations did, but caused PC2 to be skipped on second-pass when postcode was already saved. Comment at [`useProfileCompletion.ts:6-9`](../apps/customer-app/src/features/profile-completion/hooks/useProfileCompletion.ts) records this.
+
+The two together: a returning user lands directly on whichever required step is incomplete (entry-side skip), then proceeds linearly through every subsequent step including optional ones (forward-side strict). PC3 + PC4 are reachable but not forced — user can tap "Skip for now" on either to advance.
 
 ---
 
 ## 6. Onboarding Success
-- Route: `(auth)/onboarding-success`. One-shot screen shown when all required fields are complete and `onboardingCompletedAt` has been stamped.
-- After this screen, the next forward step is the Subscription Prompt.
+- Route: `(auth)/onboarding-success`. Component: [`src/features/onboarding/screens/OnboardingSuccessScreen.tsx`](../apps/customer-app/src/features/onboarding/screens/OnboardingSuccessScreen.tsx).
+- Shown when all required profile fields are complete and the user has reached the end of the PC wizard (or skipped optional PC3/PC4).
+- **`onboardingCompletedAt` is stamped HERE, not at PC4.** The screen's "Explore deals" CTA (`onExplore`, ~line 160) calls `profileApi.markOnboardingComplete()`, then awaits `refreshUser()` so `resolveRedirect` sees the new state on the next render, then navigates forward to the Subscription Prompt.
+- One-shot in the routing sense — once stamped, `resolveRedirect` rule 6 no longer routes here, and the user advances to rule 7 (Subscription Prompt).
 
 ---
 
@@ -167,7 +174,7 @@ Helper: `firstIncompleteRequiredStep(user)` — returns `'about' | 'address' | n
 | Phone collected | At verify-phone, hard block | At register, soft banner only |
 | Phone verified | Required in app | Not performed on web in v1.0 |
 | Email verification | Hard block screen | Soft amber banner |
-| `onboardingCompletedAt` | Stamped on PC4 complete | App-driven only — never set from web |
+| `onboardingCompletedAt` | Stamped from `OnboardingSuccessScreen.onExplore` (NOT from PC4) | App-driven only — never set from web |
 | `subscriptionPromptSeenAt` | Stamped on free-CTA tap | App-driven only — web shows `SubscriptionNudge` instead |
 
 This asymmetry is intentional. The app is the canonical onboarding surface; the web exists to let users browse and (in the case of subscribe-on-web in Phase 3D) purchase, without duplicating the full hard-block ladder.
