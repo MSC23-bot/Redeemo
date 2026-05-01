@@ -109,12 +109,15 @@ export default function AppLayout() {
         }}
       />
       {/* Hide non-tab routes from auto-discovery so they don't appear as default
-          tabs. Each rebaselined surface (merchant, voucher, favourites,
-          savings) will land its own visible <Tabs.Screen> entry as
-          part of its rebaseline PR. */}
+          tabs. Each rebaselined surface (voucher, favourites, savings) will
+          land its own visible <Tabs.Screen> entry as part of its rebaseline
+          PR. Merchant Profile is a per-merchant detail route — `tabBarStyle:
+          display:'none'` hides the bottom tab bar while it's open so the
+          screen owns the full viewport. */}
       <Tabs.Screen name="search"        options={{ href: null }} />
       <Tabs.Screen name="categories"    options={{ href: null }} />
       <Tabs.Screen name="category/[id]" options={{ href: null }} />
+      <Tabs.Screen name="merchant/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
     </Tabs>
   )
 }
