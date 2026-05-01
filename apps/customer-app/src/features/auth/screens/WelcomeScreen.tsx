@@ -9,14 +9,14 @@ import Animated, {
   Easing,
   type SharedValue,
 } from 'react-native-reanimated'
-import Svg, { Path, Rect, Polyline, Line } from 'react-native-svg'
+import Svg, { Path, Rect, Polyline, Line, Defs, RadialGradient, Stop } from 'react-native-svg'
 import { Text } from '@/design-system/Text'
 import { scale, ms } from '@/design-system/scale'
 import { RedeemoLogo } from '../components/RedeemoLogo'
 
 function AppleIcon() {
   return (
-    <Svg width={16} height={16} viewBox="0 0 24 24" fill="#010C35">
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="#010C35">
       <Path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
     </Svg>
   )
@@ -24,7 +24,7 @@ function AppleIcon() {
 
 function GoogleIcon() {
   return (
-    <Svg width={16} height={16} viewBox="0 0 24 24">
+    <Svg width={20} height={20} viewBox="0 0 24 24">
       <Path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
       <Path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
       <Path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 001 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05" />
@@ -37,6 +37,27 @@ function StarIcon({ color }: { color: string }) {
   return (
     <Svg width={7} height={7} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.5}>
       <Path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z" />
+    </Svg>
+  )
+}
+
+// Soft radial brand glow. Real radial gradient via react-native-svg so the
+// blob fades smoothly to fully-transparent on every edge — no hard circular
+// border like a clipped LinearGradient mask leaves. `id` must be unique per
+// instance because SVG `<Defs>` are looked up by id within the Svg root.
+function GlowBlob({
+  id, size, color, peakOpacity = 0.55, style,
+}: { id: string; size: number; color: string; peakOpacity?: number; style?: object }) {
+  return (
+    <Svg width={size} height={size} style={style} pointerEvents="none">
+      <Defs>
+        <RadialGradient id={id} cx="50%" cy="50%" rx="50%" ry="50%" fx="50%" fy="50%">
+          <Stop offset="0%"   stopColor={color} stopOpacity={peakOpacity} />
+          <Stop offset="55%"  stopColor={color} stopOpacity={peakOpacity * 0.25} />
+          <Stop offset="100%" stopColor={color} stopOpacity={0} />
+        </RadialGradient>
+      </Defs>
+      <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${id})`} />
     </Svg>
   )
 }
@@ -67,7 +88,16 @@ function VoucherCard({
   }))
 
   return (
-    <Animated.View style={[styles.voucherCard, style, animStyle]}>
+    <Animated.View style={[styles.voucherCard, { shadowColor: accentColor }, style, animStyle]}>
+      {/* Subtle "3D" surface gradient — top-left highlight to bottom-right
+          slightly warmer cream — gives the card a soft depth on the navy
+          backdrop. Sits behind the stripe + content. */}
+      <LinearGradient
+        colors={['#FFFFFF', '#F2EEE8']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.voucherSurface}
+      />
 
       {/* Left accent stripe */}
       <LinearGradient
@@ -108,13 +138,17 @@ export function WelcomeScreen() {
   const floatFront = useSharedValue(0)
 
   useEffect(() => {
+    // Larger amplitude (12/14px) than before (5/7px) so the float is
+    // actually perceptible. Slightly different durations on each card so
+    // they drift out of phase and feel like independent objects rather
+    // than a synchronised pair.
     floatBack.value = withRepeat(
-      withTiming(-5, { duration: 3000, easing: Easing.inOut(Easing.sin) }),
+      withTiming(-12, { duration: 2400, easing: Easing.inOut(Easing.sin) }),
       -1,
       true,
     )
     floatFront.value = withRepeat(
-      withTiming(-7, { duration: 2750, easing: Easing.inOut(Easing.sin) }),
+      withTiming(-14, { duration: 2100, easing: Easing.inOut(Easing.sin) }),
       -1,
       true,
     )
@@ -127,28 +161,14 @@ export function WelcomeScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
 
-      {/* Ambient brand glow — top-right (red-rose) and bottom-left (coral). Each
-          is a circular masked LinearGradient blob; the gradient stop positions
-          place the strongest colour at the corner closest to the viewport edge
-          and fade to transparent across the diagonal. Low opacity keeps them
-          atmospheric rather than dominant. Behind everything else (zIndex 0),
-          all real content sits above by virtue of natural document order. */}
-      <View pointerEvents="none" style={styles.glowTopRight}>
-        <LinearGradient
-          colors={['rgba(226,12,4,0.55)', 'rgba(226,12,4,0)']}
-          start={{ x: 0.85, y: 0.15 }}
-          end={{ x: 0, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
-      <View pointerEvents="none" style={styles.glowBottomLeft}>
-        <LinearGradient
-          colors={['rgba(232,74,0,0.45)', 'rgba(232,74,0,0)']}
-          start={{ x: 0.15, y: 0.85 }}
-          end={{ x: 1, y: 0 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
+      {/* Ambient brand glow — top-right (red-rose) and bottom-left (coral).
+          True radial gradient via SVG so every edge fades smoothly to navy
+          with no perceptible boundary. Sized larger than the visible portion
+          and offset off-screen so only the soft tail shows on screen. */}
+      <GlowBlob id="glow-tr" size={ms(520)} color="#E20C04" peakOpacity={0.55}
+        style={styles.glowTopRight} />
+      <GlowBlob id="glow-bl" size={ms(440)} color="#E84A00" peakOpacity={0.45}
+        style={styles.glowBottomLeft} />
 
       {/* Logo */}
       <View style={styles.logoSection}>
@@ -246,25 +266,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#010C35',
   },
-  // Ambient glow blobs — circular-masked LinearGradients. `overflow:hidden` +
-  // matching `borderRadius` clips the rectangular gradient to a soft circle.
+  // Ambient glow blob position. Size + radial fade come from the SVG itself;
+  // we only position it. Negative offsets place the strongest centre of each
+  // blob just off-screen so only the soft tail extends inward.
   glowTopRight: {
     position: 'absolute',
-    top: -ms(140),
-    right: -ms(140),
-    width: ms(420),
-    height: ms(420),
-    borderRadius: ms(220),
-    overflow: 'hidden',
+    top: -ms(180),
+    right: -ms(180),
   },
   glowBottomLeft: {
     position: 'absolute',
-    bottom: -ms(120),
-    left: -ms(120),
-    width: ms(360),
-    height: ms(360),
-    borderRadius: ms(190),
-    overflow: 'hidden',
+    bottom: -ms(160),
+    left: -ms(160),
   },
   logoSection: {
     alignItems: 'center',
@@ -300,15 +313,26 @@ const styles = StyleSheet.create({
   },
   voucherCard: {
     width: scale(200),
-    backgroundColor: '#FFFFFF',
     borderRadius: scale(16),
+    // Background painted by `voucherSurface` LinearGradient below; keep card
+    // itself transparent so the shadow draws around the rounded silhouette.
+    backgroundColor: 'transparent',
     borderWidth: 0.5,
-    borderColor: 'rgba(1,12,53,0.05)',
-    shadowColor: '#010C35',
-    shadowOpacity: 0.22,
-    shadowRadius: 22,
+    borderColor: 'rgba(255,255,255,0.10)',
+    // Shadow color is per-instance (set inline using the card's accentColor)
+    // so each card glows with its own brand tone — red for the BOGO,
+    // coral-orange for the FREEBIE. On the navy backdrop a navy shadow was
+    // invisible; brand-coloured glow gives premium lift without feeling
+    // gaudy at this opacity.
+    shadowOpacity: 0.45,
+    shadowRadius: 28,
     shadowOffset: { width: 0, height: 14 },
-    elevation: 10,
+    elevation: 12,
+  },
+  voucherSurface: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: scale(16),
   },
   voucherStripe: {
     position: 'absolute',
@@ -385,7 +409,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: ms(24),
     paddingTop: ms(4),
-    marginTop: 'auto',
+    marginTop: ms(40),
   },
   headline: {
     fontSize: ms(21),
@@ -412,6 +436,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: ms(24),
     paddingTop: ms(22),
     gap: ms(12),
+    // Auto-margin pushes CTA to the bottom of the screen; the leftover
+    // vertical space now sits between the copy block and the CTA, instead
+    // of between the cards and the copy. Visually breaks the awkward
+    // proximity of "Member prices." and the "Create your free account"
+    // pill that was reading as one chunk.
+    marginTop: 'auto',
   },
   primaryBtn: {
     borderRadius: 50,
