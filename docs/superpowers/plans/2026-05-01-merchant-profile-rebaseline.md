@@ -1,8 +1,8 @@
 # Merchant Profile Rebaseline Plan (Phase 3C.1d → main)
 
-> **Status:** APPROVED 2026-05-01. Owner decisions §9 locked. §13.2 Option A **VERIFIED** on-device 2026-05-01 (Qatar): Location Services denied → Search returns seeded UK merchants (Covelum / Brightlingsea) without GPS → tap-into-merchant becomes navigable as soon as M1 lands. **Ready for M1 implementation start.**
-> **Side-band findings during verification:** Map pins empty even at UK-wide zoom (pre-existing — likely tied to plan §8.2 "no lat/lng on tile contract"). Home feed empty by default (pre-existing — featured/trending/campaigns not seeded). Both are out of scope for this PR; queued as Tier 1 follow-ups.
-> **For agentic workers:** when M1 starts, use `superpowers:subagent-driven-development` (or `superpowers:executing-plans`) — checkbox-driven task breakdown is in §6.
+> **Status:** M1+M2+M3 COMPLETE on `feature/customer-app-merchant-profile`. Ready for owner review + PR.
+> **Owner decisions §9 LOCKED.** §13.2 Option A **VERIFIED** on-device 2026-05-01 (Qatar). M2 on-device QA (Covelum, 2026-05-01) caught the descriptor-wiring bug (raw `primaryCategory.name` instead of server-computed `descriptor`); fixed in `9d660d3` with regression tests pinning §8.1.
+> **Side-band findings during verification:** Map pins empty even at UK-wide zoom (pre-existing — likely tied to plan §8.2 "no lat/lng on tile contract"). Home feed empty by default (pre-existing — featured/trending/campaigns not seeded). Logo/banner/photos/opening-hours/website/reviews empty for all main-seed merchants (UI wired correctly; data-only). All queued in memory `project_merchant_profile_followups.md` — separate Tier 0/1 PRs after this one ships.
 
 **Goal:** Rebaseline the Merchant Profile surface (`/(app)/merchant/[id]`) onto `main` against the unified Plan 1.5 + PR A + PR B + PR C discovery contracts. Same shape as PR C (Map rebaseline): salvage presentational components from `feature/customer-app` (= cefaf45), rebuild data layer + hooks, add tests, ship one PR.
 

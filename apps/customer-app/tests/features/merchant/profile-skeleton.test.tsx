@@ -22,18 +22,40 @@ jest.mock('@/features/merchant/components/MetaSection', () => ({
     )
   },
 }))
+// Real-shape TabBar mock so tab-switching tests can press individual tabs.
 jest.mock('@/features/merchant/components/TabBar', () => ({
-  TabBar: () => null,
+  TabBar: ({ tabs, activeTab, onTabPress }: any) => {
+    const { Text, Pressable, View } = require('react-native')
+    return (
+      <View>
+        {tabs.map((t: { id: string; label: string }) => (
+          <Pressable
+            key={t.id}
+            onPress={() => onTabPress(t.id)}
+            accessibilityLabel={`tab-${t.id}`}
+          >
+            <Text>{t.label}{t.id === activeTab ? '*' : ''}</Text>
+          </Pressable>
+        ))}
+      </View>
+    )
+  },
 }))
 jest.mock('@/features/merchant/components/VouchersTab', () => ({
   VouchersTab: ({ onVoucherPress }: { onVoucherPress: (id: string) => void }) => {
     const { Text, Pressable } = require('react-native')
-    return <Pressable onPress={() => onVoucherPress('v1')} accessibilityLabel="Tap voucher"><Text>VOUCHERS</Text></Pressable>
+    return <Pressable onPress={() => onVoucherPress('v1')} accessibilityLabel="Tap voucher"><Text>VOUCHERS_TAB</Text></Pressable>
   },
 }))
-jest.mock('@/features/merchant/components/AboutTab',    () => ({ AboutTab:    () => null }))
-jest.mock('@/features/merchant/components/BranchesTab', () => ({ BranchesTab: () => null }))
-jest.mock('@/features/merchant/components/ReviewsTab',  () => ({ ReviewsTab:  () => null }))
+jest.mock('@/features/merchant/components/AboutTab',    () => ({
+  AboutTab: () => { const { Text } = require('react-native'); return <Text>ABOUT_TAB</Text> },
+}))
+jest.mock('@/features/merchant/components/BranchesTab', () => ({
+  BranchesTab: () => { const { Text } = require('react-native'); return <Text>BRANCHES_TAB</Text> },
+}))
+jest.mock('@/features/merchant/components/ReviewsTab',  () => ({
+  ReviewsTab: () => { const { Text } = require('react-native'); return <Text>REVIEWS_TAB</Text> },
+}))
 jest.mock('@/features/merchant/components/ContactSheet',     () => ({ ContactSheet:     () => null }))
 jest.mock('@/features/merchant/components/DirectionsSheet',  () => ({ DirectionsSheet:  () => null }))
 jest.mock('@/features/merchant/components/FreeUserGateModal', () => ({
@@ -155,5 +177,54 @@ describe('MerchantProfileScreen (M2)', () => {
     fireEvent.press(await findByLabelText('Tap voucher'))
     expect(await findByText('GATE_VISIBLE')).toBeTruthy()
     expect(router.push).not.toHaveBeenCalled()
+  })
+
+  // ── Tab switching (plan §12 "all 4 tab switches") ────────────────────────────
+  it('renders the Vouchers tab content by default', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
+    const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByText('VOUCHERS_TAB')).toBeTruthy()
+  })
+
+  it('switches to About when the About tab is pressed', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
+    const { findByLabelText, findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
+    fireEvent.press(await findByLabelText('tab-about'))
+    expect(await findByText('ABOUT_TAB')).toBeTruthy()
+    expect(queryByText('VOUCHERS_TAB')).toBeNull()
+  })
+
+  it('hides the Branches tab on a single-branch merchant (intended UX)', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      branches: [{ id: 'b1', name: 'Only', addressLine1: null, addressLine2: null,
+        city: null, postcode: null, latitude: null, longitude: null,
+        phone: null, email: null, distance: null, isOpenNow: true,
+        avgRating: null, reviewCount: 0 }],
+    })
+    const { queryByLabelText, findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByLabelText('tab-vouchers')).toBeTruthy()
+    expect(queryByLabelText('tab-branches')).toBeNull()
+  })
+
+  it('shows the Branches tab and switches to it on a multi-branch merchant', async () => {
+    const branchA = { id: 'b1', name: 'A', addressLine1: null, addressLine2: null,
+      city: null, postcode: null, latitude: null, longitude: null,
+      phone: null, email: null, distance: 1000, isOpenNow: true,
+      avgRating: null, reviewCount: 0 }
+    const branchB = { ...branchA, id: 'b2', name: 'B', distance: 500 }
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({ ...merchant, branches: [branchA, branchB] })
+    const { findByLabelText, findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
+    fireEvent.press(await findByLabelText('tab-branches'))
+    expect(await findByText('BRANCHES_TAB')).toBeTruthy()
+    expect(queryByText('VOUCHERS_TAB')).toBeNull()
+  })
+
+  it('switches to Reviews tab', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
+    const { findByLabelText, findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
+    fireEvent.press(await findByLabelText('tab-reviews'))
+    expect(await findByText('REVIEWS_TAB')).toBeTruthy()
+    expect(queryByText('VOUCHERS_TAB')).toBeNull()
   })
 })
