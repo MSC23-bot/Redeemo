@@ -51,6 +51,7 @@ function VoucherCard({
   saving,
   accentColor,
   accentColorEnd,
+  surfaceColors,
 }: {
   style?: object
   offsetY: SharedValue<number>
@@ -61,6 +62,10 @@ function VoucherCard({
   saving: string
   accentColor: string
   accentColorEnd: string
+  // Two-stop pastel gradient for the card body — top-left highlight to
+  // bottom-right shading. Each card passes its own pair so the two
+  // vouchers read as two distinct pastel personalities.
+  surfaceColors: readonly [string, string]
 }) {
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: offsetY.value }, { rotate: rotateDeg }],
@@ -68,12 +73,11 @@ function VoucherCard({
 
   return (
     <Animated.View style={[styles.voucherCard, { shadowColor: accentColor }, style, animStyle]}>
-      {/* Pastel peach surface — same on both vouchers so the two cards read
-          as a unified design with type-only content variation. Strong
-          top-left → bottom-right gradient gives a clear 3D shading; ties
-          warm-tone-wise to the brand glow on the screen behind. */}
+      {/* Per-card pastel surface gradient. Top-left highlight → bottom-right
+          shading gives a 3D depth on the navy backdrop. Each card passes
+          its own pair from the call site for visual differentiation. */}
       <LinearGradient
-        colors={['#FFEFE2', '#FFCFB3']}
+        colors={[...surfaceColors]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.voucherSurface}
@@ -169,13 +173,11 @@ export function WelcomeScreen() {
         <Text style={styles.wordmark}>Redeemo</Text>
       </View>
 
-      {/* Floating voucher cards. Both cards share the same brand-red accent
-          (stripe / type badge / star / shadow) so they read as two
-          specimens of the same design system rather than two competing
-          colour identities. The TYPE badge text still differentiates
-          FREEBIE / BOGO. */}
+      {/* Floating voucher cards. Two distinct pastel surfaces (mint and
+          rose) give the cards their own personalities while shared
+          brand-red accents keep them both clearly Redeemo. */}
       <View style={styles.cardsContainer}>
-        {/* Back card — FREEBIE */}
+        {/* Back card — FREEBIE — pastel mint surface (cool, fresh) */}
         <VoucherCard
           style={styles.cardBack}
           offsetY={floatBack}
@@ -186,9 +188,10 @@ export function WelcomeScreen() {
           saving="Save £4"
           accentColor="#E20C04"
           accentColorEnd="#E84A00"
+          surfaceColors={['#ECF4EE', '#B5D2C0']}
         />
 
-        {/* Front card — BOGO */}
+        {/* Front card — BOGO — pastel rose surface (warm, sister to brand red) */}
         <VoucherCard
           style={styles.cardFront}
           offsetY={floatFront}
@@ -199,6 +202,7 @@ export function WelcomeScreen() {
           saving="Save £22"
           accentColor="#E20C04"
           accentColorEnd="#E84A00"
+          surfaceColors={['#FDE8EB', '#F0B5BD']}
         />
       </View>
 
