@@ -272,6 +272,11 @@ export function RegisterScreen() {
   // ─── actions ────────────────────────────────────────────────────────────────
 
   function openPicker() {
+    // Explicitly blur the phone input first — iOS's contact-suggestion
+    // keypad ignores Keyboard.dismiss() when the underlying TextInput still
+    // has focus, so the picker would open with the suggestion keypad
+    // overlapping the country list.
+    phoneInputRef.current?.blur()
     Keyboard.dismiss()
     setSearchQuery('')
     setPickerOpen(true)
@@ -606,7 +611,7 @@ export function RegisterScreen() {
                 <TextInput
                   ref={phoneInputRef}
                   style={styles.phoneInput}
-                  placeholder={country.example ?? '7700 900000'}
+                  placeholder={country.example ?? 'Phone number'}
                   placeholderTextColor="#9CA3AF"
                   value={nationalNumber}
                   onChangeText={(v) => {

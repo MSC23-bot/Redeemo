@@ -399,8 +399,10 @@ export function VerifyPhoneScreen() {
   }
 
   function openPicker() {
-    // Dismiss phone keyboard so the picker sheet opens cleanly; the sheet's
-    // search input brings up a fresh keyboard itself.
+    // Dismiss phone keyboard so the picker sheet opens cleanly. Explicit blur
+    // first because iOS's contact-suggestion keypad ignores Keyboard.dismiss()
+    // when the underlying TextInput still has focus.
+    phoneInputRef.current?.blur()
     Keyboard.dismiss()
     setSearchQuery('')
     setPickerOpen(true)
@@ -595,7 +597,7 @@ export function VerifyPhoneScreen() {
                       if (draftError) setDraftError(null)
                       if (error) clearError()
                     }}
-                    placeholder={country.example ?? '7700 900000'}
+                    placeholder={country.example ?? 'Phone number'}
                     placeholderTextColor="#9CA3AF"
                     keyboardType="phone-pad"
                     textContentType="telephoneNumber"
