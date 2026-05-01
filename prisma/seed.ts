@@ -1,4 +1,4 @@
-import { PrismaClient, TagType, TagCreatedBy } from '../generated/prisma/client'
+import { PrismaClient, TagType, TagCreatedBy, VoucherType } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import * as crypto from 'crypto'
 import { encrypt } from '../src/api/shared/encryption'
@@ -326,6 +326,16 @@ async function seedRedundantHighlights(): Promise<void> {
 // duplicate-row inserts that ON CONFLICT DO NOTHING would otherwise skip.
 // ─────────────────────────────────────────────────────────────────────────────
 
+type TestMerchantVoucherSpec = {
+  code: string
+  isMandatory: boolean
+  type: VoucherType
+  title: string
+  description: string
+  terms: string
+  estimatedSaving: number
+}
+
 type TestMerchantSpec = {
   id: string
   businessName: string
@@ -340,6 +350,9 @@ type TestMerchantSpec = {
   highlights: Array<{ label: string; sortOrder: number }>
   // BranchAmenity rows for the merchant's single main branch (branch-level, not merchant-level)
   amenities: string[]
+  // Optional vouchers — older specs predate this field and skip voucher seeding;
+  // newer non-London QA fixtures include the 2 mandatory + N custom set.
+  vouchers?: TestMerchantVoucherSpec[]
   branch: {
     id: string
     name: string
@@ -538,6 +551,124 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       longitude: -0.0571,
       phone: '+442075559090',
       email: 'hackney@wagtailvets.test',
+    },
+  },
+
+  // Non-London QA fixtures (added 2026-05-01) — exercise the scope cascade
+  // when supply is sparse outside London. Both are South Indian restaurants;
+  // 'South Indian' isn't in the locked CUISINE tag set, so the descriptor
+  // resolves as 'Indian Restaurant' (CUISINE 'Indian' + Restaurant suffix)
+  // and the South-Indian specificity lives in the description text. Adding
+  // 'South Indian' to the locked taxonomy is a separate, larger change.
+  {
+    id: 'tax-merchant-covelum-001',
+    businessName: 'Covelum Restaurant',
+    tradingName: 'Covelum',
+    description: 'South Indian restaurant on the Brightlingsea waterfront — dosas, sambar, regional thali plates.',
+    parentCategoryName: 'Food & Drink',
+    subcategoryName: 'Restaurant',
+    primaryDescriptorTag: { label: 'Indian', type: 'CUISINE' },
+    tags: [
+      { label: 'Indian', type: 'CUISINE' },
+      { label: 'Vegetarian-Friendly', type: 'HIGHLIGHT' },
+      { label: 'Family-Friendly', type: 'HIGHLIGHT' },
+      { label: 'Independent', type: 'HIGHLIGHT' },
+    ],
+    highlights: [
+      { label: 'Vegetarian-Friendly', sortOrder: 0 },
+      { label: 'Family-Friendly',     sortOrder: 1 },
+      { label: 'Independent',         sortOrder: 2 },
+    ],
+    amenities: ['Wi-Fi', 'Outdoor Seating'],
+    vouchers: [
+      {
+        code: 'COV-RMV-001',
+        isMandatory: true,
+        type: 'DISCOUNT_PERCENT',
+        title: '10% Off Your First Visit',
+        description: 'Get 10% off your total food bill on your first visit.',
+        terms: 'In-house only. New customers only. Cannot be combined with other offers. Once per cycle.',
+        estimatedSaving: 4.00,
+      },
+      {
+        code: 'COV-RMV-002',
+        isMandatory: true,
+        type: 'BOGO',
+        title: 'Buy One Dosa, Get One Free',
+        description: 'Buy any masala dosa and get a plain dosa of equal or lesser value free.',
+        terms: 'In-house only. Cannot be combined with other offers. Once per cycle.',
+        estimatedSaving: 6.50,
+      },
+      {
+        code: 'COV-RCV-001',
+        isMandatory: false,
+        type: 'FREEBIE',
+        title: 'Free Filter Coffee with Any Thali',
+        description: 'Order any thali plate and get a complimentary South Indian filter coffee.',
+        terms: 'In-house only. Cannot be combined with other offers. Once per cycle.',
+        estimatedSaving: 2.50,
+      },
+    ],
+    branch: {
+      id: 'tax-branch-covelum-001',
+      name: 'Covelum — Brightlingsea',
+      addressLine1: '27 Waterside',
+      city: 'Brightlingsea',
+      postcode: 'CO7 0AY',
+      latitude: 51.8054,
+      longitude: 1.0244,
+      phone: '+441206302700',
+      email: 'hello@covelum.test',
+    },
+  },
+  {
+    id: 'tax-merchant-mykerala-001',
+    businessName: 'My Kerala',
+    tradingName: 'My Kerala',
+    description: 'South Indian restaurant in Ipswich — Kerala specialities, appam, coconut-based curries, fresh seafood.',
+    parentCategoryName: 'Food & Drink',
+    subcategoryName: 'Restaurant',
+    primaryDescriptorTag: { label: 'Indian', type: 'CUISINE' },
+    tags: [
+      { label: 'Indian', type: 'CUISINE' },
+      { label: 'Vegetarian-Friendly', type: 'HIGHLIGHT' },
+      { label: 'Independent',         type: 'HIGHLIGHT' },
+    ],
+    highlights: [
+      { label: 'Vegetarian-Friendly', sortOrder: 0 },
+      { label: 'Independent',         sortOrder: 1 },
+    ],
+    amenities: ['Wi-Fi', 'Online Booking'],
+    vouchers: [
+      {
+        code: 'MYK-RMV-001',
+        isMandatory: true,
+        type: 'DISCOUNT_PERCENT',
+        title: '15% Off Mid-Week Lunch',
+        description: 'Get 15% off your total bill Monday–Thursday lunchtime (12:00–15:00).',
+        terms: 'In-house only. Mon–Thu 12:00–15:00 only. Cannot be combined with other offers. Once per cycle.',
+        estimatedSaving: 5.50,
+      },
+      {
+        code: 'MYK-RMV-002',
+        isMandatory: true,
+        type: 'FREEBIE',
+        title: 'Free Appam with Any Curry',
+        description: 'Order any curry main and get a complimentary appam.',
+        terms: 'In-house only. Cannot be combined with other offers. Once per cycle.',
+        estimatedSaving: 3.00,
+      },
+    ],
+    branch: {
+      id: 'tax-branch-mykerala-001',
+      name: 'My Kerala — Ipswich',
+      addressLine1: "24 St Helen's Street",
+      city: 'Ipswich',
+      postcode: 'IP4 1HJ',
+      latitude: 52.0567,
+      longitude: 1.1664,
+      phone: '+441473200500',
+      email: 'hello@mykerala.test',
     },
   },
 ]
@@ -766,6 +897,31 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
 
     // BranchAmenity rows for this merchant's main branch (branch-level, not merchant-level).
     await linkBranchAmenities(spec.branch.id, spec.amenities)
+
+    // Optional vouchers — older specs predate this field. New specs (e.g. the
+    // non-London QA fixtures) include 2 mandatory + N custom; codes are
+    // namespaced per merchant since voucher.code is globally unique.
+    if (spec.vouchers && spec.vouchers.length > 0) {
+      for (const v of spec.vouchers) {
+        await prisma.voucher.upsert({
+          where: { code: v.code },
+          update: {},
+          create: {
+            merchantId:      spec.id,
+            code:            v.code,
+            isMandatory:     v.isMandatory,
+            type:            v.type,
+            title:           v.title,
+            description:     v.description,
+            terms:           v.terms,
+            estimatedSaving: v.estimatedSaving,
+            status:          'ACTIVE',
+            approvalStatus:  'APPROVED',
+            approvedAt:      new Date(),
+          },
+        })
+      }
+    }
   }
 
   console.log(
