@@ -492,11 +492,11 @@ export function PC1AboutScreen() {
         <View style={s.sheetContent}>
           <Text variant="heading.sm" align="center">Sign out?</Text>
           <Text variant="body.sm" color="secondary" align="center" meta style={{ marginTop: spacing[2] }}>
-            Your progress is saved. You can sign back in at any time to continue.
+            {'Your progress is saved.\nYou can sign back in any time to continue.'}
           </Text>
           <View style={s.sheetActions}>
             <Button
-              variant="danger"
+              variant="primary"
               size="md"
               onPress={() => { setShowSignOutSheet(false); void signOut() }}
             >

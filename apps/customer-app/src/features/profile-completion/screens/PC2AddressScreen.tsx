@@ -464,10 +464,10 @@ export function PC2AddressScreen() {
         <View style={s.sheetContent}>
           <Text variant="heading.sm" align="center">Sign out?</Text>
           <Text variant="body.sm" color="secondary" align="center" meta style={{ marginTop: spacing[2] }}>
-            Your progress is saved. You can sign back in at any time to continue.
+            {'Your progress is saved.\nYou can sign back in any time to continue.'}
           </Text>
           <View style={s.sheetActions}>
-            <Button variant="danger" size="md" onPress={() => { setShowSignOutSheet(false); void signOut() }}>
+            <Button variant="primary" size="md" onPress={() => { setShowSignOutSheet(false); void signOut() }}>
               Sign out
             </Button>
             <Button variant="ghost" size="md" onPress={() => setShowSignOutSheet(false)}>
