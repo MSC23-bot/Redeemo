@@ -9,7 +9,7 @@ import Animated, {
   Easing,
   type SharedValue,
 } from 'react-native-reanimated'
-import Svg, { Path, Rect, Polyline, Line, Defs, RadialGradient, Stop } from 'react-native-svg'
+import Svg, { Path, Rect, Polyline, Line } from 'react-native-svg'
 import { Text } from '@/design-system/Text'
 import { scale, ms } from '@/design-system/scale'
 import { RedeemoLogo } from '../components/RedeemoLogo'
@@ -41,27 +41,6 @@ function StarIcon({ color }: { color: string }) {
   )
 }
 
-// Soft radial brand glow. Real radial gradient via react-native-svg so the
-// blob fades smoothly to fully-transparent on every edge — no hard circular
-// border like a clipped LinearGradient mask leaves. `id` must be unique per
-// instance because SVG `<Defs>` are looked up by id within the Svg root.
-function GlowBlob({
-  id, size, color, peakOpacity = 0.55, style,
-}: { id: string; size: number; color: string; peakOpacity?: number; style?: object }) {
-  return (
-    <Svg width={size} height={size} style={style} pointerEvents="none">
-      <Defs>
-        <RadialGradient id={id} cx="50%" cy="50%" rx="50%" ry="50%" fx="50%" fy="50%">
-          <Stop offset="0%"   stopColor={color} stopOpacity={peakOpacity} />
-          <Stop offset="55%"  stopColor={color} stopOpacity={peakOpacity * 0.25} />
-          <Stop offset="100%" stopColor={color} stopOpacity={0} />
-        </RadialGradient>
-      </Defs>
-      <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${id})`} />
-    </Svg>
-  )
-}
-
 function VoucherCard({
   style,
   offsetY,
@@ -89,11 +68,12 @@ function VoucherCard({
 
   return (
     <Animated.View style={[styles.voucherCard, { shadowColor: accentColor }, style, animStyle]}>
-      {/* Subtle "3D" surface gradient — top-left highlight to bottom-right
-          slightly warmer cream — gives the card a soft depth on the navy
-          backdrop. Sits behind the stripe + content. */}
+      {/* Pastel peach surface — same on both vouchers so the two cards read
+          as a unified design with type-only content variation. Strong
+          top-left → bottom-right gradient gives a clear 3D shading; ties
+          warm-tone-wise to the brand glow on the screen behind. */}
       <LinearGradient
-        colors={['#FFFFFF', '#F2EEE8']}
+        colors={['#FFEFE2', '#FFCFB3']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.voucherSurface}
@@ -162,13 +142,26 @@ export function WelcomeScreen() {
       <StatusBar style="light" />
 
       {/* Ambient brand glow — top-right (red-rose) and bottom-left (coral).
-          True radial gradient via SVG so every edge fades smoothly to navy
-          with no perceptible boundary. Sized larger than the visible portion
-          and offset off-screen so only the soft tail shows on screen. */}
-      <GlowBlob id="glow-tr" size={ms(520)} color="#E20C04" peakOpacity={0.55}
-        style={styles.glowTopRight} />
-      <GlowBlob id="glow-bl" size={ms(440)} color="#E84A00" peakOpacity={0.45}
-        style={styles.glowBottomLeft} />
+          Each is a circular masked LinearGradient blob with the strongest
+          colour at the corner closest to the viewport edge fading to
+          transparent across the diagonal. Owner explicitly preferred this
+          look over a smooth radial fade. */}
+      <View pointerEvents="none" style={styles.glowTopRight}>
+        <LinearGradient
+          colors={['rgba(226,12,4,0.55)', 'rgba(226,12,4,0)']}
+          start={{ x: 0.85, y: 0.15 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+      <View pointerEvents="none" style={styles.glowBottomLeft}>
+        <LinearGradient
+          colors={['rgba(232,74,0,0.45)', 'rgba(232,74,0,0)']}
+          start={{ x: 0.15, y: 0.85 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
 
       {/* Logo */}
       <View style={styles.logoSection}>
@@ -176,7 +169,11 @@ export function WelcomeScreen() {
         <Text style={styles.wordmark}>Redeemo</Text>
       </View>
 
-      {/* Floating voucher cards */}
+      {/* Floating voucher cards. Both cards share the same brand-red accent
+          (stripe / type badge / star / shadow) so they read as two
+          specimens of the same design system rather than two competing
+          colour identities. The TYPE badge text still differentiates
+          FREEBIE / BOGO. */}
       <View style={styles.cardsContainer}>
         {/* Back card — FREEBIE */}
         <VoucherCard
@@ -187,8 +184,8 @@ export function WelcomeScreen() {
           title={'Free Pastry with\nAny Drink'}
           merchant="The Coffee Room · Birmingham"
           saving="Save £4"
-          accentColor="#E84A00"
-          accentColorEnd="#F4A261"
+          accentColor="#E20C04"
+          accentColorEnd="#E84A00"
         />
 
         {/* Front card — BOGO */}
@@ -266,18 +263,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#010C35',
   },
-  // Ambient glow blob position. Size + radial fade come from the SVG itself;
-  // we only position it. Negative offsets place the strongest centre of each
-  // blob just off-screen so only the soft tail extends inward.
+  // Ambient glow blobs — circular-masked LinearGradients. `overflow:hidden` +
+  // matching `borderRadius` clips the rectangular gradient to a soft circle.
   glowTopRight: {
     position: 'absolute',
-    top: -ms(180),
-    right: -ms(180),
+    top: -ms(140),
+    right: -ms(140),
+    width: ms(420),
+    height: ms(420),
+    borderRadius: ms(220),
+    overflow: 'hidden',
   },
   glowBottomLeft: {
     position: 'absolute',
-    bottom: -ms(160),
-    left: -ms(160),
+    bottom: -ms(120),
+    left: -ms(120),
+    width: ms(360),
+    height: ms(360),
+    borderRadius: ms(190),
+    overflow: 'hidden',
   },
   logoSection: {
     alignItems: 'center',
