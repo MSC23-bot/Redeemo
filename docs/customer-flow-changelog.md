@@ -16,6 +16,14 @@ Entries are listed newest first. Each entry must reference the affected file(s) 
 
 ## Entries
 
+### 2026-05-01 — Tier 1 keyboard-insets audit fix: focus-into-view on iOS for tall onboarding forms
+**Change:** Audit of all 13 customer-entry-flow screens (Welcome → SubscribePrompt) found that only `RegisterScreen` had `automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}` on its ScrollView — the iOS 13+ native API that auto-scrolls a focused TextInput into view above the keyboard. Other screens used `KeyboardAvoidingView` alone, which lifts content but does not actively scroll a focused field that's already off-screen into view. Tier 1 (medium-risk screens with tall scrollable forms) fixed in PR #25:
+1. `src/design-system/components/ScreenContainer.tsx` — added `automaticallyAdjustKeyboardInsets` on the ScrollView body when `scroll` prop is true (covers `ResetPasswordScreen` and any other consumer).
+2. `src/features/profile-completion/screens/PC1AboutScreen.tsx` — added on the form ScrollView.
+3. `src/features/profile-completion/screens/PC2AddressScreen.tsx` — added on the form ScrollView.
+Tier 2 (short single-screen forms — Login, ForgotPassword, ResetPassword) deliberately left unchanged unless the focus bug is reproduced; KAV alone is sufficient when the form fits above the keyboard. `VerifyPhoneScreen` deliberately not touched: its main form is a fixed-layout `<View>` (no ScrollView), correct for the short OTP layout. Android equivalent behaviour relies on `softwareKeyboardLayoutMode: 'pan'` already set in `app.config.ts`, pending native rebuild (tracked separately).
+**Reason:** On-device QA on PR #25 surfaced the question "does the field scroll into view while typing" — confirmed the standard expectation is auto-scroll-into-view when a field gains focus, then no further scroll-back if user manually scrolls away. Without `automaticallyAdjustKeyboardInsets`, fields below the fold on tall onboarding forms (PC1/PC2 on small devices or with large Dynamic Type) could be hidden behind the keyboard after focus. Files: `ScreenContainer.tsx`, `PC1AboutScreen.tsx`, `PC2AddressScreen.tsx`. No behavioural change for users not hitting the focus bug — purely additive.
+
 ### 2026-05-01 — On-device QA fixes: register password trap, sheet keyboard gap, empty-blur errors, postcode area label
 **Change:** Four on-device QA findings against PR #25 fixed:
 1. **Register password trap.** `RegisterScreen.tsx` had a `useEffect` that re-focused the first invalid field on every `fieldErrors` change. Combined with the password's `onBlur` validator (which sets a field error itself), tapping into password and blurring to another field re-focused password — the user could not move on. Removed the effect; focus is now applied at submit time only, with API field errors surfaced via a refactored `useRegisterFlow.submit()` that returns `Record<string, FieldError> | null` so the screen can `focusFirstInvalid` after the API rejects.

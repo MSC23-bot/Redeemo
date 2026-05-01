@@ -245,6 +245,9 @@ export function PC1AboutScreen() {
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          // Auto-scroll a focused TextInput into view above the keyboard
+          // (iOS 13+ native behaviour). Pairs with KAV's content lift.
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           // Dismiss date picker when user begins scrolling
           onScrollBeginDrag={dismissDatePicker}
         >

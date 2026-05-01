@@ -18,6 +18,10 @@ export function ScreenContainer({ children, scroll = true, surface = 'page', foo
       <Body
         contentContainerStyle={scroll ? { padding: layout.screenPaddingH, paddingBottom: insets.bottom + spacing[6] } : undefined}
         style={!scroll ? { flex: 1, padding: layout.screenPaddingH, paddingBottom: insets.bottom + spacing[6] } : undefined}
+        // Auto-scroll a focused TextInput into view when it would otherwise
+        // be hidden by the keyboard (iOS 13+ native behaviour). Only valid
+        // on ScrollView, so guarded by the `scroll` prop.
+        {...(scroll ? { automaticallyAdjustKeyboardInsets: Platform.OS === 'ios' } : {})}
       >
         {children}
       </Body>

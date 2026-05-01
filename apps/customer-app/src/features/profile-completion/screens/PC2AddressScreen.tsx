@@ -253,6 +253,9 @@ export function PC2AddressScreen() {
           contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + spacing[7] }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          // Auto-scroll a focused TextInput into view above the keyboard
+          // (iOS 13+ native behaviour). Pairs with KAV's content lift.
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         >
 
           {/* ── Hero ──────────────────────────────────────────────────────── */}
