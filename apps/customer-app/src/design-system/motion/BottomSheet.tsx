@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
-import { Easing, Modal, Pressable, View } from 'react-native'
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated'
+import { Modal, Pressable, View } from 'react-native'
+import Animated, { Easing, useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated'
 import { color, layer, motion, opacity, radius, spacing } from '../tokens'
 import { useMotionScale } from '../useMotionScale'
 
