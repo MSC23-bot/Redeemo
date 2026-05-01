@@ -1,13 +1,15 @@
 # Customer Flow — Current System Spec
 
-- **Version:** v1.0 (locked baseline)
-- **Status:** Locked
-- **Date:** 2026-04-25
+- **Status:** Living document — represents what `main` actually does, not what was once locked.
+- **Last verified against main:** 2026-05-01 (post auth/welcome/onboarding/subscription rebaseline)
 - **Scope:** Customer app (React Native / Expo) + customer website (Next.js)
-- **Surfaces covered:** Login, registration, email/phone verification, profile completion (PC1–PC4), onboarding success, subscription prompt, routing logic, free vs premium placeholder behaviour
-- **Surfaces NOT covered by v1.0:** Home, Discovery, Map, Search, Voucher detail, Merchant profile, Redemption flow / Show-to-Staff, Savings, Favourites, Profile tab. These are **implemented on `feature/customer-app` but not yet reviewed or locked** — they will be locked surface-by-surface in subsequent baselines (v1.1+). Behavioural changes to those surfaces do NOT require a version bump on this document until they are added to "Surfaces covered".
+- **Entry-flow surfaces represented:** Welcome, Login, Registration, Email verification, Phone verification, Forgot/Reset password, Profile completion (PC1–PC4), Onboarding success, Subscription prompt, routing logic, free vs premium placeholder behaviour. **All on `main` post-rebaseline.**
+- **Discovery surfaces represented:** Home, Search, Category, Map (on main via PR B / PR C / PR #20).
+- **Not yet on main (rebaseline pending — implemented on `feature/customer-app` reference branch only):** Merchant profile, Voucher detail, Redemption flow / Show-to-Staff, Savings, Favourites, Profile tab. Behavioural changes to those surfaces do NOT require an update to this document until they land on main.
 
-This document is the single source of truth for the **as-built** behaviour of the customer onboarding + auth + subscription flow. It is not a design proposal and not a redesign. Any future change MUST increment the version number at the top and add an entry to [`docs/customer-flow-changelog.md`](customer-flow-changelog.md).
+> **Living-doc rule (locked operating Rule 4):** Any PR that changes the behaviour of a surface represented above MUST update the relevant section of this document IN THE SAME PR — no doc drift allowed post-merge. Add a dated entry to [`docs/customer-flow-changelog.md`](customer-flow-changelog.md) describing the change. The changelog is the auditable history; this doc is always-current state.
+
+This document is the single source of truth for the **as-built** behaviour of `main` for the listed surfaces. It is not a design proposal and not a redesign. The previous "Locked v1.0" framing was retired on 2026-05-01 because it created drift between the doc (which described feature/customer-app's polish) and main (which only had the placeholder PR #5 baseline). Now the doc and main are aligned.
 
 ---
 
@@ -107,7 +109,7 @@ Stack: `(auth)/profile-completion/_layout.tsx` with four step screens. Step gati
 - Layout (locked): hero, two plan cards (Annual selected by default + Monthly), user-controlled horizontal voucher-type chip strip, "What's included" feature card, fixed footer with two CTAs and trust signal.
 - Plan cards include the line *"Every voucher, from every merchant on Redeemo"* with a check-bullet matching the card's accent colour (amber Annual, green Monthly).
 
-### 7.1 CTA behaviour — locked v1.0
+### 7.1 CTA behaviour — locked contract
 
 | CTA | Function | Calls `markSubscriptionPromptSeen` | Navigates to `/(app)/` |
 |---|---|---|---|
@@ -176,7 +178,7 @@ This asymmetry is intentional. The app is the canonical onboarding surface; the 
 
 The original UX spec is at [`docs/superpowers/specs/2026-04-10-customer-ux-foundations-design.md`](superpowers/specs/2026-04-10-customer-ux-foundations-design.md). Deviations below are tracked in chronological order; reasons are summarised here and reflected in detail in the change log.
 
-| # | Area | Originally planned | Now (v1.0) | Reason |
+| # | Area | Originally planned | Now (on `main`) | Reason |
 |---|---|---|---|---|
 | D1 | Routing | Local onboarding flags consulted in addition to server profile | `resolveRedirect` consumes server profile only; re-evaluated in both layouts on every render | Local flags drifted from server state on multi-device login. Phase 1 reconciliation. |
 | D2 | Web register | Single-page register identical to app | Split into auth + profile + interests; profile fields optional on web | Reduce drop-off on web sign-up where mobile-only fields aren't useful yet. Phase 2 reconciliation. |
@@ -216,12 +218,18 @@ The original UX spec is at [`docs/superpowers/specs/2026-04-10-customer-ux-found
 
 ---
 
-## Versioning
+## Living-doc maintenance
 
-Increment the version number at the top of this file when:
+This document represents the **current state of `main`** for the listed surfaces. It must be kept in sync with code, not version-stamped.
+
+**Update this document in the same PR that changes any of:**
 - A routing rule in `resolveRedirect` is added, removed, or reordered.
 - A field becomes required vs optional (or vice-versa) in PC1–PC4.
 - The subscription prompt CTA contract changes.
 - A web/app asymmetry rule from §10 is collapsed or extended.
+- A new surface lands on `main` (add it to the "represented" list at the top + a new section for its behaviour).
+- An existing surface's user-visible behaviour changes (re-write the section + add a changelog entry).
+
+The companion [`customer-flow-changelog.md`](customer-flow-changelog.md) is the auditable history. Every code change that touches the surfaces above must add a dated entry.
 
 Each version bump must add a corresponding dated entry in [`docs/customer-flow-changelog.md`](customer-flow-changelog.md) referencing the section(s) touched.
