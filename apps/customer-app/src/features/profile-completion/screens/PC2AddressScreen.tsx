@@ -45,6 +45,25 @@ import { useAuthStore } from '@/stores/auth'
 type LookupResult = { area: string; region: string; postcode: string }
 type GpsLocation  = { display: string; isUK: boolean }
 
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+// Pick the most user-recognisable place name from a postcodes.io response.
+// Prefers civil parish (precise — village/town in rural postcodes), then
+// parliamentary constituency (usually matches the post town for urban
+// postcodes when parish is the "X, unparished area" placeholder), then
+// admin district / ward as final fallbacks.
+function pickAreaLabel(r: {
+  parish?: string
+  admin_district?: string
+  admin_ward?: string
+  parliamentary_constituency?: string
+}): string | undefined {
+  if (r.parish && !/\bunparished\s+area\b/i.test(r.parish)) {
+    return r.parish
+  }
+  return r.parliamentary_constituency ?? r.admin_district ?? r.admin_ward
+}
+
 // ─── screen ───────────────────────────────────────────────────────────────────
 
 export function PC2AddressScreen() {
@@ -100,6 +119,7 @@ export function PC2AddressScreen() {
           status: number
           result?: {
             postcode?: string
+            parish?: string
             admin_district?: string
             admin_ward?: string
             parliamentary_constituency?: string
@@ -111,11 +131,14 @@ export function PC2AddressScreen() {
           const r = json.result
           setLookupResult({
             postcode: r.postcode ?? postcodeInput.trim().toUpperCase(),
-            // Prefer parliamentary_constituency — returns the recognisable
-            // post town (e.g. HD1 → "Huddersfield") rather than the council
-            // borough from admin_district (e.g. "Kirklees"), which most users
-            // don't identify with. Fall back to admin_district then ward.
-            area:     r.parliamentary_constituency ?? r.admin_district ?? r.admin_ward ?? postcodeInput.trim().toUpperCase(),
+            // Civil parish is the precise town/village for rural postcodes
+            // (CO7 0UB → "Brightlingsea"). Urban unparished areas return a
+            // placeholder like "Kirklees, unparished area" (HD1 4RU) — skip
+            // those and fall back to parliamentary_constituency, which
+            // usually matches the post town for urban postcodes
+            // (HD1 4RU → "Huddersfield"). Final fallback is the council
+            // district then the ward.
+            area:     pickAreaLabel(r) ?? postcodeInput.trim().toUpperCase(),
             region:   [r.region, r.country].filter(Boolean).join(', '),
           })
         } else {
