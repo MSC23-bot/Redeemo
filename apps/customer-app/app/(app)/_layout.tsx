@@ -5,13 +5,22 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useAuthStore } from '@/stores/auth'
 import { resolveRedirect } from '@/lib/routing'
 import { color, spacing } from '@/design-system'
-import { Home } from '@/design-system/icons'
+import { Home, Map } from '@/design-system/icons'
 
 function HomeIcon({ focused }: { focused: boolean }) {
   return (
     <View style={styles.iconWrapper}>
       {focused && <View style={styles.activeDot} />}
       <Home size={22} color={color.onBrand} style={{ opacity: focused ? 1 : 0.55 }} />
+    </View>
+  )
+}
+
+function MapIcon({ focused }: { focused: boolean }) {
+  return (
+    <View style={styles.iconWrapper}>
+      {focused && <View style={styles.activeDot} />}
+      <Map size={22} color={color.onBrand} style={{ opacity: focused ? 1 : 0.55 }} />
     </View>
   )
 }
@@ -70,6 +79,20 @@ export default function AppLayout() {
           tabBarIcon: ({ focused }) => <HomeIcon focused={focused} />,
         }}
       />
+      <Tabs.Screen
+        name="map"
+        options={{
+          title: 'Map',
+          tabBarIcon: ({ focused }) => <MapIcon focused={focused} />,
+        }}
+      />
+      {/* Hide non-tab routes from auto-discovery so they don't appear as default
+          tabs. Each rebaselined surface (merchant, voucher, favourites,
+          savings, profile) will land its own visible <Tabs.Screen> entry as
+          part of its rebaseline PR. */}
+      <Tabs.Screen name="search"        options={{ href: null }} />
+      <Tabs.Screen name="categories"    options={{ href: null }} />
+      <Tabs.Screen name="category/[id]" options={{ href: null }} />
     </Tabs>
   )
 }
