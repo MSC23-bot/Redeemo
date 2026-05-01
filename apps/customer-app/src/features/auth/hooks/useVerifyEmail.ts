@@ -1,19 +1,12 @@
 import { useEffect } from 'react'
 import { useIsFocused } from '@react-navigation/native'
-import { router } from 'expo-router'
 import { profileApi } from '@/lib/api/profile'
 import { useAuthStore } from '@/stores/auth'
 
 export function useVerifyEmail() {
   const user = useAuthStore((s) => s.user)
   const syncVerificationState = useAuthStore((s) => s.syncVerificationState)
-  let isFocused = true
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    isFocused = useIsFocused()
-  } catch {
-    // not inside a react navigation context — assume focused
-  }
+  const isFocused = useIsFocused()
 
   useEffect(() => {
     if (!isFocused || user?.emailVerified) return
@@ -21,9 +14,13 @@ export function useVerifyEmail() {
       try {
         const me = await profileApi.getMe()
         if (me.emailVerified) {
-          await syncVerificationState({ emailVerified: true })
+          // Sync both flags from the same response — if phoneVerified is already
+          // true (e.g. from a previous session), resolveRedirect will skip
+          // verify-phone and route the user directly to profile completion.
+          await syncVerificationState({ emailVerified: true, phoneVerified: me.phoneVerified })
           clearInterval(id)
-          router.replace('/(auth)/verify-phone')
+          // Navigation is driven by resolveRedirect in (auth)/_layout.tsx —
+          // no explicit router.replace needed.
         }
       } catch { /* ignore */ }
     }, 4000)

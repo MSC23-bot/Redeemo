@@ -45,13 +45,14 @@ jest.mock('react-native-reanimated', () => {
       in: (fn: unknown) => fn,
       linear: (x: number) => x,
     },
-    // Layout-animation entering/exiting helpers used by Home components
-    // (CategoryGrid uses FadeInDown.delay(...).springify()). Test mock just
-    // returns a chainable no-op stub so the props can be evaluated without
-    // running real animations.
-    FadeInDown: { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
-    FadeIn:     { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
-    FadeInUp:   { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
-    FadeOut:    { delay: () => ({ springify: () => ({}), duration: () => ({}) }), duration: () => ({}), springify: () => ({}) },
+    // Layout-animation entering/exiting helpers — chainable no-op stub.
+    // Self-referential so arbitrary chains resolve (e.g. FadeInDown.delay(80)
+    // .duration(300).springify()). Each method returns the same object so any
+    // sequence of `.delay().duration().springify().damping().mass()` etc.
+    // works for the test render without running real animations.
+    FadeInDown: (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    FadeIn:     (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    FadeInUp:   (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
+    FadeOut:    (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
   }
 })
