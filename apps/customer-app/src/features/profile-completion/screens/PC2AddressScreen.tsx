@@ -98,13 +98,24 @@ export function PC2AddressScreen() {
         const res  = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(cleaned)}`)
         const json = await res.json() as {
           status: number
-          result?: { postcode?: string; admin_district?: string; admin_ward?: string; region?: string; country?: string }
+          result?: {
+            postcode?: string
+            admin_district?: string
+            admin_ward?: string
+            parliamentary_constituency?: string
+            region?: string
+            country?: string
+          }
         }
         if (json.status === 200 && json.result) {
           const r = json.result
           setLookupResult({
             postcode: r.postcode ?? postcodeInput.trim().toUpperCase(),
-            area:     r.admin_district ?? r.admin_ward ?? postcodeInput.trim().toUpperCase(),
+            // Prefer parliamentary_constituency — returns the recognisable
+            // post town (e.g. HD1 → "Huddersfield") rather than the council
+            // borough from admin_district (e.g. "Kirklees"), which most users
+            // don't identify with. Fall back to admin_district then ward.
+            area:     r.parliamentary_constituency ?? r.admin_district ?? r.admin_ward ?? postcodeInput.trim().toUpperCase(),
             region:   [r.region, r.country].filter(Boolean).join(', '),
           })
         } else {
