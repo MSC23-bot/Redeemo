@@ -189,16 +189,16 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Savings: lifetime + monthly summary, redemption history with pagination
 - Plan: `docs/superpowers/plans/2026-04-10-customer-api-gaps.md`
 
-### ✅ Phase 3C.1a — Customer App Foundations + Auth (COMPLETE — branch feature/customer-app)
+### ✅ Phase 3C.1a — Customer App Foundations + Auth (COMPLETE on main, with v7 polish rebaseline 2026-05-01)
 - Expo SDK 54 scaffold with expo-router v4, TypeScript strict, design tokens, motion primitives
-- Auth flows: register, login, forgot/reset password, email verification polling, phone OTP verification
-- Four-step profile completion wizard (About / Address / Interests / Avatar) with dismiss semantics
-- Subscribe wall stub (subscribe-prompt + subscribe-soon); subscription purchase deferred
-- Tab bar: Home enabled; Discover/Savings/Profile truly disabled (no onPress, no haptic, accessibilityState.disabled)
-- WCAG 2.1 AA contrast + VoiceOver/TalkBack audit documented
-- Maestro E2E: auth + login flows
-- 68+ tests passing; tsc/eslint clean
-- Plan: `docs/superpowers/plans/2026-04-15-customer-app-foundations-auth.md`
+- Auth flows: Welcome / register / login / forgot+reset password / email verification (polling) / phone OTP verification (with country picker, masked entry, resend timer) — **all v7 polish landed on main 2026-05-01 via the auth/onboarding rebaseline PR.** Apple/Google SSO buttons present but stubbed (`Alert.alert("Coming soon", …)`, no network).
+- Four-step profile completion wizard (PC1 About / PC2 Address with UK postcode lookup / PC3 Interests / PC4 Avatar) with dismiss semantics
+- Subscribe wall: SubscribePromptScreen with the locked CTA contract — premium = alert-only (no stamp, no nav); free = stamp `subscriptionPromptSeenAt` + nav to `/(app)/`. Subscription purchase deferred (Apple IAP / Google Play / Stripe).
+- Tab bar: Home + Map enabled (PRs #20 + #22). Favourites/Savings/Profile pending — each lands a visible tab with its own rebaseline PR.
+- Password validation now requires special character on both client and backend (closes a real client-vs-backend mismatch bug fixed by rebaseline schemas.ts swap).
+- 215 customer-app tests (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts`); tsc clean.
+- Plan: `docs/superpowers/plans/2026-04-15-customer-app-foundations-auth.md` (original Phase 3C.1a baseline)
+- Rebaseline plan (2026-05-01): `docs/superpowers/plans/2026-05-01-auth-onboarding-rebaseline.md` — Tier 2 with M1 + M2 amendments; full traceability of each salvaged file from cefaf45.
 
 ### Phase 3C.1b — Customer App Home + Discovery + Map (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - Home feed: featured merchants, trending merchants, nearby merchants
