@@ -48,18 +48,32 @@ type GpsLocation  = { display: string; isUK: boolean }
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // Pick the most user-recognisable place name from a postcodes.io response.
-// Prefers civil parish (precise — village/town in rural postcodes), then
-// parliamentary constituency (usually matches the post town for urban
-// postcodes when parish is the "X, unparished area" placeholder), then
-// admin district / ward as final fallbacks.
+// The right field varies by region:
+//   - Rural postcodes:  civil parish (CO7 0UB → "Brightlingsea")
+//   - London postcodes: admin_ward (NW2 7UD → "Dollis Hill",
+//                       SW1A 1AA → "St James's") — London is almost entirely
+//                       unparished, and constituencies are politically named
+//                       ("Brent East", "Cities of London and Westminster") so
+//                       wards are the closest match to neighbourhood names
+//                       people actually use.
+//   - Other urban:      parliamentary_constituency usually matches the post
+//                       town when parish is the placeholder
+//                       (HD1 4RU → "Huddersfield"). Wards are too narrow
+//                       outside London (HD1 4RU's ward is "Greenhead").
+// Postcodes.io returns "<district>, unparished area" as a placeholder for
+// unparished zones — we detect that and fall through.
 function pickAreaLabel(r: {
   parish?: string
   admin_district?: string
   admin_ward?: string
   parliamentary_constituency?: string
+  region?: string
 }): string | undefined {
   if (r.parish && !/\bunparished\s+area\b/i.test(r.parish)) {
     return r.parish
+  }
+  if (r.region === 'London' && r.admin_ward) {
+    return r.admin_ward
   }
   return r.parliamentary_constituency ?? r.admin_district ?? r.admin_ward
 }
