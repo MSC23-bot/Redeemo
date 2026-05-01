@@ -169,7 +169,14 @@ export function MerchantProfileScreen({ id }: Props) {
 
         <MetaSection
           businessName={merchant.businessName}
-          category={merchant.primaryCategory?.name ?? null}
+          // Use the server-computed `descriptor` (Plan 1.5 §3.6 — built from
+          // primaryDescriptorTag + subcategory.descriptorSuffix with de-dup)
+          // rather than the raw subcategory name. For Covelum the backend
+          // returns "Indian Restaurant"; the raw `primaryCategory.name` would
+          // be just "Restaurant", which is what was rendering as the bug.
+          // Plan §8.1 explicitly mandates this — descriptor / highlights /
+          // subcategory must come from the server-computed field.
+          category={merchant.descriptor || null}
           avgRating={merchant.avgRating}
           reviewCount={merchant.reviewCount}
           branchName={merchant.nearestBranch?.name ?? null}

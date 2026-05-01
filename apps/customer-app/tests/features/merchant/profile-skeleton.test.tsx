@@ -12,9 +12,14 @@ jest.mock('@/features/merchant/components/HeroSection', () => ({
   },
 }))
 jest.mock('@/features/merchant/components/MetaSection', () => ({
-  MetaSection: ({ businessName }: { businessName: string }) => {
+  MetaSection: ({ businessName, category }: { businessName: string; category: string | null }) => {
     const { Text } = require('react-native')
-    return <Text>META_NAME={businessName}</Text>
+    return (
+      <>
+        <Text>META_NAME={businessName}</Text>
+        <Text>META_CATEGORY={category ?? 'NULL'}</Text>
+      </>
+    )
   },
 }))
 jest.mock('@/features/merchant/components/TabBar', () => ({
@@ -100,6 +105,32 @@ describe('MerchantProfileScreen (M2)', () => {
     const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
     expect(await findByText('META_NAME=The Coffee House')).toBeTruthy()
     expect(await findByText('HERO_FAV=false')).toBeTruthy()
+  })
+
+  // Regression for the on-device "descriptor too generic" bug: the screen
+  // must pass the server-computed `descriptor` field (Plan 1.5 §3.6 — e.g.
+  // "Indian Restaurant" for Covelum) into MetaSection's `category` prop,
+  // NOT the raw `primaryCategory.name` (which would render just
+  // "Restaurant"). See plan §8.1.
+  it('passes merchant.descriptor (NOT primaryCategory.name) to MetaSection', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      descriptor: 'Indian Restaurant',
+      primaryCategory: {
+        id: 'cat-restaurant', name: 'Restaurant',
+        pinColour: null, pinIcon: null, descriptorSuffix: null, parentId: 'cat-food',
+      },
+    })
+    const { findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByText('META_CATEGORY=Indian Restaurant')).toBeTruthy()
+    // The bug shape must NOT be rendered.
+    expect(queryByText('META_CATEGORY=Restaurant')).toBeNull()
+  })
+
+  it('falls through to NULL category when descriptor is empty', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({ ...merchant, descriptor: '' })
+    const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByText('META_CATEGORY=NULL')).toBeTruthy()
   })
 
   it('renders the error block on fetch failure', async () => {
