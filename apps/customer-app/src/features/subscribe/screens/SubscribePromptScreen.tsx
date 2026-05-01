@@ -21,7 +21,7 @@ import {
   RefreshCw,
   BarChart2,
   Gift,
-  Receipt,
+  Wallet,
   Percent,
   Star,
   ShoppingBag,
@@ -54,7 +54,9 @@ type VoucherType = {
 
 const VOUCHER_TYPES: VoucherType[] = [
   { label: 'Buy One\nGet One', desc: 'Get a second\nitem free',          Icon: Gift,        bg: '#FFF0F0', ic: '#E20C04' },
-  { label: 'Spend\n& Save',   desc: 'Unlock discounts\nwhen you spend', Icon: Receipt,     bg: '#EFF6FF', ic: '#2563EB' },
+  // Wallet (was Receipt — Lucide's Receipt icon renders with a "$" on its
+  // body; Redeemo is GBP-only so the dollar glyph is visually wrong).
+  { label: 'Spend\n& Save',   desc: 'Unlock discounts\nwhen you spend', Icon: Wallet,      bg: '#EFF6FF', ic: '#2563EB' },
   { label: 'Discount',        desc: 'Fixed £ or %\noff your bill',      Icon: Percent,     bg: '#FFFBEB', ic: '#D97706' },
   { label: 'Freebie',         desc: 'Claim a free\ngift or item',       Icon: Star,        bg: '#F5F3FF', ic: '#7C3AED' },
   { label: 'Bundle\nDeal',    desc: 'Multi-item deals\nat one price',    Icon: ShoppingBag, bg: '#F0FDFA', ic: '#0D9488' },
