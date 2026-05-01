@@ -3,6 +3,7 @@ import { View, TouchableOpacity, StyleSheet, Alert } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
+import { StatusBar } from 'expo-status-bar'
 import Animated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming,
   Easing,
@@ -15,7 +16,7 @@ import { RedeemoLogo } from '../components/RedeemoLogo'
 
 function AppleIcon() {
   return (
-    <Svg width={16} height={16} viewBox="0 0 24 24" fill="white">
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="#010C35">
       <Path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
     </Svg>
   )
@@ -124,6 +125,31 @@ export function WelcomeScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <StatusBar style="light" />
+
+      {/* Ambient brand glow — top-right (red-rose) and bottom-left (coral). Each
+          is a circular masked LinearGradient blob; the gradient stop positions
+          place the strongest colour at the corner closest to the viewport edge
+          and fade to transparent across the diagonal. Low opacity keeps them
+          atmospheric rather than dominant. Behind everything else (zIndex 0),
+          all real content sits above by virtue of natural document order. */}
+      <View pointerEvents="none" style={styles.glowTopRight}>
+        <LinearGradient
+          colors={['rgba(226,12,4,0.55)', 'rgba(226,12,4,0)']}
+          start={{ x: 0.85, y: 0.15 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+      <View pointerEvents="none" style={styles.glowBottomLeft}>
+        <LinearGradient
+          colors={['rgba(232,74,0,0.45)', 'rgba(232,74,0,0)']}
+          start={{ x: 0.15, y: 0.85 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+
       {/* Logo */}
       <View style={styles.logoSection}>
         <RedeemoLogo size={scale(68)} />
@@ -218,7 +244,27 @@ export function WelcomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#FFF9F5',
+    backgroundColor: '#010C35',
+  },
+  // Ambient glow blobs — circular-masked LinearGradients. `overflow:hidden` +
+  // matching `borderRadius` clips the rectangular gradient to a soft circle.
+  glowTopRight: {
+    position: 'absolute',
+    top: -ms(140),
+    right: -ms(140),
+    width: ms(420),
+    height: ms(420),
+    borderRadius: ms(220),
+    overflow: 'hidden',
+  },
+  glowBottomLeft: {
+    position: 'absolute',
+    bottom: -ms(120),
+    left: -ms(120),
+    width: ms(360),
+    height: ms(360),
+    borderRadius: ms(190),
+    overflow: 'hidden',
   },
   logoSection: {
     alignItems: 'center',
@@ -229,7 +275,7 @@ const styles = StyleSheet.create({
     fontSize: ms(26),
     lineHeight: ms(32),
     fontFamily: 'Lato-Bold',
-    color: '#010C35',
+    color: '#FFFFFF',
     letterSpacing: -0.3,
     marginTop: 0,
   },
@@ -344,7 +390,7 @@ const styles = StyleSheet.create({
   headline: {
     fontSize: ms(21),
     fontFamily: 'Lato-Bold',
-    color: '#010C35',
+    color: '#FFFFFF',
     letterSpacing: -0.3,
     lineHeight: ms(28),
     textAlign: 'center',
@@ -357,7 +403,7 @@ const styles = StyleSheet.create({
   },
   subheadline: {
     fontSize: ms(15),
-    color: '#6B7280',
+    color: 'rgba(255,255,255,0.72)',
     lineHeight: ms(22),
     textAlign: 'center',
     fontFamily: 'Lato-Regular',
@@ -395,12 +441,14 @@ const styles = StyleSheet.create({
     gap: ms(7),
     paddingVertical: ms(14),
     borderRadius: 50,
-    backgroundColor: '#010C35',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
   },
   appleBtnText: {
     fontSize: ms(14),
     fontFamily: 'Lato-Bold',
-    color: '#FFFFFF',
+    color: '#010C35',
   },
   googleBtn: {
     flex: 1,
@@ -427,7 +475,7 @@ const styles = StyleSheet.create({
   },
   signinPrompt: {
     fontSize: ms(14),
-    color: '#9CA3AF',
+    color: 'rgba(255,255,255,0.72)',
     fontFamily: 'Lato-Regular',
   },
   signinLink: {
