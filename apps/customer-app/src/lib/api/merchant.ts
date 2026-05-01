@@ -10,10 +10,17 @@ import { api } from '../api'
 // endpoints (covered in their own clients / future PRs). This module is
 // scoped to the merchant detail read path that Merchant Profile consumes.
 
+// Prisma `BranchOpeningHours` declares both `openTime` and `closeTime` as
+// nullable (`String?`). The backend select returns whatever's in the DB —
+// so closed days legally come back as `{ isClosed: true, openTime: null,
+// closeTime: null }`. PR #28's earlier `z.string()` schema rejected those
+// payloads at the API edge before the consumer (useOpenStatus) could even
+// see them. Field-level nullability fixes the contract; consumers are
+// already defensive about isClosed.
 const openingHourEntrySchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6),
-  openTime:  z.string(),    // "HH:MM"
-  closeTime: z.string(),    // "HH:MM"
+  openTime:  z.string().nullable(),    // "HH:MM" or null on closed days
+  closeTime: z.string().nullable(),    // "HH:MM" or null on closed days
   isClosed:  z.boolean(),
 })
 export type OpeningHourEntry = z.infer<typeof openingHourEntrySchema>
