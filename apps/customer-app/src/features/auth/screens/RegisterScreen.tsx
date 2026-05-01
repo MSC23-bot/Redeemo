@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import {
   Alert,
   FlatList,
@@ -319,19 +319,11 @@ export function RegisterScreen() {
     }
   }
 
-  // Focus the first errored field whenever fieldErrors changes — keeps the
-  // error visible above the keyboard for both LOCAL validation errors AND
-  // API errors (EMAIL_ALREADY_EXISTS, PHONE_ALREADY_EXISTS, etc.). Without
-  // this, an API error appearing after the user has scrolled down past the
-  // errored field would be invisible behind the keyboard or above the
-  // viewport. Combined with the ScrollView's automaticallyAdjustKeyboardInsets,
-  // refocusing brings the field + its inline error card back into view.
-  useEffect(() => {
-    if (Object.keys(fieldErrors).length > 0) {
-      focusFirstInvalid(fieldErrors)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fieldErrors])
+  // Focus is handled at submit-time only (see handleSubmit below). We
+  // deliberately do NOT refocus on every fieldErrors change, because onBlur
+  // validators set field errors themselves — refocusing on each onBlur trapped
+  // the user inside the first invalid field (couldn't move to another input
+  // without filling it).
 
   async function handleSubmit() {
     // Prevent double-submits while a request is in flight.
@@ -360,7 +352,8 @@ export function RegisterScreen() {
     // All local checks passed — re-resolve the e164 phone for the payload.
     const phone = validateNational(country, nationalNumber)
     if (!phone.ok) return // (type-narrow guard, unreachable after checks above)
-    await submit({ firstName, lastName, email, password, phone: phone.e164 })
+    const apiErrors = await submit({ firstName, lastName, email, password, phone: phone.e164 })
+    if (apiErrors) focusFirstInvalid(apiErrors)
   }
 
   const handleSocialAuth = () =>

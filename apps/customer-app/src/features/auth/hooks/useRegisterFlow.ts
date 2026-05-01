@@ -44,20 +44,26 @@ export function useRegisterFlow() {
     })
   }
 
-  async function submit(input: RegisterInput) {
+  // Returns the field-error map when the API rejects with a field error so
+  // the caller can focus the relevant input. Returns null on success or when
+  // the error was surfaced as a toast (no field to focus).
+  async function submit(input: RegisterInput): Promise<Record<string, FieldError> | null> {
     setSubmitting(true)
     setFieldErrorsState({})
     try {
       const res = await authApi.register(input)
       await setTokens({ accessToken: res.accessToken, refreshToken: res.refreshToken })
       router.replace('/(auth)/verify-email')
+      return null
     } catch (e) {
       const mapped = mapError(e)
       if (mapped.surface === 'field' && mapped.field) {
-        setFieldErrorsState({ [mapped.field]: { code: mapped.code, message: mapped.message } })
-      } else {
-        toast.show(mapped.message, 'danger')
+        const errors = { [mapped.field]: { code: mapped.code, message: mapped.message } }
+        setFieldErrorsState(errors)
+        return errors
       }
+      toast.show(mapped.message, 'danger')
+      return null
     } finally {
       setSubmitting(false)
     }
