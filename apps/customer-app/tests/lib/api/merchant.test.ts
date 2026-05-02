@@ -82,6 +82,37 @@ const fullProfile = {
     avgRating:    4.5,
     reviewCount:  12,
   }],
+  // P2.1 fields — required by the updated schema. fullProfile includes a
+  // valid selectedBranch so existing tests continue to pass. The three new
+  // selectedBranch-specific tests override these with their own values.
+  selectedBranch: {
+    id:           'b1',
+    name:         'Main',
+    isMainBranch: true,
+    isActive:     true,
+    addressLine1: '1 High St',
+    addressLine2: null,
+    city:         'London',
+    postcode:     'SW1A 1AA',
+    country:      'GB',
+    latitude:     51.5,
+    longitude:    -0.1,
+    phone:        null,
+    email:        null,
+    websiteUrl:   null,
+    logoUrl:      null,
+    bannerUrl:    null,
+    about:        null,
+    openingHours: [{ dayOfWeek: 1, openTime: '09:00', closeTime: '17:00', isClosed: false }],
+    photos:       ['https://example.com/p1.jpg'],
+    amenities:    [{ id: 'a1', name: 'Wifi', iconUrl: null }],
+    distance:     null,
+    isOpenNow:    true,
+    avgRating:    4.5,
+    reviewCount:  12,
+    myReview:     null,
+  },
+  selectedBranchFallbackReason: 'no-candidate',
 }
 
 describe('merchantApi.getProfile', () => {
@@ -185,6 +216,61 @@ describe('merchantApi.getProfile', () => {
       openingHours: [
         { dayOfWeek: 0, openTime: 1200, closeTime: '22:00', isClosed: false },   // ← number, not string|null
       ],
+    })
+    await expect(merchantApi.getProfile('m1')).rejects.toThrow()
+  })
+
+  // ── selectedBranch + fallbackReason (P2.1) ────────────────────────────────
+
+  const selectedBranchFixture = {
+    id: 'b1', name: 'Brightlingsea',
+    isMainBranch: true, isActive: true,
+    addressLine1: '1 High St', addressLine2: null,
+    city: 'Brightlingsea', postcode: 'CO7 0AA', country: 'GB',
+    latitude: 51.81, longitude: 1.02,
+    phone: null, email: null, websiteUrl: null,
+    logoUrl: null, bannerUrl: null, about: null,
+    openingHours: [
+      { dayOfWeek: 1, openTime: '09:00', closeTime: '17:00', isClosed: false },
+    ],
+    photos: ['https://example.com/p1.jpg'],
+    amenities: [{ id: 'a1', name: 'Wifi', iconUrl: null }],
+    distance: 1500,
+    isOpenNow: true,
+    avgRating: 4.5,
+    reviewCount: 12,
+    myReview: null,
+  }
+
+  it('parses selectedBranch alongside merchant', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      ...fullProfile,                 // existing merchant-shape fixture
+      selectedBranch: selectedBranchFixture,
+      selectedBranchFallbackReason: 'used-candidate',
+    })
+    const r = await merchantApi.getProfile('m1')
+    expect(r.selectedBranch).toBeDefined()
+    expect(r.selectedBranch!.id).toBe('b1')
+    expect(r.selectedBranch!.isOpenNow).toBe(true)
+    expect(r.selectedBranch!.openingHours[0]!.openTime).toBe('09:00')
+  })
+
+  it('accepts selectedBranch=null when all branches suspended', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      ...fullProfile,
+      selectedBranch: null,
+      selectedBranchFallbackReason: 'all-suspended',
+    })
+    const r = await merchantApi.getProfile('m1')
+    expect(r.selectedBranch).toBeNull()
+    expect(r.selectedBranchFallbackReason).toBe('all-suspended')
+  })
+
+  it('rejects when selectedBranch.isOpenNow is missing', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      ...fullProfile,
+      selectedBranch: { ...selectedBranchFixture, isOpenNow: undefined },
+      selectedBranchFallbackReason: 'used-candidate',
     })
     await expect(merchantApi.getProfile('m1')).rejects.toThrow()
   })
