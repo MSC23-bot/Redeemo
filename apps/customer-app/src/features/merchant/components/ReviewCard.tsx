@@ -9,6 +9,11 @@ import type { ReviewItem } from '@/lib/api/reviews'
 
 type Props = {
   review: ReviewItem
+  // When true, the meta line shows " · <branchName>" after the timestamp.
+  // Default false: in branch-scoped view, every card is at the same branch
+  // so the label is redundant noise. In All-branches view, the label is
+  // load-bearing — it tells the user which branch each review is about.
+  showBranchLabel: boolean
   onHelpful?: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -34,7 +39,7 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase()
 }
 
-export function ReviewCard({ review, onHelpful, onEdit, onDelete }: Props) {
+export function ReviewCard({ review, showBranchLabel, onHelpful, onEdit, onDelete }: Props) {
   const initials = getInitials(review.displayName)
   const isOwn = review.isOwnReview
 
@@ -88,7 +93,7 @@ export function ReviewCard({ review, onHelpful, onEdit, onDelete }: Props) {
               `updatedAt = createdAt`, so this is identical for never-edited
               reviews. */}
           <Text variant="label.md" color="tertiary" meta style={styles.date}>
-            {timeAgo(review.updatedAt)} · {review.branchName}
+            {showBranchLabel ? `${timeAgo(review.updatedAt)} · ${review.branchName}` : timeAgo(review.updatedAt)}
           </Text>
         </View>
       </View>

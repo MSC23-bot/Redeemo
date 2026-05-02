@@ -40,7 +40,7 @@ describe('ReviewCard timestamp source', () => {
       updatedAt: '2026-05-02T11:55:00.000Z',  // 5 minutes ago
     }
 
-    const { getByText } = render(<ReviewCard review={editedJustNow} />)
+    const { getByText } = render(<ReviewCard review={editedJustNow} showBranchLabel={false} />)
 
     // Card should show "5m ago" (from updatedAt). If it were reading
     // createdAt, it would say "30d ago" or similar.
@@ -62,7 +62,7 @@ describe('ReviewCard timestamp source', () => {
       updatedAt: '2026-05-02T11:59:00.000Z',
     }
 
-    const { getByText } = render(<ReviewCard review={fresh} />)
+    const { getByText } = render(<ReviewCard review={fresh} showBranchLabel={false} />)
     expect(getByText(/1m ago/)).toBeTruthy()
 
     jest.useRealTimers()
