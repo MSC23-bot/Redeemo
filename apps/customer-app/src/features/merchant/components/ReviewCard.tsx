@@ -105,31 +105,44 @@ export function ReviewCard({ review, onHelpful, onEdit, onDelete }: Props) {
         <Text variant="body.sm" color="secondary" style={styles.text}>{review.comment}</Text>
       )}
 
-      {/* Helpful */}
-      {!isOwn && onHelpful && (
-        <Pressable
-          onPress={() => { lightHaptic(); onHelpful() }}
-          style={[styles.helpful, review.userMarkedHelpful && styles.helpfulActive]}
-          accessibilityLabel={review.userMarkedHelpful ? 'Marked helpful — tap to remove' : 'Mark as helpful'}
-          accessibilityState={{ selected: review.userMarkedHelpful }}
-        >
-          <ThumbsUp
-            size={12}
-            color={review.userMarkedHelpful ? '#16A34A' : '#9CA3AF'}
-            fill={review.userMarkedHelpful ? '#16A34A' : 'none'}
-          />
-          <Text
-            variant="label.md"
-            meta
-            style={[
-              styles.helpfulText,
-              review.userMarkedHelpful && styles.helpfulTextActive,
-            ]}
-          >
-            Helpful{review.helpfulCount > 0 ? ` · ${review.helpfulCount}` : ''}
-          </Text>
-        </Pressable>
-      )}
+      {/* Helpful — different shape per ownership.
+          Own review: read-only count summary (you can't mark your own).
+          Other review: tappable toggle. */}
+      {isOwn
+        ? review.helpfulCount > 0 && (
+            <View style={styles.helpful} accessibilityLabel={`${review.helpfulCount} people found this review helpful`}>
+              <ThumbsUp size={12} color="#9CA3AF" />
+              <Text variant="label.md" meta style={styles.helpfulText}>
+                {review.helpfulCount === 1
+                  ? '1 person found this helpful'
+                  : `${review.helpfulCount} people found this helpful`}
+              </Text>
+            </View>
+          )
+        : onHelpful && (
+            <Pressable
+              onPress={() => { lightHaptic(); onHelpful() }}
+              style={[styles.helpful, review.userMarkedHelpful && styles.helpfulActive]}
+              accessibilityLabel={review.userMarkedHelpful ? 'Marked helpful — tap to remove' : 'Mark as helpful'}
+              accessibilityState={{ selected: review.userMarkedHelpful }}
+            >
+              <ThumbsUp
+                size={12}
+                color={review.userMarkedHelpful ? '#16A34A' : '#9CA3AF'}
+                fill={review.userMarkedHelpful ? '#16A34A' : 'none'}
+              />
+              <Text
+                variant="label.md"
+                meta
+                style={[
+                  styles.helpfulText,
+                  review.userMarkedHelpful && styles.helpfulTextActive,
+                ]}
+              >
+                Helpful{review.helpfulCount > 0 ? ` · ${review.helpfulCount}` : ''}
+              </Text>
+            </Pressable>
+          )}
     </View>
   )
 }

@@ -53,9 +53,33 @@ describe('ReviewCard helpful display', () => {
     expect(onHelpful).toHaveBeenCalledTimes(1)
   })
 
-  it('does NOT render Helpful for the user\'s own review', () => {
+  it('does NOT render the tappable "Helpful" CTA on the user\'s own review', () => {
     const own = { ...baseReview, isOwnReview: true }
+    const { queryByLabelText } = render(<ReviewCard review={own} onHelpful={() => {}} />)
+    expect(queryByLabelText('Mark as helpful')).toBeNull()
+    expect(queryByLabelText(/Marked helpful/)).toBeNull()
+  })
+
+  // Own-review helpful summary — owner-requested PR A round-6 polish.
+  // Hide the tappable button (you can't mark your own as helpful) but show
+  // a read-only count when at least one other user has marked it.
+
+  it('shows a read-only count on own review when helpfulCount > 0 (plural)', () => {
+    const own = { ...baseReview, isOwnReview: true, helpfulCount: 3 }
+    const { getByText } = render(<ReviewCard review={own} onHelpful={() => {}} />)
+    expect(getByText('3 people found this helpful')).toBeTruthy()
+  })
+
+  it('uses singular phrasing when exactly one person found own review helpful', () => {
+    const own = { ...baseReview, isOwnReview: true, helpfulCount: 1 }
+    const { getByText } = render(<ReviewCard review={own} onHelpful={() => {}} />)
+    expect(getByText('1 person found this helpful')).toBeTruthy()
+  })
+
+  it('renders nothing in the helpful slot when own review has 0 helpful marks', () => {
+    const own = { ...baseReview, isOwnReview: true, helpfulCount: 0 }
     const { queryByText } = render(<ReviewCard review={own} onHelpful={() => {}} />)
-    expect(queryByText(/Helpful/)).toBeNull()
+    expect(queryByText(/found this helpful/)).toBeNull()
+    expect(queryByText('Helpful')).toBeNull()
   })
 })
