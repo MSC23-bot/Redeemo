@@ -101,7 +101,13 @@ export function MerchantProfileScreen({ id }: Props) {
     if (isMultiBranch) {
       t.push({ id: 'branches', label: 'Branches', count: merchant?.branches.length ?? 0 })
     }
-    t.push({ id: 'reviews', label: 'Reviews', count: merchant?.reviewCount ?? 0 })
+    // Branch-scoped count matches the Reviews tab's default scope (the
+    // toggle defaults to 'branch'). Showing the merchant-wide aggregate
+    // here while the tab content showed only the selected branch's
+    // reviews was the misleading shape flagged in 2026-05-03 QA. When the
+    // user flips the toggle to 'All branches' the badge under-reports —
+    // an accepted limitation given the toggle lives inside the tab body.
+    t.push({ id: 'reviews', label: 'Reviews', count: merchant?.selectedBranch?.reviewCount ?? merchant?.reviewCount ?? 0 })
     return t
   }, [merchant])
 

@@ -26,18 +26,20 @@ jest.mock('@/features/merchant/components/MetaSection', () => ({
   },
 }))
 // Real-shape TabBar mock so tab-switching tests can press individual tabs.
+// The mock surfaces each tab's `count` so the Reviews-tab-count test (PR #33
+// fix-up) can pin where the badge value comes from.
 jest.mock('@/features/merchant/components/TabBar', () => ({
   TabBar: ({ tabs, activeTab, onTabPress }: any) => {
     const { Text, Pressable, View } = require('react-native')
     return (
       <View>
-        {tabs.map((t: { id: string; label: string }) => (
+        {tabs.map((t: { id: string; label: string; count?: number }) => (
           <Pressable
             key={t.id}
             onPress={() => onTabPress(t.id)}
             accessibilityLabel={`tab-${t.id}`}
           >
-            <Text>{t.label}{t.id === activeTab ? '*' : ''}</Text>
+            <Text>{t.label}({t.count ?? '-'}){t.id === activeTab ? '*' : ''}</Text>
           </Pressable>
         ))}
       </View>
@@ -312,6 +314,18 @@ describe('MerchantProfileScreen (M2)', () => {
     fireEvent.press(await findByLabelText('tab-reviews'))
     expect(await findByText('REVIEWS_TAB')).toBeTruthy()
     expect(queryByText('VOUCHERS_TAB')).toBeNull()
+  })
+
+  // PR #33 fix-up: Reviews tab badge must reflect the *selected branch's*
+  // review count, not the merchant-wide aggregate. Caught in 2026-05-03 QA
+  // — page showed "8" reviews on the tab while the branch had 1. Fixture
+  // has selectedBranch.reviewCount=12 vs merchant.reviewCount=0; if the
+  // pre-fix code path runs the badge would show "Reviews(0)".
+  it('Reviews tab badge uses selectedBranch.reviewCount, not merchant.reviewCount', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
+    const { findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByText(/Reviews\(12\)/)).toBeTruthy()
+    expect(queryByText(/Reviews\(0\)/)).toBeNull()
   })
 
   // ── P2.8 — branch chip / picker / banner / all-suspended wiring ───────────────

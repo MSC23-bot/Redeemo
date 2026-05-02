@@ -157,6 +157,20 @@ describe('reviews routes', () => {
     expect(body.averageRating).toBe(4.3)
     expect(body.totalReviews).toBe(12)
     expect(body.distribution).toBeDefined()
+    // No branchId in the URL → service called with empty opts.
+    expect(getReviewSummary).toHaveBeenLastCalledWith(expect.anything(), 'm1', { branchId: undefined })
+  })
+
+  it('GET /reviews/summary forwards ?branchId= to the service', async () => {
+    ;(getReviewSummary as any).mockResolvedValue({
+      averageRating: 4.0,
+      totalReviews: 1,
+      distribution: { 1: 0, 2: 0, 3: 0, 4: 1, 5: 0 },
+    })
+    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/merchants/m1/reviews/summary?branchId=b-colchester' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().totalReviews).toBe(1)
+    expect(getReviewSummary).toHaveBeenLastCalledWith(expect.anything(), 'm1', { branchId: 'b-colchester' })
   })
 
   it('POST /api/v1/customer/reviews/:reviewId/helpful returns 200 when toggled on', async () => {

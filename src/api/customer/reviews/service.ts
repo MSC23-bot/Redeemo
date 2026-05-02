@@ -241,10 +241,17 @@ export async function reportReview(
 export async function getReviewSummary(
   prisma: PrismaClient,
   merchantId: string,
+  opts: { branchId?: string } = {},
 ) {
+  // When branchId is supplied the where clause additionally pins the row to
+  // that branch AND requires the branch to belong to merchantId. Mismatched
+  // (branchId, merchantId) → zero rows, no error needed (returns the empty
+  // shape: averageRating=0, totalReviews=0, distribution all zero).
   const where: Prisma.ReviewWhereInput = {
     isDeleted: false,
-    branch: { merchantId, isActive: true },
+    branch: opts.branchId
+      ? { id: opts.branchId, merchantId, isActive: true }
+      : { merchantId, isActive: true },
   }
 
   const [total, avgAgg, dist] = await Promise.all([

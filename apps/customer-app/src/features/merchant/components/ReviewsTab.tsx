@@ -28,7 +28,13 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
   // user's filter intent should not be reset by an unrelated chip change.
   const [filter, setFilter] = useState<'branch' | 'all'>('branch')
 
-  const { data: summary, isLoading: summaryLoading } = useReviewSummary(merchantId)
+  // Summary + list share the same branch-scoping rule: when the toggle is
+  // 'branch', both queries pin to currentBranchId; when 'all', both omit
+  // the key. Without this, the rating/breakdown header showed the merchant
+  // aggregate while the list showed branch reviews — the bug surfaced in
+  // 2026-05-03 on-device QA.
+  const branchScope = filter === 'branch' ? { branchId: currentBranchId } : {}
+  const { data: summary, isLoading: summaryLoading } = useReviewSummary(merchantId, branchScope)
   const { data: reviewData, isLoading: reviewsLoading } = useMerchantReviews(
     merchantId,
     {
@@ -37,7 +43,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
       // must be ABSENT from the opts object (not present with value
       // `undefined`) so the query key + URL builder both omit it. The
       // branch-filter test pins this contract.
-      ...(filter === 'branch' ? { branchId: currentBranchId } : {}),
+      ...branchScope,
     },
   )
   const createReview = useCreateReview(merchantId)
