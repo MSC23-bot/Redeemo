@@ -26,11 +26,12 @@ jest.mock('@/features/merchant/components/ReviewSortControl', () => {
   const React = require('react')
   const { Pressable, Text } = require('react-native')
   return {
-    ReviewSortControl: ({ onSortChange }: { onSortChange: (s: 'recent' | 'highest' | 'lowest') => void }) => (
+    ReviewSortControl: ({ onSortChange }: { onSortChange: (s: 'recent' | 'highest' | 'lowest' | 'helpful') => void }) => (
       <>
         <Pressable accessibilityLabel="sort-recent"  onPress={() => onSortChange('recent')}><Text>recent</Text></Pressable>
         <Pressable accessibilityLabel="sort-highest" onPress={() => onSortChange('highest')}><Text>highest</Text></Pressable>
         <Pressable accessibilityLabel="sort-lowest"  onPress={() => onSortChange('lowest')}><Text>lowest</Text></Pressable>
+        <Pressable accessibilityLabel="sort-helpful" onPress={() => onSortChange('helpful')}><Text>helpful</Text></Pressable>
       </>
     ),
   }
@@ -60,16 +61,20 @@ jest.mock('@/features/merchant/hooks/useMerchantReviews', () => ({
         // If pinning were still in place, this would always be first regardless of sort.
         { id: 'r1', branchId: 'b1', branchName: 'Main', displayName: 'Me', rating: 2, comment: null,
           isVerified: false, isOwnReview: true,
-          createdAt: '2026-04-01T00:00:00.000Z', updatedAt: '2026-04-01T00:00:00.000Z' },
+          createdAt: '2026-04-01T00:00:00.000Z', updatedAt: '2026-04-01T00:00:00.000Z',
+          helpfulCount: 0, userMarkedHelpful: false },
         { id: 'r2', branchId: 'b1', branchName: 'Main', displayName: 'A',  rating: 5, comment: null,
           isVerified: false, isOwnReview: false,
-          createdAt: '2026-04-15T00:00:00.000Z', updatedAt: '2026-04-15T00:00:00.000Z' },
+          createdAt: '2026-04-15T00:00:00.000Z', updatedAt: '2026-04-15T00:00:00.000Z',
+          helpfulCount: 1, userMarkedHelpful: false },
         { id: 'r3', branchId: 'b1', branchName: 'Main', displayName: 'B',  rating: 4, comment: null,
           isVerified: false, isOwnReview: false,
-          createdAt: '2026-04-20T00:00:00.000Z', updatedAt: '2026-04-20T00:00:00.000Z' },
+          createdAt: '2026-04-20T00:00:00.000Z', updatedAt: '2026-04-20T00:00:00.000Z',
+          helpfulCount: 8, userMarkedHelpful: false },
         { id: 'r4', branchId: 'b1', branchName: 'Main', displayName: 'C',  rating: 3, comment: null,
           isVerified: false, isOwnReview: false,
-          createdAt: '2026-04-30T00:00:00.000Z', updatedAt: '2026-04-30T00:00:00.000Z' },
+          createdAt: '2026-04-30T00:00:00.000Z', updatedAt: '2026-04-30T00:00:00.000Z',
+          helpfulCount: 3, userMarkedHelpful: false },
       ],
       total: 4,
     },
@@ -120,5 +125,17 @@ describe('ReviewsTab sort respects user selection (no own-review pin)', () => {
     fireEvent.press(api.getByLabelText('sort-lowest'))
     // r1 (own, 2★) IS first here — because its rating is lowest, not because it's pinned.
     expect(readOrder(api)).toEqual(['r1', 'r4', 'r3', 'r2'])
+  })
+
+  // Regression for PR A round-5 QA — sort UI offered "Most helpful" but the
+  // sort logic in ReviewsTab had no case for it, so the comparator returned
+  // 0 (no reorder). Tapping "Most helpful" silently did nothing. Fix: sort
+  // by helpfulCount desc with a recent-update tiebreaker for ties.
+  it('helpful: helpfulCount desc — most-helpful first, ties broken by most-recent', () => {
+    const api = renderTab()
+    fireEvent.press(api.getByLabelText('sort-helpful'))
+    // r3 (8 helpful) > r4 (3) > r2 (1) > r1 (0). Own review r1 lands LAST
+    // because its helpfulCount is lowest, not because of any pinning logic.
+    expect(readOrder(api)).toEqual(['r3', 'r4', 'r2', 'r1'])
   })
 })

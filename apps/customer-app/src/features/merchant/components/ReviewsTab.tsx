@@ -40,6 +40,12 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
     if (sort === 'recent')  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     if (sort === 'highest') return b.rating - a.rating
     if (sort === 'lowest')  return a.rating - b.rating
+    if (sort === 'helpful') {
+      // Primary: helpfulCount desc. Tiebreak by most-recently-updated so
+      // ties (especially zero-vs-zero) feel intentional rather than random.
+      if (b.helpfulCount !== a.helpfulCount) return b.helpfulCount - a.helpfulCount
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    }
     return 0
   })
 
