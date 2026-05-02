@@ -107,9 +107,27 @@ export function ReviewCard({ review, onHelpful, onEdit, onDelete }: Props) {
 
       {/* Helpful */}
       {!isOwn && onHelpful && (
-        <Pressable onPress={() => { lightHaptic(); onHelpful() }} style={styles.helpful} accessibilityLabel="Mark as helpful">
-          <ThumbsUp size={12} color="#9CA3AF" />
-          <Text variant="label.md" color="tertiary" meta style={styles.helpfulText}>Helpful</Text>
+        <Pressable
+          onPress={() => { lightHaptic(); onHelpful() }}
+          style={[styles.helpful, review.userMarkedHelpful && styles.helpfulActive]}
+          accessibilityLabel={review.userMarkedHelpful ? 'Marked helpful — tap to remove' : 'Mark as helpful'}
+          accessibilityState={{ selected: review.userMarkedHelpful }}
+        >
+          <ThumbsUp
+            size={12}
+            color={review.userMarkedHelpful ? '#16A34A' : '#9CA3AF'}
+            fill={review.userMarkedHelpful ? '#16A34A' : 'none'}
+          />
+          <Text
+            variant="label.md"
+            meta
+            style={[
+              styles.helpfulText,
+              review.userMarkedHelpful && styles.helpfulTextActive,
+            ]}
+          >
+            Helpful{review.helpfulCount > 0 ? ` · ${review.helpfulCount}` : ''}
+          </Text>
         </Pressable>
       )}
     </View>
@@ -234,9 +252,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     marginTop: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: 'transparent',
+  },
+  helpfulActive: {
+    backgroundColor: 'rgba(22,163,74,0.08)',
   },
   helpfulText: {
     fontSize: 11,
     fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  helpfulTextActive: {
+    color: '#16A34A',
   },
 })

@@ -25,6 +25,12 @@ const reviewSchema = z.object({
   // non-UTC timezones.
   createdAt:   z.string().datetime(),
   updatedAt:   z.string().datetime(),
+  // Helpful state — backend always returns these on the list endpoint
+  // (default to 0 / false when no rows). Without these, the Helpful
+  // button appears tappable but produces no visible state change because
+  // there's nothing to display.
+  helpfulCount:      z.number().int().min(0),
+  userMarkedHelpful: z.boolean(),
 })
 export type Review = z.infer<typeof reviewSchema>
 // Alias for cefaf45 component imports during M2 salvage.

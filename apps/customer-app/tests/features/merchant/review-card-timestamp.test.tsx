@@ -21,6 +21,8 @@ const baseReview: ReviewItem = {
   isOwnReview: false,
   createdAt:   '2026-04-01T00:00:00.000Z',  // original post — long ago
   updatedAt:   '2026-04-01T00:00:00.000Z',
+  helpfulCount:      0,
+  userMarkedHelpful: false,
 }
 
 describe('ReviewCard timestamp source', () => {

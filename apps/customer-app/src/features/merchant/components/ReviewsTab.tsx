@@ -22,7 +22,7 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
   const { data: reviewData, isLoading: reviewsLoading } = useMerchantReviews(merchantId, { limit: 50 })
   const createReview = useCreateReview(merchantId)
   const deleteReview = useDeleteReview(merchantId)
-  const toggleHelpful = useToggleHelpful()
+  const toggleHelpful = useToggleHelpful(merchantId)
 
   const [sort, setSort] = useState<SortOption>('recent')
   const [showWriteSheet, setShowWriteSheet] = useState(false)
@@ -120,6 +120,7 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
         totalReviews={summary.totalReviews}
         distribution={summary.distribution}
         onWriteReview={() => setShowWriteSheet(true)}
+        hasExistingReview={!!ownReview}
       />
 
       <ReviewSortControl

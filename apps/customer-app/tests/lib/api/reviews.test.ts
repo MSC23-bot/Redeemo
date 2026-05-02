@@ -4,16 +4,18 @@ import { reviewsApi } from '@/lib/api/reviews'
 jest.spyOn(api, 'get')
 
 const review = {
-  id:          'r1',
-  branchId:    'b1',
-  branchName:  'Main',
-  displayName: 'Ada L.',
-  rating:      5,
-  comment:     'Excellent',
-  isVerified:  true,
-  isOwnReview: false,
-  createdAt:   '2026-04-01T00:00:00.000Z',
-  updatedAt:   '2026-04-01T00:00:00.000Z',
+  id:                'r1',
+  branchId:          'b1',
+  branchName:        'Main',
+  displayName:       'Ada L.',
+  rating:            5,
+  comment:           'Excellent',
+  isVerified:        true,
+  isOwnReview:       false,
+  createdAt:         '2026-04-01T00:00:00.000Z',
+  updatedAt:         '2026-04-01T00:00:00.000Z',
+  helpfulCount:      0,
+  userMarkedHelpful: false,
 }
 
 describe('reviewsApi.getMerchantReviews', () => {
@@ -45,6 +47,31 @@ describe('reviewsApi.getMerchantReviews', () => {
   it('rejects a malformed review (rating out of range)', async () => {
     ;(api.get as jest.Mock).mockResolvedValueOnce({ reviews: [{ ...review, rating: 7 }], total: 1 })
     await expect(reviewsApi.getMerchantReviews('m1')).rejects.toThrow()
+  })
+
+  // PR A round-4 — list payload must surface helpful state. Without these
+  // fields the Helpful button looks tappable but produces no visible change
+  // because there's nothing to display.
+  it('rejects a review missing helpfulCount', async () => {
+    const { helpfulCount: _omit, ...partial } = review
+    ;(api.get as jest.Mock).mockResolvedValueOnce({ reviews: [partial], total: 1 })
+    await expect(reviewsApi.getMerchantReviews('m1')).rejects.toThrow()
+  })
+
+  it('rejects a review missing userMarkedHelpful', async () => {
+    const { userMarkedHelpful: _omit, ...partial } = review
+    ;(api.get as jest.Mock).mockResolvedValueOnce({ reviews: [partial], total: 1 })
+    await expect(reviewsApi.getMerchantReviews('m1')).rejects.toThrow()
+  })
+
+  it('parses helpfulCount + userMarkedHelpful from the list response', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      reviews: [{ ...review, helpfulCount: 7, userMarkedHelpful: true }],
+      total: 1,
+    })
+    const r = await reviewsApi.getMerchantReviews('m1')
+    expect(r.reviews[0]!.helpfulCount).toBe(7)
+    expect(r.reviews[0]!.userMarkedHelpful).toBe(true)
   })
 
   // Regression for the datetime contract locked in branch-aware spec §5.6.
