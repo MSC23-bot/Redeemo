@@ -60,6 +60,42 @@ describe('reviewsApi.getMerchantReviews', () => {
     await expect(reviewsApi.getMerchantReviews('m1')).rejects.toThrow()
   })
 
+  // Pin the toggleHelpful contract — backend returns `{ helpful: boolean }`
+  // only (verified against `src/api/customer/reviews/service.ts`). Earlier
+  // scaffolding required a non-existent `success` field, which made every
+  // helpful-tap throw a Zod parse error → generic "Something went wrong"
+  // toast. These regression tests catch a re-introduction of that mismatch.
+  describe('toggleHelpful', () => {
+    let postSpy: jest.SpyInstance
+    beforeEach(() => { postSpy = jest.spyOn(api, 'post').mockReset() })
+
+    it('parses { helpful: true } from the backend', async () => {
+      postSpy.mockResolvedValueOnce({ helpful: true })
+      const r = await reviewsApi.toggleHelpful('rev-1')
+      expect(r).toEqual({ helpful: true })
+    })
+
+    it('parses { helpful: false } from the backend', async () => {
+      postSpy.mockResolvedValueOnce({ helpful: false })
+      const r = await reviewsApi.toggleHelpful('rev-1')
+      expect(r).toEqual({ helpful: false })
+    })
+
+    it('POSTs to the right URL with no body', async () => {
+      postSpy.mockResolvedValueOnce({ helpful: true })
+      await reviewsApi.toggleHelpful('rev with spaces')
+      expect(postSpy.mock.calls[0]![0]).toBe('/api/v1/customer/reviews/rev%20with%20spaces/helpful')
+      expect(postSpy.mock.calls[0]![1]).toBeUndefined()
+    })
+
+    it('rejects when the backend response is missing `helpful`', async () => {
+      // Catches the prior bug where the schema was tolerant of {} or
+      // { success: true } without the actual flag.
+      postSpy.mockResolvedValueOnce({ success: true })
+      await expect(reviewsApi.toggleHelpful('rev-1')).rejects.toThrow()
+    })
+  })
+
   it('accepts an ISO datetime with `Z` suffix (the contract from spec §5.6)', async () => {
     // `Date.toISOString()` always emits the `Z` form; the schema must accept
     // exactly that. We deliberately do NOT exercise +00:00 offset variants —

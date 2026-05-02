@@ -98,10 +98,14 @@ export const reviewsApi = {
 
   /**
    * POST /api/v1/customer/reviews/:reviewId/helpful — toggle helpful flag.
-   * Auth required. Returns whether the helpful flag is now on or off.
+   * Auth required. Backend returns `{ helpful: boolean }` only — no
+   * `success` envelope (verified against `src/api/customer/reviews/
+   * service.ts:toggleHelpful`). Earlier scaffolding assumed a `success`
+   * field that the backend never set, so every tap threw a Zod parse
+   * error and surfaced as a generic "Something went wrong" toast.
    */
-  async toggleHelpful(reviewId: string): Promise<{ success: boolean; helpful: boolean }> {
+  async toggleHelpful(reviewId: string): Promise<{ helpful: boolean }> {
     const res = await api.post<unknown>(`/api/v1/customer/reviews/${encodeURIComponent(reviewId)}/helpful`, undefined)
-    return z.object({ success: z.boolean(), helpful: z.boolean().optional().default(false) }).parse(res)
+    return z.object({ helpful: z.boolean() }).parse(res)
   },
 }

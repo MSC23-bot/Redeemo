@@ -29,17 +29,24 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
 
   const reviews = reviewData?.reviews ?? []
 
-  const sorted = [...reviews].sort((a, b) => {
-    if (sort === 'recent') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  // Sort respects the user's selection across ALL reviews. Own review is NOT
+  // hoisted to the top — the "YOUR REVIEW" badge on the card already
+  // differentiates it visually, and pinning silently overrode the user's
+  // selected sort (a "highest first" view would still show the user's review
+  // first even if it had the lowest rating). If a "Your review" pinned
+  // section is wanted later, that's an explicit UX decision — see
+  // deferred-followups index §H.
+  const orderedReviews = [...reviews].sort((a, b) => {
+    if (sort === 'recent')  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     if (sort === 'highest') return b.rating - a.rating
-    if (sort === 'lowest') return a.rating - b.rating
+    if (sort === 'lowest')  return a.rating - b.rating
     return 0
   })
 
-  const ownReview = sorted.find(r => r.isOwnReview)
-  const orderedReviews = ownReview
-    ? [ownReview, ...sorted.filter(r => !r.isOwnReview)]
-    : sorted
+  // Lookup-only — used by `WriteReviewSheet` to pre-fill the user's existing
+  // rating + comment when they tap "Write a review" on a branch they've
+  // already reviewed. NOT used to reorder the list (see comment above).
+  const ownReview = reviews.find(r => r.isOwnReview)
 
   const handleWriteSubmit = useCallback(async (data: { rating: number; comment?: string }) => {
     if (!defaultBranchId) return
