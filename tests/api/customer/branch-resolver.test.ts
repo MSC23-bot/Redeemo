@@ -27,8 +27,8 @@ describe('resolveSelectedBranch', () => {
   it('falls back to nearest active when the candidate is suspended', () => {
     const branches = [
       mk({ id: 'b1', isActive: false, latitude: 51.5, longitude: -0.1 }),
-      mk({ id: 'b2', latitude: 51.6, longitude: -0.05 }),  // 11 km away from user
-      mk({ id: 'b3', latitude: 51.5, longitude: -0.15 }),  // 3 km away
+      mk({ id: 'b2', latitude: 51.6, longitude: -0.05 }),  // ~12.1 km from user
+      mk({ id: 'b3', latitude: 51.5, longitude: -0.15 }),  // ~2.1 km from user (closer)
     ]
     const r = resolveSelectedBranch(branches, 'b1', 51.5, -0.12)
     expect(r.fallbackReason).toBe('candidate-inactive')

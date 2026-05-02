@@ -1,3 +1,7 @@
+import { haversineMetres } from '../../shared/haversine'
+
+// Pure resolver — no Prisma imports; unit-testable in isolation.
+
 export type ResolvableBranch = {
   id: string
   isActive: boolean
@@ -12,23 +16,9 @@ export type ResolveResult = {
   fallbackReason:
     | 'used-candidate'
     | 'candidate-inactive'
-    | 'candidate-wrong-merchant'
     | 'candidate-not-found'
     | 'no-candidate'
     | 'all-suspended'
-}
-
-// Local copy — service.ts has its own haversineMetres but that file is large
-// and we want the resolver to be unit-testable in isolation. ~6371 km radius.
-function haversineMetres(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const toRad = (d: number) => (d * Math.PI) / 180
-  const R = 6_371_000
-  const dLat = toRad(lat2 - lat1)
-  const dLng = toRad(lng2 - lng1)
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLng / 2) ** 2
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)))
 }
 
 function pickColdOpen(branches: ResolvableBranch[], lat?: number, lng?: number): string | null {
