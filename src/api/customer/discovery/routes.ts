@@ -11,8 +11,9 @@ import { optionalUserId } from '../plugin'
 
 const idParam       = z.object({ id: z.string().min(1) })
 const locationQuery = z.object({
-  lat: z.coerce.number().optional(),
-  lng: z.coerce.number().optional(),
+  lat:    z.coerce.number().optional(),
+  lng:    z.coerce.number().optional(),
+  branch: z.string().optional(),   // optional branchId for selectedBranch resolution
 })
 const searchQuery = z.object({
   q:               z.string().optional(),
@@ -58,11 +59,16 @@ export async function discoveryRoutes(app: FastifyInstance) {
 
   // GET /api/v1/customer/merchants/:id — merchant profile (no auth)
   // Optional bearer token decoded (not verified) to derive isFavourited for authenticated users.
+  // Optional ?branch=<id> forwarded to selectedBranch resolution (P1.3).
   app.get('/api/v1/customer/merchants/:id', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
-    const { lat, lng } = locationQuery.parse(req.query)
+    const { lat, lng, branch } = locationQuery.parse(req.query)
     const userId = optionalUserId(req)
-    const merchant = await getCustomerMerchant(app.prisma, id, userId, { lat: lat ?? undefined, lng: lng ?? undefined })
+    const merchant = await getCustomerMerchant(app.prisma, id, userId, {
+      lat: lat ?? undefined,
+      lng: lng ?? undefined,
+      branchId: branch,
+    })
     return reply.send(merchant)
   })
 

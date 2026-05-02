@@ -15,6 +15,8 @@ import {
   type SupplyTier,
 } from '../../lib/ranking'
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
+import { resolveSelectedBranch } from './branch-resolver'
+import { buildDisplayName } from '../reviews/service'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -505,7 +507,7 @@ export async function getCustomerMerchant(
   prisma: PrismaClient,
   merchantId: string,
   userId: string | null,   // null for guest — returns isFavourited: false
-  opts: { lat?: number; lng?: number } = {},
+  opts: { lat?: number; lng?: number; branchId?: string } = {},
 ) {
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
@@ -539,11 +541,14 @@ export async function getCustomerMerchant(
         orderBy: { createdAt: 'desc' },
       },
       branches: {
-        where: { isActive: true },
+        // No isActive filter — P2 branch picker needs suspended branches (greyed out).
+        // Legacy distance/nearest/rating logic filters to activeBranches locally.
         select: {
-          id: true, name: true, isMainBranch: true,
-          addressLine1: true, addressLine2: true, city: true, postcode: true,
+          id: true, name: true, isMainBranch: true, isActive: true,
+          addressLine1: true, addressLine2: true, city: true, postcode: true, country: true,
           phone: true, email: true, latitude: true, longitude: true,
+          websiteUrl: true, logoUrl: true, bannerUrl: true, about: true,
+          createdAt: true,
           openingHours: {
             select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
             orderBy: { dayOfWeek: 'asc' },
@@ -556,7 +561,7 @@ export async function getCustomerMerchant(
             orderBy: { sortOrder: 'asc' },
           },
         },
-        orderBy: { isMainBranch: 'desc' },
+        orderBy: [{ isActive: 'desc' }, { isMainBranch: 'desc' }, { createdAt: 'asc' }],
       },
     },
   })
@@ -564,6 +569,11 @@ export async function getCustomerMerchant(
   if (!merchant || merchant.status !== MerchantStatus.ACTIVE) {
     throw new AppError('MERCHANT_UNAVAILABLE')
   }
+
+  // activeBranches — used for legacy distance/nearest/rating logic so suspended
+  // branches don't skew the legacy fields. The full merchant.branches (incl.
+  // suspended) is needed for the P2 picker and selectedBranch resolution.
+  const activeBranches = merchant.branches.filter((b: any) => b.isActive)
 
   const branchIds = merchant.branches.map((b: any) => b.id)
   const ratingGroups = branchIds.length > 0
@@ -578,8 +588,12 @@ export async function getCustomerMerchant(
     ratingGroups.map((g: any) => [g.branchId, { avgRating: g._avg.rating, reviewCount: g._count.id }]),
   )
 
+  // Overall merchant rating aggregated across ACTIVE branches only (legacy field)
   let totalRating = 0; let totalCount = 0
   for (const g of ratingGroups as any[]) {
+    // Only count ratings from active branches for the merchant-level avgRating
+    const branch = activeBranches.find((b: any) => b.id === g.branchId)
+    if (!branch) continue
     totalRating += (g._avg.rating ?? 0) * g._count.id
     totalCount  += g._count.id
   }
@@ -596,11 +610,12 @@ export async function getCustomerMerchant(
     isFavourited = fav !== null
   }
 
+  // Legacy distance/nearest — computed from activeBranches only
   let distance: number | null = null
   let nearestBranchId: string | null = null
   const { lat, lng } = opts
   if (lat !== undefined && lng !== undefined) {
-    for (const b of merchant.branches) {
+    for (const b of activeBranches) {
       const bLat = b.latitude !== null ? Number(b.latitude) : null
       const bLng = b.longitude !== null ? Number(b.longitude) : null
       if (bLat === null || bLng === null) continue
@@ -610,8 +625,8 @@ export async function getCustomerMerchant(
   }
 
   const nearestBranch = nearestBranchId
-    ? merchant.branches.find((b: any) => b.id === nearestBranchId) ?? null
-    : (merchant.branches[0] ?? null)
+    ? activeBranches.find((b: any) => b.id === nearestBranchId) ?? null
+    : (activeBranches[0] ?? null)
 
   const nearestHours = nearestBranch?.openingHours ?? []
   const openNow = isOpenNow(nearestHours)
@@ -620,6 +635,7 @@ export async function getCustomerMerchant(
     .map((c: any) => c.category)
     .find((c: any) => c.parentId !== null && c.id !== merchant.primaryCategory?.id) ?? null
 
+  // Legacy photos — flatten across ALL branches (same as before)
   const photos = merchant.branches.flatMap((b: any) => b.photos.map((p: any) => p.url))
 
   // Descriptor + filtered highlights — same logic as the list endpoints (see
@@ -635,6 +651,89 @@ export async function getCustomerMerchant(
     : new Set<string>()
   const descriptor = descriptorForMerchant(merchant as any)
   const visibleHighlights = visibleHighlightsFor((merchant as any).highlights ?? [], redundantSet)
+
+  // ─── selectedBranch (P1.3) ───────────────────────────────────────────────────
+  // Resolve which branch to show in the P2 branch-scoped detail panel.
+  // Validates the ?branch= candidate; falls back gracefully when missing/inactive/foreign.
+  const resolveResult = resolveSelectedBranch(
+    merchant.branches.map((b: any) => ({
+      id: b.id,
+      isActive: b.isActive,
+      isMainBranch: b.isMainBranch,
+      latitude:  b.latitude  !== null ? Number(b.latitude)  : null,
+      longitude: b.longitude !== null ? Number(b.longitude) : null,
+      createdAt: b.createdAt,
+    })),
+    opts.branchId ?? null,
+    opts.lat,
+    opts.lng,
+  )
+
+  const selectedBranchRaw = resolveResult.resolvedBranchId
+    ? merchant.branches.find((b: any) => b.id === resolveResult.resolvedBranchId) ?? null
+    : null
+
+  // Brand-default fallback: branch value takes precedence; merchant value is the default.
+  const fallback = <T>(branchVal: T | null | undefined, merchantVal: T | null | undefined): T | null =>
+    (branchVal !== null && branchVal !== undefined ? branchVal : (merchantVal ?? null)) as T | null
+
+  // Photos: branch photos → merchant gallery fallback (§5.4)
+  const selectedBranchPhotos: string[] = selectedBranchRaw
+    ? (selectedBranchRaw.photos.length > 0
+        ? selectedBranchRaw.photos.map((p: any) => p.url)
+        : photos)  // fall back to merchant gallery
+    : []
+
+  // myReview — null for guests; branch-scoped lookup for authed users.
+  let myReview: ReturnType<typeof buildMyReviewShape> | null = null
+  if (userId && selectedBranchRaw) {
+    const row = await prisma.review.findUnique({
+      where: { userId_branchId: { userId, branchId: selectedBranchRaw.id } },
+      select: {
+        id: true, branchId: true, userId: true, rating: true, comment: true,
+        createdAt: true, updatedAt: true,
+        branch: { select: { name: true } },
+        user:   { select: { firstName: true, lastName: true } },
+        _count: { select: { helpfuls: true } },
+      },
+    })
+    if (row) {
+      const verifiedRow = await prisma.voucherRedemption.findFirst({
+        where: { userId, branchId: selectedBranchRaw.id, isValidated: true },
+        select: { id: true },
+      })
+      myReview = buildMyReviewShape(row, verifiedRow !== null)
+    }
+  }
+
+  const selectedBranch = selectedBranchRaw ? {
+    id:           selectedBranchRaw.id,
+    name:         selectedBranchRaw.name,
+    isMainBranch: selectedBranchRaw.isMainBranch,
+    isActive:     selectedBranchRaw.isActive,
+    addressLine1: selectedBranchRaw.addressLine1, addressLine2: (selectedBranchRaw as any).addressLine2,
+    city: selectedBranchRaw.city, postcode: selectedBranchRaw.postcode,
+    country: (selectedBranchRaw as any).country,
+    latitude:  selectedBranchRaw.latitude  !== null ? Number(selectedBranchRaw.latitude)  : null,
+    longitude: selectedBranchRaw.longitude !== null ? Number(selectedBranchRaw.longitude) : null,
+    phone:      fallback((selectedBranchRaw as any).phone,      null),
+    email:      fallback((selectedBranchRaw as any).email,      null),
+    websiteUrl: fallback((selectedBranchRaw as any).websiteUrl, merchant.websiteUrl),
+    logoUrl:    fallback((selectedBranchRaw as any).logoUrl,    merchant.logoUrl),
+    bannerUrl:  fallback((selectedBranchRaw as any).bannerUrl,  merchant.bannerUrl),
+    about:      fallback((selectedBranchRaw as any).about,      merchant.description),
+    openingHours: selectedBranchRaw.openingHours,
+    photos: selectedBranchPhotos,
+    amenities: selectedBranchRaw.amenities.map((a: any) => a.amenity),
+    distance: (opts.lat !== undefined && opts.lng !== undefined &&
+               selectedBranchRaw.latitude !== null && selectedBranchRaw.longitude !== null)
+      ? haversineMetres(opts.lat, opts.lng, Number(selectedBranchRaw.latitude), Number(selectedBranchRaw.longitude))
+      : null,
+    isOpenNow: isOpenNow(selectedBranchRaw.openingHours),
+    avgRating:   ratingByBranch[selectedBranchRaw.id]?.avgRating   ?? null,
+    reviewCount: ratingByBranch[selectedBranchRaw.id]?.reviewCount ?? 0,
+    myReview,
+  } : null
 
   return {
     ...merchant,
@@ -652,7 +751,7 @@ export async function getCustomerMerchant(
     distance,
     nearestBranch: nearestBranch ? {
       id: nearestBranch.id, name: nearestBranch.name,
-      addressLine1: nearestBranch.addressLine1, addressLine2: nearestBranch.addressLine2,
+      addressLine1: nearestBranch.addressLine1, addressLine2: (nearestBranch as any).addressLine2,
       city: nearestBranch.city, postcode: nearestBranch.postcode,
       latitude:  nearestBranch.latitude  !== null ? Number(nearestBranch.latitude)  : null,
       longitude: nearestBranch.longitude !== null ? Number(nearestBranch.longitude) : null,
@@ -666,6 +765,8 @@ export async function getCustomerMerchant(
     photos,
     branches: merchant.branches.map((b: any) => ({
       id: b.id, name: b.name,
+      isMainBranch: b.isMainBranch,   // NEW — picker needs this
+      isActive: b.isActive,           // NEW — picker needs this to grey out suspended
       addressLine1: b.addressLine1, addressLine2: b.addressLine2,
       city: b.city, postcode: b.postcode,
       latitude:  b.latitude  !== null ? Number(b.latitude)  : null,
@@ -682,6 +783,39 @@ export async function getCustomerMerchant(
       avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
       reviewCount: ratingByBranch[b.id]?.reviewCount ?? 0,
     })),
+    // P1.3 additions — selectedBranch block + fallback reason for client banner
+    selectedBranch,
+    selectedBranchFallbackReason: resolveResult.fallbackReason,
+  }
+}
+
+// ─── Inline helper for myReview shape in getCustomerMerchant ─────────────────
+// Builds the same shape as formatReview() from reviews/service.ts, but for the
+// case where we already know isOwnReview=true and userMarkedHelpful=false.
+function buildMyReviewShape(
+  row: {
+    id: string; branchId: string
+    branch: { name: string }
+    user: { firstName: string | null; lastName: string | null }
+    rating: number; comment: string | null
+    createdAt: Date; updatedAt: Date
+    _count?: { helpfuls: number }
+  },
+  isVerified: boolean,
+) {
+  return {
+    id:               row.id,
+    branchId:         row.branchId,
+    branchName:       row.branch.name,
+    displayName:      buildDisplayName(row.user.firstName, row.user.lastName),
+    rating:           row.rating,
+    comment:          row.comment,
+    isVerified,
+    isOwnReview:      true,
+    createdAt:        row.createdAt.toISOString(),
+    updatedAt:        row.updatedAt.toISOString(),
+    helpfulCount:     row._count?.helpfuls ?? 0,
+    userMarkedHelpful: false,
   }
 }
 

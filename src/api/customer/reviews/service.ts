@@ -1,7 +1,7 @@
 import { PrismaClient, Prisma, ReviewReportReason } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 
-function buildDisplayName(firstName: string | null, lastName: string | null): string {
+export function buildDisplayName(firstName: string | null, lastName: string | null): string {
   if (!firstName) return 'Anonymous'
   if (!lastName) return firstName
   return `${firstName} ${lastName.charAt(0)}.`
@@ -35,7 +35,7 @@ async function batchGetUserHelpfulSet(
   return new Set(rows.map(r => r.reviewId))
 }
 
-function formatReview(
+export function formatReview(
   review: {
     id: string; branchId: string
     branch: { name: string }
