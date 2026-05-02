@@ -80,8 +80,15 @@ export function ReviewCard({ review, onHelpful, onEdit, onDelete }: Props) {
               </View>
             )}
           </View>
+          {/* Show `updatedAt` (most recent activity) rather than `createdAt`. The
+              backend upserts on `@@unique([userId, branchId])` — editing a review
+              updates the same row, so `createdAt` would stay at the original
+              post time. The user's expectation when they JUST edited is "Just
+              now", not "16 hours ago". For first-time creates, Prisma sets
+              `updatedAt = createdAt`, so this is identical for never-edited
+              reviews. */}
           <Text variant="label.md" color="tertiary" meta style={styles.date}>
-            {timeAgo(review.createdAt)} · {review.branchName}
+            {timeAgo(review.updatedAt)} · {review.branchName}
           </Text>
         </View>
       </View>
