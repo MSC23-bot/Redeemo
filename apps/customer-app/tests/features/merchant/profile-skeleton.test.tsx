@@ -12,12 +12,15 @@ jest.mock('@/features/merchant/components/HeroSection', () => ({
   },
 }))
 jest.mock('@/features/merchant/components/MetaSection', () => ({
-  MetaSection: ({ businessName, category }: { businessName: string; category: string | null }) => {
-    const { Text } = require('react-native')
+  MetaSection: ({ businessName, category, onContact }: { businessName: string; category: string | null; onContact: () => void }) => {
+    const { Text, Pressable } = require('react-native')
     return (
       <>
         <Text>META_NAME={businessName}</Text>
         <Text>META_CATEGORY={category ?? 'NULL'}</Text>
+        <Pressable accessibilityLabel="open-contact" onPress={onContact}>
+          <Text>OPEN_CONTACT</Text>
+        </Pressable>
       </>
     )
   },
@@ -56,7 +59,12 @@ jest.mock('@/features/merchant/components/BranchesTab', () => ({
 jest.mock('@/features/merchant/components/ReviewsTab',  () => ({
   ReviewsTab: () => { const { Text } = require('react-native'); return <Text>REVIEWS_TAB</Text> },
 }))
-jest.mock('@/features/merchant/components/ContactSheet',     () => ({ ContactSheet:     () => null }))
+jest.mock('@/features/merchant/components/ContactSheet',     () => ({
+  ContactSheet: ({ visible }: { visible: boolean }) => {
+    const { Text } = require('react-native')
+    return visible ? <Text>CONTACT_SHEET_VISIBLE</Text> : null
+  },
+}))
 jest.mock('@/features/merchant/components/DirectionsSheet',  () => ({ DirectionsSheet:  () => null }))
 jest.mock('@/features/merchant/components/FreeUserGateModal', () => ({
   FreeUserGateModal: ({ visible }: { visible: boolean }) => {
@@ -354,5 +362,51 @@ describe('MerchantProfileScreen (M2)', () => {
       pathname: '/(app)/merchant/[id]',
       params: expect.objectContaining({ id: 'm1', branch: 'b2' }),
     }))
+  })
+
+  // ── P2.8 review fix-up regressions ──────────────────────────────────────────
+  // Sticky-header pin: BranchChip insertion shifted children, but the sticky
+  // index must continue to point at TabBar (now at children index 4) so the
+  // tab bar stays pinned to the top when scrolling. Asserting the prop value
+  // directly via testID is the cheapest signal for this contract.
+  it('pins TabBar sticky via stickyHeaderIndices=[4]', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
+    const { findByTestId } = wrap(<MerchantProfileScreen id="m1" />)
+    const scroll = await findByTestId('merchant-profile-scroll')
+    expect(scroll.props.stickyHeaderIndices).toEqual([4])
+  })
+
+  // Spec §4.7 — switching branch must close any open sheets (state-preservation
+  // contract). The active tab is preserved (not asserted here), but contact /
+  // directions / picker / gate / banner-dismiss state is reset on branchId
+  // change. We simulate the URL flip by mutating mockBranchParam (which
+  // useLocalSearchParams reads) and rerendering — that's the cheapest way to
+  // trigger the useEffect([branchId]) without coupling to expo-router internals.
+  it('closes ContactSheet when the user switches branches', async () => {
+    const branchA = { id: 'b1', name: 'A', isMainBranch: true, isActive: true,
+      addressLine1: null, addressLine2: null,
+      city: null, postcode: null, latitude: null, longitude: null,
+      phone: null, email: null, distance: 1000, isOpenNow: true,
+      avgRating: null, reviewCount: 0 }
+    const branchB = { ...branchA, id: 'b2', name: 'B', isMainBranch: false, distance: 500 }
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValue({
+      ...merchant,
+      branches: [branchA, branchB],
+    })
+    mockBranchParam = 'b1'
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { findByLabelText, findByText, queryByText, rerender } = render(
+      <QueryClientProvider client={qc}><MerchantProfileScreen id="m1" /></QueryClientProvider>
+    )
+    // Open contact sheet via MetaSection's onContact callback.
+    fireEvent.press(await findByLabelText('open-contact'))
+    expect(await findByText('CONTACT_SHEET_VISIBLE')).toBeTruthy()
+    // Simulate a URL flip from ?branch=b1 to ?branch=b2 (what useBranchSelection.select
+    // would trigger via router.replace, then the route reading new search params).
+    mockBranchParam = 'b2'
+    rerender(
+      <QueryClientProvider client={qc}><MerchantProfileScreen id="m1" /></QueryClientProvider>
+    )
+    expect(queryByText('CONTACT_SHEET_VISIBLE')).toBeNull()
   })
 })

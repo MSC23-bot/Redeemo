@@ -93,12 +93,12 @@ export function MerchantProfileScreen({ id }: Props) {
   }, [branchId])
 
   const tabs = useMemo(() => {
-    const isSingleBranch = (merchant?.branches.length ?? 0) <= 1
+    const isMultiBranch = (merchant?.branches.length ?? 0) > 1
     const t: Array<{ id: TabId; label: string; count?: number }> = [
       { id: 'vouchers', label: 'Vouchers', count: merchant?.vouchers.length ?? 0 },
       { id: 'about',    label: 'About' },
     ]
-    if (!isSingleBranch) {
+    if (isMultiBranch) {
       t.push({ id: 'branches', label: 'Branches', count: merchant?.branches.length ?? 0 })
     }
     t.push({ id: 'reviews', label: 'Reviews', count: merchant?.reviewCount ?? 0 })
@@ -213,10 +213,11 @@ export function MerchantProfileScreen({ id }: Props) {
   return (
     <View style={styles.container}>
       <ScrollView
+        testID="merchant-profile-scroll"
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[3]}
+        stickyHeaderIndices={[4]}
       >
         <SuspendedBranchBanner
           visible={showBanner}
@@ -248,9 +249,9 @@ export function MerchantProfileScreen({ id }: Props) {
           branchName={null}
           distance={null}
           isOpenNow={sb.isOpenNow}
-          // hoursText now belongs to BranchChip below — pass empty string
-          // (MetaSection's `hoursText` is non-nullable for legacy reasons).
-          hoursText=""
+          // hoursText now belongs to BranchChip below — null suppresses the
+          // hours line in MetaSection entirely.
+          hoursText={null}
           singleBranchAddress={null}
           hasWebsite={!!(sb.websiteUrl ?? merchant.websiteUrl)}
           onWebsite={handleWebsite}
