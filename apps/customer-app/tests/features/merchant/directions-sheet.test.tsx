@@ -46,8 +46,9 @@ describe('DirectionsSheet distance + travel-time', () => {
 
   it('hides travel time entirely above 100 km and shows whole-mile distance', () => {
     // ~5,124 km — the kind of nonsense the Qatar→UK QA screenshot captured.
+    // 5_124_000 / 1609.34 = 3184.45 → Math.round = 3184. Deterministic.
     const { getByText, queryByText } = renderSheet(5_124_000)
-    expect(getByText(/3184 mi away|3185 mi away/)).toBeTruthy()  // tolerate tiny rounding
+    expect(getByText('3184 mi away')).toBeTruthy()
     expect(queryByText(/min walk/)).toBeNull()
     expect(queryByText(/min drive/)).toBeNull()
   })

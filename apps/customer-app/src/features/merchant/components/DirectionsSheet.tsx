@@ -48,7 +48,7 @@ function estimateTravelTime(metres: number | null): string | null {
 
 export function DirectionsSheet({ visible, onDismiss, address, distance, latitude, longitude }: Props) {
   const distText = formatDistance(distance)
-  const walkText = estimateTravelTime(distance)
+  const travelText = estimateTravelTime(distance)
 
   const handleGetDirections = () => {
     lightHaptic()
@@ -79,7 +79,7 @@ export function DirectionsSheet({ visible, onDismiss, address, distance, latitud
           <View style={styles.distRow}>
             <MapPin size={14} color={color.brandRose} />
             <Text variant="body.sm" color="secondary" style={styles.distText}>
-              {[distText, walkText].filter(Boolean).join(' · ')}
+              {[distText, travelText].filter(Boolean).join(' · ')}
             </Text>
           </View>
 

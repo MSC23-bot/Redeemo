@@ -60,8 +60,11 @@ describe('reviewsApi.getMerchantReviews', () => {
     await expect(reviewsApi.getMerchantReviews('m1')).rejects.toThrow()
   })
 
-  it('accepts ISO-Z createdAt and ISO with explicit +00:00 offset', async () => {
-    // z.string().datetime() accepts both UTC-Z and explicit offset forms.
+  it('accepts an ISO datetime with `Z` suffix (the contract from spec §5.6)', async () => {
+    // `Date.toISOString()` always emits the `Z` form; the schema must accept
+    // exactly that. We deliberately do NOT exercise +00:00 offset variants —
+    // the spec's contract is "ISO with Z", and accepting other forms would
+    // weaken it.
     ;(api.get as jest.Mock).mockResolvedValueOnce({
       reviews: [
         { ...review, id: 'r1', createdAt: '2026-04-01T00:00:00.000Z', updatedAt: '2026-04-01T00:00:00.000Z' },

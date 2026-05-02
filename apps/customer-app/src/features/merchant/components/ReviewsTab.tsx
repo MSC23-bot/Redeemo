@@ -59,7 +59,12 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => { void deleteReview.mutateAsync({ branchId, reviewId }) },
+          onPress: () => {
+            // Global MutationCache onError surfaces failure as a toast (project
+            // convention). The local catch is just to mark the rejection as
+            // handled and silence the unhandled-promise-rejection warning.
+            deleteReview.mutateAsync({ branchId, reviewId }).catch(() => {})
+          },
         },
       ],
     )
