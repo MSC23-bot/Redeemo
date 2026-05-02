@@ -53,6 +53,37 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
   const [sort, setSort] = useState<SortOption>('recent')
   const [showWriteSheet, setShowWriteSheet] = useState(false)
 
+  // Per-card edit target. When set, the WriteReviewSheet pre-fills from this
+  // record AND the submit hits this record's branchId — NOT the chip-selected
+  // branch. Required because in 'all' view the user may tap Edit on a review
+  // for a branch other than the chip-selected one; without per-card targeting
+  // the submit silently overwrites the chip branch's review with the form data
+  // and leaves the intended target unchanged. (PR #33 high-priority fix.)
+  const [editing, setEditing] = useState<{
+    branchId:   string
+    branchName: string
+    rating:     number
+    comment:    string
+  } | null>(null)
+
+  const openWriteForCurrentBranch = () => {
+    setEditing(null)
+    setShowWriteSheet(true)
+  }
+  const openEditForCard = (review: Review) => {
+    setEditing({
+      branchId:   review.branchId,
+      branchName: review.branchName,
+      rating:     review.rating,
+      comment:    review.comment ?? '',
+    })
+    setShowWriteSheet(true)
+  }
+  const closeSheet = () => {
+    setShowWriteSheet(false)
+    setEditing(null)
+  }
+
   // Reset sort on toggle flip (spec §4.5; brainstorm Q5: "Pagination + sort:
   // reset on toggle flip"). Pagination state isn't in this component yet —
   // the limit-50 single fetch is a TODO for a later phase — so only `sort`
@@ -84,9 +115,13 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
   })
 
   const handleWriteSubmit = useCallback(async (data: { rating: number; comment?: string }) => {
-    await createReview.mutateAsync({ branchId: currentBranchId, ...data })
+    // editing.branchId wins when present (per-card edit from any view); else
+    // the chip-selected branch is the target (new review or edit-current).
+    const targetBranchId = editing?.branchId ?? currentBranchId
+    await createReview.mutateAsync({ branchId: targetBranchId, ...data })
     setShowWriteSheet(false)
-  }, [currentBranchId, createReview])
+    setEditing(null)
+  }, [editing, currentBranchId, createReview])
 
   const handleDelete = useCallback((branchId: string, reviewId: string) => {
     // Native two-button confirm before destructive action — review delete is
@@ -147,31 +182,55 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
   }
 
   if (!summary || summary.totalReviews === 0) {
+    // Branch-aware empty state. Spec §4.5 + Q5 lock:
+    //   - branch-scoped + zero for this branch → "Be the first to review
+    //     <branch>" + subtle "See reviews from other branches" link so users
+    //     discover the toggle without forced cross-navigation
+    //   - 'all' + zero everywhere → "No reviews yet" + CTA, no cross-link
+    // The toggle itself is rendered in BOTH empty states so the user is never
+    // stuck — without it, a branch-scoped empty page hides the only path to
+    // view other branches' reviews.
+    const isBranchScoped = filter === 'branch'
     return (
       <View style={styles.container}>
-        <View style={styles.emptyText}>
-          <Text variant="heading.md" color="secondary" align="center">No reviews yet</Text>
-          <Text variant="body.sm" color="tertiary" meta align="center" style={{ marginTop: 8 }}>
-            Be the first to review this merchant
-          </Text>
-        </View>
         {isAuthed && summary && (
           <ReviewSummary
             averageRating={0}
             totalReviews={0}
             distribution={{ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }}
-            onWriteReview={() => setShowWriteSheet(true)}
+            onWriteReview={openWriteForCurrentBranch}
             hasExistingReview={myReview !== null}
           />
         )}
+
+        {renderToggle()}
+
+        <View style={styles.emptyText}>
+          <Text variant="heading.md" color="secondary" align="center">
+            {isBranchScoped ? `Be the first to review ${currentBranchName}` : 'No reviews yet'}
+          </Text>
+          {isBranchScoped && (
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="See reviews from other branches"
+              onPress={() => setFilter('all')}
+              style={styles.crossLink}
+            >
+              <Text variant="label.md" style={styles.crossLinkText}>
+                See reviews from other branches
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
         <WriteReviewSheet
           visible={showWriteSheet}
-          onDismiss={() => setShowWriteSheet(false)}
+          onDismiss={closeSheet}
           onSubmit={handleWriteSubmit}
           isLoading={createReview.isPending}
-          branchName={currentBranchName}
-          initialRating={myReview?.rating ?? 0}
-          initialComment={myReview?.comment ?? ''}
+          branchName={editing?.branchName ?? currentBranchName}
+          initialRating={editing?.rating ?? myReview?.rating ?? 0}
+          initialComment={editing?.comment ?? myReview?.comment ?? ''}
         />
       </View>
     )
@@ -183,7 +242,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         averageRating={summary.averageRating}
         totalReviews={summary.totalReviews}
         distribution={summary.distribution}
-        onWriteReview={() => setShowWriteSheet(true)}
+        onWriteReview={openWriteForCurrentBranch}
         hasExistingReview={myReview !== null}
       />
 
@@ -202,7 +261,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
             review={review}
             showBranchLabel={filter === 'all'}
             {...(isAuthed         ? { onHelpful: () => toggleHelpful.mutate(review.id) } : {})}
-            {...(review.isOwnReview ? { onEdit:    () => setShowWriteSheet(true) } : {})}
+            {...(review.isOwnReview ? { onEdit:    () => openEditForCard(review) } : {})}
             {...(review.isOwnReview ? { onDelete:  () => handleDelete(review.branchId, review.id) } : {})}
           />
         ))}
@@ -210,12 +269,12 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
 
       <WriteReviewSheet
         visible={showWriteSheet}
-        onDismiss={() => setShowWriteSheet(false)}
+        onDismiss={closeSheet}
         onSubmit={handleWriteSubmit}
         isLoading={createReview.isPending}
-        branchName={currentBranchName}
-        initialRating={myReview?.rating ?? 0}
-        initialComment={myReview?.comment ?? ''}
+        branchName={editing?.branchName ?? currentBranchName}
+        initialRating={editing?.rating ?? myReview?.rating ?? 0}
+        initialComment={editing?.comment ?? myReview?.comment ?? ''}
       />
     </View>
   )
@@ -232,6 +291,14 @@ const styles = StyleSheet.create({
   emptyText: {
     paddingVertical: 40,
     alignItems: 'center',
+  },
+  crossLink: {
+    marginTop: 12,
+  },
+  crossLinkText: {
+    color: color.brandRose,
+    textDecorationLine: 'underline',
+    fontSize: 12,
   },
   reviewList: {
     gap: 12,
