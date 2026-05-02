@@ -4,6 +4,7 @@ import { profileApi } from '@/lib/api/profile'
 import { prefsStorage, secureStorage } from '@/lib/storage'
 import { setHapticsEnabled } from '@/design-system/haptics'
 import { setTokens as apiSetTokens } from '@/lib/api'
+import { clearAllQueries } from '@/lib/query-client'
 import { stepIndex, type ProfileStep } from '@/features/profile-completion/steps'
 
 export type AuthStatus = 'bootstrapping' | 'unauthenticated' | 'authed'
@@ -136,8 +137,11 @@ export const useAuthStore = create<State>((set, get) => ({
       const onboarding = await loadOnboarding(me.id)
       set({ status: 'authed', user: minimal, accessToken: access, refreshToken: refresh, onboarding })
     } catch {
+      // Bootstrap failure → treat as a forced sign-out so any cached data
+      // from a prior session can't leak. See `clearAllQueries` doc comment.
       apiSetTokens({ accessToken: null, refreshToken: null })
       await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
+      clearAllQueries()
       set({ status: 'unauthenticated', user: null, accessToken: null, refreshToken: null })
     }
   },
@@ -150,12 +154,22 @@ export const useAuthStore = create<State>((set, get) => ({
     }
     await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
     apiSetTokens({ accessToken: null, refreshToken: null })
+    // CRITICAL: wipe the React Query cache before flipping auth state. Reviews,
+    // favourites, profile, savings and any other user-scoped resources bake the
+    // current user's identity into their payload (`isOwnReview`, `isFavourited`,
+    // `myReview`, etc.). Without clearing, the next user briefly sees the
+    // previous user's cached data — including their own-review flag, which
+    // makes someone else's review look editable. (Discovered 2026-05-02 QA.)
+    clearAllQueries()
     set({ status: 'unauthenticated', user: null, accessToken: null, refreshToken: null, onboarding: INITIAL_ONBOARDING })
   },
 
   async clearLocalAuth() {
     await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
     apiSetTokens({ accessToken: null, refreshToken: null })
+    // Same reasoning as signOut — see comment there. This path runs when the
+    // API client gets a 401 it couldn't refresh (forced session expiry).
+    clearAllQueries()
     set({ status: 'unauthenticated', user: null, accessToken: null, refreshToken: null, onboarding: INITIAL_ONBOARDING })
   },
 
@@ -188,6 +202,14 @@ export const useAuthStore = create<State>((set, get) => ({
   },
 
   async setTokens({ accessToken, refreshToken, user }) {
+    // Clear any cached query data BEFORE installing the new session. This is
+    // belt-and-braces — signOut + clearLocalAuth already clear, and the
+    // normal login flow goes through one of those first. But if a fresh
+    // login is somehow triggered without an explicit sign-out (e.g. a deep
+    // link that lands on auth-success), this guarantees the new user starts
+    // with an empty cache. Cost: zero — the cache is already meant to be
+    // empty at this point in any well-formed flow.
+    clearAllQueries()
     await secureStorage.set('accessToken', accessToken)
     await secureStorage.set('refreshToken', refreshToken)
     apiSetTokens({ accessToken, refreshToken })

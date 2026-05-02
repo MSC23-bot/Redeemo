@@ -105,7 +105,7 @@ describe('useToggleHelpful', () => {
   it('happy path: forwards reviewId', async () => {
     ;(reviewsApi.toggleHelpful as jest.Mock).mockResolvedValueOnce({ success: true, helpful: true })
     const { Wrap } = makeWrapper()
-    const { result } = renderHook(() => useToggleHelpful(), { wrapper: Wrap })
+    const { result } = renderHook(() => useToggleHelpful('m1'), { wrapper: Wrap })
     await act(async () => { await result.current.mutateAsync('r1') })
     expect(reviewsApi.toggleHelpful).toHaveBeenCalledWith('r1')
   })
@@ -113,7 +113,7 @@ describe('useToggleHelpful', () => {
   it('error path: rejects', async () => {
     ;(reviewsApi.toggleHelpful as jest.Mock).mockRejectedValueOnce(new Error('rate limited'))
     const { Wrap } = makeWrapper()
-    const { result } = renderHook(() => useToggleHelpful(), { wrapper: Wrap })
+    const { result } = renderHook(() => useToggleHelpful('m1'), { wrapper: Wrap })
     await act(async () => {
       await expect(result.current.mutateAsync('r1')).rejects.toThrow('rate limited')
     })

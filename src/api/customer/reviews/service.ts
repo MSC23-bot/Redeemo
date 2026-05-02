@@ -19,6 +19,22 @@ async function batchGetVerifiedSet(
   return new Set(redemptions.map(r => `${r.userId}:${r.branchId}`))
 }
 
+// Which of the given reviewIds has the user marked as helpful? Returns a Set
+// of reviewId for O(1) lookup. Empty when the user is unauthenticated or the
+// review list is empty — both are valid no-ops.
+async function batchGetUserHelpfulSet(
+  prisma: PrismaClient,
+  userId: string | null,
+  reviewIds: string[],
+): Promise<Set<string>> {
+  if (userId === null || reviewIds.length === 0) return new Set()
+  const rows = await prisma.reviewHelpful.findMany({
+    where:  { userId, reviewId: { in: reviewIds } },
+    select: { reviewId: true },
+  })
+  return new Set(rows.map(r => r.reviewId))
+}
+
 function formatReview(
   review: {
     id: string; branchId: string
@@ -26,20 +42,28 @@ function formatReview(
     user: { firstName: string | null; lastName: string | null }
     rating: number; comment: string | null
     createdAt: Date; updatedAt: Date
+    _count?: { helpfuls: number }
   },
-  opts: { isVerified: boolean; requestingUserId: string | null; reviewUserId: string },
+  opts: {
+    isVerified: boolean
+    requestingUserId: string | null
+    reviewUserId: string
+    userMarkedHelpful: boolean
+  },
 ) {
   return {
-    id:          review.id,
-    branchId:    review.branchId,
-    branchName:  review.branch.name,
-    displayName: buildDisplayName(review.user.firstName, review.user.lastName),
-    rating:      review.rating,
-    comment:     review.comment,
-    isVerified:  opts.isVerified,
-    isOwnReview: opts.requestingUserId !== null && opts.requestingUserId === opts.reviewUserId,
-    createdAt:   review.createdAt.toISOString(),
-    updatedAt:   review.updatedAt.toISOString(),
+    id:                 review.id,
+    branchId:           review.branchId,
+    branchName:         review.branch.name,
+    displayName:        buildDisplayName(review.user.firstName, review.user.lastName),
+    rating:             review.rating,
+    comment:            review.comment,
+    isVerified:         opts.isVerified,
+    isOwnReview:        opts.requestingUserId !== null && opts.requestingUserId === opts.reviewUserId,
+    createdAt:          review.createdAt.toISOString(),
+    updatedAt:          review.updatedAt.toISOString(),
+    helpfulCount:       review._count?.helpfuls ?? 0,
+    userMarkedHelpful:  opts.userMarkedHelpful,
   }
 }
 
@@ -48,6 +72,7 @@ const REVIEW_SELECT = {
   createdAt: true, updatedAt: true,
   branch: { select: { name: true } },
   user:   { select: { firstName: true, lastName: true } },
+  _count: { select: { helpfuls: true } },
 } as const
 
 type ReviewRow = Prisma.ReviewGetPayload<{ select: typeof REVIEW_SELECT }>
@@ -74,13 +99,17 @@ export async function listMerchantReviews(
     prisma.review.count({ where }),
   ])
 
-  const verifiedSet = await batchGetVerifiedSet(prisma, reviews.map(r => ({ userId: r.userId, branchId: r.branchId })))
+  const [verifiedSet, helpfulSet] = await Promise.all([
+    batchGetVerifiedSet(prisma, reviews.map(r => ({ userId: r.userId, branchId: r.branchId }))),
+    batchGetUserHelpfulSet(prisma, params.requestingUserId, reviews.map(r => r.id)),
+  ])
 
   const formatted = reviews.map(r =>
     formatReview(r, {
-      isVerified: verifiedSet.has(`${r.userId}:${r.branchId}`),
-      requestingUserId: params.requestingUserId,
-      reviewUserId: r.userId,
+      isVerified:        verifiedSet.has(`${r.userId}:${r.branchId}`),
+      requestingUserId:  params.requestingUserId,
+      reviewUserId:      r.userId,
+      userMarkedHelpful: helpfulSet.has(r.id),
     }),
   )
 
@@ -112,13 +141,17 @@ export async function listBranchReviews(
     prisma.review.count({ where }),
   ])
 
-  const verifiedSet = await batchGetVerifiedSet(prisma, reviews.map(r => ({ userId: r.userId, branchId: r.branchId })))
+  const [verifiedSet, helpfulSet] = await Promise.all([
+    batchGetVerifiedSet(prisma, reviews.map(r => ({ userId: r.userId, branchId: r.branchId }))),
+    batchGetUserHelpfulSet(prisma, params.requestingUserId, reviews.map(r => r.id)),
+  ])
 
   const formatted = reviews.map(r =>
     formatReview(r, {
-      isVerified: verifiedSet.has(`${r.userId}:${r.branchId}`),
-      requestingUserId: params.requestingUserId,
-      reviewUserId: r.userId,
+      isVerified:        verifiedSet.has(`${r.userId}:${r.branchId}`),
+      requestingUserId:  params.requestingUserId,
+      reviewUserId:      r.userId,
+      userMarkedHelpful: helpfulSet.has(r.id),
     }),
   )
 
@@ -143,9 +176,16 @@ export async function upsertBranchReview(
     select: REVIEW_SELECT,
   }) as ReviewRow
 
-  const verifiedSet = await batchGetVerifiedSet(prisma, [{ userId, branchId }])
-  const isVerified = verifiedSet.has(`${userId}:${branchId}`)
-  return formatReview(review, { isVerified, requestingUserId: userId, reviewUserId: userId })
+  const [verifiedSet, helpfulSet] = await Promise.all([
+    batchGetVerifiedSet(prisma, [{ userId, branchId }]),
+    batchGetUserHelpfulSet(prisma, userId, [review.id]),
+  ])
+  return formatReview(review, {
+    isVerified:        verifiedSet.has(`${userId}:${branchId}`),
+    requestingUserId:  userId,
+    reviewUserId:      userId,
+    userMarkedHelpful: helpfulSet.has(review.id),
+  })
 }
 
 export async function deleteBranchReview(

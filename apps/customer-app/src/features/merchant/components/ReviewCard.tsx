@@ -80,8 +80,15 @@ export function ReviewCard({ review, onHelpful, onEdit, onDelete }: Props) {
               </View>
             )}
           </View>
+          {/* Show `updatedAt` (most recent activity) rather than `createdAt`. The
+              backend upserts on `@@unique([userId, branchId])` — editing a review
+              updates the same row, so `createdAt` would stay at the original
+              post time. The user's expectation when they JUST edited is "Just
+              now", not "16 hours ago". For first-time creates, Prisma sets
+              `updatedAt = createdAt`, so this is identical for never-edited
+              reviews. */}
           <Text variant="label.md" color="tertiary" meta style={styles.date}>
-            {timeAgo(review.createdAt)} · {review.branchName}
+            {timeAgo(review.updatedAt)} · {review.branchName}
           </Text>
         </View>
       </View>
@@ -98,13 +105,44 @@ export function ReviewCard({ review, onHelpful, onEdit, onDelete }: Props) {
         <Text variant="body.sm" color="secondary" style={styles.text}>{review.comment}</Text>
       )}
 
-      {/* Helpful */}
-      {!isOwn && onHelpful && (
-        <Pressable onPress={() => { lightHaptic(); onHelpful() }} style={styles.helpful} accessibilityLabel="Mark as helpful">
-          <ThumbsUp size={12} color="#9CA3AF" />
-          <Text variant="label.md" color="tertiary" meta style={styles.helpfulText}>Helpful</Text>
-        </Pressable>
-      )}
+      {/* Helpful — different shape per ownership.
+          Own review: read-only count summary (you can't mark your own).
+          Other review: tappable toggle. */}
+      {isOwn
+        ? review.helpfulCount > 0 && (
+            <View style={styles.helpful} accessibilityLabel={`${review.helpfulCount} people found this review helpful`}>
+              <ThumbsUp size={12} color="#9CA3AF" />
+              <Text variant="label.md" meta style={styles.helpfulText}>
+                {review.helpfulCount === 1
+                  ? '1 person found this helpful'
+                  : `${review.helpfulCount} people found this helpful`}
+              </Text>
+            </View>
+          )
+        : onHelpful && (
+            <Pressable
+              onPress={() => { lightHaptic(); onHelpful() }}
+              style={[styles.helpful, review.userMarkedHelpful && styles.helpfulActive]}
+              accessibilityLabel={review.userMarkedHelpful ? 'Marked helpful — tap to remove' : 'Mark as helpful'}
+              accessibilityState={{ selected: review.userMarkedHelpful }}
+            >
+              <ThumbsUp
+                size={12}
+                color={review.userMarkedHelpful ? '#16A34A' : '#9CA3AF'}
+                fill={review.userMarkedHelpful ? '#16A34A' : 'none'}
+              />
+              <Text
+                variant="label.md"
+                meta
+                style={[
+                  styles.helpfulText,
+                  review.userMarkedHelpful && styles.helpfulTextActive,
+                ]}
+              >
+                Helpful{review.helpfulCount > 0 ? ` · ${review.helpfulCount}` : ''}
+              </Text>
+            </Pressable>
+          )}
     </View>
   )
 }
@@ -227,9 +265,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     marginTop: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: 'transparent',
+  },
+  helpfulActive: {
+    backgroundColor: 'rgba(22,163,74,0.08)',
   },
   helpfulText: {
     fontSize: 11,
     fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  helpfulTextActive: {
+    color: '#16A34A',
   },
 })

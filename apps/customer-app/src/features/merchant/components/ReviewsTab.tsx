@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { View, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { ReviewSummary } from './ReviewSummary'
@@ -22,24 +22,37 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
   const { data: reviewData, isLoading: reviewsLoading } = useMerchantReviews(merchantId, { limit: 50 })
   const createReview = useCreateReview(merchantId)
   const deleteReview = useDeleteReview(merchantId)
-  const toggleHelpful = useToggleHelpful()
+  const toggleHelpful = useToggleHelpful(merchantId)
 
   const [sort, setSort] = useState<SortOption>('recent')
   const [showWriteSheet, setShowWriteSheet] = useState(false)
 
   const reviews = reviewData?.reviews ?? []
 
-  const sorted = [...reviews].sort((a, b) => {
-    if (sort === 'recent') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  // Sort respects the user's selection across ALL reviews. Own review is NOT
+  // hoisted to the top — the "YOUR REVIEW" badge on the card already
+  // differentiates it visually, and pinning silently overrode the user's
+  // selected sort (a "highest first" view would still show the user's review
+  // first even if it had the lowest rating). If a "Your review" pinned
+  // section is wanted later, that's an explicit UX decision — see
+  // deferred-followups index §H.
+  const orderedReviews = [...reviews].sort((a, b) => {
+    if (sort === 'recent')  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     if (sort === 'highest') return b.rating - a.rating
-    if (sort === 'lowest') return a.rating - b.rating
+    if (sort === 'lowest')  return a.rating - b.rating
+    if (sort === 'helpful') {
+      // Primary: helpfulCount desc. Tiebreak by most-recently-updated so
+      // ties (especially zero-vs-zero) feel intentional rather than random.
+      if (b.helpfulCount !== a.helpfulCount) return b.helpfulCount - a.helpfulCount
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    }
     return 0
   })
 
-  const ownReview = sorted.find(r => r.isOwnReview)
-  const orderedReviews = ownReview
-    ? [ownReview, ...sorted.filter(r => !r.isOwnReview)]
-    : sorted
+  // Lookup-only — used by `WriteReviewSheet` to pre-fill the user's existing
+  // rating + comment when they tap "Write a review" on a branch they've
+  // already reviewed. NOT used to reorder the list (see comment above).
+  const ownReview = reviews.find(r => r.isOwnReview)
 
   const handleWriteSubmit = useCallback(async (data: { rating: number; comment?: string }) => {
     if (!defaultBranchId) return
@@ -47,8 +60,27 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
     setShowWriteSheet(false)
   }, [defaultBranchId, createReview])
 
-  const handleDelete = useCallback(async (branchId: string, reviewId: string) => {
-    await deleteReview.mutateAsync({ branchId, reviewId })
+  const handleDelete = useCallback((branchId: string, reviewId: string) => {
+    // Native two-button confirm before destructive action — review delete is
+    // not reversible (backend sets isHidden=true; user can't recover the row
+    // from the customer app). Reported as a real risk during 2026-05-02 QA.
+    Alert.alert(
+      'Delete review?',
+      "This can't be undone.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            // Global MutationCache onError surfaces failure as a toast (project
+            // convention). The local catch is just to mark the rejection as
+            // handled and silence the unhandled-promise-rejection warning.
+            deleteReview.mutateAsync({ branchId, reviewId }).catch(() => {})
+          },
+        },
+      ],
+    )
   }, [deleteReview])
 
   if (summaryLoading || reviewsLoading) {
@@ -94,6 +126,7 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
         totalReviews={summary.totalReviews}
         distribution={summary.distribution}
         onWriteReview={() => setShowWriteSheet(true)}
+        hasExistingReview={!!ownReview}
       />
 
       <ReviewSortControl

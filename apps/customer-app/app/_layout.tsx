@@ -5,34 +5,13 @@ import { Slot } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ToastProvider, emitToast } from '@/design-system/motion/Toast'
-import { mapError } from '@/lib/errors'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { ToastProvider } from '@/design-system/motion/Toast'
 import { useAuthStore } from '@/stores/auth'
 import { DeepLinkListener } from '@/app-bootstrap/DeepLinkListener'
 import { ReduceMotionListener } from '@/app-bootstrap/ReduceMotionListener'
 import { SessionExpiredBridge } from '@/app-bootstrap/SessionExpiredBridge'
-
-let queryClient: QueryClient | null = null
-
-function getQueryClient(): QueryClient {
-  if (!queryClient) {
-    queryClient = new QueryClient({
-      // Last-resort error surface for any mutation that doesn't handle errors
-      // locally (PC1/PC2/PC3 profile saves currently rely on this). Mutations
-      // that already do their own toast/inline error handling are NOT call
-      // sites for useMutation today (login/register/verify-phone/etc. use
-      // direct authApi calls), so there is no double-display risk in the
-      // current rebaseline scope.
-      mutationCache: new MutationCache({
-        onError: (error) => {
-          emitToast(mapError(error).message, 'danger')
-        },
-      }),
-    })
-  }
-  return queryClient
-}
+import { getQueryClient } from '@/lib/query-client'
 
 export default function RootLayout() {
   const qc = getQueryClient()

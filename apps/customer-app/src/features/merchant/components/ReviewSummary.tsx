@@ -11,9 +11,15 @@ type Props = {
   totalReviews: number
   distribution: Record<number, number>
   onWriteReview: () => void
+  // When the user already has a review for the chip-selected branch, the
+  // "Write a review" CTA opens it in edit mode (backend upserts on the
+  // unique `(userId, branchId)` constraint). The label should match the
+  // action so the user isn't surprised by seeing their existing review
+  // pre-filled. Pure copy change — no behavioural change.
+  hasExistingReview?: boolean
 }
 
-export function ReviewSummary({ averageRating, totalReviews, distribution, onWriteReview }: Props) {
+export function ReviewSummary({ averageRating, totalReviews, distribution, onWriteReview, hasExistingReview = false }: Props) {
   const maxCount = Math.max(...Object.values(distribution), 1)
 
   return (
@@ -60,12 +66,12 @@ export function ReviewSummary({ averageRating, totalReviews, distribution, onWri
         </View>
       </View>
 
-      {/* Write review CTA */}
+      {/* Write / Edit review CTA */}
       <Pressable
         onPress={() => { lightHaptic(); onWriteReview() }}
         style={styles.writeBtn}
         accessibilityRole="button"
-        accessibilityLabel="Write a review"
+        accessibilityLabel={hasExistingReview ? 'Edit your review' : 'Write a review'}
       >
         <LinearGradient
           colors={color.brandGradient}
@@ -74,7 +80,9 @@ export function ReviewSummary({ averageRating, totalReviews, distribution, onWri
           style={styles.writeBtnGradient}
         >
           <PenLine size={16} color="#FFF" />
-          <Text variant="label.lg" style={styles.writeBtnText}>Write a Review</Text>
+          <Text variant="label.lg" style={styles.writeBtnText}>
+            {hasExistingReview ? 'Edit Your Review' : 'Write a Review'}
+          </Text>
         </LinearGradient>
       </Pressable>
     </View>

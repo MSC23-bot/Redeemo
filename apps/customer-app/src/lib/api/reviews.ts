@@ -15,8 +15,22 @@ const reviewSchema = z.object({
   comment:     z.string().nullable(),
   isVerified:  z.boolean(),
   isOwnReview: z.boolean(),
-  createdAt:   z.string(),    // ISO
-  updatedAt:   z.string(),    // ISO
+  // ISO-8601 with `Z` suffix — required per the datetime contract in the
+  // branch-aware spec §5.6. `z.string().datetime()` accepts "...Z" and
+  // rejects naive datetimes (which `new Date()` parses as device-local
+  // time, silently shifting timestamps). Backend serialises with
+  // `Date.toISOString()` which always emits Z. Pin the contract here so
+  // any future regression to naive datetimes throws at the API boundary
+  // instead of producing wrong "12 hours ago" values on devices in
+  // non-UTC timezones.
+  createdAt:   z.string().datetime(),
+  updatedAt:   z.string().datetime(),
+  // Helpful state — backend always returns these on the list endpoint
+  // (default to 0 / false when no rows). Without these, the Helpful
+  // button appears tappable but produces no visible state change because
+  // there's nothing to display.
+  helpfulCount:      z.number().int().min(0),
+  userMarkedHelpful: z.boolean(),
 })
 export type Review = z.infer<typeof reviewSchema>
 // Alias for cefaf45 component imports during M2 salvage.
@@ -90,10 +104,14 @@ export const reviewsApi = {
 
   /**
    * POST /api/v1/customer/reviews/:reviewId/helpful — toggle helpful flag.
-   * Auth required. Returns whether the helpful flag is now on or off.
+   * Auth required. Backend returns `{ helpful: boolean }` only — no
+   * `success` envelope (verified against `src/api/customer/reviews/
+   * service.ts:toggleHelpful`). Earlier scaffolding assumed a `success`
+   * field that the backend never set, so every tap threw a Zod parse
+   * error and surfaced as a generic "Something went wrong" toast.
    */
-  async toggleHelpful(reviewId: string): Promise<{ success: boolean; helpful: boolean }> {
+  async toggleHelpful(reviewId: string): Promise<{ helpful: boolean }> {
     const res = await api.post<unknown>(`/api/v1/customer/reviews/${encodeURIComponent(reviewId)}/helpful`, undefined)
-    return z.object({ success: z.boolean(), helpful: z.boolean().optional().default(false) }).parse(res)
+    return z.object({ helpful: z.boolean() }).parse(res)
   },
 }
