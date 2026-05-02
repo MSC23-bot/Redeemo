@@ -16,7 +16,7 @@ import {
 } from '../../lib/ranking'
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 import { resolveSelectedBranch } from './branch-resolver'
-import { buildDisplayName } from '../reviews/service'
+import { buildDisplayName, formatReview } from '../reviews/service'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -635,8 +635,10 @@ export async function getCustomerMerchant(
     .map((c: any) => c.category)
     .find((c: any) => c.parentId !== null && c.id !== merchant.primaryCategory?.id) ?? null
 
-  // Legacy photos — flatten across ALL branches (same as before)
-  const photos = merchant.branches.flatMap((b: any) => b.photos.map((p: any) => p.url))
+  // Legacy photos — flatten across ACTIVE branches only so suspended branches
+  // don't contribute to the merchant-wide gallery (mirrors the R1 dual-write
+  // contract for distance/nearest/rating which are also gated on activeBranches).
+  const photos = activeBranches.flatMap((b: any) => b.photos.map((p: any) => p.url))
 
   // Descriptor + filtered highlights — same logic as the list endpoints (see
   // enrichMerchantTile + the helper extractions above). Single fetch by
@@ -685,7 +687,7 @@ export async function getCustomerMerchant(
     : []
 
   // myReview — null for guests; branch-scoped lookup for authed users.
-  let myReview: ReturnType<typeof buildMyReviewShape> | null = null
+  let myReview: ReturnType<typeof formatReview> | null = null
   if (userId && selectedBranchRaw) {
     const row = await prisma.review.findUnique({
       where: { userId_branchId: { userId, branchId: selectedBranchRaw.id } },
@@ -702,7 +704,12 @@ export async function getCustomerMerchant(
         where: { userId, branchId: selectedBranchRaw.id, isValidated: true },
         select: { id: true },
       })
-      myReview = buildMyReviewShape(row, verifiedRow !== null)
+      myReview = formatReview(row, {
+        isVerified: verifiedRow !== null,
+        requestingUserId: userId,
+        reviewUserId: userId,
+        userMarkedHelpful: false,
+      })
     }
   }
 
@@ -786,36 +793,6 @@ export async function getCustomerMerchant(
     // P1.3 additions — selectedBranch block + fallback reason for client banner
     selectedBranch,
     selectedBranchFallbackReason: resolveResult.fallbackReason,
-  }
-}
-
-// ─── Inline helper for myReview shape in getCustomerMerchant ─────────────────
-// Builds the same shape as formatReview() from reviews/service.ts, but for the
-// case where we already know isOwnReview=true and userMarkedHelpful=false.
-function buildMyReviewShape(
-  row: {
-    id: string; branchId: string
-    branch: { name: string }
-    user: { firstName: string | null; lastName: string | null }
-    rating: number; comment: string | null
-    createdAt: Date; updatedAt: Date
-    _count?: { helpfuls: number }
-  },
-  isVerified: boolean,
-) {
-  return {
-    id:               row.id,
-    branchId:         row.branchId,
-    branchName:       row.branch.name,
-    displayName:      buildDisplayName(row.user.firstName, row.user.lastName),
-    rating:           row.rating,
-    comment:          row.comment,
-    isVerified,
-    isOwnReview:      true,
-    createdAt:        row.createdAt.toISOString(),
-    updatedAt:        row.updatedAt.toISOString(),
-    helpfulCount:     row._count?.helpfuls ?? 0,
-    userMarkedHelpful: false,
   }
 }
 

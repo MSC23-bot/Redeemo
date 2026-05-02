@@ -125,7 +125,7 @@ async function createUser(): Promise<{ id: string }> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 afterAll(async () => {
-  // Delete order: reviews → branchAmenities → branches (cascades photos + hours) → merchants → users
+  // Delete order: voucherRedemptions → reviews → vouchers → branchAmenities → branches (cascades photos + hours) → merchants → users
   if (createdMerchantIds.length > 0) {
     const branchRows = await prisma.branch.findMany({
       where: { merchantId: { in: createdMerchantIds } },
@@ -133,11 +133,13 @@ afterAll(async () => {
     })
     const branchIds = branchRows.map(b => b.id)
     if (branchIds.length > 0) {
+      await prisma.voucherRedemption.deleteMany({ where: { branchId: { in: branchIds } } })
       await prisma.review.deleteMany({ where: { branchId: { in: branchIds } } })
       await prisma.branchAmenity.deleteMany({ where: { branchId: { in: branchIds } } })
       // Branch cascade deletes BranchOpeningHours, BranchPhoto
       await prisma.branch.deleteMany({ where: { id: { in: branchIds } } })
     }
+    await prisma.voucher.deleteMany({ where: { merchantId: { in: createdMerchantIds } } })
     await prisma.merchant.deleteMany({ where: { id: { in: createdMerchantIds } } })
   }
   if (createdUserIds.length > 0) {
@@ -261,6 +263,48 @@ describe('GET /api/v1/customer/merchants/:id — selectedBranch (P1)', () => {
     expect(body.selectedBranch!.myReview).toMatchObject({
       rating: 5,
       comment: 'Loved it',
+    })
+  })
+
+  it('selectedBranch.myReview.isVerified is true when the user has a validated redemption at the branch', async () => {
+    const m = await createMerchant()
+    const targetBranch = m.branches[0]!
+    const { id: userId } = await createUser()
+
+    // Seed an active voucher + a validated redemption so the verified check has something to find.
+    const voucher = await prisma.voucher.create({
+      data: {
+        merchantId: m.id,
+        code: `RCV-VRTEST-${Date.now()}`,
+        title: 'Test voucher',
+        type: 'DISCOUNT_PERCENT',
+        status: 'ACTIVE',
+        approvalStatus: 'APPROVED',
+        estimatedSaving: 5,
+      },
+    })
+    await prisma.voucherRedemption.create({
+      data: {
+        userId,
+        branchId: targetBranch.id,
+        voucherId: voucher.id,
+        redemptionCode: `VRTEST${Date.now().toString().slice(-6)}`,
+        isValidated: true,
+        validatedAt: new Date(),
+        validationMethod: 'MANUAL',
+        estimatedSaving: 5,
+      },
+    })
+    await prisma.review.create({
+      data: { userId, branchId: targetBranch.id, rating: 5, comment: 'Verified review' },
+    })
+
+    const body = await getCustomerMerchant(prisma, m.id, userId, { branchId: targetBranch.id })
+
+    expect(body.selectedBranch!.myReview).toMatchObject({
+      rating: 5,
+      comment: 'Verified review',
+      isVerified: true,
     })
   })
 
