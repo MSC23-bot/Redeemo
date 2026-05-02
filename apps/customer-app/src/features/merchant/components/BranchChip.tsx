@@ -1,6 +1,6 @@
 import React from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
-import { MapPin, ChevronDown } from 'lucide-react-native'
+import { MapPin, ChevronDown } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
