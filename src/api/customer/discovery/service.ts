@@ -689,21 +689,23 @@ export async function getCustomerMerchant(
   // myReview — null for guests; branch-scoped lookup for authed users.
   let myReview: ReturnType<typeof formatReview> | null = null
   if (userId && selectedBranchRaw) {
-    const row = await prisma.review.findUnique({
-      where: { userId_branchId: { userId, branchId: selectedBranchRaw.id } },
-      select: {
-        id: true, branchId: true, userId: true, rating: true, comment: true,
-        createdAt: true, updatedAt: true,
-        branch: { select: { name: true } },
-        user:   { select: { firstName: true, lastName: true } },
-        _count: { select: { helpfuls: true } },
-      },
-    })
-    if (row) {
-      const verifiedRow = await prisma.voucherRedemption.findFirst({
+    const [row, verifiedRow] = await Promise.all([
+      prisma.review.findUnique({
+        where: { userId_branchId: { userId, branchId: selectedBranchRaw.id } },
+        select: {
+          id: true, branchId: true, userId: true, rating: true, comment: true,
+          createdAt: true, updatedAt: true,
+          branch: { select: { name: true } },
+          user:   { select: { firstName: true, lastName: true } },
+          _count: { select: { helpfuls: true } },
+        },
+      }),
+      prisma.voucherRedemption.findFirst({
         where: { userId, branchId: selectedBranchRaw.id, isValidated: true },
         select: { id: true },
-      })
+      }),
+    ])
+    if (row) {
       myReview = formatReview(row, {
         isVerified: verifiedRow !== null,
         requestingUserId: userId,
