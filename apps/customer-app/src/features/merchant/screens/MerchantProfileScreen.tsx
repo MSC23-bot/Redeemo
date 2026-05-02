@@ -37,8 +37,8 @@ import { useUserLocation } from '@/hooks/useLocation'
 // (`merchant.openingHours`, `merchant.photos`, `merchant.amenities`,
 // `merchant.distance`, `merchant.isOpenNow`, `merchant.nearestBranch`)
 // remain in the schema for R1 dual-write compat but are no longer read.
-// `useOpenStatus` is intentionally NOT imported — AboutTab still ticks
-// internally via `serverIsOpenNow`.
+// Open-status pill reads `sb.isOpenNow` directly; AboutTab still calls
+// `useOpenStatus` internally for the schedule grid's TODAY-row marker.
 type Props = { id: string | undefined }
 
 export function MerchantProfileScreen({ id }: Props) {
