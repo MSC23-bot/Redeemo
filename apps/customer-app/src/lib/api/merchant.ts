@@ -77,6 +77,13 @@ export type MerchantVoucher = z.infer<typeof merchantVoucherSchema>
 const branchTileSchema = z.object({
   id:           z.string(),
   name:         z.string(),
+  // P2.8: backend (`src/api/customer/discovery/service.ts`) emits these for
+  // the branch picker — `isActive` greys out suspended rows; `isMainBranch`
+  // is forward-looking (chip / picker may surface a "main" indicator). Zod
+  // strips unknown keys by default, so without these declarations the
+  // picker would silently see `undefined` and treat every branch as active.
+  isMainBranch: z.boolean(),
+  isActive:     z.boolean(),
   addressLine1: z.string().nullable(),
   addressLine2: z.string().nullable(),
   city:         z.string().nullable(),

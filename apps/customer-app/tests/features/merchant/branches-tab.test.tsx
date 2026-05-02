@@ -37,7 +37,8 @@ jest.mock('@/features/merchant/components/BranchCard', () => {
 import { BranchesTab } from '@/features/merchant/components/BranchesTab'
 
 const mk = (over: Partial<{ id: string; distance: number | null; name: string }> = {}) => ({
-  id: 'b', name: 'Branch', distance: null, addressLine1: null, addressLine2: null,
+  id: 'b', name: 'Branch', isMainBranch: false, isActive: true,
+  distance: null, addressLine1: null, addressLine2: null,
   city: null, postcode: null, latitude: null, longitude: null, phone: null, email: null,
   isOpenNow: true, avgRating: null, reviewCount: 0,
   ...over,

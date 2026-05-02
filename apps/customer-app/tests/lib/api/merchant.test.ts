@@ -69,6 +69,8 @@ const fullProfile = {
   branches: [{
     id:           'b1',
     name:         'Main',
+    isMainBranch: true,
+    isActive:     true,
     addressLine1: '1 High St',
     addressLine2: null,
     city:         'London',
