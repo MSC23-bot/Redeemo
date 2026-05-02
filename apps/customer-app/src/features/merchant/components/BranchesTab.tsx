@@ -6,9 +6,11 @@ import type { BranchDetail } from '@/lib/api/merchant'
 type Props = {
   branches: BranchDetail[]
   nearestBranchId: string | null
+  onBranchPress: (branchId: string) => void
+  onHoursPress: () => void
 }
 
-export function BranchesTab({ branches, nearestBranchId }: Props) {
+export function BranchesTab({ branches, nearestBranchId, onBranchPress, onHoursPress }: Props) {
   const sorted = [...branches].sort((a, b) => {
     if (a.id === nearestBranchId) return -1
     if (b.id === nearestBranchId) return 1
@@ -22,7 +24,8 @@ export function BranchesTab({ branches, nearestBranchId }: Props) {
           key={branch.id}
           branch={branch}
           isNearest={branch.id === nearestBranchId}
-          onPress={() => {}}
+          onPress={() => onBranchPress(branch.id)}
+          onHoursPress={onHoursPress}
         />
       ))}
     </View>

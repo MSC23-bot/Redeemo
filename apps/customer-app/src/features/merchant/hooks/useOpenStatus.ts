@@ -15,18 +15,27 @@ export function useOpenStatus(hours: OpeningHourEntry[]) {
     const todayDow = now.getDay()
     const currentMinutes = now.getHours() * 60 + now.getMinutes()
 
+    // openTime / closeTime are nullable on the wire (closed days come back
+    // as null). Treat null-times the same as `isClosed: true` everywhere
+    // — defensive at the boundary so the rest of this hook can assume
+    // non-null when it reads them.
     const todayEntry = hours.find(h => h.dayOfWeek === todayDow)
-    const isOpen = todayEntry && !todayEntry.isClosed
-      ? currentMinutes >= parseTime(todayEntry.openTime) && currentMinutes < parseTime(todayEntry.closeTime)
+    const todayOpen  = todayEntry && !todayEntry.isClosed && todayEntry.openTime  != null ? todayEntry.openTime  : null
+    const todayClose = todayEntry && !todayEntry.isClosed && todayEntry.closeTime != null ? todayEntry.closeTime : null
+    const isOpen = todayOpen != null && todayClose != null
+      ? currentMinutes >= parseTime(todayOpen) && currentMinutes < parseTime(todayClose)
       : false
 
-    const closingTime = todayEntry && !todayEntry.isClosed ? todayEntry.closeTime : null
-    const hoursText = isOpen && closingTime ? `Closes ${closingTime}` : todayEntry && !todayEntry.isClosed ? `Opens ${todayEntry.openTime}` : 'Closed today'
+    const hoursText = isOpen && todayClose
+      ? `Closes ${todayClose}`
+      : todayOpen
+      ? `Opens ${todayOpen}`
+      : 'Closed today'
 
     const weekSchedule = DAY_NAMES.map((name, i) => {
       const entry = hours.find(h => h.dayOfWeek === i)
       const isToday = i === todayDow
-      if (!entry || entry.isClosed) {
+      if (!entry || entry.isClosed || entry.openTime == null || entry.closeTime == null) {
         return { day: name, shortDay: SHORT_DAYS[i]!, hours: 'Closed', isToday, isClosed: true }
       }
       return {

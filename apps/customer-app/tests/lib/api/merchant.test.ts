@@ -152,4 +152,40 @@ describe('merchantApi.getProfile', () => {
     })
     await expect(merchantApi.getProfile('m1')).rejects.toThrow()
   })
+
+  // Regression for the on-device PR #29 failure: when a merchant has a
+  // closed day in its opening-hours schedule, the backend serialises that
+  // row as `{ isClosed: true, openTime: null, closeTime: null }` because
+  // Prisma's `BranchOpeningHours.openTime/closeTime` are nullable. The
+  // earlier schema's `z.string()` rejected null and the entire merchant
+  // payload failed at the API edge. Schema is now `z.string().nullable()`;
+  // this test pins the corrected contract.
+  it('parses opening hours with null times on closed days', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      ...fullProfile,
+      openingHours: [
+        { dayOfWeek: 0, openTime: '12:00', closeTime: '22:00', isClosed: false },
+        { dayOfWeek: 1, openTime: null,    closeTime: null,    isClosed: true  },  // ← was the bug shape
+        { dayOfWeek: 2, openTime: '17:00', closeTime: '22:00', isClosed: false },
+      ],
+    })
+    const r = await merchantApi.getProfile('m1')
+    expect(r.openingHours).toHaveLength(3)
+    expect(r.openingHours[1]!.isClosed).toBe(true)
+    expect(r.openingHours[1]!.openTime).toBeNull()
+    expect(r.openingHours[1]!.closeTime).toBeNull()
+    // Open days still resolve normally.
+    expect(r.openingHours[0]!.openTime).toBe('12:00')
+    expect(r.openingHours[2]!.closeTime).toBe('22:00')
+  })
+
+  it('rejects malformed opening-hour entries (e.g. number where string expected)', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      ...fullProfile,
+      openingHours: [
+        { dayOfWeek: 0, openTime: 1200, closeTime: '22:00', isClosed: false },   // ← number, not string|null
+      ],
+    })
+    await expect(merchantApi.getProfile('m1')).rejects.toThrow()
+  })
 })

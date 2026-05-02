@@ -26,4 +26,21 @@ describe('mapError', () => {
     const m = mapError(new ApiClientError('x', 'UNKNOWN', 500))
     expect(m.surface).toBe('toast'); expect(m.retryable).toBe(true)
   })
+
+  // Review delete/edit errors used to fall through to the generic
+  // "Something went wrong" toast because they were missing from TABLE.
+  // Without these mappings the user has no way to know the review
+  // doesn't exist (404) vs they don't own it (403).
+  it('maps REVIEW_NOT_FOUND to a clear toast', () => {
+    const m = mapError(new ApiClientError('x', 'REVIEW_NOT_FOUND', 404))
+    expect(m.code).toBe('REVIEW_NOT_FOUND')
+    expect(m.surface).toBe('toast')
+    expect(m.message).toMatch(/find that review/i)
+  })
+  it('maps REVIEW_NOT_OWNED to a clear toast', () => {
+    const m = mapError(new ApiClientError('x', 'REVIEW_NOT_OWNED', 403))
+    expect(m.code).toBe('REVIEW_NOT_OWNED')
+    expect(m.surface).toBe('toast')
+    expect(m.message).toMatch(/your own reviews/i)
+  })
 })

@@ -11,6 +11,7 @@ type Props = {
   branch: BranchDetail
   isNearest: boolean
   onPress: () => void
+  onHoursPress?: () => void
 }
 
 function formatDistance(metres: number | null): string | null {
@@ -19,7 +20,7 @@ function formatDistance(metres: number | null): string | null {
   return `${(metres / 1609.34).toFixed(1)} mi`
 }
 
-export function BranchCard({ branch, isNearest, onPress }: Props) {
+export function BranchCard({ branch, isNearest, onPress, onHoursPress }: Props) {
   const distText = formatDistance(branch.distance)
   const address = [branch.addressLine1, branch.city, branch.postcode].filter(Boolean).join(', ')
 
@@ -94,7 +95,11 @@ export function BranchCard({ branch, isNearest, onPress }: Props) {
             <Navigation size={14} color={color.navy} />
             <Text variant="label.md" style={styles.actionText}>Directions</Text>
           </Pressable>
-          <Pressable onPress={() => { lightHaptic(); onPress() }} style={styles.actionBtn} accessibilityLabel="View hours">
+          <Pressable
+            onPress={() => { lightHaptic(); (onHoursPress ?? onPress)() }}
+            style={styles.actionBtn}
+            accessibilityLabel="View hours"
+          >
             <Clock size={14} color={color.navy} />
             <Text variant="label.md" style={styles.actionText}>Hours</Text>
           </Pressable>
