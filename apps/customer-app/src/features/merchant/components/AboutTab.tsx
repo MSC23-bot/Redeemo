@@ -13,10 +13,15 @@ type Props = {
   photos: string[]
   amenities: Amenity[]
   openingHours: OpeningHourEntry[]
+  // Server-computed live status (Europe/London) threaded down from the
+  // screen so MetaSection + this tab share a single source of truth.
+  // Optional only because the hook supports a local-time fallback for
+  // tests / older callers; production callers pass it.
+  serverIsOpenNow?: boolean
 }
 
-export function AboutTab({ businessName, description, photos, amenities, openingHours }: Props) {
-  const openStatus = useOpenStatus(openingHours)
+export function AboutTab({ businessName, description, photos, amenities, openingHours, serverIsOpenNow }: Props) {
+  const openStatus = useOpenStatus(openingHours, serverIsOpenNow)
   return (
     <View style={styles.container}>
       {description && <AboutCard businessName={businessName} description={description} />}

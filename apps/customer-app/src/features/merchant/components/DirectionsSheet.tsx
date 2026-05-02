@@ -19,19 +19,36 @@ function formatDistance(metres: number | null): string | null {
   if (metres === null) return null
   if (metres < 1000) return `${Math.round(metres)}m away`
   const miles = metres / 1609.34
+  // Above 100 km the precise mileage is product-irrelevant ("3,189.6 mi")
+  // and the address line carries the real "where" information; show a
+  // tidy whole-number "X mi" instead.
+  if (metres >= 100_000) return `${Math.round(miles)} mi away`
   return `${miles.toFixed(1)} miles away`
 }
 
-function estimateWalkTime(metres: number | null): string | null {
+// Walking estimate is only meaningful for short distances. 80 m/min is a
+// brisk pace; > 5 km is no longer a walking decision; > 100 km becomes
+// noise (e.g. "64,163 min walk" for a Qatar device looking at a UK branch).
+// Switch to a rough drive estimate (≈50 km/h average urban) up to 100 km;
+// hide entirely above that — distance + address tell the user what they
+// need to know.
+function estimateTravelTime(metres: number | null): string | null {
   if (metres === null) return null
-  const minutes = Math.round(metres / 80)
-  if (minutes < 1) return '< 1 min walk'
-  return `~${minutes} min walk`
+  if (metres < 5_000) {
+    const minutes = Math.round(metres / 80)
+    if (minutes < 1) return '< 1 min walk'
+    return `~${minutes} min walk`
+  }
+  if (metres < 100_000) {
+    const minutes = Math.round(metres / 833)  // 50 km/h ≈ 833 m/min
+    return `~${minutes} min drive`
+  }
+  return null
 }
 
 export function DirectionsSheet({ visible, onDismiss, address, distance, latitude, longitude }: Props) {
   const distText = formatDistance(distance)
-  const walkText = estimateWalkTime(distance)
+  const walkText = estimateTravelTime(distance)
 
   const handleGetDirections = () => {
     lightHaptic()

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { View, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { ReviewSummary } from './ReviewSummary'
@@ -47,8 +47,22 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
     setShowWriteSheet(false)
   }, [defaultBranchId, createReview])
 
-  const handleDelete = useCallback(async (branchId: string, reviewId: string) => {
-    await deleteReview.mutateAsync({ branchId, reviewId })
+  const handleDelete = useCallback((branchId: string, reviewId: string) => {
+    // Native two-button confirm before destructive action — review delete is
+    // not reversible (backend sets isHidden=true; user can't recover the row
+    // from the customer app). Reported as a real risk during 2026-05-02 QA.
+    Alert.alert(
+      'Delete review?',
+      "This can't be undone.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => { void deleteReview.mutateAsync({ branchId, reviewId }) },
+        },
+      ],
+    )
   }, [deleteReview])
 
   if (summaryLoading || reviewsLoading) {

@@ -46,7 +46,12 @@ export function MerchantProfileScreen({ id }: Props) {
     isFavourited: merchant?.isFavourited ?? false,
   })
 
-  const openStatus = useOpenStatus(merchant?.openingHours ?? [])
+  // Pass server-computed `merchant.isOpenNow` (already in Europe/London — see
+  // `src/api/shared/isOpenNow.ts`) so the live status pill agrees regardless
+  // of device timezone, and so MetaSection here + AboutTab below can't drift
+  // apart even on slow renders. The hook also internally ticks every 60s so
+  // the schedule grid's "TODAY" badge stays correct across midnight.
+  const openStatus = useOpenStatus(merchant?.openingHours ?? [], merchant?.isOpenNow)
 
   const [activeTab,    setActiveTab]    = useState<TabId>('vouchers')
   const [showContact,  setShowContact]  = useState(false)
@@ -219,6 +224,7 @@ export function MerchantProfileScreen({ id }: Props) {
               photos={merchant.photos}
               amenities={merchant.amenities}
               openingHours={merchant.openingHours}
+              serverIsOpenNow={merchant.isOpenNow}
             />
           )}
           {activeTab === 'branches' && !isSingleBranch && (

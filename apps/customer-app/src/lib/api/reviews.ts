@@ -15,8 +15,16 @@ const reviewSchema = z.object({
   comment:     z.string().nullable(),
   isVerified:  z.boolean(),
   isOwnReview: z.boolean(),
-  createdAt:   z.string(),    // ISO
-  updatedAt:   z.string(),    // ISO
+  // ISO-8601 with `Z` suffix — required per the datetime contract in the
+  // branch-aware spec §5.6. `z.string().datetime()` accepts "...Z" and
+  // rejects naive datetimes (which `new Date()` parses as device-local
+  // time, silently shifting timestamps). Backend serialises with
+  // `Date.toISOString()` which always emits Z. Pin the contract here so
+  // any future regression to naive datetimes throws at the API boundary
+  // instead of producing wrong "12 hours ago" values on devices in
+  // non-UTC timezones.
+  createdAt:   z.string().datetime(),
+  updatedAt:   z.string().datetime(),
 })
 export type Review = z.infer<typeof reviewSchema>
 // Alias for cefaf45 component imports during M2 salvage.

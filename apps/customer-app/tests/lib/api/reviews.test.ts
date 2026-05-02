@@ -46,6 +46,30 @@ describe('reviewsApi.getMerchantReviews', () => {
     ;(api.get as jest.Mock).mockResolvedValueOnce({ reviews: [{ ...review, rating: 7 }], total: 1 })
     await expect(reviewsApi.getMerchantReviews('m1')).rejects.toThrow()
   })
+
+  // Regression for the datetime contract locked in branch-aware spec §5.6.
+  // A naive datetime ("2026-04-01T00:00:00") parses as device-local time
+  // and shifts every "X ago" display by the user's UTC offset (the root
+  // cause of the "12 hours ago" review-timestamp report on a Qatar device).
+  // Pin: the schema must reject naive datetimes at the API boundary.
+  it('rejects a review with a naive (no-Z) createdAt', async () => {
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      reviews: [{ ...review, createdAt: '2026-04-01T00:00:00' }],
+      total: 1,
+    })
+    await expect(reviewsApi.getMerchantReviews('m1')).rejects.toThrow()
+  })
+
+  it('accepts ISO-Z createdAt and ISO with explicit +00:00 offset', async () => {
+    // z.string().datetime() accepts both UTC-Z and explicit offset forms.
+    ;(api.get as jest.Mock).mockResolvedValueOnce({
+      reviews: [
+        { ...review, id: 'r1', createdAt: '2026-04-01T00:00:00.000Z', updatedAt: '2026-04-01T00:00:00.000Z' },
+      ],
+      total: 1,
+    })
+    await expect(reviewsApi.getMerchantReviews('m1')).resolves.toBeDefined()
+  })
 })
 
 describe('reviewsApi.getReviewSummary', () => {
