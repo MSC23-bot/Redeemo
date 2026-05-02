@@ -6,7 +6,7 @@ import { api } from '../api'
 // added in M2 when the WriteReviewSheet is wired (or skipped if writing
 // is deferred per owner decision §9.4).
 
-const reviewSchema = z.object({
+export const reviewSchema = z.object({
   id:          z.string(),
   branchId:    z.string(),
   branchName:  z.string(),

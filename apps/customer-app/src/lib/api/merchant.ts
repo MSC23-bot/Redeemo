@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { api } from '../api'
+import { reviewSchema } from './reviews'
 
 // Shape served by `GET /api/v1/customer/merchants/:id`. Generated server-side
 // in `src/api/customer/discovery/service.ts:getCustomerMerchant`. Field
@@ -110,27 +111,6 @@ const nearestBranchSchema = z.object({
 })
 export type NearestBranch = z.infer<typeof nearestBranchSchema>
 
-// myReview nested inside selectedBranch — same fields as `reviewSchema` in
-// lib/api/reviews.ts. Defined inline to avoid a cross-module import cycle
-// (reviews.ts imports from api, which is already imported here). Shape is
-// pinned to match the backend's `GET /api/v1/customer/merchants/:id` response
-// which includes the calling user's own review for the selected branch, or
-// null if they haven't reviewed it yet.
-const myReviewSchema = z.object({
-  id:                z.string(),
-  branchId:          z.string(),
-  branchName:        z.string(),
-  displayName:       z.string(),
-  rating:            z.number().int().min(1).max(5),
-  comment:           z.string().nullable(),
-  isVerified:        z.boolean(),
-  isOwnReview:       z.boolean(),
-  createdAt:         z.string().datetime(),
-  updatedAt:         z.string().datetime(),
-  helpfulCount:      z.number().int().min(0),
-  userMarkedHelpful: z.boolean(),
-})
-
 // selectedBranch — the branch the backend resolved for this page visit.
 // Null when all branches are suspended (fallbackReason = 'all-suspended').
 // Richer than branchTileSchema: includes openingHours, photos, amenities,
@@ -162,13 +142,18 @@ const selectedBranchSchema = z.object({
   isOpenNow:    z.boolean(),
   avgRating:    z.number().nullable(),
   reviewCount:  z.number().int().min(0),
-  myReview:     myReviewSchema.nullable(),
+  myReview:     reviewSchema.nullable(),
 })
 export type SelectedBranch = z.infer<typeof selectedBranchSchema>
 
 // Reason the backend used to resolve selectedBranch. 'used-candidate' means
 // the caller's ?branch= query param was honoured; the others are fallback
 // paths. 'all-suspended' accompanies selectedBranch: null.
+//
+// Mirrors the 5-value enum returned by P1's branch-resolver.
+// `candidate-wrong-merchant` (spec §4.6) collapses into `candidate-not-found`
+// because the backend Prisma select pre-filters branches[] by merchantId, so
+// the resolver never sees a candidate from a different merchant.
 const fallbackReasonSchema = z.enum([
   'used-candidate',
   'candidate-inactive',
