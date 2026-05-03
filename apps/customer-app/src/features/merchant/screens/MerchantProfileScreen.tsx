@@ -59,13 +59,29 @@ export function MerchantProfileScreen({ id }: Props) {
   }
   const { data: merchant, isLoading, isError, error } = useMerchantProfile(id, profileOpts)
 
-  // Reconcile the URL with the server-resolved branch on first paint and
-  // whenever the server resolves to a different branch than the URL
-  // (cold-open default → "used-candidate" once; fallback paths re-pin
-  // to whatever active branch the server picked).
+  // Reconcile the URL with the server-resolved branch ONLY when the server
+  // fell back from the user's candidate (cold-open / candidate-inactive /
+  // candidate-not-found / no-candidate). For 'used-candidate' the URL
+  // already matches the response — no reconcile needed.
+  //
+  // Why this gate matters: with `keepPreviousData`, when the user picks a
+  // new branch via the chip, the URL flips immediately but `merchant` keeps
+  // the prior fetch's data on screen for a frame (selectedBranch.id=prev,
+  // fallbackReason='used-candidate'). Without the gate, the reconcile
+  // effect re-fires (because `reconcile`'s identity tracks `branchId`),
+  // sees URL=new !== resolved=prev, and writes the OLD id back to the URL.
+  // Net effect: "tap a branch, nothing happens; tap again, it works."
+  // The gate stops the spurious replace because 'used-candidate' means the
+  // prior URL was already correct for the prior data — there's nothing to
+  // reconcile against.
   useEffect(() => {
-    if (merchant?.selectedBranch?.id) reconcile(merchant.selectedBranch.id)
-  }, [merchant?.selectedBranch?.id, reconcile])
+    if (
+      merchant?.selectedBranch?.id &&
+      merchant.selectedBranchFallbackReason !== 'used-candidate'
+    ) {
+      reconcile(merchant.selectedBranch.id)
+    }
+  }, [merchant?.selectedBranch?.id, merchant?.selectedBranchFallbackReason, reconcile])
 
   const favourite = useFavourite({
     type: 'merchant',
@@ -303,10 +319,13 @@ export function MerchantProfileScreen({ id }: Props) {
           {activeTab === 'branches' && isMultiBranch && (
             <BranchesTab
               branches={merchant.branches}
-              // BranchesTab still uses `nearestBranchId` for its sort/pin —
-              // pass the currently-selected branch so the active branch
-              // floats to the top.
-              nearestBranchId={sb.id}
+              // "Nearest" is a distance fact (server-computed from GPS), NOT
+              // a user-selection state. Passing `sb.id` here previously made
+              // the label track the chip's selection — a real correctness
+              // bug that contradicted the locked branch-as-primary-unit
+              // principle. Use the legacy R1 `nearestBranch.id` (still
+              // served as part of dual-write).
+              nearestBranchId={merchant.nearestBranch?.id ?? null}
               onBranchPress={(nextBranchId) => select(nextBranchId)}
               onHoursPress={() => setActiveTab('about')}
             />
@@ -317,6 +336,7 @@ export function MerchantProfileScreen({ id }: Props) {
               currentBranchId={sb.id}
               currentBranchName={sb.name}
               myReview={sb.myReview}
+              isMultiBranch={isMultiBranch}
             />
           )}
         </View>

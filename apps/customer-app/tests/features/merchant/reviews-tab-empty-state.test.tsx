@@ -31,11 +31,17 @@ jest.mock('@/features/merchant/components/WriteReviewSheet',  () => ({ WriteRevi
 
 import { ReviewsTab } from '@/features/merchant/components/ReviewsTab'
 
-function renderTab() {
+function renderTab(props: Partial<{ isMultiBranch: boolean }> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <ReviewsTab merchantId="m1" currentBranchId="b1" currentBranchName="Brightlingsea" myReview={null} />
+      <ReviewsTab
+        merchantId="m1"
+        currentBranchId="b1"
+        currentBranchName="Brightlingsea"
+        myReview={null}
+        isMultiBranch={props.isMultiBranch ?? true}
+      />
     </QueryClientProvider>,
   )
 }
@@ -67,5 +73,26 @@ describe('ReviewsTab empty state — branch-aware copy + cross-link (PR #33 fix-
     const { getByLabelText } = renderTab()
     expect(getByLabelText('Brightlingsea')).toBeTruthy()
     expect(getByLabelText('All branches')).toBeTruthy()
+  })
+
+  // PR #33 fix-up #3: single-branch merchants must NOT render the toggle or
+  // the cross-link. The toggle's two states are equivalent and the cross-link
+  // points nowhere. Locked correctness fix (2026-05-03).
+  describe('single-branch merchant — branch-multiplicity UI suppressed', () => {
+    it('does not render the branch/all toggle', () => {
+      const { queryByLabelText } = renderTab({ isMultiBranch: false })
+      expect(queryByLabelText('Brightlingsea')).toBeNull()
+      expect(queryByLabelText('All branches')).toBeNull()
+    })
+
+    it('does not render the "See reviews from other branches" cross-link', () => {
+      const { queryByLabelText } = renderTab({ isMultiBranch: false })
+      expect(queryByLabelText('See reviews from other branches')).toBeNull()
+    })
+
+    it('still shows the branch-aware empty copy ("Be the first to review {branchName}")', () => {
+      const { getByText } = renderTab({ isMultiBranch: false })
+      expect(getByText('Be the first to review Brightlingsea')).toBeTruthy()
+    })
   })
 })

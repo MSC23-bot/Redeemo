@@ -55,8 +55,15 @@ jest.mock('@/features/merchant/components/VouchersTab', () => ({
 jest.mock('@/features/merchant/components/AboutTab',    () => ({
   AboutTab: () => { const { Text } = require('react-native'); return <Text>ABOUT_TAB</Text> },
 }))
+// BranchesTab mock surfaces `nearestBranchId` so the PR #33 fix-up #3
+// regression test (nearest must NOT track selection) can pin which id is
+// passed in. Also surfaces an `onBranchPress` shim so future tests can
+// trigger row-tap selection without coupling to BranchCard internals.
 jest.mock('@/features/merchant/components/BranchesTab', () => ({
-  BranchesTab: () => { const { Text } = require('react-native'); return <Text>BRANCHES_TAB</Text> },
+  BranchesTab: ({ nearestBranchId }: { nearestBranchId: string | null }) => {
+    const { Text } = require('react-native')
+    return <Text>BRANCHES_TAB|nearest={nearestBranchId ?? 'NULL'}</Text>
+  },
 }))
 jest.mock('@/features/merchant/components/ReviewsTab',  () => ({
   ReviewsTab: () => { const { Text } = require('react-native'); return <Text>REVIEWS_TAB</Text> },
@@ -304,7 +311,7 @@ describe('MerchantProfileScreen (M2)', () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({ ...merchant, branches: [branchA, branchB] })
     const { findByLabelText, findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
     fireEvent.press(await findByLabelText('tab-branches'))
-    expect(await findByText('BRANCHES_TAB')).toBeTruthy()
+    expect(await findByText(/^BRANCHES_TAB/)).toBeTruthy()
     expect(queryByText('VOUCHERS_TAB')).toBeNull()
   })
 
@@ -422,5 +429,101 @@ describe('MerchantProfileScreen (M2)', () => {
       <QueryClientProvider client={qc}><MerchantProfileScreen id="m1" /></QueryClientProvider>
     )
     expect(queryByText('CONTACT_SHEET_VISIBLE')).toBeNull()
+  })
+
+  // ── PR #33 fix-up #3 regressions (2026-05-03 QA) ──────────────────────────────
+
+  // #1 (BLOCKER) — keepPreviousData / reconcile race: when the user picks a
+  // new branch via the chip, the URL flips immediately but `merchant` keeps
+  // the prior fetch's data on screen for a frame (selectedBranch.id=prev,
+  // fallbackReason='used-candidate'). The reconcile effect must NOT fire
+  // router.replace in that state — otherwise the URL is silently undone and
+  // the user has to tap the same branch twice. The gate is fallbackReason
+  // !== 'used-candidate'. We construct the bug condition directly: API
+  // response says selectedBranch=b1 + used-candidate, URL says b2.
+  it('does NOT undo the URL when fallbackReason=used-candidate (keepPreviousData race fix)', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      selectedBranch: { ...selectedBranchFixture, id: 'b1', name: 'Brightlingsea' },
+      selectedBranchFallbackReason: 'used-candidate' as const,
+    })
+    mockBranchParam = 'b2'
+    ;(router.replace as jest.Mock).mockClear()
+    const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
+    // Wait for the fetch + effects to settle before asserting.
+    await findByText('META_NAME=The Coffee House')
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  // Counter-test: when the server actually fell back from an invalid candidate
+  // (used-candidate is FALSE), reconcile must run so the URL is replaced with
+  // the resolved branch. Otherwise the URL stays at ?branch=invalid forever.
+  it('DOES reconcile the URL when fallbackReason !== used-candidate (server fallback path)', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      selectedBranch: { ...selectedBranchFixture, id: 'b-fallback', name: 'Fallback' },
+      selectedBranchFallbackReason: 'candidate-not-found' as const,
+    })
+    mockBranchParam = 'invalid'
+    ;(router.replace as jest.Mock).mockClear()
+    const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
+    await findByText('META_NAME=The Coffee House')
+    expect(router.replace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathname: '/(app)/merchant/[id]',
+        params: expect.objectContaining({ branch: 'b-fallback' }),
+      }),
+    )
+  })
+
+  // #2 (BLOCKER) — "Nearest" label correctness: the Branches tab must receive
+  // the actual nearest branch (from `merchant.nearestBranch`, server-computed
+  // by GPS), NOT the chip-selected branch. Previously the screen passed
+  // `sb.id` as `nearestBranchId`, making the "Nearest" label flip whenever
+  // the user switched branches — a real correctness bug that contradicted
+  // the locked branch-as-primary-unit principle ("nearest is a fact, not
+  // a state").
+  it('Branches tab receives merchant.nearestBranch.id, NOT sb.id (selection-independent)', async () => {
+    const branchA = { id: 'b1', name: 'Brightlingsea', isMainBranch: true, isActive: true,
+      addressLine1: null, addressLine2: null,
+      city: null, postcode: null, latitude: null, longitude: null,
+      phone: null, email: null, distance: 1000, isOpenNow: true,
+      avgRating: null, reviewCount: 0 }
+    const branchB = { ...branchA, id: 'b2', name: 'Colchester', isMainBranch: false, distance: 5000 }
+    // selectedBranch is b2 (user picked it); nearestBranch is b1 (real
+    // nearest by GPS). The mock asserts the exact id flowing into the tab.
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      branches: [branchA, branchB],
+      nearestBranch: { id: 'b1', name: 'Brightlingsea',
+        addressLine1: null, addressLine2: null, city: null, postcode: null,
+        latitude: null, longitude: null, phone: null, email: null,
+        distance: 1000, isOpenNow: true },
+      selectedBranch: { ...selectedBranchFixture, id: 'b2', name: 'Colchester' },
+    })
+    const { findByLabelText, findByText } = wrap(<MerchantProfileScreen id="m1" />)
+    fireEvent.press(await findByLabelText('tab-branches'))
+    // BranchesTab mock surfaces nearestBranchId — assert it's b1, not b2.
+    expect(await findByText('BRANCHES_TAB|nearest=b1')).toBeTruthy()
+  })
+
+  // Companion: when merchant.nearestBranch is null (no GPS / no nearest
+  // could be computed), the prop falls through to null — NOT to sb.id. The
+  // BranchesTab should then render no "nearest" highlight.
+  it('Branches tab receives null nearestBranchId when merchant.nearestBranch is null', async () => {
+    const branchA = { id: 'b1', name: 'A', isMainBranch: true, isActive: true,
+      addressLine1: null, addressLine2: null,
+      city: null, postcode: null, latitude: null, longitude: null,
+      phone: null, email: null, distance: null, isOpenNow: true,
+      avgRating: null, reviewCount: 0 }
+    const branchB = { ...branchA, id: 'b2', name: 'B', isMainBranch: false }
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      branches: [branchA, branchB],
+      nearestBranch: null,  // No GPS available
+    })
+    const { findByLabelText, findByText } = wrap(<MerchantProfileScreen id="m1" />)
+    fireEvent.press(await findByLabelText('tab-branches'))
+    expect(await findByText('BRANCHES_TAB|nearest=NULL')).toBeTruthy()
   })
 })

@@ -28,7 +28,7 @@ const renderTab = (props = {}) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <ReviewsTab merchantId="m1" currentBranchId="b1" currentBranchName="Brightlingsea" myReview={null} {...props} />
+      <ReviewsTab merchantId="m1" currentBranchId="b1" currentBranchName="Brightlingsea" myReview={null} isMultiBranch={true} {...props} />
     </QueryClientProvider>,
   )
 }
@@ -64,7 +64,7 @@ describe('ReviewsTab branch-filter toggle', () => {
     fireEvent.press(getByLabelText(/All branches/i))
     rerender(
       <QueryClientProvider client={new QueryClient()}>
-        <ReviewsTab merchantId="m1" currentBranchId="b2" currentBranchName="Frinton" myReview={null} />
+        <ReviewsTab merchantId="m1" currentBranchId="b2" currentBranchName="Frinton" myReview={null} isMultiBranch={true} />
       </QueryClientProvider>,
     )
     expect(mockUseMerchantReviews).toHaveBeenLastCalledWith('m1', expect.not.objectContaining({ branchId: expect.anything() }))

@@ -113,6 +113,7 @@ function renderTab() {
         currentBranchId="b-brightlingsea"
         currentBranchName="Brightlingsea"
         myReview={ownReviewBrightlingsea}
+        isMultiBranch={true}
       />
     </QueryClientProvider>,
   )

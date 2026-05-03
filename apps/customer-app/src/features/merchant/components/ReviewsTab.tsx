@@ -16,9 +16,14 @@ type Props = {
   currentBranchId:   string
   currentBranchName: string
   myReview:          Review | null
+  // Single-branch merchants must NOT render the branch/all toggle or the
+  // "See reviews from other branches" cross-link — there are no other
+  // branches. The toggle's two states are equivalent and the cross-link
+  // points nowhere. Locked correctness fix (PR #33 fix-up #3, 2026-05-03).
+  isMultiBranch:     boolean
 }
 
-export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview }: Props) {
+export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch }: Props) {
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
 
@@ -191,6 +196,9 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
     // stuck — without it, a branch-scoped empty page hides the only path to
     // view other branches' reviews.
     const isBranchScoped = filter === 'branch'
+    // Cross-link only makes sense when there ARE other branches to discover.
+    // Single-branch merchants must never render it.
+    const showCrossLink = isBranchScoped && isMultiBranch
     return (
       <View style={styles.container}>
         {isAuthed && summary && (
@@ -203,13 +211,13 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
           />
         )}
 
-        {renderToggle()}
+        {isMultiBranch && renderToggle()}
 
         <View style={styles.emptyText}>
           <Text variant="heading.md" color="secondary" align="center">
             {isBranchScoped ? `Be the first to review ${currentBranchName}` : 'No reviews yet'}
           </Text>
-          {isBranchScoped && (
+          {showCrossLink && (
             <Pressable
               accessibilityRole="link"
               accessibilityLabel="See reviews from other branches"
@@ -246,7 +254,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         hasExistingReview={myReview !== null}
       />
 
-      {renderToggle()}
+      {isMultiBranch && renderToggle()}
 
       <ReviewSortControl
         totalReviews={summary.totalReviews}
