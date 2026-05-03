@@ -687,11 +687,19 @@ export async function getCustomerMerchant(
     : []
 
   // myReview — null for guests; branch-scoped lookup for authed users.
+  // CRITICAL: filter `isHidden: false`. The `@@unique([userId, branchId])`
+  // constraint means a soft-deleted review still occupies the slot; without
+  // this filter the deleted row leaks into selectedBranch.myReview, the
+  // customer app thinks the user has an existing review, the CTA renders
+  // as "Edit Your Review", and tapping it pre-fills the form with the
+  // deleted content. Confirmed in 2026-05-04 on-device QA. `findFirst`
+  // lets us add the non-unique condition to the where clause; the
+  // `userId_branchId` index still serves the lookup.
   let myReview: ReturnType<typeof formatReview> | null = null
   if (userId && selectedBranchRaw) {
     const [row, verifiedRow] = await Promise.all([
-      prisma.review.findUnique({
-        where: { userId_branchId: { userId, branchId: selectedBranchRaw.id } },
+      prisma.review.findFirst({
+        where: { userId, branchId: selectedBranchRaw.id, isHidden: false },
         select: {
           id: true, branchId: true, userId: true, rating: true, comment: true,
           createdAt: true, updatedAt: true,

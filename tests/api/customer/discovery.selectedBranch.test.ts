@@ -266,6 +266,31 @@ describe('GET /api/v1/customer/merchants/:id — selectedBranch (P1)', () => {
     })
   })
 
+  // PR #33 fix-up #5 (2026-05-04 on-device QA blocker). The myReview lookup
+  // previously used findUnique on (userId, branchId) without filtering by
+  // `isHidden`, so a user-deleted review still leaked into the response —
+  // the customer-app then rendered "Edit Your Review" + pre-filled the
+  // form with the deleted content + lets the user re-submit it back into
+  // the visible list. Pin: hidden review must NOT surface as myReview.
+  it('selectedBranch.myReview is null when the user has deleted (isHidden=true) their review', async () => {
+    const m = await createMerchant()
+    const { id: userId } = await createUser()
+    const targetBranch = m.branches[0]!
+    await prisma.review.create({
+      data: {
+        userId,
+        branchId: targetBranch.id,
+        rating: 5,
+        comment: 'About to be deleted',
+        isHidden: true,  // user-side soft-delete
+      },
+    })
+
+    const body = await getCustomerMerchant(prisma, m.id, userId, { branchId: targetBranch.id })
+
+    expect(body.selectedBranch!.myReview).toBeNull()
+  })
+
   it('selectedBranch.myReview.isVerified is true when the user has a validated redemption at the branch', async () => {
     const m = await createMerchant()
     const targetBranch = m.branches[0]!
