@@ -6,7 +6,7 @@ import { api } from '../api'
 // added in M2 when the WriteReviewSheet is wired (or skipped if writing
 // is deferred per owner decision §9.4).
 
-const reviewSchema = z.object({
+export const reviewSchema = z.object({
   id:          z.string(),
   branchId:    z.string(),
   branchName:  z.string(),
@@ -71,10 +71,19 @@ export const reviewsApi = {
 
   /**
    * GET /api/v1/customer/merchants/:id/reviews/summary
-   * Aggregated rating histogram + average.
+   * Aggregated rating histogram + average. Optional `branchId` scopes the
+   * histogram to a single branch — required for the branch-aware Reviews
+   * tab so the breakdown matches the toggle (spec §4.5). Without branchId
+   * the response is the merchant-wide rollup.
    */
-  async getReviewSummary(merchantId: string): Promise<ReviewSummary> {
-    const res = await api.get<unknown>(`/api/v1/customer/merchants/${encodeURIComponent(merchantId)}/reviews/summary`)
+  async getReviewSummary(
+    merchantId: string,
+    opts: { branchId?: string } = {},
+  ): Promise<ReviewSummary> {
+    const qp = new URLSearchParams()
+    if (opts.branchId) qp.set('branchId', opts.branchId)
+    const qs  = qp.toString() ? `?${qp.toString()}` : ''
+    const res = await api.get<unknown>(`/api/v1/customer/merchants/${encodeURIComponent(merchantId)}/reviews/summary${qs}`)
     return reviewSummarySchema.parse(res)
   },
 

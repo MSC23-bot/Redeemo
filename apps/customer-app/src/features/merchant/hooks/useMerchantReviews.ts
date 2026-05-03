@@ -5,10 +5,14 @@ import { reviewsApi } from '@/lib/api/reviews'
 // here (out of M1 scope). Mirrors the cefaf45 hook shape so M2 / future
 // writes can extend without breaking callers.
 
-export function useReviewSummary(merchantId: string | undefined) {
+export function useReviewSummary(
+  merchantId: string | undefined,
+  opts: { branchId?: string } = {},
+) {
   return useQuery({
-    queryKey:  ['reviewSummary', merchantId],
-    queryFn:   () => reviewsApi.getReviewSummary(merchantId!),
+    // null sentinel keeps the cache key stable when branchId is omitted.
+    queryKey:  ['reviewSummary', merchantId, opts.branchId ?? null],
+    queryFn:   () => reviewsApi.getReviewSummary(merchantId!, opts),
     enabled:   !!merchantId,
     staleTime: 120_000,
   })

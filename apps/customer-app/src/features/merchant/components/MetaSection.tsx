@@ -16,7 +16,7 @@ type Props = {
   branchName: string | null
   distance: number | null
   isOpenNow: boolean
-  hoursText: string
+  hoursText: string | null
   singleBranchAddress: string | null
   hasWebsite: boolean
   onWebsite: () => void
@@ -68,7 +68,9 @@ export function MetaSection({
         <Text variant="label.md" style={[styles.statusText, { color: isOpenNow ? '#16A34A' : '#B91C1C' }]}>
           {isOpenNow ? 'Open' : 'Closed'}
         </Text>
-        <Text variant="label.md" color="tertiary" meta style={styles.hoursText}>{hoursText}</Text>
+        {hoursText !== null && (
+          <Text variant="label.md" color="tertiary" meta style={styles.hoursText}>{hoursText}</Text>
+        )}
       </View>
 
       <View style={styles.actions}>

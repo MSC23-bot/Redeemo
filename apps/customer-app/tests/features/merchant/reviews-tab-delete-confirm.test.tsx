@@ -83,7 +83,7 @@ function renderTab() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <ReviewsTab merchantId="m1" defaultBranchId="b1" />
+      <ReviewsTab merchantId="m1" currentBranchId="b1" currentBranchName="Test Branch" myReview={null} isMultiBranch={true} />
     </QueryClientProvider>,
   )
 }

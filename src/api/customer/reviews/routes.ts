@@ -45,8 +45,9 @@ export async function reviewOpenRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/v1/customer/merchants/:id/reviews/summary', async (req: FastifyRequest, reply) => {
-    const { id } = idParam.parse(req.params)
-    const result = await getReviewSummary(app.prisma, id)
+    const { id }       = idParam.parse(req.params)
+    const { branchId } = z.object({ branchId: z.string().optional() }).parse(req.query)
+    const result = await getReviewSummary(app.prisma, id, { branchId })
     return reply.send(result)
   })
 }

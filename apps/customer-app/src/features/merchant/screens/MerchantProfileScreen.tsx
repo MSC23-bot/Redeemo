@@ -1,10 +1,10 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { View, ScrollView, StyleSheet, ActivityIndicator, Share, Linking, Pressable } from 'react-native'
 import { router } from 'expo-router'
 import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
-import { useOpenStatus } from '../hooks/useOpenStatus'
+import { useBranchSelection } from '../hooks/useBranchSelection'
 import { HeroSection } from '../components/HeroSection'
 import { MetaSection } from '../components/MetaSection'
 import { TabBar, type TabId } from '../components/TabBar'
@@ -15,6 +15,10 @@ import { ReviewsTab } from '../components/ReviewsTab'
 import { ContactSheet } from '../components/ContactSheet'
 import { DirectionsSheet } from '../components/DirectionsSheet'
 import { FreeUserGateModal } from '../components/FreeUserGateModal'
+import { BranchChip } from '../components/BranchChip'
+import { BranchPickerSheet } from '../components/BranchPickerSheet'
+import { SuspendedBranchBanner } from '../components/SuspendedBranchBanner'
+import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
 import { useFavourite } from '@/hooks/useFavourite'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
@@ -26,19 +30,58 @@ import { useUserLocation } from '@/hooks/useLocation'
 // route shows the gate; subscribed users navigate to /voucher/[id] (route
 // not yet on main — Voucher Detail is a separate next-next PR; tap-through
 // 404s until that lands per owner decision §9.2).
+//
+// P2.8 — branch-aware rewire. The screen now reads every branch-scoped
+// value from `merchant.selectedBranch.*` (resolved by the backend per
+// `?branch=` query param + cold-open fallback). Legacy top-level fields
+// (`merchant.openingHours`, `merchant.photos`, `merchant.amenities`,
+// `merchant.distance`, `merchant.isOpenNow`, `merchant.nearestBranch`)
+// remain in the schema for R1 dual-write compat but are no longer read.
+// Open-status pill reads `sb.isOpenNow` directly; AboutTab still calls
+// `useOpenStatus` internally for the schedule grid's TODAY-row marker.
 type Props = { id: string | undefined }
 
 export function MerchantProfileScreen({ id }: Props) {
   const { isSubscribed, isSubLoading } = useSubscription()
 
-  // Pass GPS to the profile endpoint so the server can compute `distance` and
-  // resolve `nearestBranch`. Without lat/lng both come back null and the meta
-  // row falls back to "Multiple locations". `opts` is built with conditional
-  // assignment to satisfy `exactOptionalPropertyTypes` (no `lat: undefined`).
+  // URL ↔ branch selection (P2.3). `branchId` from `?branch=`; `select`
+  // pushes a new branch via router.replace; `reconcile` aligns the URL
+  // with whatever the server resolved (cold-open or fallback path).
+  const merchantId = id ?? ''
+  const { branchId, select, reconcile } = useBranchSelection({ merchantId })
+
+  // Pass GPS so the server can compute `distance` + resolve a nearest
+  // candidate on cold-open. `branchId` (when present) pins selectedBranch.
   const { location } = useUserLocation()
-  const profileOpts: { lat?: number; lng?: number } =
-    location ? { lat: location.lat, lng: location.lng } : {}
+  const profileOpts: { lat?: number; lng?: number; branchId?: string } = {
+    ...(location ? { lat: location.lat, lng: location.lng } : {}),
+    ...(branchId ? { branchId } : {}),
+  }
   const { data: merchant, isLoading, isError, error } = useMerchantProfile(id, profileOpts)
+
+  // Reconcile the URL with the server-resolved branch ONLY when the server
+  // fell back from the user's candidate (cold-open / candidate-inactive /
+  // candidate-not-found / no-candidate). For 'used-candidate' the URL
+  // already matches the response — no reconcile needed.
+  //
+  // Why this gate matters: with `keepPreviousData`, when the user picks a
+  // new branch via the chip, the URL flips immediately but `merchant` keeps
+  // the prior fetch's data on screen for a frame (selectedBranch.id=prev,
+  // fallbackReason='used-candidate'). Without the gate, the reconcile
+  // effect re-fires (because `reconcile`'s identity tracks `branchId`),
+  // sees URL=new !== resolved=prev, and writes the OLD id back to the URL.
+  // Net effect: "tap a branch, nothing happens; tap again, it works."
+  // The gate stops the spurious replace because 'used-candidate' means the
+  // prior URL was already correct for the prior data — there's nothing to
+  // reconcile against.
+  useEffect(() => {
+    if (
+      merchant?.selectedBranch?.id &&
+      merchant.selectedBranchFallbackReason !== 'used-candidate'
+    ) {
+      reconcile(merchant.selectedBranch.id)
+    }
+  }, [merchant?.selectedBranch?.id, merchant?.selectedBranchFallbackReason, reconcile])
 
   const favourite = useFavourite({
     type: 'merchant',
@@ -46,36 +89,43 @@ export function MerchantProfileScreen({ id }: Props) {
     isFavourited: merchant?.isFavourited ?? false,
   })
 
-  // Pass server-computed `merchant.isOpenNow` (already in Europe/London — see
-  // `src/api/shared/isOpenNow.ts`) so the live status pill agrees regardless
-  // of device timezone, and so MetaSection here + AboutTab below can't drift
-  // apart even on slow renders. The hook also internally ticks every 60s so
-  // the schedule grid's "TODAY" badge stays correct across midnight.
-  const openStatus = useOpenStatus(merchant?.openingHours ?? [], merchant?.isOpenNow)
+  const [activeTab,        setActiveTab]        = useState<TabId>('vouchers')
+  const [showContact,      setShowContact]      = useState(false)
+  const [showDirs,         setShowDirs]         = useState(false)
+  const [showGate,         setShowGate]         = useState(false)
+  const [showPicker,       setShowPicker]       = useState(false)
+  const [bannerDismissed,  setBannerDismissed]  = useState(false)
 
-  const [activeTab,    setActiveTab]    = useState<TabId>('vouchers')
-  const [showContact,  setShowContact]  = useState(false)
-  // `dirsBranchId` overrides which branch the DirectionsSheet shows. When
-  // null + showDirs=true → defaults to nearest/first branch (the legacy
-  // MetaSection "Directions" CTA behaviour). Set by BranchesTab card tap.
-  const [dirsBranchId, setDirsBranchId] = useState<string | null>(null)
-  const [showDirs,     setShowDirs]     = useState(false)
-  const [showGate,     setShowGate]     = useState(false)
-
-  const isSingleBranch  = (merchant?.branches.length ?? 0) <= 1
-  const nearestBranchId = merchant?.nearestBranch?.id ?? merchant?.branches[0]?.id ?? null
+  // On branch switch (URL `?branch=` change): close any open sheets, close
+  // the free-user gate, and re-arm the SuspendedBranchBanner so the new
+  // branch's resolution gets a fresh chance to surface (spec §4.7). Active
+  // tab is intentionally preserved; ScrollView keeps its position.
+  useEffect(() => {
+    setShowContact(false)
+    setShowDirs(false)
+    setShowGate(false)
+    setShowPicker(false)
+    setBannerDismissed(false)
+  }, [branchId])
 
   const tabs = useMemo(() => {
+    const isMultiBranch = (merchant?.branches.length ?? 0) > 1
     const t: Array<{ id: TabId; label: string; count?: number }> = [
       { id: 'vouchers', label: 'Vouchers', count: merchant?.vouchers.length ?? 0 },
       { id: 'about',    label: 'About' },
     ]
-    if (!isSingleBranch) {
+    if (isMultiBranch) {
       t.push({ id: 'branches', label: 'Branches', count: merchant?.branches.length ?? 0 })
     }
-    t.push({ id: 'reviews', label: 'Reviews', count: merchant?.reviewCount ?? 0 })
+    // Branch-scoped count matches the Reviews tab's default scope (the
+    // toggle defaults to 'branch'). Showing the merchant-wide aggregate
+    // here while the tab content showed only the selected branch's
+    // reviews was the misleading shape flagged in 2026-05-03 QA. When the
+    // user flips the toggle to 'All branches' the badge under-reports —
+    // an accepted limitation given the toggle lives inside the tab body.
+    t.push({ id: 'reviews', label: 'Reviews', count: merchant?.selectedBranch?.reviewCount ?? merchant?.reviewCount ?? 0 })
     return t
-  }, [merchant, isSingleBranch])
+  }, [merchant])
 
   const handleShare = useCallback(async () => {
     if (!merchant) return
@@ -87,10 +137,6 @@ export function MerchantProfileScreen({ id }: Props) {
       message: `Check out ${merchant.businessName} on Redeemo! ${shareUrl}`,
       url: shareUrl,
     })
-  }, [merchant])
-
-  const handleWebsite = useCallback(() => {
-    if (merchant?.websiteUrl) Linking.openURL(merchant.websiteUrl)
   }, [merchant])
 
   // Voucher tap — free-user gate per owner decision §9.1. Subscribed users
@@ -106,23 +152,6 @@ export function MerchantProfileScreen({ id }: Props) {
     // cast becomes unnecessary and can be removed.
     router.push(`/voucher/${voucherId}` as any)
   }, [isSubscribed, isSubLoading])
-
-  const singleBranchAddress = useMemo(() => {
-    if (!isSingleBranch || !merchant?.branches[0]) return null
-    const b = merchant.branches[0]
-    return [b.addressLine1, b.city, b.postcode].filter(Boolean).join(', ')
-  }, [isSingleBranch, merchant])
-
-  const contactBranch = merchant?.nearestBranch ?? merchant?.branches[0]
-
-  // DirectionsSheet target — when BranchesTab sets `dirsBranchId`, point at
-  // that branch; otherwise fall back to nearest/first (MetaSection default).
-  const dirsBranch = dirsBranchId
-    ? merchant?.branches.find(b => b.id === dirsBranchId) ?? contactBranch
-    : contactBranch
-  const dirAddress = dirsBranch
-    ? [dirsBranch.addressLine1, dirsBranch.city, dirsBranch.postcode].filter(Boolean).join(', ')
-    : ''
 
   // ─── Loading / error early returns ──────────────────────────────────────────
   if (!id) {
@@ -161,23 +190,68 @@ export function MerchantProfileScreen({ id }: Props) {
     )
   }
 
+  // All-suspended early return (spec §4.6 + §6). Backend signals this with
+  // selectedBranch=null + fallbackReason='all-suspended'. The merchant
+  // identity (banner + logo + name) still renders as a courtesy so the
+  // user knows where they landed — but no chip / picker / tabs / sheets.
+  if (merchant.selectedBranch === null) {
+    return (
+      <AllBranchesUnavailable
+        businessName={merchant.businessName}
+        bannerUrl={merchant.bannerUrl}
+        logoUrl={merchant.logoUrl}
+      />
+    )
+  }
+
+  const sb = merchant.selectedBranch
+  const isMultiBranch = merchant.branches.length > 1
+  const showBanner = merchant.selectedBranchFallbackReason === 'candidate-inactive' && !bannerDismissed
+
+  // Open-status text on the chip: "Closes HH:MM" while open + we have a
+  // closeTime for today; otherwise "Open now" or "Closed". Day-of-week 0–6
+  // matches the OpeningHourEntry convention (0 = Sunday).
+  const today = new Date().getDay()
+  const todayHours = sb.openingHours.find(h => h.dayOfWeek === today)
+  const closesAt = sb.isOpenNow && todayHours?.closeTime ? todayHours.closeTime : null
+
+  // County: Branch.county doesn't exist yet (deferred-followups §H). The
+  // chip / picker accept null and degrade to city-only — intentional.
+  const county = null
+
   // Per-voucher state placeholders. cefaf45 documented these as TODO until
   // the merchant detail endpoint surfaces redeemed/favourited per voucher.
   // Out of scope for M2 — the Voucher Detail rebaseline will resolve.
   const redeemedVoucherIds   = new Set<string>()
   const favouritedVoucherIds = new Set<string>()
 
+  const handleWebsite = () => {
+    const url = sb.websiteUrl ?? merchant.websiteUrl
+    if (url) Linking.openURL(url)
+  }
+
+  const dirAddress = [sb.addressLine1, sb.city, sb.postcode].filter(Boolean).join(', ')
+
   return (
     <View style={styles.container}>
       <ScrollView
+        testID="merchant-profile-scroll"
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[2]}
+        stickyHeaderIndices={[4]}
       >
+        <SuspendedBranchBanner
+          visible={showBanner}
+          onDismiss={() => setBannerDismissed(true)}
+        />
+
         <HeroSection
-          bannerUrl={merchant.bannerUrl}
-          logoUrl={merchant.logoUrl}
+          // Branch-scoped imagery wins; merchant-level falls back when the
+          // branch hasn't uploaded its own (typical for chains using the
+          // master logo / banner across all branches).
+          bannerUrl={sb.bannerUrl ?? merchant.bannerUrl}
+          logoUrl={sb.logoUrl ?? merchant.logoUrl}
           isFavourited={favourite.isFavourited}
           onToggleFavourite={favourite.toggle}
           onShare={handleShare}
@@ -187,23 +261,35 @@ export function MerchantProfileScreen({ id }: Props) {
           businessName={merchant.businessName}
           // Use the server-computed `descriptor` (Plan 1.5 §3.6 — built from
           // primaryDescriptorTag + subcategory.descriptorSuffix with de-dup)
-          // rather than the raw subcategory name. For Covelum the backend
-          // returns "Indian Restaurant"; the raw `primaryCategory.name` would
-          // be just "Restaurant", which is what was rendering as the bug.
-          // Plan §8.1 explicitly mandates this — descriptor / highlights /
-          // subcategory must come from the server-computed field.
+          // rather than the raw subcategory name. Plan §8.1 mandates this.
           category={merchant.descriptor || null}
-          avgRating={merchant.avgRating}
-          reviewCount={merchant.reviewCount}
-          branchName={merchant.nearestBranch?.name ?? null}
-          distance={merchant.distance}
-          isOpenNow={openStatus.isOpen}
-          hoursText={openStatus.hoursText}
-          singleBranchAddress={singleBranchAddress}
-          hasWebsite={!!merchant.websiteUrl}
+          // Branch-scoped per spec §4.4 + §6 (state model).
+          avgRating={sb.avgRating}
+          reviewCount={sb.reviewCount}
+          // Branch context now lives on the chip below — clear MetaSection's
+          // own branch fields so it doesn't double-print.
+          branchName={null}
+          distance={null}
+          isOpenNow={sb.isOpenNow}
+          // hoursText now belongs to BranchChip below — null suppresses the
+          // hours line in MetaSection entirely.
+          hoursText={null}
+          singleBranchAddress={null}
+          hasWebsite={!!(sb.websiteUrl ?? merchant.websiteUrl)}
           onWebsite={handleWebsite}
           onContact={() => setShowContact(true)}
-          onDirections={() => { setDirsBranchId(null); setShowDirs(true) }}
+          onDirections={() => setShowDirs(true)}
+        />
+
+        <BranchChip
+          branchName={sb.name}
+          city={sb.city}
+          county={county}
+          distanceMetres={sb.distance}
+          isOpenNow={sb.isOpenNow}
+          closesAt={closesAt}
+          isMultiBranch={isMultiBranch}
+          onPress={() => setShowPicker(true)}
         />
 
         <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
@@ -220,46 +306,74 @@ export function MerchantProfileScreen({ id }: Props) {
           {activeTab === 'about' && (
             <AboutTab
               businessName={merchant.businessName}
-              description={merchant.about}
-              photos={merchant.photos}
-              amenities={merchant.amenities}
-              openingHours={merchant.openingHours}
-              serverIsOpenNow={merchant.isOpenNow}
+              // Branch-scoped about / photos / amenities / hours win;
+              // about falls back to the merchant-level description when
+              // the branch hasn't customised its own copy.
+              description={sb.about ?? merchant.about}
+              photos={sb.photos}
+              amenities={sb.amenities}
+              openingHours={sb.openingHours}
+              serverIsOpenNow={sb.isOpenNow}
             />
           )}
-          {activeTab === 'branches' && !isSingleBranch && (
+          {activeTab === 'branches' && isMultiBranch && (
             <BranchesTab
               branches={merchant.branches}
-              nearestBranchId={nearestBranchId}
-              onBranchPress={(branchId) => { setDirsBranchId(branchId); setShowDirs(true) }}
+              // "Nearest" is a distance fact (server-computed from GPS), NOT
+              // a user-selection state. Passing `sb.id` here previously made
+              // the label track the chip's selection — a real correctness
+              // bug that contradicted the locked branch-as-primary-unit
+              // principle. Use the legacy R1 `nearestBranch.id` (still
+              // served as part of dual-write).
+              nearestBranchId={merchant.nearestBranch?.id ?? null}
+              onBranchPress={(nextBranchId) => select(nextBranchId)}
               onHoursPress={() => setActiveTab('about')}
             />
           )}
           {activeTab === 'reviews' && (
             <ReviewsTab
               merchantId={merchant.id}
-              defaultBranchId={nearestBranchId}
+              currentBranchId={sb.id}
+              currentBranchName={sb.name}
+              myReview={sb.myReview}
+              isMultiBranch={isMultiBranch}
             />
           )}
         </View>
       </ScrollView>
 
+      <BranchPickerSheet
+        visible={showPicker}
+        branches={merchant.branches.map(b => ({
+          id:             b.id,
+          name:           b.name,
+          city:           b.city,
+          county:         null,        // see deferred-followups §H
+          distanceMetres: b.distance,
+          isOpenNow:      b.isOpenNow,
+          isActive:       b.isActive,
+        }))}
+        currentBranchId={sb.id}
+        onPick={(nextBranchId) => select(nextBranchId)}
+        onDismiss={() => setShowPicker(false)}
+      />
+
       <ContactSheet
         visible={showContact}
         onDismiss={() => setShowContact(false)}
-        branchName={contactBranch?.name ?? merchant.businessName}
-        phone={contactBranch?.phone ?? null}
-        email={contactBranch?.email ?? null}
-        websiteUrl={merchant.websiteUrl}
+        branchName={sb.name}
+        phone={sb.phone}
+        email={sb.email}
+        websiteUrl={sb.websiteUrl ?? merchant.websiteUrl}
       />
 
       <DirectionsSheet
         visible={showDirs}
-        onDismiss={() => { setShowDirs(false); setDirsBranchId(null) }}
+        onDismiss={() => setShowDirs(false)}
         address={dirAddress}
-        distance={dirsBranch?.distance ?? merchant.distance}
-        latitude={dirsBranch?.latitude ?? null}
-        longitude={dirsBranch?.longitude ?? null}
+        distance={sb.distance}
+        latitude={sb.latitude}
+        longitude={sb.longitude}
       />
 
       <FreeUserGateModal

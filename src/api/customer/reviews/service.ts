@@ -169,11 +169,62 @@ export async function upsertBranchReview(
   userId: string,
   data: { rating: number; comment?: string },
 ) {
-  const review = await prisma.review.upsert({
-    where:  { userId_branchId: { userId, branchId } },
-    create: { userId, branchId, rating: data.rating, comment: data.comment ?? null },
-    update: { rating: data.rating, comment: data.comment ?? null, isHidden: false },
-    select: REVIEW_SELECT,
+  // Three paths inside one transaction so the read-then-write is consistent
+  // (no race between findUnique and update):
+  //
+  //   1. Initial create — no existing row → upsert's `create` branch runs
+  //      (Prisma defaults set createdAt:now, isHidden:false). `helpfuls`
+  //      and `reports` start empty.
+  //
+  //   2. Edit of a CURRENTLY VISIBLE review (existing row, isHidden=false)
+  //      → upsert's `update` branch runs. createdAt, helpfuls, reports
+  //      preserved. `updatedAt` auto-updates via @updatedAt. This is the
+  //      vanilla "edit my review" flow.
+  //
+  //   3. Revive of a SOFT-DELETED review (existing row, isHidden=true) →
+  //      MUST clear stale state. Without this branch, the revived row
+  //      inherits old `helpfuls` rows + reports from the previous content,
+  //      so a brand-new review by the user shows up with "3 people found
+  //      this helpful" inherited from a deleted review (caught in
+  //      2026-05-04 on-device QA). Resets:
+  //        - delete all `ReviewHelpful` rows for this reviewId
+  //        - delete all `ReviewReport`  rows for this reviewId
+  //        - explicit `createdAt: new Date()` so any future analytics that
+  //          read createdAt sees this as a fresh review (UI already uses
+  //          updatedAt for timeAgo so this is belt-and-braces)
+  //        - `isHidden: false` to surface the row again
+  //
+  // The @@unique([userId, branchId]) constraint forces us to reuse the
+  // same `Review.id` across delete→re-write cycles (we can't insert a
+  // second row), but the revive path strips every piece of state that
+  // could leak old activity onto new content.
+  const review = await prisma.$transaction(async (tx) => {
+    const existing = await tx.review.findUnique({
+      where:  { userId_branchId: { userId, branchId } },
+      select: { id: true, isHidden: true },
+    })
+
+    if (existing && existing.isHidden) {
+      await tx.reviewHelpful.deleteMany({ where: { reviewId: existing.id } })
+      await tx.reviewReport.deleteMany({  where: { reviewId: existing.id } })
+      return tx.review.update({
+        where:  { id: existing.id },
+        data:   {
+          rating:    data.rating,
+          comment:   data.comment ?? null,
+          isHidden:  false,
+          createdAt: new Date(),
+        },
+        select: REVIEW_SELECT,
+      })
+    }
+
+    return tx.review.upsert({
+      where:  { userId_branchId: { userId, branchId } },
+      create: { userId, branchId, rating: data.rating, comment: data.comment ?? null },
+      update: { rating: data.rating, comment: data.comment ?? null, isHidden: false },
+      select: REVIEW_SELECT,
+    })
   }) as ReviewRow
 
   const [verifiedSet, helpfulSet] = await Promise.all([
@@ -241,10 +292,27 @@ export async function reportReview(
 export async function getReviewSummary(
   prisma: PrismaClient,
   merchantId: string,
+  opts: { branchId?: string } = {},
 ) {
+  // When branchId is supplied the where clause additionally pins the row to
+  // that branch AND requires the branch to belong to merchantId. Mismatched
+  // (branchId, merchantId) → zero rows, no error needed (returns the empty
+  // shape: averageRating=0, totalReviews=0, distribution all zero).
+  //
+  // Filter on `isHidden: false` (NOT `isDeleted: false`). User-side review
+  // delete sets `isHidden: true` (see `deleteBranchReview` above);
+  // `isDeleted` is reserved for future admin-moderation hard-deletes and
+  // is never set today. The previous `isDeleted: false` filter was a no-op
+  // and let user-deleted reviews leak into rating histograms / total
+  // counts on the Reviews tab — confirmed in 2026-05-04 on-device QA.
+  // Every other review-aggregation site in the codebase already uses
+  // `isHidden: false` (discovery service, ranking helper, list endpoints);
+  // this brings the summary into line with that contract.
   const where: Prisma.ReviewWhereInput = {
-    isDeleted: false,
-    branch: { merchantId, isActive: true },
+    isHidden: false,
+    branch: opts.branchId
+      ? { id: opts.branchId, merchantId, isActive: true }
+      : { merchantId, isActive: true },
   }
 
   const [total, avgAgg, dist] = await Promise.all([

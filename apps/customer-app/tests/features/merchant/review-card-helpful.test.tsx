@@ -26,36 +26,36 @@ const baseReview: ReviewItem = {
 
 describe('ReviewCard helpful display', () => {
   it('renders just "Helpful" when count is 0 (no number suffix)', () => {
-    const { getByText } = render(<ReviewCard review={baseReview} onHelpful={() => {}} />)
+    const { getByText } = render(<ReviewCard review={baseReview} onHelpful={() => {}} showBranchLabel={false} />)
     expect(getByText('Helpful')).toBeTruthy()
   })
 
   it('appends the count when there is at least one helpful vote', () => {
     const { getByText } = render(
-      <ReviewCard review={{ ...baseReview, helpfulCount: 7 }} onHelpful={() => {}} />,
+      <ReviewCard review={{ ...baseReview, helpfulCount: 7 }} onHelpful={() => {}} showBranchLabel={false} />,
     )
     expect(getByText(/Helpful · 7/)).toBeTruthy()
   })
 
   it('exposes a different accessibility label when the user has marked it', () => {
     const marked = { ...baseReview, userMarkedHelpful: true, helpfulCount: 1 }
-    const { getByLabelText: byMarked } = render(<ReviewCard review={marked} onHelpful={() => {}} />)
+    const { getByLabelText: byMarked } = render(<ReviewCard review={marked} onHelpful={() => {}} showBranchLabel={false} />)
     expect(byMarked(/Marked helpful/)).toBeTruthy()
 
-    const { getByLabelText: byUnmarked } = render(<ReviewCard review={baseReview} onHelpful={() => {}} />)
+    const { getByLabelText: byUnmarked } = render(<ReviewCard review={baseReview} onHelpful={() => {}} showBranchLabel={false} />)
     expect(byUnmarked('Mark as helpful')).toBeTruthy()
   })
 
   it('fires the onHelpful callback on tap', () => {
     const onHelpful = jest.fn()
-    const { getByLabelText } = render(<ReviewCard review={baseReview} onHelpful={onHelpful} />)
+    const { getByLabelText } = render(<ReviewCard review={baseReview} onHelpful={onHelpful} showBranchLabel={false} />)
     fireEvent.press(getByLabelText('Mark as helpful'))
     expect(onHelpful).toHaveBeenCalledTimes(1)
   })
 
   it('does NOT render the tappable "Helpful" CTA on the user\'s own review', () => {
     const own = { ...baseReview, isOwnReview: true }
-    const { queryByLabelText } = render(<ReviewCard review={own} onHelpful={() => {}} />)
+    const { queryByLabelText } = render(<ReviewCard review={own} onHelpful={() => {}} showBranchLabel={false} />)
     expect(queryByLabelText('Mark as helpful')).toBeNull()
     expect(queryByLabelText(/Marked helpful/)).toBeNull()
   })
@@ -66,19 +66,19 @@ describe('ReviewCard helpful display', () => {
 
   it('shows a read-only count on own review when helpfulCount > 0 (plural)', () => {
     const own = { ...baseReview, isOwnReview: true, helpfulCount: 3 }
-    const { getByText } = render(<ReviewCard review={own} onHelpful={() => {}} />)
+    const { getByText } = render(<ReviewCard review={own} onHelpful={() => {}} showBranchLabel={false} />)
     expect(getByText('3 people found this helpful')).toBeTruthy()
   })
 
   it('uses singular phrasing when exactly one person found own review helpful', () => {
     const own = { ...baseReview, isOwnReview: true, helpfulCount: 1 }
-    const { getByText } = render(<ReviewCard review={own} onHelpful={() => {}} />)
+    const { getByText } = render(<ReviewCard review={own} onHelpful={() => {}} showBranchLabel={false} />)
     expect(getByText('1 person found this helpful')).toBeTruthy()
   })
 
   it('renders nothing in the helpful slot when own review has 0 helpful marks', () => {
     const own = { ...baseReview, isOwnReview: true, helpfulCount: 0 }
-    const { queryByText } = render(<ReviewCard review={own} onHelpful={() => {}} />)
+    const { queryByText } = render(<ReviewCard review={own} onHelpful={() => {}} showBranchLabel={false} />)
     expect(queryByText(/found this helpful/)).toBeNull()
     expect(queryByText('Helpful')).toBeNull()
   })

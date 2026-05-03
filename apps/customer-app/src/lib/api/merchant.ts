@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { api } from '../api'
+import { reviewSchema } from './reviews'
 
 // Shape served by `GET /api/v1/customer/merchants/:id`. Generated server-side
 // in `src/api/customer/discovery/service.ts:getCustomerMerchant`. Field
@@ -76,6 +77,13 @@ export type MerchantVoucher = z.infer<typeof merchantVoucherSchema>
 const branchTileSchema = z.object({
   id:           z.string(),
   name:         z.string(),
+  // P2.8: backend (`src/api/customer/discovery/service.ts`) emits these for
+  // the branch picker — `isActive` greys out suspended rows; `isMainBranch`
+  // is forward-looking (chip / picker may surface a "main" indicator). Zod
+  // strips unknown keys by default, so without these declarations the
+  // picker would silently see `undefined` and treat every branch as active.
+  isMainBranch: z.boolean(),
+  isActive:     z.boolean(),
   addressLine1: z.string().nullable(),
   addressLine2: z.string().nullable(),
   city:         z.string().nullable(),
@@ -110,6 +118,58 @@ const nearestBranchSchema = z.object({
 })
 export type NearestBranch = z.infer<typeof nearestBranchSchema>
 
+// selectedBranch — the branch the backend resolved for this page visit.
+// Null when all branches are suspended (fallbackReason = 'all-suspended').
+// Richer than branchTileSchema: includes openingHours, photos, amenities,
+// country, websiteUrl, logoUrl, bannerUrl, about, and myReview so that the
+// branch-aware merchant profile screen has everything it needs without a
+// second fetch.
+const selectedBranchSchema = z.object({
+  id:           z.string(),
+  name:         z.string(),
+  isMainBranch: z.boolean(),
+  isActive:     z.boolean(),
+  addressLine1: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  city:         z.string().nullable(),
+  postcode:     z.string().nullable(),
+  country:      z.string().nullable(),
+  latitude:     z.number().nullable(),
+  longitude:    z.number().nullable(),
+  phone:        z.string().nullable(),
+  email:        z.string().nullable(),
+  websiteUrl:   z.string().nullable(),
+  logoUrl:      z.string().nullable(),
+  bannerUrl:    z.string().nullable(),
+  about:        z.string().nullable(),
+  openingHours: z.array(openingHourEntrySchema),
+  photos:       z.array(z.string()),
+  amenities:    z.array(amenitySchema),
+  distance:     z.number().nullable(),
+  isOpenNow:    z.boolean(),
+  avgRating:    z.number().nullable(),
+  reviewCount:  z.number().int().min(0),
+  myReview:     reviewSchema.nullable(),
+})
+export type SelectedBranch = z.infer<typeof selectedBranchSchema>
+
+// Reason the backend used to resolve selectedBranch. 'used-candidate' means
+// the caller's ?branch= query param was honoured; the others are fallback
+// paths. 'all-suspended' accompanies selectedBranch: null.
+//
+// Mirrors the 5-value enum returned by P1's branch-resolver.
+// `candidate-wrong-merchant` (spec §4.6) collapses into `candidate-not-found`
+// because the backend Prisma select pre-filters branches[] by merchantId, so
+// the resolver never sees a candidate from a different merchant.
+const fallbackReasonSchema = z.enum([
+  'used-candidate',
+  'candidate-inactive',
+  'candidate-not-found',
+  'no-candidate',
+  'all-suspended',
+])
+export type SelectedBranchFallbackReason = z.infer<typeof fallbackReasonSchema>
+
 const merchantProfileSchema = z.object({
   id:                  z.string(),
   businessName:        z.string(),
@@ -143,6 +203,11 @@ const merchantProfileSchema = z.object({
   photos:               z.array(z.string()),
 
   branches:             z.array(branchTileSchema),
+
+  // Added in P2.1 (branch-aware merchant profile). Null only when
+  // fallbackReason is 'all-suspended' (every branch is suspended).
+  selectedBranch:               selectedBranchSchema.nullable(),
+  selectedBranchFallbackReason: fallbackReasonSchema,
 })
 export type MerchantProfile = z.infer<typeof merchantProfileSchema>
 
@@ -150,15 +215,22 @@ export const merchantApi = {
   /**
    * GET /api/v1/customer/merchants/:id — full merchant detail.
    * Optional `lat`/`lng` enable distance + nearest-branch resolution.
+   * Optional `branchId` pins the selectedBranch the server returns; without
+   * it the server applies its cold-open default (nearest active branch or
+   * main branch). Existing callers that don't pass `branchId` are unaffected.
    * Open to guests (token decoded but not verified for `isFavourited`).
    */
   async getProfile(
     id: string,
-    opts: { lat?: number; lng?: number } = {},
+    opts: { lat?: number; lng?: number; branchId?: string } = {},
   ): Promise<MerchantProfile> {
-    const qs = (opts.lat !== undefined && opts.lng !== undefined)
-      ? `?lat=${encodeURIComponent(opts.lat)}&lng=${encodeURIComponent(opts.lng)}`
-      : ''
+    const qp: string[] = []
+    if (opts.lat !== undefined && opts.lng !== undefined) {
+      qp.push(`lat=${encodeURIComponent(opts.lat)}`)
+      qp.push(`lng=${encodeURIComponent(opts.lng)}`)
+    }
+    if (opts.branchId) qp.push(`branch=${encodeURIComponent(opts.branchId)}`)
+    const qs = qp.length > 0 ? `?${qp.join('&')}` : ''
     const res = await api.get<unknown>(`/api/v1/customer/merchants/${encodeURIComponent(id)}${qs}`)
     return merchantProfileSchema.parse(res)
   },

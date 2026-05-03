@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react'
-import { View, StyleSheet, ActivityIndicator, Alert } from 'react-native'
+import React, { useState, useCallback, useEffect } from 'react'
+import { View, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { ReviewSummary } from './ReviewSummary'
@@ -9,23 +9,93 @@ import { WriteReviewSheet } from './WriteReviewSheet'
 import { useReviewSummary, useMerchantReviews } from '../hooks/useMerchantReviews'
 import { useCreateReview, useDeleteReview, useToggleHelpful } from '../hooks/useWriteReview'
 import { useAuthStore } from '@/stores/auth'
+import type { Review } from '@/lib/api/reviews'
 
 type Props = {
-  merchantId: string
-  defaultBranchId: string | null
+  merchantId:        string
+  currentBranchId:   string
+  currentBranchName: string
+  myReview:          Review | null
+  // Single-branch merchants must NOT render the branch/all toggle or the
+  // "See reviews from other branches" cross-link — there are no other
+  // branches. The toggle's two states are equivalent and the cross-link
+  // points nowhere. Locked correctness fix (PR #33 fix-up #3, 2026-05-03).
+  isMultiBranch:     boolean
 }
 
-export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
+export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch }: Props) {
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
-  const { data: summary, isLoading: summaryLoading } = useReviewSummary(merchantId)
-  const { data: reviewData, isLoading: reviewsLoading } = useMerchantReviews(merchantId, { limit: 50 })
+
+  // Branch filter — defaults to the chip-selected branch. Spec §4.5.
+  // Persists across chip-driven branch switches; only flips when the user
+  // taps the toggle. Locked rule (Q5 in the branch-aware brainstorm): the
+  // user's filter intent should not be reset by an unrelated chip change.
+  const [filter, setFilter] = useState<'branch' | 'all'>('branch')
+
+  // Summary + list share the same branch-scoping rule: when the toggle is
+  // 'branch', both queries pin to currentBranchId; when 'all', both omit
+  // the key. Without this, the rating/breakdown header showed the merchant
+  // aggregate while the list showed branch reviews — the bug surfaced in
+  // 2026-05-03 on-device QA.
+  const branchScope = filter === 'branch' ? { branchId: currentBranchId } : {}
+  const { data: summary, isLoading: summaryLoading } = useReviewSummary(merchantId, branchScope)
+  const { data: reviewData, isLoading: reviewsLoading } = useMerchantReviews(
+    merchantId,
+    {
+      limit: 50,
+      // Spread-with-conditional intentionally: when filter='all' the key
+      // must be ABSENT from the opts object (not present with value
+      // `undefined`) so the query key + URL builder both omit it. The
+      // branch-filter test pins this contract.
+      ...branchScope,
+    },
+  )
   const createReview = useCreateReview(merchantId)
   const deleteReview = useDeleteReview(merchantId)
   const toggleHelpful = useToggleHelpful(merchantId)
 
   const [sort, setSort] = useState<SortOption>('recent')
   const [showWriteSheet, setShowWriteSheet] = useState(false)
+
+  // Per-card edit target. When set, the WriteReviewSheet pre-fills from this
+  // record AND the submit hits this record's branchId — NOT the chip-selected
+  // branch. Required because in 'all' view the user may tap Edit on a review
+  // for a branch other than the chip-selected one; without per-card targeting
+  // the submit silently overwrites the chip branch's review with the form data
+  // and leaves the intended target unchanged. (PR #33 high-priority fix.)
+  const [editing, setEditing] = useState<{
+    branchId:   string
+    branchName: string
+    rating:     number
+    comment:    string
+  } | null>(null)
+
+  const openWriteForCurrentBranch = () => {
+    setEditing(null)
+    setShowWriteSheet(true)
+  }
+  const openEditForCard = (review: Review) => {
+    setEditing({
+      branchId:   review.branchId,
+      branchName: review.branchName,
+      rating:     review.rating,
+      comment:    review.comment ?? '',
+    })
+    setShowWriteSheet(true)
+  }
+  const closeSheet = () => {
+    setShowWriteSheet(false)
+    setEditing(null)
+  }
+
+  // Reset sort on toggle flip (spec §4.5; brainstorm Q5: "Pagination + sort:
+  // reset on toggle flip"). Pagination state isn't in this component yet —
+  // the limit-50 single fetch is a TODO for a later phase — so only `sort`
+  // resets here. When pagination lands, add its reset to this effect.
+  useEffect(() => {
+    setSort('recent')
+  }, [filter])
 
   const reviews = reviewData?.reviews ?? []
 
@@ -49,16 +119,14 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
     return 0
   })
 
-  // Lookup-only — used by `WriteReviewSheet` to pre-fill the user's existing
-  // rating + comment when they tap "Write a review" on a branch they've
-  // already reviewed. NOT used to reorder the list (see comment above).
-  const ownReview = reviews.find(r => r.isOwnReview)
-
   const handleWriteSubmit = useCallback(async (data: { rating: number; comment?: string }) => {
-    if (!defaultBranchId) return
-    await createReview.mutateAsync({ branchId: defaultBranchId, ...data })
+    // editing.branchId wins when present (per-card edit from any view); else
+    // the chip-selected branch is the target (new review or edit-current).
+    const targetBranchId = editing?.branchId ?? currentBranchId
+    await createReview.mutateAsync({ branchId: targetBranchId, ...data })
     setShowWriteSheet(false)
-  }, [defaultBranchId, createReview])
+    setEditing(null)
+  }, [editing, currentBranchId, createReview])
 
   const handleDelete = useCallback((branchId: string, reviewId: string) => {
     // Native two-button confirm before destructive action — review delete is
@@ -83,6 +151,33 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
     )
   }, [deleteReview])
 
+  const renderToggle = () => (
+    <View style={styles.toggle}>
+      <Pressable
+        accessibilityLabel={currentBranchName}
+        accessibilityRole="button"
+        accessibilityState={{ selected: filter === 'branch' }}
+        onPress={() => setFilter('branch')}
+        style={[styles.toggleBtn, filter === 'branch' && styles.toggleBtnActive]}
+      >
+        <Text variant="label.md" style={[styles.toggleText, filter === 'branch' && styles.toggleTextActive]}>
+          {currentBranchName}
+        </Text>
+      </Pressable>
+      <Pressable
+        accessibilityLabel="All branches"
+        accessibilityRole="button"
+        accessibilityState={{ selected: filter === 'all' }}
+        onPress={() => setFilter('all')}
+        style={[styles.toggleBtn, filter === 'all' && styles.toggleBtnActive]}
+      >
+        <Text variant="label.md" style={[styles.toggleText, filter === 'all' && styles.toggleTextActive]}>
+          All branches
+        </Text>
+      </Pressable>
+    </View>
+  )
+
   if (summaryLoading || reviewsLoading) {
     return (
       <View style={styles.loading}>
@@ -92,28 +187,58 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
   }
 
   if (!summary || summary.totalReviews === 0) {
+    // Branch-aware empty state. Spec §4.5 + Q5 lock:
+    //   - branch-scoped + zero for this branch → "Be the first to review
+    //     <branch>" + subtle "See reviews from other branches" link so users
+    //     discover the toggle without forced cross-navigation
+    //   - 'all' + zero everywhere → "No reviews yet" + CTA, no cross-link
+    // The toggle itself is rendered in BOTH empty states so the user is never
+    // stuck — without it, a branch-scoped empty page hides the only path to
+    // view other branches' reviews.
+    const isBranchScoped = filter === 'branch'
+    // Cross-link only makes sense when there ARE other branches to discover.
+    // Single-branch merchants must never render it.
+    const showCrossLink = isBranchScoped && isMultiBranch
     return (
       <View style={styles.container}>
-        <View style={styles.emptyText}>
-          <Text variant="heading.md" color="secondary" align="center">No reviews yet</Text>
-          <Text variant="body.sm" color="tertiary" meta align="center" style={{ marginTop: 8 }}>
-            Be the first to review this merchant
-          </Text>
-        </View>
         {isAuthed && summary && (
           <ReviewSummary
             averageRating={0}
             totalReviews={0}
             distribution={{ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }}
-            onWriteReview={() => setShowWriteSheet(true)}
+            onWriteReview={openWriteForCurrentBranch}
+            hasExistingReview={myReview !== null}
           />
         )}
+
+        {isMultiBranch && renderToggle()}
+
+        <View style={styles.emptyText}>
+          <Text variant="heading.md" color="secondary" align="center">
+            {isBranchScoped ? `Be the first to review ${currentBranchName}` : 'No reviews yet'}
+          </Text>
+          {showCrossLink && (
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="See reviews from other branches"
+              onPress={() => setFilter('all')}
+              style={styles.crossLink}
+            >
+              <Text variant="label.md" style={styles.crossLinkText}>
+                See reviews from other branches
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
         <WriteReviewSheet
           visible={showWriteSheet}
-          onDismiss={() => setShowWriteSheet(false)}
+          onDismiss={closeSheet}
           onSubmit={handleWriteSubmit}
           isLoading={createReview.isPending}
-          branchName="Main Branch"
+          branchName={editing?.branchName ?? currentBranchName}
+          initialRating={editing?.rating ?? myReview?.rating ?? 0}
+          initialComment={editing?.comment ?? myReview?.comment ?? ''}
         />
       </View>
     )
@@ -125,9 +250,11 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
         averageRating={summary.averageRating}
         totalReviews={summary.totalReviews}
         distribution={summary.distribution}
-        onWriteReview={() => setShowWriteSheet(true)}
-        hasExistingReview={!!ownReview}
+        onWriteReview={openWriteForCurrentBranch}
+        hasExistingReview={myReview !== null}
       />
+
+      {isMultiBranch && renderToggle()}
 
       <ReviewSortControl
         totalReviews={summary.totalReviews}
@@ -140,8 +267,9 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
           <ReviewCard
             key={review.id}
             review={review}
+            showBranchLabel={filter === 'all'}
             {...(isAuthed         ? { onHelpful: () => toggleHelpful.mutate(review.id) } : {})}
-            {...(review.isOwnReview ? { onEdit:    () => setShowWriteSheet(true) } : {})}
+            {...(review.isOwnReview ? { onEdit:    () => openEditForCard(review) } : {})}
             {...(review.isOwnReview ? { onDelete:  () => handleDelete(review.branchId, review.id) } : {})}
           />
         ))}
@@ -149,12 +277,12 @@ export function ReviewsTab({ merchantId, defaultBranchId }: Props) {
 
       <WriteReviewSheet
         visible={showWriteSheet}
-        onDismiss={() => setShowWriteSheet(false)}
+        onDismiss={closeSheet}
         onSubmit={handleWriteSubmit}
         isLoading={createReview.isPending}
-        branchName={defaultBranchId ? 'Branch' : 'Main Branch'}
-        initialRating={ownReview?.rating ?? 0}
-        initialComment={ownReview?.comment ?? ''}
+        branchName={editing?.branchName ?? currentBranchName}
+        initialRating={editing?.rating ?? myReview?.rating ?? 0}
+        initialComment={editing?.comment ?? myReview?.comment ?? ''}
       />
     </View>
   )
@@ -172,7 +300,47 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
     alignItems: 'center',
   },
+  crossLink: {
+    marginTop: 12,
+  },
+  crossLinkText: {
+    color: color.brandRose,
+    textDecorationLine: 'underline',
+    fontSize: 12,
+  },
   reviewList: {
     gap: 12,
+  },
+  toggle: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F0EB',
+    borderRadius: 10,
+    padding: 3,
+    gap: 3,
+  },
+  toggleBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleBtnActive: {
+    backgroundColor: '#FFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  toggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  toggleTextActive: {
+    color: '#010C35',
+    fontWeight: '700',
   },
 })
