@@ -929,6 +929,218 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
   )
 }
 
+// ─────────────────────────────────────────
+// Demo-ready merchant enrichment
+//
+// Scoped to ONE merchant (Covelum) so on-device QA + screenshots have a
+// "golden" page exercising every UI element on the Merchant Profile
+// surface. Without this enrichment, seeded merchants render with all the
+// null-fallbacks (no logo, no banner, no photos, no opening hours,
+// "Closed today", no rating pill, no website button, single branch →
+// Branches tab hidden, no verified-badge path). Every UI component is
+// correctly wired; this just gives them data to render.
+//
+// Idempotent — safe to re-run via `npx prisma db seed`.
+//
+// PR scope is one merchant only. To extend to other merchants, copy this
+// pattern; do not generalise prematurely (YAGNI).
+// ─────────────────────────────────────────
+
+const COVELUM_MERCHANT_ID    = 'tax-merchant-covelum-001'
+const COVELUM_MAIN_BRANCH_ID = 'tax-branch-covelum-001'
+const COVELUM_2ND_BRANCH_ID  = 'tax-branch-covelum-002'
+
+async function seedDemoMerchantEnrichment(): Promise<void> {
+  // ── 1. Merchant logo / banner / website ──
+  // Logo uses placehold.co (deterministic, brand colour). Banner + photos
+  // use Unsplash food/restaurant imagery for a realistic demo feel. If
+  // either external host blocks hot-linking, swap to placehold.co
+  // equivalents — UI handles null gracefully either way.
+  await prisma.merchant.update({
+    where: { id: COVELUM_MERCHANT_ID },
+    data: {
+      logoUrl:    'https://placehold.co/240x240/E20C04/FFFFFF/png?text=Covelum&font=lato',
+      bannerUrl:  'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=1200&q=80',
+      websiteUrl: 'https://covelum.test',
+    },
+  })
+
+  // ── 2. Opening hours — main branch (Brightlingsea) ──
+  // Pattern: closed Monday; Tue-Thu evenings only; Fri-Sun all day.
+  // dayOfWeek 0 = Sunday … 6 = Saturday.
+  const mainBranchHours: Array<{ dayOfWeek: number; openTime: string | null; closeTime: string | null; isClosed: boolean }> = [
+    { dayOfWeek: 0, openTime: '12:00', closeTime: '22:00', isClosed: false }, // Sun
+    { dayOfWeek: 1, openTime: null,    closeTime: null,    isClosed: true  }, // Mon
+    { dayOfWeek: 2, openTime: '17:00', closeTime: '22:00', isClosed: false }, // Tue
+    { dayOfWeek: 3, openTime: '17:00', closeTime: '22:00', isClosed: false }, // Wed
+    { dayOfWeek: 4, openTime: '17:00', closeTime: '22:00', isClosed: false }, // Thu
+    { dayOfWeek: 5, openTime: '12:00', closeTime: '22:30', isClosed: false }, // Fri
+    { dayOfWeek: 6, openTime: '12:00', closeTime: '22:30', isClosed: false }, // Sat
+  ]
+  for (const h of mainBranchHours) {
+    await prisma.branchOpeningHours.upsert({
+      where:  { branchId_dayOfWeek: { branchId: COVELUM_MAIN_BRANCH_ID, dayOfWeek: h.dayOfWeek } },
+      update: { openTime: h.openTime, closeTime: h.closeTime, isClosed: h.isClosed },
+      create: { branchId: COVELUM_MAIN_BRANCH_ID, ...h },
+    })
+  }
+
+  // ── 3. Photos for the main branch ──
+  // BranchPhoto has no compound unique on (branchId, url), so re-runs
+  // would duplicate — clear and recreate scoped to the branch is the
+  // simplest idempotency.
+  await prisma.branchPhoto.deleteMany({ where: { branchId: COVELUM_MAIN_BRANCH_ID } })
+  await prisma.branchPhoto.createMany({
+    data: [
+      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=900&q=80', sortOrder: 0 }, // dosa
+      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=900&q=80', sortOrder: 1 }, // thali plate
+      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=900&q=80', sortOrder: 2 }, // restaurant interior
+      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=900&q=80', sortOrder: 3 }, // street view
+    ],
+  })
+
+  // ── 4. Second branch — Colchester (multi-branch fixture) ──
+  // Unblocks BranchesTab QA + the chip + picker (intentionally
+  // hidden on single-branch merchants per the branch-aware spec).
+  await prisma.branch.upsert({
+    where:  { id: COVELUM_2ND_BRANCH_ID },
+    update: {},
+    create: {
+      id:           COVELUM_2ND_BRANCH_ID,
+      merchantId:   COVELUM_MERCHANT_ID,
+      name:         'Covelum — Colchester',
+      isMainBranch: false,
+      addressLine1: '17 High Street',
+      city:         'Colchester',
+      postcode:     'CO1 1JN',
+      country:      'GB',
+      latitude:     51.8859,
+      longitude:    0.9035,
+      phone:        '+441206502800',
+      email:        'colchester@covelum.test',
+      redemptionPin: encrypt('1234'),
+      isActive:     true,
+    },
+  })
+  // Slightly different schedule for variety so the two branches don't
+  // look identical in the picker.
+  const secondBranchHours: Array<{ dayOfWeek: number; openTime: string | null; closeTime: string | null; isClosed: boolean }> = [
+    { dayOfWeek: 0, openTime: '12:00', closeTime: '21:00', isClosed: false }, // Sun
+    { dayOfWeek: 1, openTime: '17:30', closeTime: '21:30', isClosed: false }, // Mon (open here, closed at main)
+    { dayOfWeek: 2, openTime: '17:30', closeTime: '21:30', isClosed: false }, // Tue
+    { dayOfWeek: 3, openTime: '17:30', closeTime: '21:30', isClosed: false }, // Wed
+    { dayOfWeek: 4, openTime: '17:30', closeTime: '22:00', isClosed: false }, // Thu
+    { dayOfWeek: 5, openTime: '12:00', closeTime: '22:30', isClosed: false }, // Fri
+    { dayOfWeek: 6, openTime: '12:00', closeTime: '22:30', isClosed: false }, // Sat
+  ]
+  for (const h of secondBranchHours) {
+    await prisma.branchOpeningHours.upsert({
+      where:  { branchId_dayOfWeek: { branchId: COVELUM_2ND_BRANCH_ID, dayOfWeek: h.dayOfWeek } },
+      update: { openTime: h.openTime, closeTime: h.closeTime, isClosed: h.isClosed },
+      create: { branchId: COVELUM_2ND_BRANCH_ID, ...h },
+    })
+  }
+
+  // ── 5. Reviewer dev users + reviews ──
+  // Review.@@unique([userId, branchId]) means each user can only review
+  // each branch once → need 4 distinct users to seed 4 reviews on the main
+  // branch. These are demo-only personas; emails resolve to redeemo.dev so
+  // they're easy to spot in the User table.
+  const reviewers: Array<{ email: string; phone: string; firstName: string; lastName: string }> = [
+    { email: 'sarah.k@redeemo.dev',    phone: '+447700900101', firstName: 'Sarah',   lastName: 'Kennedy' },
+    { email: 'james.m@redeemo.dev',    phone: '+447700900102', firstName: 'James',   lastName: 'Mitchell' },
+    { email: 'priya.r@redeemo.dev',    phone: '+447700900103', firstName: 'Priya',   lastName: 'Rao' },
+    { email: 'michael.b@redeemo.dev',  phone: '+447700900104', firstName: 'Michael', lastName: 'Bennett' },
+  ]
+  const reviewerIds: string[] = []
+  for (const r of reviewers) {
+    const u = await prisma.user.upsert({
+      where:  { email: r.email },
+      update: {},
+      create: {
+        email:            r.email,
+        phone:            r.phone,
+        phoneCountryCode: 'GB',
+        passwordHash:     devHash('Reviewer1!'),
+        firstName:        r.firstName,
+        lastName:         r.lastName,
+        status:           'ACTIVE',
+        emailVerified:    true,
+        phoneVerified:    true,
+        tutorialSeen:     true,
+        tcConsentVersion: '1.0',
+        tcConsentAt:      new Date(),
+      },
+    })
+    reviewerIds.push(u.id)
+  }
+
+  // 4 reviews on the main branch — varied ratings averaging ~4.5★. The
+  // review upsert deliberately omits `isDeleted` (reserved schema field
+  // for future admin-moderation hard-deletes; never set by customer-side
+  // code). `isHidden:false` is the customer-side flag; revives or
+  // recreates the visible state if a previous run left it hidden.
+  const reviewCopy: Array<{ rating: number; comment: string }> = [
+    { rating: 5, comment: 'Authentic South Indian food — the dosas are exceptional. Highly recommend the masala dosa with filter coffee.' },
+    { rating: 4, comment: 'Lovely waterfront setting and great flavours. Service was a touch slow on a Saturday night but worth the wait.' },
+    { rating: 5, comment: 'Properly authentic. Tasted just like home — the sambar and coconut chutney are spot on.' },
+    { rating: 4, comment: 'Great find in Brightlingsea. Veggie-friendly menu and the staff are wonderful with kids.' },
+  ]
+  for (let i = 0; i < reviewerIds.length; i++) {
+    const userId = reviewerIds[i]!
+    const review = reviewCopy[i]!
+    await prisma.review.upsert({
+      where:  { userId_branchId: { userId, branchId: COVELUM_MAIN_BRANCH_ID } },
+      update: { rating: review.rating, comment: review.comment, isHidden: false },
+      create: { userId, branchId: COVELUM_MAIN_BRANCH_ID, rating: review.rating, comment: review.comment },
+    })
+  }
+
+  // ── 6. Verified-redemption fixture ──
+  // Sarah's review (index 0) becomes "verified" — the customer-app's
+  // verified badge is gated on a validated VoucherRedemption for
+  // (userId, branchId). Without a redemption, the verified-badge UX is
+  // not exercisable in QA against this fixture. One redemption is enough
+  // to demo the path; the other 3 reviewers stay unverified for visual
+  // contrast.
+  const sarahId = reviewerIds[0]!
+  const covMainVoucher = await prisma.voucher.findUnique({
+    where: { code: 'COV-RMV-001' },
+    select: { id: true },
+  })
+  if (!covMainVoucher) {
+    throw new Error("seedDemoMerchantEnrichment: COV-RMV-001 voucher missing — expected from seedTaxonomyTestMerchants")
+  }
+  // Stable redemptionCode for idempotency — VoucherRedemption.redemptionCode
+  // is @unique, so re-runs upsert by code rather than creating duplicates.
+  await prisma.voucherRedemption.upsert({
+    where: { redemptionCode: 'DEMO-COV-VFY-001' },
+    update: {
+      isValidated: true,
+      // validatedAt set in `update` so re-runs refresh the timestamp; UI
+      // doesn't display this for the verified-badge path but keeping it
+      // current avoids stale "validated 6 months ago" data drift.
+      validatedAt: new Date(),
+    },
+    create: {
+      redemptionCode:  'DEMO-COV-VFY-001',
+      userId:          sarahId,
+      voucherId:       covMainVoucher.id,
+      branchId:        COVELUM_MAIN_BRANCH_ID,
+      isValidated:     true,
+      validatedAt:     new Date(),
+      validationMethod: 'MANUAL',
+      estimatedSaving: 4.00,
+    },
+  })
+
+  console.log(
+    `✓ Seeded demo enrichment for Covelum: logo + banner + website + ` +
+    `opening hours (×2 branches) + 4 photos + 1 extra branch (Colchester) + ` +
+    `4 reviewers + 4 reviews + 1 verified redemption`,
+  )
+}
+
 async function seedAmenities(): Promise<void> {
   for (const a of AMENITIES) {
     const row = await prisma.amenity.upsert({
@@ -1277,6 +1489,12 @@ async function main() {
 
   // ── Test merchants exercising taxonomy descriptor + highlight scenarios ──
   await seedTaxonomyTestMerchants()
+
+  // ── Demo-ready enrichment for one merchant (Covelum) ──
+  // Runs AFTER taxonomy test merchants so the merchant + its main branch
+  // already exist; this layer adds logo / banner / hours / photos / 2nd
+  // branch / reviewers / reviews / verified redemption on top.
+  await seedDemoMerchantEnrichment()
 
   // ── Backfill denormalised merchant counts ──
   await recomputeCategoryCounts(prisma)
