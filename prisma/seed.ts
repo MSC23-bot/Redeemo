@@ -1080,6 +1080,20 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
   // for future admin-moderation hard-deletes; never set by customer-side
   // code). `isHidden:false` is the customer-side flag; revives or
   // recreates the visible state if a previous run left it hidden.
+  //
+  // INTENTIONAL DIVERGENCE from production `upsertBranchReview` (PR #33
+  // fix-up #6 in src/api/customer/reviews/service.ts): on a hidden→visible
+  // transition the production path runs a transaction that clears
+  // ReviewHelpful + ReviewReport rows and resets `createdAt`. The seed
+  // does NOT mirror that. Reasoning: the seed represents "deterministic
+  // demo state restoration", not "user re-write". A tester re-running
+  // the seed wants the same demo data back, not a fresh review whose
+  // helpful counts and createdAt have been reset relative to what's
+  // currently in the DB. The edge case where this matters (tester
+  // manually marked a seeded review Helpful from another account, then
+  // deleted it, then re-seeds) is acceptable to leave in the older
+  // shape — production user-write paths get the cleanup, demo-state
+  // restoration does not.
   const reviewCopy: Array<{ rating: number; comment: string }> = [
     { rating: 5, comment: 'Authentic South Indian food — the dosas are exceptional. Highly recommend the masala dosa with filter coffee.' },
     { rating: 4, comment: 'Lovely waterfront setting and great flavours. Service was a touch slow on a Saturday night but worth the wait.' },
