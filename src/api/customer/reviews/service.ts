@@ -247,8 +247,18 @@ export async function getReviewSummary(
   // that branch AND requires the branch to belong to merchantId. Mismatched
   // (branchId, merchantId) → zero rows, no error needed (returns the empty
   // shape: averageRating=0, totalReviews=0, distribution all zero).
+  //
+  // Filter on `isHidden: false` (NOT `isDeleted: false`). User-side review
+  // delete sets `isHidden: true` (see `deleteBranchReview` above);
+  // `isDeleted` is reserved for future admin-moderation hard-deletes and
+  // is never set today. The previous `isDeleted: false` filter was a no-op
+  // and let user-deleted reviews leak into rating histograms / total
+  // counts on the Reviews tab — confirmed in 2026-05-04 on-device QA.
+  // Every other review-aggregation site in the codebase already uses
+  // `isHidden: false` (discovery service, ranking helper, list endpoints);
+  // this brings the summary into line with that contract.
   const where: Prisma.ReviewWhereInput = {
-    isDeleted: false,
+    isHidden: false,
     branch: opts.branchId
       ? { id: opts.branchId, merchantId, isActive: true }
       : { merchantId, isActive: true },
