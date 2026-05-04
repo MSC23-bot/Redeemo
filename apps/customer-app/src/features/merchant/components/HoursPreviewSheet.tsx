@@ -16,18 +16,20 @@ type Props = {
 }
 
 export function HoursPreviewSheet({ visible, branchName, isOpenNow, openingHours, onDismiss }: Props) {
-  // The "returns null when not visible" test asserts an unrendered tree.
-  // Modal still emits its container even when visible=false; this short-circuit
-  // makes the contract explicit.
-  if (!visible) return null
-
+  // Hook calls must run unconditionally on every render (rules of hooks).
+  // For empty `openingHours`, useOpenStatus still produces a schedule (all 7
+  // days "Closed"); we just don't render it — the empty-state branch wins.
+  // For visible=false we still need this to be reached so the hook order
+  // stays stable across visibility toggles.
+  const { weekSchedule } = useOpenStatus(openingHours)
   const status = smartStatus(isOpenNow, openingHours)
   const hasHours = openingHours.length > 0
-  // useOpenStatus must be called unconditionally (rules of hooks). For empty
-  // hours we still call it; the schedule it produces (all 7 days "Closed")
-  // is just not rendered — the empty-state branch wins instead.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const { weekSchedule } = useOpenStatus(openingHours)
+
+  // The "returns null when not visible" test asserts an unrendered tree.
+  // Modal still emits its container when visible=false; this short-circuit
+  // makes the contract explicit. Placed AFTER hook calls so visibility
+  // toggling never changes the hook count.
+  if (!visible) return null
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
