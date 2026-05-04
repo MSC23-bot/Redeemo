@@ -1,6 +1,7 @@
 import React from 'react'
-import { View, Pressable, Modal, ScrollView, StyleSheet } from 'react-native'
+import { View, Pressable, ScrollView, StyleSheet } from 'react-native'
 import { Text } from '@/design-system/Text'
+import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { lightHaptic } from '@/design-system/haptics'
 import type { OpeningHourEntry } from '@/lib/api/merchant'
 import { StatusPill } from './StatusPill'
@@ -32,11 +33,11 @@ type Props = {
 
 function formatDistance(metres: number | null): string | null {
   if (metres === null) return null
-  if (metres >= 100_000) return null
   if (metres < 1000) return `${Math.round(metres)}m`
   return `${(metres / 1609.34).toFixed(1)} mi`
 }
 
+// Round 3 §A4: migrated onto the shared `<BottomSheet>` primitive.
 export function BranchPickerSheet({ visible, branches, currentBranchId, onPick, onDismiss }: Props) {
   const sortedBranches = React.useMemo(() => {
     const current = branches.find(b => b.id === currentBranchId)
@@ -59,76 +60,69 @@ export function BranchPickerSheet({ visible, branches, currentBranchId, onPick, 
   }, [branches, currentBranchId])
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
-      <Pressable style={styles.overlay} onPress={onDismiss}>
-        <Pressable style={styles.sheet} onPress={e => e?.stopPropagation?.()}>
-          <View style={styles.dragHandle} />
-          <Text variant="heading.lg" style={styles.title}>Choose branch</Text>
-          <ScrollView>
-            {sortedBranches.map(b => {
-              const isCurrent = b.id === currentBranchId
-              const isDisabled = !b.isActive
-              const status = smartStatus(b.isOpenNow, b.openingHours)
-              const distance = formatDistance(b.distanceMetres)
-              const a11yLabel = `${branchShortName(b.name)}${isCurrent ? ' — currently viewing' : ''}${isDisabled ? ' — Unavailable' : ''}`
-              return (
-                <Pressable
-                  key={b.id}
-                  accessibilityLabel={a11yLabel}
-                  disabled={isDisabled}
-                  onPress={() => {
-                    if (isDisabled) return
-                    lightHaptic()
-                    if (!isCurrent) onPick(b.id)
-                    onDismiss()
-                  }}
-                  style={[styles.row, isCurrent && styles.rowCurrent, isDisabled && styles.rowDisabled]}
-                >
-                  <View style={styles.rowTop}>
-                    <View style={styles.nameWrap}>
-                      <Text variant="label.lg" style={[styles.name, isDisabled && styles.disabledText]}>
-                        {branchShortName(b.name)}
-                      </Text>
-                      {isCurrent ? (
-                        <Text variant="label.md" style={styles.currentTag}>Currently viewing</Text>
-                      ) : null}
-                    </View>
-                    <RatingBlock avgRating={b.avgRating} reviewCount={b.reviewCount} />
+    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Choose branch">
+      <Text variant="heading.lg" style={styles.title}>Choose branch</Text>
+      <ScrollView style={styles.list}>
+        {sortedBranches.map(b => {
+          const isCurrent = b.id === currentBranchId
+          const isDisabled = !b.isActive
+          const status = smartStatus(b.isOpenNow, b.openingHours)
+          const distance = formatDistance(b.distanceMetres)
+          const a11yLabel = `${branchShortName(b.name)}${isCurrent ? ' — currently viewing' : ''}${isDisabled ? ' — Unavailable' : ''}`
+          return (
+            <Pressable
+              key={b.id}
+              accessibilityLabel={a11yLabel}
+              disabled={isDisabled}
+              onPress={() => {
+                if (isDisabled) return
+                lightHaptic()
+                if (!isCurrent) onPick(b.id)
+                onDismiss()
+              }}
+              style={[styles.row, isCurrent && styles.rowCurrent, isDisabled && styles.rowDisabled]}
+            >
+              <View style={styles.rowTop}>
+                <View style={styles.nameWrap}>
+                  <Text variant="label.lg" style={[styles.name, isDisabled && styles.disabledText]}>
+                    {branchShortName(b.name)}
+                  </Text>
+                  {isCurrent ? (
+                    <Text variant="label.md" style={styles.currentTag}>Currently viewing</Text>
+                  ) : null}
+                </View>
+                <RatingBlock avgRating={b.avgRating} reviewCount={b.reviewCount} />
+              </View>
+              <View style={styles.rowBottom}>
+                {isDisabled ? (
+                  <View style={styles.unavailablePill} accessibilityRole="text" accessibilityLabel="Status: Unavailable">
+                    <View style={styles.unavailableDot} />
+                    <Text variant="label.md" style={styles.unavailableText}>Unavailable</Text>
                   </View>
-                  <View style={styles.rowBottom}>
-                    {isDisabled ? (
-                      <View style={styles.unavailablePill} accessibilityRole="text" accessibilityLabel="Status: Unavailable">
-                        <View style={styles.unavailableDot} />
-                        <Text variant="label.md" style={styles.unavailableText}>Unavailable</Text>
-                      </View>
-                    ) : (
+                ) : (
+                  <>
+                    <StatusPill state={status.pillState} label={status.pillLabel} />
+                    <Text variant="label.md" style={styles.statusText}>{status.statusText}</Text>
+                    {distance !== null ? (
                       <>
-                        <StatusPill state={status.pillState} label={status.pillLabel} />
-                        <Text variant="label.md" style={styles.statusText}>{status.statusText}</Text>
-                        {distance !== null ? (
-                          <>
-                            <Text variant="label.md" style={styles.separator}>·</Text>
-                            <Text variant="label.md" style={styles.distance}>{distance}</Text>
-                          </>
-                        ) : null}
+                        <Text variant="label.md" style={styles.separator}>·</Text>
+                        <Text variant="label.md" style={styles.distance}>{distance}</Text>
                       </>
-                    )}
-                  </View>
-                </Pressable>
-              )
-            })}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            </Pressable>
+          )
+        })}
+      </ScrollView>
+    </BottomSheet>
   )
 }
 
 const styles = StyleSheet.create({
-  overlay:    { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(1,12,53,0.5)' },
-  sheet:      { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingBottom: 40, maxHeight: '70%' },
-  dragHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#D1D5DB', alignSelf: 'center', marginTop: 8, marginBottom: 20 },
   title:      { fontSize: 18, fontWeight: '800', color: '#010C35', marginBottom: 12 },
+  list:       { maxHeight: 460 },
   row:        { paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#F0EBE6' },
   rowCurrent: { backgroundColor: 'rgba(226,12,4,0.03)' },
   rowDisabled:{ opacity: 0.55 },

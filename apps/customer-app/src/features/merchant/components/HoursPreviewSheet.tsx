@@ -1,7 +1,8 @@
 import React from 'react'
-import { View, Pressable, Modal, ScrollView, StyleSheet } from 'react-native'
+import { View, Pressable, ScrollView, StyleSheet } from 'react-native'
 import { X } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
+import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { StatusPill } from './StatusPill'
 import { smartStatus } from '../utils/smartStatus'
 import { useOpenStatus } from '../hooks/useOpenStatus'
@@ -15,83 +16,68 @@ type Props = {
   onDismiss:    () => void
 }
 
+// Visual correction round 3 §A4 (post-PR-#35 QA): migrated onto the
+// shared `<BottomSheet>` primitive from design-system/motion. The
+// primitive owns the modal, fade-scrim, drag handle, swipe-down-to-
+// dismiss, and reduced-motion handling. We just supply the content.
 export function HoursPreviewSheet({ visible, branchName, isOpenNow, openingHours, onDismiss }: Props) {
-  // Hook calls must run unconditionally on every render (rules of hooks).
-  // For empty `openingHours`, useOpenStatus still produces a schedule (all 7
-  // days "Closed"); we just don't render it — the empty-state branch wins.
-  // For visible=false we still need this to be reached so the hook order
-  // stays stable across visibility toggles.
+  // Hooks unconditional (rules of hooks). For empty `openingHours`,
+  // useOpenStatus still produces a 7-day "Closed" schedule we just
+  // don't render (empty-state branch wins).
   const { weekSchedule } = useOpenStatus(openingHours)
   const status = smartStatus(isOpenNow, openingHours)
   const hasHours = openingHours.length > 0
 
-  // The "returns null when not visible" test asserts an unrendered tree.
-  // Modal still emits its container when visible=false; this short-circuit
-  // makes the contract explicit. Placed AFTER hook calls so visibility
-  // toggling never changes the hook count.
-  if (!visible) return null
-
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
-      <Pressable style={styles.overlay} onPress={onDismiss}>
-        <Pressable style={styles.sheet} onPress={e => e?.stopPropagation?.()}>
-          <View style={styles.dragHandle} />
+    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Branch hours preview">
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text variant="label.md" style={styles.headerEyebrow}>Opening hours</Text>
+          <Text variant="display.sm" style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
+            {branchName}
+          </Text>
+        </View>
+        <StatusPill state={status.pillState} label={status.pillLabel} />
+        <Pressable accessibilityLabel="Close hours preview" onPress={onDismiss} style={styles.closeBtn} hitSlop={8}>
+          <X size={16} color="#666" />
+        </Pressable>
+      </View>
 
-          <View style={styles.header}>
-            <View style={styles.headerText}>
-              <Text variant="label.md" style={styles.headerEyebrow}>Opening hours</Text>
-              <Text variant="display.sm" style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
-                {branchName}
+      {!hasHours ? (
+        <Text variant="body.sm" style={styles.emptyText}>Hours not available</Text>
+      ) : (
+        <ScrollView style={styles.scrollView}>
+          {weekSchedule.map((day, i) => (
+            <View
+              key={i}
+              accessibilityLabel={`Hours row ${i}`}
+              style={[styles.row, i < weekSchedule.length - 1 && styles.rowBorder]}
+            >
+              <View style={styles.dayCol}>
+                <Text variant="label.lg" style={[styles.dayText, day.isToday && styles.dayToday]}>
+                  {day.day}
+                </Text>
+                {day.isToday ? (
+                  <View style={styles.todayBadge}>
+                    <Text variant="label.md" style={styles.todayText}>TODAY</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text
+                variant="body.sm"
+                style={[styles.hoursText, day.isToday && styles.hoursToday, day.isClosed && styles.hoursClosed]}
+              >
+                {day.hours}
               </Text>
             </View>
-            <StatusPill state={status.pillState} label={status.pillLabel} />
-            <Pressable accessibilityLabel="Close hours preview" onPress={onDismiss} style={styles.closeBtn} hitSlop={8}>
-              <X size={16} color="#666" />
-            </Pressable>
-          </View>
-
-          {!hasHours ? (
-            <Text variant="body.sm" style={styles.emptyText}>Hours not available</Text>
-          ) : (
-            <ScrollView>
-              {weekSchedule.map((day, i) => (
-                <View
-                  key={i}
-                  accessibilityLabel={`Hours row ${i}`}
-                  style={[styles.row, i < weekSchedule.length - 1 && styles.rowBorder]}
-                >
-                  <View style={styles.dayCol}>
-                    <Text variant="label.lg" style={[styles.dayText, day.isToday && styles.dayToday]}>
-                      {day.day}
-                    </Text>
-                    {day.isToday ? (
-                      <View style={styles.todayBadge}>
-                        <Text variant="label.md" style={styles.todayText}>TODAY</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text
-                    variant="body.sm"
-                    style={[styles.hoursText, day.isToday && styles.hoursToday, day.isClosed && styles.hoursClosed]}
-                  >
-                    {day.hours}
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
-          )}
-        </Pressable>
-      </Pressable>
-    </Modal>
+          ))}
+        </ScrollView>
+      )}
+    </BottomSheet>
   )
 }
 
 const styles = StyleSheet.create({
-  // Modal chrome — matches BranchPickerSheet for visual parity across sheets.
-  overlay:    { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(1,12,53,0.5)' },
-  sheet:      { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 8, paddingBottom: 40, maxHeight: '70%' },
-  dragHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#D1D5DB', alignSelf: 'center', marginBottom: 16 },
-
   // Header
   header:        { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
   headerText:    { flex: 1, minWidth: 0 },
@@ -102,9 +88,9 @@ const styles = StyleSheet.create({
   // Empty state
   emptyText: { color: '#888', fontStyle: 'italic', paddingVertical: 16 },
 
-  // Day rows — visual style copied from OpeningHoursCard for consistency with the
-  // About tab's existing schedule treatment. Outer card chrome NOT copied (sheet
-  // owns its own chrome; double-card would feel busy).
+  // Day rows — visual style copied from OpeningHoursCard for parity with
+  // the About tab's existing schedule treatment.
+  scrollView:    { maxHeight: 420 },
   row:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 8 },
   rowBorder:     { borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.03)' },
   dayCol:        { flexDirection: 'row', alignItems: 'center', gap: 4 },
