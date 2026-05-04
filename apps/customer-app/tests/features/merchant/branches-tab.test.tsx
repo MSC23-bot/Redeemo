@@ -40,7 +40,7 @@ const mk = (over: Partial<{ id: string; distance: number | null; name: string }>
   id: 'b', name: 'Branch', isMainBranch: false, isActive: true,
   distance: null, addressLine1: null, addressLine2: null,
   city: null, postcode: null, latitude: null, longitude: null, phone: null, email: null,
-  isOpenNow: true, avgRating: null, reviewCount: 0,
+  isOpenNow: true, avgRating: null, reviewCount: 0, openingHours: [],
   ...over,
 })
 

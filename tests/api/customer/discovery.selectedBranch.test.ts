@@ -333,6 +333,53 @@ describe('GET /api/v1/customer/merchants/:id — selectedBranch (P1)', () => {
     })
   })
 
+  // PR — UX refinement: every entry in `branches[]` must carry `reviewCount`,
+  // `avgRating`, AND `openingHours` so the chip picker rows + Reviews toggle
+  // can show per-branch counts AND the picker rows + HoursPreviewSheet for
+  // Other Locations can render real smart-status text + full week schedule
+  // for branches OTHER than the currently selected one.
+  //
+  // reviewCount + avgRating already ship; this test guards them as a
+  // regression. openingHours is the new addition for §6.3 (HoursPreviewSheet)
+  // and §7.2 (smart-status text in picker rows).
+  it('every branches[] entry includes reviewCount, avgRating, and openingHours', async () => {
+    const m = await createMerchant()
+    const branchA = m.branches[0]!
+    const branchB = m.branches[1]!
+
+    // Seed two distinct users so the @@unique([userId, branchId]) on Review
+    // doesn't block — one review on A (rating 4), two reviews on B (rating 5 + 3).
+    const user1 = await createUser()
+    const user2 = await createUser()
+    const user3 = await createUser()
+    await prisma.review.create({ data: { userId: user1.id, branchId: branchA.id, rating: 4 } })
+    await prisma.review.create({ data: { userId: user2.id, branchId: branchB.id, rating: 5 } })
+    await prisma.review.create({ data: { userId: user3.id, branchId: branchB.id, rating: 3 } })
+
+    const body = await getCustomerMerchant(prisma, m.id, null, { lat: 51.5, lng: -0.1 })
+
+    const tileA = body.branches.find((b: any) => b.id === branchA.id)!
+    const tileB = body.branches.find((b: any) => b.id === branchB.id)!
+
+    // Existing per-branch ratings — regression guard.
+    expect(tileA.reviewCount).toBe(1)
+    expect(tileA.avgRating).toBe(4.0)
+    expect(tileB.reviewCount).toBe(2)
+    expect(tileB.avgRating).toBe(4.0)  // (5+3)/2
+
+    // NEW — openingHours per tile. seedMultiBranchMerchant seeds 1 entry per branch.
+    expect(tileA.openingHours).toBeDefined()
+    expect(Array.isArray(tileA.openingHours)).toBe(true)
+    expect(tileA.openingHours.length).toBe(1)
+    expect(tileA.openingHours[0]).toMatchObject({
+      dayOfWeek: expect.any(Number),
+      openTime:  expect.anything(),
+      closeTime: expect.anything(),
+      isClosed:  expect.any(Boolean),
+    })
+    expect(tileB.openingHours.length).toBe(1)
+  })
+
   it('selectedBranch.photos falls back to merchant gallery when branch has none', async () => {
     const m = await createMerchant()
     // Frinton has no photos in the fixture

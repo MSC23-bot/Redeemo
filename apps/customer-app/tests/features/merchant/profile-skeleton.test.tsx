@@ -294,7 +294,7 @@ describe('MerchantProfileScreen (M2)', () => {
         addressLine1: null, addressLine2: null,
         city: null, postcode: null, latitude: null, longitude: null,
         phone: null, email: null, distance: null, isOpenNow: true,
-        avgRating: null, reviewCount: 0 }],
+        avgRating: null, reviewCount: 0, openingHours: [] }],
     })
     const { queryByLabelText, findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
     expect(await findByLabelText('tab-vouchers')).toBeTruthy()
@@ -306,7 +306,7 @@ describe('MerchantProfileScreen (M2)', () => {
       addressLine1: null, addressLine2: null,
       city: null, postcode: null, latitude: null, longitude: null,
       phone: null, email: null, distance: 1000, isOpenNow: true,
-      avgRating: null, reviewCount: 0 }
+      avgRating: null, reviewCount: 0, openingHours: [] }
     const branchB = { ...branchA, id: 'b2', name: 'B', isMainBranch: false, distance: 500 }
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({ ...merchant, branches: [branchA, branchB] })
     const { findByLabelText, findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
@@ -369,7 +369,7 @@ describe('MerchantProfileScreen (M2)', () => {
       addressLine1: null, addressLine2: null,
       city: null, postcode: null, latitude: null, longitude: null,
       phone: null, email: null, distance: 1000, isOpenNow: true,
-      avgRating: null, reviewCount: 0 }
+      avgRating: null, reviewCount: 0, openingHours: [] }
     const branchB = { ...branchA, id: 'b2', name: 'B', isMainBranch: false, distance: 500 }
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
       ...merchant,
@@ -408,7 +408,7 @@ describe('MerchantProfileScreen (M2)', () => {
       addressLine1: null, addressLine2: null,
       city: null, postcode: null, latitude: null, longitude: null,
       phone: null, email: null, distance: 1000, isOpenNow: true,
-      avgRating: null, reviewCount: 0 }
+      avgRating: null, reviewCount: 0, openingHours: [] }
     const branchB = { ...branchA, id: 'b2', name: 'B', isMainBranch: false, distance: 500 }
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValue({
       ...merchant,
@@ -488,7 +488,7 @@ describe('MerchantProfileScreen (M2)', () => {
       addressLine1: null, addressLine2: null,
       city: null, postcode: null, latitude: null, longitude: null,
       phone: null, email: null, distance: 1000, isOpenNow: true,
-      avgRating: null, reviewCount: 0 }
+      avgRating: null, reviewCount: 0, openingHours: [] }
     const branchB = { ...branchA, id: 'b2', name: 'Colchester', isMainBranch: false, distance: 5000 }
     // selectedBranch is b2 (user picked it); nearestBranch is b1 (real
     // nearest by GPS). The mock asserts the exact id flowing into the tab.
@@ -515,7 +515,7 @@ describe('MerchantProfileScreen (M2)', () => {
       addressLine1: null, addressLine2: null,
       city: null, postcode: null, latitude: null, longitude: null,
       phone: null, email: null, distance: null, isOpenNow: true,
-      avgRating: null, reviewCount: 0 }
+      avgRating: null, reviewCount: 0, openingHours: [] }
     const branchB = { ...branchA, id: 'b2', name: 'B', isMainBranch: false }
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
       ...merchant,
