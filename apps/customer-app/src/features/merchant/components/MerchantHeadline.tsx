@@ -12,37 +12,32 @@ type Props = {
   reviewCount: number
 }
 
-// Visual correction round 4 §1 (post-PR-#35 QA round 3): identity zone
-// restructured. The horizontal logo+name flex row from §A1 read as
-// floating text next to a tile; the user wanted the merchant name
-// underneath the logo, both left-aligned at the same edge — a more
-// editorial / publication-style identity block.
+// Round 4 §3 (post-PR-#35 QA round 4 §2): rating moved from its own
+// top-right slot INTO the same row as the merchant name. The
+// previous layout had the rating sitting at paddingTop:22 with the
+// name 32pt below it, producing a ~60pt visual emptiness on the
+// LEFT under the logo (the rating column lived only on the right;
+// the left side beneath the logo was bare cream until the name
+// appeared).
 //
-// Layout:
-//   • Logo (64pt, slightly bigger and shifted right by 4pt of padding)
-//     overlaps the banner bottom by 32pt — the page's spatial anchor.
-//   • Rating block sits at the TOP-RIGHT of the identity zone, just
-//     below the banner bottom edge — close enough to read as
-//     "associated with this merchant" without overlapping the banner.
-//   • Merchant name renders below the logo, left-aligned with the logo.
-//   • All three pieces share the same paddingHorizontal so the
-//     identity zone reads as a single composition, not three islands.
+// New layout:
+//   • Logo (now 72pt, was 64pt — "a little bit more bigger") sits
+//     absolute-positioned and overlaps the banner exactly half
+//     (top: -36, height 72 → 36pt above + 36pt below the boundary).
+//   • Below the logo, a single horizontal row carries the merchant
+//     name on the left (flex:1, wraps to 2 lines) and the rating
+//     block on the right.
+//   • The name's marginTop is tuned so it clears the logo's bottom
+//     edge with a tight breathing strip (~7pt visible gap from the
+//     logo's bottom edge to the merchant name's first cap).
+//
+// Effect: the "huge gap" below the logo collapses. The name reads as
+// directly anchored to the logo, and the rating shares the same
+// horizontal baseline so the eye reads "merchant + reputation" as one
+// unit rather than two scattered surfaces.
 export function MerchantHeadline({ merchantName, logoUrl, avgRating, reviewCount }: Props) {
   return (
     <View style={styles.root}>
-      {/* Rating: in normal flow, right-aligned, paddingTop ensures it
-          sits just below the banner edge without crowding it. The
-          logo's absolute position lets it overlap the banner from the
-          left while the rating sits in identity-zone-only space. */}
-      <View style={styles.ratingWrap}>
-        <RatingBlock avgRating={avgRating} reviewCount={reviewCount} />
-      </View>
-
-      {/* Logo: absolute-positioned so its negative top can overlap the
-          banner without affecting flow layout below. Shifted right by
-          paddingLeft 24 (vs page padding 20) so it sits a touch inside
-          the identity zone's left edge — matches the user direction
-          "could move slightly to the right". */}
       <View style={styles.logoBox}>
         {logoUrl ? (
           <Image source={{ uri: logoUrl }} style={styles.logoImage} contentFit="cover" />
@@ -51,13 +46,14 @@ export function MerchantHeadline({ merchantName, logoUrl, avgRating, reviewCount
         )}
       </View>
 
-      {/* Merchant name: under the logo, left-aligned at the page's
-          paddingHorizontal:20 edge. Display.sm at 26pt is one step up
-          from §A1's 22pt — the user direction "some content could be
-          slightly bigger" applied to the headline. */}
-      <Text variant="display.sm" style={styles.name} numberOfLines={2} ellipsizeMode="tail">
-        {merchantName}
-      </Text>
+      <View style={styles.nameRatingRow}>
+        <Text variant="display.sm" style={styles.name} numberOfLines={2} ellipsizeMode="tail">
+          {merchantName}
+        </Text>
+        <View style={styles.ratingWrap}>
+          <RatingBlock avgRating={avgRating} reviewCount={reviewCount} />
+        </View>
+      </View>
     </View>
   )
 }
@@ -65,28 +61,19 @@ export function MerchantHeadline({ merchantName, logoUrl, avgRating, reviewCount
 const styles = StyleSheet.create({
   root: {
     paddingHorizontal: 20,
-    paddingTop: 4,
     position: 'relative',
   },
-  // Round 4 §2: rating sits lower than round 4 §1 (paddingTop 6 → 22)
-  // per direction "the rating needs to come down a little bit more,
-  // it's too close to the banner". The vertical column it forms with
-  // the right-aligned distance below sets up a clean right-rail
-  // composition.
-  ratingWrap: {
-    alignSelf: 'flex-end',
-    paddingTop: 22,
-  },
-  // Logo: absolute, overlaps banner by 32pt. Larger than round 3
-  // (64pt vs 56pt) per user direction. Stronger shadow gives it a
-  // bit more presence as the page's spatial anchor.
+  // Logo bumped 64 → 72pt per direction "a little bit more bigger".
+  // Negative top scaled to -36 to keep the half-on-banner /
+  // half-on-identity-zone composition (logo's vertical centre still
+  // sits exactly on the banner-identity boundary).
   logoBox: {
     position: 'absolute',
     left: 24,
-    top: -32,
-    width: 64,
-    height: 64,
-    borderRadius: 16,
+    top: -36,
+    width: 72,
+    height: 72,
+    borderRadius: 18,
     borderWidth: 2.5,
     borderColor: '#FFF',
     backgroundColor: '#FFF',
@@ -98,27 +85,38 @@ const styles = StyleSheet.create({
     elevation: 9,
   },
   logoImage: {
-    width: 59,
-    height: 59,
-    borderRadius: 13.5,
+    width: 67,
+    height: 67,
+    borderRadius: 15.5,
   },
   logoPlaceholder: {
-    width: 59,
-    height: 59,
-    borderRadius: 13.5,
+    width: 67,
+    height: 67,
+    borderRadius: 15.5,
     backgroundColor: color.surface.subtle,
   },
-  // Round 4 §2: name gap tightened from 46 → 32pt per direction
-  // "the gap between the logo and the merchant name needs to reduce —
-  // just a slight gap". Logo bottom edge sits at root y=+32 (logo top
-  // -32 + height 64); name now starts at y=32 + ~marginTop padding
-  // for tight visual coupling without crowding.
+  // Single horizontal row carrying name (left, flex:1) + rating
+  // (right). marginTop:38 keeps the name's first cap ~7pt below the
+  // logo's bottom edge — tight visual coupling, no floating gap.
+  // alignItems:'center' baseline-aligns the rating chip against the
+  // name's first line for single-line names; 2-line names center
+  // the rating between lines (acceptable edge case).
+  nameRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 38,
+  },
   name: {
-    marginTop: 32,
+    flex: 1,
     fontSize: 26,
     fontWeight: '800',
     color: '#0F0E1F',
     letterSpacing: -0.4,
     lineHeight: 32,
+  },
+  ratingWrap: {
+    flexShrink: 0,
   },
 })
