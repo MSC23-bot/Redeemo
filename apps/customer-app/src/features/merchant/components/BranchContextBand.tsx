@@ -161,7 +161,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   branchLine: {
-    color: '#E20C04',
+    // Round 3 §B2: deeper oxblood (#A30D03 vs brand-red #E20C04).
+    // Reads as "branch identity" with the gravitas of a printed
+    // address line, while the brand-red wordmark/sweep still carries
+    // the live "Redeemo" cue.
+    color: '#A30D03',
     fontWeight: '700',
     fontSize: 17,
     letterSpacing: -0.1,

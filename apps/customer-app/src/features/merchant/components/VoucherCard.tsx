@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 import { Heart, ArrowRight } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
@@ -8,15 +9,20 @@ import { VoucherCardStub } from './VoucherCardStub'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
+// Round 3 §B3: full descriptive type labels replace the cryptic
+// abbreviations. The chip now CARRIES the voucher type's identity
+// (white text on a saturated category-coloured pill) so the user
+// understands "what kind of offer is this" at a glance — without
+// needing to read the title.
 const TYPE_LABELS: Record<VoucherType, string> = {
-  BOGO: 'BOGO',
-  DISCOUNT_FIXED: 'DISCOUNT',
-  DISCOUNT_PERCENT: 'DISCOUNT',
-  FREEBIE: 'FREEBIE',
-  SPEND_AND_SAVE: 'SPEND & SAVE',
-  PACKAGE_DEAL: 'PACKAGE',
-  TIME_LIMITED: 'TIME-LIMITED',
-  REUSABLE: 'REUSABLE',
+  BOGO:             'BUY ONE, GET ONE FREE',
+  DISCOUNT_FIXED:   'MONEY OFF',
+  DISCOUNT_PERCENT: 'PERCENTAGE OFF',
+  FREEBIE:          'FREE ITEM',
+  SPEND_AND_SAVE:   'SPEND & SAVE',
+  PACKAGE_DEAL:     'PACKAGE DEAL',
+  TIME_LIMITED:     'TIME-LIMITED',
+  REUSABLE:         'REUSABLE',
 }
 
 type Props = {
@@ -27,37 +33,31 @@ type Props = {
   onToggleFavourite: () => void
 }
 
-// Visual correction round §3 (post-PR-#35 QA): voucher card rebuilt as a
-// refined editorial card instead of a generic Yelp-style coupon. Skill
-// allocation for this surface: /interface-design (signature element work),
-// /impeccable (anti-slop + absolute-bans audit), /frontend-design (anti-
-// generic AI aesthetic), /ui-ux-pro-max §6 (typography scale).
+// Visual correction round 3 §B3 (post-PR-#35 QA): voucher card refined
+// further on top of round 2's editorial rebuild. Skill allocation:
+// /interface-design (signature element work), /impeccable (anti-slop
+// audit), /frontend-design (anti-generic AI aesthetic).
 //
-// Anti-slop fixes applied:
-//   • Removed the 4pt left side-stripe (impeccable absolute ban).
-//   • Removed the whole-card pastel gradient — was rainbow when stacked.
-//   • Removed the dashed type-badge border (looked dated/Yelp-y).
-//   • Type label condensed to a refined tinted chip (category-color
-//     bg at 10% over the warm card surface, category-color text).
-//   • "Save £X" pill chrome removed → brand-red bold inline text.
-//     Owner caution: redemption clarity must remain — brand-red 14pt 800
-//     stays scannable without the green pill background.
-//   • "Redeem now →" stays brand-red 14pt 700 with arrow — owner caution
-//     "do not weaken redemption CTA". Visual primary action preserved.
-//   • Card surface: solid #FCFAF7 (warm white token from §1) instead of
-//     gradient. Reads as elevated against the cream page canvas.
-//   • Padding 24pt → 16pt; total card height down ~30%.
+// Round 3 changes on top of round 2:
+//   • Subtle category-coloured top wash. A 60pt-tall LinearGradient at
+//     the top of the card from `${accentColor}10` (6% tint) → transparent.
+//     Gives each card a quiet identity halo without competing with the
+//     warm card surface or the brand-red Save value.
+//   • Type chip becomes "more substantial": solid category-colour pill
+//     + WHITE text + slightly larger padding (5/10 vs 4/8) + larger font
+//     (10pt vs 9pt). Reads as a category badge rather than a soft label.
+//   • Full descriptive labels ("BUY ONE, GET ONE FREE" not "BOGO",
+//     "MONEY OFF" not "DISCOUNT") so first-time users understand the
+//     offer type without context. Owner caution: brand consistency with
+//     the rest of the app (uppercase tab indicators, etc.) preserved
+//     by keeping uppercase + letter-spacing.
 //
-// Redeemo-signature kept: the perforation stub (VoucherCardStub) with
-// cutout circles and dashed top border is a distinctive voucher-as-
-// physical-coupon element that no other UK voucher app uses. Calmed
-// internally but kept structurally — it's the one piece of decoration
-// that earns its place because it carries Redeemo brand language.
-//
-// Voucher type semantic preserved cleanly: only ONE category-coloured
-// element per card (the chip). All other accent colour (Save value,
-// Redeem CTA, perforation stub) uses brand-red or neutrals — no
-// rainbow-card feeling when scrolling a list of vouchers.
+// Untouched (still load-bearing from round 2):
+//   • Brand-red `Save £X` 14pt 800 (no pill chrome — owner caution).
+//   • Brand-red `Redeem now →` 14pt 700 (owner caution: do not weaken).
+//   • Perforation stub (Redeemo signature decoration).
+//   • Single category-colour element per card (the chip) — no rainbow
+//     when scrolling a list of vouchers.
 export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onToggleFavourite }: Props) {
   const typeKey = voucher.type as VoucherType
   const accentColor = color.voucher.byType[typeKey] ?? color.brandRose
@@ -85,10 +85,11 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
     if (voucher.terms) stubPills.push({ label: 'T&Cs apply', type: 'term' })
   }
 
-  // 8-char hex alpha = ~10% opacity tint of the category colour. RN
-  // supports this hex form natively. Used only for the type chip's bg.
-  const chipBg = isRedeemed ? 'rgba(0,0,0,0.05)' : `${accentColor}1A`
-  const chipText = isRedeemed ? '#9CA3AF' : accentColor
+  // Round 3 §B3: chip becomes solid category-colour pill with white
+  // text. Redeemed state stays neutral (50% opacity grey) so the card
+  // doesn't shout "free item!" once it's already been redeemed.
+  const chipBg = isRedeemed ? 'rgba(0,0,0,0.10)' : accentColor
+  const chipTextColor = isRedeemed ? '#9CA3AF' : '#FFF'
 
   return (
     <Pressable
@@ -97,10 +98,23 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
       accessibilityRole="button"
       accessibilityLabel={`${TYPE_LABELS[typeKey]} voucher: ${voucher.title}. Save £${voucher.estimatedSaving}${isRedeemed ? '. Already redeemed this cycle' : ''}`}
     >
+      {/* Round 3 §B3: subtle category-coloured top wash. 60pt high,
+          fades from `${accentColor}10` → transparent. Provides per-type
+          identity without competing with content. Suppressed on redeemed
+          cards so the muted state stays muted. */}
+      {!isRedeemed && (
+        <LinearGradient
+          colors={[`${accentColor}1A`, 'transparent']}
+          locations={[0, 1]}
+          style={styles.topWash}
+          pointerEvents="none"
+        />
+      )}
+
       <View style={styles.body}>
         <View style={styles.topRow}>
           <View style={[styles.typeChip, { backgroundColor: chipBg }]}>
-            <Text variant="label.md" style={[styles.typeChipText, { color: chipText }]}>
+            <Text variant="label.md" style={[styles.typeChipText, { color: chipTextColor }]} numberOfLines={1}>
               {TYPE_LABELS[typeKey]}
             </Text>
           </View>
@@ -150,21 +164,30 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FCFAF7',                  // warm card surface (§1 token)
+    backgroundColor: '#FCFAF7',
     borderRadius: 14,
     overflow: 'hidden',
     position: 'relative',
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',             // §3 unified card border
+    borderColor: 'rgba(0,0,0,0.05)',
     shadowColor: '#000',
-    shadowOpacity: 0.04,                         // calmer than the previous 0.12
+    shadowOpacity: 0.04,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   cardRedeemed: {
-    opacity: 0.7,                                // 0.5 → 0.7: still visibly muted
-  },                                             // but content stays readable
+    opacity: 0.7,
+  },
+  // Subtle category-coloured top wash. Sits behind body content (no
+  // pointer events). 60pt tall covers the chip-and-title area only.
+  topWash: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+  },
   body: {
     paddingTop: 14,
     paddingHorizontal: 16,
@@ -175,17 +198,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 28,
+    gap: 10,
   },
+  // Round 3 §B3: chip is now a substantial pill (was tinted 10% chip).
   typeChip: {
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
+    flexShrink: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
   },
   typeChipText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.6,
+    letterSpacing: 0.7,
     textTransform: 'uppercase',
   },
   favBtn: {

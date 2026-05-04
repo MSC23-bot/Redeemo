@@ -20,7 +20,7 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
 })
 
 describe('VoucherCard — visual correction §3', () => {
-  it('renders the type chip in uppercase + the title + the description', () => {
+  it('renders the full-name type chip + the title + the description', () => {
     const { getByText } = render(
       <VoucherCard
         voucher={mk()}
@@ -30,7 +30,9 @@ describe('VoucherCard — visual correction §3', () => {
         onToggleFavourite={() => {}}
       />,
     )
-    expect(getByText('FREEBIE')).toBeTruthy()
+    // Round 3 §B3: full-name labels replace the cryptic short codes.
+    // FREEBIE → 'FREE ITEM' so a first-time user understands the offer.
+    expect(getByText('FREE ITEM')).toBeTruthy()
     expect(getByText('Free Filter Coffee with Any Thali')).toBeTruthy()
     expect(getByText(/complimentary coffee/)).toBeTruthy()
   })
@@ -107,7 +109,7 @@ describe('VoucherCard — visual correction §3', () => {
         onToggleFavourite={() => {}}
       />,
     )
-    fireEvent.press(getByLabelText(/FREEBIE voucher/))
+    fireEvent.press(getByLabelText(/FREE ITEM voucher/))
     expect(onPress).toHaveBeenCalledTimes(1)
   })
 
@@ -127,13 +129,14 @@ describe('VoucherCard — visual correction §3', () => {
     expect(onToggleFavourite).toHaveBeenCalledTimes(1)
   })
 
-  it('renders the type chip differently for each voucher type (preserves semantic via colour)', () => {
+  it('renders the full-name type chip per voucher type (round 3 §B3)', () => {
     const types: Array<{ type: MerchantVoucher['type']; label: string }> = [
-      { type: 'FREEBIE',          label: 'FREEBIE' },
-      { type: 'BOGO',             label: 'BOGO' },
-      { type: 'DISCOUNT_FIXED',   label: 'DISCOUNT' },
+      { type: 'FREEBIE',          label: 'FREE ITEM' },
+      { type: 'BOGO',             label: 'BUY ONE, GET ONE FREE' },
+      { type: 'DISCOUNT_FIXED',   label: 'MONEY OFF' },
+      { type: 'DISCOUNT_PERCENT', label: 'PERCENTAGE OFF' },
       { type: 'SPEND_AND_SAVE',   label: 'SPEND & SAVE' },
-      { type: 'PACKAGE_DEAL',     label: 'PACKAGE' },
+      { type: 'PACKAGE_DEAL',     label: 'PACKAGE DEAL' },
       { type: 'TIME_LIMITED',     label: 'TIME-LIMITED' },
       { type: 'REUSABLE',         label: 'REUSABLE' },
     ]

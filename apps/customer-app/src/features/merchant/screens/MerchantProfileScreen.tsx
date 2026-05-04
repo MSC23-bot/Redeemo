@@ -475,24 +475,31 @@ export function MerchantProfileScreen({ id }: Props) {
 
       <BranchSwitchToast
         branchName={toastBranchName}
+        merchantName={merchant.businessName}
         onDismiss={() => setToastBranchName(null)}
       />
     </View>
   )
 }
 
-// Visual correction round (post-PR-#35 QA): page surface shifts from pure
-// `#FFF` to warm cream `#F5F1EB` (Redeemo-brand neutral, slightly tinted
-// toward the brand-red hue per impeccable's "tint every neutral toward the
-// brand" rule). Card surfaces stay near-white via Section 3 token tint
-// `#FCFAF7`, so cards now read as elevated against the cream canvas
-// without needing heavier borders or shadows.
+// Visual correction round 3 §B1: page now uses a two-zone surface
+// system. The TOP zone (banner/identity/band/action-row) sits on the
+// brand-tinted cream `#F5F1EB`; the TAB CONTENT zone sits on a slightly
+// lighter cream `#FAF6EE` so the tab bar feels like the boundary
+// between "page header" (about this merchant + branch) and "browsable
+// content" (vouchers / about / branches / reviews). The lighter tone
+// behind the tab content reads as a calmer reading surface for cards
+// and lists; the darker tone above keeps the identity zone anchored.
+//
+// Round 2 (74e281e) introduced the cream surface globally; round 3
+// splits it into top/bottom zones for hierarchy without changing the
+// brand neutrals.
 const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#F5F1EB' },
   loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F1EB' },
   scroll:       { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
-  content:      { backgroundColor: '#F5F1EB', minHeight: 460, padding: 20 },
+  content:      { backgroundColor: '#FAF6EE', minHeight: 460, padding: 20 },
   errorScreen:  { flex: 1, backgroundColor: '#F5F1EB', padding: 16 },
   backBtn:      { paddingVertical: 12 },
   errorCard:    { padding: 20, backgroundColor: '#FEF6F5', borderRadius: 16, gap: 8, marginTop: 16 },

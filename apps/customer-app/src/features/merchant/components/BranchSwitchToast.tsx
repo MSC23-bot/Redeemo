@@ -12,9 +12,13 @@ import { Text } from '@/design-system/Text'
 import { useMotionScale } from '@/design-system/useMotionScale'
 
 type Props = {
-  /** When non-null, the toast is visible and shows "Now viewing {branchName}".
-   *  Auto-dismisses after 2.4s; sets onDismiss(null) when the timer completes. */
+  /** When non-null, the toast is visible. Round 3 §B6: copy now reads
+   *  `Now viewing {merchantName}, {branchName} branch` so the
+   *  confirmation includes WHO the branch belongs to (helpful when the
+   *  user came from search/discovery and the merchant name isn't on
+   *  screen). Auto-dismisses after 2.4s. */
   branchName: string | null
+  merchantName: string
   onDismiss: () => void
 }
 
@@ -38,7 +42,7 @@ const SHOW_DURATION_MS = 2400
 const ENTER_MS         = 280
 const EXIT_MS          = 200
 
-export function BranchSwitchToast({ branchName, onDismiss }: Props) {
+export function BranchSwitchToast({ branchName, merchantName, onDismiss }: Props) {
   const motionScale = useMotionScale()
   const offset = useSharedValue(120)   // start off-screen below
   const opacity = useSharedValue(0)
@@ -135,7 +139,7 @@ export function BranchSwitchToast({ branchName, onDismiss }: Props) {
     >
       <Animated.View style={styles.dot} />
       <Text variant="label.md" style={styles.label}>
-        Now viewing {renderName}
+        Now viewing {merchantName}, {renderName} branch
       </Text>
     </Animated.View>
   )
@@ -163,14 +167,14 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: '#E20C04',
   },
   label: {
     color: '#FFF',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
     letterSpacing: -0.1,
     flex: 1,

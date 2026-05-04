@@ -319,10 +319,15 @@ const styles = StyleSheet.create({
   reviewList: {
     gap: 12,
   },
+  // Round 3 §B5: toggle reads as a calmer card-style segmented control
+  // against the lighter tab-content surface. Borders + softer rounding
+  // align it with the other section cards (About / Reviews summary).
   toggle: {
     flexDirection: 'row',
-    backgroundColor: '#F3F0EB',
-    borderRadius: 10,
+    backgroundColor: '#FCFAF7',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
     padding: 3,
     gap: 3,
   },
@@ -330,15 +335,15 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
   toggleBtnActive: {
     backgroundColor: '#FFF',
     shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
@@ -351,5 +356,5 @@ const styles = StyleSheet.create({
     color: '#010C35',
     fontWeight: '700',
   },
-  scopeLabel: { color: '#888', fontSize: 11, marginTop: 2, textAlign: 'center' },
+  scopeLabel: { color: '#9CA3AF', fontSize: 11, marginTop: 4, textAlign: 'center', letterSpacing: 0.1 },
 })
