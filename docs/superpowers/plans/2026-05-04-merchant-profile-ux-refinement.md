@@ -3486,3 +3486,47 @@ Five controlled sections, each with its own commit + test pass + tsc pass before
 ### Next step
 
 Push to PR #35; pause for on-device QA round 2.
+
+---
+
+## Visual correction round 3 amendment (post-PR-#35 QA round 2 — 2026-05-04)
+
+After on-device QA round 2 (5 screenshots + 17 enumerated issues), four further controlled commits land on the same branch / PR #35.
+
+### What shipped
+
+| § | Commit | Summary |
+|---|--------|---------|
+| 1 | `ed26043` | Section A bug fixes (8 items): logo+name horizontal flex row (A1), distance fix removing the `>=100km` suppression rule in MetaRow + BranchCard (A2), Website/Contact/Directions button radius 10→12 (A3), BranchCard onPress haptics (A6), HeroSection navRow safe-area inset via `useSafeAreaInsets` (A7), hero already 200pt + 56pt logo from round 2, BranchContextBand tint shifts brand-red → warm-cream `#EFEAE0` rest / `#E5DCC9` flash with brand-red sweep retained as the brand cue (A8). |
+| 2 | `b7b47c4` | Sheet migration onto the shared `<BottomSheet>` primitive from `design-system/motion/`. Five sheets — HoursPreviewSheet, ContactSheet, DirectionsSheet, BranchPickerSheet, WriteReviewSheet — drop their local Modal/overlay/dragHandle boilerplate and inherit fade scrim + Reanimated translateY slide + grabber-bar swipe-down-to-dismiss + keyboard-aware lift + `useMotionScale` reduced-motion handling. FreeUserGateModal (centred modal pattern) keeps its existing entrance. (A4 + A5.) |
+| 3 | `a40f0d7` | Visual polish (B1–B6): two-zone page surface — top `#F5F1EB`, tab content `#FAF6EE` (B1); branch line color → deeper oxblood `#A30D03` (B2); voucher card subtle category-coloured top wash + substantial type chip with white text + full descriptive labels ("BUY ONE, GET ONE FREE", "MONEY OFF", "FREE ITEM" etc.) (B3); tab bar active-pill brand-red 5% + deeper inactive label `#6B7280` + stronger borders 0.06→0.10 alpha (B4); Reviews tab toggle becomes a card-style segmented control (B5); BranchSwitchToast copy `Now viewing {merchant}, {branch} branch` + dot 8→10pt + label 13→14pt (B6). |
+| 4 | `30402e4` | Product UX (C1–C3): chip removed from BranchContextBand composition + BranchPickerSheet mount removed from screen (C1 — picker becomes unreachable from the screen; both component files retained for possible future reuse); "Other Locations" tab label renamed to "Branches" (C2); Branches → Switch handler now sets `activeTab='vouchers'` after `select(branchId)` so the user lands on the primary surface, and tab content is wrapped in a keyed `Animated.View` with `FadeIn(180ms)` entering animation so every tab change confirms with a subtle cross-fade (C3). |
+
+### Deferred to a future round
+
+| Ref | Item | Why deferred | Status |
+|---|---|---|---|
+| C4 | Tab-content horizontal swipe (Vouchers / About / Branches / Reviews swipe gesture) | No `react-native-pager-view` / `react-native-tab-view` dep installed; existing horizontal-swipe surfaces in Discovery/Map/Home are scroll-along-content carousels, NOT swipe-to-change-tab. Manual implementation has real nested-scroll conflicts (Reviews FlatList infinite scroll, About horizontal photo carousel, TabBar pulse re-architecture). Owner directive: "if something's gonna break, defer". | Deferred to a future round when native-deps + nested-scroll testing can be budgeted. |
+| C5 | Collapsed-header animation on scroll | Owner-deferred: "C5, collapsed header behavior on scroll. Okay, maybe we can defer that." Genuine collapsed-header (banner shrinking under sticky tab bar with scroll-driven interpolation) is non-trivial to ship without regressing the existing `stickyHeaderIndices=[5]` contract. Better picked up alongside C4 when both motion items can share design + QA budget. | Deferred. |
+
+### Locked product rules preserved end-to-end (round 3)
+
+- Branch-first UX: still visually anchored via `BranchContextBand` (now warm-cream tinted, deeper-oxblood line).
+- Vouchers merchant-wide: voucher card visual rework didn't change which surface they belong to; cards still do NOT animate on branch switch.
+- Redemption branch-attributed: branch line + meta row + ActionRow targets refresh on switch; merchant identity stays still.
+- §6.4 page composition order: chip removed (round 3 §C1), so the order is now hero → headline → descriptor → meta row → action row → tab bar → tab content. Picker mount removed from the screen.
+
+### Test posture (round 3)
+
+- 186/186 merchant suite green (round 2 was 183; net +3: distance regression in MetaRow, two new MerchantHeadline tests for the `logoUrl` prop, plus C2/C3 screen tests, minus the two chip/picker integration tests that no longer apply).
+- TypeScript clean.
+- Full app suite: 445/446 (1 known pre-existing baseline failure on `tests/lib/api/profile.test.ts` unchanged).
+- Backend: untouched.
+
+### Cadence (round 3)
+
+Four controlled commits, each with merchant-suite pass + tsc pass before the next. Same branch / PR #35.
+
+### Next step
+
+Push to PR #35; pause for on-device QA round 3. Do not merge.
