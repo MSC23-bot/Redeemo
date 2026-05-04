@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Heart, Tag, ArrowRight, CheckCircle } from 'lucide-react-native'
+import { Heart, ArrowRight } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -9,15 +9,20 @@ import { VoucherCardStub } from './VoucherCardStub'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
+// Round 3 §B3: full descriptive type labels replace the cryptic
+// abbreviations. The chip now CARRIES the voucher type's identity
+// (white text on a saturated category-coloured pill) so the user
+// understands "what kind of offer is this" at a glance — without
+// needing to read the title.
 const TYPE_LABELS: Record<VoucherType, string> = {
-  BOGO: 'Buy One Get One',
-  DISCOUNT_FIXED: 'Discount',
-  DISCOUNT_PERCENT: 'Discount',
-  FREEBIE: 'Freebie',
-  SPEND_AND_SAVE: 'Spend & Save',
-  PACKAGE_DEAL: 'Package Deal',
-  TIME_LIMITED: 'Time Limited',
-  REUSABLE: 'Reusable',
+  BOGO:             'BUY ONE, GET ONE FREE',
+  DISCOUNT_FIXED:   'MONEY OFF',
+  DISCOUNT_PERCENT: 'PERCENTAGE OFF',
+  FREEBIE:          'FREE ITEM',
+  SPEND_AND_SAVE:   'SPEND & SAVE',
+  PACKAGE_DEAL:     'PACKAGE DEAL',
+  TIME_LIMITED:     'TIME-LIMITED',
+  REUSABLE:         'REUSABLE',
 }
 
 type Props = {
@@ -28,15 +33,34 @@ type Props = {
   onToggleFavourite: () => void
 }
 
+// Visual correction round 3 §B3 (post-PR-#35 QA): voucher card refined
+// further on top of round 2's editorial rebuild. Skill allocation:
+// /interface-design (signature element work), /impeccable (anti-slop
+// audit), /frontend-design (anti-generic AI aesthetic).
+//
+// Round 3 changes on top of round 2:
+//   • Subtle category-coloured top wash. A 60pt-tall LinearGradient at
+//     the top of the card from `${accentColor}10` (6% tint) → transparent.
+//     Gives each card a quiet identity halo without competing with the
+//     warm card surface or the brand-red Save value.
+//   • Type chip becomes "more substantial": solid category-colour pill
+//     + WHITE text + slightly larger padding (5/10 vs 4/8) + larger font
+//     (10pt vs 9pt). Reads as a category badge rather than a soft label.
+//   • Full descriptive labels ("BUY ONE, GET ONE FREE" not "BOGO",
+//     "MONEY OFF" not "DISCOUNT") so first-time users understand the
+//     offer type without context. Owner caution: brand consistency with
+//     the rest of the app (uppercase tab indicators, etc.) preserved
+//     by keeping uppercase + letter-spacing.
+//
+// Untouched (still load-bearing from round 2):
+//   • Brand-red `Save £X` 14pt 800 (no pill chrome — owner caution).
+//   • Brand-red `Redeem now →` 14pt 700 (owner caution: do not weaken).
+//   • Perforation stub (Redeemo signature decoration).
+//   • Single category-colour element per card (the chip) — no rainbow
+//     when scrolling a list of vouchers.
 export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onToggleFavourite }: Props) {
   const typeKey = voucher.type as VoucherType
   const accentColor = color.voucher.byType[typeKey] ?? color.brandRose
-  const gradientPair = isRedeemed
-    ? color.voucher.gradientByType.REDEEMED
-    : (color.voucher.gradientByType[typeKey] ?? ['#FEF2F2', '#FEE2E2'])
-  const badgeTextColor = isRedeemed
-    ? color.voucher.badgeTextByType.REDEEMED
-    : (color.voucher.badgeTextByType[typeKey] ?? '#B91C1C')
 
   const handlePress = useCallback(() => {
     lightHaptic()
@@ -61,6 +85,12 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
     if (voucher.terms) stubPills.push({ label: 'T&Cs apply', type: 'term' })
   }
 
+  // Round 3 §B3: chip becomes solid category-colour pill with white
+  // text. Redeemed state stays neutral (50% opacity grey) so the card
+  // doesn't shout "free item!" once it's already been redeemed.
+  const chipBg = isRedeemed ? 'rgba(0,0,0,0.10)' : accentColor
+  const chipTextColor = isRedeemed ? '#9CA3AF' : '#FFF'
+
   return (
     <Pressable
       onPress={handlePress}
@@ -68,39 +98,40 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
       accessibilityRole="button"
       accessibilityLabel={`${TYPE_LABELS[typeKey]} voucher: ${voucher.title}. Save £${voucher.estimatedSaving}${isRedeemed ? '. Already redeemed this cycle' : ''}`}
     >
-      <LinearGradient
-        colors={gradientPair}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
-
-      <View style={[styles.stripe, { backgroundColor: isRedeemed ? '#9CA3AF' : accentColor }]} />
-
-      <Pressable
-        onPress={handleFav}
-        style={[styles.favBtn, isFavourited && styles.favBtnActive]}
-        accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-      >
-        <Heart size={16} color={isFavourited ? '#E20C04' : '#9CA3AF'} fill={isFavourited ? '#E20C04' : 'none'} />
-      </Pressable>
-
-      {isRedeemed && (
-        <View style={styles.stamp}>
-          <CheckCircle size={12} color="#9CA3AF" />
-          <Text variant="label.md" style={styles.stampText}>REDEEMED</Text>
-        </View>
+      {/* Round 3 §B3: subtle category-coloured top wash. 60pt high,
+          fades from `${accentColor}10` → transparent. Provides per-type
+          identity without competing with content. Suppressed on redeemed
+          cards so the muted state stays muted. */}
+      {!isRedeemed && (
+        <LinearGradient
+          colors={[`${accentColor}1A`, 'transparent']}
+          locations={[0, 1]}
+          style={styles.topWash}
+          pointerEvents="none"
+        />
       )}
 
       <View style={styles.body}>
-        <View style={[styles.typeBadge, { borderColor: isRedeemed ? '#9CA3AF' : accentColor }]}>
-          <Tag size={10} color={badgeTextColor} />
-          <Text variant="label.md" style={[styles.typeText, { color: badgeTextColor }]}>
-            {TYPE_LABELS[typeKey]}
-          </Text>
+        <View style={styles.topRow}>
+          <View style={[styles.typeChip, { backgroundColor: chipBg }]}>
+            <Text variant="label.md" style={[styles.typeChipText, { color: chipTextColor }]} numberOfLines={1}>
+              {TYPE_LABELS[typeKey]}
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={handleFav}
+            style={styles.favBtn}
+            accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
+            hitSlop={12}
+          >
+            <Heart size={20} color={isFavourited ? '#E20C04' : '#9CA3AF'} fill={isFavourited ? '#E20C04' : 'none'} />
+          </Pressable>
         </View>
 
-        <Text variant="heading.sm" style={styles.title}>{voucher.title}</Text>
+        <Text variant="heading.sm" style={styles.title} numberOfLines={2}>
+          {voucher.title}
+        </Text>
 
         {voucher.description && (
           <Text variant="body.sm" color="secondary" style={styles.desc} numberOfLines={2}>
@@ -108,17 +139,22 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           </Text>
         )}
 
-        <View style={[styles.savePill, { backgroundColor: isRedeemed ? '#9CA3AF' : accentColor }]}>
-          <Tag size={13} color="#FFF" />
-          <Text variant="label.lg" style={styles.saveText}>Save £{voucher.estimatedSaving}</Text>
+        <View style={styles.bottomRow}>
+          <Text variant="label.lg" style={[styles.saveText, isRedeemed && styles.saveTextRedeemed]}>
+            Save £{voucher.estimatedSaving}
+          </Text>
+          {!isRedeemed && (
+            <View style={styles.redeemRow}>
+              <Text variant="label.lg" style={styles.redeemText}>Redeem now</Text>
+              <ArrowRight size={14} color={color.brandRose} />
+            </View>
+          )}
+          {isRedeemed && (
+            <Text variant="label.md" style={styles.redeemedStamp}>
+              REDEEMED
+            </Text>
+          )}
         </View>
-
-        {!isRedeemed && (
-          <View style={styles.redeemRow}>
-            <Text variant="label.lg" style={styles.redeemText}>Redeem now</Text>
-            <ArrowRight size={14} color={color.brandRose} />
-          </View>
-        )}
       </View>
 
       <VoucherCardStub pills={stubPills} />
@@ -128,122 +164,104 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 16,
+    backgroundColor: '#FCFAF7',
+    borderRadius: 14,
     overflow: 'hidden',
     position: 'relative',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
     shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   cardRedeemed: {
-    opacity: 0.5,
+    opacity: 0.7,
   },
-  stripe: {
+  // Subtle category-coloured top wash. Sits behind body content (no
+  // pointer events). 60pt tall covers the chip-and-title area only.
+  topWash: {
     position: 'absolute',
-    left: 0,
     top: 0,
-    bottom: 0,
-    width: 4,
-  },
-  favBtn: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
-    zIndex: 2,
-  },
-  favBtnActive: {
-    backgroundColor: 'rgba(226,12,4,0.1)',
-    borderColor: 'rgba(226,12,4,0.2)',
-  },
-  stamp: {
-    position: 'absolute',
-    top: 16,
-    right: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-    zIndex: 2,
-  },
-  stampText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    left: 0,
+    right: 0,
+    height: 60,
   },
   body: {
-    paddingTop: 20,
-    paddingRight: 16,
-    paddingBottom: 16,
-    paddingLeft: 20,
+    paddingTop: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
-  typeBadge: {
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
+    justifyContent: 'space-between',
+    minHeight: 28,
+    gap: 10,
   },
-  typeText: {
+  // Round 3 §B3: chip is now a substantial pill (was tinted 10% chip).
+  typeChip: {
+    flexShrink: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  typeChipText: {
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
     textTransform: 'uppercase',
+  },
+  favBtn: {
+    padding: 4,
   },
   title: {
     fontSize: 16,
-    fontWeight: '800',
-    color: '#010C35',
-    marginTop: 12,
+    fontWeight: '700',
+    color: '#0F0E1F',
+    marginTop: 10,
     letterSpacing: -0.2,
+    lineHeight: 21,
   },
   desc: {
-    fontSize: 12,
-    marginTop: 8,
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 6,
     lineHeight: 18,
   },
-  savePill: {
+  bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginTop: 12,
+    justifyContent: 'space-between',
+    marginTop: 14,
+    minHeight: 24,
   },
   saveText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
-    color: '#FFF',
+    color: '#E20C04',
+    letterSpacing: -0.1,
+  },
+  saveTextRedeemed: {
+    color: '#9CA3AF',
   },
   redeemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 8,
   },
   redeemText: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '700',
     color: '#E20C04',
+    letterSpacing: -0.1,
+  },
+  redeemedStamp: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#9CA3AF',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
 })

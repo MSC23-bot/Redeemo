@@ -96,6 +96,10 @@ const branchTileSchema = z.object({
   isOpenNow:    z.boolean(),
   avgRating:    z.number().nullable(),
   reviewCount:  z.number(),
+  // Task 1 — Merchant Profile UX refinement: per-branch openingHours so
+  // picker rows + Other Locations cards can compute real smart-status text
+  // and the HoursPreviewSheet can show the correct branch's full week.
+  openingHours: z.array(openingHourEntrySchema),
 })
 export type BranchTile = z.infer<typeof branchTileSchema>
 // Alias kept for cefaf45 component imports during M2 salvage. New code

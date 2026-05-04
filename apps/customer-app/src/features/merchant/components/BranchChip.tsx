@@ -1,84 +1,80 @@
 import React from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
-import { MapPin, ChevronDown } from '@/design-system/icons'
+import { Pressable, StyleSheet } from 'react-native'
+import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, Easing } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
-import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
+import { useMotionScale } from '@/design-system/useMotionScale'
 
 type Props = {
-  branchName: string
-  city: string | null
-  county: string | null
-  distanceMetres: number | null
-  isOpenNow: boolean
-  closesAt: string | null   // e.g. "17:00" — null means no closeTime available
   isMultiBranch: boolean
   onPress: () => void
+  /** Play first-visit caret bounce hint once on mount. Default true. */
+  hintOnFirstVisit?: boolean
 }
 
-function formatDistance(metres: number | null): string | null {
-  if (metres === null) return null
-  if (metres < 1000) return `${Math.round(metres)}m`
-  if (metres >= 100_000) return null  // suppress: city/county will be shown instead
-  const miles = metres / 1609.34
-  return `${miles.toFixed(1)} mi`
-}
+// Section 1 of the visual correction round: removed the caret-nod-on-switch
+// animation (was decorative — Emil framework: "if purpose is just 'looks
+// cool' don't animate"). The branch-switch feedback is now centralised in
+// the BranchContextBand's coordinated transition (Section 4).
+//
+// First-visit caret hint kept but calmed:
+//   - Magnitude reduced -2pt → -1pt (half the bounce height).
+//   - Spring replaced with strong-ease-out (no rebound, matches brand-red
+//     premium tone — Emil ban on spring/bounce in professional UI).
+//   - Fires once per session per merchant on mount when multi-branch.
+export function BranchChip({ isMultiBranch, onPress, hintOnFirstVisit = true }: Props) {
+  const motionScale = useMotionScale()
+  const caretBounce = useSharedValue(0)
+  const isFirstRender = React.useRef(true)
+  const hasHinted = React.useRef(false)
 
-function formatLocation(city: string | null, county: string | null): string {
-  if (city && county) return `${city}, ${county}`
-  return city ?? county ?? ''
-}
+  React.useEffect(() => {
+    if (!isFirstRender.current) return
+    isFirstRender.current = false
+    if (isMultiBranch && hintOnFirstVisit && !hasHinted.current && motionScale !== 0) {
+      hasHinted.current = true
+      caretBounce.value = withSequence(
+        withTiming(-1, { duration: 180, easing: Easing.bezier(0.23, 1, 0.32, 1) }),
+        withTiming(0,  { duration: 220, easing: Easing.bezier(0.23, 1, 0.32, 1) }),
+      )
+    }
+  }, [isMultiBranch, hintOnFirstVisit, motionScale, caretBounce])
 
-function formatStatus(isOpenNow: boolean, closesAt: string | null): string {
-  if (isOpenNow && closesAt) return `Closes ${closesAt}`
-  if (isOpenNow) return 'Open now'
-  return 'Closed'
-}
+  const caretStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: caretBounce.value }],
+  }))
 
-export function BranchChip({
-  branchName, city, county, distanceMetres,
-  isOpenNow, closesAt, isMultiBranch, onPress,
-}: Props) {
-  const distText = formatDistance(distanceMetres)
-  const ctxLine  = distText ?? formatLocation(city, county)
-  const statusText = formatStatus(isOpenNow, closesAt)
-
-  if (isMultiBranch) {
-    return (
-      <Pressable
-        style={styles.chip}
-        accessibilityRole="button"
-        accessibilityLabel={`Switch branch — currently ${branchName}`}
-        onPress={() => { lightHaptic(); onPress() }}
-      >
-        <View style={styles.line1}>
-          <MapPin size={14} color={color.brandRose} />
-          <Text variant="label.lg" style={styles.name}>{branchName}</Text>
-          <ChevronDown size={14} color="#9CA3AF" />
-        </View>
-        <Text variant="label.md" color="tertiary" meta style={styles.line2}>
-          {ctxLine ? `${ctxLine} · ` : ''}{statusText}
-        </Text>
-      </Pressable>
-    )
-  }
+  if (!isMultiBranch) return null
 
   return (
-    <View style={styles.chip}>
-      <View style={styles.line1}>
-        <MapPin size={14} color={color.brandRose} />
-        <Text variant="label.lg" style={styles.name}>{branchName}</Text>
-      </View>
-      <Text variant="label.md" color="tertiary" meta style={styles.line2}>
-        {ctxLine ? `${ctxLine} · ` : ''}{statusText}
-      </Text>
-    </View>
+    <Pressable
+      style={styles.chip}
+      accessibilityRole="button"
+      accessibilityLabel="Switch branch"
+      onPress={() => { lightHaptic(); onPress() }}
+      hitSlop={8}
+    >
+      <Text variant="label.md" style={styles.text}>Switch branch</Text>
+      <Animated.View style={caretStyle} testID="chip-caret">
+        <Text variant="label.md" style={styles.caret}>▾</Text>
+      </Animated.View>
+    </Pressable>
   )
 }
 
 const styles = StyleSheet.create({
-  chip: { gap: 2, paddingVertical: 8 },
-  line1: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  line2: { fontSize: 11, fontWeight: '600' },
-  name:  { fontSize: 13, fontWeight: '700', color: '#010C35' },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: 7,
+    paddingHorizontal: 11,
+    borderRadius: 8,
+    backgroundColor: 'rgba(226,12,4,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(226,12,4,0.20)',
+  },
+  text:  { color: '#E20C04', fontWeight: '600', fontSize: 11 },
+  caret: { color: '#E20C04', fontSize: 12 },
 })

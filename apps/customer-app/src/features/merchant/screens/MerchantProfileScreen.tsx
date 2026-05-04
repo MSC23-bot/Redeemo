@@ -1,12 +1,15 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { View, ScrollView, StyleSheet, ActivityIndicator, Share, Linking, Pressable } from 'react-native'
+import Animated, { FadeIn } from 'react-native-reanimated'
 import { router } from 'expo-router'
 import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
 import { useBranchSelection } from '../hooks/useBranchSelection'
 import { HeroSection } from '../components/HeroSection'
-import { MetaSection } from '../components/MetaSection'
+import { MerchantDescriptor } from '../components/MerchantDescriptor'
+import { MetaRow } from '../components/MetaRow'
+import { ActionRow } from '../components/ActionRow'
 import { TabBar, type TabId } from '../components/TabBar'
 import { VouchersTab } from '../components/VouchersTab'
 import { AboutTab } from '../components/AboutTab'
@@ -15,13 +18,25 @@ import { ReviewsTab } from '../components/ReviewsTab'
 import { ContactSheet } from '../components/ContactSheet'
 import { DirectionsSheet } from '../components/DirectionsSheet'
 import { FreeUserGateModal } from '../components/FreeUserGateModal'
-import { BranchChip } from '../components/BranchChip'
-import { BranchPickerSheet } from '../components/BranchPickerSheet'
+import { HoursPreviewSheet } from '../components/HoursPreviewSheet'
 import { SuspendedBranchBanner } from '../components/SuspendedBranchBanner'
 import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
 import { useFavourite } from '@/hooks/useFavourite'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
+import { MerchantHeadline } from '../components/MerchantHeadline'
+import { BranchContextBand } from '../components/BranchContextBand'
+import { BranchSwitchToast } from '../components/BranchSwitchToast'
+import { branchShortName } from '../utils/branchShortName'
+
+function buildBranchLine(branch: { city: string | null; name: string }): string | null {
+  // Pass 1 fallback: city when available, else strip-prefix the branch name.
+  // Branch.county schema migration (deferred §A) will eventually ship
+  // "<city>, <county>"; until then we render city alone.
+  if (branch.city) return branch.city
+  const shortName = branchShortName(branch.name)
+  return shortName || null
+}
 
 // M2 — full Merchant Profile surface. Composes hero / meta / sticky tab bar
 // and the four tabs (vouchers / about / branches / reviews) plus three
@@ -89,24 +104,56 @@ export function MerchantProfileScreen({ id }: Props) {
     isFavourited: merchant?.isFavourited ?? false,
   })
 
-  const [activeTab,        setActiveTab]        = useState<TabId>('vouchers')
-  const [showContact,      setShowContact]      = useState(false)
-  const [showDirs,         setShowDirs]         = useState(false)
-  const [showGate,         setShowGate]         = useState(false)
-  const [showPicker,       setShowPicker]       = useState(false)
-  const [bannerDismissed,  setBannerDismissed]  = useState(false)
+  const [activeTab,           setActiveTab]           = useState<TabId>('vouchers')
+  const [showContact,         setShowContact]         = useState(false)
+  const [showDirs,            setShowDirs]            = useState(false)
+  const [showGate,            setShowGate]            = useState(false)
+  const [bannerDismissed,     setBannerDismissed]     = useState(false)
+  const [hoursPreviewBranchId, setHoursPreviewBranchId] = useState<string | null>(null)
+  // dirsBranchId: null → DirectionsSheet shows the SELECTED branch (sb) — the
+  // existing ActionRow path. When set to a non-current branch id (from an
+  // Other Locations card), DirectionsSheet shows THAT branch's address +
+  // coords instead. Resets on close + on branch switch.
+  const [dirsBranchId,        setDirsBranchId]        = useState<string | null>(null)
+  // Visual correction round §4: branch-switch confirmation toast. When the
+  // user taps Switch on an Other Locations card, the chip + band may be
+  // off-screen (they scrolled). We show a small "Now viewing {branch}"
+  // toast for 2.4s as a confirmation. `pendingToastForBranchId` tracks
+  // the branch we're EXPECTING to land on; once `sb.id` matches it, the
+  // toast fires. Suppressed for chip-picker switches (band motion is
+  // visible there).
+  const [pendingToastForBranchId, setPendingToastForBranchId] = useState<string | null>(null)
+  const [toastBranchName,         setToastBranchName]         = useState<string | null>(null)
 
   // On branch switch (URL `?branch=` change): close any open sheets, close
   // the free-user gate, and re-arm the SuspendedBranchBanner so the new
-  // branch's resolution gets a fresh chance to surface (spec §4.7). Active
-  // tab is intentionally preserved; ScrollView keeps its position.
+  // branch's resolution gets a fresh chance to surface (spec §4.7).
+  // ScrollView keeps its position. Active tab handling note: when the
+  // switch came from a Branches-tab Switch button (round 3 §C3), the
+  // BranchesTab handler ALSO sets activeTab='vouchers' so the user lands
+  // on the primary surface; chip-picker switches preserve the current
+  // tab (chip removed in §C1; if a future round re-introduces a header
+  // entry, this contract still holds).
   useEffect(() => {
     setShowContact(false)
     setShowDirs(false)
+    setDirsBranchId(null)
     setShowGate(false)
-    setShowPicker(false)
     setBannerDismissed(false)
   }, [branchId])
+
+  // Visual correction round §4: when the pending Other-Locations switch
+  // lands (the screen has rerendered with the new selectedBranch data),
+  // show the confirmation toast. `branchId` from useBranchSelection
+  // mirrors `selectedBranch.id` once the page settles.
+  useEffect(() => {
+    if (!pendingToastForBranchId) return
+    if (branchId !== pendingToastForBranchId) return
+    const newBranchName = merchant?.branches.find(b => b.id === branchId)?.name
+    if (!newBranchName) return
+    setToastBranchName(branchShortName(newBranchName))
+    setPendingToastForBranchId(null)
+  }, [branchId, pendingToastForBranchId, merchant])
 
   const tabs = useMemo(() => {
     const isMultiBranch = (merchant?.branches.length ?? 0) > 1
@@ -115,7 +162,15 @@ export function MerchantProfileScreen({ id }: Props) {
       { id: 'about',    label: 'About' },
     ]
     if (isMultiBranch) {
-      t.push({ id: 'branches', label: 'Branches', count: merchant?.branches.length ?? 0 })
+      const selectedId = merchant?.selectedBranch?.id
+      const otherActive = (merchant?.branches.filter(b => b.id !== selectedId && b.isActive).length) ?? 0
+      if (otherActive > 0) {
+        // Round 3 §C2: label "Other Locations" → "Branches". The label is
+        // shorter, fits the 4-tab row better on 375pt phones, and is
+        // consistent with how other surfaces (Discovery, Map, Search) refer
+        // to a merchant's other branches. Tab id stays 'branches'.
+        t.push({ id: 'branches', label: 'Branches', count: otherActive })
+      }
     }
     // Branch-scoped count matches the Reviews tab's default scope (the
     // toggle defaults to 'branch'). Showing the merchant-wide aggregate
@@ -208,17 +263,6 @@ export function MerchantProfileScreen({ id }: Props) {
   const isMultiBranch = merchant.branches.length > 1
   const showBanner = merchant.selectedBranchFallbackReason === 'candidate-inactive' && !bannerDismissed
 
-  // Open-status text on the chip: "Closes HH:MM" while open + we have a
-  // closeTime for today; otherwise "Open now" or "Closed". Day-of-week 0–6
-  // matches the OpeningHourEntry convention (0 = Sunday).
-  const today = new Date().getDay()
-  const todayHours = sb.openingHours.find(h => h.dayOfWeek === today)
-  const closesAt = sb.isOpenNow && todayHours?.closeTime ? todayHours.closeTime : null
-
-  // County: Branch.county doesn't exist yet (deferred-followups §H). The
-  // chip / picker accept null and degrade to city-only — intentional.
-  const county = null
-
   // Per-voucher state placeholders. cefaf45 documented these as TODO until
   // the merchant detail endpoint surfaces redeemed/favourited per voucher.
   // Out of scope for M2 — the Voucher Detail rebaseline will resolve.
@@ -230,7 +274,22 @@ export function MerchantProfileScreen({ id }: Props) {
     if (url) Linking.openURL(url)
   }
 
-  const dirAddress = [sb.addressLine1, sb.city, sb.postcode].filter(Boolean).join(', ')
+  // DirectionsSheet target: the Other-Locations-tapped branch when
+  // dirsBranchId is set; otherwise the currently-selected branch.
+  // Falls back to sb if the id no longer resolves (defensive — e.g. branch
+  // suspended between tap and render).
+  const dirsBranch = (dirsBranchId
+    ? merchant.branches.find(b => b.id === dirsBranchId) ?? sb
+    : sb)
+  const dirAddress = [dirsBranch.addressLine1, dirsBranch.city, dirsBranch.postcode].filter(Boolean).join(', ')
+
+  // HoursPreviewSheet target: resolved once per render so the JSX below
+  // doesn't re-find the same branch three times. Returns null when the
+  // sheet is closed (hoursPreviewBranchId === null) — JSX uses fallback
+  // defaults in that case so the sheet props stay typed.
+  const hoursPreviewBranch = hoursPreviewBranchId
+    ? merchant.branches.find(b => b.id === hoursPreviewBranchId) ?? null
+    : null
 
   return (
     <View style={styles.container}>
@@ -239,7 +298,7 @@ export function MerchantProfileScreen({ id }: Props) {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[4]}
+        stickyHeaderIndices={[5]}
       >
         <SuspendedBranchBanner
           visible={showBanner}
@@ -249,58 +308,74 @@ export function MerchantProfileScreen({ id }: Props) {
         <HeroSection
           // Branch-scoped imagery wins; merchant-level falls back when the
           // branch hasn't uploaded its own (typical for chains using the
-          // master logo / banner across all branches).
+          // master logo / banner across all branches). Logo moved into
+          // MerchantHeadline (round 3 §A1) — Hero owns banner only.
           bannerUrl={sb.bannerUrl ?? merchant.bannerUrl}
-          logoUrl={sb.logoUrl ?? merchant.logoUrl}
           isFavourited={favourite.isFavourited}
           onToggleFavourite={favourite.toggle}
           onShare={handleShare}
         />
 
-        <MetaSection
-          businessName={merchant.businessName}
-          // Use the server-computed `descriptor` (Plan 1.5 §3.6 — built from
-          // primaryDescriptorTag + subcategory.descriptorSuffix with de-dup)
-          // rather than the raw subcategory name. Plan §8.1 mandates this.
-          category={merchant.descriptor || null}
-          // Branch-scoped per spec §4.4 + §6 (state model).
-          avgRating={sb.avgRating}
-          reviewCount={sb.reviewCount}
-          // Branch context now lives on the chip below — clear MetaSection's
-          // own branch fields so it doesn't double-print.
-          branchName={null}
-          distance={null}
-          isOpenNow={sb.isOpenNow}
-          // hoursText now belongs to BranchChip below — null suppresses the
-          // hours line in MetaSection entirely.
-          hoursText={null}
-          singleBranchAddress={null}
+        <MerchantHeadline
+          merchantName={merchant.businessName}
+          logoUrl={sb.logoUrl ?? merchant.logoUrl}
+        />
+
+        {/* BranchContextBand wraps the descriptor + meta row (spec §6.4
+            items 6+7). Round 3 §C1 removed the BranchChip from this
+            composition — the chip was visual clutter and the Branches tab
+            (round 3 §C2 renamed) is the primary place to switch branches.
+            On multi-branch the band still frames the branch identity with
+            its signature warm-cream tint + brand-red sweep on switch; on
+            single-branch the band collapses to flat layout.
+
+            `descriptor` defensive `|| null`: schema declares non-nullable
+            but backend may emit "" for unclassified merchants. */}
+        <BranchContextBand
+          isMultiBranch={isMultiBranch}
+          branchLine={isMultiBranch && sb ? buildBranchLine(sb) : null}
+          switchTrigger={sb.id}
+        >
+          <MerchantDescriptor descriptor={merchant.descriptor || null} />
+
+          <MetaRow
+            isOpenNow={sb.isOpenNow}
+            openingHours={sb.openingHours}
+            distanceMetres={sb.distance}
+            avgRating={sb.avgRating}
+            reviewCount={sb.reviewCount}
+          />
+        </BranchContextBand>
+
+        <ActionRow
           hasWebsite={!!(sb.websiteUrl ?? merchant.websiteUrl)}
           onWebsite={handleWebsite}
           onContact={() => setShowContact(true)}
           onDirections={() => setShowDirs(true)}
         />
 
-        <BranchChip
-          branchName={sb.name}
-          city={sb.city}
-          county={county}
-          distanceMetres={sb.distance}
-          isOpenNow={sb.isOpenNow}
-          closesAt={closesAt}
-          isMultiBranch={isMultiBranch}
-          onPress={() => setShowPicker(true)}
-        />
-
         <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
 
-        <View style={styles.content}>
+        {/* Round 3 §C3: tab-content fade transition. The keyed
+            Animated.View remounts the inner content when activeTab
+            changes, firing FadeIn (180ms) — a subtle but visible
+            confirmation that the user's tap registered. Combined with
+            the Branches → Switch handler returning to 'vouchers', the
+            user gets emotional feedback rather than a static snap. */}
+        <Animated.View
+          key={activeTab}
+          entering={FadeIn.duration(180)}
+          style={styles.content}
+        >
           {activeTab === 'vouchers' && (
             <VouchersTab
               vouchers={merchant.vouchers}
               redeemedVoucherIds={redeemedVoucherIds}
               favouritedVoucherIds={favouritedVoucherIds}
               onVoucherPress={handleVoucherPress}
+              branchShortName={branchShortName(sb.name)}
+              isMultiBranch={isMultiBranch}
+              switchTrigger={sb.id}
             />
           )}
           {activeTab === 'about' && (
@@ -319,44 +394,44 @@ export function MerchantProfileScreen({ id }: Props) {
           {activeTab === 'branches' && isMultiBranch && (
             <BranchesTab
               branches={merchant.branches}
-              // "Nearest" is a distance fact (server-computed from GPS), NOT
-              // a user-selection state. Passing `sb.id` here previously made
-              // the label track the chip's selection — a real correctness
-              // bug that contradicted the locked branch-as-primary-unit
-              // principle. Use the legacy R1 `nearestBranch.id` (still
-              // served as part of dual-write).
-              nearestBranchId={merchant.nearestBranch?.id ?? null}
-              onBranchPress={(nextBranchId) => select(nextBranchId)}
-              onHoursPress={() => setActiveTab('about')}
+              currentBranchId={sb.id}
+              selectedOpeningHours={sb.openingHours}
+              onCall={(_id, phone) => {
+                if (phone) Linking.openURL(`tel:${phone}`)
+              }}
+              onDirections={(branchId) => {
+                const target = merchant.branches.find(b => b.id === branchId)
+                if (!target) return
+                // Branches tab card → show THIS branch's directions, not sb's.
+                setDirsBranchId(branchId)
+                setShowDirs(true)
+              }}
+              onHoursPreview={(branchId) => setHoursPreviewBranchId(branchId)}
+              onSwitch={(branchId) => {
+                // Round 3 §C3: arm the confirmation toast AND return to
+                // the Vouchers tab. Vouchers is the primary surface; after
+                // switching branches, the user almost always wants to see
+                // the new branch's vouchers, not stay on the Branches tab
+                // that's now showing a different branch list.
+                setPendingToastForBranchId(branchId)
+                select(branchId)
+                setActiveTab('vouchers')
+              }}
             />
           )}
           {activeTab === 'reviews' && (
             <ReviewsTab
               merchantId={merchant.id}
               currentBranchId={sb.id}
-              currentBranchName={sb.name}
+              currentBranchName={branchShortName(sb.name)}
               myReview={sb.myReview}
               isMultiBranch={isMultiBranch}
+              currentBranchCount={sb.reviewCount}
+              allBranchesCount={merchant.reviewCount}
             />
           )}
-        </View>
+        </Animated.View>
       </ScrollView>
-
-      <BranchPickerSheet
-        visible={showPicker}
-        branches={merchant.branches.map(b => ({
-          id:             b.id,
-          name:           b.name,
-          city:           b.city,
-          county:         null,        // see deferred-followups §H
-          distanceMetres: b.distance,
-          isOpenNow:      b.isOpenNow,
-          isActive:       b.isActive,
-        }))}
-        currentBranchId={sb.id}
-        onPick={(nextBranchId) => select(nextBranchId)}
-        onDismiss={() => setShowPicker(false)}
-      />
 
       <ContactSheet
         visible={showContact}
@@ -369,11 +444,11 @@ export function MerchantProfileScreen({ id }: Props) {
 
       <DirectionsSheet
         visible={showDirs}
-        onDismiss={() => setShowDirs(false)}
+        onDismiss={() => { setShowDirs(false); setDirsBranchId(null) }}
         address={dirAddress}
-        distance={sb.distance}
-        latitude={sb.latitude}
-        longitude={sb.longitude}
+        distance={dirsBranch.distance}
+        latitude={dirsBranch.latitude}
+        longitude={dirsBranch.longitude}
       />
 
       <FreeUserGateModal
@@ -382,17 +457,43 @@ export function MerchantProfileScreen({ id }: Props) {
         merchantName={merchant.businessName}
         voucherCount={merchant.vouchers.length}
       />
+
+      <HoursPreviewSheet
+        visible={hoursPreviewBranchId !== null}
+        branchName={branchShortName(hoursPreviewBranch?.name ?? '')}
+        isOpenNow={hoursPreviewBranch?.isOpenNow ?? false}
+        openingHours={hoursPreviewBranch?.openingHours ?? []}
+        onDismiss={() => setHoursPreviewBranchId(null)}
+      />
+
+      <BranchSwitchToast
+        branchName={toastBranchName}
+        merchantName={merchant.businessName}
+        onDismiss={() => setToastBranchName(null)}
+      />
     </View>
   )
 }
 
+// Visual correction round 3 §B1: page now uses a two-zone surface
+// system. The TOP zone (banner/identity/band/action-row) sits on the
+// brand-tinted cream `#F5F1EB`; the TAB CONTENT zone sits on a slightly
+// lighter cream `#FAF6EE` so the tab bar feels like the boundary
+// between "page header" (about this merchant + branch) and "browsable
+// content" (vouchers / about / branches / reviews). The lighter tone
+// behind the tab content reads as a calmer reading surface for cards
+// and lists; the darker tone above keeps the identity zone anchored.
+//
+// Round 2 (74e281e) introduced the cream surface globally; round 3
+// splits it into top/bottom zones for hierarchy without changing the
+// brand neutrals.
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#FFF' },
-  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF' },
+  container:    { flex: 1, backgroundColor: '#F5F1EB' },
+  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F1EB' },
   scroll:       { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
-  content:      { backgroundColor: '#FFF', minHeight: 460, padding: 20 },
-  errorScreen:  { flex: 1, backgroundColor: '#FFF', padding: 16 },
+  content:      { backgroundColor: '#FAF6EE', minHeight: 460, padding: 20 },
+  errorScreen:  { flex: 1, backgroundColor: '#F5F1EB', padding: 16 },
   backBtn:      { paddingVertical: 12 },
   errorCard:    { padding: 20, backgroundColor: '#FEF6F5', borderRadius: 16, gap: 8, marginTop: 16 },
 })

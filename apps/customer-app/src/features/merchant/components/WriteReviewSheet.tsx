@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { View, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native'
+import { View, Pressable, TextInput, StyleSheet } from 'react-native'
 import { Star, X } from 'lucide-react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
-import { color, spacing } from '@/design-system/tokens'
+import { BottomSheet } from '@/design-system/motion/BottomSheet'
+import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 
 type Props = {
@@ -16,6 +17,9 @@ type Props = {
   branchName: string
 }
 
+// Round 3 §A4: migrated onto the shared `<BottomSheet>` primitive.
+// Keyboard-aware lift is built into the primitive; the local
+// KeyboardAvoidingView wrapper is no longer needed.
 export function WriteReviewSheet({
   visible, onDismiss, onSubmit, isLoading,
   initialRating = 0, initialComment = '', branchName,
@@ -40,103 +44,69 @@ export function WriteReviewSheet({
   }, [rating, comment, onSubmit])
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.overlay}
-      >
-        <Pressable style={styles.backdrop} onPress={onDismiss} />
-        <View style={styles.sheet}>
-          <View style={styles.dragHandle} />
+    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Write a review">
+      <View style={styles.headerRow}>
+        <Text variant="heading.lg" style={styles.title}>Write a Review</Text>
+        <Pressable onPress={onDismiss} style={styles.closeBtn} accessibilityLabel="Close">
+          <X size={20} color="#9CA3AF" />
+        </Pressable>
+      </View>
 
-          <View style={styles.headerRow}>
-            <Text variant="heading.lg" style={styles.title}>Write a Review</Text>
-            <Pressable onPress={onDismiss} style={styles.closeBtn} accessibilityLabel="Close">
-              <X size={20} color="#9CA3AF" />
-            </Pressable>
-          </View>
+      <Text variant="label.md" color="tertiary" meta style={styles.subtitle}>
+        {branchName}
+      </Text>
 
-          <Text variant="label.md" color="tertiary" meta style={styles.subtitle}>
-            {branchName}
-          </Text>
-
-          {/* Star rating */}
-          <View style={styles.starsRow}>
-            {[1, 2, 3, 4, 5].map(n => (
-              <Pressable
-                key={n}
-                onPress={() => { lightHaptic(); setRating(n) }}
-                style={styles.starBtn}
-                accessibilityLabel={`${n} star${n > 1 ? 's' : ''}`}
-              >
-                <Star size={36} color="#F59E0B" fill={n <= rating ? '#F59E0B' : 'none'} />
-              </Pressable>
-            ))}
-          </View>
-
-          {/* Comment */}
-          <TextInput
-            style={styles.input}
-            placeholder="Share your experience (optional)"
-            placeholderTextColor="#9CA3AF"
-            value={comment}
-            onChangeText={setComment}
-            multiline
-            maxLength={500}
-            textAlignVertical="top"
-          />
-          <Text variant="label.md" color="tertiary" meta style={styles.charCount}>
-            {comment.length}/500
-          </Text>
-
-          {/* Submit */}
+      {/* Star rating */}
+      <View style={styles.starsRow}>
+        {[1, 2, 3, 4, 5].map(n => (
           <Pressable
-            onPress={handleSubmit}
-            disabled={rating === 0 || isLoading}
-            style={[styles.submitBtn, (rating === 0 || isLoading) && { opacity: 0.5 }]}
+            key={n}
+            onPress={() => { lightHaptic(); setRating(n) }}
+            style={styles.starBtn}
+            accessibilityLabel={`${n} star${n > 1 ? 's' : ''}`}
           >
-            <LinearGradient
-              colors={color.brandGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.submitGradient}
-            >
-              <Text variant="label.lg" style={styles.submitText}>
-                {isLoading ? 'Submitting...' : 'Submit Review'}
-              </Text>
-            </LinearGradient>
+            <Star size={36} color="#F59E0B" fill={n <= rating ? '#F59E0B' : 'none'} />
           </Pressable>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        ))}
+      </View>
+
+      {/* Comment */}
+      <TextInput
+        style={styles.input}
+        placeholder="Share your experience (optional)"
+        placeholderTextColor="#9CA3AF"
+        value={comment}
+        onChangeText={setComment}
+        multiline
+        maxLength={500}
+        textAlignVertical="top"
+      />
+      <Text variant="label.md" color="tertiary" meta style={styles.charCount}>
+        {comment.length}/500
+      </Text>
+
+      {/* Submit */}
+      <Pressable
+        onPress={handleSubmit}
+        disabled={rating === 0 || isLoading}
+        style={[styles.submitBtn, (rating === 0 || isLoading) && { opacity: 0.5 }]}
+      >
+        <LinearGradient
+          colors={color.brandGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.submitGradient}
+        >
+          <Text variant="label.lg" style={styles.submitText}>
+            {isLoading ? 'Submitting...' : 'Submit Review'}
+          </Text>
+        </LinearGradient>
+      </Pressable>
+    </BottomSheet>
   )
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(1,12,53,0.5)',
-  },
-  sheet: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingBottom: 40,
-  },
-  dragHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#D1D5DB',
-    alignSelf: 'center',
-    marginTop: 8,
-    marginBottom: 20,
-  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -188,6 +158,7 @@ const styles = StyleSheet.create({
   submitBtn: {
     borderRadius: 14,
     overflow: 'hidden',
+    marginBottom: 16,
   },
   submitGradient: {
     paddingVertical: 16,

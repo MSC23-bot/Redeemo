@@ -21,9 +21,15 @@ type Props = {
   // branches. The toggle's two states are equivalent and the cross-link
   // points nowhere. Locked correctness fix (PR #33 fix-up #3, 2026-05-03).
   isMultiBranch:     boolean
+  // Task 14: counts surfaced in the toggle labels and used to gate the
+  // empty-state "See reviews from other branches" cross-link. Both come from
+  // the screen — currentBranchCount = sb.reviewCount, allBranchesCount =
+  // merchant.reviewCount.
+  currentBranchCount: number
+  allBranchesCount:   number
 }
 
-export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch }: Props) {
+export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch, currentBranchCount, allBranchesCount }: Props) {
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
 
@@ -161,7 +167,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         style={[styles.toggleBtn, filter === 'branch' && styles.toggleBtnActive]}
       >
         <Text variant="label.md" style={[styles.toggleText, filter === 'branch' && styles.toggleTextActive]}>
-          {currentBranchName}
+          {currentBranchCount > 0 ? `${currentBranchName} (${currentBranchCount})` : currentBranchName}
         </Text>
       </Pressable>
       <Pressable
@@ -172,10 +178,16 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         style={[styles.toggleBtn, filter === 'all' && styles.toggleBtnActive]}
       >
         <Text variant="label.md" style={[styles.toggleText, filter === 'all' && styles.toggleTextActive]}>
-          All branches
+          {allBranchesCount > 0 ? `All branches (${allBranchesCount})` : 'All branches'}
         </Text>
       </Pressable>
     </View>
+  )
+
+  const renderScopeLabel = () => (
+    <Text variant="label.md" style={styles.scopeLabel} numberOfLines={1} ellipsizeMode="tail">
+      {filter === 'branch' ? `Reviews of ${currentBranchName}` : 'All branches'}
+    </Text>
   )
 
   if (summaryLoading || reviewsLoading) {
@@ -196,11 +208,14 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
     // stuck — without it, a branch-scoped empty page hides the only path to
     // view other branches' reviews.
     const isBranchScoped = filter === 'branch'
-    // Cross-link only makes sense when there ARE other branches to discover.
-    // Single-branch merchants must never render it.
-    const showCrossLink = isBranchScoped && isMultiBranch
+    // Task 14: only suggest "see reviews from other branches" when there
+    // ARE reviews on other branches. Without this gate the cross-link
+    // pointed at an empty list — confusing.
+    const showCrossLink = isBranchScoped && isMultiBranch && allBranchesCount > 0
     return (
       <View style={styles.container}>
+        {isMultiBranch && renderToggle()}
+        {isMultiBranch && renderScopeLabel()}
         {isAuthed && summary && (
           <ReviewSummary
             averageRating={0}
@@ -210,9 +225,6 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
             hasExistingReview={myReview !== null}
           />
         )}
-
-        {isMultiBranch && renderToggle()}
-
         <View style={styles.emptyText}>
           <Text variant="heading.md" color="secondary" align="center">
             {isBranchScoped ? `Be the first to review ${currentBranchName}` : 'No reviews yet'}
@@ -230,7 +242,6 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
             </Pressable>
           )}
         </View>
-
         <WriteReviewSheet
           visible={showWriteSheet}
           onDismiss={closeSheet}
@@ -246,6 +257,8 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
 
   return (
     <View style={styles.container}>
+      {isMultiBranch && renderToggle()}
+      {isMultiBranch && renderScopeLabel()}
       <ReviewSummary
         averageRating={summary.averageRating}
         totalReviews={summary.totalReviews}
@@ -253,15 +266,11 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         onWriteReview={openWriteForCurrentBranch}
         hasExistingReview={myReview !== null}
       />
-
-      {isMultiBranch && renderToggle()}
-
       <ReviewSortControl
         totalReviews={summary.totalReviews}
         sort={sort}
         onSortChange={setSort}
       />
-
       <View style={styles.reviewList}>
         {orderedReviews.map(review => (
           <ReviewCard
@@ -274,7 +283,6 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
           />
         ))}
       </View>
-
       <WriteReviewSheet
         visible={showWriteSheet}
         onDismiss={closeSheet}
@@ -311,10 +319,15 @@ const styles = StyleSheet.create({
   reviewList: {
     gap: 12,
   },
+  // Round 3 §B5: toggle reads as a calmer card-style segmented control
+  // against the lighter tab-content surface. Borders + softer rounding
+  // align it with the other section cards (About / Reviews summary).
   toggle: {
     flexDirection: 'row',
-    backgroundColor: '#F3F0EB',
-    borderRadius: 10,
+    backgroundColor: '#FCFAF7',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
     padding: 3,
     gap: 3,
   },
@@ -322,15 +335,15 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
   toggleBtnActive: {
     backgroundColor: '#FFF',
     shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
@@ -343,4 +356,5 @@ const styles = StyleSheet.create({
     color: '#010C35',
     fontWeight: '700',
   },
+  scopeLabel: { color: '#9CA3AF', fontSize: 11, marginTop: 4, textAlign: 'center', letterSpacing: 0.1 },
 })

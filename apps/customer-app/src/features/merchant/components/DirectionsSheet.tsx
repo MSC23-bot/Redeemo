@@ -1,8 +1,9 @@
 import React from 'react'
-import { View, Pressable, Modal, Linking, StyleSheet } from 'react-native'
+import { View, Pressable, Linking, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { MapPin, Navigation } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
+import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 
@@ -46,6 +47,7 @@ function estimateTravelTime(metres: number | null): string | null {
   return null
 }
 
+// Round 3 §A4: migrated onto the shared `<BottomSheet>` primitive.
 export function DirectionsSheet({ visible, onDismiss, address, distance, latitude, longitude }: Props) {
   const distText = formatDistance(distance)
   const travelText = estimateTravelTime(distance)
@@ -58,71 +60,45 @@ export function DirectionsSheet({ visible, onDismiss, address, distance, latitud
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
-      <Pressable style={styles.overlay} onPress={onDismiss}>
-        <Pressable style={styles.sheet} onPress={e => e.stopPropagation()}>
-          <View style={styles.dragHandle} />
-          <Text variant="heading.lg" style={styles.title}>Directions</Text>
+    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Directions">
+      <Text variant="heading.lg" style={styles.title}>Directions</Text>
 
-          {/* Map preview placeholder */}
-          <Pressable onPress={handleGetDirections} style={styles.mapPreview}>
-            <MapPin size={32} color="#9CA3AF" />
-            <View style={styles.mapLabel}>
-              <Text variant="label.md" color="tertiary" meta>Tap to open map</Text>
-            </View>
-          </Pressable>
-
-          {/* Address */}
-          <Text variant="heading.sm" style={styles.address}>{address}</Text>
-
-          {/* Distance + walk time */}
-          <View style={styles.distRow}>
-            <MapPin size={14} color={color.brandRose} />
-            <Text variant="body.sm" color="secondary" style={styles.distText}>
-              {[distText, travelText].filter(Boolean).join(' · ')}
-            </Text>
-          </View>
-
-          {/* Get Directions CTA */}
-          <Pressable onPress={handleGetDirections} style={styles.ctaBtn}>
-            <LinearGradient
-              colors={color.brandGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.ctaGradient}
-            >
-              <Navigation size={18} color="#FFF" />
-              <Text variant="heading.sm" style={styles.ctaText}>Get Directions</Text>
-            </LinearGradient>
-          </Pressable>
-        </Pressable>
+      {/* Map preview placeholder */}
+      <Pressable onPress={handleGetDirections} style={styles.mapPreview}>
+        <MapPin size={32} color="#9CA3AF" />
+        <View style={styles.mapLabel}>
+          <Text variant="label.md" color="tertiary" meta>Tap to open map</Text>
+        </View>
       </Pressable>
-    </Modal>
+
+      {/* Address */}
+      <Text variant="heading.sm" style={styles.address}>{address}</Text>
+
+      {/* Distance + walk time */}
+      <View style={styles.distRow}>
+        <MapPin size={14} color={color.brandRose} />
+        <Text variant="body.sm" color="secondary" style={styles.distText}>
+          {[distText, travelText].filter(Boolean).join(' · ')}
+        </Text>
+      </View>
+
+      {/* Get Directions CTA */}
+      <Pressable onPress={handleGetDirections} style={styles.ctaBtn}>
+        <LinearGradient
+          colors={color.brandGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.ctaGradient}
+        >
+          <Navigation size={18} color="#FFF" />
+          <Text variant="heading.sm" style={styles.ctaText}>Get Directions</Text>
+        </LinearGradient>
+      </Pressable>
+    </BottomSheet>
   )
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(1,12,53,0.5)',
-  },
-  sheet: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingBottom: 40,
-  },
-  dragHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#D1D5DB',
-    alignSelf: 'center',
-    marginTop: 8,
-    marginBottom: 20,
-  },
   title: {
     fontSize: 20,
     fontWeight: '800',
@@ -166,6 +142,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
+    marginBottom: 16,
   },
   ctaGradient: {
     flexDirection: 'row',
