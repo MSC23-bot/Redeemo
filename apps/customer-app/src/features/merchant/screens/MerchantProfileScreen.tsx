@@ -371,6 +371,11 @@ export function MerchantProfileScreen({ id }: Props) {
           distanceMetres: b.distance,
           isOpenNow:      b.isOpenNow,
           isActive:       b.isActive,
+          // NEW (Task 11): plumb per-branch openingHours + ratings to the picker.
+          // From Task 1 — every BranchTile now carries openingHours.
+          openingHours:   b.openingHours,
+          avgRating:      b.avgRating,
+          reviewCount:    b.reviewCount,
         }))}
         currentBranchId={sb.id}
         onPick={(nextBranchId) => select(nextBranchId)}

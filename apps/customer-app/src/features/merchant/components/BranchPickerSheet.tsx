@@ -1,9 +1,12 @@
 import React from 'react'
 import { View, Pressable, Modal, ScrollView, StyleSheet } from 'react-native'
-import { Check, MapPin } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
-import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
+import type { OpeningHourEntry } from '@/lib/api/merchant'
+import { StatusPill } from './StatusPill'
+import { RatingBlock } from './RatingBlock'
+import { smartStatus } from '../utils/smartStatus'
+import { branchShortName } from '../utils/branchShortName'
 
 type BranchEntry = {
   id: string
@@ -13,6 +16,10 @@ type BranchEntry = {
   distanceMetres: number | null
   isOpenNow: boolean
   isActive: boolean
+  // NEW (Task 11): per-row data sources for smart status + rating block.
+  openingHours: OpeningHourEntry[]
+  avgRating: number | null
+  reviewCount: number
 }
 
 type Props = {
@@ -23,16 +30,24 @@ type Props = {
   onDismiss: () => void
 }
 
-function formatDistanceOrPlace(b: BranchEntry): string {
-  if (b.distanceMetres !== null && b.distanceMetres < 100_000) {
-    if (b.distanceMetres < 1000) return `${Math.round(b.distanceMetres)}m`
-    return `${(b.distanceMetres / 1609.34).toFixed(1)} mi`
-  }
-  if (b.city && b.county) return `${b.city}, ${b.county}`
-  return b.city ?? b.county ?? ''
+function formatDistance(metres: number | null): string | null {
+  if (metres === null) return null
+  if (metres >= 100_000) return null
+  if (metres < 1000) return `${Math.round(metres)}m`
+  return `${(metres / 1609.34).toFixed(1)} mi`
 }
 
 export function BranchPickerSheet({ visible, branches, currentBranchId, onPick, onDismiss }: Props) {
+  const sortedBranches = React.useMemo(() => {
+    const current = branches.find(b => b.id === currentBranchId)
+    const others  = branches.filter(b => b.id !== currentBranchId)
+    const allHaveGps = branches.every(b => b.distanceMetres !== null)
+    const otherSorted = allHaveGps
+      ? [...others].sort((a, b) => (a.distanceMetres ?? Infinity) - (b.distanceMetres ?? Infinity))
+      : [...others].sort((a, b) => branchShortName(a.name).localeCompare(branchShortName(b.name)))
+    return current ? [current, ...otherSorted] : otherSorted
+  }, [branches, currentBranchId])
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
       <Pressable style={styles.overlay} onPress={onDismiss}>
@@ -40,10 +55,12 @@ export function BranchPickerSheet({ visible, branches, currentBranchId, onPick, 
           <View style={styles.dragHandle} />
           <Text variant="heading.lg" style={styles.title}>Choose branch</Text>
           <ScrollView>
-            {branches.map(b => {
+            {sortedBranches.map(b => {
               const isCurrent = b.id === currentBranchId
               const isDisabled = !b.isActive
-              const a11yLabel = `${b.name}${isCurrent ? ' — current' : ''}${isDisabled ? ' — Unavailable' : ''}`
+              const status = smartStatus(b.isOpenNow, b.openingHours)
+              const distance = formatDistance(b.distanceMetres)
+              const a11yLabel = `${branchShortName(b.name)}${isCurrent ? ' — currently viewing' : ''}${isDisabled ? ' — Unavailable' : ''}`
               return (
                 <Pressable
                   key={b.id}
@@ -55,20 +72,29 @@ export function BranchPickerSheet({ visible, branches, currentBranchId, onPick, 
                     if (!isCurrent) onPick(b.id)
                     onDismiss()
                   }}
-                  style={[styles.row, isDisabled && styles.rowDisabled]}
+                  style={[styles.row, isCurrent && styles.rowCurrent, isDisabled && styles.rowDisabled]}
                 >
-                  <MapPin size={14} color={isDisabled ? '#9CA3AF' : color.brandRose} />
-                  <View style={styles.rowText}>
-                    <Text variant="label.lg" style={[styles.rowName, isDisabled && styles.disabledText]}>
-                      {b.name}
-                    </Text>
-                    <Text variant="label.md" color="tertiary" meta style={styles.rowMeta}>
-                      {formatDistanceOrPlace(b)}
-                      {' · '}
-                      {isDisabled ? 'Unavailable' : (b.isOpenNow ? 'Open' : 'Closed')}
-                    </Text>
+                  <View style={styles.rowTop}>
+                    <View style={styles.nameWrap}>
+                      <Text variant="label.lg" style={[styles.name, isDisabled && styles.disabledText]}>
+                        {branchShortName(b.name)}
+                      </Text>
+                      {isCurrent ? (
+                        <Text variant="label.md" style={styles.currentTag}>Currently viewing</Text>
+                      ) : null}
+                    </View>
+                    <RatingBlock avgRating={b.avgRating} reviewCount={b.reviewCount} />
                   </View>
-                  {isCurrent && <Check size={16} color={color.brandRose} />}
+                  <View style={styles.rowBottom}>
+                    <StatusPill state={status.pillState} label={status.pillLabel} />
+                    <Text variant="label.md" style={styles.statusText}>{status.statusText}</Text>
+                    {distance !== null ? (
+                      <>
+                        <Text variant="label.md" style={styles.separator}>·</Text>
+                        <Text variant="label.md" style={styles.distance}>{distance}</Text>
+                      </>
+                    ) : null}
+                  </View>
                 </Pressable>
               )
             })}
@@ -80,14 +106,20 @@ export function BranchPickerSheet({ visible, branches, currentBranchId, onPick, 
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(1,12,53,0.5)' },
-  sheet:   { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingBottom: 40, maxHeight: '70%' },
+  overlay:    { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(1,12,53,0.5)' },
+  sheet:      { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingBottom: 40, maxHeight: '70%' },
   dragHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#D1D5DB', alignSelf: 'center', marginTop: 8, marginBottom: 20 },
-  title:   { fontSize: 18, fontWeight: '800', color: '#010C35', marginBottom: 12 },
-  row:     { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F0EBE6' },
-  rowDisabled: { opacity: 0.55 },
-  rowText: { flex: 1 },
-  rowName: { fontSize: 14, fontWeight: '700', color: '#010C35' },
+  title:      { fontSize: 18, fontWeight: '800', color: '#010C35', marginBottom: 12 },
+  row:        { paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#F0EBE6' },
+  rowCurrent: { backgroundColor: 'rgba(226,12,4,0.03)' },
+  rowDisabled:{ opacity: 0.55 },
+  rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 5 },
+  nameWrap:   { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  name:       { fontSize: 14, fontWeight: '800', color: '#010C35' },
+  currentTag: { fontSize: 10, fontWeight: '700', color: '#16A34A', backgroundColor: 'rgba(22,163,74,0.10)', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
+  rowBottom:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  statusText: { color: '#222', fontWeight: '500', fontSize: 11 },
+  separator:  { color: '#D1D5DB', fontSize: 11 },
+  distance:   { color: '#9CA3AF', fontSize: 11 },
   disabledText: { color: '#9CA3AF' },
-  rowMeta: { fontSize: 11, marginTop: 2 },
 })
