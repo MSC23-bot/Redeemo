@@ -1337,6 +1337,54 @@ for the first-visit hint animation hooked up in Task 9."
 
 ## Frontend — Meta row
 
+### Task 8 — AMENDMENT (logged 2026-05-04 before dispatch)
+
+**Reason:** A pre-dispatch read of `apps/customer-app/src/features/merchant/components/MetaSection.tsx` revealed that today's `MetaSection` glues three of the spec's §6.4 page-composition items into one component:
+1. Item 3 (merchant name) + a duplicate of item 6 (descriptor) + an old `RatingPill`
+2. The info row that becomes item 7 (the new `MetaRow`)
+3. Item 8 (action row: Website / Contact / Directions)
+
+The original Task 8 plan assumed `MetaSection` only owned items 3+7 with descriptor + action row already living elsewhere. They don't — they're inside `MetaSection`. Following the original plan's "delete `MetaSection`" step would have removed the spec-locked descriptor (item 6) and action row (item 8), both of which the spec explicitly calls "unchanged".
+
+**Owner direction (locked):** Extract three new presentational components and wire `MerchantProfileScreen` to render them in the spec §6.4 order. No behaviour changes. Branch-vs-merchant scope preserved per the locked product rule (memory: branch-as-primary-unit).
+
+**Amended Task 8 scope:**
+
+| New file | Source | Spec item | Scope |
+|---|---|---|---|
+| `MerchantDescriptor.tsx` | `merchant.descriptor` | item 6 | merchant-level, unchanged copy |
+| `MetaRow.tsx` | `selectedBranch.*` | item 7 | branch-scoped (NEW) |
+| `ActionRow.tsx` | `selectedBranch.websiteUrl ?? merchant.websiteUrl`, sheet handlers | item 8 | branch-scoped, PR #33 behaviour preserved exactly |
+
+The screen wiring is reordered to match spec §6.4:
+
+```
+MerchantHeadline      ← items 3+4 (already shipped Task 6)
+BranchChip            ← item 5 (already simplified Task 7) — MOVED up from after-MetaSection
+MerchantDescriptor    ← item 6 (NEW this task; was inside MetaSection)
+MetaRow               ← item 7 (NEW this task)
+ActionRow             ← item 8 (NEW this task; was inside MetaSection)
+TabBar (sticky)       ← item 9 (existing)
+Tab content           ← item 10 (existing)
+```
+
+`MetaSection.tsx` is deleted at the end of Task 8 once all consumers are gone.
+
+**Spec ambiguity surfaced — defer to a later polish step, do NOT change copy in Task 8:**
+
+§6.4 of the design spec lists the action row as "Action row: Call · Directions · Website" — but it ALSO says "unchanged from PR #33". Today's PR #33 behaviour is **Website / Contact / Directions** (in that order). Task 8 preserves the existing PR #33 copy and order exactly. Whether to rename "Contact" → "Call" or reorder Website-last is a separate polish decision; surface it in the Task 8 checkpoint and defer.
+
+**Rules (lock):**
+- `MerchantHeadline` carries merchant brand identity + selected branch line. Already shipped.
+- `MerchantDescriptor` reads `merchant.descriptor || null`. Prop named `descriptor`, NOT `category` (the existing `category=` prop name in `MetaSection` is misleading — the data is the taxonomy-derived descriptor from Plan 1.5). Renders nothing when the descriptor string is empty.
+- `MetaRow` is branch-scoped: takes `isOpenNow`, `openingHours`, `distance`, `avgRating`, `reviewCount` — all from `selectedBranch`. Same shape as the original Task 8 plan.
+- `ActionRow` is branch-scoped for behaviour: `hasWebsite={!!(sb.websiteUrl ?? merchant.websiteUrl)}` matches the existing PR #33 fallback. Sheet handlers (`onContact`, `onDirections`) are branch-context sheets unchanged from today.
+- Vouchers stay merchant-wide. No branch-specific voucher logic added in this task.
+
+The original Task 8 step-by-step below is superseded by this amendment. The implementer follows the amendment, not the literal step text below.
+
+---
+
 ### Task 8: New `MetaRow` component (single-line balanced)
 
 **Files:**
