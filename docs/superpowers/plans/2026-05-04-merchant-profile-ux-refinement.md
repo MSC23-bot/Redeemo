@@ -156,17 +156,20 @@ Append after the existing `selectedBranch.myReview` tests (around line 320 — f
     expect(tileB.reviewCount).toBe(2)
     expect(tileB.avgRating).toBe(4.0)  // (5+3)/2
 
-    // NEW — openingHours per tile. createMerchant() seeds 7 entries.
+    // NEW — openingHours per tile. seedMultiBranchMerchant seeds 1 entry per
+    // branch (verified during execution). The assertion adapts to whatever
+    // the existing fixture actually seeds — DO NOT over-edit the fixture to
+    // match a hypothetical higher count.
     expect(tileA.openingHours).toBeDefined()
     expect(Array.isArray(tileA.openingHours)).toBe(true)
-    expect(tileA.openingHours.length).toBe(7)
+    expect(tileA.openingHours.length).toBe(1)
     expect(tileA.openingHours[0]).toMatchObject({
       dayOfWeek: expect.any(Number),
       openTime:  expect.anything(),
       closeTime: expect.anything(),
       isClosed:  expect.any(Boolean),
     })
-    expect(tileB.openingHours.length).toBe(7)
+    expect(tileB.openingHours.length).toBe(1)
   })
 ```
 
