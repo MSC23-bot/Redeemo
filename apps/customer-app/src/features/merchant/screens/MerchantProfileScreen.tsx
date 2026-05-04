@@ -298,7 +298,7 @@ export function MerchantProfileScreen({ id }: Props) {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[5]}
+        stickyHeaderIndices={[3]}
       >
         <SuspendedBranchBanner
           visible={showBanner}
@@ -306,53 +306,46 @@ export function MerchantProfileScreen({ id }: Props) {
         />
 
         <HeroSection
-          // Branch-scoped imagery wins; merchant-level falls back when the
-          // branch hasn't uploaded its own (typical for chains using the
-          // master logo / banner across all branches). Logo moved into
-          // MerchantHeadline (round 3 §A1) — Hero owns banner only.
           bannerUrl={sb.bannerUrl ?? merchant.bannerUrl}
           isFavourited={favourite.isFavourited}
           onToggleFavourite={favourite.toggle}
           onShare={handleShare}
         />
 
-        <MerchantHeadline
-          merchantName={merchant.businessName}
-          logoUrl={sb.logoUrl ?? merchant.logoUrl}
-          avgRating={sb.avgRating}
-          reviewCount={sb.reviewCount}
-        />
-
-        {/* BranchContextBand wraps the descriptor + meta row (spec §6.4
-            items 6+7). Round 3 §C1 removed the BranchChip from this
-            composition — the chip was visual clutter and the Branches tab
-            (round 3 §C2 renamed) is the primary place to switch branches.
-            On multi-branch the band still frames the branch identity with
-            its signature warm-cream tint + brand-red sweep on switch; on
-            single-branch the band collapses to flat layout.
-
-            `descriptor` defensive `|| null`: schema declares non-nullable
-            but backend may emit "" for unclassified merchants. */}
-        <BranchContextBand
-          isMultiBranch={isMultiBranch}
-          branchLine={isMultiBranch && sb ? buildBranchLine(sb) : null}
-          switchTrigger={sb.id}
-        >
-          <MerchantDescriptor descriptor={merchant.descriptor || null} />
-
-          <MetaRow
-            isOpenNow={sb.isOpenNow}
-            openingHours={sb.openingHours}
-            distanceMetres={sb.distance}
+        {/* Round 4 §8: identity zone wrapped in its own cream-bg view
+            so the cream is bounded to the top section. The container
+            below now stays white all the way down past the content,
+            so the area below the tab content (where minHeight didn't
+            reach on tall screens) is white as the user expects. */}
+        <View style={styles.identityZone}>
+          <MerchantHeadline
+            merchantName={merchant.businessName}
+            logoUrl={sb.logoUrl ?? merchant.logoUrl}
+            avgRating={sb.avgRating}
+            reviewCount={sb.reviewCount}
           />
-        </BranchContextBand>
 
-        <ActionRow
-          hasWebsite={!!(sb.websiteUrl ?? merchant.websiteUrl)}
-          onWebsite={handleWebsite}
-          onContact={() => setShowContact(true)}
-          onDirections={() => setShowDirs(true)}
-        />
+          <BranchContextBand
+            isMultiBranch={isMultiBranch}
+            branchLine={isMultiBranch && sb ? buildBranchLine(sb) : null}
+            switchTrigger={sb.id}
+          >
+            <MerchantDescriptor descriptor={merchant.descriptor || null} />
+
+            <MetaRow
+              isOpenNow={sb.isOpenNow}
+              openingHours={sb.openingHours}
+              distanceMetres={sb.distance}
+            />
+          </BranchContextBand>
+
+          <ActionRow
+            hasWebsite={!!(sb.websiteUrl ?? merchant.websiteUrl)}
+            onWebsite={handleWebsite}
+            onContact={() => setShowContact(true)}
+            onDirections={() => setShowDirs(true)}
+          />
+        </View>
 
         <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
 
@@ -475,22 +468,30 @@ export function MerchantProfileScreen({ id }: Props) {
   )
 }
 
-// Round 4 §7: bottom section is white throughout — tab bar AND body
-// both `#FFFFFF`, per direction "we'll just keep it white, just
-// make sure you include some sort of shadow or effect to make the
-// section different". Differentiation now carried by elevation
-// (tab-bar header shadow, card shadows) rather than tone.
+// Round 4 §8: container itself flips to white. Round 4 §7 had the
+// container cream `#FFF9F5` and only the content view explicitly
+// white, but on tall screens (16 Pro Max etc.) the content's
+// minHeight ran out before the viewport bottom — the cream
+// container bg bled through BELOW the content card, so the body
+// still read as cream. Now the container is white everywhere; the
+// identity zone (banner-adjacent name + branch + meta + action row)
+// gets its own cream-bg wrapper view so the cream is bounded to
+// the top section only.
 //
 // Surface stack:
-//   IDENTITY  #FFF9F5  (warm cream — top zone, unchanged)
-//   TAB BAR   #FFFFFF  (white + header shadow — boundary)
-//   BODY      #FFFFFF  (white)
-//   CARDS     #FFFFFF  (white + bumped shadow — elevate from body)
+//   IDENTITY ZONE (wrapped View)  #FFF9F5  (warm cream)
+//   TAB BAR                       #FFFFFF  + header drop shadow
+//   BODY (container + content)    #FFFFFF
+//   CARDS                         #FFFFFF  + card shadow
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#FFF9F5' },
-  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9F5' },
+  container:    { flex: 1, backgroundColor: '#FFFFFF' },
+  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
   scroll:       { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
+  // Identity zone gets its own cream-bg wrapper; bounded to the
+  // top section so the bottom (tab bar + body) stays white all the
+  // way down past the content.
+  identityZone: { backgroundColor: '#FFF9F5' },
   content:      { backgroundColor: '#FFFFFF', minHeight: 460, padding: 20 },
   errorScreen:  { flex: 1, backgroundColor: '#FFF9F5', padding: 16 },
   backBtn:      { paddingVertical: 12 },

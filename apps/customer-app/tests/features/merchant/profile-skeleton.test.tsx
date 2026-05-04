@@ -413,16 +413,21 @@ describe('MerchantProfileScreen (M2)', () => {
   // covered in use-branch-selection.test.tsx.
 
   // ── Sticky-header pin: visual-correction-round structure ───────────────────
-  // Round 3 §C1 (post-PR-#35 QA): BranchContextBand now wraps just
-  // descriptor + meta row (chip removed). ScrollView children are:
-  // [0] SuspendedBranchBanner, [1] HeroSection, [2] MerchantHeadline,
-  // [3] BranchContextBand (descriptor + meta row),
-  // [4] ActionRow, [5] TabBar ← sticky. Assert the prop directly.
-  it('pins TabBar sticky via stickyHeaderIndices=[5]', async () => {
+  // Round 4 §8: identity-zone elements (MerchantHeadline /
+  // BranchContextBand / ActionRow) wrapped in a single cream-bg
+  // View so the cream stays bounded to the top section. ScrollView
+  // children are now:
+  //   [0] SuspendedBranchBanner
+  //   [1] HeroSection
+  //   [2] identityZone wrapper (MerchantHeadline + BranchContextBand
+  //       + ActionRow)
+  //   [3] TabBar ← sticky
+  //   [4] Animated.View (tab content)
+  it('pins TabBar sticky via stickyHeaderIndices=[3]', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByTestId } = wrap(<MerchantProfileScreen id="m1" />)
     const scroll = await findByTestId('merchant-profile-scroll')
-    expect(scroll.props.stickyHeaderIndices).toEqual([5])
+    expect(scroll.props.stickyHeaderIndices).toEqual([3])
   })
 
   // Spec §4.7 — switching branch must close any open sheets (state-preservation
