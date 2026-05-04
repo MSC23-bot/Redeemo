@@ -57,7 +57,10 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
                 <View style={[styles.countBadge, isActive ? styles.countActive : styles.countInactive]}>
                   <Text variant="label.md" style={[
                     styles.countText,
-                    { color: isActive ? color.brandRose : '#6B7280' },
+                    // Round 4 §5: inactive count text matches the
+                    // darker inactive label (#4B5563) for consistent
+                    // tab-row legibility.
+                    { color: isActive ? color.brandRose : '#4B5563' },
                   ]}>
                     {tab.count}
                   </Text>
@@ -83,62 +86,81 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // Round 4 §5: tab bar is now the visible boundary between the
+  // identity zone (top) and the tab-content body (bottom). It reads
+  // as a "header" — slightly darker than the off-white body it sits
+  // above (`#EFE6D7` vs body `#F6F1E5`) and warmer than identity
+  // zone (`#FFF9F5` above), creating a 3-tone surface stack:
+  //
+  //   IDENTITY  #FFF9F5  (warm cream)
+  //   TAB BAR   #EFE6D7  (darker warm — header)
+  //   BODY      #F6F1E5  (off-white)
+  //   CARDS     #FFFFFF  (white — pop against body)
+  //
+  // Stronger shadow + slightly deeper bottom border so the header
+  // visually anchors the boundary between zones, not just the
+  // sticky transition.
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FCFAF7',
-    // Round 3 §B4: stronger borders (0.06 → 0.10 alpha) so the tab-bar
-    // edge is findable against the cream page without being chunky.
+    backgroundColor: '#EFE6D7',
+    // Round 4 §5: 16pt left/right padding so "Vouchers" and "Reviews"
+    // don't crowd the screen edges. 6pt gap between tabs gives them
+    // visual separation while flex:1 distributes the remaining space.
+    paddingHorizontal: 16,
+    gap: 6,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.10)',
+    borderTopColor: 'rgba(0,0,0,0.06)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.10)',
-    // Subtle shadow that strengthens when sticky-mode engages — perceived
-    // as elevation rather than chrome.
     shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 10,
+    paddingTop: 12,
+    paddingBottom: 12,
     position: 'relative',
   },
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    gap: 5,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
     borderRadius: 999,
   },
   // Round 3 §B4: active tab gets a brand-red 5% pill background.
-  // Replaces the previous "indicator only" cue — pill is the primary
-  // active state, indicator is the secondary anchor at the bottom edge.
   labelRowActive: {
     backgroundColor: 'rgba(226,12,4,0.05)',
   },
+  // Round 4 §5: labels bumped 12 → 13pt per direction "this is somewhat
+  // a main section, the size is too small". 1pt looks small but
+  // visibly settles the labels into the bigger header tab bar.
   label: {
-    fontSize: 12,
+    fontSize: 13,
     letterSpacing: -0.1,
   },
   labelActive: {
     color: color.navy,
     fontWeight: '700',
   },
+  // Round 4 §5: inactive label colour deepened from `#6B7280` →
+  // `#4B5563` per direction "needs to be a bit darker than what it
+  // is right now, but obviously not too dark because it needs to be
+  // different when it's selected".
   labelInactive: {
-    // Round 3 §B4: deeper inactive label so the tab row reads at glance.
-    color: '#6B7280',
+    color: '#4B5563',
     fontWeight: '600',
   },
   countBadge: {
-    minWidth: 17,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 5,
+    minWidth: 19,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -146,10 +168,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(226,12,4,0.12)',
   },
   countInactive: {
-    backgroundColor: 'rgba(0,0,0,0.05)',
+    backgroundColor: 'rgba(0,0,0,0.06)',
   },
   countText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
   },
   indicatorWrap: {
