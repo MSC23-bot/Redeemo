@@ -110,6 +110,11 @@ export function MerchantProfileScreen({ id }: Props) {
   const [showPicker,          setShowPicker]          = useState(false)
   const [bannerDismissed,     setBannerDismissed]     = useState(false)
   const [hoursPreviewBranchId, setHoursPreviewBranchId] = useState<string | null>(null)
+  // dirsBranchId: null → DirectionsSheet shows the SELECTED branch (sb) — the
+  // existing ActionRow path. When set to a non-current branch id (from an
+  // Other Locations card), DirectionsSheet shows THAT branch's address +
+  // coords instead. Resets on close + on branch switch.
+  const [dirsBranchId,        setDirsBranchId]        = useState<string | null>(null)
 
   // On branch switch (URL `?branch=` change): close any open sheets, close
   // the free-user gate, and re-arm the SuspendedBranchBanner so the new
@@ -118,6 +123,7 @@ export function MerchantProfileScreen({ id }: Props) {
   useEffect(() => {
     setShowContact(false)
     setShowDirs(false)
+    setDirsBranchId(null)
     setShowGate(false)
     setShowPicker(false)
     setBannerDismissed(false)
@@ -249,7 +255,14 @@ export function MerchantProfileScreen({ id }: Props) {
     if (url) Linking.openURL(url)
   }
 
-  const dirAddress = [sb.addressLine1, sb.city, sb.postcode].filter(Boolean).join(', ')
+  // DirectionsSheet target: the Other-Locations-tapped branch when
+  // dirsBranchId is set; otherwise the currently-selected branch.
+  // Falls back to sb if the id no longer resolves (defensive — e.g. branch
+  // suspended between tap and render).
+  const dirsBranch = (dirsBranchId
+    ? merchant.branches.find(b => b.id === dirsBranchId) ?? sb
+    : sb)
+  const dirAddress = [dirsBranch.addressLine1, dirsBranch.city, dirsBranch.postcode].filter(Boolean).join(', ')
 
   return (
     <View style={styles.container}>
@@ -352,6 +365,8 @@ export function MerchantProfileScreen({ id }: Props) {
               onDirections={(branchId) => {
                 const target = merchant.branches.find(b => b.id === branchId)
                 if (!target) return
+                // Other Locations card → show THIS branch's directions, not sb's.
+                setDirsBranchId(branchId)
                 setShowDirs(true)
               }}
               onHoursPreview={(branchId) => setHoursPreviewBranchId(branchId)}
@@ -402,11 +417,11 @@ export function MerchantProfileScreen({ id }: Props) {
 
       <DirectionsSheet
         visible={showDirs}
-        onDismiss={() => setShowDirs(false)}
+        onDismiss={() => { setShowDirs(false); setDirsBranchId(null) }}
         address={dirAddress}
-        distance={sb.distance}
-        latitude={sb.latitude}
-        longitude={sb.longitude}
+        distance={dirsBranch.distance}
+        latitude={dirsBranch.latitude}
+        longitude={dirsBranch.longitude}
       />
 
       <FreeUserGateModal
