@@ -11,13 +11,31 @@ jest.mock('@/features/merchant/components/HeroSection', () => ({
     return <Text>HERO_FAV={String(isFavourited)}</Text>
   },
 }))
-jest.mock('@/features/merchant/components/MetaSection', () => ({
-  MetaSection: ({ businessName, category, onContact }: { businessName: string; category: string | null; onContact: () => void }) => {
+jest.mock('@/features/merchant/components/MerchantDescriptor', () => ({
+  MerchantDescriptor: ({ descriptor }: { descriptor: string | null }) => {
+    const { Text } = require('react-native')
+    return descriptor ? <Text>DESCRIPTOR={descriptor}</Text> : null
+  },
+}))
+
+jest.mock('@/features/merchant/components/MetaRow', () => ({
+  MetaRow: ({ avgRating, reviewCount }: { avgRating: number | null; reviewCount: number }) => {
+    const { Text } = require('react-native')
+    return (
+      <>
+        <Text>METAROW_RATING={avgRating ?? 'NULL'}</Text>
+        <Text>METAROW_COUNT={reviewCount}</Text>
+      </>
+    )
+  },
+}))
+
+jest.mock('@/features/merchant/components/ActionRow', () => ({
+  ActionRow: ({ hasWebsite, onContact }: { hasWebsite: boolean; onContact: () => void }) => {
     const { Text, Pressable } = require('react-native')
     return (
       <>
-        <Text>META_NAME={businessName}</Text>
-        <Text>META_CATEGORY={category ?? 'NULL'}</Text>
+        <Text>ACTIONROW_HASWEBSITE={String(hasWebsite)}</Text>
         <Pressable accessibilityLabel="open-contact" onPress={onContact}>
           <Text>OPEN_CONTACT</Text>
         </Pressable>
@@ -227,19 +245,19 @@ describe('MerchantProfileScreen (M2)', () => {
     expect(getByLabelText('Loading merchant profile')).toBeTruthy()
   })
 
-  it('composes Hero + Meta with the merchant data on success', async () => {
+  it('composes Hero + Headline with the merchant data on success', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
-    expect(await findByText('META_NAME=The Coffee House')).toBeTruthy()
+    expect(await findByText('HEADLINE_NAME=The Coffee House')).toBeTruthy()
     expect(await findByText('HERO_FAV=false')).toBeTruthy()
   })
 
   // Regression for the on-device "descriptor too generic" bug: the screen
   // must pass the server-computed `descriptor` field (Plan 1.5 §3.6 — e.g.
-  // "Indian Restaurant" for Covelum) into MetaSection's `category` prop,
+  // "Indian Restaurant" for Covelum) into MerchantDescriptor as `descriptor`,
   // NOT the raw `primaryCategory.name` (which would render just
   // "Restaurant"). See plan §8.1.
-  it('passes merchant.descriptor (NOT primaryCategory.name) to MetaSection', async () => {
+  it('passes merchant.descriptor (NOT primaryCategory.name) to MerchantDescriptor', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
       ...merchant,
       descriptor: 'Indian Restaurant',
@@ -249,15 +267,17 @@ describe('MerchantProfileScreen (M2)', () => {
       },
     })
     const { findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
-    expect(await findByText('META_CATEGORY=Indian Restaurant')).toBeTruthy()
+    expect(await findByText('DESCRIPTOR=Indian Restaurant')).toBeTruthy()
     // The bug shape must NOT be rendered.
-    expect(queryByText('META_CATEGORY=Restaurant')).toBeNull()
+    expect(queryByText('DESCRIPTOR=Restaurant')).toBeNull()
   })
 
-  it('falls through to NULL category when descriptor is empty', async () => {
+  it('renders nothing for descriptor when descriptor is empty', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({ ...merchant, descriptor: '' })
-    const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
-    expect(await findByText('META_CATEGORY=NULL')).toBeTruthy()
+    const { findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
+    // MerchantDescriptor renders null when empty — HEADLINE still renders.
+    expect(await findByText('HEADLINE_NAME=The Coffee House')).toBeTruthy()
+    expect(queryByText(/^DESCRIPTOR=/)).toBeNull()
   })
 
   it('renders the error block on fetch failure', async () => {
@@ -403,15 +423,17 @@ describe('MerchantProfileScreen (M2)', () => {
   })
 
   // ── P2.8 review fix-up regressions ──────────────────────────────────────────
-  // Sticky-header pin: BranchChip insertion shifted children, but the sticky
-  // index must continue to point at TabBar (now at children index 4) so the
-  // tab bar stays pinned to the top when scrolling. Asserting the prop value
-  // directly via testID is the cheapest signal for this contract.
-  it('pins TabBar sticky via stickyHeaderIndices=[4]', async () => {
+  // Sticky-header pin: Task 8 explodes MetaSection into 3 components
+  // (MerchantDescriptor + MetaRow + ActionRow) and moves BranchChip up.
+  // ScrollView children are now:
+  // [0] SuspendedBranchBanner, [1] HeroSection, [2] MerchantHeadline,
+  // [3] BranchChip, [4] MerchantDescriptor, [5] MetaRow, [6] ActionRow,
+  // [7] TabBar ← sticky. Assert the prop directly.
+  it('pins TabBar sticky via stickyHeaderIndices=[7]', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByTestId } = wrap(<MerchantProfileScreen id="m1" />)
     const scroll = await findByTestId('merchant-profile-scroll')
-    expect(scroll.props.stickyHeaderIndices).toEqual([4])
+    expect(scroll.props.stickyHeaderIndices).toEqual([7])
   })
 
   // Spec §4.7 — switching branch must close any open sheets (state-preservation
@@ -436,7 +458,7 @@ describe('MerchantProfileScreen (M2)', () => {
     const { findByLabelText, findByText, queryByText, rerender } = render(
       <QueryClientProvider client={qc}><MerchantProfileScreen id="m1" /></QueryClientProvider>
     )
-    // Open contact sheet via MetaSection's onContact callback.
+    // Open contact sheet via ActionRow's onContact callback.
     fireEvent.press(await findByLabelText('open-contact'))
     expect(await findByText('CONTACT_SHEET_VISIBLE')).toBeTruthy()
     // Simulate a URL flip from ?branch=b1 to ?branch=b2 (what useBranchSelection.select
@@ -468,7 +490,7 @@ describe('MerchantProfileScreen (M2)', () => {
     ;(router.replace as jest.Mock).mockClear()
     const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
     // Wait for the fetch + effects to settle before asserting.
-    await findByText('META_NAME=The Coffee House')
+    await findByText('HEADLINE_NAME=The Coffee House')
     expect(router.replace).not.toHaveBeenCalled()
   })
 
@@ -484,7 +506,7 @@ describe('MerchantProfileScreen (M2)', () => {
     mockBranchParam = 'invalid'
     ;(router.replace as jest.Mock).mockClear()
     const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
-    await findByText('META_NAME=The Coffee House')
+    await findByText('HEADLINE_NAME=The Coffee House')
     expect(router.replace).toHaveBeenCalledWith(
       expect.objectContaining({
         pathname: '/(app)/merchant/[id]',

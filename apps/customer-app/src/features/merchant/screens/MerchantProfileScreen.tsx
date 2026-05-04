@@ -6,7 +6,9 @@ import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
 import { useBranchSelection } from '../hooks/useBranchSelection'
 import { HeroSection } from '../components/HeroSection'
-import { MetaSection } from '../components/MetaSection'
+import { MerchantDescriptor } from '../components/MerchantDescriptor'
+import { MetaRow } from '../components/MetaRow'
+import { ActionRow } from '../components/ActionRow'
 import { TabBar, type TabId } from '../components/TabBar'
 import { VouchersTab } from '../components/VouchersTab'
 import { AboutTab } from '../components/AboutTab'
@@ -250,7 +252,7 @@ export function MerchantProfileScreen({ id }: Props) {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[4]}
+        stickyHeaderIndices={[7]}
       >
         <SuspendedBranchBanner
           visible={showBanner}
@@ -277,33 +279,30 @@ export function MerchantProfileScreen({ id }: Props) {
           }
         />
 
-        <MetaSection
-          businessName={merchant.businessName}
-          // Use the server-computed `descriptor` (Plan 1.5 §3.6 — built from
-          // primaryDescriptorTag + subcategory.descriptorSuffix with de-dup)
-          // rather than the raw subcategory name. Plan §8.1 mandates this.
-          category={merchant.descriptor || null}
-          // Branch-scoped per spec §4.4 + §6 (state model).
+        <BranchChip
+          isMultiBranch={isMultiBranch}
+          onPress={() => setShowPicker(true)}
+        />
+
+        {/* Use the server-computed `descriptor` (Plan 1.5 §3.6 — built from
+            primaryDescriptorTag + subcategory.descriptorSuffix with de-dup)
+            rather than the raw subcategory name. Plan §8.1 mandates this. */}
+        <MerchantDescriptor descriptor={merchant.descriptor || null} />
+
+        {/* Branch-scoped per spec §4.4 + §6 (state model). */}
+        <MetaRow
+          isOpenNow={sb.isOpenNow}
+          openingHours={sb.openingHours}
+          distanceMetres={sb.distance}
           avgRating={sb.avgRating}
           reviewCount={sb.reviewCount}
-          // Branch context now lives on the chip below — clear MetaSection's
-          // own branch fields so it doesn't double-print.
-          branchName={null}
-          distance={null}
-          isOpenNow={sb.isOpenNow}
-          // hoursText now belongs to BranchChip below — null suppresses the
-          // hours line in MetaSection entirely.
-          hoursText={null}
-          singleBranchAddress={null}
+        />
+
+        <ActionRow
           hasWebsite={!!(sb.websiteUrl ?? merchant.websiteUrl)}
           onWebsite={handleWebsite}
           onContact={() => setShowContact(true)}
           onDirections={() => setShowDirs(true)}
-        />
-
-        <BranchChip
-          isMultiBranch={isMultiBranch}
-          onPress={() => setShowPicker(true)}
         />
 
         <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
