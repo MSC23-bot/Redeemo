@@ -1,11 +1,9 @@
 import React from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, Easing } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
-import { useMotionScale } from '@/design-system/useMotionScale'
 
 export type TabId = 'vouchers' | 'about' | 'branches' | 'reviews'
 
@@ -19,11 +17,22 @@ type Props = {
   tabs: TabDef[]
   activeTab: TabId
   onTabPress: (tab: TabId) => void
-  /** Trigger value: change to fire the active-indicator pulse. Pass selectedBranch.id. */
-  switchTrigger?: string | null
 }
 
-export function TabBar({ tabs, activeTab, onTabPress, switchTrigger }: Props) {
+// Visual correction round §2 (post-PR-#35 QA): tab bar anchored against
+// the warm cream page surface. Previously the white tab bar washed into
+// the white page. Now: top + bottom borders + soft shadow give it
+// presence whether sticky or not, without heavy chrome.
+//
+// Active-indicator height pulse REMOVED (was decorative — Emil framework:
+// "if purpose is just 'looks cool' don't animate"). The brand-red
+// indicator + slim font-weight differentiation are enough to convey
+// active state; pulsing on every branch switch was visual noise.
+//
+// Label scale calibrated: 13pt → 12pt active 600 / 11.5pt inactive 600.
+// Slimmer labels give the 4-tab row breathing room on 375pt phones —
+// "Other Locations (1)" no longer crowds adjacent tabs.
+export function TabBar({ tabs, activeTab, onTabPress }: Props) {
   return (
     <View style={styles.container}>
       {tabs.map(tab => {
@@ -39,7 +48,7 @@ export function TabBar({ tabs, activeTab, onTabPress, switchTrigger }: Props) {
           >
             <View style={styles.labelRow}>
               <Text
-                variant="label.lg"
+                variant="label.md"
                 style={[
                   styles.label,
                   isActive ? styles.labelActive : styles.labelInactive,
@@ -59,7 +68,16 @@ export function TabBar({ tabs, activeTab, onTabPress, switchTrigger }: Props) {
               )}
             </View>
 
-            {isActive && <ActiveTabIndicator switchTrigger={switchTrigger} />}
+            {isActive && (
+              <View testID="tab-active-indicator" style={styles.indicatorWrap} pointerEvents="none">
+                <LinearGradient
+                  colors={color.brandGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.indicatorGradient}
+                />
+              </View>
+            )}
           </Pressable>
         )
       })}
@@ -67,62 +85,37 @@ export function TabBar({ tabs, activeTab, onTabPress, switchTrigger }: Props) {
   )
 }
 
-function ActiveTabIndicator({ switchTrigger }: { switchTrigger?: string | null | undefined }) {
-  const motionScale = useMotionScale()
-  const heightSv = useSharedValue(3)
-  const isFirstRender = React.useRef(true)
-
-  React.useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      return
-    }
-    if (motionScale === 0) return
-    heightSv.value = withSequence(
-      withTiming(4, { duration: 125, easing: Easing.out(Easing.ease) }),
-      withTiming(3, { duration: 125, easing: Easing.out(Easing.ease) }),
-    )
-  }, [switchTrigger, motionScale, heightSv])
-
-  const animatedStyle = useAnimatedStyle(() => ({ height: heightSv.value }))
-
-  return (
-    <Animated.View
-      testID="tab-active-indicator"
-      style={[styles.indicatorWrap, animatedStyle]}
-      pointerEvents="none"
-    >
-      <LinearGradient
-        colors={color.brandGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.indicatorGradient}
-      />
-    </Animated.View>
-  )
-}
-
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FFF',
+    backgroundColor: '#FCFAF7',
+    // Top border anchors the tab bar against the cream page surface.
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
     borderBottomWidth: 1,
-    borderBottomColor: '#F0EBE6',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+    // Subtle shadow that strengthens when sticky-mode engages — perceived
+    // as elevation rather than chrome.
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    paddingTop: 16,
-    paddingBottom: 13,
+    paddingTop: 14,
+    paddingBottom: 12,
     position: 'relative',
   },
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
   },
   label: {
-    fontSize: 13,
+    fontSize: 12,
     letterSpacing: -0.1,
   },
   labelActive: {
@@ -134,9 +127,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   countBadge: {
-    minWidth: 18,
-    height: 17,
-    borderRadius: 9,
+    minWidth: 17,
+    height: 16,
+    borderRadius: 8,
     paddingHorizontal: 5,
     alignItems: 'center',
     justifyContent: 'center',
@@ -145,7 +138,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(226,12,4,0.1)',
   },
   countInactive: {
-    backgroundColor: '#F0EBE6',
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   countText: {
     fontSize: 10,

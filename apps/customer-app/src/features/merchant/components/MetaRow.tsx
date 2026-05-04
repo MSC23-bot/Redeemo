@@ -1,8 +1,6 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
-import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, Easing } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
-import { useMotionScale } from '@/design-system/useMotionScale'
 import { StatusPill } from './StatusPill'
 import { RatingBlock } from './RatingBlock'
 import { smartStatus } from '../utils/smartStatus'
@@ -14,7 +12,6 @@ type Props = {
   distanceMetres: number | null
   avgRating:      number | null
   reviewCount:    number
-  switchTrigger?: string | null
   // Test injection point — defaults to new Date(). Production never passes.
   now?: Date
 }
@@ -26,25 +23,16 @@ function formatDistance(metres: number | null): string | null {
   return `${(metres / 1609.34).toFixed(1)} mi`
 }
 
-export function MetaRow({ isOpenNow, openingHours, distanceMetres, avgRating, reviewCount, switchTrigger, now }: Props) {
-  const motionScale = useMotionScale()
-  const opacity = useSharedValue(1)
-  const isFirstRender = React.useRef(true)
-
-  React.useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      return
-    }
-    if (motionScale === 0) return
-    opacity.value = withSequence(
-      withTiming(0.7, { duration: 90, easing: Easing.out(Easing.ease) }),
-      withTiming(1.0, { duration: 90, easing: Easing.out(Easing.ease) }),
-    )
-  }, [switchTrigger, motionScale, opacity])
-
-  const animatedTextStyle = useAnimatedStyle(() => ({ opacity: opacity.value }))
-
+// Visual correction round §2 (post-PR-#35 QA): MetaRow's per-row opacity-
+// dip on `switchTrigger` REMOVED. The branch-switch feedback is now
+// centralised in BranchContextBand's coordinated motion (Section §4) —
+// a single visible cause-effect across the whole branch context band
+// rather than five scattered subtle animations the user could miss.
+//
+// MetaRow keeps its testIDs (`meta-row-status-text`, `meta-row-distance`)
+// for the band-level motion to target if needed; it just doesn't drive
+// its own animation any more.
+export function MetaRow({ isOpenNow, openingHours, distanceMetres, avgRating, reviewCount, now }: Props) {
   const status = smartStatus(isOpenNow, openingHours, now)
   const distance = formatDistance(distanceMetres)
 
@@ -52,17 +40,13 @@ export function MetaRow({ isOpenNow, openingHours, distanceMetres, avgRating, re
     <View style={styles.row}>
       <View style={styles.left}>
         <StatusPill state={status.pillState} label={status.pillLabel} />
-        <Animated.View style={animatedTextStyle}>
-          <Text variant="label.md" style={styles.statusText} testID="meta-row-status-text" numberOfLines={1} ellipsizeMode="tail">
-            {status.statusText}
-          </Text>
-        </Animated.View>
+        <Text variant="label.md" style={styles.statusText} testID="meta-row-status-text" numberOfLines={1} ellipsizeMode="tail">
+          {status.statusText}
+        </Text>
         {distance !== null ? (
           <>
             <Text variant="label.md" style={styles.separator}>·</Text>
-            <Animated.View style={animatedTextStyle}>
-              <Text variant="label.md" style={styles.distance} testID="meta-row-distance">{distance}</Text>
-            </Animated.View>
+            <Text variant="label.md" style={styles.distance} testID="meta-row-distance">{distance}</Text>
           </>
         ) : null}
       </View>
@@ -72,9 +56,9 @@ export function MetaRow({ isOpenNow, openingHours, distanceMetres, avgRating, re
 }
 
 const styles = StyleSheet.create({
-  row:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 12, paddingHorizontal: 14 },
+  row:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 4 },
   left:       { flexDirection: 'row', alignItems: 'center', gap: 9, minWidth: 0, flex: 1 },
-  statusText: { color: '#222', fontWeight: '500', fontSize: 11 },
-  separator:  { color: '#D1D5DB', fontSize: 11 },
-  distance:   { color: '#9CA3AF', fontWeight: '400', fontSize: 11 },
+  statusText: { color: '#222', fontWeight: '500', fontSize: 12 },
+  separator:  { color: '#D1D5DB', fontSize: 12 },
+  distance:   { color: '#9CA3AF', fontWeight: '400', fontSize: 12 },
 })

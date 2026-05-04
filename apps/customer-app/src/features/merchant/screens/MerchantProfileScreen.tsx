@@ -315,7 +315,6 @@ export function MerchantProfileScreen({ id }: Props) {
             distanceMetres={sb.distance}
             avgRating={sb.avgRating}
             reviewCount={sb.reviewCount}
-            switchTrigger={sb.id}
           />
         </BranchContextBand>
 
@@ -326,7 +325,7 @@ export function MerchantProfileScreen({ id }: Props) {
           onDirections={() => setShowDirs(true)}
         />
 
-        <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} switchTrigger={sb.id} />
+        <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
 
         <View style={styles.content}>
           {activeTab === 'vouchers' && (
