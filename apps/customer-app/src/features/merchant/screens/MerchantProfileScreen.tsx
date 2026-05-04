@@ -22,6 +22,17 @@ import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
 import { useFavourite } from '@/hooks/useFavourite'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
+import { MerchantHeadline } from '../components/MerchantHeadline'
+import { branchShortName } from '../utils/branchShortName'
+
+function buildBranchLine(branch: { city: string | null; name: string }): string | null {
+  // Pass 1 fallback: city when available, else strip-prefix the branch name.
+  // Branch.county schema migration (deferred §A) will eventually ship
+  // "<city>, <county>"; until then we render city alone.
+  if (branch.city) return branch.city
+  const shortName = branchShortName(branch.name)
+  return shortName || null
+}
 
 // M2 — full Merchant Profile surface. Composes hero / meta / sticky tab bar
 // and the four tabs (vouchers / about / branches / reviews) plus three
@@ -255,6 +266,15 @@ export function MerchantProfileScreen({ id }: Props) {
           isFavourited={favourite.isFavourited}
           onToggleFavourite={favourite.toggle}
           onShare={handleShare}
+        />
+
+        <MerchantHeadline
+          merchantName={merchant.businessName}
+          branchLine={
+            isMultiBranch && sb
+              ? buildBranchLine(sb)
+              : null
+          }
         />
 
         <MetaSection

@@ -124,6 +124,18 @@ jest.mock('@/features/merchant/components/AllBranchesUnavailable', () => ({
   },
 }))
 
+jest.mock('@/features/merchant/components/MerchantHeadline', () => ({
+  MerchantHeadline: ({ merchantName, branchLine }: { merchantName: string; branchLine: string | null }) => {
+    const { Text } = require('react-native')
+    return (
+      <>
+        <Text>HEADLINE_NAME={merchantName}</Text>
+        {branchLine ? <Text testID="merchant-branch-line">{branchLine}</Text> : null}
+      </>
+    )
+  },
+}))
+
 jest.mock('@/hooks/useFavourite', () => ({
   useFavourite: () => ({ isFavourited: false, toggle: jest.fn(), isLoading: false }),
 }))
@@ -525,5 +537,36 @@ describe('MerchantProfileScreen (M2)', () => {
     const { findByLabelText, findByText } = wrap(<MerchantProfileScreen id="m1" />)
     fireEvent.press(await findByLabelText('tab-branches'))
     expect(await findByText('BRANCHES_TAB|nearest=NULL')).toBeTruthy()
+  })
+
+  // ── MerchantHeadline wiring (Task 6 — §6.1) ─────────────────────────────────
+
+  it('renders the MerchantHeadline with branch line on multi-branch', async () => {
+    const branchA = { ...selectedBranchFixture, id: 'b1' }
+    const branchB = { ...selectedBranchFixture, id: 'b2', name: 'Colchester', city: 'Colchester', isMainBranch: false }
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      branches: [branchA, branchB],
+    })
+    const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByText('HEADLINE_NAME=The Coffee House')).toBeTruthy()
+    // selectedBranchFixture.city is "Brightlingsea" so the branch line shows it
+    expect(await findByText('Brightlingsea')).toBeTruthy()
+  })
+
+  it('hides the branch line on single-branch merchants', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      branches: [{
+        id: 'b1', name: 'Only', isMainBranch: true, isActive: true,
+        addressLine1: null, addressLine2: null, city: null, postcode: null,
+        latitude: null, longitude: null, phone: null, email: null,
+        distance: null, isOpenNow: true, avgRating: null, reviewCount: 0,
+        openingHours: [],
+      }],
+    })
+    const { findByText, queryByTestId } = wrap(<MerchantProfileScreen id="m1" />)
+    await findByText('HEADLINE_NAME=The Coffee House')
+    expect(queryByTestId('merchant-branch-line')).toBeNull()
   })
 })
