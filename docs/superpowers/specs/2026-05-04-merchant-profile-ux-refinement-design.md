@@ -82,6 +82,7 @@ The following are deliberately excluded from this refinement and will be picked 
 | Meta row content | Pill + smart status text + de-emphasised distance · ⭐ rating + count |
 | Picker row layout | Two lines, name-first; current row pinned at top |
 | Reviews tab order | Toggle (top, with per-branch counts) → scope label → ReviewSummary → sort → review cards |
+| Voucher-context reinforcement | Multi-branch only: persistent low-emphasis "Showing offers for {branch}" at top of Vouchers tab; updates with brief fade-in on branch switch |
 | Time format | am/pm (e.g. "10:30pm") |
 
 ---
@@ -234,6 +235,8 @@ Showing offers for Brightlingsea          ← new label (label.md, color seconda
 - No interaction. Pure status text.
 - Hidden when there are 0 vouchers (the empty-vouchers state has its own copy).
 - Reinforces the locked principle: redemption is always branch-attributed even though voucher catalogue is merchant-wide. The label answers "where will this voucher redeem?" without the user having to scroll back up.
+- **On branch switch:** the label value updates and briefly fades in (opacity 0.7 → 1.0 over ~180ms — see §8.2 entry 5). Persistent — does NOT auto-dismiss. Owner direction: persistent low-emphasis text is the right shape because mid-scroll users may navigate INTO the Vouchers tab AFTER the switch, and a transient toast that fired earlier is gone by then. The fade-in is the "something changed" signal; the persistence is the "what is this" reinforcement.
+- Reduced-motion: instant value swap on switch, no fade.
 
 **Why here and not in the page chrome:** scoping this to the Vouchers tab content keeps the page header lean (per the no-new-persistent-UI principle) and only surfaces the reinforcement when it's relevant — when the user is looking at vouchers.
 
@@ -273,9 +276,9 @@ Pill text contrast formal verification deferred to a polish pass (§4 out of sco
 |---|---|---|
 | Open | `isOpenNow=true` and >60 min until close | `Closes at 10:30pm` |
 | Closing soon | `isOpenNow=true` and ≤60 min until close | `Closes in 30 min` (countdown) |
-| Closed (later today) | `isOpenNow=false`, branch opens later same day | `Opens at 5:00pm` |
-| Closed (tomorrow) | `isOpenNow=false`, branch closed for the rest of today | `Opens tomorrow at 9:00am` |
-| Closed (split-hours mid-day gap) | `isOpenNow=false` between two same-day intervals | `Opens at 5:00pm` (same shape as later-today) |
+| Closed — next open is later TODAY | `isOpenNow=false`, next open interval starts today (covers both rest-of-day reopening and split-hours mid-day gap) | `Opens at 5:00pm` |
+| Closed — next open is TOMORROW | `isOpenNow=false`, branch closed for the rest of today, opens tomorrow | `Opens tomorrow at 9:00am` |
+| Closed — next open is AFTER TOMORROW (multi-day closed) | `isOpenNow=false`, branch closed today AND tomorrow (e.g. Mon + Tue both closed when today is Mon) | `Opens at 9:00am` (no day reference — avoids misleading "tomorrow" copy until backend `statusText` ships) |
 
 **Pluralisation:** singular minute uses "1 min" — `Closes in 1 min`.
 
@@ -404,6 +407,7 @@ Branch switch is a real state change, but most page content (voucher cards, acti
 | **Single trigger per event** | One `useEffect` watching `selectedBranch.id` change → fires all switch animations from one place. No drift between elements. |
 | **Skip on initial mount** | Switch animations use a `useRef` to detect first paint; first run applies values instantly with no animation. Subsequent changes animate. |
 | **Cancel on rapid switching** | If a new branch switch fires before the previous one finishes, the in-progress animation cancels and snaps to its final state, then the new animation runs from there. No stacking, no jitter. |
+| **Animation scope is hierarchical (LOAD-BEARING — read this twice)** | Of the meta row's four hierarchy levels (§7.1), **only Levels ② Status text and ④ Distance opacity-dip on switch.** Level ① Status pill changes colour crisply; Level ③ Rating block updates value crisply. **Pill and rating MUST NOT animate.** They're load-bearing identity signals — over-animating destroys the hierarchy and competes with the signals they already carry. This rule extends to all other surfaces: when a status pill or rating block appears on a picker row, Other Locations card, or HoursPreviewSheet header, those elements also do NOT animate. The same rule means voucher cards never animate on switch (they're merchant-level data; animating them would falsely imply they refreshed). |
 
 ### 8.2 Animations by event
 
@@ -417,13 +421,14 @@ Coordinated header-area animations fire in parallel on the same `selectedBranch.
 | 2 | Meta row — status text (only) | Brief opacity dip 0.7 → 1.0 as new value applies | ~180ms · ease-out | Instant swap |
 | 3 | Meta row — distance (only) | Same opacity dip 0.7 → 1.0 (or hides cleanly if GPS dropped) | ~180ms · ease-out | Instant swap |
 | 4 | Chip caret (▾) | Brief 0° → -8° → 0° tilt (acknowledgement nod). **Owner direction: this is the FIRST candidate for removal if the cumulative switch motion feels busy in QA.** Pulling this entry alone leaves the rest of the switch motion intact and is safe to drop without ripple. | ~200ms · spring | Instant — no tilt |
+| 5 | Voucher-context label (§6.5) — only when Vouchers tab is active | Opacity dip 0.7 → 1.0 as the label's `{branch}` value updates | ~180ms · ease-out | Instant swap, no fade |
 
-**Deliberately NOT animated on switch:**
+**Deliberately NOT animated on switch (load-bearing — see §8.1 "Animation scope is hierarchical"):**
 - **Status pill** — colour change is its own visual signal; stacking opacity dip on it is over-animation.
 - **Rating block** — value changes (rating + count); opacity dip is unnecessary noise on the right anchor.
-- **Action row, tab bar, voucher list** — content unchanged or out of focus area.
+- **Action row, tab bar, voucher list, hero, logo** — content unchanged on switch (vouchers + hero + logo are merchant-level), animating them would falsely imply they refreshed.
 
-Net effect: header content area has a coordinated ~300ms re-glaze. Branch line is the loudest signal; meta-row text + distance dip-and-restore reinforces "this whole strip refreshed." Pill and rating change crisply because they're load-bearing identity signals.
+Net effect: header content area + voucher-context label have a coordinated ~300ms re-glaze. Branch line is the loudest signal; meta-row text + distance + voucher-context dip-and-restore reinforces "the branch refreshed across every surface that names it." Pill and rating change crisply because they're load-bearing identity signals.
 
 #### Event: mid-scroll switch (user is below the fold when switching)
 
@@ -431,7 +436,7 @@ When `ScrollView`'s sticky tab bar is in its sticky position (i.e. user has scro
 
 | # | Element | Effect | Duration | Reduced-motion |
 |---|---|---|---|---|
-| 5 | Active tab indicator | One-time thickness pulse: indicator height 2px → 3px → 2px | ~250ms · ease-out | No pulse — value stays at 2px |
+| 6 | Active tab indicator | One-time thickness pulse: indicator height 2px → 3px → 2px | ~250ms · ease-out | No pulse — value stays at 2px |
 
 Lightweight; behind the meta row when the user is at the top (so not visible there); visible peripherally when sticky-engaged.
 
@@ -441,28 +446,28 @@ Spatial continuity from "tap row" to "page reflects new branch":
 
 | # | Element | Effect | Duration | Reduced-motion |
 |---|---|---|---|---|
-| 6 | Tapped row in picker | Background tint flash `rgba(226,12,4,0.10)` → transparent (acknowledgement) | ~150ms · ease-out | Instant swap to selected state |
-| 7 | Sheet dismiss | Existing system slide-down + backdrop fade (already in design system) | ~250ms · existing curve | Existing reduced-motion behaviour |
-| 8 | Switch event animations (1–5 above) | Fire as the sheet starts dismissing — overlap, don't sequence | (per row above) | (per row above) |
+| 7 | Tapped row in picker | Background tint flash `rgba(226,12,4,0.10)` → transparent (acknowledgement) | ~150ms · ease-out | Instant swap to selected state |
+| 8 | Sheet dismiss | Existing system slide-down + backdrop fade (already in design system) | ~250ms · existing curve | Existing reduced-motion behaviour |
+| 9 | Switch event animations (1–6 above) | Fire as the sheet starts dismissing — overlap, don't sequence | (per row above) | (per row above) |
 
 Overlap is intentional: by the time the sheet has fully closed, the page behind it has already settled into the new branch.
 
 #### Event: switch from Other Locations card — OPTIONAL reinforcement
 
-When the user taps "Switch →" on an Other Locations card, the page re-scopes (already covered) AND optionally surfaces a brief confirmation toast — distinct from chip-driven switches because the user has navigated away from the chip surface to the Other Locations tab; the chip + branch-line motion may not be visible.
+When the user taps "Switch →" on an Other Locations card, the page re-scopes (already covered by entries 1–5) AND optionally surfaces a brief confirmation toast.
 
 | # | Element | Effect | Duration | Reduced-motion |
 |---|---|---|---|---|
-| 11 | Confirmation toast | Brief inline banner near the tab bar: `Now viewing {branchName}`. Slide-in from top + fade, auto-dismisses. | enter ~200ms · dwell ~1.8s · exit ~140ms | Static text, longer dwell (~3s), no slide |
+| 10 | Confirmation toast | Brief inline banner near the tab bar: `Now viewing {branchName}`. Slide-in from top + fade, auto-dismisses. | enter ~200ms · dwell ~1.8s · exit ~140ms | Static text, longer dwell (~3s), no slide |
 
-**Marked OPTIONAL.** Implementation choice — ship without if the chip-driven switch motion is sufficient in QA. The toast adds chrome the spec generally avoids; the trade-off is "explicit confirmation when the user is in compare-mode and switching from a different surface than the chip." If shipped, the toast NEVER fires for chip-driven switches — only Other Locations Switch → button.
+**Marked OPTIONAL — recommended ship-if-trivial.** The voucher-context label (entry 5) does most of the load-bearing reinforcement work; this toast is a smaller polish touch. The user just tapped a button explicitly labelled "Switch →" so they have intentful awareness — the toast is over-confirmation. Implementation choice: ship if the toast component is trivial (e.g. a one-line `useToast` call); defer if it requires bespoke component work. If shipped, the toast NEVER fires for chip-driven switches — only Other Locations Switch → button.
 
 #### Event: tab switch (Vouchers ↔ About ↔ Other Locations ↔ Reviews) — OPTIONAL POLISH
 
 | # | Element | Effect | Duration | Reduced-motion |
 |---|---|---|---|---|
-| 9 | Tab content area | Cross-fade incoming content from opacity 0 → 1; outgoing fades 1 → 0 | ~150ms · ease-in-out | Instant swap |
-| 10 | Tab indicator | Sliding underline that moves between active tabs | ~200ms · ease-out | Instant indicator move |
+| 11 | Tab content area | Cross-fade incoming content from opacity 0 → 1; outgoing fades 1 → 0 | ~150ms · ease-in-out | Instant swap |
+| 12 | Tab indicator | Sliding underline that moves between active tabs | ~200ms · ease-out | Instant indicator move |
 
 Marked **optional polish** — not required for core UX. If implementation cost is non-trivial, defer.
 
@@ -477,8 +482,8 @@ Caret bounce ~500–600ms, once per merchant per screen mount, multi-branch only
 ### 8.3 Performance notes
 
 - All animations use Reanimated `useSharedValue` + `withTiming` / `withSpring`; UI-thread driven, doesn't touch JS thread per frame.
-- Switch event: 4 animations share a single timeline (`Animated.parallel()` equivalent in Reanimated). One trigger, one cancellation point.
-- Frame budget: 4 transform/opacity updates per frame is well within 60fps. No reflow risk.
+- Switch event: 5 animations (entries 1–5) share a single timeline (`Animated.parallel()` equivalent in Reanimated). One trigger, one cancellation point. Voucher-context entry 5 is conditional on Vouchers tab being active — falls out of the timeline cheaply when not mounted.
+- Frame budget: 5 transform/opacity updates per frame is well within 60fps. No reflow risk.
 
 ---
 
@@ -491,7 +496,7 @@ The smart status logic is bounded by data quality. Until the backend ships split
 | `closeTime: null` for today's interval (open day, time missing) | Pill: `Open` (from `isOpenNow`). Status text: `Hours unavailable`. |
 | `openTime: null` for tomorrow's interval (closed today, time missing) | Pill: `Closed`. Status text: `Opens tomorrow` (no time). |
 | `openingHours: []` (empty array) | Pill: matches `isOpenNow`. Status text: `Hours unavailable`. |
-| Branch closed for multiple consecutive days (Mon + Tue both `isClosed: true`, today is Mon) | Frontend stopgap displays `Opens tomorrow at 9:00am` even though branch actually opens Wednesday — known limitation. Backend `statusText` will fix when shipped. Owner-accepted (§10 stopgap). |
+| Branch closed for multiple consecutive days (Mon + Tue both `isClosed: true`, today is Mon) | Status text: `Opens at 9:00am` (no day reference). Frontend stopgap iterates forward through `openingHours` to find the next non-closed day; if the next open is tomorrow, says `Opens tomorrow at 9:00am`; if it's later than tomorrow, drops the day reference entirely to avoid the misleading "tomorrow" copy. Backend `selectedBranch.statusText` will provide richer day-name copy when shipped. Owner-locked 2026-05-04. |
 | Split-hours venue (12–3 + 5–10 stored as single 12–22:30 interval today) | Status text incorrectly says branch is open during the 3–5pm gap. Known limitation; bounded by the `BranchOpeningHours` schema (deferred). Owner-accepted (§10 stopgap). |
 | Currently open + currently within 60 min of close | Pill: `Closing soon` (amber). Status text: `Closes in N min` where N is integer minutes remaining. Singular: `Closes in 1 min`. |
 | `reviewCount === 0` on the meta row | Rating block renders quiet `No reviews yet` placeholder text instead of the rating chip. |
@@ -535,8 +540,10 @@ A working implementation must demonstrate:
 - [ ] Multi-branch switch: branch line flashes (background pulse + scale 1.04) over ~300ms.
 - [ ] Meta row status text + distance opacity-dip 0.7→1.0 over ~180ms in parallel.
 - [ ] Chip caret tilts -8° and back over ~200ms.
+- [ ] Voucher-context label opacity-dips 0.7→1.0 over ~180ms in parallel (when Vouchers tab is active).
 - [ ] Status pill colour changes crisply (NOT animated — colour is its own signal).
 - [ ] Rating block updates crisply (NOT animated).
+- [ ] Hero, logo, action row, voucher cards, tab bar, sheet content NOT animated on switch.
 - [ ] Mid-scroll switch: sticky tab bar's active indicator pulses 2→3→2px over ~250ms.
 - [ ] All animations skipped under `prefers-reduced-motion`; values still update instantly.
 - [ ] Initial mount: NO animation; values applied instantly.
@@ -577,6 +584,9 @@ A working implementation must demonstrate:
 - [ ] Branch name uses the same prefix-stripped form as the headline branch line.
 - [ ] Label is single line, color secondary, non-interactive.
 - [ ] Hidden when the merchant has 0 vouchers (empty-state copy applies instead).
+- [ ] Persistent — does NOT auto-dismiss after a delay.
+- [ ] On branch switch (when Vouchers tab is active): label value updates and opacity-dips 0.7 → 1.0 over ~180ms (entry 5 in §8.2).
+- [ ] Reduced-motion: instant value swap on switch, no fade.
 
 **Pass 2 — Meta row:**
 - [ ] Single line: pill + status text + distance flow left, rating block anchors right.
@@ -653,8 +663,8 @@ Detailed planning happens in the writing-plans skill after this spec is approved
 Items intentionally tracked here as "we know about it, we accept it for v1":
 
 - **Chip caret nod (§8.2 entry 4) — first removal candidate.** If the cumulative switch motion feels busy during QA, drop this entry first. Owner direction. Implementation should keep the nod isolated enough that pulling it is a one-line change.
-- **Other Locations switch confirmation toast (§8.2 entry 11) — optional.** Ship without if chip-driven switch motion is sufficient; revisit if QA reveals real confusion when switching from the Other Locations tab.
-- Tab content cross-fade animation (§8.2 entries 9–10) — optional polish, not required.
+- **Other Locations switch confirmation toast (§8.2 entry 10) — OPTIONAL, recommended ship-if-trivial.** The voucher-context label (§6.5 / §8.2 entry 5) does most of the load-bearing reinforcement work; this toast is a smaller polish touch. The user just tapped a button explicitly labelled "Switch →" so they have intentful awareness — the toast is over-confirmation. Ship if the toast component is trivial (e.g. a one-line `useToast` call); defer if it requires bespoke component work. Documented decision either way per owner direction 2026-05-04.
+- Tab content cross-fade animation (§8.2 entries 11–12) — optional polish, not required.
 - Pill text formal WCAG AA contrast verification (§4 / §H).
 - Meta row exact spacing values (§7.1) — owner direction "err toward more breathing room"; tune during visual QA, starting points are `12×14px` padding + `10–12px` gap.
 - HoursPreviewSheet vs OpeningHoursCard visual unification — same data, two slightly different containers.
