@@ -46,6 +46,7 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
             <View style={[styles.labelRow, isActive && styles.labelRowActive]}>
               <Text
                 variant="label.md"
+                numberOfLines={1}
                 style={[
                   styles.label,
                   isActive ? styles.labelActive : styles.labelInactive,
@@ -86,28 +87,26 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 4 §5: tab bar is now the visible boundary between the
-  // identity zone (top) and the tab-content body (bottom). It reads
-  // as a "header" — slightly darker than the off-white body it sits
-  // above (`#EFE6D7` vs body `#F6F1E5`) and warmer than identity
-  // zone (`#FFF9F5` above), creating a 3-tone surface stack:
+  // Round 4 §6: tab bar is the visible boundary between the
+  // identity zone (top) and the tab-content body (bottom). Now in
+  // the same near-neutral off-white family as the body, just a tone
+  // darker so it reads as a "header":
   //
-  //   IDENTITY  #FFF9F5  (warm cream)
-  //   TAB BAR   #EFE6D7  (darker warm — header)
-  //   BODY      #F6F1E5  (off-white)
-  //   CARDS     #FFFFFF  (white — pop against body)
+  //   IDENTITY  #FFF9F5  (warm cream — top zone)
+  //   TAB BAR   #EAEAE3  (slightly darker off-white — header)
+  //   BODY      #F4F4EF  (off-white)
+  //   CARDS     #FFFFFF  (white)
   //
-  // Stronger shadow + slightly deeper bottom border so the header
-  // visually anchors the boundary between zones, not just the
-  // sticky transition.
+  // paddingHorizontal: 20 + gap: 4 — the active pill on the leftmost
+  // ("Vouchers") and rightmost ("Reviews") tabs no longer crowds the
+  // screen edges when those tabs are selected. Tighter than 24pt so
+  // the longest label ("Vouchers 3" with count badge) doesn't
+  // truncate at fontSize 14.
   container: {
     flexDirection: 'row',
-    backgroundColor: '#EFE6D7',
-    // Round 4 §5: 16pt left/right padding so "Vouchers" and "Reviews"
-    // don't crowd the screen edges. 6pt gap between tabs gives them
-    // visual separation while flex:1 distributes the remaining space.
-    paddingHorizontal: 16,
-    gap: 6,
+    backgroundColor: '#EAEAE3',
+    paddingHorizontal: 20,
+    gap: 4,
     borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.06)',
     borderBottomWidth: 1,
@@ -130,18 +129,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
     paddingVertical: 5,
-    paddingHorizontal: 9,
+    paddingHorizontal: 8,
     borderRadius: 999,
   },
   // Round 3 §B4: active tab gets a brand-red 5% pill background.
   labelRowActive: {
     backgroundColor: 'rgba(226,12,4,0.05)',
   },
-  // Round 4 §5: labels bumped 12 → 13pt per direction "this is somewhat
-  // a main section, the size is too small". 1pt looks small but
-  // visibly settles the labels into the bigger header tab bar.
+  // Round 4 §6: labels bumped 13 → 14pt — round 4 §5's 13pt still
+  // read as too small in the bigger header tab bar.
   label: {
-    fontSize: 13,
+    fontSize: 14,
     letterSpacing: -0.1,
   },
   labelActive: {

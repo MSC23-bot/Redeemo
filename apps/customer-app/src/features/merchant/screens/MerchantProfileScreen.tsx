@@ -475,27 +475,23 @@ export function MerchantProfileScreen({ id }: Props) {
   )
 }
 
-// Round 4 §5 (post-PR-#35 QA round 4 §4): two-zone surface system
-// re-tuned for clearer differentiation between the identity zone
-// (top) and the tab-content body (bottom).
+// Round 4 §6: body bg shifts from warm cream `#F6F1E5` (still read
+// as cream/beige) to a near-neutral off-white `#F4F4EF` per direction
+// "I'm expecting more of a white colour, but a slightly different
+// tone of white than the colour of the card". Reads as white with
+// just a touch of warmth — pure-white cards still pop against it.
 //
-//   • Identity zone: `#FFF9F5` (warm cream — onboarding palette).
-//   • Tab bar: `#EFE6D7` (darker warm off-white — reads as a
-//     "header" boundary between the two zones; see TabBar.tsx).
-//   • Tab-content body: `#F6F1E5` (off-white, slightly darker than
-//     identity, lighter than tab bar). Pure-white cards now have
-//     a clearly visible distinction against this body bg.
-//   • Cards inside body: `#FFF` (unchanged in About/Photos/
-//     Amenities/OpeningHours cards).
-//
-// Same warm-cream family throughout (no jumping to neutral grays);
-// hierarchy carried by lightness alone.
+// 4-tier surface stack:
+//   IDENTITY  #FFF9F5  (warm cream — top zone, unchanged)
+//   TAB BAR   #EAEAE3  (slightly darker off-white — header)
+//   BODY      #F4F4EF  (off-white — reads as white-ish, not creamy)
+//   CARDS     #FFFFFF  (pure white — pops against body)
 const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#FFF9F5' },
   loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9F5' },
   scroll:       { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
-  content:      { backgroundColor: '#F6F1E5', minHeight: 460, padding: 20 },
+  content:      { backgroundColor: '#F4F4EF', minHeight: 460, padding: 20 },
   errorScreen:  { flex: 1, backgroundColor: '#FFF9F5', padding: 16 },
   backBtn:      { paddingVertical: 12 },
   errorCard:    { padding: 20, backgroundColor: '#FEF6F5', borderRadius: 16, gap: 8, marginTop: 16 },
