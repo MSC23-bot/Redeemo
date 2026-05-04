@@ -85,11 +85,11 @@ jest.mock('@/features/merchant/components/FreeUserGateModal', () => ({
 // AllBranchesUnavailable each have dedicated unit tests; here we only
 // verify the screen wires them up correctly.
 jest.mock('@/features/merchant/components/BranchChip', () => ({
-  BranchChip: ({ branchName, isMultiBranch, onPress }: { branchName: string; isMultiBranch: boolean; onPress: () => void }) => {
+  BranchChip: ({ isMultiBranch, onPress }: { isMultiBranch: boolean; onPress: () => void }) => {
     const { Text, Pressable } = require('react-native')
+    if (!isMultiBranch) return null
     return (
       <Pressable accessibilityLabel="branch-chip" onPress={onPress}>
-        <Text>CHIP_NAME={branchName}</Text>
         <Text>CHIP_MULTI={String(isMultiBranch)}</Text>
       </Pressable>
     )
@@ -348,10 +348,15 @@ describe('MerchantProfileScreen (M2)', () => {
   })
 
   // ── P2.8 — branch chip / picker / banner / all-suspended wiring ───────────────
-  it('renders the BranchChip with selectedBranch data', async () => {
-    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
-    const { findByText } = wrap(<MerchantProfileScreen id="m1" />)
-    expect(await findByText('CHIP_NAME=Brightlingsea')).toBeTruthy()
+  it('renders the BranchChip on a multi-branch merchant', async () => {
+    const branchA = { ...selectedBranchFixture, id: 'b1' }
+    const branchB = { ...selectedBranchFixture, id: 'b2', name: 'Colchester', isMainBranch: false }
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      branches: [branchA, branchB],
+    })
+    const { findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByLabelText('branch-chip')).toBeTruthy()
   })
 
   it('renders the SuspendedBranchBanner when fallbackReason=candidate-inactive', async () => {

@@ -302,12 +302,6 @@ export function MerchantProfileScreen({ id }: Props) {
         />
 
         <BranchChip
-          branchName={sb.name}
-          city={sb.city}
-          county={county}
-          distanceMetres={sb.distance}
-          isOpenNow={sb.isOpenNow}
-          closesAt={closesAt}
           isMultiBranch={isMultiBranch}
           onPress={() => setShowPicker(true)}
         />
