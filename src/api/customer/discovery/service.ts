@@ -799,11 +799,12 @@ export async function getCustomerMerchant(
       isOpenNow:   isOpenNow(b.openingHours),
       avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
       reviewCount: ratingByBranch[b.id]?.reviewCount ?? 0,
-      // PR — UX refinement (Task 1): per-branch openingHours so picker rows
-      // + Other Locations cards + HoursPreviewSheet can render real
-      // smart-status text and full week schedules for non-current branches.
-      // Same shape as selectedBranch.openingHours and the existing per-branch
-      // openingHours already loaded at line ~552. No new query.
+      // Task 1 — Merchant Profile UX refinement: per-branch openingHours so
+      // picker rows + Other Locations cards + HoursPreviewSheet can render
+      // real smart-status text and full week schedules for non-current
+      // branches. Same shape as selectedBranch.openingHours and the existing
+      // per-branch openingHours already loaded by the select at line ~552.
+      // No new query.
       openingHours: b.openingHours,
     })),
     // P1.3 additions — selectedBranch block + fallback reason for client banner

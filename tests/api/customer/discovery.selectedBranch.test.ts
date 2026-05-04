@@ -333,7 +333,7 @@ describe('GET /api/v1/customer/merchants/:id — selectedBranch (P1)', () => {
     })
   })
 
-  // PR — UX refinement: every entry in `branches[]` must carry `reviewCount`,
+  // Task 1 — Merchant Profile UX refinement: every entry in `branches[]` must carry `reviewCount`,
   // `avgRating`, AND `openingHours` so the chip picker rows + Reviews toggle
   // can show per-branch counts AND the picker rows + HoursPreviewSheet for
   // Other Locations can render real smart-status text + full week schedule
