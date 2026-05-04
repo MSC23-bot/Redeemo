@@ -1,6 +1,6 @@
 import React from 'react'
 import { Pressable, StyleSheet } from 'react-native'
-import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, withSpring, Easing } from 'react-native-reanimated'
+import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, Easing } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { lightHaptic } from '@/design-system/haptics'
 import { useMotionScale } from '@/design-system/useMotionScale'
@@ -8,45 +8,40 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 type Props = {
   isMultiBranch: boolean
   onPress: () => void
-  /** Animate caret nod when this changes. Pass selectedBranch.id. */
-  switchTrigger?: string | null
   /** Play first-visit caret bounce hint once on mount. Default true. */
   hintOnFirstVisit?: boolean
 }
 
-export function BranchChip({ isMultiBranch, onPress, switchTrigger, hintOnFirstVisit = true }: Props) {
+// Section 1 of the visual correction round: removed the caret-nod-on-switch
+// animation (was decorative — Emil framework: "if purpose is just 'looks
+// cool' don't animate"). The branch-switch feedback is now centralised in
+// the BranchContextBand's coordinated transition (Section 4).
+//
+// First-visit caret hint kept but calmed:
+//   - Magnitude reduced -2pt → -1pt (half the bounce height).
+//   - Spring replaced with strong-ease-out (no rebound, matches brand-red
+//     premium tone — Emil ban on spring/bounce in professional UI).
+//   - Fires once per session per merchant on mount when multi-branch.
+export function BranchChip({ isMultiBranch, onPress, hintOnFirstVisit = true }: Props) {
   const motionScale = useMotionScale()
-  const caretRotate = useSharedValue(0)
   const caretBounce = useSharedValue(0)
   const isFirstRender = React.useRef(true)
   const hasHinted = React.useRef(false)
 
   React.useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      // First-visit hint
-      if (isMultiBranch && hintOnFirstVisit && !hasHinted.current && motionScale !== 0) {
-        hasHinted.current = true
-        caretBounce.value = withSequence(
-          withTiming(-2, { duration: 200, easing: Easing.out(Easing.ease) }),
-          withSpring(0, { damping: 6, stiffness: 180 }),
-        )
-      }
-      return
+    if (!isFirstRender.current) return
+    isFirstRender.current = false
+    if (isMultiBranch && hintOnFirstVisit && !hasHinted.current && motionScale !== 0) {
+      hasHinted.current = true
+      caretBounce.value = withSequence(
+        withTiming(-1, { duration: 180, easing: Easing.bezier(0.23, 1, 0.32, 1) }),
+        withTiming(0,  { duration: 220, easing: Easing.bezier(0.23, 1, 0.32, 1) }),
+      )
     }
-    // Subsequent switches: nod tilt
-    if (!isMultiBranch || motionScale === 0) return
-    caretRotate.value = withSequence(
-      withTiming(-8, { duration: 100, easing: Easing.out(Easing.ease) }),
-      withSpring(0, { damping: 5, stiffness: 200 }),
-    )
-  }, [switchTrigger, isMultiBranch, hintOnFirstVisit, motionScale, caretRotate, caretBounce])
+  }, [isMultiBranch, hintOnFirstVisit, motionScale, caretBounce])
 
   const caretStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: caretBounce.value },
-      { rotate: `${caretRotate.value}deg` },
-    ],
+    transform: [{ translateY: caretBounce.value }],
   }))
 
   if (!isMultiBranch) return null
@@ -57,6 +52,7 @@ export function BranchChip({ isMultiBranch, onPress, switchTrigger, hintOnFirstV
       accessibilityRole="button"
       accessibilityLabel="Switch branch"
       onPress={() => { lightHaptic(); onPress() }}
+      hitSlop={8}
     >
       <Text variant="label.md" style={styles.text}>Switch branch</Text>
       <Animated.View style={caretStyle} testID="chip-caret">
@@ -67,7 +63,18 @@ export function BranchChip({ isMultiBranch, onPress, switchTrigger, hintOnFirstV
 }
 
 const styles = StyleSheet.create({
-  chip:  { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 7, paddingHorizontal: 11, borderRadius: 8, backgroundColor: 'rgba(226,12,4,0.07)', borderWidth: 1, borderColor: 'rgba(226,12,4,0.20)' },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: 7,
+    paddingHorizontal: 11,
+    borderRadius: 8,
+    backgroundColor: 'rgba(226,12,4,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(226,12,4,0.20)',
+  },
   text:  { color: '#E20C04', fontWeight: '600', fontSize: 11 },
   caret: { color: '#E20C04', fontSize: 12 },
 })

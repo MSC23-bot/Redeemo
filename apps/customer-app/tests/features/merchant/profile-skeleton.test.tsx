@@ -141,14 +141,35 @@ jest.mock('@/features/merchant/components/AllBranchesUnavailable', () => ({
   },
 }))
 
+// Visual correction round (post-PR-#35 QA): MerchantHeadline now renders
+// only the merchant name. The branch line moved into BranchContextBand —
+// we mock both surfaces so the screen-skeleton assertions still match
+// HEADLINE_NAME / merchant-branch-line by their stable contracts.
 jest.mock('@/features/merchant/components/MerchantHeadline', () => ({
-  MerchantHeadline: ({ merchantName, branchLine }: { merchantName: string; branchLine: string | null }) => {
+  MerchantHeadline: ({ merchantName }: { merchantName: string }) => {
     const { Text } = require('react-native')
+    return <Text>HEADLINE_NAME={merchantName}</Text>
+  },
+}))
+
+jest.mock('@/features/merchant/components/BranchContextBand', () => ({
+  BranchContextBand: ({
+    isMultiBranch,
+    branchLine,
+    children,
+  }: {
+    isMultiBranch: boolean
+    branchLine: string | null
+    children: React.ReactNode
+  }) => {
+    const { View, Text } = require('react-native')
     return (
-      <>
-        <Text>HEADLINE_NAME={merchantName}</Text>
-        {branchLine ? <Text testID="merchant-branch-line">{branchLine}</Text> : null}
-      </>
+      <View testID={isMultiBranch && branchLine ? 'branch-context-band' : 'branch-context-band-flat'}>
+        {isMultiBranch && branchLine ? (
+          <Text testID="merchant-branch-line">{branchLine}</Text>
+        ) : null}
+        {children}
+      </View>
     )
   },
 }))
@@ -421,18 +442,18 @@ describe('MerchantProfileScreen (M2)', () => {
     }))
   })
 
-  // ── P2.8 review fix-up regressions ──────────────────────────────────────────
-  // Sticky-header pin: Task 8 explodes MetaSection into 3 components
-  // (MerchantDescriptor + MetaRow + ActionRow) and moves BranchChip up.
-  // ScrollView children are now:
+  // ── Sticky-header pin: visual-correction-round structure ───────────────────
+  // Visual correction round (post-PR-#35 QA): BranchContextBand wraps the
+  // chip + descriptor + meta row as a single child. ScrollView children
+  // are now:
   // [0] SuspendedBranchBanner, [1] HeroSection, [2] MerchantHeadline,
-  // [3] BranchChip, [4] MerchantDescriptor, [5] MetaRow, [6] ActionRow,
-  // [7] TabBar ← sticky. Assert the prop directly.
-  it('pins TabBar sticky via stickyHeaderIndices=[7]', async () => {
+  // [3] BranchContextBand (wraps chip + descriptor + meta row),
+  // [4] ActionRow, [5] TabBar ← sticky. Assert the prop directly.
+  it('pins TabBar sticky via stickyHeaderIndices=[5]', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByTestId } = wrap(<MerchantProfileScreen id="m1" />)
     const scroll = await findByTestId('merchant-profile-scroll')
-    expect(scroll.props.stickyHeaderIndices).toEqual([7])
+    expect(scroll.props.stickyHeaderIndices).toEqual([5])
   })
 
   // Spec §4.7 — switching branch must close any open sheets (state-preservation

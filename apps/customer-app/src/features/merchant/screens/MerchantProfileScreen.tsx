@@ -26,6 +26,7 @@ import { useFavourite } from '@/hooks/useFavourite'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
 import { MerchantHeadline } from '../components/MerchantHeadline'
+import { BranchContextBand } from '../components/BranchContextBand'
 import { branchShortName } from '../utils/branchShortName'
 
 function buildBranchLine(branch: { city: string | null; name: string }): string | null {
@@ -268,7 +269,7 @@ export function MerchantProfileScreen({ id }: Props) {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[7]}
+        stickyHeaderIndices={[5]}
       >
         <SuspendedBranchBanner
           visible={showBanner}
@@ -286,44 +287,37 @@ export function MerchantProfileScreen({ id }: Props) {
           onShare={handleShare}
         />
 
-        <MerchantHeadline
-          merchantName={merchant.businessName}
-          branchLine={
-            isMultiBranch && sb
-              ? buildBranchLine(sb)
-              : null
-          }
-          switchTrigger={sb.id}
-        />
+        <MerchantHeadline merchantName={merchant.businessName} />
 
-        <BranchChip
+        {/* BranchContextBand wraps items 5–7 of spec §6.4 (chip / descriptor
+            / meta row). On multi-branch, a brand-red-tinted band frames the
+            branch identity as the page's signature anchor + adds the
+            branch-line text at the top. On single-branch the band collapses
+            to a flat layout (no tint, no branch-line text) — same children,
+            same vertical rhythm, no branch chrome.
+
+            `descriptor` defensive `|| null`: schema declares non-nullable
+            but backend may emit "" for unclassified merchants. */}
+        <BranchContextBand
           isMultiBranch={isMultiBranch}
-          onPress={() => setShowPicker(true)}
-          switchTrigger={sb.id}
-        />
+          branchLine={isMultiBranch && sb ? buildBranchLine(sb) : null}
+        >
+          <BranchChip
+            isMultiBranch={isMultiBranch}
+            onPress={() => setShowPicker(true)}
+          />
 
-        {/* Use the server-computed `descriptor` (Plan 1.5 §3.6 — built from
-            primaryDescriptorTag + subcategory.descriptorSuffix with de-dup)
-            rather than the raw subcategory name. Plan §8.1 mandates this.
+          <MerchantDescriptor descriptor={merchant.descriptor || null} />
 
-            `|| null` is defensive UI handling: the schema declares descriptor
-            as a non-nullable string, but in practice the backend may emit ""
-            for merchants that haven't been classified yet. MerchantDescriptor
-            already returns null on both empty-string and null inputs — the
-            `|| null` here documents the intent at the boundary so a future
-            schema tightening (descriptor → string | null) doesn't require a
-            second change at this call-site. No behaviour change. */}
-        <MerchantDescriptor descriptor={merchant.descriptor || null} />
-
-        {/* Branch-scoped per spec §4.4 + §6 (state model). */}
-        <MetaRow
-          isOpenNow={sb.isOpenNow}
-          openingHours={sb.openingHours}
-          distanceMetres={sb.distance}
-          avgRating={sb.avgRating}
-          reviewCount={sb.reviewCount}
-          switchTrigger={sb.id}
-        />
+          <MetaRow
+            isOpenNow={sb.isOpenNow}
+            openingHours={sb.openingHours}
+            distanceMetres={sb.distance}
+            avgRating={sb.avgRating}
+            reviewCount={sb.reviewCount}
+            switchTrigger={sb.id}
+          />
+        </BranchContextBand>
 
         <ActionRow
           hasWebsite={!!(sb.websiteUrl ?? merchant.websiteUrl)}
@@ -449,13 +443,19 @@ export function MerchantProfileScreen({ id }: Props) {
   )
 }
 
+// Visual correction round (post-PR-#35 QA): page surface shifts from pure
+// `#FFF` to warm cream `#F5F1EB` (Redeemo-brand neutral, slightly tinted
+// toward the brand-red hue per impeccable's "tint every neutral toward the
+// brand" rule). Card surfaces stay near-white via Section 3 token tint
+// `#FCFAF7`, so cards now read as elevated against the cream canvas
+// without needing heavier borders or shadows.
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#FFF' },
-  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF' },
+  container:    { flex: 1, backgroundColor: '#F5F1EB' },
+  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F1EB' },
   scroll:       { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
-  content:      { backgroundColor: '#FFF', minHeight: 460, padding: 20 },
-  errorScreen:  { flex: 1, backgroundColor: '#FFF', padding: 16 },
+  content:      { backgroundColor: '#F5F1EB', minHeight: 460, padding: 20 },
+  errorScreen:  { flex: 1, backgroundColor: '#F5F1EB', padding: 16 },
   backBtn:      { paddingVertical: 12 },
   errorCard:    { padding: 20, backgroundColor: '#FEF6F5', borderRadius: 16, gap: 8, marginTop: 16 },
 })
