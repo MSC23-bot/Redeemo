@@ -377,9 +377,11 @@ export function MerchantProfileScreen({ id }: Props) {
             <ReviewsTab
               merchantId={merchant.id}
               currentBranchId={sb.id}
-              currentBranchName={sb.name}
+              currentBranchName={branchShortName(sb.name)}
               myReview={sb.myReview}
               isMultiBranch={isMultiBranch}
+              currentBranchCount={sb.reviewCount}
+              allBranchesCount={merchant.reviewCount}
             />
           )}
         </View>
