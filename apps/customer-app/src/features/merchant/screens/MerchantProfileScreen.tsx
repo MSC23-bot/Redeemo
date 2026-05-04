@@ -19,6 +19,7 @@ import { DirectionsSheet } from '../components/DirectionsSheet'
 import { FreeUserGateModal } from '../components/FreeUserGateModal'
 import { BranchChip } from '../components/BranchChip'
 import { BranchPickerSheet } from '../components/BranchPickerSheet'
+import { HoursPreviewSheet } from '../components/HoursPreviewSheet'
 import { SuspendedBranchBanner } from '../components/SuspendedBranchBanner'
 import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
 import { useFavourite } from '@/hooks/useFavourite'
@@ -102,12 +103,13 @@ export function MerchantProfileScreen({ id }: Props) {
     isFavourited: merchant?.isFavourited ?? false,
   })
 
-  const [activeTab,        setActiveTab]        = useState<TabId>('vouchers')
-  const [showContact,      setShowContact]      = useState(false)
-  const [showDirs,         setShowDirs]         = useState(false)
-  const [showGate,         setShowGate]         = useState(false)
-  const [showPicker,       setShowPicker]       = useState(false)
-  const [bannerDismissed,  setBannerDismissed]  = useState(false)
+  const [activeTab,           setActiveTab]           = useState<TabId>('vouchers')
+  const [showContact,         setShowContact]         = useState(false)
+  const [showDirs,            setShowDirs]            = useState(false)
+  const [showGate,            setShowGate]            = useState(false)
+  const [showPicker,          setShowPicker]          = useState(false)
+  const [bannerDismissed,     setBannerDismissed]     = useState(false)
+  const [hoursPreviewBranchId, setHoursPreviewBranchId] = useState<string | null>(null)
 
   // On branch switch (URL `?branch=` change): close any open sheets, close
   // the free-user gate, and re-arm the SuspendedBranchBanner so the new
@@ -128,7 +130,11 @@ export function MerchantProfileScreen({ id }: Props) {
       { id: 'about',    label: 'About' },
     ]
     if (isMultiBranch) {
-      t.push({ id: 'branches', label: 'Branches', count: merchant?.branches.length ?? 0 })
+      const selectedId = merchant?.selectedBranch?.id
+      const otherActive = (merchant?.branches.filter(b => b.id !== selectedId && b.isActive).length) ?? 0
+      if (otherActive > 0) {
+        t.push({ id: 'branches', label: 'Other Locations', count: otherActive })
+      }
     }
     // Branch-scoped count matches the Reviews tab's default scope (the
     // toggle defaults to 'branch'). Showing the merchant-wide aggregate
@@ -338,15 +344,18 @@ export function MerchantProfileScreen({ id }: Props) {
           {activeTab === 'branches' && isMultiBranch && (
             <BranchesTab
               branches={merchant.branches}
-              // "Nearest" is a distance fact (server-computed from GPS), NOT
-              // a user-selection state. Passing `sb.id` here previously made
-              // the label track the chip's selection — a real correctness
-              // bug that contradicted the locked branch-as-primary-unit
-              // principle. Use the legacy R1 `nearestBranch.id` (still
-              // served as part of dual-write).
-              nearestBranchId={merchant.nearestBranch?.id ?? null}
-              onBranchPress={(nextBranchId) => select(nextBranchId)}
-              onHoursPress={() => setActiveTab('about')}
+              currentBranchId={sb.id}
+              selectedOpeningHours={sb.openingHours}
+              onCall={(_id, phone) => {
+                if (phone) Linking.openURL(`tel:${phone}`)
+              }}
+              onDirections={(branchId) => {
+                const target = merchant.branches.find(b => b.id === branchId)
+                if (!target) return
+                setShowDirs(true)
+              }}
+              onHoursPreview={(branchId) => setHoursPreviewBranchId(branchId)}
+              onSwitch={(branchId) => select(branchId)}
             />
           )}
           {activeTab === 'reviews' && (
@@ -405,6 +414,14 @@ export function MerchantProfileScreen({ id }: Props) {
         onDismiss={() => setShowGate(false)}
         merchantName={merchant.businessName}
         voucherCount={merchant.vouchers.length}
+      />
+
+      <HoursPreviewSheet
+        visible={hoursPreviewBranchId !== null}
+        branchName={branchShortName(merchant.branches.find(b => b.id === hoursPreviewBranchId)?.name ?? '')}
+        isOpenNow={merchant.branches.find(b => b.id === hoursPreviewBranchId)?.isOpenNow ?? false}
+        openingHours={merchant.branches.find(b => b.id === hoursPreviewBranchId)?.openingHours ?? []}
+        onDismiss={() => setHoursPreviewBranchId(null)}
       />
     </View>
   )

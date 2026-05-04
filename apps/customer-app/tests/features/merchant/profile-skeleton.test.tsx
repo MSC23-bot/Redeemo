@@ -73,14 +73,13 @@ jest.mock('@/features/merchant/components/VouchersTab', () => ({
 jest.mock('@/features/merchant/components/AboutTab',    () => ({
   AboutTab: () => { const { Text } = require('react-native'); return <Text>ABOUT_TAB</Text> },
 }))
-// BranchesTab mock surfaces `nearestBranchId` so the PR #33 fix-up #3
-// regression test (nearest must NOT track selection) can pin which id is
-// passed in. Also surfaces an `onBranchPress` shim so future tests can
-// trigger row-tap selection without coupling to BranchCard internals.
+// BranchesTab mock surfaces `currentBranchId` so regression tests can pin
+// which branch id is passed in as the "current" (excluded) branch.
+// Task 13: nearestBranchId removed; replaced by currentBranchId + action handlers.
 jest.mock('@/features/merchant/components/BranchesTab', () => ({
-  BranchesTab: ({ nearestBranchId }: { nearestBranchId: string | null }) => {
+  BranchesTab: ({ currentBranchId }: { currentBranchId: string }) => {
     const { Text } = require('react-native')
-    return <Text>BRANCHES_TAB|nearest={nearestBranchId ?? 'NULL'}</Text>
+    return <Text>BRANCHES_TAB|current={currentBranchId ?? 'NULL'}</Text>
   },
 }))
 jest.mock('@/features/merchant/components/ReviewsTab',  () => ({
@@ -515,41 +514,31 @@ describe('MerchantProfileScreen (M2)', () => {
     )
   })
 
-  // #2 (BLOCKER) — "Nearest" label correctness: the Branches tab must receive
-  // the actual nearest branch (from `merchant.nearestBranch`, server-computed
-  // by GPS), NOT the chip-selected branch. Previously the screen passed
-  // `sb.id` as `nearestBranchId`, making the "Nearest" label flip whenever
-  // the user switched branches — a real correctness bug that contradicted
-  // the locked branch-as-primary-unit principle ("nearest is a fact, not
-  // a state").
-  it('Branches tab receives merchant.nearestBranch.id, NOT sb.id (selection-independent)', async () => {
+  // Task 13 — currentBranchId correctness: the Other Locations tab must receive
+  // the SELECTED branch id (sb.id) as `currentBranchId` so that branch is
+  // excluded from the "Other Locations" list. The selected branch changes when
+  // the user picks a branch via the chip — the prop must track that selection.
+  it('Other Locations tab receives sb.id as currentBranchId (Task 13)', async () => {
     const branchA = { id: 'b1', name: 'Brightlingsea', isMainBranch: true, isActive: true,
       addressLine1: null, addressLine2: null,
       city: null, postcode: null, latitude: null, longitude: null,
       phone: null, email: null, distance: 1000, isOpenNow: true,
       avgRating: null, reviewCount: 0, openingHours: [] }
     const branchB = { ...branchA, id: 'b2', name: 'Colchester', isMainBranch: false, distance: 5000 }
-    // selectedBranch is b2 (user picked it); nearestBranch is b1 (real
-    // nearest by GPS). The mock asserts the exact id flowing into the tab.
+    // selectedBranch is b2 (user picked it). The mock asserts sb.id flows in.
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
       ...merchant,
       branches: [branchA, branchB],
-      nearestBranch: { id: 'b1', name: 'Brightlingsea',
-        addressLine1: null, addressLine2: null, city: null, postcode: null,
-        latitude: null, longitude: null, phone: null, email: null,
-        distance: 1000, isOpenNow: true },
       selectedBranch: { ...selectedBranchFixture, id: 'b2', name: 'Colchester' },
     })
     const { findByLabelText, findByText } = wrap(<MerchantProfileScreen id="m1" />)
     fireEvent.press(await findByLabelText('tab-branches'))
-    // BranchesTab mock surfaces nearestBranchId — assert it's b1, not b2.
-    expect(await findByText('BRANCHES_TAB|nearest=b1')).toBeTruthy()
+    // BranchesTab mock surfaces currentBranchId — assert it's b2 (the selected branch).
+    expect(await findByText('BRANCHES_TAB|current=b2')).toBeTruthy()
   })
 
-  // Companion: when merchant.nearestBranch is null (no GPS / no nearest
-  // could be computed), the prop falls through to null — NOT to sb.id. The
-  // BranchesTab should then render no "nearest" highlight.
-  it('Branches tab receives null nearestBranchId when merchant.nearestBranch is null', async () => {
+  // Companion: when the default selectedBranch is b1, currentBranchId must be b1.
+  it('Other Locations tab receives currentBranchId=b1 when selectedBranch=b1', async () => {
     const branchA = { id: 'b1', name: 'A', isMainBranch: true, isActive: true,
       addressLine1: null, addressLine2: null,
       city: null, postcode: null, latitude: null, longitude: null,
@@ -559,11 +548,11 @@ describe('MerchantProfileScreen (M2)', () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
       ...merchant,
       branches: [branchA, branchB],
-      nearestBranch: null,  // No GPS available
+      selectedBranch: { ...selectedBranchFixture, id: 'b1' },
     })
     const { findByLabelText, findByText } = wrap(<MerchantProfileScreen id="m1" />)
     fireEvent.press(await findByLabelText('tab-branches'))
-    expect(await findByText('BRANCHES_TAB|nearest=NULL')).toBeTruthy()
+    expect(await findByText('BRANCHES_TAB|current=b1')).toBeTruthy()
   })
 
   // ── MerchantHeadline wiring (Task 6 — §6.1) ─────────────────────────────────
