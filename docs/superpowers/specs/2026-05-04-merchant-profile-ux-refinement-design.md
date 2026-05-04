@@ -213,6 +213,30 @@ The full top-to-bottom layout, locked:
 - `WriteReviewSheet` — opened from Reviews tab
 - `FreeUserGateModal` — opened on voucher tap by free user
 
+### 6.5 Voucher-context reinforcement (inside the Vouchers tab)
+
+Because voucher cards don't change visually on branch switch (vouchers are merchant-level data; redemption is branch-attributed), a quiet branch-context label sits at the top of the Vouchers tab content. Reinforces the link between branch identity and the offers shown — without competing with the voucher cards themselves.
+
+**Layout:**
+```
+[ TabBar (sticky) ]
+↓
+Showing offers for Brightlingsea          ← new label (label.md, color secondary)
+[voucher card 1]
+[voucher card 2]
+...
+```
+
+**Rules:**
+- Multi-branch merchants only — hidden on single-branch (branch identity is implicit there).
+- Quiet single line, small font, color secondary (not brand-red — the headline already carries the brand-red branch line).
+- Branch name uses the same prefix-stripped form as the headline branch line (Pass 1 frontend strip-prefix; eventually `Branch.shortName` when migration ships).
+- No interaction. Pure status text.
+- Hidden when there are 0 vouchers (the empty-vouchers state has its own copy).
+- Reinforces the locked principle: redemption is always branch-attributed even though voucher catalogue is merchant-wide. The label answers "where will this voucher redeem?" without the user having to scroll back up.
+
+**Why here and not in the page chrome:** scoping this to the Vouchers tab content keeps the page header lean (per the no-new-persistent-UI principle) and only surfaces the reinforcement when it's relevant — when the user is looking at vouchers.
+
 ---
 
 ## 7. Pass 2 — Completion
@@ -225,7 +249,7 @@ The full top-to-bottom layout, locked:
 └── flow left ────────┘                      └─ anchor right
 ```
 
-`justify-content: space-between` with the left group flowing and the rating block anchoring right. Single line; row padding `11×14px`; inner gap `9–10px` for breathing room.
+`justify-content: space-between` with the left group flowing and the rating block anchoring right. Single line; row padding `12×14px`; inner gap `10–12px`. Values are starting points — tune during visual QA for breathing room (owner direction: err slightly toward more breathing room rather than less).
 
 **Visual hierarchy (four levels):**
 
@@ -392,7 +416,7 @@ Coordinated header-area animations fire in parallel on the same `selectedBranch.
 | 1 | Branch line (§6.1) | Background flash `rgba(226,12,4,0.12)` → transparent + scale 1.0 → 1.04 → 1.0 | ~300ms · ease-out | Instant value swap, no flash |
 | 2 | Meta row — status text (only) | Brief opacity dip 0.7 → 1.0 as new value applies | ~180ms · ease-out | Instant swap |
 | 3 | Meta row — distance (only) | Same opacity dip 0.7 → 1.0 (or hides cleanly if GPS dropped) | ~180ms · ease-out | Instant swap |
-| 4 | Chip caret (▾) | Brief 0° → -8° → 0° tilt (acknowledgement nod) | ~200ms · spring | Instant — no tilt |
+| 4 | Chip caret (▾) | Brief 0° → -8° → 0° tilt (acknowledgement nod). **Owner direction: this is the FIRST candidate for removal if the cumulative switch motion feels busy in QA.** Pulling this entry alone leaves the rest of the switch motion intact and is safe to drop without ripple. | ~200ms · spring | Instant — no tilt |
 
 **Deliberately NOT animated on switch:**
 - **Status pill** — colour change is its own visual signal; stacking opacity dip on it is over-animation.
@@ -422,6 +446,16 @@ Spatial continuity from "tap row" to "page reflects new branch":
 | 8 | Switch event animations (1–5 above) | Fire as the sheet starts dismissing — overlap, don't sequence | (per row above) | (per row above) |
 
 Overlap is intentional: by the time the sheet has fully closed, the page behind it has already settled into the new branch.
+
+#### Event: switch from Other Locations card — OPTIONAL reinforcement
+
+When the user taps "Switch →" on an Other Locations card, the page re-scopes (already covered) AND optionally surfaces a brief confirmation toast — distinct from chip-driven switches because the user has navigated away from the chip surface to the Other Locations tab; the chip + branch-line motion may not be visible.
+
+| # | Element | Effect | Duration | Reduced-motion |
+|---|---|---|---|---|
+| 11 | Confirmation toast | Brief inline banner near the tab bar: `Now viewing {branchName}`. Slide-in from top + fade, auto-dismisses. | enter ~200ms · dwell ~1.8s · exit ~140ms | Static text, longer dwell (~3s), no slide |
+
+**Marked OPTIONAL.** Implementation choice — ship without if the chip-driven switch motion is sufficient in QA. The toast adds chrome the spec generally avoids; the trade-off is "explicit confirmation when the user is in compare-mode and switching from a different surface than the chip." If shipped, the toast NEVER fires for chip-driven switches — only Other Locations Switch → button.
 
 #### Event: tab switch (Vouchers ↔ About ↔ Other Locations ↔ Reviews) — OPTIONAL POLISH
 
@@ -537,6 +571,13 @@ A working implementation must demonstrate:
 - [ ] Vouchers tab is the default active tab.
 - [ ] On a 375px phone, the first voucher card is visible immediately below the sticky tab bar.
 
+**Pass 1 — Voucher-context reinforcement (§6.5):**
+- [ ] Multi-branch: "Showing offers for {branchName}" label renders at the top of the Vouchers tab content.
+- [ ] Single-branch: label not rendered.
+- [ ] Branch name uses the same prefix-stripped form as the headline branch line.
+- [ ] Label is single line, color secondary, non-interactive.
+- [ ] Hidden when the merchant has 0 vouchers (empty-state copy applies instead).
+
 **Pass 2 — Meta row:**
 - [ ] Single line: pill + status text + distance flow left, rating block anchors right.
 - [ ] Pill colours: green Open, amber Closing soon, red Closed.
@@ -611,8 +652,11 @@ Detailed planning happens in the writing-plans skill after this spec is approved
 
 Items intentionally tracked here as "we know about it, we accept it for v1":
 
-- Tab content cross-fade animation (§8.2 entry 9) — optional polish, not required.
+- **Chip caret nod (§8.2 entry 4) — first removal candidate.** If the cumulative switch motion feels busy during QA, drop this entry first. Owner direction. Implementation should keep the nod isolated enough that pulling it is a one-line change.
+- **Other Locations switch confirmation toast (§8.2 entry 11) — optional.** Ship without if chip-driven switch motion is sufficient; revisit if QA reveals real confusion when switching from the Other Locations tab.
+- Tab content cross-fade animation (§8.2 entries 9–10) — optional polish, not required.
 - Pill text formal WCAG AA contrast verification (§4 / §H).
+- Meta row exact spacing values (§7.1) — owner direction "err toward more breathing room"; tune during visual QA, starting points are `12×14px` padding + `10–12px` gap.
 - HoursPreviewSheet vs OpeningHoursCard visual unification — same data, two slightly different containers.
 - AsyncStorage-backed first-visit hint persistence — currently per-screen-mount React state; revisit if QA finds the hint annoying.
 - Auto-scroll to top on switch — owner-rejected; revisit only if real user confusion is reported.
