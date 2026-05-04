@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native'
 import { Text } from '@/design-system/Text'
 import { spacing } from '@/design-system/tokens'
 import { VoucherCard } from './VoucherCard'
+import { VoucherContextLabel } from './VoucherContextLabel'
 import { useFavourite } from '@/hooks/useFavourite'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
@@ -11,9 +12,15 @@ type Props = {
   redeemedVoucherIds: Set<string>
   favouritedVoucherIds: Set<string>
   onVoucherPress: (voucherId: string) => void
+  /** Short name of the selected branch (from branchShortName()). */
+  branchShortName: string
+  /** True when the merchant has more than one branch. */
+  isMultiBranch:   boolean
+  /** Change to fire the fade animation — pass selectedBranch.id. */
+  switchTrigger?:  string | null
 }
 
-export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds, onVoucherPress }: Props) {
+export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds, onVoucherPress, branchShortName, isMultiBranch, switchTrigger }: Props) {
   if (vouchers.length === 0) {
     return (
       <View style={styles.empty}>
@@ -32,17 +39,25 @@ export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds
   })
 
   return (
-    <View style={styles.list}>
-      {sorted.map(v => (
-        <VoucherCardWrapper
-          key={v.id}
-          voucher={v}
-          isRedeemed={redeemedVoucherIds.has(v.id)}
-          isFavourited={favouritedVoucherIds.has(v.id)}
-          onPress={() => onVoucherPress(v.id)}
-        />
-      ))}
-    </View>
+    <>
+      <VoucherContextLabel
+        branchShortName={branchShortName}
+        isMultiBranch={isMultiBranch}
+        hasVouchers={true}
+        switchTrigger={switchTrigger}
+      />
+      <View style={styles.list}>
+        {sorted.map(v => (
+          <VoucherCardWrapper
+            key={v.id}
+            voucher={v}
+            isRedeemed={redeemedVoucherIds.has(v.id)}
+            isFavourited={favouritedVoucherIds.has(v.id)}
+            onPress={() => onVoucherPress(v.id)}
+          />
+        ))}
+      </View>
+    </>
   )
 }
 

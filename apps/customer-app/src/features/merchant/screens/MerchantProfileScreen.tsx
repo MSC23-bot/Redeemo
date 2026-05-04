@@ -317,6 +317,9 @@ export function MerchantProfileScreen({ id }: Props) {
               redeemedVoucherIds={redeemedVoucherIds}
               favouritedVoucherIds={favouritedVoucherIds}
               onVoucherPress={handleVoucherPress}
+              branchShortName={branchShortName(sb.name)}
+              isMultiBranch={isMultiBranch}
+              switchTrigger={sb.id}
             />
           )}
           {activeTab === 'about' && (
