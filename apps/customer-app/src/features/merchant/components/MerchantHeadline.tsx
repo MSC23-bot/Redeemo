@@ -96,8 +96,9 @@ const styles = StyleSheet.create({
     backgroundColor: color.surface.subtle,
   },
   // Single horizontal row carrying name (left, flex:1) + rating
-  // (right). marginTop:38 keeps the name's first cap ~7pt below the
-  // logo's bottom edge — tight visual coupling, no floating gap.
+  // (right). marginTop:46 gives ~14pt visible breathing space below
+  // the logo's bottom edge — round 4 §4 bumped from 38 (felt
+  // cramped on device) to 46 (small visible gap, no floating).
   // alignItems:'center' baseline-aligns the rating chip against the
   // name's first line for single-line names; 2-line names center
   // the rating between lines (acceptable edge case).
@@ -106,7 +107,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    marginTop: 38,
+    marginTop: 46,
   },
   name: {
     flex: 1,
