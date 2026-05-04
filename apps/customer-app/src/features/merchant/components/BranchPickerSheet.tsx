@@ -41,11 +41,21 @@ export function BranchPickerSheet({ visible, branches, currentBranchId, onPick, 
   const sortedBranches = React.useMemo(() => {
     const current = branches.find(b => b.id === currentBranchId)
     const others  = branches.filter(b => b.id !== currentBranchId)
-    const allHaveGps = branches.every(b => b.distanceMetres !== null)
-    const otherSorted = allHaveGps
-      ? [...others].sort((a, b) => (a.distanceMetres ?? Infinity) - (b.distanceMetres ?? Infinity))
-      : [...others].sort((a, b) => branchShortName(a.name).localeCompare(branchShortName(b.name)))
-    return current ? [current, ...otherSorted] : otherSorted
+    const activeOthers   = others.filter(b => b.isActive)
+    const inactiveOthers = others.filter(b => !b.isActive)
+
+    const allActiveHaveGps = activeOthers.every(b => b.distanceMetres !== null)
+    const sortedActive = allActiveHaveGps
+      ? [...activeOthers].sort((a, b) => (a.distanceMetres ?? Infinity) - (b.distanceMetres ?? Infinity))
+      : [...activeOthers].sort((a, b) => branchShortName(a.name).localeCompare(branchShortName(b.name)))
+
+    // Inactive rows always alphabetical (distance signal is meaningless when unavailable)
+    const sortedInactive = [...inactiveOthers].sort((a, b) =>
+      branchShortName(a.name).localeCompare(branchShortName(b.name)))
+
+    return current
+      ? [current, ...sortedActive, ...sortedInactive]
+      : [...sortedActive, ...sortedInactive]
   }, [branches, currentBranchId])
 
   return (
@@ -86,14 +96,23 @@ export function BranchPickerSheet({ visible, branches, currentBranchId, onPick, 
                     <RatingBlock avgRating={b.avgRating} reviewCount={b.reviewCount} />
                   </View>
                   <View style={styles.rowBottom}>
-                    <StatusPill state={status.pillState} label={status.pillLabel} />
-                    <Text variant="label.md" style={styles.statusText}>{status.statusText}</Text>
-                    {distance !== null ? (
+                    {isDisabled ? (
+                      <View style={styles.unavailablePill} accessibilityRole="text" accessibilityLabel="Status: Unavailable">
+                        <View style={styles.unavailableDot} />
+                        <Text variant="label.md" style={styles.unavailableText}>Unavailable</Text>
+                      </View>
+                    ) : (
                       <>
-                        <Text variant="label.md" style={styles.separator}>·</Text>
-                        <Text variant="label.md" style={styles.distance}>{distance}</Text>
+                        <StatusPill state={status.pillState} label={status.pillLabel} />
+                        <Text variant="label.md" style={styles.statusText}>{status.statusText}</Text>
+                        {distance !== null ? (
+                          <>
+                            <Text variant="label.md" style={styles.separator}>·</Text>
+                            <Text variant="label.md" style={styles.distance}>{distance}</Text>
+                          </>
+                        ) : null}
                       </>
-                    ) : null}
+                    )}
                   </View>
                 </Pressable>
               )
@@ -122,4 +141,11 @@ const styles = StyleSheet.create({
   separator:  { color: '#D1D5DB', fontSize: 11 },
   distance:   { color: '#9CA3AF', fontSize: 11 },
   disabledText: { color: '#9CA3AF' },
+  unavailablePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10,
+    backgroundColor: 'rgba(156,163,175,0.12)',
+  },
+  unavailableDot:  { width: 5, height: 5, borderRadius: 3, backgroundColor: '#9CA3AF' },
+  unavailableText: { color: '#6B7280', fontWeight: '600', fontSize: 11 },
 })
