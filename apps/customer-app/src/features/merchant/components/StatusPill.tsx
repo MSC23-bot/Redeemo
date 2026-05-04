@@ -28,7 +28,10 @@ export function StatusPill({ state, label }: Props) {
 }
 
 const styles = StyleSheet.create({
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10 },
-  dot:  { width: 5, height: 5, borderRadius: 3 },
-  text: { fontSize: 11, fontWeight: '700' },
+  // Round 4 §2: status pill scaled up a touch per direction "the
+  // closed/open sign could be just a tad, a little bit bigger".
+  // Padding 3/9 → 5/11, dot 5px → 6px, label 11pt → 12pt.
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 5, paddingHorizontal: 11, borderRadius: 11 },
+  dot:  { width: 6, height: 6, borderRadius: 3 },
+  text: { fontSize: 12, fontWeight: '700' },
 })

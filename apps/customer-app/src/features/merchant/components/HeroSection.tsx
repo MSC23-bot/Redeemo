@@ -99,7 +99,11 @@ export function HeroSection({
 
 const styles = StyleSheet.create({
   hero: {
-    height: 200,
+    // Round 4 §2: banner bumped 200 → 224pt — a touch more vertical
+    // weight per direction "the banner can come down a little bit
+    // more". The logo's negative top in MerchantHeadline carries the
+    // overlap (still ~half on banner / half on identity zone).
+    height: 224,
     position: 'relative',
     overflow: 'visible',
   },

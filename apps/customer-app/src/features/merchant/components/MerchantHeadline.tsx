@@ -68,12 +68,14 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     position: 'relative',
   },
-  // Rating sits in normal flow at the top of the identity zone,
-  // right-aligned; paddingTop:6 keeps a small breathing strip below
-  // the banner edge.
+  // Round 4 §2: rating sits lower than round 4 §1 (paddingTop 6 → 22)
+  // per direction "the rating needs to come down a little bit more,
+  // it's too close to the banner". The vertical column it forms with
+  // the right-aligned distance below sets up a clean right-rail
+  // composition.
   ratingWrap: {
     alignSelf: 'flex-end',
-    paddingTop: 6,
+    paddingTop: 22,
   },
   // Logo: absolute, overlaps banner by 32pt. Larger than round 3
   // (64pt vs 56pt) per user direction. Stronger shadow gives it a
@@ -106,12 +108,13 @@ const styles = StyleSheet.create({
     borderRadius: 13.5,
     backgroundColor: color.surface.subtle,
   },
-  // Name marginTop accounts for the absolute logo's visible bottom
-  // edge: logo top -32 + height 64 = bottom at +32 from root top.
-  // We add ~14pt breathing space + identity zone paddingTop 4 so the
-  // name starts at ~50pt from root top — clear of the logo with room.
+  // Round 4 §2: name gap tightened from 46 → 32pt per direction
+  // "the gap between the logo and the merchant name needs to reduce —
+  // just a slight gap". Logo bottom edge sits at root y=+32 (logo top
+  // -32 + height 64); name now starts at y=32 + ~marginTop padding
+  // for tight visual coupling without crowding.
   name: {
-    marginTop: 46,
+    marginTop: 32,
     fontSize: 26,
     fontWeight: '800',
     color: '#0F0E1F',

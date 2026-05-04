@@ -26,13 +26,29 @@ export function RatingBlock({ avgRating, reviewCount }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 4 §1: slightly bigger block + text per user direction "in
-  // the right ratio of everything else". The block now reads at
-  // 14/12pt rather than 13/11pt — proportionate to the bumped
-  // descriptor (14pt) and meta row (13pt).
-  block:       { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#FFF8E1', borderRadius: 9, paddingVertical: 5, paddingHorizontal: 11 },
-  star:        { color: '#F59E0B', fontSize: 13 },
-  avg:         { fontSize: 14, fontWeight: '800', color: '#010C35' },
-  count:       { fontSize: 12, color: '#666' },
+  // Round 4 §2: rating block re-styled per direction "could be a
+  // little bit more bolder and maybe a little bit bigger as well,
+  // maybe use a better style".
+  //   - Block bumps 14/12 → 15/12 with a softer cream surface
+  //     `#FFF4D6` (warmer than `#FFF8E1`, reads as a curated
+  //     editorial chip rather than a generic yellow tint).
+  //   - 1pt warm-amber border at 25% opacity defines the chip without
+  //     competing with the cream identity-zone background.
+  //   - Slight tabular spacing on the rating numeral so 4.0 / 4.5 /
+  //     5.0 line up if rendered side-by-side anywhere.
+  block: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFF4D6',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.25)',
+  },
+  star:        { color: '#F59E0B', fontSize: 14 },
+  avg:         { fontSize: 15, fontWeight: '900', color: '#010C35', letterSpacing: -0.1 },
+  count:       { fontSize: 12, fontWeight: '600', color: '#6B7280' },
   placeholder: { fontSize: 12, color: '#aaa' },
 })

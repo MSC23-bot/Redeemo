@@ -13,17 +13,19 @@ type Props = {
   onDirections: () => void
 }
 
-// Visual correction round §2 (post-PR-#35 QA): action row calibrated for
-// hierarchy. Website is the primary action (filled brand gradient,
-// retained); Contact + Directions are secondary utilities (outline,
-// de-emphasised). All three buttons drop from ~52pt → 40pt height —
-// they're contextual actions on a detail page, not checkout-tier CTAs.
+// Round 4 §2: Contact button promoted to a brand-secondary navy
+// gradient (white text + icon) per direction "I want the contact
+// button to be blue, the navy blue we use on our branding —
+// gradient navy blue button with text and icon being white, similar
+// to website".
 //
-// Per /interface-design "Every choice must be a choice": the previous
-// equal-weight trio sized like primary CTAs each was a default. Hierarchy
-// re-established: filled-gradient (Website) → outline (Contact +
-// Directions). All retain ≥44pt touch target via hitSlop on the smaller
-// visual size.
+// The action row hierarchy is now a clear two-tone primary-action
+// pair (Website red + Contact navy, both white-on-gradient,
+// matching the brand's two anchor colours) followed by Directions as
+// the lone outline tertiary. Reads as: brand-red is the merchant's
+// front door, navy is "talk to them", outline-navy is "go there".
+const NAVY_GRADIENT = ['#010C35', '#1F2A55'] as const
+
 export function ActionRow({ hasWebsite, onWebsite, onContact, onDirections }: Props) {
   return (
     <View style={styles.row}>
@@ -48,13 +50,20 @@ export function ActionRow({ hasWebsite, onWebsite, onContact, onDirections }: Pr
       )}
       <Pressable
         onPress={() => { lightHaptic(); onContact() }}
-        style={styles.outlineBtn}
+        style={styles.navyBtn}
         accessibilityRole="button"
         accessibilityLabel="Contact merchant"
         hitSlop={6}
       >
-        <Phone size={14} color={color.navy} />
-        <Text variant="label.md" style={styles.outlineBtnText}>Contact</Text>
+        <LinearGradient
+          colors={NAVY_GRADIENT}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.navyBtnGradient}
+        >
+          <Phone size={14} color="#FFF" />
+          <Text variant="label.md" style={styles.navyBtnText}>Contact</Text>
+        </LinearGradient>
       </Pressable>
       <Pressable
         onPress={() => { lightHaptic(); onDirections() }}
@@ -71,10 +80,6 @@ export function ActionRow({ hasWebsite, onWebsite, onContact, onDirections }: Pr
 }
 
 const styles = StyleSheet.create({
-  // Round 4 §1: more breathing room above + below the action row so
-  // the Website button's shadow has clearance and the row reads as
-  // a distinct primary-action band rather than crowding the meta row
-  // above and the tab bar below.
   row: {
     flexDirection: 'row',
     gap: 10,
@@ -82,13 +87,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     paddingHorizontal: 20,
   },
-  // Round 4 §1: Website button shadow no longer clipped. The previous
-  // setup had `overflow: 'hidden'` on the outer Pressable so its
-  // borderRadius would clip the inner LinearGradient — but that ALSO
-  // clipped the shadow rendered by the layer, leaving the button's
-  // bottom edge looking flat. Fix: borderRadius + overflow:hidden
-  // move to the gradient (which clips its own corners), and the
-  // outer Pressable keeps borderRadius for layout + shadow only.
+  // Website (brand red gradient) — borderRadius/overflow on the
+  // gradient (where it clips), shadow on the outer Pressable (where
+  // the layer renders it without being clipped).
   brandBtn: {
     flex: 1,
     borderRadius: 12,
@@ -114,18 +115,50 @@ const styles = StyleSheet.create({
     color: '#FFF',
     letterSpacing: -0.1,
   },
+  // Contact (navy gradient) — same architecture as Website. Navy
+  // shadow tinted toward `color.navy` so it reads as a soft drop
+  // shadow against the cream identity zone, not a generic black.
+  navyBtn: {
+    flex: 1,
+    borderRadius: 12,
+    shadowColor: color.navy,
+    shadowOpacity: 0.20,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  navyBtnGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  navyBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFF',
+    letterSpacing: -0.1,
+  },
+  // Directions stays as the lone outline button — visual hierarchy:
+  // brand-red filled (primary) → navy filled (secondary) → outline
+  // (tertiary). Outline keeps a subtle navy text + icon so it
+  // visually connects to the navy Contact button beside it.
   outlineBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 4,
     borderRadius: 12,
     backgroundColor: '#FCFAF7',
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
+    borderColor: 'rgba(1,12,53,0.10)',
   },
   outlineBtnText: {
     fontSize: 13,
