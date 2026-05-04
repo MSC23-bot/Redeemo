@@ -253,6 +253,14 @@ export function MerchantProfileScreen({ id }: Props) {
     : sb)
   const dirAddress = [dirsBranch.addressLine1, dirsBranch.city, dirsBranch.postcode].filter(Boolean).join(', ')
 
+  // HoursPreviewSheet target: resolved once per render so the JSX below
+  // doesn't re-find the same branch three times. Returns null when the
+  // sheet is closed (hoursPreviewBranchId === null) — JSX uses fallback
+  // defaults in that case so the sheet props stay typed.
+  const hoursPreviewBranch = hoursPreviewBranchId
+    ? merchant.branches.find(b => b.id === hoursPreviewBranchId) ?? null
+    : null
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -296,7 +304,15 @@ export function MerchantProfileScreen({ id }: Props) {
 
         {/* Use the server-computed `descriptor` (Plan 1.5 §3.6 — built from
             primaryDescriptorTag + subcategory.descriptorSuffix with de-dup)
-            rather than the raw subcategory name. Plan §8.1 mandates this. */}
+            rather than the raw subcategory name. Plan §8.1 mandates this.
+
+            `|| null` is defensive UI handling: the schema declares descriptor
+            as a non-nullable string, but in practice the backend may emit ""
+            for merchants that haven't been classified yet. MerchantDescriptor
+            already returns null on both empty-string and null inputs — the
+            `|| null` here documents the intent at the boundary so a future
+            schema tightening (descriptor → string | null) doesn't require a
+            second change at this call-site. No behaviour change. */}
         <MerchantDescriptor descriptor={merchant.descriptor || null} />
 
         {/* Branch-scoped per spec §4.4 + §6 (state model). */}
@@ -424,9 +440,9 @@ export function MerchantProfileScreen({ id }: Props) {
 
       <HoursPreviewSheet
         visible={hoursPreviewBranchId !== null}
-        branchName={branchShortName(merchant.branches.find(b => b.id === hoursPreviewBranchId)?.name ?? '')}
-        isOpenNow={merchant.branches.find(b => b.id === hoursPreviewBranchId)?.isOpenNow ?? false}
-        openingHours={merchant.branches.find(b => b.id === hoursPreviewBranchId)?.openingHours ?? []}
+        branchName={branchShortName(hoursPreviewBranch?.name ?? '')}
+        isOpenNow={hoursPreviewBranch?.isOpenNow ?? false}
+        openingHours={hoursPreviewBranch?.openingHours ?? []}
         onDismiss={() => setHoursPreviewBranchId(null)}
       />
     </View>
