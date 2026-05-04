@@ -3,14 +3,9 @@ import { render, fireEvent } from '@testing-library/react-native'
 import { VoucherCard } from '@/features/merchant/components/VoucherCard'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §1: voucher card rebuilt as a gradient ticket per user
-// direction. The visible layout is now:
-//   • Vertical short label in the sidebar (BOGO / FREE / SAVE
-//     / DEAL / % OFF / £ OFF / LIMITED / REUSE)
-//   • Hero £value + OFF suffix
-//   • Title (1–2 lines)
-//   • Single-line description
-//   • Bottom row: expiry/redeemed-status + Redeem CTA / REDEEMED stamp
+// Round 5 §2: voucher card aligned to the customer-web brand —
+// pastel TYPE_STYLES + sentence-case TYPE_LABELS, smart £ formatting
+// (£5 for whole pounds, £5.50 for pennies).
 const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   id: 'v1',
   type: 'FREEBIE',
@@ -23,8 +18,8 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   ...overrides,
 })
 
-describe('VoucherCard — round 5 §1 gradient ticket', () => {
-  it('renders the short vertical label + hero value + title + description', () => {
+describe('VoucherCard — round 5 §2 pastel ticket', () => {
+  it('renders the sentence-case vertical label + hero value + title + description', () => {
     const { getByText } = render(
       <VoucherCard
         voucher={mk()}
@@ -34,13 +29,41 @@ describe('VoucherCard — round 5 §1 gradient ticket', () => {
         onToggleFavourite={() => {}}
       />,
     )
-    // Vertical sidebar label is the SHORT version (FREEBIE → 'FREE').
-    expect(getByText('FREE')).toBeTruthy()
-    // Hero £value with the OFF suffix split into two text nodes.
-    expect(getByText('£2.5')).toBeTruthy()
+    // Vertical sidebar uses the website's sentence-case label
+    // (FREEBIE → 'Freebie').
+    expect(getByText('Freebie')).toBeTruthy()
+    // Hero £value with OFF suffix (2.5 → "£2.50" — has pennies).
+    expect(getByText('£2.50')).toBeTruthy()
     expect(getByText('OFF')).toBeTruthy()
     expect(getByText('Free Filter Coffee with Any Thali')).toBeTruthy()
     expect(getByText(/complimentary coffee/)).toBeTruthy()
+  })
+
+  it('formats whole-pound savings without decimals (£5 not £5.00)', () => {
+    const { getByText, queryByText } = render(
+      <VoucherCard
+        voucher={mk({ estimatedSaving: 5 })}
+        isRedeemed={false}
+        isFavourited={false}
+        onPress={() => {}}
+        onToggleFavourite={() => {}}
+      />,
+    )
+    expect(getByText('£5')).toBeTruthy()
+    expect(queryByText('£5.00')).toBeNull()
+  })
+
+  it('formats penny-bearing savings with two decimals (2.5 → £2.50)', () => {
+    const { getByText } = render(
+      <VoucherCard
+        voucher={mk({ estimatedSaving: 2.5 })}
+        isRedeemed={false}
+        isFavourited={false}
+        onPress={() => {}}
+        onToggleFavourite={() => {}}
+      />,
+    )
+    expect(getByText('£2.50')).toBeTruthy()
   })
 
   it('renders the Redeem CTA on non-redeemed vouchers', () => {
@@ -82,7 +105,8 @@ describe('VoucherCard — round 5 §1 gradient ticket', () => {
         onToggleFavourite={() => {}}
       />,
     )
-    fireEvent.press(getByLabelText(/FREE ITEM voucher/))
+    // a11y label uses the sentence-case label.
+    fireEvent.press(getByLabelText(/Freebie voucher/))
     expect(onPress).toHaveBeenCalledTimes(1)
   })
 
@@ -102,16 +126,16 @@ describe('VoucherCard — round 5 §1 gradient ticket', () => {
     expect(onToggleFavourite).toHaveBeenCalledTimes(1)
   })
 
-  it('renders the correct vertical short label per voucher type', () => {
+  it('renders the correct sentence-case label per voucher type', () => {
     const types: Array<{ type: MerchantVoucher['type']; label: string }> = [
-      { type: 'FREEBIE',          label: 'FREE' },
-      { type: 'BOGO',             label: 'BOGO' },
-      { type: 'DISCOUNT_FIXED',   label: '£ OFF' },
-      { type: 'DISCOUNT_PERCENT', label: '% OFF' },
-      { type: 'SPEND_AND_SAVE',   label: 'SAVE' },
-      { type: 'PACKAGE_DEAL',     label: 'DEAL' },
-      { type: 'TIME_LIMITED',     label: 'LIMITED' },
-      { type: 'REUSABLE',         label: 'REUSE' },
+      { type: 'FREEBIE',          label: 'Freebie' },
+      { type: 'BOGO',             label: 'Buy One Get One' },
+      { type: 'DISCOUNT_FIXED',   label: 'Discount' },
+      { type: 'DISCOUNT_PERCENT', label: 'Discount' },
+      { type: 'SPEND_AND_SAVE',   label: 'Spend & Save' },
+      { type: 'PACKAGE_DEAL',     label: 'Package Deal' },
+      { type: 'TIME_LIMITED',     label: 'Time Limited' },
+      { type: 'REUSABLE',         label: 'Reusable' },
     ]
     for (const t of types) {
       const { getByText } = render(
