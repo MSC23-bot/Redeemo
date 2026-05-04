@@ -27,6 +27,7 @@ import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
 import { MerchantHeadline } from '../components/MerchantHeadline'
 import { BranchContextBand } from '../components/BranchContextBand'
+import { BranchSwitchToast } from '../components/BranchSwitchToast'
 import { branchShortName } from '../utils/branchShortName'
 
 function buildBranchLine(branch: { city: string | null; name: string }): string | null {
@@ -116,6 +117,15 @@ export function MerchantProfileScreen({ id }: Props) {
   // Other Locations card), DirectionsSheet shows THAT branch's address +
   // coords instead. Resets on close + on branch switch.
   const [dirsBranchId,        setDirsBranchId]        = useState<string | null>(null)
+  // Visual correction round §4: branch-switch confirmation toast. When the
+  // user taps Switch on an Other Locations card, the chip + band may be
+  // off-screen (they scrolled). We show a small "Now viewing {branch}"
+  // toast for 2.4s as a confirmation. `pendingToastForBranchId` tracks
+  // the branch we're EXPECTING to land on; once `sb.id` matches it, the
+  // toast fires. Suppressed for chip-picker switches (band motion is
+  // visible there).
+  const [pendingToastForBranchId, setPendingToastForBranchId] = useState<string | null>(null)
+  const [toastBranchName,         setToastBranchName]         = useState<string | null>(null)
 
   // On branch switch (URL `?branch=` change): close any open sheets, close
   // the free-user gate, and re-arm the SuspendedBranchBanner so the new
@@ -129,6 +139,19 @@ export function MerchantProfileScreen({ id }: Props) {
     setShowPicker(false)
     setBannerDismissed(false)
   }, [branchId])
+
+  // Visual correction round §4: when the pending Other-Locations switch
+  // lands (the screen has rerendered with the new selectedBranch data),
+  // show the confirmation toast. `branchId` from useBranchSelection
+  // mirrors `selectedBranch.id` once the page settles.
+  useEffect(() => {
+    if (!pendingToastForBranchId) return
+    if (branchId !== pendingToastForBranchId) return
+    const newBranchName = merchant?.branches.find(b => b.id === branchId)?.name
+    if (!newBranchName) return
+    setToastBranchName(branchShortName(newBranchName))
+    setPendingToastForBranchId(null)
+  }, [branchId, pendingToastForBranchId, merchant])
 
   const tabs = useMemo(() => {
     const isMultiBranch = (merchant?.branches.length ?? 0) > 1
@@ -301,6 +324,7 @@ export function MerchantProfileScreen({ id }: Props) {
         <BranchContextBand
           isMultiBranch={isMultiBranch}
           branchLine={isMultiBranch && sb ? buildBranchLine(sb) : null}
+          switchTrigger={sb.id}
         >
           <BranchChip
             isMultiBranch={isMultiBranch}
@@ -368,7 +392,14 @@ export function MerchantProfileScreen({ id }: Props) {
                 setShowDirs(true)
               }}
               onHoursPreview={(branchId) => setHoursPreviewBranchId(branchId)}
-              onSwitch={(branchId) => select(branchId)}
+              onSwitch={(branchId) => {
+                // §4: arm the confirmation toast for THIS pending switch
+                // (Other-Locations source only — chip-picker switches don't
+                // set this state, so they only get the band motion as
+                // confirmation).
+                setPendingToastForBranchId(branchId)
+                select(branchId)
+              }}
             />
           )}
           {activeTab === 'reviews' && (
@@ -437,6 +468,11 @@ export function MerchantProfileScreen({ id }: Props) {
         isOpenNow={hoursPreviewBranch?.isOpenNow ?? false}
         openingHours={hoursPreviewBranch?.openingHours ?? []}
         onDismiss={() => setHoursPreviewBranchId(null)}
+      />
+
+      <BranchSwitchToast
+        branchName={toastBranchName}
+        onDismiss={() => setToastBranchName(null)}
       />
     </View>
   )

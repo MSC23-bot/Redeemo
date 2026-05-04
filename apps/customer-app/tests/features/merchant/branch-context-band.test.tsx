@@ -65,4 +65,23 @@ describe('BranchContextBand', () => {
     expect(queryByTestId('branch-context-band')).toBeNull()
     expect(queryByTestId('merchant-branch-line')).toBeNull()
   })
+
+  // Visual correction round §4 motion contract: switchTrigger changes
+  // must not crash the component. Band rerenders cleanly with each
+  // trigger value (animation runs invisibly in tests where Reanimated
+  // is mocked).
+  it('accepts switchTrigger prop changes without crashing', () => {
+    const { rerender, getByTestId } = render(
+      <BranchContextBand isMultiBranch={true} branchLine="Brightlingsea" switchTrigger="b1">
+        <Children />
+      </BranchContextBand>
+    )
+    expect(getByTestId('branch-context-band')).toBeTruthy()
+    rerender(
+      <BranchContextBand isMultiBranch={true} branchLine="Colchester" switchTrigger="b2">
+        <Children />
+      </BranchContextBand>
+    )
+    expect(getByTestId('branch-context-band')).toBeTruthy()
+  })
 })
