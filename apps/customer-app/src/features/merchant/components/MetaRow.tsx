@@ -19,7 +19,6 @@ type Props = {
 function formatDistance(metres: number | null): string | null {
   if (metres === null) return null
   if (metres < 1000) return `${Math.round(metres)}m`
-  if (metres >= 100_000) return null  // suppress: ≥100km hidden per existing rule
   return `${(metres / 1609.34).toFixed(1)} mi`
 }
 

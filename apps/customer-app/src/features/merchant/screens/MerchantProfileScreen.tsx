@@ -302,15 +302,18 @@ export function MerchantProfileScreen({ id }: Props) {
         <HeroSection
           // Branch-scoped imagery wins; merchant-level falls back when the
           // branch hasn't uploaded its own (typical for chains using the
-          // master logo / banner across all branches).
+          // master logo / banner across all branches). Logo moved into
+          // MerchantHeadline (round 3 §A1) — Hero owns banner only.
           bannerUrl={sb.bannerUrl ?? merchant.bannerUrl}
-          logoUrl={sb.logoUrl ?? merchant.logoUrl}
           isFavourited={favourite.isFavourited}
           onToggleFavourite={favourite.toggle}
           onShare={handleShare}
         />
 
-        <MerchantHeadline merchantName={merchant.businessName} />
+        <MerchantHeadline
+          merchantName={merchant.businessName}
+          logoUrl={sb.logoUrl ?? merchant.logoUrl}
+        />
 
         {/* BranchContextBand wraps items 5–7 of spec §6.4 (chip / descriptor
             / meta row). On multi-branch, a brand-red-tinted band frames the

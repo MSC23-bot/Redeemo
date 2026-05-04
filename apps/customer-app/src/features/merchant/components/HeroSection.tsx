@@ -3,14 +3,14 @@ import { View, Pressable, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ArrowLeft, Share2, Heart, TrendingUp, Award } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
-import { color, spacing } from '@/design-system/tokens'
+import { spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 
 type Props = {
   bannerUrl: string | null
-  logoUrl: string | null
   isFeatured?: boolean
   isTrending?: boolean
   isFavourited: boolean
@@ -18,11 +18,21 @@ type Props = {
   onShare: () => void
 }
 
+// Visual correction round 3 §A1 + §A7: the logo moved out of HeroSection
+// and into MerchantHeadline (where it sits in a horizontal flex row with
+// the merchant name). HeroSection now owns only the banner image, the
+// nav row, and badge row.
+//
+// §A7: top inset is now driven by `useSafeAreaInsets()` so the back/share
+// /favourite buttons clear the Dynamic Island on Pro devices (which need
+// ~59pt) AND sit correctly on older notch devices (~47pt). The previous
+// hardcoded `top: 52` split the difference and undershot DI devices.
 export function HeroSection({
-  bannerUrl, logoUrl, isFeatured, isTrending,
+  bannerUrl, isFeatured, isTrending,
   isFavourited, onToggleFavourite, onShare,
 }: Props) {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
 
   return (
     <View style={styles.hero}>
@@ -38,7 +48,7 @@ export function HeroSection({
         style={StyleSheet.absoluteFillObject}
       />
 
-      <View style={styles.navRow}>
+      <View style={[styles.navRow, { top: insets.top + 8 }]}>
         <Pressable
           onPress={() => { lightHaptic(); router.back() }}
           style={styles.frostedBtn}
@@ -83,14 +93,6 @@ export function HeroSection({
           )}
         </View>
       )}
-
-      <View style={styles.logoBox}>
-        {logoUrl ? (
-          <Image source={{ uri: logoUrl }} style={styles.logoImage} contentFit="cover" />
-        ) : (
-          <View style={styles.logoPlaceholder} />
-        )}
-      </View>
     </View>
   )
 }
@@ -103,7 +105,6 @@ const styles = StyleSheet.create({
   },
   navRow: {
     position: 'absolute',
-    top: 52,
     left: 0,
     right: 0,
     zIndex: 10,
@@ -158,34 +159,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-  },
-  logoBox: {
-    position: 'absolute',
-    bottom: -28,
-    left: spacing[4],
-    zIndex: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: '#FFF',
-    backgroundColor: '#FFF',
-    shadowColor: '#000',
-    shadowOpacity: 0.10,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 6,
-    overflow: 'hidden',
-  },
-  logoImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-  },
-  logoPlaceholder: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: color.surface.subtle,
   },
 })

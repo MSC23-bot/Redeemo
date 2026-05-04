@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
   },
   brandBtn: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     overflow: 'hidden',
     shadowColor: color.brandRose,
     shadowOpacity: 0.18,
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 10,
     paddingHorizontal: 4,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: '#FCFAF7',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.06)',

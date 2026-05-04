@@ -2,6 +2,7 @@ import React from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
 import { Phone, Navigation, Clock, ArrowRight } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
+import { lightHaptic } from '@/design-system/haptics'
 import { StatusPill } from './StatusPill'
 import { RatingBlock } from './RatingBlock'
 import { smartStatus } from '../utils/smartStatus'
@@ -19,7 +20,6 @@ type Props = {
 
 function formatDistance(metres: number | null): string | null {
   if (metres === null) return null
-  if (metres >= 100_000) return null
   if (metres < 1000) return `${Math.round(metres)}m`
   return `${(metres / 1609.34).toFixed(1)} mi`
 }
@@ -54,19 +54,19 @@ export function BranchCard({ branch, openingHoursForStatus, onCall, onDirections
       ) : null}
 
       <View style={styles.actions}>
-        <Pressable style={styles.actionBtn} onPress={onCall} accessibilityLabel="Call">
+        <Pressable style={styles.actionBtn} onPress={() => { lightHaptic(); onCall() }} accessibilityLabel="Call">
           <Phone size={12} color="#010C35" />
           <Text variant="label.md" style={styles.actionText}>Call</Text>
         </Pressable>
-        <Pressable style={styles.actionBtn} onPress={onDirections} accessibilityLabel="Directions">
+        <Pressable style={styles.actionBtn} onPress={() => { lightHaptic(); onDirections() }} accessibilityLabel="Directions">
           <Navigation size={12} color="#010C35" />
           <Text variant="label.md" style={styles.actionText}>Directions</Text>
         </Pressable>
-        <Pressable style={styles.actionBtn} onPress={onHoursPreview} accessibilityLabel="Hours">
+        <Pressable style={styles.actionBtn} onPress={() => { lightHaptic(); onHoursPreview() }} accessibilityLabel="Hours">
           <Clock size={12} color="#010C35" />
           <Text variant="label.md" style={styles.actionText}>Hours</Text>
         </Pressable>
-        <Pressable style={styles.switchBtn} onPress={onSwitch} accessibilityLabel="Switch to this branch">
+        <Pressable style={styles.switchBtn} onPress={() => { lightHaptic(); onSwitch() }} accessibilityLabel="Switch to this branch">
           <Text variant="label.md" style={styles.switchText}>Switch</Text>
           <ArrowRight size={12} color="#fff" />
         </Pressable>

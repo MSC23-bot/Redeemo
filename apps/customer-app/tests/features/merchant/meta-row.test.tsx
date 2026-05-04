@@ -53,6 +53,26 @@ describe('MetaRow', () => {
     expect(queryByText(/^\d+m$/)).toBeNull()
   })
 
+  // Round 3 §A2: the 100km suppression rule was removed because GPS-vs-
+  // server distance can legitimately resolve to > 100km when the user's
+  // phone reports a default fallback location (e.g. a server-room geo
+  // during dev) and the device has no location lock yet. Hiding the
+  // distance entirely caused on-device QA to think distance was broken;
+  // showing the actual mileage is the correct behaviour.
+  it('shows large distances (>100km) instead of hiding them', () => {
+    const { getByText } = render(
+      <MetaRow
+        isOpenNow={true}
+        openingHours={open9to22}
+        distanceMetres={200_000}
+        avgRating={4.5}
+        reviewCount={7}
+        now={dt(1, 18, 0)}
+      />
+    )
+    expect(getByText('124.3 mi')).toBeTruthy()
+  })
+
   it('shows "No reviews yet" placeholder when reviewCount=0', () => {
     const { getByText, queryByText } = render(
       <MetaRow

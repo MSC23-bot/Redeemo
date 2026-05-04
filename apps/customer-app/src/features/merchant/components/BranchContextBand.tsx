@@ -81,10 +81,16 @@ export function BranchContextBand({ isMultiBranch, branchLine, switchTrigger, ch
   }, [switchTrigger, motionScale, isMultiBranch, flashIntensity, sweepProgress])
 
   const bandAnimatedStyle = useAnimatedStyle(() => ({
+    // Visual correction round 3 §A8: band tint shifts from brand-red to
+    // warm-cream-darker. The band now reads as a quiet elevation against
+    // the page surface (`#F5F1EB`), and the brand-red gradient SWEEP
+    // (below) carries the brand cue during the switch motion. Cream-rest →
+    // cream-darker-flash gives a subtle bg shift that frames the sweep
+    // without competing for attention.
     backgroundColor: interpolateColor(
       flashIntensity.value,
       [0, 1],
-      ['rgba(226,12,4,0.04)', 'rgba(226,12,4,0.14)'],
+      ['#EFEAE0', '#E5DCC9'],
     ),
   }))
 
@@ -143,7 +149,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: 'rgba(226,12,4,0.04)',
+    backgroundColor: '#EFEAE0',  // warm cream rest tint (round 3 §A8)
     gap: 10,
     overflow: 'hidden',  // clip the sweep gradient to band bounds
     position: 'relative',
