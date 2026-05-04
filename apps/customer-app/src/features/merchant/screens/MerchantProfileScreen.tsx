@@ -327,7 +327,7 @@ export function MerchantProfileScreen({ id }: Props) {
           onDirections={() => setShowDirs(true)}
         />
 
-        <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
+        <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} switchTrigger={sb.id} />
 
         <View style={styles.content}>
           {activeTab === 'vouchers' && (
