@@ -3433,3 +3433,56 @@ Plan complete and saved to `docs/superpowers/plans/2026-05-04-merchant-profile-u
 **2. Inline Execution** — Execute tasks in this session using executing-plans, batch execution with checkpoints.
 
 **Which approach?**
+
+
+---
+
+## Visual correction round (post-PR-#35 on-device QA, 2026-05-04)
+
+After Tasks 1–17 shipped to PR #35 and the implementation passed unit-level review, on-device QA flagged the merchant-profile screen as not yet visually acceptable for merge. The structural and data-model work was directionally correct, but the UI needed a focused visual correction pass before merge.
+
+This round was scoped, approved, and executed in five sections on the same `feature/merchant-profile-ux-refinement` branch. Skill allocation (one skill per concern):
+
+- `/ui-ux-pro-max` — primary product UX critique, branch-first hierarchy.
+- `/interface-design` — visual system, signature-element discipline, intent-first.
+- `/interaction-design` — interaction patterns, timing scale, accessibility.
+- `/emil-design-eng` — motion craft, custom easing curves, perceived performance.
+- `/impeccable` — anti-slop, absolute-bans audit, color strategy commitment.
+- `/frontend-design` — implementation translation, anti-generic AI aesthetic.
+
+### Sections + commits
+
+| § | Commit | Scope |
+|---|---|---|
+| 1 | `74e281e` | Hero + identity restructure: hero 230→200pt, logo collision fix (paddingLeft 92pt), merchant name display.lg→display.sm (32→22pt), NEW `BranchContextBand` signature component, page background `#F5F1EB` warm cream. |
+| 2 | `7c50fb6` | Action row + tab bar: action row 52→40pt (Website primary, Contact+Directions secondary), tab bar gains border + shadow (anchors against cream canvas), tab indicator pulse REMOVED, MetaRow opacity dip REMOVED. |
+| 3 | `8b74348` | Voucher card visual rebuild: side-stripe REMOVED (impeccable absolute ban), pastel gradient bg REMOVED, type tag → refined tinted chip, Save value → brand-red 14pt 800 inline (no pill), Redeem CTA preserved at brand-red 14pt 700, padding 24→16, perforation stub kept as Redeemo signature. |
+| 4 | `4ac16dc` | Branch-switch motion: ONE coordinated band-level motion (background flash + brand-red gradient sweep, ~440ms, custom ease-out curve) replacing 5 scattered subtle motions. NEW `BranchSwitchToast` simple 2.4s confirmation for Other Locations source switches only (no Undo, no infrastructure). Reduced-motion fallback: instant value swap. |
+| 5 | (this commit) | Documentation amendment. |
+
+### Locked product rules preserved end-to-end
+
+- Branch-first UX: branch identity now visually anchored via `BranchContextBand` signature region.
+- Vouchers merchant-wide: voucher cards do NOT animate on branch switch.
+- Redemption branch-attributed: branch line + meta row + ActionRow targets refresh on switch; merchant identity (name, logo, descriptor) stays still.
+- §6.4 page composition order: unchanged (hero → headline → chip → descriptor → meta row → action row → tab bar → tab content).
+
+### Test posture
+
+- 183/183 merchant suite green (was 168/168 pre-correction; +15 across new components: BranchContextBand, BranchSwitchToast, VoucherCard).
+- TypeScript clean.
+- Backend: untouched.
+- Pre-existing baseline failure on `tests/lib/api/profile.test.ts` (unrelated, documented in CLAUDE.md) still present.
+
+### Documented spec divergences (deferred to follow-up polish)
+
+1. Action row copy/order: §6.4 says "Call · Directions · Website" but ALSO says "unchanged from PR #33". This round preserves PR #33 exactly (Website / Contact / Directions). Owner-confirmed deferred.
+2. The TabBar active-indicator pulse described in §8.2 entry 6 was REMOVED entirely (was decorative noise). Branch-switch feedback now centralised in the BranchContextBand motion + toast.
+
+### Implementation cadence
+
+Five controlled sections, each with its own commit + test pass + tsc pass before moving to the next. Same `feature/merchant-profile-ux-refinement` branch — PR #35 updates with these commits.
+
+### Next step
+
+Push to PR #35; pause for on-device QA round 2.
