@@ -87,35 +87,29 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 4 §6: tab bar is the visible boundary between the
-  // identity zone (top) and the tab-content body (bottom). Now in
-  // the same near-neutral off-white family as the body, just a tone
-  // darker so it reads as a "header":
+  // Round 4 §7: tab bar is white. Header treatment now carried
+  // entirely by elevation — stronger downward drop shadow + faint
+  // bottom border separator so the user sees a clear "this is the
+  // header, content scrolls under it" boundary even when both
+  // surfaces share the same white tone.
   //
   //   IDENTITY  #FFF9F5  (warm cream — top zone)
-  //   TAB BAR   #EAEAE3  (slightly darker off-white — header)
-  //   BODY      #F4F4EF  (off-white)
-  //   CARDS     #FFFFFF  (white)
-  //
-  // paddingHorizontal: 20 + gap: 4 — the active pill on the leftmost
-  // ("Vouchers") and rightmost ("Reviews") tabs no longer crowds the
-  // screen edges when those tabs are selected. Tighter than 24pt so
-  // the longest label ("Vouchers 3" with count badge) doesn't
-  // truncate at fontSize 14.
+  //   TAB BAR   #FFFFFF  (white + header shadow)
+  //   BODY      #FFFFFF  (white)
+  //   CARDS     #FFFFFF  (white + card shadow)
   container: {
     flexDirection: 'row',
-    backgroundColor: '#EAEAE3',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 20,
     gap: 4,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.06)',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.10)',
+    borderBottomColor: 'rgba(0,0,0,0.05)',
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+    shadowOpacity: 0.10,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+    zIndex: 5,
   },
   tab: {
     flex: 1,

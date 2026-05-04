@@ -85,17 +85,19 @@ function StatusDot({ isOpen }: { isOpen: boolean }) {
 }
 
 const styles = StyleSheet.create({
+  // Round 4 §7: shadow bumped so the card visibly elevates against
+  // the white body.
   card: {
     backgroundColor: '#FFF',
     borderRadius: 16,
     padding: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   titleRow: {
     flexDirection: 'row',
