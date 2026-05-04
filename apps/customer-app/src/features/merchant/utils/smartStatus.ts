@@ -72,6 +72,11 @@ export function smartStatus(
     if (!todayEntry || !todayEntry.closeTime) {
       return { pillState: 'open', pillLabel: 'Open', statusText: 'Hours unavailable' }
     }
+    // Single-interval limitation: minsUntilClose can be negative when a venue's
+    // closeTime crosses midnight (e.g. closes at 02:00). The `> 0` guard below
+    // prevents incorrect closing-soon under that case; the `Closes at H:MMam/pm`
+    // text is still textually correct. Full fix lands when backend
+    // selectedBranch.statusText + isClosingSoon ship (deferred §A).
     const minsUntilClose = parseHM(todayEntry.closeTime) - nowMinutes
     if (minsUntilClose <= 60 && minsUntilClose > 0) {
       return {

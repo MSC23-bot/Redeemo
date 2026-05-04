@@ -13,7 +13,6 @@ function dt(dayOfWeek: number, hh: number, mm: number): Date {
 }
 
 const open9to17: OpeningHourEntry = { dayOfWeek: 1, openTime: '09:00', closeTime: '17:00', isClosed: false }
-const closed: OpeningHourEntry = { dayOfWeek: 1, openTime: null, closeTime: null, isClosed: true }
 
 describe('smartStatus', () => {
   describe('Open state (>60 min until close)', () => {
