@@ -233,17 +233,6 @@ export function MerchantProfileScreen({ id }: Props) {
   const isMultiBranch = merchant.branches.length > 1
   const showBanner = merchant.selectedBranchFallbackReason === 'candidate-inactive' && !bannerDismissed
 
-  // Open-status text on the chip: "Closes HH:MM" while open + we have a
-  // closeTime for today; otherwise "Open now" or "Closed". Day-of-week 0–6
-  // matches the OpeningHourEntry convention (0 = Sunday).
-  const today = new Date().getDay()
-  const todayHours = sb.openingHours.find(h => h.dayOfWeek === today)
-  const closesAt = sb.isOpenNow && todayHours?.closeTime ? todayHours.closeTime : null
-
-  // County: Branch.county doesn't exist yet (deferred-followups §H). The
-  // chip / picker accept null and degrade to city-only — intentional.
-  const county = null
-
   // Per-voucher state placeholders. cefaf45 documented these as TODO until
   // the merchant detail endpoint surfaces redeemed/favourited per voucher.
   // Out of scope for M2 — the Voucher Detail rebaseline will resolve.
