@@ -74,12 +74,20 @@ jest.mock('@/features/merchant/components/AboutTab',    () => ({
   AboutTab: () => { const { Text } = require('react-native'); return <Text>ABOUT_TAB</Text> },
 }))
 // BranchesTab mock surfaces `currentBranchId` so regression tests can pin
-// which branch id is passed in as the "current" (excluded) branch.
-// Task 13: nearestBranchId removed; replaced by currentBranchId + action handlers.
+// which branch id is passed in as the "current" (excluded) branch. Round
+// 3 §C3 also surfaces an onSwitch trigger so we can verify the screen
+// returns activeTab to 'vouchers' after a branches-tab switch.
 jest.mock('@/features/merchant/components/BranchesTab', () => ({
-  BranchesTab: ({ currentBranchId }: { currentBranchId: string }) => {
-    const { Text } = require('react-native')
-    return <Text>BRANCHES_TAB|current={currentBranchId ?? 'NULL'}</Text>
+  BranchesTab: ({ currentBranchId, onSwitch }: { currentBranchId: string; onSwitch: (id: string) => void }) => {
+    const { Text, Pressable } = require('react-native')
+    return (
+      <>
+        <Text>BRANCHES_TAB|current={currentBranchId ?? 'NULL'}</Text>
+        <Pressable accessibilityLabel="branches-tab-switch-trigger" onPress={() => onSwitch('b2')}>
+          <Text>SWITCH_TO_B2</Text>
+        </Pressable>
+      </>
+    )
   },
 }))
 jest.mock('@/features/merchant/components/ReviewsTab',  () => ({
@@ -98,36 +106,10 @@ jest.mock('@/features/merchant/components/FreeUserGateModal', () => ({
     return visible ? <Text>GATE_VISIBLE</Text> : null
   },
 }))
-// P2.8 mocks — BranchChip / BranchPickerSheet / SuspendedBranchBanner /
-// AllBranchesUnavailable each have dedicated unit tests; here we only
-// verify the screen wires them up correctly.
-jest.mock('@/features/merchant/components/BranchChip', () => ({
-  BranchChip: ({ isMultiBranch, onPress }: { isMultiBranch: boolean; onPress: () => void }) => {
-    const { Text, Pressable } = require('react-native')
-    if (!isMultiBranch) return null
-    return (
-      <Pressable accessibilityLabel="branch-chip" onPress={onPress}>
-        <Text>CHIP_MULTI={String(isMultiBranch)}</Text>
-      </Pressable>
-    )
-  },
-}))
-jest.mock('@/features/merchant/components/BranchPickerSheet', () => ({
-  BranchPickerSheet: ({ visible, branches, onPick }: { visible: boolean; branches: Array<{ id: string; name: string }>; onPick: (id: string) => void }) => {
-    const { Text, Pressable } = require('react-native')
-    if (!visible) return null
-    return (
-      <>
-        <Text>PICKER_VISIBLE</Text>
-        {branches.map(b => (
-          <Pressable key={b.id} accessibilityLabel={`pick-${b.id}`} onPress={() => onPick(b.id)}>
-            <Text>{b.name}</Text>
-          </Pressable>
-        ))}
-      </>
-    )
-  },
-}))
+// P2.8 mocks — SuspendedBranchBanner / AllBranchesUnavailable each have
+// dedicated unit tests; here we only verify the screen wires them up
+// correctly. Round 3 §C1 removed the BranchChip + BranchPickerSheet
+// from the screen; their mocks are no longer needed.
 jest.mock('@/features/merchant/components/SuspendedBranchBanner', () => ({
   SuspendedBranchBanner: ({ visible }: { visible: boolean }) => {
     const { Text } = require('react-native')
@@ -387,18 +369,12 @@ describe('MerchantProfileScreen (M2)', () => {
     expect(queryByText(/Reviews\(0\)/)).toBeNull()
   })
 
-  // ── P2.8 — branch chip / picker / banner / all-suspended wiring ───────────────
-  it('renders the BranchChip on a multi-branch merchant', async () => {
-    const branchA = { ...selectedBranchFixture, id: 'b1' }
-    const branchB = { ...selectedBranchFixture, id: 'b2', name: 'Colchester', isMainBranch: false }
-    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
-      ...merchant,
-      branches: [branchA, branchB],
-    })
-    const { findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
-    expect(await findByLabelText('branch-chip')).toBeTruthy()
-  })
-
+  // ── P2.8 — banner / all-suspended wiring ──────────────────────────────────
+  // Round 3 §C1 removed the chip + picker from this screen; the
+  // dedicated chip/picker integration tests below were removed with
+  // them. Branch switching is now exclusively driven by the Branches
+  // tab's Switch button (covered in branches-tab.test.tsx + the
+  // Animated.View tab-content motion test below).
   it('renders the SuspendedBranchBanner when fallbackReason=candidate-inactive', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
       ...merchant,
@@ -421,33 +397,19 @@ describe('MerchantProfileScreen (M2)', () => {
     expect(queryByText(/CHIP_NAME=/)).toBeNull()
   })
 
-  it('switching branch via the picker calls router.replace', async () => {
-    const branchA = { id: 'b1', name: 'A', isMainBranch: true, isActive: true,
-      addressLine1: null, addressLine2: null,
-      city: null, postcode: null, latitude: null, longitude: null,
-      phone: null, email: null, distance: 1000, isOpenNow: true,
-      avgRating: null, reviewCount: 0, openingHours: [] }
-    const branchB = { ...branchA, id: 'b2', name: 'B', isMainBranch: false, distance: 500 }
-    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
-      ...merchant,
-      branches: [branchA, branchB],
-    })
-    const { findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
-    fireEvent.press(await findByLabelText('branch-chip'))
-    fireEvent.press(await findByLabelText('pick-b2'))
-    // useBranchSelection.select() → router.replace({ pathname, params: { id, branch } })
-    expect(router.replace).toHaveBeenCalledWith(expect.objectContaining({
-      pathname: '/(app)/merchant/[id]',
-      params: expect.objectContaining({ id: 'm1', branch: 'b2' }),
-    }))
-  })
+  // Round 3 §C1: the chip → picker → router.replace integration test was
+  // removed alongside the chip/picker UI. Branch switching from the
+  // screen is now driven by the Branches-tab Switch button:
+  // useBranchSelection.select() is invoked from the BranchesTab onSwitch
+  // handler in MerchantProfileScreen, which calls router.replace via
+  // the same code path the chip used. The select() unit contract is
+  // covered in use-branch-selection.test.tsx.
 
   // ── Sticky-header pin: visual-correction-round structure ───────────────────
-  // Visual correction round (post-PR-#35 QA): BranchContextBand wraps the
-  // chip + descriptor + meta row as a single child. ScrollView children
-  // are now:
+  // Round 3 §C1 (post-PR-#35 QA): BranchContextBand now wraps just
+  // descriptor + meta row (chip removed). ScrollView children are:
   // [0] SuspendedBranchBanner, [1] HeroSection, [2] MerchantHeadline,
-  // [3] BranchContextBand (wraps chip + descriptor + meta row),
+  // [3] BranchContextBand (descriptor + meta row),
   // [4] ActionRow, [5] TabBar ← sticky. Assert the prop directly.
   it('pins TabBar sticky via stickyHeaderIndices=[5]', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
@@ -589,6 +551,46 @@ describe('MerchantProfileScreen (M2)', () => {
     expect(await findByText('HEADLINE_NAME=The Coffee House')).toBeTruthy()
     // selectedBranchFixture.city is "Brightlingsea" so the branch line shows it
     expect(await findByText('Brightlingsea')).toBeTruthy()
+  })
+
+  // ── Round 3 §C3 — Branches → Switch returns user to Vouchers tab ────────────
+  it('returns activeTab to "vouchers" after a Branches-tab switch (round 3 §C3)', async () => {
+    const branchA = { id: 'b1', name: 'A', isMainBranch: true, isActive: true,
+      addressLine1: null, addressLine2: null, city: null, postcode: null,
+      latitude: null, longitude: null, phone: null, email: null,
+      distance: 1000, isOpenNow: true, avgRating: null, reviewCount: 0, openingHours: [] }
+    const branchB = { ...branchA, id: 'b2', name: 'B', isMainBranch: false, distance: 500 }
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValue({
+      ...merchant,
+      branches: [branchA, branchB],
+    })
+    const { findByLabelText, findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
+
+    // Switch to the Branches tab
+    fireEvent.press(await findByLabelText('tab-branches'))
+    expect(await findByText(/^BRANCHES_TAB\|/)).toBeTruthy()
+    expect(queryByText(/^VOUCHERS_TAB$/)).toBeNull()
+
+    // Trigger a switch from a Branches-tab card
+    fireEvent.press(await findByLabelText('branches-tab-switch-trigger'))
+
+    // Tab content should fall back to Vouchers automatically
+    expect(await findByText(/^VOUCHERS_TAB$/)).toBeTruthy()
+    expect(queryByText(/^BRANCHES_TAB\|/)).toBeNull()
+  })
+
+  // ── Round 3 §C2 — "Other Locations" tab label renamed to "Branches" ─────────
+  it('renders the branches-tab label as "Branches" not "Other Locations" (round 3 §C2)', async () => {
+    const branchA = { ...selectedBranchFixture, id: 'b1' }
+    const branchB = { ...selectedBranchFixture, id: 'b2', name: 'Colchester', isMainBranch: false }
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce({
+      ...merchant,
+      branches: [branchA, branchB],
+    })
+    const { findByText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
+    // The TabBar mock formats labels as "Label(count)…" — verify the new label text.
+    expect(await findByText(/^Branches\(1\)/)).toBeTruthy()
+    expect(queryByText(/^Other Locations\(/)).toBeNull()
   })
 
   it('hides the branch line on single-branch merchants', async () => {
