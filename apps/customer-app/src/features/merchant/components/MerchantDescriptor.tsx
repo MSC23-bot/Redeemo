@@ -14,5 +14,9 @@ export function MerchantDescriptor({ descriptor }: Props) {
 }
 
 const styles = StyleSheet.create({
-  text: { fontSize: 13, fontWeight: '500' },
+  // Round 4 §1: slightly larger (13 → 14) per user direction "scale
+  // up in the right ratio of everything else". Stays a half-step
+  // below the merchant name (26pt) and the branch line (17pt) so the
+  // hierarchy reads name → branch → descriptor → meta row.
+  text: { fontSize: 14, fontWeight: '500' },
 })

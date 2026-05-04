@@ -26,9 +26,13 @@ export function RatingBlock({ avgRating, reviewCount }: Props) {
 }
 
 const styles = StyleSheet.create({
-  block:       { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF8E1', borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10 },
-  star:        { color: '#F59E0B', fontSize: 12 },
-  avg:         { fontSize: 13, fontWeight: '800', color: '#010C35' },
-  count:       { fontSize: 11, color: '#666' },
-  placeholder: { fontSize: 11, color: '#aaa' },
+  // Round 4 §1: slightly bigger block + text per user direction "in
+  // the right ratio of everything else". The block now reads at
+  // 14/12pt rather than 13/11pt — proportionate to the bumped
+  // descriptor (14pt) and meta row (13pt).
+  block:       { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#FFF8E1', borderRadius: 9, paddingVertical: 5, paddingHorizontal: 11 },
+  star:        { color: '#F59E0B', fontSize: 13 },
+  avg:         { fontSize: 14, fontWeight: '800', color: '#010C35' },
+  count:       { fontSize: 12, color: '#666' },
+  placeholder: { fontSize: 12, color: '#aaa' },
 })

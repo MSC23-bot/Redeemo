@@ -18,15 +18,13 @@ jest.mock('@/features/merchant/components/MerchantDescriptor', () => ({
   },
 }))
 
+// Round 4 §1: MetaRow lost its rating props (rating moved to
+// MerchantHeadline). Mock renders distance + a status marker so
+// existing tests can pin the meta-row presence.
 jest.mock('@/features/merchant/components/MetaRow', () => ({
-  MetaRow: ({ avgRating, reviewCount }: { avgRating: number | null; reviewCount: number }) => {
+  MetaRow: ({ distanceMetres }: { distanceMetres: number | null }) => {
     const { Text } = require('react-native')
-    return (
-      <>
-        <Text>METAROW_RATING={avgRating ?? 'NULL'}</Text>
-        <Text>METAROW_COUNT={reviewCount}</Text>
-      </>
-    )
+    return <Text>METAROW_DIST={distanceMetres ?? 'NULL'}</Text>
   },
 }))
 
@@ -127,10 +125,19 @@ jest.mock('@/features/merchant/components/AllBranchesUnavailable', () => ({
 // only the merchant name. The branch line moved into BranchContextBand —
 // we mock both surfaces so the screen-skeleton assertions still match
 // HEADLINE_NAME / merchant-branch-line by their stable contracts.
+// Round 4 §1: MerchantHeadline now also owns the rating block.
+// Mock surfaces the merchant name + rating values so screen tests
+// can pin their wiring.
 jest.mock('@/features/merchant/components/MerchantHeadline', () => ({
-  MerchantHeadline: ({ merchantName }: { merchantName: string }) => {
+  MerchantHeadline: ({ merchantName, avgRating, reviewCount }: { merchantName: string; avgRating: number | null; reviewCount: number }) => {
     const { Text } = require('react-native')
-    return <Text>HEADLINE_NAME={merchantName}</Text>
+    return (
+      <>
+        <Text>HEADLINE_NAME={merchantName}</Text>
+        <Text>HEADLINE_RATING={avgRating ?? 'NULL'}</Text>
+        <Text>HEADLINE_COUNT={reviewCount}</Text>
+      </>
+    )
   },
 }))
 

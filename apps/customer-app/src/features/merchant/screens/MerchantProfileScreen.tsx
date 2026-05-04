@@ -319,6 +319,8 @@ export function MerchantProfileScreen({ id }: Props) {
         <MerchantHeadline
           merchantName={merchant.businessName}
           logoUrl={sb.logoUrl ?? merchant.logoUrl}
+          avgRating={sb.avgRating}
+          reviewCount={sb.reviewCount}
         />
 
         {/* BranchContextBand wraps the descriptor + meta row (spec §6.4
@@ -342,8 +344,6 @@ export function MerchantProfileScreen({ id }: Props) {
             isOpenNow={sb.isOpenNow}
             openingHours={sb.openingHours}
             distanceMetres={sb.distance}
-            avgRating={sb.avgRating}
-            reviewCount={sb.reviewCount}
           />
         </BranchContextBand>
 
@@ -475,25 +475,20 @@ export function MerchantProfileScreen({ id }: Props) {
   )
 }
 
-// Visual correction round 3 §B1: page now uses a two-zone surface
-// system. The TOP zone (banner/identity/band/action-row) sits on the
-// brand-tinted cream `#F5F1EB`; the TAB CONTENT zone sits on a slightly
-// lighter cream `#FAF6EE` so the tab bar feels like the boundary
-// between "page header" (about this merchant + branch) and "browsable
-// content" (vouchers / about / branches / reviews). The lighter tone
-// behind the tab content reads as a calmer reading surface for cards
-// and lists; the darker tone above keeps the identity zone anchored.
-//
-// Round 2 (74e281e) introduced the cream surface globally; round 3
-// splits it into top/bottom zones for hierarchy without changing the
-// brand neutrals.
+// Round 4 §1: identity zone background switched to the onboarding
+// cream `#FFF9F5` (used by the registration/login screens) per user
+// direction "use the same background we used for our onboarding
+// registration pages". The tab-content zone keeps its slightly
+// different tone for now; the tab-bar / page-bottom-bg nuance is
+// intentionally left for the next iteration ("I'll explain that
+// later, but let's do this one first").
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#F5F1EB' },
-  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F1EB' },
+  container:    { flex: 1, backgroundColor: '#FFF9F5' },
+  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9F5' },
   scroll:       { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
   content:      { backgroundColor: '#FAF6EE', minHeight: 460, padding: 20 },
-  errorScreen:  { flex: 1, backgroundColor: '#F5F1EB', padding: 16 },
+  errorScreen:  { flex: 1, backgroundColor: '#FFF9F5', padding: 16 },
   backBtn:      { paddingVertical: 12 },
   errorCard:    { padding: 20, backgroundColor: '#FEF6F5', borderRadius: 16, gap: 8, marginTop: 16 },
 })

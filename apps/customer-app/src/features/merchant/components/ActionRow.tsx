@@ -71,30 +71,42 @@ export function ActionRow({ hasWebsite, onWebsite, onContact, onDirections }: Pr
 }
 
 const styles = StyleSheet.create({
+  // Round 4 §1: more breathing room above + below the action row so
+  // the Website button's shadow has clearance and the row reads as
+  // a distinct primary-action band rather than crowding the meta row
+  // above and the tab bar below.
   row: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-    marginBottom: 16,
-    paddingHorizontal: 16,
+    gap: 10,
+    marginTop: 18,
+    marginBottom: 20,
+    paddingHorizontal: 20,
   },
+  // Round 4 §1: Website button shadow no longer clipped. The previous
+  // setup had `overflow: 'hidden'` on the outer Pressable so its
+  // borderRadius would clip the inner LinearGradient — but that ALSO
+  // clipped the shadow rendered by the layer, leaving the button's
+  // bottom edge looking flat. Fix: borderRadius + overflow:hidden
+  // move to the gradient (which clips its own corners), and the
+  // outer Pressable keeps borderRadius for layout + shadow only.
   brandBtn: {
     flex: 1,
     borderRadius: 12,
-    overflow: 'hidden',
     shadowColor: color.brandRose,
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
   brandBtnGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   brandBtnText: {
     fontSize: 13,

@@ -20,22 +20,20 @@ function dt(dayOfWeek: number, hh: number, mm: number): Date {
 }
 
 describe('MetaRow', () => {
-  it('renders pill + status text + distance + rating block (Open state)', () => {
+  // Round 4 §1: rating moved out of MetaRow up to MerchantHeadline.
+  // MetaRow now carries only status + distance.
+  it('renders pill + status text + distance (Open state)', () => {
     const { getByText, getByLabelText } = render(
       <MetaRow
         isOpenNow={true}
         openingHours={open9to22}
         distanceMetres={1931}
-        avgRating={4.5}
-        reviewCount={7}
         now={dt(1, 18, 0)}
       />
     )
     expect(getByLabelText('Status: Open')).toBeTruthy()
     expect(getByText(/Closes at /)).toBeTruthy()
-    expect(getByText('1.2 mi')).toBeTruthy()
-    expect(getByText('4.5')).toBeTruthy()
-    expect(getByText('(7)')).toBeTruthy()
+    expect(getByText('1.2 miles away')).toBeTruthy()
   })
 
   it('hides distance when distanceMetres is null', () => {
@@ -44,48 +42,41 @@ describe('MetaRow', () => {
         isOpenNow={true}
         openingHours={open9to22}
         distanceMetres={null}
-        avgRating={4.5}
-        reviewCount={7}
         now={dt(1, 18, 0)}
       />
     )
-    expect(queryByText(/mi$/)).toBeNull()
-    expect(queryByText(/^\d+m$/)).toBeNull()
+    expect(queryByText(/miles away$/)).toBeNull()
+    expect(queryByText(/m away$/)).toBeNull()
   })
 
   // Round 3 §A2: the 100km suppression rule was removed because GPS-vs-
   // server distance can legitimately resolve to > 100km when the user's
-  // phone reports a default fallback location (e.g. a server-room geo
-  // during dev) and the device has no location lock yet. Hiding the
-  // distance entirely caused on-device QA to think distance was broken;
-  // showing the actual mileage is the correct behaviour.
-  it('shows large distances (>100km) instead of hiding them', () => {
+  // phone reports a default fallback location.
+  // Round 4 §1: distance now carries a comma thousands separator and
+  // reads "miles away" rather than the abbreviated "mi" — per user
+  // direction "the distance should say 3,189.6 miles away".
+  it('shows large distances with comma separator + "miles away" suffix', () => {
     const { getByText } = render(
       <MetaRow
         isOpenNow={true}
         openingHours={open9to22}
-        distanceMetres={200_000}
-        avgRating={4.5}
-        reviewCount={7}
+        distanceMetres={5_133_000}
         now={dt(1, 18, 0)}
       />
     )
-    expect(getByText('124.3 mi')).toBeTruthy()
+    expect(getByText('3,189.5 miles away')).toBeTruthy()
   })
 
-  it('shows "No reviews yet" placeholder when reviewCount=0', () => {
-    const { getByText, queryByText } = render(
+  it('shows short distances as "{n}m away" (no comma, no miles)', () => {
+    const { getByText } = render(
       <MetaRow
         isOpenNow={true}
         openingHours={open9to22}
-        distanceMetres={null}
-        avgRating={null}
-        reviewCount={0}
+        distanceMetres={420}
         now={dt(1, 18, 0)}
       />
     )
-    expect(getByText('No reviews yet')).toBeTruthy()
-    expect(queryByText('(0)')).toBeNull()
+    expect(getByText('420m away')).toBeTruthy()
   })
 
   it('exposes status text + distance via testIDs for switch animation hookup', () => {
@@ -94,8 +85,6 @@ describe('MetaRow', () => {
         isOpenNow={true}
         openingHours={open9to22}
         distanceMetres={1931}
-        avgRating={4.5}
-        reviewCount={7}
         now={dt(1, 18, 0)}
       />
     )
