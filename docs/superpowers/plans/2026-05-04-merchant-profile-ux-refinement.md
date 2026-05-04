@@ -4,9 +4,35 @@
 
 **Goal:** Implement the Tier 2 UX refinement to the customer-app Merchant Profile screen per the design spec at `docs/superpowers/specs/2026-05-04-merchant-profile-ux-refinement-design.md`. Surfaces affected: headline, switcher chip, meta row, branch picker, Other Locations tab (renamed from Branches), Reviews tab, voucher-context label, plus a coordinated motion layer across all of them.
 
-**Architecture:** One Tier 2 PR built on top of the branch-aware merchant profile already on main (commits `236e86a` P1, `10f26a9` P2, plus 6 fix-ups). Backend gets a single additive change (per-branch ratings on `BranchTile`); the rest is frontend in `apps/customer-app/`. New helpers (`smartStatus`, `branchShortName`) and new components (`MetaRow`, `StatusPill`, `RatingBlock`, `VoucherContextLabel`, `HoursPreviewSheet`) are introduced; existing components (`MetaSection`, `BranchChip`, `BranchPickerSheet`, `BranchesTab`, `ReviewsTab`, `MerchantProfileScreen`) are restructured. Motion is centralised in a new `useBranchSwitchAnimation` hook coordinating Reanimated shared values across the touched elements with a single `selectedBranch.id` trigger, parallel timeline, skip-on-mount, and cancel-on-rapid handling.
+**Architecture:** One Tier 2 PR built on top of the branch-aware merchant profile already on main (commits `236e86a` P1, `10f26a9` P2, plus 6 fix-ups). Backend gets a single additive change (per-branch `openingHours` on `BranchTile`); the rest is frontend in `apps/customer-app/`. New helpers (`smartStatus`, `branchShortName`) and new components (`MetaRow`, `StatusPill`, `RatingBlock`, `VoucherContextLabel`, `HoursPreviewSheet`) are introduced; existing components (`MetaSection`, `BranchChip`, `BranchPickerSheet`, `BranchesTab`, `ReviewsTab`, `MerchantProfileScreen`) are restructured. Motion is centralised in a new `useBranchSwitchAnimation` hook coordinating Reanimated shared values across the touched elements with a single `selectedBranch.id` trigger, parallel timeline, skip-on-mount, and cancel-on-rapid handling.
 
 **Tech Stack:** TypeScript · Node 24 + Fastify (backend) · Prisma 7 (Neon Postgres) · React Native (Expo SDK 54) + expo-router v4 · React Query v5 · Reanimated v3 · Jest + React Native Testing Library (frontend tests) · Vitest (backend tests) · Lucide icons via the project's `'@/design-system/icons'` barrel.
+
+---
+
+## Pre-execution corrections (logged 2026-05-04)
+
+Two corrections were applied to this plan after a final sanity pass and before the first implementer subagent was dispatched. Future readers should treat the task descriptions below as the corrected version, not the original draft.
+
+**Correction 1 — Task 1 scope re-aimed.**
+The original Task 1 added per-branch `reviewCount` + `avgRating` to the `BranchTile` projection. A pre-dispatch review of `src/api/customer/discovery/service.ts` (lines ~783–802) confirmed those fields **already ship on every entry of `branches[]`** today — they were added during the PR #33 fix-up cycle. The customer-app `branchTileSchema` already declares them too. So the original scope was a no-op.
+
+The genuinely missing field — and the foundation for Tasks 11 and 13 — is **`openingHours` per `BranchTile`**. Without it, BranchPickerSheet rows fall through to "Hours unavailable" status text for every non-current branch, and HoursPreviewSheet for Other Locations cards opens a dead-end sheet. Adding `openingHours` to the `BranchTile` projection is one extra Prisma `select` field on data already loaded (line ~552 of the service already includes it on `merchant.branches`); the per-tile projection just needs to surface it.
+
+Task 1 has been rewritten to:
+- Add a regression-guard test that every entry in `branches[]` carries `reviewCount`, `avgRating`, **and `openingHours`**.
+- Add `openingHours: b.openingHours` to the `branches[].map(...)` projection.
+- Extend `branchTileSchema` in `apps/customer-app/src/lib/api/merchant.ts` with `openingHours: z.array(openingHourEntrySchema)`.
+- Update fixtures that construct `BranchTile` literals to include `openingHours: []` (default).
+
+**Correction 2 — Tasks 11 + 13 stop using the empty-array fallback.**
+Both tasks were planned to pass `openingHours: []` (Task 11) or `openingHoursForStatus: []` (Task 13) for non-current branches because no per-branch hours were available. With Correction 1 in place, both surfaces now read `b.openingHours` from the corrected `BranchTile`, so:
+- BranchPickerSheet rows for ALL branches get full smart-status text, not just the current one.
+- HoursPreviewSheet shows the correct branch's full schedule, not the "Hours not available" defensive copy.
+
+Task 11 step 4 and Task 13 step 1 wiring instructions are updated accordingly.
+
+These corrections do NOT change any other task. The single additive backend change moves from "expose per-branch ratings (no-op)" to "expose per-branch openingHours (real change)" — same shape of risk, same test discipline, same scope.
 
 ---
 
@@ -73,23 +99,39 @@ No commit at this stage. The branch is ready for Task 1.
 
 ## Backend
 
-### Task 1: Per-branch `reviewCount` + `avgRating` on `BranchTile`
+### Task 1: Per-branch `openingHours` on `BranchTile`
 
 **Files:**
-- Modify: `src/api/customer/discovery/service.ts` (extend `getCustomerMerchant`'s `branches[]` projection)
-- Modify: `tests/api/customer/discovery.selectedBranch.test.ts` (add a regression test)
+- Modify: `src/api/customer/discovery/service.ts` (extend `getCustomerMerchant`'s `branches[]` projection — add `openingHours`)
+- Modify: `tests/api/customer/discovery.selectedBranch.test.ts` (regression-guard test for `reviewCount`/`avgRating`/`openingHours`)
+- Modify: `apps/customer-app/src/lib/api/merchant.ts` (extend `branchTileSchema` with `openingHours`)
+- Modify: existing customer-app fixtures that construct `BranchTile` literals (add `openingHours: []` default)
 
-**Why:** The picker rows (§7.2) and Reviews-tab toggle counts (§7.3) need per-branch ratings. Today only `selectedBranch` carries them. This task adds `reviewCount` and `avgRating` to every entry in the `branches[]` array.
+**Why:** The picker rows (§7.2) need real per-branch smart-status text instead of falling through to "Hours unavailable". The HoursPreviewSheet (§6.3) needs to show the correct branch's full schedule. Both depend on `openingHours` per `BranchTile`.
+
+**Pre-existing state (verified before plan dispatch):**
+- The backend already exposes `reviewCount` + `avgRating` on every entry of `branches[]` (lines ~800–801 of `src/api/customer/discovery/service.ts`).
+- The customer-app `branchTileSchema` already declares `reviewCount` + `avgRating` (lines ~97–98 of `apps/customer-app/src/lib/api/merchant.ts`).
+- The Prisma `select` for `merchant.branches` (line ~552 of the service) already loads `openingHours` from the database. The data is in scope; the per-tile projection just doesn't currently surface it.
+- A regression-guard test for the existing per-branch ratings does NOT exist yet — only `selectedBranch.reviewCount`/`avgRating` are guarded (lines 177–178 of the existing test file).
+
+So this task: (a) adds a regression test that covers all three per-branch fields together, (b) adds `openingHours` to the per-tile projection, (c) extends `branchTileSchema` to include it.
 
 - [ ] **Step 1: Add the failing test in `tests/api/customer/discovery.selectedBranch.test.ts`**
 
 Append after the existing `selectedBranch.myReview` tests (around line 320 — find the last `it(...)` in the describe block and append immediately before its closing `})`).
 
 ```ts
-  // PR — UX refinement: every entry in `branches[]` must carry `reviewCount`
-  // and `avgRating` so the chip picker rows + Reviews toggle can show
-  // per-branch counts. Today only `selectedBranch` has these.
-  it('every branches[] entry includes reviewCount and avgRating', async () => {
+  // PR — UX refinement: every entry in `branches[]` must carry `reviewCount`,
+  // `avgRating`, AND `openingHours` so the chip picker rows + Reviews toggle
+  // can show per-branch counts AND the picker rows + HoursPreviewSheet for
+  // Other Locations can render real smart-status text + full week schedule
+  // for branches OTHER than the currently selected one.
+  //
+  // reviewCount + avgRating already ship; this test guards them as a
+  // regression. openingHours is the new addition for §6.3 (HoursPreviewSheet)
+  // and §7.2 (smart-status text in picker rows).
+  it('every branches[] entry includes reviewCount, avgRating, and openingHours', async () => {
     const m = await createMerchant()
     const branchA = m.branches[0]!
     const branchB = m.branches[1]!
@@ -108,12 +150,27 @@ Append after the existing `selectedBranch.myReview` tests (around line 320 — f
     const tileA = body.branches.find((b: any) => b.id === branchA.id)!
     const tileB = body.branches.find((b: any) => b.id === branchB.id)!
 
+    // Existing per-branch ratings — regression guard.
     expect(tileA.reviewCount).toBe(1)
     expect(tileA.avgRating).toBe(4.0)
     expect(tileB.reviewCount).toBe(2)
     expect(tileB.avgRating).toBe(4.0)  // (5+3)/2
+
+    // NEW — openingHours per tile. createMerchant() seeds 7 entries.
+    expect(tileA.openingHours).toBeDefined()
+    expect(Array.isArray(tileA.openingHours)).toBe(true)
+    expect(tileA.openingHours.length).toBe(7)
+    expect(tileA.openingHours[0]).toMatchObject({
+      dayOfWeek: expect.any(Number),
+      openTime:  expect.anything(),
+      closeTime: expect.anything(),
+      isClosed:  expect.any(Boolean),
+    })
+    expect(tileB.openingHours.length).toBe(7)
   })
 ```
+
+NOTE: If `createMerchant()` in the test helpers doesn't seed `openingHours` for both branches today, extend the helper minimally (one helper file, one helper function — do not over-edit). Verify before writing the test by reading `tests/api/customer/discovery.selectedBranch.test.ts` line 45–63 (the `openingHours: { … }` block in the existing setup) and tracing how branches A and B get hours. If they already do, no helper change needed.
 
 - [ ] **Step 2: Run the test, verify it fails**
 
@@ -121,55 +178,66 @@ Append after the existing `selectedBranch.myReview` tests (around line 320 — f
 cd /Users/shebinchaliyath/Developer/Redeemo
 npx vitest run tests/api/customer/discovery.selectedBranch.test.ts 2>&1 | tail -8
 ```
-Expected: failing — `tileA.reviewCount` is `undefined`.
+Expected: failing on the `openingHours` assertions — `tileA.openingHours` is `undefined`. The `reviewCount`/`avgRating` assertions should pass even before the implementation step (they're regression guards on already-shipped behaviour); the test as a whole still fails because of the new `openingHours` lines.
 
-- [ ] **Step 3: Implement the per-branch rating projection in `src/api/customer/discovery/service.ts`**
+- [ ] **Step 3: Implement the `openingHours` projection in `src/api/customer/discovery/service.ts`**
 
-Read `src/api/customer/discovery/service.ts` lines 575–795 to locate the existing `ratingByBranch` aggregation block and the `branches[]` mapping near line 786. The existing groupBy at ~line 580 already computes per-branch rating data; we just need to surface it in the per-branch tile mapping.
+Read `src/api/customer/discovery/service.ts` lines 540–565 to confirm `openingHours` is already in the Prisma `select` for `merchant.branches` — it is, with `select: { dayOfWeek, openTime, closeTime, isClosed }, orderBy: { dayOfWeek: 'asc' }`. The data is loaded; we just need to surface it in the per-tile map.
 
-Find this block (around line 783–797):
+Find the per-branch tile projection block (around line 783–802):
 
 ```ts
-    branches: activeBranches.map((b: any) => ({
-      id:           b.id,
-      name:         b.name,
-      addressLine1: b.addressLine1,
-      addressLine2: b.addressLine2,
-      city:         b.city,
-      postcode:     b.postcode,
-      latitude:     b.latitude !== null ? Number(b.latitude) : null,
-      longitude:    b.longitude !== null ? Number(b.longitude) : null,
-      phone:        b.phone,
-      email:        b.email,
-      distance:     b.distance ?? null,
-      isOpenNow:    b.isOpenNow,
-      isMainBranch: b.isMainBranch,
-      isActive:     b.isActive,
-    }))
+    branches: merchant.branches.map((b: any) => ({
+      id: b.id, name: b.name,
+      isMainBranch: b.isMainBranch,   // NEW — picker needs this
+      isActive: b.isActive,           // NEW — picker needs this to grey out suspended
+      addressLine1: b.addressLine1, addressLine2: b.addressLine2,
+      city: b.city, postcode: b.postcode,
+      latitude:  b.latitude  !== null ? Number(b.latitude)  : null,
+      longitude: b.longitude !== null ? Number(b.longitude) : null,
+      phone: b.phone, email: b.email,
+      distance: (lat !== undefined && lng !== undefined)
+        ? (() => {
+            const bLat = b.latitude !== null ? Number(b.latitude) : null
+            const bLng = b.longitude !== null ? Number(b.longitude) : null
+            return bLat !== null && bLng !== null ? haversineMetres(lat, lng, bLat, bLng) : null
+          })()
+        : null,
+      isOpenNow:   isOpenNow(b.openingHours),
+      avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
+      reviewCount: ratingByBranch[b.id]?.reviewCount ?? 0,
+    })),
 ```
 
-Append two new fields, reading from the existing `ratingByBranch` map:
+Append one new field at the end of the projected object, surfacing the already-loaded data:
 
 ```ts
-    branches: activeBranches.map((b: any) => ({
-      id:           b.id,
-      name:         b.name,
-      addressLine1: b.addressLine1,
-      addressLine2: b.addressLine2,
-      city:         b.city,
-      postcode:     b.postcode,
-      latitude:     b.latitude !== null ? Number(b.latitude) : null,
-      longitude:    b.longitude !== null ? Number(b.longitude) : null,
-      phone:        b.phone,
-      email:        b.email,
-      distance:     b.distance ?? null,
-      isOpenNow:    b.isOpenNow,
+    branches: merchant.branches.map((b: any) => ({
+      id: b.id, name: b.name,
       isMainBranch: b.isMainBranch,
-      isActive:     b.isActive,
-      // PR — UX refinement: per-branch rating for picker rows + Reviews toggle.
-      reviewCount:  ratingByBranch[b.id]?.reviewCount ?? 0,
-      avgRating:    ratingByBranch[b.id]?.avgRating ?? null,
-    }))
+      isActive: b.isActive,
+      addressLine1: b.addressLine1, addressLine2: b.addressLine2,
+      city: b.city, postcode: b.postcode,
+      latitude:  b.latitude  !== null ? Number(b.latitude)  : null,
+      longitude: b.longitude !== null ? Number(b.longitude) : null,
+      phone: b.phone, email: b.email,
+      distance: (lat !== undefined && lng !== undefined)
+        ? (() => {
+            const bLat = b.latitude !== null ? Number(b.latitude) : null
+            const bLng = b.longitude !== null ? Number(b.longitude) : null
+            return bLat !== null && bLng !== null ? haversineMetres(lat, lng, bLat, bLng) : null
+          })()
+        : null,
+      isOpenNow:   isOpenNow(b.openingHours),
+      avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
+      reviewCount: ratingByBranch[b.id]?.reviewCount ?? 0,
+      // PR — UX refinement (Task 1): per-branch openingHours so picker rows
+      // + Other Locations cards + HoursPreviewSheet can render real
+      // smart-status text and full week schedules for non-current branches.
+      // Same shape as selectedBranch.openingHours and the existing per-branch
+      // openingHours already loaded at line ~552. No new query.
+      openingHours: b.openingHours,
+    })),
 ```
 
 - [ ] **Step 4: Run the new test, verify it passes**
@@ -179,14 +247,16 @@ npx vitest run tests/api/customer/discovery.selectedBranch.test.ts 2>&1 | tail -
 ```
 Expected: PASS — all tests in this file green.
 
-- [ ] **Step 5: Update the customer-app Zod schema to receive the new fields**
+- [ ] **Step 5: Update the customer-app Zod schema to receive the new field**
 
-Modify `apps/customer-app/src/lib/api/merchant.ts`. Find `branchTileSchema` (around line 77) and add `reviewCount` + `avgRating`:
+Modify `apps/customer-app/src/lib/api/merchant.ts`. Find `branchTileSchema` (around line 77). It already declares `reviewCount` + `avgRating` (lines 97–98). Add `openingHours: z.array(openingHourEntrySchema)` so the array is parsed (Zod strips unknown keys by default; without this declaration the picker + HoursPreviewSheet would silently see `undefined`).
 
 ```ts
 const branchTileSchema = z.object({
   id:           z.string(),
   name:         z.string(),
+  isMainBranch: z.boolean(),
+  isActive:     z.boolean(),
   addressLine1: z.string().nullable(),
   addressLine2: z.string().nullable(),
   city:         z.string().nullable(),
@@ -195,15 +265,18 @@ const branchTileSchema = z.object({
   longitude:    z.number().nullable(),
   phone:        z.string().nullable(),
   email:        z.string().nullable(),
-  distance:     z.number().nullable(),
+  distance:     z.number().nullable(),                // metres
   isOpenNow:    z.boolean(),
-  isMainBranch: z.boolean(),
-  isActive:     z.boolean(),
-  // PR — UX refinement: per-branch ratings exposed for picker rows + Reviews toggle.
-  reviewCount:  z.number().int().min(0),
   avgRating:    z.number().nullable(),
+  reviewCount:  z.number(),
+  // PR — UX refinement (Task 1): per-branch openingHours so picker rows
+  // + Other Locations cards can compute real smart-status text and the
+  // HoursPreviewSheet can show the correct branch's full week.
+  openingHours: z.array(openingHourEntrySchema),
 })
 ```
+
+`openingHourEntrySchema` is already defined earlier in the same file (used by `selectedBranchSchema.openingHours` at line ~145).
 
 - [ ] **Step 6: Update fixtures in customer-app tests that construct BranchTile literals**
 
@@ -213,14 +286,13 @@ cd /Users/shebinchaliyath/Developer/Redeemo/apps/customer-app
 grep -rln "isMainBranch: " tests/features/merchant/ tests/lib/api/ 2>/dev/null
 ```
 
-For each file the grep returns, find the `{ id: 'b1', ... }`-style literal and append two fields:
+For each file the grep returns, find the `{ id: 'b1', ... }`-style literal (a `BranchTile` shape) and append one field:
 
 ```ts
-      reviewCount: 0,
-      avgRating:   null,
+      openingHours: [],
 ```
 
-(Reasonable defaults — most fixtures don't care about these counts; tests that DO care override them.)
+(Empty default — most fixtures don't care about per-branch hours; tests that DO care, like the new `branch-picker-sheet.test.tsx` from Task 11 and `hours-preview-sheet.test.tsx` from Task 12, will pass real arrays.)
 
 - [ ] **Step 7: Run customer-app tests + tsc**
 
@@ -228,7 +300,7 @@ For each file the grep returns, find the `{ id: 'b1', ... }`-style literal and a
 npx jest tests/features/merchant/ --forceExit 2>&1 | tail -6
 npx tsc --noEmit 2>&1 | tail -3
 ```
-Expected: jest 102/102 green · tsc clean.
+Expected: jest passing · tsc clean. Some existing tests may fail with "openingHours required" errors — fix each one by adding `openingHours: []` to the offending literal.
 
 - [ ] **Step 8: Run backend full customer suite**
 
@@ -236,19 +308,24 @@ Expected: jest 102/102 green · tsc clean.
 cd /Users/shebinchaliyath/Developer/Redeemo
 npx vitest run tests/api/customer/ 2>&1 | tail -6
 ```
-Expected: 154/154 (was 153; +1 new test).
+Expected: all green (count = previous baseline + 1 for the new test).
 
 - [ ] **Step 9: Commit**
 
 ```bash
 git add src/api/customer/discovery/service.ts apps/customer-app/src/lib/api/merchant.ts tests/api/customer/discovery.selectedBranch.test.ts apps/customer-app/tests/features/merchant/ apps/customer-app/tests/lib/api/
-git commit -m "feat(api): expose per-branch reviewCount + avgRating on BranchTile
+git commit -m "feat(api): expose per-branch openingHours on BranchTile
 
-UX refinement spec §7.2 / §7.3 — picker rows and Reviews-tab toggle
-need per-branch ratings to render counts. Today only selectedBranch
-carries them. Additive change to getCustomerMerchant's branches[]
-projection; reads from the existing per-branch groupBy aggregation
-(no new query). branchTileSchema in customer-app extended."
+UX refinement spec §6.3 (HoursPreviewSheet) and §7.2 (BranchPickerSheet
+smart-status text) need per-branch openingHours so non-current
+branches don't fall through to 'Hours unavailable'. The data is
+already loaded by the existing Prisma select on merchant.branches —
+this surfaces it in the per-tile projection. branchTileSchema in
+customer-app extended; existing fixtures default to openingHours: [].
+
+Also adds a regression-guard test that covers the pre-existing
+reviewCount + avgRating per-branch fields (shipped during PR #33
+fix-ups, previously only guarded on selectedBranch)."
 ```
 
 ---
@@ -2298,7 +2375,7 @@ const styles = StyleSheet.create({
 
 - [ ] **Step 4: Update the screen call-site to pass the new fields**
 
-In `MerchantProfileScreen.tsx`, find the `<BranchPickerSheet branches={...}` mapping. Update the map to include `openingHours`, `avgRating`, `reviewCount`:
+In `MerchantProfileScreen.tsx`, find the `<BranchPickerSheet branches={...}` mapping. With Task 1's per-branch `openingHours` now on `BranchTile`, the mapping reads `b.openingHours` directly — no more empty-array fallback for non-current branches.
 
 ```tsx
         branches={merchant.branches.map(b => ({
@@ -2309,34 +2386,13 @@ In `MerchantProfileScreen.tsx`, find the `<BranchPickerSheet branches={...}` map
           distanceMetres: b.distance,
           isOpenNow:      b.isOpenNow,
           isActive:       b.isActive,
-          openingHours:   sb.openingHours,  // Approximation: per-branch openingHours not in BranchTile yet — uses selectedBranch's. Tracked as backend extension.
+          openingHours:   b.openingHours,  // From Task 1 — every BranchTile now carries openingHours.
           avgRating:      b.avgRating,
           reviewCount:    b.reviewCount,
         }))}
 ```
 
-NOTE: `BranchTile` doesn't carry `openingHours` per-branch (only `selectedBranch` does). For now we pass `sb.openingHours` as an approximation — this means OTHER branches' rows show the CURRENT branch's status. This is wrong for picker rows showing other branches.
-
-The proper fix is to either (a) add `openingHours` to `BranchTile` (additional backend work beyond Task 1) or (b) compute status without smart-status text and just show open/closed-from-isOpenNow boolean.
-
-For Pass 2 the practical compromise: pass `[]` (empty) for non-current branches' openingHours so smartStatus falls into the "Hours unavailable" branch. The pill colour still reflects `isOpenNow` correctly.
-
-Update the mapping:
-
-```tsx
-        branches={merchant.branches.map(b => ({
-          id:             b.id,
-          name:           b.name,
-          city:           b.city,
-          county:         null,
-          distanceMetres: b.distance,
-          isOpenNow:      b.isOpenNow,
-          isActive:       b.isActive,
-          openingHours:   b.id === sb.id ? sb.openingHours : [],  // current branch only; others fall to "Hours unavailable" status text
-          avgRating:      b.avgRating,
-          reviewCount:    b.reviewCount,
-        }))}
-```
+All picker rows now render real smart-status text ("Closes at 10:30pm", "Opens in 30 min", etc.) — not just the current branch. If a particular branch is missing hours data (defensive case), `smartStatus` still falls through to "Hours unavailable" but the pill colour stays correct via `isOpenNow`.
 
 - [ ] **Step 5: Run merchant tests + tsc**
 
@@ -2358,8 +2414,8 @@ Currently-viewing row pinned at top with subtle red tint background
 + inline 'Currently viewing' tag. Sort: current first, then nearest-
 first when all have GPS, else alphabetical. Tap-to-switch behaviour
 (existing PR #33) preserved. StatusPill + RatingBlock shared with
-meta row. openingHours per non-current branch falls to 'Hours
-unavailable' until BranchTile carries them per-branch (deferred)."
+meta row. Picker rows now render real smart-status text for ALL
+branches (Task 1 surfaces openingHours per BranchTile)."
 ```
 
 ---
@@ -2592,7 +2648,7 @@ import type { BranchTile } from '@/lib/api/merchant'
 type Props = {
   branches:        BranchTile[]
   currentBranchId: string
-  selectedOpeningHours: import('@/lib/api/merchant').OpeningHourEntry[]   // hours from selectedBranch — used for the current branch only (other branches get [] until backend extension)
+  selectedOpeningHours: import('@/lib/api/merchant').OpeningHourEntry[]   // selectedBranch's hours (passed by parent for HoursPreviewSheet's current-branch case; other branches read b.openingHours from the tile)
   onCall:          (branchId: string, phone: string) => void
   onDirections:    (branchId: string) => void
   onHoursPreview:  (branchId: string) => void
@@ -2624,7 +2680,7 @@ export function BranchesTab({ branches, currentBranchId, selectedOpeningHours, o
         <BranchCard
           key={b.id}
           branch={b}
-          openingHoursForStatus={[]}  // other-branch hours not available; pill uses isOpenNow only
+          openingHoursForStatus={b.openingHours}  // From Task 1 — every BranchTile now carries openingHours.
           onCall={() => onCall(b.id, b.phone ?? '')}
           onDirections={() => onDirections(b.id)}
           onHoursPreview={() => onHoursPreview(b.id)}
@@ -2782,7 +2838,7 @@ Several changes:
         visible={hoursPreviewBranchId !== null}
         branchName={branchShortName(merchant.branches.find(b => b.id === hoursPreviewBranchId)?.name ?? '')}
         isOpenNow={merchant.branches.find(b => b.id === hoursPreviewBranchId)?.isOpenNow ?? false}
-        openingHours={[]}  // per-branch openingHours not in BranchTile yet (deferred)
+        openingHours={merchant.branches.find(b => b.id === hoursPreviewBranchId)?.openingHours ?? []}
         onDismiss={() => setHoursPreviewBranchId(null)}
       />
 ```
