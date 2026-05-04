@@ -277,11 +277,13 @@ export function MerchantProfileScreen({ id }: Props) {
               ? buildBranchLine(sb)
               : null
           }
+          switchTrigger={sb.id}
         />
 
         <BranchChip
           isMultiBranch={isMultiBranch}
           onPress={() => setShowPicker(true)}
+          switchTrigger={sb.id}
         />
 
         {/* Use the server-computed `descriptor` (Plan 1.5 §3.6 — built from
@@ -296,6 +298,7 @@ export function MerchantProfileScreen({ id }: Props) {
           distanceMetres={sb.distance}
           avgRating={sb.avgRating}
           reviewCount={sb.reviewCount}
+          switchTrigger={sb.id}
         />
 
         <ActionRow

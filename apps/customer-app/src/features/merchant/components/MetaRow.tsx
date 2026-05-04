@@ -1,6 +1,8 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
+import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, Easing } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
+import { useMotionScale } from '@/design-system/useMotionScale'
 import { StatusPill } from './StatusPill'
 import { RatingBlock } from './RatingBlock'
 import { smartStatus } from '../utils/smartStatus'
@@ -12,6 +14,7 @@ type Props = {
   distanceMetres: number | null
   avgRating:      number | null
   reviewCount:    number
+  switchTrigger?: string | null
   // Test injection point — defaults to new Date(). Production never passes.
   now?: Date
 }
@@ -23,7 +26,25 @@ function formatDistance(metres: number | null): string | null {
   return `${(metres / 1609.34).toFixed(1)} mi`
 }
 
-export function MetaRow({ isOpenNow, openingHours, distanceMetres, avgRating, reviewCount, now }: Props) {
+export function MetaRow({ isOpenNow, openingHours, distanceMetres, avgRating, reviewCount, switchTrigger, now }: Props) {
+  const motionScale = useMotionScale()
+  const opacity = useSharedValue(1)
+  const isFirstRender = React.useRef(true)
+
+  React.useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    if (motionScale === 0) return
+    opacity.value = withSequence(
+      withTiming(0.7, { duration: 90, easing: Easing.out(Easing.ease) }),
+      withTiming(1.0, { duration: 90, easing: Easing.out(Easing.ease) }),
+    )
+  }, [switchTrigger, motionScale, opacity])
+
+  const animatedTextStyle = useAnimatedStyle(() => ({ opacity: opacity.value }))
+
   const status = smartStatus(isOpenNow, openingHours, now)
   const distance = formatDistance(distanceMetres)
 
@@ -31,13 +52,17 @@ export function MetaRow({ isOpenNow, openingHours, distanceMetres, avgRating, re
     <View style={styles.row}>
       <View style={styles.left}>
         <StatusPill state={status.pillState} label={status.pillLabel} />
-        <Text variant="label.md" style={styles.statusText} testID="meta-row-status-text" numberOfLines={1} ellipsizeMode="tail">
-          {status.statusText}
-        </Text>
+        <Animated.View style={animatedTextStyle}>
+          <Text variant="label.md" style={styles.statusText} testID="meta-row-status-text" numberOfLines={1} ellipsizeMode="tail">
+            {status.statusText}
+          </Text>
+        </Animated.View>
         {distance !== null ? (
           <>
             <Text variant="label.md" style={styles.separator}>·</Text>
-            <Text variant="label.md" style={styles.distance} testID="meta-row-distance">{distance}</Text>
+            <Animated.View style={animatedTextStyle}>
+              <Text variant="label.md" style={styles.distance} testID="meta-row-distance">{distance}</Text>
+            </Animated.View>
           </>
         ) : null}
       </View>

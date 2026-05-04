@@ -1,14 +1,54 @@
 import React from 'react'
 import { Pressable, StyleSheet } from 'react-native'
+import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, withSpring, Easing } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { lightHaptic } from '@/design-system/haptics'
+import { useMotionScale } from '@/design-system/useMotionScale'
 
 type Props = {
   isMultiBranch: boolean
   onPress: () => void
+  /** Animate caret nod when this changes. Pass selectedBranch.id. */
+  switchTrigger?: string | null
+  /** Play first-visit caret bounce hint once on mount. Default true. */
+  hintOnFirstVisit?: boolean
 }
 
-export function BranchChip({ isMultiBranch, onPress }: Props) {
+export function BranchChip({ isMultiBranch, onPress, switchTrigger, hintOnFirstVisit = true }: Props) {
+  const motionScale = useMotionScale()
+  const caretRotate = useSharedValue(0)
+  const caretBounce = useSharedValue(0)
+  const isFirstRender = React.useRef(true)
+  const hasHinted = React.useRef(false)
+
+  React.useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      // First-visit hint
+      if (isMultiBranch && hintOnFirstVisit && !hasHinted.current && motionScale !== 0) {
+        hasHinted.current = true
+        caretBounce.value = withSequence(
+          withTiming(-2, { duration: 200, easing: Easing.out(Easing.ease) }),
+          withSpring(0, { damping: 6, stiffness: 180 }),
+        )
+      }
+      return
+    }
+    // Subsequent switches: nod tilt
+    if (!isMultiBranch || motionScale === 0) return
+    caretRotate.value = withSequence(
+      withTiming(-8, { duration: 100, easing: Easing.out(Easing.ease) }),
+      withSpring(0, { damping: 5, stiffness: 200 }),
+    )
+  }, [switchTrigger, isMultiBranch, hintOnFirstVisit, motionScale, caretRotate, caretBounce])
+
+  const caretStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: caretBounce.value },
+      { rotate: `${caretRotate.value}deg` },
+    ],
+  }))
+
   if (!isMultiBranch) return null
 
   return (
@@ -19,7 +59,9 @@ export function BranchChip({ isMultiBranch, onPress }: Props) {
       onPress={() => { lightHaptic(); onPress() }}
     >
       <Text variant="label.md" style={styles.text}>Switch branch</Text>
-      <Text variant="label.md" style={styles.caret} testID="chip-caret">▾</Text>
+      <Animated.View style={caretStyle} testID="chip-caret">
+        <Text variant="label.md" style={styles.caret}>▾</Text>
+      </Animated.View>
     </Pressable>
   )
 }
