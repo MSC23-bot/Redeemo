@@ -1,5 +1,6 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
+import { Star } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 
 type Props = {
@@ -18,7 +19,11 @@ export function RatingBlock({ avgRating, reviewCount }: Props) {
   const rounded = Math.round(avgRating * 10) / 10
   return (
     <View style={styles.block} accessibilityLabel={`Rating ${rounded} from ${reviewCount} review${reviewCount === 1 ? '' : 's'}`}>
-      <Text variant="label.lg" style={styles.star}>★</Text>
+      {/* Round 5 §13: switched from Unicode ★ glyph to Lucide Star
+          icon with fill. Unicode glyph renders thin via Lato (no
+          fontWeight reliability for special chars); SVG icon with
+          fill is consistently bold + controllable. */}
+      <Star size={14} color="#F59E0B" fill="#F59E0B" strokeWidth={1.6} />
       <Text variant="label.lg" style={styles.avg}>{rounded.toFixed(1)}</Text>
       <Text variant="label.md" style={styles.count}>({reviewCount})</Text>
     </View>
@@ -47,7 +52,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(245,158,11,0.25)',
   },
-  star:        { color: '#F59E0B', fontSize: 14 },
   avg:         { fontSize: 15, fontWeight: '900', color: '#010C35', letterSpacing: -0.1 },
   count:       { fontSize: 12, fontWeight: '600', color: '#6B7280' },
   placeholder: { fontSize: 12, color: '#aaa' },

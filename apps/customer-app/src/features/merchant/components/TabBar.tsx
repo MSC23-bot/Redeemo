@@ -32,17 +32,14 @@ type Props = {
 export function TabBar({ tabs, activeTab, onTabPress }: Props) {
   return (
     <View style={styles.container}>
-      {/* Round 5 §10: gradient bottom-stop shifted from warm
-          off-white (#F5F1E9) to neutral grey (#F5F5F5) per user
-          direction "not quite white yet, it's quite warm — want
-          white that goes with the body". Same ~4% lightness delta
-          as the §8 / §9 versions, but fully neutral. Reads as
-          white-matching-the-body with a soft architectural
-          "indent" at the bar's bottom edge.
-          No blur — flat gradient only, clear of the
-          glassmorphism-as-default ban. */}
+      {/* Round 5 §13: bottom stop deepened `#F5F5F5` → `#F0F0F0`
+          (lightness delta ~4% → ~6%). The §10 gradient was so
+          subtle it read as flat on device; this version makes the
+          architectural indent at the bar's bottom edge visible
+          without introducing warmth. Still neutral — clean
+          alignment with the white body. */}
       <LinearGradient
-        colors={['#FFFFFF', '#F5F5F5']}
+        colors={['#FFFFFF', '#F0F0F0']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject}
@@ -176,12 +173,19 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     fontWeight: '600',
   },
-  // Round 5 §5 (impeccable polish): inactive count badge drops the
-  // grey wash bg (visual noise that cluttered the inactive tabs);
-  // active count keeps its brand-red 12% bg as the differentiator.
-  // The active label pill carries the primary "you are here" cue,
-  // and the count colour shift (active #E20C04 / inactive #4B5563)
-  // does the rest.
+  // Round 5 §13: count badges refined per user feedback "the
+  // numbers next to Vouchers / Branches / Reviews look a bit odd".
+  //
+  //   • Inactive bg restored at very subtle `rgba(0,0,0,0.04)`
+  //     (was transparent in §5, was 0.06 before that). The §5
+  //     "drop the wash entirely" produced a floating-numeral feel
+  //     where active had a pill and inactive had nothing — the
+  //     visual asymmetry read as odd. Both states now have a pill
+  //     container; intensity differentiation does the active /
+  //     inactive work.
+  //   • Text weight 800 → 700 — 800 at 11pt was chunky.
+  //   • tabular-nums via fontVariant so single-digit / double-digit
+  //     counts (3 vs 12) line up at consistent widths.
   countBadge: {
     minWidth: 19,
     height: 18,
@@ -194,11 +198,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(226,12,4,0.12)',
   },
   countInactive: {
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0,0,0,0.04)',
   },
   countText: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   // Round 5 §5 (impeccable polish): indicator refined from a
   // bottom-edge strip (left:24% right:24% bottom:0 height:2) to a
