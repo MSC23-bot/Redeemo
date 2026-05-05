@@ -239,14 +239,15 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           pointerEvents="none"
         />
 
-        {/* §33 subtle background shapes — diagonally spread
-            across three corners (TL, BL, BR). Top-right
-            reserved for heart + R top so the brand mark stays
-            visually clear. shapeC's lowest opacity (0.06)
-            keeps the R as the dominant element on the right. */}
+        {/* §34 subtle background shapes — all FOUR corners now
+            for true diagonal spread (was 3 in §33). Right-side
+            shapes (shapeC bottom-right, shapeD top-right) are
+            smaller and lower opacity so they layer BEHIND the
+            heart, R, and CTA without out-shining them. */}
         <View style={styles.shapeA} pointerEvents="none" />
         <View style={styles.shapeB} pointerEvents="none" />
         <View style={styles.shapeC} pointerEvents="none" />
+        <View style={styles.shapeD} pointerEvents="none" />
 
         {/* §31 brand R watermark — bigger (130×130) with a slight
             bleed off the right edge so the R reads as a designed
@@ -357,19 +358,21 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // §33 decorative blobs — diagonally spread across the card,
-  // not clustered. Three corners get a soft circle bleed; the
-  // top-right corner is reserved for heart + R and stays
-  // visually empty:
+  // §34 decorative blobs — FOUR corners now (was 3 in §33).
+  // §33 still felt left-heavy because the right side only had
+  // one BR shape. Adding a TR shape gives true diagonal spread:
   //
-  //         ┌── shapeA (TL) ──── (heart + R top) ──┐
-  //         │                                       │
-  //         │                                       │
-  //         └── shapeB (BL) ──── shapeC (BR) ─────┘
+  //         ┌── shapeA (TL) ───── shapeD (TR) ───┐
+  //         │                                     │
+  //         │                                     │
+  //         └── shapeB (BL) ───── shapeC (BR) ───┘
   //
-  // shapeC is the LOWEST opacity (0.06) of the three so it
-  // never out-shines the R sitting in the right column. The
-  // R reads cleanly through the soft glow of shapeC's edge.
+  // Right-side shapes (TR, BR) are intentionally smaller and
+  // at lower opacity than the left-side ones so they layer
+  // BEHIND the heart + R + CTA without out-shining them. The
+  // R (wrapper opacity 0.12) stays the dominant element on
+  // the right; heart and CTA are opaque white and visible on
+  // top of any shape glow.
   shapeA: {
     position: 'absolute',
     left: -35,
@@ -396,6 +399,15 @@ const styles = StyleSheet.create({
     height: 130,
     borderRadius: 65,
     backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  shapeD: {
+    position: 'absolute',
+    right: -25,
+    top: -30,
+    width: 105,
+    height: 105,
+    borderRadius: 52,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
 
   // §31 brand watermark — bumped 110 → 130 size with a 12pt
