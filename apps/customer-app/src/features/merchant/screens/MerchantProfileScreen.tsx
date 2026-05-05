@@ -502,21 +502,28 @@ export function MerchantProfileScreen({ id }: Props) {
 //   TAB BAR                       #FFFFFF  + header drop shadow
 //   BODY (container + content)    #FFFFFF
 //   CARDS                         #FFFFFF  + card shadow
+// Round 5 §14: surface palette unified into the brand red-orange
+// hue family (H 30). Body shifts from pure white to a subtle warm
+// off-white `#FCEFE5` so it harmonises with the identity zone above
+// and gives white cards real colour contrast (5% lightness step)
+// instead of relying on shadow alone.
+//
+// Surface stack — all in brand H 30:
+//   IDENTITY ZONE   #FFF9F5 → #FAEAE0   cream gradient
+//   TAB BAR         #FAEAE0 → #F5DDC8   deeper cream gradient,
+//                                       anchor band, see TabBar
+//   BODY            #FCEFE5             warm off-white
+//   CARDS           #FFFFFF + shadow    pops against body
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#FFFFFF' },
-  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
+  container:    { flex: 1, backgroundColor: '#FCEFE5' },
+  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FCEFE5' },
   scroll:       { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
-  // Identity zone gets its own cream-bg wrapper; bounded to the
-  // top section so the bottom (tab bar + body) stays white all the
-  // way down past the content.
-  // Round 5 §11: identity zone gets a vertical gradient via the
-  // LinearGradient above. backgroundColor `#FFF9F5` retained as
-  // the Android fallback (matches the gradient's top stop) and as
-  // the natural under-color before children paint over it.
-  // position: relative anchors the absolute-fill gradient.
+  // Identity zone keeps its cream gradient via LinearGradient;
+  // bg `#FFF9F5` is the Android fallback + matches the gradient's
+  // top stop.
   identityZone: { backgroundColor: '#FFF9F5', position: 'relative' },
-  content:      { backgroundColor: '#FFFFFF', minHeight: 460, padding: 20 },
+  content:      { backgroundColor: '#FCEFE5', minHeight: 460, padding: 20 },
   errorScreen:  { flex: 1, backgroundColor: '#FFF9F5', padding: 16 },
   backBtn:      { paddingVertical: 12 },
   errorCard:    { padding: 20, backgroundColor: '#FEF6F5', borderRadius: 16, gap: 8, marginTop: 16 },

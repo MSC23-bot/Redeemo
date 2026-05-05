@@ -32,14 +32,14 @@ type Props = {
 export function TabBar({ tabs, activeTab, onTabPress }: Props) {
   return (
     <View style={styles.container}>
-      {/* Round 5 §13: bottom stop deepened `#F5F5F5` → `#F0F0F0`
-          (lightness delta ~4% → ~6%). The §10 gradient was so
-          subtle it read as flat on device; this version makes the
-          architectural indent at the bar's bottom edge visible
-          without introducing warmth. Still neutral — clean
-          alignment with the white body. */}
+      {/* Round 5 §14: tab bar joins the brand cream language. Top
+          stop matches the identity zone's bottom (`#FAEAE0`) for
+          visual continuity — the bar feels like a continuation of
+          the metadata header rather than a separate neutral chrome
+          element. Bottom stop deepens to `#F5DDC8` as the architectural
+          anchor before the body. All in brand H 30 hue family. */}
       <LinearGradient
-        colors={['#FFFFFF', '#F0F0F0']}
+        colors={['#FAEAE0', '#F5DDC8']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject}
@@ -100,14 +100,16 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 5 §10 (impeccable polish): gradient bottom shifted to
-  // neutral grey (was warm off-white). Bar now reads as
-  // white-matching-the-body with a soft architectural indent at
-  // the bottom edge — no warmth.
+  // Round 5 §14: tab bar bg joins the brand cream language —
+  // top matches identity-zone bottom (`#FAEAE0`), bottom anchors
+  // deeper at `#F5DDC8`. Reads as a continuation of the metadata
+  // header rather than a separate neutral chrome island. Body
+  // below is a lighter cream off-white (`#FCEFE5`) so the tab
+  // bar's deeper cream anchors before the body lightens back up.
   //
-  //   IDENTITY  #FFF9F5
-  //   TAB BAR   #FFFFFF → #F5F5F5  (subtle neutral gradient)
-  //   BODY      #FFFFFF
+  //   IDENTITY  #FFF9F5 → #FAEAE0   cream gradient
+  //   TAB BAR   #FAEAE0 → #F5DDC8   deeper cream anchor band
+  //   BODY      #FCEFE5             warm off-white
   //   CARDS     #FFFFFF + card shadow
   //
   // Shadow opacity bumped back up 0.05 → 0.07: white-on-white
@@ -124,7 +126,7 @@ const styles = StyleSheet.create({
   // meta row 13pt — appropriate "navigation chrome" tier).
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAEAE0',
     paddingHorizontal: 20,
     gap: 4,
     borderBottomWidth: 1,

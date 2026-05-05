@@ -319,42 +319,58 @@ const styles = StyleSheet.create({
   reviewList: {
     gap: 12,
   },
-  // Round 3 §B5: toggle reads as a calmer card-style segmented control
-  // against the lighter tab-content surface. Borders + softer rounding
-  // align it with the other section cards (About / Reviews summary).
+  // Round 5 §14 (impeccable polish): toggle redesigned per user
+  // direction "review toggle needs massive improvements".
+  // Previous treatment was a generic iOS-style segmented control
+  // (cream-on-cream track, white active pill with weak shadow,
+  // 12pt 600 text) — no brand presence, low contrast, and the
+  // active state was barely distinguishable from inactive.
+  //
+  // New treatment:
+  //   • Track bg `#F0E2D2` — deeper cream than the body, sits
+  //     visibly within the white card it lives in. Pill-shaped
+  //     (borderRadius 999).
+  //   • Active button: filled brand-red `#E20C04` + brand-red
+  //     shadow + white text (700 weight). Strong "you are here"
+  //     cue, distinctly Redeemo. Pairs visually with the
+  //     brand-red glow on the voucher cards.
+  //   • Inactive button: transparent bg + dark navy text (600
+  //     weight). Reads as the secondary option without competing.
+  //   • Text bumped 12 → 13pt for legibility (matches the wider
+  //     system polish from rounds 5 §5 / §6 / §7).
+  //   • Padding 8/12 → 10/14 — bigger touch surface.
   toggle: {
     flexDirection: 'row',
-    backgroundColor: '#FCFAF7',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
-    padding: 3,
-    gap: 3,
+    backgroundColor: '#F0E2D2',
+    borderRadius: 999,
+    padding: 4,
+    gap: 4,
   },
   toggleBtn: {
     flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 9,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
   toggleBtnActive: {
-    backgroundColor: '#FFF',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    backgroundColor: '#E20C04',
+    shadowColor: '#E20C04',
+    shadowOpacity: 0.30,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   toggleText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#4B5563',
+    letterSpacing: -0.1,
   },
   toggleTextActive: {
-    color: '#010C35',
+    color: '#FFFFFF',
     fontWeight: '700',
   },
-  scopeLabel: { color: '#9CA3AF', fontSize: 11, marginTop: 4, textAlign: 'center', letterSpacing: 0.1 },
+  scopeLabel: { color: '#6B7280', fontSize: 11, marginTop: 6, textAlign: 'center', letterSpacing: 0.2 },
 })
