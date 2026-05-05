@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react'
-import { View, Pressable, StyleSheet, Image } from 'react-native'
+import { View, Pressable, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { SvgXml } from 'react-native-svg'
 import { Heart, ArrowRight } from 'lucide-react-native'
 import Animated, {
   useSharedValue,
@@ -15,66 +16,62 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §29: official "Iconic Version 3" brand asset + clean
-// right-side composition. The asset bundled at
-// apps/customer-app/assets/redeemo-r-mark.png is now the
-// brand pack's white-on-dark variant (Iconic Version 3),
-// copied from docs/branding/Redeemo Branding Package/Logo
-// Files/PNG/Iconic Version 3.png. Source SVG also published
-// alongside for traceability:
-// docs/branding/Logos/Iconic Version 3.svg.
+// Round 5 §30: two corrections against the on-device QA.
 //
-//   1. Brand R rendered WITHOUT tintColor. The Version 3 PNG
-//      is brand-prepared white/light-grey with the ribbon's
-//      tonal gradient baked in by the brand designer.
-//      Applying tintColor would flatten that gradient. Just
-//      <Image> + opacity 0.30 → the internal ribbon-on-loop
-//      depth comes through naturally because it's already in
-//      the asset.
+//   1. R watermark now FAINT WHITE on every voucher type.
+//      §29 used the brand's "Iconic Version 3" PNG without
+//      tintColor at 0.30 opacity. The asset has subtle white-
+//      to-light-grey tonal stops painted in by the brand
+//      designer. At 0.30 opacity over a saturated colour
+//      gradient, the underlying card colour shows through the
+//      semi-transparent grey areas — visually the R reads as
+//      "tinted green" or "tinted purple" per voucher type,
+//      not as a clean white watermark.
 //
-//   2. Right-side composition cleaned up. §28 had FIVE things
-//      stacked on the right: heart + decorative blob + R +
-//      side notch + Redeem CTA. The on-device QA flagged the
-//      blob ↔ R collision as accidental-looking. Both
-//      decorative blobs moved to the LEFT side now so the
-//      right column has only three intentional zones:
-//        a) heart top-right (16pt)
-//        b) brand R right-CENTER (110×110, fully visible)
-//        c) Redeem CTA bottom-right
-//      Side notches stay (mid-height, coupon silhouette).
+//      Switched to react-native-svg's <SvgXml>. The path data
+//      is COPIED VERBATIM from the official
+//      docs/branding/Logos/Iconic Version 3.svg — same four
+//      paths, same coords, same shapes. Only the fills are
+//      overridden to a uniform white. No manual reconstruction.
+//      Result: a clean faint white silhouette of the brand R,
+//      regardless of which voucher gradient sits behind it.
 //
-//   3. Decorative blobs repositioned. §28 placed shapeA at
-//      top-RIGHT — directly clashing with the R area. Now:
-//        shapeA: top-LEFT corner, bleeds off (120pt @ 0.06)
-//        shapeB: bottom-LEFT corner, bleeds off (160pt @ 0.05)
-//      Both on the left so they support the hero/title column
-//      and never compete with the R or CTA on the right.
+//   2. Voucher gradients softened. §22 → §29 used vivid /
+//      neon-leaning colour pairs. The on-device QA flagged
+//      them as too saturated for the Redeemo brand mood
+//      (older mock-up reference is more muted / premium).
+//      All eight type gradients re-tuned to lower-chroma
+//      pairs — still clearly identifiable per type (green
+//      for FREEBIE, red for DISCOUNT, purple for BOGO, etc.)
+//      but reading more like premium tonal voucher
+//      gradients than neon backgrounds.
 //
-//   4. Description font 11pt → 12pt, lineHeight 15 → 16
-//      (kept from §28). Body text ≥12pt on mobile.
-//
-//   5. Hero stays stacked ("Save up to" eyebrow above £hero)
-//      from §27.
-//
-//   6. Type chip stays §26's dark-translucent style.
-//
-// Behaviour preserved across §22 → §29:
+// Behaviour preserved across §22 → §30:
 //   • side cutouts at mid-height (coupon silhouette)
 //   • per-type 3-stop gradient with brand-red drop shadow
 //   • horizontal text only
+//   • dark-translucent type chip
+//   • hero stacked (eyebrow + £hero on separate lines)
+//   • description 12pt + lineHeight 16
+//   • subtle decorative blobs on the LEFT side only
+//   • clean three-zone right column: heart / R / CTA
 //   • smart £ formatting (£5 vs £5.50)
 //   • a11y label format
 //   • press scale + heart spring with motion-scale gating
 
+// §30 softer gradient palette. Lower chroma vs §29's neon-
+// leaning pairs. Each pair: light start (top-left) → deep
+// stop (bottom-right). Still clearly identifiable per type
+// but reads as premium tonal vouchers, not neon flags.
 const TYPE_GRADIENTS: Record<VoucherType, readonly [string, string]> = {
-  BOGO:             ['#A78BFA', '#7C3AED'],
-  DISCOUNT_FIXED:   ['#FB7185', '#E20C04'],
-  DISCOUNT_PERCENT: ['#FB7185', '#E20C04'],
-  FREEBIE:          ['#7DD9A1', '#15803D'],
-  SPEND_AND_SAVE:   ['#FDBA74', '#D9530E'],
-  PACKAGE_DEAL:     ['#93C5FD', '#1D4ED8'],
-  TIME_LIMITED:     ['#F5C842', '#B45309'],
-  REUSABLE:         ['#4DD8C0', '#0F766E'],
+  BOGO:             ['#A599C2', '#5E4A87'],   // muted lavender / royal
+  DISCOUNT_FIXED:   ['#D88899', '#A93B33'],   // muted brick red
+  DISCOUNT_PERCENT: ['#D88899', '#A93B33'],
+  FREEBIE:          ['#94BFA0', '#3F7359'],   // sage / forest
+  SPEND_AND_SAVE:   ['#DCB89A', '#A2683C'],   // muted terracotta
+  PACKAGE_DEAL:     ['#A4B5CF', '#4D5F8A'],   // muted slate blue
+  TIME_LIMITED:     ['#D6BD86', '#8C5320'],   // muted gold / amber
+  REUSABLE:         ['#88B0A8', '#3F665E'],   // muted teal
 } as const
 
 const TYPE_LABELS: Record<VoucherType, string> = {
@@ -110,6 +107,19 @@ function formatPounds(value: number): string {
   if (Number.isInteger(value)) return `£${value}`
   return `£${value.toFixed(2)}`
 }
+
+// §30 brand R watermark — SVG paths COPIED VERBATIM from the
+// official docs/branding/Logos/Iconic Version 3.svg. Same four
+// shapes, same coordinates. Only the fill is overridden to a
+// uniform white so the watermark reads as a clean faint white
+// silhouette regardless of the voucher gradient sitting behind
+// it. NO manual reconstruction.
+const REDEEMO_R_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080">
+  <path fill="#FFFFFF" d="M802.45,452.5c-.44,93.28-48.92,182.68-129,232.74L654.74,674.6c.7-2.78,1.36-5.56,2-8.39a273.15,273.15,0,0,0,6.45-59.33c0-2.21,0-4.41-.09-6.58-1.59-39.37-10.33-77.34-28.7-112.39-18-34.48-43.61-62.42-73.1-87.85a528.72,528.72,0,0,0-63.44-46.67c-5.43-3.48-10.9-6.88-16.47-10.15q-23.1-13.71-47.1-25.91L273.09,226l-11.47-6.84L244.4,208.91l46.75-44A51.25,51.25,0,0,0,336.75,182c27.73-3.62,47.46-28.08,44-54.7a47.11,47.11,0,0,0-17.13-30.59l30.9-29.09,21.68,9.22,8.3,3.54h0c44,21.72,106.7,50.28,142.15,71.12,52.54,30.85,104.41,60.74,149.7,102.63,6.89,6.41,13.51,13.12,19.74,20.14C770.66,313.44,793,363.06,800,414.8A270.54,270.54,0,0,1,802.45,452.5Z"/>
+  <polygon fill="#FFFFFF" points="273.09 225.99 261.39 219.37 261.62 219.15 273.09 225.99"/>
+  <path fill="#FFFFFF" d="M784.92,888.09a50.58,50.58,0,0,0,50.68,50.59v73.68L531.17,841.69,440.8,791.1,245.06,681.4V441.33l9,5.12L627.45,659l25.39,14.48,1.9,1.1,18.67,10.64L835.6,777.55v60A50.63,50.63,0,0,0,784.92,888.09Z"/>
+  <polygon fill="#FFFFFF" points="487.2 818.12 244.4 994.7 245.05 681.39 487.2 818.12"/>
+</svg>`
 
 export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onToggleFavourite }: Props) {
   const motionScale = useMotionScale()
@@ -203,24 +213,14 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
         <View style={styles.shapeA} pointerEvents="none" />
         <View style={styles.shapeB} pointerEvents="none" />
 
-        {/* §29 brand R watermark — OFFICIAL "Iconic Version 3"
-            PNG. The asset is brand-prepared white-on-dark with
-            the ribbon's tonal gradient already baked in by the
-            brand designer, so we render it WITHOUT tintColor:
-            applying tintColor would flatten that gradient and
-            kill the internal ribbon-on-loop depth. Just Image
-            + opacity 0.30 → the brand mark reads as embedded
-            with its native depth. Sized 110×110 at right-CENTER
-            so the heart sits cleanly above and the bottom-right
-            CTA sits cleanly below — three intentional zones on
-            the right column, no decorative shapes nearby. */}
+        {/* §30 brand R watermark — SvgXml renders the OFFICIAL
+            Iconic Version 3 paths (copied verbatim from the
+            brand SVG, fills overridden to white). The whole
+            wrapper has opacity 0.12 so the R is a faint clean
+            white silhouette on every gradient — no longer
+            picks up the card's hue the way the §29 PNG did. */}
         <View style={styles.watermarkWrap} pointerEvents="none">
-          <Image
-            source={require('../../../../assets/redeemo-r-mark.png')}
-            style={styles.watermark}
-            resizeMode="contain"
-            accessible={false}
-          />
+          <SvgXml xml={REDEEMO_R_SVG} width="100%" height="100%" />
         </View>
 
         {/* 1px white-tinted lip at the very top edge — glassy. */}
@@ -345,25 +345,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
 
-  // §29 brand watermark — OFFICIAL "Iconic Version 3" PNG
-  // (brand-prepared white-on-dark with the ribbon's tonal
-  // gradient baked in). Rendered WITHOUT tintColor so the
-  // internal depth survives. 110×110 at right-CENTER.
-  // Wrapper uses `position: absolute` so the R sits
-  // independently of content flow — content (chip, hero,
-  // title, description) flows over it on the LEFT, with
-  // text reading cleanly through the faint silhouette.
+  // §30 brand watermark — SvgXml renders the OFFICIAL Iconic
+  // Version 3 paths (white fills) inside this wrapper. Opacity
+  // 0.12 on the wrapper → faint clean white silhouette on
+  // every gradient. 110×110 at right-CENTER. Position
+  // `absolute` so the R sits independently of content flow.
   watermarkWrap: {
     position: 'absolute',
     right: 14,
     top: 30,
     width: 110,
     height: 110,
-  },
-  watermark: {
-    width: '100%',
-    height: '100%',
-    opacity: 0.30,
+    opacity: 0.12,
   },
 
   topHighlight: {
