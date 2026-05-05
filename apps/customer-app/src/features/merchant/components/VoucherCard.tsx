@@ -16,35 +16,51 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §30: two corrections against the on-device QA.
+// Round 5 §31: middle-ground colour pass. §29 was too neon,
+// §30 went too washed-out. The on-device QA asked for the
+// pastel-but-alive midpoint: colourful and inviting, not
+// neon and not greyed.
 //
-//   1. R watermark now FAINT WHITE on every voucher type.
-//      §29 used the brand's "Iconic Version 3" PNG without
-//      tintColor at 0.30 opacity. The asset has subtle white-
-//      to-light-grey tonal stops painted in by the brand
-//      designer. At 0.30 opacity over a saturated colour
-//      gradient, the underlying card colour shows through the
-//      semi-transparent grey areas — visually the R reads as
-//      "tinted green" or "tinted purple" per voucher type,
-//      not as a clean white watermark.
+//   1. Pastel-but-alive palette. All eight type gradients
+//      re-tuned to a soft-start / rich-deep pattern. Light
+//      stops are clearly pastel (mint, lavender, coral,
+//      peach, sky, honey). Deep stops are saturated enough
+//      to give the gradient visual energy, but warmer and
+//      more grounded than §29's neon brights.
 //
-//      Switched to react-native-svg's <SvgXml>. The path data
-//      is COPIED VERBATIM from the official
-//      docs/branding/Logos/Iconic Version 3.svg — same four
-//      paths, same coords, same shapes. Only the fills are
-//      overridden to a uniform white. No manual reconstruction.
-//      Result: a clean faint white silhouette of the brand R,
-//      regardless of which voucher gradient sits behind it.
+//   2. Decorative blobs more visible. §30's shapes at 0.05–
+//      0.06 opacity were barely doing their job. Bumped to
+//      0.09–0.11 so the blob silhouettes register as soft
+//      gradient texture without becoming distracting. Both
+//      stay on the LEFT side, supporting the hero/title
+//      column and never competing with the R.
 //
-//   2. Voucher gradients softened. §22 → §29 used vivid /
-//      neon-leaning colour pairs. The on-device QA flagged
-//      them as too saturated for the Redeemo brand mood
-//      (older mock-up reference is more muted / premium).
-//      All eight type gradients re-tuned to lower-chroma
-//      pairs — still clearly identifiable per type (green
-//      for FREEBIE, red for DISCOUNT, purple for BOGO, etc.)
-//      but reading more like premium tonal voucher
-//      gradients than neon backgrounds.
+//   3. Brand R given more presence. The owner explicitly
+//      green-lit moving / resizing / reshaping the watermark
+//      so it feels like a designed graphic of the voucher,
+//      not a dropped-in icon. Now 130×130 (was 110), with a
+//      ~12pt bleed off the right edge so the R reads as an
+//      intentional crop. Still the OFFICIAL Iconic Version 3
+//      paths copied verbatim into <SvgXml>, fills overridden
+//      to white, wrapper opacity 0.12 → faint clean white
+//      silhouette regardless of voucher type.
+//
+//   4. Notches still render OVER the R (rendered last in
+//      JSX, on top in z-order) so the coupon silhouette is
+//      preserved even where the R bleeds.
+//
+// Behaviour preserved across §22 → §31:
+//   • side cutouts at mid-height (coupon silhouette)
+//   • per-type 3-stop gradient with brand-red drop shadow
+//   • horizontal text only
+//   • dark-translucent type chip
+//   • hero stacked (eyebrow + £hero on separate lines)
+//   • description 12pt + lineHeight 16
+//   • clean three-zone right column: heart top / R middle /
+//     CTA bottom
+//   • smart £ formatting (£5 vs £5.50)
+//   • a11y label format
+//   • press scale + heart spring with motion-scale gating
 //
 // Behaviour preserved across §22 → §30:
 //   • side cutouts at mid-height (coupon silhouette)
@@ -59,19 +75,20 @@ import type { MerchantVoucher } from '@/lib/api/merchant'
 //   • a11y label format
 //   • press scale + heart spring with motion-scale gating
 
-// §30 softer gradient palette. Lower chroma vs §29's neon-
-// leaning pairs. Each pair: light start (top-left) → deep
-// stop (bottom-right). Still clearly identifiable per type
-// but reads as premium tonal vouchers, not neon flags.
+// §31 pastel-but-alive palette — middle ground between §29's
+// neon and §30's washed-out muted. Each pair: light start
+// (top-left) → deep stop (bottom-right). Pastel character on
+// the start, lush richness on the deep — colourful and
+// inviting, not neon and not greyed.
 const TYPE_GRADIENTS: Record<VoucherType, readonly [string, string]> = {
-  BOGO:             ['#A599C2', '#5E4A87'],   // muted lavender / royal
-  DISCOUNT_FIXED:   ['#D88899', '#A93B33'],   // muted brick red
-  DISCOUNT_PERCENT: ['#D88899', '#A93B33'],
-  FREEBIE:          ['#94BFA0', '#3F7359'],   // sage / forest
-  SPEND_AND_SAVE:   ['#DCB89A', '#A2683C'],   // muted terracotta
-  PACKAGE_DEAL:     ['#A4B5CF', '#4D5F8A'],   // muted slate blue
-  TIME_LIMITED:     ['#D6BD86', '#8C5320'],   // muted gold / amber
-  REUSABLE:         ['#88B0A8', '#3F665E'],   // muted teal
+  BOGO:             ['#B5A3DD', '#6B5BA6'],   // soft lavender → rich violet
+  DISCOUNT_FIXED:   ['#F2A0AE', '#C44438'],   // soft coral → coral-red
+  DISCOUNT_PERCENT: ['#F2A0AE', '#C44438'],
+  FREEBIE:          ['#9CD9B4', '#3D8B5F'],   // soft mint → emerald
+  SPEND_AND_SAVE:   ['#F0BC9C', '#B26B30'],   // soft peach → terracotta
+  PACKAGE_DEAL:     ['#A8C0E2', '#4F73B0'],   // soft sky → royal blue
+  TIME_LIMITED:     ['#ECCD7E', '#B07028'],   // honey → amber
+  REUSABLE:         ['#9CCEC0', '#3D8579'],   // mint-teal → rich teal
 } as const
 
 const TYPE_LABELS: Record<VoucherType, string> = {
@@ -213,12 +230,14 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
         <View style={styles.shapeA} pointerEvents="none" />
         <View style={styles.shapeB} pointerEvents="none" />
 
-        {/* §30 brand R watermark — SvgXml renders the OFFICIAL
-            Iconic Version 3 paths (copied verbatim from the
-            brand SVG, fills overridden to white). The whole
-            wrapper has opacity 0.12 so the R is a faint clean
-            white silhouette on every gradient — no longer
-            picks up the card's hue the way the §29 PNG did. */}
+        {/* §31 brand R watermark — bigger (130×130) with a slight
+            bleed off the right edge so the R reads as a designed
+            graphic of the voucher rather than a dropped-in icon.
+            Still the OFFICIAL Iconic Version 3 paths in <SvgXml>,
+            white fills, wrapper opacity 0.12 → faint clean white
+            silhouette regardless of voucher gradient. The notches
+            render LAST so the coupon silhouette stays intact even
+            where the R bleeds toward the right edge. */}
         <View style={styles.watermarkWrap} pointerEvents="none">
           <SvgXml xml={REDEEMO_R_SVG} width="100%" height="100%" />
         </View>
@@ -320,42 +339,41 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // §29: BOTH decorative blobs moved to the LEFT side. §28
-  // had shapeA at top-RIGHT, which clashed with the R
-  // watermark and made the right side feel crowded /
-  // accidental. Now both shapes support the hero/title column
-  // on the left and stay clear of the right-side composition
-  // (heart + R + CTA).
+  // §31 decorative blobs — both still on the LEFT side, but
+  // bumped 0.05–0.06 → 0.09–0.11 opacity so the gradient blob
+  // silhouettes register as premium texture rather than
+  // disappearing. Larger sizes too so they reach further into
+  // the card and help break up the flat-block feel.
   shapeA: {
     position: 'absolute',
-    left: -30,
-    top: -30,
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    left: -35,
+    top: -35,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(255,255,255,0.11)',
   },
   shapeB: {
     position: 'absolute',
-    left: -50,
-    bottom: -40,
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    left: -55,
+    bottom: -45,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: 'rgba(255,255,255,0.09)',
   },
 
-  // §30 brand watermark — SvgXml renders the OFFICIAL Iconic
-  // Version 3 paths (white fills) inside this wrapper. Opacity
-  // 0.12 on the wrapper → faint clean white silhouette on
-  // every gradient. 110×110 at right-CENTER. Position
-  // `absolute` so the R sits independently of content flow.
+  // §31 brand watermark — bumped 110 → 130 size with a 12pt
+  // bleed off the right edge so the R reads as an intentional
+  // graphic crop, not a dropped-in icon. Wrapper opacity 0.12
+  // → faint clean white silhouette regardless of voucher type.
+  // Still the OFFICIAL Iconic Version 3 paths in <SvgXml>.
   watermarkWrap: {
     position: 'absolute',
-    right: 14,
-    top: 30,
-    width: 110,
-    height: 110,
+    right: -12,
+    top: 22,
+    width: 130,
+    height: 130,
     opacity: 0.12,
   },
 
