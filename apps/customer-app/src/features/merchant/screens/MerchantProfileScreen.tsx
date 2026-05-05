@@ -313,19 +313,25 @@ export function MerchantProfileScreen({ id }: Props) {
           onShare={handleShare}
         />
 
-        {/* Round 5 §11: identity zone now carries a subtle 2-stop
-            vertical gradient (top `#FFF9F5` matches onboarding
-            cream, bottom `#FAF1E2` deepens by ~5% lightness so the
-            boundary with the white tab bar below reads as a real
-            tonal step). Same craft style as the round 5 §10 tab
-            bar gradient — no blur, just a flat vertical gradient
-            for architectural depth.
-            Round 4 §8 base: identity zone wrapped in its own
-            view so the cream is bounded to the top section, body
-            below stays white all the way down. */}
+        {/* Round 5 §12: bottom stop hue calibrated into the Redeemo
+            brand family. §11 used `#FAF1E2` (L 0.94 C 0.04 H 80 —
+            yellow-leaning, off-brand). The brand neutral hue is at
+            H≈25-30 (red-orange, matching the brand red `#E20C04`,
+            the orange gradient end `#E84A00`, the onboarding cream
+            `#FFF9F5`, and the customer-web Discount pastel
+            `#FEF2F2`). New bottom stop `#FAEAE0` sits at L 0.93
+            C 0.03 H 28 — same hue family as the top stop, creating
+            a coherent brand surface treatment instead of a hue
+            drift.
+            Same craft style as the round 5 §10 tab bar gradient —
+            no blur, just a flat vertical gradient for
+            architectural depth.
+            Round 4 §8 base: identity zone wrapped in its own view
+            so the cream is bounded to the top section, body below
+            stays white all the way down. */}
         <View style={styles.identityZone}>
           <LinearGradient
-            colors={['#FFF9F5', '#FAF1E2']}
+            colors={['#FFF9F5', '#FAEAE0']}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={StyleSheet.absoluteFillObject}
