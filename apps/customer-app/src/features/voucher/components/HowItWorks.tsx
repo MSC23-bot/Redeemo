@@ -4,17 +4,11 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { HelpCircle } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
+import { HOW_IT_WORKS_STEPS } from '../constants/productCopy'
 
 const NAVY     = '#010C35'
 const TEXT_2ND = '#4B5563'
 const BORDER   = '#E8E2DC'
-
-const STEPS: ReadonlyArray<{ label: string; desc: string }> = [
-  { label: 'Tap Redeem',          desc: 'Hit the button below to start the redemption process.' },
-  { label: 'Enter Branch PIN',    desc: 'Ask a staff member for the 4-digit PIN and enter it.' },
-  { label: 'Show Your Code',      desc: 'Present the redemption code or QR to staff for validation.' },
-  { label: 'Enjoy Your Deal!',    desc: 'The voucher will be applied to your bill. Enjoy!' },
-]
 
 /**
  * Four-step vertical timeline explainer pinned beneath the merchant
@@ -34,9 +28,9 @@ export function HowItWorks() {
         {/* Connector line — sits behind the numbered boxes */}
         <View style={styles.connector} pointerEvents="none" />
 
-        {STEPS.map((step, i) => (
-          <View key={i} style={[styles.step, i === STEPS.length - 1 && styles.stepLast]}>
-            <StepNumber index={i} isLast={i === STEPS.length - 1} />
+        {HOW_IT_WORKS_STEPS.map((step, i) => (
+          <View key={i} style={[styles.step, i === HOW_IT_WORKS_STEPS.length - 1 && styles.stepLast]}>
+            <StepNumber index={i} isLast={i === HOW_IT_WORKS_STEPS.length - 1} />
             <View style={styles.stepContent}>
               <Text variant="body.md" style={styles.stepLabel}>{step.label}</Text>
               <Text variant="body.sm" style={styles.stepDesc}>{step.desc}</Text>

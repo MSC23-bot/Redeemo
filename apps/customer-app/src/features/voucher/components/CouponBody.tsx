@@ -2,10 +2,11 @@ import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Check, Clock, Info, Shield, Tag } from 'lucide-react-native'
+import { Check, Clock, FileText, Info, Shield, Tag } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import type { VoucherType } from '@/lib/api/voucher'
 import { voucherGradient } from '../utils/voucherTheme'
+import { FAIR_USE_LINES, FAIR_USE_TITLE, splitTermsIntoBullets } from '../constants/productCopy'
 
 type CouponTopCardProps = {
   type: VoucherType
@@ -15,14 +16,18 @@ type CouponTopCardProps = {
 }
 
 type CouponBodyCardProps = {
-  description: string | null
+  /**
+   * Voucher terms — backend stores this as a single string; we split
+   * into bullet items for display via splitTermsIntoBullets().
+   * Description is intentionally NOT shown here — it lives in the
+   * coupon header so it's the first thing users see (per v4 mockup).
+   */
   terms: string | null
 }
 
 const NAVY        = '#010C35'
 const TEXT_2ND    = '#4B5563'
 const TEXT_MUTED  = '#9CA3AF'
-const BORDER      = '#E8E2DC'
 const SAVING_GRN  = '#16A34A'
 const ROSE        = '#E20C04'
 const CREAM       = '#FFF9F5'
@@ -56,7 +61,7 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch }: Cou
               style={StyleSheet.absoluteFillObject}
             />
             <View style={styles.bannerOverlay} pointerEvents="none">
-              <Text variant="label.md" style={styles.bannerLabel}>VOUCHER BANNER</Text>
+              <Text variant="label.md" style={styles.bannerLabel}>VOUCHER BANNER IMAGE</Text>
             </View>
           </>
         )}
@@ -86,27 +91,20 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch }: Cou
 /**
  * Coupon BODY card — terms list + fair-use card. Sits below the inner
  * perforation. Per v4 §coupon-body.
+ *
+ * Description is NOT rendered here — it appears in the CouponHeader
+ * (per v4 mockup screen 1). Showing it twice on the same screen was
+ * a Round-1 visual regression.
  */
-export function CouponBodyCard({ description, terms }: CouponBodyCardProps) {
-  // Terms text is stored as a single multi-line string. Split into
-  // bullet points by blank line / line break so the UI matches v4
-  // (each bullet rendered as its own list item with a check icon).
-  // Falls back to whitespace splitting only if the source text doesn't
-  // already use line-breaks.
-  const termsList = (terms ?? '').split(/\r?\n+/).map(s => s.trim()).filter(Boolean)
+export function CouponBodyCard({ terms }: CouponBodyCardProps) {
+  const termsList = splitTermsIntoBullets(terms)
 
   return (
     <View style={styles.bodyCard} testID="coupon-body">
-      {description ? (
-        <Text variant="body.md" style={styles.description}>
-          {description}
-        </Text>
-      ) : null}
-
       {termsList.length > 0 ? (
         <View style={styles.section}>
           <View style={styles.sectionHeading}>
-            <Tag size={15} color={ROSE} strokeWidth={2} />
+            <FileText size={15} color={ROSE} strokeWidth={2} />
             <Text variant="label.md" style={styles.sectionTitle}>Terms &amp; Conditions</Text>
           </View>
           <View style={styles.termsList}>
@@ -121,13 +119,16 @@ export function CouponBodyCard({ description, terms }: CouponBodyCardProps) {
       ) : null}
 
       <View style={styles.fairUse}>
-        <View style={styles.sectionHeading}>
+        <View style={styles.fairHeading}>
           <Shield size={14} color={ROSE} strokeWidth={2} />
-          <Text variant="label.md" style={styles.fairTitle}>Fair Use Policy</Text>
+          <Text variant="label.md" style={styles.fairTitle}>{FAIR_USE_TITLE}</Text>
         </View>
-        <FairItem text="Vouchers are for personal use only — non-transferable." />
-        <FairItem text="Present voucher before ordering — must be shown before the bill is generated." />
-        <FairItem text="Merchant reserves the right to refuse if fair use is not followed." />
+        {FAIR_USE_LINES.map((line, i) => (
+          <View key={i} style={styles.fairItem}>
+            <Info size={11} color={TEXT_MUTED} strokeWidth={2} />
+            <Text variant="body.sm" style={styles.fairItemText}>{line}</Text>
+          </View>
+        ))}
       </View>
     </View>
   )
@@ -155,15 +156,6 @@ function Pill({ tone, icon, children }: {
   )
 }
 
-function FairItem({ text }: { text: string }) {
-  return (
-    <View style={styles.fairItem}>
-      <Info size={11} color={TEXT_MUTED} strokeWidth={2} />
-      <Text variant="body.sm" style={styles.fairItemText}>{text}</Text>
-    </View>
-  )
-}
-
 const styles = StyleSheet.create({
   // ── TOP CARD (banner + pills) ──────────────────────────────────────
   topCard: {
@@ -171,7 +163,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   banner: {
-    height: 140,
+    height: 150,
     backgroundColor: '#1a1a2e',
     overflow: 'hidden',
   },
@@ -188,8 +180,8 @@ const styles = StyleSheet.create({
   },
   infoBlock: {
     paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 16,
+    paddingBottom: 16,
   },
   infoTitle: {
     fontSize: 11,
@@ -229,12 +221,6 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 22,
   },
-  description: {
-    fontSize: 14,
-    lineHeight: 21,
-    color: TEXT_2ND,
-    marginBottom: 16,
-  },
   section: {
     marginBottom: 14,
   },
@@ -245,7 +231,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
     color: NAVY,
   },
@@ -276,6 +262,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
     marginTop: 6,
+  },
+  fairHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
   },
   fairTitle: {
     fontSize: 12,

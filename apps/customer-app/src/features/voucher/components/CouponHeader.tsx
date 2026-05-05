@@ -11,6 +11,14 @@ type Props = {
   title: string
   description: string | null
   estimatedSaving: number
+  /**
+   * Top safe-area inset (status bar height + notch). The header's
+   * paddingTop and the save badge's `top` derive from this so the
+   * type badge / title / save badge always sit BELOW the parent
+   * screen's frosted nav row instead of underneath it. Without this,
+   * the type badge and back button collide on iPhones with notches.
+   */
+  insetTop: number
 }
 
 const typeIcon = (type: VoucherType) => {
@@ -31,26 +39,33 @@ const WHITE        = '#FFFFFF'
 const WHITE_92     = 'rgba(255,255,255,0.92)'
 const WHITE_80     = 'rgba(255,255,255,0.80)'
 
+// Vertical room reserved for the parent screen's NavRow (38pt button +
+// 8pt top offset + ~12pt breathing room). Keep in sync with
+// VoucherDetailScreen.NavRow positioning.
+const NAV_ROOM = 58
+
 /**
  * Top of the coupon — type-coloured gradient background with a frosted
  * dashed "Save £X" badge in the top-right corner. Layout matches v4
  * mockup §coupon-header: left-aligned type badge + title + description
- * with the save circle floating top-right.
+ * with the save circle floating top-right, sitting BELOW the nav row.
  *
  * Visual depth: type-coloured gradient (light → dark, top-left → bottom-
  * right) plus two overlay layers: a vertical vignette (slight darkening
  * at top + bottom) and a pair of radial highlights for subtle texture.
- *
- * Top padding leaves room for the absolute-positioned NavRow rendered
- * by the parent screen (status bar inset + nav buttons + breathing room).
  */
-export function CouponHeader({ type, title, description, estimatedSaving }: Props) {
+export function CouponHeader({ type, title, description, estimatedSaving, insetTop }: Props) {
   const gradient  = voucherGradient(type)
   const typeLabel = voucherTypeLabel(type)
   const Icon      = typeIcon(type)
 
+  // paddingTop = status-bar + nav button room + breathing. saveBadge
+  // top aligns roughly with the title — sits below the nav buttons.
+  const paddingTop = insetTop + NAV_ROOM
+  const saveTop    = paddingTop
+
   return (
-    <View style={styles.root} testID="coupon-header">
+    <View style={[styles.root, { paddingTop }]} testID="coupon-header">
       {/* Base type gradient */}
       <LinearGradient
         colors={gradient}
@@ -96,7 +111,11 @@ export function CouponHeader({ type, title, description, estimatedSaving }: Prop
       </View>
 
       {/* Save badge — top-right circular dashed badge */}
-      <View style={styles.saveBadge} accessible accessibilityLabel={`Save ${formatPounds(estimatedSaving)}`}>
+      <View
+        style={[styles.saveBadge, { top: saveTop }]}
+        accessible
+        accessibilityLabel={`Save ${formatPounds(estimatedSaving)}`}
+      >
         <Text variant="label.md" style={styles.saveLabel}>SAVE</Text>
         <Text variant="heading.sm" style={styles.saveAmount}>
           {formatPounds(estimatedSaving)}
@@ -109,16 +128,15 @@ export function CouponHeader({ type, title, description, estimatedSaving }: Prop
 const styles = StyleSheet.create({
   root: {
     position: 'relative',
-    minHeight: 240,
-    paddingTop: 96,
-    paddingBottom: 28,
+    minHeight: 260,
+    paddingBottom: 30,
     paddingHorizontal: 20,
     overflow: 'hidden',
   },
   content: {
     position: 'relative',
     zIndex: 1,
-    maxWidth: '72%',
+    maxWidth: '70%',
   },
   typeBadge: {
     flexDirection: 'row',
@@ -135,10 +153,10 @@ const styles = StyleSheet.create({
   },
   title: {
     color: WHITE,
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '800',
-    lineHeight: 28,
-    letterSpacing: -0.4,
+    lineHeight: 30,
+    letterSpacing: -0.5,
     marginBottom: 8,
   },
   description: {
@@ -148,12 +166,11 @@ const styles = StyleSheet.create({
   },
   saveBadge: {
     position: 'absolute',
-    top: 92,
     right: 20,
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.20)',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.4)',
     borderStyle: 'dashed',

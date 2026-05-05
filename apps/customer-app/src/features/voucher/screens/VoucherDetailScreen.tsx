@@ -21,6 +21,7 @@ import { HowItWorks } from '../components/HowItWorks'
 import { RedeemCTA } from '../components/RedeemCTA'
 import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
+import { CTA_LABELS } from '../constants/productCopy'
 
 /**
  * VoucherDetailScreen — orchestrates the 12-state UI for a voucher's
@@ -176,20 +177,20 @@ export function VoucherDetailScreen() {
   const cta = useMemo(() => {
     switch (stateKey) {
       case 'free-user':
-        return { label: 'Subscribe to redeem — £6.99/mo', disabled: false, variant: 'subscribe' as const, testID: 'redeem-cta-subscribe' }
+        return { label: CTA_LABELS.redeemSubscribe, disabled: false, variant: 'subscribe' as const, testID: 'redeem-cta-subscribe' }
       case 'can-redeem':
       case 'time-limited-available':
       case 'time-limited-urgent':
         if (!branchReady) {
-          return { label: 'Resolving branch…', disabled: true, variant: 'primary' as const, testID: 'redeem-cta-branch-loading' }
+          return { label: CTA_LABELS.branchLoading, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-branch-loading' }
         }
-        return { label: 'Redeem this voucher', disabled: false, variant: 'primary' as const, testID: 'redeem-cta-active' }
+        return { label: CTA_LABELS.redeemActive, disabled: false, variant: 'primary' as const, testID: 'redeem-cta-active' }
       case 'redeemed-this-cycle':
-        return { label: 'Already redeemed this cycle', disabled: true, variant: 'primary' as const, testID: 'redeem-cta-redeemed' }
+        return { label: CTA_LABELS.redeemed, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-redeemed' }
       case 'expired':
-        return { label: 'Expired', disabled: true, variant: 'primary' as const, testID: 'redeem-cta-expired' }
+        return { label: CTA_LABELS.expired, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-expired' }
       case 'time-limited-unavailable':
-        return { label: 'Currently unavailable', disabled: true, variant: 'primary' as const, testID: 'redeem-cta-unavailable' }
+        return { label: CTA_LABELS.unavailable, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-unavailable' }
       default:
         return null
     }
@@ -262,6 +263,7 @@ export function VoucherDetailScreen() {
             title={voucher.title}
             description={voucher.description}
             estimatedSaving={voucher.estimatedSaving}
+            insetTop={insets.top}
           />
 
           <PerforationLine pageBg={PAGE_BG} variant="outer" />
@@ -281,10 +283,7 @@ export function VoucherDetailScreen() {
             </View>
 
             <View style={styles.couponBottomRound}>
-              <CouponBodyCard
-                description={voucher.description}
-                terms={voucher.terms}
-              />
+              <CouponBodyCard terms={voucher.terms} />
             </View>
           </View>
         </View>

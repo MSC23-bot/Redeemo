@@ -47,9 +47,16 @@ const BORDER      = '#E8E2DC'
 
 function formatDistance(meters: number | null): string | null {
   if (meters === null || meters === undefined) return null
-  // UK formatting: use miles for >= 0.1 mi, otherwise show in metres.
+  // UK formatting. Distances over 200 mi suggest the user is far from
+  // the merchant (different country, GPS not granted, etc.) — at that
+  // point the number adds noise without context, so we omit it. Under
+  // 200 mi we round to integer when ≥ 100 mi (saves a character so
+  // the row doesn't truncate), one decimal for typical local
+  // distances, and metres for sub-mile values.
   const miles = meters / 1609.34
-  if (miles >= 0.1) return `${miles.toFixed(1)} mi`
+  if (miles >= 200)  return null
+  if (miles >= 100)  return `${Math.round(miles)} mi`
+  if (miles >= 0.1)  return `${miles.toFixed(1)} mi`
   return `${Math.round(meters)} m`
 }
 
@@ -152,8 +159,8 @@ const styles = StyleSheet.create({
     gap: 12,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     marginHorizontal: 20,
     marginTop: 20,
     borderWidth: 1,
