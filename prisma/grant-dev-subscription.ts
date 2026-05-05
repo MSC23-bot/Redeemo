@@ -3,15 +3,23 @@
  * No Stripe required — uses nullable stripeSubscriptionId/stripeCustomerId.
  * Run: npx tsx prisma/grant-dev-subscription.ts
  *
- * The Monthly plan is resolved at runtime by stripePriceId so this script
- * keeps working across DB resets — the previous version hardcoded the
- * plan UUID, which became stale whenever `prisma migrate reset` regenerated
- * `SubscriptionPlan.id`.
+ * Plan lookup: resolved at runtime by stripePriceId so this script keeps
+ * working across `prisma migrate reset` (which regenerates plan UUIDs).
+ *
+ * Cycle behaviour (DEV TOOLING — differs from production):
+ *   • cycleAnchorDate is set to midnight UTC of "now" on BOTH create and
+ *     update. The script's job is to grant/repair a clean known-state QA
+ *     entitlement, so re-running it leaves customer@redeemo.com in a
+ *     reproducible state.
+ *   • Production resubscription path (src/api/subscription/service.ts via
+ *     Stripe webhook) treats cycleAnchorDate as immutable once set per the
+ *     schema rule — that path is NOT this script.
  */
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { Pool } from 'pg'
 import * as dotenv from 'dotenv'
+import { toMidnightUTC } from '../src/api/subscription/cycle'
 dotenv.config()
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL })
@@ -45,6 +53,22 @@ async function main() {
   const periodEnd = new Date(now)
   periodEnd.setFullYear(periodEnd.getFullYear() + 1) // 1-year window — won't expire during testing
 
+  // Schema contract (prisma/schema.prisma): cycleAnchorDate is stored at
+  // midnight UTC on the anchor day. `getCurrentCycleWindow()` only reads
+  // the day-of-month so a non-midnight value works in practice, but the
+  // canonical form is midnight — match it here.
+  const cycleAnchor = toMidnightUTC(now)
+
+  // DEV-ONLY policy (script is QA tooling, not production code):
+  // Reset cycleAnchorDate on BOTH create and update. The script's job is
+  // to grant/repair a clean known-state QA entitlement for
+  // customer@redeemo.com — we want the dev fixture to be reproducible
+  // each time the script runs. This deliberately differs from the
+  // schema's resubscribe/reactivation rule (which says cycleAnchorDate
+  // is immutable once set in the production Stripe-driven path); the
+  // production path goes through `createSubscription` in
+  // src/api/subscription/service.ts, NOT through this script. Dev
+  // tooling resets the anchor; production keeps it.
   const sub = await prisma.subscription.upsert({
     where: { userId: user.id },
     create: {
@@ -53,13 +77,15 @@ async function main() {
       status:             'ACTIVE',
       currentPeriodStart: now,
       currentPeriodEnd:   periodEnd,
-      cycleAnchorDate:    now,
+      cycleAnchorDate:    cycleAnchor,
     },
     update: {
       planId:             plan.id,
       status:             'ACTIVE',
       currentPeriodStart: now,
       currentPeriodEnd:   periodEnd,
+      cycleAnchorDate:    cycleAnchor,
+      cancelAtPeriodEnd:  false, // clear any prior cancellation flag
     },
   })
 
@@ -67,6 +93,7 @@ async function main() {
   console.log(`    Plan:   ${plan.name} (${plan.billingInterval})`)
   console.log(`    ID:     ${sub.id}`)
   console.log(`    Status: ${sub.status}`)
+  console.log(`    Anchor: ${sub.cycleAnchorDate.toISOString()}`)
   console.log(`    Until:  ${sub.currentPeriodEnd.toISOString().slice(0, 10)}`)
 }
 
