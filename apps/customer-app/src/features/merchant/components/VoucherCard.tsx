@@ -389,10 +389,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 14,
     borderRadius: 20,
-    // Round 6 follow-up: marginHorizontal 12 → 18 per owner ask
-    // for narrower cards (so 10-15 vouchers feel less heavy in
-    // the list). ~9.6% slim on a 375pt screen, up from ~6.4%.
-    marginHorizontal: 18,
+    // Round 6 follow-up: marginHorizontal 18 → 14 — owner
+    // clarified they want the card slightly WIDER again (the 18
+    // experiment was too narrow). ~7.5% width slim on 375pt;
+    // splits the difference between the 12pt §37 baseline and
+    // the 18pt narrow experiment.
+    marginHorizontal: 14,
   },
   card: {
     position: 'relative',
@@ -481,14 +483,12 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    // Round 6 follow-up: vertical padding 10 → 8. Owner asked
-    // for the card to be "smaller from up and down" without
-    // touching content / fonts / positioning. Keeps meaningful
-    // breathing room (8pt at the top and bottom of the inner
-    // content) — the brief explicitly asked to preserve top/
-    // bottom padding inside.
+    // Round 6 follow-up: vertical padding tightened further
+    // 8 → 6 to compensate for the bumped description font size
+    // (12 → 13, lineHeight 16 → 17, minHeight 32 → 34) so the
+    // card stays shorter overall.
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 6,
     flex: 1,
   },
 
@@ -523,25 +523,27 @@ const styles = StyleSheet.create({
     padding: 3,
   },
 
-  // Round 6 follow-up: hero + title now share a horizontal row.
-  // The row carries the spacing; heroBlock itself is just the
-  // stacked Save-up-to / £hero column with no own margins.
+  // Round 6 follow-up: hero + title share a horizontal row.
+  // marginTop/Bottom tightened (4/6 → 2/4) for the slimmer
+  // card; vertical centring kept so the title is visually
+  // anchored against the hero column.
   heroTitleRow: {
     flexDirection: 'row',
-    alignItems: 'center',  // vertical centre — title aligned to
-                           // the middle of the hero column
-    marginTop: 4,
-    marginBottom: 6,       // gap before description ("a bit of
-                           // gap after the amount", per owner)
-    gap: 14,               // horizontal gap between £amount and
-                           // the title — keeps them visually
-                           // separated
+    alignItems: 'center',
+    marginTop: 2,
+    marginBottom: 4,
+    gap: 14,
   },
+  // Round 6 follow-up: heroBlock contents now centre-aligned.
+  // Owner direction — when the £amount is short (e.g. "£4"),
+  // the eyebrow "Save up to" should sit horizontally centred
+  // over it, not left-aligned with a wider eyebrow trailing.
+  // Centre-alignment also balances the long-amount case
+  // (£6.50 / £69.99) — the eyebrow always anchors to the
+  // amount's centre.
   heroBlock: {
-    flexShrink: 0,         // hero takes its intrinsic content
-                           // width (~80pt for "Save up to" /
-                           // "£2.50") so the title gets the
-                           // remaining space via flex:1 below
+    flexShrink: 0,
+    alignItems: 'center',
   },
   heroLabel: {
     color: 'rgba(255,252,250,0.90)',
@@ -571,41 +573,35 @@ const styles = StyleSheet.create({
   // letter-spacing. Stronger second-tier presence after the
   // £hero, with tinted off-white text. Description weight
   // drops to 400 (below) for sharper hierarchy contrast.
-  // Round 6 follow-up: title is now inside heroTitleRow with
-  // flex:1 so it takes the remaining horizontal space after the
-  // hero column. Vertical centering against the hero is handled
-  // by heroTitleRow's alignItems:'center'. numberOfLines={2}
-  // allows long titles to wrap; titles up to ~22 chars stay on
-  // one line, longer ones wrap to two.
+  // Round 6 follow-up: title weight 800 → 900 per owner ask
+  // for stronger emphasis. Position via heroTitleRow.alignItems
+  // = 'center' (kept) and flex:1 so the title fills the
+  // remaining row width and vertical-centres against the hero
+  // column.
   title: {
     flex: 1,
     color: WHITE_TEXT,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '900',
     letterSpacing: -0.3,
     lineHeight: 20,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
-  // §38 description WRAPPER — minHeight reserves space for
-  // 2 lines regardless of whether the actual text is 1 line,
-  // 2 lines, or empty. This is what keeps card heights
-  // consistent across the voucher list. lineHeight 16 × 2 =
-  // 32pt reserved.
+  // Round 6 follow-up: description bumped 12 → 13pt with
+  // lineHeight 17 (~1.31×). minHeight matches new lineHeight×2
+  // = 34pt for consistent card heights. Weight stays at 400
+  // for hierarchy contrast against the now-900 title.
   descriptionWrap: {
-    minHeight: 32,
+    minHeight: 34,
   },
-  // §39: description weight 500 → 400 for cleaner hierarchy
-  // contrast against the now-bolder 16/800 title (impeccable
-  // recommends ≥1.25 ratio between hierarchy steps; weight
-  // jump 800→400 is well past that and visually distinct).
   description: {
     color: 'rgba(255,252,250,0.92)',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '400',
     letterSpacing: -0.05,
-    lineHeight: 16,
+    lineHeight: 17,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -614,12 +610,12 @@ const styles = StyleSheet.create({
   // §28 bottom row: expiry-LEFT, CTA-RIGHT (back to the
   // standard layout from before §26). Possible because the R
   // is now at right-center above this row, not bottom-right.
-  // Round 6 follow-up: marginTop 8 → 6. 2pt saved.
+  // Round 6 follow-up: marginTop 6 → 4. 2pt saved.
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 6,
+    marginTop: 4,
     gap: 12,
   },
   // §39: metaText weight 600 → 500 so the expiry recedes
