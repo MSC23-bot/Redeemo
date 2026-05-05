@@ -64,11 +64,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
   },
+  // Round 5 §18: spacing rhythm bumped per user direction
+  // "improve spacing on the text in the about section". Body
+  // lineHeight 22 → 24 (1.85 ratio — comfortable prose breathing,
+  // up from cramped 1.69). titleRow.marginBottom 14 → 16 and
+  // readMore.marginTop 6 → 10 give the prose room above and
+  // below.
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 9,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   title: {
     fontSize: 16,
@@ -78,11 +84,11 @@ const styles = StyleSheet.create({
   },
   body: {
     fontSize: 13,
-    lineHeight: 22,
+    lineHeight: 24,
   },
   readMore: {
     color: '#E20C04',
     fontWeight: '700',
-    marginTop: 6,
+    marginTop: 10,
   },
 })

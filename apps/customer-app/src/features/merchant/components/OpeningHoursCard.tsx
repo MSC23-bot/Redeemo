@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 16,
   },
   titleLeft: {
     flexDirection: 'row',
@@ -127,11 +127,13 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 3.5,
   },
+  // Round 5 §18: day rows paddingV 8 → 10 — better breathing
+  // between Sunday/Monday/Tuesday entries on the schedule list.
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   rowBorder: {
     borderBottomWidth: 1,

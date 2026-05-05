@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 9,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   title: {
     fontSize: 16,
@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 14,
   },
   item: {
     flexDirection: 'row',

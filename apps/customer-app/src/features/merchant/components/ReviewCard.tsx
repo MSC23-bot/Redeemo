@@ -80,8 +80,8 @@ export function ReviewCard({ review, showBranchLabel, onHelpful, onEdit, onDelet
             <Text variant="label.lg" style={styles.name}>{review.displayName}</Text>
             {review.isVerified && (
               <View style={styles.verifiedBadge}>
-                <CheckCircle size={11} color="#16A34A" />
-                <Text variant="label.md" style={styles.verifiedText}>VERIFIED</Text>
+                <CheckCircle size={12} color="#15803D" />
+                <Text variant="label.md" style={styles.verifiedText}>Verified</Text>
               </View>
             )}
           </View>
@@ -201,10 +201,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ownBtnDel: {},
+  // Round 5 §18: spacing rhythm bumped across the card per user
+  // direction "spacing could do with improvement".
+  //   header gap        12 → 14  (avatar to info)
+  //   miniStars top      8 → 10
+  //   text top           8 → 10, lineHeight 21 → 23 (better prose)
+  //   helpful top       12 → 14
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
   },
   avatar: {
     width: 40,
@@ -248,17 +254,34 @@ const styles = StyleSheet.create({
     color: '#010C35',
     letterSpacing: -0.1,
   },
+  // Round 5 §18 (impeccable polish): VERIFIED stamp made prominent
+  // per user direction "stamp on reviews should be more prominent".
+  // Was: 9pt 800 floating green text + 11pt CheckCircle — read as
+  // tiny inline note. Now wrapped in a green-tinted pill with
+  // border — looks like a real stamp.
+  //   - Sentence-case "Verified" (was uppercase "VERIFIED" — pairs
+  //     better with the pill chrome; uppercase tracking inside a
+  //     bordered pill reads as shouty)
+  //   - Pill bg `rgba(22,163,74,0.10)` + border `rgba(22,163,74,0.25)`
+  //   - 12pt CheckCircle (was 11pt)
+  //   - 11pt 700 text (was 9pt 800)
+  //   - 5/9 padding for visible chrome
   verifiedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(22,163,74,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(22,163,74,0.25)',
   },
   verifiedText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#16A34A',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#15803D',
+    letterSpacing: 0.1,
   },
   // Round 5 §6: 11 → 12pt for legibility.
   date: {
@@ -269,18 +292,18 @@ const styles = StyleSheet.create({
   miniStars: {
     flexDirection: 'row',
     gap: 1,
-    marginTop: 8,
+    marginTop: 10,
   },
   text: {
     fontSize: 13,
-    lineHeight: 21,
-    marginTop: 8,
+    lineHeight: 23,
+    marginTop: 10,
   },
   helpful: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 12,
+    marginTop: 14,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 6,

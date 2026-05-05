@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 9,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   title: {
     fontSize: 16,

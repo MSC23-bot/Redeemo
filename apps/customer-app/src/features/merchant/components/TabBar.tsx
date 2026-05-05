@@ -67,7 +67,14 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
             accessibilityState={{ selected: isActive }}
             accessibilityLabel={`${tab.label}${tab.count !== undefined ? `, ${tab.count} items` : ''}`}
           >
-            <View style={[styles.labelRow, isActive && styles.labelRowActive]}>
+            {/* Round 5 §18: active label pill (`labelRowActive`)
+                removed per user direction "don't think the pill
+                highlight on the navbar when a label is selected
+                is required — just the underline and the number
+                in tint, is enough". The active state now reads
+                via the bottom underline + the brand-red tinted
+                count badge alone — cleaner, less competing cues. */}
+            <View style={styles.labelRow}>
               <Text
                 variant="label.md"
                 numberOfLines={1}
@@ -164,10 +171,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 999,
   },
-  // Round 3 §B4: active tab gets a brand-red 5% pill background.
-  labelRowActive: {
-    backgroundColor: 'rgba(226,12,4,0.05)',
-  },
+  // Round 5 §18: `labelRowActive` style retired — the active label
+  // pill bg was redundant with the bottom underline + brand-red
+  // tinted count badge already carrying the active cue.
   // Round 4 §6: labels bumped 13 → 14pt — round 4 §5's 13pt still
   // read as too small in the bigger header tab bar.
   label: {

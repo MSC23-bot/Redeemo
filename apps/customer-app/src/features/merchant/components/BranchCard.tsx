@@ -103,13 +103,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
   },
-  rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 6 },
+  // Round 5 §18: vertical rhythm bumped per user direction
+  // "spacing improvements on cards in branches". Progression
+  // 6 → 8 → 12 (tight) becomes 8 → 10 → 16 — clearer
+  // architectural separation between name, status row, and
+  // address before the action row.
+  rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 },
   name:       { fontSize: 16, fontWeight: '700', color: '#010C35', letterSpacing: -0.2 },
-  rowMid:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  rowMid:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   statusText: { color: '#222', fontWeight: '500', fontSize: 12 },
   separator:  { color: '#D1D5DB', fontSize: 12 },
   distance:   { color: '#6B7280', fontWeight: '500', fontSize: 12 },
-  address:    { color: '#6B7280', fontSize: 12, marginBottom: 12 },
+  address:    { color: '#6B7280', fontSize: 12, marginBottom: 16 },
   actions:    { flexDirection: 'row', gap: 8 },
   actionBtn:  {
     flex: 1,

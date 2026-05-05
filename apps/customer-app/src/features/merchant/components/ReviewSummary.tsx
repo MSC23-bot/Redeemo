@@ -136,14 +136,17 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 4,
   },
+  // Round 5 §18: bar rhythm bumped per user direction "spacing
+  // improvements on reviews". gap 5 → 7 between distribution
+  // bars; barRow gap 8 → 10 between number / track / count.
   barsCol: {
     flex: 1,
-    gap: 5,
+    gap: 7,
   },
   barRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   barNum: {
     fontSize: 11,
@@ -172,7 +175,7 @@ const styles = StyleSheet.create({
     width: 20,
   },
   writeBtn: {
-    marginTop: 20,
+    marginTop: 22,
     borderRadius: 12,
     overflow: 'hidden',
     shadowColor: color.brandRose,
