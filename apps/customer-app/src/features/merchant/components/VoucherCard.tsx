@@ -349,13 +349,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
     borderRadius: 20,
-    // §35: ~14pt margin each side so the card sits slightly
-    // slimmer in its parent than before. Owner asked for ~10%
-    // narrower; on a 375pt screen with the existing list
-    // padding (~16pt each side), 14pt margin lands the card
-    // ~7-8% slimmer — the visual goal without going so narrow
-    // that the content feels cramped.
-    marginHorizontal: 14,
+    // §36: width reduction reverted per owner. Card width
+    // returns to filling its parent. The slim-down moves to
+    // vertical only — see content padding + margin tweaks
+    // below.
   },
   card: {
     position: 'relative',
@@ -445,7 +442,9 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    padding: 14,
+    // §36: 14 → 12 padding. ~4pt vertical saving each side
+    // without making text feel cramped against card edges.
+    padding: 12,
     flex: 1,
   },
 
@@ -482,10 +481,11 @@ const styles = StyleSheet.create({
     padding: 3,
   },
 
-  // Hero stacked: eyebrow above £hero.
+  // §36: hero margins tightened (8/6 → 6/4). 4pt vertical
+  // saving without shrinking the eyebrow/£hero typography.
   heroBlock: {
-    marginTop: 8,
-    marginBottom: 6,
+    marginTop: 6,
+    marginBottom: 4,
   },
   heroLabel: {
     color: 'rgba(255,255,255,0.90)',
@@ -515,7 +515,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.15,
     lineHeight: 18,
-    marginBottom: 4,
+    // §36: title marginBottom 4 → 2. 2pt saved.
+    marginBottom: 2,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -537,11 +538,12 @@ const styles = StyleSheet.create({
   // §28 bottom row: expiry-LEFT, CTA-RIGHT (back to the
   // standard layout from before §26). Possible because the R
   // is now at right-center above this row, not bottom-right.
+  // §36: marginTop 10 → 8. 2pt saved.
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 10,
+    marginTop: 8,
     gap: 12,
   },
   metaText: {
