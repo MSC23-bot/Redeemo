@@ -521,13 +521,32 @@ None. All decisions locked. Implementation begins on Milestone 1.
 
 ## 11. Future navigation/gesture follow-up (out of scope for this PR)
 
-Recorded for the next navigation/gesture workstream. Not solved here.
+Recorded for the next navigation/gesture workstream. Not solved in the current PR.
 
-- **Native stack presentation for `merchant/[id]`.** Investigate whether the Merchant Profile should be presented in a native stack (instead of a Tabs route) so iOS swipe-back works naturally. Today the route is `<Tabs.Screen name="merchant/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />` (see [`app/(app)/_layout.tsx:120`](apps/customer-app/app/(app)/_layout.tsx#L120)). A native-stack presentation would unlock iOS swipe-back without custom gesture work, and would be a better long-term fit. Refactor scope: small change to the router config + verifying back-stack semantics across cold-open from notification / deep-link / share-link entries.
-- **Tab-swipe navigation across merchant-profile sections.** Owner-desired: swipe left/right on the body to switch Vouchers ↔ About ↔ Branches ↔ Reviews. Plus future review-toggle gestures may need their own pan handling.
-- **Gesture priority arbitration.** When tab-swipe + native-stack-swipe-back + nested-scroll + review-toggle gestures all live on the same surface, define priorities:
-  - Edge swipe should navigate back ONLY from the screen edge AND only if native stack supports it.
-  - Horizontal swipes inside tab content should switch tabs.
-  - Vertical scroll must remain stable.
-  - Review-toggle gestures must not conflict with tab swipes.
-- All four bullets above belong to a single navigation/gesture brainstorm workstream (likely Tier 2, possibly Tier 3 if the native-stack refactor turns out to need more careful handling). Pick up after the customer-app rebaseline track is closer to done — gesture arbitration is easier to design when the destination shape is known across all surfaces.
+### 11.1 Tab-swipe navigation — owner direction 2026-05-06 (post-M2.1)
+
+Locked owner intent for the FUTURE workstream:
+
+- **Behaviour.** Swipe left / right anywhere in the merchant-profile body to switch between Vouchers ↔ About ↔ Branches ↔ Reviews. Tapping a TabBar label continues to work as it does today (M2.1 pattern).
+- **Hard non-conflict rules** the implementation must satisfy:
+  - Vertical scroll stays stable — horizontal swipes never preempt or interfere with the outer ScrollView's pan.
+  - Future native edge-swipe-back (per §11.2 below) must continue to work from the screen edge — tab-swipe must yield to edge-back for swipes that originate within ~20pt of the leading edge.
+  - The Reviews tab's branch/all toggle is a horizontal gesture target (visual segmented control); tab-swipe must NOT trigger when the user's finger lands inside that toggle's bounds. Same for any other horizontal-gesture surfaces inside tab bodies that may surface later (e.g. review-helpful swipe, voucher horizontal carousels).
+- **Designed and tested separately.** Belongs to its own workstream, not bolted onto this PR. Likely shape: a `react-native-tab-view` or hand-rolled `react-native-gesture-handler` Pan+Fling implementation with explicit `simultaneousHandlers` arbitration against the outer ScrollView's pan, plus per-tab opt-out bounds for the Reviews toggle and similar.
+
+### 11.2 Native stack presentation for `merchant/[id]`
+
+Investigate whether the Merchant Profile should be presented in a native stack (instead of a Tabs route) so iOS swipe-back works naturally. Today the route is `<Tabs.Screen name="merchant/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />` (see [`app/(app)/_layout.tsx:120`](apps/customer-app/app/(app)/_layout.tsx#L120)). A native-stack presentation would unlock iOS swipe-back without custom gesture work, and would be a better long-term fit. Refactor scope: router-config change plus verifying back-stack semantics across cold-open from notification / deep-link / share-link entries.
+
+### 11.3 Gesture priority arbitration
+
+When tab-swipe (§11.1), native-stack-swipe-back (§11.2), nested-scroll, and review-toggle gestures all live on the same surface, define priorities:
+
+- Edge swipe → native back, only if native stack supports it, only from screen edge (~20pt).
+- Horizontal swipe inside tab content → switch tabs (§11.1).
+- Vertical scroll → stable, never preempted.
+- Review-toggle (and any per-tab horizontal gesture surfaces) → must not conflict with tab swipes; tab-swipe respects per-tab opt-out bounds.
+
+### 11.4 Workstream scoping
+
+All four sections above belong to a single navigation/gesture brainstorm workstream (likely Tier 2; promote to Tier 3 if §11.2's native-stack refactor turns out to need careful handling around deep-link entry). Pick up after the customer-app rebaseline track (Discovery / Voucher Detail / Favourites / Savings / Profile / QR) is closer to done — gesture arbitration is easier to design when the destination shape is known across all surfaces. Tracked alongside the deferral inventory's §N8 entry.
