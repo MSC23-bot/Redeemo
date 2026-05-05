@@ -239,11 +239,13 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           pointerEvents="none"
         />
 
-        {/* §34 subtle background shapes — all FOUR corners now
-            for true diagonal spread (was 3 in §33). Right-side
-            shapes (shapeC bottom-right, shapeD top-right) are
-            smaller and lower opacity so they layer BEHIND the
-            heart, R, and CTA without out-shining them. */}
+        {/* §35 subtle background shapes — distributed across
+            the card, NOT clustered in corners. One on the left
+            (shapeA), two overlapping in the centre (shapeB +
+            shapeC), one on the right supporting the CTA area
+            (shapeD). Different sizes, varied opacity, with
+            shapeB + shapeC overlap in the centre giving the
+            premium soft-cluster gradient feel. */}
         <View style={styles.shapeA} pointerEvents="none" />
         <View style={styles.shapeB} pointerEvents="none" />
         <View style={styles.shapeC} pointerEvents="none" />
@@ -347,6 +349,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
     borderRadius: 20,
+    // §35: ~14pt margin each side so the card sits slightly
+    // slimmer in its parent than before. Owner asked for ~10%
+    // narrower; on a 375pt screen with the existing list
+    // padding (~16pt each side), 14pt margin lands the card
+    // ~7-8% slimmer — the visual goal without going so narrow
+    // that the content feels cramped.
+    marginHorizontal: 14,
   },
   card: {
     position: 'relative',
@@ -358,56 +367,58 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // §34 decorative blobs — FOUR corners now (was 3 in §33).
-  // §33 still felt left-heavy because the right side only had
-  // one BR shape. Adding a TR shape gives true diagonal spread:
+  // §35 decorative blobs — distributed across the card, not
+  // clustered in corners. Owner brief: "one shape on the
+  // left, one or more softer through the centre, one on the
+  // right if it supports R/CTA. Different sizes, varied
+  // opacity, overlap if intentional."
   //
-  //         ┌── shapeA (TL) ───── shapeD (TR) ───┐
-  //         │                                     │
-  //         │                                     │
-  //         └── shapeB (BL) ───── shapeC (BR) ───┘
+  //   shapeA  TL corner bleed (large, 150pt @ 0.10)
+  //   shapeB  centre inside (medium, 90pt @ 0.07)
+  //   shapeC  centre inside, OVERLAPS shapeB (small, 55pt @ 0.05)
+  //   shapeD  BR corner bleed (medium, 110pt @ 0.06)
   //
-  // Right-side shapes (TR, BR) are intentionally smaller and
-  // at lower opacity than the left-side ones so they layer
-  // BEHIND the heart + R + CTA without out-shining them. The
-  // R (wrapper opacity 0.12) stays the dominant element on
-  // the right; heart and CTA are opaque white and visible on
-  // top of any shape glow.
+  // Three different sizes (150 / 90 / 55 / 110), four
+  // different opacities (0.10 / 0.07 / 0.05 / 0.06). shapeB +
+  // shapeC overlap in the centre on purpose — gives the
+  // premium "soft cluster" gradient feel rather than a single
+  // disc behind the text. Right side has only shapeD (no TR
+  // shape) so the heart + R top stay visually unblocked.
   shapeA: {
     position: 'absolute',
-    left: -35,
-    top: -35,
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: 'rgba(255,255,255,0.11)',
+    left: -50,
+    top: -45,
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
   shapeB: {
     position: 'absolute',
-    left: -55,
-    bottom: -45,
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: 'rgba(255,255,255,0.09)',
+    left: 70,
+    top: 38,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: 'rgba(255,255,255,0.07)',
   },
   shapeC: {
     position: 'absolute',
-    right: -35,
-    bottom: -55,
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    left: 120,
+    top: 80,
+    width: 55,
+    height: 55,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   shapeD: {
     position: 'absolute',
-    right: -25,
-    top: -30,
-    width: 105,
-    height: 105,
-    borderRadius: 52,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    right: -35,
+    bottom: -50,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
 
   // §31 brand watermark — bumped 110 → 130 size with a 12pt
@@ -444,19 +455,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
+  // §35 type chip strengthened — text 11pt 700 → 12pt 800 so
+  // the type label stands out at a glance, and the dark
+  // translucent backdrop bumped 0.28 → 0.34 so the chip holds
+  // contrast against the new pastel-start gradient regions.
+  // Padding nudged so the chip doesn't feel cramped at the
+  // bigger weight.
   typeChip: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 11,
     borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.34)',
     flexShrink: 1,
     alignSelf: 'flex-start',
   },
   typeChipText: {
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.15,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.2,
     textShadowColor: 'rgba(0,0,0,0.20)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 1,
