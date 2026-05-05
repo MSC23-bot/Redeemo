@@ -32,14 +32,16 @@ type Props = {
 export function TabBar({ tabs, activeTab, onTabPress }: Props) {
   return (
     <View style={styles.container}>
-      {/* Round 5 §8: subtle vertical gradient backing — top stop
-          matches the identity-zone cream above (#FFF9F5) for
-          continuity, bottom stop a hair darker (#FAF1E5) anchors
-          the bar's bottom edge before the white body. No blur — flat
-          gradient only, well clear of impeccable's
-          glassmorphism-as-default ban. */}
+      {/* Round 5 §9: subtle vertical gradient back to white tones
+          per user direction "back to white but with gradient same
+          style". Top stop pure white (#FFFFFF), bottom stop a
+          warm-tinted off-white (#F5F1E9) anchors the bar's bottom
+          edge with a hint of brand warmth. Same ~4% lightness
+          delta as the §8 cream version — just shifted into the
+          white range. No blur — flat gradient only, well clear of
+          impeccable's glassmorphism-as-default ban. */}
       <LinearGradient
-        colors={['#FFF9F5', '#FAF1E5']}
+        colors={['#FFFFFF', '#F5F1E9']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject}
@@ -100,37 +102,40 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 5 §8 (impeccable polish): tab bar bg flips from white to
-  // a subtle 2-stop cream gradient (rendered by the absolute-fill
-  // LinearGradient inside the container above). The bar visually
-  // merges with the identity zone above (cream-on-cream
-  // continuity) while the body below stays white — boundary now
-  // a tonal step rather than a chrome island.
+  // Round 5 §9 (impeccable polish): bg back to white per user
+  // direction, same 2-stop vertical gradient style as §8. Top
+  // pure white, bottom warm-tinted off-white (rendered by the
+  // absolute-fill LinearGradient above).
   //
   //   IDENTITY  #FFF9F5
-  //   TAB BAR   #FFF9F5 → #FAF1E5  (subtle vertical gradient)
+  //   TAB BAR   #FFFFFF → #F5F1E9  (subtle vertical gradient)
   //   BODY      #FFFFFF
   //   CARDS     #FFFFFF + card shadow
   //
-  // Fallback bg `#FFF9F5` for Android in case LinearGradient fails
-  // to render. Shadow opacity halved 0.10 → 0.05 — the cream/white
-  // tone difference now does the primary boundary work; shadow is
-  // the soft transition layer beneath the cream/white edge.
+  // Shadow opacity bumped back up 0.05 → 0.07: white-on-white
+  // (bar/body) has zero tonal contrast, so shadow needs to carry
+  // more boundary work than the §8 cream version. Still well
+  // below the original 0.10 — softer than §7, sharper than §8.
+  //
+  // Fallback bg `#FFFFFF` for Android in case LinearGradient fails
+  // to render. Border-bottom 0.05 alpha kept for a crisp edge
+  // beneath the gradient.
+  //
   // Sticky-header text sizes verified against the rest of the
   // surface (14pt labels sit between content card titles 16pt and
   // meta row 13pt — appropriate "navigation chrome" tier).
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FFF9F5',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 20,
     gap: 4,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.05)',
     shadowColor: '#000',
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.07,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
+    elevation: 5,
     zIndex: 5,
   },
   tab: {
