@@ -526,21 +526,26 @@ const styles = StyleSheet.create({
   // card) and centres its two children inside that column so
   // the eyebrow stays balanced over the £value regardless of
   // value width.
+  // Round 6 follow-up: heroBlock.marginTop 2 → 0. Compensates
+  // for the larger gap added below the £value (title.marginTop
+  // bumped) so the overall card height stays flat.
   heroBlock: {
     alignSelf: 'flex-start',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: 0,
   },
-  // §40 (impeccable polish): eyebrow letter-spacing 0.4 → 0.6
-  // — wider tracking is the standard premium treatment for
-  // small-caps-style eyebrows. "Save up to" reads more
-  // refined and label-like at 0.6.
+  // §40 / Round 6 follow-up: eyebrow tight against the £value.
+  // Owner brief — Save up to and the value belong together as
+  // one group, the gap should be small. Explicit lineHeight 13
+  // (1.18× — tight for 11pt) + marginBottom 0 collapses the
+  // eyebrow→amount gap to its minimum without overlap.
   heroLabel: {
     color: 'rgba(255,252,250,0.90)',
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 0.6,
-    marginBottom: 1,
+    lineHeight: 13,
+    marginBottom: 0,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -564,17 +569,22 @@ const styles = StyleSheet.create({
   // £hero, with tinted off-white text. Description weight
   // drops to 400 (below) for sharper hierarchy contrast.
   // Round 6 follow-up: title sits below the hero, left-aligned
-  // (default), full-width — in line with the description. Weight
-  // 900 kept. Tight marginTop/Bottom so the new separate-rows
-  // layout doesn't grow the card height.
+  // (default), in line with the description below. Per the
+  // owner's group-rhythm brief:
+  //   • hero pair (Save up to + £value) kept tight (heroLabel
+  //     lineHeight 13 + marginBottom 0)
+  //   • value → title gap bumped (title.marginTop 2 → 6)
+  //   • title → description gap bumped (title.marginBottom 2 → 6)
+  // Card-height impact balanced by tightening heroBlock.marginTop
+  // and bottomRow.marginTop (see those styles).
   title: {
     color: WHITE_TEXT,
     fontSize: 16,
     fontWeight: '900',
     letterSpacing: -0.3,
     lineHeight: 19,
-    marginTop: 2,
-    marginBottom: 2,
+    marginTop: 6,
+    marginBottom: 6,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -598,14 +608,15 @@ const styles = StyleSheet.create({
   },
 
   // §28 bottom row: expiry-LEFT, CTA-RIGHT.
-  // Round 6 follow-up: marginTop tightened (8 → 4) to absorb
-  // the height the new separate title row added. Owner brief:
-  // "try not to make the voucher card height any bigger".
+  // Round 6 follow-up: marginTop 4 → 2 to absorb the bumped
+  // title margins (title.marginTop 2 → 6 + marginBottom 2 → 6).
+  // Total card height stays flat — every pt added around the
+  // title is paid for elsewhere.
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 4,
+    marginTop: 2,
     gap: 12,
   },
   // §39: metaText weight 600 → 500 so the expiry recedes
