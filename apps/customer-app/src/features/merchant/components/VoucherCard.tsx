@@ -210,7 +210,11 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
     (isRedeemed ? '. Already redeemed this cycle' : '')
 
   return (
-    <Animated.View style={[cardAnimatedStyle, styles.cardShadow]}>
+    // §37: shadowColor inline overrides the cardShadow default
+    // so each card drops a soft tint matching its own deep
+    // accent (green card → green-tinted shadow, purple →
+    // violet, red → red, etc.). Subtle, premium, complementary.
+    <Animated.View style={[cardAnimatedStyle, styles.cardShadow, { shadowColor: accent }]}>
       <Pressable
         onPress={handlePress}
         onPressIn={handlePressIn}
@@ -343,16 +347,23 @@ const PAGE_BG = '#FFF9F5'
 
 const styles = StyleSheet.create({
   cardShadow: {
+    // shadowColor here is the fallback (BRAND_RED). Each card
+    // overrides it inline with its own per-type accent so the
+    // drop shadow takes a soft tint matching the voucher
+    // colour. iOS renders colour shadows; Android elevation
+    // is monochrome by default — acceptable trade-off.
     shadowColor: BRAND_RED,
     shadowOpacity: 0.28,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
     borderRadius: 20,
-    // §36: width reduction reverted per owner. Card width
-    // returns to filling its parent. The slim-down moves to
-    // vertical only — see content padding + margin tweaks
-    // below.
+    // §37: small horizontal margin so the card sits slightly
+    // narrower in its parent than the screen-edge minus list-
+    // padding width. 8pt each side is a much smaller slim
+    // than §35's 14pt and reads as breathing room rather
+    // than a width reduction.
+    marginHorizontal: 8,
   },
   card: {
     position: 'relative',
@@ -442,9 +453,11 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    // §36: 14 → 12 padding. ~4pt vertical saving each side
-    // without making text feel cramped against card edges.
-    padding: 12,
+    // §37: split padding — vertical 10 (was 12), horizontal
+    // kept at 12. 4pt extra height saved without text feeling
+    // tight against the card sides.
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flex: 1,
   },
 
