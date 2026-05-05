@@ -1,26 +1,18 @@
 import { useEffect, useMemo, useReducer } from 'react'
 import type { OpeningHourEntry } from '@/lib/api/merchant'
+import { getLondonClock } from '../utils/londonNow'
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const
 const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-const WEEKDAY_TO_DOW: Record<string, number> = {
-  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
-}
 
-// Resolve `now` into Europe/London-local day-of-week. Uses
-// `Intl.DateTimeFormat` with an explicit `timeZone` to ignore the device
-// clock — a user in Qatar (UTC+3) reading a UK merchant gets the same
-// "TODAY" highlight as a user in London. UK-only platform per overall
-// product spec; international expansion will need a `Merchant.timezone`
-// field (deferred — see deferred-followups index §A).
-function getLondonTodayDow(now: Date): number {
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London',
-    weekday: 'short',
-  })
-  const weekdayShort = formatter.formatToParts(now).find(p => p.type === 'weekday')?.value ?? 'Sun'
-  return WEEKDAY_TO_DOW[weekdayShort] ?? 0
-}
+// Day-of-week now resolved through the shared `getLondonClock(now).dow`
+// helper. The previous inline implementation read `weekday: 'short'` via
+// `Intl.DateTimeFormat` and looked up the resulting string in a
+// `{ Sun: 0, Mon: 1, ... }` map; that path silently fell back to Sunday
+// when the device's Hermes build lacked en-GB short-weekday CLDR data
+// (the on-device "TODAY badge stuck on Sunday" symptom reported on
+// Tue 2026-05-05). The new helper uses numeric date parts only, which
+// are universally supported, then derives DOW via `getUTCDay()`.
 
 // Schedule-grid helper. After P2.10 the hook no longer computes `isOpen`
 // or `hoursText` — those came from the legacy server-trust shim that was
@@ -40,7 +32,7 @@ export function useOpenStatus(hours: OpeningHourEntry[]) {
   }, [])
 
   return useMemo(() => {
-    const todayDow = getLondonTodayDow(new Date())
+    const todayDow = getLondonClock(new Date()).dow
     const weekSchedule = DAY_NAMES.map((name, i) => {
       const entry = hours.find(h => h.dayOfWeek === i)
       const isToday = i === todayDow

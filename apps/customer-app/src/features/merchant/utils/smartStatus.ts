@@ -1,4 +1,5 @@
 import type { OpeningHourEntry } from '@/lib/api/merchant'
+import { getLondonClock } from './londonNow'
 
 export type SmartStatus = {
   pillState: 'open' | 'closing-soon' | 'closed'
@@ -6,38 +7,14 @@ export type SmartStatus = {
   statusText: string
 }
 
-// Bug fix (2026-05-05 QA): smartStatus previously read `now.getDay()`,
-// `now.getHours()`, `now.getMinutes()` — DEVICE-LOCAL time. On a Qatar
-// device (UTC+3) these returned Qatar's day/hour/minute, not London's, so
-// the status text could announce the wrong day's open/close hours
-// whenever the user's device timezone disagreed with Europe/London.
+// Bug fix (2026-05-05 QA): smartStatus now reads day-of-week and
+// time-of-day from the shared `getLondonClock(now)` helper instead of
+// device-local `now.getDay()` / `now.getHours()` / `now.getMinutes()`.
 //
-// Product rule: UK branch opening hours must always be calculated in
-// Europe/London time, regardless of where the customer's device is. This
-// matches the backend `isOpenNow` resolver and the schedule-grid hook
-// (`useOpenStatus.getLondonTodayDow`).
-//
-// `Intl.DateTimeFormat({ timeZone: 'Europe/London' })` handles BST/GMT
-// switching automatically, so this works year-round without DST tracking.
-const WEEKDAY_TO_DOW: Record<string, number> = {
-  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
-}
-function getLondonDayAndMinutes(now: Date): { dow: number; minutes: number } {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London',
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(now)
-  const weekdayShort = parts.find(p => p.type === 'weekday')?.value
-  const hour   = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
-  const minute = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
-  return {
-    dow: weekdayShort ? (WEEKDAY_TO_DOW[weekdayShort] ?? 0) : 0,
-    minutes: hour * 60 + minute,
-  }
-}
+// Product rule: UK branch opening hours are calculated in Europe/London
+// regardless of the customer's device timezone. The shared helper uses
+// Intl numeric date parts (universally supported, no CLDR locale data
+// required) — see `londonNow.ts` for the full why.
 
 // Format "HH:MM" → "H:MMam/pm" (am/pm, friendly).
 // "09:00" → "9:00am" · "10:30" → "10:30am" · "17:00" → "5:00pm" · "00:30" → "12:30am"
@@ -97,8 +74,9 @@ export function smartStatus(
   hours: OpeningHourEntry[],
   now: Date = new Date(),
 ): SmartStatus {
-  // Europe/London-local — see getLondonDayAndMinutes header comment.
-  const { dow: today, minutes: nowMinutes } = getLondonDayAndMinutes(now)
+  // Europe/London-local via shared helper — see londonNow.ts for the
+  // full audit / why we use numeric Intl parts.
+  const { dow: today, minutes: nowMinutes } = getLondonClock(now)
 
   if (isOpenNow) {
     const todayEntry = hours.find(h => h.dayOfWeek === today)
