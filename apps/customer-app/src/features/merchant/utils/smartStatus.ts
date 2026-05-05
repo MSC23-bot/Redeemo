@@ -6,6 +6,39 @@ export type SmartStatus = {
   statusText: string
 }
 
+// Bug fix (2026-05-05 QA): smartStatus previously read `now.getDay()`,
+// `now.getHours()`, `now.getMinutes()` — DEVICE-LOCAL time. On a Qatar
+// device (UTC+3) these returned Qatar's day/hour/minute, not London's, so
+// the status text could announce the wrong day's open/close hours
+// whenever the user's device timezone disagreed with Europe/London.
+//
+// Product rule: UK branch opening hours must always be calculated in
+// Europe/London time, regardless of where the customer's device is. This
+// matches the backend `isOpenNow` resolver and the schedule-grid hook
+// (`useOpenStatus.getLondonTodayDow`).
+//
+// `Intl.DateTimeFormat({ timeZone: 'Europe/London' })` handles BST/GMT
+// switching automatically, so this works year-round without DST tracking.
+const WEEKDAY_TO_DOW: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+}
+function getLondonDayAndMinutes(now: Date): { dow: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now)
+  const weekdayShort = parts.find(p => p.type === 'weekday')?.value
+  const hour   = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
+  const minute = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
+  return {
+    dow: weekdayShort ? (WEEKDAY_TO_DOW[weekdayShort] ?? 0) : 0,
+    minutes: hour * 60 + minute,
+  }
+}
+
 // Format "HH:MM" → "H:MMam/pm" (am/pm, friendly).
 // "09:00" → "9:00am" · "10:30" → "10:30am" · "17:00" → "5:00pm" · "00:30" → "12:30am"
 function formatAmPm(hhmm: string): string {
@@ -64,8 +97,8 @@ export function smartStatus(
   hours: OpeningHourEntry[],
   now: Date = new Date(),
 ): SmartStatus {
-  const today = now.getDay()
-  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  // Europe/London-local — see getLondonDayAndMinutes header comment.
+  const { dow: today, minutes: nowMinutes } = getLondonDayAndMinutes(now)
 
   if (isOpenNow) {
     const todayEntry = hours.find(h => h.dayOfWeek === today)
