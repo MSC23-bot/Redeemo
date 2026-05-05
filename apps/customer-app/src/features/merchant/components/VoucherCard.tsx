@@ -27,11 +27,22 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §3 (post-PR-#35 QA round 5 §2): voucher card colours
-// restored to the vibrant per-type gradient from §1, sentence-case
-// labels carried over from §2, plus a brand-red glow + brand-red
-// shadow tying every card back to Redeemo identity, plus a 2-line
-// description so the description never truncates mid-thought.
+// Round 5 §4 (impeccable polish on §3): six tightenings against
+// shared design laws — typography hierarchy at 1.25×+ ratios,
+// OKLCH chroma calibration on the two light-end gradients flagged
+// as garish (FREEBIE / TIME_LIMITED), notch refinement (24 → 18pt
+// for sharper ticket detail), sidebar wash dialed back (18 → 14%
+// — more refined section break), heart fav simplified (drop the
+// disconnected wash circle, just the icon), brand glow tightened
+// (28 → 22% peak opacity).
+//
+// Round 5 §3 base notes preserved below for traceability.
+// ───────────────────────────────────────────────────────────────
+// Round 5 §3: voucher card colours restored to the vibrant per-
+// type gradient from §1, sentence-case labels carried over from §2,
+// plus a brand-red glow + brand-red shadow tying every card back to
+// Redeemo identity, plus a 2-line description so the description
+// never truncates mid-thought.
 //
 // User direction:
 //   "Change the color back to what it was just before. Add our
@@ -63,14 +74,22 @@ import type { MerchantVoucher } from '@/lib/api/merchant'
 //     so the second line fits without crowding the bottom row.
 //   • Smart £ formatting from §2 retained ("£5" whole, "£5.50"
 //     pennies).
+// Round 5 §4 OKLCH calibration: the deep ends carry the type's
+// brand identity (kept saturated). The light ends are tuned so
+// chroma reduces toward high lightness — impeccable's "reduce
+// chroma as lightness approaches 100" rule. Two pairs flagged as
+// garish in §3 audit:
+//   FREEBIE light  #86EFAC (L 0.86 C 0.20) → #9DE5B6 (L 0.85 C 0.12)
+//   TIME_LIMITED   #FCD34D (L 0.88 C 0.16) → #FCDD7A (L 0.88 C 0.12)
+// Other light ends sit within the chroma-at-lightness ceiling.
 const TYPE_GRADIENTS: Record<VoucherType, readonly [string, string]> = {
   BOGO:             ['#A78BFA', '#7C3AED'],   // purple
   DISCOUNT_FIXED:   ['#FB7185', '#E20C04'],   // red
   DISCOUNT_PERCENT: ['#FB7185', '#E20C04'],   // red
-  FREEBIE:          ['#86EFAC', '#16A34A'],   // green
+  FREEBIE:          ['#9DE5B6', '#16A34A'],   // green (light end calibrated)
   SPEND_AND_SAVE:   ['#FDBA74', '#E84A00'],   // orange
   PACKAGE_DEAL:     ['#93C5FD', '#2563EB'],   // blue
-  TIME_LIMITED:     ['#FCD34D', '#D97706'],   // amber
+  TIME_LIMITED:     ['#FCDD7A', '#D97706'],   // amber (light end calibrated)
   REUSABLE:         ['#5EEAD4', '#0D9488'],   // teal
 } as const
 
@@ -207,7 +226,7 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             colour toward the centre. */}
         <View style={styles.brandGlowWrap} pointerEvents="none">
           <LinearGradient
-            colors={['rgba(226,12,4,0)', 'rgba(226,12,4,0.28)']}
+            colors={['rgba(226,12,4,0)', 'rgba(226,12,4,0.22)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
@@ -222,7 +241,7 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             (Gift for BOGO, Tag for Discount, PiggyBank for Spend
             & Save, etc.) without crowding the readable content. */}
         <View style={styles.iconWatermark} pointerEvents="none">
-          <TypeIcon size={96} color="rgba(255,255,255,0.20)" strokeWidth={1.5} />
+          <TypeIcon size={96} color="rgba(255,255,255,0.16)" strokeWidth={1.5} />
         </View>
 
         {/* Sidebar white-wash — lightens the left 22% so the
@@ -311,25 +330,31 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
 const SIDEBAR_FRACTION = 0.22
 const SIDEBAR_WIDTH_PCT = `${SIDEBAR_FRACTION * 100}%`
 
-const NOTCH_SIZE = 24
+// Round 5 §4: notch 24 → 18pt. 24pt cuts read as cartoonish; 18pt
+// gives the perforation the proportion of a real ticket stub.
+const NOTCH_SIZE = 18
 const NOTCH_HALF = NOTCH_SIZE / 2
 const PAGE_BG = '#FFFFFF'
 
 const styles = StyleSheet.create({
   // Brand-red shadow unified across all cards. iOS only — Android
   // falls back to the elevation default (neutral grey).
+  // Round 5 §4 shadow: brand-red unified across all cards (every
+  // voucher casts a Redeemo glow). Opacity dialed to 0.24 — was
+  // 0.28, a touch too smoky for the off-white body. Corner radius
+  // 16 → 18 follows the notch refinement (more premium softness).
   cardShadow: {
     shadowColor: BRAND_RED,
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
+    shadowOpacity: 0.24,
+    shadowRadius: 20,
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
-    borderRadius: 16,
+    borderRadius: 18,
   },
   card: {
     position: 'relative',
     minHeight: 168,
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
   },
   cardRedeemed: {
@@ -346,23 +371,27 @@ const styles = StyleSheet.create({
     width: '55%',
     height: '65%',
   },
-  // Type-specific decorative icon. Bottom-right corner of the
-  // card — overlaps with the brand-red glow region for layered
-  // visual interest. Slight rotation gives it a "stamped" look,
-  // like a postage mark on a real ticket.
+  // Round 5 §4: rotation -12° → -15° gives the icon stronger
+  // postage-stamp character; opacity dropped to 16% (from 20%) so
+  // it reads as a true watermark and doesn't crowd the description
+  // text overlapping above it.
   iconWatermark: {
     position: 'absolute',
     right: 8,
     bottom: 4,
-    transform: [{ rotate: '-12deg' }],
+    transform: [{ rotate: '-15deg' }],
   },
+  // Round 5 §4: 18% → 14% white wash. 18% read as faded-out and
+  // washed; 14% is a more refined section break — present enough
+  // to define the sidebar but not flattening the gradient
+  // underneath.
   sidebarWash: {
     position: 'absolute',
     top: 0,
     bottom: 0,
     left: 0,
     width: SIDEBAR_WIDTH_PCT,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   sidebarDivider: {
     position: 'absolute',
@@ -409,20 +438,31 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  // Round 5 §4 typography hierarchy (impeccable's ≥1.25× rule):
+  //   hero £value 32pt 900   — primary
+  //   title       15pt 700   — secondary  (32 / 15 ≈ 2.13×)
+  //   description 12pt 500   — tertiary   (15 / 12 = 1.25×)
+  //   expiry      10pt 700   — quaternary  (12 / 10 = 1.20×, but
+  //     differentiated by weight + uppercase letter-spacing
+  //     instead, matching the impeccable advice that hierarchy
+  //     can land via weight + size combined)
+  // Title up from 14 → 15pt closes the formerly flat 14/12 gap.
   title: {
     color: '#FFF',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: -0.1,
-    lineHeight: 18,
+    letterSpacing: -0.15,
+    lineHeight: 19,
   },
+  // Round 5 §4: dropped the wash-circle bg. The heart icon at 22pt
+  // with 2.4 stroke reads cleanly against any gradient + brand-red
+  // glow combination; the bg circle was visual noise that
+  // disconnected the icon from the card surface.
   favBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   heroRow: {
     flexDirection: 'row',
@@ -431,12 +471,17 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 4,
   },
+  // Round 5 §4: tabular-nums via fontVariant so "£5" / "£5.50" /
+  // "£12" line up at consistent widths if the same merchant has
+  // multiple cards on screen — a small typographic correctness
+  // detail that elevates the surface.
   heroValue: {
     color: '#FFF',
     fontSize: 32,
     fontWeight: '900',
     letterSpacing: -0.8,
     lineHeight: 36,
+    fontVariant: ['tabular-nums'],
   },
   heroSuffix: {
     color: 'rgba(255,255,255,0.85)',
@@ -457,11 +502,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 10,
   },
+  // Round 5 §4: expiry differentiated from description by WEIGHT
+  // + letter-spacing, not just size. 10pt 700 with tracked uppercase
+  // letterSpacing reads as a "stamp date" badge, distinct in role
+  // from the descriptive 12pt 500 description above.
   expiry: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
     flexShrink: 1,
   },
   ctaRow: {
