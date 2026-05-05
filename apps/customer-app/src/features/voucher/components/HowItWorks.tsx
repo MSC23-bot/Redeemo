@@ -1,79 +1,142 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import { HelpCircle } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 
+const NAVY     = '#010C35'
+const TEXT_2ND = '#4B5563'
+const BORDER   = '#E8E2DC'
+
+const STEPS: ReadonlyArray<{ label: string; desc: string }> = [
+  { label: 'Tap Redeem',          desc: 'Hit the button below to start the redemption process.' },
+  { label: 'Enter Branch PIN',    desc: 'Ask a staff member for the 4-digit PIN and enter it.' },
+  { label: 'Show Your Code',      desc: 'Present the redemption code or QR to staff for validation.' },
+  { label: 'Enjoy Your Deal!',    desc: 'The voucher will be applied to your bill. Enjoy!' },
+]
+
 /**
- * Three-step explainer pinned beneath the coupon. Identical copy
- * across all merchants — explains the redeem-at-branch flow.
+ * Four-step vertical timeline explainer pinned beneath the merchant
+ * card. Final step uses the green "enjoy" gradient (per v4 §vd-steps);
+ * the first three use the brand red→coral gradient. A vertical line
+ * connects the numbered boxes.
  */
 export function HowItWorks() {
   return (
     <View style={styles.root} testID="how-it-works">
-      <Text variant="label.md" style={styles.title}>How it works</Text>
-      <Step n={1} text="Tap Redeem and enter the staff PIN." />
-      <Step n={2} text="Show the QR code or 5-character code to staff." />
-      <Step n={3} text="Staff confirms — your discount is applied." />
+      <View style={styles.heading}>
+        <HelpCircle size={15} color={color.brandRose} strokeWidth={2} />
+        <Text variant="label.md" style={styles.title}>How It Works</Text>
+      </View>
+
+      <View style={styles.steps}>
+        {/* Connector line — sits behind the numbered boxes */}
+        <View style={styles.connector} pointerEvents="none" />
+
+        {STEPS.map((step, i) => (
+          <View key={i} style={[styles.step, i === STEPS.length - 1 && styles.stepLast]}>
+            <StepNumber index={i} isLast={i === STEPS.length - 1} />
+            <View style={styles.stepContent}>
+              <Text variant="body.md" style={styles.stepLabel}>{step.label}</Text>
+              <Text variant="body.sm" style={styles.stepDesc}>{step.desc}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
     </View>
   )
 }
 
-function Step({ n, text }: { n: number; text: string }) {
+function StepNumber({ index, isLast }: { index: number; isLast: boolean }) {
+  const colors: readonly [string, string] = isLast
+    ? ['#16A34A', '#22C55E']
+    : [color.brandRose, color.brandCoral]
+
   return (
-    <View style={styles.step}>
-      <View style={styles.bullet}>
-        <Text variant="label.md" style={styles.bulletText}>{n}</Text>
-      </View>
-      <Text variant="body.sm" style={styles.text}>{text}</Text>
+    <View style={styles.numBox}>
+      <LinearGradient
+        colors={colors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <Text variant="label.md" style={styles.numText}>{index + 1}</Text>
     </View>
   )
 }
+
+const NUM_BOX = 32
+const NUM_GAP = 14
 
 const styles = StyleSheet.create({
   root: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    marginHorizontal: 16,
-    borderRadius: 14,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    marginHorizontal: 20,
+    marginTop: 20,
+    paddingHorizontal: 4,
+  },
+  heading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: '#6B7280',
-    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: '800',
+    color: NAVY,
+  },
+  steps: {
+    position: 'relative',
+  },
+  connector: {
+    position: 'absolute',
+    left: NUM_BOX / 2 - 1,
+    top: NUM_BOX / 2,
+    bottom: NUM_BOX / 2,
+    width: 2,
+    backgroundColor: BORDER,
   },
   step: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
+    gap: NUM_GAP,
+    paddingBottom: 16,
   },
-  bullet: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(226,12,4,0.08)',
+  stepLast: {
+    paddingBottom: 0,
+  },
+  numBox: {
+    width: NUM_BOX,
+    height: NUM_BOX,
+    borderRadius: 10,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 1,
+    shadowColor: color.brandRose,
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
-  bulletText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: color.brandRose,
-  },
-  text: {
-    flex: 1,
+  numText: {
+    color: '#FFFFFF',
     fontSize: 13,
-    lineHeight: 19,
-    color: '#374151',
+    fontWeight: '800',
+  },
+  stepContent: {
+    flex: 1,
+    paddingTop: 4,
+  },
+  stepLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: NAVY,
+    marginBottom: 2,
+  },
+  stepDesc: {
+    fontSize: 11.5,
+    lineHeight: 17,
+    color: TEXT_2ND,
   },
 })

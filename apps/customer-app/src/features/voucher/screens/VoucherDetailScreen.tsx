@@ -1,8 +1,9 @@
 import React, { useMemo, useCallback } from 'react'
-import { View, ScrollView, StyleSheet, Pressable, Alert } from 'react-native'
+import { View, ScrollView, StyleSheet, Pressable, Alert, Platform } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ArrowLeft, Heart } from 'lucide-react-native'
+import { BlurView } from 'expo-blur'
+import { ArrowLeft, Heart, Share2 } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -13,7 +14,7 @@ import { useMerchantProfile } from '@/features/merchant/hooks/useMerchantProfile
 import { useCustomerVoucher } from '../hooks/useCustomerVoucher'
 import { useTimeLimited } from '../hooks/useTimeLimited'
 import { CouponHeader } from '../components/CouponHeader'
-import { CouponBody } from '../components/CouponBody'
+import { CouponTopCard, CouponBodyCard } from '../components/CouponBody'
 import { PerforationLine } from '../components/PerforationLine'
 import { MerchantRow } from '../components/MerchantRow'
 import { HowItWorks } from '../components/HowItWorks'
@@ -24,6 +25,13 @@ import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
 /**
  * VoucherDetailScreen — orchestrates the 12-state UI for a voucher's
  * detail + redemption flow. Phase 3C.1c rebaseline (M1: view-only).
+ *
+ * Visual reference: `.superpowers/brainstorm/88554-1776435672/content/
+ * voucher-detail-v4.html` (locked design baseline). Layout is a
+ * stacked-coupon silhouette: type-coloured header → outer perforation
+ * → white top card (banner + info pills) → inner perforation → white
+ * body card (terms + fair use). Then merchant attribution row, the
+ * 4-step How It Works timeline, and a sticky bottom CTA.
  *
  * Data sources (locked dual-endpoint pattern, plan §3 D2):
  *   • `useCustomerVoucher(voucherId)` → voucher row + isRedeemedThisCycle
@@ -57,22 +65,22 @@ import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
  */
 
 type VoucherStateKey =
-  | 'loading'                  // voucher fetch / sub-status fetch in flight
-  | 'error'                    // voucher fetch failed / voucher null / merchant fetch failed / selectedBranch null
-  | 'free-user'                // not subscribed → subscribe CTA (does not need branch context)
-  | 'expired'                  // voucher.expiryDate < now (disabled CTA, no branch needed)
-  | 'redeemed-this-cycle'      // server-side cycle-window check returned true (disabled CTA, no branch needed)
-  | 'time-limited-unavailable' // outside window
-  | 'time-limited-urgent'      // <30min remaining
-  | 'time-limited-available'   // within window — REQUIRES branch context
-  | 'can-redeem'               // default redeemable state — REQUIRES branch context
+  | 'loading'
+  | 'error'
+  | 'free-user'
+  | 'expired'
+  | 'redeemed-this-cycle'
+  | 'time-limited-unavailable'
+  | 'time-limited-urgent'
+  | 'time-limited-available'
+  | 'can-redeem'
+
+const PAGE_BG = '#F5F0EB'      // v4 cream-stone page background
+const COUPON_INSET = 14         // horizontal coupon margin (each side)
 
 export function VoucherDetailScreen() {
   const params = useLocalSearchParams<{ id?: string; branch?: string }>()
   const voucherId = typeof params.id === 'string' ? params.id : undefined
-  // Branch context arrives as a URL query param per plan §11 C1. Cold-
-  // open (no param) falls through to the merchant-profile resolver's
-  // nearest-by-GPS / isMainBranch logic.
   const branchIdParam = typeof params.branch === 'string' ? params.branch : undefined
 
   const router = useRouter()
@@ -84,8 +92,6 @@ export function VoucherDetailScreen() {
   const voucherQuery = useCustomerVoucher(voucherId)
   const voucher = voucherQuery.data ?? null
 
-  // Merchant profile fetched only once we know the merchant id from the
-  // voucher payload — saves a wasted query when the voucher id is invalid.
   const merchantProfileOpts: { lat?: number; lng?: number; branchId?: string } = {
     ...(location ? { lat: location.lat, lng: location.lng } : {}),
     ...(branchIdParam ? { branchId: branchIdParam } : {}),
@@ -107,64 +113,36 @@ export function VoucherDetailScreen() {
   const selectedBranch = merchant?.selectedBranch ?? null
   const isMultiBranch  = (merchant?.branches.length ?? 0) > 1
   const branchName     = selectedBranch?.name ?? null
+  const branchDistance = selectedBranch?.distance ?? null
+  const merchantDescriptor = merchant?.descriptor ?? null
   const branchReady    = !!selectedBranch
   const branchErrored  = merchantQuery.isError || (
-    !!merchant && !merchant.selectedBranch                 // server returned merchant with no selectedBranch
+    !!merchant && !merchant.selectedBranch
   )
 
   // ── 12-state derivation ────────────────────────────────────────────
   const stateKey: VoucherStateKey = useMemo(() => {
-    // Loading (state 9): voucher fetch in flight, OR subscription
-    // state hasn't resolved yet (avoids flashing "Subscribe to redeem"
-    // before useSubscription returns).
     if (voucherQuery.isLoading || isSubLoading) return 'loading'
     if (voucherQuery.isError || !voucher) return 'error'
-
-    // Branch context error wins over data states. Triggers when
-    // merchantQuery errors or the server returned a merchant with
-    // no selectedBranch (e.g. all-suspended fallback). The screen
-    // can't safely display a redeem CTA without branch attribution.
     if (branchErrored) return 'error'
 
-    // Voucher EXPIRED (state 4) — wins over everything else once
-    // voucher data is in. Disabled CTA, no branch context needed.
     if (voucher.expiryDate) {
       const exp = new Date(voucher.expiryDate)
       if (exp.getTime() <= Date.now()) return 'expired'
     }
 
-    // Already redeemed this cycle (state 3) — backend now applies the
-    // cycle-window check (mirrors redemption guard) so this flag is
-    // trustworthy across cycle rollovers + cycleAnchorDate resets.
-    // Branch-independent per §11 C4. Disabled CTA, no branch context
-    // needed.
     if (voucher.isRedeemedThisCycle) return 'redeemed-this-cycle'
 
-    // Free user (state 1) — wins over time-limited / can-redeem so the
-    // user always lands on the subscribe path before any other gate.
-    // Subscribe CTA does not need branch context.
     if (!isSubscribed) return 'free-user'
 
-    // From here down, states REQUIRE branch context to show an active
-    // CTA (per plan §11 / PR #40 review blocker). The state-machine
-    // still classifies the voucher correctly; the CTA derivation
-    // (below) consumes `branchReady` to gate the active label.
-
-    // TIME_LIMITED variants (states 5/6/7) — M1 stub collapses to
-    // available; states 6 + 7 will branch in via useTimeLimited once
-    // backend window data is present.
     if (timeLimited.isTimeLimited) {
       if (!timeLimited.isCurrentlyAvailable) return 'time-limited-unavailable'
       if (timeLimited.isUrgent) return 'time-limited-urgent'
       return 'time-limited-available'
     }
 
-    // Default: can redeem (state 2).
     return 'can-redeem'
   }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited, branchErrored])
-
-  // (Branch-context derivations moved above the state-machine useMemo
-  // so they're declared before the closure reads them — TDZ avoidance.)
 
   const handleBack = useCallback(() => {
     lightHaptic()
@@ -173,46 +151,45 @@ export function VoucherDetailScreen() {
 
   const handleFav = useCallback(() => {
     lightHaptic()
-    // M1 stub: favourite toggle wires up in M2 via useFavourite — same
-    // hook merchant-profile already uses. For now no-op so the heart
-    // button doesn't appear broken.
     Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
   }, [])
 
+  const handleShare = useCallback(() => {
+    lightHaptic()
+    Alert.alert('Coming next milestone', 'Voucher share ships in M2.')
+  }, [])
+
   const handleChangeBranch = useCallback(() => {
-    // M1 stub. M2 wires this to BranchPickerSheet (reusing merchant-
-    // profile's picker pattern) → useBranchSelection.select(branchId)
-    // → URL updates → merchant profile re-fetches → selectedBranch
-    // changes → "Redeem at <newBranch>" updates everywhere.
     Alert.alert(
       'Coming next milestone',
       'Branch picker for changing the redemption branch ships in M2.',
     )
   }, [])
 
-  // RedeemCTA derivation per state. Active states (can-redeem,
-  // time-limited-available, time-limited-urgent) gate on `branchReady`
-  // — without resolved branch context the CTA is disabled with a
-  // "Resolving branch…" label rather than offering an actionable
-  // redeem path. PR #40 review blocker: M2's PIN entry must NEVER
-  // open without a confirmed selectedBranch.id.
+  const handleMerchantTap = useCallback(() => {
+    if (voucher && merchant) {
+      router.push(`/(app)/merchant/${voucher.merchant.id}` as never)
+    }
+  }, [router, voucher, merchant])
+
+  // RedeemCTA derivation per state. Active states gate on `branchReady`.
   const cta = useMemo(() => {
     switch (stateKey) {
       case 'free-user':
-        return { label: 'Subscribe to redeem', disabled: false, testID: 'redeem-cta-subscribe' }
+        return { label: 'Subscribe to redeem — £6.99/mo', disabled: false, variant: 'subscribe' as const, testID: 'redeem-cta-subscribe' }
       case 'can-redeem':
       case 'time-limited-available':
       case 'time-limited-urgent':
         if (!branchReady) {
-          return { label: 'Resolving branch…', disabled: true, testID: 'redeem-cta-branch-loading' }
+          return { label: 'Resolving branch…', disabled: true, variant: 'primary' as const, testID: 'redeem-cta-branch-loading' }
         }
-        return { label: 'Redeem voucher', disabled: false, testID: 'redeem-cta-active' }
+        return { label: 'Redeem this voucher', disabled: false, variant: 'primary' as const, testID: 'redeem-cta-active' }
       case 'redeemed-this-cycle':
-        return { label: 'Already redeemed', disabled: true, testID: 'redeem-cta-redeemed' }
+        return { label: 'Already redeemed this cycle', disabled: true, variant: 'primary' as const, testID: 'redeem-cta-redeemed' }
       case 'expired':
-        return { label: 'Expired', disabled: true, testID: 'redeem-cta-expired' }
+        return { label: 'Expired', disabled: true, variant: 'primary' as const, testID: 'redeem-cta-expired' }
       case 'time-limited-unavailable':
-        return { label: 'Currently unavailable', disabled: true, testID: 'redeem-cta-unavailable' }
+        return { label: 'Currently unavailable', disabled: true, variant: 'primary' as const, testID: 'redeem-cta-unavailable' }
       default:
         return null
     }
@@ -223,7 +200,6 @@ export function VoucherDetailScreen() {
       router.push('/(auth)/subscription-prompt' as never)
       return
     }
-    // M1 stub for any active redeem path. M2 opens PinEntrySheet here.
     Alert.alert(
       'Coming next milestone',
       'PIN entry + redemption flow ships in M2.',
@@ -235,7 +211,7 @@ export function VoucherDetailScreen() {
   if (stateKey === 'loading') {
     return (
       <View style={[styles.fullscreen, { paddingTop: insets.top }]} testID="voucher-detail-loading">
-        <NavRow onBack={handleBack} insetTop={insets.top} fav={null} onFav={undefined} />
+        <NavRow onBack={handleBack} insetTop={insets.top} fav={null} onFav={undefined} onShare={undefined} />
         <View style={styles.loadingCenter}>
           <RedeemoLoader size="lg" accessibilityLabel="Loading voucher" />
         </View>
@@ -244,9 +220,6 @@ export function VoucherDetailScreen() {
   }
 
   if (stateKey === 'error' || !voucher) {
-    // Distinguish voucher-fetch failure from branch-context failure
-    // so the message helps the user. Same testID either way; M2/M3
-    // QA can introspect via `data-error-reason` if needed.
     const errorReason: 'voucher' | 'branch' =
       (!voucher || voucherQuery.isError) ? 'voucher' : 'branch'
     const errorTitle = errorReason === 'voucher' ? 'Voucher unavailable' : 'Couldn’t load branch'
@@ -255,7 +228,7 @@ export function VoucherDetailScreen() {
       : 'We couldn’t resolve the branch you’re redeeming at. Check your connection and try again.'
     return (
       <View style={[styles.fullscreen, { paddingTop: insets.top }]} testID="voucher-detail-error" data-error-reason={errorReason}>
-        <NavRow onBack={handleBack} insetTop={insets.top} fav={null} onFav={undefined} />
+        <NavRow onBack={handleBack} insetTop={insets.top} fav={null} onFav={undefined} onShare={undefined} />
         <View style={styles.errorCenter}>
           <Text variant="heading.sm" style={styles.errorTitle}>{errorTitle}</Text>
           <Text variant="body.sm" color="secondary" style={styles.errorBody}>{errorBody}</Text>
@@ -269,53 +242,87 @@ export function VoucherDetailScreen() {
 
   return (
     <View style={[styles.fullscreen]} testID={`voucher-detail-state-${stateKey}`}>
-      <NavRow onBack={handleBack} insetTop={insets.top} fav={voucher.isFavourited} onFav={handleFav} />
+      <NavRow
+        onBack={handleBack}
+        insetTop={insets.top}
+        fav={voucher.isFavourited}
+        onFav={handleFav}
+        onShare={handleShare}
+      />
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 56 }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {stateKey === 'redeemed-this-cycle' ? <RedeemedBadge /> : null}
-
-        {timeLimited.isTimeLimited ? (
-          <TimeLimitedBanner
-            isCurrentlyAvailable={timeLimited.isCurrentlyAvailable}
-            isUrgent={timeLimited.isUrgent}
-            minutesRemaining={timeLimited.minutesRemaining}
-          />
-        ) : null}
-
+        {/* ── Coupon (header → perf → top-card → perf → body) ── */}
         <View style={styles.coupon}>
           <CouponHeader
             type={voucher.type}
             title={voucher.title}
+            description={voucher.description}
             estimatedSaving={voucher.estimatedSaving}
           />
-          <PerforationLine />
-          <CouponBody
-            description={voucher.description}
-            terms={voucher.terms}
-            expiryDate={voucher.expiryDate}
-          />
+
+          <PerforationLine pageBg={PAGE_BG} variant="outer" />
+
+          <View style={styles.couponCardWrap}>
+            <View style={styles.couponTopRound}>
+              <CouponTopCard
+                type={voucher.type}
+                imageUrl={voucher.imageUrl}
+                expiryDate={voucher.expiryDate}
+                isMultiBranch={isMultiBranch}
+              />
+            </View>
+
+            <View style={styles.innerPerfWrap}>
+              <PerforationLine pageBg={PAGE_BG} variant="inner" />
+            </View>
+
+            <View style={styles.couponBottomRound}>
+              <CouponBodyCard
+                description={voucher.description}
+                terms={voucher.terms}
+              />
+            </View>
+          </View>
         </View>
+
+        {stateKey === 'redeemed-this-cycle' ? <RedeemedBadge /> : null}
+
+        {timeLimited.isTimeLimited ? (
+          <View style={styles.tlBanner}>
+            <TimeLimitedBanner
+              isCurrentlyAvailable={timeLimited.isCurrentlyAvailable}
+              isUrgent={timeLimited.isUrgent}
+              minutesRemaining={timeLimited.minutesRemaining}
+            />
+          </View>
+        ) : null}
 
         <MerchantRow
           merchantName={voucher.merchant.businessName}
           merchantLogoUrl={voucher.merchant.logoUrl}
+          merchantDescriptor={merchantDescriptor}
           branchName={branchName}
+          branchDistanceMeters={branchDistance}
           isMultiBranch={isMultiBranch}
           onChangeBranch={handleChangeBranch}
+          onPress={handleMerchantTap}
         />
 
         <HowItWorks />
+
+        <View style={{ height: 110 }} />
       </ScrollView>
 
       {cta ? (
-        <View style={[styles.ctaWrap, { paddingBottom: insets.bottom + 12 }]}>
+        <View style={[styles.ctaWrap, { paddingBottom: insets.bottom + 14 }]}>
           <RedeemCTA
             label={cta.label}
             disabled={cta.disabled}
+            variant={cta.variant}
             onPress={handleCTA}
             testID={cta.testID}
           />
@@ -325,102 +332,177 @@ export function VoucherDetailScreen() {
   )
 }
 
-// ── Nav row (back + favourite) ────────────────────────────────────────────────
+// ── Nav row (frosted glass — back, share, favourite) ────────────────────────
 
 function NavRow({
   onBack,
   insetTop,
   fav,
   onFav,
+  onShare,
 }: {
   onBack: () => void
   insetTop: number
   fav: boolean | null
   onFav: (() => void) | undefined
+  onShare: (() => void) | undefined
 }) {
   return (
     <View style={[styles.navRow, { top: insetTop + 8 }]}>
-      <Pressable
-        onPress={onBack}
-        style={styles.navBtn}
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-      >
-        <ArrowLeft size={20} color={color.navy} />
-      </Pressable>
+      <FrostedNavButton onPress={onBack} accessibilityLabel="Go back">
+        <ArrowLeft size={18} color="#FFFFFF" strokeWidth={2.4} />
+      </FrostedNavButton>
 
-      {fav !== null && onFav ? (
-        <Pressable
-          onPress={onFav}
-          style={[styles.navBtn, fav && styles.navBtnFavActive]}
-          accessibilityRole="button"
-          accessibilityLabel={fav ? 'Remove from favourites' : 'Add to favourites'}
-        >
-          <Heart
-            size={20}
-            color={fav ? color.brandRose : color.navy}
-            fill={fav ? color.brandRose : 'none'}
-          />
-        </Pressable>
-      ) : null}
+      <View style={styles.navRight}>
+        {onShare ? (
+          <FrostedNavButton onPress={onShare} accessibilityLabel="Share voucher">
+            <Share2 size={18} color="#FFFFFF" strokeWidth={2.2} />
+          </FrostedNavButton>
+        ) : null}
+        {fav !== null && onFav ? (
+          <FrostedNavButton onPress={onFav} accessibilityLabel={fav ? 'Remove from favourites' : 'Add to favourites'}>
+            <Heart
+              size={18}
+              color="#FFFFFF"
+              fill={fav ? '#FFFFFF' : 'none'}
+              strokeWidth={2.2}
+            />
+          </FrostedNavButton>
+        ) : null}
+      </View>
     </View>
+  )
+}
+
+function FrostedNavButton({
+  onPress,
+  accessibilityLabel,
+  children,
+}: {
+  onPress: () => void
+  accessibilityLabel: string
+  children: React.ReactNode
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={({ pressed }) => [styles.navBtn, pressed && styles.navBtnPressed]}
+    >
+      {Platform.OS === 'android' ? (
+        // BlurView on Android can be expensive / inconsistent — use a
+        // semi-transparent fallback that visually approximates the
+        // frosted look.
+        <View style={[StyleSheet.absoluteFillObject, styles.navBtnFallback]} />
+      ) : (
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFillObject} />
+      )}
+      <View style={styles.navBtnInner}>{children}</View>
+    </Pressable>
   )
 }
 
 const styles = StyleSheet.create({
   fullscreen: {
     flex: 1,
-    backgroundColor: '#FFF9F5',
+    backgroundColor: PAGE_BG,
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 0,
   },
+
+  // ── Top nav (frosted) ───────────────────────────────────────────────
   navRow: {
     position: 'absolute',
     left: 0,
     right: 0,
-    zIndex: 10,
+    zIndex: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
   },
+  navRight: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   navBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
-  navBtnFavActive: {
-    backgroundColor: '#FEE2E2',
+  navBtnPressed: {
+    opacity: 0.85,
   },
+  navBtnFallback: {
+    backgroundColor: 'rgba(0,0,0,0.32)',
+  },
+  navBtnInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // ── Coupon stack ────────────────────────────────────────────────────
   coupon: {
+    // The CouponHeader edges run to the screen edges (full-bleed). The
+    // top + body cards are inset slightly via couponCardWrap so the
+    // perforation cutouts can punch into the page background visibly.
+  },
+  couponCardWrap: {
+    marginHorizontal: COUPON_INSET,
+  },
+  couponTopRound: {
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginTop: 16,
-    borderRadius: 18,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+  },
+  couponBottomRound: {
+    backgroundColor: '#FFFFFF',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
     shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
-  ctaWrap: {
-    paddingTop: 4,
-    backgroundColor: '#FFF9F5',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
+  innerPerfWrap: {
+    backgroundColor: '#FFFFFF',
+    overflow: 'visible',
   },
+
+  // ── Time-limited banner spacing ─────────────────────────────────────
+  tlBanner: {
+    marginTop: 12,
+    marginHorizontal: 20,
+  },
+
+  // ── Sticky CTA ──────────────────────────────────────────────────────
+  ctaWrap: {
+    paddingTop: 8,
+    backgroundColor: PAGE_BG,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.04)',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 4,
+  },
+
+  // ── Loading + error ─────────────────────────────────────────────────
   loadingCenter: {
     flex: 1,
     alignItems: 'center',

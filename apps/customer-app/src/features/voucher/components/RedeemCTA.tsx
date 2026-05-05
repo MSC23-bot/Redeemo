@@ -1,6 +1,7 @@
 import React from 'react'
-import { Pressable, StyleSheet } from 'react-native'
+import { Pressable, View, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { Tag, Lock } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -10,21 +11,28 @@ type Props = {
   label: string
   /** Disabled CTAs are non-tappable + use a muted style. */
   disabled?: boolean
+  /**
+   * Visual variant — drives the button's colour/icon. `primary` is the
+   * brand red→coral gradient (default). `subscribe` is a navy CTA used
+   * for the free-user state (per v4 §vd-cta.subscribe).
+   */
+  variant?: 'primary' | 'subscribe'
   onPress: () => void
   /** Optional testID override for state-specific tests. */
   testID?: string
 }
 
+const NAVY = '#010C35'
+
 /**
- * Sticky bottom CTA — primary action for the screen. Brand-red gradient
- * matches the app's primary action language. The label + disabled flag
- * are derived in VoucherDetailScreen from the 12-state machine.
- *
- * M1: tapping fires `onPress` which the orchestrator routes to either
- * the M2 PIN-entry sheet (when implemented), the SubscribePromptScreen
- * (free-user state), or a stub Alert during M1 development.
+ * Sticky bottom CTA — primary action for the screen. Brand red→coral
+ * gradient by default (per v4 §vd-cta), navy for the subscribe state.
+ * The label + disabled flag are derived in VoucherDetailScreen from
+ * the 12-state machine.
  */
-export function RedeemCTA({ label, disabled, onPress, testID }: Props) {
+export function RedeemCTA({ label, disabled, variant = 'primary', onPress, testID }: Props) {
+  const Icon = variant === 'subscribe' ? Lock : Tag
+
   return (
     <Pressable
       onPress={() => {
@@ -38,24 +46,31 @@ export function RedeemCTA({ label, disabled, onPress, testID }: Props) {
       accessibilityState={{ disabled: !!disabled }}
       style={({ pressed }) => [
         styles.root,
+        variant === 'subscribe' && !disabled ? styles.shadowNavy : styles.shadowRose,
         disabled && styles.disabled,
         pressed && !disabled && styles.pressed,
       ]}
       testID={testID ?? 'redeem-cta'}
     >
       {disabled ? (
-        // Disabled state: flat muted background, no gradient.
-        <Text variant="heading.sm" style={[styles.label, styles.labelDisabled]}>{label}</Text>
+        <View style={styles.disabledFill}>
+          <Text variant="heading.sm" style={[styles.label, styles.labelDisabled]}>{label}</Text>
+        </View>
+      ) : variant === 'subscribe' ? (
+        <View style={[StyleSheet.absoluteFillObject, styles.navyFill]} />
       ) : (
-        <>
-          <LinearGradient
-            colors={[color.brandRose, '#B91C1C']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
+        <LinearGradient
+          colors={[color.brandRose, color.brandCoral]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+      )}
+      {disabled ? null : (
+        <View style={styles.contentRow}>
+          <Icon size={18} color="#FFFFFF" strokeWidth={2.4} />
           <Text variant="heading.sm" style={styles.label}>{label}</Text>
-        </>
+        </View>
       )}
     </Pressable>
   )
@@ -64,33 +79,58 @@ export function RedeemCTA({ label, disabled, onPress, testID }: Props) {
 const styles = StyleSheet.create({
   root: {
     height: 54,
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 16,
-    marginVertical: 12,
+    marginHorizontal: 20,
+    marginVertical: 6,
+  },
+  shadowRose: {
     shadowColor: color.brandRose,
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  shadowNavy: {
+    shadowColor: NAVY,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
   pressed: {
     opacity: 0.92,
+    transform: [{ scale: 0.98 }],
   },
   disabled: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#9CA3AF',
     shadowOpacity: 0,
     elevation: 0,
+  },
+  disabledFill: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navyFill: {
+    backgroundColor: NAVY,
+  },
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   label: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
   },
   labelDisabled: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
+    opacity: 0.85,
   },
 })
