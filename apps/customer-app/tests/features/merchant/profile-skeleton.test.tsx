@@ -5,11 +5,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // Mock the sub-components — they each have their own visual tests; here we
 // only verify the screen composes them correctly and gates behaviour
 // (loading / error / free-user voucher gate).
+// M1 — HeroSection split into <HeroBanner> (absolute layer outside
+// the ScrollView; receives `scrollY` shared value) + <HeroBannerSpacer>
+// (in-flow placeholder reserving HERO_HEIGHT pixels). Mocks below
+// surface the same fav-state probe as the legacy mock so existing
+// assertions still pass; the spacer is a no-op.
 jest.mock('@/features/merchant/components/HeroSection', () => ({
-  HeroSection: ({ isFavourited }: { isFavourited: boolean }) => {
+  HeroBanner: ({ isFavourited }: { isFavourited: boolean }) => {
     const { Text } = require('react-native')
     return <Text>HERO_FAV={String(isFavourited)}</Text>
   },
+  HeroBannerSpacer: () => {
+    const { View } = require('react-native')
+    return <View testID="hero-banner-spacer" />
+  },
+  HERO_HEIGHT: 224,
 }))
 jest.mock('@/features/merchant/components/MerchantDescriptor', () => ({
   MerchantDescriptor: ({ descriptor }: { descriptor: string | null }) => {
@@ -415,10 +425,15 @@ describe('MerchantProfileScreen (M2)', () => {
   // ── Sticky-header pin: visual-correction-round structure ───────────────────
   // Round 4 §8: identity-zone elements (MerchantHeadline /
   // BranchContextBand / ActionRow) wrapped in a single cream-bg
-  // View so the cream stays bounded to the top section. ScrollView
-  // children are now:
-  //   [0] SuspendedBranchBanner
-  //   [1] HeroSection
+  // View so the cream stays bounded to the top section.
+  // M1 (header-collapse): HeroSection split into an absolute
+  // <HeroBanner> layer (mounted as a sibling of the scrollWrap)
+  // plus an in-flow <HeroBannerSpacer> that reserves the same
+  // HERO_HEIGHT pixels — keeping every downstream child index
+  // identical. ScrollView children are now:
+  //   [0] SuspendedBranchBanner (wrapped in onLayout View for SBB-
+  //       height capture; the wrapper is the index-0 child)
+  //   [1] HeroBannerSpacer
   //   [2] identityZone wrapper (MerchantHeadline + BranchContextBand
   //       + ActionRow)
   //   [3] TabBar ← sticky

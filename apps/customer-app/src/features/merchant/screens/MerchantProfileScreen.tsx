@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { View, ScrollView, StyleSheet, ActivityIndicator, Share, Linking, Pressable } from 'react-native'
+import { View, StyleSheet, ActivityIndicator, Share, Linking, Pressable, type LayoutChangeEvent } from 'react-native'
 import Animated, {
   withTiming,
   withSequence,
   useSharedValue,
   useAnimatedStyle,
+  useAnimatedScrollHandler,
   Easing,
 } from 'react-native-reanimated'
 import { useMotionScale } from '@/design-system/useMotionScale'
@@ -14,7 +15,7 @@ import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
 import { useBranchSelection } from '../hooks/useBranchSelection'
-import { HeroSection } from '../components/HeroSection'
+import { HeroBanner, HeroBannerSpacer } from '../components/HeroSection'
 import { MerchantDescriptor } from '../components/MerchantDescriptor'
 import { MetaRow } from '../components/MetaRow'
 import { ActionRow } from '../components/ActionRow'
@@ -258,6 +259,34 @@ export function MerchantProfileScreen({ id }: Props) {
   const screenAnimatedStyle = useAnimatedStyle(() => ({ opacity: screenOpacity.value }))
   const isFirstSwitchRender = useRef(true)
   const selectedBranchId = merchant?.selectedBranch?.id ?? null
+
+  // M1 — Stretchy hero. ScrollView's `scrollY` shared value drives
+  // the absolutely-positioned `<HeroBanner>` layer mounted as a
+  // sibling of the scrollWrap (rendered AFTER ScrollView in JSX so
+  // it sits on top in z-order). `useAnimatedScrollHandler` runs on
+  // the UI thread — no JS-bridge cost per frame; banner transforms
+  // are GPU-accelerated. See plan §2.2 + the HeroSection.tsx
+  // module header for the two-layer (translate / scale) rationale
+  // and the bottom-origin stretch math.
+  const scrollY = useSharedValue(0)
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      'worklet'
+      scrollY.value = event.contentOffset.y
+    },
+  })
+
+  // SuspendedBranchBanner stays a scroll child (existing behaviour
+  // — it scrolls naturally with content). Because the absolute
+  // `<HeroBanner>` layer would otherwise render on top of SBB at
+  // screen y=0, we measure SBB's height via onLayout and pass it
+  // as `topOffset` so the banner sits BELOW SBB at rest. When SBB
+  // is hidden it returns null → the wrapper has 0 height → offset
+  // collapses to 0.
+  const [sbbHeight, setSbbHeight] = useState(0)
+  const handleSbbLayout = useCallback((event: LayoutChangeEvent) => {
+    setSbbHeight(event.nativeEvent.layout.height)
+  }, [])
   useEffect(() => {
     // Skip first render (initial profile load) and any state where the
     // branch isn't yet resolved. Only fire on a true post-mount switch.
@@ -367,24 +396,23 @@ export function MerchantProfileScreen({ id }: Props) {
           message at full visibility while the page itself reads
           as "refreshing". */}
       <Animated.View style={[styles.scrollWrap, screenAnimatedStyle]}>
-        <ScrollView
+        <Animated.ScrollView
           testID="merchant-profile-scroll"
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           stickyHeaderIndices={[3]}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
         >
-        <SuspendedBranchBanner
-          visible={showBanner}
-          onDismiss={() => setBannerDismissed(true)}
-        />
+        <View onLayout={handleSbbLayout}>
+          <SuspendedBranchBanner
+            visible={showBanner}
+            onDismiss={() => setBannerDismissed(true)}
+          />
+        </View>
 
-        <HeroSection
-          bannerUrl={sb.bannerUrl ?? merchant.bannerUrl}
-          isFavourited={favourite.isFavourited}
-          onToggleFavourite={favourite.toggle}
-          onShare={handleShare}
-        />
+        <HeroBannerSpacer />
 
         {/* Round 5 §12: bottom stop hue calibrated into the Redeemo
             brand family. §11 used `#FAF1E2` (L 0.94 C 0.04 H 80 —
@@ -523,8 +551,23 @@ export function MerchantProfileScreen({ id }: Props) {
             />
           )}
         </Animated.View>
-      </ScrollView>
+      </Animated.ScrollView>
       </Animated.View>
+
+      {/* HeroBanner mounts AFTER scrollWrap so it sits above the
+          ScrollView in z-order — its taps reach the back / share /
+          heart buttons rather than being intercepted by scroll
+          content. The banner stays at full opacity during the
+          screen-wide branch-switch pulse (which only wraps the
+          ScrollView), same pattern as the toast / modals below. */}
+      <HeroBanner
+        bannerUrl={sb.bannerUrl ?? merchant.bannerUrl}
+        isFavourited={favourite.isFavourited}
+        onToggleFavourite={favourite.toggle}
+        onShare={handleShare}
+        scrollY={scrollY}
+        topOffset={sbbHeight}
+      />
 
       <ContactSheet
         visible={showContact}
