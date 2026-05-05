@@ -1,7 +1,6 @@
 import React, { useCallback } from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
+import { View, Pressable, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import Svg, { Path } from 'react-native-svg'
 import { Heart, ArrowRight } from 'lucide-react-native'
 import Animated, {
   useSharedValue,
@@ -16,67 +15,54 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §27: refinements on §26 against the on-device QA.
+// Round 5 §28: corrects the §27 mistake of trying to manually
+// reconstruct the brand R as SVG paths — the result looked
+// disfigured and didn't read as the Redeemo logo. Reverted to
+// the official PNG asset (apps/customer-app/assets/redeemo-r-
+// mark.png, copied from the brand pack's "Iconic Version 1.png"
+// at 1081×1080), tinted white at low opacity for a single
+// faint flat watermark. No more fake internal structure.
 //
-//   1. Brand R watermark now shows the ribbon/voucher structure.
-//      §26 used the brand PNG with a flat white tint — the
-//      logo's two overlapping ribbon pieces blurred together
-//      and the inner structure was unreadable. Switched to
-//      react-native-svg with three layered paths approximating
-//      the brand mark:
-//        a) the C-loop (the upper portion of the R) at white
-//           0.09 opacity
-//        b) the diagonal ribbon (cutting across the loop) at
-//           white 0.14 opacity — slightly brighter, so where
-//           it crosses the loop the area reads as a distinct
-//           band, the way the brand mark's ribbon stands out
-//           against the C
-//        c) the bottom-left leg at white 0.10 opacity
-//      Result: the R reads as ribbon-on-loop, one colour
-//      family (white tint), no heavy outer drop shadow, no
-//      foreign colours. The internal depth is achieved by
-//      opacity layering — exactly the brief.
+// Other refinements against the on-device QA:
 //
-//   2. Hero block stacks vertically. §22→§26 had "Save up to"
-//      and £hero baseline-aligned on a single row to save
-//      vertical space — but the user said it reads cluttered
-//      that way. Now stacked: small "Save up to" eyebrow on
-//      one line, large £hero on the line below. The hierarchy
-//      reads more intentionally.
+//   1. Brand R uses the OFFICIAL asset. tintColor white +
+//      opacity 0.10 → recognisable Redeemo R silhouette,
+//      faint, embedded as background motif. No more manual
+//      reconstruction.
 //
-//   3. Background shape character restored. §22-era subtle
-//      circle blobs were stripped in §23 cleanup and never
-//      came back — the user noted the card felt like a flat
-//      block of colour. Two soft white blobs added: a small
-//      one in the upper-right (decorative, around the R area)
-//      and a larger one bottom-left (gives depth to the hero
-//      column). Both at 0.05–0.06 opacity — subtle, never
-//      compete with text or the R.
+//   2. CTA returned to bottom-RIGHT (was bottom-left in §26).
+//      The bottom-right is the natural action position for
+//      "tap to redeem". The R is sized + placed so the
+//      bottom-right is empty when the CTA arrives — they
+//      don't overlap.
 //
-//   4. Layout rebalanced. §26 felt left-heavy because chip +
-//      hero (stacked now) + title + description + CTA all
-//      stacked left while the right was just R + heart. The
-//      bottom row keeps CTA on the LEFT and expiry to its
-//      right — same as §26 — so the right side stays the R's
-//      domain. The new background shapes plus the more
-//      detailed R fill out the right column visually.
+//   3. Layout — three vertical zones on the right column:
+//        a) heart at top-right (16pt)
+//        b) brand R at right-CENTER (100×100, fully visible)
+//        c) Redeem CTA at bottom-right
+//      Each zone has clean space; nothing covers the R.
 //
-//   5. Typography rhythm tightened. heroLabel 11→10pt with
-//      letterSpacing 0.4, marginBottom 1pt before £hero;
-//      title 14pt 700 lineHeight 18 (kept); description 11pt
-//      lineHeight 16 (was 15) — slightly looser line-height
-//      gives the 2-line description more breathing room.
+//   4. Description font 11pt → 12pt, lineHeight 15 → 16.
+//      Body text on mobile should be ≥12pt; the on-device QA
+//      flagged the description as too small for normal users
+//      to read at a glance. Card grows ~3pt vertically — fine
+//      because readability wins over compactness.
 //
-//   6. Type chip — kept §26's dark-translucent style
-//      (rgba(0,0,0,0.28) bg + opaque white 700 text + subtle
-//      text shadow). Strong contrast on every gradient
-//      including FREEBIE; clearly different surface from the
-//      white CTA pill.
+//   5. Hero stays stacked ("Save up to" eyebrow above £hero)
+//      from §27.
 //
-// Behaviour preserved:
+//   6. Type chip stays §26's dark-translucent style — strong
+//      contrast on every gradient (especially FREEBIE),
+//      clearly different surface from the white CTA pill.
+//
+//   7. Background shape character — kept the §27 subtle white
+//      blobs (top-right + bottom-left, both at 0.05 opacity)
+//      so the card doesn't read as a flat block of colour.
+//
+// Behaviour preserved across §22 → §28:
 //   • side cutouts at mid-height (coupon silhouette)
 //   • per-type 3-stop gradient with brand-red drop shadow
-//   • horizontal text only (no rotated labels)
+//   • horizontal text only
 //   • smart £ formatting (£5 vs £5.50)
 //   • a11y label format
 //   • press scale + heart spring with motion-scale gating
@@ -124,34 +110,6 @@ const HEART_DN_MS  = 200
 function formatPounds(value: number): string {
   if (Number.isInteger(value)) return `£${value}`
   return `£${value.toFixed(2)}`
-}
-
-// §27 SVG R — three layered paths approximating the brand mark.
-// Path order matters: loop drawn first (back), leg next, then
-// ribbon last (front) so it visually cuts across the loop.
-// All three fill with white at slightly different opacities so
-// the overlap regions read as the ribbon's distinct band.
-function BrandRWatermark() {
-  return (
-    <Svg width="100%" height="100%" viewBox="0 0 100 105">
-      {/* C-loop — upper portion of the R */}
-      <Path
-        d="M 22 6 L 56 6 C 70 6 76 14 76 26 C 76 38 68 48 54 48 L 38 48 L 38 38 L 52 38 C 60 38 64 32 64 26 C 64 20 60 16 54 16 L 22 16 Z"
-        fill="rgba(255,255,255,0.09)"
-      />
-      {/* Leg — bottom-left triangle */}
-      <Path
-        d="M 22 60 L 36 60 L 30 100 L 14 100 Z"
-        fill="rgba(255,255,255,0.10)"
-      />
-      {/* Diagonal ribbon — overlaps the loop, brighter so the
-          overlap reads as a distinct band */}
-      <Path
-        d="M 4 54 L 92 62 L 90 80 L 2 72 Z"
-        fill="rgba(255,255,255,0.14)"
-      />
-    </Svg>
-  )
 }
 
 export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onToggleFavourite }: Props) {
@@ -241,18 +199,24 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           pointerEvents="none"
         />
 
-        {/* §27 background shape character: two faint white blobs
-            for premium gradient depth. Bleed off corners so they
-            read as ambient texture, not deliberate decoration. */}
+        {/* §27 subtle background shapes — kept. Two faint white
+            blobs that bleed off corners. */}
         <View style={styles.shapeA} pointerEvents="none" />
         <View style={styles.shapeB} pointerEvents="none" />
 
-        {/* §27 brand R watermark — react-native-svg with three
-            layered paths (loop, leg, ribbon). Internal structure
-            is visible without heavy drop shadow or foreign
-            colours. */}
+        {/* §28 brand R watermark — OFFICIAL PNG asset, tinted
+            white at 0.10 opacity. Single faint flat silhouette,
+            recognisable as the Redeemo R. No more manual SVG
+            reconstruction. Sized + positioned at right-center
+            so the heart sits cleanly above and the bottom-right
+            CTA sits cleanly below. */}
         <View style={styles.watermarkWrap} pointerEvents="none">
-          <BrandRWatermark />
+          <Image
+            source={require('../../../../assets/redeemo-r-mark.png')}
+            style={styles.watermark}
+            resizeMode="contain"
+            accessible={false}
+          />
         </View>
 
         {/* 1px white-tinted lip at the very top edge — glassy. */}
@@ -283,9 +247,7 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             </Animated.View>
           </View>
 
-          {/* §27 hero block — STACKED. "Save up to" eyebrow on
-              its own line, £hero below. Reads more intentionally
-              than the §22→§26 baseline-aligned single row. */}
+          {/* Hero — STACKED. "Save up to" eyebrow above £hero. */}
           <View style={styles.heroBlock}>
             <Text style={styles.heroLabel}>Save up to</Text>
             <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
@@ -301,10 +263,15 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             </Text>
           ) : null}
 
-          {/* Bottom row: CTA on LEFT, expiry to its right. The
-              right side of this row stays empty so the R's
-              lower portion has space. */}
+          {/* §28 bottom row: expiry on LEFT, Redeem CTA on RIGHT.
+              The R sits at right-CENTER above this row, so the
+              bottom-right CTA placement no longer overlaps the
+              brand mark. Standard "tap to act" placement
+              restored. */}
           <View style={styles.bottomRow}>
+            <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="tail">
+              {isRedeemed ? 'Redeemed this cycle' : (expiryLabel ?? 'No expiry')}
+            </Text>
             {isRedeemed ? (
               <View style={styles.redeemedStamp}>
                 <Text style={styles.redeemedStampText}>REDEEMED</Text>
@@ -315,9 +282,6 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
                 <ArrowRight size={13} color={accent} strokeWidth={2.8} />
               </View>
             )}
-            <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="tail">
-              {isRedeemed ? 'Redeemed this cycle' : (expiryLabel ?? 'No expiry')}
-            </Text>
           </View>
         </View>
 
@@ -352,9 +316,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // §27 background shapes — restore some of the §22-era
-  // premium gradient character. Two soft white blobs that
-  // bleed off corners.
+  // Subtle white background blobs — premium gradient texture.
   shapeA: {
     position: 'absolute',
     right: -30,
@@ -374,15 +336,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
 
-  // §27 brand R watermark — sized and positioned so the FULL R
-  // sits in the right-center column. Heart sits cleanly above,
-  // CTA bottom-row sits cleanly below.
+  // §28 brand watermark — OFFICIAL PNG asset, single flat
+  // silhouette tinted white. 100×100 sits in the right-center
+  // column. Heart above (top:14-30), CTA below (bottom row).
   watermarkWrap: {
     position: 'absolute',
     right: 14,
     top: 36,
-    width: 80,
-    height: 84,  // 80 × (105/100) viewBox aspect
+    width: 100,
+    height: 100,
+  },
+  watermark: {
+    width: '100%',
+    height: '100%',
+    tintColor: '#FFFFFF',
+    opacity: 0.10,
   },
 
   topHighlight: {
@@ -405,7 +373,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  // §26 type chip — kept. Dark translucent + opaque white text.
   typeChip: {
     paddingVertical: 4,
     paddingHorizontal: 10,
@@ -427,15 +394,14 @@ const styles = StyleSheet.create({
     padding: 3,
   },
 
-  // §27 hero — STACKED (was baseline-aligned). Eyebrow on its
-  // own line, £hero below.
+  // Hero stacked: eyebrow above £hero.
   heroBlock: {
     marginTop: 8,
     marginBottom: 6,
   },
   heroLabel: {
     color: 'rgba(255,255,255,0.90)',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
     letterSpacing: 0.4,
     marginBottom: 1,
@@ -461,16 +427,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.15,
     lineHeight: 18,
-    marginBottom: 2,
+    marginBottom: 4,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
-  // §27 description lineHeight 15 → 16, slightly more breathing
-  // room so 2 lines feel less cramped.
+  // §28 description bumped 11 → 12pt with lineHeight 15 → 16.
+  // Body text on mobile should be ≥12pt; the QA flagged the
+  // §27 description as too small for normal users.
   description: {
-    color: 'rgba(255,255,255,0.88)',
-    fontSize: 11,
+    color: 'rgba(255,255,255,0.90)',
+    fontSize: 12,
     fontWeight: '500',
     letterSpacing: -0.05,
     lineHeight: 16,
@@ -479,10 +446,13 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
 
+  // §28 bottom row: expiry-LEFT, CTA-RIGHT (back to the
+  // standard layout from before §26). Possible because the R
+  // is now at right-center above this row, not bottom-right.
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     marginTop: 10,
     gap: 12,
   },
