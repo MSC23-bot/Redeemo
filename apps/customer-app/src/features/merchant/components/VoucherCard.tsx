@@ -15,44 +15,57 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §24: refinements on §23 against the user's 10-point QA.
+// Round 5 §25: refinements on §24 against the on-device QA pass.
 //
-//   1.  Card height 168 → 150pt (~11% slimmer).
-//   2.  Tighter internal grid: padding 18 → 14, hero block
-//       baseline-aligned ("Save up to" eyebrow + £hero side by
-//       side, not stacked vertically), rows packed without
-//       `justifyContent: space-between` so nothing floats.
-//   3.  Description goes from 1 line → 2 lines so it stops
-//       truncating to garbage like `coff…`.
-//   4.  Type pill strengthened: solid white-tinted bg + the
-//       deep accent of the gradient as text colour. The pill
-//       is now a confident type signal, colour-coded per
-//       voucher type, premium feel kept.
-//   5.  Redeem CTA pulled into the natural content flow (no
-//       more `space-between` push to the bottom edge) so it
-//       sits on the grid line under description, not floating.
-//   6.  R watermark switched from a typographic Mustica `R` to
-//       the actual Redeemo brand mark PNG (the ribbon-R with
-//       built-in voucher notches). Tinted white, opacity 0.12,
-//       sized + positioned to embed in the bottom-right rather
-//       than bleed harshly off the corner. Faint same-colour
-//       gradient blob underneath for the "background
-//       illustration" feel the user asked for.
-//   7.  Heart 20 → 17pt; unfavourited stroke at 0.85 opacity so
-//       it whispers instead of shouting.
-//   8.  Expiry copy: sentence-case ("No expiry", "Expires 28
-//       Dec") — the previous all-caps `NO EXPIRY` is gone.
-//   9.  Subtle depth: 1px white-tinted top edge highlight (a
-//       soft glassy lip), and the brand-red shadow stack stays.
-//  10.  Contrast: gradients now use a 3-stop curve with the
-//       deep accent holding from 40% to 100% so white text is
-//       readable across every voucher type, including FREEBIE
-//       (the lightest start). Light starts deepened slightly
-//       on FREEBIE / TIME_LIMITED / REUSABLE.
+//   1. CTA / watermark conflict resolved. In §24 the brand R sat
+//      directly under the white Redeem pill — the pill read as
+//      "stuck on top of a busy shape". Three changes together:
+//        a) watermark shrunk 130 → 110 and pushed further off
+//           the corner (right -10 → -28, bottom -22 → -38) so
+//           only the upper-left curl of the R is visible inside
+//           the card, not the busy ribbon-cross
+//        b) opacity 0.12 → 0.10 — recedes further into the
+//           gradient texture
+//        c) the "background illustration" glow swapped: was a
+//           same-colour LIGHT halo (which lifted the watermark
+//           but also lifted the area under the CTA, washing
+//           the pill out). Replaced with a subtle DARK soft
+//           vignette in the same corner — the white CTA pill
+//           now sits on a slightly darker stage and reads as a
+//           clean action button, not as a label glued onto a
+//           busy texture
 //
-// Type label copy also updated for full-readable sentence-case
-// per the user's brief: "Buy one, get one free", "Package
-// deal", "Time limited", "Spend & save".
+//   2. Type pill ↔ Redeem pill differentiated. In §24 both were
+//      solid white pills with accent text — they read as the
+//      same kind of control even though one is a label and one
+//      is an action. Now:
+//        - Type pill = translucent (rgba 0.18) with thin white
+//          stroke, white text. Reads as a chip/label.
+//        - Redeem pill = solid white + accent text + arrow +
+//          shadow. Reads as the primary action.
+//      Different surface treatment, different weight.
+//
+//   3. Text readability safety net. Subtle text shadow
+//      (rgba(0,0,0,0.18), 0/1, blur 2) on the eyebrow, title,
+//      and description so white text holds on the lighter
+//      gradient regions even at the upper-left corner.
+//      Gradient locations also tightened [0, 0.45, 1] →
+//      [0, 0.30, 1] so the deep accent takes over earlier.
+//
+//   4. Card height stays 150pt minHeight — no growth.
+//
+//   5. Heart further reduced — 17 → 16pt, stroke opacity
+//      0.85 → 0.70 unfavourited. Accessible but secondary.
+//
+// Behaviour preserved across §22 → §25:
+//   • side cutouts at mid-height
+//   • per-type gradient with brand-red shadow underneath
+//   • horizontal text only (no rotated labels)
+//   • "Save up to" + £hero hierarchy
+//   • Smart £ formatting (£5 vs £5.50)
+//   • a11y label format
+//   • Animation timings (press, heart spring) and motion-scale
+//     gating
 
 const TYPE_GRADIENTS: Record<VoucherType, readonly [string, string]> = {
   BOGO:             ['#A78BFA', '#7C3AED'],
@@ -168,34 +181,33 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
         accessibilityLabel={a11yLabel}
         style={[styles.card, isRedeemed && styles.cardRedeemed]}
       >
-        {/* §24 contrast: 3-stop gradient — light start, then the
-            deep accent holds from ~40% to 100%. White text is
-            readable across the whole card on every type. */}
+        {/* §25 contrast: 3-stop gradient — deep accent now takes
+            over by 30% (was 45%) so the upper-left quadrant
+            (where the type pill + heart + eyebrow live) sits
+            on the deeper colour, lifting white text contrast. */}
         <LinearGradient
           colors={[gradient[0], gradient[1], gradient[1]]}
-          locations={[0, 0.45, 1]}
+          locations={[0, 0.30, 1]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFillObject}
         />
 
-        {/* §24 background illustration: soft same-colour glow in
-            the bottom-right quadrant, lighter than the gradient
-            so it suggests depth without competing with text.
-            Sits behind the brand R watermark for a layered
-            "the R is embedded in a glow" effect. */}
-        <View style={[styles.bgGlow, { backgroundColor: gradient[0] }]} pointerEvents="none" />
+        {/* §25 CTA stage: subtle dark vignette in the bottom-
+            right corner. Replaces §24's same-colour LIGHT halo,
+            which was lifting the area under the Redeem pill and
+            washing the white CTA out. A darker tone here gives
+            the white CTA pill a clean stage so it reads as a
+            confident action button, not as something stuck on
+            top of busy texture. */}
+        <View style={styles.ctaShade} pointerEvents="none" />
 
-        {/* §24 R watermark: actual Redeemo brand R (the ribbon
-            mark with built-in voucher notches), tinted white at
-            low opacity so it reads as embedded texture rather
-            than a stamped icon. Sized + positioned so the bulk
-            of the R sits inside the card's bottom-right
-            quadrant, with just the bottom tail bleeding off the
-            corner — more elegant than the previous typographic
-            R that bled half off-screen. Wrapped in a View so we
-            can put pointerEvents="none" on the wrapper (Image
-            doesn't accept the prop directly). */}
+        {/* §25 R watermark: shrunk 130 → 110 and pushed further
+            off the corner. Only the upper-left curl of the R is
+            visible inside the card now — the busy ribbon-cross
+            stays off-screen. Opacity 0.12 → 0.10 so it recedes
+            further into the gradient texture. The CTA pill is
+            no longer fighting it for space. */}
         <View style={styles.watermarkWrap} pointerEvents="none">
           <Image
             source={require('../../../../assets/redeemo-r-mark.png')}
@@ -215,12 +227,15 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             so the bottom row sits on the grid under description
             instead of floating at the card edge. */}
         <View style={styles.content}>
-          {/* Row 1: voucher type pill (left) + heart (right).
-              Pill is solid white-tinted bg + accent text — a
-              confident, premium, colour-coded type chip. */}
+          {/* Row 1: voucher type chip (left) + heart (right).
+              §25 differentiation: chip is now translucent with
+              a thin white stroke + white text. Reads as a
+              label, not as the same kind of pill as the Redeem
+              CTA. Heart shrunk and dimmed further so it stays
+              accessible but clearly secondary. */}
           <View style={styles.topRow}>
-            <View style={styles.typePill}>
-              <Text style={[styles.typePillText, { color: accent }]} numberOfLines={1}>
+            <View style={styles.typeChip}>
+              <Text style={styles.typeChipText} numberOfLines={1}>
                 {typeLabel}
               </Text>
             </View>
@@ -232,10 +247,10 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
                 hitSlop={10}
               >
                 <Heart
-                  size={17}
-                  color={isFavourited ? '#FFFFFF' : 'rgba(255,255,255,0.85)'}
+                  size={16}
+                  color={isFavourited ? '#FFFFFF' : 'rgba(255,255,255,0.70)'}
                   fill={isFavourited ? '#FFF' : 'none'}
-                  strokeWidth={2.4}
+                  strokeWidth={2.2}
                 />
               </Pressable>
             </Animated.View>
@@ -323,37 +338,40 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // §24 background illustration: soft same-colour glow circle
-  // in the bottom-right quadrant. Sits behind the R watermark
-  // and lifts it from the deeper gradient end. Background-only,
-  // pointerEvents none.
-  bgGlow: {
+  // §25 CTA stage: subtle dark vignette in the bottom-right
+  // corner. Soft elliptical shape (large border-radius on a
+  // wider-than-tall view) so it reads as a tonal corner rather
+  // than a hard circle. Provides the white Redeem pill a clean
+  // stage to sit on, addresses the §24 problem where the CTA
+  // pill looked stuck on top of the watermark.
+  ctaShade: {
     position: 'absolute',
-    right: -60,
-    bottom: -60,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    opacity: 0.30,
+    right: -40,
+    bottom: -40,
+    width: 220,
+    height: 130,
+    borderRadius: 110,
+    backgroundColor: 'rgba(0,0,0,0.10)',
   },
 
-  // §24 brand watermark: the actual Redeemo R PNG, tinted white,
-  // sized so the bulk sits inside the bottom-right quadrant
-  // (only the bottom tail trails off the edge). 0.12 opacity so
-  // the R reads as part of the gradient texture, not a stamped
-  // icon. Source PNG is 1081×1080 — RN scales down cleanly.
+  // §25 brand watermark: 130 → 110 size, pushed further off the
+  // corner (right -10 → -28, bottom -22 → -38) so only the
+  // upper-left curl of the R is visible inside the card. The
+  // busy ribbon-cross stays off-screen. Opacity 0.12 → 0.10
+  // so it recedes further into the gradient texture. Source
+  // PNG is 1081×1080 — RN scales down cleanly.
   watermarkWrap: {
     position: 'absolute',
-    right: -10,
-    bottom: -22,
-    width: 130,
-    height: 130,
+    right: -28,
+    bottom: -38,
+    width: 110,
+    height: 110,
   },
   watermark: {
     width: '100%',
     height: '100%',
     tintColor: '#FFFFFF',
-    opacity: 0.12,
+    opacity: 0.10,
   },
 
   // §24 depth: 1px subtle highlight at the very top edge — gives
@@ -383,22 +401,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  // §24 type pill: solid white-tinted bg + accent text (the
-  // deep stop of the gradient). Reads confidently on every
-  // gradient because the text colour matches the deepest
-  // brand colour of the card.
-  typePill: {
+  // §25 type CHIP (was pill): translucent backdrop + thin white
+  // stroke + white text. Differentiates from the Redeem CTA
+  // pill (which stays solid white + accent text). The chip
+  // reads as a label/tag, the CTA reads as an action button —
+  // different surface treatment for different jobs.
+  typeChip: {
     paddingVertical: 4,
     paddingHorizontal: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.95)',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
     flexShrink: 1,
     alignSelf: 'flex-start',
   },
-  typePillText: {
+  typeChipText: {
+    color: '#FFFFFF',
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.1,
+    fontWeight: '700',
+    letterSpacing: 0.15,
+    // Subtle text shadow safety net for the lighter gradient
+    // regions (especially FREEBIE start).
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   favBtn: {
     padding: 3,
@@ -413,11 +440,19 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     gap: 8,
   },
+  // §25 contrast safety: subtle text shadow on the eyebrow,
+  // title, and description. Black at 0.18 opacity, 1px down,
+  // 2px blur. Imperceptible as a "shadow" — just lifts white
+  // text off the gradient where the upper-left quadrant is
+  // lightest (FREEBIE / TIME_LIMITED / REUSABLE).
   heroLabel: {
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(255,255,255,0.90)',
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 0.2,
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   heroAmount: {
     color: '#FFF',
@@ -426,6 +461,9 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
     lineHeight: 30,
     fontVariant: ['tabular-nums'],
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 
   title: {
@@ -435,15 +473,21 @@ const styles = StyleSheet.create({
     letterSpacing: -0.15,
     lineHeight: 18,
     marginBottom: 2,
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  // §24: description gets 2 lines — fixes the §23 `coff…`
-  // truncation. Line height tight so two lines stay compact.
+  // Description gets 2 lines — fixes the earlier `coff…`
+  // truncation. Tight line-height keeps two lines compact.
   description: {
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(255,255,255,0.88)',
     fontSize: 11,
     fontWeight: '500',
     letterSpacing: -0.05,
     lineHeight: 15,
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 
   // §24 bottom row sits in natural flow under description.
