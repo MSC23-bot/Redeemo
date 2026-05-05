@@ -35,7 +35,19 @@ export function FreeUserGateModal({ visible, onDismiss, merchantName, voucherCou
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
       <View style={styles.overlay}>
-        <Animated.View entering={SlideInDown.springify().damping(18).stiffness(260)} style={styles.modal}>
+        {/* Round 6 follow-up: spring entrance replaced with a
+            time-based ease-out curve. The previous
+            SlideInDown.springify() landed bouncy/jumpy on
+            device — owner flagged it. Now uses the project's
+            standard ease-out-expo bezier (matches the voucher
+            card press scale + heart spring tween) for a
+            smooth, settled modal arrival. 320ms duration sits
+            in the "medium transition" band per impeccable's
+            motion guidance (300-500ms). No bounce, no spring. */}
+        <Animated.View
+          entering={SlideInDown.duration(320).easing(Easing.bezier(0.16, 1, 0.3, 1))}
+          style={styles.modal}
+        >
           {/* Top gradient accent */}
           <LinearGradient
             colors={color.brandGradient}
