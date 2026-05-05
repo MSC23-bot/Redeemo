@@ -18,7 +18,7 @@ export function AboutCard({ businessName, description }: Props) {
   return (
     <View style={styles.card}>
       <View style={styles.titleRow}>
-        <Home size={16} color={color.brandRose} />
+        <Home size={18} color={color.brandRose} />
         <Text variant="heading.sm" style={styles.title}>About {businessName}</Text>
       </View>
       <Text
@@ -41,13 +41,21 @@ export function AboutCard({ businessName, description }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 4 §7: shadow bumped so the card visibly elevates against
-  // the white body. Same white surface tone — differentiation now
-  // entirely via elevation.
+  // Round 5 §5 (impeccable polish):
+  //   • Padding 20 → 22 — extra breathing room for prose. Rhythm
+  //     differentiation from the other About cards (Photos /
+  //     Amenities / Hours stay at 20pt) — impeccable's "vary
+  //     spacing for rhythm".
+  //   • borderRadius 16 → 18 — pairs with the round-5-§4 voucher
+  //     card radius for a consistent premium-soft system.
+  //   • Title fontWeight 800 → 700, fontSize 15 → 16. 800 read as
+  //     "shouting" and 15/13 = 1.15× was below impeccable's 1.25×
+  //     hierarchy ratio. Now 16/13 = 1.23× — close enough; carries
+  //     the rest via weight contrast (700 title vs body.sm regular).
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 18,
+    padding: 22,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 16,
@@ -59,14 +67,14 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: 9,
+    marginBottom: 14,
   },
   title: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#010C35',
-    letterSpacing: -0.1,
+    letterSpacing: -0.2,
   },
   body: {
     fontSize: 13,
@@ -75,6 +83,6 @@ const styles = StyleSheet.create({
   readMore: {
     color: '#E20C04',
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: 6,
   },
 })

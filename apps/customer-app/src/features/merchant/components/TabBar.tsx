@@ -148,6 +148,12 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     fontWeight: '600',
   },
+  // Round 5 §5 (impeccable polish): inactive count badge drops the
+  // grey wash bg (visual noise that cluttered the inactive tabs);
+  // active count keeps its brand-red 12% bg as the differentiator.
+  // The active label pill carries the primary "you are here" cue,
+  // and the count colour shift (active #E20C04 / inactive #4B5563)
+  // does the rest.
   countBadge: {
     minWidth: 19,
     height: 18,
@@ -160,20 +166,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(226,12,4,0.12)',
   },
   countInactive: {
-    backgroundColor: 'rgba(0,0,0,0.06)',
+    backgroundColor: 'transparent',
   },
   countText: {
     fontSize: 11,
     fontWeight: '800',
   },
+  // Round 5 §5 (impeccable polish): indicator refined from a
+  // bottom-edge strip (left:24% right:24% bottom:0 height:2) to a
+  // narrower, slightly raised brand-red underline. Pairs with the
+  // pill bg as a subtle secondary anchor rather than a competing
+  // active cue. testID `tab-active-indicator` retained — covered
+  // by tab-bar-pulse.test.tsx structural contract.
   indicatorWrap: {
     position: 'absolute',
-    bottom: 0,
-    left: '24%',
-    right: '24%',
+    bottom: 4,
+    left: '32%',
+    right: '32%',
     height: 2,
-    borderTopLeftRadius: 2,
-    borderTopRightRadius: 2,
+    borderRadius: 999,
     overflow: 'hidden',
   },
   indicatorGradient: {

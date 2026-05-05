@@ -23,7 +23,7 @@ export function OpeningHoursCard({ weekSchedule, isOpen }: Props) {
     <View style={styles.card}>
       <View style={styles.titleRow}>
         <View style={styles.titleLeft}>
-          <Clock size={16} color={color.brandRose} />
+          <Clock size={18} color={color.brandRose} />
           <Text variant="heading.sm" style={styles.title}>Opening Hours</Text>
         </View>
         <View style={styles.statusRow}>
@@ -85,11 +85,12 @@ function StatusDot({ isOpen }: { isOpen: boolean }) {
 }
 
 const styles = StyleSheet.create({
-  // Round 4 §7: shadow bumped so the card visibly elevates against
-  // the white body.
+  // Round 5 §5 (impeccable polish): radius + title typography
+  // aligned with the other About cards (16 → 18 / 15pt 800 → 16pt
+  // 700) for a consistent system across the tab.
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 20,
     shadowColor: '#000',
     shadowOpacity: 0.08,
@@ -103,18 +104,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   titleLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 9,
   },
   title: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#010C35',
-    letterSpacing: -0.1,
+    letterSpacing: -0.2,
   },
   statusRow: {
     flexDirection: 'row',
