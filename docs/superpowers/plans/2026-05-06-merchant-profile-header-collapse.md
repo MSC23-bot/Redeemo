@@ -1,10 +1,12 @@
 # Merchant Profile — Header collapse, stretchy hero, safe-area discipline
 
-> **Status: AWAITING OWNER APPROVAL.** Do not begin implementation until the owner has signed off on this plan and answered the decision questions in §3.
+> **Status: AWAITING OWNER APPROVAL ON ONE REMAINING DECISION (§3 D2 — back button in collapsed header).** All other decisions locked by owner 2026-05-06. Implementation does not begin until D2 is confirmed.
 
 **Tier:** 2 (multi-file UI work in one surface; needs a written plan first per CLAUDE.md standing rule).
 **Tracks:** §N3 (Dynamic Island / safe-area / collapsed sticky header) + §N7 (header / top-section polish where it directly relates to the collapsed/sticky header system) — bundled per owner direction 2026-05-06.
 **Scope boundary:** header / safe-area / overscroll / collapse behaviour only. Voucher card design, Reviews system, Bottom sheets, broader Merchant Profile redesign are EXPLICITLY out of scope.
+
+**Workstream branch:** `feature/merchant-profile-header-collapse`. Plan-only baseline at `89bcf21`. Implementation commits will follow on this branch after sign-off.
 
 ---
 
@@ -39,7 +41,7 @@ SafeAreaProvider                                  (app/_layout.tsx — root)
          contentFit="cover" />
   <LinearGradient ... />                            // dark vignette overlay
   <View style={[styles.navRow, { top: insets.top + 8 }]}>
-    {back / share / heart frostedBtn x3}
+    {back / share / heart frostedBtn x3}            // currently the only nav affordance on this screen
   </View>
   {(isFeatured || isTrending) && <View style={styles.badgeRow} />}
 </View>
@@ -59,6 +61,7 @@ Single value: `stickyHeaderIndices={[3]}` on the outer ScrollView. Index 3 is th
 - HeroSection reads `useSafeAreaInsets()` and offsets its nav row by `top: insets.top + 8` to clear the Dynamic Island / notch / status bar.
 - `MerchantProfileScreen` does NOT add any top padding — it relies entirely on HeroSection consuming the inset internally.
 - The bottom tab bar is hidden for `merchant/[id]` (`tabBarStyle: { display: 'none' }`), so the bottom of the viewport is fully owned by the screen.
+- **Important navigation note:** because the bottom tab bar is hidden AND `merchant/[id]` is a Tabs route (not a stack push), iOS swipe-back gesture is NOT available. The hero's back button is the only on-screen way to exit the merchant profile on iOS. Android hardware back works. This drives the back-button decision in §3 D2 below.
 
 ### 1.5 Why blank overscroll appears above the banner
 
@@ -81,14 +84,16 @@ Currently *correct* — the back/share/heart row uses `insets.top + 8`. Owner-ve
 
 ---
 
-## 2. Proposed solution
+## 2. Proposed solution — Phase A + Phase B both required
 
-### 2.1 Phasing recommendation
+### 2.1 Phasing — locked
 
-**Phase A — Stretchy hero only (THIS workstream's PR 1).**
-**Phase B — Collapsed header (separate PR or second milestone within this workstream — see §3 D1).**
+Owner direction 2026-05-06: **both phases ship in this workstream as two clear milestones.** If Milestone 2 turns out to be bigger than expected, pause before expanding scope.
 
-Phasing reasoning: the stretchy-hero fix solves the user-reported "looks broken" symptom on its own without introducing collapse logic. Collapse is a polish improvement that benefits from being its own decision (which content survives, where the threshold lives, how it animates). Bundling them into one PR doubles the surface area for QA and increases the risk of one regressing the other.
+- **Milestone 1 (Phase A):** Stretchy hero. No blank overscroll.
+- **Milestone 2 (Phase B):** Collapsed safe-area header + connected sticky tab bar.
+
+Implementation rule: M1 must be on-device-verified by owner before M2 begins. M2 builds on M1's banner-as-layer architecture; M1 standing on its own is the natural pause point.
 
 ### 2.2 Phase A — Stretchy hero
 
@@ -98,11 +103,16 @@ Phasing reasoning: the stretchy-hero fix solves the user-reported "looks broken"
 
 | `scrollY` | Banner transform | Visual |
 |---|---|---|
-| `< 0` (overscroll pull-down) | `translateY: scrollY` (moves down with finger) AND `scaleY: 1 + |scrollY|/H` with `transform-origin: top` (expands downward) | Banner stretches to fill the exposed top — no cream void |
+| `< 0` (overscroll pull-down) | `translateY: scrollY` (moves down with finger) AND `scaleY: 1 + |scrollY|/HERO_HEIGHT` with `transform-origin: top` (expands downward) | Banner stretches to fill the exposed top — no cream void |
 | `= 0` (rest) | `translateY: 0`, `scaleY: 1` | As today |
 | `> 0` (normal scroll) | `translateY: -scrollY` (moves up with content) | Banner scrolls away as today |
 
-**Key insight:** when overscrolling, both translate AND scale are applied. The translate makes the banner follow the finger; the scale-from-top expands the banner to fill the void. Without scale, the banner would just translate down and there'd still be a void above it. Without translate, the banner would expand but not visually feel "pulled."
+Locked decisions:
+- **Stretch curve = linear** (D3).
+- **Reduced motion: stretch still works** — gesture-driven, not decorative (D4).
+- **Banner sizing = 224pt + runtime scale** (D5).
+- **No-banner gradient stretches identically** (D6).
+- `scaleY` clamped to a maximum of `2.5` to bound extreme overscroll.
 
 **Implementation outline:**
 
@@ -112,7 +122,7 @@ Phasing reasoning: the stretchy-hero fix solves the user-reported "looks broken"
      <Animated.View style={[styles.bannerLayer, bannerAnimatedStyle]}>
        <Image source={bannerUrl} contentFit="cover" />
        <LinearGradient ... vignette />
-       <View navRow style={[..., { top: insets.top + 8 }]}>...</View>
+       <View navRow style={[..., { top: insets.top + 8 }]}>...</View>   {/* expanded nav row */}
        {badges}
      </Animated.View>
      <Animated.View style={styles.scrollWrap}>
@@ -125,225 +135,241 @@ Phasing reasoning: the stretchy-hero fix solves the user-reported "looks broken"
          <Animated.View content>...</Animated.View>
        </Animated.ScrollView>
      </Animated.View>
+     <CollapsedHeader scrollY={scrollY} ... />        {/* mounts on top in Milestone 2 */}
    </View>
    ```
 2. `scrollY = useSharedValue(0)`; `useAnimatedScrollHandler({ onScroll })`.
 3. `bannerAnimatedStyle` derived via `useAnimatedStyle`:
    ```ts
    const ty    = scrollY.value < 0 ? scrollY.value : -scrollY.value
-   const scale = scrollY.value < 0 ? 1 + (-scrollY.value)/HERO_HEIGHT : 1
+   const scale = scrollY.value < 0
+     ? Math.min(1 + (-scrollY.value)/HERO_HEIGHT, 2.5)
+     : 1
    return { transform: [{ translateY: ty }, { scaleY: scale }] }
    ```
    Plus `transformOrigin: 'top'` (RN 0.74+ supports `transformOrigin` on Animated styles; if pinned to an older RN, use `translateY` math to compensate).
 4. `bannerLayer` style: `position: 'absolute', top: 0, left: 0, right: 0, height: HERO_HEIGHT, zIndex: layer.base`.
 5. Spacer in the ScrollView matches `HERO_HEIGHT` so identity zone starts at the same Y position as today.
 
-**What stays the same:**
+**What stays the same in Phase A:**
 - Identity zone position, gradient, content.
-- Sticky TabBar behaviour (index updates from 3 → 2 because HeroSection-as-scroll-child becomes a spacer; still sticky).
+- Sticky TabBar behaviour (index updates from 3 → 2).
 - All tab content.
-- HeroSection's nav row safe-area handling (still uses `insets.top + 8`).
-- Reduced-motion path: `scrollY` shared value still updates; transforms still apply (the stretch is direct response to user input, not a discrete animation, so reduced-motion doesn't disable it). However if owner prefers, we can clamp `scaleY` to 1 under reduced-motion to avoid the elastic feel.
+- HeroSection's nav row safe-area handling.
+- Screen-wide pulse on branch switch.
 
 **Files touched (Phase A):**
-- `apps/customer-app/src/features/merchant/components/HeroSection.tsx` — refactor: extract banner content as a layer that can be absolute-positioned, accept `scrollY` shared value as prop OR split into `<HeroBanner>` (the layer) + `<HeroBannerSpacer>` (the in-flow spacer). I lean toward splitting into two components for clarity; ~30 LOC change.
-- `apps/customer-app/src/features/merchant/screens/MerchantProfileScreen.tsx` — switch ScrollView to `Animated.ScrollView`, add `useAnimatedScrollHandler`, mount `<HeroBanner>` as sibling, replace inline `<HeroSection>` with `<HeroBannerSpacer>`, decrement stickyHeaderIndices from 3 to 2; ~20 LOC change.
-- `apps/customer-app/tests/features/merchant/hero-overscroll.test.tsx` — new: structural test asserting the scroll handler is wired and banner reads `scrollY`.
+- ✏️ `apps/customer-app/src/features/merchant/components/HeroSection.tsx` — refactor: extract banner into `<HeroBanner>` layer + `<HeroBannerSpacer>` placeholder; ~30 LOC change.
+- ✏️ `apps/customer-app/src/features/merchant/screens/MerchantProfileScreen.tsx` — Animated.ScrollView, scroll handler, mount HeroBanner as sibling, replace inline HeroSection with HeroBannerSpacer, decrement stickyHeaderIndices to 2; ~20 LOC change.
+- ✨ `apps/customer-app/tests/features/merchant/hero-overscroll.test.tsx` — new structural test.
 
-### 2.3 Phase B — Collapsed sticky header (optional second milestone)
+### 2.3 Phase B — Collapsed sticky header (REQUIRED)
 
-Only viable AFTER Phase A is in (because collapse needs the banner-as-layer). Scope:
+Locked content from owner 2026-05-06:
+- ✅ Merchant logo
+- ✅ Merchant name
+- ✅ Branch / location name
+- ❌ Website / Contact / Directions buttons
+- ❌ Rating pill
+- ❌ Full status row
+- ❌ Full metadata / actions
 
-**Behaviour:** as user scrolls past a threshold, a compact header fades in pinned to the top — merchant name + back button (always) + optional share/heart (decision in §3 D2). Sticky tab bar continues to pin BELOW the compact header.
+These remain available in the expanded hero when the user scrolls back up.
 
-**Sketch:**
+#### 2.3.1 Visual states
+
+The header has **three distinct states** keyed off `scrollY` and a measured `identityZoneEnd` value.
+
+| State | Range | Banner | Identity zone | Collapsed header | TabBar |
+|---|---|---|---|---|---|
+| **Expanded** | `scrollY ≤ FADE_START` | Visible, full height, may be stretched on overscroll | Visible, in flow | Hidden (`opacity: 0`, `pointerEvents: 'none'`) | In flow (not yet sticky) |
+| **Transitioning** | `FADE_START < scrollY < FADE_END` | Scrolling out of view (translateY: -scrollY) | Scrolling past, covered progressively by collapsed header | Fading in (opacity 0 → 1, linear interpolate over the range) | Approaches sticky position |
+| **Collapsed / sticky** | `scrollY ≥ FADE_END` | Off-screen | Off-screen | Fully opaque, `pointerEvents: 'auto'` | Pinned to top of ScrollView, sits visually beneath collapsed header |
+
+Where:
+- `FADE_END = identityZoneEnd` — measured at runtime via `onLayout` on the identity zone wrapper. This is the scrollY at which the TabBar pins (because TabBar's natural Y position equals identityZoneEnd, and `stickyHeaderIndices` pins it once scrollY reaches that value).
+- `FADE_START = FADE_END - 60` — a 60pt fade window. Tight enough to feel decisive, wide enough to feel smooth. Tunable on-device.
+- `HERO_HEIGHT` is used for stretch math, not for the threshold (the threshold is the TabBar pin point).
+
+The collapsed header overlays whatever is at the top of the ScrollView's viewport during the transitioning state — initially the identity zone is mid-scroll past, but the collapsed header's opaque background covers it. By the time the state is `collapsed`, the identity zone is fully off-screen and the TabBar is pinned right beneath the collapsed header. The seam is clean.
+
+#### 2.3.2 Layout
+
+Compact header is positioned `absolute; top: 0; left: 0; right: 0`. Its height is `insets.top + COMPACT_BAR_HEIGHT` where `COMPACT_BAR_HEIGHT = 52pt`. Total height varies per device (Dynamic Island devices: ~59 + 52 = 111pt; notch: ~47 + 52 = 99pt; SE: ~20 + 52 = 72pt).
+
+**Internal layout — proposed (pending owner D2 confirmation):**
 
 ```
-  ┌──────────────────────────────┐
-  │ ←  Merchant Name        ♡ ⤴ │  ← compact header, fades in past threshold
-  ├──────────────────────────────┤
-  │ Vouchers  About  Branches  │  ← sticky TabBar, pinned below compact header
-  ├──────────────────────────────┤
-  │ ... tab body ...            │
+┌─────────────────────────────────────────────────────────────┐
+│                  STATUS BAR / DYNAMIC ISLAND                 │   ← insets.top spacer (NOT decorated)
+├─────────────────────────────────────────────────────────────┤
+│  ┌──┐   ┌──┐  Merchant Name                                  │
+│  │← │   │◯◯│  Branch · Location                              │   ← 52pt content row
+│  └──┘   └──┘                                                 │
+└─────────────────────────────────────────────────────────────┘
+   12px   16px   merchant + branch text (flex: 1)
+   pad    36pt   numberOfLines: 1 each, ellipsize tail
+          logo
 ```
 
-**Threshold:** ~`HERO_HEIGHT - 60` (i.e. when the hero is 60pt from being fully off-screen) — gives a smooth handoff.
+Sizes:
+- Back button: 36pt × 36pt frosted circle (matches existing style language). Hit slop +6pt to reach 48pt effective.
+- Logo: 36pt circle (smaller than expanded 72pt logo). Image rounded.
+- Merchant name: 15pt 700 navy `#010C35`, `numberOfLines: 1`.
+- Branch line: 13pt 500 grey `#4B5563`, `numberOfLines: 1`. Built from `branchShortName(sb.name)` (already in codebase, e.g. "Brightlingsea"). Format: `Branch · City` — using middle dot separator. If `sb.city` is null, falls back to just branch name.
+- Right padding: 12pt + safe-area right inset (notch landscape consideration).
 
-**Files touched (Phase B):**
-- `apps/customer-app/src/features/merchant/components/CollapsedHeader.tsx` — new component.
-- `MerchantProfileScreen.tsx` — mount + pass `scrollY` + merchant name + actions.
-- New tests for threshold + reduced-motion.
+#### 2.3.3 Back button — proposed yes (open decision §3 D2)
 
-### 2.4 Pulling tab content separately
+**My recommendation: include a back button in the collapsed header.** Reasoning: this screen is a Tabs route, not a stack push, so iOS swipe-back is unavailable. The bottom tab bar is hidden for the merchant route. Without a back affordance in the collapsed state, an iOS user deep-scrolled into reviews has NO way to exit except scrolling all the way back up. That's a navigation dead-end.
 
-**Out of scope.** Today the outer ScrollView holds all tab content as direct children inside `<Animated.View key={activeTab}>`. With sufficiently long Reviews lists this could mean a long scroll on the outer ScrollView, but that's the existing pattern and works fine. Introducing nested scrolls (one per tab) is a Reviews-system-rebaseline concern, not a header-collapse concern. Explicitly leaving the existing single-ScrollView pattern intact.
+If owner prefers no back button: alternative is to leave it out and rely on the hero back button. User must scroll up to exit. Workable on Android (hardware back), problematic on iOS.
+
+Awaiting D2 confirmation.
+
+#### 2.3.4 Dynamic Island / safe-area guarantees
+
+- The collapsed header reads `useSafeAreaInsets()` and consumes `insets.top` as a top spacer that is part of its background but contains no interactive content.
+- All interactive content (back button, logo, text) sits BELOW `insets.top`.
+- On a Dynamic Island device (~59pt inset), the content row starts at Y=59 — clear of the island.
+- On a notch device (~47pt inset), content starts at Y=47.
+- On a non-notch device (~20pt status bar), content starts at Y=20.
+- Status bar text colour will need to switch to dark when collapsed header is visible (cream background → dark text). Implementation: `<StatusBar style="dark" />` set via `expo-status-bar` when the screen is mounted; restored on unmount. (Phase A may also adjust this; tracked.)
+
+#### 2.3.5 Tab bar visual connection
+
+The current TabBar background is a vertical gradient `#FFF9F5 → #FBF1E6` ([TabBar.tsx](apps/customer-app/src/features/merchant/components/TabBar.tsx) Round 5 §16). To make the collapsed header feel attached to the TabBar:
+
+- Collapsed header background = solid `#FFF9F5` (matches TabBar's gradient TOP stop).
+- Result: collapsed header's bottom edge meets TabBar's top edge with **zero tonal step**.
+- The TabBar's existing bottom shadow (Round 5: opacity 0.07, radius 10, offset 0/3) still anchors the entire stuck chrome unit (collapsed header + TabBar) against the body content below.
+- TabBar's existing `borderTopWidth: 0` (implied — no top border declared) keeps the seam invisible.
+- Collapsed header has its OWN bottom border `borderBottomWidth: 0` — relies entirely on the TabBar's top edge as the visual transition into the navigation row.
+
+**Side note:** if this feels tonally flat on-device (cream-on-cream), a 1px separator line at the bottom of the collapsed header (`borderBottomColor: 'rgba(0,0,0,0.05)'`) is the easy adjustment — matches TabBar's own bottom border. Decide after seeing it on-device.
+
+#### 2.3.6 stickyHeaderIndices change
+
+```diff
+- stickyHeaderIndices={[3]}   // TabBar at child index 3 (banner [1] is full HeroSection)
++ stickyHeaderIndices={[2]}   // TabBar at child index 2 (banner is now an external layer; spacer view doesn't exist as child since banner is absolute — wait, see below)
+```
+
+Index calculation after Phase A:
+- [0] `<SuspendedBranchBanner>`
+- [1] `<View style={{ height: HERO_HEIGHT }} />` (spacer)
+- [2] `<View identityZone>...</View>`
+- [3] `<TabBar>` ← sticky
+
+So actually `stickyHeaderIndices={[3]}` may stay if the spacer counts as an explicit child. **Verification step during M1 implementation:** count the React-rendered children at the ScrollView level and confirm the index. The plan currently states `[2]` based on the assumption that the spacer view is folded into a single child — but if the spacer is its own `<View>`, the index stays `[3]`. Trivial to confirm by grep + console.log during implementation; not a risk.
+
+#### 2.3.7 Reduced-motion behaviour for collapse
+
+Locked: collapsed header opacity transition is `interpolate(scrollY, [FADE_START, FADE_END], [0, 1], 'clamp')` — driven by user scroll, NOT a triggered animation. Same logic as the stretch in Phase A. Reduced motion does not disable it.
+
+If owner wants strict reduced-motion compliance, the alternative is a discrete "snap on" (collapsed header appears instantly at the threshold, no fade). Recordable as a follow-up if needed; default is the fade.
+
+#### 2.3.8 Files touched (Phase B)
+
+- ✨ `apps/customer-app/src/features/merchant/components/CollapsedHeader.tsx` — new component (~80 LOC).
+- ✏️ `apps/customer-app/src/features/merchant/screens/MerchantProfileScreen.tsx` — mount `<CollapsedHeader>`, capture `identityZoneEnd` via `onLayout`, set `<StatusBar style="dark" />` while merchant profile mounted.
+- ✨ `apps/customer-app/tests/features/merchant/collapsed-header.test.tsx` — new structural + threshold tests.
+
+### 2.4 Tab content separately — out of scope
+
+Tab content (Vouchers, About, Branches, Reviews) lives inside the same outer ScrollView. Today's pattern. No nested scrolls introduced. Long lists (Reviews) ride the outer ScrollView's scrollY — which now also drives the stretchy header AND the collapsed header. **This is fine and intentional** — outer ScrollView scrollY uniformly controls the header chrome regardless of which tab body is active.
 
 ---
 
-## 3. UX decisions needed (please answer before implementation)
+## 3. Owner decisions — locked + outstanding
 
-Each decision has my recommended pick + alternatives + reasoning.
+### Locked (owner 2026-05-06)
 
-### D1. Phase scoping — Phase A only, or Phase A + Phase B in one workstream?
+- **D1 Phasing.** Both Phase A and Phase B as two milestones in this workstream. Pause before scope expansion if M2 grows.
+- **D3 Stretch curve.** Linear.
+- **D4 Reduced motion.** Stretch + collapse fade still work (gesture-driven).
+- **D5 Banner sizing.** 224pt + runtime scale.
+- **D6 Gradient fallback.** Gradient stretches identically.
+- **§4 Primitive extraction.** No `<StretchyHeader>` or `<CollapsedHeader>` extracted to design-system on this PR. Keep merchant-feature-local. Extract later when a second consumer (Voucher Detail rebaseline) appears.
+- **Collapsed header content.** Merchant logo + merchant name + branch/location name. No website / contact / directions / rating / full status / full metadata.
 
-- **(A) Recommended: Phase A only in this PR.** Solves the user-reported "looks broken" symptom. Phase B becomes a separate decision after Phase A is on-device and validated.
-- (B) Both phases in one workstream, two milestones, two commits, owner reviews after each milestone before the second starts.
-- (C) Both phases in one PR / one milestone — not recommended (combined QA surface).
+### Outstanding — please confirm before I begin Milestone 2
 
-**Recommendation:** A. Reasoning: Phase A is the bug fix; Phase B is polish. Don't bundle.
+**D2 — Back button in collapsed header.**
 
-### D2. Collapsed header content (only relevant if D1 = B or C)
+Owner direction said: "Back/share/heart can stay in the hero/expanded state unless there is already a safe compact pattern. If you believe back must remain visible in collapsed state for navigation, propose the exact layout before implementing."
 
-What appears in the compact header after the threshold is crossed?
+**My proposal:** include back button only — no share, no heart. Layout in §2.3.2 above.
 
-- **(A) Recommended: merchant name + back + nothing else.** Cleanest. Matches Apple Music, Spotify.
-- (B) merchant name + back + share + heart (mirror current expanded nav row).
-- (C) merchant name + branch name + back. Surfaces branch identity in the compact view.
+**Reason:** see §1.4 — this is a Tabs route (not a stack push), iOS has no swipe-back available, and the bottom tab bar is hidden for the merchant route. Without a back affordance in the collapsed state, an iOS user is trapped: scroll all the way up to exit. Including just the back button (not share/heart) keeps the collapsed header minimal as you instructed (logo + name + branch) while solving the navigation dead-end.
 
-**Recommendation:** A. Reasoning: keep collapsed header minimal; the heart/share are already accessible by scrolling back up (and on Reviews list, less critical). Branch identity is in the identity zone which is just below the screen edge anyway — adding it to the compact header creates visual noise.
+**Three options for D2:**
 
-### D3. Stretch curve
+- **(A) Recommended: include back button only** — layout in §2.3.2. Adds the back chevron at left, 36pt frosted circle, hit slop 6pt → 48pt effective tap target. Logo + name + branch occupy the rest of the row.
+- (B) No back button. Rely on hero back button only — user must scroll up to exit. iOS-trap concern stands.
+- (C) No back button + replace iOS swipe-back via a custom edge-swipe gesture in the collapsed state. More implementation work, gesture-conflict surface area, not recommended.
 
-How aggressively does the banner expand on pull-down?
-
-- **(A) Recommended: linear `scaleY = 1 + |scrollY|/HERO_HEIGHT`.** Banner doubles in height at full hero pull (224pt of overscroll). Feels grounded.
-- (B) Square-root: `scaleY = 1 + sqrt(|scrollY|)/k`. Initial response stronger, taper as you pull. More "elastic."
-- (C) Capped: linear up to scale=1.5, then asymptotic. Prevents extreme stretching on long pulls.
-
-**Recommendation:** A unless on-device feels too rigid. C is a fallback if A produces uncomfortable extremes.
-
-### D4. Reduced-motion behaviour for stretch
-
-iOS / Android system "Reduce Motion" setting is on. What happens?
-
-- **(A) Recommended: stretch still works.** Stretch is direct response to user input, not a triggered animation. Reduce Motion typically targets parallax / autoplay, not user-driven transforms. Apple Music's stretch still works under Reduce Motion.
-- (B) Disable stretch (clamp scaleY to 1) under reduced-motion. Banner just translates with overscroll; void still appears (regression).
-- (C) Disable scale, keep translate, but ALSO clamp negative-translate to 0 — no visual change at all on overscroll.
-
-**Recommendation:** A. (B) reintroduces the void. (C) is the most conservative if the owner wants strict reduced-motion compliance, but it means the bug stays for those users.
-
-### D5. Banner overscroll-only headroom
-
-Should the banner layer be sized exactly to `HERO_HEIGHT` (224pt) and stretched at runtime, OR pre-sized larger (e.g. 224 + 200pt headroom) so the stretch is just translate, no scale?
-
-- **(A) Recommended: 224pt + scale-up.** Simpler. Banner image always renders at native aspect ratio. Scale-y at top-origin gives the elasticity.
-- (B) 224 + 200 headroom + translate-only. Avoids `scaleY` (which can produce minor pixel-grid inconsistencies on Android during the transform). But forces the banner image to always render extra pixels above the visible area, wasting a bit of texture memory and producing image cropping at the top that has to be hidden.
-
-**Recommendation:** A. Android scale rendering is fine for static images; the perf delta is invisible.
-
-### D6. Test fixture for non-banner merchants
-
-What if `bannerUrl` is null and the banner falls back to the dark gradient (current behaviour)? The stretch has to apply to the gradient too.
-
-- **(A) Recommended: gradient stretches identically.** No code-path divergence.
-- (B) Disable stretch when no banner. Behaviourally inconsistent.
-
-**Recommendation:** A. Trivial because the gradient is also `absoluteFillObject` on the same banner layer.
+**Awaiting your call on D2.**
 
 ---
 
 ## 4. Reusability
 
-### 4.1 Should this become a primitive?
+Locked: **no primitive extraction on this PR** (§3 §4 lock above). All new code lives at:
+- `apps/customer-app/src/features/merchant/components/HeroSection.tsx` (refactored)
+- `apps/customer-app/src/features/merchant/components/CollapsedHeader.tsx` (new)
 
-Six surfaces are queued for rebaseline (per CLAUDE.md "Next planned work"): Discovery / Voucher Detail / Favourites / Savings / Profile / QR. Of these:
-
-- **Voucher Detail** — already has a hero-shaped banner area; will benefit directly from a stretchy-hero pattern.
-- **Profile** (the customer's own profile, not merchant profile) — likely has a header avatar / cover area; could benefit.
-- **Discovery / Favourites / Savings / QR** — different scroll patterns; less direct fit.
-
-**Recommendation: extract a thin reusable primitive.**
-
-Proposed shape:
-```ts
-// apps/customer-app/src/design-system/motion/StretchyHeader.tsx (new)
-type Props = {
-  scrollY: SharedValue<number>
-  height: number
-  children: React.ReactNode      // hero content (banner image + overlays)
-}
-export function StretchyHeader({ scrollY, height, children }: Props) { ... }
-```
-
-Then:
-```ts
-// MerchantProfileScreen.tsx
-<StretchyHeader scrollY={scrollY} height={224}>
-  <HeroBanner bannerUrl={...} ... />
-</StretchyHeader>
-```
-
-Voucher Detail can reuse `<StretchyHeader>` with its own banner content. The collapsed-header component (Phase B) can also be extracted as a separate primitive:
-```ts
-<CollapsedHeader scrollY={scrollY} title={merchantName} threshold={164}>
-  <BackButton />
-</CollapsedHeader>
-```
-
-**Decision needed: do we extract on PR 1 (this workstream) or wait until PR 2 (Voucher Detail rebaseline)?**
-
-- **(A) Recommended: extract on PR 2.** Build the merchant-profile-specific code first, THEN extract when the second consumer (Voucher Detail) appears. Avoids designing the API speculatively.
-- (B) Extract on PR 1. Predesign the API now. Risk: API gets revised when Voucher Detail's needs surface differently than expected.
-
-**Recommendation:** A. YAGNI — don't generalise speculatively.
-
-### 4.2 What if Phase B happens on the merchant profile but not other surfaces?
-
-Phase B's `<CollapsedHeader>` is fine to live in the merchant feature folder (`apps/customer-app/src/features/merchant/components/`) until a second consumer appears. Same lazy-extraction rule.
+When the Voucher Detail rebaseline (or any second consumer) needs the same pattern, extract then. The merchant-profile-local code becomes the reference implementation.
 
 ---
 
 ## 5. Risks
 
-### 5.1 iPhone Dynamic Island / notch overlap
+### 5.1 iPhone Dynamic Island / notch overlap (Phase A + B)
 
-**Mitigation:** preserve the existing `insets.top + 8` offset for the nav row inside the banner layer. The banner layer's content is structured identically to today's HeroSection — only the *outer mounting position* changes. The Dynamic Island clearance is unchanged from PR #35.
+**Phase A:** preserve existing `insets.top + 8` offset for the nav row inside the banner layer. Unchanged from PR #35.
+**Phase B:** collapsed header reads `useSafeAreaInsets()` and consumes `insets.top` as a non-interactive spacer (§2.3.4). Interactive content sits below. Tested against Dynamic Island, notch, and SE devices in QA matrix.
 
 ### 5.2 Android status bar behaviour
 
-Today the customer-app does not declare `<StatusBar>` per-screen — the root is `<StatusBar style="auto" />` only. On Android, status bar style adapts to the system theme. The banner overlaying the status bar area on Android should produce a translucent status bar with the banner image showing through, consistent with iOS. Risk: depending on the Android device's status-bar translucency setting, the banner top might be obscured. If we see issues during QA, the fix is `<StatusBar translucent />` for the merchant route.
+Today the customer-app does not declare `<StatusBar>` per-screen — the root is `<StatusBar style="auto" />` only. With banner overlapping the status bar area (Phase A) and a cream collapsed header behind the status bar text (Phase B), Android status bar text colour matters.
 
-**Mitigation:** add `<StatusBar style="light" translucent />` inside `MerchantProfileScreen` while it's mounted. Restore on unmount.
+**Mitigation:**
+- Phase A: `<StatusBar style="light" translucent />` while merchant profile is mounted (banner is dark-vignetted; light text visible).
+- Phase B: when collapsed header reaches opacity > 0.5, switch to `<StatusBar style="dark" />`. Two-state status bar driven by the same scrollY threshold. Implementation: `useAnimatedReaction` on scrollY to call `setStatusBarStyle` on threshold cross, debounced.
+- Restore root style on unmount.
 
 ### 5.3 Sticky tab bar interaction
 
-The TabBar is currently sticky at index 3. With the banner removed as a scroll child, indices shift by 1 (TabBar becomes index 2). This is a one-line constant change. The sticky behaviour itself is unaffected — sticky is a function of the index relative to ScrollView's children.
+`stickyHeaderIndices` index update (3 → 2 or stays 3 depending on spacer-as-child semantics, §2.3.6). Verified during M1 implementation, not at risk.
 
-**Mitigation:** existing test `tab-bar-pulse.test.tsx` (referenced in TabBar.tsx Round 5 §5 comment) covers the structural contract. Will run + verify.
+Existing test `tab-bar-pulse.test.tsx` covers the structural contract. Will run + verify.
 
-### 5.4 Nested scroll / tab content interaction
+### 5.4 Collapsed header overlapping identity zone during transition
 
-Tab content (Vouchers, About, Branches, Reviews) lives inside the same outer ScrollView. None of the tab content currently uses nested scroll. No change planned. Long lists (Reviews) ride the outer ScrollView's scrollY — which now also drives the stretchy header. **This is fine and intentional** — outer ScrollView scrollY controls header collapse for all tabs uniformly.
+By design — see §2.3.1. Collapsed header is opaque; covers identity zone during the transition window. User perception: hero gone, compact header here, identity zone scrolls past behind. Not a bug, intentional handoff. QA scenario covers this.
 
-**Mitigation:** verify on Reviews tab (longest content) during QA.
+### 5.5 Navigation dead-end if back button absent (D2 = B or C)
 
-### 5.5 Performance of scroll-driven animation
+Captured under D2. Resolution depends on owner's D2 answer.
 
-Reanimated's `useAnimatedScrollHandler` runs entirely on the UI thread — no JS-thread bridge for scroll events. Transform updates use the `transform` shared style (GPU-accelerated). Performance budget: well under 1ms per frame on iPhone 11+; not a concern.
+### 5.6 Performance of scroll-driven animation
 
-**Mitigation:** verify with React DevTools profiler if any frame drops appear during fast scroll.
+Reanimated's `useAnimatedScrollHandler` runs entirely on the UI thread — no JS-thread bridge. Both stretch + collapse fade run on transform + opacity (GPU-accelerated). Performance budget: well under 1ms per frame on iPhone 11+; not a concern.
 
-### 5.6 Edge case — overscroll past large negative scrollY
+### 5.7 Edge case — overscroll past large negative scrollY
 
-iOS bouncing can produce negative scrollY values up to ~screen height. A scaleY value of `1 + 800/224 ≈ 4.5` is unreasonable.
+iOS bouncing can produce scrollY values down to ~-screen-height. `scaleY` clamped at 2.5 (§2.2). Banner expands smoothly until cap; further pull just translates without further stretch.
 
-**Mitigation:** clamp `scaleY` to a max (e.g. 2.5) via `Math.min` or a `withClamp` reanimated helper. Banner expands smoothly until the cap; further pull just translates without further stretch.
+### 5.8 Interaction with screen-wide pulse on branch switch
 
-### 5.7 Interaction with the existing screen-wide pulse on branch switch
+Banner-as-sibling does not participate in the `screenAnimatedStyle` pulse (intentional — banner image doesn't change with the pulse meaning). Toast and modals already sit outside the pulse wrap for the same reason. Banner joins them. Verified visually during M1 QA.
 
-The `screenAnimatedStyle` opacity pulse on branch switch wraps the ScrollView. Banner-as-sibling means the banner does NOT participate in the pulse. **This is actually the right behaviour** — the banner image doesn't change on branch switch (it's branch-aware, but the image change happens via re-render, not via the pulse). Same as how the toast and modals already sit outside the pulse wrap to stay at full opacity.
-
-**Mitigation:** verify visually that the banner doesn't visibly desync from the rest of the screen during a branch-switch pulse.
-
-### 5.8 Preserving screen-pulse animation
-
-`screenAnimatedStyle` is applied to `<Animated.View style={[styles.scrollWrap, screenAnimatedStyle]}>` wrapping the ScrollView. Phase A change: this wrapper now wraps Animated.ScrollView (renamed) but the pulse still works. Banner sits at the same DOM level as the wrap (sibling), inheriting the page background. No regression.
+The collapsed header (Phase B) sits OUTSIDE the scrollWrap as a sibling — it MUST also stay outside the pulse so the user always knows which merchant they're viewing during the pulse. This is consistent with existing toast/modal behaviour.
 
 ### 5.9 Test pollution (Animated.ScrollView vs ScrollView)
 
-Existing tests that mock or query `<ScrollView testID="merchant-profile-scroll">` may fail if the ref is replaced by Animated.ScrollView. The testID itself is preserved; query patterns should still work, but jest-expo's interaction with Reanimated mocks deserves a smoke run before claiming green.
-
-**Mitigation:** run the merchant test suite before declaring tests green.
+Existing tests query `<ScrollView testID="merchant-profile-scroll">`. After M1 the ScrollView becomes Animated.ScrollView; testID preserved. Risk: jest-expo + Reanimated mock interaction. Run merchant test suite before declaring tests green.
 
 ---
 
@@ -353,35 +379,64 @@ Existing tests that mock or query `<ScrollView testID="merchant-profile-scroll">
 
 | Device | OS | Why |
 |---|---|---|
-| iPhone 14 Pro+ | iOS 17+ | Dynamic Island clearance; primary owner device |
-| iPhone 11 / 12 / 13 | iOS 16+ | Notch device; no Dynamic Island; safe-area inset ≠ 0 |
-| iPhone SE 2nd / 3rd | iOS 15+ | No notch, no Dynamic Island; safe-area inset = 20 |
-| Android Pixel 6+ | Android 13+ | Status bar translucency; no bouncing scroll (regression-baseline) |
-| iPad mini / iPad Air | iPadOS 16+ | Wider viewport; banner aspect ratio |
+| iPhone 14 / 15 / 16 Pro+ | iOS 17+ | **Dynamic Island clearance — primary target.** Owner's device. |
+| iPhone 11 / 12 / 13 | iOS 16+ | Notch device; no Dynamic Island; safe-area inset ≠ 0. |
+| iPhone SE 2nd / 3rd | iOS 15+ | No notch, no Dynamic Island; safe-area inset = 20. |
+| Android Pixel 6+ | Android 13+ | Status bar translucency; no bouncing scroll (Phase A regression-baseline); collapsed header fade behaviour. |
+| iPad mini / iPad Air | iPadOS 16+ | Wider viewport; banner aspect ratio. (Accept iPhone-only QA if iPad isn't feasible.) |
 
-If iPad test isn't feasible right now, accept iPhone-only QA and flag iPad as a known gap.
+### 6.2 Phase A scenarios (Milestone 1)
 
-### 6.2 Scenarios
-
-1. **Cold-load merchant profile.** Banner renders correctly; no flash of cream; nav row clears Dynamic Island.
-2. **Pull-down overscroll at top.** Banner stretches to fill the exposed area; no cream void; nav buttons stay clickable.
-3. **Fast scroll up past hero.** Sticky tab bar locks at top; tab content scrolls underneath; no banner residue.
-4. **Fast scroll back down.** Tab bar releases; identity zone reappears; banner returns to rest.
-5. **Slow scroll past threshold (Phase B).** Compact header fades in smoothly; no flicker.
-6. **Reduced motion ON.** Stretch behaviour per D4 decision; no other regressions.
+1. **Cold-load merchant profile.** Banner renders correctly; no flash of cream above; nav row clears Dynamic Island.
+2. **Pull-down overscroll at top.** Banner stretches to fill exposed area; no cream void; nav buttons stay clickable.
+3. **Fast pull-down to extreme.** Banner stretches up to scaleY=2.5 then translates only; no NaN, no negative-height layout, no flash.
+4. **Fast scroll up.** Sticky tab bar locks at top; tab content scrolls underneath; no banner residue.
+5. **Fast scroll back down to top.** Tab bar releases; identity zone reappears; banner returns to rest cleanly.
+6. **Reduced motion ON.** Stretch behaviour still works; no other regressions.
 7. **Branch switch.** Screen-wide pulse plays; banner doesn't desync.
-8. **Reviews tab (long list).** Scroll through reviews; tab bar stays sticky; outer scroll continues to drive header collapse uniformly.
+8. **Reviews tab (long list).** Scroll through reviews; tab bar stays sticky; outer scroll continues to drive stretchy header.
 9. **Suspended branch banner shown.** Banner-above-banner layout still works; safe-area still respected.
-10. **Without bannerUrl (gradient fallback).** Stretch applies to gradient; no visual difference.
+10. **Without bannerUrl (gradient fallback).** Stretch applies to gradient; no visual difference vs banner case.
+11. **Android — no bounce baseline.** Confirm Android shows no overscroll bounce (RN default); no regression.
 
-### 6.3 Automated test additions
+### 6.3 Phase B — Dynamic Island specific scenarios (Milestone 2)
 
-- `apps/customer-app/tests/features/merchant/hero-overscroll.test.tsx` (new): structural — assert `<HeroBanner>` mounts at the correct DOM level, receives `scrollY`, and that `<HeroBannerSpacer>` sits at the right scroll-child index.
-- `apps/customer-app/tests/features/merchant/sticky-tab-bar.test.tsx` (existing or new): pin sticky-header index to 2 (was 3). If the existing test doesn't cover this, add it.
-- `apps/customer-app/tests/features/merchant/profile-skeleton.test.tsx` (existing): ensure no regression in render path.
-- Phase B only: `collapsed-header.test.tsx` — threshold test, reduced-motion test, content test.
+These are MANDATORY on iPhone 14/15/16 Pro+ devices.
 
-### 6.4 Test commands
+12. **Scroll past hero on iPhone Pro.** Collapsed header fades in. **Verify:** content row (back, logo, merchant name, branch line) sits BELOW Dynamic Island. Zero overlap. Use the iOS UI Debugger or screenshot at a known scroll position to measure.
+13. **Tap Dynamic Island while collapsed header visible.** System DI interactions (e.g. play/pause, timer expand) must still work. Collapsed header's content does not extend into the DI's tappable region.
+14. **Status bar text colour.** While expanded (banner visible), status bar text is light. While collapsed (cream header visible), status bar text is dark. Transition is at threshold cross — no flicker. Measure on light/dark wallpaper too.
+15. **Tap collapsed header's back button (if D2=A).** Returns to previous screen correctly. Hit target ≥48pt (visual 36pt + 6pt hit slop = 48pt — confirm with `react-native-touchables` overlay or measure).
+16. **Tap collapsed header's logo / text region.** Should NOT navigate (decision: collapsed header is read-only chrome, no tap-to-scroll-to-top). If owner wants tap-to-scroll-up, that's a separate small follow-up.
+17. **Visual continuity to TabBar.** Collapsed header bottom edge meets TabBar top edge with no visible seam. Cream-on-cream — confirm there's no spurious gap or shadow break.
+18. **Branch name overflow.** On a long branch name (e.g. "Bishopston, North London Borough"), branch line ellipsises tail; merchant name remains fully visible.
+19. **Multi-branch vs single-branch.** Single-branch merchants (no branch identity to surface) — collapsed header shows only merchant name (the branch line is hidden when `branchShortName(sb.name) === merchant.businessName` or some similar redundancy check). **Decide implementation rule during M2 and document.**
+
+### 6.4 Phase B — non-DI scenarios (Milestone 2)
+
+20. **Notch device (iPhone 11–13).** Same content layout, smaller `insets.top`. Verify no cropping or overlap.
+21. **SE device (no notch).** Smallest `insets.top`. Collapsed header is correspondingly shorter; nothing breaks.
+22. **Android status bar.** Translucent. Cream collapsed header behind, dark status bar text. No status bar background flash on threshold cross.
+23. **Slow scroll past threshold.** Fade-in is smooth over the 60pt window; no jank, no double-render.
+24. **Fast scroll past threshold.** Fade reaches opacity=1 within the window; no flicker; no skipped state.
+25. **Reduced motion ON.** Fade still works (gesture-driven). Confirm.
+26. **Reviews tab — long content + collapsed header.** Scroll through 50+ reviews; collapsed header stays put; tab bar pinned beneath; no perf jank.
+27. **Branch switch while collapsed.** Pulse plays; collapsed header content updates with new branch name; pulse does NOT include collapsed header (sibling of scrollWrap, see §5.8).
+28. **Back button + Android hardware back.** Both exit the screen. Behaviour identical.
+
+### 6.5 Automated test additions
+
+- ✨ `tests/features/merchant/hero-overscroll.test.tsx`: structural — `<HeroBanner>` mounts at correct DOM level, receives `scrollY`, spacer at right scroll-child index. Confirm `scaleY` clamp at 2.5.
+- ✨ `tests/features/merchant/collapsed-header.test.tsx`: structural + threshold:
+  - Renders content (logo, merchant name, branch line, back button if D2=A).
+  - Opacity is 0 at scrollY=0.
+  - Opacity is 1 at scrollY=FADE_END (mock `identityZoneEnd`).
+  - `pointerEvents` toggles at threshold.
+  - Reduced-motion test: same fade applies.
+- ✏️ `tests/features/merchant/profile-skeleton.test.tsx`: ensure no regression in render path.
+- ✏️ Existing tab-bar-pulse / sticky tests: confirm `stickyHeaderIndices` updated correctly (assert structural contract).
+
+### 6.6 Test commands
 
 ```bash
 # Customer-app unit + component tests
@@ -396,34 +451,38 @@ cd /Users/shebinchaliyath/Developer/Redeemo && npx vitest run
 
 Pass criteria:
 - All 206+ existing customer-app merchant-suite tests pass.
-- New stretchy-hero test(s) pass.
+- New stretchy-hero + collapsed-header tests pass.
 - tsc clean.
 - Backend 115/115 unchanged.
 
 ---
 
-## 7. Implementation milestones (after owner approval)
+## 7. Implementation milestones (after owner D2 approval)
 
 **Milestone 1: Phase A — Stretchy hero**
 - Refactor HeroSection into `<HeroBanner>` (layer) + `<HeroBannerSpacer>` (in-flow placeholder).
 - Switch outer ScrollView → Animated.ScrollView with useAnimatedScrollHandler.
-- Wire scrollY shared value, derive bannerAnimatedStyle.
-- Decrement stickyHeaderIndices from 3 → 2.
-- Add `<StatusBar style="light" translucent />` (if Android QA requires).
+- Wire `scrollY` shared value, derive bannerAnimatedStyle.
+- Verify `stickyHeaderIndices` value (3 stays or 3→2 — confirm during implementation).
+- Add `<StatusBar style="light" translucent />` for the merchant route (Phase A baseline).
 - Add hero-overscroll test.
 - Run jest + tsc.
 - **PAUSE for owner on-device QA review.**
 
-**Milestone 2 (only if D1 chosen as B): Phase B — Collapsed sticky header**
-- New `<CollapsedHeader>` component.
+**Milestone 2: Phase B — Collapsed sticky header**
+- New `<CollapsedHeader>` component with locked content (logo + name + branch line + optional back).
+- Layout per §2.3.2 (assumes D2=A; if D2=B, drop back button + adjust padding).
+- Capture `identityZoneEnd` via `onLayout` on the identity zone wrapper.
 - Threshold-driven fade.
-- Reduced-motion handling.
+- Status bar style swap on threshold cross.
+- Visual seam to TabBar (§2.3.5).
+- Multi-branch vs single-branch rule (decide + document during implementation; note in §6.3 #19).
 - Tests.
 - Run jest + tsc.
-- **PAUSE for owner on-device QA review.**
+- **PAUSE for owner on-device QA review.** **STOP and report if M2 grows beyond expected.**
 
 **Milestone 3: PR open**
-- After owner sign-off on milestones in scope, open PR against main.
+- After owner sign-off on M1 + M2, open PR against main from `feature/merchant-profile-header-collapse`.
 - PR description: scope, risk, test deltas, decision answers from §3.
 - **PAUSE before merge per Tier 2 rules.**
 
@@ -431,18 +490,18 @@ Pass criteria:
 
 ## 8. Files touched (cumulative summary)
 
-Phase A:
-- ✏️ `apps/customer-app/src/features/merchant/components/HeroSection.tsx` (refactor to two components)
-- ✏️ `apps/customer-app/src/features/merchant/screens/MerchantProfileScreen.tsx` (Animated.ScrollView, scrollY wiring, sticky index)
-- ✨ `apps/customer-app/tests/features/merchant/hero-overscroll.test.tsx` (new)
+**M1:**
+- ✏️ `apps/customer-app/src/features/merchant/components/HeroSection.tsx`
+- ✏️ `apps/customer-app/src/features/merchant/screens/MerchantProfileScreen.tsx`
+- ✨ `apps/customer-app/tests/features/merchant/hero-overscroll.test.tsx`
 - ✏️ `apps/customer-app/tests/features/merchant/profile-skeleton.test.tsx` (only if structural assertions break)
 
-Phase B (if approved):
-- ✨ `apps/customer-app/src/features/merchant/components/CollapsedHeader.tsx` (new)
-- ✏️ `apps/customer-app/src/features/merchant/screens/MerchantProfileScreen.tsx`
-- ✨ `apps/customer-app/tests/features/merchant/collapsed-header.test.tsx` (new)
+**M2:**
+- ✨ `apps/customer-app/src/features/merchant/components/CollapsedHeader.tsx`
+- ✏️ `apps/customer-app/src/features/merchant/screens/MerchantProfileScreen.tsx` (mount + onLayout wiring)
+- ✨ `apps/customer-app/tests/features/merchant/collapsed-header.test.tsx`
 
-No backend changes. No other surface changes.
+No backend changes. No other surface changes. No design-system extraction.
 
 ---
 
@@ -450,27 +509,29 @@ No backend changes. No other surface changes.
 
 This change does not alter the customer flow contract (login, register, verification, PC1–PC4, subscription prompt), so `docs/customer-flow-current.md` is **not** affected.
 
-It does affect the Merchant Profile *visual* contract: the locked baseline post-PR-#35 (in `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_merchant_profile_ux_refinement_complete.md`) lists header / banner / safe-area as locked. After this workstream merges, that memory entry must be updated to reflect:
+It does affect the Merchant Profile *visual* contract: the locked baseline post-PR-#35 (in `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_merchant_profile_ux_refinement_complete.md`) lists header / banner / safe-area as locked. After this workstream merges, update that memory entry to reflect:
 - Stretchy hero is the new baseline.
-- Stretch curve / scale cap.
-- (Phase B if shipped) Collapsed header content + threshold.
-- Sticky tab bar index changed from 3 → 2.
+- Stretch curve (linear) + scale cap (2.5).
+- Collapsed sticky header is the new chrome above the tab bar past the threshold.
+- Collapsed header content (logo + name + branch line + back if D2=A).
+- Sticky TabBar index documented (final value confirmed during M1).
 
-I'll handle the memory update as part of the PR's end-of-workstream tidy.
+Memory update happens as part of the PR's end-of-workstream tidy.
 
 ---
 
-## 10. Open questions for owner
+## 10. Outstanding decision
 
-Please answer before I begin implementation:
+**Just one before implementation begins:**
 
-1. **D1 — Phase scoping.** A (Phase A only this PR) / B (both phases two milestones one PR) / C (both phases one milestone)?
-2. **D2 — Collapsed header content.** Only relevant if D1 ≠ A. A (name + back only) / B (name + back + share + heart) / C (name + branch + back)?
-3. **D3 — Stretch curve.** A (linear) / B (sqrt elastic) / C (capped linear)?
-4. **D4 — Reduced motion.** A (stretch still works) / B (disable scale, keep translate — void returns) / C (disable both — no visual change at all)?
-5. **D5 — Banner sizing strategy.** A (224pt + runtime scale) / B (224 + 200 headroom + translate only)?
-6. **D6 — Gradient fallback.** A (gradient stretches identically) / B (disable stretch when no banner)?
-7. **§4 — Primitive extraction.** A (extract on PR 2 when Voucher Detail rebaseline appears) / B (extract on this PR speculatively)?
-8. **Anything I haven't asked** — corrections, additions, scope tightening?
+**D2 — Back button in the collapsed header.**
 
-Awaiting your answers. No code change until then.
+My proposal (§2.3.3, §3 D2): include back button only. Layout in §2.3.2.
+Reason: iOS swipe-back unavailable on this Tabs route; bottom tab bar hidden; without a collapsed-state back affordance, deep-scrolled iOS users are trapped (have to scroll all the way up to exit).
+
+Three options:
+- **(A) Recommended: back button + logo + name + branch line.**
+- (B) No back button. logo + name + branch line only. Accept the iOS scroll-to-exit pattern.
+- (C) No back button + custom edge-swipe gesture. More work, more risk, not recommended.
+
+Awaiting your call. No code change until D2 is locked.
