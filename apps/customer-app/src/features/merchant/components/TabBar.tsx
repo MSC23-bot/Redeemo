@@ -32,16 +32,17 @@ type Props = {
 export function TabBar({ tabs, activeTab, onTabPress }: Props) {
   return (
     <View style={styles.container}>
-      {/* Round 5 §9: subtle vertical gradient back to white tones
-          per user direction "back to white but with gradient same
-          style". Top stop pure white (#FFFFFF), bottom stop a
-          warm-tinted off-white (#F5F1E9) anchors the bar's bottom
-          edge with a hint of brand warmth. Same ~4% lightness
-          delta as the §8 cream version — just shifted into the
-          white range. No blur — flat gradient only, well clear of
-          impeccable's glassmorphism-as-default ban. */}
+      {/* Round 5 §10: gradient bottom-stop shifted from warm
+          off-white (#F5F1E9) to neutral grey (#F5F5F5) per user
+          direction "not quite white yet, it's quite warm — want
+          white that goes with the body". Same ~4% lightness delta
+          as the §8 / §9 versions, but fully neutral. Reads as
+          white-matching-the-body with a soft architectural
+          "indent" at the bar's bottom edge.
+          No blur — flat gradient only, clear of the
+          glassmorphism-as-default ban. */}
       <LinearGradient
-        colors={['#FFFFFF', '#F5F1E9']}
+        colors={['#FFFFFF', '#F5F5F5']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject}
@@ -102,13 +103,13 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 5 §9 (impeccable polish): bg back to white per user
-  // direction, same 2-stop vertical gradient style as §8. Top
-  // pure white, bottom warm-tinted off-white (rendered by the
-  // absolute-fill LinearGradient above).
+  // Round 5 §10 (impeccable polish): gradient bottom shifted to
+  // neutral grey (was warm off-white). Bar now reads as
+  // white-matching-the-body with a soft architectural indent at
+  // the bottom edge — no warmth.
   //
   //   IDENTITY  #FFF9F5
-  //   TAB BAR   #FFFFFF → #F5F1E9  (subtle vertical gradient)
+  //   TAB BAR   #FFFFFF → #F5F5F5  (subtle neutral gradient)
   //   BODY      #FFFFFF
   //   CARDS     #FFFFFF + card shadow
   //
