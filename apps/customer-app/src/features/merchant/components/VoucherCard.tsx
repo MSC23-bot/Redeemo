@@ -305,11 +305,20 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             {voucher.title}
           </Text>
 
-          {voucher.description ? (
-            <Text style={styles.description} numberOfLines={2} ellipsizeMode="tail">
-              {voucher.description}
-            </Text>
-          ) : null}
+          {/* §38: description wrapped in a fixed-height View
+              that reserves space for 2 lines regardless of
+              whether the actual text is 1 line, 2 lines, or
+              empty. Cards in the list now share a consistent
+              total height — the green voucher with a longer
+              description is no longer taller than the
+              purple/red ones. */}
+          <View style={styles.descriptionWrap}>
+            {voucher.description ? (
+              <Text style={styles.description} numberOfLines={2} ellipsizeMode="tail">
+                {voucher.description}
+              </Text>
+            ) : null}
+          </View>
 
           {/* §28 bottom row: expiry on LEFT, Redeem CTA on RIGHT.
               The R sits at right-CENTER above this row, so the
@@ -353,16 +362,17 @@ const styles = StyleSheet.create({
     // colour. iOS renders colour shadows; Android elevation
     // is monochrome by default — acceptable trade-off.
     shadowColor: BRAND_RED,
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
+    // §38 shadow strengthened — owner couldn't see it. Bumped
+    // opacity 0.28 → 0.38, radius 18 → 22, drop 8 → 12,
+    // elevation 10 → 14 so the card lifts visibly from the
+    // background. Still soft / premium / not neon — the per-
+    // type accent tint keeps it from looking like a generic
+    // black halo.
+    shadowOpacity: 0.38,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 14,
     borderRadius: 20,
-    // §37: small horizontal margin so the card sits slightly
-    // narrower in its parent than the screen-edge minus list-
-    // padding width. 8pt each side is a much smaller slim
-    // than §35's 14pt and reads as breathing room rather
-    // than a width reduction.
     marginHorizontal: 8,
   },
   card: {
@@ -522,21 +532,30 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
 
+  // §38 title — bumped 14pt 700 → 15pt 800 for stronger
+  // hierarchy. The on-device QA flagged that the £hero amount
+  // dominated and the title didn't feel important enough.
+  // Title now has clearer presence as the second-tier element
+  // (after the £hero) and stays distinct from the description.
   title: {
     color: '#FFF',
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: -0.15,
-    lineHeight: 18,
-    // §36: title marginBottom 4 → 2. 2pt saved.
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    lineHeight: 19,
     marginBottom: 2,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
-  // §28 description bumped 11 → 12pt with lineHeight 15 → 16.
-  // Body text on mobile should be ≥12pt; the QA flagged the
-  // §27 description as too small for normal users.
+  // §38 description WRAPPER — minHeight reserves space for
+  // 2 lines regardless of whether the actual text is 1 line,
+  // 2 lines, or empty. This is what keeps card heights
+  // consistent across the voucher list. lineHeight 16 × 2 =
+  // 32pt reserved.
+  descriptionWrap: {
+    minHeight: 32,
+  },
   description: {
     color: 'rgba(255,255,255,0.90)',
     fontSize: 12,
