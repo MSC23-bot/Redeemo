@@ -1,6 +1,6 @@
 # Merchant Profile — Header collapse, stretchy hero, safe-area discipline
 
-> **Status: AWAITING OWNER APPROVAL ON ONE REMAINING DECISION (§3 D2 — back button in collapsed header).** All other decisions locked by owner 2026-05-06. Implementation does not begin until D2 is confirmed.
+> **Status: APPROVED — implementation begins on Milestone 1.** All decisions locked by owner 2026-05-06. Final lock: D2=A (back button included in collapsed header). Implementation pauses at the end of each milestone for owner on-device QA review.
 
 **Tier:** 2 (multi-file UI work in one surface; needs a written plan first per CLAUDE.md standing rule).
 **Tracks:** §N3 (Dynamic Island / safe-area / collapsed sticky header) + §N7 (header / top-section polish where it directly relates to the collapsed/sticky header system) — bundled per owner direction 2026-05-06.
@@ -293,23 +293,16 @@ Tab content (Vouchers, About, Branches, Reviews) lives inside the same outer Scr
 - **§4 Primitive extraction.** No `<StretchyHeader>` or `<CollapsedHeader>` extracted to design-system on this PR. Keep merchant-feature-local. Extract later when a second consumer (Voucher Detail rebaseline) appears.
 - **Collapsed header content.** Merchant logo + merchant name + branch/location name. No website / contact / directions / rating / full status / full metadata.
 
-### Outstanding — please confirm before I begin Milestone 2
+### Locked 2026-05-06
 
-**D2 — Back button in collapsed header.**
+- **D2 Back button.** Option A — include back button only in the collapsed header. Layout in §2.3.2. 36pt frosted circle, hit slop sized so effective target ≥ 44pt. No share, no heart, no rating, no metadata. Reason: iOS swipe-back unavailable on this Tabs route; bottom tab bar hidden; without a collapsed-state back affordance, deep-scrolled users are trapped.
 
-Owner direction said: "Back/share/heart can stay in the hero/expanded state unless there is already a safe compact pattern. If you believe back must remain visible in collapsed state for navigation, propose the exact layout before implementing."
+### Locked gesture restraint (owner direction 2026-05-06)
 
-**My proposal:** include back button only — no share, no heart. Layout in §2.3.2 above.
-
-**Reason:** see §1.4 — this is a Tabs route (not a stack push), iOS has no swipe-back available, and the bottom tab bar is hidden for the merchant route. Without a back affordance in the collapsed state, an iOS user is trapped: scroll all the way up to exit. Including just the back button (not share/heart) keeps the collapsed header minimal as you instructed (logo + name + branch) while solving the navigation dead-end.
-
-**Three options for D2:**
-
-- **(A) Recommended: include back button only** — layout in §2.3.2. Adds the back chevron at left, 36pt frosted circle, hit slop 6pt → 48pt effective tap target. Logo + name + branch occupy the rest of the row.
-- (B) No back button. Rely on hero back button only — user must scroll up to exit. iOS-trap concern stands.
-- (C) No back button + replace iOS swipe-back via a custom edge-swipe gesture in the collapsed state. More implementation work, gesture-conflict surface area, not recommended.
-
-**Awaiting your call on D2.**
+- **No custom edge-swipe gesture in this PR.** Owner concern: a custom back-edge-swipe could conflict with future horizontal tab swiping (Vouchers ↔ About ↔ Branches ↔ Reviews) and with nested scroll / review-toggle gestures.
+- **No tab-swipe navigation in this PR.** Stays out of scope.
+- **No native-stack-presentation refactor in this PR.** Stays out of scope.
+- All gesture arbitration concerns recorded as a separate follow-up workstream — see §11 below.
 
 ---
 
@@ -520,18 +513,21 @@ Memory update happens as part of the PR's end-of-workstream tidy.
 
 ---
 
-## 10. Outstanding decision
+## 10. Outstanding decisions
 
-**Just one before implementation begins:**
+None. All decisions locked. Implementation begins on Milestone 1.
 
-**D2 — Back button in the collapsed header.**
+---
 
-My proposal (§2.3.3, §3 D2): include back button only. Layout in §2.3.2.
-Reason: iOS swipe-back unavailable on this Tabs route; bottom tab bar hidden; without a collapsed-state back affordance, deep-scrolled iOS users are trapped (have to scroll all the way up to exit).
+## 11. Future navigation/gesture follow-up (out of scope for this PR)
 
-Three options:
-- **(A) Recommended: back button + logo + name + branch line.**
-- (B) No back button. logo + name + branch line only. Accept the iOS scroll-to-exit pattern.
-- (C) No back button + custom edge-swipe gesture. More work, more risk, not recommended.
+Recorded for the next navigation/gesture workstream. Not solved here.
 
-Awaiting your call. No code change until D2 is locked.
+- **Native stack presentation for `merchant/[id]`.** Investigate whether the Merchant Profile should be presented in a native stack (instead of a Tabs route) so iOS swipe-back works naturally. Today the route is `<Tabs.Screen name="merchant/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />` (see [`app/(app)/_layout.tsx:120`](apps/customer-app/app/(app)/_layout.tsx#L120)). A native-stack presentation would unlock iOS swipe-back without custom gesture work, and would be a better long-term fit. Refactor scope: small change to the router config + verifying back-stack semantics across cold-open from notification / deep-link / share-link entries.
+- **Tab-swipe navigation across merchant-profile sections.** Owner-desired: swipe left/right on the body to switch Vouchers ↔ About ↔ Branches ↔ Reviews. Plus future review-toggle gestures may need their own pan handling.
+- **Gesture priority arbitration.** When tab-swipe + native-stack-swipe-back + nested-scroll + review-toggle gestures all live on the same surface, define priorities:
+  - Edge swipe should navigate back ONLY from the screen edge AND only if native stack supports it.
+  - Horizontal swipes inside tab content should switch tabs.
+  - Vertical scroll must remain stable.
+  - Review-toggle gestures must not conflict with tab swipes.
+- All four bullets above belong to a single navigation/gesture brainstorm workstream (likely Tier 2, possibly Tier 3 if the native-stack refactor turns out to need more careful handling). Pick up after the customer-app rebaseline track is closer to done — gesture arbitration is easier to design when the destination shape is known across all surfaces.
