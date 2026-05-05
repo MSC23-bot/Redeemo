@@ -26,7 +26,7 @@ jest.mock('@/features/merchant/components/HeroSection', () => ({
     const { View } = require('react-native')
     return <View testID="hero-banner-spacer" />
   },
-  HERO_HEIGHT: 224,
+  HERO_HEIGHT: 256,
 }))
 jest.mock('@/features/merchant/components/MerchantDescriptor', () => ({
   MerchantDescriptor: ({ descriptor }: { descriptor: string | null }) => {

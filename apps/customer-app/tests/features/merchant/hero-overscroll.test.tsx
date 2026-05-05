@@ -55,8 +55,8 @@ function flatten(s: unknown): Record<string, unknown> {
 // contracts that the screen-scrolling integration depends on.
 describe('Hero header components (M1.1 — split + parallax zoom)', () => {
   describe('HERO_HEIGHT', () => {
-    it('exports the locked design value (224pt)', () => {
-      expect(HERO_HEIGHT).toBe(224)
+    it('exports the locked design value (256pt — M1.2 +15% bump)', () => {
+      expect(HERO_HEIGHT).toBe(256)
     })
   })
 

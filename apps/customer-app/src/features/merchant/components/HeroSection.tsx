@@ -12,14 +12,19 @@ import { lightHaptic } from '@/design-system/haptics'
 
 /**
  * Banner height in points — the in-flow `<HeroBannerSpacer>` reserves
- * exactly this much space so the identity zone starts at the same Y
- * coordinate as before the M1 refactor.
+ * exactly this much space so the identity zone starts at this Y
+ * coordinate from the top of the scroll container. Bumped from 224
+ * to 256 (M1.2 owner direction 2026-05-06 — ~15% taller resting hero
+ * for more visual presence) on a clean 8-multiple. Logo's `top: -36`
+ * overlap in MerchantHeadline still produces the half-on-banner /
+ * half-on-cream rule because the overlap is anchored to the boundary,
+ * not the banner's height.
  */
-export const HERO_HEIGHT = 224
+export const HERO_HEIGHT = 256
 
 /**
  * Stretch cap for pull-down overscroll. The backdrop's height grows
- * from HERO_HEIGHT toward `HERO_HEIGHT * STRETCH_MAX_SCALE` (=560pt
+ * from HERO_HEIGHT toward `HERO_HEIGHT * STRETCH_MAX_SCALE` (=640pt
  * at 2.5×) — comfortably more than any reasonable pull distance, but
  * bounded so extreme flicks don't produce absurd geometry.
  */
