@@ -65,7 +65,16 @@ export function MerchantRow({
               {isMultiBranch ? <Text style={styles.changeAffordance}>  Change ▾</Text> : null}
             </Text>
           </Pressable>
-        ) : null}
+        ) : (
+          // Branch context still resolving — surface the placeholder
+          // so the user understands why the CTA is disabled rather
+          // than seeing the merchant row look incomplete. The screen
+          // also disables the active CTA via `branchReady` (plan §11
+          // / PR #40 review blocker).
+          <Text variant="label.md" style={styles.branchPlaceholder} testID="redeem-at-placeholder">
+            Resolving branch…
+          </Text>
+        )}
       </View>
     </View>
   )
@@ -110,5 +119,11 @@ const styles = StyleSheet.create({
     color: color.brandRose,
     fontWeight: '600',
     fontSize: 12,
+  },
+  branchPlaceholder: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+    fontWeight: '500',
   },
 })

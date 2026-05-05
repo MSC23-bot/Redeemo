@@ -7,6 +7,7 @@ import { AppError } from '../../shared/errors'
 import { haversineMetres } from '../../shared/haversine'
 import { isOpenNow } from '../../shared/isOpenNow'
 import { resolveProfileCity } from '../../lib/userCity'
+import { getCurrentCycleWindow } from '../../subscription/cycle'
 import {
   rankMerchants,
   resolveCategoryIntent,
@@ -872,18 +873,41 @@ export async function getCustomerVoucher(
   let isRedeemedThisCycle = false
   let isFavourited = false
   if (userId) {
-    const [cycleState, fav] = await Promise.all([
+    // Mirror the redemption guard's eligibility check exactly
+    // (src/api/redemption/service.ts:108-124). The previous version
+    // here returned the raw `isRedeemedInCurrentCycle` flag without
+    // checking which cycle the row was last updated in — so after
+    // a cycle rollover OR a `cycleAnchorDate` reset (e.g. dev
+    // grant-script run, resubscribe scenario), the screen could
+    // show "Already redeemed" even though the redemption mutation
+    // would happily allow a fresh redeem. The flag becomes "true
+    // ONLY when the stored cycle row belongs to the current cycle
+    // window and the user has an ACTIVE/TRIALLING subscription."
+    const [subscription, cycleState, fav] = await Promise.all([
+      prisma.subscription.findUnique({
+        where: { userId },
+        select: { status: true, cycleAnchorDate: true },
+      }),
       prisma.userVoucherCycleState.findUnique({
         where: { userId_voucherId: { userId, voucherId } },
-        select: { isRedeemedInCurrentCycle: true },
+        select: { isRedeemedInCurrentCycle: true, cycleStartDate: true },
       }),
       prisma.favouriteVoucher.findUnique({
         where: { userId_voucherId: { userId, voucherId } },
         select: { id: true },
       }),
     ])
-    isRedeemedThisCycle = cycleState?.isRedeemedInCurrentCycle ?? false
     isFavourited = fav !== null
+
+    if (
+      subscription
+      && (subscription.status === 'ACTIVE' || subscription.status === 'TRIALLING')
+      && cycleState
+      && cycleState.isRedeemedInCurrentCycle
+    ) {
+      const { cycleStart } = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
+      isRedeemedThisCycle = cycleState.cycleStartDate >= cycleStart
+    }
   }
 
   return {

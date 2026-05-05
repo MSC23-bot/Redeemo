@@ -258,9 +258,14 @@ export function MerchantProfileScreen({ id }: Props) {
     if (isSubLoading) return
     if (!isSubscribed) { setShowGate(true); return }
     const sbId = merchant?.selectedBranch?.id
+    // encodeURIComponent both the voucherId and the branchId
+    // defensively. Both are Prisma-generated UUIDs today (no special
+    // chars) but encoding is cheap insurance against future ID
+    // format changes that could otherwise produce malformed URLs.
+    const enc = encodeURIComponent
     const url = sbId
-      ? `/voucher/${voucherId}?branch=${sbId}`
-      : `/voucher/${voucherId}`
+      ? `/voucher/${enc(voucherId)}?branch=${enc(sbId)}`
+      : `/voucher/${enc(voucherId)}`
     router.push(url as never)
   }, [isSubscribed, isSubLoading, merchant])
 

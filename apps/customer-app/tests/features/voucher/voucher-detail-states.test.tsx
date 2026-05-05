@@ -30,11 +30,37 @@ jest.mock('@/features/voucher/hooks/useCustomerVoucher', () => ({
   }),
 }))
 
-// Merchant profile — drives selectedBranch / branches list.
-let mockMerchantData: any = null
+// Merchant profile — drives selectedBranch / branches list. The mock
+// captures the (id, opts) args every call so tests can assert the
+// branch URL param is threaded through correctly (closes the test
+// gap raised in PR #40 review — the previous "renders without
+// crashing" check would have passed even if branchIdParam was
+// dropped from useMerchantProfile's options).
+//
+// jest.mock factories are hoisted above module code, so captured
+// top-level identifiers aren't available inside the factory at the
+// time the factory's CLOSURE runs. We park mutable state on a single
+// globalThis-attached object that the factory dereferences fresh on
+// every call.
+;(globalThis as any).__voucherProfileMock__ = {
+  data: null as any,
+  isLoading: false,
+  isError: false,
+  spy: jest.fn(),
+}
+const useMerchantProfileSpy = (globalThis as any).__voucherProfileMock__.spy as jest.Mock
 jest.mock('@/features/merchant/hooks/useMerchantProfile', () => ({
-  useMerchantProfile: () => ({ data: mockMerchantData, isLoading: false, isError: false }),
+  useMerchantProfile: (id: string | undefined, opts: any) => {
+    const m = (globalThis as any).__voucherProfileMock__
+    m.spy(id, opts)
+    return { data: m.data, isLoading: m.isLoading, isError: m.isError }
+  },
 }))
+
+// Helpers so test-side mutations don't have to know about the global.
+function setMerchantData(data: any) { (globalThis as any).__voucherProfileMock__.data = data }
+function setMerchantLoading(v: boolean) { (globalThis as any).__voucherProfileMock__.isLoading = v }
+function setMerchantError(v: boolean) { (globalThis as any).__voucherProfileMock__.isError = v }
 
 // Subscription state — drives state 1 (free user).
 let mockSubscribed = true
@@ -124,9 +150,16 @@ beforeEach(() => {
   mockVoucherData = baseVoucher()
   mockVoucherLoading = false
   mockVoucherError = false
-  mockMerchantData = baseMerchant()
   mockSubscribed = true
   mockSubLoading = false
+
+  // Push merchant defaults into the globalThis-attached mock state
+  // each test sees a fresh starting point (helpers below also write
+  // into this object, so mid-test mutations work too).
+  setMerchantData(baseMerchant())
+  setMerchantLoading(false)
+  setMerchantError(false)
+  useMerchantProfileSpy.mockClear()
 })
 
 // ── 12-state derivation tests ─────────────────────────────────────────
@@ -228,23 +261,23 @@ describe('VoucherDetailScreen — branch attribution (plan §11)', () => {
   })
 
   it('shows "Redeem at <branch>" with the selected branch name verbatim', () => {
-    mockMerchantData = {
+    setMerchantData({
       ...baseMerchant(),
       selectedBranch: {
         ...baseMerchant().selectedBranch,
         id: 'B-XYZ',
         name: 'Brightlingsea',
       },
-    }
+    })
     const { queryByText } = wrap(<VoucherDetailScreen />)
     expect(queryByText(/Brightlingsea/)).toBeTruthy()
   })
 
   it('hides the "Change ▾" affordance for single-branch merchants', () => {
-    mockMerchantData = {
+    setMerchantData({
       ...baseMerchant(),
       branches: [baseMerchant().branches[1]],     // single branch
-    }
+    })
     const { queryByText } = wrap(<VoucherDetailScreen />)
     expect(queryByText(/Change ▾/)).toBeNull()
   })
@@ -267,25 +300,117 @@ describe('VoucherDetailScreen — branch attribution (plan §11)', () => {
     // marked redeemed in this cycle, eligibility is per (userId,
     // voucherId) NOT per (userId, voucherId, branchId), so the state
     // and the badge MUST stay.
-    mockMerchantData = {
+    setMerchantData({
       ...baseMerchant(),
       selectedBranch: { ...baseMerchant().selectedBranch, id: 'DIFFERENT-BRANCH', name: 'OtherBranch' },
-    }
+    })
     result = wrap(<VoucherDetailScreen />)
     expect(result.getByTestId('voucher-detail-state-redeemed-this-cycle')).toBeTruthy()
     expect(result.getByTestId('redeemed-badge')).toBeTruthy()
   })
 
-  it('reads the ?branch=<id> URL param into the screen', () => {
-    // Spy on the merchant-profile hook to confirm branch arrives with
-    // the URL param. We mocked it to return baseMerchant() always; here
-    // we just verify the screen reads useLocalSearchParams correctly
-    // by setting params and checking the screen still renders without
-    // crashing — the contract that the URL param threads through to
-    // useMerchantProfile is exercised by the existing
-    // useMerchantProfile tests (queryKey includes branchId).
-    mockParams = { id: 'v1', branch: 'CORRECT-SB' }
+  it('threads the ?branch=<id> URL param into useMerchantProfile.opts.branchId', () => {
+    // PR #40 review fix: the previous version of this test only
+    // checked the screen rendered without crashing — a regression
+    // dropping branchIdParam from useMerchantProfile's options would
+    // have passed silently. Now we capture the hook's args and
+    // assert the URL branch flows through to the data fetch.
+    mockParams = { id: 'v1', branch: 'BRANCH-FROM-URL' }
+    wrap(<VoucherDetailScreen />)
+    expect(useMerchantProfileSpy).toHaveBeenCalled()
+    // The hook is called with (merchantId, opts). Find the call where
+    // merchantId is set (skipping the initial call before voucher
+    // resolves, where merchantId is undefined).
+    const call = useMerchantProfileSpy.mock.calls.find(c => c[0] === 'm1')
+    expect(call).toBeTruthy()
+    expect(call?.[1]).toMatchObject({ branchId: 'BRANCH-FROM-URL' })
+  })
+
+  it('passes voucher.merchant.id (not branches[0].id or any other source) as the merchant id to useMerchantProfile', () => {
+    mockParams = { id: 'v1', branch: 'BRANCH-FROM-URL' }
+    wrap(<VoucherDetailScreen />)
+    // baseVoucher's merchant.id is 'm1'. Even though baseMerchant()
+    // returns branches[0] = WRONG-FIRST, the screen MUST use the
+    // voucher's own merchant.id and the URL's branchId — NOT pluck
+    // an id from the merchant.branches array.
+    const merchantIds = useMerchantProfileSpy.mock.calls.map(c => c[0])
+    expect(merchantIds).toContain('m1')
+    expect(merchantIds).not.toContain('WRONG-FIRST')
+  })
+
+  it('does NOT replace branchIdParam with branches[0].id or any other fallback in the client', () => {
+    mockParams = { id: 'v1', branch: 'BRANCH-FROM-URL' }
+    wrap(<VoucherDetailScreen />)
+    // For every call to useMerchantProfile after voucher loaded, the
+    // branchId option is either the URL param OR undefined (cold-open
+    // resolution case). It is NEVER 'WRONG-FIRST' or any other value.
+    const branchIds = useMerchantProfileSpy.mock.calls.map(c => c[1]?.branchId)
+    expect(branchIds.every(b => b === undefined || b === 'BRANCH-FROM-URL')).toBe(true)
+    expect(branchIds).not.toContain('WRONG-FIRST')
+    expect(branchIds).not.toContain('CORRECT-SB')
+  })
+
+  it('cold-open (no ?branch param): passes branchId=undefined and lets the server resolve nearest', () => {
+    mockParams = { id: 'v1' }
+    wrap(<VoucherDetailScreen />)
+    const call = useMerchantProfileSpy.mock.calls.find(c => c[0] === 'm1')
+    expect(call).toBeTruthy()
+    // No branchId in opts when URL param absent — server-side resolver
+    // (nearest by GPS / isMainBranch) takes over.
+    expect(call?.[1]?.branchId).toBeUndefined()
+  })
+})
+
+// ── Active-CTA gating (PR #40 review blocker — plan §11) ──────────────────────
+
+describe('VoucherDetailScreen — active CTA gated on branch readiness', () => {
+  it('renders disabled "Resolving branch…" CTA when merchant query is still loading', () => {
+    setMerchantLoading(true)
+    setMerchantData(null)
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redeem-cta-branch-loading')).toBeTruthy()
+    expect(queryByTestId('redeem-cta-active')).toBeNull()
+    // The "Resolving branch…" placeholder also surfaces in MerchantRow.
+    expect(getByTestId('redeem-at-placeholder')).toBeTruthy()
+  })
+
+  it('renders error state when merchant query errors out', () => {
+    setMerchantError(true)
+    setMerchantData(null)
     const { getByTestId } = wrap(<VoucherDetailScreen />)
-    expect(getByTestId('voucher-detail-state-can-redeem')).toBeTruthy()
+    expect(getByTestId('voucher-detail-error')).toBeTruthy()
+  })
+
+  it('renders error state when merchant data has no selectedBranch (e.g. all-suspended fallback)', () => {
+    setMerchantData({ ...baseMerchant(), selectedBranch: null })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-error')).toBeTruthy()
+  })
+
+  it('free-user CTA still renders even when merchant is loading (does not need branch context)', () => {
+    mockSubscribed = false
+    setMerchantLoading(true)
+    setMerchantData(null)
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redeem-cta-subscribe')).toBeTruthy()
+    expect(queryByTestId('redeem-cta-branch-loading')).toBeNull()
+  })
+
+  it('already-redeemed CTA still renders disabled even when merchant is loading (no branch context needed)', () => {
+    mockVoucherData = { ...baseVoucher(), isRedeemedThisCycle: true }
+    setMerchantLoading(true)
+    setMerchantData(null)
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redeem-cta-redeemed')).toBeTruthy()
+    expect(queryByTestId('redeem-cta-branch-loading')).toBeNull()
+  })
+
+  it('expired CTA still renders disabled even when merchant is loading', () => {
+    mockVoucherData = { ...baseVoucher(), expiryDate: '2020-01-01T00:00:00.000Z' }
+    setMerchantLoading(true)
+    setMerchantData(null)
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redeem-cta-expired')).toBeTruthy()
+    expect(queryByTestId('redeem-cta-branch-loading')).toBeNull()
   })
 })

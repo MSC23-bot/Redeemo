@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import type { VoucherDetail } from '@/lib/api/voucher'
 
 /**
@@ -15,10 +14,14 @@ import type { VoucherDetail } from '@/lib/api/voucher'
  *
  * **Backend dependency to surface `availableFrom` / `availableUntil`
  * (or an equivalent recurring-window structure) is required before
- * states 5/6/7 can ship.** Tracked as a follow-up; M2 should NOT block
- * on this. Adding the fields later is a small additive backend change
- * that'll let this hook compute proper countdowns without touching
- * any consumer. See plan §6 risks for context.
+ * states 5/6/7 can ship.** When that lands, this hook will need:
+ *   • a `now: Date` parameter for test-time injection,
+ *   • a 60s `setInterval` to roll the countdown forward,
+ *   • the actual time-window math.
+ *
+ * For M1 we keep the surface minimal and pure — no clock dependency,
+ * no interval, no re-renders. Adding those back is a small change
+ * scoped to this file when the backend ships its side.
  */
 
 export type TimeLimitedState = {
@@ -43,28 +46,7 @@ export type TimeLimitedState = {
   minutesRemaining: number | null
 }
 
-/**
- * @param voucher  The voucher detail row.
- * @param now      Test injection — defaults to `new Date()`. Production
- *                 paths use the default; tests pass an explicit Date to
- *                 pin the clock.
- */
-export function useTimeLimited(
-  voucher: VoucherDetail | null | undefined,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  now: Date = new Date(),
-): TimeLimitedState {
-  // Mounting a 60s tick keeps the hook ready to roll over countdown
-  // state when the real window data lands. Today the tick does nothing
-  // visible — it's harmless and pays for itself when the backend
-  // additive field is added. Non-TIME_LIMITED vouchers don't need it.
-  const [, force] = useState(0)
-  useEffect(() => {
-    if (voucher?.type !== 'TIME_LIMITED') return
-    const id = setInterval(() => force(x => x + 1), 60_000)
-    return () => clearInterval(id)
-  }, [voucher?.type])
-
+export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeLimitedState {
   if (!voucher || voucher.type !== 'TIME_LIMITED') {
     return {
       isTimeLimited: false,
@@ -78,7 +60,7 @@ export function useTimeLimited(
   // always-available so the user can still redeem. The "Time limited"
   // badge surfaces the type without misleading the user about
   // availability. When backend adds availableFrom/until, replace this
-  // block with the real window check.
+  // block with the real window check (and add the `now` param + tick).
   return {
     isTimeLimited: true,
     isCurrentlyAvailable: true,

@@ -57,15 +57,15 @@ import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
  */
 
 type VoucherStateKey =
-  | 'loading'
-  | 'error'
-  | 'free-user'
-  | 'expired'
-  | 'redeemed-this-cycle'
-  | 'time-limited-unavailable'
-  | 'time-limited-urgent'
-  | 'time-limited-available'
-  | 'can-redeem'
+  | 'loading'                  // voucher fetch / sub-status fetch in flight
+  | 'error'                    // voucher fetch failed / voucher null / merchant fetch failed / selectedBranch null
+  | 'free-user'                // not subscribed → subscribe CTA (does not need branch context)
+  | 'expired'                  // voucher.expiryDate < now (disabled CTA, no branch needed)
+  | 'redeemed-this-cycle'      // server-side cycle-window check returned true (disabled CTA, no branch needed)
+  | 'time-limited-unavailable' // outside window
+  | 'time-limited-urgent'      // <30min remaining
+  | 'time-limited-available'   // within window — REQUIRES branch context
+  | 'can-redeem'               // default redeemable state — REQUIRES branch context
 
 export function VoucherDetailScreen() {
   const params = useLocalSearchParams<{ id?: string; branch?: string }>()
@@ -95,26 +95,60 @@ export function VoucherDetailScreen() {
 
   const timeLimited = useTimeLimited(voucher)
 
+  // Branch context for the redemption attribution UX. Pulled from
+  // merchant.selectedBranch — NEVER from merchant.branches[0] or any
+  // other source per plan §11 C1. `branchReady` gates the active
+  // RedeemCTA: states that require branch attribution (can-redeem,
+  // time-limited-available, time-limited-urgent) MUST NOT surface
+  // an active CTA before this is true. Without this gate, M2's PIN
+  // entry could open with an unresolved or wrong selectedBranch
+  // (PR #40 review blocker — corrupts VoucherRedemption.branchId).
+  // Declared BEFORE the useMemo below so the closure can read them.
+  const selectedBranch = merchant?.selectedBranch ?? null
+  const isMultiBranch  = (merchant?.branches.length ?? 0) > 1
+  const branchName     = selectedBranch?.name ?? null
+  const branchReady    = !!selectedBranch
+  const branchErrored  = merchantQuery.isError || (
+    !!merchant && !merchant.selectedBranch                 // server returned merchant with no selectedBranch
+  )
+
   // ── 12-state derivation ────────────────────────────────────────────
   const stateKey: VoucherStateKey = useMemo(() => {
-    // Loading (state 9): initial fetch in flight, OR subscription state
-    // hasn't resolved yet (avoids flashing "Subscribe to redeem" before
-    // useSubscription returns).
+    // Loading (state 9): voucher fetch in flight, OR subscription
+    // state hasn't resolved yet (avoids flashing "Subscribe to redeem"
+    // before useSubscription returns).
     if (voucherQuery.isLoading || isSubLoading) return 'loading'
     if (voucherQuery.isError || !voucher) return 'error'
 
-    // Voucher EXPIRED (state 4) — wins over everything else.
+    // Branch context error wins over data states. Triggers when
+    // merchantQuery errors or the server returned a merchant with
+    // no selectedBranch (e.g. all-suspended fallback). The screen
+    // can't safely display a redeem CTA without branch attribution.
+    if (branchErrored) return 'error'
+
+    // Voucher EXPIRED (state 4) — wins over everything else once
+    // voucher data is in. Disabled CTA, no branch context needed.
     if (voucher.expiryDate) {
       const exp = new Date(voucher.expiryDate)
       if (exp.getTime() <= Date.now()) return 'expired'
     }
 
-    // Already redeemed this cycle (state 3) — branch-independent per §11 C4.
+    // Already redeemed this cycle (state 3) — backend now applies the
+    // cycle-window check (mirrors redemption guard) so this flag is
+    // trustworthy across cycle rollovers + cycleAnchorDate resets.
+    // Branch-independent per §11 C4. Disabled CTA, no branch context
+    // needed.
     if (voucher.isRedeemedThisCycle) return 'redeemed-this-cycle'
 
     // Free user (state 1) — wins over time-limited / can-redeem so the
     // user always lands on the subscribe path before any other gate.
+    // Subscribe CTA does not need branch context.
     if (!isSubscribed) return 'free-user'
+
+    // From here down, states REQUIRE branch context to show an active
+    // CTA (per plan §11 / PR #40 review blocker). The state-machine
+    // still classifies the voucher correctly; the CTA derivation
+    // (below) consumes `branchReady` to gate the active label.
 
     // TIME_LIMITED variants (states 5/6/7) — M1 stub collapses to
     // available; states 6 + 7 will branch in via useTimeLimited once
@@ -127,14 +161,10 @@ export function VoucherDetailScreen() {
 
     // Default: can redeem (state 2).
     return 'can-redeem'
-  }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited])
+  }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited, branchErrored])
 
-  // Branch context for the redemption attribution UX. Pulled from
-  // merchant.selectedBranch — NEVER from merchant.branches[0] or any
-  // other source per plan §11 C1.
-  const selectedBranch = merchant?.selectedBranch ?? null
-  const isMultiBranch  = (merchant?.branches.length ?? 0) > 1
-  const branchName     = selectedBranch?.name ?? null
+  // (Branch-context derivations moved above the state-machine useMemo
+  // so they're declared before the closure reads them — TDZ avoidance.)
 
   const handleBack = useCallback(() => {
     lightHaptic()
@@ -160,7 +190,12 @@ export function VoucherDetailScreen() {
     )
   }, [])
 
-  // RedeemCTA derivation per state.
+  // RedeemCTA derivation per state. Active states (can-redeem,
+  // time-limited-available, time-limited-urgent) gate on `branchReady`
+  // — without resolved branch context the CTA is disabled with a
+  // "Resolving branch…" label rather than offering an actionable
+  // redeem path. PR #40 review blocker: M2's PIN entry must NEVER
+  // open without a confirmed selectedBranch.id.
   const cta = useMemo(() => {
     switch (stateKey) {
       case 'free-user':
@@ -168,6 +203,9 @@ export function VoucherDetailScreen() {
       case 'can-redeem':
       case 'time-limited-available':
       case 'time-limited-urgent':
+        if (!branchReady) {
+          return { label: 'Resolving branch…', disabled: true, testID: 'redeem-cta-branch-loading' }
+        }
         return { label: 'Redeem voucher', disabled: false, testID: 'redeem-cta-active' }
       case 'redeemed-this-cycle':
         return { label: 'Already redeemed', disabled: true, testID: 'redeem-cta-redeemed' }
@@ -178,7 +216,7 @@ export function VoucherDetailScreen() {
       default:
         return null
     }
-  }, [stateKey])
+  }, [stateKey, branchReady])
 
   const handleCTA = useCallback(() => {
     if (stateKey === 'free-user') {
@@ -206,14 +244,21 @@ export function VoucherDetailScreen() {
   }
 
   if (stateKey === 'error' || !voucher) {
+    // Distinguish voucher-fetch failure from branch-context failure
+    // so the message helps the user. Same testID either way; M2/M3
+    // QA can introspect via `data-error-reason` if needed.
+    const errorReason: 'voucher' | 'branch' =
+      (!voucher || voucherQuery.isError) ? 'voucher' : 'branch'
+    const errorTitle = errorReason === 'voucher' ? 'Voucher unavailable' : 'Couldn’t load branch'
+    const errorBody  = errorReason === 'voucher'
+      ? 'This voucher is no longer available. The merchant may have removed it or it expired.'
+      : 'We couldn’t resolve the branch you’re redeeming at. Check your connection and try again.'
     return (
-      <View style={[styles.fullscreen, { paddingTop: insets.top }]} testID="voucher-detail-error">
+      <View style={[styles.fullscreen, { paddingTop: insets.top }]} testID="voucher-detail-error" data-error-reason={errorReason}>
         <NavRow onBack={handleBack} insetTop={insets.top} fav={null} onFav={undefined} />
         <View style={styles.errorCenter}>
-          <Text variant="heading.sm" style={styles.errorTitle}>Voucher unavailable</Text>
-          <Text variant="body.sm" color="secondary" style={styles.errorBody}>
-            This voucher is no longer available. The merchant may have removed it or it expired.
-          </Text>
+          <Text variant="heading.sm" style={styles.errorTitle}>{errorTitle}</Text>
+          <Text variant="body.sm" color="secondary" style={styles.errorBody}>{errorBody}</Text>
           <Pressable onPress={handleBack} style={styles.errorBack} accessibilityRole="button" accessibilityLabel="Go back">
             <Text variant="label.md" style={styles.errorBackText}>Go back</Text>
           </Pressable>
