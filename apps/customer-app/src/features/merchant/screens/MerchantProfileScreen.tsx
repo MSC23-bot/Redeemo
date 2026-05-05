@@ -15,8 +15,9 @@ import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
 import { useBranchSelection } from '../hooks/useBranchSelection'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HeroBackdrop, HeroNav, HeroBannerSpacer } from '../components/HeroSection'
-import { CollapsedHeader } from '../components/CollapsedHeader'
+import { CollapsedHeader, COMPACT_BAR_HEIGHT } from '../components/CollapsedHeader'
 import { MerchantDescriptor } from '../components/MerchantDescriptor'
 import { MetaRow } from '../components/MetaRow'
 import { ActionRow } from '../components/ActionRow'
@@ -306,19 +307,55 @@ export function MerchantProfileScreen({ id }: Props) {
   }, [])
 
   // M2 (collapsed sticky header) — capture the identity zone's end-Y
-  // in scroll coordinates. The collapsed header reaches full opacity
-  // exactly when the TabBar pins, which happens at scrollY equal to
-  // the natural Y of the TabBar. The TabBar is the next scroll child
-  // after the identity zone, so identityZoneEnd = identity.y +
-  // identity.height = TabBar's natural Y. This value depends on the
-  // identity zone's measured height (descriptor present, single vs
-  // multi-branch, rating block, etc.), so we measure it at runtime
-  // rather than hardcoding.
+  // in scroll coordinates. The TabBar's natural in-flow Y position
+  // equals identityZoneEnd (TabBar is the next scroll child after the
+  // identity zone). This value depends on the identity zone's measured
+  // height (descriptor present, single vs multi-branch, rating block,
+  // etc.), so we measure it at runtime rather than hardcoding.
   const [identityZoneEnd, setIdentityZoneEnd] = useState(0)
   const handleIdentityZoneLayout = useCallback((event: LayoutChangeEvent) => {
     const { y, height } = event.nativeEvent.layout
     setIdentityZoneEnd(y + height)
   }, [])
+
+  // M2.1 (sticky-chrome fix) — TabBar is now mounted as an absolute
+  // sibling of the scrollWrap, NOT as a sticky scroll child. The
+  // previous M2 implementation kept TabBar as `stickyHeaderIndices=
+  // [3]`, which pinned it at scrollView-top = screen-y=0 — exactly
+  // where the absolutely-positioned CollapsedHeader sits. The
+  // CollapsedHeader covered the sticky TabBar, leaving deep-scrolled
+  // users with no tab navigation.
+  //
+  // New approach: TabBar's screen-Y is driven by an animated style:
+  //   tabBarY = max(tabPinPoint, identityZoneEnd - scrollY)
+  // where tabPinPoint = insets.top + COMPACT_BAR_HEIGHT. So:
+  //   • scrollY = 0:                tabBarY = identityZoneEnd
+  //                                 (TabBar at its natural in-flow Y)
+  //   • scrollY = identityZoneEnd
+  //              - tabPinPoint:     tabBarY = tabPinPoint
+  //                                 (TabBar pins, directly below
+  //                                 CollapsedHeader)
+  //   • scrollY beyond:             tabBarY stays at tabPinPoint
+  //
+  // The in-flow position is preserved via a TabBarSpacer (a View
+  // matching the TabBar's measured height) at the same scroll index,
+  // so the tab-content body's Y position is unchanged from before.
+  // The CollapsedHeader's fade range now ends at `tabPinPoint` (=
+  // identityZoneEnd - tabPinPoint in scrollY) so the header reaches
+  // opacity 1 exactly when the TabBar pins — single visual handoff.
+  const insets = useSafeAreaInsets()
+  const tabPinPoint = insets.top + COMPACT_BAR_HEIGHT
+
+  const [tabBarHeight, setTabBarHeight] = useState(0)
+  const handleTabBarLayout = useCallback((event: LayoutChangeEvent) => {
+    setTabBarHeight(event.nativeEvent.layout.height)
+  }, [])
+
+  const tabBarAnimatedStyle = useAnimatedStyle(() => {
+    'worklet'
+    const inFlowY = identityZoneEnd - scrollY.value
+    return { transform: [{ translateY: Math.max(tabPinPoint, inFlowY) }] }
+  })
   useEffect(() => {
     // Skip first render (initial profile load) and any state where the
     // branch isn't yet resolved. Only fire on a true post-mount switch.
@@ -448,7 +485,6 @@ export function MerchantProfileScreen({ id }: Props) {
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          stickyHeaderIndices={[3]}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
         >
@@ -518,7 +554,11 @@ export function MerchantProfileScreen({ id }: Props) {
           />
         </View>
 
-        <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
+        {/* M2.1 — TabBarSpacer. Reserves the same height the TabBar
+            occupies in flow, so the tab-content body's Y position is
+            unchanged from before. The actual <TabBar /> is mounted
+            below as an absolute sibling driven by scrollY. */}
+        <View style={{ height: tabBarHeight }} testID="tab-bar-spacer" />
 
         {/* Round 6 follow-up: tab-content entrance upgraded from
             a 180ms pure fade to a 280ms fade + 8pt Y-settle.
@@ -619,18 +659,39 @@ export function MerchantProfileScreen({ id }: Props) {
         topOffset={sbbHeight}
       />
 
-      {/* M2 — Collapsed sticky header. Topmost chrome layer; fades
-          in over a 60pt scroll window centred on `identityZoneEnd`
-          so opacity reaches 1 exactly when the sticky TabBar pins.
-          Cream-on-cream seam to the TabBar (matching gradient top
-          stop). Always rendered (not conditionally) so the fade
-          is gesture-driven rather than mount/unmount-driven. The
-          interpolate clamps opacity to [0, 1], so when the user is
-          at the top, the header is fully transparent and the user
-          sees the hero unchanged. */}
+      {/* M2.1 — Floating TabBar layer. Mounted as an absolute sibling
+          of the scrollWrap, between HeroNav (z=10) and CollapsedHeader
+          (z=20). When expanded, sits at its natural in-flow Y (=
+          identityZoneEnd in scroll coords, translated by scrollY);
+          when scrolled enough, pins at screen-y = `tabPinPoint`
+          (= insets.top + COMPACT_BAR_HEIGHT, directly below the
+          collapsed header). The cream-on-cream seam at that boundary
+          is invisible (TabBar's gradient top stop = #FFF9F5 = the
+          collapsed header's solid bg).
+          The matching <View testID="tab-bar-spacer"> inside the
+          ScrollView reserves the same vertical space so tab-content
+          body Y is unchanged. */}
+      <Animated.View
+        pointerEvents="box-none"
+        onLayout={handleTabBarLayout}
+        style={[styles.floatingTabBar, tabBarAnimatedStyle]}
+      >
+        <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
+      </Animated.View>
+
+      {/* M2 — Collapsed sticky header. Topmost chrome layer; fades in
+          over a 60pt scroll window ending at `tabPinPoint` (=
+          identityZoneEnd - insets.top - COMPACT_BAR_HEIGHT in scrollY)
+          so opacity reaches 1 exactly when the floating TabBar
+          arrives at its pinned position directly beneath. Cream-on-
+          cream seam to the TabBar. Always rendered (not conditionally)
+          so the fade is gesture-driven rather than mount/unmount-
+          driven. The interpolate clamps opacity to [0, 1], so when
+          the user is at the top, the header is fully transparent and
+          the user sees the hero unchanged. */}
       <CollapsedHeader
         scrollY={scrollY}
-        fadeEndY={identityZoneEnd}
+        fadeEndY={Math.max(0, identityZoneEnd - tabPinPoint)}
         merchantName={merchant.businessName}
         branchLine={isMultiBranch ? buildCollapsedBranchLine(sb) : null}
         logoUrl={sb.logoUrl ?? merchant.logoUrl}
@@ -715,6 +776,13 @@ const styles = StyleSheet.create({
   // the same space as the ScrollView would on its own.
   scrollWrap:   { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
+  // M2.1 — floating TabBar layer. position:absolute at top:0; the
+  // animated style overrides translateY frame-by-frame so the bar
+  // reads as either in-flow or pinned. zIndex sits between HeroNav
+  // (10) and CollapsedHeader (20) — TabBar is "below" the header
+  // in z so the cream collapsed header always paints over the
+  // bar's top edge cleanly when collapsed.
+  floatingTabBar: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 15 },
   identityZone: { backgroundColor: '#FFF9F5', position: 'relative' },
   content:      { backgroundColor: '#FFF9F5', minHeight: 460, padding: 20 },
   errorScreen:  { flex: 1, backgroundColor: '#FFF9F5', padding: 16 },
