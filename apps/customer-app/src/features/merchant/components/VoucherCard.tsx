@@ -303,15 +303,23 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             </Animated.View>
           </View>
 
-          {/* Hero — STACKED. "Save up to" eyebrow above £hero. */}
-          <View style={styles.heroBlock}>
-            <Text style={styles.heroLabel}>Save up to</Text>
-            <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
+          {/* Round 6 follow-up: hero + title side-by-side row.
+              Owner direction — move the title "in line with" the
+              hero block, vertically centered against it. The £
+              amount stays big (eye-catch) on the left; the title
+              fills the remaining width on the right and wraps to
+              max 2 lines. Saves vertical space (was: hero block
+              + title row stacked = ~64pt; now: max-of-both = ~44pt
+              in a single row). */}
+          <View style={styles.heroTitleRow}>
+            <View style={styles.heroBlock}>
+              <Text style={styles.heroLabel}>Save up to</Text>
+              <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
+            </View>
+            <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+              {voucher.title}
+            </Text>
           </View>
-
-          <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
-            {voucher.title}
-          </Text>
 
           {/* §38: description wrapped in a fixed-height View
               that reserves space for 2 lines regardless of
@@ -381,11 +389,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 14,
     borderRadius: 20,
-    // Round 6 follow-up: marginHorizontal 8 → 12 per owner ask
-    // for "a little bit slimmer". ~6.4% width slim on a 375pt
-    // screen (was ~4.3% with 8pt). Internal content, font sizes,
-    // positioning and vertical padding all unchanged.
-    marginHorizontal: 12,
+    // Round 6 follow-up: marginHorizontal 12 → 18 per owner ask
+    // for narrower cards (so 10-15 vouchers feel less heavy in
+    // the list). ~9.6% slim on a 375pt screen, up from ~6.4%.
+    marginHorizontal: 18,
   },
   card: {
     position: 'relative',
@@ -516,12 +523,25 @@ const styles = StyleSheet.create({
     padding: 3,
   },
 
-  // Round 6 follow-up: hero margins tightened further (6/4 →
-  // 4/2). 4pt extra vertical saving — eyebrow and £hero
-  // typography untouched.
-  heroBlock: {
+  // Round 6 follow-up: hero + title now share a horizontal row.
+  // The row carries the spacing; heroBlock itself is just the
+  // stacked Save-up-to / £hero column with no own margins.
+  heroTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',  // vertical centre — title aligned to
+                           // the middle of the hero column
     marginTop: 4,
-    marginBottom: 2,
+    marginBottom: 6,       // gap before description ("a bit of
+                           // gap after the amount", per owner)
+    gap: 14,               // horizontal gap between £amount and
+                           // the title — keeps them visually
+                           // separated
+  },
+  heroBlock: {
+    flexShrink: 0,         // hero takes its intrinsic content
+                           // width (~80pt for "Save up to" /
+                           // "£2.50") so the title gets the
+                           // remaining space via flex:1 below
   },
   heroLabel: {
     color: 'rgba(255,252,250,0.90)',
@@ -551,16 +571,19 @@ const styles = StyleSheet.create({
   // letter-spacing. Stronger second-tier presence after the
   // £hero, with tinted off-white text. Description weight
   // drops to 400 (below) for sharper hierarchy contrast.
+  // Round 6 follow-up: title is now inside heroTitleRow with
+  // flex:1 so it takes the remaining horizontal space after the
+  // hero column. Vertical centering against the hero is handled
+  // by heroTitleRow's alignItems:'center'. numberOfLines={2}
+  // allows long titles to wrap; titles up to ~22 chars stay on
+  // one line, longer ones wrap to two.
   title: {
+    flex: 1,
     color: WHITE_TEXT,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.3,
     lineHeight: 20,
-    // Round 6 follow-up: title marginBottom 2 → 0. Title sits
-    // tighter to the description below — 2pt saved without any
-    // type change.
-    marginBottom: 0,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
