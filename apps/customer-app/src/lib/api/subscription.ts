@@ -5,7 +5,16 @@ const subscriptionPlanSchema = z.object({
   id: z.string(),
   name: z.string(),
   billingInterval: z.enum(['MONTHLY', 'ANNUAL']),
-  priceGbp: z.number(),
+  // `z.coerce.number()` (not `z.number()`) because the backend serialises
+  // SubscriptionPlan.priceGbp from Prisma's `Decimal` type, which becomes
+  // a JSON STRING (e.g. "6.99") rather than a number when Fastify's
+  // default JSON serialiser runs. A bare `z.number()` rejects the string
+  // → safeParse fails → the api client returns null → `useSubscription`
+  // reports `isSubscribed: false` even for ACTIVE subscribers, and the
+  // user sees the FreeUserGate modal on every voucher tap. `z.coerce.number()`
+  // accepts both string and number inputs, so it's safe regardless of how
+  // the backend ever changes its serialisation.
+  priceGbp: z.coerce.number(),
 })
 
 const subscriptionSchema = z.object({
