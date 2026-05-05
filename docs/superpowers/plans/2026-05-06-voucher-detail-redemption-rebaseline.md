@@ -1,6 +1,6 @@
 # Voucher Detail / Redemption Rebaseline (Phase 3C.1c + 3C.1i)
 
-> **Status: AWAITING OWNER APPROVAL.** No implementation begins until owner signs off on §3 decisions and the milestone shape in §7. Tier 2 standing rule.
+> **Status: APPROVED with two amendments locked 2026-05-06.** Implementation begins on M1 after owner confirms the §11 Branch attribution contract is correctly captured. D1–D8 owner-locked; D2 amended to **dual endpoint** (`useCustomerVoucher` + `useMerchantProfile`) after pre-M1 audit found the dedicated `GET /api/v1/customer/vouchers/:id` endpoint already on main with `isRedeemedThisCycle` exposed.
 
 **Tier:** 2 — multi-file UI work in one new surface (port of an already-built reference implementation onto current main + branch-aware contracts).
 **Tracks:** Phase 3C.1c (Voucher Detail + Redemption) + Phase 3C.1i (QR Code Rendering) — bundled because the redemption flow only completes when staff can validate the code, which requires the QR / Show-to-Staff surface.
@@ -48,6 +48,8 @@ Per the locked baseline post-PR-#35:
 - `merchant.selectedBranch` resolved server-side from `?branch=<id>` query param OR cold-open by GPS / `isMainBranch`.
 - Voucher list is merchant-wide; the redemption is **branch-attributed** via the chip / picker.
 - Multi-branch merchants need a Branch Picker before PIN entry; single-branch auto-selects.
+
+**This is a meaningful architectural difference from the reference build** (`feature/customer-app`), which treated each branch as its own merchant profile. The rebaseline must inherit current main's "one merchant profile, branches inside" model — see §11 for the full branch-attribution contract.
 
 ### 1.5 Prerequisites already on main
 
@@ -136,14 +138,36 @@ How aggressively to split the rebaseline into PRs?
 
 **Recommendation:** A. The mid-milestone pause after M1 is valuable because that's where you can verify the rebaseline got the visual-state machine right before introducing irreversible state changes (redemptions in the DB).
 
-### D2. Detail-fetch shape
+### D2. Detail-fetch shape — **AMENDED 2026-05-06: dual endpoint**
 
-How does Voucher Detail get its data?
+Pre-M1 audit found that a dedicated voucher endpoint **already exists on current main** (was always there; the original v1 plan missed it):
 
-- **(A) Recommended: reuse `useMerchantProfile(merchantId, opts)` + select the voucher inside.** Voucher Detail's data is a strict subset of Merchant Profile's response (voucher row + selectedBranch + merchant.branches). Reusing the hook means a single source of truth for branch resolution, distance computation, and rating. The merchant-profile endpoint is already cached — opening voucher detail from a merchant page is a cache hit. No new backend route required.
-- (B) New backend endpoint `GET /api/v1/customer/voucher/:voucherId` — leaner payload but duplicates branch-resolution logic. Adds backend surface area for the rebaseline.
+```
+GET /api/v1/customer/vouchers/:id
+```
 
-**Recommendation:** A. Reuse existing endpoint. The `?branch=<id>` resolution and selectedBranch fallback are already on main. Voucher Detail just selects from `merchant.vouchers.find(v => v.id === voucherId)`.
+Backed by `getCustomerVoucher(prisma, voucherId, userId)` ([service.ts:844-895](src/api/customer/discovery/service.ts#L844-L895)). Returns:
+```ts
+{
+  id, title, type, description, terms, imageUrl,
+  estimatedSaving: number,                            // Number-coerced Decimal
+  expiryDate, code, status, approvalStatus,
+  merchant: { id, businessName, tradingName, logoUrl, status },
+  isRedeemedThisCycle: boolean,                       // ← directly answers state #3
+  isFavourited: boolean
+}
+```
+
+The endpoint is purpose-built for this surface, returns `isRedeemedThisCycle` directly (no client-side cycle math, no extra query), and requires no backend changes.
+
+**Locked decision (owner direction, post-audit):** **dual endpoint.**
+
+- New `useCustomerVoucher(voucherId)` hook hitting `GET /api/v1/customer/vouchers/:id` — drives the voucher panel, `isRedeemedThisCycle`, `isFavourited`.
+- Existing `useMerchantProfile(merchantId, { branchId })` hook continues to be used for **branch list + selectedBranch + distance** — needed for the BranchPickerSheet (M2) and the "Redeem at <branchName>" attribution UX. The voucher endpoint doesn't carry branch data.
+- Both queries cached separately by React Query; both cheap single-Prisma-query endpoints; React Query parallelises them.
+- Zero backend changes for M1.
+
+**State #3 (already-redeemed) source = `voucher.isRedeemedThisCycle` from the dedicated endpoint.** Branch-independent value (per the contract in §11).
 
 ### D3. Branch passing from Merchant Profile → Voucher Detail
 
@@ -213,7 +237,7 @@ This rebaseline implements the contract that's already on the backend. Listing t
 
 The frontend MUST NOT compute cycle windows or eligibility client-side. **Trust the backend.** The 12 visual states key off `isSubscribed` (from `useSubscription`) + `isRedeemedInCurrentCycle` (from the voucher row when it surfaces — TBD whether merchant profile API exposes this; see §3 D2 implications) + voucher status (ACTIVE/EXPIRED/TIME_LIMITED) + redemption record (returned post-redeem).
 
-**Open question to surface during M1 implementation:** does the existing merchant profile response include `isRedeemedInCurrentCycle` per voucher for the calling user? If not, we need either a backend additive field on the voucher payload OR a separate `GET /api/v1/redemption/my?voucherId=…` cached query. **Flag during M1; do not block M1 scaffolding on it.**
+~~**Open question to surface during M1 implementation:** does the existing merchant profile response include `isRedeemedInCurrentCycle` per voucher for the calling user?~~ **RESOLVED 2026-05-06 by pre-M1 audit:** state #3 sources from `voucher.isRedeemedThisCycle` returned by the dedicated `GET /api/v1/customer/vouchers/:id` endpoint (see §3 D2 amendment). No backend additive field, no side-channel query.
 
 ---
 
@@ -248,6 +272,7 @@ States 5/6/7 use `useTimeLimited`. State 3 + state 12 share the RedemptionDetail
 - **Screenshot detection on Android** — uses `FLAG_SECURE` which prevents screenshots system-wide for the screen. iOS uses a listener (cannot prevent, only detect after-the-fact). Different UX expectations per platform; document in the ShowToStaff component header.
 - **Polling cost** — `useRedemption(id)` polls every 5s while ShowToStaff is open. Stops on validation transition or 15-min timeout. Mitigation: explicit 5s interval, no exponential backoff (don't want to delay the validation-detected response).
 - **Reference branch drift** — `feature/customer-app`'s implementation predates the branch-aware contract + Subscription Zod fix + RedeemoLoader. Direct copy-paste WILL break. Each component must be re-fitted.
+- **Branch attribution accidents** — the reference build treated each branch as its own merchant profile; current `main` consolidates branches inside one merchant profile per merchant. **`VoucherRedemption.branchId` is permanent attribution data — wrong-branch values would corrupt merchant analytics with no easy fix.** See §11 for the locked branch-attribution contract that M1+M2 implement. Tests in M2 explicitly assert the `branchId` sent to the redemption mutation comes from `selectedBranch.id` and nowhere else.
 
 ---
 
@@ -256,6 +281,12 @@ States 5/6/7 use `useTimeLimited`. State 3 + state 12 share the RedemptionDetail
 ### M1 — View-only Voucher Detail (PR 1)
 
 Goal: route + screen + all 12 states displayed. RedeemCTA fires a `Alert("Coming next milestone")` placeholder so visual states are reachable without DB side-effects.
+
+**Branch-attribution requirements (per §11):**
+- Read `?branch=<id>` from URL via `useLocalSearchParams`; pass to `useMerchantProfile`.
+- Display "Redeem at <selectedBranch.name>" prominently in the screen (single-branch: just the merchant name; multi-branch: branch name + city). Source = `merchant.selectedBranch` from the merchant-profile response.
+- BranchPickerSheet itself is M2; M1 may show a stub "Change" affordance that no-ops or "Coming next milestone" — do NOT wire branch switching in M1.
+- Tests: assert that the displayed-branch value comes from `merchant.selectedBranch.id`, NOT `merchant.branches[0].id` or any other source.
 
 Files (new):
 - `app/(app)/voucher/[id].tsx` (route)
@@ -279,6 +310,13 @@ Pause for owner on-device QA. **Do not start M2 until M1 is approved.**
 ### M2 — Redemption flow (PR 2)
 
 Goal: PinEntrySheet → RedeemMutation → SuccessPopup → routes back to Voucher Detail with `state=3`.
+
+**Branch-attribution requirements (per §11):**
+- BranchPickerSheet wired for multi-branch merchants. Picker writes via `useBranchSelection.select(branchId)` (existing hook) → URL updates → merchant profile re-fetches with new `selectedBranch`. Reuse the existing pattern from MerchantProfileScreen.
+- `useRedeem` reads `branchId` from `merchant.selectedBranch.id` at mutation time (a function-of-state read, NOT a captured-earlier value). Defensive guard: if `selectedBranch == null`, abort and reopen picker.
+- **REQUIRED test:** assert `useRedeem` sends `branchId === selectedBranch.id` and not from any other source (merchant aggregate, branches[0], etc).
+- **REQUIRED test:** PIN failure at one branch does not affect retry eligibility at the same or different branch (rate-limit is per `(userId, branchId)`).
+- **REQUIRED test:** state #3 (already-redeemed) renders the same RedeemedBadge regardless of which branch the picker has selected — eligibility is branch-independent.
 
 Files (new):
 - `apps/customer-app/src/features/voucher/components/{PinEntrySheet,SuccessPopup,RedemptionDetailsCard}.tsx`
@@ -360,8 +398,104 @@ After M3 merges:
 
 ---
 
-## 10. Outstanding decisions
+## 10. Outstanding decisions — RESOLVED
 
-D1 milestone shape · D2 detail-fetch hook · D3 branch passing · D4 code formatting · D5 anti-fraud scope · D6 chrome · D7 PIN UX · D8 tests scope.
+All locked. D1, D3, D4, D5, D6, D7, D8 owner-locked 2026-05-06 as my recommendations. D2 amended same day to dual endpoint after pre-M1 audit (see §3 D2). State #3 sourcing question resolved (see §4).
 
-Default = my recommendations as listed in §3. If you reply "approved as proposed", I'll proceed with M1 and pause at the end of M1 for on-device QA.
+---
+
+## 11. Branch attribution contract — owner-locked 2026-05-06
+
+> **This is a core M1/M2 contract, not a nice-to-have.** Any deviation found during implementation must pause and report before being shipped.
+
+### 11.1 Architectural premise (vs reference build)
+
+In the reference (`feature/customer-app`) build, **each branch effectively behaved like its own merchant profile** — a tile per branch, separate detail navigation. Current `main` consolidates this:
+
+- **One merchant profile per merchant.** Branches live INSIDE the merchant profile via the locked branch-aware contract (PR #32/#33).
+- **Discovery may surface branches separately as entry points** but they all resolve into the same merchant profile with a `selectedBranch` (server-resolved from `?branch=<id>` or cold-open by GPS / `isMainBranch`).
+- **Vouchers are merchant-wide** ([CLAUDE.md](CLAUDE.md) "Voucher redeemed once per user per cycle across ALL branches"). No per-branch voucher availability gating in v1 ([deferral inventory](~/.claude/.../project_deferred_followups_index.md) §A — `BranchVoucher` table is explicitly NOT v1).
+- **Branch is purely the redemption attribution point + the PIN-validation source** — `Branch.redemptionPin` is per-branch; `VoucherRedemption.branchId` is the attribution column merchant analytics + reporting key off.
+
+The Voucher Detail surface inherits this. The reference implementation's "voucher belongs to a branch" mental model does NOT apply to current main and must NOT leak into the rebaselined screens.
+
+### 11.2 Five contract clauses (must all hold)
+
+**C1. Entry source — branch context arrives as a URL query param.**
+
+| Entry | Branch-context source |
+|---|---|
+| From Merchant Profile voucher card | `?branch=<sb.id>` appended by MerchantProfileScreen at `router.push('/voucher/${voucherId}?branch=${sb.id}')` |
+| From a future Discovery branch tile | `?branch=<tileBranchId>` preserved through to Voucher Detail |
+| From a deep link / share / notification with no branch param | Cold-open resolution: pass `voucherId` to `GET /api/v1/customer/vouchers/:id` for voucher data, then call `useMerchantProfile(merchantId, { branchId: undefined })` — backend resolver picks nearest-by-GPS / `isMainBranch` (same algorithm Merchant Profile uses) |
+| Single-branch merchant | The single branch auto-selects; BranchPickerSheet never opens for the user |
+
+The branch-context source MUST NEVER be "merchant aggregate" or "first branch in array" or "any branch I can find." A missing branch param is a NULL state that must be resolved either by GPS / `isMainBranch` (server-side, via `useMerchantProfile`'s existing fallback) or by surfacing the picker before redeem.
+
+**C2. Voucher Detail branch context — visible + changeable.**
+
+The screen MUST display which branch the redemption will attribute to, in a place the user notices before tapping Redeem. Examples (final wording per impl):
+
+- Multi-branch: "Redeem at **Old Foundry · Colchester** ▾" with a tap target opening BranchPickerSheet to switch.
+- Single-branch: "Redeem at **The Coffee House**" — non-tappable, no picker.
+
+The user MUST be able to change the redemption branch BEFORE entering the PIN. After the PIN is entered correctly and the redemption is created, the branch is locked into `VoucherRedemption.branchId` and not changeable (same constraint as the backend — branch is captured atomically with the redemption row).
+
+**C3. Redeem mutation — `branchId` from selected branch only.**
+
+`POST /api/v1/redemption` payload must be:
+```ts
+{
+  voucherId: string,    // current voucher
+  branchId:  string,    // SELECTED branch (NOT merchant aggregate, NOT first-in-array)
+  pin:       string,    // 4-digit PIN entered by user
+}
+```
+
+`branchId` is sourced from the same `selectedBranch.id` the screen is displaying as "Redeem at." The mutation hook must not look up the voucher's "default branch" or use any other heuristic. **If `selectedBranch` is somehow null at the moment the mutation fires, abort with a defensive error — do not redeem.**
+
+**C4. Already-redeemed eligibility — branch-independent.**
+
+`isRedeemedThisCycle` is per `(userId, voucherId)` per cycle — **across all branches** for that merchant. Backend enforcement is in [redemption/service.ts:108-124](src/api/redemption/service.ts#L108-L124) via `UserVoucherCycleState` keyed by `(userId, voucherId)` (NO branch in the unique key).
+
+The 12-state UI MUST treat `isRedeemedThisCycle === true` as voucher-locked across ALL branches:
+
+- State #3 (already redeemed) shows the same RedeemedBadge regardless of which branch the user selects via the picker.
+- Switching branches in the picker on a state-#3 voucher does NOT change eligibility or unlock the voucher.
+- A redemption attempt at Branch B for a voucher already redeemed at Branch A returns `ALREADY_REDEEMED` from the backend — the frontend respects that error and does NOT retry against a different branch.
+
+**C5. Analytics + merchant reporting — `VoucherRedemption.branchId` is the source of truth.**
+
+Whatever value the frontend sends as `branchId` becomes the merchant's branch-attribution column for that redemption forever. Merchant portal reports (Phase 4) will roll up by this field. Wrong-branch attribution is a permanent data error (would require a manual DB fix to undo — unlikely to ever be done).
+
+So: M1/M2 must be paranoid about which branch is "selected" at the moment of mutation. **Tests must include a test that asserts `useRedeem` sends the `branchId` from `selectedBranch.id`, NOT from the merchant aggregate, NOT from `merchant.branches[0]`, NOT from any other source.** Add this assertion explicitly to the M2 test plan.
+
+### 11.3 Implementation rules per milestone
+
+**M1 (view-only):**
+- Read `?branch=<id>` query param into `useMerchantProfile(merchantId, { branchId })`.
+- Resolve `selectedBranch` from the merchant-profile response (server-resolved if no param). Display "Redeem at <selectedBranch.name>" prominently.
+- For multi-branch, ensure the displayed branch matches the URL param (or the cold-open fallback). If they ever diverge (server reconciled to a different branch), surface that via the merchant-profile reconcile flow already on main (`useBranchSelection.reconcile` — same as MerchantProfileScreen does).
+- BranchPickerSheet UI lives in M2, not M1. M1 just displays the selected branch name + a stub-disabled "Change" affordance with a "Coming next milestone" toast, OR no affordance (decide during impl).
+
+**M2 (redemption):**
+- Wire BranchPickerSheet to allow changing the selected branch BEFORE PIN entry. Picker writes back to `useBranchSelection.select(branchId)` → URL updates → merchant profile re-fetches. **Same pattern as Merchant Profile's BranchPickerSheet — reuse where possible.**
+- `useRedeem` mutation reads `branchId` from `merchant.selectedBranch.id` at the moment of submission, NOT from any cached or earlier value.
+- Add a defensive guard: if `selectedBranch == null` when the user taps Redeem, show a "Pick a branch first" error and reopen the picker. Should never happen in normal flow but defensive against race conditions.
+- Tests:
+  - `useRedeem` calls POST /redemption with the `selectedBranch.id` value at mutation time (not from any other source).
+  - PIN failure at one branch doesn't affect the user's eligibility to retry at the same or a different branch.
+  - State-machine: `isRedeemedThisCycle: true` shows state #3 regardless of which branch the picker has selected.
+
+**M3 (ShowToStaff):**
+- ShowToStaff displays "Redeemed at <branch>" where branch comes from the redemption row server-side (`redemption.branch.name` per the existing `getMyRedemption` shape — verify during impl). NOT from the picker — by then the redemption is locked.
+
+### 11.4 Risks specific to this contract
+
+- **Wrong-branch attribution from race conditions.** User taps Redeem just as the picker is animating closed → `selectedBranch` may briefly be the old value. Mitigation: read `selectedBranch.id` from a stable React state, not from a transient picker callback. Test for it.
+- **Multi-branch merchant with NO branch param in URL.** If the user deep-links to `/voucher/[id]` directly, `useMerchantProfile` cold-opens to a server-resolved branch (nearest by GPS / `isMainBranch`). Display this clearly with the picker available so the user can change it before redeeming — ESPECIALLY if the cold-open chose poorly (e.g. user travelled).
+- **selectedBranch resolves to a SUSPENDED branch.** Currently the merchant-profile resolver falls back to the next active branch with the `selectedBranchFallbackReason: 'candidate-inactive'` banner. Voucher Detail must respect that — show the same banner inline and use the resolved branch for attribution.
+
+---
+
+(Section §10 above retained as historical record of decision approval flow.)
