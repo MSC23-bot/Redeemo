@@ -27,27 +27,25 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §21: voucher card visual restored to the §4-era vibrant
-// gradient ticket per user direction "I want to change the design
-// back to before — the coloring and grading. The only thing I
-// didn't want was vertical text. I want all text horizontal".
+// Round 5 §22: voucher card synthesises two references the user
+// shared, with a clear distinction:
 //
-// Restored from §4:
-//   • Vibrant per-type LinearGradient (light → deep)
-//   • Brand-red corner glow overlay (transparent → 22% red,
-//     bottom-right anchored)
-//   • Per-type icon watermark (rotated -15deg stamp, 16% white)
-//   • White text on saturated gradient
-//   • Brand-red tinted shadow
-//   • Side cutouts at mid-height (top: 50%)
+//   Ref 1 (coupon/ticket image) → shape only
+//     - rounded card with side cutouts at mid-height
+//     - "redeemable" ticket silhouette
+//     (NOT copied: vertical text, rotated labels, barcode)
 //
-// Kept from §20 (intentional improvements the user asked for):
-//   • Horizontal type pill at the top (replaces the vertical
-//     rotated sidebar — no more vertical text)
-//   • "Save up to" qualifier above the £ hero (honest about
-//     max savings)
-//   • Prominent Redeem CTA button (white pill on the gradient
-//     for max contrast on any colour, brand-red text + arrow)
+//   Ref 2 (gift-card image) → colour + finish only
+//     - vibrant per-type LinearGradient (saturated premium feel)
+//     - soft abstract circle blobs drifting through the bg at
+//       ~8–12% white opacity, clipped at the rounded corners
+//     - big distinctive per-type icon mark top-left (the
+//       voucher's "brand mark", like Amazon's `a`)
+//     (NOT copied: Amazon branding, gift card grid, points)
+//
+//   All text horizontal. Per-type illustration via the 40pt icon.
+//   Kept from §21: "Save up to" qualifier, prominent white-pill
+//   Redeem CTA with brand-red text, brand-red tinted shadow.
 const TYPE_GRADIENTS: Record<VoucherType, readonly [string, string]> = {
   BOGO:             ['#A78BFA', '#7C3AED'],
   DISCOUNT_FIXED:   ['#FB7185', '#E20C04'],
@@ -70,20 +68,7 @@ const TYPE_LABELS: Record<VoucherType, string> = {
   REUSABLE:         'Reusable',
 }
 
-// Per-type stripe text colour for the type-pill text on white bg.
-// Pulled from the customer-web TYPE_STYLES (deeper hue for label
-// weight against white surface).
-const TYPE_PILL_TEXT: Record<VoucherType, string> = {
-  BOGO:             '#6D28D9',
-  DISCOUNT_FIXED:   '#B91C1C',
-  DISCOUNT_PERCENT: '#B91C1C',
-  FREEBIE:          '#15803D',
-  SPEND_AND_SAVE:   '#9A3412',
-  PACKAGE_DEAL:     '#0369A1',
-  TIME_LIMITED:     '#B45309',
-  REUSABLE:         '#0F766E',
-}
-
+// Per-type illustration: the BIG icon mark top-left.
 const TYPE_ICONS: Record<VoucherType, ComponentType<LucideProps>> = {
   BOGO:             Gift,
   DISCOUNT_FIXED:   Tag,
@@ -123,7 +108,6 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
   const typeKey   = voucher.type as VoucherType
   const gradient  = TYPE_GRADIENTS[typeKey] ?? TYPE_GRADIENTS.DISCOUNT_FIXED
   const typeLabel = TYPE_LABELS[typeKey] ?? 'Voucher'
-  const pillText  = TYPE_PILL_TEXT[typeKey] ?? '#4B5563'
   const TypeIcon  = TYPE_ICONS[typeKey] ?? Tag
 
   const cardScale  = useSharedValue(1)
@@ -194,33 +178,19 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           style={StyleSheet.absoluteFillObject}
         />
 
-        {/* Brand-red corner glow — bottom-right anchor */}
-        <View style={styles.brandGlowWrap} pointerEvents="none">
-          <LinearGradient
-            colors={['rgba(226,12,4,0)', 'rgba(226,12,4,0.22)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-        </View>
-
-        {/* Decorative type icon watermark — rotated stamp */}
-        {!isRedeemed && (
-          <View style={styles.iconWatermark} pointerEvents="none">
-            <TypeIcon size={96} color="rgba(255,255,255,0.16)" strokeWidth={1.5} />
-          </View>
-        )}
+        {/* Abstract circle blobs (Ref 2 premium gift-card finish).
+            Three soft white circles at low opacity, sized + positioned
+            to drift across the card and clip at the rounded corners.
+            pointerEvents none so they never block touches. */}
+        <View style={[styles.circle, styles.circleA]} pointerEvents="none" />
+        <View style={[styles.circle, styles.circleB]} pointerEvents="none" />
+        <View style={[styles.circle, styles.circleC]} pointerEvents="none" />
 
         {/* Content */}
         <View style={styles.content}>
+          {/* Top: BIG per-type icon mark + heart */}
           <View style={styles.topRow}>
-            {/* Horizontal type pill — replaces the §4 vertical sidebar */}
-            <View style={styles.typePill}>
-              <TypeIcon size={13} color={pillText} strokeWidth={2.4} />
-              <Text style={[styles.typeLabel, { color: pillText }]} numberOfLines={1}>
-                {typeLabel}
-              </Text>
-            </View>
+            <TypeIcon size={40} color="#FFF" strokeWidth={2.2} />
             <Animated.View style={heartAnimatedStyle}>
               <Pressable
                 onPress={handleFav}
@@ -254,10 +224,24 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             </Text>
           ) : null}
 
+          {/* Bottom row: type · expiry meta on the left + Redeem CTA
+              on the right. Type label + expiry are separate Text
+              nodes (joined with a dot separator) so each remains
+              individually findable by tests + accessibility. */}
           <View style={styles.bottomRow}>
-            <Text style={styles.expiry} numberOfLines={1}>
-              {isRedeemed ? 'Redeemed this cycle' : (expiryLabel ?? 'No expiry')}
-            </Text>
+            {isRedeemed ? (
+              <Text style={styles.metaText} numberOfLines={1}>
+                Redeemed this cycle
+              </Text>
+            ) : (
+              <View style={styles.metaRow}>
+                <Text style={styles.metaText} numberOfLines={1}>{typeLabel}</Text>
+                <Text style={styles.metaDot}>·</Text>
+                <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="tail">
+                  {expiryLabel ?? 'No expiry'}
+                </Text>
+              </View>
+            )}
             {isRedeemed ? (
               <View style={styles.redeemedStamp}>
                 <Text style={styles.redeemedStampText}>REDEEMED</Text>
@@ -271,7 +255,7 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           </View>
         </View>
 
-        {/* Side cutouts at mid-height — §4 ticket silhouette */}
+        {/* Side cutouts at mid-height — Ref 1 ticket silhouette */}
         <View style={[styles.notch, styles.notchLeft]} pointerEvents="none" />
         <View style={[styles.notch, styles.notchRight]} pointerEvents="none" />
       </Pressable>
@@ -284,81 +268,78 @@ const NOTCH_HALF = NOTCH_SIZE / 2
 const PAGE_BG = '#FFF9F5'  // round 5 §15 — body matches identity zone top
 
 const styles = StyleSheet.create({
-  // Brand-red shadow underneath every card — every voucher casts
-  // a Redeemo glow regardless of its type colour.
+  // Brand-red shadow underneath every card — Redeemo glow
+  // regardless of voucher type.
   cardShadow: {
     shadowColor: BRAND_RED,
     shadowOpacity: 0.24,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
-    borderRadius: 18,
+    borderRadius: 22,
   },
   card: {
     position: 'relative',
-    minHeight: 200,
-    borderRadius: 18,
-    overflow: 'hidden',
+    minHeight: 220,
+    borderRadius: 22,
+    overflow: 'hidden',  // clips circles at corners + lets cutouts work
   },
   cardRedeemed: {
     opacity: 0.6,
   },
 
-  // Brand-red glow region — bottom-right corner.
-  brandGlowWrap: {
+  // Abstract circle blobs (Ref 2 inspiration). Three circles of
+  // varying sizes, positioned to bleed off the card edges and
+  // clip at the rounded corners. White at low opacity so they
+  // tint the gradient without overwhelming it.
+  circle: {
     position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: '55%',
-    height: '65%',
+    borderRadius: 9999,
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
-  // Decorative icon stamp — rotated, low-opacity white,
-  // bottom-right corner.
-  iconWatermark: {
-    position: 'absolute',
-    right: 8,
-    bottom: 4,
-    transform: [{ rotate: '-15deg' }],
+  circleA: {
+    width: 230,
+    height: 230,
+    right: -60,
+    top: -50,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  circleB: {
+    width: 150,
+    height: 150,
+    left: -50,
+    bottom: 28,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  circleC: {
+    width: 90,
+    height: 90,
+    right: 70,
+    top: 100,
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
 
   content: {
-    padding: 18,
+    padding: 20,
     flex: 1,
     justifyContent: 'space-between',
   },
 
+  // Top row: 40pt icon mark on the left (the voucher's "brand
+  // mark", like Amazon's `a` in Ref 2), heart on the right.
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 14,
-  },
-  // White-bg pill on the gradient — type label stays readable on
-  // any of the eight type gradients without the §4 vertical
-  // sidebar.
-  typePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 5,
-    paddingHorizontal: 11,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
-    flexShrink: 1,
-  },
-  typeLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
   },
   favBtn: {
     padding: 4,
   },
 
+  // Hero — "Save up to" small label above big £ amount.
   heroBlock: {
-    marginBottom: 10,
+    marginTop: 16,
+    marginBottom: 8,
   },
   heroLabel: {
     color: 'rgba(255,255,255,0.85)',
@@ -382,7 +363,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.15,
     lineHeight: 19,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   description: {
     color: 'rgba(255,255,255,0.88)',
@@ -392,6 +373,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
+  // Bottom row: type · expiry meta line on left, Redeem CTA right.
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -399,7 +381,13 @@ const styles = StyleSheet.create({
     marginTop: 14,
     gap: 12,
   },
-  expiry: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  metaText: {
     color: 'rgba(255,255,255,0.85)',
     fontSize: 11,
     fontWeight: '700',
@@ -407,11 +395,16 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     flexShrink: 1,
   },
+  metaDot: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 11,
+    fontWeight: '700',
+    marginHorizontal: 5,
+  },
 
-  // Prominent Redeem CTA — white pill with brand-red text +
-  // ArrowRight. White stands out on every type's gradient (purple
-  // / red / green / etc.); brand-red text keeps it distinctly
-  // Redeemo. Strong shadow lifts it off the gradient surface.
+  // Prominent Redeem CTA — white pill with brand-red text + arrow.
+  // White stands out on every type's gradient (purple / red /
+  // green / etc.); brand-red text keeps it distinctly Redeemo.
   redeemBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -446,6 +439,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
 
+  // Side cutouts at mid-height — Ref 1 ticket silhouette.
   notch: {
     position: 'absolute',
     top: '50%',
