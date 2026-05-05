@@ -89,18 +89,21 @@ export function ReviewSummary({ averageRating, totalReviews, distribution, onWri
   )
 }
 
+// Round 5 §6 (impeccable polish): card chrome joins the system
+// (radius 18 + system shadow opacity 0.08 / radius 16 / offset 4 /
+// elevation 4 — same as About cards from §5).
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   top: {
     flexDirection: 'row',
@@ -110,20 +113,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexShrink: 0,
   },
+  // Round 5 §6: weight 800 → 700 (less shouty for the hero number),
+  // tabular-nums via fontVariant so 4.0 / 4.5 / 5.0 align if shown
+  // alongside other ratings.
   bigScore: {
     fontSize: 46,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#010C35',
     lineHeight: 46,
-    letterSpacing: -1,
+    letterSpacing: -1.2,
+    fontVariant: ['tabular-nums'],
   },
   starsRow: {
     flexDirection: 'row',
     gap: 2,
     marginTop: 4,
   },
+  // Round 5 §6: 11 → 12pt for legibility (was the smallest text on
+  // the screen).
   totalText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
     marginTop: 4,
   },
@@ -143,10 +152,13 @@ const styles = StyleSheet.create({
     width: 10,
     textAlign: 'right',
   },
+  // Round 5 §6: bar track bg shifted from `#F3F0EB` (warm-cream
+  // era) to `#F3F4F6` (neutral pale) so the bars sit cleanly on
+  // the white card.
   barTrack: {
     flex: 1,
     height: 6,
-    backgroundColor: '#F3F0EB',
+    backgroundColor: '#F3F4F6',
     borderRadius: 3,
     overflow: 'hidden',
   },

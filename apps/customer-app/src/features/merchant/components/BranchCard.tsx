@@ -75,18 +75,69 @@ export function BranchCard({ branch, openingHoursForStatus, onCall, onDirections
   )
 }
 
+// Round 5 §6 (impeccable polish): BranchCard joins the system the
+// other cards already use (About / Photos / Amenities / Hours
+// rounded at §5 + voucher card rounded at §4).
+//   • borderRadius 12 → 18; padding 14 → 18; system shadow added
+//     (opacity 0.08, radius 16, offset 4, elevation 4) so the card
+//     visibly elevates against the white body — was the only flat
+//     outline card in the merchant profile.
+//   • Border `#E5E0DB` (warm-cream era) → `rgba(0,0,0,0.04)`
+//     neutral. Aligns with round 4 §8's white-body palette.
+//   • Title 14pt 800 → 16pt 700 (system-wide title treatment from
+//     round 5 §5).
+//   • statusText / separator / distance 11 → 12pt (legibility).
+//   • address `#9CA3AF` 11pt → `#6B7280` 12pt (legibility).
+//   • Action buttons: paddingV 7 → 9, radius 7 → 10, border neutral.
+//   • Action / Switch text 10 → 11pt with letterSpacing.
 const styles = StyleSheet.create({
-  card:       { backgroundColor: '#fff', borderWidth: 1, borderColor: '#E5E0DB', borderRadius: 12, padding: 14 },
-  rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 5 },
-  name:       { fontSize: 14, fontWeight: '800', color: '#010C35' },
-  rowMid:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  statusText: { color: '#222', fontWeight: '500', fontSize: 11 },
-  separator:  { color: '#D1D5DB', fontSize: 11 },
-  distance:   { color: '#9CA3AF', fontSize: 11 },
-  address:    { color: '#9CA3AF', fontSize: 11, marginBottom: 10 },
-  actions:    { flexDirection: 'row', gap: 6 },
-  actionBtn:  { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 7, borderRadius: 7, borderWidth: 1, borderColor: '#E5E0DB', backgroundColor: '#fff' },
-  actionText: { fontSize: 10, fontWeight: '600', color: '#010C35' },
-  switchBtn:  { flex: 1.4, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 7, borderRadius: 7, backgroundColor: '#E20C04' },
-  switchText: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  card: {
+    backgroundColor: '#FFF',
+    borderRadius: 18,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
+  },
+  rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 6 },
+  name:       { fontSize: 16, fontWeight: '700', color: '#010C35', letterSpacing: -0.2 },
+  rowMid:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  statusText: { color: '#222', fontWeight: '500', fontSize: 12 },
+  separator:  { color: '#D1D5DB', fontSize: 12 },
+  distance:   { color: '#6B7280', fontWeight: '500', fontSize: 12 },
+  address:    { color: '#6B7280', fontSize: 12, marginBottom: 12 },
+  actions:    { flexDirection: 'row', gap: 8 },
+  actionBtn:  {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    backgroundColor: '#FFF',
+  },
+  actionText: { fontSize: 11, fontWeight: '600', color: '#010C35', letterSpacing: 0.1 },
+  switchBtn: {
+    flex: 1.3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: '#E20C04',
+    shadowColor: '#E20C04',
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  switchText: { fontSize: 11, fontWeight: '700', color: '#FFF', letterSpacing: 0.1 },
 })

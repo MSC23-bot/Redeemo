@@ -73,21 +73,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  // Round 5 §6 (impeccable polish): sort trigger refined.
+  //   • Border `#F0EBE6` (warm-cream era) → `rgba(0,0,0,0.06)`
+  //     neutral, matches §5 system.
+  //   • Padding 5/10 → 7/12 — bigger touch surface (was below
+  //     comfortable tap-target proportion).
+  //   • Text 12 → 13pt.
   sortBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 10,
     backgroundColor: '#FFF',
     borderWidth: 1,
-    borderColor: '#F0EBE6',
+    borderColor: 'rgba(0,0,0,0.06)',
   },
   sortText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#010C35',
+    letterSpacing: -0.1,
   },
   overlay: {
     flex: 1,

@@ -152,23 +152,30 @@ export function ReviewCard({ review, showBranchLabel, onHelpful, onEdit, onDelet
   )
 }
 
+// Round 5 §6 (impeccable polish): card chrome aligned with the
+// system. radius 14 → 16 (smaller list item — tier below the
+// summary's 18pt), shadow bumped from barely-visible 0.03 to
+// list-item shadow 0.06, padding 16 → 18.
+//
+// Own-review border: neutral grey `#D1D5DB` → brand-red 18% so
+// the "your review" cue matches the YOUR REVIEW label colour.
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 16,
+    padding: 18,
     shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(0,0,0,0.04)',
     position: 'relative',
   },
   cardOwn: {
     borderWidth: 1.5,
-    borderColor: '#D1D5DB',
+    borderColor: 'rgba(226,12,4,0.18)',
   },
   ownLabel: {
     fontSize: 10,
@@ -233,10 +240,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  // Round 5 §6: 13pt 800 → 14pt 700. 800 was shouting; 14pt fits
+  // the system-wide title weight applied across cards in §5.
   name: {
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#010C35',
+    letterSpacing: -0.1,
   },
   verifiedBadge: {
     flexDirection: 'row',
@@ -250,8 +260,9 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
+  // Round 5 §6: 11 → 12pt for legibility.
   date: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
     marginTop: 2,
   },
