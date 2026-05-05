@@ -15,51 +15,50 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §28: corrects the §27 mistake of trying to manually
-// reconstruct the brand R as SVG paths — the result looked
-// disfigured and didn't read as the Redeemo logo. Reverted to
-// the official PNG asset (apps/customer-app/assets/redeemo-r-
-// mark.png, copied from the brand pack's "Iconic Version 1.png"
-// at 1081×1080), tinted white at low opacity for a single
-// faint flat watermark. No more fake internal structure.
+// Round 5 §29: official "Iconic Version 3" brand asset + clean
+// right-side composition. The asset bundled at
+// apps/customer-app/assets/redeemo-r-mark.png is now the
+// brand pack's white-on-dark variant (Iconic Version 3),
+// copied from docs/branding/Redeemo Branding Package/Logo
+// Files/PNG/Iconic Version 3.png. Source SVG also published
+// alongside for traceability:
+// docs/branding/Logos/Iconic Version 3.svg.
 //
-// Other refinements against the on-device QA:
+//   1. Brand R rendered WITHOUT tintColor. The Version 3 PNG
+//      is brand-prepared white/light-grey with the ribbon's
+//      tonal gradient baked in by the brand designer.
+//      Applying tintColor would flatten that gradient. Just
+//      <Image> + opacity 0.30 → the internal ribbon-on-loop
+//      depth comes through naturally because it's already in
+//      the asset.
 //
-//   1. Brand R uses the OFFICIAL asset. tintColor white +
-//      opacity 0.10 → recognisable Redeemo R silhouette,
-//      faint, embedded as background motif. No more manual
-//      reconstruction.
+//   2. Right-side composition cleaned up. §28 had FIVE things
+//      stacked on the right: heart + decorative blob + R +
+//      side notch + Redeem CTA. The on-device QA flagged the
+//      blob ↔ R collision as accidental-looking. Both
+//      decorative blobs moved to the LEFT side now so the
+//      right column has only three intentional zones:
+//        a) heart top-right (16pt)
+//        b) brand R right-CENTER (110×110, fully visible)
+//        c) Redeem CTA bottom-right
+//      Side notches stay (mid-height, coupon silhouette).
 //
-//   2. CTA returned to bottom-RIGHT (was bottom-left in §26).
-//      The bottom-right is the natural action position for
-//      "tap to redeem". The R is sized + placed so the
-//      bottom-right is empty when the CTA arrives — they
-//      don't overlap.
+//   3. Decorative blobs repositioned. §28 placed shapeA at
+//      top-RIGHT — directly clashing with the R area. Now:
+//        shapeA: top-LEFT corner, bleeds off (120pt @ 0.06)
+//        shapeB: bottom-LEFT corner, bleeds off (160pt @ 0.05)
+//      Both on the left so they support the hero/title column
+//      and never compete with the R or CTA on the right.
 //
-//   3. Layout — three vertical zones on the right column:
-//        a) heart at top-right (16pt)
-//        b) brand R at right-CENTER (100×100, fully visible)
-//        c) Redeem CTA at bottom-right
-//      Each zone has clean space; nothing covers the R.
-//
-//   4. Description font 11pt → 12pt, lineHeight 15 → 16.
-//      Body text on mobile should be ≥12pt; the on-device QA
-//      flagged the description as too small for normal users
-//      to read at a glance. Card grows ~3pt vertically — fine
-//      because readability wins over compactness.
+//   4. Description font 11pt → 12pt, lineHeight 15 → 16
+//      (kept from §28). Body text ≥12pt on mobile.
 //
 //   5. Hero stays stacked ("Save up to" eyebrow above £hero)
 //      from §27.
 //
-//   6. Type chip stays §26's dark-translucent style — strong
-//      contrast on every gradient (especially FREEBIE),
-//      clearly different surface from the white CTA pill.
+//   6. Type chip stays §26's dark-translucent style.
 //
-//   7. Background shape character — kept the §27 subtle white
-//      blobs (top-right + bottom-left, both at 0.05 opacity)
-//      so the card doesn't read as a flat block of colour.
-//
-// Behaviour preserved across §22 → §28:
+// Behaviour preserved across §22 → §29:
 //   • side cutouts at mid-height (coupon silhouette)
 //   • per-type 3-stop gradient with brand-red drop shadow
 //   • horizontal text only
@@ -204,12 +203,17 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
         <View style={styles.shapeA} pointerEvents="none" />
         <View style={styles.shapeB} pointerEvents="none" />
 
-        {/* §28 brand R watermark — OFFICIAL PNG asset, tinted
-            white at 0.10 opacity. Single faint flat silhouette,
-            recognisable as the Redeemo R. No more manual SVG
-            reconstruction. Sized + positioned at right-center
+        {/* §29 brand R watermark — OFFICIAL "Iconic Version 3"
+            PNG. The asset is brand-prepared white-on-dark with
+            the ribbon's tonal gradient already baked in by the
+            brand designer, so we render it WITHOUT tintColor:
+            applying tintColor would flatten that gradient and
+            kill the internal ribbon-on-loop depth. Just Image
+            + opacity 0.30 → the brand mark reads as embedded
+            with its native depth. Sized 110×110 at right-CENTER
             so the heart sits cleanly above and the bottom-right
-            CTA sits cleanly below. */}
+            CTA sits cleanly below — three intentional zones on
+            the right column, no decorative shapes nearby. */}
         <View style={styles.watermarkWrap} pointerEvents="none">
           <Image
             source={require('../../../../assets/redeemo-r-mark.png')}
@@ -316,15 +320,20 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // Subtle white background blobs — premium gradient texture.
+  // §29: BOTH decorative blobs moved to the LEFT side. §28
+  // had shapeA at top-RIGHT, which clashed with the R
+  // watermark and made the right side feel crowded /
+  // accidental. Now both shapes support the hero/title column
+  // on the left and stay clear of the right-side composition
+  // (heart + R + CTA).
   shapeA: {
     position: 'absolute',
-    right: -30,
+    left: -30,
     top: -30,
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   shapeB: {
     position: 'absolute',
@@ -336,21 +345,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
 
-  // §28 brand watermark — OFFICIAL PNG asset, single flat
-  // silhouette tinted white. 100×100 sits in the right-center
-  // column. Heart above (top:14-30), CTA below (bottom row).
+  // §29 brand watermark — OFFICIAL "Iconic Version 3" PNG
+  // (brand-prepared white-on-dark with the ribbon's tonal
+  // gradient baked in). Rendered WITHOUT tintColor so the
+  // internal depth survives. 110×110 at right-CENTER.
+  // Wrapper uses `position: absolute` so the R sits
+  // independently of content flow — content (chip, hero,
+  // title, description) flows over it on the LEFT, with
+  // text reading cleanly through the faint silhouette.
   watermarkWrap: {
     position: 'absolute',
     right: 14,
-    top: 36,
-    width: 100,
-    height: 100,
+    top: 30,
+    width: 110,
+    height: 110,
   },
   watermark: {
     width: '100%',
     height: '100%',
-    tintColor: '#FFFFFF',
-    opacity: 0.10,
+    opacity: 0.30,
   },
 
   topHighlight: {
