@@ -69,8 +69,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingHorizontal: 2,
   },
+  // Round 5 §19: 12 → 13pt — "N reviews" sits at the same tier
+  // as the sort trigger text alongside it.
   countLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   // Round 5 §6 (impeccable polish): sort trigger refined.

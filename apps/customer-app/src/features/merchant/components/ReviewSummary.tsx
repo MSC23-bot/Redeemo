@@ -129,10 +129,9 @@ const styles = StyleSheet.create({
     gap: 2,
     marginTop: 4,
   },
-  // Round 5 §6: 11 → 12pt for legibility (was the smallest text on
-  // the screen).
+  // Round 5 §19: bumped 12 → 13pt as part of the typography pass.
   totalText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '500',
     marginTop: 4,
   },
@@ -148,11 +147,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  // Round 5 §19: bar number 11 → 12pt for the rating-distribution
+  // bars (5/4/3/2/1). Width bumped 10 → 12 to fit.
   barNum: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: '#4B5563',
-    width: 10,
+    width: 12,
     textAlign: 'right',
   },
   // Round 5 §6: bar track bg shifted from `#F3F0EB` (warm-cream
@@ -169,10 +170,13 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
+  // Round 5 §19: bar count 10 → 11pt with tabular-nums for
+  // consistent column widths across distribution rows.
   barCount: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
     width: 20,
+    fontVariant: ['tabular-nums'],
   },
   writeBtn: {
     marginTop: 22,

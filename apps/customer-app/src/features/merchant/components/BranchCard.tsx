@@ -108,13 +108,17 @@ const styles = StyleSheet.create({
   // 6 → 8 → 12 (tight) becomes 8 → 10 → 16 — clearer
   // architectural separation between name, status row, and
   // address before the action row.
+  // Round 5 §19 (impeccable typography pass): body text bumped
+  // 12 → 13pt across status / separator / distance / address.
+  // address gains lineHeight 18 + letterSpacing -0.1 for prose
+  // refinement — long addresses need to breathe across two lines.
   rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 },
   name:       { fontSize: 16, fontWeight: '700', color: '#010C35', letterSpacing: -0.2 },
   rowMid:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  statusText: { color: '#222', fontWeight: '500', fontSize: 12 },
-  separator:  { color: '#D1D5DB', fontSize: 12 },
-  distance:   { color: '#6B7280', fontWeight: '500', fontSize: 12 },
-  address:    { color: '#6B7280', fontSize: 12, marginBottom: 16 },
+  statusText: { color: '#222', fontWeight: '500', fontSize: 13 },
+  separator:  { color: '#D1D5DB', fontSize: 13 },
+  distance:   { color: '#6B7280', fontWeight: '500', fontSize: 13 },
+  address:    { color: '#6B7280', fontSize: 13, lineHeight: 18, letterSpacing: -0.1, marginBottom: 16 },
   actions:    { flexDirection: 'row', gap: 8 },
   actionBtn:  {
     flex: 1,
@@ -128,7 +132,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0,0,0,0.06)',
     backgroundColor: '#FFF',
   },
-  actionText: { fontSize: 11, fontWeight: '600', color: '#010C35', letterSpacing: 0.1 },
+  actionText: { fontSize: 12, fontWeight: '600', color: '#010C35', letterSpacing: 0.1 },
   switchBtn: {
     flex: 1.3,
     flexDirection: 'row',
@@ -144,5 +148,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 3,
   },
-  switchText: { fontSize: 11, fontWeight: '700', color: '#FFF', letterSpacing: 0.1 },
+  switchText: { fontSize: 12, fontWeight: '700', color: '#FFF', letterSpacing: 0.1 },
 })

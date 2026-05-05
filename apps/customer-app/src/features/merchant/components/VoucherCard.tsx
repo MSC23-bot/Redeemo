@@ -489,11 +489,15 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.8,
   },
+  // Round 5 §19 (impeccable typography pass): description bumped
+  // 12 → 13pt with lineHeight 16 → 18 (1.38) for prose breathing.
+  // letterSpacing -0.1 tightens body text for refinement.
   description: {
     color: 'rgba(255,255,255,0.88)',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '500',
-    lineHeight: 16,
+    lineHeight: 18,
+    letterSpacing: -0.1,
   },
   bottomRow: {
     flexDirection: 'row',
@@ -506,9 +510,11 @@ const styles = StyleSheet.create({
   // + letter-spacing, not just size. 10pt 700 with tracked uppercase
   // letterSpacing reads as a "stamp date" badge, distinct in role
   // from the descriptive 12pt 500 description above.
+  // Round 5 §19: expiry bumped 10 → 11pt for readability while
+  // keeping its uppercase-tracked "stamp date" treatment.
   expiry: {
     color: 'rgba(255,255,255,0.85)',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
@@ -523,9 +529,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(0,0,0,0.20)',
   },
+  // Round 5 §19: CTA bumped 12 → 13pt — "Redeem" reads as a real
+  // call-to-action, not a tiny pill label.
   ctaText: {
     color: '#FFF',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.4,
   },

@@ -92,10 +92,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Round 5 §19: 12 → 13pt with letterSpacing -0.1 for refinement.
+  // "Wi-Fi" / "Outdoor Seating" / etc. read more clearly.
   label: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: '#010C35',
+    letterSpacing: -0.1,
     flexShrink: 1,
   },
 })

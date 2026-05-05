@@ -313,8 +313,10 @@ const styles = StyleSheet.create({
   helpfulActive: {
     backgroundColor: 'rgba(22,163,74,0.08)',
   },
+  // Round 5 §19: 11 → 12pt for legibility — "Helpful · 3" sits
+  // at the same tier as other body labels.
   helpfulText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: '#9CA3AF',
   },
