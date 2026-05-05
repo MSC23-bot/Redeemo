@@ -303,20 +303,28 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             </Animated.View>
           </View>
 
-          {/* Round 6 follow-up: hero block + title now stacked
-              with both horizontally centred to the card. Owner
-              direction: title horizontally centred (not vertical-
-              centred against hero). Hero column still has its
-              children centred too (Save up to over £amount) so
-              short amounts like "£4" sit balanced under the
-              eyebrow. */}
-          <View style={styles.heroBlock}>
-            <Text style={styles.heroLabel}>Save up to</Text>
-            <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
+          {/* Round 6 follow-up: hero on the LEFT, title vertically
+              in line with hero AND horizontally centred to the
+              CARD. The trick: fixed-width hero column on the left
+              (so the eyebrow stays centred over the £value
+              regardless of value width — £4, £2.50 and £69.99
+              all balanced under the same caption); a flex:1
+              title in the middle with textAlign:'center'; and a
+              fixed-width invisible spacer on the right matching
+              the hero. That places the title's text-centre at
+              the card's horizontal centre.
+              Description and bottom row sit below this combined
+              row, full-width as usual. */}
+          <View style={styles.heroTitleRow}>
+            <View style={styles.heroBlock}>
+              <Text style={styles.heroLabel}>Save up to</Text>
+              <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
+            </View>
+            <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+              {voucher.title}
+            </Text>
+            <View style={styles.titleBalanceSpacer} />
           </View>
-          <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
-            {voucher.title}
-          </Text>
 
           {/* §38: description wrapped in a fixed-height View
               that reserves space for 2 lines regardless of
@@ -525,16 +533,26 @@ const styles = StyleSheet.create({
   // marginTop/Bottom tightened (4/6 → 2/4) for the slimmer
   // card; vertical centring kept so the title is visually
   // anchored against the hero column.
-  // Round 6 follow-up: heroBlock stands alone (heroTitleRow
-  // dropped). Centred as a block within the card via alignSelf,
-  // and its children centred within the column via alignItems.
-  // marginTop tight (2) since the title now also has its own
-  // marginTop — keeps the overall stack compact even though
-  // hero and title are back on separate rows.
+  // Round 6 follow-up: hero + title share a horizontal row.
+  // The fixed-width left/right pair (heroBlock + titleBalance
+  // Spacer, both 96pt) makes the title's text-centre line up
+  // with the card's horizontal centre. heroBlock's children
+  // (eyebrow + £value) are centred within the 96pt column so
+  // the eyebrow stays balanced over short and long amounts.
+  heroTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',  // vertical centre title against hero
+    marginTop: 4,
+    marginBottom: 4,
+  },
   heroBlock: {
-    alignSelf: 'center',
+    width: 96,
     alignItems: 'center',
-    marginTop: 2,
+    flexShrink: 0,
+  },
+  titleBalanceSpacer: {
+    width: 96,
+    flexShrink: 0,
   },
   heroLabel: {
     color: 'rgba(255,252,250,0.90)',
@@ -564,13 +582,17 @@ const styles = StyleSheet.create({
   // letter-spacing. Stronger second-tier presence after the
   // £hero, with tinted off-white text. Description weight
   // drops to 400 (below) for sharper hierarchy contrast.
-  // Round 6 follow-up: title sits on its own row and is
-  // horizontally centred to the card width (textAlign:'center').
-  // Weight 900 (kept). marginTop 2 keeps the stack tight between
-  // the £hero line and the title.
+  // Round 6 follow-up: title shares the heroTitleRow with the
+  // hero column on its left and a matching invisible spacer on
+  // its right. flex:1 + textAlign:'center' centres the title's
+  // text on the row's mid-point — and because the row is
+  // [96pt heroBlock][flex:1 title][96pt spacer], the title
+  // text-centre is the card's horizontal centre.
+  // Weight 900 kept; numberOfLines={2} on the JSX side handles
+  // long titles wrapping.
   title: {
+    flex: 1,
     textAlign: 'center',
-    marginTop: 2,
     color: WHITE_TEXT,
     fontSize: 16,
     fontWeight: '900',
