@@ -344,12 +344,18 @@ describe('MerchantProfileScreen (M2)', () => {
     expect(await findByText('boom')).toBeTruthy()
   })
 
-  it('subscribed user: tapping a voucher routes to /voucher/[id]', async () => {
+  it('subscribed user: tapping a voucher routes to /voucher/[id]?branch=<selectedBranch.id>', async () => {
+    // Branch-attribution contract (Voucher Detail rebaseline plan
+    // §11 C1): the redemption branch comes from selectedBranch and
+    // must thread through as a URL query param so Voucher Detail's
+    // useMerchantProfile fetches against the same branch context.
+    // The fixture's selectedBranch.id is 'b1', so the URL must
+    // include `?branch=b1`.
     mockSubscribed = true
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
     fireEvent.press(await findByLabelText('Tap voucher'))
-    expect(router.push).toHaveBeenCalledWith('/voucher/v1')
+    expect(router.push).toHaveBeenCalledWith('/voucher/v1?branch=b1')
   })
 
   it('free user: tapping a voucher shows the free-user gate, no nav', async () => {

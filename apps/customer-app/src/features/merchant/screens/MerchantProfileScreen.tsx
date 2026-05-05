@@ -245,19 +245,24 @@ export function MerchantProfileScreen({ id }: Props) {
     })
   }, [merchant])
 
-  // Voucher tap — free-user gate per owner decision §9.1. Subscribed users
-  // navigate to /voucher/[id] (Voucher Detail rebaseline target — currently
-  // 404s until that PR ships; routing call kept correct so future Voucher
-  // Detail rebaseline works without re-wiring this screen).
+  // Voucher tap — free-user gate per owner decision §9.1. Subscribed
+  // users navigate to /voucher/[id]?branch=<sb.id> per the locked
+  // branch-attribution contract (Voucher Detail rebaseline plan §11
+  // C1): the redemption branch is sourced from the merchant-profile's
+  // selectedBranch, passed via URL so Voucher Detail's
+  // useMerchantProfile fetches against the same branch context. Cold-
+  // open (no branch param) falls through to the merchant-profile
+  // resolver's nearest-by-GPS / isMainBranch logic — but every entry
+  // from this screen passes the param so the branch carries forward.
   const handleVoucherPress = useCallback((voucherId: string) => {
     if (isSubLoading) return
     if (!isSubscribed) { setShowGate(true); return }
-    // `as any` matches the existing codebase pattern for typed-route holes
-    // (e.g. HomeScreen's `/merchant/${id}` push pre-M1). When the Voucher
-    // Detail rebaseline lands and adds `app/(app)/voucher/[id].tsx`, the
-    // cast becomes unnecessary and can be removed.
-    router.push(`/voucher/${voucherId}` as any)
-  }, [isSubscribed, isSubLoading])
+    const sbId = merchant?.selectedBranch?.id
+    const url = sbId
+      ? `/voucher/${voucherId}?branch=${sbId}`
+      : `/voucher/${voucherId}`
+    router.push(url as never)
+  }, [isSubscribed, isSubLoading, merchant])
 
   // Round 6 follow-up: screen-wide dim+restore pulse on branch
   // switch. Owner flagged that the previous tab-content settle
