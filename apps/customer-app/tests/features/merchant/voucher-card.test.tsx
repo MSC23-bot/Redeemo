@@ -3,9 +3,11 @@ import { render, fireEvent } from '@testing-library/react-native'
 import { VoucherCard } from '@/features/merchant/components/VoucherCard'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §2: voucher card aligned to the customer-web brand —
-// pastel TYPE_STYLES + sentence-case TYPE_LABELS, smart £ formatting
-// (£5 for whole pounds, £5.50 for pennies).
+// Round 5 §20: voucher card horizontal redesign — pastel light card
+// with dark text. Type label moved from a vertical sidebar to a
+// horizontal pill. "Save up to" qualifier above hero £ amount per
+// honesty rule (max savings, not guaranteed). No "OFF" suffix any
+// more — was misleading.
 const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   id: 'v1',
   type: 'FREEBIE',
@@ -18,8 +20,8 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   ...overrides,
 })
 
-describe('VoucherCard — round 5 §2 pastel ticket', () => {
-  it('renders the sentence-case vertical label + hero value + title + description', () => {
+describe('VoucherCard — round 5 §20 horizontal pastel card', () => {
+  it('renders the sentence-case type label + Save up to + hero amount + title + description', () => {
     const { getByText } = render(
       <VoucherCard
         voucher={mk()}
@@ -29,12 +31,13 @@ describe('VoucherCard — round 5 §2 pastel ticket', () => {
         onToggleFavourite={() => {}}
       />,
     )
-    // Vertical sidebar uses the website's sentence-case label
-    // (FREEBIE → 'Freebie').
+    // Type label rendered in a horizontal pill (no longer rotated).
+    // FREEBIE → 'Freebie' (sentence case, web brand parity).
     expect(getByText('Freebie')).toBeTruthy()
-    // Hero £value with OFF suffix (2.5 → "£2.50" — has pennies).
+    // "Save up to" qualifier above the hero amount — honest about
+    // max savings rather than the previous misleading "OFF".
+    expect(getByText('Save up to')).toBeTruthy()
     expect(getByText('£2.50')).toBeTruthy()
-    expect(getByText('OFF')).toBeTruthy()
     expect(getByText('Free Filter Coffee with Any Thali')).toBeTruthy()
     expect(getByText(/complimentary coffee/)).toBeTruthy()
   })

@@ -346,9 +346,14 @@ const styles = StyleSheet.create({
   // creating an intensity ramp (track at 8% → active at 100%) on
   // the same brand colour. Blends to roughly `#FCE6E1` over the
   // `#FFF9F5` body — visibly framed but distinctly pastel red.
+  // Round 5 §20: red tone toned down 8% → 5% per user direction
+  // "the red is a bit too prominent, tone it down". Same hue
+  // family (consistent with active pill brand red), just less
+  // intense — blends to ~`#FDF1F0` on the body, soft pink-cream
+  // that frames the active pill without competing.
   toggle: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(226,12,4,0.08)',
+    backgroundColor: 'rgba(226,12,4,0.05)',
     borderRadius: 999,
     padding: 4,
     gap: 4,
