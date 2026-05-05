@@ -3,11 +3,11 @@ import { render, fireEvent } from '@testing-library/react-native'
 import { VoucherCard } from '@/features/merchant/components/VoucherCard'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §20: voucher card horizontal redesign — pastel light card
-// with dark text. Type label moved from a vertical sidebar to a
-// horizontal pill. "Save up to" qualifier above hero £ amount per
-// honesty rule (max savings, not guaranteed). No "OFF" suffix any
-// more — was misleading.
+// Round 5 §24: type labels updated to full-readable sentence-case
+// per the user's brief — "Buy one, get one free", "Package deal",
+// "Time limited", "Spend & save". Pill renders the type label;
+// "Save up to" + £hero stays as separate text nodes; description
+// renders on 2 lines (fixes §23's `coff…` truncation).
 const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   id: 'v1',
   type: 'FREEBIE',
@@ -20,7 +20,7 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   ...overrides,
 })
 
-describe('VoucherCard — round 5 §20 horizontal pastel card', () => {
+describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
   it('renders the sentence-case type label + Save up to + hero amount + title + description', () => {
     const { getByText } = render(
       <VoucherCard
@@ -132,12 +132,12 @@ describe('VoucherCard — round 5 §20 horizontal pastel card', () => {
   it('renders the correct sentence-case label per voucher type', () => {
     const types: Array<{ type: MerchantVoucher['type']; label: string }> = [
       { type: 'FREEBIE',          label: 'Freebie' },
-      { type: 'BOGO',             label: 'Buy One Get One' },
+      { type: 'BOGO',             label: 'Buy one, get one free' },
       { type: 'DISCOUNT_FIXED',   label: 'Discount' },
       { type: 'DISCOUNT_PERCENT', label: 'Discount' },
-      { type: 'SPEND_AND_SAVE',   label: 'Spend & Save' },
-      { type: 'PACKAGE_DEAL',     label: 'Package Deal' },
-      { type: 'TIME_LIMITED',     label: 'Time Limited' },
+      { type: 'SPEND_AND_SAVE',   label: 'Spend & save' },
+      { type: 'PACKAGE_DEAL',     label: 'Package deal' },
+      { type: 'TIME_LIMITED',     label: 'Time limited' },
       { type: 'REUSABLE',         label: 'Reusable' },
     ]
     for (const t of types) {
