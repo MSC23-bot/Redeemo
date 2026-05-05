@@ -85,11 +85,14 @@ const styles = StyleSheet.create({
   //   - body color set explicitly to #374151 (darker than the
   //     `secondary` token #4B5563) for legibility
   //   - "Read more" 12 → 13pt 700 to match the body grade
+  // Round 6 §6: title 17 → 18pt so the title : body ratio
+  // clears impeccable's ≥1.25 hierarchy threshold
+  // (18/14 = 1.29×). 17/14 was 1.21× — too flat.
   title: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
     color: '#010C35',
-    letterSpacing: -0.2,
+    letterSpacing: -0.25,
   },
   body: {
     fontSize: 14,
