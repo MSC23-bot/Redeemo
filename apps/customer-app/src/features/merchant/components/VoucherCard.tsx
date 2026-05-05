@@ -39,16 +39,18 @@ import type { MerchantVoucher } from '@/lib/api/merchant'
 //      so the redeemed state reads clearly washed by
 //      comparison.
 //
-//   3. Decorative blobs spread across the card. §31 had two
-//      blobs both clustered top-left and bottom-left. The
-//      reference shows shapes spaced apart — corners and
-//      mid-card. Now THREE shapes:
+//   3. Decorative blobs DIAGONALLY spread across the card.
+//      §32 had three blobs all clustered on the LEFT (top,
+//      mid, bottom) — the owner flagged that as cluttered on
+//      the left and asked for true spread. §33 keeps two on
+//      the left and moves the third to the BOTTOM-RIGHT so
+//      the shapes anchor three corners diagonally:
 //        shapeA: top-LEFT corner bleed (140pt @ 0.11)
 //        shapeB: bottom-LEFT corner bleed (180pt @ 0.09)
-//        shapeC: middle-LEFT, bleeds off left edge (100pt @
-//                0.08) — chains visually between A and B
-//      All on the left so the R on the right stays clear
-//      and stands out.
+//        shapeC: BOTTOM-RIGHT corner bleed (130pt @ 0.06)
+//      Top-right corner stays empty (reserved for heart + R
+//      top). shapeC opacity (0.06) is below the R (0.12) so
+//      the R reads cleanly through shapeC's soft glow.
 //
 //   4. Brand R unchanged from §31: 130×130, slight bleed off
 //      the right edge, OFFICIAL Iconic Version 3 paths in
@@ -237,11 +239,11 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           pointerEvents="none"
         />
 
-        {/* §32 subtle background shapes — three blobs spread
-            across the LEFT half so the right side stays clear
-            for the R. shapeC chains between A and B mid-card,
-            bleeding off the left edge, so the gradient texture
-            feels distributed rather than clustered. */}
+        {/* §33 subtle background shapes — diagonally spread
+            across three corners (TL, BL, BR). Top-right
+            reserved for heart + R top so the brand mark stays
+            visually clear. shapeC's lowest opacity (0.06)
+            keeps the R as the dominant element on the right. */}
         <View style={styles.shapeA} pointerEvents="none" />
         <View style={styles.shapeB} pointerEvents="none" />
         <View style={styles.shapeC} pointerEvents="none" />
@@ -355,9 +357,19 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // §32 decorative blobs — three shapes spread across the
-  // LEFT half so the gradient texture feels distributed
-  // rather than clustered. Right side stays clean for the R.
+  // §33 decorative blobs — diagonally spread across the card,
+  // not clustered. Three corners get a soft circle bleed; the
+  // top-right corner is reserved for heart + R and stays
+  // visually empty:
+  //
+  //         ┌── shapeA (TL) ──── (heart + R top) ──┐
+  //         │                                       │
+  //         │                                       │
+  //         └── shapeB (BL) ──── shapeC (BR) ─────┘
+  //
+  // shapeC is the LOWEST opacity (0.06) of the three so it
+  // never out-shines the R sitting in the right column. The
+  // R reads cleanly through the soft glow of shapeC's edge.
   shapeA: {
     position: 'absolute',
     left: -35,
@@ -378,12 +390,12 @@ const styles = StyleSheet.create({
   },
   shapeC: {
     position: 'absolute',
-    left: -50,
-    top: 50,
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    right: -35,
+    bottom: -55,
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
 
   // §31 brand watermark — bumped 110 → 130 size with a 12pt
