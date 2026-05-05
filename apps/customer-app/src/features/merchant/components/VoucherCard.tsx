@@ -504,16 +504,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  // §39 (impeccable polish): chip gains a subtle white border
-  // (rgba 0.10) for premium definition without becoming
-  // button-like. Text shadow removed — the dark backdrop
-  // already gives chip text strong contrast, the extra shadow
-  // was redundant noise.
+  // §40 (impeccable polish): chip backdrop tinted toward the
+  // brand navy `#010C35` at 42% alpha (was pure-black tint at
+  // 34%). Per impeccable's "tint every neutral toward the
+  // brand hue" — neutrals shouldn't be pure black/grey on a
+  // brand card. Same darkness, brand-aware. Border at 0.10
+  // white for premium definition (kept).
   typeChip: {
     paddingVertical: 5,
     paddingHorizontal: 11,
     borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.34)',
+    backgroundColor: 'rgba(1,12,53,0.42)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     flexShrink: 1,
@@ -529,21 +530,21 @@ const styles = StyleSheet.create({
     padding: 3,
   },
 
-  // Round 6 follow-up: hero + title share a horizontal row.
-  // marginTop/Bottom tightened (4/6 → 2/4) for the slimmer
-  // card; vertical centring kept so the title is visually
-  // anchored against the hero column.
-  // Round 6 follow-up: hero + title share a horizontal row.
-  // The fixed-width left/right pair (heroBlock + titleBalance
-  // Spacer, both 96pt) makes the title's text-centre line up
-  // with the card's horizontal centre. heroBlock's children
-  // (eyebrow + £value) are centred within the 96pt column so
-  // the eyebrow stays balanced over short and long amounts.
+  // §40 (impeccable polish): hero + title row. The fixed-width
+  // left/right pair (heroBlock + titleBalanceSpacer, both 96pt)
+  // makes the title's text-centre line up with the card's
+  // horizontal centre. heroBlock children are centred within
+  // the 96pt column so "Save up to" stays balanced over short
+  // (£4) and long (£69.99) amounts.
+  // Vertical rhythm tiered per impeccable: smaller margin from
+  // chip/heart row above (4pt), larger margin to description
+  // below (8pt) — the description belongs to a different
+  // content tier so the gap should be more pronounced.
   heroTitleRow: {
     flexDirection: 'row',
-    alignItems: 'center',  // vertical centre title against hero
+    alignItems: 'center',
     marginTop: 4,
-    marginBottom: 4,
+    marginBottom: 8,
   },
   heroBlock: {
     width: 96,
@@ -554,11 +555,15 @@ const styles = StyleSheet.create({
     width: 96,
     flexShrink: 0,
   },
+  // §40 (impeccable polish): eyebrow letter-spacing 0.4 → 0.6
+  // — wider tracking is the standard premium treatment for
+  // small-caps-style eyebrows. "Save up to" reads more
+  // refined and label-like at 0.6.
   heroLabel: {
     color: 'rgba(255,252,250,0.90)',
     fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.4,
+    letterSpacing: 0.6,
     marginBottom: 1,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
@@ -620,15 +625,19 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
 
-  // §28 bottom row: expiry-LEFT, CTA-RIGHT (back to the
-  // standard layout from before §26). Possible because the R
-  // is now at right-center above this row, not bottom-right.
-  // Round 6 follow-up: marginTop 6 → 4. 2pt saved.
+  // §28 bottom row: expiry-LEFT, CTA-RIGHT.
+  // §40 (impeccable polish): marginTop 4 → 8 — the action
+  // tier (expiry + Redeem CTA) deserves more breathing room
+  // from the description above per impeccable's "vary spacing
+  // for rhythm" rule. Tiers the vertical rhythm:
+  //   chip→hero: 4   (associated identity zone, tight)
+  //   hero→description: 8  (different content tier)
+  //   description→action: 8  (separates info from CTA)
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 4,
+    marginTop: 8,
     gap: 12,
   },
   // §39: metaText weight 600 → 500 so the expiry recedes
