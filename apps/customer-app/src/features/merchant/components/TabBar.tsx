@@ -38,8 +38,19 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
           the metadata header rather than a separate neutral chrome
           element. Bottom stop deepens to `#F5DDC8` as the architectural
           anchor before the body. All in brand H 30 hue family. */}
+      {/* Round 5 §16: tab bar realigned to the BODY section per
+          user direction "navbar should be more inline with its tab
+          body rather than the metadata". §15 had the tab bar's
+          top stop matching the metadata's bottom — making the bar
+          feel like a continuation of the metadata header. Now the
+          top stop matches the body (`#FFF9F5`) and only deepens
+          subtly at the bottom for a soft anchor. The clean tonal
+          step is now at the TOP edge of the tab bar (metadata
+          cream → bar's light body-aligned tone), giving a clear
+          two-section split: metadata above, tab bar + body below
+          as one continuous content zone. */}
       <LinearGradient
-        colors={['#FCF0E5', '#F8E5D5']}
+        colors={['#FFF9F5', '#FBF1E6']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject}
@@ -126,7 +137,7 @@ const styles = StyleSheet.create({
   // meta row 13pt — appropriate "navigation chrome" tier).
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FCF0E5',
+    backgroundColor: '#FFF9F5',
     paddingHorizontal: 20,
     gap: 4,
     borderBottomWidth: 1,
