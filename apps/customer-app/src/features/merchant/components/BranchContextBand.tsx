@@ -62,9 +62,15 @@ export function BranchContextBand({ isMultiBranch, branchLine, children }: Props
   )
 }
 
+// Round 5 §7 (impeccable polish): identity zone unified at 24pt
+// gutter (matches MerchantHeadline + ActionRow). paddingTop / Bottom
+// added so the band has its own breathing room rather than relying
+// on neighbouring components.
 const styles = StyleSheet.create({
   root: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
+    paddingTop: 4,
+    paddingBottom: 12,
     gap: 8,
   },
   branchLine: {

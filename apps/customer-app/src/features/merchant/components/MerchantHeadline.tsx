@@ -59,8 +59,21 @@ export function MerchantHeadline({ merchantName, logoUrl, avgRating, reviewCount
 }
 
 const styles = StyleSheet.create({
+  // Round 5 §7 (impeccable polish): identity zone gutter unified at
+  // 24pt to align with the logo's `left: 24`. Round 4 §3 nudged
+  // the logo right by 4pt per user direction "could move slightly
+  // to the right" but left the rest of the headline at 20pt — so
+  // the merchant name's left edge sat 4pt outdented from the logo.
+  // 24pt throughout makes logo + name + rating + branch line +
+  // descriptor + meta row + action row all share one editorial
+  // column, distinct from the tab bar's 20pt utility gutter.
+  //
+  // paddingBottom: 6 — small breathing space below the name+rating
+  // row before the BranchContextBand starts (impeccable's "vary
+  // spacing for rhythm").
   root: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
+    paddingBottom: 6,
     position: 'relative',
   },
   // Logo bumped 64 → 72pt per direction "a little bit more bigger".

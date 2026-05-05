@@ -80,12 +80,17 @@ export function ActionRow({ hasWebsite, onWebsite, onContact, onDirections }: Pr
 }
 
 const styles = StyleSheet.create({
+  // Round 5 §7 (impeccable polish): identity zone unified at 24pt
+  // gutter. marginTop tightened 18 → 14 — the BranchContextBand
+  // now carries `paddingBottom: 12` of its own breathing room, so
+  // less needed here. marginBottom kept at 20 (separation from the
+  // sticky tab bar).
   row: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 18,
+    marginTop: 14,
     marginBottom: 20,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   // Website (brand red gradient) — borderRadius/overflow on the
   // gradient (where it clips), shadow on the outer Pressable (where
@@ -99,13 +104,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
+  // Round 5 §7: paddingHorizontal 4 → 8 for text breathing room.
+  // 4pt was so tight the labels ("Website" / "Contact" / "Directions")
+  // touched the inner gradient edges; 8pt gives the icon+label
+  // pair a comfortable margin inside the button.
   brandBtnGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 11,
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -133,7 +142,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 11,
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -154,7 +163,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 11,
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
     borderRadius: 12,
     backgroundColor: '#FCFAF7',
     borderWidth: 1,
