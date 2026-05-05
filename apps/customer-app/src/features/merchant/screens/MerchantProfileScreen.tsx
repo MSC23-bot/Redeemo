@@ -16,6 +16,7 @@ import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
 import { useBranchSelection } from '../hooks/useBranchSelection'
 import { HeroBackdrop, HeroNav, HeroBannerSpacer } from '../components/HeroSection'
+import { CollapsedHeader } from '../components/CollapsedHeader'
 import { MerchantDescriptor } from '../components/MerchantDescriptor'
 import { MetaRow } from '../components/MetaRow'
 import { ActionRow } from '../components/ActionRow'
@@ -45,6 +46,22 @@ function buildBranchLine(branch: { city: string | null; name: string }): string 
   if (branch.city) return branch.city
   const shortName = branchShortName(branch.name)
   return shortName || null
+}
+
+// M2 (collapsed sticky header): branch line for the COMPACT bar above
+// the sticky TabBar. Format: `<branchShortName> · <city>` when both
+// are present and distinct (e.g. "Old Foundry · Colchester"); falls
+// back to either alone when the other is missing or they collapse
+// to the same value (e.g. "Brightlingsea" branch in city
+// "Brightlingsea" — middle-dot duplication looks ugly). Returns
+// null when the merchant is single-branch (caller responsibility),
+// in which case the collapsed header shows only the merchant name.
+function buildCollapsedBranchLine(branch: { city: string | null; name: string }): string | null {
+  const short = branchShortName(branch.name) || null
+  if (short && branch.city && short !== branch.city) {
+    return `${short} · ${branch.city}`
+  }
+  return short ?? branch.city ?? null
 }
 
 // Round 6 follow-up: custom entering animation for the tab
@@ -287,6 +304,21 @@ export function MerchantProfileScreen({ id }: Props) {
   const handleSbbLayout = useCallback((event: LayoutChangeEvent) => {
     setSbbHeight(event.nativeEvent.layout.height)
   }, [])
+
+  // M2 (collapsed sticky header) — capture the identity zone's end-Y
+  // in scroll coordinates. The collapsed header reaches full opacity
+  // exactly when the TabBar pins, which happens at scrollY equal to
+  // the natural Y of the TabBar. The TabBar is the next scroll child
+  // after the identity zone, so identityZoneEnd = identity.y +
+  // identity.height = TabBar's natural Y. This value depends on the
+  // identity zone's measured height (descriptor present, single vs
+  // multi-branch, rating block, etc.), so we measure it at runtime
+  // rather than hardcoding.
+  const [identityZoneEnd, setIdentityZoneEnd] = useState(0)
+  const handleIdentityZoneLayout = useCallback((event: LayoutChangeEvent) => {
+    const { y, height } = event.nativeEvent.layout
+    setIdentityZoneEnd(y + height)
+  }, [])
   useEffect(() => {
     // Skip first render (initial profile load) and any state where the
     // branch isn't yet resolved. Only fire on a true post-mount switch.
@@ -444,8 +476,12 @@ export function MerchantProfileScreen({ id }: Props) {
             architectural depth.
             Round 4 §8 base: identity zone wrapped in its own view
             so the cream is bounded to the top section, body below
-            stays white all the way down. */}
-        <View style={styles.identityZone}>
+            stays white all the way down.
+            M2: onLayout captures this wrapper's Y + height so the
+            collapsed sticky header knows when to fade in (it
+            reaches full opacity at scrollY = identityZoneEnd, which
+            is exactly when the TabBar pins). */}
+        <View style={styles.identityZone} onLayout={handleIdentityZoneLayout}>
           <LinearGradient
             colors={['#FFF9F5', '#FCF0E5']}
             start={{ x: 0, y: 0 }}
@@ -581,6 +617,23 @@ export function MerchantProfileScreen({ id }: Props) {
         onShare={handleShare}
         scrollY={scrollY}
         topOffset={sbbHeight}
+      />
+
+      {/* M2 — Collapsed sticky header. Topmost chrome layer; fades
+          in over a 60pt scroll window centred on `identityZoneEnd`
+          so opacity reaches 1 exactly when the sticky TabBar pins.
+          Cream-on-cream seam to the TabBar (matching gradient top
+          stop). Always rendered (not conditionally) so the fade
+          is gesture-driven rather than mount/unmount-driven. The
+          interpolate clamps opacity to [0, 1], so when the user is
+          at the top, the header is fully transparent and the user
+          sees the hero unchanged. */}
+      <CollapsedHeader
+        scrollY={scrollY}
+        fadeEndY={identityZoneEnd}
+        merchantName={merchant.businessName}
+        branchLine={isMultiBranch ? buildCollapsedBranchLine(sb) : null}
+        logoUrl={sb.logoUrl ?? merchant.logoUrl}
       />
 
       <ContactSheet

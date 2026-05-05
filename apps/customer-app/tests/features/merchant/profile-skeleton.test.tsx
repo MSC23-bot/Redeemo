@@ -28,6 +28,22 @@ jest.mock('@/features/merchant/components/HeroSection', () => ({
   },
   HERO_HEIGHT: 256,
 }))
+
+// M2 — CollapsedHeader is the topmost chrome above the sticky TabBar.
+// Surfaces the merchant + branch line so screen tests can assert
+// they're wired through correctly. Has its own dedicated test file
+// (collapsed-header.test.tsx) for layout/opacity/threshold checks.
+jest.mock('@/features/merchant/components/CollapsedHeader', () => ({
+  CollapsedHeader: ({ merchantName, branchLine }: { merchantName: string; branchLine: string | null }) => {
+    const { Text } = require('react-native')
+    return (
+      <>
+        <Text>COLLAPSED_NAME={merchantName}</Text>
+        <Text>COLLAPSED_BRANCH={branchLine ?? 'NULL'}</Text>
+      </>
+    )
+  },
+}))
 jest.mock('@/features/merchant/components/MerchantDescriptor', () => ({
   MerchantDescriptor: ({ descriptor }: { descriptor: string | null }) => {
     const { Text } = require('react-native')
