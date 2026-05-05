@@ -1,14 +1,58 @@
 import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
+
+// Pinned safe-area metrics so MerchantProfileScreen's
+// `useSafeAreaInsets()` resolves under jest. M2.1 added a direct
+// dependency on the safe-area context for the floating TabBar's
+// pin-point math (insets.top + COMPACT_BAR_HEIGHT). Values mimic
+// an iPhone 14 Pro (Dynamic Island ≈ 59pt top inset).
+const initialMetrics = {
+  frame: { x: 0, y: 0, width: 393, height: 852 },
+  insets: { top: 59, left: 0, right: 0, bottom: 34 },
+}
 
 // Mock the sub-components — they each have their own visual tests; here we
 // only verify the screen composes them correctly and gates behaviour
 // (loading / error / free-user voucher gate).
+// M1.1 — HeroSection split into THREE exports for header z-layering:
+//   • <HeroBackdrop>: absolute layer mounted BEFORE the scrollWrap in
+//     JSX (behind scroll content in z-order). Image + vignette + badges.
+//   • <HeroNav>: absolute layer mounted AFTER the scrollWrap in JSX
+//     (above scroll content in z-order). Back / share / heart buttons.
+//   • <HeroBannerSpacer>: in-flow placeholder reserving HERO_HEIGHT
+//     pixels at the position the legacy <HeroSection> occupied so
+//     downstream child indices stay the same.
+// Backdrop renders nothing in tests; HeroNav surfaces the same fav-
+// state probe as the legacy mock so existing screen assertions still
+// pass; spacer is a no-op test-id placeholder.
 jest.mock('@/features/merchant/components/HeroSection', () => ({
-  HeroSection: ({ isFavourited }: { isFavourited: boolean }) => {
+  HeroBackdrop: () => null,
+  HeroNav: ({ isFavourited }: { isFavourited: boolean }) => {
     const { Text } = require('react-native')
     return <Text>HERO_FAV={String(isFavourited)}</Text>
+  },
+  HeroBannerSpacer: () => {
+    const { View } = require('react-native')
+    return <View testID="hero-banner-spacer" />
+  },
+  HERO_HEIGHT: 256,
+}))
+
+// M2 — CollapsedHeader is the topmost chrome above the sticky TabBar.
+// Surfaces the merchant + branch line so screen tests can assert
+// they're wired through correctly. Has its own dedicated test file
+// (collapsed-header.test.tsx) for layout/opacity/threshold checks.
+jest.mock('@/features/merchant/components/CollapsedHeader', () => ({
+  CollapsedHeader: ({ merchantName, branchLine }: { merchantName: string; branchLine: string | null }) => {
+    const { Text } = require('react-native')
+    return (
+      <>
+        <Text>COLLAPSED_NAME={merchantName}</Text>
+        <Text>COLLAPSED_BRANCH={branchLine ?? 'NULL'}</Text>
+      </>
+    )
   },
 }))
 jest.mock('@/features/merchant/components/MerchantDescriptor', () => ({
@@ -196,7 +240,11 @@ jest.spyOn(merchantApi, 'getProfile')
 
 function wrap(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+  return render(
+    <SafeAreaProvider initialMetrics={initialMetrics}>
+      <QueryClientProvider client={qc}>{ui}</QueryClientProvider>
+    </SafeAreaProvider>
+  )
 }
 
 // P2.8 — selectedBranch fixture mirrors the rich branch shape returned by
@@ -412,22 +460,40 @@ describe('MerchantProfileScreen (M2)', () => {
   // the same code path the chip used. The select() unit contract is
   // covered in use-branch-selection.test.tsx.
 
-  // ── Sticky-header pin: visual-correction-round structure ───────────────────
-  // Round 4 §8: identity-zone elements (MerchantHeadline /
-  // BranchContextBand / ActionRow) wrapped in a single cream-bg
-  // View so the cream stays bounded to the top section. ScrollView
-  // children are now:
-  //   [0] SuspendedBranchBanner
-  //   [1] HeroSection
-  //   [2] identityZone wrapper (MerchantHeadline + BranchContextBand
-  //       + ActionRow)
-  //   [3] TabBar ← sticky
+  // ── Sticky-chrome architecture (M2.1 update) ────────────────────────────
+  // The sticky chrome (collapsed header + TabBar) is no longer driven by
+  // RN's stickyHeaderIndices. The previous M2 implementation kept the
+  // TabBar as a sticky scroll child at index 3, pinning at scrollView-
+  // top = screen-y=0 — exactly where the absolutely-positioned
+  // <CollapsedHeader> sits. The header covered the sticky TabBar,
+  // leaving deep-scrolled users with no tab navigation.
+  //
+  // M2.1 architecture:
+  //   • TabBar moved OUT of the ScrollView, mounted as an absolute
+  //     sibling of scrollWrap with translateY driven by scrollY.
+  //   • A no-op <View testID="tab-bar-spacer"> at scroll index 3
+  //     reserves the same height TabBar would occupy in flow, so
+  //     tab-content body Y is unchanged.
+  //   • ScrollView no longer declares stickyHeaderIndices.
+  //
+  // ScrollView children are now:
+  //   [0] SuspendedBranchBanner (wrapped in onLayout View for SBB-
+  //       height capture)
+  //   [1] HeroBannerSpacer
+  //   [2] identityZone wrapper (with onLayout for fadeEnd capture)
+  //   [3] TabBarSpacer (height = measured TabBar height)
   //   [4] Animated.View (tab content)
-  it('pins TabBar sticky via stickyHeaderIndices=[3]', async () => {
+  it('does not declare stickyHeaderIndices on the ScrollView (TabBar is now floating)', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByTestId } = wrap(<MerchantProfileScreen id="m1" />)
     const scroll = await findByTestId('merchant-profile-scroll')
-    expect(scroll.props.stickyHeaderIndices).toEqual([3])
+    expect(scroll.props.stickyHeaderIndices).toBeUndefined()
+  })
+
+  it('renders the in-flow tab-bar-spacer that reserves the floating TabBar height', async () => {
+    ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
+    const { findByTestId } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByTestId('tab-bar-spacer')).toBeTruthy()
   })
 
   // Spec §4.7 — switching branch must close any open sheets (state-preservation
@@ -450,7 +516,9 @@ describe('MerchantProfileScreen (M2)', () => {
     mockBranchParam = 'b1'
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findByLabelText, findByText, queryByText, rerender } = render(
-      <QueryClientProvider client={qc}><MerchantProfileScreen id="m1" /></QueryClientProvider>
+      <SafeAreaProvider initialMetrics={initialMetrics}>
+        <QueryClientProvider client={qc}><MerchantProfileScreen id="m1" /></QueryClientProvider>
+      </SafeAreaProvider>
     )
     // Open contact sheet via ActionRow's onContact callback.
     fireEvent.press(await findByLabelText('open-contact'))
@@ -459,7 +527,9 @@ describe('MerchantProfileScreen (M2)', () => {
     // would trigger via router.replace, then the route reading new search params).
     mockBranchParam = 'b2'
     rerender(
-      <QueryClientProvider client={qc}><MerchantProfileScreen id="m1" /></QueryClientProvider>
+      <SafeAreaProvider initialMetrics={initialMetrics}>
+        <QueryClientProvider client={qc}><MerchantProfileScreen id="m1" /></QueryClientProvider>
+      </SafeAreaProvider>
     )
     expect(queryByText('CONTACT_SHEET_VISIBLE')).toBeNull()
   })
