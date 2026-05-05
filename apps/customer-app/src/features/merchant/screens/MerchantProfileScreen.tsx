@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { View, ScrollView, StyleSheet, ActivityIndicator, Share, Linking, Pressable } from 'react-native'
-import Animated, { FadeIn } from 'react-native-reanimated'
+import Animated, { withTiming, Easing } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
 import { router } from 'expo-router'
 import { Text, color } from '@/design-system'
@@ -37,6 +37,29 @@ function buildBranchLine(branch: { city: string | null; name: string }): string 
   if (branch.city) return branch.city
   const shortName = branchShortName(branch.name)
   return shortName || null
+}
+
+// Round 6 follow-up: custom entering animation for the tab
+// content. Owner flagged the previous FadeIn(180ms) as too
+// subtle on the Branches → Switch → Vouchers flow — there was
+// no clear screen-transition cue. Now: 8pt translateY settle
+// + fade over 280ms with the project-standard ease-out-expo
+// curve. Spatial continuity (content arriving into place) +
+// duration in the small-transition band per /interaction-
+// design. Used by every tab transition, so the "you arrived"
+// motion is consistent across Vouchers / About / Branches /
+// Reviews.
+const TAB_ENTER_MS = 280
+const TAB_ENTER_EASING = Easing.bezier(0.16, 1, 0.3, 1)
+function tabContentEnter() {
+  'worklet'
+  return {
+    initialValues: { opacity: 0, transform: [{ translateY: 8 }] },
+    animations: {
+      opacity: withTiming(1, { duration: TAB_ENTER_MS, easing: TAB_ENTER_EASING }),
+      transform: [{ translateY: withTiming(0, { duration: TAB_ENTER_MS, easing: TAB_ENTER_EASING }) }],
+    },
+  }
 }
 
 // M2 — full Merchant Profile surface. Composes hero / meta / sticky tab bar
@@ -368,15 +391,22 @@ export function MerchantProfileScreen({ id }: Props) {
 
         <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
 
-        {/* Round 3 §C3: tab-content fade transition. The keyed
-            Animated.View remounts the inner content when activeTab
-            changes, firing FadeIn (180ms) — a subtle but visible
-            confirmation that the user's tap registered. Combined with
-            the Branches → Switch handler returning to 'vouchers', the
-            user gets emotional feedback rather than a static snap. */}
+        {/* Round 6 follow-up: tab-content entrance upgraded from
+            a 180ms pure fade to a 280ms fade + 8pt Y-settle.
+            Owner flagged that the Branches → Switch → Vouchers
+            flow had no clear screen-transition cue on device —
+            the previous fade was too short and direction-neutral.
+            Per /interaction-design + /interface-design: small
+            transitions live in the 200-300ms band, motion should
+            have spatial purpose, ease-out for entering. The
+            8pt translateY settle adds spatial continuity (content
+            arriving into place) without being jarring like a
+            full slide. Curve is the project-standard ease-out-
+            expo (matches voucher card press scale, modal
+            entrance, etc.). */}
         <Animated.View
           key={activeTab}
-          entering={FadeIn.duration(180)}
+          entering={tabContentEnter}
           style={styles.content}
         >
           {activeTab === 'vouchers' && (
