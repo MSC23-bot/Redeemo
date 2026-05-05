@@ -184,9 +184,16 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
     </View>
   )
 
+  // Round 6 §3: scope label copy + style.
+  // - "Reviews of {branch}" → "Reviews for {branch}" (reads more naturally
+  //   in English; matches the "for" pattern used elsewhere in the product).
+  // - "All branches" → "Reviews across all branches" (matches the branch
+  //   case grammatically — both forms now lead with "Reviews").
+  // - 11pt regular grey → 13pt 600 darker grey for legibility, per the
+  //   typography pass (still subtle, not a heading).
   const renderScopeLabel = () => (
     <Text variant="label.md" style={styles.scopeLabel} numberOfLines={1} ellipsizeMode="tail">
-      {filter === 'branch' ? `Reviews of ${currentBranchName}` : 'All branches'}
+      {filter === 'branch' ? `Reviews for ${currentBranchName}` : 'Reviews across all branches'}
     </Text>
   )
 
@@ -384,5 +391,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
   },
-  scopeLabel: { color: '#6B7280', fontSize: 11, marginTop: 6, textAlign: 'center', letterSpacing: 0.2 },
+  scopeLabel: {
+    color: '#374151',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 10,
+    marginBottom: 4,
+    textAlign: 'center',
+    letterSpacing: -0.05,
+  },
 })

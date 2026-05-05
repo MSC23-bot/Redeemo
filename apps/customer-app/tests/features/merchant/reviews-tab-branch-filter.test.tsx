@@ -88,17 +88,19 @@ describe('ReviewsTab branch-filter toggle', () => {
     expect(mockUseReviewSummary).toHaveBeenLastCalledWith('m1', expect.not.objectContaining({ branchId: expect.anything() }))
   })
 
-  it('renders the scope label "Reviews of {branch}" between toggle and breakdown when filter=branch', () => {
+  // Round 6 §3: scope label copy updated.
+  //   - "Reviews of {branch}" → "Reviews for {branch}" (more natural English)
+  //   - "All branches" → "Reviews across all branches" (matches the branch
+  //     case grammatically; both forms now lead with "Reviews")
+  it('renders the scope label "Reviews for {branch}" between toggle and breakdown when filter=branch', () => {
     const { getByText } = renderTab({ currentBranchName: 'Brightlingsea', isMultiBranch: true })
-    expect(getByText('Reviews of Brightlingsea')).toBeTruthy()
+    expect(getByText('Reviews for Brightlingsea')).toBeTruthy()
   })
 
-  it('switches scope label to "All branches" after toggling to all', () => {
+  it('switches scope label to "Reviews across all branches" after toggling to all', () => {
     const { getByText, getByLabelText } = renderTab({ currentBranchName: 'Brightlingsea', isMultiBranch: true })
     fireEvent.press(getByLabelText(/^All branches/))
-    // Both the toggle button and the scope label can match `All branches`; the scope-label
-    // assertion succeeds when the static label below the toggle reads exactly 'All branches'.
-    expect(getByText('All branches')).toBeTruthy()
+    expect(getByText('Reviews across all branches')).toBeTruthy()
   })
 
   it('hides scope label and toggle on single-branch merchants', () => {
