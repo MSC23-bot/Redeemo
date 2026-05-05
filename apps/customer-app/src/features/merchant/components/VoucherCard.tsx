@@ -294,7 +294,7 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
                 hitSlop={10}
               >
                 <Heart
-                  size={16}
+                  size={18}
                   color={isFavourited ? '#FFFFFF' : 'rgba(255,255,255,0.75)'}
                   fill={isFavourited ? '#FFF' : 'none'}
                   strokeWidth={2.2}
@@ -303,23 +303,20 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             </Animated.View>
           </View>
 
-          {/* Round 6 follow-up: hero + title side-by-side row.
-              Owner direction — move the title "in line with" the
-              hero block, vertically centered against it. The £
-              amount stays big (eye-catch) on the left; the title
-              fills the remaining width on the right and wraps to
-              max 2 lines. Saves vertical space (was: hero block
-              + title row stacked = ~64pt; now: max-of-both = ~44pt
-              in a single row). */}
-          <View style={styles.heroTitleRow}>
-            <View style={styles.heroBlock}>
-              <Text style={styles.heroLabel}>Save up to</Text>
-              <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
-            </View>
-            <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
-              {voucher.title}
-            </Text>
+          {/* Round 6 follow-up: hero block + title now stacked
+              with both horizontally centred to the card. Owner
+              direction: title horizontally centred (not vertical-
+              centred against hero). Hero column still has its
+              children centred too (Save up to over £amount) so
+              short amounts like "£4" sit balanced under the
+              eyebrow. */}
+          <View style={styles.heroBlock}>
+            <Text style={styles.heroLabel}>Save up to</Text>
+            <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
           </View>
+          <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+            {voucher.title}
+          </Text>
 
           {/* §38: description wrapped in a fixed-height View
               that reserves space for 2 lines regardless of
@@ -389,12 +386,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 14,
     borderRadius: 20,
-    // Round 6 follow-up: marginHorizontal 18 → 14 — owner
-    // clarified they want the card slightly WIDER again (the 18
-    // experiment was too narrow). ~7.5% width slim on 375pt;
-    // splits the difference between the 12pt §37 baseline and
-    // the 18pt narrow experiment.
-    marginHorizontal: 14,
+    // Round 6 follow-up: marginHorizontal 14 → 8 per owner ask
+    // for "a little bit more" width. ~4.3% slim on a 375pt
+    // screen — the original §37 baseline width that was
+    // approved before the narrowing experiments started.
+    marginHorizontal: 8,
   },
   card: {
     position: 'relative',
@@ -483,12 +479,14 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    // Round 6 follow-up: vertical padding tightened further
-    // 8 → 6 to compensate for the bumped description font size
-    // (12 → 13, lineHeight 16 → 17, minHeight 32 → 34) so the
-    // card stays shorter overall.
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    // Round 6 follow-up: paddingHorizontal 12 → 14 +
+    // paddingVertical 6 → 8 per owner ask for "enough padding
+    // around the card so content isn't close to the edge".
+    // The chip / heart at the top + the Redeem CTA / expiry
+    // at the bottom now sit visibly inset from the card
+    // perimeter on every voucher type.
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     flex: 1,
   },
 
@@ -527,23 +525,16 @@ const styles = StyleSheet.create({
   // marginTop/Bottom tightened (4/6 → 2/4) for the slimmer
   // card; vertical centring kept so the title is visually
   // anchored against the hero column.
-  heroTitleRow: {
-    flexDirection: 'row',
+  // Round 6 follow-up: heroBlock stands alone (heroTitleRow
+  // dropped). Centred as a block within the card via alignSelf,
+  // and its children centred within the column via alignItems.
+  // marginTop tight (2) since the title now also has its own
+  // marginTop — keeps the overall stack compact even though
+  // hero and title are back on separate rows.
+  heroBlock: {
+    alignSelf: 'center',
     alignItems: 'center',
     marginTop: 2,
-    marginBottom: 4,
-    gap: 14,
-  },
-  // Round 6 follow-up: heroBlock contents now centre-aligned.
-  // Owner direction — when the £amount is short (e.g. "£4"),
-  // the eyebrow "Save up to" should sit horizontally centred
-  // over it, not left-aligned with a wider eyebrow trailing.
-  // Centre-alignment also balances the long-amount case
-  // (£6.50 / £69.99) — the eyebrow always anchors to the
-  // amount's centre.
-  heroBlock: {
-    flexShrink: 0,
-    alignItems: 'center',
   },
   heroLabel: {
     color: 'rgba(255,252,250,0.90)',
@@ -573,13 +564,13 @@ const styles = StyleSheet.create({
   // letter-spacing. Stronger second-tier presence after the
   // £hero, with tinted off-white text. Description weight
   // drops to 400 (below) for sharper hierarchy contrast.
-  // Round 6 follow-up: title weight 800 → 900 per owner ask
-  // for stronger emphasis. Position via heroTitleRow.alignItems
-  // = 'center' (kept) and flex:1 so the title fills the
-  // remaining row width and vertical-centres against the hero
-  // column.
+  // Round 6 follow-up: title sits on its own row and is
+  // horizontally centred to the card width (textAlign:'center').
+  // Weight 900 (kept). marginTop 2 keeps the stack tight between
+  // the £hero line and the title.
   title: {
-    flex: 1,
+    textAlign: 'center',
+    marginTop: 2,
     color: WHITE_TEXT,
     fontSize: 16,
     fontWeight: '900',
