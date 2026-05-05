@@ -494,14 +494,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  // §40 (impeccable polish): chip backdrop tinted toward the
-  // brand navy `#010C35` at 42% alpha (was pure-black tint at
-  // 34%). Per impeccable's "tint every neutral toward the
-  // brand hue" — neutrals shouldn't be pure black/grey on a
-  // brand card. Same darkness, brand-aware. Border at 0.10
-  // white for premium definition (kept).
+  // §40 navy-tinted backdrop kept. Round 6 follow-up: chip
+  // paddingVertical 5 → 2 so the chip itself becomes shorter
+  // without touching the label typography (fontSize 12, weight
+  // 800, letterSpacing 0.2 all unchanged). The heart wrapper
+  // (24pt) is now the topRow's tallest child instead of the
+  // chip — which means the chip is centred within a taller
+  // row and gets ~2pt of visible breathing space above and
+  // below it inside the row. That space reads as the gap the
+  // owner asked for between the chip and the "Save up to"
+  // line that follows. Label stays centred (default flex
+  // alignment within the chip box).
+  // Horizontal padding kept at 11 so the label doesn't crowd
+  // the chip edges.
   typeChip: {
-    paddingVertical: 5,
+    paddingVertical: 2,
     paddingHorizontal: 11,
     borderRadius: 999,
     backgroundColor: 'rgba(1,12,53,0.42)',
