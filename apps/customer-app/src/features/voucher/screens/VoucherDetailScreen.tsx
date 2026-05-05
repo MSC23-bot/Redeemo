@@ -275,6 +275,7 @@ export function VoucherDetailScreen() {
                 imageUrl={voucher.imageUrl}
                 expiryDate={voucher.expiryDate}
                 isMultiBranch={isMultiBranch}
+                terms={voucher.terms}
               />
             </View>
 
@@ -283,7 +284,7 @@ export function VoucherDetailScreen() {
             </View>
 
             <View style={styles.couponBottomRound}>
-              <CouponBodyCard terms={voucher.terms} />
+              <CouponBodyCard type={voucher.type} terms={voucher.terms} />
             </View>
           </View>
         </View>

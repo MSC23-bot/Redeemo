@@ -2,20 +2,37 @@ import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Check, Clock, FileText, Info, Shield, Tag } from 'lucide-react-native'
+import { Check, Clock, FileText, Home, Info, Shield, Tag } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import type { VoucherType } from '@/lib/api/voucher'
 import { voucherGradient } from '../utils/voucherTheme'
-import { FAIR_USE_LINES, FAIR_USE_TITLE, splitTermsIntoBullets } from '../constants/productCopy'
+import {
+  FAIR_USE_TITLE,
+  deriveDineInPill,
+  fairUseLinesForVoucherType,
+  splitTermsIntoBullets,
+} from '../constants/productCopy'
 
 type CouponTopCardProps = {
   type: VoucherType
   imageUrl: string | null
   expiryDate: string | null  // ISO
   isMultiBranch: boolean
+  /**
+   * Voucher terms — passed through to derive the "Dine-in only" pill
+   * from terms content. Per v4 mockup the pill row sits in the top
+   * card; the terms themselves render in the bottom card.
+   */
+  terms: string | null
 }
 
 type CouponBodyCardProps = {
+  /**
+   * Voucher type — drives the Fair Use lines via
+   * fairUseLinesForVoucherType(). BOGO gets the guest/group rule;
+   * other types get the universal three.
+   */
+  type: VoucherType
   /**
    * Voucher terms — backend stores this as a single string; we split
    * into bullet items for display via splitTermsIntoBullets().
@@ -37,10 +54,11 @@ const CREAM       = '#FFF9F5'
  * info pills. Sits between the outer perforation (under header) and
  * the inner perforation (above body). Per v4 §coupon-top-card.
  */
-export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch }: CouponTopCardProps) {
+export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch, terms }: CouponTopCardProps) {
   const expiryLabel = expiryDate
     ? `Expires ${new Date(expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
     : null
+  const dineInLabel = deriveDineInPill(terms)
 
   // Banner fallback: darken the type gradient so it reads as a hero
   // image area rather than as the coupon's main colour fill.
@@ -79,6 +97,11 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch }: Cou
               No expiry
             </Pill>
           )}
+          {dineInLabel ? (
+            <Pill tone="neutral" icon={<Home size={12} color={TEXT_2ND} strokeWidth={2} />}>
+              {dineInLabel}
+            </Pill>
+          ) : null}
           <Pill tone="neutral" icon={<Tag size={12} color={TEXT_2ND} strokeWidth={2} />}>
             {isMultiBranch ? 'All branches' : 'Single branch'}
           </Pill>
@@ -96,8 +119,9 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch }: Cou
  * (per v4 mockup screen 1). Showing it twice on the same screen was
  * a Round-1 visual regression.
  */
-export function CouponBodyCard({ terms }: CouponBodyCardProps) {
-  const termsList = splitTermsIntoBullets(terms)
+export function CouponBodyCard({ type, terms }: CouponBodyCardProps) {
+  const termsList    = splitTermsIntoBullets(terms)
+  const fairUseLines = fairUseLinesForVoucherType(type)
 
   return (
     <View style={styles.bodyCard} testID="coupon-body">
@@ -123,7 +147,7 @@ export function CouponBodyCard({ terms }: CouponBodyCardProps) {
           <Shield size={14} color={ROSE} strokeWidth={2} />
           <Text variant="label.md" style={styles.fairTitle}>{FAIR_USE_TITLE}</Text>
         </View>
-        {FAIR_USE_LINES.map((line, i) => (
+        {fairUseLines.map((line, i) => (
           <View key={i} style={styles.fairItem}>
             <Info size={11} color={TEXT_MUTED} strokeWidth={2} />
             <Text variant="body.sm" style={styles.fairItemText}>{line}</Text>
