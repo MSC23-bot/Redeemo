@@ -34,6 +34,7 @@ import {
 import { InlineError } from '@/design-system/components/InlineError'
 import { MapPin, Lock, Search, ArrowLeft, CheckCircle, Gift, ShieldCheck, Navigation, AlertCircle } from '@/design-system/icons'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
+import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { scale, ms } from '@/design-system/scale'
 import { useUpdateProfile } from '@/hooks/useUpdateProfile'
 import { useProfileCompletion } from '@/features/profile-completion/hooks/useProfileCompletion'
@@ -298,7 +299,7 @@ export function PC2AddressScreen() {
                 />
                 <View style={s.inputIcon} pointerEvents="none">
                   {isLooking
-                    ? <ActivityIndicator size="small" color={color.brandRose} />
+                    ? <RedeemoLoader size={scale(20)} accessibilityLabel="Looking up postcode" />
                     : <Search size={scale(18)} color={isFocused ? color.brandRose : color.text.tertiary} />
                   }
                 </View>
