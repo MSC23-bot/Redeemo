@@ -5,13 +5,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // Mock the sub-components — they each have their own visual tests; here we
 // only verify the screen composes them correctly and gates behaviour
 // (loading / error / free-user voucher gate).
-// M1 — HeroSection split into <HeroBanner> (absolute layer outside
-// the ScrollView; receives `scrollY` shared value) + <HeroBannerSpacer>
-// (in-flow placeholder reserving HERO_HEIGHT pixels). Mocks below
-// surface the same fav-state probe as the legacy mock so existing
-// assertions still pass; the spacer is a no-op.
+// M1.1 — HeroSection split into THREE exports for header z-layering:
+//   • <HeroBackdrop>: absolute layer mounted BEFORE the scrollWrap in
+//     JSX (behind scroll content in z-order). Image + vignette + badges.
+//   • <HeroNav>: absolute layer mounted AFTER the scrollWrap in JSX
+//     (above scroll content in z-order). Back / share / heart buttons.
+//   • <HeroBannerSpacer>: in-flow placeholder reserving HERO_HEIGHT
+//     pixels at the position the legacy <HeroSection> occupied so
+//     downstream child indices stay the same.
+// Backdrop renders nothing in tests; HeroNav surfaces the same fav-
+// state probe as the legacy mock so existing screen assertions still
+// pass; spacer is a no-op test-id placeholder.
 jest.mock('@/features/merchant/components/HeroSection', () => ({
-  HeroBanner: ({ isFavourited }: { isFavourited: boolean }) => {
+  HeroBackdrop: () => null,
+  HeroNav: ({ isFavourited }: { isFavourited: boolean }) => {
     const { Text } = require('react-native')
     return <Text>HERO_FAV={String(isFavourited)}</Text>
   },

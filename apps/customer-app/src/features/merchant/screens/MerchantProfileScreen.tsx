@@ -15,7 +15,7 @@ import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
 import { useBranchSelection } from '../hooks/useBranchSelection'
-import { HeroBanner, HeroBannerSpacer } from '../components/HeroSection'
+import { HeroBackdrop, HeroNav, HeroBannerSpacer } from '../components/HeroSection'
 import { MerchantDescriptor } from '../components/MerchantDescriptor'
 import { MetaRow } from '../components/MetaRow'
 import { ActionRow } from '../components/ActionRow'
@@ -387,14 +387,29 @@ export function MerchantProfileScreen({ id }: Props) {
 
   return (
     <View style={styles.container}>
+      {/* M1 — Banner BACKDROP. Mounted BEFORE the scrollWrap in JSX so
+          it sits BEHIND scroll content in z-order. The merchant logo
+          (positioned in <MerchantHeadline> with `top: -36` to overlap
+          the banner/cream boundary by half) renders ON TOP of this
+          backdrop because it lives inside the scroll content. The
+          backdrop's image grows in height on overscroll so its
+          aspect ratio is preserved (cover-mode crop) — see the
+          HeroSection module header for the full rationale. */}
+      <HeroBackdrop
+        bannerUrl={sb.bannerUrl ?? merchant.bannerUrl}
+        scrollY={scrollY}
+        topOffset={sbbHeight}
+      />
+
       {/* Round 6 follow-up: screen-wide dim+restore pulse driven
           by `selectedBranchId` changes. Wraps only the ScrollView
-          (everything that scrolls — banner, identity zone, sticky
-          tab bar, tab content). The toast and modals below sit
-          OUTSIDE this wrapper so they stay at full opacity during
-          the page pulse — the toast carries the confirmation
-          message at full visibility while the page itself reads
-          as "refreshing". */}
+          (everything that scrolls — identity zone, sticky tab bar,
+          tab content). The HeroBackdrop above and HeroNav below
+          sit OUTSIDE this wrapper so they stay at full opacity
+          during the page pulse, same pattern as the toast / modals
+          below: the banner image is a static asset that doesn't
+          change with the branch switch, so dimming it would be
+          visual noise. */}
       <Animated.View style={[styles.scrollWrap, screenAnimatedStyle]}>
         <Animated.ScrollView
           testID="merchant-profile-scroll"
@@ -554,14 +569,13 @@ export function MerchantProfileScreen({ id }: Props) {
       </Animated.ScrollView>
       </Animated.View>
 
-      {/* HeroBanner mounts AFTER scrollWrap so it sits above the
-          ScrollView in z-order — its taps reach the back / share /
-          heart buttons rather than being intercepted by scroll
-          content. The banner stays at full opacity during the
-          screen-wide branch-switch pulse (which only wraps the
-          ScrollView), same pattern as the toast / modals below. */}
-      <HeroBanner
-        bannerUrl={sb.bannerUrl ?? merchant.bannerUrl}
+      {/* M1 — Banner NAV. Mounted AFTER the scrollWrap in JSX so it
+          sits ABOVE scroll content in z-order — back / share / heart
+          stay tappable even though the backdrop image is behind
+          scroll. `pointerEvents="box-none"` on HeroNav itself so
+          taps in non-button areas pass through to the ScrollView's
+          pan-gesture detector for normal scrolling. */}
+      <HeroNav
         isFavourited={favourite.isFavourited}
         onToggleFavourite={favourite.toggle}
         onShare={handleShare}
