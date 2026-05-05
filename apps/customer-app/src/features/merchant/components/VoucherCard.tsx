@@ -303,28 +303,18 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             </Animated.View>
           </View>
 
-          {/* Round 6 follow-up: hero on the LEFT, title vertically
-              in line with hero AND horizontally centred to the
-              CARD. The trick: fixed-width hero column on the left
-              (so the eyebrow stays centred over the £value
-              regardless of value width — £4, £2.50 and £69.99
-              all balanced under the same caption); a flex:1
-              title in the middle with textAlign:'center'; and a
-              fixed-width invisible spacer on the right matching
-              the hero. That places the title's text-centre at
-              the card's horizontal centre.
-              Description and bottom row sit below this combined
-              row, full-width as usual. */}
-          <View style={styles.heroTitleRow}>
-            <View style={styles.heroBlock}>
-              <Text style={styles.heroLabel}>Save up to</Text>
-              <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
-            </View>
-            <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
-              {voucher.title}
-            </Text>
-            <View style={styles.titleBalanceSpacer} />
+          {/* Round 6 follow-up: title back below the hero, left-
+              aligned in line with the description. Hero column on
+              the left with its children centred (eyebrow over
+              £value); title and description both sit full-width
+              below, sharing the left margin. */}
+          <View style={styles.heroBlock}>
+            <Text style={styles.heroLabel}>Save up to</Text>
+            <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
           </View>
+          <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+            {voucher.title}
+          </Text>
 
           {/* §38: description wrapped in a fixed-height View
               that reserves space for 2 lines regardless of
@@ -530,30 +520,16 @@ const styles = StyleSheet.create({
     padding: 3,
   },
 
-  // §40 (impeccable polish): hero + title row. The fixed-width
-  // left/right pair (heroBlock + titleBalanceSpacer, both 96pt)
-  // makes the title's text-centre line up with the card's
-  // horizontal centre. heroBlock children are centred within
-  // the 96pt column so "Save up to" stays balanced over short
-  // (£4) and long (£69.99) amounts.
-  // Vertical rhythm tiered per impeccable: smaller margin from
-  // chip/heart row above (4pt), larger margin to description
-  // below (8pt) — the description belongs to a different
-  // content tier so the gap should be more pronounced.
-  heroTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 8,
-  },
+  // Round 6 follow-up: hero on the LEFT, title back below the
+  // hero (no longer card-centred). heroBlock takes its own
+  // intrinsic width via alignSelf:'flex-start' (left edge of
+  // card) and centres its two children inside that column so
+  // the eyebrow stays balanced over the £value regardless of
+  // value width.
   heroBlock: {
-    width: 96,
+    alignSelf: 'flex-start',
     alignItems: 'center',
-    flexShrink: 0,
-  },
-  titleBalanceSpacer: {
-    width: 96,
-    flexShrink: 0,
+    marginTop: 2,
   },
   // §40 (impeccable polish): eyebrow letter-spacing 0.4 → 0.6
   // — wider tracking is the standard premium treatment for
@@ -587,22 +563,18 @@ const styles = StyleSheet.create({
   // letter-spacing. Stronger second-tier presence after the
   // £hero, with tinted off-white text. Description weight
   // drops to 400 (below) for sharper hierarchy contrast.
-  // Round 6 follow-up: title shares the heroTitleRow with the
-  // hero column on its left and a matching invisible spacer on
-  // its right. flex:1 + textAlign:'center' centres the title's
-  // text on the row's mid-point — and because the row is
-  // [96pt heroBlock][flex:1 title][96pt spacer], the title
-  // text-centre is the card's horizontal centre.
-  // Weight 900 kept; numberOfLines={2} on the JSX side handles
-  // long titles wrapping.
+  // Round 6 follow-up: title sits below the hero, left-aligned
+  // (default), full-width — in line with the description. Weight
+  // 900 kept. Tight marginTop/Bottom so the new separate-rows
+  // layout doesn't grow the card height.
   title: {
-    flex: 1,
-    textAlign: 'center',
     color: WHITE_TEXT,
     fontSize: 16,
     fontWeight: '900',
     letterSpacing: -0.3,
-    lineHeight: 20,
+    lineHeight: 19,
+    marginTop: 2,
+    marginBottom: 2,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -626,18 +598,14 @@ const styles = StyleSheet.create({
   },
 
   // §28 bottom row: expiry-LEFT, CTA-RIGHT.
-  // §40 (impeccable polish): marginTop 4 → 8 — the action
-  // tier (expiry + Redeem CTA) deserves more breathing room
-  // from the description above per impeccable's "vary spacing
-  // for rhythm" rule. Tiers the vertical rhythm:
-  //   chip→hero: 4   (associated identity zone, tight)
-  //   hero→description: 8  (different content tier)
-  //   description→action: 8  (separates info from CTA)
+  // Round 6 follow-up: marginTop tightened (8 → 4) to absorb
+  // the height the new separate title row added. Owner brief:
+  // "try not to make the voucher card height any bigger".
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 4,
     gap: 12,
   },
   // §39: metaText weight 600 → 500 so the expiry recedes
