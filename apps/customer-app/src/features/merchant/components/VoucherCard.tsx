@@ -474,11 +474,14 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    // §37: split padding — vertical 10 (was 12), horizontal
-    // kept at 12. 4pt extra height saved without text feeling
-    // tight against the card sides.
+    // Round 6 follow-up: vertical padding 10 → 8. Owner asked
+    // for the card to be "smaller from up and down" without
+    // touching content / fonts / positioning. Keeps meaningful
+    // breathing room (8pt at the top and bottom of the inner
+    // content) — the brief explicitly asked to preserve top/
+    // bottom padding inside.
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     flex: 1,
   },
 
@@ -513,11 +516,12 @@ const styles = StyleSheet.create({
     padding: 3,
   },
 
-  // §36: hero margins tightened (8/6 → 6/4). 4pt vertical
-  // saving without shrinking the eyebrow/£hero typography.
+  // Round 6 follow-up: hero margins tightened further (6/4 →
+  // 4/2). 4pt extra vertical saving — eyebrow and £hero
+  // typography untouched.
   heroBlock: {
-    marginTop: 6,
-    marginBottom: 4,
+    marginTop: 4,
+    marginBottom: 2,
   },
   heroLabel: {
     color: 'rgba(255,252,250,0.90)',
@@ -553,7 +557,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.3,
     lineHeight: 20,
-    marginBottom: 2,
+    // Round 6 follow-up: title marginBottom 2 → 0. Title sits
+    // tighter to the description below — 2pt saved without any
+    // type change.
+    marginBottom: 0,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -584,12 +591,12 @@ const styles = StyleSheet.create({
   // §28 bottom row: expiry-LEFT, CTA-RIGHT (back to the
   // standard layout from before §26). Possible because the R
   // is now at right-center above this row, not bottom-right.
-  // §36: marginTop 10 → 8. 2pt saved.
+  // Round 6 follow-up: marginTop 8 → 6. 2pt saved.
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 6,
     gap: 12,
   },
   // §39: metaText weight 600 → 500 so the expiry recedes
