@@ -23,7 +23,7 @@ export function RatingBlock({ avgRating, reviewCount }: Props) {
           icon with fill. Unicode glyph renders thin via Lato (no
           fontWeight reliability for special chars); SVG icon with
           fill is consistently bold + controllable. */}
-      <Star size={14} color="#F59E0B" fill="#F59E0B" strokeWidth={1.6} />
+      <Star size={12} color="#F59E0B" fill="#F59E0B" strokeWidth={1.6} />
       <Text variant="label.lg" style={styles.avg}>{rounded.toFixed(1)}</Text>
       <Text variant="label.md" style={styles.count}>({reviewCount})</Text>
     </View>
@@ -31,28 +31,27 @@ export function RatingBlock({ avgRating, reviewCount }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 4 §2: rating block re-styled per direction "could be a
-  // little bit more bolder and maybe a little bit bigger as well,
-  // maybe use a better style".
-  //   - Block bumps 14/12 → 15/12 with a softer cream surface
-  //     `#FFF4D6` (warmer than `#FFF8E1`, reads as a curated
-  //     editorial chip rather than a generic yellow tint).
-  //   - 1pt warm-amber border at 25% opacity defines the chip without
-  //     competing with the cream identity-zone background.
-  //   - Slight tabular spacing on the rating numeral so 4.0 / 4.5 /
-  //     5.0 line up if rendered side-by-side anywhere.
+  // Round 6 §5: rating chip rebalanced. Owner flagged it as
+  // visually too large compared with the BranchCard's other
+  // pill buttons (action btns at 12/600, status pill, etc.).
+  //   - star 14 → 12pt
+  //   - avg numeral 15/900 → 13/800
+  //   - count 12/600 → 11/600
+  //   - paddingVertical 7 → 5 / paddingHorizontal 13 → 10
+  //   - borderRadius 10 → 8 (tighter chip)
+  //   - kept the cream surface + amber border (already on-brand)
   block: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: '#FFF4D6',
-    borderRadius: 10,
-    paddingVertical: 7,
-    paddingHorizontal: 13,
+    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: 'rgba(245,158,11,0.25)',
   },
-  avg:         { fontSize: 15, fontWeight: '900', color: '#010C35', letterSpacing: -0.1 },
-  count:       { fontSize: 12, fontWeight: '600', color: '#6B7280' },
+  avg:         { fontSize: 13, fontWeight: '800', color: '#010C35', letterSpacing: -0.1 },
+  count:       { fontSize: 11, fontWeight: '600', color: '#6B7280' },
   placeholder: { fontSize: 12, color: '#aaa' },
 })
