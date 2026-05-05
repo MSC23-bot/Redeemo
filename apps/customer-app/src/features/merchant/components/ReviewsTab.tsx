@@ -358,9 +358,18 @@ const styles = StyleSheet.create({
   // family (consistent with active pill brand red), just less
   // intense — blends to ~`#FDF1F0` on the body, soft pink-cream
   // that frames the active pill without competing.
+  // Round 6 follow-up: active state moved from brand red
+  // `#E20C04` to brand navy `#010C35`. Owner flagged the
+  // brand-red active pill as too vibrant alongside the
+  // page's brand-red CTAs (Website, Redeem) and the navy
+  // Contact button. Toggle is a SELECTION UI, not an
+  // action — navy reads as the brand's "selected/utility"
+  // colour without competing with the primary CTAs. Track
+  // tint also shifted from red 5% to navy 4% so the track
+  // sits in the same hue family as the new active pill.
   toggle: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(226,12,4,0.05)',
+    backgroundColor: 'rgba(1,12,53,0.04)',
     borderRadius: 999,
     padding: 4,
     gap: 4,
@@ -374,12 +383,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   toggleBtnActive: {
-    backgroundColor: '#E20C04',
-    shadowColor: '#E20C04',
-    shadowOpacity: 0.30,
+    backgroundColor: '#010C35',
+    shadowColor: '#010C35',
+    shadowOpacity: 0.20,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
+    elevation: 4,
   },
   toggleText: {
     fontSize: 13,

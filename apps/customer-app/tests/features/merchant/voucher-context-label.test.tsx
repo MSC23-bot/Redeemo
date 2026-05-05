@@ -2,11 +2,11 @@ import React from 'react'
 import { render } from '@testing-library/react-native'
 import { VoucherContextLabel } from '@/features/merchant/components/VoucherContextLabel'
 
-// Round 6 §1: copy was "Showing offers for {branch}" — implied
-// branch-owned vouchers. Now keeps the merchant-wide count
-// + branch redemption context visible together:
-//   "{count} offers available · Redeem at {branch}"
-// Singular form: "1 offer available · Redeem at {branch}".
+// Round 6 §1: keeps the merchant-wide count visible, with the
+// redemption-context suffix only when there's more than one branch:
+//   multi-branch  → "{n} offers available · Redeem at {branch}"
+//   single-branch → "{n} offers available"          (no suffix)
+// Singular form: "1 offer available".
 describe('VoucherContextLabel', () => {
   it('renders the count + redemption-context copy when multi-branch and has vouchers', () => {
     const { getByText } = render(
@@ -24,11 +24,12 @@ describe('VoucherContextLabel', () => {
     expect(getByText(' · Redeem at Brightlingsea')).toBeTruthy()
   })
 
-  it('returns null on single-branch merchant', () => {
-    const { toJSON } = render(
+  it('renders the count WITHOUT the redemption-context suffix on a single-branch merchant', () => {
+    const { getByText, queryByText } = render(
       <VoucherContextLabel count={2} branchShortName="Only" isMultiBranch={false} hasVouchers={true} />
     )
-    expect(toJSON()).toBeNull()
+    expect(getByText('2 offers available')).toBeTruthy()
+    expect(queryByText(' · Redeem at Only')).toBeNull()
   })
 
   it('returns null when there are 0 vouchers', () => {

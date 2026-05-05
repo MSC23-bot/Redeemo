@@ -24,22 +24,21 @@ type Props = {
 
 // Round 6 §1: copy + style update.
 //
-// Previous: "Showing offers for {branch}" — read as if the vouchers
-// belonged to the branch. They don't. Vouchers are merchant-wide;
-// only redemption is branch-attributed.
+// Two forms:
+//   • Multi-branch:  "{n} offers available · Redeem at {branch}"
+//                    The redemption context tells the user which
+//                    branch they're viewing for redemption.
+//   • Single-branch: "{n} offers available"
+//                    There's only one branch — the redemption
+//                    context is implicit, so just the count.
 //
-// New copy keeps the two product facts visible together:
+// Both forms keep the product fact "vouchers are merchant-wide"
+// front and centre. Owner correction (Round 6 follow-up): single-
+// branch merchants must also show the offer count; the previous
+// version returned null on single-branch which left the tab
+// missing the count entirely.
 //
-//   "{count} offers available · Redeem at {branch}"
-//
-//   • "{count} offers available"        primary fact, navy 600
-//   • "· Redeem at {branch}"            secondary fact, grey 500
-//
-// Singular form: "1 offer available · Redeem at {branch}".
-//
-// Style bumped 11pt 500 grey → 12pt navy/grey for owner-flagged
-// readability. paddingTop/Bottom 4/8 → 6/12 so the label has air
-// above the first voucher card.
+// Singular form: "1 offer available".
 export function VoucherContextLabel({ count, branchShortName, isMultiBranch, hasVouchers, switchTrigger }: Props) {
   const motionScale = useMotionScale()
   const opacity = useSharedValue(1)
@@ -59,7 +58,7 @@ export function VoucherContextLabel({ count, branchShortName, isMultiBranch, has
 
   const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }))
 
-  if (!isMultiBranch || !hasVouchers) return null
+  if (!hasVouchers) return null
 
   const noun = count === 1 ? 'offer' : 'offers'
 
@@ -67,7 +66,9 @@ export function VoucherContextLabel({ count, branchShortName, isMultiBranch, has
     <Animated.View style={[styles.root, animatedStyle]} testID="voucher-context-label">
       <Text variant="label.md" style={styles.text}>
         <Text variant="label.md" style={styles.primary}>{`${count} ${noun} available`}</Text>
-        <Text variant="label.md" style={styles.secondary}>{` · Redeem at ${branchShortName}`}</Text>
+        {isMultiBranch && (
+          <Text variant="label.md" style={styles.secondary}>{` · Redeem at ${branchShortName}`}</Text>
+        )}
       </Text>
     </Animated.View>
   )

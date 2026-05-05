@@ -381,7 +381,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 14,
     borderRadius: 20,
-    marginHorizontal: 8,
+    // Round 6 follow-up: marginHorizontal 8 → 12 per owner ask
+    // for "a little bit slimmer". ~6.4% width slim on a 375pt
+    // screen (was ~4.3% with 8pt). Internal content, font sizes,
+    // positioning and vertical padding all unchanged.
+    marginHorizontal: 12,
   },
   card: {
     position: 'relative',
