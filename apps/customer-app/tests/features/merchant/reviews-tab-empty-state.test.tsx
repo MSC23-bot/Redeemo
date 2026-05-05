@@ -31,7 +31,7 @@ jest.mock('@/features/merchant/components/WriteReviewSheet',  () => ({ WriteRevi
 
 import { ReviewsTab } from '@/features/merchant/components/ReviewsTab'
 
-function renderTab(props: Partial<{ isMultiBranch: boolean }> = {}) {
+function renderTab(props: Partial<React.ComponentProps<typeof ReviewsTab>> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
@@ -40,7 +40,10 @@ function renderTab(props: Partial<{ isMultiBranch: boolean }> = {}) {
         currentBranchId="b1"
         currentBranchName="Brightlingsea"
         myReview={null}
-        isMultiBranch={props.isMultiBranch ?? true}
+        isMultiBranch={true}
+        currentBranchCount={0}
+        allBranchesCount={5}
+        {...props}
       />
     </QueryClientProvider>,
   )

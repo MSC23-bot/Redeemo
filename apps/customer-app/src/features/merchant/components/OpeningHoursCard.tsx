@@ -23,7 +23,7 @@ export function OpeningHoursCard({ weekSchedule, isOpen }: Props) {
     <View style={styles.card}>
       <View style={styles.titleRow}>
         <View style={styles.titleLeft}>
-          <Clock size={16} color={color.brandRose} />
+          <Clock size={18} color={color.brandRose} />
           <Text variant="heading.sm" style={styles.title}>Opening Hours</Text>
         </View>
         <View style={styles.statusRow}>
@@ -85,34 +85,37 @@ function StatusDot({ isOpen }: { isOpen: boolean }) {
 }
 
 const styles = StyleSheet.create({
+  // Round 5 §5 (impeccable polish): radius + title typography
+  // aligned with the other About cards (16 → 18 / 15pt 800 → 16pt
+  // 700) for a consistent system across the tab.
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   titleLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 9,
   },
   title: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#010C35',
-    letterSpacing: -0.1,
+    letterSpacing: -0.2,
   },
   statusRow: {
     flexDirection: 'row',
@@ -124,11 +127,13 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 3.5,
   },
+  // Round 5 §18: day rows paddingV 8 → 10 — better breathing
+  // between Sunday/Monday/Tuesday entries on the schedule list.
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   rowBorder: {
     borderBottomWidth: 1,

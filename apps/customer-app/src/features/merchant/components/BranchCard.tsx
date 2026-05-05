@@ -1,17 +1,21 @@
 import React from 'react'
-import { View, Pressable, StyleSheet, Linking } from 'react-native'
-import { MapPin, Star, ChevronRight, Phone as PhoneIcon, Navigation, Clock } from 'lucide-react-native'
+import { View, Pressable, StyleSheet } from 'react-native'
+import { Phone, Navigation, Clock, ArrowRight } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
-import { color, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
-import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
-import type { BranchDetail } from '@/lib/api/merchant'
+import { StatusPill } from './StatusPill'
+import { RatingBlock } from './RatingBlock'
+import { smartStatus } from '../utils/smartStatus'
+import { branchShortName } from '../utils/branchShortName'
+import type { BranchTile, OpeningHourEntry } from '@/lib/api/merchant'
 
 type Props = {
-  branch: BranchDetail
-  isNearest: boolean
-  onPress: () => void
-  onHoursPress?: () => void
+  branch:                BranchTile
+  openingHoursForStatus: OpeningHourEntry[]
+  onCall:                () => void
+  onDirections:          () => void
+  onHoursPreview:        () => void
+  onSwitch:              () => void
 }
 
 function formatDistance(metres: number | null): string | null {
@@ -20,215 +24,129 @@ function formatDistance(metres: number | null): string | null {
   return `${(metres / 1609.34).toFixed(1)} mi`
 }
 
-export function BranchCard({ branch, isNearest, onPress, onHoursPress }: Props) {
-  const distText = formatDistance(branch.distance)
-  const address = [branch.addressLine1, branch.city, branch.postcode].filter(Boolean).join(', ')
+export function BranchCard({ branch, openingHoursForStatus, onCall, onDirections, onHoursPreview, onSwitch }: Props) {
+  const status   = smartStatus(branch.isOpenNow, openingHoursForStatus)
+  const distance = formatDistance(branch.distance)
+  const address  = [branch.addressLine1, branch.city, branch.postcode].filter(Boolean).join(', ')
 
   return (
-    <Pressable
-      onPress={() => { lightHaptic(); onPress() }}
-      style={[styles.card, isNearest && styles.cardNearest]}
-      accessibilityRole="button"
-      accessibilityLabel={`${branch.name} branch${isNearest ? ', your nearest branch' : ''}. ${address}`}
-    >
-      {/* Nearest label */}
-      {isNearest && (
-        <View style={styles.nearestLabel}>
-          <MapPin size={12} color={color.brandRose} />
-          <Text variant="label.md" style={styles.nearestText}>YOUR NEAREST BRANCH</Text>
-        </View>
-      )}
-
-      {/* Branch name + chevron */}
-      <View style={styles.nameRow}>
-        <Text variant="heading.sm" style={styles.name}>{branch.name}</Text>
-        <ChevronRight size={18} color="#9CA3AF" />
-      </View>
-
-      {/* Address */}
-      <Text variant="body.sm" color="secondary" style={styles.address}>{address}</Text>
-
-      {/* Meta row */}
-      <View style={styles.metaRow}>
-        {distText && (
-          <Text variant="label.md" color="secondary" meta style={styles.dist}>{distText}</Text>
-        )}
-        {distText && <Text variant="label.md" color="tertiary" meta style={styles.sep}>·</Text>}
-        <StatusDot isOpen={branch.isOpenNow} />
-        <Text variant="label.md" style={[styles.statusText, { color: branch.isOpenNow ? '#16A34A' : '#B91C1C' }]}>
-          {branch.isOpenNow ? 'Open' : 'Closed'}
+    <View style={styles.card}>
+      <View style={styles.rowTop}>
+        <Text variant="label.lg" style={styles.name} numberOfLines={1} ellipsizeMode="tail">
+          {branchShortName(branch.name)}
         </Text>
-        {branch.avgRating !== null && branch.reviewCount > 0 && (
-          <>
-            <Text variant="label.md" color="tertiary" meta style={styles.sep}>·</Text>
-            <Star size={12} color="#F59E0B" fill="#F59E0B" />
-            <Text variant="label.md" style={styles.rating}>
-              {branch.avgRating.toFixed(1)} ({branch.reviewCount})
-            </Text>
-          </>
-        )}
+        <RatingBlock avgRating={branch.avgRating} reviewCount={branch.reviewCount} />
       </View>
 
-      {/* Action buttons (nearest branch only) */}
-      {isNearest && (
-        <View style={styles.actions}>
-          {branch.phone && (
-            <Pressable
-              onPress={() => { lightHaptic(); Linking.openURL(`tel:${branch.phone}`) }}
-              style={styles.actionBtn}
-              accessibilityLabel="Call branch"
-            >
-              <PhoneIcon size={14} color={color.navy} />
-              <Text variant="label.md" style={styles.actionText}>Call</Text>
-            </Pressable>
-          )}
-          <Pressable
-            onPress={() => {
-              lightHaptic()
-              if (branch.latitude && branch.longitude) {
-                Linking.openURL(`https://maps.apple.com/?daddr=${branch.latitude},${branch.longitude}`)
-              }
-            }}
-            style={styles.actionBtn}
-            accessibilityLabel="Get directions"
-          >
-            <Navigation size={14} color={color.navy} />
-            <Text variant="label.md" style={styles.actionText}>Directions</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => { lightHaptic(); (onHoursPress ?? onPress)() }}
-            style={styles.actionBtn}
-            accessibilityLabel="View hours"
-          >
-            <Clock size={14} color={color.navy} />
-            <Text variant="label.md" style={styles.actionText}>Hours</Text>
-          </Pressable>
-        </View>
-      )}
-    </Pressable>
+      <View style={styles.rowMid}>
+        <StatusPill state={status.pillState} label={status.pillLabel} />
+        <Text variant="label.md" style={styles.statusText}>{status.statusText}</Text>
+        {distance !== null ? (
+          <>
+            <Text variant="label.md" style={styles.separator}>·</Text>
+            <Text variant="label.md" style={styles.distance}>{distance}</Text>
+          </>
+        ) : null}
+      </View>
+
+      {address ? (
+        <Text variant="label.md" style={styles.address} numberOfLines={1} ellipsizeMode="tail">{address}</Text>
+      ) : null}
+
+      <View style={styles.actions}>
+        <Pressable style={styles.actionBtn} onPress={() => { lightHaptic(); onCall() }} accessibilityLabel="Call">
+          <Phone size={12} color="#010C35" />
+          <Text variant="label.md" style={styles.actionText}>Call</Text>
+        </Pressable>
+        <Pressable style={styles.actionBtn} onPress={() => { lightHaptic(); onDirections() }} accessibilityLabel="Directions">
+          <Navigation size={12} color="#010C35" />
+          <Text variant="label.md" style={styles.actionText}>Directions</Text>
+        </Pressable>
+        <Pressable style={styles.actionBtn} onPress={() => { lightHaptic(); onHoursPreview() }} accessibilityLabel="Hours">
+          <Clock size={12} color="#010C35" />
+          <Text variant="label.md" style={styles.actionText}>Hours</Text>
+        </Pressable>
+        <Pressable style={styles.switchBtn} onPress={() => { lightHaptic(); onSwitch() }} accessibilityLabel="Switch to this branch">
+          <Text variant="label.md" style={styles.switchText}>Switch</Text>
+          <ArrowRight size={12} color="#fff" />
+        </Pressable>
+      </View>
+    </View>
   )
 }
 
-function StatusDot({ isOpen }: { isOpen: boolean }) {
-  const pulseStyle = useAnimatedStyle(() => {
-    if (!isOpen) return { opacity: 1 }
-    return {
-      opacity: withRepeat(
-        withTiming(0.45, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
-        -1,
-        true,
-      ),
-    }
-  })
-
-  return (
-    <Animated.View
-      style={[
-        styles.dot,
-        { backgroundColor: isOpen ? '#16A34A' : '#B91C1C' },
-        pulseStyle,
-      ]}
-    />
-  )
-}
-
+// Round 5 §6 (impeccable polish): BranchCard joins the system the
+// other cards already use (About / Photos / Amenities / Hours
+// rounded at §5 + voucher card rounded at §4).
+//   • borderRadius 12 → 18; padding 14 → 18; system shadow added
+//     (opacity 0.08, radius 16, offset 4, elevation 4) so the card
+//     visibly elevates against the white body — was the only flat
+//     outline card in the merchant profile.
+//   • Border `#E5E0DB` (warm-cream era) → `rgba(0,0,0,0.04)`
+//     neutral. Aligns with round 4 §8's white-body palette.
+//   • Title 14pt 800 → 16pt 700 (system-wide title treatment from
+//     round 5 §5).
+//   • statusText / separator / distance 11 → 12pt (legibility).
+//   • address `#9CA3AF` 11pt → `#6B7280` 12pt (legibility).
+//   • Action buttons: paddingV 7 → 9, radius 7 → 10, border neutral.
+//   • Action / Switch text 10 → 11pt with letterSpacing.
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 18,
+    padding: 18,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 4,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
   },
-  cardNearest: {
-    borderWidth: 1.5,
-    borderColor: color.brandRose,
-    shadowColor: color.brandRose,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-  },
-  nearestLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 8,
-  },
-  nearestText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: color.brandRose,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  name: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#010C35',
-  },
-  address: {
-    fontSize: 12,
-    marginTop: 4,
-    lineHeight: 17,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 8,
-    flexWrap: 'wrap',
-  },
-  dist: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  sep: {
-    fontSize: 8,
-    color: '#D1D5DB',
-  },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  rating: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#010C35',
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
-  },
-  actionBtn: {
+  // Round 5 §18: vertical rhythm bumped per user direction
+  // "spacing improvements on cards in branches". Progression
+  // 6 → 8 → 12 (tight) becomes 8 → 10 → 16 — clearer
+  // architectural separation between name, status row, and
+  // address before the action row.
+  // Round 5 §19 (impeccable typography pass): body text bumped
+  // 12 → 13pt across status / separator / distance / address.
+  // address gains lineHeight 18 + letterSpacing -0.1 for prose
+  // refinement — long addresses need to breathe across two lines.
+  rowTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 },
+  name:       { fontSize: 16, fontWeight: '700', color: '#010C35', letterSpacing: -0.2 },
+  rowMid:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  statusText: { color: '#222', fontWeight: '500', fontSize: 13 },
+  separator:  { color: '#D1D5DB', fontSize: 13 },
+  distance:   { color: '#6B7280', fontWeight: '500', fontSize: 13 },
+  address:    { color: '#6B7280', fontSize: 13, lineHeight: 18, letterSpacing: -0.1, marginBottom: 16 },
+  actions:    { flexDirection: 'row', gap: 8 },
+  actionBtn:  {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 10,
+    gap: 5,
+    paddingVertical: 9,
     borderRadius: 10,
-    backgroundColor: '#FFF9F5',
     borderWidth: 1,
-    borderColor: '#F0EBE6',
+    borderColor: 'rgba(0,0,0,0.06)',
+    backgroundColor: '#FFF',
   },
-  actionText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#010C35',
+  actionText: { fontSize: 12, fontWeight: '600', color: '#010C35', letterSpacing: 0.1 },
+  switchBtn: {
+    flex: 1.3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: '#E20C04',
+    shadowColor: '#E20C04',
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
+  switchText: { fontSize: 12, fontWeight: '700', color: '#FFF', letterSpacing: 0.1 },
 })

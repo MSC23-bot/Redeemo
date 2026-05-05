@@ -24,11 +24,20 @@ jest.mock('@/stores/auth', () => ({
   useAuthStore: () => ({ status: 'authed', user: { id: 'u1' } }),
 }))
 
-const renderTab = (props = {}) => {
+const renderTab = (props: Partial<React.ComponentProps<typeof ReviewsTab>> = {}) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <ReviewsTab merchantId="m1" currentBranchId="b1" currentBranchName="Brightlingsea" myReview={null} isMultiBranch={true} {...props} />
+      <ReviewsTab
+        merchantId="m1"
+        currentBranchId="b1"
+        currentBranchName="Brightlingsea"
+        myReview={null}
+        isMultiBranch={true}
+        currentBranchCount={3}
+        allBranchesCount={3}
+        {...props}
+      />
     </QueryClientProvider>,
   )
 }
@@ -64,10 +73,50 @@ describe('ReviewsTab branch-filter toggle', () => {
     fireEvent.press(getByLabelText(/All branches/i))
     rerender(
       <QueryClientProvider client={new QueryClient()}>
-        <ReviewsTab merchantId="m1" currentBranchId="b2" currentBranchName="Frinton" myReview={null} isMultiBranch={true} />
+        <ReviewsTab
+          merchantId="m1"
+          currentBranchId="b2"
+          currentBranchName="Frinton"
+          myReview={null}
+          isMultiBranch={true}
+          currentBranchCount={3}
+          allBranchesCount={3}
+        />
       </QueryClientProvider>,
     )
     expect(mockUseMerchantReviews).toHaveBeenLastCalledWith('m1', expect.not.objectContaining({ branchId: expect.anything() }))
     expect(mockUseReviewSummary).toHaveBeenLastCalledWith('m1', expect.not.objectContaining({ branchId: expect.anything() }))
+  })
+
+  // Round 6 §3: scope label copy updated.
+  //   - "Reviews of {branch}" → "Reviews for {branch}" (more natural English)
+  //   - "All branches" → "Reviews across all branches" (matches the branch
+  //     case grammatically; both forms now lead with "Reviews")
+  it('renders the scope label "Reviews for {branch}" between toggle and breakdown when filter=branch', () => {
+    const { getByText } = renderTab({ currentBranchName: 'Brightlingsea', isMultiBranch: true })
+    expect(getByText('Reviews for Brightlingsea')).toBeTruthy()
+  })
+
+  it('switches scope label to "Reviews across all branches" after toggling to all', () => {
+    const { getByText, getByLabelText } = renderTab({ currentBranchName: 'Brightlingsea', isMultiBranch: true })
+    fireEvent.press(getByLabelText(/^All branches/))
+    expect(getByText('Reviews across all branches')).toBeTruthy()
+  })
+
+  it('hides scope label and toggle on single-branch merchants', () => {
+    const { queryByText, queryByLabelText } = renderTab({ currentBranchName: 'Brightlingsea', isMultiBranch: false })
+    expect(queryByText(/^Reviews of /)).toBeNull()
+    expect(queryByLabelText(/^All branches/)).toBeNull()
+  })
+
+  it('shows per-branch counts in toggle labels', () => {
+    const { getByText } = renderTab({
+      currentBranchName: 'Brightlingsea',
+      isMultiBranch: true,
+      currentBranchCount: 7,
+      allBranchesCount: 12,
+    })
+    expect(getByText('Brightlingsea (7)')).toBeTruthy()
+    expect(getByText('All branches (12)')).toBeTruthy()
   })
 })

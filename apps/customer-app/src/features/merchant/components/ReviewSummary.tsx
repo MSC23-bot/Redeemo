@@ -89,18 +89,21 @@ export function ReviewSummary({ averageRating, totalReviews, distribution, onWri
   )
 }
 
+// Round 5 §6 (impeccable polish): card chrome joins the system
+// (radius 18 + system shadow opacity 0.08 / radius 16 / offset 4 /
+// elevation 4 — same as About cards from §5).
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   top: {
     flexDirection: 'row',
@@ -110,43 +113,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexShrink: 0,
   },
+  // Round 5 §6: weight 800 → 700 (less shouty for the hero number),
+  // tabular-nums via fontVariant so 4.0 / 4.5 / 5.0 align if shown
+  // alongside other ratings.
   bigScore: {
     fontSize: 46,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#010C35',
     lineHeight: 46,
-    letterSpacing: -1,
+    letterSpacing: -1.2,
+    fontVariant: ['tabular-nums'],
   },
   starsRow: {
     flexDirection: 'row',
     gap: 2,
     marginTop: 4,
   },
+  // Round 5 §19: bumped 12 → 13pt as part of the typography pass.
   totalText: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '500',
     marginTop: 4,
   },
+  // Round 5 §18: bar rhythm bumped per user direction "spacing
+  // improvements on reviews". gap 5 → 7 between distribution
+  // bars; barRow gap 8 → 10 between number / track / count.
   barsCol: {
     flex: 1,
-    gap: 5,
+    gap: 7,
   },
   barRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
+  // Round 5 §19: bar number 11 → 12pt for the rating-distribution
+  // bars (5/4/3/2/1). Width bumped 10 → 12 to fit.
   barNum: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: '#4B5563',
-    width: 10,
+    width: 12,
     textAlign: 'right',
   },
+  // Round 5 §6: bar track bg shifted from `#F3F0EB` (warm-cream
+  // era) to `#F3F4F6` (neutral pale) so the bars sit cleanly on
+  // the white card.
   barTrack: {
     flex: 1,
     height: 6,
-    backgroundColor: '#F3F0EB',
+    backgroundColor: '#F3F4F6',
     borderRadius: 3,
     overflow: 'hidden',
   },
@@ -154,13 +170,16 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
+  // Round 6 §4: distribution count 11 → 12pt to match the bar
+  // numerals (1–5). Tabular-nums kept for column alignment.
   barCount: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '500',
-    width: 20,
+    width: 22,
+    fontVariant: ['tabular-nums'],
   },
   writeBtn: {
-    marginTop: 20,
+    marginTop: 22,
     borderRadius: 12,
     overflow: 'hidden',
     shadowColor: color.brandRose,
@@ -176,9 +195,11 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 13,
   },
+  // Round 6 §4: Write Review CTA 13 → 14pt for action prominence.
   writeBtnText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: '#FFF',
+    letterSpacing: 0.1,
   },
 })

@@ -15,7 +15,7 @@ type Props = {
   openingHours: OpeningHourEntry[]
   // Server-computed live status (Europe/London) — threaded down from the
   // screen and passed straight into OpeningHoursCard's header pill so the
-  // tab and MetaSection share a single source of truth.
+  // About tab and the meta-row layer share a single source of truth.
   serverIsOpenNow: boolean
 }
 

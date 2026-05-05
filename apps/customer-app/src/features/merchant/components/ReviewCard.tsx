@@ -80,8 +80,8 @@ export function ReviewCard({ review, showBranchLabel, onHelpful, onEdit, onDelet
             <Text variant="label.lg" style={styles.name}>{review.displayName}</Text>
             {review.isVerified && (
               <View style={styles.verifiedBadge}>
-                <CheckCircle size={11} color="#16A34A" />
-                <Text variant="label.md" style={styles.verifiedText}>VERIFIED</Text>
+                <CheckCircle size={12} color="#15803D" />
+                <Text variant="label.md" style={styles.verifiedText}>Verified</Text>
               </View>
             )}
           </View>
@@ -152,23 +152,30 @@ export function ReviewCard({ review, showBranchLabel, onHelpful, onEdit, onDelet
   )
 }
 
+// Round 5 §6 (impeccable polish): card chrome aligned with the
+// system. radius 14 → 16 (smaller list item — tier below the
+// summary's 18pt), shadow bumped from barely-visible 0.03 to
+// list-item shadow 0.06, padding 16 → 18.
+//
+// Own-review border: neutral grey `#D1D5DB` → brand-red 18% so
+// the "your review" cue matches the YOUR REVIEW label colour.
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 16,
+    padding: 18,
     shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(0,0,0,0.04)',
     position: 'relative',
   },
   cardOwn: {
     borderWidth: 1.5,
-    borderColor: '#D1D5DB',
+    borderColor: 'rgba(226,12,4,0.18)',
   },
   ownLabel: {
     fontSize: 10,
@@ -194,10 +201,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ownBtnDel: {},
+  // Round 5 §18: spacing rhythm bumped across the card per user
+  // direction "spacing could do with improvement".
+  //   header gap        12 → 14  (avatar to info)
+  //   miniStars top      8 → 10
+  //   text top           8 → 10, lineHeight 21 → 23 (better prose)
+  //   helpful top       12 → 14
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
   },
   avatar: {
     width: 40,
@@ -233,43 +246,68 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  // Round 6 §4: reviewer name 14 → 15pt so the name carries
+  // first-tier weight in the card. Owner brief: reviewer
+  // should stand out clearly.
   name: {
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#010C35',
+    letterSpacing: -0.1,
   },
+  // Round 5 §18 (impeccable polish): VERIFIED stamp made prominent
+  // per user direction "stamp on reviews should be more prominent".
+  // Was: 9pt 800 floating green text + 11pt CheckCircle — read as
+  // tiny inline note. Now wrapped in a green-tinted pill with
+  // border — looks like a real stamp.
+  //   - Sentence-case "Verified" (was uppercase "VERIFIED" — pairs
+  //     better with the pill chrome; uppercase tracking inside a
+  //     bordered pill reads as shouty)
+  //   - Pill bg `rgba(22,163,74,0.10)` + border `rgba(22,163,74,0.25)`
+  //   - 12pt CheckCircle (was 11pt)
+  //   - 11pt 700 text (was 9pt 800)
+  //   - 5/9 padding for visible chrome
   verifiedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(22,163,74,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(22,163,74,0.25)',
   },
   verifiedText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#16A34A',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  date: {
     fontSize: 11,
+    fontWeight: '700',
+    color: '#15803D',
+    letterSpacing: 0.1,
+  },
+  // Round 5 §6: 11 → 12pt for legibility.
+  date: {
+    fontSize: 12,
     fontWeight: '500',
     marginTop: 2,
   },
   miniStars: {
     flexDirection: 'row',
     gap: 1,
-    marginTop: 8,
+    marginTop: 10,
   },
+  // Round 6 §4: review body 13/23 → 14/22 to match the About
+  // card body grade. Reads as comfortable prose, not micro-copy.
   text: {
-    fontSize: 13,
-    lineHeight: 21,
-    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 22,
+    marginTop: 10,
+    color: '#374151',
   },
   helpful: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 12,
+    marginTop: 14,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 6,
@@ -279,9 +317,12 @@ const styles = StyleSheet.create({
   helpfulActive: {
     backgroundColor: 'rgba(22,163,74,0.08)',
   },
+  // Round 6 §4: helpful button text weight 600 → 700 so the
+  // button affordance reads more confidently. fontSize already
+  // 12pt from §19.
   helpfulText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     color: '#9CA3AF',
   },
   helpfulTextActive: {

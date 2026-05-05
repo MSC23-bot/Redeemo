@@ -21,9 +21,15 @@ type Props = {
   // branches. The toggle's two states are equivalent and the cross-link
   // points nowhere. Locked correctness fix (PR #33 fix-up #3, 2026-05-03).
   isMultiBranch:     boolean
+  // Task 14: counts surfaced in the toggle labels and used to gate the
+  // empty-state "See reviews from other branches" cross-link. Both come from
+  // the screen — currentBranchCount = sb.reviewCount, allBranchesCount =
+  // merchant.reviewCount.
+  currentBranchCount: number
+  allBranchesCount:   number
 }
 
-export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch }: Props) {
+export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch, currentBranchCount, allBranchesCount }: Props) {
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
 
@@ -161,7 +167,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         style={[styles.toggleBtn, filter === 'branch' && styles.toggleBtnActive]}
       >
         <Text variant="label.md" style={[styles.toggleText, filter === 'branch' && styles.toggleTextActive]}>
-          {currentBranchName}
+          {currentBranchCount > 0 ? `${currentBranchName} (${currentBranchCount})` : currentBranchName}
         </Text>
       </Pressable>
       <Pressable
@@ -172,10 +178,23 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         style={[styles.toggleBtn, filter === 'all' && styles.toggleBtnActive]}
       >
         <Text variant="label.md" style={[styles.toggleText, filter === 'all' && styles.toggleTextActive]}>
-          All branches
+          {allBranchesCount > 0 ? `All branches (${allBranchesCount})` : 'All branches'}
         </Text>
       </Pressable>
     </View>
+  )
+
+  // Round 6 §3: scope label copy + style.
+  // - "Reviews of {branch}" → "Reviews for {branch}" (reads more naturally
+  //   in English; matches the "for" pattern used elsewhere in the product).
+  // - "All branches" → "Reviews across all branches" (matches the branch
+  //   case grammatically — both forms now lead with "Reviews").
+  // - 11pt regular grey → 13pt 600 darker grey for legibility, per the
+  //   typography pass (still subtle, not a heading).
+  const renderScopeLabel = () => (
+    <Text variant="label.md" style={styles.scopeLabel} numberOfLines={1} ellipsizeMode="tail">
+      {filter === 'branch' ? `Reviews for ${currentBranchName}` : 'Reviews across all branches'}
+    </Text>
   )
 
   if (summaryLoading || reviewsLoading) {
@@ -196,11 +215,14 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
     // stuck — without it, a branch-scoped empty page hides the only path to
     // view other branches' reviews.
     const isBranchScoped = filter === 'branch'
-    // Cross-link only makes sense when there ARE other branches to discover.
-    // Single-branch merchants must never render it.
-    const showCrossLink = isBranchScoped && isMultiBranch
+    // Task 14: only suggest "see reviews from other branches" when there
+    // ARE reviews on other branches. Without this gate the cross-link
+    // pointed at an empty list — confusing.
+    const showCrossLink = isBranchScoped && isMultiBranch && allBranchesCount > 0
     return (
       <View style={styles.container}>
+        {isMultiBranch && renderToggle()}
+        {isMultiBranch && renderScopeLabel()}
         {isAuthed && summary && (
           <ReviewSummary
             averageRating={0}
@@ -210,9 +232,6 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
             hasExistingReview={myReview !== null}
           />
         )}
-
-        {isMultiBranch && renderToggle()}
-
         <View style={styles.emptyText}>
           <Text variant="heading.md" color="secondary" align="center">
             {isBranchScoped ? `Be the first to review ${currentBranchName}` : 'No reviews yet'}
@@ -230,7 +249,6 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
             </Pressable>
           )}
         </View>
-
         <WriteReviewSheet
           visible={showWriteSheet}
           onDismiss={closeSheet}
@@ -246,6 +264,8 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
 
   return (
     <View style={styles.container}>
+      {isMultiBranch && renderToggle()}
+      {isMultiBranch && renderScopeLabel()}
       <ReviewSummary
         averageRating={summary.averageRating}
         totalReviews={summary.totalReviews}
@@ -253,15 +273,11 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         onWriteReview={openWriteForCurrentBranch}
         hasExistingReview={myReview !== null}
       />
-
-      {isMultiBranch && renderToggle()}
-
       <ReviewSortControl
         totalReviews={summary.totalReviews}
         sort={sort}
         onSortChange={setSort}
       />
-
       <View style={styles.reviewList}>
         {orderedReviews.map(review => (
           <ReviewCard
@@ -274,7 +290,6 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
           />
         ))}
       </View>
-
       <WriteReviewSheet
         visible={showWriteSheet}
         onDismiss={closeSheet}
@@ -311,36 +326,87 @@ const styles = StyleSheet.create({
   reviewList: {
     gap: 12,
   },
+  // Round 5 §14 (impeccable polish): toggle redesigned per user
+  // direction "review toggle needs massive improvements".
+  // Previous treatment was a generic iOS-style segmented control
+  // (cream-on-cream track, white active pill with weak shadow,
+  // 12pt 600 text) — no brand presence, low contrast, and the
+  // active state was barely distinguishable from inactive.
+  //
+  // New treatment:
+  //   • Track bg `#F0E2D2` — deeper cream than the body, sits
+  //     visibly within the white card it lives in. Pill-shaped
+  //     (borderRadius 999).
+  //   • Active button: filled brand-red `#E20C04` + brand-red
+  //     shadow + white text (700 weight). Strong "you are here"
+  //     cue, distinctly Redeemo. Pairs visually with the
+  //     brand-red glow on the voucher cards.
+  //   • Inactive button: transparent bg + dark navy text (600
+  //     weight). Reads as the secondary option without competing.
+  //   • Text bumped 12 → 13pt for legibility (matches the wider
+  //     system polish from rounds 5 §5 / §6 / §7).
+  //   • Padding 8/12 → 10/14 — bigger touch surface.
+  // Round 5 §17: track bg shifted from off-brand cream `#F5E5D3` to
+  // a brand-red 8% tint per user direction "the red [active] is
+  // fine but the other color is not in line with our branding".
+  // The track is now in the same hue family as the active pill,
+  // creating an intensity ramp (track at 8% → active at 100%) on
+  // the same brand colour. Blends to roughly `#FCE6E1` over the
+  // `#FFF9F5` body — visibly framed but distinctly pastel red.
+  // Round 5 §20: red tone toned down 8% → 5% per user direction
+  // "the red is a bit too prominent, tone it down". Same hue
+  // family (consistent with active pill brand red), just less
+  // intense — blends to ~`#FDF1F0` on the body, soft pink-cream
+  // that frames the active pill without competing.
+  // Round 6 follow-up: active state moved from brand red
+  // `#E20C04` to brand navy `#010C35`. Owner flagged the
+  // brand-red active pill as too vibrant alongside the
+  // page's brand-red CTAs (Website, Redeem) and the navy
+  // Contact button. Toggle is a SELECTION UI, not an
+  // action — navy reads as the brand's "selected/utility"
+  // colour without competing with the primary CTAs. Track
+  // tint also shifted from red 5% to navy 4% so the track
+  // sits in the same hue family as the new active pill.
   toggle: {
     flexDirection: 'row',
-    backgroundColor: '#F3F0EB',
-    borderRadius: 10,
-    padding: 3,
-    gap: 3,
+    backgroundColor: 'rgba(1,12,53,0.04)',
+    borderRadius: 999,
+    padding: 4,
+    gap: 4,
   },
   toggleBtn: {
     flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
   toggleBtnActive: {
-    backgroundColor: '#FFF',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    backgroundColor: '#010C35',
+    shadowColor: '#010C35',
+    shadowOpacity: 0.20,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   toggleText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#4B5563',
+    letterSpacing: -0.1,
   },
   toggleTextActive: {
-    color: '#010C35',
+    color: '#FFFFFF',
     fontWeight: '700',
+  },
+  scopeLabel: {
+    color: '#374151',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 10,
+    marginBottom: 4,
+    textAlign: 'center',
+    letterSpacing: -0.05,
   },
 })

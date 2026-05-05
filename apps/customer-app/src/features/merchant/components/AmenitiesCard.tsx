@@ -15,7 +15,7 @@ export function AmenitiesCard({ amenities }: Props) {
   return (
     <View style={styles.card}>
       <View style={styles.titleRow}>
-        <CheckCircle size={16} color={color.brandRose} />
+        <CheckCircle size={18} color={color.brandRose} />
         <Text variant="heading.sm" style={styles.title}>Amenities</Text>
       </View>
       <View style={styles.grid}>
@@ -33,46 +33,56 @@ export function AmenitiesCard({ amenities }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // Round 5 §5 (impeccable polish):
+  //   • borderRadius 16 → 18 (system consistency).
+  //   • Title 15pt 800 → 16pt 700.
+  //   • Item bg `#FFF9F5` (warm cream from the prior cream-page
+  //     era) → `#FAFAF7` (neutral pale). Round 4 §8 made the body
+  //     pure white; the warm-cream tint clashed with that. Item
+  //     border `#F0EBE6` → `rgba(0,0,0,0.05)` neutral.
+  //   • Item paddingVertical 8 → 10 — slight breathing room bump.
+  //   • Label fontSize 11 → 12, fontWeight 600 → 600 (kept) for
+  //     improved readability while staying secondary to titles.
   card: {
     backgroundColor: '#FFF',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: 9,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#010C35',
-    letterSpacing: -0.1,
+    letterSpacing: -0.2,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 14,
   },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     width: '47%',
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: '#FFF9F5',
+    backgroundColor: '#FAFAF7',
     borderWidth: 1,
-    borderColor: '#F0EBE6',
+    borderColor: 'rgba(0,0,0,0.05)',
   },
   iconBox: {
     width: 32,
@@ -82,10 +92,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Round 5 §19: 12 → 13pt with letterSpacing -0.1 for refinement.
+  // "Wi-Fi" / "Outdoor Seating" / etc. read more clearly.
   label: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '600',
     color: '#010C35',
+    letterSpacing: -0.1,
     flexShrink: 1,
   },
 })

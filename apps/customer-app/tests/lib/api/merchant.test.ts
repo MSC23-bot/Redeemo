@@ -83,6 +83,7 @@ const fullProfile = {
     isOpenNow:    true,
     avgRating:    4.5,
     reviewCount:  12,
+    openingHours: [],
   }],
   // P2.1 fields — required by the updated schema. fullProfile includes a
   // valid selectedBranch so existing tests continue to pass. The three new

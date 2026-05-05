@@ -53,13 +53,19 @@ export function VoucherCardStub({ pills }: Props) {
   )
 }
 
+// Visual correction round §3 (post-PR-#35 QA): perforation cutout colour
+// updated from `#FFF` → `#F5F1EB` so the perforation reads correctly
+// against the warm-cream page surface introduced in §1. Without this
+// update the cutout circles would render as bright white dots punched
+// through the cream — visually wrong for the "voucher torn from a sheet"
+// metaphor.
 const styles = StyleSheet.create({
   container: {
-    borderTopWidth: 2,
+    borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.08)',
     borderStyle: 'dashed',
-    paddingVertical: 12,
-    paddingLeft: 20,
+    paddingVertical: 10,
+    paddingLeft: 16,
     paddingRight: 16,
     position: 'relative',
   },
@@ -69,7 +75,7 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#FFF',
+    backgroundColor: '#F5F1EB',
   },
   cutoutLeft: { left: -8 },
   cutoutRight: { right: -8 },
@@ -82,8 +88,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
     borderRadius: 6,
   },
 })

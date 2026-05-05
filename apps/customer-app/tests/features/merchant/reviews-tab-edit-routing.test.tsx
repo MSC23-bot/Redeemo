@@ -114,6 +114,8 @@ function renderTab() {
         currentBranchName="Brightlingsea"
         myReview={ownReviewBrightlingsea}
         isMultiBranch={true}
+        currentBranchCount={2}
+        allBranchesCount={2}
       />
     </QueryClientProvider>,
   )
