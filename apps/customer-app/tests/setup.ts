@@ -43,6 +43,7 @@ jest.mock('react-native-reanimated', () => {
     withRepeat: (v: unknown) => v,
     runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
     runOnUI: (fn: (...args: unknown[]) => unknown) => fn,
+    cancelAnimation: (_v: unknown) => {},
     // RNGH internal hooks — return identity functions so gesture-handler
     // module-load + render code paths don't crash. Tests don't actually
     // exercise gestures.

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { View, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native'
+import { View, Pressable, StyleSheet, Alert } from 'react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { ReviewSummary } from './ReviewSummary'
@@ -9,6 +9,7 @@ import { WriteReviewSheet } from './WriteReviewSheet'
 import { useReviewSummary, useMerchantReviews } from '../hooks/useMerchantReviews'
 import { useCreateReview, useDeleteReview, useToggleHelpful } from '../hooks/useWriteReview'
 import { useAuthStore } from '@/stores/auth'
+import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import type { Review } from '@/lib/api/reviews'
 
 type Props = {
@@ -200,7 +201,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
   if (summaryLoading || reviewsLoading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color={color.brandRose} />
+        <RedeemoLoader size="md" accessibilityLabel="Loading reviews" />
       </View>
     )
   }

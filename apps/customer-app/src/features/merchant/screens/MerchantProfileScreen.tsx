@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { View, StyleSheet, ActivityIndicator, Share, Linking, Pressable, type LayoutChangeEvent } from 'react-native'
+import { View, StyleSheet, Share, Linking, Pressable, type LayoutChangeEvent } from 'react-native'
 import Animated, {
   withTiming,
   withSequence,
@@ -18,6 +18,7 @@ import { useBranchSelection } from '../hooks/useBranchSelection'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HeroBackdrop, HeroNav, HeroBannerSpacer } from '../components/HeroSection'
 import { CollapsedHeader, COMPACT_BAR_HEIGHT } from '../components/CollapsedHeader'
+import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { MerchantDescriptor } from '../components/MerchantDescriptor'
 import { MetaRow } from '../components/MetaRow'
 import { ActionRow } from '../components/ActionRow'
@@ -387,8 +388,8 @@ export function MerchantProfileScreen({ id }: Props) {
   }
   if (isLoading || (!merchant && !isError)) {
     return (
-      <View style={styles.loading} accessibilityLabel="Loading merchant profile">
-        <ActivityIndicator size="large" color={color.brandRose} />
+      <View style={styles.loading}>
+        <RedeemoLoader size="lg" accessibilityLabel="Loading merchant profile" />
       </View>
     )
   }

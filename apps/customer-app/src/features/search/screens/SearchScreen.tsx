@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { View, FlatList, StyleSheet, Keyboard, Animated } from 'react-native'
+import { View, FlatList, StyleSheet, Keyboard } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Text } from '@/design-system/Text'
 import { useSearch } from '@/hooks/useSearch'
@@ -10,6 +10,7 @@ import { SearchResultItem } from '../components/SearchResultItem'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState<T>(value)
@@ -20,19 +21,6 @@ function useDebounce<T>(value: T, delay: number): T {
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
   }, [value, delay])
   return debounced
-}
-
-function PulsingDot() {
-  const opacity = useRef(new Animated.Value(1)).current
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.3, duration: 400, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-      ])
-    ).start()
-  }, [opacity])
-  return <Animated.View style={[styles.pulsingDot, { opacity }]} />
 }
 
 function ResultSkeleton() {
@@ -115,8 +103,7 @@ export function SearchScreen() {
           </Text>
           {showLoading && (
             <View style={styles.loadingRow}>
-              <PulsingDot />
-              <Text style={styles.loadingText}>Loading</Text>
+              <RedeemoLoader size={22} accessibilityLabel="Searching" />
             </View>
           )}
         </View>
@@ -177,18 +164,6 @@ const styles = StyleSheet.create({
   loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-  },
-  pulsingDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#E20C04',
-  },
-  loadingText: {
-    fontSize: 10,
-    fontFamily: 'Lato-Regular',
-    color: '#9CA3AF',
   },
   skeletons: { gap: 6 },
   skeletonCard: {
