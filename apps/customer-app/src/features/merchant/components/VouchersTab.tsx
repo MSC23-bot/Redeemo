@@ -42,6 +42,7 @@ export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds
   return (
     <>
       <VoucherContextLabel
+        count={vouchers.length}
         branchShortName={branchShortName}
         isMultiBranch={isMultiBranch}
         hasVouchers={true}
