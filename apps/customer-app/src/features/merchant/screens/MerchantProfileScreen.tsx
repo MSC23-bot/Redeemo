@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { View, ScrollView, StyleSheet, ActivityIndicator, Share, Linking, Pressable } from 'react-native'
 import Animated, { FadeIn } from 'react-native-reanimated'
+import { LinearGradient } from 'expo-linear-gradient'
 import { router } from 'expo-router'
 import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
@@ -312,12 +313,24 @@ export function MerchantProfileScreen({ id }: Props) {
           onShare={handleShare}
         />
 
-        {/* Round 4 §8: identity zone wrapped in its own cream-bg view
-            so the cream is bounded to the top section. The container
-            below now stays white all the way down past the content,
-            so the area below the tab content (where minHeight didn't
-            reach on tall screens) is white as the user expects. */}
+        {/* Round 5 §11: identity zone now carries a subtle 2-stop
+            vertical gradient (top `#FFF9F5` matches onboarding
+            cream, bottom `#FAF1E2` deepens by ~5% lightness so the
+            boundary with the white tab bar below reads as a real
+            tonal step). Same craft style as the round 5 §10 tab
+            bar gradient — no blur, just a flat vertical gradient
+            for architectural depth.
+            Round 4 §8 base: identity zone wrapped in its own
+            view so the cream is bounded to the top section, body
+            below stays white all the way down. */}
         <View style={styles.identityZone}>
+          <LinearGradient
+            colors={['#FFF9F5', '#FAF1E2']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+            pointerEvents="none"
+          />
           <MerchantHeadline
             merchantName={merchant.businessName}
             logoUrl={sb.logoUrl ?? merchant.logoUrl}
@@ -491,7 +504,12 @@ const styles = StyleSheet.create({
   // Identity zone gets its own cream-bg wrapper; bounded to the
   // top section so the bottom (tab bar + body) stays white all the
   // way down past the content.
-  identityZone: { backgroundColor: '#FFF9F5' },
+  // Round 5 §11: identity zone gets a vertical gradient via the
+  // LinearGradient above. backgroundColor `#FFF9F5` retained as
+  // the Android fallback (matches the gradient's top stop) and as
+  // the natural under-color before children paint over it.
+  // position: relative anchors the absolute-fill gradient.
+  identityZone: { backgroundColor: '#FFF9F5', position: 'relative' },
   content:      { backgroundColor: '#FFFFFF', minHeight: 460, padding: 20 },
   errorScreen:  { flex: 1, backgroundColor: '#FFF9F5', padding: 16 },
   backBtn:      { paddingVertical: 12 },
