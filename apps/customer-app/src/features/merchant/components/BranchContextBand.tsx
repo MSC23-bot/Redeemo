@@ -1,5 +1,6 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
+import { MapPin } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 
 type Props = {
@@ -47,16 +48,24 @@ export function BranchContextBand({ isMultiBranch, branchLine, children }: Props
   // Multi-branch: branch line above the children.
   return (
     <View style={styles.root} testID="branch-context-band">
-      <Text
-        variant="label.lg"
-        style={styles.branchLine}
-        numberOfLines={1}
-        ellipsizeMode="tail"
-        testID="merchant-branch-line"
-        accessibilityLiveRegion="polite"
-      >
-        {branchLine}
-      </Text>
+      {/* Round 5 §17: MapPin icon next to the branch label. The icon
+          + label pairing reinforces "this is a location" semantics
+          and gives the line visual weight matching the rest of the
+          identity zone's iconographic language (Hours / Photos /
+          About / Amenities / Reviews all have leading icons). */}
+      <View style={styles.branchLineRow}>
+        <MapPin size={14} color="#A30D03" strokeWidth={2.4} />
+        <Text
+          variant="label.lg"
+          style={styles.branchLine}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          testID="merchant-branch-line"
+          accessibilityLiveRegion="polite"
+        >
+          {branchLine}
+        </Text>
+      </View>
       {children}
     </View>
   )
@@ -73,10 +82,20 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     gap: 8,
   },
+  // Round 5 §17: branch line is now in a flex row with a MapPin
+  // icon. Gap 6pt between icon and text — consistent with the
+  // about-card title row gap (9pt for 18pt icons; 6pt scales for
+  // the smaller 14pt MapPin).
+  branchLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   branchLine: {
     color: '#A30D03',
     fontWeight: '700',
     fontSize: 17,
     letterSpacing: -0.1,
+    flexShrink: 1,
   },
 })

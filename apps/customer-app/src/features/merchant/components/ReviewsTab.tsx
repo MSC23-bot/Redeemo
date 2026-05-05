@@ -339,9 +339,16 @@ const styles = StyleSheet.create({
   //   • Text bumped 12 → 13pt for legibility (matches the wider
   //     system polish from rounds 5 §5 / §6 / §7).
   //   • Padding 8/12 → 10/14 — bigger touch surface.
+  // Round 5 §17: track bg shifted from off-brand cream `#F5E5D3` to
+  // a brand-red 8% tint per user direction "the red [active] is
+  // fine but the other color is not in line with our branding".
+  // The track is now in the same hue family as the active pill,
+  // creating an intensity ramp (track at 8% → active at 100%) on
+  // the same brand colour. Blends to roughly `#FCE6E1` over the
+  // `#FFF9F5` body — visibly framed but distinctly pastel red.
   toggle: {
     flexDirection: 'row',
-    backgroundColor: '#F5E5D3',
+    backgroundColor: 'rgba(226,12,4,0.08)',
     borderRadius: 999,
     padding: 4,
     gap: 4,
