@@ -32,6 +32,19 @@ type Props = {
 export function TabBar({ tabs, activeTab, onTabPress }: Props) {
   return (
     <View style={styles.container}>
+      {/* Round 5 §8: subtle vertical gradient backing — top stop
+          matches the identity-zone cream above (#FFF9F5) for
+          continuity, bottom stop a hair darker (#FAF1E5) anchors
+          the bar's bottom edge before the white body. No blur — flat
+          gradient only, well clear of impeccable's
+          glassmorphism-as-default ban. */}
+      <LinearGradient
+        colors={['#FFF9F5', '#FAF1E5']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
       {tabs.map(tab => {
         const isActive = tab.id === activeTab
         return (
@@ -87,28 +100,37 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // Round 4 §7: tab bar is white. Header treatment now carried
-  // entirely by elevation — stronger downward drop shadow + faint
-  // bottom border separator so the user sees a clear "this is the
-  // header, content scrolls under it" boundary even when both
-  // surfaces share the same white tone.
+  // Round 5 §8 (impeccable polish): tab bar bg flips from white to
+  // a subtle 2-stop cream gradient (rendered by the absolute-fill
+  // LinearGradient inside the container above). The bar visually
+  // merges with the identity zone above (cream-on-cream
+  // continuity) while the body below stays white — boundary now
+  // a tonal step rather than a chrome island.
   //
-  //   IDENTITY  #FFF9F5  (warm cream — top zone)
-  //   TAB BAR   #FFFFFF  (white + header shadow)
-  //   BODY      #FFFFFF  (white)
-  //   CARDS     #FFFFFF  (white + card shadow)
+  //   IDENTITY  #FFF9F5
+  //   TAB BAR   #FFF9F5 → #FAF1E5  (subtle vertical gradient)
+  //   BODY      #FFFFFF
+  //   CARDS     #FFFFFF + card shadow
+  //
+  // Fallback bg `#FFF9F5` for Android in case LinearGradient fails
+  // to render. Shadow opacity halved 0.10 → 0.05 — the cream/white
+  // tone difference now does the primary boundary work; shadow is
+  // the soft transition layer beneath the cream/white edge.
+  // Sticky-header text sizes verified against the rest of the
+  // surface (14pt labels sit between content card titles 16pt and
+  // meta row 13pt — appropriate "navigation chrome" tier).
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFF9F5',
     paddingHorizontal: 20,
     gap: 4,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.05)',
     shadowColor: '#000',
-    shadowOpacity: 0.10,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
     zIndex: 5,
   },
   tab: {
