@@ -39,7 +39,7 @@ export function TabBar({ tabs, activeTab, onTabPress }: Props) {
           element. Bottom stop deepens to `#F5DDC8` as the architectural
           anchor before the body. All in brand H 30 hue family. */}
       <LinearGradient
-        colors={['#FAEAE0', '#F5DDC8']}
+        colors={['#FCF0E5', '#F8E5D5']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject}
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
   // meta row 13pt — appropriate "navigation chrome" tier).
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FAEAE0',
+    backgroundColor: '#FCF0E5',
     paddingHorizontal: 20,
     gap: 4,
     borderBottomWidth: 1,

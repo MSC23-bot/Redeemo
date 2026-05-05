@@ -341,7 +341,7 @@ const styles = StyleSheet.create({
   //   • Padding 8/12 → 10/14 — bigger touch surface.
   toggle: {
     flexDirection: 'row',
-    backgroundColor: '#F0E2D2',
+    backgroundColor: '#F5E5D3',
     borderRadius: 999,
     padding: 4,
     gap: 4,

@@ -331,7 +331,7 @@ export function MerchantProfileScreen({ id }: Props) {
             stays white all the way down. */}
         <View style={styles.identityZone}>
           <LinearGradient
-            colors={['#FFF9F5', '#FAEAE0']}
+            colors={['#FFF9F5', '#FCF0E5']}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={StyleSheet.absoluteFillObject}
@@ -502,28 +502,26 @@ export function MerchantProfileScreen({ id }: Props) {
 //   TAB BAR                       #FFFFFF  + header drop shadow
 //   BODY (container + content)    #FFFFFF
 //   CARDS                         #FFFFFF  + card shadow
-// Round 5 §14: surface palette unified into the brand red-orange
-// hue family (H 30). Body shifts from pure white to a subtle warm
-// off-white `#FCEFE5` so it harmonises with the identity zone above
-// and gives white cards real colour contrast (5% lightness step)
-// instead of relying on shadow alone.
+// Round 5 §15: palette lightened toward HomeScreen brand-canonical
+// (`#FFF9F5`) per user direction "feels too warm — should be
+// lighter, look at the discovery home / welcome page colours". §14
+// pushed too deep into cream. Body now matches HomeScreen container
+// exactly. Section split between metadata / nav bar / body
+// preserved via subtle gradient deltas (~3pt lightness steps, down
+// from §14's 4-5pt) — clearly differentiated but no longer heavy.
 //
 // Surface stack — all in brand H 30:
-//   IDENTITY ZONE   #FFF9F5 → #FAEAE0   cream gradient
-//   TAB BAR         #FAEAE0 → #F5DDC8   deeper cream gradient,
-//                                       anchor band, see TabBar
-//   BODY            #FCEFE5             warm off-white
-//   CARDS           #FFFFFF + shadow    pops against body
+//   IDENTITY ZONE   #FFF9F5 → #FCF0E5   cream gradient (light)
+//   TAB BAR         #FCF0E5 → #F8E5D5   subtle anchor band
+//   BODY            #FFF9F5             HomeScreen-canonical
+//   CARDS           #FFFFFF + shadow    pops via 2pt step + shadow
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#FCEFE5' },
-  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FCEFE5' },
+  container:    { flex: 1, backgroundColor: '#FFF9F5' },
+  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9F5' },
   scroll:       { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
-  // Identity zone keeps its cream gradient via LinearGradient;
-  // bg `#FFF9F5` is the Android fallback + matches the gradient's
-  // top stop.
   identityZone: { backgroundColor: '#FFF9F5', position: 'relative' },
-  content:      { backgroundColor: '#FCEFE5', minHeight: 460, padding: 20 },
+  content:      { backgroundColor: '#FFF9F5', minHeight: 460, padding: 20 },
   errorScreen:  { flex: 1, backgroundColor: '#FFF9F5', padding: 16 },
   backBtn:      { paddingVertical: 12 },
   errorCard:    { padding: 20, backgroundColor: '#FEF6F5', borderRadius: 16, gap: 8, marginTop: 16 },
