@@ -76,18 +76,29 @@ const styles = StyleSheet.create({
     gap: 9,
     marginBottom: 16,
   },
+  // Round 6 §2: typography refresh per the typography pass.
+  //   - title 16 → 17pt (slight bump above the new body grade)
+  //   - body fontSize 13 → 14pt (kept lineHeight 22 — the §5
+  //     polish had it at 24 which read disconnected; 22 is
+  //     1.57× — calm but connected, matching the reference
+  //     mock-up's prose rhythm)
+  //   - body color set explicitly to #374151 (darker than the
+  //     `secondary` token #4B5563) for legibility
+  //   - "Read more" 12 → 13pt 700 to match the body grade
   title: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
     color: '#010C35',
     letterSpacing: -0.2,
   },
   body: {
-    fontSize: 13,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#374151',
   },
   readMore: {
     color: '#E20C04',
+    fontSize: 13,
     fontWeight: '700',
     marginTop: 10,
   },

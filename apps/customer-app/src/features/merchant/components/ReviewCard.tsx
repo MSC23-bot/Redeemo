@@ -246,10 +246,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  // Round 5 §6: 13pt 800 → 14pt 700. 800 was shouting; 14pt fits
-  // the system-wide title weight applied across cards in §5.
+  // Round 6 §4: reviewer name 14 → 15pt so the name carries
+  // first-tier weight in the card. Owner brief: reviewer
+  // should stand out clearly.
   name: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: '#010C35',
     letterSpacing: -0.1,
@@ -294,10 +295,13 @@ const styles = StyleSheet.create({
     gap: 1,
     marginTop: 10,
   },
+  // Round 6 §4: review body 13/23 → 14/22 to match the About
+  // card body grade. Reads as comfortable prose, not micro-copy.
   text: {
-    fontSize: 13,
-    lineHeight: 23,
+    fontSize: 14,
+    lineHeight: 22,
     marginTop: 10,
+    color: '#374151',
   },
   helpful: {
     flexDirection: 'row',
@@ -313,11 +317,12 @@ const styles = StyleSheet.create({
   helpfulActive: {
     backgroundColor: 'rgba(22,163,74,0.08)',
   },
-  // Round 5 §19: 11 → 12pt for legibility — "Helpful · 3" sits
-  // at the same tier as other body labels.
+  // Round 6 §4: helpful button text weight 600 → 700 so the
+  // button affordance reads more confidently. fontSize already
+  // 12pt from §19.
   helpfulText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#9CA3AF',
   },
   helpfulTextActive: {

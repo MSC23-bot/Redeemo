@@ -170,12 +170,12 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
-  // Round 5 §19: bar count 10 → 11pt with tabular-nums for
-  // consistent column widths across distribution rows.
+  // Round 6 §4: distribution count 11 → 12pt to match the bar
+  // numerals (1–5). Tabular-nums kept for column alignment.
   barCount: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
-    width: 20,
+    width: 22,
     fontVariant: ['tabular-nums'],
   },
   writeBtn: {
@@ -195,9 +195,11 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 13,
   },
+  // Round 6 §4: Write Review CTA 13 → 14pt for action prominence.
   writeBtnText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: '#FFF',
+    letterSpacing: 0.1,
   },
 })
