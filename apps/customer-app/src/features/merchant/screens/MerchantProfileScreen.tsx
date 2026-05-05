@@ -1,6 +1,13 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react'
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { View, ScrollView, StyleSheet, ActivityIndicator, Share, Linking, Pressable } from 'react-native'
-import Animated, { withTiming, Easing } from 'react-native-reanimated'
+import Animated, {
+  withTiming,
+  withSequence,
+  useSharedValue,
+  useAnimatedStyle,
+  Easing,
+} from 'react-native-reanimated'
+import { useMotionScale } from '@/design-system/useMotionScale'
 import { LinearGradient } from 'expo-linear-gradient'
 import { router } from 'expo-router'
 import { Text, color } from '@/design-system'
@@ -232,6 +239,40 @@ export function MerchantProfileScreen({ id }: Props) {
     router.push(`/voucher/${voucherId}` as any)
   }, [isSubscribed, isSubLoading])
 
+  // Round 6 follow-up: screen-wide dim+restore pulse on branch
+  // switch. Owner flagged that the previous tab-content settle
+  // animation didn't carry — the page chrome (banner, headline,
+  // metadata, action row, tab bar) stayed static while the branch
+  // data updated silently underneath. Now the entire ScrollView
+  // wrapper opacity briefly dips to 0.6 and restores to 1.0 when
+  // selectedBranch.id changes, so the user gets a clear page-wide
+  // "you switched" cue even when their eye is at the top of the
+  // screen far from the bottom toast.
+  //
+  // Timing: 140ms dim + 240ms restore = 380ms total, in the
+  // medium-transition band per /interaction-design (300-500ms for
+  // page-level transitions). Same ease-out-expo curve used elsewhere.
+  // Reduced motion: skipped entirely (motionScale === 0 path).
+  const motionScale = useMotionScale()
+  const screenOpacity = useSharedValue(1)
+  const screenAnimatedStyle = useAnimatedStyle(() => ({ opacity: screenOpacity.value }))
+  const isFirstSwitchRender = useRef(true)
+  const selectedBranchId = merchant?.selectedBranch?.id ?? null
+  useEffect(() => {
+    // Skip first render (initial profile load) and any state where the
+    // branch isn't yet resolved. Only fire on a true post-mount switch.
+    if (isFirstSwitchRender.current) {
+      if (selectedBranchId) isFirstSwitchRender.current = false
+      return
+    }
+    if (!selectedBranchId) return
+    if (motionScale === 0) return
+    screenOpacity.value = withSequence(
+      withTiming(0.6, { duration: 140, easing: Easing.bezier(0.16, 1, 0.3, 1) }),
+      withTiming(1.0, { duration: 240, easing: Easing.bezier(0.16, 1, 0.3, 1) }),
+    )
+  }, [selectedBranchId, motionScale, screenOpacity])
+
   // ─── Loading / error early returns ──────────────────────────────────────────
   if (!id) {
     return (
@@ -317,13 +358,22 @@ export function MerchantProfileScreen({ id }: Props) {
 
   return (
     <View style={styles.container}>
-      <ScrollView
-        testID="merchant-profile-scroll"
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[3]}
-      >
+      {/* Round 6 follow-up: screen-wide dim+restore pulse driven
+          by `selectedBranchId` changes. Wraps only the ScrollView
+          (everything that scrolls — banner, identity zone, sticky
+          tab bar, tab content). The toast and modals below sit
+          OUTSIDE this wrapper so they stay at full opacity during
+          the page pulse — the toast carries the confirmation
+          message at full visibility while the page itself reads
+          as "refreshing". */}
+      <Animated.View style={[styles.scrollWrap, screenAnimatedStyle]}>
+        <ScrollView
+          testID="merchant-profile-scroll"
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={[3]}
+        >
         <SuspendedBranchBanner
           visible={showBanner}
           onDismiss={() => setBannerDismissed(true)}
@@ -474,6 +524,7 @@ export function MerchantProfileScreen({ id }: Props) {
           )}
         </Animated.View>
       </ScrollView>
+      </Animated.View>
 
       <ContactSheet
         visible={showContact}
@@ -549,6 +600,10 @@ const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#FFF9F5' },
   loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9F5' },
   scroll:       { flex: 1 },
+  // Round 6 follow-up: wrapper around ScrollView for the screen-
+  // wide dim+restore pulse on branch switch. flex:1 so it occupies
+  // the same space as the ScrollView would on its own.
+  scrollWrap:   { flex: 1 },
   scrollContent:{ paddingBottom: 40 },
   identityZone: { backgroundColor: '#FFF9F5', position: 'relative' },
   content:      { backgroundColor: '#FFF9F5', minHeight: 460, padding: 20 },
