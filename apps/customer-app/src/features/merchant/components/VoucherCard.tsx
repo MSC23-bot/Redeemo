@@ -117,6 +117,14 @@ const TYPE_LABELS: Record<VoucherType, string> = {
 }
 
 const BRAND_RED = '#E20C04'
+// §39 (impeccable polish): warm off-white instead of pure #FFF
+// for white text + chip text. Tints very slightly toward the
+// page-bg cream (#FFF9F5) so the white text reads as part of
+// the brand family rather than a stark pure-white. Brand-aware
+// neutrals per impeccable's "tint every neutral" principle.
+// CTA pill bg stays pure white (action element, demands
+// maximum contrast on coloured gradients).
+const WHITE_TEXT = '#FFFCFA'
 
 type Props = {
   voucher: MerchantVoucher
@@ -439,18 +447,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
 
-  // §31 brand watermark — bumped 110 → 130 size with a 12pt
-  // bleed off the right edge so the R reads as an intentional
-  // graphic crop, not a dropped-in icon. Wrapper opacity 0.12
-  // → faint clean white silhouette regardless of voucher type.
-  // Still the OFFICIAL Iconic Version 3 paths in <SvgXml>.
+  // §39: opacity 0.12 → 0.14 so the brand mark is marginally
+  // more present without becoming the foreground. Stays under
+  // the chip / hero / title / CTA in visual weight, but is
+  // recognisable as Redeemo at a glance.
   watermarkWrap: {
     position: 'absolute',
     right: -12,
     top: 22,
     width: 130,
     height: 130,
-    opacity: 0.12,
+    opacity: 0.14,
   },
 
   topHighlight: {
@@ -477,28 +484,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  // §35 type chip strengthened — text 11pt 700 → 12pt 800 so
-  // the type label stands out at a glance, and the dark
-  // translucent backdrop bumped 0.28 → 0.34 so the chip holds
-  // contrast against the new pastel-start gradient regions.
-  // Padding nudged so the chip doesn't feel cramped at the
-  // bigger weight.
+  // §39 (impeccable polish): chip gains a subtle white border
+  // (rgba 0.10) for premium definition without becoming
+  // button-like. Text shadow removed — the dark backdrop
+  // already gives chip text strong contrast, the extra shadow
+  // was redundant noise.
   typeChip: {
     paddingVertical: 5,
     paddingHorizontal: 11,
     borderRadius: 999,
     backgroundColor: 'rgba(0,0,0,0.34)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
     flexShrink: 1,
     alignSelf: 'flex-start',
   },
   typeChipText: {
-    color: '#FFFFFF',
+    color: WHITE_TEXT,
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.2,
-    textShadowColor: 'rgba(0,0,0,0.20)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 1,
   },
   favBtn: {
     padding: 3,
@@ -511,7 +516,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   heroLabel: {
-    color: 'rgba(255,255,255,0.90)',
+    color: 'rgba(255,252,250,0.90)',
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 0.4,
@@ -520,11 +525,13 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
+  // §39: tinted off-white + tighter -0.8 letter-spacing for
+  // refined numeric feel.
   heroAmount: {
-    color: '#FFF',
+    color: WHITE_TEXT,
     fontSize: 28,
     fontWeight: '900',
-    letterSpacing: -0.6,
+    letterSpacing: -0.8,
     lineHeight: 30,
     fontVariant: ['tabular-nums'],
     textShadowColor: 'rgba(0,0,0,0.18)',
@@ -532,17 +539,16 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
 
-  // §38 title — bumped 14pt 700 → 15pt 800 for stronger
-  // hierarchy. The on-device QA flagged that the £hero amount
-  // dominated and the title didn't feel important enough.
-  // Title now has clearer presence as the second-tier element
-  // (after the £hero) and stays distinct from the description.
+  // §39 title — 15pt 800 → 16pt 800 with tighter -0.30
+  // letter-spacing. Stronger second-tier presence after the
+  // £hero, with tinted off-white text. Description weight
+  // drops to 400 (below) for sharper hierarchy contrast.
   title: {
-    color: '#FFF',
-    fontSize: 15,
+    color: WHITE_TEXT,
+    fontSize: 16,
     fontWeight: '800',
-    letterSpacing: -0.2,
-    lineHeight: 19,
+    letterSpacing: -0.3,
+    lineHeight: 20,
     marginBottom: 2,
     textShadowColor: 'rgba(0,0,0,0.18)',
     textShadowOffset: { width: 0, height: 1 },
@@ -556,10 +562,14 @@ const styles = StyleSheet.create({
   descriptionWrap: {
     minHeight: 32,
   },
+  // §39: description weight 500 → 400 for cleaner hierarchy
+  // contrast against the now-bolder 16/800 title (impeccable
+  // recommends ≥1.25 ratio between hierarchy steps; weight
+  // jump 800→400 is well past that and visually distinct).
   description: {
-    color: 'rgba(255,255,255,0.90)',
+    color: 'rgba(255,252,250,0.92)',
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '400',
     letterSpacing: -0.05,
     lineHeight: 16,
     textShadowColor: 'rgba(0,0,0,0.18)',
@@ -578,10 +588,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 12,
   },
+  // §39: metaText weight 600 → 500 so the expiry recedes
+  // behind the Redeem CTA in the bottom row hierarchy.
   metaText: {
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(255,252,250,0.85)',
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '500',
     letterSpacing: 0.1,
     flexShrink: 1,
     textShadowColor: 'rgba(0,0,0,0.18)',
