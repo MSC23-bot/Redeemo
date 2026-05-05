@@ -533,13 +533,16 @@ const styles = StyleSheet.create({
   // card) and centres its two children inside that column so
   // the eyebrow stays balanced over the £value regardless of
   // value width.
-  // Round 6 follow-up: heroBlock.marginTop 2 → 0. Compensates
-  // for the larger gap added below the £value (title.marginTop
-  // bumped) so the overall card height stays flat.
+  // Round 6 follow-up: heroBlock.marginTop 0 → 6 — owner asked
+  // for visible gap between the voucher type chip and "Save up
+  // to". The chip + heart row was previously sitting flush
+  // against the hero block. 6pt explicit margin gives the
+  // identity-zone (chip / heart) clear separation from the
+  // value tier below.
   heroBlock: {
     alignSelf: 'flex-start',
     alignItems: 'center',
-    marginTop: 0,
+    marginTop: 6,
   },
   // §40 / Round 6 follow-up: eyebrow tight against the £value.
   // Owner brief — Save up to and the value belong together as
