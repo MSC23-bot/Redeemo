@@ -16,40 +16,49 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
-// Round 5 §31: middle-ground colour pass. §29 was too neon,
-// §30 went too washed-out. The on-device QA asked for the
-// pastel-but-alive midpoint: colourful and inviting, not
-// neon and not greyed.
+// Round 5 §32: dial colour back up. The owner shared a §22-era
+// screenshot as the colour reference and wanted the energy
+// back — §31 had drifted too pastel. Goal for this round:
+// pastel-start / VIVID-deep so the gradient reads alive at
+// the bottom-right corner, the way the reference shows it.
 //
-//   1. Pastel-but-alive palette. All eight type gradients
-//      re-tuned to a soft-start / rich-deep pattern. Light
-//      stops are clearly pastel (mint, lavender, coral,
-//      peach, sky, honey). Deep stops are saturated enough
-//      to give the gradient visual energy, but warmer and
-//      more grounded than §29's neon brights.
+//   1. Vivid-deep palette. Each pair: clearly pastel light
+//      start (top-left), vivid (but not neon) deep stop
+//      (bottom-right). Mint → emerald, lavender → violet,
+//      coral → bright red. The deep stop is where the card
+//      reads as "alive"; the pastel start gives it warmth.
 //
-//   2. Decorative blobs more visible. §30's shapes at 0.05–
-//      0.06 opacity were barely doing their job. Bumped to
-//      0.09–0.11 so the blob silhouettes register as soft
-//      gradient texture without becoming distracting. Both
-//      stay on the LEFT side, supporting the hero/title
-//      column and never competing with the R.
+//      Sits between §22 (neon) and §31 (pastel-muted) —
+//      lights from §31, deeps closer to §22 but a touch less
+//      aggressive.
 //
-//   3. Brand R given more presence. The owner explicitly
-//      green-lit moving / resizing / reshaping the watermark
-//      so it feels like a designed graphic of the voucher,
-//      not a dropped-in icon. Now 130×130 (was 110), with a
-//      ~12pt bleed off the right edge so the R reads as an
-//      intentional crop. Still the OFFICIAL Iconic Version 3
-//      paths copied verbatim into <SvgXml>, fills overridden
-//      to white, wrapper opacity 0.12 → faint clean white
-//      silhouette regardless of voucher type.
+//   2. Active vs redeemed contrast preserved. The owner
+//      flagged that washed-out cards confuse "redeemable"
+//      with "redeemed". Active state is now visibly more
+//      vivid; cardRedeemed style still drops opacity to 0.6
+//      so the redeemed state reads clearly washed by
+//      comparison.
 //
-//   4. Notches still render OVER the R (rendered last in
-//      JSX, on top in z-order) so the coupon silhouette is
-//      preserved even where the R bleeds.
+//   3. Decorative blobs spread across the card. §31 had two
+//      blobs both clustered top-left and bottom-left. The
+//      reference shows shapes spaced apart — corners and
+//      mid-card. Now THREE shapes:
+//        shapeA: top-LEFT corner bleed (140pt @ 0.11)
+//        shapeB: bottom-LEFT corner bleed (180pt @ 0.09)
+//        shapeC: middle-LEFT, bleeds off left edge (100pt @
+//                0.08) — chains visually between A and B
+//      All on the left so the R on the right stays clear
+//      and stands out.
 //
-// Behaviour preserved across §22 → §31:
+//   4. Brand R unchanged from §31: 130×130, slight bleed off
+//      the right edge, OFFICIAL Iconic Version 3 paths in
+//      <SvgXml>, white fills, wrapper opacity 0.12.
+//
+//   5. Card minHeight 150 → 144 (slight slim-down). The
+//      owner asked for the card to feel a bit smaller; 6pt
+//      tighter without sacrificing readability.
+//
+// Behaviour preserved across §22 → §32:
 //   • side cutouts at mid-height (coupon silhouette)
 //   • per-type 3-stop gradient with brand-red drop shadow
 //   • horizontal text only
@@ -75,20 +84,23 @@ import type { MerchantVoucher } from '@/lib/api/merchant'
 //   • a11y label format
 //   • press scale + heart spring with motion-scale gating
 
-// §31 pastel-but-alive palette — middle ground between §29's
-// neon and §30's washed-out muted. Each pair: light start
-// (top-left) → deep stop (bottom-right). Pastel character on
-// the start, lush richness on the deep — colourful and
-// inviting, not neon and not greyed.
+// §32 pastel-start / vivid-deep palette. Owner reference
+// (a §22-era screenshot) shows clearly-pastel light stops
+// fading into vivid (but not neon) deep stops at the
+// bottom-right of each card. Lights are pastel; deeps are
+// noticeably more saturated than §31's muted pairs but a
+// touch less aggressive than §22's neon. The visible
+// gradient lives in the deep stop — that's where the card
+// reads as "alive".
 const TYPE_GRADIENTS: Record<VoucherType, readonly [string, string]> = {
-  BOGO:             ['#B5A3DD', '#6B5BA6'],   // soft lavender → rich violet
-  DISCOUNT_FIXED:   ['#F2A0AE', '#C44438'],   // soft coral → coral-red
-  DISCOUNT_PERCENT: ['#F2A0AE', '#C44438'],
-  FREEBIE:          ['#9CD9B4', '#3D8B5F'],   // soft mint → emerald
-  SPEND_AND_SAVE:   ['#F0BC9C', '#B26B30'],   // soft peach → terracotta
-  PACKAGE_DEAL:     ['#A8C0E2', '#4F73B0'],   // soft sky → royal blue
-  TIME_LIMITED:     ['#ECCD7E', '#B07028'],   // honey → amber
-  REUSABLE:         ['#9CCEC0', '#3D8579'],   // mint-teal → rich teal
+  BOGO:             ['#B7A4F2', '#6E3DD3'],   // soft lavender → vivid violet
+  DISCOUNT_FIXED:   ['#FB8896', '#D8302A'],   // soft coral → bright red
+  DISCOUNT_PERCENT: ['#FB8896', '#D8302A'],
+  FREEBIE:          ['#A0E5BA', '#208E50'],   // soft mint → vivid emerald
+  SPEND_AND_SAVE:   ['#FAB78E', '#D6531B'],   // soft peach → bright orange
+  PACKAGE_DEAL:     ['#9CC0F5', '#2D5BCC'],   // soft sky → vivid blue
+  TIME_LIMITED:     ['#F4D072', '#BC6D1C'],   // honey → vivid amber
+  REUSABLE:         ['#84DCC2', '#198375'],   // mint-teal → rich teal
 } as const
 
 const TYPE_LABELS: Record<VoucherType, string> = {
@@ -225,10 +237,14 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           pointerEvents="none"
         />
 
-        {/* §27 subtle background shapes — kept. Two faint white
-            blobs that bleed off corners. */}
+        {/* §32 subtle background shapes — three blobs spread
+            across the LEFT half so the right side stays clear
+            for the R. shapeC chains between A and B mid-card,
+            bleeding off the left edge, so the gradient texture
+            feels distributed rather than clustered. */}
         <View style={styles.shapeA} pointerEvents="none" />
         <View style={styles.shapeB} pointerEvents="none" />
+        <View style={styles.shapeC} pointerEvents="none" />
 
         {/* §31 brand R watermark — bigger (130×130) with a slight
             bleed off the right edge so the R reads as a designed
@@ -331,7 +347,7 @@ const styles = StyleSheet.create({
   },
   card: {
     position: 'relative',
-    minHeight: 150,
+    minHeight: 144,   // §32: 150 → 144, slight slim-down per owner ask
     borderRadius: 20,
     overflow: 'hidden',
   },
@@ -339,11 +355,9 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // §31 decorative blobs — both still on the LEFT side, but
-  // bumped 0.05–0.06 → 0.09–0.11 opacity so the gradient blob
-  // silhouettes register as premium texture rather than
-  // disappearing. Larger sizes too so they reach further into
-  // the card and help break up the flat-block feel.
+  // §32 decorative blobs — three shapes spread across the
+  // LEFT half so the gradient texture feels distributed
+  // rather than clustered. Right side stays clean for the R.
   shapeA: {
     position: 'absolute',
     left: -35,
@@ -361,6 +375,15 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: 90,
     backgroundColor: 'rgba(255,255,255,0.09)',
+  },
+  shapeC: {
+    position: 'absolute',
+    left: -50,
+    top: 50,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
 
   // §31 brand watermark — bumped 110 → 130 size with a 12pt
