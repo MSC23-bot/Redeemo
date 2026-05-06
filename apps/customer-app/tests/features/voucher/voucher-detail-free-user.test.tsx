@@ -181,23 +181,23 @@ describe('Voucher Detail — free-user state (Screen 2 per spec §4)', () => {
 // ── How It Works variants ─────────────────────────────────────────────
 
 describe('Voucher Detail — How It Works variant', () => {
-  it('free-user state DOES render How It Works (round 16: 7-step variant)', () => {
-    // Round 15 hid this; round 16 owner direction restored it with a
-    // free-user-specific step list that includes "Subscribe to Unlock".
+  it('free-user state DOES render How It Works (round 17: 5-step variant starting "Subscribe to Unlock")', () => {
+    // Round 15 hid this; round 16 owner direction restored it; round
+    // 17 finalised both variants at 5 steps. accessibilityLabel
+    // encodes the step count so we can pin the variant without
+    // parsing the rendered children.
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     const node = getByTestId('how-it-works')
     expect(node).toBeTruthy()
-    // accessibilityLabel encodes the step count so we can pin the
-    // free-user variant without parsing the rendered children.
-    expect(node.props.accessibilityLabel).toBe('How It Works (7 steps)')
+    expect(node.props.accessibilityLabel).toBe('How It Works (5 steps)')
   })
 
-  it('subscribed-user state renders the 6-step variant (no Subscribe-to-Unlock)', () => {
+  it('subscribed-user state renders the 5-step variant (starting "Review the Voucher")', () => {
     mockSubscribed = true
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     const node = getByTestId('how-it-works')
     expect(node).toBeTruthy()
-    expect(node.props.accessibilityLabel).toBe('How It Works (6 steps)')
+    expect(node.props.accessibilityLabel).toBe('How It Works (5 steps)')
   })
 })
 

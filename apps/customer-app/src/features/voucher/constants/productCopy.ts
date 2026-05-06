@@ -94,52 +94,59 @@ export function fairUseLinesForVoucherType(type: VoucherType): readonly string[]
 }
 
 /**
- * "How It Works" steps — voucher-detail-specific, with two variants.
+ * "How It Works" steps — voucher-detail-specific, two variants.
  *
- * Round 16: replaces the previous 4-step universal flow that read as
- * generic Merchant-Profile-style instructions ("Tap Redeem"). Both
- * variants now start from "Review This Voucher" — the user is already
- * looking at the voucher, so the journey begins on this page.
+ * Round 17 (owner direction): both variants are now 5 steps. Steps
+ * 2-5 are identical across the two lists; only step 1 changes
+ * (Subscribe-to-Unlock for free users; Review-the-Voucher for
+ * subscribed users).
  *
- * Both include the "Tell Staff Before Ordering" step (fairness +
- * dispute-avoidance — the merchant needs to know about the voucher
- * before the bill is generated).
- *
- * The free-user variant has a 7th step ("Subscribe to Unlock") inserted
- * after step 1; the subscribed variant skips it.
+ * "Tell Staff First" is included in both — fairness + dispute
+ * avoidance: the merchant needs to know before the bill is
+ * generated.
  */
 
-const STEP_TELL_STAFF = {
-  label: 'Tell Staff Before Ordering',
-  desc: 'Let the merchant know you plan to use this Redeemo voucher before ordering, starting a service, or making a purchase.',
-}
-
-/**
- * Free-user "How It Works" — 7 steps. Subscribe-to-unlock step
- * surfaces the conversion path inline with the redemption journey,
- * so the user sees that the gate is real but small.
- */
-export const HOW_IT_WORKS_STEPS_FREE: ReadonlyArray<{ label: string; desc: string }> = [
-  { label: 'Review This Voucher',    desc: 'Check the offer, terms, fair-use policy, and selected branch.' },
-  { label: 'Subscribe to Unlock',    desc: 'Choose a monthly or annual plan to unlock voucher redemption across Redeemo.' },
-  STEP_TELL_STAFF,
-  { label: 'Start Redemption',       desc: 'Once subscribed, tap "Redeem This Voucher" on this page.' },
-  { label: 'Enter Branch PIN',       desc: 'Ask a staff member for the branch PIN and enter it in the app.' },
-  { label: 'Show Your Code',         desc: 'Present the redemption code or QR to staff for validation.' },
-  { label: 'Enjoy Your Deal',        desc: 'The voucher will be applied to your bill.' },
+const STEPS_2_TO_5: ReadonlyArray<{ label: string; desc: string }> = [
+  {
+    label: 'Tell Staff First',
+    desc: 'Before ordering or purchasing, let staff know you’ll be using a Redeemo voucher.',
+  },
+  {
+    label: 'Redeem When Ready',
+    desc: 'When staff are ready, tap “Redeem This Voucher” and ask them for the branch PIN.',
+  },
+  {
+    label: 'Enter the Branch PIN',
+    desc: 'Enter the branch PIN provided by staff to confirm the redemption.',
+  },
+  {
+    label: 'Show & Save',
+    desc: 'Show your live code or QR to staff, then enjoy the saving once it’s applied.',
+  },
 ]
 
 /**
- * Subscribed-user "How It Works" — 6 steps. Same flow minus the
- * subscribe-to-unlock step.
+ * Free-user "How It Works" — 5 steps. First step is the conversion
+ * gate; remaining four are the redemption flow.
+ */
+export const HOW_IT_WORKS_STEPS_FREE: ReadonlyArray<{ label: string; desc: string }> = [
+  {
+    label: 'Subscribe to Unlock',
+    desc: 'Choose a monthly or annual plan to unlock this voucher and all other eligible vouchers across Redeemo.',
+  },
+  ...STEPS_2_TO_5,
+]
+
+/**
+ * Subscribed-user "How It Works" — 5 steps. First step is the
+ * orientation prompt; remaining four are the redemption flow.
  */
 export const HOW_IT_WORKS_STEPS_SUBSCRIBED: ReadonlyArray<{ label: string; desc: string }> = [
-  { label: 'Review This Voucher',    desc: 'Check the offer, terms, fair-use policy, and selected branch.' },
-  STEP_TELL_STAFF,
-  { label: 'Tap "Redeem This Voucher"', desc: 'Start the redemption process from this page.' },
-  { label: 'Enter Branch PIN',       desc: 'Ask a staff member for the branch PIN and enter it in the app.' },
-  { label: 'Show Your Code',         desc: 'Present the redemption code or QR to staff for validation.' },
-  { label: 'Enjoy Your Deal',        desc: 'The voucher will be applied to your bill.' },
+  {
+    label: 'Review the Voucher',
+    desc: 'Check the offer, terms, fair-use policy, and selected branch before ordering.',
+  },
+  ...STEPS_2_TO_5,
 ]
 
 /** CTA labels (Title Case to match v4 mockup). */

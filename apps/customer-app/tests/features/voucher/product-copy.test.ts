@@ -113,26 +113,34 @@ describe('productCopy — CTA + How It Works copy is Title Case (v4 parity)', ()
     expect(CTA_LABELS.branchLoading).toBe('Resolving Branch…')
   })
 
-  it('How It Works free-user variant has 7 steps incl. "Subscribe to Unlock" + "Tell Staff Before Ordering"', () => {
-    // Round 16: free user sees the full journey including the
-    // subscribe gate + the fairness step.
-    expect(HOW_IT_WORKS_STEPS_FREE.length).toBe(7)
-    expect(HOW_IT_WORKS_STEPS_FREE[0]?.label).toBe('Review This Voucher')
-    expect(HOW_IT_WORKS_STEPS_FREE[1]?.label).toBe('Subscribe to Unlock')
-    expect(HOW_IT_WORKS_STEPS_FREE[2]?.label).toBe('Tell Staff Before Ordering')
-    expect(HOW_IT_WORKS_STEPS_FREE[6]?.label).toBe('Enjoy Your Deal')
+  it('How It Works free-user variant has 5 steps starting with "Subscribe to Unlock"', () => {
+    // Round 17: both variants are 5 steps; free-user variant starts
+    // with the conversion gate, then the shared 4-step redemption
+    // flow (Tell Staff First → Redeem When Ready → Enter the Branch
+    // PIN → Show & Save).
+    expect(HOW_IT_WORKS_STEPS_FREE.length).toBe(5)
+    expect(HOW_IT_WORKS_STEPS_FREE[0]?.label).toBe('Subscribe to Unlock')
+    expect(HOW_IT_WORKS_STEPS_FREE[1]?.label).toBe('Tell Staff First')
+    expect(HOW_IT_WORKS_STEPS_FREE[2]?.label).toBe('Redeem When Ready')
+    expect(HOW_IT_WORKS_STEPS_FREE[3]?.label).toBe('Enter the Branch PIN')
+    expect(HOW_IT_WORKS_STEPS_FREE[4]?.label).toBe('Show & Save')
   })
 
-  it('How It Works subscribed variant has 6 steps + "Tell Staff Before Ordering"', () => {
-    // Round 16: subscribed user sees the redemption flow without
-    // the subscribe-to-unlock detour, but keeps the fairness step.
-    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED.length).toBe(6)
-    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[0]?.label).toBe('Review This Voucher')
-    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[1]?.label).toBe('Tell Staff Before Ordering')
-    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[2]?.label).toBe('Tap "Redeem This Voucher"')
-    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[5]?.label).toBe('Enjoy Your Deal')
+  it('How It Works subscribed variant has 5 steps starting with "Review the Voucher"', () => {
+    // Round 17: subscribed-user variant starts with orientation,
+    // then the same 4-step redemption flow as the free-user variant.
+    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED.length).toBe(5)
+    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[0]?.label).toBe('Review the Voucher')
+    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[1]?.label).toBe('Tell Staff First')
+    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[2]?.label).toBe('Redeem When Ready')
+    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[3]?.label).toBe('Enter the Branch PIN')
+    expect(HOW_IT_WORKS_STEPS_SUBSCRIBED[4]?.label).toBe('Show & Save')
     // Subscribed flow does NOT contain the Subscribe-to-Unlock step.
     expect(HOW_IT_WORKS_STEPS_SUBSCRIBED.some(s => s.label === 'Subscribe to Unlock')).toBe(false)
+  })
+
+  it('Steps 2-5 are identical across both variants (shared redemption flow)', () => {
+    expect(HOW_IT_WORKS_STEPS_FREE.slice(1)).toEqual(HOW_IT_WORKS_STEPS_SUBSCRIBED.slice(1))
   })
 
   it('FAIR_USE_TITLE is the v4-locked heading text', () => {
