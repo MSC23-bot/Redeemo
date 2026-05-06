@@ -414,12 +414,24 @@ export function VoucherDetailScreen() {
       const enc = encodeURIComponent
       const qs: string[] = [`source=voucher`, `plan=${plan}`]
       if (voucher) qs.push(`returnVoucherId=${enc(voucher.id)}`)
-      if (selectedBranch) qs.push(`branch=${enc(selectedBranch.id)}`)
+      // Branch return value (post-merge follow-up — symmetric to §O7
+      // fix in MerchantProfileScreen.handleVoucherPress): URL
+      // `branchIdParam` wins so the free-user sticky CTA / modal plan
+      // buttons can be tapped even before merchantQuery resolves
+      // selectedBranch. Without this the URL would omit `branch=`,
+      // leaving SubscribePromptScreen's "Continue with Free Account"
+      // unable to rebuild the exact return URL — it would fall back
+      // to router.back() and miss the suppressSubscribePrompt=1
+      // contract on the way back. Fallback to selectedBranch?.id
+      // only when there's no URL branch param (cold-open before
+      // anything resolves).
+      const branchForReturn = branchIdParam ?? selectedBranch?.id
+      if (branchForReturn) qs.push(`branch=${enc(branchForReturn)}`)
       if (voucher) qs.push(`returnMerchantId=${enc(voucher.merchant.id)}`)
       qs.push(`tab=vouchers`)
       return `/(auth)/subscription-prompt?${qs.join('&')}`
     },
-    [voucher, selectedBranch],
+    [voucher, branchIdParam, selectedBranch],
   )
 
   const handleCTA = useCallback(() => {
