@@ -173,10 +173,16 @@ export function MerchantRow({
 
 const styles = StyleSheet.create({
   root: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FDFBF8',  // round-13: tinted warm white (brand hue family)
     borderRadius: 18,
     marginHorizontal: 22,
-    marginTop: 22,
+    // Round-13: tighter gap from the coupon (16pt) than to How It
+    // Works below (handled by HowItWorks marginTop). The coupon and
+    // merchant attribution belong to the same conceptual unit ("the
+    // offer + where to redeem it"); How It Works is secondary
+    // (process explanation), so a wider gap below carves visual
+    // hierarchy via spacing rhythm rather than uniform 22pt gaps.
+    marginTop: 16,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
     shadowColor: '#000',
@@ -202,7 +208,7 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FDFBF8',  // round-13: tinted warm white (brand hue family)
     borderWidth: 2,
     borderColor: BORDER,
     alignItems: 'center',

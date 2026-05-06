@@ -563,7 +563,7 @@ const styles = StyleSheet.create({
     marginHorizontal: COUPON_INSET,
   },
   couponTopRound: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FDFBF8',  // round-13: tinted warm white (brand hue family) — see CouponBody.tsx
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     overflow: 'hidden',
@@ -577,7 +577,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0,0,0,0.04)',
   },
   couponBottomRound: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FDFBF8',  // round-13: tinted warm white (brand hue family) — see CouponBody.tsx
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
     overflow: 'hidden',
@@ -591,7 +591,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0,0,0,0.04)',
   },
   innerPerfWrap: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FDFBF8',  // round-13: tinted warm white (brand hue family) — see CouponBody.tsx
     overflow: 'visible',
     borderLeftWidth: 1,
     borderRightWidth: 1,

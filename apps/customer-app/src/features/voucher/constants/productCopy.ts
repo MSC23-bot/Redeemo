@@ -46,8 +46,11 @@ export const FAIR_USE_TITLE = 'Fair Use Policy'
  * separate so reviewers can see the floor common across all types.
  */
 const UNIVERSAL_FAIR_USE: ReadonlyArray<string> = [
-  'Present voucher before ordering — must be shown before the bill is generated.',
-  'For personal use only — voucher is non-transferable.',
+  // No em dashes in UI text (project rule, locked 2026-05-02; reaffirmed
+  // by PRODUCT.md). Sentences split with periods or paired with shorter
+  // clauses instead.
+  'Present voucher before ordering. Must be shown before the bill is generated.',
+  'Personal use only. Voucher is non-transferable.',
   'Merchant reserves the right to refuse if fair use is not followed.',
 ]
 
@@ -103,7 +106,7 @@ export const HOW_IT_WORKS_STEPS: ReadonlyArray<{ label: string; desc: string }> 
 /** CTA labels (Title Case to match v4 mockup). */
 export const CTA_LABELS = {
   redeemActive:    'Redeem This Voucher',
-  redeemSubscribe: 'Subscribe to Redeem — £6.99/mo',
+  redeemSubscribe: 'Subscribe to Redeem · £6.99/mo',
   redeemed:        'Already Redeemed This Cycle',
   expired:         'Expired',
   unavailable:     'Currently Unavailable',

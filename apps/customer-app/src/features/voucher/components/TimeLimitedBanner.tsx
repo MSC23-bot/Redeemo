@@ -30,7 +30,7 @@ export function TimeLimitedBanner({
       <View style={[styles.root, styles.urgent]} testID="time-limited-banner-urgent">
         <Clock size={14} color="#92400E" />
         <Text variant="label.md" style={[styles.text, { color: '#92400E' }]}>
-          Hurry — {minutesRemaining} min left
+          Hurry, {minutesRemaining} min left
         </Text>
       </View>
     )

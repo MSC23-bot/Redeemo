@@ -1,7 +1,6 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
-import { LinearGradient } from 'expo-linear-gradient'
 import { Check, Clock, FileText, Home, Info, Shield, Tag } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import type { VoucherType } from '@/lib/api/voucher'
@@ -60,30 +59,26 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch, terms
     : null
   const dineInLabel = deriveDineInPill(terms)
 
-  // Banner fallback: darken the type gradient so it reads as a hero
-  // image area rather than as the coupon's main colour fill.
-  const [light, dark] = voucherGradient(type)
-  const bannerColors: readonly [string, string] = [`${light}33`, dark]
+  // Banner image is shown ONLY when an actual imageUrl is provided
+  // (round-13 impeccable critique fix). Empty-state placeholders feel
+  // like dead space; when there's no image, the top card collapses to
+  // just the voucher details pills row, which is honest about the
+  // available content.
+  const [light] = voucherGradient(type)
 
   return (
     <View style={styles.topCard} testID="coupon-top-card">
-      <View style={styles.banner}>
-        {imageUrl ? (
+      {imageUrl ? (
+        <View style={styles.banner}>
           <Image source={{ uri: imageUrl }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
-        ) : (
-          <>
-            <LinearGradient
-              colors={bannerColors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
-            />
-            <View style={styles.bannerOverlay} pointerEvents="none">
-              <Text variant="label.md" style={styles.bannerLabel}>VOUCHER BANNER IMAGE</Text>
-            </View>
-          </>
-        )}
-      </View>
+        </View>
+      ) : (
+        // No image: render a thin tint band so the type-color
+        // identity carries through to the body, but at 6pt it reads
+        // as an accent line rather than a content area. Saves ~150pt
+        // of vertical real estate vs the round-12 placeholder.
+        <View style={[styles.bannerAccentLine, { backgroundColor: light }]} pointerEvents="none" />
+      )}
 
       <View style={styles.infoBlock}>
         <Text variant="label.md" style={styles.infoTitle}>VOUCHER DETAILS</Text>
@@ -142,10 +137,16 @@ export function CouponBodyCard({ type, terms }: CouponBodyCardProps) {
         </View>
       ) : null}
 
+      {/* Fair Use Policy — kept as a nested card by owner direction
+          (round 13). Reuses sectionHeading + sectionTitle styles from
+          the Terms section above for typographic consistency. The
+          containing `styles.fairUse` cream-tinted card surface is the
+          deliberate exception to impeccable's nested-card law (see
+          memory: feedback_voucher_detail_fair_use_card.md). */}
       <View style={styles.fairUse}>
-        <View style={styles.fairHeading}>
+        <View style={styles.sectionHeading}>
           <Shield size={16} color={ROSE} strokeWidth={2} />
-          <Text variant="label.md" style={styles.fairTitle}>{FAIR_USE_TITLE}</Text>
+          <Text variant="label.md" style={styles.sectionTitle}>{FAIR_USE_TITLE}</Text>
         </View>
         {fairUseLines.map((line, i) => (
           <View key={i} style={styles.fairItem}>
@@ -183,7 +184,7 @@ function Pill({ tone, icon, children }: {
 const styles = StyleSheet.create({
   // ── TOP CARD (banner + pills) ──────────────────────────────────────
   topCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FDFBF8',  // round-13 (impeccable): tinted warm white in brand hue family (H≈30) instead of pure #FFF
     overflow: 'hidden',
   },
   banner: {
@@ -191,16 +192,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a2e',
     overflow: 'hidden',
   },
-  bannerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bannerLabel: {
-    color: 'rgba(255,255,255,0.18)',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 3,
+  // Round-13: thin type-color accent line replaces the dark dead-space
+  // placeholder when no banner image is provided. 6pt of presence,
+  // ~150pt less vertical real estate than the previous gradient.
+  bannerAccentLine: {
+    height: 6,
   },
   infoBlock: {
     paddingHorizontal: 22,
@@ -240,7 +236,7 @@ const styles = StyleSheet.create({
 
   // ── BODY CARD (terms + fair use) ────────────────────────────────────
   bodyCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FDFBF8',  // round-13 (impeccable): tinted warm white in brand hue family (H≈30) instead of pure #FFF
     paddingHorizontal: 22,
     paddingTop: 22,
     paddingBottom: 26,
@@ -286,17 +282,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
     marginTop: 8,
-  },
-  fairHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    marginBottom: 12,
-  },
-  fairTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: NAVY,
   },
   fairItem: {
     flexDirection: 'row',

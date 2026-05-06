@@ -105,7 +105,7 @@ describe('productCopy — splitTermsIntoBullets', () => {
 describe('productCopy — CTA + How It Works copy is Title Case (v4 parity)', () => {
   it('all CTA labels match v4 mockup exactly', () => {
     expect(CTA_LABELS.redeemActive).toBe('Redeem This Voucher')
-    expect(CTA_LABELS.redeemSubscribe).toBe('Subscribe to Redeem — £6.99/mo')
+    expect(CTA_LABELS.redeemSubscribe).toBe('Subscribe to Redeem · £6.99/mo')
     expect(CTA_LABELS.redeemed).toBe('Already Redeemed This Cycle')
     expect(CTA_LABELS.expired).toBe('Expired')
     expect(CTA_LABELS.unavailable).toBe('Currently Unavailable')

@@ -66,7 +66,10 @@ const NUM_GAP = 16
 const styles = StyleSheet.create({
   root: {
     marginHorizontal: 22,
-    marginTop: 24,
+    // Round-13: bumped 24 → 32 to widen the gap between the merchant
+    // attribution unit (coupon + merchant card) and the "process
+    // explanation" section. Spacing rhythm = hierarchy.
+    marginTop: 32,
     paddingHorizontal: 4,
   },
   heading: {
