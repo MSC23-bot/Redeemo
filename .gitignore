@@ -27,3 +27,11 @@ graphify-out/
 # dedicated artefact store (S3 / R2 / Git LFS) is chosen. See workspace
 # hygiene audit, 2026-04-26.
 docs/branding/
+
+# Impeccable design-skill context files. Local-only working artefacts
+# read by .claude/skills/impeccable/scripts/load-context.mjs. The skill
+# itself lives under the gitignored .claude/ tree; these context files
+# travel with it but have no consumer in tracked code, hooks, or CI.
+# Same category as .claude/, .superpowers/, graphify-out/, docs/branding/.
+PRODUCT.md
+DESIGN.md
