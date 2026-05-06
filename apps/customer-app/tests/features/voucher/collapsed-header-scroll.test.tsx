@@ -2,33 +2,25 @@ import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { CollapsedHeader } from '@/features/voucher/components/CollapsedHeader'
 
-// PR #40 round 8 — CollapsedHeader contract tests.
+// PR #40 round 9 — CollapsedHeader contract tests.
 //
-// What this pins:
-//   • At "top of page" state (`isActive=false`): collapsed header
-//     renders with pointerEvents='none' so it does NOT intercept
-//     taps intended for the hero NavRow underneath, and is hidden
-//     from the accessibility tree (`accessibilityElementsHidden`).
-//   • At "scrolled past hero" state (`isActive=true`): collapsed
-//     header has pointerEvents='box-none' and the back-button
-//     callback fires when tapped.
-//   • Three-line text stack (round-8 redesign): merchant / branch
-//     / title rendered with their own testIDs. Branch line drops
-//     gracefully when `branchName` is null.
-//   • SAVE chip renders with the formatted amount.
+// Round-9 redesign: 2-line text stack (title primary, merchant·branch
+// secondary) per owner direction that the round-8 title was
+// unreadably small. Save chip texts now use textAlign='center' to
+// fix the round-8 visual off-center.
 //
-// We use `getByTestId` (not getByText) because the wrapper sets
-// `accessibilityElementsHidden={!isActive}`. Pass
-// `{ includeHiddenElements: true }` to inspect the inactive subtree.
+// `accessibilityElementsHidden` makes the inactive subtree invisible
+// to default queries — pass `{ includeHiddenElements: true }` to
+// inspect it.
 
 const sharedValue = (v: number) => ({ value: v }) as any
 
 const baseProps = {
-  title: 'Buy 1 Get 1 Free on All Pizzas',
-  type: 'BOGO' as const,
-  estimatedSaving: 8.99,
-  merchantName: 'Pizza Palace',
-  branchName: 'High Street',
+  title: 'Free Filter Coffee with Any Thali',
+  type: 'FREEBIE' as const,
+  estimatedSaving: 2.5,
+  merchantName: 'Covelum Restaurant',
+  branchName: 'Brightlingsea',
   insetTop: 59,
   scrollY: sharedValue(0),
   fadeStart: 100,
@@ -44,15 +36,14 @@ beforeEach(() => {
 const HIDDEN_OPT = { includeHiddenElements: true } as const
 
 describe('CollapsedHeader — top-of-page state (isActive=false)', () => {
-  it('renders the wrapper + the three text-stack nodes', () => {
+  it('renders the wrapper + title + context line testIDs', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={false} />)
     expect(getByTestId('collapsed-header-root', HIDDEN_OPT)).toBeTruthy()
-    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT)).toBeTruthy()
-    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-title', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-context', HIDDEN_OPT)).toBeTruthy()
   })
 
-  it('wrapper has pointerEvents="none" + accessibilityElementsHidden=true', () => {
+  it('wrapper is non-tappable + a11y-hidden when inactive', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={false} />)
     const root = getByTestId('collapsed-header-root', HIDDEN_OPT)
     expect(root.props.pointerEvents).toBe('none')
@@ -60,16 +51,17 @@ describe('CollapsedHeader — top-of-page state (isActive=false)', () => {
     expect(root.props.importantForAccessibility).toBe('no-hide-descendants')
   })
 
-  it('renders the voucher content in the documented order — merchant / branch / title', () => {
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={false} />)
-    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT).props.children).toBe('Pizza Palace')
-    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT).props.children).toBe('High Street')
-    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children).toBe('Buy 1 Get 1 Free on All Pizzas')
+  it('renders title as primary + merchant·branch combined as context', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
+    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children)
+      .toBe('Free Filter Coffee with Any Thali')
+    expect(getByTestId('collapsed-header-context', HIDDEN_OPT).props.children)
+      .toBe('Covelum Restaurant · Brightlingsea')
   })
 })
 
 describe('CollapsedHeader — scrolled-past-hero state (isActive=true)', () => {
-  it('wrapper has pointerEvents="box-none" + accessibilityElementsHidden=false', () => {
+  it('wrapper becomes tappable + a11y-visible when active', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={true} />)
     const root = getByTestId('collapsed-header-root')
     expect(root.props.pointerEvents).toBe('box-none')
@@ -83,7 +75,7 @@ describe('CollapsedHeader — scrolled-past-hero state (isActive=true)', () => {
     expect(baseProps.onBack).toHaveBeenCalledTimes(1)
   })
 
-  it('does NOT render share/favourite controls (per round-8 owner direction — identity-only chrome)', () => {
+  it('does NOT render share/favourite controls (identity-only chrome)', () => {
     const { queryByLabelText } = render(<CollapsedHeader {...baseProps} isActive={true} />)
     expect(queryByLabelText('Share voucher')).toBeNull()
     expect(queryByLabelText('Add to favourites')).toBeNull()
@@ -91,50 +83,49 @@ describe('CollapsedHeader — scrolled-past-hero state (isActive=true)', () => {
   })
 })
 
-describe('CollapsedHeader — branch line conditional rendering', () => {
-  it('renders the branch line when branchName is provided', () => {
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName="High Street" />)
-    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT).props.children).toBe('High Street')
+describe('CollapsedHeader — branch handling on the context line', () => {
+  it('combines merchant + branch with " · " separator when both present', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} merchantName="A Merchant" branchName="B Branch" />)
+    expect(getByTestId('collapsed-header-context', HIDDEN_OPT).props.children).toBe('A Merchant · B Branch')
   })
 
-  it('omits the branch line when branchName is null (no fabricated copy)', () => {
-    const { queryByTestId, getByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
-    expect(queryByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeNull()
-    // Merchant + title still render.
-    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT).props.children).toBe('Pizza Palace')
-    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children).toBe('Buy 1 Get 1 Free on All Pizzas')
+  it('shows just the merchant when branchName is null (no fabricated copy, no trailing separator)', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} merchantName="A Merchant" branchName={null} />)
+    expect(getByTestId('collapsed-header-context', HIDDEN_OPT).props.children).toBe('A Merchant')
+  })
+
+  it('still renders the title even when branchName is null', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
+    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children)
+      .toBe('Free Filter Coffee with Any Thali')
   })
 })
 
 describe('CollapsedHeader — SAVE chip', () => {
-  it('renders the chip with the formatted amount', () => {
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} estimatedSaving={2.5} />)
+  it('renders the chip', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
     expect(getByTestId('collapsed-header-save-chip', HIDDEN_OPT)).toBeTruthy()
   })
 
-  it('chip survives large amounts (£100, £1000) without crashing', () => {
+  it('chip survives large amounts (£100 / £1000) without crashing', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} estimatedSaving={1000} />)
     expect(getByTestId('collapsed-header-save-chip', HIDDEN_OPT)).toBeTruthy()
   })
 })
 
-describe('CollapsedHeader — overflow protection (impeccable + ui-ux-pro-max law: nothing leaks)', () => {
-  it('all three text Texts have numberOfLines=1 + ellipsizeMode=tail', () => {
+describe('CollapsedHeader — overflow protection', () => {
+  it('title has numberOfLines=1 + ellipsizeMode=tail + adjustsFontSizeToFit', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
-    const merchant = getByTestId('collapsed-header-merchant', HIDDEN_OPT)
-    const branch   = getByTestId('collapsed-header-branch',   HIDDEN_OPT)
-    const title    = getByTestId('collapsed-header-title',    HIDDEN_OPT)
-    for (const node of [merchant, branch, title]) {
-      expect(node.props.numberOfLines).toBe(1)
-      expect(node.props.ellipsizeMode).toBe('tail')
-    }
+    const node = getByTestId('collapsed-header-title', HIDDEN_OPT)
+    expect(node.props.numberOfLines).toBe(1)
+    expect(node.props.ellipsizeMode).toBe('tail')
+    expect(node.props.adjustsFontSizeToFit).toBe(true)
   })
 
-  it('merchant + title use adjustsFontSizeToFit so long content shrinks before truncating', () => {
+  it('context line has numberOfLines=1 + ellipsizeMode=tail', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
-    const merchant = getByTestId('collapsed-header-merchant', HIDDEN_OPT)
-    const title    = getByTestId('collapsed-header-title',    HIDDEN_OPT)
-    expect(merchant.props.adjustsFontSizeToFit).toBe(true)
-    expect(title.props.adjustsFontSizeToFit).toBe(true)
+    const node = getByTestId('collapsed-header-context', HIDDEN_OPT)
+    expect(node.props.numberOfLines).toBe(1)
+    expect(node.props.ellipsizeMode).toBe('tail')
   })
 })

@@ -148,9 +148,8 @@ describe('CollapsedHeader — long content doesn\'t break layout', () => {
   it('renders without crashing for long title + long merchant + long branch', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
     expect(getByTestId('collapsed-header-root', HIDDEN_OPT)).toBeTruthy()
-    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT)).toBeTruthy()
-    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-title', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-context', HIDDEN_OPT)).toBeTruthy()
   })
 
   it('collapsed title has numberOfLines=1 + ellipsize tail (single-line truncation)', () => {

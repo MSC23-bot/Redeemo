@@ -370,11 +370,17 @@ export function VoucherDetailScreen() {
       >
         {/* ── Coupon stack ── */}
         <View style={styles.coupon}>
-          {/* Hero — wrapped in an Animated.View so we can anchor it
-              during overscroll (round-7 fix #2). translateY pins the
-              hero at screen y=0 when scrollY < 0; during normal
-              scroll the hero behaves as before (scrolls away with
-              the content). */}
+          {/* Hero + outer perforation — wrapped TOGETHER in an
+              Animated.View so the perforation cutouts stay locked
+              to the hero's bottom edge during overscroll (round-9
+              fix). Round-7 anchored only the hero, leaving the
+              perforation cutouts to drift down with the body
+              cards — visible in QA as the cutouts moving away
+              from the hero on pull-down. The body cards (top card
+              + body card + merchant row + how-it-works) remain
+              outside this wrapper so they still rubber-band with
+              the gesture, opening the cream gap below the
+              perforation. */}
           <Animated.View style={heroAnchorStyle}>
             <CouponHeader
               type={voucher.type}
@@ -391,9 +397,8 @@ export function VoucherDetailScreen() {
               fadeEnd={FADE_END}
               collapsedActive={collapsedActive}
             />
+            <PerforationLine pageBg={PAGE_BG} variant="outer" />
           </Animated.View>
-
-          <PerforationLine pageBg={PAGE_BG} variant="outer" />
 
           <View style={styles.couponCardWrap}>
             <View style={styles.couponTopRound}>
