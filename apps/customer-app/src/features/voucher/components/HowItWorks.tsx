@@ -18,92 +18,92 @@ type Props = {
   /**
    * Subscription state. Determines:
    *   - which step list renders (free 5-step vs subscribed 5-step)
-   *   - whether the section is collapsible. Subscribed users get a
-   *     collapsible section (default collapsed); free users see it
-   *     expanded by default with no collapse affordance because the
-   *     section supports their conversion path.
+   *   - the default expanded state (free starts expanded; subscribed
+   *     starts collapsed since they likely already know the flow).
+   * Both states are tappable — the card affordance is consistent.
    */
   isSubscribed: boolean
 }
 
 /**
- * Voucher Detail "How It Works" — vertical timeline explainer pinned
- * beneath the merchant card. Final step uses the green "enjoy"
- * gradient; preceding steps use the brand red→coral gradient. A
- * vertical line connects the numbered boxes.
+ * Voucher Detail "How It Works" — vertical timeline explainer
+ * presented as a tappable card. Card surface, header always tappable
+ * with a chevron, expands to reveal the 5-step list.
  *
- * Round 18 — display behaviour split:
- *   • Free users: section is ALWAYS expanded. No chevron, header is
- *     a plain View. Free users are still learning the platform and
- *     this section supports conversion (the "Subscribe to Unlock"
- *     step is the conversion gate inline with the redemption flow).
- *   • Subscribed users: section is COLLAPSIBLE, default COLLAPSED.
- *     The header is a button with a down/up chevron and toggles the
- *     5-step list. accessibilityState exposes expanded/collapsed.
+ * Round 19 (impeccable redesign): wrapped the entire section in a
+ * card affordance per owner direction. Both subscription states now
+ * share the SAME card treatment + tappable header + chevron — only
+ * the default expanded state differs:
+ *   • Free users start EXPANDED (still learning the platform; the
+ *     section supports conversion).
+ *   • Subscribed users start COLLAPSED (likely already know the
+ *     flow; collapsing reduces noise on repeat visits).
  *
- * Round 17 (prior): both variants finalised at 5 steps, with steps
- * 2-5 shared between them.
+ * Both states can toggle. The chevron + visible card surface are
+ * the affordances; no extra "Tap to expand" hint text needed.
+ *
+ * Card visual hierarchy: the shadow is intentionally LIGHTER than the
+ * body card above (opacity 0.04 vs 0.18) so this reads as tertiary
+ * "process explanation" rather than competing with the voucher's
+ * primary content (terms + fair use).
  */
 export function HowItWorks({ isSubscribed }: Props) {
   const steps = isSubscribed ? HOW_IT_WORKS_STEPS_SUBSCRIBED : HOW_IT_WORKS_STEPS_FREE
 
-  // Free users: always expanded. Subscribed users: default collapsed,
-  // toggle via header tap.
+  // Free users start expanded; subscribed users start collapsed.
   const [expanded, setExpanded] = useState(!isSubscribed)
-  const showSteps = !isSubscribed || expanded
 
   return (
     <View
-      style={styles.root}
+      style={styles.card}
       testID="how-it-works"
       accessibilityLabel={`How It Works (${steps.length} steps)`}
     >
-      {isSubscribed ? (
-        <Pressable
-          onPress={() => {
-            lightHaptic()
-            setExpanded((prev) => !prev)
-          }}
-          accessibilityRole="button"
-          accessibilityState={{ expanded }}
-          accessibilityLabel={
-            expanded ? 'Collapse How It Works' : 'Expand How It Works'
-          }
-          style={({ pressed }) => [styles.heading, pressed && styles.headingPressed]}
-          testID="how-it-works-toggle"
-          hitSlop={8}
-        >
-          <HelpCircle size={18} color={color.brandRose} strokeWidth={2} />
-          <Text variant="label.md" style={styles.title}>How It Works</Text>
-          <View style={styles.headingSpacer} />
-          {expanded ? (
-            <ChevronUp size={20} color={TEXT_2ND} strokeWidth={2.4} />
-          ) : (
-            <ChevronDown size={20} color={TEXT_2ND} strokeWidth={2.4} />
-          )}
-        </Pressable>
-      ) : (
-        <View style={styles.heading}>
-          <HelpCircle size={18} color={color.brandRose} strokeWidth={2} />
-          <Text variant="label.md" style={styles.title}>How It Works</Text>
+      <Pressable
+        onPress={() => {
+          lightHaptic()
+          setExpanded((prev) => !prev)
+        }}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={
+          expanded ? 'Collapse How It Works' : 'Expand How It Works'
+        }
+        style={({ pressed }) => [styles.heading, pressed && styles.headingPressed]}
+        testID="how-it-works-toggle"
+        hitSlop={8}
+      >
+        <View style={styles.headingIconWrap} pointerEvents="none">
+          <HelpCircle size={18} color={color.brandRose} strokeWidth={2.2} />
         </View>
-      )}
+        <Text variant="label.md" style={styles.title}>How It Works</Text>
+        <View style={styles.headingSpacer} />
+        {expanded ? (
+          <ChevronUp size={20} color={TEXT_2ND} strokeWidth={2.4} />
+        ) : (
+          <ChevronDown size={20} color={TEXT_2ND} strokeWidth={2.4} />
+        )}
+      </Pressable>
 
-      {showSteps ? (
-        <View style={styles.steps} testID="how-it-works-steps">
-          {/* Connector line — sits behind the numbered boxes */}
-          <View style={styles.connector} pointerEvents="none" />
+      {expanded ? (
+        <>
+          <View style={styles.divider} pointerEvents="none" />
 
-          {steps.map((step, i) => (
-            <View key={i} style={[styles.step, i === steps.length - 1 && styles.stepLast]}>
-              <StepNumber index={i} isLast={i === steps.length - 1} />
-              <View style={styles.stepContent}>
-                <Text variant="body.md" style={styles.stepLabel}>{step.label}</Text>
-                <Text variant="body.sm" style={styles.stepDesc}>{step.desc}</Text>
+          <View style={styles.steps} testID="how-it-works-steps">
+            {/* Connector line — sits behind the numbered boxes */}
+            <View style={styles.connector} pointerEvents="none" />
+
+            {steps.map((step, i) => (
+              <View key={i} style={[styles.step, i === steps.length - 1 && styles.stepLast]}>
+                <StepNumber index={i} isLast={i === steps.length - 1} />
+                <View style={styles.stepContent}>
+                  <Text variant="body.md" style={styles.stepLabel}>{step.label}</Text>
+                  <Text variant="body.sm" style={styles.stepDesc}>{step.desc}</Text>
+                </View>
               </View>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        </>
       ) : null}
     </View>
   )
@@ -131,33 +131,59 @@ const NUM_BOX = 38
 const NUM_GAP = 16
 
 const styles = StyleSheet.create({
-  root: {
+  // ── Card surface ─────────────────────────────────────────────
+  card: {
     marginHorizontal: 22,
-    // Round-13: spacing rhythm = hierarchy. 32pt gap above to widen
-    // the visual break between the merchant attribution unit and the
-    // process explainer.
     marginTop: 32,
-    paddingHorizontal: 4,
+    backgroundColor: '#FDFBF8',  // tinted warm white in brand H≈30 family
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    // Lighter shadow than the voucher body card above so this reads
+    // as tertiary process content, not competing with primary policy.
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
+  // ── Tappable heading ────────────────────────────────────────
   heading: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
-    marginBottom: 20,
+    gap: 11,
+    paddingVertical: 4,
   },
-  // When the heading is a Pressable (subscribed users), give it a
-  // subtle press state.
   headingPressed: {
     opacity: 0.6,
+  },
+  headingIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: 'rgba(226,12,4,0.08)',  // brand-rose tint, 8% alpha
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     fontSize: 16,
     fontWeight: '800',
     color: NAVY,
+    letterSpacing: -0.1,
   },
   headingSpacer: {
     flex: 1,
   },
+  // ── Divider between heading and steps ────────────────────────
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    marginTop: 14,
+    marginBottom: 18,
+  },
+  // ── Steps timeline ──────────────────────────────────────────
   steps: {
     position: 'relative',
   },
