@@ -134,6 +134,80 @@ describe('PinEntrySheet — INVALID_PIN error', () => {
     )
     expect(getByText(/Wrong PIN · 4 attempts remaining/)).toBeTruthy()
   })
+
+  // Defensive — the device can hit a backend that predates PR #43 and
+  // doesn't send `remainingAttempts`, OR `redemptionApi`'s Zod parse
+  // can fail and re-throw the raw ApiClientError. The bar must render
+  // the fallback copy instead of leaking a blank counter
+  // ("Wrong PIN ·  attempts remaining"). Real device QA hit this.
+
+  it('FALLBACK: INVALID_PIN with NO remainingAttempts field renders "Wrong PIN. Try again." (no blank counter)', () => {
+    const { getByTestId, getByText, queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({
+          error: { code: 'INVALID_PIN', message: 'x', statusCode: 400 } as any,
+        })}
+      />,
+    )
+    expect(getByTestId('pin-error-bar')).toBeTruthy()
+    expect(getByText('Wrong PIN. Try again.')).toBeTruthy()
+    // Critically: NO blank counter copy.
+    expect(queryByText(/attempts remaining/)).toBeNull()
+    expect(queryByText(/Wrong PIN ·/)).toBeNull()
+  })
+
+  it('FALLBACK: INVALID_PIN with remainingAttempts=undefined (raw ApiClientError shape) renders fallback', () => {
+    const { getByText, queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({
+          // Mirrors the runtime shape of an ApiClientError when Zod parse
+          // failed: code is INVALID_PIN, status is 400, but no details.
+          error: { code: 'INVALID_PIN', status: 400, message: 'x', remainingAttempts: undefined } as any,
+        })}
+      />,
+    )
+    expect(getByText('Wrong PIN. Try again.')).toBeTruthy()
+    expect(queryByText(/attempts remaining/)).toBeNull()
+  })
+
+  it('FALLBACK: INVALID_PIN with remainingAttempts as non-number garbage renders fallback', () => {
+    const { getByText, queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({
+          error: { code: 'INVALID_PIN', message: 'x', statusCode: 400, remainingAttempts: 'lots' } as any,
+        })}
+      />,
+    )
+    expect(getByText('Wrong PIN. Try again.')).toBeTruthy()
+    expect(queryByText(/lots/)).toBeNull()
+  })
+
+  it('FALLBACK: INVALID_PIN with remainingAttempts=NaN renders fallback', () => {
+    const { getByText, queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({
+          error: { code: 'INVALID_PIN', message: 'x', statusCode: 400, remainingAttempts: Number.NaN } as any,
+        })}
+      />,
+    )
+    expect(getByText('Wrong PIN. Try again.')).toBeTruthy()
+    expect(queryByText(/NaN/)).toBeNull()
+  })
+
+  it('FALLBACK: when remainingAttempts is 0 (clamped at limit), renders the counted form, not the fallback', () => {
+    // 0 is a valid attempts value (next try will lock). Must NOT trigger
+    // the fallback — show "Wrong PIN · 0 attempts remaining" so the
+    // user knows the next try will lock them out.
+    const { getByText, queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({
+          error: { code: 'INVALID_PIN', message: 'x', statusCode: 400, remainingAttempts: 0 } as any,
+        })}
+      />,
+    )
+    expect(getByText(/Wrong PIN · 0 attempts remaining/)).toBeTruthy()
+    expect(queryByText('Wrong PIN. Try again.')).toBeNull()
+  })
 })
 
 describe('PinEntrySheet — PIN_RATE_LIMIT_EXCEEDED lockout', () => {

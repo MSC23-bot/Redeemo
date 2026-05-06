@@ -27,8 +27,12 @@ async function main() {
         ],
       },
     },
+    // Note: NOT selecting `isMainBranch` — branches are equivalent in
+    // user/product-facing language and the dev-script output should
+    // not amplify "(main)" framing. See deferred-followups index §M
+    // / §Q for the broader isMainBranch neutralisation track.
     select: {
-      id: true, name: true, isMainBranch: true, redemptionPin: true,
+      id: true, name: true, redemptionPin: true,
       merchant: { select: { businessName: true, tradingName: true } },
     },
   })
@@ -38,10 +42,22 @@ async function main() {
     return
   }
 
+  // Guard the decrypt step — when ENCRYPTION_KEY isn't loaded into the
+  // dev-script's env (e.g. .env doesn't include it), surface a clear
+  // message instead of a cryptic "ENCRYPTION_KEY must be a 64-character
+  // hex string" stack trace.
+  if (!process.env.ENCRYPTION_KEY) {
+    console.error(
+      '\nERROR: ENCRYPTION_KEY is not set in the dev-script environment.\n' +
+      'Add it to .env (the same value the API server runs with) and re-run.\n'
+    )
+    process.exit(2)
+  }
+
   for (const b of branches) {
     const merchantLabel = b.merchant.tradingName ?? b.merchant.businessName
     const pin = b.redemptionPin ? decrypt(b.redemptionPin) : '(not set)'
-    console.log(`${merchantLabel} · ${b.name}${b.isMainBranch ? ' (main)' : ''} → PIN: ${pin}`)
+    console.log(`${merchantLabel} · ${b.name} (id=${b.id}) → PIN: ${pin}`)
   }
 }
 

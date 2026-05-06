@@ -77,9 +77,22 @@ export function PinEntrySheet({
   const lockout = useRedemptionLockout(lockoutSeconds)
   const isLocked = lockout.isLocked
 
+  // Defensive read: at runtime `error` MIGHT NOT match the static type
+  // (e.g. backend predates PR #43 and didn't send `remainingAttempts`,
+  // or `redemptionApi`'s Zod parse failed and re-threw the raw
+  // ApiClientError which has `.code === 'INVALID_PIN'` but no
+  // `.remainingAttempts`). Treat anything that isn't a finite number
+  // as "missing" → render fallback copy instead of an empty counter.
+  const rawAttempts =
+    error && (error as { code: string }).code === 'INVALID_PIN'
+      ? (error as { remainingAttempts?: unknown }).remainingAttempts
+      : null
   const remainingAttempts =
-    error && error.code === 'INVALID_PIN' ? error.remainingAttempts : null
-  const showInvalidPinBar = error?.code === 'INVALID_PIN' && !isLocked
+    typeof rawAttempts === 'number' && Number.isFinite(rawAttempts)
+      ? rawAttempts
+      : null
+  const showInvalidPinBar =
+    (error as { code?: string } | null)?.code === 'INVALID_PIN' && !isLocked
 
   // PR #44 review fix #3 — surface the other 6 backend error codes the
   // backend can return. Without this, the user types a PIN, hits an
@@ -307,12 +320,16 @@ export function PinEntrySheet({
           </Animated.View>
         )}
 
-        {/* Inline error bar — only when INVALID_PIN, not while locked */}
+        {/* Inline error bar — only when INVALID_PIN, not while locked.
+            If `remainingAttempts` is missing (older backend, dropped
+            payload, etc.) fall back to "Wrong PIN. Try again." rather
+            than rendering a blank counter. */}
         {showInvalidPinBar ? (
           <View style={styles.errorBar} testID="pin-error-bar">
             <Text variant="label.md" style={styles.errorBarText}>
-              Wrong PIN · {remainingAttempts} attempt
-              {remainingAttempts === 1 ? '' : 's'} remaining
+              {remainingAttempts !== null
+                ? `Wrong PIN · ${remainingAttempts} attempt${remainingAttempts === 1 ? '' : 's'} remaining`
+                : 'Wrong PIN. Try again.'}
             </Text>
           </View>
         ) : null}
