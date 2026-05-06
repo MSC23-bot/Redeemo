@@ -29,12 +29,10 @@ import { BranchesTab } from '../components/BranchesTab'
 import { ReviewsTab } from '../components/ReviewsTab'
 import { ContactSheet } from '../components/ContactSheet'
 import { DirectionsSheet } from '../components/DirectionsSheet'
-import { FreeUserGateModal } from '../components/FreeUserGateModal'
 import { HoursPreviewSheet } from '../components/HoursPreviewSheet'
 import { SuspendedBranchBanner } from '../components/SuspendedBranchBanner'
 import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
 import { useFavourite } from '@/hooks/useFavourite'
-import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
 import { MerchantHeadline } from '../components/MerchantHeadline'
 import { BranchContextBand } from '../components/BranchContextBand'
@@ -108,7 +106,6 @@ function tabContentEnter() {
 type Props = { id: string | undefined }
 
 export function MerchantProfileScreen({ id }: Props) {
-  const { isSubscribed, isSubLoading } = useSubscription()
 
   // URL ↔ branch selection (P2.3). `branchId` from `?branch=`; `select`
   // pushes a new branch via router.replace; `reconcile` aligns the URL
@@ -158,7 +155,6 @@ export function MerchantProfileScreen({ id }: Props) {
   const [activeTab,           setActiveTab]           = useState<TabId>('vouchers')
   const [showContact,         setShowContact]         = useState(false)
   const [showDirs,            setShowDirs]            = useState(false)
-  const [showGate,            setShowGate]            = useState(false)
   const [bannerDismissed,     setBannerDismissed]     = useState(false)
   const [hoursPreviewBranchId, setHoursPreviewBranchId] = useState<string | null>(null)
   // dirsBranchId: null → DirectionsSheet shows the SELECTED branch (sb) — the
@@ -189,7 +185,6 @@ export function MerchantProfileScreen({ id }: Props) {
     setShowContact(false)
     setShowDirs(false)
     setDirsBranchId(null)
-    setShowGate(false)
     setBannerDismissed(false)
   }, [branchId])
 
@@ -261,9 +256,11 @@ export function MerchantProfileScreen({ id }: Props) {
   // tab, even if Voucher Detail's own queries haven't resolved yet.
   // See PR #40 round-5 plan §1 — back navigation must NOT depend on
   // Voucher Detail's own voucher.merchant.id loading first.
+  // Free users navigate through to Voucher Detail and see the
+  // free-user state (navy "Subscribe to Redeem" CTA) per the locked
+  // design (spec §4 + §11). Backend enforces subscription at
+  // redemption time — browsing is unrestricted.
   const handleVoucherPress = useCallback((voucherId: string) => {
-    if (isSubLoading) return
-    if (!isSubscribed) { setShowGate(true); return }
     if (!merchant) return
     const sbId = merchant.selectedBranch?.id
     const enc  = encodeURIComponent
@@ -276,7 +273,7 @@ export function MerchantProfileScreen({ id }: Props) {
     ]
     if (sbId) qs.unshift(`branch=${enc(sbId)}`)
     router.push(`/voucher/${enc(voucherId)}?${qs.join('&')}` as never)
-  }, [isSubscribed, isSubLoading, merchant])
+  }, [merchant])
 
   // Round 6 follow-up: screen-wide dim+restore pulse on branch
   // switch. Owner flagged that the previous tab-content settle
@@ -733,13 +730,6 @@ export function MerchantProfileScreen({ id }: Props) {
         distance={dirsBranch.distance}
         latitude={dirsBranch.latitude}
         longitude={dirsBranch.longitude}
-      />
-
-      <FreeUserGateModal
-        visible={showGate}
-        onDismiss={() => setShowGate(false)}
-        merchantName={merchant.businessName}
-        voucherCount={merchant.vouchers.length}
       />
 
       <HoursPreviewSheet

@@ -444,7 +444,12 @@ export function VoucherDetailScreen() {
           onPress={handleMerchantTap}
         />
 
-        <HowItWorks />
+        {/* "How It Works" — hidden for free-user state per spec §4
+            (Screen 2): "No How It Works section — user can't redeem".
+            Free users see the merchant + branch context above and the
+            "Subscribe to Redeem" CTA below; the redemption-process
+            explainer would be misleading until they're subscribed. */}
+        {stateKey !== 'free-user' ? <HowItWorks /> : null}
 
         {/* Spacer above the sticky CTA. Round-7 trim: insets.bottom
             + 30 (= 64 on iPhone Pro Max). Step 4's bottom edge
