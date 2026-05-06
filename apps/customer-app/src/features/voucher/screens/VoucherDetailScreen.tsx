@@ -30,6 +30,13 @@ import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
+// M2 Section B — redemption flow components + hook
+import { BranchPickerSheet, type PickerBranch } from '../components/BranchPickerSheet'
+import { PinEntrySheet } from '../components/PinEntrySheet'
+import { SuccessPopup } from '../components/SuccessPopup'
+import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
+import { useRedeem, type UseRedeemError } from '../hooks/useRedeem'
+import type { RedeemResponse } from '@/lib/api/redemption'
 import { CTA_LABELS } from '../constants/productCopy'
 
 /**
@@ -246,6 +253,27 @@ export function VoucherDetailScreen() {
       }
     }, []),
   )
+
+  // ── M2 Section B: redemption flow state ──────────────────────────────
+  // Three-tier branch source for the redemption mutation. See plan §B11
+  // for the full priority rationale. `pickerConfirmedBranchId` is the
+  // local/ref source set synchronously when the user confirms a branch
+  // in the picker; it bridges the render gap before the URL ?branch=
+  // catches up via router.replace, then auto-clears once URL matches.
+  const [pickerVisible, setPickerVisible] = useState(false)
+  const [pinSheetVisible, setPinSheetVisible] = useState(false)
+  const [successPopup, setSuccessPopup] = useState<RedeemResponse | null>(null)
+  const [lastRedemption, setLastRedemption] = useState<RedeemResponse | null>(null)
+  const [pickerConfirmedBranchId, setPickerConfirmedBranchId] = useState<string | null>(null)
+
+  // Clear the picker-local source once the URL catches up to its value.
+  // After this clear, `getBranchId()` falls back to URL → selectedBranch.
+  useEffect(() => {
+    if (pickerConfirmedBranchId == null) return
+    if (branchIdParam === pickerConfirmedBranchId) {
+      setPickerConfirmedBranchId(null)
+    }
+  }, [branchIdParam, pickerConfirmedBranchId])
   // Schedule the auto-show timer. All gates must hold:
   //   • screen is focused (cancels mid-delay if user navigates away)
   //   • voucher data has loaded (no flash before content)
@@ -362,42 +390,6 @@ export function VoucherDetailScreen() {
     Alert.alert('Coming next milestone', 'Voucher share ships in M2.')
   }, [])
 
-  const handleChangeBranch = useCallback(() => {
-    Alert.alert(
-      'Coming next milestone',
-      'Branch picker for changing the redemption branch ships in M2.',
-    )
-  }, [])
-
-  const handleMerchantTap = useCallback(() => {
-    if (voucher && merchant) {
-      router.push(`/(app)/merchant/${voucher.merchant.id}` as never)
-    }
-  }, [router, voucher, merchant])
-
-  // RedeemCTA derivation per state. Active states gate on `branchReady`.
-  const cta = useMemo(() => {
-    switch (stateKey) {
-      case 'free-user':
-        return { label: CTA_LABELS.redeemSubscribe, disabled: false, variant: 'subscribe' as const, testID: 'redeem-cta-subscribe' }
-      case 'can-redeem':
-      case 'time-limited-available':
-      case 'time-limited-urgent':
-        if (!branchReady) {
-          return { label: CTA_LABELS.branchLoading, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-branch-loading' }
-        }
-        return { label: CTA_LABELS.redeemActive, disabled: false, variant: 'primary' as const, testID: 'redeem-cta-active' }
-      case 'redeemed-this-cycle':
-        return { label: CTA_LABELS.redeemed, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-redeemed' }
-      case 'expired':
-        return { label: CTA_LABELS.expired, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-expired' }
-      case 'time-limited-unavailable':
-        return { label: CTA_LABELS.unavailable, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-unavailable' }
-      default:
-        return null
-    }
-  }, [stateKey, branchReady])
-
   // Round 21: build the voucher-origin subscription URL with full
   // return-context params. SubscribePromptScreen reads these to:
   //   • initialise the plan selector to the user's pre-pick
@@ -406,9 +398,9 @@ export function VoucherDetailScreen() {
   //     Continue with Free Account),
   //   • route the secondary CTA back to THIS exact voucher detail
   //     page rather than dumping the user on Discovery.
-  // Returns null when voucher data isn't yet loaded — callers fall
-  // back to a plain push (state machine prevents free-user CTA from
-  // firing before voucher loads anyway).
+  // Defined ahead of handleChangeBranch / handleCTA / handlePickerConfirm
+  // so the subscription-gate fallbacks in those handlers (PR #44
+  // review fix #1) can call into it without TS hoisting errors.
   const buildSubscriptionUrl = useCallback(
     (plan: 'annual' | 'monthly'): string => {
       const enc = encodeURIComponent
@@ -434,6 +426,145 @@ export function VoucherDetailScreen() {
     [voucher, branchIdParam, selectedBranch],
   )
 
+  // M2 Section B — change branch opens the voucher-scoped picker. The
+  // picker's onConfirm wires through to `handlePickerConfirm` below
+  // (sets pickerConfirmedBranchId, fires router.replace, then opens
+  // PinEntrySheet).
+  //
+  // Subscription gate (PR #44 review fix #1): free users tapping the
+  // MerchantRow's "Change ▾" pill MUST NOT open the picker, because
+  // the picker → PinEntrySheet wiring would let them reach PIN entry
+  // without an active subscription. Owner constraint #1 — free users
+  // never reach PIN. Route them through the conversion flow instead.
+  const handleChangeBranch = useCallback(() => {
+    if (!isSubscribed) {
+      router.push(buildSubscriptionUrl('monthly') as never)
+      return
+    }
+    setPickerVisible(true)
+  }, [isSubscribed, router, buildSubscriptionUrl])
+
+  const handleMerchantTap = useCallback(() => {
+    if (voucher && merchant) {
+      router.push(`/(app)/merchant/${voucher.merchant.id}` as never)
+    }
+  }, [router, voucher, merchant])
+
+  // ── M2 Section B: useRedeem mutation ─────────────────────────────────
+  // Three-tier branch source priority — read AT MUTATION TIME:
+  //   1. pickerConfirmedBranchId — synchronous local state set by the
+  //      picker confirm; bridges the render gap before URL catches up.
+  //   2. branchIdParam — URL `?branch=<id>` from useLocalSearchParams.
+  //   3. merchant.selectedBranch?.id — server-resolved cold-open fallback.
+  //   4. null → useRedeem throws { code: 'NULL_BRANCH' } → reopens picker.
+  const redeem = useRedeem({
+    voucherId: voucher?.id ?? '',
+    getBranchId: () =>
+      pickerConfirmedBranchId
+      ?? branchIdParam
+      ?? selectedBranch?.id
+      ?? null,
+  })
+
+  // Picker → URL replace → open PinEntrySheet.
+  //
+  // Subscription gate (PR #44 review fix #1): defensive in-depth guard.
+  // The picker should never open for a free user (handleChangeBranch +
+  // handleCTA both gate above), but if a future code path opens it
+  // without going through those, this guard ensures we still don't
+  // open PIN entry for non-subscribed users.
+  const handlePickerConfirm = useCallback((branchId: string) => {
+    if (!isSubscribed) {
+      setPickerVisible(false)
+      router.push(buildSubscriptionUrl('monthly') as never)
+      return
+    }
+    // Local source set FIRST (synchronous, ref-like). Subsequent
+    // router.replace fires; URL catches up next render and the
+    // useEffect above clears the local source.
+    setPickerConfirmedBranchId(branchId)
+    if (voucher) {
+      const enc = encodeURIComponent
+      const qs: string[] = [
+        `branch=${enc(branchId)}`,
+        `from=${enc(params.from ?? 'merchant')}`,
+        `returnMerchantId=${enc(params.returnMerchantId ?? voucher.merchant.id)}`,
+        `tab=${enc(params.tab ?? 'vouchers')}`,
+      ]
+      if (suppressPrompt) qs.push('suppressSubscribePrompt=1')
+      router.replace(`/voucher/${enc(voucher.id)}?${qs.join('&')}` as never)
+    }
+    setPickerVisible(false)
+    setPinSheetVisible(true)
+  }, [isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt])
+
+  // PIN submit → mutate → success | typed error.
+  const handlePinSubmit = useCallback(async (pin: string) => {
+    try {
+      const result = await redeem.mutateAsync({ pin })
+      setPinSheetVisible(false)
+      setSuccessPopup(result)
+      setLastRedemption(result)
+    } catch (err) {
+      const e = err as UseRedeemError
+      // NULL_BRANCH (client-side defensive) → reopen picker.
+      if (e?.code === 'NULL_BRANCH') {
+        setPinSheetVisible(false)
+        setPickerVisible(true)
+        return
+      }
+      // ALREADY_REDEEMED → close sheet, refetch voucher (state machine
+      // will re-derive to 'redeemed-this-cycle' on next render).
+      if (e?.code === 'ALREADY_REDEEMED') {
+        setPinSheetVisible(false)
+        voucherQuery.refetch()
+        return
+      }
+      // INVALID_PIN / PIN_RATE_LIMIT_EXCEEDED / others — stay on the
+      // sheet; the typed error flows to PinEntrySheet via the `error`
+      // prop and drives the shake / attempts-remaining / lockout UI.
+    }
+  }, [redeem, voucherQuery])
+
+  // Picker branches list — filter to active branches only. Inactive
+  // branches must NOT appear because the backend rejects redemption
+  // with BRANCH_UNAVAILABLE per PR #43 (and surfacing them in a picker
+  // would be a usability bug — user picks, gets rejected at submit).
+  const pickerBranches: PickerBranch[] = useMemo(() => {
+    if (!merchant) return []
+    return merchant.branches
+      .filter((b) => b.isActive)
+      .map((b) => ({
+        id: b.id,
+        name: b.name,
+        city: b.city,
+        distanceMetres: b.distance,
+      }))
+  }, [merchant])
+
+  // RedeemCTA derivation per state. Active states gate on `branchReady`.
+  const cta = useMemo(() => {
+    switch (stateKey) {
+      case 'free-user':
+        return { label: CTA_LABELS.redeemSubscribe, disabled: false, variant: 'subscribe' as const, testID: 'redeem-cta-subscribe' }
+      case 'can-redeem':
+      case 'time-limited-available':
+      case 'time-limited-urgent':
+        if (!branchReady) {
+          return { label: CTA_LABELS.branchLoading, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-branch-loading' }
+        }
+        return { label: CTA_LABELS.redeemActive, disabled: false, variant: 'primary' as const, testID: 'redeem-cta-active' }
+      case 'redeemed-this-cycle':
+        return { label: CTA_LABELS.redeemed, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-redeemed' }
+      case 'expired':
+        return { label: CTA_LABELS.expired, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-expired' }
+      case 'time-limited-unavailable':
+        return { label: CTA_LABELS.unavailable, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-unavailable' }
+      default:
+        return null
+    }
+  }, [stateKey, branchReady])
+
   const handleCTA = useCallback(() => {
     if (stateKey === 'free-user') {
       // Sticky free-user CTA copy is "Subscribe to Redeem · £6.99/mo"
@@ -441,11 +572,24 @@ export function VoucherDetailScreen() {
       router.push(buildSubscriptionUrl('monthly') as never)
       return
     }
-    Alert.alert(
-      'Coming next milestone',
-      'PIN entry + redemption flow ships in M2.',
-    )
-  }, [stateKey, router, buildSubscriptionUrl])
+    // M2 Section B — active redeem states open the picker (multi-branch)
+    // or PIN sheet directly (single-branch).
+    if (
+      stateKey === 'can-redeem' ||
+      stateKey === 'time-limited-available' ||
+      stateKey === 'time-limited-urgent'
+    ) {
+      if (isMultiBranch) {
+        setPickerVisible(true)
+      } else {
+        setPinSheetVisible(true)
+      }
+      return
+    }
+    // Other states (redeemed-this-cycle, expired, time-limited-unavailable)
+    // — disabled CTA, no handler. RedeemCTA already early-returns on
+    // disabled, so this branch is defensive only.
+  }, [stateKey, router, buildSubscriptionUrl, isMultiBranch])
 
   // ── Render ───────────────────────────────────────────────────────────
 
@@ -544,7 +688,28 @@ export function VoucherDetailScreen() {
           </View>
         </View>
 
-        {stateKey === 'redeemed-this-cycle' ? <RedeemedBadge /> : null}
+        {stateKey === 'redeemed-this-cycle' ? (
+          <>
+            <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
+            {/* M2 Section B: full RedemptionDetailsCard ONLY when we have
+                the redemption response in memory (immediately after
+                successful redeem, before the user navigates away). On
+                return-visit lastRedemption is null → fall back to the
+                M1 RedeemedBadge above. Persisted return-visit details
+                are §O6 in the deferred-followups index (M3 backend dep
+                on lastRedeemedAt + redemptionCode + availableAgainAt
+                fields on the voucher payload). */}
+            {lastRedemption ? (
+              <View style={styles.tlBanner}>
+                <RedemptionDetailsCard
+                  redemptionCode={lastRedemption.redemptionCode}
+                  redeemedAt={lastRedemption.redeemedAt}
+                  branchName={branchName}
+                />
+              </View>
+            ) : null}
+          </>
+        ) : null}
 
         {timeLimited.isTimeLimited ? (
           <View style={styles.tlBanner}>
@@ -633,6 +798,65 @@ export function VoucherDetailScreen() {
           router.push(buildSubscriptionUrl(plan) as never)
         }}
       />
+
+      {/* ── M2 Section B: redemption flow surfaces ──────────────────── */}
+      {/* Picker `currentBranchId` MUST use the same URL-first priority
+          as the redemption mutation (per PR #44 review fix #2). Without
+          this, a user who switched branches recently (URL=B2) but is
+          still seeing keepPreviousData merchant snapshot (selectedBranch=B1)
+          would open the picker pre-selected on B1 and confirm B1 by
+          accident. Three-tier priority match:
+          pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id */}
+      <BranchPickerSheet
+        visible={pickerVisible}
+        branches={pickerBranches}
+        currentBranchId={
+          pickerConfirmedBranchId
+          ?? branchIdParam
+          ?? selectedBranch?.id
+          ?? null
+        }
+        onConfirm={handlePickerConfirm}
+        onDismiss={() => setPickerVisible(false)}
+      />
+      <PinEntrySheet
+        visible={pinSheetVisible}
+        merchantName={voucher?.merchant.businessName ?? ''}
+        branchName={branchName}
+        isLoading={redeem.isPending}
+        error={redeem.error}
+        onSubmit={handlePinSubmit}
+        onDismiss={() => setPinSheetVisible(false)}
+      />
+      {/* SuccessPopup mounts only when we have BOTH a redemption response
+          AND the voucher data — guards against rendering with placeholder
+          fallbacks (PR #44 review cleanup). */}
+      {successPopup && voucher ? (
+        <SuccessPopup
+          visible
+          redemptionCode={successPopup.redemptionCode}
+          redeemedAt={successPopup.redeemedAt}
+          voucherTitle={voucher.title}
+          voucherType={voucher.type}
+          merchantName={voucher.merchant.businessName}
+          branchName={branchName}
+          onShowToStaff={() => {
+            // M3 stub — full QR + brightness boost ships in M3.
+            // For M2 the button routes to a small alert acknowledging
+            // the deferral.
+            Alert.alert(
+              'Show to Staff',
+              'The full-screen redemption display ships in the next milestone (M3). Your code is shown above — please show it to staff.',
+            )
+          }}
+          onRateReview={() => {
+            // M2 keeps the review path unchanged — closes the popup;
+            // future milestones will route into the existing review flow.
+            setSuccessPopup(null)
+          }}
+          onDone={() => setSuccessPopup(null)}
+        />
+      ) : null}
     </View>
   )
 }

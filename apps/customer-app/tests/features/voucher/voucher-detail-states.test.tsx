@@ -42,6 +42,21 @@ jest.mock('@/features/voucher/hooks/useCustomerVoucher', () => ({
   }),
 }))
 
+// useRedeem requires a QueryClientProvider in production; M1 tests
+// don't wrap in one because the screen previously only used useQuery
+// hooks (themselves mocked). Stub useRedeem with the same shape the
+// screen expects so M1 contracts continue to pass without bringing in
+// a QueryClientProvider that would re-introduce real-network behaviour.
+jest.mock('@/features/voucher/hooks/useRedeem', () => ({
+  useRedeem: () => ({
+    mutate: jest.fn(),
+    mutateAsync: jest.fn().mockResolvedValue(undefined),
+    isPending: false,
+    error: null,
+    reset: jest.fn(),
+  }),
+}))
+
 // Merchant profile — drives selectedBranch / branches list. The mock
 // captures the (id, opts) args every call so tests can assert the
 // branch URL param is threaded through correctly (closes the test

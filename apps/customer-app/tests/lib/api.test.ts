@@ -88,4 +88,96 @@ describe('api client', () => {
     const headers = calls[0]!.headers as Record<string, string>
     expect(headers['Content-Type']).toBe('application/json')
   })
+
+  // ── ApiClientError.details (Voucher Detail M2 Section B prep) ────────
+  // Mirrors the AppError(code, details?) extension on the backend so
+  // INVALID_PIN.remainingAttempts and PIN_RATE_LIMIT_EXCEEDED.retryAfter
+  // flow through to typed customer-app code without a separate raw fetch.
+
+  it('captures non-standard error fields from the envelope into ApiClientError.details', async () => {
+    api.__setTokensForTests('A', 'R')
+    global.fetch = jest.fn(async () =>
+      new Response(JSON.stringify({
+        error: { code: 'INVALID_PIN', message: 'Wrong PIN', statusCode: 400, remainingAttempts: 3 }
+      }), { status: 400, headers: { 'content-type': 'application/json' } })
+    ) as unknown as typeof fetch
+
+    try {
+      await api.post('/api/v1/redemption', { voucherId: 'v', branchId: 'b', pin: '1234' })
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiClientError)
+      const e = err as ApiClientError
+      expect(e.code).toBe('INVALID_PIN')
+      expect(e.status).toBe(400)
+      expect(e.details).toEqual({ remainingAttempts: 3 })
+    }
+  })
+
+  it('captures retryAfter on rate-limit error', async () => {
+    api.__setTokensForTests('A', 'R')
+    global.fetch = jest.fn(async () =>
+      new Response(JSON.stringify({
+        error: { code: 'PIN_RATE_LIMIT_EXCEEDED', message: 'Locked', statusCode: 429, retryAfter: 540 }
+      }), { status: 429, headers: { 'content-type': 'application/json' } })
+    ) as unknown as typeof fetch
+
+    try {
+      await api.post('/api/v1/redemption', {})
+    } catch (err) {
+      expect((err as ApiClientError).details).toEqual({ retryAfter: 540 })
+    }
+  })
+
+  it('details is undefined when envelope has only standard fields', async () => {
+    api.__setTokensForTests('A', 'R')
+    global.fetch = jest.fn(async () =>
+      new Response(JSON.stringify({
+        error: { code: 'SUBSCRIPTION_REQUIRED', message: 'Subscribe', statusCode: 403 }
+      }), { status: 403, headers: { 'content-type': 'application/json' } })
+    ) as unknown as typeof fetch
+
+    try {
+      await api.post('/api/v1/redemption', {})
+    } catch (err) {
+      const e = err as ApiClientError
+      expect(e.code).toBe('SUBSCRIPTION_REQUIRED')
+      expect(e.details).toBeUndefined()
+    }
+  })
+
+  it('preserves backward-compat: error.field still surfaces on top-level property, not in details', async () => {
+    api.__setTokensForTests('A', 'R')
+    global.fetch = jest.fn(async () =>
+      new Response(JSON.stringify({
+        error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Used', statusCode: 409, field: 'email' }
+      }), { status: 409, headers: { 'content-type': 'application/json' } })
+    ) as unknown as typeof fetch
+
+    try {
+      await api.post('/api/v1/auth/register', {})
+    } catch (err) {
+      const e = err as ApiClientError
+      expect(e.field).toBe('email')
+      // `field` extracted to its own property; not duplicated into details.
+      expect(e.details).toBeUndefined()
+    }
+  })
+
+  it('mixed payload — field plus details fields both surface correctly', async () => {
+    api.__setTokensForTests('A', 'R')
+    global.fetch = jest.fn(async () =>
+      new Response(JSON.stringify({
+        error: { code: 'CUSTOM', message: 'x', statusCode: 400, field: 'pin', remainingAttempts: 2 }
+      }), { status: 400, headers: { 'content-type': 'application/json' } })
+    ) as unknown as typeof fetch
+
+    try {
+      await api.post('/x', {})
+    } catch (err) {
+      const e = err as ApiClientError
+      expect(e.field).toBe('pin')
+      expect(e.details).toEqual({ remainingAttempts: 2 })
+    }
+  })
 })
