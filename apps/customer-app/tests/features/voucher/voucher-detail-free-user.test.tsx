@@ -472,3 +472,116 @@ describe('Voucher Detail — free-user CTA routes to subscription-prompt', () =>
     )
   })
 })
+
+// ── Post-merge follow-up — buildSubscriptionUrl branch source ────────
+//
+// Symmetric to §O7's `MerchantProfileScreen.handleVoucherPress` fix
+// (PR #40 round 23). The free-user sticky CTA + the modal's plan
+// buttons can both fire while voucherQuery has resolved but
+// merchantQuery is still in flight (selectedBranch still null).
+// `buildSubscriptionUrl` must source the branch return value from
+// the URL `branchIdParam` first so the URL-driven return contract
+// — the basis for SubscribePromptScreen's "Continue with Free
+// Account" round-trip + the suppressSubscribePrompt=1 flag — never
+// drops the branch identity. Without this, the URL omits `branch=`,
+// SubscribePromptScreen's secondary CTA can't rebuild the exact
+// return URL, and falls back to router.back() — losing the
+// suppression contract along the way.
+
+describe('Voucher Detail — buildSubscriptionUrl reads branch from URL when selectedBranch is loading', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('sticky free-user CTA: URL branch=B2 wins when merchantQuery is still loading (no selectedBranch yet)', () => {
+    // URL carries branch=b2 (user came from MerchantProfile with B2
+    // selected). Voucher data has resolved → state machine produces
+    // 'free-user'. Merchant data is still in flight → selectedBranch
+    // is null. Without the fix, the pushed URL would omit branch=.
+    mockParams = {
+      id: 'v1',
+      branch: 'b2',
+      from: 'merchant',
+      returnMerchantId: 'm1',
+      tab: 'vouchers',
+    }
+    ;(globalThis as any).__voucherProfileMock__.data       = null
+    ;(globalThis as any).__voucherProfileMock__.isLoading  = true
+    ;(globalThis as any).__voucherProfileMock__.isError    = false
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-subscribe'))
+
+    expect(mockPush).toHaveBeenCalledTimes(1)
+    const [pushedUrl] = (mockPush as jest.Mock).mock.calls[0]
+    expect(pushedUrl).toMatch(/branch=b2/)
+    // Defensive — must NOT silently use a different branch (e.g. b1
+    // from the steady-state fixture).
+    expect(pushedUrl).not.toMatch(/branch=b1/)
+  })
+
+  it('modal annual button: URL branch=B2 wins when merchantQuery is still loading', () => {
+    mockParams = {
+      id: 'v1',
+      branch: 'b2',
+      from: 'merchant',
+      returnMerchantId: 'm1',
+      tab: 'vouchers',
+    }
+    ;(globalThis as any).__voucherProfileMock__.data       = null
+    ;(globalThis as any).__voucherProfileMock__.isLoading  = true
+    ;(globalThis as any).__voucherProfileMock__.isError    = false
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
+    fireEvent.press(getByTestId('subscription-prompt-annual'))
+
+    expect(mockPush).toHaveBeenCalledWith(
+      '/(auth)/subscription-prompt?source=voucher&plan=annual&returnVoucherId=v1&branch=b2&returnMerchantId=m1&tab=vouchers',
+    )
+  })
+
+  it('modal monthly button: URL branch=B2 wins when merchantQuery is still loading', () => {
+    mockParams = {
+      id: 'v1',
+      branch: 'b2',
+      from: 'merchant',
+      returnMerchantId: 'm1',
+      tab: 'vouchers',
+    }
+    ;(globalThis as any).__voucherProfileMock__.data       = null
+    ;(globalThis as any).__voucherProfileMock__.isLoading  = true
+    ;(globalThis as any).__voucherProfileMock__.isError    = false
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
+    fireEvent.press(getByTestId('subscription-prompt-monthly'))
+
+    expect(mockPush).toHaveBeenCalledWith(
+      '/(auth)/subscription-prompt?source=voucher&plan=monthly&returnVoucherId=v1&branch=b2&returnMerchantId=m1&tab=vouchers',
+    )
+  })
+
+  it('falls back to selectedBranch.id only when URL has no branch (cold-open contract preserved)', () => {
+    // Cold-open: no ?branch= on the URL. Once merchant resolves,
+    // selectedBranch carries the server-resolved branch. The fallback
+    // must keep working — URL = subscription-prompt?...&branch=b1&...
+    // even with no URL branch param.
+    mockParams = {
+      id: 'v1',
+      from: 'merchant',
+      returnMerchantId: 'm1',
+      tab: 'vouchers',
+      // intentionally no `branch` param
+    }
+    // steady-state merchant data — selectedBranch present, id=b1
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-subscribe'))
+
+    const [pushedUrl] = (mockPush as jest.Mock).mock.calls[0]
+    expect(pushedUrl).toMatch(/branch=b1/)
+  })
+})
