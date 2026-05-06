@@ -20,7 +20,7 @@ export function HowItWorks() {
   return (
     <View style={styles.root} testID="how-it-works">
       <View style={styles.heading}>
-        <HelpCircle size={15} color={color.brandRose} strokeWidth={2} />
+        <HelpCircle size={18} color={color.brandRose} strokeWidth={2} />
         <Text variant="label.md" style={styles.title}>How It Works</Text>
       </View>
 
@@ -60,23 +60,23 @@ function StepNumber({ index, isLast }: { index: number; isLast: boolean }) {
   )
 }
 
-const NUM_BOX = 32
-const NUM_GAP = 14
+const NUM_BOX = 38
+const NUM_GAP = 16
 
 const styles = StyleSheet.create({
   root: {
-    marginHorizontal: 20,
-    marginTop: 20,
+    marginHorizontal: 22,
+    marginTop: 24,
     paddingHorizontal: 4,
   },
   heading: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
+    gap: 9,
+    marginBottom: 20,
   },
   title: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '800',
     color: NAVY,
   },
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: NUM_GAP,
-    paddingBottom: 16,
+    paddingBottom: 22,
   },
   stepLast: {
     paddingBottom: 0,
@@ -103,34 +103,34 @@ const styles = StyleSheet.create({
   numBox: {
     width: NUM_BOX,
     height: NUM_BOX,
-    borderRadius: 10,
+    borderRadius: 12,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: color.brandRose,
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    shadowOpacity: 0.20,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   numText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
   },
   stepContent: {
     flex: 1,
-    paddingTop: 4,
+    paddingTop: 5,
   },
   stepLabel: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: NAVY,
-    marginBottom: 2,
+    marginBottom: 3,
   },
   stepDesc: {
-    fontSize: 11.5,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 19,
     color: TEXT_2ND,
   },
 })

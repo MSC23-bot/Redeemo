@@ -89,20 +89,20 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch, terms
         <Text variant="label.md" style={styles.infoTitle}>VOUCHER DETAILS</Text>
         <View style={styles.pillsRow}>
           {expiryLabel ? (
-            <Pill tone="expiry" icon={<Clock size={12} color="#B91C1C" strokeWidth={2.2} />}>
+            <Pill tone="expiry" icon={<Clock size={14} color="#B91C1C" strokeWidth={2.2} />}>
               {expiryLabel}
             </Pill>
           ) : (
-            <Pill tone="ongoing" icon={<Check size={12} color="#166534" strokeWidth={2.2} />}>
+            <Pill tone="ongoing" icon={<Check size={14} color="#166534" strokeWidth={2.4} />}>
               No expiry
             </Pill>
           )}
           {dineInLabel ? (
-            <Pill tone="neutral" icon={<Home size={12} color={TEXT_2ND} strokeWidth={2} />}>
+            <Pill tone="neutral" icon={<Home size={14} color={TEXT_2ND} strokeWidth={2} />}>
               {dineInLabel}
             </Pill>
           ) : null}
-          <Pill tone="neutral" icon={<Tag size={12} color={TEXT_2ND} strokeWidth={2} />}>
+          <Pill tone="neutral" icon={<Tag size={14} color={TEXT_2ND} strokeWidth={2} />}>
             {isMultiBranch ? 'All branches' : 'Single branch'}
           </Pill>
         </View>
@@ -128,13 +128,13 @@ export function CouponBodyCard({ type, terms }: CouponBodyCardProps) {
       {termsList.length > 0 ? (
         <View style={styles.section}>
           <View style={styles.sectionHeading}>
-            <FileText size={15} color={ROSE} strokeWidth={2} />
+            <FileText size={17} color={ROSE} strokeWidth={2} />
             <Text variant="label.md" style={styles.sectionTitle}>Terms &amp; Conditions</Text>
           </View>
           <View style={styles.termsList}>
             {termsList.map((line, i) => (
               <View key={i} style={[styles.termsRow, i === termsList.length - 1 && styles.termsRowLast]}>
-                <Check size={13} color={SAVING_GRN} strokeWidth={2.4} />
+                <Check size={15} color={SAVING_GRN} strokeWidth={2.4} />
                 <Text variant="body.sm" style={styles.termsText}>{line}</Text>
               </View>
             ))}
@@ -144,12 +144,12 @@ export function CouponBodyCard({ type, terms }: CouponBodyCardProps) {
 
       <View style={styles.fairUse}>
         <View style={styles.fairHeading}>
-          <Shield size={14} color={ROSE} strokeWidth={2} />
+          <Shield size={16} color={ROSE} strokeWidth={2} />
           <Text variant="label.md" style={styles.fairTitle}>{FAIR_USE_TITLE}</Text>
         </View>
         {fairUseLines.map((line, i) => (
           <View key={i} style={styles.fairItem}>
-            <Info size={11} color={TEXT_MUTED} strokeWidth={2} />
+            <Info size={13} color={TEXT_MUTED} strokeWidth={2} />
             <Text variant="body.sm" style={styles.fairItemText}>{line}</Text>
           </View>
         ))}
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   banner: {
-    height: 150,
+    height: 180,
     backgroundColor: '#1a1a2e',
     overflow: 'hidden',
   },
@@ -198,40 +198,40 @@ const styles = StyleSheet.create({
   },
   bannerLabel: {
     color: 'rgba(255,255,255,0.18)',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     letterSpacing: 3,
   },
   infoBlock: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 20,
   },
   infoTitle: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
     color: TEXT_MUTED,
-    marginBottom: 10,
+    marginBottom: 14,
   },
   pillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 9,
   },
   pillOngoing: { backgroundColor: '#ECFDF5' },
   pillExpiry:  { backgroundColor: '#FEF2F2' },
-  pillNeutral: { backgroundColor: 'rgba(0,0,0,0.04)' },
+  pillNeutral: { backgroundColor: 'rgba(0,0,0,0.05)' },
   pillText: {
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '600',
   },
   pillTextOngoing: { color: '#166534' },
@@ -241,21 +241,21 @@ const styles = StyleSheet.create({
   // ── BODY CARD (terms + fair use) ────────────────────────────────────
   bodyCard: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 22,
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 26,
   },
   section: {
-    marginBottom: 14,
+    marginBottom: 18,
   },
   sectionHeading: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: 9,
+    marginBottom: 14,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
     color: NAVY,
   },
@@ -265,8 +265,8 @@ const styles = StyleSheet.create({
   termsRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    paddingVertical: 7,
+    gap: 10,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.04)',
   },
@@ -275,39 +275,39 @@ const styles = StyleSheet.create({
   },
   termsText: {
     flex: 1,
-    fontSize: 12.5,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 21,
     color: TEXT_2ND,
   },
   fairUse: {
     backgroundColor: CREAM,
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 16,
+    padding: 18,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
-    marginTop: 6,
+    marginTop: 8,
   },
   fairHeading: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
+    gap: 9,
+    marginBottom: 12,
   },
   fairTitle: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
     color: NAVY,
   },
   fairItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    paddingVertical: 4,
+    gap: 9,
+    paddingVertical: 5,
   },
   fairItemText: {
     flex: 1,
-    fontSize: 11.5,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 19,
     color: TEXT_2ND,
   },
 })

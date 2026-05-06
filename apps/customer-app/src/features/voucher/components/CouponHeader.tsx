@@ -1,8 +1,12 @@
 import React from 'react'
-import { View, StyleSheet } from 'react-native'
+import { View, Pressable, StyleSheet, Platform } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Tag, Gift, Percent, Clock, Package, RefreshCw, Coins } from 'lucide-react-native'
+import { BlurView } from 'expo-blur'
+import {
+  ArrowLeft, Heart, Share2, Tag, Gift, Percent, Clock, Package, RefreshCw, Coins,
+} from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
+import { lightHaptic } from '@/design-system/haptics'
 import type { VoucherType } from '@/lib/api/voucher'
 import { voucherGradient, voucherTypeLabel, formatPounds } from '../utils/voucherTheme'
 
@@ -11,14 +15,17 @@ type Props = {
   title: string
   description: string | null
   estimatedSaving: number
-  /**
-   * Top safe-area inset (status bar height + notch). The header's
-   * paddingTop and the save badge's `top` derive from this so the
-   * type badge / title / save badge always sit BELOW the parent
-   * screen's frosted nav row instead of underneath it. Without this,
-   * the type badge and back button collide on iPhones with notches.
-   */
+  /** Top safe-area inset (status bar / notch). */
   insetTop: number
+  /**
+   * Nav callbacks. The NavRow lives INSIDE the header so it scrolls
+   * away with the hero (per v4 mockup). Scrolling to the top shows
+   * the nav; scrolling past the hero hides it.
+   */
+  onBack:  () => void
+  onShare: () => void
+  onFav:   () => void
+  isFavourited: boolean
 }
 
 const typeIcon = (type: VoucherType) => {
@@ -35,34 +42,43 @@ const typeIcon = (type: VoucherType) => {
   }
 }
 
-const WHITE        = '#FFFFFF'
-const WHITE_92     = 'rgba(255,255,255,0.92)'
-const WHITE_80     = 'rgba(255,255,255,0.80)'
+const WHITE     = '#FFFFFF'
+const WHITE_92  = 'rgba(255,255,255,0.92)'
+const WHITE_80  = 'rgba(255,255,255,0.80)'
 
-// Vertical room reserved for the parent screen's NavRow (38pt button +
-// 8pt top offset + ~12pt breathing room). Keep in sync with
-// VoucherDetailScreen.NavRow positioning.
-const NAV_ROOM = 58
+// Vertical room reserved for the NavRow rendered at the top of the
+// header (44pt button + 8pt offset + 16pt breathing). Larger than the
+// previous 58pt to give the title meaningful clear space below the
+// nav on iPhone Pro Max + match v4 mockup's 100px top padding.
+const NAV_ROOM = 68
 
 /**
- * Top of the coupon — type-coloured gradient background with a frosted
- * dashed "Save £X" badge in the top-right corner. Layout matches v4
- * mockup §coupon-header: left-aligned type badge + title + description
- * with the save circle floating top-right, sitting BELOW the nav row.
+ * Top of the coupon — type-coloured gradient hero with the frosted
+ * NavRow scrolled into the hero (per v4 mockup §vd-topnav, which
+ * absolutely-positions the nav INSIDE the .coupon-header so it
+ * scrolls away when the user scrolls past the hero).
  *
- * Visual depth: type-coloured gradient (light → dark, top-left → bottom-
- * right) plus two overlay layers: a vertical vignette (slight darkening
- * at top + bottom) and a pair of radial highlights for subtle texture.
+ * Sizing target: iPhone 17 Pro Max (440pt logical width) — content
+ * sized to feel proportionally similar to v4's 390pt reference
+ * device. Scale-ups vs v4: title 26→30pt, save badge 80→92pt,
+ * type badge 11→12pt, description 13→15pt, min-height 260→300.
  */
-export function CouponHeader({ type, title, description, estimatedSaving, insetTop }: Props) {
+export function CouponHeader({
+  type,
+  title,
+  description,
+  estimatedSaving,
+  insetTop,
+  onBack,
+  onShare,
+  onFav,
+  isFavourited,
+}: Props) {
   const gradient  = voucherGradient(type)
   const typeLabel = voucherTypeLabel(type)
   const Icon      = typeIcon(type)
 
-  // paddingTop = status-bar + nav button room + breathing. saveBadge
-  // top aligns roughly with the title — sits below the nav buttons.
   const paddingTop = insetTop + NAV_ROOM
-  const saveTop    = paddingTop
 
   return (
     <View style={[styles.root, { paddingTop }]} testID="coupon-header">
@@ -75,25 +91,47 @@ export function CouponHeader({ type, title, description, estimatedSaving, insetT
       />
       {/* Vertical vignette — slight darken at top + bottom for depth */}
       <LinearGradient
-        colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.25)']}
+        colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.30)']}
         locations={[0, 0.4, 1]}
         style={StyleSheet.absoluteFillObject}
         pointerEvents="none"
       />
-      {/* Radial-style highlights — approximated with a gentle diagonal
-          gradient since RN doesn't do radial natively. Subtle enough
-          that on-device it still reads as a texture, not a gradient. */}
+      {/* Highlight wash (approximated radial via diagonal) */}
       <LinearGradient
-        colors={['rgba(255,255,255,0.06)', 'rgba(255,255,255,0)']}
-        start={{ x: 0.2, y: 0.8 }}
-        end={{ x: 0.8, y: 0.2 }}
+        colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0)']}
+        start={{ x: 0.2, y: 0.85 }}
+        end={{ x: 0.85, y: 0.2 }}
         style={StyleSheet.absoluteFillObject}
         pointerEvents="none"
       />
 
+      {/* NavRow lives INSIDE the hero so it scrolls away with it. */}
+      <View style={[styles.navRow, { top: insetTop + 8 }]} pointerEvents="box-none">
+        <FrostedNavButton onPress={onBack} accessibilityLabel="Go back">
+          <ArrowLeft size={20} color={WHITE} strokeWidth={2.4} />
+        </FrostedNavButton>
+
+        <View style={styles.navRight} pointerEvents="box-none">
+          <FrostedNavButton onPress={onShare} accessibilityLabel="Share voucher">
+            <Share2 size={19} color={WHITE} strokeWidth={2.2} />
+          </FrostedNavButton>
+          <FrostedNavButton
+            onPress={onFav}
+            accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
+          >
+            <Heart
+              size={19}
+              color={WHITE}
+              fill={isFavourited ? WHITE : 'none'}
+              strokeWidth={2.2}
+            />
+          </FrostedNavButton>
+        </View>
+      </View>
+
       <View style={styles.content}>
         <View style={styles.typeBadge}>
-          <Icon size={14} color={WHITE_92} strokeWidth={2} />
+          <Icon size={15} color={WHITE_92} strokeWidth={2} />
           <Text variant="label.md" style={styles.typeBadgeText}>
             {typeLabel}
           </Text>
@@ -110,9 +148,10 @@ export function CouponHeader({ type, title, description, estimatedSaving, insetT
         ) : null}
       </View>
 
-      {/* Save badge — top-right circular dashed badge */}
+      {/* Save badge — circular dashed top-right. Anchored just below
+          the NavRow so it doesn't collide with the heart button. */}
       <View
-        style={[styles.saveBadge, { top: saveTop }]}
+        style={[styles.saveBadge, { top: insetTop + NAV_ROOM - 8 }]}
         accessible
         accessibilityLabel={`Save ${formatPounds(estimatedSaving)}`}
       >
@@ -125,71 +164,143 @@ export function CouponHeader({ type, title, description, estimatedSaving, insetT
   )
 }
 
+// ── Frosted nav button ───────────────────────────────────────────────────────
+
+function FrostedNavButton({
+  onPress,
+  accessibilityLabel,
+  children,
+}: {
+  onPress: () => void
+  accessibilityLabel: string
+  children: React.ReactNode
+}) {
+  return (
+    <Pressable
+      onPress={() => {
+        lightHaptic()
+        onPress()
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      hitSlop={10}
+      style={({ pressed }) => [styles.navBtn, pressed && styles.navBtnPressed]}
+    >
+      {Platform.OS === 'android' ? (
+        <View style={[StyleSheet.absoluteFillObject, styles.navBtnFallback]} />
+      ) : (
+        <BlurView intensity={32} tint="dark" style={StyleSheet.absoluteFillObject} />
+      )}
+      <View style={styles.navBtnInner}>{children}</View>
+    </Pressable>
+  )
+}
+
+const NAV_BTN_SIZE = 42
+
 const styles = StyleSheet.create({
   root: {
     position: 'relative',
-    minHeight: 260,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
+    minHeight: 300,
+    paddingBottom: 36,
+    paddingHorizontal: 22,
     overflow: 'hidden',
   },
+  // ── NavRow inside hero ────────────────────────────────────────────
+  navRow: {
+    position: 'absolute',
+    left: 22,
+    right: 22,
+    zIndex: 30,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  navRight: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  navBtn: {
+    width: NAV_BTN_SIZE,
+    height: NAV_BTN_SIZE,
+    borderRadius: NAV_BTN_SIZE / 2,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  navBtnPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.96 }],
+  },
+  navBtnFallback: {
+    backgroundColor: 'rgba(0,0,0,0.34)',
+  },
+  navBtnInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // ── Hero content ──────────────────────────────────────────────────
   content: {
     position: 'relative',
     zIndex: 1,
-    maxWidth: '70%',
+    maxWidth: '68%',
   },
   typeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
+    gap: 7,
+    marginBottom: 14,
   },
   typeBadgeText: {
     color: WHITE_92,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 1.3,
+    letterSpacing: 1.4,
     textTransform: 'uppercase',
   },
   title: {
     color: WHITE,
-    fontSize: 26,
+    fontSize: 30,
     fontWeight: '800',
-    lineHeight: 30,
+    lineHeight: 34,
     letterSpacing: -0.5,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   description: {
     color: WHITE_80,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 21,
   },
+  // ── Save badge ────────────────────────────────────────────────────
   saveBadge: {
     position: 'absolute',
-    right: 20,
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    right: 22,
+    width: 92,
+    height: 92,
+    borderRadius: 46,
     backgroundColor: 'rgba(255,255,255,0.20)',
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.4)',
+    borderColor: 'rgba(255,255,255,0.42)',
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 2,
   },
   saveLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
     color: WHITE_80,
-    letterSpacing: 1,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
   saveAmount: {
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '800',
     color: WHITE,
     letterSpacing: -0.4,
-    marginTop: 1,
+    marginTop: 2,
   },
 })

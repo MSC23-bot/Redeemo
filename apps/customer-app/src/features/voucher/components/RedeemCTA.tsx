@@ -68,7 +68,7 @@ export function RedeemCTA({ label, disabled, variant = 'primary', onPress, testI
       )}
       {disabled ? null : (
         <View style={styles.contentRow}>
-          <Icon size={18} color="#FFFFFF" strokeWidth={2.4} />
+          <Icon size={20} color="#FFFFFF" strokeWidth={2.4} />
           <Text variant="heading.sm" style={styles.label}>{label}</Text>
         </View>
       )}
@@ -78,27 +78,27 @@ export function RedeemCTA({ label, disabled, variant = 'primary', onPress, testI
 
 const styles = StyleSheet.create({
   root: {
-    height: 54,
-    borderRadius: 16,
+    height: 62,
+    borderRadius: 18,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 20,
-    marginVertical: 6,
+    marginHorizontal: 22,
+    marginVertical: 8,
   },
   shadowRose: {
     shadowColor: color.brandRose,
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowOpacity: 0.32,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
   },
   shadowNavy: {
     shadowColor: NAVY,
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowOpacity: 0.32,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
   },
   pressed: {
     opacity: 0.92,
@@ -121,16 +121,17 @@ const styles = StyleSheet.create({
   contentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   label: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     letterSpacing: 0.2,
   },
   labelDisabled: {
     color: '#FFFFFF',
-    opacity: 0.85,
+    opacity: 0.88,
+    fontSize: 17,
   },
 })

@@ -3,7 +3,7 @@ import { View, ScrollView, StyleSheet, Pressable, Alert, Platform } from 'react-
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BlurView } from 'expo-blur'
-import { ArrowLeft, Heart, Share2 } from 'lucide-react-native'
+import { ArrowLeft } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -29,10 +29,11 @@ import { CTA_LABELS } from '../constants/productCopy'
  *
  * Visual reference: `.superpowers/brainstorm/88554-1776435672/content/
  * voucher-detail-v4.html` (locked design baseline). Layout is a
- * stacked-coupon silhouette: type-coloured header → outer perforation
- * → white top card (banner + info pills) → inner perforation → white
- * body card (terms + fair use). Then merchant attribution row, the
- * 4-step How It Works timeline, and a sticky bottom CTA.
+ * stacked-coupon silhouette: type-coloured header (with frosted nav
+ * scrolled INTO the hero) → outer perforation → white top card
+ * (banner + info pills) → inner perforation → white body card
+ * (terms + fair use). Then a merchant + branch attribution card,
+ * the 4-step How It Works timeline, and a sticky bottom CTA.
  *
  * Data sources (locked dual-endpoint pattern, plan §3 D2):
  *   • `useCustomerVoucher(voucherId)` → voucher row + isRedeemedThisCycle
@@ -48,6 +49,10 @@ import { CTA_LABELS } from '../constants/productCopy'
  *     before any redeem attempt (handled by `<MerchantRow>`).
  *   • Branch is attribution-only; voucher eligibility
  *     (`isRedeemedThisCycle`) is branch-INDEPENDENT.
+ *   • Vouchers are MERCHANT-LEVEL; redemption is BRANCH-LEVEL. The
+ *     MerchantRow card splits the two visually (merchant identity
+ *     section + red-tinted "REDEEM AT" panel) so the user reads the
+ *     branch as the action context, not just a sub-detail.
  *
  * 12-state derivation (M1 view-only — M2/M3 add states 10/11/12):
  *   1.  Free user — not subscribed → "Subscribe to redeem" CTA.
@@ -102,15 +107,14 @@ export function VoucherDetailScreen() {
 
   const timeLimited = useTimeLimited(voucher)
 
-  // Branch context for the redemption attribution UX. Pulled from
-  // merchant.selectedBranch — NEVER from merchant.branches[0] or any
-  // other source per plan §11 C1. `branchReady` gates the active
-  // RedeemCTA: states that require branch attribution (can-redeem,
-  // time-limited-available, time-limited-urgent) MUST NOT surface
-  // an active CTA before this is true. Without this gate, M2's PIN
-  // entry could open with an unresolved or wrong selectedBranch
-  // (PR #40 review blocker — corrupts VoucherRedemption.branchId).
-  // Declared BEFORE the useMemo below so the closure can read them.
+  // Branch context for the redemption attribution UX. Pulled ONLY
+  // from merchant.selectedBranch — NEVER from merchant.branches[0]
+  // or any other source (plan §11 C1). `branchReady` gates the
+  // active RedeemCTA: states that require branch attribution
+  // (can-redeem, time-limited-available, time-limited-urgent) MUST
+  // NOT surface an active CTA before this is true. Without this
+  // gate, M2's PIN entry could open with an unresolved or wrong
+  // selectedBranch.id.
   const selectedBranch = merchant?.selectedBranch ?? null
   const isMultiBranch  = (merchant?.branches.length ?? 0) > 1
   const branchName     = selectedBranch?.name ?? null
@@ -151,12 +155,10 @@ export function VoucherDetailScreen() {
   }, [router])
 
   const handleFav = useCallback(() => {
-    lightHaptic()
     Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
   }, [])
 
   const handleShare = useCallback(() => {
-    lightHaptic()
     Alert.alert('Coming next milestone', 'Voucher share ships in M2.')
   }, [])
 
@@ -212,7 +214,7 @@ export function VoucherDetailScreen() {
   if (stateKey === 'loading') {
     return (
       <View style={[styles.fullscreen, { paddingTop: insets.top }]} testID="voucher-detail-loading">
-        <NavRow onBack={handleBack} insetTop={insets.top} fav={null} onFav={undefined} onShare={undefined} />
+        <FallbackNav onBack={handleBack} insetTop={insets.top} />
         <View style={styles.loadingCenter}>
           <RedeemoLoader size="lg" accessibilityLabel="Loading voucher" />
         </View>
@@ -229,7 +231,7 @@ export function VoucherDetailScreen() {
       : 'We couldn’t resolve the branch you’re redeeming at. Check your connection and try again.'
     return (
       <View style={[styles.fullscreen, { paddingTop: insets.top }]} testID="voucher-detail-error" data-error-reason={errorReason}>
-        <NavRow onBack={handleBack} insetTop={insets.top} fav={null} onFav={undefined} onShare={undefined} />
+        <FallbackNav onBack={handleBack} insetTop={insets.top} />
         <View style={styles.errorCenter}>
           <Text variant="heading.sm" style={styles.errorTitle}>{errorTitle}</Text>
           <Text variant="body.sm" color="secondary" style={styles.errorBody}>{errorBody}</Text>
@@ -243,27 +245,24 @@ export function VoucherDetailScreen() {
 
   return (
     <View style={[styles.fullscreen]} testID={`voucher-detail-state-${stateKey}`}>
-      <NavRow
-        onBack={handleBack}
-        insetTop={insets.top}
-        fav={voucher.isFavourited}
-        onFav={handleFav}
-        onShare={handleShare}
-      />
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Coupon (header → perf → top-card → perf → body) ── */}
+        {/* ── Coupon stack ── */}
         <View style={styles.coupon}>
+          {/* Hero (with NavRow scrolling INSIDE per v4 §vd-topnav) */}
           <CouponHeader
             type={voucher.type}
             title={voucher.title}
             description={voucher.description}
             estimatedSaving={voucher.estimatedSaving}
             insetTop={insets.top}
+            onBack={handleBack}
+            onShare={handleShare}
+            onFav={handleFav}
+            isFavourited={voucher.isFavourited}
           />
 
           <PerforationLine pageBg={PAGE_BG} variant="outer" />
@@ -314,11 +313,11 @@ export function VoucherDetailScreen() {
 
         <HowItWorks />
 
-        <View style={{ height: 110 }} />
+        <View style={{ height: 130 }} />
       </ScrollView>
 
       {cta ? (
-        <View style={[styles.ctaWrap, { paddingBottom: insets.bottom + 14 }]}>
+        <View style={[styles.ctaWrap, { paddingBottom: insets.bottom + 16 }]}>
           <RedeemCTA
             label={cta.label}
             disabled={cta.disabled}
@@ -332,74 +331,26 @@ export function VoucherDetailScreen() {
   )
 }
 
-// ── Nav row (frosted glass — back, share, favourite) ────────────────────────
+// ── Fallback nav for loading / error states (no hero to attach to) ─────
 
-function NavRow({
-  onBack,
-  insetTop,
-  fav,
-  onFav,
-  onShare,
-}: {
-  onBack: () => void
-  insetTop: number
-  fav: boolean | null
-  onFav: (() => void) | undefined
-  onShare: (() => void) | undefined
-}) {
+function FallbackNav({ onBack, insetTop }: { onBack: () => void; insetTop: number }) {
   return (
-    <View style={[styles.navRow, { top: insetTop + 8 }]}>
-      <FrostedNavButton onPress={onBack} accessibilityLabel="Go back">
-        <ArrowLeft size={18} color="#FFFFFF" strokeWidth={2.4} />
-      </FrostedNavButton>
-
-      <View style={styles.navRight}>
-        {onShare ? (
-          <FrostedNavButton onPress={onShare} accessibilityLabel="Share voucher">
-            <Share2 size={18} color="#FFFFFF" strokeWidth={2.2} />
-          </FrostedNavButton>
-        ) : null}
-        {fav !== null && onFav ? (
-          <FrostedNavButton onPress={onFav} accessibilityLabel={fav ? 'Remove from favourites' : 'Add to favourites'}>
-            <Heart
-              size={18}
-              color="#FFFFFF"
-              fill={fav ? '#FFFFFF' : 'none'}
-              strokeWidth={2.2}
-            />
-          </FrostedNavButton>
-        ) : null}
-      </View>
+    <View style={[styles.fallbackNavRow, { top: insetTop + 8 }]}>
+      <Pressable
+        onPress={onBack}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        hitSlop={10}
+        style={({ pressed }) => [styles.fallbackNavBtn, pressed && styles.fallbackNavBtnPressed]}
+      >
+        {Platform.OS === 'android' ? (
+          <View style={[StyleSheet.absoluteFillObject, styles.fallbackNavBtnFallback]} />
+        ) : (
+          <BlurView intensity={28} tint="default" style={StyleSheet.absoluteFillObject} />
+        )}
+        <ArrowLeft size={20} color={color.navy} strokeWidth={2.4} />
+      </Pressable>
     </View>
-  )
-}
-
-function FrostedNavButton({
-  onPress,
-  accessibilityLabel,
-  children,
-}: {
-  onPress: () => void
-  accessibilityLabel: string
-  children: React.ReactNode
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [styles.navBtn, pressed && styles.navBtnPressed]}
-    >
-      {Platform.OS === 'android' ? (
-        // BlurView on Android can be expensive / inconsistent — use a
-        // semi-transparent fallback that visually approximates the
-        // frosted look.
-        <View style={[StyleSheet.absoluteFillObject, styles.navBtnFallback]} />
-      ) : (
-        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFillObject} />
-      )}
-      <View style={styles.navBtnInner}>{children}</View>
-    </Pressable>
   )
 }
 
@@ -415,67 +366,52 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
 
-  // ── Top nav (frosted) ───────────────────────────────────────────────
-  navRow: {
+  // ── Fallback nav (loading / error states) ───────────────────────────
+  fallbackNavRow: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    left: 22,
+    right: 22,
     zIndex: 20,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
   },
-  navRight: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  navBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  fallbackNavBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: 'rgba(0,0,0,0.18)',
+    borderColor: 'rgba(0,0,0,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.85)',
   },
-  navBtnPressed: {
+  fallbackNavBtnPressed: {
     opacity: 0.85,
   },
-  navBtnFallback: {
-    backgroundColor: 'rgba(0,0,0,0.32)',
-  },
-  navBtnInner: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  fallbackNavBtnFallback: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
   },
 
   // ── Coupon stack ────────────────────────────────────────────────────
-  coupon: {
-    // The CouponHeader edges run to the screen edges (full-bleed). The
-    // top + body cards are inset slightly via couponCardWrap so the
-    // perforation cutouts can punch into the page background visibly.
-  },
+  coupon: {},
   couponCardWrap: {
     marginHorizontal: COUPON_INSET,
   },
   couponTopRound: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     overflow: 'hidden',
   },
   couponBottomRound: {
     backgroundColor: '#FFFFFF',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.07,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 4,
   },
   innerPerfWrap: {
@@ -485,21 +421,21 @@ const styles = StyleSheet.create({
 
   // ── Time-limited banner spacing ─────────────────────────────────────
   tlBanner: {
-    marginTop: 12,
-    marginHorizontal: 20,
+    marginTop: 14,
+    marginHorizontal: 22,
   },
 
   // ── Sticky CTA ──────────────────────────────────────────────────────
   ctaWrap: {
-    paddingTop: 8,
+    paddingTop: 10,
     backgroundColor: PAGE_BG,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.04)',
+    borderTopColor: 'rgba(0,0,0,0.05)',
     shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: -2 },
-    elevation: 4,
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: -3 },
+    elevation: 5,
   },
 
   // ── Loading + error ─────────────────────────────────────────────────
