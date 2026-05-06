@@ -37,18 +37,103 @@ export async function createRedemption(
   data: { voucherId: string; branchId: string; pin: string },
   ctx: RequestCtx
 ) {
-  // 1. Fetch branch and check PIN configured
-  const branch = await prisma.branch.findUnique({ where: { id: data.branchId } })
-  if (!branch || !branch.redemptionPin) throw new AppError('PIN_NOT_CONFIGURED')
+  // PIN-oracle defense: every eligibility gate runs BEFORE PIN comparison.
+  // An attacker probing PINs against an ineligible voucher/branch must NOT
+  // be able to distinguish "wrong PIN" (INVALID_PIN) from "right PIN, but
+  // ineligible" (eligibility error). All eligibility checks below precede
+  // the PIN-compare step at line ~120.
+  //
+  // See docs/superpowers/plans/2026-05-06-voucher-detail-m2.md §Threat model.
+  const now = new Date()
 
-  // 2. Check rate limit BEFORE attempting PIN comparison
+  // 1. Voucher must exist + ACTIVE + APPROVED + merchant ACTIVE
+  const voucher = await prisma.voucher.findUnique({
+    where: { id: data.voucherId },
+    include: { merchant: { select: { id: true, status: true } } },
+  })
+  if (
+    !voucher ||
+    voucher.status !== VoucherStatus.ACTIVE ||
+    voucher.approvalStatus !== ApprovalStatus.APPROVED ||
+    voucher.merchant.status !== MerchantStatus.ACTIVE
+  ) {
+    throw new AppError('VOUCHER_NOT_FOUND')
+  }
+
+  // 2. Voucher not expired — server-side eligibility, not a UI concern.
+  //    Collapse expired into VOUCHER_NOT_FOUND so an attacker cannot
+  //    distinguish "voucher does not exist" vs "voucher expired" via the
+  //    error response. A leaked PIN must not be redeemable against an
+  //    expired voucher even if the customer-app UI is bypassed.
+  if (voucher.expiryDate && voucher.expiryDate.getTime() <= now.getTime()) {
+    throw new AppError('VOUCHER_NOT_FOUND')
+  }
+
+  // 3. Branch exists + isActive — server-side eligibility. A branch the
+  //    merchant has deactivated must not accept redemptions even if the
+  //    branch PIN is known. Wraps both "no such branch" and "branch
+  //    deactivated" under BRANCH_UNAVAILABLE so neither state is
+  //    distinguishable from the other.
+  const branch = await prisma.branch.findUnique({ where: { id: data.branchId } })
+  if (!branch || !branch.isActive) {
+    throw new AppError('BRANCH_UNAVAILABLE')
+  }
+
+  // 4. Branch belongs to voucher's merchant
+  if (branch.merchantId !== voucher.merchantId) {
+    throw new AppError('BRANCH_MERCHANT_MISMATCH')
+  }
+
+  // 5. Subscription guard
+  const sub = await prisma.subscription.findUnique({ where: { userId } })
+  if (!sub || !['ACTIVE', 'TRIALLING'].includes(sub.status)) {
+    throw new AppError('SUBSCRIPTION_REQUIRED')
+  }
+
+  // 6. Phone-verified guard — required since phone verification is part of
+  //    app onboarding (website users may still have unverified phones, but
+  //    they cannot redeem because redemption is mobile-only anyway).
+  const userRow = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { phoneVerified: true },
+  })
+  if (!userRow || !userRow.phoneVerified) {
+    throw new AppError('PHONE_NOT_VERIFIED')
+  }
+
+  // 7. Subscription-anchored cycle guard (fast-fail eligibility — closes
+  //    PIN oracle by rejecting already-redeemed users BEFORE PIN compare).
+  //    Defense in depth: Task A5's transactional claim re-checks under
+  //    isolation to defend against the post-PIN race.
+  //    Uses cycleAnchorDate as the single source of truth for monthly
+  //    cycle windows. Independent of billing interval (monthly/annual)
+  //    and payment source (Stripe, Apple IAP, Google Play, admin-grant).
+  const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
+
+  const cycleState = await prisma.userVoucherCycleState.findUnique({
+    where: { userId_voucherId: { userId, voucherId: data.voucherId } },
+  })
+
+  // If stored cycleStartDate is from a previous cycle, this is a fresh cycle — allow.
+  // If stored cycleStartDate matches the current cycle and already redeemed — block.
+  const isCurrentCycle = cycleState != null && cycleState.cycleStartDate >= cycleStart
+  if (isCurrentCycle && cycleState.isRedeemedInCurrentCycle) {
+    throw new AppError('ALREADY_REDEEMED')
+  }
+
+  // 8. Branch PIN configured (no leak — eligibility already passed)
+  if (!branch.redemptionPin) {
+    throw new AppError('PIN_NOT_CONFIGURED')
+  }
+
+  // 9. Rate limit — protects ONLY the PIN compare step below
   const failKey = RedisKey.pinFailCount(userId, data.branchId)
   const failCount = await redis.get(failKey)
   if (failCount !== null && parseInt(failCount, 10) >= PIN_FAIL_LIMIT) {
     throw new AppError('PIN_RATE_LIMIT_EXCEEDED')
   }
 
-  // 3. Timing-safe PIN comparison
+  // 10. Timing-safe PIN comparison
   let pinMatches = false
   try {
     const decrypted = decrypt(branch.redemptionPin)
@@ -67,60 +152,6 @@ export async function createRedemption(
     await redis.incr(failKey)
     await redis.expire(failKey, PIN_FAIL_WINDOW)
     throw new AppError('INVALID_PIN')
-  }
-
-  // 4. Subscription guard
-  const sub = await prisma.subscription.findUnique({ where: { userId } })
-  if (!sub || !['ACTIVE', 'TRIALLING'].includes(sub.status)) {
-    throw new AppError('SUBSCRIPTION_REQUIRED')
-  }
-
-  // 4a. Phone-verified guard — required since phone verification is part of app
-  //     onboarding (website users may still have unverified phones, but they
-  //     cannot redeem because redemption is mobile-only anyway).
-  const userRow = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { phoneVerified: true },
-  })
-  if (!userRow || !userRow.phoneVerified) {
-    throw new AppError('PHONE_NOT_VERIFIED')
-  }
-
-  // 5. Voucher guard — must be ACTIVE + APPROVED, with merchant APPROVED
-  const voucher = await prisma.voucher.findUnique({
-    where: { id: data.voucherId },
-    include: { merchant: { select: { status: true } } },
-  })
-  if (
-    !voucher ||
-    voucher.status !== VoucherStatus.ACTIVE ||
-    voucher.approvalStatus !== ApprovalStatus.APPROVED ||
-    voucher.merchant.status !== MerchantStatus.ACTIVE
-  ) {
-    throw new AppError('VOUCHER_NOT_FOUND')
-  }
-
-  // 6. Branch belongs to voucher's merchant
-  if (branch.merchantId !== voucher.merchantId) {
-    throw new AppError('BRANCH_MERCHANT_MISMATCH')
-  }
-
-  // 7. Subscription-anchored cycle guard
-  //    Uses cycleAnchorDate as the single source of truth for monthly cycle windows.
-  //    Independent of billing interval (monthly/annual) and payment source
-  //    (Stripe, Apple IAP, Google Play, admin-grant).
-  const now = new Date()
-  const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
-
-  const cycleState = await prisma.userVoucherCycleState.findUnique({
-    where: { userId_voucherId: { userId, voucherId: data.voucherId } },
-  })
-
-  // If stored cycleStartDate is from a previous cycle, this is a fresh cycle — allow.
-  // If stored cycleStartDate matches the current cycle and already redeemed — block.
-  const isCurrentCycle = cycleState != null && cycleState.cycleStartDate >= cycleStart
-  if (isCurrentCycle && cycleState.isRedeemedInCurrentCycle) {
-    throw new AppError('ALREADY_REDEEMED')
   }
 
   // 8. Atomic transaction

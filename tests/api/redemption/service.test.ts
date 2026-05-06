@@ -39,32 +39,52 @@ const baseCtx = { ipAddress: '127.0.0.1', userAgent: 'test' }
 describe('createRedemption', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('throws PIN_NOT_CONFIGURED when branch has no redemptionPin', async () => {
+  // Shared fixture for tests reaching the PIN-or-later steps. With the
+  // safe-order reorder, voucher + subscription + phone + cycleState must
+  // all be set up so the later guards (PIN_NOT_CONFIGURED / rate-limit /
+  // PIN compare) are reachable.
+  const happyVoucher = {
+    id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
+    expiryDate: null, estimatedSaving: 5.00,
+    merchant: { id: 'm1', status: 'ACTIVE' },
+  }
+  const happyAnchor = new Date(Date.UTC(2026, 0, 10))
+
+  it('throws PIN_NOT_CONFIGURED when branch has no redemptionPin (after eligibility passes)', async () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: null })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: null })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: happyAnchor })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
     ).rejects.toThrow('PIN_NOT_CONFIGURED')
   })
 
-  it('throws PIN_RATE_LIMIT_EXCEEDED when rate limit counter >= 5', async () => {
+  it('throws PIN_RATE_LIMIT_EXCEEDED when rate limit counter >= 5 (after eligibility passes)', async () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValueOnce('5')
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:9999' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:9999' })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: happyAnchor })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
     ).rejects.toThrow('PIN_RATE_LIMIT_EXCEEDED')
   })
 
-  it('throws INVALID_PIN when submitted PIN does not match decrypted value', async () => {
+  it('throws INVALID_PIN when submitted PIN does not match decrypted value (after eligibility passes)', async () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:9999' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:9999' })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: happyAnchor })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
@@ -77,7 +97,8 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
     prisma.subscription.findUnique.mockResolvedValue({ status: 'CANCELLED' })
 
     await expect(
@@ -89,17 +110,19 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
-    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
+    prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: happyAnchor })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
     prisma.user.findUnique.mockResolvedValueOnce({ phoneVerified: false })
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
     ).rejects.toThrow('PHONE_NOT_VERIFIED')
 
-    // Proves execution stopped at the phone-verified guard — voucher lookup
-    // and downstream cycle/transaction work were never reached.
-    expect(prisma.voucher.findUnique).not.toHaveBeenCalled()
+    // Proves execution stopped at the phone-verified guard — cycle state /
+    // PIN compare / transaction work were never reached. (Voucher fetch
+    // now runs FIRST in the safe-order reorder, so removing the
+    // pre-existing not-toHaveBeenCalled assertion on voucher.findUnique.)
     expect(prisma.userVoucherCycleState.findUnique).not.toHaveBeenCalled()
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
@@ -108,7 +131,7 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE' })
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'INACTIVE', approvalStatus: 'APPROVED',
@@ -125,7 +148,7 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'other-merchant', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'other-merchant', isActive: true, redemptionPin: 'enc:1234' })
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE' })
     prisma.voucher.findUnique.mockResolvedValue({
       id: 'v1', merchantId: 'm1', status: 'ACTIVE', approvalStatus: 'APPROVED',
@@ -142,7 +165,7 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     // Anchor on the 10th — current cycle includes today
     const anchor = new Date(Date.UTC(2026, 0, 10))
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: anchor })
@@ -166,7 +189,7 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     const anchor = new Date(Date.UTC(2026, 0, 10))
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: anchor })
     prisma.voucher.findUnique.mockResolvedValue({
@@ -190,7 +213,7 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     const anchor = new Date(Date.UTC(2026, 0, 10))
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: anchor })
     prisma.voucher.findUnique.mockResolvedValue({
@@ -223,7 +246,7 @@ describe('createRedemption', () => {
       return Promise.resolve(null)
     })
 
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b-branch-b', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b-branch-b', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     const anchor = new Date(Date.UTC(2026, 0, 10))
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: anchor })
     prisma.voucher.findUnique.mockResolvedValue({
@@ -245,7 +268,7 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     // Annual subscriber anchored on Jan 15
     const anchor = new Date(Date.UTC(2026, 0, 15))
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: anchor })
@@ -270,7 +293,8 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
     prisma.subscription.findUnique.mockResolvedValue({ status: 'CANCELLED', cycleAnchorDate: new Date() })
 
     await expect(
@@ -282,7 +306,8 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
     prisma.subscription.findUnique.mockResolvedValue({ status: 'PAST_DUE', cycleAnchorDate: new Date() })
 
     await expect(
@@ -294,7 +319,8 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
     prisma.subscription.findUnique.mockResolvedValue({ status: 'EXPIRED', cycleAnchorDate: new Date() })
 
     await expect(
@@ -306,7 +332,7 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     const anchor = new Date(Date.UTC(2026, 0, 10))
     prisma.subscription.findUnique.mockResolvedValue({ status: 'TRIALLING', cycleAnchorDate: anchor })
     prisma.voucher.findUnique.mockResolvedValue({
@@ -326,7 +352,7 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     // New subscription created today with fresh anchor
     const newAnchor = new Date(Date.UTC(2026, 3, 18))
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: newAnchor })
@@ -351,7 +377,8 @@ describe('createRedemption', () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     redis.get.mockResolvedValue(null)
-    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234' })
+    prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
+    prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
     prisma.subscription.findUnique.mockResolvedValue(null) // free user — no subscription
 
     await expect(
