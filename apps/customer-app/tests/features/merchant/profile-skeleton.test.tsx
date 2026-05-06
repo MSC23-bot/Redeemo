@@ -142,12 +142,6 @@ jest.mock('@/features/merchant/components/ContactSheet',     () => ({
   },
 }))
 jest.mock('@/features/merchant/components/DirectionsSheet',  () => ({ DirectionsSheet:  () => null }))
-jest.mock('@/features/merchant/components/FreeUserGateModal', () => ({
-  FreeUserGateModal: ({ visible }: { visible: boolean }) => {
-    const { Text } = require('react-native')
-    return visible ? <Text>GATE_VISIBLE</Text> : null
-  },
-}))
 // P2.8 mocks — SuspendedBranchBanner / AllBranchesUnavailable each have
 // dedicated unit tests; here we only verify the screen wires them up
 // correctly. Round 3 §C1 removed the BranchChip + BranchPickerSheet
@@ -344,21 +338,46 @@ describe('MerchantProfileScreen (M2)', () => {
     expect(await findByText('boom')).toBeTruthy()
   })
 
-  it('subscribed user: tapping a voucher routes to /voucher/[id]', async () => {
+  it('subscribed user: tapping a voucher routes to /voucher/[id] with full branch + return-context params', async () => {
+    // Branch-attribution contract (Voucher Detail rebaseline plan
+    // §11 C1): the redemption branch comes from selectedBranch and
+    // threads through as `branch=<selectedBranch.id>`.
+    //
+    // Round-5 addition (PR #40 plan §1): also append explicit return
+    // context — `from=merchant`, `returnMerchantId=<id>`, and
+    // `tab=vouchers` — so Voucher Detail's back button can return
+    // here deterministically EVEN IF its own voucher query is still
+    // loading. Without these params, back falls through to
+    // router.back() and ultimately to the Discovery default.
     mockSubscribed = true
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
     fireEvent.press(await findByLabelText('Tap voucher'))
-    expect(router.push).toHaveBeenCalledWith('/voucher/v1')
+    expect(router.push).toHaveBeenCalledWith(
+      '/voucher/v1?branch=b1&from=merchant&returnMerchantId=m1&tab=vouchers',
+    )
   })
 
-  it('free user: tapping a voucher shows the free-user gate, no nav', async () => {
+  it('free user: tapping a voucher navigates to Voucher Detail (Screen 2 free-user state) — no merchant-level gate', async () => {
+    // Round-15: per spec §4 (Screen 2 — Voucher Detail Free User) +
+    // §11 ("Free user taps voucher → Sees Screen 2"), free users
+    // navigate to Voucher Detail and see the navy "Subscribe to
+    // Redeem" CTA there. The merchant-level FreeUserGateModal that
+    // previously blocked this navigation has been removed.
+    //
+    // The push URL must include the same return-context params as
+    // subscribed users (branch / from / returnMerchantId / tab) so
+    // the back button on Voucher Detail returns to this exact merchant
+    // + branch + Vouchers tab.
     mockSubscribed = false
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
-    const { findByLabelText, findByText } = wrap(<MerchantProfileScreen id="m1" />)
+    const { findByLabelText, queryByText } = wrap(<MerchantProfileScreen id="m1" />)
     fireEvent.press(await findByLabelText('Tap voucher'))
-    expect(await findByText('GATE_VISIBLE')).toBeTruthy()
-    expect(router.push).not.toHaveBeenCalled()
+    expect(router.push).toHaveBeenCalledWith(
+      '/voucher/v1?branch=b1&from=merchant&returnMerchantId=m1&tab=vouchers',
+    )
+    // Gate modal should never appear — it's been removed entirely.
+    expect(queryByText('GATE_VISIBLE')).toBeNull()
   })
 
   // ── Tab switching (plan §12 "all 4 tab switches") ────────────────────────────
