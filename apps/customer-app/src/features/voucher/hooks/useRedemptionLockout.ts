@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /**
  * Lockout countdown driven by an absolute deadline computed from the
@@ -13,18 +13,42 @@ import { useEffect, useState } from 'react'
  *   - isLocked: true while secondsRemaining > 0
  *   - mmss: zero-padded "MM:SS" for display
  *
- * Caller should re-key (e.g. via a `key` prop or by remounting) when
- * receiving a NEW retryAfter from the backend; the hook treats the
- * deadline as immutable for its lifetime.
+ * Re-key behaviour: the deadline is set the FIRST time a positive
+ * retryAfter arrives, and re-set whenever retryAfter transitions from
+ * null/0 → positive. Bumping retryAfter while already locked is
+ * ignored — caller must let the lock expire (or remount) before a new
+ * retryAfter takes effect. This protects against accidental countdown
+ * resets while a single lockout window is active.
  */
 export function useRedemptionLockout(retryAfterSeconds: number | null) {
   const [now, setNow] = useState(() => Date.now())
-  const isActive = retryAfterSeconds != null && retryAfterSeconds > 0
-  // Compute deadline once on mount when active. Subsequent renders use
-  // the same deadline; setNow() ticks forward against it.
-  const [deadline] = useState<number | null>(() =>
-    isActive ? Date.now() + retryAfterSeconds * 1000 : null,
-  )
+  const [deadline, setDeadline] = useState<number | null>(() => {
+    return retryAfterSeconds != null && retryAfterSeconds > 0
+      ? Date.now() + retryAfterSeconds * 1000
+      : null
+  })
+
+  // Tracks whether retryAfter was last seen as null/0 — the "armed"
+  // state. Only when armed does a positive retryAfter set a NEW deadline.
+  const armed = useRef<boolean>(retryAfterSeconds == null || retryAfterSeconds <= 0)
+
+  useEffect(() => {
+    const positive = retryAfterSeconds != null && retryAfterSeconds > 0
+    if (!positive) {
+      // retryAfter cleared → re-arm so the next positive value sets a
+      // fresh deadline.
+      armed.current = true
+      setDeadline(null)
+      return
+    }
+    if (armed.current) {
+      armed.current = false
+      setDeadline(Date.now() + retryAfterSeconds * 1000)
+    }
+    // While not armed (i.e. lockout already in flight), bumps to
+    // retryAfter are intentionally ignored — countdown continues from
+    // the original deadline.
+  }, [retryAfterSeconds])
 
   useEffect(() => {
     if (deadline == null) return
