@@ -95,6 +95,11 @@ jest.mock('expo-router', () => ({
     back:    mockBack,
     canGoBack: mockCanGoBack,
   }),
+  // Round-6 addition — see voucher-detail-states.test.tsx for the
+  // mock rationale. Effect fires synchronously at mount.
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    try { effect() } catch { /* ignore for test ergonomics */ }
+  },
 }))
 
 let mockVoucherData: any   = null

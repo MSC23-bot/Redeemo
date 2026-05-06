@@ -40,6 +40,9 @@ const sharedValue = (v: number) => ({ value: v }) as any
 
 const baseProps = {
   title: 'Buy 1 Get 1 Free on All Pizzas',
+  type: 'BOGO' as const,
+  estimatedSaving: 8.99,
+  merchantName: 'Pizza Palace',
   branchName: 'High Street',
   isFavourited: false,
   insetTop: 59,
@@ -119,21 +122,30 @@ describe('CollapsedHeader — scrolled-past-hero state (isActive=true)', () => {
   })
 })
 
-describe('CollapsedHeader — REDEEM AT eyebrow (branch attribution)', () => {
-  it('renders the eyebrow row when branchName is provided', () => {
+describe('CollapsedHeader — meta line + REDEEM AT (branch attribution)', () => {
+  it('renders the meta row when branchName is provided', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName="High Street" />)
-    expect(getByTestId('collapsed-header-redeem-at', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-meta', HIDDEN_OPT)).toBeTruthy()
   })
 
-  it('does NOT render the eyebrow row when branchName is null (no fabrication)', () => {
-    const { queryByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
-    expect(queryByTestId('collapsed-header-redeem-at', HIDDEN_OPT)).toBeNull()
+  it('still renders the meta row when branchName is null (merchant + type still shown — no REDEEM AT segment)', () => {
+    // Round-6 redesign: meta row carries TYPE + MERCHANT in addition
+    // to the optional REDEEM AT branch segment. When branchName is
+    // null, the row still shows so type + merchant remain visible —
+    // we just drop the REDEEM AT portion gracefully.
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
+    expect(getByTestId('collapsed-header-meta', HIDDEN_OPT)).toBeTruthy()
   })
 
   it('renders the title even when branchName is null (graceful fallback)', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
     const titleNode = getByTestId('collapsed-header-title', HIDDEN_OPT)
     expect(titleNode.props.children).toBe('Buy 1 Get 1 Free on All Pizzas')
+  })
+
+  it('renders the SAVE chip with the formatted amount', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} estimatedSaving={8.99} />)
+    expect(getByTestId('collapsed-header-save-chip', HIDDEN_OPT)).toBeTruthy()
   })
 })
 
