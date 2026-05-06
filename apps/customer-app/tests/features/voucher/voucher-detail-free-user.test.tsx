@@ -65,6 +65,18 @@ jest.mock('@/features/voucher/hooks/useCustomerVoucher', () => ({
   }),
 }))
 
+// Section B: stub useRedeem (avoid QueryClientProvider requirement
+// in M1 tests that previously didn't wrap the screen).
+jest.mock('@/features/voucher/hooks/useRedeem', () => ({
+  useRedeem: () => ({
+    mutate: jest.fn(),
+    mutateAsync: jest.fn().mockResolvedValue(undefined),
+    isPending: false,
+    error: null,
+    reset: jest.fn(),
+  }),
+}))
+
 ;(globalThis as any).__voucherProfileMock__ = {
   data: null as any,
   isLoading: false,

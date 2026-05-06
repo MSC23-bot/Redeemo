@@ -39,9 +39,10 @@ describe('useRedemptionLockout', () => {
   })
 
   it('formats mm:ss correctly across boundaries', () => {
-    const { result, rerender: _rerender } = renderHook(({ s }) => useRedemptionLockout(s), {
-      initialProps: { s: 900 }, // 15:00
-    })
+    const { result } = renderHook<ReturnType<typeof useRedemptionLockout>, { s: number }>(
+      ({ s }) => useRedemptionLockout(s),
+      { initialProps: { s: 900 } }, // 15:00
+    )
     expect(result.current.mmss).toBe('15:00')
 
     act(() => { jest.advanceTimersByTime(60_000) })
@@ -67,9 +68,10 @@ describe('useRedemptionLockout', () => {
   })
 
   it('treats the deadline as immutable for the hook lifetime (changing prop does not extend countdown)', () => {
-    const { result, rerender } = renderHook(({ s }) => useRedemptionLockout(s), {
-      initialProps: { s: 60 },
-    })
+    const { result, rerender } = renderHook<ReturnType<typeof useRedemptionLockout>, { s: number }>(
+      ({ s }) => useRedemptionLockout(s),
+      { initialProps: { s: 60 } },
+    )
     expect(result.current.secondsRemaining).toBe(60)
 
     act(() => { jest.advanceTimersByTime(30_000) })
