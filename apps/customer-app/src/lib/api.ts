@@ -12,8 +12,24 @@ export class ApiClientError extends Error {
   readonly code: string
   readonly status: number
   readonly field?: string
-  constructor(message: string, code: string, status: number, field?: string) {
-    super(message); this.code = code; this.status = status; if (field !== undefined) this.field = field
+  // Optional payload carrying any non-standard fields from the backend's
+  // error envelope (e.g. INVALID_PIN.remainingAttempts,
+  // PIN_RATE_LIMIT_EXCEEDED.retryAfter). Standard fields (code, message,
+  // statusCode, field) are excluded from this object and surfaced via the
+  // dedicated properties above.
+  readonly details?: Record<string, unknown>
+  constructor(
+    message: string,
+    code: string,
+    status: number,
+    field?: string,
+    details?: Record<string, unknown>,
+  ) {
+    super(message)
+    this.code = code
+    this.status = status
+    if (field !== undefined) this.field = field
+    if (details !== undefined) this.details = details
   }
 }
 
@@ -55,11 +71,19 @@ async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): P
         ? (json.error as Record<string, unknown>)
         : null
     const errorBody = nested ?? json
+    // Strip the standard fields (code/message/statusCode/field) so what's
+    // left is the per-error details payload (e.g. remainingAttempts,
+    // retryAfter). undefined `details` when the body has only standard
+    // fields — keeps the API surface clean for callers that don't need it.
+    const { code: _c, message: _m, statusCode: _s, field: _f, ...extra } = errorBody
+    void _c; void _m; void _s; void _f
+    const details = Object.keys(extra).length > 0 ? (extra as Record<string, unknown>) : undefined
     throw new ApiClientError(
       (errorBody.message as string | undefined) ?? res.statusText,
       (errorBody.code as string | undefined) ?? 'UNKNOWN',
       res.status,
       errorBody.field as string | undefined,
+      details,
     )
   }
   return json as T
