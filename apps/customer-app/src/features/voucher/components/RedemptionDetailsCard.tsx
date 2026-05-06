@@ -4,7 +4,6 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { CheckCircle2, Eye } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, opacity, radius, spacing } from '@/design-system/tokens'
-import { lightHaptic } from '@/design-system/haptics'
 import { formatRedemptionCode } from '../utils/formatRedemptionCode'
 
 type Props = {
@@ -95,14 +94,16 @@ export function RedemptionDetailsCard({
       </View>
 
       {/* Show-to-Staff stub — visible but disabled in M2.
-          M3 wires the full-screen QR target. */}
+          M3 wires the full-screen QR target. No haptic on the disabled
+          stub (PR #44 review cleanup) — the button is non-interactive
+          and a haptic would be misleading. */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Show redemption code to staff (available in next milestone)"
         accessibilityState={{ disabled: true }}
         testID="redemption-details-show-to-staff-stub"
         disabled
-        onPress={() => { lightHaptic(); onShowToStaff?.() }}
+        onPress={() => onShowToStaff?.()}
         style={styles.stubCta}
       >
         <LinearGradient

@@ -69,8 +69,9 @@ jest.mock('@/features/merchant/hooks/useMerchantProfile', () => ({
     return { data: m.data, isLoading: m.isLoading, isError: m.isError }
   },
 }))
+let mockSubscribed = true
 jest.mock('@/hooks/useSubscription', () => ({
-  useSubscription: () => ({ isSubscribed: true, isSubLoading: false, subscription: null }),
+  useSubscription: () => ({ isSubscribed: mockSubscribed, isSubLoading: false, subscription: null }),
 }))
 jest.mock('@/hooks/useLocation', () => ({
   useUserLocation: () => ({ status: 'idle', location: null, requestPermission: jest.fn() }),
@@ -160,6 +161,7 @@ function wrap(ui: React.ReactElement, qc?: QueryClient) {
 beforeEach(() => {
   mockParams = { id: 'v1' }
   mockVoucherData = baseVoucher()
+  mockSubscribed = true
   ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({ branches: [makeBranch('b1', 'Brightlingsea')] })
   ;(globalThis as any).__voucherProfileMock__.isLoading = false
   ;(globalThis as any).__voucherProfileMock__.isError = false
@@ -419,5 +421,212 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     expect(getByTestId('redeemed-badge')).toBeTruthy()
     // RedemptionDetailsCard mounts via lastRedemption-state branch.
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// PR #44 review fix #1 — free-user must NEVER reach PIN entry
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Voucher Detail M2 — free user blocked from PIN entry (review fix #1)', () => {
+  it('Free user tap CTA → routes to subscription, NOT PIN sheet', async () => {
+    mockSubscribed = false
+    mockVoucherData = baseVoucher() // not redeemed; can-redeem path
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-subscribe'))
+
+    expect(mockPush).toHaveBeenCalledWith(
+      expect.stringContaining('/(auth)/subscription-prompt?source=voucher'),
+    )
+    expect(queryByTestId('pin-entry-sheet')).toBeNull()
+    expect(queryByTestId('voucher-branch-picker-sheet')).toBeNull()
+  })
+
+  it('Free user tap "change branch" pill → routes to subscription, NOT picker (BLOCKER fix)', async () => {
+    // The MerchantRow "Change ▾" pill calls handleChangeBranch. Without
+    // the subscription gate this would open the picker → confirm →
+    // PIN entry. Per owner constraint #1, free users must never reach
+    // PIN entry. Pin: tapping the change-branch pill on a multi-branch
+    // merchant routes the free user to the subscription flow instead.
+    mockSubscribed = false
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [makeBranch('b1', 'Brightlingsea'), makeBranch('b2', 'Colchester', 12_000)],
+    })
+
+    const { getByLabelText, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // The MerchantRow exposes a "Change ▾" pill with accessibilityLabel
+    // "Change ▾" — tap it directly.
+    fireEvent.press(getByLabelText('Change ▾'))
+
+    expect(mockPush).toHaveBeenCalledWith(
+      expect.stringContaining('/(auth)/subscription-prompt?source=voucher'),
+    )
+    expect(queryByTestId('voucher-branch-picker-sheet')).toBeNull()
+    expect(queryByTestId('pin-entry-sheet')).toBeNull()
+  })
+
+  it('Defensive: handlePickerConfirm gates on subscription too — picker confirm by a free user routes to subscription, not PIN', async () => {
+    // Defensive in-depth guard: even if some future code path opens
+    // the picker for a free user (bypassing handleChangeBranch +
+    // handleCTA), handlePickerConfirm must still gate.
+    mockSubscribed = true // start subscribed so picker can open
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [makeBranch('b1', 'Brightlingsea'), makeBranch('b2', 'Colchester', 12_000)],
+    })
+
+    const { getByTestId, queryByTestId, rerender } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy()
+
+    // Now flip to free mid-flight (simulates subscription expiry race
+    // or stale auth state).
+    mockSubscribed = false
+    rerender(
+      <SafeAreaProvider initialMetrics={initialMetrics}>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <VoucherDetailScreen />
+        </QueryClientProvider>
+      </SafeAreaProvider>,
+    )
+
+    // Picker still shows on free user (it was already open). Tap confirm.
+    if (queryByTestId('branch-picker-confirm')) {
+      fireEvent.press(getByTestId('branch-picker-confirm'))
+      // Defensive guard kicks in: subscription route, no PIN.
+      expect(mockPush).toHaveBeenCalledWith(
+        expect.stringContaining('/(auth)/subscription-prompt?source=voucher'),
+      )
+      expect(queryByTestId('pin-entry-sheet')).toBeNull()
+    }
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// PR #44 review fix #2 — picker URL-first currentBranchId priority
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Voucher Detail M2 — picker URL-first priority (review fix #2)', () => {
+  it('URL=B2 + selectedBranch stale B1 → picker pre-selects B2 → confirm-without-row-change uses B2', async () => {
+    // Simulates the keepPreviousData refetch window: user just switched
+    // to B2 via some other path (URL=B2), but merchant query is still
+    // returning the previous selectedBranch=B1. Picker MUST pre-select
+    // B2 (the URL truth) — not B1 (stale snapshot). User taps Confirm
+    // without changing row → mutation must fire with B2.
+    mockParams = { id: 'v1', branch: 'b2' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', // STALE
+      branches: [makeBranch('b1', 'Brightlingsea'), makeBranch('b2', 'Colchester', 12_000)],
+    })
+    ;(redemptionApi.redeem as jest.Mock).mockResolvedValue({ ...successResponse, branchId: 'b2' })
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+
+    // Confirm without picking a row — should use B2 from URL, not B1 from stale data.
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+
+    fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    await waitFor(() => {
+      expect(redemptionApi.redeem).toHaveBeenCalledWith({
+        voucherId: 'v1', branchId: 'b2', pin: '1234',
+      })
+    })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// PR #44 review fix #3 — non-PIN backend error codes surface in UI
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Voucher Detail M2 — non-PIN backend errors surface (review fix #3)', () => {
+  beforeEach(() => {
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+  })
+
+  function expectErrorBanner(code: string, statusCode: number, extra: any = {}) {
+    return async function (titleMatch: RegExp) {
+      ;(redemptionApi.redeem as jest.Mock).mockRejectedValue({
+        code, message: 'x', statusCode, ...extra,
+      })
+      const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      await act(async () => {
+        fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      })
+      await waitFor(() => expect(getByTestId('pin-backend-error-banner')).toBeTruthy())
+      expect(getByText(titleMatch)).toBeTruthy()
+    }
+  }
+
+  it('PIN_NOT_CONFIGURED renders "Branch PIN not set up" banner with merchant-portal hint', async () => {
+    await expectErrorBanner('PIN_NOT_CONFIGURED', 400)(/Branch PIN not set up/i)
+  })
+
+  it('BRANCH_UNAVAILABLE renders "Branch unavailable" banner', async () => {
+    await expectErrorBanner('BRANCH_UNAVAILABLE', 404)(/Branch unavailable/i)
+  })
+
+  it('BRANCH_MERCHANT_MISMATCH renders "Branch mismatch" banner', async () => {
+    await expectErrorBanner('BRANCH_MERCHANT_MISMATCH', 400)(/Branch mismatch/i)
+  })
+
+  it('PHONE_NOT_VERIFIED renders "Verify your phone" banner', async () => {
+    await expectErrorBanner('PHONE_NOT_VERIFIED', 403)(/Verify your phone/i)
+  })
+
+  it('SUBSCRIPTION_REQUIRED renders "Subscription required" banner', async () => {
+    await expectErrorBanner('SUBSCRIPTION_REQUIRED', 403)(/Subscription required/i)
+  })
+
+  it('VOUCHER_NOT_FOUND renders "Voucher unavailable" banner', async () => {
+    await expectErrorBanner('VOUCHER_NOT_FOUND', 404)(/Voucher unavailable/i)
+  })
+
+  it('PIN_NOT_CONFIGURED copy mentions the merchant portal / Redeemo support', async () => {
+    ;(redemptionApi.redeem as jest.Mock).mockRejectedValue({
+      code: 'PIN_NOT_CONFIGURED', message: 'x', statusCode: 400,
+    })
+    const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    await act(async () => {
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    })
+    await waitFor(() => expect(getByTestId('pin-backend-error-banner')).toBeTruthy())
+    // Copy MUST guide the user to ask the merchant + offer Redeemo support fallback.
+    expect(getByText(/merchant portal/i)).toBeTruthy()
+    expect(getByText(/support/i)).toBeTruthy()
+  })
+
+  it('Generic error banner does NOT render alongside lockout (PIN_RATE_LIMIT_EXCEEDED takes precedence)', async () => {
+    ;(redemptionApi.redeem as jest.Mock).mockRejectedValue({
+      code: 'PIN_RATE_LIMIT_EXCEEDED', message: 'x', statusCode: 429, retryAfter: 540,
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    await act(async () => {
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    })
+    await waitFor(() => expect(getByTestId('pin-lockout-card')).toBeTruthy())
+    // Lockout state suppresses the generic banner.
+    expect(queryByTestId('pin-backend-error-banner')).toBeNull()
   })
 })

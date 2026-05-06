@@ -390,13 +390,59 @@ export function VoucherDetailScreen() {
     Alert.alert('Coming next milestone', 'Voucher share ships in M2.')
   }, [])
 
+  // Round 21: build the voucher-origin subscription URL with full
+  // return-context params. SubscribePromptScreen reads these to:
+  //   • initialise the plan selector to the user's pre-pick
+  //     (annual/monthly) instead of the onboarding default,
+  //   • swap CTA copy for voucher-origin (Continue with Annual /
+  //     Continue with Free Account),
+  //   • route the secondary CTA back to THIS exact voucher detail
+  //     page rather than dumping the user on Discovery.
+  // Defined ahead of handleChangeBranch / handleCTA / handlePickerConfirm
+  // so the subscription-gate fallbacks in those handlers (PR #44
+  // review fix #1) can call into it without TS hoisting errors.
+  const buildSubscriptionUrl = useCallback(
+    (plan: 'annual' | 'monthly'): string => {
+      const enc = encodeURIComponent
+      const qs: string[] = [`source=voucher`, `plan=${plan}`]
+      if (voucher) qs.push(`returnVoucherId=${enc(voucher.id)}`)
+      // Branch return value (post-merge follow-up — symmetric to §O7
+      // fix in MerchantProfileScreen.handleVoucherPress): URL
+      // `branchIdParam` wins so the free-user sticky CTA / modal plan
+      // buttons can be tapped even before merchantQuery resolves
+      // selectedBranch. Without this the URL would omit `branch=`,
+      // leaving SubscribePromptScreen's "Continue with Free Account"
+      // unable to rebuild the exact return URL — it would fall back
+      // to router.back() and miss the suppressSubscribePrompt=1
+      // contract on the way back. Fallback to selectedBranch?.id
+      // only when there's no URL branch param (cold-open before
+      // anything resolves).
+      const branchForReturn = branchIdParam ?? selectedBranch?.id
+      if (branchForReturn) qs.push(`branch=${enc(branchForReturn)}`)
+      if (voucher) qs.push(`returnMerchantId=${enc(voucher.merchant.id)}`)
+      qs.push(`tab=vouchers`)
+      return `/(auth)/subscription-prompt?${qs.join('&')}`
+    },
+    [voucher, branchIdParam, selectedBranch],
+  )
+
   // M2 Section B — change branch opens the voucher-scoped picker. The
   // picker's onConfirm wires through to `handlePickerConfirm` below
   // (sets pickerConfirmedBranchId, fires router.replace, then opens
   // PinEntrySheet).
+  //
+  // Subscription gate (PR #44 review fix #1): free users tapping the
+  // MerchantRow's "Change ▾" pill MUST NOT open the picker, because
+  // the picker → PinEntrySheet wiring would let them reach PIN entry
+  // without an active subscription. Owner constraint #1 — free users
+  // never reach PIN. Route them through the conversion flow instead.
   const handleChangeBranch = useCallback(() => {
+    if (!isSubscribed) {
+      router.push(buildSubscriptionUrl('monthly') as never)
+      return
+    }
     setPickerVisible(true)
-  }, [])
+  }, [isSubscribed, router, buildSubscriptionUrl])
 
   const handleMerchantTap = useCallback(() => {
     if (voucher && merchant) {
@@ -421,7 +467,18 @@ export function VoucherDetailScreen() {
   })
 
   // Picker → URL replace → open PinEntrySheet.
+  //
+  // Subscription gate (PR #44 review fix #1): defensive in-depth guard.
+  // The picker should never open for a free user (handleChangeBranch +
+  // handleCTA both gate above), but if a future code path opens it
+  // without going through those, this guard ensures we still don't
+  // open PIN entry for non-subscribed users.
   const handlePickerConfirm = useCallback((branchId: string) => {
+    if (!isSubscribed) {
+      setPickerVisible(false)
+      router.push(buildSubscriptionUrl('monthly') as never)
+      return
+    }
     // Local source set FIRST (synchronous, ref-like). Subsequent
     // router.replace fires; URL catches up next render and the
     // useEffect above clears the local source.
@@ -439,7 +496,7 @@ export function VoucherDetailScreen() {
     }
     setPickerVisible(false)
     setPinSheetVisible(true)
-  }, [voucher, router, params.from, params.returnMerchantId, params.tab, suppressPrompt])
+  }, [isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt])
 
   // PIN submit → mutate → success | typed error.
   const handlePinSubmit = useCallback(async (pin: string) => {
@@ -507,42 +564,6 @@ export function VoucherDetailScreen() {
         return null
     }
   }, [stateKey, branchReady])
-
-  // Round 21: build the voucher-origin subscription URL with full
-  // return-context params. SubscribePromptScreen reads these to:
-  //   • initialise the plan selector to the user's pre-pick
-  //     (annual/monthly) instead of the onboarding default,
-  //   • swap CTA copy for voucher-origin (Continue with Annual /
-  //     Continue with Free Account),
-  //   • route the secondary CTA back to THIS exact voucher detail
-  //     page rather than dumping the user on Discovery.
-  // Returns null when voucher data isn't yet loaded — callers fall
-  // back to a plain push (state machine prevents free-user CTA from
-  // firing before voucher loads anyway).
-  const buildSubscriptionUrl = useCallback(
-    (plan: 'annual' | 'monthly'): string => {
-      const enc = encodeURIComponent
-      const qs: string[] = [`source=voucher`, `plan=${plan}`]
-      if (voucher) qs.push(`returnVoucherId=${enc(voucher.id)}`)
-      // Branch return value (post-merge follow-up — symmetric to §O7
-      // fix in MerchantProfileScreen.handleVoucherPress): URL
-      // `branchIdParam` wins so the free-user sticky CTA / modal plan
-      // buttons can be tapped even before merchantQuery resolves
-      // selectedBranch. Without this the URL would omit `branch=`,
-      // leaving SubscribePromptScreen's "Continue with Free Account"
-      // unable to rebuild the exact return URL — it would fall back
-      // to router.back() and miss the suppressSubscribePrompt=1
-      // contract on the way back. Fallback to selectedBranch?.id
-      // only when there's no URL branch param (cold-open before
-      // anything resolves).
-      const branchForReturn = branchIdParam ?? selectedBranch?.id
-      if (branchForReturn) qs.push(`branch=${enc(branchForReturn)}`)
-      if (voucher) qs.push(`returnMerchantId=${enc(voucher.merchant.id)}`)
-      qs.push(`tab=vouchers`)
-      return `/(auth)/subscription-prompt?${qs.join('&')}`
-    },
-    [voucher, branchIdParam, selectedBranch],
-  )
 
   const handleCTA = useCallback(() => {
     if (stateKey === 'free-user') {
@@ -779,10 +800,22 @@ export function VoucherDetailScreen() {
       />
 
       {/* ── M2 Section B: redemption flow surfaces ──────────────────── */}
+      {/* Picker `currentBranchId` MUST use the same URL-first priority
+          as the redemption mutation (per PR #44 review fix #2). Without
+          this, a user who switched branches recently (URL=B2) but is
+          still seeing keepPreviousData merchant snapshot (selectedBranch=B1)
+          would open the picker pre-selected on B1 and confirm B1 by
+          accident. Three-tier priority match:
+          pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id */}
       <BranchPickerSheet
         visible={pickerVisible}
         branches={pickerBranches}
-        currentBranchId={selectedBranch?.id ?? branchIdParam ?? null}
+        currentBranchId={
+          pickerConfirmedBranchId
+          ?? branchIdParam
+          ?? selectedBranch?.id
+          ?? null
+        }
         onConfirm={handlePickerConfirm}
         onDismiss={() => setPickerVisible(false)}
       />
@@ -795,30 +828,35 @@ export function VoucherDetailScreen() {
         onSubmit={handlePinSubmit}
         onDismiss={() => setPinSheetVisible(false)}
       />
-      <SuccessPopup
-        visible={successPopup != null}
-        redemptionCode={successPopup?.redemptionCode ?? ''}
-        redeemedAt={successPopup?.redeemedAt ?? new Date().toISOString()}
-        voucherTitle={voucher?.title ?? ''}
-        voucherType={voucher?.type ?? 'DISCOUNT_FIXED'}
-        merchantName={voucher?.merchant.businessName ?? ''}
-        branchName={branchName}
-        onShowToStaff={() => {
-          // M3 stub — full QR + brightness boost ships in M3.
-          // For M2 the button stays present + tappable but routes to a
-          // small inline alert acknowledging the deferral.
-          Alert.alert(
-            'Show to Staff',
-            'The full-screen redemption display ships in the next milestone (M3). Your code is shown above — please show it to staff.',
-          )
-        }}
-        onRateReview={() => {
-          // M2 keeps the review path unchanged — closes the popup; future
-          // milestones will route into the existing review flow.
-          setSuccessPopup(null)
-        }}
-        onDone={() => setSuccessPopup(null)}
-      />
+      {/* SuccessPopup mounts only when we have BOTH a redemption response
+          AND the voucher data — guards against rendering with placeholder
+          fallbacks (PR #44 review cleanup). */}
+      {successPopup && voucher ? (
+        <SuccessPopup
+          visible
+          redemptionCode={successPopup.redemptionCode}
+          redeemedAt={successPopup.redeemedAt}
+          voucherTitle={voucher.title}
+          voucherType={voucher.type}
+          merchantName={voucher.merchant.businessName}
+          branchName={branchName}
+          onShowToStaff={() => {
+            // M3 stub — full QR + brightness boost ships in M3.
+            // For M2 the button routes to a small alert acknowledging
+            // the deferral.
+            Alert.alert(
+              'Show to Staff',
+              'The full-screen redemption display ships in the next milestone (M3). Your code is shown above — please show it to staff.',
+            )
+          }}
+          onRateReview={() => {
+            // M2 keeps the review path unchanged — closes the popup;
+            // future milestones will route into the existing review flow.
+            setSuccessPopup(null)
+          }}
+          onDone={() => setSuccessPopup(null)}
+        />
+      ) : null}
     </View>
   )
 }

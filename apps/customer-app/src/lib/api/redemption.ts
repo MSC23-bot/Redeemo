@@ -151,20 +151,29 @@ export const redemptionApi = {
   },
 
   /**
-   * Customer self-lookup of a redemption by code.
-   * Used by Voucher Detail state-3 return-visit + (M3) Show-to-Staff polling.
+   * Customer self-lookup of a redemption by ID.
+   *
+   * Backend route: `GET /api/v1/redemption/my/:id` (NOT `/me/:code`).
+   * The backend does NOT support code-based lookup — the path takes
+   * the redemption row's primary id. Customers receive both the id
+   * and the code in the create-redemption response.
+   *
+   * Used by (M3) Show-to-Staff polling for live validation status.
+   * M2 does not call this directly.
    */
-  async getMyRedemption(code: string): Promise<RedeemResponse> {
-    const json = await api.get<unknown>(`/api/v1/redemption/me/${encodeURIComponent(code)}`)
+  async getMyRedemption(redemptionId: string): Promise<RedeemResponse> {
+    const json = await api.get<unknown>(`/api/v1/redemption/my/${encodeURIComponent(redemptionId)}`)
     return RedeemResponseSchema.parse(json)
   },
 
   /**
-   * Customer's full redemption history (paginated by the savings tab).
+   * Customer's full redemption history.
+   *
+   * Backend route: `GET /api/v1/redemption/my` (NOT `/me`).
    * M2 doesn't consume this directly but exposes it for parity.
    */
   async listMyRedemptions(): Promise<RedemptionSummary[]> {
-    const json = await api.get<unknown>('/api/v1/redemption/me')
+    const json = await api.get<unknown>('/api/v1/redemption/my')
     return z.array(RedemptionSummarySchema).parse(json)
   },
 }

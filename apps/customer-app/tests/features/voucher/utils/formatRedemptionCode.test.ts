@@ -24,4 +24,25 @@ describe('formatRedemptionCode', () => {
     const _result = formatRedemptionCode(input)
     expect(input).toBe('aB3xKZmLp9')
   })
+
+  it('returns whitespace-bearing inputs of non-10 length unchanged (defensive)', () => {
+    // Backend emits exactly 10 alphanumerics — but if a future change
+    // ever surfaces a code with embedded whitespace AND a non-10
+    // length, the formatter must NOT silently re-shape it.
+    expect(formatRedemptionCode('a B3 xKZmLp')).toBe('a B3 xKZmLp')      // 11 chars
+    expect(formatRedemptionCode('   leading-and-trailing   ')).toBe('   leading-and-trailing   ')
+
+    // Note: a 10-char string CONTAINING whitespace will still be
+    // grouped 5+5 — the formatter intentionally treats the input as
+    // opaque 10 chars. Backend never produces such codes today.
+  })
+
+  it('returns input unchanged for non-ASCII / unusual chars (defensive)', () => {
+    expect(formatRedemptionCode('🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉')).toBe('🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉')
+    // Above is 10 emoji codepoints; .length on emoji-string surrogate pairs
+    // can vary, so length-10 case may or may not split. The contract: don't
+    // crash, return something the caller can render. Both outcomes are OK
+    // — assert the function doesn't throw.
+    expect(() => formatRedemptionCode('caféicated')).not.toThrow()
+  })
 })

@@ -81,6 +81,57 @@ export function PinEntrySheet({
     error && error.code === 'INVALID_PIN' ? error.remainingAttempts : null
   const showInvalidPinBar = error?.code === 'INVALID_PIN' && !isLocked
 
+  // PR #44 review fix #3 — surface the other 6 backend error codes the
+  // backend can return. Without this, the user types a PIN, hits an
+  // ineligibility error (e.g. PIN_NOT_CONFIGURED), and the sheet just
+  // sits there with no feedback. Each code gets a distinct UX message
+  // so the user knows why the request was rejected and what to do next.
+  type BackendErrorBanner = { title: string; body: string }
+  function backendErrorBanner(): BackendErrorBanner | null {
+    if (!error) return null
+    switch (error.code) {
+      case 'PIN_NOT_CONFIGURED':
+        return {
+          title: 'Branch PIN not set up',
+          body:
+            "This branch hasn't configured its Redeemo PIN yet. Ask the merchant or branch manager to set it in their merchant portal — or contact Redeemo support if it's already set.",
+        }
+      case 'BRANCH_UNAVAILABLE':
+        return {
+          title: 'Branch unavailable',
+          body:
+            'This branch is no longer available for redemption. Try a different branch or check back later.',
+        }
+      case 'BRANCH_MERCHANT_MISMATCH':
+        return {
+          title: 'Branch mismatch',
+          body:
+            "This branch doesn't belong to this voucher's merchant. Please reopen the branch picker and try again.",
+        }
+      case 'PHONE_NOT_VERIFIED':
+        return {
+          title: 'Verify your phone',
+          body:
+            'Your phone number must be verified before you can redeem vouchers. Open the Profile tab to verify.',
+        }
+      case 'SUBSCRIPTION_REQUIRED':
+        return {
+          title: 'Subscription required',
+          body:
+            'You need an active subscription to redeem vouchers. Tap "Maybe later" and re-open the voucher to subscribe.',
+        }
+      case 'VOUCHER_NOT_FOUND':
+        return {
+          title: 'Voucher unavailable',
+          body:
+            "This voucher isn't available for redemption right now — it may have expired or been removed by the merchant.",
+        }
+      default:
+        return null
+    }
+  }
+  const errorBanner = backendErrorBanner()
+
   // ── Shake animation on wrong PIN ────────────────────────────────────
   const shake = useSharedValue(0)
   const shakeStyle = useAnimatedStyle(() => ({
@@ -245,7 +296,11 @@ export function PinEntrySheet({
               caretHidden
               importantForAutofill="no"
               autoComplete="off"
-              textContentType="oneTimeCode"
+              // PR #44 review fix #5: NOT `oneTimeCode` — that hint
+              // makes iOS surface "From Messages" autofill suggestions
+              // for SMS-delivered codes. The branch PIN is staff-supplied
+              // verbally; SMS autofill is wrong + confusing here.
+              textContentType="none"
               style={styles.hiddenInput}
               editable={!isLoading && !isLocked}
             />
@@ -258,6 +313,22 @@ export function PinEntrySheet({
             <Text variant="label.md" style={styles.errorBarText}>
               Wrong PIN · {remainingAttempts} attempt
               {remainingAttempts === 1 ? '' : 's'} remaining
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Generic backend-error banner — covers the 6 non-PIN error codes
+            (PIN_NOT_CONFIGURED, BRANCH_UNAVAILABLE, BRANCH_MERCHANT_MISMATCH,
+            PHONE_NOT_VERIFIED, SUBSCRIPTION_REQUIRED, VOUCHER_NOT_FOUND).
+            Distinct from the INVALID_PIN bar above (no attempts counter,
+            different framing — these aren't the user's fault). */}
+        {errorBanner && !isLocked ? (
+          <View style={styles.backendErrorBanner} testID="pin-backend-error-banner">
+            <Text variant="label.md" style={styles.backendErrorTitle}>
+              {errorBanner.title}
+            </Text>
+            <Text variant="body.sm" style={styles.backendErrorBody}>
+              {errorBanner.body}
             </Text>
           </View>
         ) : null}
@@ -386,6 +457,29 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: color.danger,
+  },
+  // Generic backend-error banner — for the 6 non-PIN codes the backend
+  // can return (PIN_NOT_CONFIGURED, BRANCH_UNAVAILABLE, etc.). Distinct
+  // from the INVALID_PIN bar — slightly larger, two-line layout, less
+  // alarming colour (these aren't user-fault errors).
+  backendErrorBanner: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing[3],
+    marginBottom: spacing[3],
+  },
+  backendErrorTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#92400E',
+    marginBottom: 2,
+  },
+  backendErrorBody: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#92400E',
   },
   disclaimer: {
     flexDirection: 'row',
