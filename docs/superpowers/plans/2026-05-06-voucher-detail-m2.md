@@ -41,16 +41,22 @@ Lines 126-159 enter `prisma.$transaction` and `voucherRedemption.create` + `user
 
 **Owner direction:** harden in Section A, NOT deferred to M3. Per the §10 amendment 2026-05-06: M2 must not ship redemption with this race open.
 
-**Fix shape (no schema migration required):** turn the existing `@@unique([userId, voucherId])` on `UserVoucherCycleState` into a claim point. Inside the transaction:
+**Fix shape — cross-transaction retry (no schema migration required):** turn the existing `@@unique([userId, voucherId])` on `UserVoucherCycleState` into a claim point. Critically, P2002 inside an interactive transaction marks Postgres `25P02 in_failed_sql_transaction` — any subsequent query in that tx fails with "current transaction is aborted, commands ignored until end of transaction block". The implementation MUST NOT continue querying inside a transaction after a P2002. Two transactions max:
 
-1. Run a **conditional `updateMany`** that succeeds only when the row is either (a) from an older cycle (stale row → can be claimed) or (b) from the current cycle but `isRedeemedInCurrentCycle = false` (not yet claimed). On success, count is `1` and the row is now claimed.
-2. If `count === 0`, no matching row exists → try `create`. On `P2002` (unique constraint hit by a concurrent winner), retry the conditional `updateMany` once more.
-3. If after step 2 the row is STILL not claimable, throw `ALREADY_REDEEMED` — concurrent request won the race.
-4. Only AFTER cycle-state is claimed, create the `VoucherRedemption` record.
+**First transaction:**
+1. Conditional `updateMany` — succeeds (`count=1`) if the row is from an older cycle (stale, reclaimable) OR current cycle but not yet redeemed. If so, write `VoucherRedemption` and commit.
+2. If `count=0`, no row exists yet → try `create`. If create succeeds, write `VoucherRedemption` and commit. If create throws P2002 (concurrent winner created the row between our updateMany and our create), Postgres marks the tx aborted. Prisma rolls it back automatically; the P2002 propagates up out of the transaction.
 
-Concurrency test pins the contract: `Promise.allSettled` two simultaneous `createRedemption` calls → exactly one fulfilled (with a `VoucherRedemption` row) and one rejected with `ALREADY_REDEEMED`; `prisma.voucherRedemption.findMany({ where: { userId, voucherId } })` returns exactly 1 row.
+**Second transaction (only on P2002 from first):**
+The catch lives OUTSIDE the first transaction. We open a fresh `prisma.$transaction` and retry the conditional `updateMany` ONLY (no create — the row exists now from the concurrent winner).
+- If `count=1`, the concurrent winner's row was reclaimable on retry (e.g. they wrote it but haven't claimed for current cycle, or it was a stale row). Write `VoucherRedemption` and commit.
+- If `count=0`, race lost. Throw `ALREADY_REDEEMED`.
 
-**No schema migration.** The existing `@@unique([userId, voucherId])` is the claim point; no new constraints, no new fields, no `cycleStartDate` migration needed on `VoucherRedemption`. The pre-PIN cycle check at the eligibility step (step 6 in the safe order) stays — that's the fast-fail closing the PIN oracle. The conditional update is defense-in-depth INSIDE the transaction for the post-PIN race.
+This avoids the trap of catching P2002 inside the failed transaction and retrying — a pattern that would always fail in production with "current transaction is aborted" even though a mocked-Prisma test would pass.
+
+**No schema migration.** The existing `@@unique([userId, voucherId])` is the claim point; no new constraints, no new fields, no `cycleStartDate` migration needed on `VoucherRedemption`. The pre-PIN cycle check at the eligibility step (step 8 in the safe order) stays — that's the fast-fail closing the PIN oracle. The cross-transaction conditional claim is defense-in-depth for the post-PIN race.
+
+**Test note:** the project's redemption test harness uses mocked Prisma. The mocked harness CANNOT prove the real Postgres concurrency property — that property comes from Postgres atomicity + the conditional `updateMany` WHERE clause + the unique key. What we test in `createRedemption.race.test.ts` is the FLOW LOGIC across the two-transaction shape: each branch (single-tx success via update, single-tx success via create, two-tx success on P2002 retry, two-tx ALREADY_REDEEMED on P2002 retry, single-tx error propagation for non-P2002, WHERE clause shape pin, retry-uses-same-WHERE defensive pin). The implementation avoids same-transaction retry after P2002 BY CONSTRUCTION — the catch is outside the first `prisma.$transaction(...)` call, and the retry runs in a fresh `prisma.$transaction(...)` call.
 
 ### Proposed safe guard order (per owner direction)
 

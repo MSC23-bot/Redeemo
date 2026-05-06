@@ -166,54 +166,79 @@ export async function createRedemption(
     throw new AppError('INVALID_PIN', { remainingAttempts })
   }
 
-  // 11. Atomic write — race-safe conditional claim.
+  // 11. Atomic write — race-safe conditional claim with CROSS-TRANSACTION
+  // retry.
   //
   // Two concurrent createRedemption calls for the same (userId, voucherId)
   // can both pass the pre-PIN cycle check at step 7 (which reads cycle
   // state without a row lock). Without the conditional claim below, both
-  // would write VoucherRedemption rows and the upsert would silently let
-  // both succeed — duplicate redemption rows, double branch attribution,
-  // inflated merchant analytics.
+  // would write VoucherRedemption rows — duplicate redemption rows,
+  // double branch attribution, inflated merchant analytics.
   //
-  // Defense: use the existing @@unique([userId, voucherId]) on
-  // UserVoucherCycleState as a single-row claim point. Only ONE racing
-  // request can claim the row for the current cycle:
-  //   1. Conditional updateMany — succeeds only if the row is from an
-  //      older cycle (stale, can be reclaimed) or current cycle but not
-  //      yet redeemed.
-  //   2. If count === 0, no matching row → try create. P2002 means a
-  //      concurrent winner created the row between updateMany and create;
-  //      retry the conditional updateMany once.
-  //   3. If still unclaimable, throw ALREADY_REDEEMED — race lost.
-  //   4. Only AFTER cycle-state is claimed, write the VoucherRedemption.
+  // Defense uses the existing @@unique([userId, voucherId]) on
+  // UserVoucherCycleState as a single-row claim point. Two transactions
+  // max:
+  //
+  //   First transaction:
+  //     a. Conditional updateMany — succeeds (count=1) if the row is from
+  //        an older cycle (stale, reclaimable) or current cycle but not
+  //        yet redeemed. If so, write VoucherRedemption and commit.
+  //     b. If count=0, no row exists yet — try create. If create succeeds,
+  //        write VoucherRedemption and commit. If create throws P2002 (a
+  //        concurrent winner created the row between our updateMany and
+  //        our create), Postgres marks the transaction as
+  //        25P02 in_failed_sql_transaction. We MUST NOT continue querying
+  //        inside this transaction. Prisma rolls it back automatically;
+  //        the P2002 propagates up to our outer catch.
+  //
+  //   Second transaction (only on P2002 from first):
+  //     Retry the conditional updateMany ONLY (no create). If count=1,
+  //     the concurrent winner's row was reclaimable on retry — proceed
+  //     to write VoucherRedemption. If count=0, race lost — throw
+  //     ALREADY_REDEEMED.
+  //
+  // This avoids the pitfall of catching P2002 inside the failed
+  // transaction and retrying — that would always fail in production with
+  // "current transaction is aborted, commands ignored until end of
+  // transaction block" even though a mocked-Prisma test would pass.
   const redemptionCode = generateRedemptionCode()
 
-  const redemption = await prisma.$transaction(async (tx) => {
-    // Step 1: Conditional claim.
-    const claimWhere = {
-      userId,
-      voucherId: data.voucherId,
-      OR: [
-        { cycleStartDate: { lt: cycleStart } },           // stale, can be reclaimed
-        { isRedeemedInCurrentCycle: false },               // current cycle, not yet claimed
-      ],
-    }
-    const claimData = {
-      cycleStartDate:           cycleStart,
-      isRedeemedInCurrentCycle: true,
-      lastRedeemedAt:           now,
-    }
+  const claimWhere = {
+    userId,
+    voucherId: data.voucherId,
+    OR: [
+      { cycleStartDate: { lt: cycleStart } },           // stale, can be reclaimed
+      { isRedeemedInCurrentCycle: false },               // current cycle, not yet claimed
+    ],
+  }
+  const claimData = {
+    cycleStartDate:           cycleStart,
+    isRedeemedInCurrentCycle: true,
+    lastRedeemedAt:           now,
+  }
+  const redemptionData = {
+    userId,
+    voucherId:       data.voucherId,
+    branchId:        data.branchId,
+    redemptionCode,
+    estimatedSaving: voucher.estimatedSaving,
+    isValidated:     false,
+    redeemedAt:      now,
+  }
 
-    const updated = await tx.userVoucherCycleState.updateMany({
-      where: claimWhere,
-      data:  claimData,
-    })
-
-    let claimed = updated.count === 1
-
-    if (!claimed) {
-      // Step 2: No matching row — try create.
-      try {
+  let redemption
+  try {
+    // First transaction: try claim via updateMany; if no row, try create.
+    // The whole tx (cycle-state claim + redemption write) is one atomic
+    // unit. On P2002 the tx rolls back; we catch OUTSIDE.
+    redemption = await prisma.$transaction(async (tx) => {
+      const updated = await tx.userVoucherCycleState.updateMany({
+        where: claimWhere,
+        data:  claimData,
+      })
+      if (updated.count !== 1) {
+        // No reclaimable row — try create. P2002 here aborts this tx;
+        // do NOT continue querying inside it.
         await tx.userVoucherCycleState.create({
           data: {
             userId,
@@ -223,42 +248,28 @@ export async function createRedemption(
             lastRedeemedAt:           now,
           },
         })
-        claimed = true
-      } catch (err: any) {
-        // P2002 = unique constraint violation; concurrent winner created
-        // the row between our updateMany and our create. Retry once.
-        if (err?.code === 'P2002') {
-          const retried = await tx.userVoucherCycleState.updateMany({
-            where: claimWhere,
-            data:  claimData,
-          })
-          claimed = retried.count === 1
-        } else {
-          throw err
-        }
       }
-    }
-
-    if (!claimed) {
-      // Step 3: Race lost — concurrent winner already redeemed for the
-      // current cycle. The pre-PIN check at step 7 missed it because the
-      // row was claimed AFTER our read but BEFORE our write attempt.
-      throw new AppError('ALREADY_REDEEMED')
-    }
-
-    // Step 4: Cycle state is claimed; safe to create the redemption record.
-    return tx.voucherRedemption.create({
-      data: {
-        userId,
-        voucherId:       data.voucherId,
-        branchId:        data.branchId,
-        redemptionCode,
-        estimatedSaving: voucher.estimatedSaving,
-        isValidated:     false,
-        redeemedAt:      now,
-      },
+      return tx.voucherRedemption.create({ data: redemptionData })
     })
-  })
+  } catch (err: any) {
+    if (err?.code !== 'P2002') throw err
+    // Concurrent winner created the cycle-state row between our updateMany
+    // and our create. First transaction has rolled back — its writes are
+    // gone. Retry in a FRESH transaction with conditional updateMany only
+    // (no create — the row exists now).
+    redemption = await prisma.$transaction(async (tx) => {
+      const retried = await tx.userVoucherCycleState.updateMany({
+        where: claimWhere,
+        data:  claimData,
+      })
+      if (retried.count !== 1) {
+        // Concurrent winner's row is NOT reclaimable (current cycle,
+        // already redeemed). Race lost.
+        throw new AppError('ALREADY_REDEEMED')
+      }
+      return tx.voucherRedemption.create({ data: redemptionData })
+    })
+  }
 
   // 9. Reset fail counter on success
   await redis.del(failKey)
