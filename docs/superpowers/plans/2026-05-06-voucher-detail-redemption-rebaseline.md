@@ -307,6 +307,95 @@ Tests:
 
 Pause for owner on-device QA. **Do not start M2 until M1 is approved.**
 
+### M1.1 — As shipped (rounds 13–24, merged 2026-05-06 as PR #40, merge `b93ef9c`)
+
+This addendum captures everything that landed in M1 BEYOND the original M1 view-only scope above. It exists because the conversion-flow + UX-polish work that happened during owner QA expanded M1 substantially beyond "route + screen + 12 states + branch attribution." Recorded here so future readers can see the actual M1-as-shipped contract, not just the as-planned shape.
+
+**Conversion flow for free users (round 16) — locked design**
+
+- `SubscriptionPromptModal` replaces the deleted `FreeUserGateModal`. Renders for free users on Voucher Detail; auto-shown after the round-22 delay (see below); dismissible via "Maybe later" or close icon.
+- Sticky free-user CTA: `redeem-cta-subscribe` testID, navy background, copy "Subscribe to Redeem · £6.99/mo", routes to `/(auth)/subscription-prompt` with the full voucher-origin return-context query (see next bullet).
+- Plan-pre-pick: tapping the modal's annual / monthly buttons builds the URL with `plan=annual` or `plan=monthly` so `SubscribePromptScreen` initialises its plan selector to the user's pick (no double-pick).
+- Free users navigate THROUGH to Voucher Detail and see the free-user state — backend enforces subscription at redemption time, so browsing is unrestricted.
+
+**Voucher-origin subscription routing (rounds 20–21) — locked URL contract**
+
+`SubscribePromptScreen` honours the voucher-origin source via this URL shape:
+
+```
+/(auth)/subscription-prompt
+  ?source=voucher
+  &plan=<annual|monthly>
+  &returnVoucherId=<id>
+  &branch=<id>
+  &returnMerchantId=<id>
+  &tab=vouchers
+```
+
+- `source=voucher` swaps CTA copy to "Continue with Annual" / "Continue with Monthly" / "Continue with Free Account" (vs the onboarding default "Explore full access" / "Start with free access").
+- `plan=<plan>` initialises the plan selector to the user's pre-pick.
+- `returnVoucherId` + `branch` + `returnMerchantId` + `tab` rebuild the exact return URL on the secondary CTA.
+- Voucher-origin secondary CTA does NOT stamp `subscriptionPromptSeenAt` — user is past onboarding and the flag is for first-run only.
+- Defensive fallback: when return-context params are missing, secondary CTA falls back to `router.back()` rather than dropping the user on Discovery.
+
+**Suppression flag (round 22) — `?suppressSubscribePrompt=1`**
+
+`Continue with Free Account` returns to voucher with `?suppressSubscribePrompt=1` appended. `VoucherDetailScreen` reads it and skips the auto-modal so the user isn't nag-looped after a deliberate free-pick. Sticky CTA stays visible and tappable; only the auto-modal is gated.
+
+**Delayed auto-modal (round 22 part 5) — `SUBSCRIPTION_PROMPT_DELAY_MS = 800ms`**
+
+Auto-modal waits 800ms after the screen becomes interactive so the user briefly sees the voucher itself before the conversion overlay slides in. Owner direction — synchronous show felt gate-like (the same UX the modal was meant to replace). Implemented as a `setTimeout` inside an effect with full cancellation paths:
+
+- Blur (sticky CTA tap → navigation → focus loss → cleanup).
+- Dismiss (Maybe later / close → `promptDismissed` flips → effect returns early).
+- Sub state change (`isSubscribed` flips → effect returns early).
+- Suppression flag (URL param).
+
+Two-layer gate: `modalReady` (timer fired) AND every scheduling guard still holds. Without the second layer, dismiss wouldn't hide the modal because `modalReady` stays true after the timer fires.
+
+**How It Works variants (rounds 17–19) — locked**
+
+- Both subscribed and free variants finalised at 5 steps (round 17). Free variant starts with "Subscribe to Unlock"; subscribed variant starts with "Review the Voucher".
+- Section is a tappable card with chevron toggle (round 19). Free default = expanded (still supports conversion). Subscribed default = collapsed (process explanation is secondary once eligibility is unlocked).
+
+**§O7 voucher-tap branch race fix (round 23) — `MerchantProfileScreen.handleVoucherPress`**
+
+`handleVoucherPress` reads branch id from `useBranchSelection().branchId` (the URL param) rather than `merchant.selectedBranch.id`. Falls back to the merchant-resolved branch only on cold-open. Eliminates the `keepPreviousData` stale-branch race when a user taps a voucher within ~1s of switching branches. Pre-existing bug (since PR #33), shipped inside PR #40 because PR #40 makes the voucher URL branch param load-bearing. Pinned by `tests/features/merchant/voucher-press-branch-race.test.tsx` (4 cases).
+
+**Round 24 — `PRODUCT.md` workspace hygiene**
+
+`PRODUCT.md` (impeccable design-skill local context file, added round 13) untracked via `git rm --cached` and added to `.gitignore` alongside `DESIGN.md`. Same workspace-hygiene category as `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`. Skill keeps working locally; doesn't ship to main.
+
+**Post-merge symmetric fix (PR #41, merge `234e9e8`, 2026-05-06)**
+
+§O7 closed the stale-`selectedBranch` race in `MerchantProfileScreen.handleVoucherPress` (the *outbound* voucher-tap URL). PR #41 closes the symmetric race in `VoucherDetailScreen.buildSubscriptionUrl` (the *inbound* subscribe-prompt URL):
+
+- Voucher data has no branch dep → `useCustomerVoucher` resolves first.
+- Free-user state machine fires once voucher + subscription resolve → sticky CTA + auto-modal plan buttons become tappable WHILE `useMerchantProfile` is still in flight.
+- During that window `selectedBranch` is null.
+- Old `buildSubscriptionUrl` gated `branch=…` on `selectedBranch` only → URL would omit `branch=` entirely.
+- Downstream impact: `SubscribePromptScreen.handleSecondaryChoice` ("Continue with Free Account") needs `returnVoucherId + branch + returnMerchantId + tab` to rebuild the exact return URL with `suppressSubscribePrompt=1` appended. Missing `branch=` → defensive fallback to `router.back()` → suppression contract lost.
+
+Fix: source branch from URL `branchIdParam` first, fall back to `selectedBranch?.id` only on cold-open (no URL branch). Same shape as §O7. Pinned by 4 new tests in `voucher-detail-free-user.test.tsx` (sticky CTA + modal annual + modal monthly under load, plus cold-open fallback regression).
+
+**Test counts at PR #40 merge:** customer-app jest **394/394** across 48 suites (10s); backend vitest discovery.voucher-detail **10/10** (449ms); `tsc --noEmit` clean.
+
+**Test counts at PR #41 merge:** voucher-detail-free-user 32/32; full voucher + merchant + subscribe regression 371/371 across 46 suites; `tsc --noEmit` clean.
+
+**Deferred items spawned during M1** (tracked in `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_deferred_followups_index.md`):
+
+- §N10 + §N8 — native iOS edge-swipe-back: requires moving both `voucher/[id]` AND `merchant/[id]` from `Tabs.Screen` into a Stack/native-stack flow together. Tier 2/3 navigation workstream, design with future tab-swipe / gesture arbitration.
+- §N11 — broader branch-switch perceived-lag UX (`keepPreviousData` shows OLD branch until refetch lands; voucher detail's loading-gate ignores `merchantQuery.isLoading`). Tier 1/2 owner-direction follow-up.
+- §O1 — TIME_LIMITED proper availability windows (M1 stub; needs backend `availableFrom`/`availableUntil`).
+- §O3 — `Change ▾` Unicode glyph → chevron icon polish.
+- §O4 — Voucher favourite toggle wiring (M1 fires `Alert("Coming next milestone")`).
+- §O5 — VoucherDetailScreen decomposition only if M2/M3 grow it past ~600 lines.
+- §O6 — Already-Redeemed full surface (M2/M3, backend dep).
+
+**Closed during M1:**
+
+- §O7 — voucher-tap branch race vs in-flight merchant refetch. SHIPPED in round 23.
+
 ### M2 — Redemption flow (PR 2)
 
 Goal: PinEntrySheet → RedeemMutation → SuccessPopup → routes back to Voucher Detail with `state=3`.

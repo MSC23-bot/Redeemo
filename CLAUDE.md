@@ -208,30 +208,70 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - All using customer discovery backend APIs
 - Plan: `docs/superpowers/plans/2026-04-16-home-discovery-map.md`
 
-### Phase 3C.1c — Voucher Detail + Redemption (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
-- Full coupon card design: header, perforation lines, body, terms
-- 12-state screen: free user, can redeem, redeemed, expired, time-limited variants
-- PIN entry sheet with error handling and lockout timer
-- Success popup with animated checkmark, auto-dismiss
-- Show to Staff screen with live clock, QR placeholder, LIVE badge
-- Redemption details card with persisted data (fresh redeem + return visit)
-- Branch picker for multi-branch merchants (auto-selects single-branch)
-- Time-limited voucher support: countdown, urgency banners, schedule labels
-- Favourite toggle with optimistic updates + prop sync
-- Code-reviewed and all fixes applied
-- Plan: `docs/superpowers/plans/2026-04-16-voucher-detail-redemption.md`
+### ✅ Phase 3C.1c (M1) — Voucher Detail view-only rebaseline (LIVE on origin/main 2026-05-06, merge `b93ef9c`)
 
-### Phase 3C.1d — Merchant Profile (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
-- Hero section with banner, logo, featured/trending badges, favourite toggle
-- Meta section: name, category, rating, distance, open status, action buttons
-- Sticky tab bar: Vouchers / About / Branches / Reviews
-- Vouchers tab: sorted cards with redeemed-last ordering
-- About tab: description, photos carousel, amenities grid, opening hours
-- Branches tab: nearest-first sort, pulsing status dot, action buttons
-- Reviews tab: summary histogram, sort control, review cards, write review sheet
-- Contact sheet, directions sheet, free user gate modal
-- Code-reviewed and all fixes applied
-- Plan: `docs/superpowers/plans/2026-04-17-merchant-profile.md`
+PR #40 ported the M1 view-only Voucher Detail surface from the `feature/customer-app` reference branch onto current `main` (branch-aware, post-merchant-profile-track). 24 implementation rounds + the post-PRODUCT.md cleanup. Locked design baseline matches the v4 mockup at `.superpowers/brainstorm/88554-1776435672/content/voucher-detail-v4.html`.
+
+What shipped:
+- Route + screen: `app/(app)/voucher/[id].tsx` registered as `Tabs.Screen` with `href: null` + `tabBarStyle: display:none` (mirrors `merchant/[id]`); `VoucherDetailScreen.tsx` orchestrator (789 lines).
+- 10 components: CollapsedHeader, CouponBody, CouponHeader, HowItWorks, MerchantRow, PerforationLine, RedeemCTA, RedeemedBadge, SubscriptionPromptModal, TimeLimitedBanner.
+- 2 hooks: `useCustomerVoucher` (voucher fetch — branch-context-free per §11), `useTimeLimited` (M1 stub — see §O1).
+- API client + Zod: `lib/api/voucher.ts` with branch-attribution-aware schemas.
+- 12-state derivation: loading / error / free-user / can-redeem / redeemed-this-cycle / expired / time-limited × 3 / branch-error variants. `branchReady` gate on active CTAs; `MerchantRow` "Resolving branch…" placeholder for the in-flight window.
+- Branch attribution per §11 (locked): voucher merchant-wide; redemption branch-attributed; URL-driven `?branch=<id>` flows merchant-profile → voucher-detail; `useMerchantProfile(voucher.merchant.id, { branchId })` keys cache by branch.
+- URL-driven back navigation: `from`, `returnMerchantId`, `branch`, `tab` params; `buildReturnUrl` does NOT depend on voucher/merchant queries having resolved.
+- Free-user conversion flow (round 16): `SubscriptionPromptModal` replaces the deleted `FreeUserGateModal`. Sticky free-user CTA "Subscribe to Redeem · £6.99/mo" routes to `/(auth)/subscription-prompt` with full return context. Plan-pre-pick (annual / monthly) carries through.
+- Voucher-origin subscription routing (rounds 20–21): `SubscribePromptScreen` honours `source=voucher&plan=<plan>&returnVoucherId&branch&returnMerchantId&tab` — initialises the plan selector, swaps CTA copy ("Continue with Annual" / "Continue with Free Account"), routes the secondary CTA back to the exact voucher detail page rather than dumping the user on Discovery.
+- Suppression flag (round 22): `Continue with Free Account` returns to voucher with `?suppressSubscribePrompt=1`; voucher-detail reads it and skips the auto-modal so the user isn't nag-looped after a deliberate free-pick.
+- Delayed auto-modal (round 22 part 5): `SUBSCRIPTION_PROMPT_DELAY_MS = 800ms` setTimeout inside an effect with full cancellation paths (blur, dismiss, sub state change, suppression). Two-layer gate: `modalReady` (timer fired) AND every scheduling guard still holds.
+- How It Works section (rounds 17–19): 5 steps both subscribed + free variants; tappable card; default expanded (free) vs default collapsed (subscribed).
+- Round-13 impeccable critique pass: em dashes out of UI text (period or comma instead), tinted-warm whites for nested cards, banner empty-state, spacing rhythm.
+- §O7 branch-race fix (round 23): `MerchantProfileScreen.handleVoucherPress` reads branch id from URL via `useBranchSelection().branchId`, falling back to `merchant.selectedBranch?.id` only on cold-open. Removes the `keepPreviousData` stale-branch race when a user taps a voucher within ~1s of switching branches. Pre-existing bug (since PR #33), shipped inside PR #40 because PR #40 makes the voucher URL branch param load-bearing for redemption attribution.
+- Round 24 hygiene: `PRODUCT.md` (impeccable design-skill local context file) untracked + added to `.gitignore` alongside `DESIGN.md`. Same category as `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`.
+- Post-merge symmetric fix (PR #41, merge `234e9e8`, 2026-05-06): `VoucherDetailScreen.buildSubscriptionUrl` now sources the return-URL `branch` from URL `branchIdParam` first, falling back to `selectedBranch?.id` only on cold-open. Closes the symmetric race to §O7 — the free-user sticky CTA + modal plan buttons can fire while merchantQuery is still in flight, and without this fix the URL would omit `branch=` entirely, breaking the `Continue with Free Account` round-trip + the `suppressSubscribePrompt=1` contract.
+
+Test counts at merge: customer-app jest **394/394** across 48 suites covering voucher/merchant/subscribe/guards/voucher-api (10s); backend vitest discovery.voucher-detail **10/10** (449ms); `tsc --noEmit` clean.
+
+Deferred from M1 (tracked in `project_deferred_followups_index.md`):
+- §N10 + §N8 — native iOS edge-swipe-back: `voucher/[id]` is a `Tabs.Screen`; restoring native swipe-back requires moving both `voucher/[id]` AND `merchant/[id]` into a Stack/native-stack flow together. Tier 2/3 navigation workstream, design-together with future tab-swipe / gesture arbitration.
+- §N11 — broader branch-switch perceived-lag UX (`keepPreviousData` shows OLD branch until refetch lands; voucher detail's loading-gate ignores `merchantQuery.isLoading`). Tier 1/2 owner-direction follow-up.
+- §O1 — TIME_LIMITED proper availability windows (M1 stub; needs backend `availableFrom`/`availableUntil`).
+- §O3 — `Change ▾` Unicode glyph → chevron icon polish.
+- §O4 — Voucher favourite toggle wiring (M1 fires `Alert("Coming next milestone")`).
+- §O5 — VoucherDetailScreen decomposition only if M2/M3 grow it past ~600 lines.
+- §O6 — Already-Redeemed full surface (M2/M3, backend dep on `lastRedeemedAt`, `redemptionCode`, `availableAgainAt`).
+
+PRs landed: #40 (24 implementation rounds + post-PRODUCT.md cleanup, merge `b93ef9c`, 2026-05-06); #41 (post-merge symmetric `buildSubscriptionUrl` branch-source fix, merge `234e9e8`, 2026-05-06).
+
+Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` (M1/M2/M3 milestones; "As shipped" addendum at §M1.1 captures the rounds 13–24 conversion-flow expansion).
+
+Spec reference: `.superpowers/brainstorm/88554-1776435672/content/voucher-detail-v4.html` (locked v4 mockup) + the inline §11 branch-attribution contract in the plan doc.
+
+### Phase 3C.1c (M2/M3) — Voucher Detail Redemption flow (IMPLEMENTED on `feature/customer-app` reference branch — pending dedicated rebaseline PR)
+- M2 redemption flow: PinEntrySheet → RedeemMutation → SuccessPopup → state #3 routes
+- M3 ShowToStaff: full-screen QR + brightness boost + screenshot guard + auto-hide timer + live polling
+- Branch picker for multi-branch merchants at redemption time
+- §O6 Already-Redeemed full visual treatment (backend payload deps: `lastRedeemedAt`, `redemptionCode`, redeemed-branch, `availableAgainAt`)
+- Reference implementation already exists on `feature/customer-app` per the original 3C.1c plan
+- Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §7 milestones M2 + M3
+- Pick up: as a fresh dedicated rebaseline PR onto current `main`, after the next phase decision (owner call)
+
+### ✅ Phase 3C.1d — Merchant Profile (LIVE on origin/main 2026-05-05)
+- Branch-aware: customer API exposes `selectedBranch` block resolved from `?branch=<id>`; cold-open uses nearest-by-GPS or `Branch.isMainBranch`; in-tab switch via `router.replace`. Vouchers stay merchant-wide; redemption is branch-attributed.
+- Hero / banner / logo / favourite toggle + meta row (name, rating, distance, open status, contact/website/directions actions)
+- Sticky tab bar: Vouchers / About / Branches / Reviews. Tab fade transition with 8pt Y-settle (280ms ease-out-expo) + screen-wide opacity pulse on `selectedBranch.id` change (380ms)
+- Vouchers tab: locked voucher card design (pastel-but-alive per-type gradients, official Iconic v3 R watermark via SvgXml, hero-left + title-below layout, dark-translucent type chip, fixed-height descriptionWrap for consistent card heights, side notches, brand-red shadow tinted per type). VoucherContextLabel: `"{n} offers available · Redeem at {branch}"` (multi-branch) / `"{n} offers available"` (single-branch)
+- About tab: AboutCard (18pt 700 title + 14pt/22 body) + Photos + Amenities + OpeningHoursCard (with TODAY badge driven by London-local helper)
+- Branches tab: nearest-first sort with alphabetical fallback, suspended branches excluded; BranchCard with status pill, address, action buttons (Call/Directions/Hours/Switch)
+- Reviews tab: branch-scoped by default, two-state navy toggle (`[<branch-name>] [All branches]`), branch-aware empty state with "See reviews from other branches" cross-link, write/edit-from-card per-branch routing, `clearAllQueries` on auth-state transitions to prevent cross-user cache leak
+- All five sheets (Contact / Directions / Hours / BranchPicker / WriteReview) use the shared BottomSheet with close/outside/back/swipe dismiss
+- Subscribe-prompt modal animation: 320ms ease-out-expo (springify rejected as too bouncy)
+- Opening-hours timezone: `apps/customer-app/src/features/merchant/utils/londonNow.ts` exports `getLondonClock(now) → { dow, minutes }` — Hermes-CLDR-robust via numeric Intl parts + `getUTCDay()`. Both `useOpenStatus` (TODAY badge) and `smartStatus` (status pill / status text) route through this helper. See `reference_london_clock_helper.md` in memory.
+- PRs landed: #28 rebaseline → #30 nine bug fixes → #31 PR-A four Tier-1 fixes + 6 QA rounds → #32 P1 backend `selectedBranch` → #33 P2 frontend `selectedBranch` end-to-end → #35 UX refinement (30+ on-device QA rounds + Hermes timezone fix). Final merge `c5a52f2`.
+- Test counts at merge: customer-app jest 206/206 on the merchant suite, backend customer tests 115/115, tsc clean.
+- Locked design baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_merchant_profile_ux_refinement_complete.md` — read before any change to voucher card, Reviews scope label, opening-hours, or subscribe-prompt animation.
+- Plans: `docs/superpowers/plans/2026-04-17-merchant-profile.md` (initial), `docs/superpowers/plans/2026-05-04-merchant-profile-ux-refinement.md` (UX refinement)
+- Spec: `docs/superpowers/specs/2026-05-02-branch-aware-merchant-profile-design.md` (branch-aware), `docs/superpowers/specs/2026-05-04-merchant-profile-ux-refinement-design.md` (UX refinement)
 
 ### Phase 3C.1e — Subscription Status Integration (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
 - `useSubscription()` hook with React Query calling `GET /api/v1/subscription/me`
@@ -394,10 +434,20 @@ On the project owner's local clone there is a stash labelled `discovery: drop me
 
 **Workspace hygiene gitignored dirs** (still on disk, just not in `git status`): `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`. The last one is 556 MB of brand assets and remains gitignored pending a decision on whether to move to S3/R2 or use Git LFS.
 
-### 🔲 Next planned work (post-v1.0 baseline)
+### 🔲 Next planned work
 
-1. **Claude Code workflow hooks for scope discipline** — first deliverable. Set up before any feature work to prevent the kind of PR scope drift hit during PR #5 prep (initially showed 42 commits because origin/main was 34 commits behind local main). See `feedback_pr_scope_verification.md` in memory.
-2. **Phase 3C.1b — Home / Discovery / Map.** Plan: `docs/superpowers/plans/2026-04-17-customer-app-home-discovery-map.md`. Implementation already exists on `feature/customer-app` (the source branch with all 3C.1b–3C.1i work) — but a fresh branch must be created off updated `main` and the screens re-baselined surface-by-surface, the same way Phase 3C.1a was. **Do NOT continue work on the merged `feature/customer-auth-baseline` branch.**
+1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
+2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Surfaces still pending after the Merchant Profile track (PR #35, 2026-05-05) and the Voucher Detail M1 track (PR #40, 2026-05-06):
+   - Phase 3C.1b — Home / Discovery / Map
+   - Phase 3C.1c (M2/M3) — Voucher Detail Redemption flow + Already-Redeemed full surface (M1 view-only LIVE on main via PR #40)
+   - Phase 3C.1f — Savings tab
+   - Phase 3C.1g — Favourites screen
+   - Phase 3C.1h — Profile tab (full surface; minimal shell shipped via PR #27)
+   - Phase 3C.1i — QR rendering
+   Several worktrees are already cut for these (`customer-app-discovery-map`, `customer-app-discovery-search`, etc.). Cross-check each against current `main` before resuming — main has moved significantly since they were created.
+3. **Plan 4 — location model** (Tier 3, brainstorm-first per `project_discovery_sequencing_plan4.md`). Foundational for discovery experience; queued once the post-Plan-1 Home/Discovery QA sequencing wraps.
+4. **Open follow-ups** — see `project_merchant_profile_ux_refinement_complete.md` for the merchant-profile open list (tap-target A11y, seed enrichment, `closesAt` device-local removal, discovery card ratings via `contextBranchId`).
+5. **Phase 4** — Merchant Portal + Mobile App (queued).
 
 ### 🔲 Phase 3C — explicitly deferred items
 - **Subscribe purchase flow** — iOS requires Apple IAP (Stripe cannot be used inside iOS app). Android could use Stripe or Google Play Billing. Deferred pending IAP decision. Placeholder screen exists at `subscription-prompt` (renamed from `subscribe-prompt` in PR #5; the locked CTA contract — alert-only premium, stamp+nav free — is preserved).

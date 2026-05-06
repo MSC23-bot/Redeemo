@@ -155,10 +155,44 @@ Second tear line between top card and body:
 Identical layout to Screen 1 except:
 
 - **Header colour:** matches voucher type (example shows DISCOUNT red)
-- **No "How It Works" section** — user can't redeem
-- **CTA button:** navy background (`#010C35`), lock icon, text "Subscribe to Redeem — £6.99/mo"
+- **CTA button:** navy background (`#010C35`), lock icon, text "Subscribe to Redeem · £6.99/mo"
 - **Shadow:** `0 6px 24px rgba(1,12,53,0.3)`
-- **Tapping:** navigates to subscription purchase screen
+- **Tapping:** navigates to subscription purchase screen with full voucher-origin return context (see §4.1 below)
+
+### 4.1 Conversion flow — as shipped in PR #40 (rounds 13–24)
+
+Initial spec said "no How It Works" and "Tapping: navigates to subscription purchase screen." During M1 implementation owner direction expanded the surface to a full conversion flow. Recorded here so the spec reflects what actually ships.
+
+**How It Works variant (rounds 17–19):** free users now SEE the section. 5-step variant starting "Subscribe to Unlock". Tappable card with chevron toggle, default expanded (the section still supports conversion).
+
+**SubscriptionPromptModal (round 16):** auto-shown on Voucher Detail for non-subscribed users browsing a voucher. Replaces the deleted `FreeUserGateModal`. Dismissible via "Maybe later" / close icon / tap-out. Plan buttons (Continue with Annual / Continue with Monthly) and the embedded primary CTA all route to `/(auth)/subscription-prompt` with the URL contract below.
+
+**Voucher-origin URL contract (rounds 20–21):**
+
+```
+/(auth)/subscription-prompt
+  ?source=voucher
+  &plan=<annual|monthly>
+  &returnVoucherId=<voucherId>
+  &branch=<selectedBranchId>
+  &returnMerchantId=<merchantId>
+  &tab=vouchers
+```
+
+`SubscribePromptScreen` honours these params:
+- `source=voucher` swaps secondary CTA copy to "Continue with Free Account" (vs onboarding default "Start with free access").
+- `plan=<plan>` initialises the plan selector to the user's pre-pick.
+- `returnVoucherId` + `branch` + `returnMerchantId` + `tab` rebuild the exact return URL on the secondary CTA.
+- Voucher-origin secondary CTA does NOT stamp `subscriptionPromptSeenAt` — user is past onboarding and that flag is first-run only.
+- Defensive fallback: when return-context params are missing, secondary CTA falls back to `router.back()` rather than dropping the user on Discovery.
+
+**Suppression flag (round 22):** secondary CTA's return URL appends `?suppressSubscribePrompt=1`. Voucher Detail reads it and skips the auto-modal so the user isn't nag-looped after a deliberate free-pick. Sticky CTA stays visible and tappable; only the auto-modal is gated.
+
+**Branch source contract (PR #41, post-merge follow-up):** the `branch=<id>` parameter in the voucher-origin subscription URL is sourced from the Voucher Detail URL's `?branch=` param FIRST, falling back to `selectedBranch?.id` only on cold-open. This matters because the free-user CTA + modal plan buttons can fire while the merchant query is still in flight (selectedBranch null). Without the URL-first source, the subscription-prompt URL would omit `branch=`, and `Continue with Free Account` would lose the suppression contract on its return path. Symmetric to PR #40 §O7 on the outbound voucher-tap URL.
+
+**Delayed auto-modal (round 22 part 5):** auto-modal waits 800ms after the screen becomes interactive before sliding in. Synchronous show felt gate-like — the same UX the modal was meant to replace. Cancellation paths: blur (sticky CTA tap → navigation → focus loss), dismiss (Maybe later / close), sub state change, suppression flag.
+
+**Cross-ref:** the full as-shipped contract lives in [`docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md`](../plans/2026-05-06-voucher-detail-redemption-rebaseline.md) §M1.1 ("As shipped, rounds 13–24"). This section is the spec-side summary; the plan §M1.1 is the implementation reference.
 
 ---
 
