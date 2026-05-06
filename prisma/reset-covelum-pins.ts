@@ -1,20 +1,23 @@
 /**
- * One-shot dev script to reset PINs for the two seeded Covelum branches.
+ * One-shot dev/QA helper to reset PINs for the seeded Covelum branches.
  *
- * Why this script:
- *   • The seeded merchant admin (merchant@redeemo.com) has a sha256
- *     passwordHash from prisma/seed.ts, but the live API uses bcrypt
- *     to verify. The seeded password never works through the API.
- *   • The local .env doesn't include ENCRYPTION_KEY, so we can't
- *     decrypt or re-encrypt PINs directly from a dev script.
+ * Direct DB write — does NOT use the merchant API, does NOT log in as
+ * any merchant admin, does NOT bypass OTP, does NOT touch Redis. Just
+ * connects to the database, encrypts the plaintext PIN with the
+ * backend's `encrypt()` helper, and writes the encrypted value to
+ * `Branch.redemptionPin` for both Covelum branches.
  *
- * Strategy:
- *   1. Re-hash the merchant admin password with bcrypt + write to DB
- *      (so the API login starts working).
- *   2. Log in via the API to get a merchant access token.
- *   3. Call PUT /api/v1/merchant/branches/<id>/pin for both Covelum
- *      branches — the API uses its already-loaded ENCRYPTION_KEY in
- *      process memory; the script itself doesn't need it.
+ * Why direct DB rather than API:
+ *   • The seeded `merchant@redeemo.com` admin belongs to a DIFFERENT
+ *     merchant (The Coffee House — `dev-merchant-001`). The merchant
+ *     API would reject any PIN-reset call against a Covelum branch on
+ *     branch-ownership authorization grounds — and rightly so.
+ *   • Direct DB is simpler, scoped only to QA/dev, and avoids
+ *     modifying any auth state.
+ *
+ * Requirements:
+ *   • DATABASE_URL set (in .env or env)
+ *   • ENCRYPTION_KEY set (64-char hex, same as the API server uses)
  *
  * Run: npx tsx prisma/reset-covelum-pins.ts
  */
@@ -22,105 +25,79 @@ import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { Pool } from 'pg'
 import * as dotenv from 'dotenv'
-import bcrypt from 'bcryptjs'
-import crypto from 'crypto'
-import Redis from 'ioredis'
+import { encrypt } from '../src/api/shared/encryption'
 
 dotenv.config()
 
-const API_BASE = process.env.LOCAL_API_BASE_URL ?? 'http://localhost:3000'
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
 const NEW_PIN = '1234'
-const MERCHANT_EMAIL = 'merchant@redeemo.com'
-const MERCHANT_PASSWORD = 'Merchant1234!'
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-const adapter = new PrismaPg(pool)
-const prisma = new PrismaClient({ adapter } as any)
-const redis = new Redis(REDIS_URL)
+// Hardcoded seed ids — this script is intentionally scoped to the
+// seeded Covelum merchant only. Running against a non-seeded database
+// will fail cleanly at the existence check below.
+const COVELUM_MERCHANT_ID = 'tax-merchant-covelum-001'
+const COVELUM_BRANCH_IDS  = ['tax-branch-covelum-001', 'tax-branch-covelum-002']
 
 async function main() {
-  // 1. Reset merchant admin password (bcrypt) + mark OTP as verified
-  //    + pre-register a known deviceId in Redis so login skips the
-  //    Twilio OTP step.
-  console.log(`[1/3] Resetting merchant admin password + bypassing OTP for ${MERCHANT_EMAIL}…`)
-  const passwordHash = await bcrypt.hash(MERCHANT_PASSWORD, 10)
-  const knownDeviceId = '00000000-0000-4000-8000-000000000001' // valid UUID v4 shape
-  const updated = await prisma.merchantAdmin.update({
-    where: { email: MERCHANT_EMAIL },
-    data: {
-      passwordHash,
-      // Set otpVerifiedAt so otpRequired() doesn't enforce "first ever login".
-      otpVerifiedAt: new Date(),
-    },
-  })
-  // Pre-register the device so otpRequired() also skips the new-device gate.
-  await redis.set(
-    `known-devices:merchant:${updated.id}`,
-    JSON.stringify([knownDeviceId]),
-  )
-  console.log(`    ✓ merchant admin id=${updated.id}; OTP-verified + device pre-registered`)
-
-  // 2. Log in via the API.
-  console.log(`[2/3] Logging in as merchant admin via ${API_BASE}…`)
-  const loginRes = await fetch(`${API_BASE}/api/v1/merchant/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: MERCHANT_EMAIL,
-      password: MERCHANT_PASSWORD,
-      deviceId: knownDeviceId,
-      deviceType: 'web',
-      deviceName: 'reset-covelum-pins.ts',
-    }),
-  })
-  if (!loginRes.ok) {
-    const body = await loginRes.text()
-    throw new Error(`Login failed: ${loginRes.status} ${body}`)
+  // 1. Hard pre-flight: required env vars.
+  if (!process.env.DATABASE_URL) {
+    console.error('\nERROR: DATABASE_URL is not set. Add it to .env and re-run.\n')
+    process.exit(2)
   }
-  const login = await loginRes.json()
-  const token = (login as { accessToken?: string }).accessToken
-  if (!token) throw new Error(`Login response missing accessToken: ${JSON.stringify(login)}`)
-  console.log(`    ✓ got access token`)
+  if (!process.env.ENCRYPTION_KEY) {
+    console.error(
+      '\nERROR: ENCRYPTION_KEY is not set in the dev-script environment.\n' +
+      'Add it to .env (the same 64-char hex value the API server runs with) and re-run.\n'
+    )
+    process.exit(2)
+  }
 
-  // 3. Reset PIN for both Covelum branches by id.
-  const branches = await prisma.branch.findMany({
-    where: {
-      merchant: {
-        OR: [
-          { businessName: { contains: 'covelum', mode: 'insensitive' } },
-          { tradingName:  { contains: 'covelum', mode: 'insensitive' } },
-        ],
-      },
-    },
-    select: { id: true, name: true, isActive: true },
-    orderBy: { name: 'asc' },
-  })
-  if (branches.length === 0) throw new Error('No Covelum branches found in DB')
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+  const adapter = new PrismaPg(pool)
+  const prisma = new PrismaClient({ adapter } as any)
 
-  console.log(`[3/3] Resetting PIN to "${NEW_PIN}" for ${branches.length} branch(es)…`)
-  for (const b of branches) {
-    const res = await fetch(`${API_BASE}/api/v1/merchant/branches/${b.id}/pin`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+  try {
+    // 2. Fetch both Covelum branches by id (also confirms the seeded
+    //    merchant + branches exist before we touch anything).
+    const branches = await prisma.branch.findMany({
+      where: {
+        id:         { in: COVELUM_BRANCH_IDS },
+        merchantId: COVELUM_MERCHANT_ID,
       },
-      body: JSON.stringify({ pin: NEW_PIN }),
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
     })
-    if (!res.ok) {
-      const body = await res.text()
-      console.error(`    ✗ ${b.name} (${b.id}) → ${res.status} ${body}`)
-      continue
+
+    const foundIds = new Set(branches.map((b) => b.id))
+    const missing = COVELUM_BRANCH_IDS.filter((id) => !foundIds.has(id))
+    if (missing.length > 0) {
+      console.error(
+        `\nERROR: Could not find seeded Covelum branch(es): ${missing.join(', ')}\n` +
+        `Expected merchantId: ${COVELUM_MERCHANT_ID}\n` +
+        `Run \`npx prisma db seed\` to (re-)seed the dev database.\n`
+      )
+      process.exit(3)
     }
-    console.log(`    ✓ ${b.name} (id=${b.id}, isActive=${b.isActive}) → PIN: ${NEW_PIN}`)
+
+    // 3. Encrypt the plaintext PIN ONCE per branch (each call uses a
+    //    fresh IV so the ciphertext differs even though the plaintext
+    //    is the same — matches how the API stores PINs).
+    console.log(`Resetting PIN to "${NEW_PIN}" for ${branches.length} Covelum branch(es)…`)
+    for (const b of branches) {
+      const encryptedPin = encrypt(NEW_PIN)
+      await prisma.branch.update({
+        where: { id: b.id },
+        data:  { redemptionPin: encryptedPin },
+      })
+      // Intentionally not logging the encrypted value.
+      console.log(`  ✓ ${b.name} (id=${b.id}) → PIN reset to ${NEW_PIN}`)
+    }
+  } finally {
+    await prisma.$disconnect()
+    await pool.end()
   }
 }
 
-main()
-  .catch((e) => { console.error(e); process.exit(1) })
-  .finally(async () => {
-    await prisma.$disconnect()
-    await pool.end()
-    redis.disconnect()
-  })
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})
