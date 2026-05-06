@@ -456,16 +456,13 @@ export function VoucherDetailScreen() {
         <View style={{ height: insets.bottom + 30 }} />
       </AnimatedScrollView>
 
-      {/* CollapsedHeader overlay — pinned at top, frosted safe-area
-          surface, opacity scroll-driven, single-threshold pointerEvents.
-          Round-8 redesign per owner direction: three-line text stack
-          (merchant → branch → title) on the left, SAVE chip on the
-          right, no share/heart (those stay in the hero NavRow only).
-          Identity-only chrome — actions live in the hero. */}
+      {/* CollapsedHeader overlay — pinned at top, solid cream
+          surface, opacity scroll-driven, single-threshold
+          pointerEvents. Round-11 minimalist redesign: only back
+          button + merchant name + branch name. No SAVE chip, no
+          voucher title, no type stripe. Matches the merchant
+          profile's collapsed chrome for cross-screen consistency. */}
       <CollapsedHeader
-        title={voucher.title}
-        type={voucher.type}
-        estimatedSaving={voucher.estimatedSaving}
         merchantName={voucher.merchant.businessName}
         branchName={branchName}
         insetTop={insets.top}

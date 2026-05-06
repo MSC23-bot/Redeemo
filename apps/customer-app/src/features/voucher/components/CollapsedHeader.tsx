@@ -12,29 +12,15 @@ import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 import { branchShortName } from '@/features/merchant/utils/branchShortName'
-import type { VoucherType } from '@/lib/api/voucher'
-import { voucherGradient, formatPounds } from '../utils/voucherTheme'
 
 type Props = {
-  /** Voucher title — shown on the third line as voucher-specific context. */
-  title: string
-  /**
-   * Voucher type — drives the 4pt left-edge color stripe + the
-   * SAVE chip's accent color.
-   */
-  type: VoucherType
-  /** Estimated saving — surfaced in the right-side SAVE chip. */
-  estimatedSaving: number
-  /** Merchant business name — primary line, sits next to back button. */
+  /** Merchant business name — primary line. */
   merchantName: string
   /**
-   * Branch name (selected). The full backend value (e.g. "Covelum —
-   * Brightlingsea") is stripped of the merchant prefix via
-   * `branchShortName()` so the chrome matches the merchant profile
-   * surface, where the same branch displays as just "Brightlingsea".
-   *
-   * When null (selectedBranch unresolved), the line is omitted
-   * gracefully — no fabricated copy.
+   * Branch name (selected). The full backend value is stripped of
+   * the merchant prefix via `branchShortName()` so the chrome
+   * matches the merchant profile (where this same branch displays
+   * as just "Brightlingsea"). When null, the branch line is omitted.
    */
   branchName: string | null
   /** Top safe-area inset (status bar / Dynamic Island height). */
@@ -55,59 +41,42 @@ type Props = {
 /**
  * Voucher Detail collapsed top chrome.
  *
- * **Round 10 — consistent with Merchant Profile chrome.** Owner
- * direction: the round-9 BlurView + dark voucher-banner-image
- * combination made navy text unreadable. Use the same collapsed
- * style as the Merchant Profile screen (solid cream `#FFF9F5` bg,
- * no blur).
+ * **Round 11 — minimalist, matching Merchant Profile chrome.** Owner
+ * direction: drop the SAVE chip, voucher title, and type stripe.
+ * Keep only the back button, merchant name, and branch name.
  *
- * Other round-10 changes:
- *   • Reordered: merchant + branch first (next to back button),
- *     voucher title last. Rationale: the back button returns to
- *     the merchant profile — putting merchant context next to the
- *     back button correctly hints at the destination. Putting the
- *     voucher title there (round-8/9) created false implication
- *     that back was related to the voucher.
- *   • Branch is stripped of the merchant prefix via
- *     `branchShortName()` — same helper the merchant profile uses,
- *     so "Covelum — Brightlingsea" displays as "Brightlingsea".
- *   • SAVE chip given explicit clearance from the row edges so
- *     the bottom doesn't touch the hairline border.
- *   • Type-color left stripe (4pt) preserved as the only
- *     voucher-specific visual cue beyond the SAVE chip — matches
- *     the merchant profile pattern of "consistent chrome with
- *     subtle screen-specific accent".
+ * Layout (2-line text stack matching Merchant Profile collapsed):
  *
- * Layout (3-line text stack + SAVE chip):
+ *   ┌────────────────────────────────────────────────┐
+ *   │ [safe-area]                                      │
+ *   ├────────────────────────────────────────────────┤
+ *   │ [<]   Covelum Restaurant                          │
+ *   │       Brightlingsea                               │
+ *   └────────────────────────────────────────────────┘
  *
- *   ┌────────────────────────────────────────────────────┐
- *   │ [4pt type-color stripe — left edge]                  │
- *   │ [safe-area]                                          │
- *   ├────────────────────────────────────────────────────┤
- *   │ [<]  Covelum Restaurant            ┌──────┐         │
- *   │      Brightlingsea                  │ SAVE │         │
- *   │      Free Filter Coffee with Any... │ £2.50│         │
- *   │                                     └──────┘         │
- *   └────────────────────────────────────────────────────┘
+ *   Merchant: 17pt 700 navy   (slightly larger than the merchant
+ *                              profile's 15pt for prominence in the
+ *                              voucher context)
+ *   Branch:   14pt 500 muted  (slightly larger than the merchant
+ *                              profile's 13pt to match)
  *
- * Typography (consistent with merchant profile collapsed chrome):
- *   Merchant 15pt 700 navy / Branch 13pt 500 muted / Title 12pt 600
- *   navy. Single font family. Hierarchy via scale + weight contrast
- *   (impeccable's law).
+ * Background: solid cream `#FFF9F5` — same as merchant profile
+ * collapsed header. Bottom hairline border. No BlurView (would
+ * blend with dark voucher banner image scrolling below).
  *
- * Overflow protection (impeccable + ui-ux-pro-max):
- *   - All three text Texts: numberOfLines=1 + ellipsizeMode="tail"
- *   - Merchant + title use adjustsFontSizeToFit + minimumFontScale
- *   - SAVE chip amount: adjustsFontSizeToFit for large values
- *   - Wrapper overflow:hidden as final safety
+ * Branch is stripped of the merchant prefix via `branchShortName()`
+ * — same helper the merchant profile uses, so "Covelum —
+ * Brightlingsea" displays as "Brightlingsea". No duplicate merchant
+ * name across the two lines.
  *
- * Motion (Emil framework — unchanged): scroll-driven opacity.
- * Reduced-motion → step at fadeEnd.
+ * Scroll-driven opacity (Emil framework — unchanged): fades 0→1
+ * across [fadeStart, fadeEnd]. Reduced-motion → step at fadeEnd.
+ *
+ * `pointerEvents` flipped on the JS state from the parent's
+ * `useAnimatedReaction(scrollY > HANDOFF_AT)`, so single-threshold
+ * handoff with the hero NavRow is preserved.
  */
 export function CollapsedHeader({
-  title,
-  type,
-  estimatedSaving,
   merchantName,
   branchName,
   insetTop,
@@ -118,7 +87,6 @@ export function CollapsedHeader({
   onBack,
 }: Props) {
   const reducedMotion = useReducedMotion()
-  const [, gradEnd]   = voucherGradient(type)
 
   const animStyle = useAnimatedStyle(() => {
     if (reducedMotion) {
@@ -153,16 +121,13 @@ export function CollapsedHeader({
       importantForAccessibility={isActive ? 'auto' : 'no-hide-descendants'}
       testID="collapsed-header-root"
     >
-      {/* Type-color left stripe — chromatic anchor to the hero */}
-      <View style={[styles.typeStripe, { backgroundColor: gradEnd }]} pointerEvents="none" />
-
       {/* Hairline at bottom edge */}
       <View style={styles.hairline} pointerEvents="none" />
 
       {/* Safe-area spacer */}
       <View style={{ height: insetTop }} pointerEvents="none" />
 
-      {/* Content row: back · text stack · SAVE chip */}
+      {/* Content row: back · text stack */}
       <View style={[styles.contentRow, { height: CONTENT_ROW_H }]} pointerEvents="box-none">
         <Pressable
           onPress={() => {
@@ -201,63 +166,16 @@ export function CollapsedHeader({
               {shortBranch}
             </Text>
           ) : null}
-
-          <Text
-            variant="body.sm"
-            style={styles.titleText}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-            adjustsFontSizeToFit
-            minimumFontScale={0.85}
-            testID="collapsed-header-title"
-          >
-            {title}
-          </Text>
         </View>
-
-        <SaveChip amount={estimatedSaving} accentColor={gradEnd} />
       </View>
     </Animated.View>
   )
 }
 
-// ── SAVE chip ────────────────────────────────────────────────────────────────
-
-function SaveChip({ amount, accentColor }: { amount: number; accentColor: string }) {
-  return (
-    <View
-      style={[
-        styles.saveChip,
-        {
-          borderColor: accentColor + '33',
-          backgroundColor: accentColor + '0F',
-        },
-      ]}
-      testID="collapsed-header-save-chip"
-    >
-      <Text style={[styles.saveChipLabel, { color: accentColor }]}>SAVE</Text>
-      <Text
-        style={[styles.saveChipAmount, { color: accentColor }]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.7}
-      >
-        {formatPounds(amount)}
-      </Text>
-    </View>
-  )
-}
-
-// Content row sized for 3-line text stack at merchant-profile-
-// consistent typography:
-//   15pt merchant + 2pt + 13pt branch + 4pt + 12pt title ≈ 46pt
-//   + 12pt top + 12pt bottom = 70pt row.
-//   Save chip is ~46pt tall (paddingV 8 + label 11 + 1 + amount 16),
-//   so 70 - 46 = 24pt total clearance = 12pt above/below. No edge
-//   collision.
-const CONTENT_ROW_H = 70
-const STRIPE_W = 4
-const SAVE_CHIP_WIDTH = 76
+// 2-line stack: 17pt merchant + 3pt gap + 14pt branch ≈ 34pt
+// + 11pt top + 11pt bottom = 56pt. Matches Merchant Profile's
+// COMPACT_BAR_HEIGHT shape closely.
+const CONTENT_ROW_H = 56
 
 const styles = StyleSheet.create({
   root: {
@@ -267,21 +185,9 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 40,
     overflow: 'hidden',
-    // Solid cream bg matching the merchant profile's CollapsedHeader
-    // (apps/customer-app/src/features/merchant/components/
-    // CollapsedHeader.tsx). Round-10 fix: round-9's BlurView picked
-    // up the dark voucher-banner-image scrolling underneath, making
-    // navy text unreadable. Solid cream guarantees consistent
-    // contrast regardless of what's behind.
+    // Solid cream — identical to the merchant profile collapsed
+    // chrome so they read as the same surface across the app.
     backgroundColor: '#FFF9F5',
-  },
-  typeStripe: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: STRIPE_W,
-    zIndex: 1,
   },
   hairline: {
     position: 'absolute',
@@ -296,8 +202,7 @@ const styles = StyleSheet.create({
   contentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: STRIPE_W + 12,
-    paddingRight: 14,
+    paddingHorizontal: 14,
     gap: 12,
     zIndex: 2,
   },
@@ -313,53 +218,23 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     transform: [{ scale: 0.96 }],
   },
-  // ── 3-line text stack ──────────────────────────────────────
+  // ── 2-line text stack (merchant / branch) ──────────────────
   textStack: {
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
-    gap: 2,
+    gap: 3,
   },
   merchantText: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '700',
     color: '#010C35',
-    letterSpacing: -0.1,
+    letterSpacing: -0.2,
   },
   branchText: {
-    fontSize: 12.5,
+    fontSize: 14,
     fontWeight: '500',
     color: '#4B5563',
-    letterSpacing: 0.1,
-  },
-  titleText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
-    letterSpacing: -0.05,
-    marginTop: 2,
-  },
-  // ── SAVE chip ───────────────────────────────────────────────
-  saveChip: {
-    width: SAVE_CHIP_WIDTH,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveChipLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-    textAlign: 'center',
-    width: '100%',
-  },
-  saveChipAmount: {
-    fontSize: 16,
-    fontWeight: '800',
-    textAlign: 'center',
-    width: '100%',
-    marginTop: 1,
+    letterSpacing: 0.05,
   },
 })

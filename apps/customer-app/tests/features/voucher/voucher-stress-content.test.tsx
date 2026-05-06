@@ -132,9 +132,6 @@ describe('CouponHeader — save badge adapts to large amounts', () => {
 
 describe('CollapsedHeader — long content doesn\'t break layout', () => {
   const baseProps = {
-    title: FIXTURES.longTitle,
-    type: 'BOGO' as const,
-    estimatedSaving: 8.99,
     merchantName: FIXTURES.longMerchant,
     branchName: FIXTURES.longBranch,
     insetTop: 59,
@@ -145,30 +142,19 @@ describe('CollapsedHeader — long content doesn\'t break layout', () => {
     onBack: jest.fn(),
   }
 
-  it('renders without crashing for long title + long merchant + long branch', () => {
+  it('renders without crashing for long merchant + long branch', () => {
+    // Round-11: collapsed chrome carries only merchant + branch.
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
     expect(getByTestId('collapsed-header-root', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeTruthy()
-    expect(getByTestId('collapsed-header-title', HIDDEN_OPT)).toBeTruthy()
   })
 
-  it('collapsed title has numberOfLines=1 + ellipsize tail (single-line truncation)', () => {
+  it('merchant Text has numberOfLines=1 + ellipsizeMode=tail', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
-    const titleNode = getByTestId('collapsed-header-title', HIDDEN_OPT)
-    expect(titleNode.props.numberOfLines).toBe(1)
-    expect(titleNode.props.ellipsizeMode).toBe('tail')
-  })
-
-  it('save chip on collapsed header adapts to large amounts', () => {
-    const { getByTestId, UNSAFE_getAllByProps } = render(
-      <CollapsedHeader {...baseProps} estimatedSaving={FIXTURES.largeSaving1k50} />
-    )
-    expect(getByTestId('collapsed-header-save-chip', HIDDEN_OPT)).toBeTruthy()
-    const amountNodes = UNSAFE_getAllByProps({ children: '£1050.99' })
-    expect(amountNodes.length).toBeGreaterThan(0)
-    expect(amountNodes[0]?.props.adjustsFontSizeToFit).toBe(true)
-    expect(amountNodes[0]?.props.numberOfLines).toBe(1)
+    const node = getByTestId('collapsed-header-merchant', HIDDEN_OPT)
+    expect(node.props.numberOfLines).toBe(1)
+    expect(node.props.ellipsizeMode).toBe('tail')
   })
 })
 
