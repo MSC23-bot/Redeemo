@@ -149,9 +149,14 @@ export async function createRedemption(
   }
 
   if (!pinMatches) {
-    await redis.incr(failKey)
+    const newCount = await redis.incr(failKey)
     await redis.expire(failKey, PIN_FAIL_WINDOW)
-    throw new AppError('INVALID_PIN')
+    // Surface remainingAttempts to the customer-app so the lockout-counter
+    // UI can show authoritative "X attempts remaining" copy. Clamped at 0
+    // — a counter overshoot (from a race or a stale Redis state) never
+    // produces a negative number.
+    const remainingAttempts = Math.max(0, PIN_FAIL_LIMIT - newCount)
+    throw new AppError('INVALID_PIN', { remainingAttempts })
   }
 
   // 8. Atomic transaction
