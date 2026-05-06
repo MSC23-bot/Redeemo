@@ -87,20 +87,25 @@ const mockBack    = jest.fn()
 const mockPush    = jest.fn()
 const mockCanGoBack = jest.fn(() => true)
 
-jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => mockParams,
-  useRouter: () => ({
-    replace: mockReplace,
-    push:    mockPush,
-    back:    mockBack,
-    canGoBack: mockCanGoBack,
-  }),
-  // Round-6 addition — see voucher-detail-states.test.tsx for the
-  // mock rationale. Effect fires synchronously at mount.
-  useFocusEffect: (effect: () => void | (() => void)) => {
-    try { effect() } catch { /* ignore for test ergonomics */ }
-  },
-}))
+jest.mock('expo-router', () => {
+  const React = require('react')
+  return {
+    useLocalSearchParams: () => mockParams,
+    useRouter: () => ({
+      replace: mockReplace,
+      push:    mockPush,
+      back:    mockBack,
+      canGoBack: mockCanGoBack,
+    }),
+    // Defer the effect to commit phase (via useEffect) so it can
+    // call setState without triggering a render-phase loop.
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => {
+        try { return effect() } catch { /* defensive */ return undefined }
+      }, [])
+    },
+  }
+})
 
 let mockVoucherData: any   = null
 let mockVoucherLoading     = false

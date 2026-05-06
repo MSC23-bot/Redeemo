@@ -29,6 +29,7 @@ import { RedeemCTA } from '../components/RedeemCTA'
 import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
 import { CollapsedHeader } from '../components/CollapsedHeader'
+import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
 import { CTA_LABELS } from '../constants/productCopy'
 
 /**
@@ -200,6 +201,27 @@ export function VoucherDetailScreen() {
     },
     [HANDOFF_AT],
   )
+
+  // Round-16: subscription prompt for free users browsing a voucher.
+  // Shows after voucher data loads, dismissible via "Maybe later" or
+  // tap-out. Tracked separately from sticky-CTA / How It Works so the
+  // user can dismiss the modal but still see the conversion path on
+  // the page itself.
+  //
+  // `promptShown` flips on the first render where (voucher data is
+  // present) AND (user is not subscribed) AND (the user hasn't
+  // dismissed the prompt this visit). Once dismissed it stays
+  // dismissed for the rest of the focus session — no nag loop.
+  // `useFocusEffect` resets `promptDismissed` on each new focus event
+  // so a back-navigate-and-reopen surfaces the prompt again.
+  const [promptDismissed, setPromptDismissed] = useState(false)
+  useFocusEffect(
+    useCallback(() => {
+      setPromptDismissed(false)
+    }, []),
+  )
+  const showSubscriptionPrompt =
+    !!voucher && !isSubLoading && !isSubscribed && !promptDismissed
 
   // Hero anchoring during overscroll — round-7 fix #2. Replaces the
   // round-6 overscroll bg gradient (which the user perceived as a
@@ -444,12 +466,16 @@ export function VoucherDetailScreen() {
           onPress={handleMerchantTap}
         />
 
-        {/* "How It Works" — hidden for free-user state per spec §4
-            (Screen 2): "No How It Works section — user can't redeem".
-            Free users see the merchant + branch context above and the
-            "Subscribe to Redeem" CTA below; the redemption-process
-            explainer would be misleading until they're subscribed. */}
-        {stateKey !== 'free-user' ? <HowItWorks /> : null}
+        {/* "How It Works" — round 16: shown for ALL states with
+            subscription-aware copy. Free-user variant inserts the
+            "Subscribe to Unlock" step inline so the user sees the
+            full journey including the conversion gate. Subscribed
+            variant is the redemption flow without that detour. Both
+            variants include the "Tell Staff Before Ordering" fairness
+            step. See productCopy.ts for the exact copy.
+            Round 15 hid this for free users; round 16 owner direction
+            restored it with a free-user-specific 7-step list. */}
+        <HowItWorks isSubscribed={isSubscribed} />
 
         {/* Spacer above the sticky CTA. Round-7 trim: insets.bottom
             + 30 (= 64 on iPhone Pro Max). Step 4's bottom edge
@@ -491,6 +517,21 @@ export function VoucherDetailScreen() {
           />
         </View>
       ) : null}
+
+      {/* Round-16: subscription prompt for non-subscribed users
+          browsing a voucher. Shown ONCE per focus visit after
+          voucher data loads; dismissible via "Maybe later" or tap-
+          out. Plan buttons + the embedded primary CTA all route to
+          /(auth)/subscription-prompt — the actual plan selection
+          happens there. */}
+      <SubscriptionPromptModal
+        visible={showSubscriptionPrompt}
+        onDismiss={() => setPromptDismissed(true)}
+        onSubscribe={() => {
+          setPromptDismissed(true)
+          router.push('/(auth)/subscription-prompt' as never)
+        }}
+      />
     </View>
   )
 }

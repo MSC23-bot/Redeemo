@@ -13,19 +13,22 @@ import { VoucherDetailScreen } from '@/features/voucher/screens/VoucherDetailScr
 // stub for back/push navigation. The test mutates `mockParams` between
 // cases to drive the screen.
 let mockParams: { id?: string; branch?: string } = { id: 'v1' }
-jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => mockParams,
-  useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }),
-  // Round-6 addition: VoucherDetailScreen now uses useFocusEffect to
-  // reset scroll on each fresh focus event. The mock fires the
-  // effect once at mount (matches real focus-on-mount semantics) so
-  // the screen's scroll-reset side effect runs identically under jest.
-  useFocusEffect: (effect: () => void | (() => void)) => {
-    // Run synchronously inside a try/catch so a thrown effect (e.g.
-    // a missing scrollViewRef) doesn't tank the entire test render.
-    try { effect() } catch { /* ignore for test ergonomics */ }
-  },
-}))
+jest.mock('expo-router', () => {
+  const React = require('react')
+  return {
+    useLocalSearchParams: () => mockParams,
+    useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }),
+    // useFocusEffect mock fires the effect AFTER commit (via useEffect)
+    // matching the real focus-on-mount semantics. Round-16 fix: was
+    // running synchronously during render, which broke effects that
+    // called setState (infinite re-renders).
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => {
+        try { return effect() } catch { /* defensive */ return undefined }
+      }, [])
+    },
+  }
+})
 
 // Voucher fetch hook — drives state-1/2/3/4/5–7 derivations.
 let mockVoucherData: any = null

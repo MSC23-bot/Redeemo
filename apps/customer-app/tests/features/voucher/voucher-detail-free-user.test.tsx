@@ -24,18 +24,23 @@ const mockPush    = jest.fn()
 const mockReplace = jest.fn()
 const mockBack    = jest.fn()
 
-jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => mockParams,
-  useRouter: () => ({
-    push:    mockPush,
-    replace: mockReplace,
-    back:    mockBack,
-    canGoBack: () => true,
-  }),
-  useFocusEffect: (effect: () => void | (() => void)) => {
-    try { effect() } catch { /* defensive */ }
-  },
-}))
+jest.mock('expo-router', () => {
+  const React = require('react')
+  return {
+    useLocalSearchParams: () => mockParams,
+    useRouter: () => ({
+      push:    mockPush,
+      replace: mockReplace,
+      back:    mockBack,
+      canGoBack: () => true,
+    }),
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => {
+        try { return effect() } catch { /* defensive */ return undefined }
+      }, [])
+    },
+  }
+})
 
 // Voucher / merchant / subscription / location mocks ────────────────────
 
@@ -173,18 +178,77 @@ describe('Voucher Detail — free-user state (Screen 2 per spec §4)', () => {
   })
 })
 
-// ── No How It Works on free-user state ───────────────────────────────
+// ── How It Works variants ─────────────────────────────────────────────
 
-describe('Voucher Detail — free-user state hides How It Works (spec §4)', () => {
-  it('does NOT render the How It Works section for a free user', () => {
-    const { queryByTestId } = wrap(<VoucherDetailScreen />)
-    expect(queryByTestId('how-it-works')).toBeNull()
+describe('Voucher Detail — How It Works variant', () => {
+  it('free-user state DOES render How It Works (round 16: 7-step variant)', () => {
+    // Round 15 hid this; round 16 owner direction restored it with a
+    // free-user-specific step list that includes "Subscribe to Unlock".
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const node = getByTestId('how-it-works')
+    expect(node).toBeTruthy()
+    // accessibilityLabel encodes the step count so we can pin the
+    // free-user variant without parsing the rendered children.
+    expect(node.props.accessibilityLabel).toBe('How It Works (7 steps)')
   })
 
-  it('DOES render How It Works for a subscribed user (regression check — only free-user state hides it)', () => {
+  it('subscribed-user state renders the 6-step variant (no Subscribe-to-Unlock)', () => {
     mockSubscribed = true
     const { getByTestId } = wrap(<VoucherDetailScreen />)
-    expect(getByTestId('how-it-works')).toBeTruthy()
+    const node = getByTestId('how-it-works')
+    expect(node).toBeTruthy()
+    expect(node.props.accessibilityLabel).toBe('How It Works (6 steps)')
+  })
+})
+
+// ── Subscription prompt modal (round 16) ─────────────────────────────
+
+describe('Voucher Detail — subscription prompt modal (round 16)', () => {
+  it('renders for free users after voucher data loads', () => {
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('subscription-prompt-modal')).toBeTruthy()
+  })
+
+  it('does NOT render for subscribed users', () => {
+    mockSubscribed = true
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+  })
+
+  it('does NOT render before voucher data loads (subscription state irrelevant if voucher null)', () => {
+    mockVoucherLoading = true
+    mockVoucherData    = null
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+  })
+
+  it('"Maybe later" dismisses the modal and keeps the user on Voucher Detail (no navigation)', () => {
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('subscription-prompt-modal')).toBeTruthy()
+    fireEvent.press(getByTestId('subscription-prompt-maybe-later'))
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+    expect(mockPush).not.toHaveBeenCalled()
+    // Voucher Detail itself is still mounted.
+    expect(getByTestId('voucher-detail-state-free-user')).toBeTruthy()
+  })
+
+  it('close icon dismisses the modal', () => {
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('subscription-prompt-close'))
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('annual plan button routes to /(auth)/subscription-prompt and dismisses the modal', () => {
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('subscription-prompt-annual'))
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/subscription-prompt')
+  })
+
+  it('monthly plan button routes to /(auth)/subscription-prompt and dismisses the modal', () => {
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('subscription-prompt-monthly'))
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/subscription-prompt')
   })
 })
 

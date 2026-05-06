@@ -4,21 +4,43 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { HelpCircle } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
-import { HOW_IT_WORKS_STEPS } from '../constants/productCopy'
+import {
+  HOW_IT_WORKS_STEPS_FREE,
+  HOW_IT_WORKS_STEPS_SUBSCRIBED,
+} from '../constants/productCopy'
 
 const NAVY     = '#010C35'
 const TEXT_2ND = '#4B5563'
 const BORDER   = '#E8E2DC'
 
+type Props = {
+  /**
+   * Subscription state. Determines which step list renders:
+   *   - true  → HOW_IT_WORKS_STEPS_SUBSCRIBED (6 steps)
+   *   - false → HOW_IT_WORKS_STEPS_FREE        (7 steps, with
+   *             "Subscribe to Unlock" inserted)
+   * Both lists include the "Tell Staff Before Ordering" fairness
+   * step. See productCopy.ts for the exact copy.
+   */
+  isSubscribed: boolean
+}
+
 /**
- * Four-step vertical timeline explainer pinned beneath the merchant
- * card. Final step uses the green "enjoy" gradient (per v4 §vd-steps);
- * the first three use the brand red→coral gradient. A vertical line
- * connects the numbered boxes.
+ * Voucher Detail "How It Works" — vertical timeline explainer pinned
+ * beneath the merchant card. Final step uses the green "enjoy"
+ * gradient; preceding steps use the brand red→coral gradient. A
+ * vertical line connects the numbered boxes.
+ *
+ * Round 16: now picks a step list based on subscription state. The
+ * free-user variant inserts "Subscribe to Unlock" so the journey
+ * reflects the user's actual situation; the subscribed-user variant
+ * is the redemption flow without that detour.
  */
-export function HowItWorks() {
+export function HowItWorks({ isSubscribed }: Props) {
+  const steps = isSubscribed ? HOW_IT_WORKS_STEPS_SUBSCRIBED : HOW_IT_WORKS_STEPS_FREE
+
   return (
-    <View style={styles.root} testID="how-it-works">
+    <View style={styles.root} testID="how-it-works" accessibilityLabel={`How It Works (${steps.length} steps)`}>
       <View style={styles.heading}>
         <HelpCircle size={18} color={color.brandRose} strokeWidth={2} />
         <Text variant="label.md" style={styles.title}>How It Works</Text>
@@ -28,9 +50,9 @@ export function HowItWorks() {
         {/* Connector line — sits behind the numbered boxes */}
         <View style={styles.connector} pointerEvents="none" />
 
-        {HOW_IT_WORKS_STEPS.map((step, i) => (
-          <View key={i} style={[styles.step, i === HOW_IT_WORKS_STEPS.length - 1 && styles.stepLast]}>
-            <StepNumber index={i} isLast={i === HOW_IT_WORKS_STEPS.length - 1} />
+        {steps.map((step, i) => (
+          <View key={i} style={[styles.step, i === steps.length - 1 && styles.stepLast]}>
+            <StepNumber index={i} isLast={i === steps.length - 1} />
             <View style={styles.stepContent}>
               <Text variant="body.md" style={styles.stepLabel}>{step.label}</Text>
               <Text variant="body.sm" style={styles.stepDesc}>{step.desc}</Text>
