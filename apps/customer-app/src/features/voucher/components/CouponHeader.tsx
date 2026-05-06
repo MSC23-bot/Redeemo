@@ -199,7 +199,7 @@ export function CouponHeader({
       <View style={styles.content}>
         <View style={styles.typeBadge}>
           <Icon size={15} color={WHITE_92} strokeWidth={2} />
-          <Text variant="label.md" style={styles.typeBadgeText}>
+          <Text variant="label.md" style={styles.typeBadgeText} numberOfLines={1} ellipsizeMode="tail">
             {typeLabel}
           </Text>
         </View>
@@ -216,14 +216,24 @@ export function CouponHeader({
       </View>
 
       {/* Save badge — circular dashed top-right. Anchored just below
-          the NavRow so it doesn't collide with the heart button. */}
+          the NavRow so it doesn't collide with the heart button.
+          Round-7 stress-test: `adjustsFontSizeToFit` on the amount
+          allows large values like £100, £250, £1,000 to shrink to
+          fit without overflowing the circle. minimumFontScale=0.55
+          keeps it readable down to ~11pt at smallest. */}
       <View
         style={[styles.saveBadge, { top: insetTop + NAV_ROOM - 8 }]}
         accessible
         accessibilityLabel={`Save ${formatPounds(estimatedSaving)}`}
       >
         <Text variant="label.md" style={styles.saveLabel}>SAVE</Text>
-        <Text variant="heading.sm" style={styles.saveAmount}>
+        <Text
+          variant="heading.sm"
+          style={styles.saveAmount}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.55}
+        >
           {formatPounds(estimatedSaving)}
         </Text>
       </View>
@@ -313,7 +323,14 @@ const styles = StyleSheet.create({
   content: {
     position: 'relative',
     zIndex: 1,
-    maxWidth: '68%',
+    // Round-7 stress-test: replace maxWidth: '68%' with explicit
+    // paddingRight that reserves the save-badge footprint
+    // (badge width 92 + right inset 22 + 12pt gap = 126pt). On any
+    // device width, the title/description column stops 126pt before
+    // the screen's right edge, so long titles wrap before colliding
+    // with the badge. Combined with numberOfLines=3 + ellipsizeMode
+    // tail, this ensures arbitrary backend titles never overlap.
+    paddingRight: 126,
   },
   typeBadge: {
     flexDirection: 'row',

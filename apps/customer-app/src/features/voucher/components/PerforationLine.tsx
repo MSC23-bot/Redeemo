@@ -45,14 +45,14 @@ type Props = {
  *     solid for thin borders).
  */
 export function PerforationLine({ pageBg = '#F5F0EB', variant = 'outer' }: Props) {
-  // Round-6 fix #4: bigger cutouts so the voucher silhouette reads
-  // more clearly against the hero. Outer 32→36, inner 26→30; height
-  // 24/20 unchanged so the perforation row stays compact.
+  // Round-7: bigger cutouts again for clearer voucher silhouette.
+  // Outer 36→42, inner 30→36. Heights bumped slightly to make the
+  // perforation stripe more visually present against the hero.
   const isOuter = variant === 'outer'
-  const height  = isOuter ? 24 : 20
-  const cutout  = isOuter ? 36 : 30
+  const height  = isOuter ? 28 : 22
+  const cutout  = isOuter ? 42 : 36
   const dashCount = isOuter ? 22 : 22
-  const dashColor = isOuter ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.15)'
+  const dashColor = isOuter ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.16)'
   const offset    = -cutout / 2
 
   return (

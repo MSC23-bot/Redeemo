@@ -169,8 +169,17 @@ export function CollapsedHeader({
       {/* Hairline separator at bottom edge. */}
       <View style={styles.hairline} pointerEvents="none" />
 
+      {/* Safe-area spacer — pushes content below the status bar /
+          Dynamic Island. Round-7 fix: previously row 1 had
+          `paddingTop: insetTop + 6` AND `height: ROW_1_H`, which on
+          iPhone Pro Max (insetTop ~60) clipped row 1's content out
+          of the row's bounds (paddingTop > height). Now the safe
+          area is its own dedicated spacer so each row has clean
+          bounds. */}
+      <View style={{ height: insetTop }} pointerEvents="none" />
+
       {/* Row 1 — back / title / save chip / share / favourite */}
-      <View style={[styles.row1, { paddingTop: insetTop + 6 }]} pointerEvents="box-none">
+      <View style={styles.row1} pointerEvents="box-none">
         <NavBtn onPress={onBack} accessibilityLabel="Go back">
           <ArrowLeft size={20} color={color.navy} strokeWidth={2.4} />
         </NavBtn>
@@ -181,6 +190,8 @@ export function CollapsedHeader({
             style={styles.title}
             numberOfLines={1}
             ellipsizeMode="tail"
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
             testID="collapsed-header-title"
           >
             {title}
@@ -263,7 +274,18 @@ function SaveChip({ amount, accentColor }: { amount: number; accentColor: string
         style={StyleSheet.absoluteFillObject}
       />
       <Text style={[styles.saveChipLabel, { color: accentColor }]}>SAVE</Text>
-      <Text style={[styles.saveChipAmount, { color: accentColor }]}>{formatPounds(amount)}</Text>
+      {/* adjustsFontSizeToFit guards against very large amounts
+          (£100, £1,000, etc.) overflowing the chip — round-7 stress
+          test. minimumFontScale=0.7 keeps the amount readable down
+          to ~9pt at the smallest setting. */}
+      <Text
+        style={[styles.saveChipAmount, { color: accentColor }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
+        {formatPounds(amount)}
+      </Text>
     </View>
   )
 }

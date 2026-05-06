@@ -4,18 +4,13 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BlurView } from 'expo-blur'
 import { ArrowLeft } from 'lucide-react-native'
-import { LinearGradient } from 'expo-linear-gradient'
 import Animated, {
   useSharedValue,
   useAnimatedScrollHandler,
   useAnimatedReaction,
   useAnimatedStyle,
-  useReducedMotion,
-  interpolate,
-  Extrapolation,
   runOnJS,
 } from 'react-native-reanimated'
-import { voucherGradient } from '../utils/voucherTheme'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -206,35 +201,23 @@ export function VoucherDetailScreen() {
     [HANDOFF_AT],
   )
 
-  // Overscroll bg gradient — round-6 fix #2. When the user pulls down
-  // at the top of the page, the ScrollView content moves down,
-  // exposing the parent View's cream page bg. Without protection the
-  // user sees a blank cream/white strip ABOVE the coloured hero. We
-  // render a hero-coloured gradient backdrop sized to the safe area
-  // + a generous buffer, opacity-driven by scrollY so it's:
-  //   • opaque while at top + during pull-down (scrollY ≤ 0): the
-  //     strip the user sees during overscroll matches the hero's
-  //     light color, so no white/cream bleed.
-  //   • opaque while hero is fully visible (0 < scrollY < FADE_START)
-  //   • fading out as the hero scrolls away (FADE_START → FADE_END)
-  //   • invisible past hero (collapsed header takes over)
-  // Voucher type drives the gradient color so the backdrop visually
-  // continues the hero's identity.
-  const overscrollGradient = voucher
-    ? voucherGradient(voucher.type)
-    : (['#7C3AED', '#5B21B6'] as const)
-  const reducedMotion = useReducedMotion()
-  const overscrollBgStyle = useAnimatedStyle(() => {
-    if (reducedMotion) {
-      return { opacity: scrollY.value < FADE_END ? 1 : 0 }
-    }
+  // Hero anchoring during overscroll — round-7 fix #2. Replaces the
+  // round-6 overscroll bg gradient (which the user perceived as a
+  // "green banner anchored at the top" during normal scroll). New
+  // behaviour: when the user pulls DOWN at the top (scrollY < 0),
+  // the hero's translateY compensates by moving UP an equal amount,
+  // keeping the hero anchored at screen y=0. The body content below
+  // the perforation (top card + body card + merchant row + how-it-
+  // works) still moves DOWN with the gesture as a normal ScrollView
+  // overscroll, opening a cream gap at the perforation boundary that
+  // the user sees as "the coupon tearing at the perforation".
+  //
+  // During NORMAL scroll (scrollY >= 0), translateY = 0 — hero
+  // scrolls away with content as before. Math.min ensures the
+  // anchoring only kicks in for negative scrollY values.
+  const heroAnchorStyle = useAnimatedStyle(() => {
     return {
-      opacity: interpolate(
-        scrollY.value,
-        [FADE_START, FADE_END],
-        [1, 0],
-        Extrapolation.CLAMP,
-      ),
+      transform: [{ translateY: Math.min(scrollY.value, 0) }],
     }
   })
 
@@ -377,23 +360,6 @@ export function VoucherDetailScreen() {
 
   return (
     <View style={[styles.fullscreen]} testID={`voucher-detail-state-${stateKey}`}>
-      {/* Overscroll bg — fills the area above the hero when the user
-          pulls down past the top of the page (round-6 fix #2). Sits
-          BEHIND the AnimatedScrollView so a positive-scroll position
-          renders the actual hero on top of it. Sized to cover safe
-          area + a generous buffer for the rubber-band stretch. */}
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.overscrollBg, { height: insets.top + 200 }, overscrollBgStyle]}
-      >
-        <LinearGradient
-          colors={overscrollGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-      </Animated.View>
-
       <AnimatedScrollView
         ref={scrollViewRef}
         style={styles.scroll}
@@ -404,26 +370,28 @@ export function VoucherDetailScreen() {
       >
         {/* ── Coupon stack ── */}
         <View style={styles.coupon}>
-          {/* Hero (with NavRow scrolling INSIDE per v4 §vd-topnav).
-              `scrollY` + `fadeStart` / `fadeEnd` drive the inverse
-              opacity interpolation; `collapsedActive` controls
-              pointerEvents so only one nav layer is tappable at a
-              time (round-5 plan §2). */}
-          <CouponHeader
-            type={voucher.type}
-            title={voucher.title}
-            description={voucher.description}
-            estimatedSaving={voucher.estimatedSaving}
-            insetTop={insets.top}
-            onBack={handleBack}
-            onShare={handleShare}
-            onFav={handleFav}
-            isFavourited={voucher.isFavourited}
-            scrollY={scrollY}
-            fadeStart={FADE_START}
-            fadeEnd={FADE_END}
-            collapsedActive={collapsedActive}
-          />
+          {/* Hero — wrapped in an Animated.View so we can anchor it
+              during overscroll (round-7 fix #2). translateY pins the
+              hero at screen y=0 when scrollY < 0; during normal
+              scroll the hero behaves as before (scrolls away with
+              the content). */}
+          <Animated.View style={heroAnchorStyle}>
+            <CouponHeader
+              type={voucher.type}
+              title={voucher.title}
+              description={voucher.description}
+              estimatedSaving={voucher.estimatedSaving}
+              insetTop={insets.top}
+              onBack={handleBack}
+              onShare={handleShare}
+              onFav={handleFav}
+              isFavourited={voucher.isFavourited}
+              scrollY={scrollY}
+              fadeStart={FADE_START}
+              fadeEnd={FADE_END}
+              collapsedActive={collapsedActive}
+            />
+          </Animated.View>
 
           <PerforationLine pageBg={PAGE_BG} variant="outer" />
 
@@ -473,12 +441,14 @@ export function VoucherDetailScreen() {
 
         <HowItWorks />
 
-        {/* Spacer above the sticky CTA. Sized to clear the CTA wrap
-            (paddingTop 10 + RedeemCTA 62 + marginVertical 16 +
-            paddingBottom insets.bottom + 16) without leaving extra
-            blank space — round-6 fix #5 reduced from 130 → tight
-            insets-aware value. */}
-        <View style={{ height: insets.bottom + 70 }} />
+        {/* Spacer above the sticky CTA. Round-7 trim: insets.bottom
+            + 30 (= 64 on iPhone Pro Max). Step 4's bottom edge
+            tucks just under the CTA wrap when fully scrolled — the
+            CTA wrap covers ~134pt at the bottom, of which 64pt is
+            this spacer + ~70pt above (which is mostly step 4's
+            natural margin). Visible blank below "Enjoy Your Deal!"
+            during normal reading drops from ~104pt → ~64pt. */}
+        <View style={{ height: insets.bottom + 30 }} />
       </AnimatedScrollView>
 
       {/* CollapsedHeader overlay — pinned at top, frosted safe-area
@@ -547,20 +517,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: PAGE_BG,
   },
-  // Overscroll backdrop — fills the area above the hero during
-  // pull-down rubber-band gestures. zIndex below the ScrollView so
-  // a normal-positive scroll position shows the hero/coupon on top
-  // of it. Round-6 fix #2.
-  overscrollBg: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 0,
-  },
   scroll: {
     flex: 1,
-    zIndex: 1,
   },
   scrollContent: {
     paddingBottom: 0,
@@ -593,11 +551,12 @@ const styles = StyleSheet.create({
   },
 
   // ── Coupon stack ────────────────────────────────────────────────────
-  // Round-6 fix #4: stronger card prominence via tighter horizontal
-  // insets (COUPON_INSET 14 → 18), beefier drop-shadow on the bottom
-  // card, and visible top-card shadow too so the whole coupon body
-  // reads as a single elevated voucher object resting on the cream
-  // page bg.
+  // Round-7: even stronger card prominence so the voucher reads as a
+  // distinct shaped object resting on the cream page. Shadow opacity
+  // 0.12 → 0.18, radius 28 → 32, plus a faint hairline border on
+  // both top + bottom cards to define the coupon silhouette against
+  // the cream bg. Top card also gets a subtle horizontal-side
+  // shadow so the whole stack reads as continuous elevation.
   coupon: {},
   couponCardWrap: {
     marginHorizontal: COUPON_INSET,
@@ -608,10 +567,13 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 22,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: -2 },
-    elevation: 2,
+    shadowOpacity: 0.10,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   couponBottomRound: {
     backgroundColor: '#FFFFFF',
@@ -619,14 +581,20 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 22,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 6,
+    shadowOpacity: 0.18,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 8,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   innerPerfWrap: {
     backgroundColor: '#FFFFFF',
     overflow: 'visible',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
   },
 
   // ── Time-limited banner spacing ─────────────────────────────────────
