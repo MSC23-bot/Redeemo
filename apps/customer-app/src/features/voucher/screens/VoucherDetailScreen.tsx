@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useState } from 'react'
+import React, { useMemo, useCallback, useEffect, useRef, useState } from 'react'
 import { View, StyleSheet, Pressable, Alert, Platform } from 'react-native'
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -94,6 +94,15 @@ const COUPON_INSET = 18
 // ScrollView and forwards onScroll worklets via useAnimatedScrollHandler.
 const AnimatedScrollView = Animated.ScrollView
 
+// Round 22 part 5: free-user subscription prompt is delayed slightly
+// after the screen becomes interactive so the user sees the voucher
+// itself first instead of being met with a hard gate. 800ms sits in
+// the comfortable middle of the 700–1000ms band requested by owner —
+// long enough to not feel gate-like, short enough to remain part of
+// the same micro-task as opening the screen. Timer is cancellable
+// (see scheduling effect for cleanup paths).
+const SUBSCRIPTION_PROMPT_DELAY_MS = 800
+
 /**
  * Build the back-navigation URL from explicit return-context URL
  * params. Pure function — does NOT read voucher / merchant query
@@ -125,9 +134,19 @@ export function VoucherDetailScreen() {
     from?: string
     returnMerchantId?: string
     tab?: string
+    /**
+     * Round 22: when set to "1", suppresses the auto-show of the
+     * SubscriptionPromptModal on this screen visit. Set by
+     * SubscribePromptScreen when the user picks "Continue with Free
+     * Account" — they just made a deliberate decision and we don't
+     * want to nag-loop the same prompt back at them. Sticky CTA
+     * remains visible and tappable; only the auto-modal is gated.
+     */
+    suppressSubscribePrompt?: string
   }>()
   const voucherId = typeof params.id === 'string' ? params.id : undefined
   const branchIdParam = typeof params.branch === 'string' ? params.branch : undefined
+  const suppressPrompt = params.suppressSubscribePrompt === '1'
 
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -208,20 +227,64 @@ export function VoucherDetailScreen() {
   // user can dismiss the modal but still see the conversion path on
   // the page itself.
   //
-  // `promptShown` flips on the first render where (voucher data is
-  // present) AND (user is not subscribed) AND (the user hasn't
-  // dismissed the prompt this visit). Once dismissed it stays
-  // dismissed for the rest of the focus session — no nag loop.
-  // `useFocusEffect` resets `promptDismissed` on each new focus event
-  // so a back-navigate-and-reopen surfaces the prompt again.
+  // Round 22 part 5 added a small delay before auto-show. `modalReady`
+  // is the gate that flips true once the delay timer fires; the modal
+  // never renders until then, regardless of voucher/sub state. `isFocused`
+  // is tracked so the timer cancels when the user navigates away (e.g.
+  // taps the sticky CTA mid-delay → blur → cleanup → clearTimeout).
   const [promptDismissed, setPromptDismissed] = useState(false)
+  const [modalReady, setModalReady] = useState(false)
+  const [isFocused, setIsFocused] = useState(true)
   useFocusEffect(
     useCallback(() => {
+      setIsFocused(true)
       setPromptDismissed(false)
+      setModalReady(false)
+      return () => {
+        setIsFocused(false)
+        setModalReady(false)
+      }
     }, []),
   )
+  // Schedule the auto-show timer. All gates must hold:
+  //   • screen is focused (cancels mid-delay if user navigates away)
+  //   • voucher data has loaded (no flash before content)
+  //   • subscription state has resolved
+  //   • user is NOT subscribed
+  //   • user has NOT dismissed it this focus visit
+  //   • URL does NOT carry suppressSubscribePrompt=1 (set by the
+  //     subscription screen on "Continue with Free Account" return)
+  // The sticky free-user CTA stays visible regardless — only the
+  // auto-modal is gated on this list. If the user taps that CTA before
+  // the timer fires, the resulting navigation blurs this screen, which
+  // re-runs this effect with isFocused=false → cleanup → clearTimeout.
+  useEffect(() => {
+    if (
+      !isFocused ||
+      !voucher ||
+      isSubLoading ||
+      isSubscribed ||
+      promptDismissed ||
+      suppressPrompt
+    ) {
+      return
+    }
+    const t = setTimeout(() => setModalReady(true), SUBSCRIPTION_PROMPT_DELAY_MS)
+    return () => clearTimeout(t)
+  }, [isFocused, voucher, isSubLoading, isSubscribed, promptDismissed, suppressPrompt])
+
+  // Two-layer gate: modalReady (the delay timer fired) AND every
+  // scheduling gate still holds. The second layer matters for "Maybe
+  // later" / close — those only flip promptDismissed; modalReady
+  // remains true from the earlier timer fire, so without this guard
+  // the modal would stay visible after dismiss.
   const showSubscriptionPrompt =
-    !!voucher && !isSubLoading && !isSubscribed && !promptDismissed
+    modalReady &&
+    !!voucher &&
+    !isSubLoading &&
+    !isSubscribed &&
+    !promptDismissed &&
+    !suppressPrompt
 
   // Hero anchoring during overscroll — round-7 fix #2. Replaces the
   // round-6 overscroll bg gradient (which the user perceived as a

@@ -237,12 +237,18 @@ export function SubscribePromptScreen() {
       // Voucher-origin: bounce back to the voucher with full branch
       // attribution so REDEEM AT context is preserved. Don't stamp
       // subscriptionPromptSeenAt — user is past onboarding.
+      //
+      // `suppressSubscribePrompt=1` is appended so VoucherDetailScreen
+      // skips its auto-show of the SubscriptionPromptModal on this
+      // return. The user just made a deliberate "continue free"
+      // decision; re-opening the modal immediately would feel like
+      // a nag loop. Round 22 fix.
       const enc = encodeURIComponent
       const { returnVoucherId, branch, returnMerchantId, tab } = params
       if (returnVoucherId && branch && returnMerchantId) {
         const t = tab ?? 'vouchers'
         router.replace(
-          `/voucher/${enc(returnVoucherId)}?branch=${enc(branch)}&from=merchant&returnMerchantId=${enc(returnMerchantId)}&tab=${enc(t)}` as never,
+          `/voucher/${enc(returnVoucherId)}?branch=${enc(branch)}&from=merchant&returnMerchantId=${enc(returnMerchantId)}&tab=${enc(t)}&suppressSubscribePrompt=1` as never,
         )
         return
       }

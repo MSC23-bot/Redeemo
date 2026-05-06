@@ -1,7 +1,17 @@
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render, fireEvent, act } from '@testing-library/react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { VoucherDetailScreen } from '@/features/voucher/screens/VoucherDetailScreen'
+
+// Round 22 part 5: subscription prompt is now scheduled 800ms after the
+// screen becomes interactive. Tests that need the modal visible must
+// advance fake timers past that delay.
+const SUBSCRIPTION_PROMPT_DELAY_MS = 800
+function advancePastModalDelay() {
+  act(() => {
+    jest.advanceTimersByTime(SUBSCRIPTION_PROMPT_DELAY_MS)
+  })
+}
 
 // PR #40 round 15 — Voucher Detail free-user state contract.
 //
@@ -248,14 +258,26 @@ describe('Voucher Detail — How It Works variant', () => {
 // ── Subscription prompt modal (round 16) ─────────────────────────────
 
 describe('Voucher Detail — subscription prompt modal (round 16)', () => {
-  it('renders for free users after voucher data loads', () => {
-    const { getByTestId } = wrap(<VoucherDetailScreen />)
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('renders for free users 800ms after voucher data loads (round 22 part 5 delay)', () => {
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // Modal must NOT be present synchronously — that would feel
+    // gate-like. Free user should see the voucher itself first.
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+    advancePastModalDelay()
     expect(getByTestId('subscription-prompt-modal')).toBeTruthy()
   })
 
   it('does NOT render for subscribed users', () => {
     mockSubscribed = true
     const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
     expect(queryByTestId('subscription-prompt-modal')).toBeNull()
   })
 
@@ -263,11 +285,13 @@ describe('Voucher Detail — subscription prompt modal (round 16)', () => {
     mockVoucherLoading = true
     mockVoucherData    = null
     const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
     expect(queryByTestId('subscription-prompt-modal')).toBeNull()
   })
 
   it('"Maybe later" dismisses the modal and keeps the user on Voucher Detail (no navigation)', () => {
     const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
     expect(getByTestId('subscription-prompt-modal')).toBeTruthy()
     fireEvent.press(getByTestId('subscription-prompt-maybe-later'))
     expect(queryByTestId('subscription-prompt-modal')).toBeNull()
@@ -278,6 +302,7 @@ describe('Voucher Detail — subscription prompt modal (round 16)', () => {
 
   it('close icon dismisses the modal', () => {
     const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
     fireEvent.press(getByTestId('subscription-prompt-close'))
     expect(queryByTestId('subscription-prompt-modal')).toBeNull()
     expect(mockPush).not.toHaveBeenCalled()
@@ -287,6 +312,7 @@ describe('Voucher Detail — subscription prompt modal (round 16)', () => {
     // Round 21: plan-specific URL so SubscribePromptScreen can
     // initialise its plan selector to the user's pre-pick.
     const { getByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
     fireEvent.press(getByTestId('subscription-prompt-annual'))
     expect(mockPush).toHaveBeenCalledWith(
       '/(auth)/subscription-prompt?source=voucher&plan=annual&returnVoucherId=v1&branch=b1&returnMerchantId=m1&tab=vouchers',
@@ -295,10 +321,130 @@ describe('Voucher Detail — subscription prompt modal (round 16)', () => {
 
   it('monthly plan button routes with source=voucher&plan=monthly + return context', () => {
     const { getByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
     fireEvent.press(getByTestId('subscription-prompt-monthly'))
     expect(mockPush).toHaveBeenCalledWith(
       '/(auth)/subscription-prompt?source=voucher&plan=monthly&returnVoucherId=v1&branch=b1&returnMerchantId=m1&tab=vouchers',
     )
+  })
+})
+
+// ── Round 22 part 5: auto-modal delay contract ────────────────────────
+
+describe('Voucher Detail — subscription prompt delay contract (round 22 part 5)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('does NOT auto-show the modal synchronously after mount', () => {
+    // The user should see the voucher itself for a beat before the
+    // conversion overlay appears. Synchronous show would feel like
+    // the old hard gate the modal replaced.
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+  })
+
+  it('does NOT auto-show the modal before the delay completes', () => {
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    act(() => {
+      jest.advanceTimersByTime(SUBSCRIPTION_PROMPT_DELAY_MS - 1)
+    })
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+  })
+
+  it('auto-shows the modal once the delay completes', () => {
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+    advancePastModalDelay()
+    expect(getByTestId('subscription-prompt-modal')).toBeTruthy()
+  })
+
+  it('does NOT schedule the timer when suppressSubscribePrompt=1 is on the URL', () => {
+    // Free user returning from "Continue with Free Account" must not
+    // see the modal pop in 800ms after they just dismissed it by
+    // choosing free.
+    mockParams = { id: 'v1', suppressSubscribePrompt: '1' }
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+  })
+
+  it('does NOT schedule the timer for subscribed users', () => {
+    mockSubscribed = true
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+  })
+
+  it('does NOT auto-show after the user has dismissed via "Maybe later" (timer cancelled)', () => {
+    // After dismiss, the modal must stay closed — even if some
+    // internal timer were still pending. Effect deps include
+    // promptDismissed → flipping it cancels the pending timer.
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
+    fireEvent.press(getByTestId('subscription-prompt-maybe-later'))
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+    // Advance well past any plausible re-schedule.
+    act(() => { jest.advanceTimersByTime(SUBSCRIPTION_PROMPT_DELAY_MS * 3) })
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+  })
+})
+
+// ── Round 22: suppressSubscribePrompt URL param ───────────────────────
+
+describe('Voucher Detail — suppressSubscribePrompt suppression contract (round 22)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('does NOT auto-show the modal when ?suppressSubscribePrompt=1 is on the URL (even after the delay)', () => {
+    // Simulates returning from SubscribePromptScreen via "Continue
+    // with Free Account" — the user just made a deliberate decision
+    // and we must not nag-loop the same prompt back at them. Suppression
+    // also blocks the round 22 part 5 delayed auto-show, so advancing
+    // past the delay must still yield no modal.
+    mockParams = { id: 'v1', suppressSubscribePrompt: '1' }
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
+    expect(queryByTestId('subscription-prompt-modal')).toBeNull()
+  })
+
+  it('still renders the sticky free-user CTA when modal is suppressed', () => {
+    mockParams = { id: 'v1', suppressSubscribePrompt: '1' }
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redeem-cta-subscribe')).toBeTruthy()
+  })
+
+  it('sticky CTA still routes to subscription-prompt when modal is suppressed', () => {
+    mockParams = {
+      id: 'v1',
+      branch: 'b1',
+      from: 'merchant',
+      returnMerchantId: 'm1',
+      tab: 'vouchers',
+      suppressSubscribePrompt: '1',
+    }
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-subscribe'))
+    expect(mockPush).toHaveBeenCalledWith(
+      '/(auth)/subscription-prompt?source=voucher&plan=monthly&returnVoucherId=v1&branch=b1&returnMerchantId=m1&tab=vouchers',
+    )
+  })
+
+  it('fresh entry without the param auto-shows the modal after the delay (regression check)', () => {
+    // No suppressSubscribePrompt param = fresh free-user open. After
+    // the round 22 part 5 delay, the modal MUST still appear — the
+    // suppression flag is the only thing that should block it.
+    mockParams = { id: 'v1' }
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    advancePastModalDelay()
+    expect(getByTestId('subscription-prompt-modal')).toBeTruthy()
   })
 })
 

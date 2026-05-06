@@ -123,7 +123,10 @@ describe('SubscribePromptScreen — voucher source (round 21)', () => {
     expect(queryByText('Start with free access')).toBeNull()
   })
 
-  it('voucher source → "Continue with Free Account" routes BACK to the voucher detail (not /(app)/), no markSubscriptionPromptSeen', async () => {
+  it('voucher source → "Continue with Free Account" routes BACK to the voucher detail with suppressSubscribePrompt=1', async () => {
+    // Round 22: return URL appends suppressSubscribePrompt=1 so the
+    // voucher detail screen does NOT auto-reopen the modal the user
+    // just dismissed by deliberately picking "free".
     mockParams = {
       source: 'voucher', plan: 'monthly',
       returnVoucherId: 'v1', branch: 'b1', returnMerchantId: 'm1', tab: 'vouchers',
@@ -132,7 +135,7 @@ describe('SubscribePromptScreen — voucher source (round 21)', () => {
     fireEvent.press(getByText('Continue with Free Account'))
     await waitFor(() =>
       expect(router.replace).toHaveBeenCalledWith(
-        '/voucher/v1?branch=b1&from=merchant&returnMerchantId=m1&tab=vouchers',
+        '/voucher/v1?branch=b1&from=merchant&returnMerchantId=m1&tab=vouchers&suppressSubscribePrompt=1',
       ),
     )
     // Secondary path must NOT route to Discovery in voucher-origin mode.
