@@ -13,6 +13,7 @@ const sharedValue = (v: number) => ({ value: v }) as any
 const baseProps = {
   merchantName: 'Covelum Restaurant',
   branchName: 'Covelum — Brightlingsea',  // full backend value
+  logoUrl: 'https://example.com/logo.png',
   insetTop: 59,
   scrollY: sharedValue(0),
   fadeStart: 100,
@@ -28,9 +29,10 @@ beforeEach(() => {
 const HIDDEN_OPT = { includeHiddenElements: true } as const
 
 describe('CollapsedHeader — top-of-page state (isActive=false)', () => {
-  it('renders the wrapper + merchant + branch testIDs', () => {
+  it('renders the wrapper + logo + merchant + branch testIDs', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={false} />)
     expect(getByTestId('collapsed-header-root', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-logo', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeTruthy()
   })
@@ -43,11 +45,18 @@ describe('CollapsedHeader — top-of-page state (isActive=false)', () => {
     expect(root.props.importantForAccessibility).toBe('no-hide-descendants')
   })
 
-  it('renders merchant + branch only — no SAVE chip, no title, no type stripe', () => {
+  it('renders logo + merchant + branch only — no SAVE chip, no title, no type stripe', () => {
     const { queryByTestId } = render(<CollapsedHeader {...baseProps} />)
-    // Round-11 removed elements:
+    // Round-11 removed elements stay removed:
     expect(queryByTestId('collapsed-header-save-chip', HIDDEN_OPT)).toBeNull()
     expect(queryByTestId('collapsed-header-title', HIDDEN_OPT)).toBeNull()
+  })
+
+  it('renders the logo box with a placeholder when logoUrl is null', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} logoUrl={null} />)
+    // Logo box still renders (layout stable) — just shows the
+    // placeholder fill instead of an Image.
+    expect(getByTestId('collapsed-header-logo', HIDDEN_OPT)).toBeTruthy()
   })
 })
 

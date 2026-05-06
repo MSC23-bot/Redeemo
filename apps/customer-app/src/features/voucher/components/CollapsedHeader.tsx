@@ -1,6 +1,8 @@
 import React from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
+import { Image } from 'expo-image'
 import { ArrowLeft } from 'lucide-react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -17,12 +19,18 @@ type Props = {
   /** Merchant business name — primary line. */
   merchantName: string
   /**
-   * Branch name (selected). The full backend value is stripped of
-   * the merchant prefix via `branchShortName()` so the chrome
-   * matches the merchant profile (where this same branch displays
-   * as just "Brightlingsea"). When null, the branch line is omitted.
+   * Branch name (selected). Stripped of the merchant prefix via
+   * `branchShortName()`. Null when selectedBranch unresolved.
    */
   branchName: string | null
+  /**
+   * Merchant logo URL — rendered as a 36pt rounded square next to
+   * the back button, matching the merchant profile's collapsed
+   * chrome. Branch-aware resolution happens in the parent screen
+   * (sb.logoUrl ?? merchant.logoUrl). When null, the logo box
+   * shows a placeholder so layout stays stable.
+   */
+  logoUrl: string | null
   /** Top safe-area inset (status bar / Dynamic Island height). */
   insetTop: number
   /**
@@ -41,44 +49,42 @@ type Props = {
 /**
  * Voucher Detail collapsed top chrome.
  *
- * **Round 11 — minimalist, matching Merchant Profile chrome.** Owner
- * direction: drop the SAVE chip, voucher title, and type stripe.
- * Keep only the back button, merchant name, and branch name.
+ * **Round 12 — logo + cream gradient + breathing room.** Owner
+ * direction:
+ *   • Add the merchant logo (consistent with merchant profile).
+ *   • Add a vertical cream gradient (#FFF9F5 → #FCF0E5) — same
+ *     palette as the merchant profile's identity zone, "lighter at
+ *     top, slightly more present at the bottom" so the chrome
+ *     blends like fabric rather than sitting as a flat box.
+ *   • More breathing room beneath the branch line so it doesn't
+ *     touch the bottom hairline.
  *
- * Layout (2-line text stack matching Merchant Profile collapsed):
+ * Layout:
  *
  *   ┌────────────────────────────────────────────────┐
  *   │ [safe-area]                                      │
  *   ├────────────────────────────────────────────────┤
- *   │ [<]   Covelum Restaurant                          │
- *   │       Brightlingsea                               │
+ *   │ [<]  [logo]  Covelum Restaurant                   │
+ *   │              Brightlingsea                        │
+ *   │                                                   │
  *   └────────────────────────────────────────────────┘
+ *   (subtle vertical gradient: cream top → slightly darker bottom)
  *
- *   Merchant: 17pt 700 navy   (slightly larger than the merchant
- *                              profile's 15pt for prominence in the
- *                              voucher context)
- *   Branch:   14pt 500 muted  (slightly larger than the merchant
- *                              profile's 13pt to match)
- *
- * Background: solid cream `#FFF9F5` — same as merchant profile
- * collapsed header. Bottom hairline border. No BlurView (would
- * blend with dark voucher banner image scrolling below).
+ * Typography (matching merchant profile collapsed chrome, slightly
+ * bigger per round-11 owner direction):
+ *   Merchant 17pt 700 navy / Branch 14pt 500 muted-navy
  *
  * Branch is stripped of the merchant prefix via `branchShortName()`
- * — same helper the merchant profile uses, so "Covelum —
- * Brightlingsea" displays as "Brightlingsea". No duplicate merchant
- * name across the two lines.
+ * — same helper the merchant profile uses ("Covelum — Brightlingsea"
+ * → "Brightlingsea").
  *
  * Scroll-driven opacity (Emil framework — unchanged): fades 0→1
  * across [fadeStart, fadeEnd]. Reduced-motion → step at fadeEnd.
- *
- * `pointerEvents` flipped on the JS state from the parent's
- * `useAnimatedReaction(scrollY > HANDOFF_AT)`, so single-threshold
- * handoff with the hero NavRow is preserved.
  */
 export function CollapsedHeader({
   merchantName,
   branchName,
+  logoUrl,
   insetTop,
   scrollY,
   fadeStart,
@@ -102,9 +108,6 @@ export function CollapsedHeader({
     }
   })
 
-  // Strip the merchant prefix from the branch name so the collapsed
-  // chrome matches the merchant profile (which displays just
-  // "Brightlingsea" rather than "Covelum — Brightlingsea").
   const shortBranch = branchName ? branchShortName(branchName) : null
 
   const wrapperHeight = insetTop + CONTENT_ROW_H
@@ -121,14 +124,28 @@ export function CollapsedHeader({
       importantForAccessibility={isActive ? 'auto' : 'no-hide-descendants'}
       testID="collapsed-header-root"
     >
-      {/* Hairline at bottom edge */}
+      {/* Vertical cream gradient — light at top, slightly more
+          present at the bottom. Same palette + craft as the
+          merchant profile's identity zone (round-5 §12: brand-
+          family hue at H≈28). Gives the chrome architectural
+          depth without sitting as a flat opaque box. */}
+      <LinearGradient
+        colors={['#FFF9F5', '#FCF0E5']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+
+      {/* Hairline at bottom edge — subtle border-bottom that grounds
+          the chrome over the body content scrolling beneath. */}
       <View style={styles.hairline} pointerEvents="none" />
 
       {/* Safe-area spacer */}
       <View style={{ height: insetTop }} pointerEvents="none" />
 
-      {/* Content row: back · text stack */}
-      <View style={[styles.contentRow, { height: CONTENT_ROW_H }]} pointerEvents="box-none">
+      {/* Content row: back · logo · text stack */}
+      <View style={styles.contentRow} pointerEvents="box-none">
         <Pressable
           onPress={() => {
             lightHaptic()
@@ -141,6 +158,19 @@ export function CollapsedHeader({
         >
           <ArrowLeft size={20} color={color.navy} strokeWidth={2.4} />
         </Pressable>
+
+        <View style={styles.logoBox} testID="collapsed-header-logo">
+          {logoUrl ? (
+            <Image
+              source={{ uri: logoUrl }}
+              style={StyleSheet.absoluteFillObject}
+              contentFit="cover"
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <View style={styles.logoPlaceholder} />
+          )}
+        </View>
 
         <View style={styles.textStack} pointerEvents="none">
           <Text
@@ -172,10 +202,16 @@ export function CollapsedHeader({
   )
 }
 
-// 2-line stack: 17pt merchant + 3pt gap + 14pt branch ≈ 34pt
-// + 11pt top + 11pt bottom = 56pt. Matches Merchant Profile's
-// COMPACT_BAR_HEIGHT shape closely.
-const CONTENT_ROW_H = 56
+// 2-line stack with explicit padding so the branch line never
+// touches the bottom hairline (round-12 fix). Vertical layout:
+//   8pt top padding
+//   17pt merchant + 3pt gap + 14pt branch ≈ 34pt content
+//   16pt bottom padding (more than top — gives the branch line
+//                        clear separation from the hairline)
+//   = 58pt content row.
+const CONTENT_ROW_H = 58
+
+const LOGO_SIZE = 36
 
 const styles = StyleSheet.create({
   root: {
@@ -185,9 +221,6 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 40,
     overflow: 'hidden',
-    // Solid cream — identical to the merchant profile collapsed
-    // chrome so they read as the same surface across the app.
-    backgroundColor: '#FFF9F5',
   },
   hairline: {
     position: 'absolute',
@@ -203,6 +236,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 16,
     gap: 12,
     zIndex: 2,
   },
@@ -217,6 +252,23 @@ const styles = StyleSheet.create({
   backBtnPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.96 }],
+  },
+  // ── Merchant logo ───────────────────────────────────────────
+  // Rounded square (12pt radius) so the logo reads as a brand mark
+  // on a light cream surface — same shape language as the merchant
+  // profile collapsed header.
+  logoBox: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  logoPlaceholder: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.04)',
   },
   // ── 2-line text stack (merchant / branch) ──────────────────
   textStack: {

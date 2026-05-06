@@ -456,15 +456,17 @@ export function VoucherDetailScreen() {
         <View style={{ height: insets.bottom + 30 }} />
       </AnimatedScrollView>
 
-      {/* CollapsedHeader overlay — pinned at top, solid cream
+      {/* CollapsedHeader overlay — pinned at top, cream-gradient
           surface, opacity scroll-driven, single-threshold
-          pointerEvents. Round-11 minimalist redesign: only back
-          button + merchant name + branch name. No SAVE chip, no
-          voucher title, no type stripe. Matches the merchant
-          profile's collapsed chrome for cross-screen consistency. */}
+          pointerEvents. Round-12: back + logo + merchant + branch,
+          with the same vertical cream gradient as the merchant
+          profile's identity zone (#FFF9F5 → #FCF0E5).
+          Logo is branch-aware — selectedBranch.logoUrl wins over
+          merchant.logoUrl, mirroring the merchant profile pattern. */}
       <CollapsedHeader
         merchantName={voucher.merchant.businessName}
         branchName={branchName}
+        logoUrl={selectedBranch?.logoUrl ?? voucher.merchant.logoUrl ?? null}
         insetTop={insets.top}
         scrollY={scrollY}
         fadeStart={FADE_START}

@@ -134,6 +134,7 @@ describe('CollapsedHeader — long content doesn\'t break layout', () => {
   const baseProps = {
     merchantName: FIXTURES.longMerchant,
     branchName: FIXTURES.longBranch,
+    logoUrl: null,
     insetTop: 59,
     scrollY: sharedValue(300),
     fadeStart: 100,
