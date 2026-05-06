@@ -183,9 +183,7 @@ describe('Voucher Detail — free-user state (Screen 2 per spec §4)', () => {
 describe('Voucher Detail — How It Works variant', () => {
   it('free-user state DOES render How It Works (round 17: 5-step variant starting "Subscribe to Unlock")', () => {
     // Round 15 hid this; round 16 owner direction restored it; round
-    // 17 finalised both variants at 5 steps. accessibilityLabel
-    // encodes the step count so we can pin the variant without
-    // parsing the rendered children.
+    // 17 finalised both variants at 5 steps.
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     const node = getByTestId('how-it-works')
     expect(node).toBeTruthy()
@@ -198,6 +196,44 @@ describe('Voucher Detail — How It Works variant', () => {
     const node = getByTestId('how-it-works')
     expect(node).toBeTruthy()
     expect(node.props.accessibilityLabel).toBe('How It Works (5 steps)')
+  })
+
+  // ── Round 18: collapse/expand behaviour ───────────────────────
+
+  it('free-user state — section is ALWAYS expanded (no toggle, steps visible by default)', () => {
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // Steps are rendered (testID set on the steps container).
+    expect(getByTestId('how-it-works-steps')).toBeTruthy()
+    // No collapse toggle for free users — header is a plain View.
+    expect(queryByTestId('how-it-works-toggle')).toBeNull()
+  })
+
+  it('subscribed-user state — section is COLLAPSIBLE, default COLLAPSED', () => {
+    mockSubscribed = true
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // Toggle button rendered with the right accessibility role + state.
+    const toggle = getByTestId('how-it-works-toggle')
+    expect(toggle).toBeTruthy()
+    expect(toggle.props.accessibilityRole).toBe('button')
+    expect(toggle.props.accessibilityState).toEqual({ expanded: false })
+    expect(toggle.props.accessibilityLabel).toBe('Expand How It Works')
+    // Steps are HIDDEN by default for subscribed users.
+    expect(queryByTestId('how-it-works-steps')).toBeNull()
+  })
+
+  it('subscribed-user state — tapping the header expands the steps', () => {
+    mockSubscribed = true
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('how-it-works-toggle'))
+    // Steps now visible.
+    expect(getByTestId('how-it-works-steps')).toBeTruthy()
+    // Toggle's accessibility state flips.
+    const toggle = getByTestId('how-it-works-toggle')
+    expect(toggle.props.accessibilityState).toEqual({ expanded: true })
+    expect(toggle.props.accessibilityLabel).toBe('Collapse How It Works')
+    // Tap again → collapses.
+    fireEvent.press(toggle)
+    expect(queryByTestId('how-it-works-steps')).toBeNull()
   })
 })
 

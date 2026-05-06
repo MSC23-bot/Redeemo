@@ -1,9 +1,10 @@
-import React from 'react'
-import { View, StyleSheet } from 'react-native'
+import React, { useState } from 'react'
+import { View, Pressable, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { HelpCircle } from 'lucide-react-native'
+import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
+import { lightHaptic } from '@/design-system/haptics'
 import {
   HOW_IT_WORKS_STEPS_FREE,
   HOW_IT_WORKS_STEPS_SUBSCRIBED,
@@ -15,12 +16,12 @@ const BORDER   = '#E8E2DC'
 
 type Props = {
   /**
-   * Subscription state. Determines which step list renders:
-   *   - true  → HOW_IT_WORKS_STEPS_SUBSCRIBED (6 steps)
-   *   - false → HOW_IT_WORKS_STEPS_FREE        (7 steps, with
-   *             "Subscribe to Unlock" inserted)
-   * Both lists include the "Tell Staff Before Ordering" fairness
-   * step. See productCopy.ts for the exact copy.
+   * Subscription state. Determines:
+   *   - which step list renders (free 5-step vs subscribed 5-step)
+   *   - whether the section is collapsible. Subscribed users get a
+   *     collapsible section (default collapsed); free users see it
+   *     expanded by default with no collapse affordance because the
+   *     section supports their conversion path.
    */
   isSubscribed: boolean
 }
@@ -31,35 +32,79 @@ type Props = {
  * gradient; preceding steps use the brand red→coral gradient. A
  * vertical line connects the numbered boxes.
  *
- * Round 16: now picks a step list based on subscription state. The
- * free-user variant inserts "Subscribe to Unlock" so the journey
- * reflects the user's actual situation; the subscribed-user variant
- * is the redemption flow without that detour.
+ * Round 18 — display behaviour split:
+ *   • Free users: section is ALWAYS expanded. No chevron, header is
+ *     a plain View. Free users are still learning the platform and
+ *     this section supports conversion (the "Subscribe to Unlock"
+ *     step is the conversion gate inline with the redemption flow).
+ *   • Subscribed users: section is COLLAPSIBLE, default COLLAPSED.
+ *     The header is a button with a down/up chevron and toggles the
+ *     5-step list. accessibilityState exposes expanded/collapsed.
+ *
+ * Round 17 (prior): both variants finalised at 5 steps, with steps
+ * 2-5 shared between them.
  */
 export function HowItWorks({ isSubscribed }: Props) {
   const steps = isSubscribed ? HOW_IT_WORKS_STEPS_SUBSCRIBED : HOW_IT_WORKS_STEPS_FREE
 
+  // Free users: always expanded. Subscribed users: default collapsed,
+  // toggle via header tap.
+  const [expanded, setExpanded] = useState(!isSubscribed)
+  const showSteps = !isSubscribed || expanded
+
   return (
-    <View style={styles.root} testID="how-it-works" accessibilityLabel={`How It Works (${steps.length} steps)`}>
-      <View style={styles.heading}>
-        <HelpCircle size={18} color={color.brandRose} strokeWidth={2} />
-        <Text variant="label.md" style={styles.title}>How It Works</Text>
-      </View>
+    <View
+      style={styles.root}
+      testID="how-it-works"
+      accessibilityLabel={`How It Works (${steps.length} steps)`}
+    >
+      {isSubscribed ? (
+        <Pressable
+          onPress={() => {
+            lightHaptic()
+            setExpanded((prev) => !prev)
+          }}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={
+            expanded ? 'Collapse How It Works' : 'Expand How It Works'
+          }
+          style={({ pressed }) => [styles.heading, pressed && styles.headingPressed]}
+          testID="how-it-works-toggle"
+          hitSlop={8}
+        >
+          <HelpCircle size={18} color={color.brandRose} strokeWidth={2} />
+          <Text variant="label.md" style={styles.title}>How It Works</Text>
+          <View style={styles.headingSpacer} />
+          {expanded ? (
+            <ChevronUp size={20} color={TEXT_2ND} strokeWidth={2.4} />
+          ) : (
+            <ChevronDown size={20} color={TEXT_2ND} strokeWidth={2.4} />
+          )}
+        </Pressable>
+      ) : (
+        <View style={styles.heading}>
+          <HelpCircle size={18} color={color.brandRose} strokeWidth={2} />
+          <Text variant="label.md" style={styles.title}>How It Works</Text>
+        </View>
+      )}
 
-      <View style={styles.steps}>
-        {/* Connector line — sits behind the numbered boxes */}
-        <View style={styles.connector} pointerEvents="none" />
+      {showSteps ? (
+        <View style={styles.steps} testID="how-it-works-steps">
+          {/* Connector line — sits behind the numbered boxes */}
+          <View style={styles.connector} pointerEvents="none" />
 
-        {steps.map((step, i) => (
-          <View key={i} style={[styles.step, i === steps.length - 1 && styles.stepLast]}>
-            <StepNumber index={i} isLast={i === steps.length - 1} />
-            <View style={styles.stepContent}>
-              <Text variant="body.md" style={styles.stepLabel}>{step.label}</Text>
-              <Text variant="body.sm" style={styles.stepDesc}>{step.desc}</Text>
+          {steps.map((step, i) => (
+            <View key={i} style={[styles.step, i === steps.length - 1 && styles.stepLast]}>
+              <StepNumber index={i} isLast={i === steps.length - 1} />
+              <View style={styles.stepContent}>
+                <Text variant="body.md" style={styles.stepLabel}>{step.label}</Text>
+                <Text variant="body.sm" style={styles.stepDesc}>{step.desc}</Text>
+              </View>
             </View>
-          </View>
-        ))}
-      </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -88,9 +133,9 @@ const NUM_GAP = 16
 const styles = StyleSheet.create({
   root: {
     marginHorizontal: 22,
-    // Round-13: bumped 24 → 32 to widen the gap between the merchant
-    // attribution unit (coupon + merchant card) and the "process
-    // explanation" section. Spacing rhythm = hierarchy.
+    // Round-13: spacing rhythm = hierarchy. 32pt gap above to widen
+    // the visual break between the merchant attribution unit and the
+    // process explainer.
     marginTop: 32,
     paddingHorizontal: 4,
   },
@@ -100,10 +145,18 @@ const styles = StyleSheet.create({
     gap: 9,
     marginBottom: 20,
   },
+  // When the heading is a Pressable (subscribed users), give it a
+  // subtle press state.
+  headingPressed: {
+    opacity: 0.6,
+  },
   title: {
     fontSize: 16,
     fontWeight: '800',
     color: NAVY,
+  },
+  headingSpacer: {
+    flex: 1,
   },
   steps: {
     position: 'relative',
