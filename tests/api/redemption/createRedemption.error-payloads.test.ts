@@ -126,3 +126,75 @@ describe('createRedemption — INVALID_PIN.details.remainingAttempts', () => {
     }
   })
 })
+
+describe('createRedemption — PIN_RATE_LIMIT_EXCEEDED.details.retryAfter', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('returns retryAfter from Redis TTL when key has TTL', async () => {
+    const prisma = mockHappyPrisma()
+    const redis = mockRedis()
+    redis.get.mockResolvedValue('5') // counter at limit
+    redis.ttl.mockResolvedValue(540)  // 9 minutes remaining
+
+    try {
+      await createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
+      throw new Error('expected throw')
+    } catch (err: any) {
+      expect(err.code).toBe('PIN_RATE_LIMIT_EXCEEDED')
+      expect(err.details).toEqual({ retryAfter: 540 })
+    }
+  })
+
+  it('falls back to PIN_FAIL_WINDOW (900s) when Redis returns -1 (no TTL)', async () => {
+    const prisma = mockHappyPrisma()
+    const redis = mockRedis()
+    redis.get.mockResolvedValue('5')
+    redis.ttl.mockResolvedValue(-1) // key exists with no TTL (defensive edge case)
+
+    try {
+      await createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
+      throw new Error('expected throw')
+    } catch (err: any) {
+      expect(err.code).toBe('PIN_RATE_LIMIT_EXCEEDED')
+      expect(err.details).toEqual({ retryAfter: 900 })
+    }
+  })
+
+  it('falls back to PIN_FAIL_WINDOW (900s) when Redis returns -2 (key missing)', async () => {
+    // Defensive: TTL=-2 means "key does not exist" per Redis docs. Should
+    // not happen because rate-limit guard only triggers when redis.get
+    // returned a numeric counter, but wire it defensively anyway.
+    const prisma = mockHappyPrisma()
+    const redis = mockRedis()
+    redis.get.mockResolvedValue('5')
+    redis.ttl.mockResolvedValue(-2)
+
+    try {
+      await createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
+      throw new Error('expected throw')
+    } catch (err: any) {
+      expect(err.details).toEqual({ retryAfter: 900 })
+    }
+  })
+
+  it('error envelope (toJSON) spreads retryAfter alongside code/message/statusCode', async () => {
+    const prisma = mockHappyPrisma()
+    const redis = mockRedis()
+    redis.get.mockResolvedValue('5')
+    redis.ttl.mockResolvedValue(720)
+
+    try {
+      await createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
+      throw new Error('expected throw')
+    } catch (err: any) {
+      expect(err.toJSON()).toEqual({
+        error: {
+          code: 'PIN_RATE_LIMIT_EXCEEDED',
+          message: 'Too many incorrect PIN attempts. Please try again in 15 minutes.',
+          statusCode: 429,
+          retryAfter: 720,
+        },
+      })
+    }
+  })
+})

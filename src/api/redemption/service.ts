@@ -130,7 +130,14 @@ export async function createRedemption(
   const failKey = RedisKey.pinFailCount(userId, data.branchId)
   const failCount = await redis.get(failKey)
   if (failCount !== null && parseInt(failCount, 10) >= PIN_FAIL_LIMIT) {
-    throw new AppError('PIN_RATE_LIMIT_EXCEEDED')
+    // Surface the precise lockout window remaining to the customer-app so
+    // PinEntrySheet can render an authoritative mm:ss countdown. Redis
+    // returns -1 (key has no TTL) or -2 (key missing) on edge cases —
+    // fall back to the full PIN_FAIL_WINDOW so the UI never displays a
+    // negative or stuck timer.
+    const ttl = await redis.ttl(failKey)
+    const retryAfter = ttl > 0 ? ttl : PIN_FAIL_WINDOW
+    throw new AppError('PIN_RATE_LIMIT_EXCEEDED', { retryAfter })
   }
 
   // 10. Timing-safe PIN comparison

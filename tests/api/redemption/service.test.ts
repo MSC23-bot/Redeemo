@@ -32,6 +32,7 @@ const mockRedis = () => ({
   incr:  vi.fn().mockResolvedValue(1),
   expire: vi.fn().mockResolvedValue(1),
   del:   vi.fn().mockResolvedValue(1),
+  ttl:   vi.fn().mockResolvedValue(900),
 } as any)
 
 const baseCtx = { ipAddress: '127.0.0.1', userAgent: 'test' }
