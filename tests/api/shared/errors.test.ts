@@ -93,4 +93,76 @@ describe('AppError', () => {
     expect(err.code).toBe('ALREADY_VERIFIED')
     expect(err.statusCode).toBe(409)
   })
+
+  // ── Optional details payload (M2 prep) ─────────────────────────────────
+  // Backward-compatible: existing `new AppError(code)` keeps working
+  // unchanged. New optional second arg `details` flows into the response
+  // envelope alongside `code` / `message` / `statusCode`. Used by the
+  // redemption surface to surface `remainingAttempts` on INVALID_PIN and
+  // `retryAfter` on PIN_RATE_LIMIT_EXCEEDED.
+
+  it('legacy: new AppError(code) without details still serialises to the standard envelope', () => {
+    const err = new AppError('INVALID_PIN')
+    expect(err.details).toBeUndefined()
+    expect(err.toJSON()).toEqual({
+      error: {
+        code: 'INVALID_PIN',
+        message: 'The PIN you entered is incorrect.',
+        statusCode: 400,
+      },
+    })
+  })
+
+  it('new: new AppError(code, details) spreads details into the envelope', () => {
+    const err = new AppError('INVALID_PIN', { remainingAttempts: 3 })
+    expect(err.code).toBe('INVALID_PIN')
+    expect(err.statusCode).toBe(400)
+    expect(err.details).toEqual({ remainingAttempts: 3 })
+    expect(err.toJSON()).toEqual({
+      error: {
+        code: 'INVALID_PIN',
+        message: 'The PIN you entered is incorrect.',
+        statusCode: 400,
+        remainingAttempts: 3,
+      },
+    })
+  })
+
+  it('new: rate-limit error with retryAfter spreads cleanly', () => {
+    const err = new AppError('PIN_RATE_LIMIT_EXCEEDED', { retryAfter: 540 })
+    expect(err.toJSON().error).toMatchObject({
+      code: 'PIN_RATE_LIMIT_EXCEEDED',
+      statusCode: 429,
+      retryAfter: 540,
+    })
+  })
+
+  it('new: details with multiple fields are all preserved', () => {
+    const err = new AppError('INVALID_PIN', { remainingAttempts: 2, lockoutSoon: true })
+    expect(err.toJSON().error).toMatchObject({
+      remainingAttempts: 2,
+      lockoutSoon: true,
+    })
+  })
+
+  it('new: empty details object still spreads (no-op) without breaking the envelope', () => {
+    const err = new AppError('INVALID_PIN', {})
+    expect(err.toJSON()).toEqual({
+      error: {
+        code: 'INVALID_PIN',
+        message: 'The PIN you entered is incorrect.',
+        statusCode: 400,
+      },
+    })
+  })
+
+  it('new: standard envelope fields (code/message/statusCode) cannot be overridden by details', () => {
+    // Defensive: if a caller accidentally passes a `code` key in details, the
+    // hard-coded code from ERROR_DEFINITIONS must win to prevent envelope
+    // confusion downstream.
+    const err = new AppError('INVALID_PIN', { code: 'EVIL', message: 'evil', statusCode: 999 } as any)
+    expect(err.toJSON().error.code).toBe('INVALID_PIN')
+    expect(err.toJSON().error.message).toBe('The PIN you entered is incorrect.')
+    expect(err.toJSON().error.statusCode).toBe(400)
+  })
 })

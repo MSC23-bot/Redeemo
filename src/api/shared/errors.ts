@@ -91,8 +91,15 @@ export const ErrorCode = Object.fromEntries(
 export class AppError extends Error {
   public readonly code: ErrorCode
   public readonly statusCode: number
+  // Optional payload that flows into the error envelope alongside the
+  // standard (code, message, statusCode) fields. Used for callable details
+  // like `remainingAttempts` on INVALID_PIN or `retryAfter` on
+  // PIN_RATE_LIMIT_EXCEEDED. Standard fields always win — `details.code`
+  // / `details.message` / `details.statusCode` cannot override the
+  // ERROR_DEFINITIONS-driven shape.
+  public readonly details?: Record<string, unknown>
 
-  constructor(code: ErrorCode) {
+  constructor(code: ErrorCode, details?: Record<string, unknown>) {
     const def = ERROR_DEFINITIONS[code]
     // Include the code in the message so `.toThrow('CODE')` assertions work in tests.
     // The human-readable message is preserved in toJSON() via ERROR_DEFINITIONS.
@@ -100,11 +107,15 @@ export class AppError extends Error {
     this.code = code
     this.statusCode = def.statusCode
     this.name = 'AppError'
+    if (details !== undefined) this.details = details
   }
 
   toJSON() {
     return {
       error: {
+        // Spread details FIRST so the standard fields below override any
+        // accidental `code` / `message` / `statusCode` keys in details.
+        ...(this.details ?? {}),
         code: this.code,
         message: ERROR_DEFINITIONS[this.code].message,
         statusCode: this.statusCode,
