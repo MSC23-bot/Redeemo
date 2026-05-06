@@ -137,22 +137,20 @@ describe('CollapsedHeader — long content doesn\'t break layout', () => {
     estimatedSaving: 8.99,
     merchantName: FIXTURES.longMerchant,
     branchName: FIXTURES.longBranch,
-    isFavourited: false,
     insetTop: 59,
     scrollY: sharedValue(300),
     fadeStart: 100,
     fadeEnd: 240,
     isActive: true,
-    onBack:  jest.fn(),
-    onShare: jest.fn(),
-    onFav:   jest.fn(),
+    onBack: jest.fn(),
   }
 
   it('renders without crashing for long title + long merchant + long branch', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
     expect(getByTestId('collapsed-header-root', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-title', HIDDEN_OPT)).toBeTruthy()
-    expect(getByTestId('collapsed-header-meta', HIDDEN_OPT)).toBeTruthy()
   })
 
   it('collapsed title has numberOfLines=1 + ellipsize tail (single-line truncation)', () => {

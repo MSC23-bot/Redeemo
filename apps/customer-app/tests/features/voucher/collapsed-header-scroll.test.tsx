@@ -2,39 +2,24 @@ import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { CollapsedHeader } from '@/features/voucher/components/CollapsedHeader'
 
-// PR #40 round 5 — CollapsedHeader contract tests.
+// PR #40 round 8 — CollapsedHeader contract tests.
 //
-// What this pins (round-5 plan §2 + §3):
+// What this pins:
 //   • At "top of page" state (`isActive=false`): collapsed header
 //     renders with pointerEvents='none' so it does NOT intercept
 //     taps intended for the hero NavRow underneath, and is hidden
 //     from the accessibility tree (`accessibilityElementsHidden`).
 //   • At "scrolled past hero" state (`isActive=true`): collapsed
-//     header has pointerEvents='box-none' and back/share/fav
-//     callbacks fire when their buttons are tapped.
-//   • REDEEM AT eyebrow conditional on branchName resolving — when
-//     null (branch context not yet resolved), the eyebrow row is
-//     hidden gracefully (no fabricated "Resolving…" text).
-//   • The `isActive` prop drives accessibility flags so screen
-//     readers don't read both nav layers simultaneously.
-//
-// Reanimated worklets aren't driven by jest (the project's setup.ts
-// stubs `useAnimatedReaction` / `useAnimatedScrollHandler` /
-// `useReducedMotion` to no-ops). Tests focus on the props-driven
-// behaviour: pointerEvents, accessibilityElementsHidden, branch
-// eyebrow render, callback wiring.
+//     header has pointerEvents='box-none' and the back-button
+//     callback fires when tapped.
+//   • Three-line text stack (round-8 redesign): merchant / branch
+//     / title rendered with their own testIDs. Branch line drops
+//     gracefully when `branchName` is null.
+//   • SAVE chip renders with the formatted amount.
 //
 // We use `getByTestId` (not getByText) because the wrapper sets
-// `accessibilityElementsHidden={!isActive}`, which makes children
-// invisible to text-based queries when the header is in its
-// "top of page" inactive state.
-//
-// **Hidden subtree caveat:** RN testing library's `*ByTestId` honours
-// `accessibilityElementsHidden` by default (matches platform a11y
-// semantics). When asserting against the inactive (`isActive=false`)
-// state we pass `{ includeHiddenElements: true }` so we can still
-// inspect the host node — the test is verifying the hidden-state
-// CONTRACT itself, not exercising it as a user.
+// `accessibilityElementsHidden={!isActive}`. Pass
+// `{ includeHiddenElements: true }` to inspect the inactive subtree.
 
 const sharedValue = (v: number) => ({ value: v }) as any
 
@@ -44,37 +29,30 @@ const baseProps = {
   estimatedSaving: 8.99,
   merchantName: 'Pizza Palace',
   branchName: 'High Street',
-  isFavourited: false,
   insetTop: 59,
   scrollY: sharedValue(0),
   fadeStart: 100,
   fadeEnd: 240,
   isActive: false,
-  onBack:  jest.fn(),
-  onShare: jest.fn(),
-  onFav:   jest.fn(),
+  onBack: jest.fn(),
 }
 
 beforeEach(() => {
-  baseProps.onBack  = jest.fn()
-  baseProps.onShare = jest.fn()
-  baseProps.onFav   = jest.fn()
+  baseProps.onBack = jest.fn()
 })
 
-// Helper — `includeHiddenElements: true` lets queries reach into
-// the inactive collapsed header subtree (which is a11y-hidden by
-// design). Matches the RNTL escape hatch for asserting against
-// hidden chrome.
 const HIDDEN_OPT = { includeHiddenElements: true } as const
 
 describe('CollapsedHeader — top-of-page state (isActive=false)', () => {
-  it('renders with the expected testIDs (root + title)', () => {
+  it('renders the wrapper + the three text-stack nodes', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={false} />)
     expect(getByTestId('collapsed-header-root', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-title', HIDDEN_OPT)).toBeTruthy()
   })
 
-  it('wrapper has pointerEvents="none" and accessibilityElementsHidden=true (does not intercept taps, hidden from screen readers)', () => {
+  it('wrapper has pointerEvents="none" + accessibilityElementsHidden=true', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={false} />)
     const root = getByTestId('collapsed-header-root', HIDDEN_OPT)
     expect(root.props.pointerEvents).toBe('none')
@@ -82,15 +60,16 @@ describe('CollapsedHeader — top-of-page state (isActive=false)', () => {
     expect(root.props.importantForAccessibility).toBe('no-hide-descendants')
   })
 
-  it('renders the voucher title text inside the title node', () => {
+  it('renders the voucher content in the documented order — merchant / branch / title', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={false} />)
-    const titleNode = getByTestId('collapsed-header-title', HIDDEN_OPT)
-    expect(titleNode.props.children).toBe('Buy 1 Get 1 Free on All Pizzas')
+    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT).props.children).toBe('Pizza Palace')
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT).props.children).toBe('High Street')
+    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children).toBe('Buy 1 Get 1 Free on All Pizzas')
   })
 })
 
 describe('CollapsedHeader — scrolled-past-hero state (isActive=true)', () => {
-  it('wrapper has pointerEvents="box-none" and accessibilityElementsHidden=false', () => {
+  it('wrapper has pointerEvents="box-none" + accessibilityElementsHidden=false', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={true} />)
     const root = getByTestId('collapsed-header-root')
     expect(root.props.pointerEvents).toBe('box-none')
@@ -104,56 +83,58 @@ describe('CollapsedHeader — scrolled-past-hero state (isActive=true)', () => {
     expect(baseProps.onBack).toHaveBeenCalledTimes(1)
   })
 
-  it('share button fires onShare when tapped', () => {
-    const { getByLabelText } = render(<CollapsedHeader {...baseProps} isActive={true} />)
-    fireEvent.press(getByLabelText('Share voucher'))
-    expect(baseProps.onShare).toHaveBeenCalledTimes(1)
-  })
-
-  it('favourite button fires onFav when tapped', () => {
-    const { getByLabelText } = render(<CollapsedHeader {...baseProps} isActive={true} isFavourited={false} />)
-    fireEvent.press(getByLabelText('Add to favourites'))
-    expect(baseProps.onFav).toHaveBeenCalledTimes(1)
-  })
-
-  it('favourite button accessibilityLabel reflects favourited state', () => {
-    const { getByLabelText } = render(<CollapsedHeader {...baseProps} isActive={true} isFavourited={true} />)
-    expect(getByLabelText('Remove from favourites')).toBeTruthy()
+  it('does NOT render share/favourite controls (per round-8 owner direction — identity-only chrome)', () => {
+    const { queryByLabelText } = render(<CollapsedHeader {...baseProps} isActive={true} />)
+    expect(queryByLabelText('Share voucher')).toBeNull()
+    expect(queryByLabelText('Add to favourites')).toBeNull()
+    expect(queryByLabelText('Remove from favourites')).toBeNull()
   })
 })
 
-describe('CollapsedHeader — meta line + REDEEM AT (branch attribution)', () => {
-  it('renders the meta row when branchName is provided', () => {
+describe('CollapsedHeader — branch line conditional rendering', () => {
+  it('renders the branch line when branchName is provided', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName="High Street" />)
-    expect(getByTestId('collapsed-header-meta', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT).props.children).toBe('High Street')
   })
 
-  it('still renders the meta row when branchName is null (merchant + type still shown — no REDEEM AT segment)', () => {
-    // Round-6 redesign: meta row carries TYPE + MERCHANT in addition
-    // to the optional REDEEM AT branch segment. When branchName is
-    // null, the row still shows so type + merchant remain visible —
-    // we just drop the REDEEM AT portion gracefully.
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
-    expect(getByTestId('collapsed-header-meta', HIDDEN_OPT)).toBeTruthy()
+  it('omits the branch line when branchName is null (no fabricated copy)', () => {
+    const { queryByTestId, getByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
+    expect(queryByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeNull()
+    // Merchant + title still render.
+    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT).props.children).toBe('Pizza Palace')
+    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children).toBe('Buy 1 Get 1 Free on All Pizzas')
+  })
+})
+
+describe('CollapsedHeader — SAVE chip', () => {
+  it('renders the chip with the formatted amount', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} estimatedSaving={2.5} />)
+    expect(getByTestId('collapsed-header-save-chip', HIDDEN_OPT)).toBeTruthy()
   })
 
-  it('renders the title even when branchName is null (graceful fallback)', () => {
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
-    const titleNode = getByTestId('collapsed-header-title', HIDDEN_OPT)
-    expect(titleNode.props.children).toBe('Buy 1 Get 1 Free on All Pizzas')
-  })
-
-  it('renders the SAVE chip with the formatted amount', () => {
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} estimatedSaving={8.99} />)
+  it('chip survives large amounts (£100, £1000) without crashing', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} estimatedSaving={1000} />)
     expect(getByTestId('collapsed-header-save-chip', HIDDEN_OPT)).toBeTruthy()
   })
 })
 
-describe('CollapsedHeader — title truncation contract', () => {
-  it('passes numberOfLines=1 + ellipsizeMode=tail to the title Text', () => {
+describe('CollapsedHeader — overflow protection (impeccable + ui-ux-pro-max law: nothing leaks)', () => {
+  it('all three text Texts have numberOfLines=1 + ellipsizeMode=tail', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
-    const titleNode = getByTestId('collapsed-header-title', HIDDEN_OPT)
-    expect(titleNode.props.numberOfLines).toBe(1)
-    expect(titleNode.props.ellipsizeMode).toBe('tail')
+    const merchant = getByTestId('collapsed-header-merchant', HIDDEN_OPT)
+    const branch   = getByTestId('collapsed-header-branch',   HIDDEN_OPT)
+    const title    = getByTestId('collapsed-header-title',    HIDDEN_OPT)
+    for (const node of [merchant, branch, title]) {
+      expect(node.props.numberOfLines).toBe(1)
+      expect(node.props.ellipsizeMode).toBe('tail')
+    }
+  })
+
+  it('merchant + title use adjustsFontSizeToFit so long content shrinks before truncating', () => {
+    const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
+    const merchant = getByTestId('collapsed-header-merchant', HIDDEN_OPT)
+    const title    = getByTestId('collapsed-header-title',    HIDDEN_OPT)
+    expect(merchant.props.adjustsFontSizeToFit).toBe(true)
+    expect(title.props.adjustsFontSizeToFit).toBe(true)
   })
 })

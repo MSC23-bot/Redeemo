@@ -1,8 +1,7 @@
 import React from 'react'
 import { View, Pressable, StyleSheet, Platform } from 'react-native'
 import { BlurView } from 'expo-blur'
-import { ArrowLeft, Heart, Share2 } from 'lucide-react-native'
-import { LinearGradient } from 'expo-linear-gradient'
+import { ArrowLeft } from 'lucide-react-native'
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -14,41 +13,26 @@ import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 import type { VoucherType } from '@/lib/api/voucher'
-import { voucherGradient, voucherTypeLabel, formatPounds } from '../utils/voucherTheme'
+import { voucherGradient, formatPounds } from '../utils/voucherTheme'
 
 type Props = {
-  /** Voucher title — primary content. Truncated to one line. */
+  /** Voucher title — third (and most contextual) line. */
   title: string
   /**
-   * Voucher type — drives the left-edge color stripe + the type
-   * label in the meta row. The stripe color matches the hero's
-   * gradient start color so the collapsed chrome reads as
-   * chromatically continuous with the voucher hero (round-6 fix #3).
+   * Voucher type — drives the 4pt left-edge color stripe (chromatic
+   * anchor to the hero) AND the SAVE chip's accent color.
    */
   type: VoucherType
-  /**
-   * Estimated saving on the voucher — surfaced as a compact "SAVE
-   * £X" chip in the right cluster of row 1. Voucher-LEVEL data
-   * (merchant-wide content). Round-6 fix #3.
-   */
+  /** Estimated saving — surfaced in the right-side SAVE chip. */
   estimatedSaving: number
-  /**
-   * Merchant name from `voucher.merchant.businessName`. Voucher
-   * (merchant-LEVEL) attribution shown alongside the branch in the
-   * meta row. Round-6 fix #3 — collapsed chrome must show enough
-   * voucher context that the user knows what they're looking at.
-   */
+  /** Merchant business name — first/primary line. */
   merchantName: string
   /**
-   * Branch name from `merchant.selectedBranch.name` — drives the
-   * branch-LEVEL `REDEEM AT <branch>` portion of the meta row. When
-   * null (selectedBranch hasn't resolved yet, or all-suspended
-   * fallback), the REDEEM AT segment is omitted gracefully — we
-   * don't fabricate. The merchant name still shows.
+   * Branch name (selected) — second line. When null
+   * (selectedBranch unresolved or all-suspended fallback), the
+   * branch line is omitted gracefully — we don't fabricate.
    */
   branchName: string | null
-  /** Heart fill state. */
-  isFavourited: boolean
   /** Top safe-area inset (status bar / Dynamic Island height). */
   insetTop: number
   /**
@@ -67,9 +51,7 @@ type Props = {
    */
   isActive: boolean
 
-  onBack:  () => void
-  onShare: () => void
-  onFav:   () => void
+  onBack: () => void
 }
 
 /**
@@ -77,33 +59,41 @@ type Props = {
  * that takes over from the hero NavRow once the user scrolls past
  * the coupon hero.
  *
- * **Round 6 redesign — richer voucher context.** Designed
- * specifically for Voucher Detail (NOT a copy of Merchant Profile's
- * collapsed chrome):
+ * **Round 8 redesign — owner direction (impeccable + ui-ux-pro-max):**
  *
- *   • Type-color left stripe (4pt wide, full height) — chromatic
- *     anchor that reads as "collapsed voucher hero", not generic
- *     app chrome. Color matches `voucherGradient(type)` end color.
+ *   • Three-line text stack on the left (vertical hierarchy):
+ *       Merchant Name (15pt 800 navy)         — primary identity
+ *       Branch Name   (11pt 600 muted-navy)   — context
+ *       Voucher Title (12pt 500 navy)         — what's on the page
+ *   • SAVE chip on the right (vertically centered):
+ *       SAVE label (8pt 800 type-accent, letter-spaced)
+ *       Amount    (14pt 800 type-accent)
+ *   • 4pt left-edge type-color stripe (chromatic anchor to hero).
+ *   • Back button on the left edge (36×36 with hitSlop).
+ *   • Share + favourite REMOVED per owner direction — collapsed
+ *     chrome carries voucher identity context only, not actions.
  *
- *   • Row 1: [back] · {voucher title} · [SAVE £X chip] · [share] [fav]
- *     - Title truncates with ellipsis on long names.
- *     - SAVE chip uses brand-rose tint with the gradient's end color,
- *       compact (14pt 800 amount + 9pt eyebrow).
+ * Typography hierarchy follows impeccable's law of "scale + weight
+ * contrast (≥1.25 ratio between steps)":
+ *   - Merchant 15pt 800 / Branch 11pt 600 / Title 12pt 500
+ *   - Steps: 15→12 (1.25x), 12→11 (1.09x but weight diff compensates)
  *
- *   • Row 2 (meta): {voucherTypeLabel} · {merchantName} · REDEEM AT
- *     {branchName}
- *     - Type label and merchant name in muted navy.
- *     - REDEEM AT prefix in brand-rose 10pt 800 — same visual
- *       language as MerchantRow's REDEEM AT panel so voucher
- *       (merchant-wide content) and branch (branch-LEVEL action
- *       context) read as consistent concepts across the screen.
- *     - When branchName is null, the REDEEM AT segment is dropped
- *       gracefully (we don't fabricate "Resolving…" copy here).
+ * Color palette stays restrained (impeccable's "Restrained" strategy):
+ *   - Navy (#010C35) for primary text (merchant, title)
+ *   - Muted-navy (#4B5563) for secondary text (branch)
+ *   - Type-accent for stripe + SAVE chip (one focal point)
  *
- * Motion (Emil framework): scroll-driven opacity interpolation.
- * Reduced-motion path uses a step function (opacity flips at
- * fadeEnd, no fade) so iOS Reduce Motion users still get the safe-
- * area protection without the visual fade.
+ * Overflow protection (ui-ux-pro-max's "nothing leaks"):
+ *   - All text Texts: numberOfLines={1} + ellipsizeMode="tail"
+ *   - Title additionally: adjustsFontSizeToFit + minimumFontScale=0.85
+ *     (long titles shrink to fit before truncating)
+ *   - Save chip: adjustsFontSizeToFit on the amount for large values
+ *   - Wrapper: overflow:hidden as final safety
+ *   - Calculated paddingRight reserves the SAVE chip's footprint so
+ *     long merchant / title strings can never collide with the chip
+ *
+ * Motion (Emil framework — unchanged from round 5):
+ *   Scroll-driven opacity. Reduced-motion → step at fadeEnd.
  */
 export function CollapsedHeader({
   title,
@@ -111,24 +101,16 @@ export function CollapsedHeader({
   estimatedSaving,
   merchantName,
   branchName,
-  isFavourited,
   insetTop,
   scrollY,
   fadeStart,
   fadeEnd,
   isActive,
   onBack,
-  onShare,
-  onFav,
 }: Props) {
   const reducedMotion = useReducedMotion()
-  const typeLabel    = voucherTypeLabel(type)
-  const [, gradEnd]  = voucherGradient(type)
+  const [, gradEnd]   = voucherGradient(type)
 
-  // Opacity interpolation — entire header (incl. frosted surface)
-  // fades from 0 to 1 across [fadeStart, fadeEnd]. Reduced motion
-  // path: step at fadeEnd (no fade, but still appears to protect
-  // the safe area).
   const animStyle = useAnimatedStyle(() => {
     if (reducedMotion) {
       return { opacity: scrollY.value >= fadeEnd ? 1 : 0 }
@@ -143,12 +125,19 @@ export function CollapsedHeader({
     }
   })
 
+  // Wrapper height = safe area + content row height. Content row is
+  // sized to comfortably hold three lines of text (merchant/branch/
+  // title) with consistent line-spacing, plus 8pt vertical padding
+  // top + bottom.
+  const contentRowHeight = branchName ? CONTENT_ROW_3_LINES : CONTENT_ROW_2_LINES
+  const wrapperHeight    = insetTop + contentRowHeight
+
   return (
     <Animated.View
       pointerEvents={isActive ? 'box-none' : 'none'}
       style={[
         styles.root,
-        { height: insetTop + ROW_1_H + ROW_2_H },
+        { height: wrapperHeight },
         animStyle,
       ]}
       accessibilityElementsHidden={!isActive}
@@ -169,25 +158,52 @@ export function CollapsedHeader({
       {/* Hairline separator at bottom edge. */}
       <View style={styles.hairline} pointerEvents="none" />
 
-      {/* Safe-area spacer — pushes content below the status bar /
-          Dynamic Island. Round-7 fix: previously row 1 had
-          `paddingTop: insetTop + 6` AND `height: ROW_1_H`, which on
-          iPhone Pro Max (insetTop ~60) clipped row 1's content out
-          of the row's bounds (paddingTop > height). Now the safe
-          area is its own dedicated spacer so each row has clean
-          bounds. */}
+      {/* Safe-area spacer — pushes content below the status bar. */}
       <View style={{ height: insetTop }} pointerEvents="none" />
 
-      {/* Row 1 — back / title / save chip / share / favourite */}
-      <View style={styles.row1} pointerEvents="box-none">
-        <NavBtn onPress={onBack} accessibilityLabel="Go back">
+      {/* Content row: back · text stack · save chip */}
+      <View style={[styles.contentRow, { height: contentRowHeight }]} pointerEvents="box-none">
+        <Pressable
+          onPress={() => {
+            lightHaptic()
+            onBack()
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={10}
+          style={({ pressed }) => [styles.backBtn, pressed && styles.backBtnPressed]}
+        >
           <ArrowLeft size={20} color={color.navy} strokeWidth={2.4} />
-        </NavBtn>
+        </Pressable>
 
-        <View style={styles.titleWrap} pointerEvents="none">
+        <View style={styles.textStack} pointerEvents="none">
           <Text
             variant="body.md"
-            style={styles.title}
+            style={styles.merchantText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+            testID="collapsed-header-merchant"
+          >
+            {merchantName}
+          </Text>
+
+          {branchName ? (
+            <Text
+              variant="label.md"
+              style={styles.branchText}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              testID="collapsed-header-branch"
+            >
+              {branchName}
+            </Text>
+          ) : null}
+
+          <Text
+            variant="body.sm"
+            style={styles.titleText}
             numberOfLines={1}
             ellipsizeMode="tail"
             adjustsFontSizeToFit
@@ -199,85 +215,20 @@ export function CollapsedHeader({
         </View>
 
         <SaveChip amount={estimatedSaving} accentColor={gradEnd} />
-
-        <View style={styles.rightActions} pointerEvents="box-none">
-          <NavBtn onPress={onShare} accessibilityLabel="Share voucher">
-            <Share2 size={18} color={color.navy} strokeWidth={2.2} />
-          </NavBtn>
-          <NavBtn
-            onPress={onFav}
-            accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-          >
-            <Heart
-              size={18}
-              color={isFavourited ? color.brandRose : color.navy}
-              fill={isFavourited ? color.brandRose : 'none'}
-              strokeWidth={2.2}
-            />
-          </NavBtn>
-        </View>
-      </View>
-
-      {/* Row 2 — meta: type · merchant · REDEEM AT branch */}
-      <View style={styles.row2} pointerEvents="none" testID="collapsed-header-meta">
-        <Text variant="label.md" style={styles.metaLine} numberOfLines={1} ellipsizeMode="tail">
-          <Text style={styles.metaTypeLabel}>{typeLabel.toUpperCase()}</Text>
-          <Text style={styles.metaSep}> · </Text>
-          <Text style={styles.metaMerchant}>{merchantName}</Text>
-          {branchName ? (
-            <>
-              <Text style={styles.metaSep}> · </Text>
-              <Text style={styles.redeemAtPrefix}>REDEEM AT </Text>
-              <Text style={styles.redeemAtBranch}>{branchName.toUpperCase()}</Text>
-            </>
-          ) : null}
-        </Text>
       </View>
     </Animated.View>
   )
 }
 
-// ── Internal pieces ──────────────────────────────────────────────────────────
-
-function NavBtn({
-  onPress,
-  accessibilityLabel,
-  children,
-}: {
-  onPress: () => void
-  accessibilityLabel: string
-  children: React.ReactNode
-}) {
-  return (
-    <Pressable
-      onPress={() => {
-        lightHaptic()
-        onPress()
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      hitSlop={10}
-      style={({ pressed }) => [styles.navBtn, pressed && styles.navBtnPressed]}
-    >
-      {children}
-    </Pressable>
-  )
-}
+// ── SAVE chip ────────────────────────────────────────────────────────────────
 
 function SaveChip({ amount, accentColor }: { amount: number; accentColor: string }) {
   return (
-    <View style={[styles.saveChip, { borderColor: accentColor + '30' }]} testID="collapsed-header-save-chip">
-      <LinearGradient
-        colors={[`${accentColor}10`, `${accentColor}20`]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
+    <View
+      style={[styles.saveChip, { borderColor: accentColor + '33', backgroundColor: accentColor + '0F' }]}
+      testID="collapsed-header-save-chip"
+    >
       <Text style={[styles.saveChipLabel, { color: accentColor }]}>SAVE</Text>
-      {/* adjustsFontSizeToFit guards against very large amounts
-          (£100, £1,000, etc.) overflowing the chip — round-7 stress
-          test. minimumFontScale=0.7 keeps the amount readable down
-          to ~9pt at the smallest setting. */}
       <Text
         style={[styles.saveChipAmount, { color: accentColor }]}
         numberOfLines={1}
@@ -290,8 +241,12 @@ function SaveChip({ amount, accentColor }: { amount: number; accentColor: string
   )
 }
 
-const ROW_1_H = 52
-const ROW_2_H = 24
+// Content row sizing — chosen so 3 lines fit cleanly with consistent
+// 4pt vertical gaps + 10pt top/bottom padding. 2-line variant
+// (no branch) shaves the branch line + its gap.
+const CONTENT_ROW_3_LINES = 78  // 10 + 15 + 4 + 11 + 4 + 13 + 11 ≈ 78pt
+const CONTENT_ROW_2_LINES = 60  // 10 + 15 + 4 + 13 + 10 ≈ 52pt with extra slack
+
 const STRIPE_W = 4
 
 const styles = StyleSheet.create({
@@ -323,102 +278,73 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.06)',
     zIndex: 1,
   },
-  // Row 1 — back / title / save chip / actions
-  row1: {
+  // ── Content row ─────────────────────────────────────────────
+  contentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: ROW_1_H,
     paddingLeft: STRIPE_W + 12,
     paddingRight: 14,
-    gap: 10,
+    gap: 12,
     zIndex: 2,
   },
-  titleWrap: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#010C35',
-    letterSpacing: -0.2,
-  },
-  rightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  navBtn: {
+  backBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.5)',
+    backgroundColor: 'rgba(255,255,255,0.55)',
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
+    borderColor: 'rgba(0,0,0,0.06)',
   },
-  navBtnPressed: {
+  backBtnPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.96 }],
   },
-  // SAVE chip — compact gradient pill in the type's accent color.
-  saveChip: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.4)',
+  // ── Text stack (merchant / branch / title) ──────────────────
+  textStack: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+    gap: 3,
   },
-  saveChipLabel: {
-    fontSize: 9,
+  merchantText: {
+    fontSize: 15,
     fontWeight: '800',
-    letterSpacing: 1,
-  },
-  saveChipAmount: {
-    fontSize: 13,
-    fontWeight: '800',
+    color: '#010C35',
     letterSpacing: -0.2,
   },
-  // Row 2 — meta line
-  row2: {
-    height: ROW_2_H,
-    paddingLeft: STRIPE_W + 60,   // align under the title (past back button)
-    paddingRight: 14,
-    justifyContent: 'flex-start',
-    zIndex: 2,
-  },
-  metaLine: {
-    fontSize: 10.5,
+  branchText: {
+    fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.2,
-    color: '#9CA3AF',
+    color: '#6B7280',
+    letterSpacing: 0.1,
   },
-  metaTypeLabel: {
-    color: '#4B5563',
+  titleText: {
+    fontSize: 12.5,
+    fontWeight: '500',
+    color: '#374151',
+    letterSpacing: -0.05,
+  },
+  // ── SAVE chip ───────────────────────────────────────────────
+  saveChip: {
+    minWidth: 64,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveChipLabel: {
+    fontSize: 8,
     fontWeight: '800',
-    letterSpacing: 1.1,
+    letterSpacing: 1.2,
   },
-  metaSep: {
-    color: '#D1D5DB',
-  },
-  metaMerchant: {
-    color: '#4B5563',
-    fontWeight: '700',
-  },
-  redeemAtPrefix: {
-    color: color.brandRose,
+  saveChipAmount: {
+    fontSize: 14,
     fontWeight: '800',
-    letterSpacing: 1.1,
-  },
-  redeemAtBranch: {
-    color: color.brandRose,
-    fontWeight: '800',
-    letterSpacing: 0.4,
+    letterSpacing: -0.2,
+    marginTop: 1,
   },
 })

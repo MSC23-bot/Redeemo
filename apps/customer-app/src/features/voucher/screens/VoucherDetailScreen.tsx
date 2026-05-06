@@ -453,25 +453,22 @@ export function VoucherDetailScreen() {
 
       {/* CollapsedHeader overlay — pinned at top, frosted safe-area
           surface, opacity scroll-driven, single-threshold pointerEvents.
-          Round-6 redesign: now carries richer voucher context (type
-          stripe, save chip, merchant, REDEEM AT branch) so collapsed
-          chrome reads as a "compact voucher hero" rather than a
-          generic nav bar. */}
+          Round-8 redesign per owner direction: three-line text stack
+          (merchant → branch → title) on the left, SAVE chip on the
+          right, no share/heart (those stay in the hero NavRow only).
+          Identity-only chrome — actions live in the hero. */}
       <CollapsedHeader
         title={voucher.title}
         type={voucher.type}
         estimatedSaving={voucher.estimatedSaving}
         merchantName={voucher.merchant.businessName}
         branchName={branchName}
-        isFavourited={voucher.isFavourited}
         insetTop={insets.top}
         scrollY={scrollY}
         fadeStart={FADE_START}
         fadeEnd={FADE_END}
         isActive={collapsedActive}
         onBack={handleBack}
-        onShare={handleShare}
-        onFav={handleFav}
       />
 
       {cta ? (
