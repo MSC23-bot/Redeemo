@@ -283,16 +283,22 @@ describe('Voucher Detail — subscription prompt modal (round 16)', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 
-  it('annual plan button routes to /(auth)/subscription-prompt and dismisses the modal', () => {
+  it('annual plan button routes with source=voucher&plan=annual + return context', () => {
+    // Round 21: plan-specific URL so SubscribePromptScreen can
+    // initialise its plan selector to the user's pre-pick.
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getByTestId('subscription-prompt-annual'))
-    expect(mockPush).toHaveBeenCalledWith('/(auth)/subscription-prompt')
+    expect(mockPush).toHaveBeenCalledWith(
+      '/(auth)/subscription-prompt?source=voucher&plan=annual&returnVoucherId=v1&branch=b1&returnMerchantId=m1&tab=vouchers',
+    )
   })
 
-  it('monthly plan button routes to /(auth)/subscription-prompt and dismisses the modal', () => {
+  it('monthly plan button routes with source=voucher&plan=monthly + return context', () => {
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getByTestId('subscription-prompt-monthly'))
-    expect(mockPush).toHaveBeenCalledWith('/(auth)/subscription-prompt')
+    expect(mockPush).toHaveBeenCalledWith(
+      '/(auth)/subscription-prompt?source=voucher&plan=monthly&returnVoucherId=v1&branch=b1&returnMerchantId=m1&tab=vouchers',
+    )
   })
 })
 
@@ -308,9 +314,15 @@ describe('Voucher Detail — free-user CTA routes to subscription-prompt', () =>
     expect(queryByTestId('redeem-cta-expired')).toBeNull()
   })
 
-  it('tapping the subscribe CTA navigates to /(auth)/subscription-prompt', () => {
+  it('tapping the sticky subscribe CTA navigates with source=voucher&plan=monthly + return context', () => {
+    // Round 21: sticky CTA copy is "Subscribe to Redeem · £6.99/mo"
+    // so plan=monthly matches the price. Full return-context params
+    // included so SubscribePromptScreen's "Continue with Free
+    // Account" can route back to this exact voucher detail page.
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getByTestId('redeem-cta-subscribe'))
-    expect(mockPush).toHaveBeenCalledWith('/(auth)/subscription-prompt')
+    expect(mockPush).toHaveBeenCalledWith(
+      '/(auth)/subscription-prompt?source=voucher&plan=monthly&returnVoucherId=v1&branch=b1&returnMerchantId=m1&tab=vouchers',
+    )
   })
 })

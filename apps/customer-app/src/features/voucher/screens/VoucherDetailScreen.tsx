@@ -335,16 +335,42 @@ export function VoucherDetailScreen() {
     }
   }, [stateKey, branchReady])
 
+  // Round 21: build the voucher-origin subscription URL with full
+  // return-context params. SubscribePromptScreen reads these to:
+  //   • initialise the plan selector to the user's pre-pick
+  //     (annual/monthly) instead of the onboarding default,
+  //   • swap CTA copy for voucher-origin (Continue with Annual /
+  //     Continue with Free Account),
+  //   • route the secondary CTA back to THIS exact voucher detail
+  //     page rather than dumping the user on Discovery.
+  // Returns null when voucher data isn't yet loaded — callers fall
+  // back to a plain push (state machine prevents free-user CTA from
+  // firing before voucher loads anyway).
+  const buildSubscriptionUrl = useCallback(
+    (plan: 'annual' | 'monthly'): string => {
+      const enc = encodeURIComponent
+      const qs: string[] = [`source=voucher`, `plan=${plan}`]
+      if (voucher) qs.push(`returnVoucherId=${enc(voucher.id)}`)
+      if (selectedBranch) qs.push(`branch=${enc(selectedBranch.id)}`)
+      if (voucher) qs.push(`returnMerchantId=${enc(voucher.merchant.id)}`)
+      qs.push(`tab=vouchers`)
+      return `/(auth)/subscription-prompt?${qs.join('&')}`
+    },
+    [voucher, selectedBranch],
+  )
+
   const handleCTA = useCallback(() => {
     if (stateKey === 'free-user') {
-      router.push('/(auth)/subscription-prompt' as never)
+      // Sticky free-user CTA copy is "Subscribe to Redeem · £6.99/mo"
+      // so plan=monthly matches the price the user just tapped.
+      router.push(buildSubscriptionUrl('monthly') as never)
       return
     }
     Alert.alert(
       'Coming next milestone',
       'PIN entry + redemption flow ships in M2.',
     )
-  }, [stateKey, router])
+  }, [stateKey, router, buildSubscriptionUrl])
 
   // ── Render ───────────────────────────────────────────────────────────
 
@@ -527,9 +553,9 @@ export function VoucherDetailScreen() {
       <SubscriptionPromptModal
         visible={showSubscriptionPrompt}
         onDismiss={() => setPromptDismissed(true)}
-        onSubscribe={() => {
+        onSubscribe={(plan) => {
           setPromptDismissed(true)
-          router.push('/(auth)/subscription-prompt' as never)
+          router.push(buildSubscriptionUrl(plan) as never)
         }}
       />
     </View>

@@ -7,7 +7,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
-import { router } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text, Button, layout, spacing, radius, color } from '@/design-system'
 import {
@@ -171,35 +171,91 @@ function PlanCard({ plan, selected, onPress }: PlanCardProps) {
 export function SubscribePromptScreen() {
   const refreshUser = useAuthStore((s) => s.refreshUser)
   const inFlightRef = useRef(false)
-  const [selected, setSelected] = useState<Plan>('annual')
+  // Round 21: read URL params so the screen can adapt to its entry
+  // source. Voucher-origin entries pass `source=voucher`,
+  // `plan=<annual|monthly>` (pre-selection), and return-context
+  // (returnVoucherId / branch / returnMerchantId / tab) so the
+  // secondary CTA can route back to the voucher detail page rather
+  // than dumping the user on Discovery.
+  const params = useLocalSearchParams<{
+    source?: string
+    plan?: string
+    returnVoucherId?: string
+    branch?: string
+    returnMerchantId?: string
+    tab?: string
+  }>()
+  const isVoucherOrigin = params.source === 'voucher'
+  const initialPlan: Plan = params.plan === 'monthly' ? 'monthly' : 'annual'
+  const [selected, setSelected] = useState<Plan>(initialPlan)
   const [busy, setBusy]         = useState(false)
   const insets                  = useSafeAreaInsets()
 
   // TODO (Phase 3C - Subscription):
-  // - Replace "Explore full access" CTA with real purchase flow
+  // - Replace primary CTA with real purchase flow
   // - iOS → Apple StoreKit (IAP)
   // - Android → Google Play Billing / Stripe
   // - Only mark subscriptionPromptSeenAt after:
-  //    a) user chooses free OR
+  //    a) user chooses free OR (voucher-origin: skip — see below)
   //    b) purchase is completed
 
   // Premium path (temporary stub — pending IAP).
   // Shows a coming-soon alert and keeps the user on this screen.
   // DOES NOT mark the prompt seen — routing guard in resolveRedirect would
-  // bounce the user straight back here on next render anyway, so we make
-  // the prompt a real decision point: pay later, or pick free now.
+  // bounce the user straight back here on next render anyway (onboarding
+  // flow), so we make the prompt a real decision point: pay later, or
+  // pick free now. Voucher-origin entries are unaffected because
+  // resolveRedirect explicitly allows the subscription-prompt segment
+  // for fully-onboarded users (round 20 fix).
   function handlePremiumChoice() {
     if (busy) return
     Alert.alert(
       'Coming soon',
-      'Premium unlocks all vouchers. Payment coming soon — for now, you can continue with free access.',
+      'Premium unlocks all vouchers. Payment coming soon.',
       [{ text: 'OK', style: 'cancel' }],
     )
   }
 
-  // Free path — only place subscriptionPromptSeenAt is stamped.
-  async function handleFreeChoice() {
+  // Secondary CTA path. Behaviour forks by source:
+  //
+  //   • Onboarding (no source param): mark subscriptionPromptSeenAt
+  //     and route to /(app)/. Existing locked behaviour.
+  //
+  //   • Voucher-origin: do NOT touch subscriptionPromptSeenAt —
+  //     the user is already past onboarding and just wants to keep
+  //     browsing without subscribing. Route back to the exact
+  //     Voucher Detail page they came from using the return-context
+  //     params. router.replace so this subscription page leaves the
+  //     stack cleanly.
+  //
+  //     If return params are missing (defensive), fall back to
+  //     router.back() then to /(app)/ as last resort.
+  async function handleSecondaryChoice() {
     if (inFlightRef.current) return
+
+    if (isVoucherOrigin) {
+      // Voucher-origin: bounce back to the voucher with full branch
+      // attribution so REDEEM AT context is preserved. Don't stamp
+      // subscriptionPromptSeenAt — user is past onboarding.
+      const enc = encodeURIComponent
+      const { returnVoucherId, branch, returnMerchantId, tab } = params
+      if (returnVoucherId && branch && returnMerchantId) {
+        const t = tab ?? 'vouchers'
+        router.replace(
+          `/voucher/${enc(returnVoucherId)}?branch=${enc(branch)}&from=merchant&returnMerchantId=${enc(returnMerchantId)}&tab=${enc(t)}` as never,
+        )
+        return
+      }
+      // Defensive fallback: missing return context. canGoBack() check
+      // would be ideal but the imperative `router` API doesn't expose
+      // it; router.back() is safe to call when there's stack history,
+      // otherwise the navigator no-ops.
+      router.back()
+      return
+    }
+
+    // Onboarding path — only place subscriptionPromptSeenAt is
+    // stamped. Unchanged from prior rounds.
     inFlightRef.current = true
     setBusy(true)
     try {
@@ -211,6 +267,16 @@ export function SubscribePromptScreen() {
       setBusy(false)
     }
   }
+
+  // Voucher-origin CTA labels reflect the selected plan + position
+  // the user as already-past-onboarding. Onboarding labels stay as
+  // the locked product copy.
+  const primaryLabel = isVoucherOrigin
+    ? (selected === 'annual' ? 'Continue with Annual' : 'Continue with Monthly')
+    : 'Explore full access'
+  const secondaryLabel = isVoucherOrigin
+    ? 'Continue with Free Account'
+    : 'Start with free access'
 
   return (
     <View style={[s.screen, { paddingTop: insets.top }]}>
@@ -285,7 +351,7 @@ export function SubscribePromptScreen() {
           onPress={handlePremiumChoice}
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel="Explore full access"
+          accessibilityLabel={primaryLabel}
           accessibilityState={{ busy, disabled: busy }}
         >
           <LinearGradient
@@ -298,7 +364,7 @@ export function SubscribePromptScreen() {
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <>
-                <Text style={s.unlockBtnText}>Explore full access</Text>
+                <Text style={s.unlockBtnText}>{primaryLabel}</Text>
                 <ChevronRight size={scale(18)} color="#FFFFFF" strokeWidth={2.5} />
               </>
             )}
@@ -309,9 +375,9 @@ export function SubscribePromptScreen() {
           variant="secondary"
           size="md"
           disabled={busy}
-          onPress={handleFreeChoice}
+          onPress={handleSecondaryChoice}
         >
-          Start with free access
+          {secondaryLabel}
         </Button>
 
         <View style={s.trustRow}>

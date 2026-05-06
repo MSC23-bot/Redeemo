@@ -12,13 +12,13 @@ type Props = {
   /** Dismiss the modal — user picked "Maybe later" or tapped the close icon. */
   onDismiss: () => void
   /**
-   * User picked a plan or the primary CTA. The Voucher Detail screen
-   * routes to `/(auth)/subscription-prompt` — the actual plan
-   * selection happens there. The modal does NOT pass query params
-   * because `SubscribePromptScreen` doesn't currently honour them
-   * (per round-16 owner direction: no ignored query params).
+   * User picked a plan. Round 21: the parent now routes to
+   * `/(auth)/subscription-prompt?source=voucher&plan=<plan>&...`
+   * with full return context, and `SubscribePromptScreen` honours
+   * the `plan` param by initialising selected state to it. The
+   * modal stays presentational — it doesn't know about URLs.
    */
-  onSubscribe: () => void
+  onSubscribe: (plan: 'annual' | 'monthly') => void
 }
 
 /**
@@ -83,7 +83,7 @@ export function SubscriptionPromptModal({ visible, onDismiss, onSubscribe }: Pro
         {/* Plans — both fire the same onSubscribe; the user selects
             plan on the SubscribePromptScreen itself. */}
         <Pressable
-          onPress={() => { lightHaptic(); onSubscribe() }}
+          onPress={() => { lightHaptic(); onSubscribe('annual') }}
           accessibilityRole="button"
           accessibilityLabel="Annual plan, £69.99 per year, 2 months free"
           style={({ pressed }) => [styles.planBtn, styles.planAnnual, pressed && styles.planPressed]}
@@ -103,7 +103,7 @@ export function SubscriptionPromptModal({ visible, onDismiss, onSubscribe }: Pro
         </Pressable>
 
         <Pressable
-          onPress={() => { lightHaptic(); onSubscribe() }}
+          onPress={() => { lightHaptic(); onSubscribe('monthly') }}
           accessibilityRole="button"
           accessibilityLabel="Monthly plan, £6.99 per month, cancel anytime"
           style={({ pressed }) => [styles.planBtn, styles.planMonthly, pressed && styles.planPressed]}
