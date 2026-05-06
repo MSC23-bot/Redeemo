@@ -27,6 +27,39 @@ describe('resolveRedirect', () => {
     expect(resolveRedirect({ status: 'authed', user: user(), currentGroup: 'auth', currentSegment: 'welcome' })).toBe('/(app)')
   })
 
+  it('round 17: fully onboarded user CAN re-enter subscription-prompt (used as conversion CTA from Voucher Detail)', () => {
+    // Without this exception, an onboarded user tapping "Subscribe to
+    // Redeem" on Voucher Detail navigates to /(auth)/subscription-prompt,
+    // hits the auth layout's resolveRedirect, and gets bounced straight
+    // to Discovery — defeating the conversion path.
+    expect(
+      resolveRedirect({
+        status: 'authed',
+        user: user(),  // fully onboarded (subscriptionPromptSeenAt set)
+        currentGroup: 'auth',
+        currentSegment: 'subscription-prompt',
+      }),
+    ).toBeNull()
+  })
+
+  it('round 17: other (auth) routes still kick out fully onboarded users', () => {
+    // The exception is narrow — only the subscription-prompt segment.
+    // Welcome / login / register still bounce to /(app).
+    // (forgot-password / reset-password are allowed for everyone via
+    // earlier short-circuits at the top of resolveRedirect — covered
+    // by separate tests.)
+    for (const seg of ['welcome', 'login', 'register']) {
+      expect(
+        resolveRedirect({
+          status: 'authed',
+          user: user(),
+          currentGroup: 'auth',
+          currentSegment: seg,
+        }),
+      ).toBe('/(app)')
+    }
+  })
+
   it('forces email-unverified user to verify-email', () => {
     expect(resolveRedirect({ status: 'authed', user: user({ emailVerified: false }), currentGroup: 'auth', currentSegment: 'welcome' })).toBe('/(auth)/verify-email')
   })

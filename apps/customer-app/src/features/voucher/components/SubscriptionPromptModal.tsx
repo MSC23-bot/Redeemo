@@ -77,7 +77,7 @@ export function SubscriptionPromptModal({ visible, onDismiss, onSubscribe }: Pro
 
         <Text variant="heading.md" style={styles.title}>Unlock Voucher Redemption</Text>
         <Text variant="body.md" style={styles.body}>
-          Subscribe to redeem this voucher and unlock voucher redemption across Redeemo.
+          Subscribe to redeem this voucher and unlock eligible vouchers across all merchants on Redeemo.
         </Text>
 
         {/* Plans — both fire the same onSubscribe; the user selects

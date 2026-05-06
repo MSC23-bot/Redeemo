@@ -87,7 +87,18 @@ export function resolveRedirect(input: {
     return currentSegment === 'subscription-prompt' ? null : '/(auth)/subscription-prompt'
   }
 
-  // 6. Fully onboarded — kick out of (auth) group
-  if (currentGroup === 'auth') return '/(app)'
+  // 6. Fully onboarded — kick out of (auth) group, EXCEPT for the
+  //    subscription-prompt screen. Round-17 fix: that screen is reused
+  //    as a conversion CTA from Voucher Detail (and other surfaces).
+  //    Without this exception, an onboarded user tapping "Subscribe to
+  //    Redeem" on Voucher Detail lands here, the auth layout's
+  //    resolveRedirect runs, sees `subscriptionPromptSeenAt` is set,
+  //    and bounces them straight to Discovery — defeating the
+  //    conversion path. Allowing this single segment to stay open
+  //    avoids creating a duplicate plan screen.
+  if (currentGroup === 'auth') {
+    if (currentSegment === 'subscription-prompt') return null
+    return '/(app)'
+  }
   return null
 }
