@@ -241,14 +241,23 @@ export function MerchantProfileScreen({ id }: Props) {
   }, [merchant])
 
   // Voucher tap — free-user gate per owner decision §9.1. Subscribed
-  // users navigate to /voucher/[id]?branch=<sb.id> per the locked
+  // users navigate to /voucher/[id]?branch=<id> per the locked
   // branch-attribution contract (Voucher Detail rebaseline plan §11
   // C1): the redemption branch is sourced from the merchant-profile's
-  // selectedBranch, passed via URL so Voucher Detail's
+  // selected branch, passed via URL so Voucher Detail's
   // useMerchantProfile fetches against the same branch context. Cold-
   // open (no branch param) falls through to the merchant-profile
   // resolver's nearest-by-GPS / isMainBranch logic — but every entry
   // from this screen passes the param so the branch carries forward.
+  //
+  // §O7 fix (PR #40 round 23): URL `branchId` from useBranchSelection
+  // wins over `merchant.selectedBranch.id`. The merchant query uses
+  // `keepPreviousData`, so during the refetch window after a branch
+  // switch (~1s) `merchant.selectedBranch.id` still references the
+  // PREVIOUS branch. Reading from the URL instead reflects the user's
+  // intent the instant they tap. Fallback to `merchant.selectedBranch.id`
+  // only when the URL has no branch — i.e. the cold-open window between
+  // mount and the `reconcile` effect (line 140-147) catching up.
   //
   // Return-context params (`from`, `returnMerchantId`, `tab`) are
   // appended so Voucher Detail's back button can deterministically
@@ -262,7 +271,7 @@ export function MerchantProfileScreen({ id }: Props) {
   // redemption time — browsing is unrestricted.
   const handleVoucherPress = useCallback((voucherId: string) => {
     if (!merchant) return
-    const sbId = merchant.selectedBranch?.id
+    const sbId = branchId ?? merchant.selectedBranch?.id
     const enc  = encodeURIComponent
     // Build query params as an array so the cold-open (no sbId) and
     // hot-open paths both share the same return-context fields.
@@ -273,7 +282,7 @@ export function MerchantProfileScreen({ id }: Props) {
     ]
     if (sbId) qs.unshift(`branch=${enc(sbId)}`)
     router.push(`/voucher/${enc(voucherId)}?${qs.join('&')}` as never)
-  }, [merchant])
+  }, [branchId, merchant])
 
   // Round 6 follow-up: screen-wide dim+restore pulse on branch
   // switch. Owner flagged that the previous tab-content settle
