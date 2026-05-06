@@ -276,11 +276,18 @@ const styles = StyleSheet.create({
     color: TEXT_2ND,
   },
   fairUse: {
-    backgroundColor: CREAM,
+    // Round-14: bumped from CREAM (#FFF9F5) to #FCF0E5 so the Fair
+    // Use card reads as a slightly more present sub-surface against
+    // the body card's tinted white (#FDFBF8). ΔL ≈ 4.5% — same hue
+    // family (H≈28) as the identity-zone gradient bottom stop, so
+    // the color is already vouched-for in the brand surface
+    // language. Border bumped to 0.06 alpha to match the firmer
+    // surface presence.
+    backgroundColor: '#FCF0E5',
     borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
+    borderColor: 'rgba(0,0,0,0.06)',
     marginTop: 8,
   },
   fairItem: {
