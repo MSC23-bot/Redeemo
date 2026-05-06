@@ -1,9 +1,15 @@
-import React, { useMemo, useCallback } from 'react'
-import { View, ScrollView, StyleSheet, Pressable, Alert, Platform } from 'react-native'
+import React, { useMemo, useCallback, useState } from 'react'
+import { View, StyleSheet, Pressable, Alert, Platform } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BlurView } from 'expo-blur'
 import { ArrowLeft } from 'lucide-react-native'
+import Animated, {
+  useSharedValue,
+  useAnimatedScrollHandler,
+  useAnimatedReaction,
+  runOnJS,
+} from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -21,6 +27,7 @@ import { HowItWorks } from '../components/HowItWorks'
 import { RedeemCTA } from '../components/RedeemCTA'
 import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
+import { CollapsedHeader } from '../components/CollapsedHeader'
 import { CTA_LABELS } from '../constants/productCopy'
 
 /**
@@ -28,12 +35,23 @@ import { CTA_LABELS } from '../constants/productCopy'
  * detail + redemption flow. Phase 3C.1c rebaseline (M1: view-only).
  *
  * Visual reference: `.superpowers/brainstorm/88554-1776435672/content/
- * voucher-detail-v4.html` (locked design baseline). Layout is a
- * stacked-coupon silhouette: type-coloured header (with frosted nav
- * scrolled INTO the hero) → outer perforation → white top card
- * (banner + info pills) → inner perforation → white body card
- * (terms + fair use). Then a merchant + branch attribution card,
- * the 4-step How It Works timeline, and a sticky bottom CTA.
+ * voucher-detail-v4.html` (locked design baseline).
+ *
+ * **Round 5 — safe-area chrome + back navigation:**
+ *   • Hero NavRow scrolls away with the coupon header (per v4
+ *     §vd-topnav).
+ *   • CollapsedHeader takes over once the hero starts to leave —
+ *     frosted safe-area surface + back / title / actions row +
+ *     "REDEEM AT <branch>" eyebrow when branch is resolved.
+ *   • Single-threshold pointerEvents handoff (round-5 plan §2): a
+ *     `useAnimatedReaction` flips a JS `collapsedActive` flag exactly
+ *     once per crossing of `HANDOFF_AT`. Hero NavRow is tappable
+ *     below the threshold; CollapsedHeader is tappable above it. No
+ *     overlap zone, no gap.
+ *   • Back navigation is URL-driven and works EVEN WHEN the voucher
+ *     query hasn't resolved (round-5 plan §1). Push side appends
+ *     `from=merchant&returnMerchantId=<id>&tab=vouchers` from
+ *     MerchantProfileScreen.handleVoucherPress.
  *
  * Data sources (locked dual-endpoint pattern, plan §3 D2):
  *   • `useCustomerVoucher(voucherId)` → voucher row + isRedeemedThisCycle
@@ -49,25 +67,7 @@ import { CTA_LABELS } from '../constants/productCopy'
  *     before any redeem attempt (handled by `<MerchantRow>`).
  *   • Branch is attribution-only; voucher eligibility
  *     (`isRedeemedThisCycle`) is branch-INDEPENDENT.
- *   • Vouchers are MERCHANT-LEVEL; redemption is BRANCH-LEVEL. The
- *     MerchantRow card splits the two visually (merchant identity
- *     section + red-tinted "REDEEM AT" panel) so the user reads the
- *     branch as the action context, not just a sub-detail.
- *
- * 12-state derivation (M1 view-only — M2/M3 add states 10/11/12):
- *   1.  Free user — not subscribed → "Subscribe to redeem" CTA.
- *   2.  Can redeem — subscribed + voucher ACTIVE + not yet redeemed.
- *   3.  Already redeemed this cycle — `isRedeemedThisCycle` true.
- *   4.  Voucher expired — past expiryDate.
- *   5/6/7. Time-limited variants — backend window data missing in M1
- *       (see useTimeLimited.ts header) so collapses to state 2 today
- *       with a "Time-limited" badge. Future backend additive field
- *       unlocks states 5/6/7 properly.
- *   8.  Cycle-locked from another voucher — defensive, same as 2 today.
- *   9.  Loading — initial fetch.
- *   10. PIN-entry-active (M2 — not in M1).
- *   11. Success popup (M2 — not in M1).
- *   12. ShowToStaff (M3 — not in M1).
+ *   • Vouchers are MERCHANT-LEVEL; redemption is BRANCH-LEVEL.
  */
 
 type VoucherStateKey =
@@ -84,8 +84,42 @@ type VoucherStateKey =
 const PAGE_BG = '#F5F0EB'      // v4 cream-stone page background
 const COUPON_INSET = 14         // horizontal coupon margin (each side)
 
+// Animated.ScrollView typed reference — Reanimated wraps RN's
+// ScrollView and forwards onScroll worklets via useAnimatedScrollHandler.
+const AnimatedScrollView = Animated.ScrollView
+
+/**
+ * Build the back-navigation URL from explicit return-context URL
+ * params. Pure function — does NOT read voucher / merchant query
+ * state. Intentionally pure so back navigation works even when
+ * Voucher Detail's own queries are still loading (round-5 plan §1).
+ *
+ * Returns null when the URL params don't carry enough context to
+ * deterministically construct a return route — caller falls through
+ * to `router.back()` then to the Discovery default.
+ */
+export function buildReturnUrl(params: {
+  from?: string | undefined
+  returnMerchantId?: string | undefined
+  branch?: string | undefined
+  tab?: string | undefined
+}): string | null {
+  if (params.from === 'merchant' && params.returnMerchantId && params.branch) {
+    const enc = encodeURIComponent
+    const tab = params.tab ?? 'vouchers'
+    return `/(app)/merchant/${enc(params.returnMerchantId)}?branch=${enc(params.branch)}&tab=${enc(tab)}`
+  }
+  return null
+}
+
 export function VoucherDetailScreen() {
-  const params = useLocalSearchParams<{ id?: string; branch?: string }>()
+  const params = useLocalSearchParams<{
+    id?: string
+    branch?: string
+    from?: string
+    returnMerchantId?: string
+    tab?: string
+  }>()
   const voucherId = typeof params.id === 'string' ? params.id : undefined
   const branchIdParam = typeof params.branch === 'string' ? params.branch : undefined
 
@@ -107,14 +141,7 @@ export function VoucherDetailScreen() {
 
   const timeLimited = useTimeLimited(voucher)
 
-  // Branch context for the redemption attribution UX. Pulled ONLY
-  // from merchant.selectedBranch — NEVER from merchant.branches[0]
-  // or any other source (plan §11 C1). `branchReady` gates the
-  // active RedeemCTA: states that require branch attribution
-  // (can-redeem, time-limited-available, time-limited-urgent) MUST
-  // NOT surface an active CTA before this is true. Without this
-  // gate, M2's PIN entry could open with an unresolved or wrong
-  // selectedBranch.id.
+  // Branch context for the redemption attribution UX.
   const selectedBranch = merchant?.selectedBranch ?? null
   const isMultiBranch  = (merchant?.branches.length ?? 0) > 1
   const branchName     = selectedBranch?.name ?? null
@@ -123,6 +150,33 @@ export function VoucherDetailScreen() {
   const branchReady    = !!selectedBranch
   const branchErrored  = merchantQuery.isError || (
     !!merchant && !merchant.selectedBranch
+  )
+
+  // ── Scroll-driven chrome handoff ─────────────────────────────────────
+  // FADE_START / FADE_END define the visual crossfade band; HANDOFF_AT
+  // is a single threshold that flips the JS state controlling
+  // pointerEvents (round-5 plan §2). Single threshold ⇒ no scroll
+  // range with both layers tappable, no scroll range with neither.
+  const FADE_START = insets.top + 80
+  const FADE_END   = insets.top + 200
+  const HANDOFF_AT = insets.top + 130
+
+  const scrollY = useSharedValue(0)
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollY.value = e.contentOffset.y
+    },
+  })
+
+  const [collapsedActive, setCollapsedActive] = useState(false)
+  useAnimatedReaction(
+    () => scrollY.value > HANDOFF_AT,
+    (active, prev) => {
+      if (active !== prev) {
+        runOnJS(setCollapsedActive)(active)
+      }
+    },
+    [HANDOFF_AT],
   )
 
   // ── 12-state derivation ────────────────────────────────────────────
@@ -149,10 +203,29 @@ export function VoucherDetailScreen() {
     return 'can-redeem'
   }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited, branchErrored])
 
+  // Back navigation — URL-only, does NOT depend on voucher/merchant
+  // queries having resolved. Round-5 plan §1.
   const handleBack = useCallback(() => {
     lightHaptic()
-    router.back()
-  }, [router])
+    const returnUrl = buildReturnUrl({
+      from:             params.from,
+      returnMerchantId: params.returnMerchantId,
+      branch:           params.branch,
+      tab:              params.tab,
+    })
+    if (returnUrl) {
+      // router.replace ensures Voucher Detail leaves the stack
+      // cleanly (rather than push, which would stack on top of the
+      // existing stack and require two backs).
+      router.replace(returnUrl as never)
+      return
+    }
+    if (router.canGoBack()) {
+      router.back()
+      return
+    }
+    router.replace('/(app)/' as never)
+  }, [router, params.from, params.returnMerchantId, params.branch, params.tab])
 
   const handleFav = useCallback(() => {
     Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
@@ -245,14 +318,20 @@ export function VoucherDetailScreen() {
 
   return (
     <View style={[styles.fullscreen]} testID={`voucher-detail-state-${stateKey}`}>
-      <ScrollView
+      <AnimatedScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
       >
         {/* ── Coupon stack ── */}
         <View style={styles.coupon}>
-          {/* Hero (with NavRow scrolling INSIDE per v4 §vd-topnav) */}
+          {/* Hero (with NavRow scrolling INSIDE per v4 §vd-topnav).
+              `scrollY` + `fadeStart` / `fadeEnd` drive the inverse
+              opacity interpolation; `collapsedActive` controls
+              pointerEvents so only one nav layer is tappable at a
+              time (round-5 plan §2). */}
           <CouponHeader
             type={voucher.type}
             title={voucher.title}
@@ -263,6 +342,10 @@ export function VoucherDetailScreen() {
             onShare={handleShare}
             onFav={handleFav}
             isFavourited={voucher.isFavourited}
+            scrollY={scrollY}
+            fadeStart={FADE_START}
+            fadeEnd={FADE_END}
+            collapsedActive={collapsedActive}
           />
 
           <PerforationLine pageBg={PAGE_BG} variant="outer" />
@@ -314,7 +397,25 @@ export function VoucherDetailScreen() {
         <HowItWorks />
 
         <View style={{ height: 130 }} />
-      </ScrollView>
+      </AnimatedScrollView>
+
+      {/* CollapsedHeader overlay — pinned at top, frosted safe-area
+          surface, opacity scroll-driven, single-threshold pointerEvents.
+          Renders for every "loaded" state. Loading + error use the
+          FallbackNav above (no hero to attach to). */}
+      <CollapsedHeader
+        title={voucher.title}
+        branchName={branchName}
+        isFavourited={voucher.isFavourited}
+        insetTop={insets.top}
+        scrollY={scrollY}
+        fadeStart={FADE_START}
+        fadeEnd={FADE_END}
+        isActive={collapsedActive}
+        onBack={handleBack}
+        onShare={handleShare}
+        onFav={handleFav}
+      />
 
       {cta ? (
         <View style={[styles.ctaWrap, { paddingBottom: insets.bottom + 16 }]}>

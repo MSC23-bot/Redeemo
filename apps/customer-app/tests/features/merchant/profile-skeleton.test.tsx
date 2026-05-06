@@ -344,18 +344,24 @@ describe('MerchantProfileScreen (M2)', () => {
     expect(await findByText('boom')).toBeTruthy()
   })
 
-  it('subscribed user: tapping a voucher routes to /voucher/[id]?branch=<selectedBranch.id>', async () => {
+  it('subscribed user: tapping a voucher routes to /voucher/[id] with full branch + return-context params', async () => {
     // Branch-attribution contract (Voucher Detail rebaseline plan
     // §11 C1): the redemption branch comes from selectedBranch and
-    // must thread through as a URL query param so Voucher Detail's
-    // useMerchantProfile fetches against the same branch context.
-    // The fixture's selectedBranch.id is 'b1', so the URL must
-    // include `?branch=b1`.
+    // threads through as `branch=<selectedBranch.id>`.
+    //
+    // Round-5 addition (PR #40 plan §1): also append explicit return
+    // context — `from=merchant`, `returnMerchantId=<id>`, and
+    // `tab=vouchers` — so Voucher Detail's back button can return
+    // here deterministically EVEN IF its own voucher query is still
+    // loading. Without these params, back falls through to
+    // router.back() and ultimately to the Discovery default.
     mockSubscribed = true
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
     fireEvent.press(await findByLabelText('Tap voucher'))
-    expect(router.push).toHaveBeenCalledWith('/voucher/v1?branch=b1')
+    expect(router.push).toHaveBeenCalledWith(
+      '/voucher/v1?branch=b1&from=merchant&returnMerchantId=m1&tab=vouchers',
+    )
   })
 
   it('free user: tapping a voucher shows the free-user gate, no nav', async () => {

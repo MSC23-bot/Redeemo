@@ -52,6 +52,19 @@ jest.mock('react-native-reanimated', () => {
     useAnimatedReaction: () => {},
     useAnimatedScrollHandler: () => () => {},
     useAnimatedGestureHandler: () => () => {},
+    // Reduced-motion + interpolation primitives (added 2026-05-06 for
+    // VoucherDetail CollapsedHeader). Stubs return safe defaults: no
+    // reduced motion, identity interpolation, sentinel Extrapolation
+    // values. Components that call these execute their non-reduced-
+    // motion / non-clamped paths under jest.
+    useReducedMotion: () => false,
+    interpolate: (value: number, _input: number[], output: number[]) => {
+      // Identity-like fallback: return the first output value so
+      // animated styles render without NaN. Tests asserting render
+      // (not numeric output) don't depend on the actual interpolation.
+      return output[0] ?? value
+    },
+    Extrapolation: { CLAMP: 'clamp', EXTEND: 'extend', IDENTITY: 'identity' },
     Easing: {
       bezier: () => (x: number) => x,
       inOut: (fn: unknown) => fn,

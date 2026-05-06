@@ -254,19 +254,28 @@ export function MerchantProfileScreen({ id }: Props) {
   // open (no branch param) falls through to the merchant-profile
   // resolver's nearest-by-GPS / isMainBranch logic — but every entry
   // from this screen passes the param so the branch carries forward.
+  //
+  // Return-context params (`from`, `returnMerchantId`, `tab`) are
+  // appended so Voucher Detail's back button can deterministically
+  // route the user BACK to this exact merchant + branch + Vouchers
+  // tab, even if Voucher Detail's own queries haven't resolved yet.
+  // See PR #40 round-5 plan §1 — back navigation must NOT depend on
+  // Voucher Detail's own voucher.merchant.id loading first.
   const handleVoucherPress = useCallback((voucherId: string) => {
     if (isSubLoading) return
     if (!isSubscribed) { setShowGate(true); return }
-    const sbId = merchant?.selectedBranch?.id
-    // encodeURIComponent both the voucherId and the branchId
-    // defensively. Both are Prisma-generated UUIDs today (no special
-    // chars) but encoding is cheap insurance against future ID
-    // format changes that could otherwise produce malformed URLs.
-    const enc = encodeURIComponent
-    const url = sbId
-      ? `/voucher/${enc(voucherId)}?branch=${enc(sbId)}`
-      : `/voucher/${enc(voucherId)}`
-    router.push(url as never)
+    if (!merchant) return
+    const sbId = merchant.selectedBranch?.id
+    const enc  = encodeURIComponent
+    // Build query params as an array so the cold-open (no sbId) and
+    // hot-open paths both share the same return-context fields.
+    const qs: string[] = [
+      `from=merchant`,
+      `returnMerchantId=${enc(merchant.id)}`,
+      `tab=vouchers`,
+    ]
+    if (sbId) qs.unshift(`branch=${enc(sbId)}`)
+    router.push(`/voucher/${enc(voucherId)}?${qs.join('&')}` as never)
   }, [isSubscribed, isSubLoading, merchant])
 
   // Round 6 follow-up: screen-wide dim+restore pulse on branch

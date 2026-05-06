@@ -5,6 +5,13 @@ import { BlurView } from 'expo-blur'
 import {
   ArrowLeft, Heart, Share2, Tag, Gift, Percent, Clock, Package, RefreshCw, Coins,
 } from 'lucide-react-native'
+import Animated, {
+  useAnimatedStyle,
+  useReducedMotion,
+  interpolate,
+  Extrapolation,
+  type SharedValue,
+} from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { lightHaptic } from '@/design-system/haptics'
 import type { VoucherType } from '@/lib/api/voucher'
@@ -26,6 +33,30 @@ type Props = {
   onShare: () => void
   onFav:   () => void
   isFavourited: boolean
+  /**
+   * Driven by the parent screen's `useAnimatedScrollHandler`. The
+   * hero NavRow opacity is interpolated INVERSELY to the
+   * CollapsedHeader's opacity so they crossfade across the same
+   * scroll range. Optional — if absent, hero NavRow is always opaque
+   * (used by tests / fallback rendering).
+   */
+  scrollY?: SharedValue<number>
+  /**
+   * Inverse-opacity range. Hero NavRow stays opaque from scrollY=0
+   * to `fadeStart`, fades 1→0 across [fadeStart, fadeEnd], stays at
+   * 0 above. Optional sibling of `scrollY`.
+   */
+  fadeStart?: number
+  fadeEnd?:   number
+  /**
+   * JS state derived from `useAnimatedReaction(scrollY > HANDOFF_AT)`
+   * in the parent. When TRUE, the collapsed header is the tappable
+   * nav and this hero NavRow is non-tappable. When FALSE, this hero
+   * NavRow is the tappable nav. Single threshold ⇒ no scroll range
+   * with both layers tappable, no scroll range with neither tappable.
+   * Optional — defaults to false (NavRow tappable).
+   */
+  collapsedActive?: boolean
 }
 
 const typeIcon = (type: VoucherType) => {
@@ -73,12 +104,38 @@ export function CouponHeader({
   onShare,
   onFav,
   isFavourited,
+  scrollY,
+  fadeStart,
+  fadeEnd,
+  collapsedActive = false,
 }: Props) {
   const gradient  = voucherGradient(type)
   const typeLabel = voucherTypeLabel(type)
   const Icon      = typeIcon(type)
+  const reducedMotion = useReducedMotion()
 
   const paddingTop = insetTop + NAV_ROOM
+
+  // Hero NavRow opacity — interpolated INVERSELY to CollapsedHeader
+  // (which fades IN across the same range). When scrollY/fadeStart/
+  // fadeEnd are absent (legacy / test usage) the NavRow stays opaque
+  // at all scroll positions.
+  const navAnimStyle = useAnimatedStyle(() => {
+    if (!scrollY || fadeStart === undefined || fadeEnd === undefined) {
+      return { opacity: 1 }
+    }
+    if (reducedMotion) {
+      return { opacity: scrollY.value >= fadeEnd ? 0 : 1 }
+    }
+    return {
+      opacity: interpolate(
+        scrollY.value,
+        [fadeStart, fadeEnd],
+        [1, 0],
+        Extrapolation.CLAMP,
+      ),
+    }
+  })
 
   return (
     <View style={[styles.root, { paddingTop }]} testID="coupon-header">
@@ -105,8 +162,18 @@ export function CouponHeader({
         pointerEvents="none"
       />
 
-      {/* NavRow lives INSIDE the hero so it scrolls away with it. */}
-      <View style={[styles.navRow, { top: insetTop + 8 }]} pointerEvents="box-none">
+      {/* NavRow lives INSIDE the hero so it scrolls away with it.
+          Wrapped in Animated.View so its opacity crossfades inversely
+          to the CollapsedHeader. `pointerEvents` driven by
+          collapsedActive (single-threshold JS state in parent) so
+          there's never a scroll range where both nav layers — or
+          neither — are tappable. */}
+      <Animated.View
+        style={[styles.navRow, { top: insetTop + 8 }, navAnimStyle]}
+        pointerEvents={collapsedActive ? 'none' : 'box-none'}
+        accessibilityElementsHidden={collapsedActive}
+        importantForAccessibility={collapsedActive ? 'no-hide-descendants' : 'auto'}
+      >
         <FrostedNavButton onPress={onBack} accessibilityLabel="Go back">
           <ArrowLeft size={20} color={WHITE} strokeWidth={2.4} />
         </FrostedNavButton>
@@ -127,7 +194,7 @@ export function CouponHeader({
             />
           </FrostedNavButton>
         </View>
-      </View>
+      </Animated.View>
 
       <View style={styles.content}>
         <View style={styles.typeBadge}>
