@@ -2,16 +2,18 @@ import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { CollapsedHeader } from '@/features/voucher/components/CollapsedHeader'
 
-// PR #40 round 9 — CollapsedHeader contract tests.
+// PR #40 round 10 — CollapsedHeader contract tests.
 //
-// Round-9 redesign: 2-line text stack (title primary, merchant·branch
-// secondary) per owner direction that the round-8 title was
-// unreadably small. Save chip texts now use textAlign='center' to
-// fix the round-8 visual off-center.
+// Round 10 redesigns the collapsed chrome to match the merchant
+// profile's collapsed style (solid cream bg, no BlurView) and
+// reorders the text stack so merchant + branch sit at top (next to
+// the back button — back returns to merchant profile, so merchant
+// context next to back is correct), with the voucher title on the
+// third line as voucher-specific context.
 //
-// `accessibilityElementsHidden` makes the inactive subtree invisible
-// to default queries — pass `{ includeHiddenElements: true }` to
-// inspect it.
+// Branch is stripped of the merchant prefix via `branchShortName()`
+// — same helper the merchant profile uses, so "Covelum —
+// Brightlingsea" displays as "Brightlingsea".
 
 const sharedValue = (v: number) => ({ value: v }) as any
 
@@ -20,7 +22,7 @@ const baseProps = {
   type: 'FREEBIE' as const,
   estimatedSaving: 2.5,
   merchantName: 'Covelum Restaurant',
-  branchName: 'Brightlingsea',
+  branchName: 'Covelum — Brightlingsea',  // full backend value
   insetTop: 59,
   scrollY: sharedValue(0),
   fadeStart: 100,
@@ -36,11 +38,12 @@ beforeEach(() => {
 const HIDDEN_OPT = { includeHiddenElements: true } as const
 
 describe('CollapsedHeader — top-of-page state (isActive=false)', () => {
-  it('renders the wrapper + title + context line testIDs', () => {
+  it('renders the wrapper + merchant + branch + title testIDs', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} isActive={false} />)
     expect(getByTestId('collapsed-header-root', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT)).toBeTruthy()
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeTruthy()
     expect(getByTestId('collapsed-header-title', HIDDEN_OPT)).toBeTruthy()
-    expect(getByTestId('collapsed-header-context', HIDDEN_OPT)).toBeTruthy()
   })
 
   it('wrapper is non-tappable + a11y-hidden when inactive', () => {
@@ -51,12 +54,53 @@ describe('CollapsedHeader — top-of-page state (isActive=false)', () => {
     expect(root.props.importantForAccessibility).toBe('no-hide-descendants')
   })
 
-  it('renders title as primary + merchant·branch combined as context', () => {
+  it('reordered: merchant first (next to back button), branch second, title third', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
+    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT).props.children)
+      .toBe('Covelum Restaurant')
     expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children)
       .toBe('Free Filter Coffee with Any Thali')
-    expect(getByTestId('collapsed-header-context', HIDDEN_OPT).props.children)
-      .toBe('Covelum Restaurant · Brightlingsea')
+  })
+})
+
+describe('CollapsedHeader — branch prefix stripping', () => {
+  it('strips the "Covelum — " merchant prefix from "Covelum — Brightlingsea" -> "Brightlingsea"', () => {
+    const { getByTestId } = render(
+      <CollapsedHeader {...baseProps} branchName="Covelum — Brightlingsea" />,
+    )
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT).props.children).toBe('Brightlingsea')
+  })
+
+  it('handles en-dash separator too ("Covelum – Brightlingsea")', () => {
+    const { getByTestId } = render(
+      <CollapsedHeader {...baseProps} branchName="Covelum – Brightlingsea" />,
+    )
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT).props.children).toBe('Brightlingsea')
+  })
+
+  it('handles hyphen-with-spaces separator ("Pizza Palace - High Street")', () => {
+    const { getByTestId } = render(
+      <CollapsedHeader {...baseProps} branchName="Pizza Palace - High Street" />,
+    )
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT).props.children).toBe('High Street')
+  })
+
+  it('passes branch through unchanged when no separator is present', () => {
+    const { getByTestId } = render(
+      <CollapsedHeader {...baseProps} branchName="High Street" />,
+    )
+    expect(getByTestId('collapsed-header-branch', HIDDEN_OPT).props.children).toBe('High Street')
+  })
+
+  it('omits the branch line entirely when branchName is null (no fabricated copy)', () => {
+    const { queryByTestId, getByTestId } = render(
+      <CollapsedHeader {...baseProps} branchName={null} />,
+    )
+    expect(queryByTestId('collapsed-header-branch', HIDDEN_OPT)).toBeNull()
+    // Merchant + title still render.
+    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT).props.children).toBe('Covelum Restaurant')
+    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children)
+      .toBe('Free Filter Coffee with Any Thali')
   })
 })
 
@@ -83,24 +127,6 @@ describe('CollapsedHeader — scrolled-past-hero state (isActive=true)', () => {
   })
 })
 
-describe('CollapsedHeader — branch handling on the context line', () => {
-  it('combines merchant + branch with " · " separator when both present', () => {
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} merchantName="A Merchant" branchName="B Branch" />)
-    expect(getByTestId('collapsed-header-context', HIDDEN_OPT).props.children).toBe('A Merchant · B Branch')
-  })
-
-  it('shows just the merchant when branchName is null (no fabricated copy, no trailing separator)', () => {
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} merchantName="A Merchant" branchName={null} />)
-    expect(getByTestId('collapsed-header-context', HIDDEN_OPT).props.children).toBe('A Merchant')
-  })
-
-  it('still renders the title even when branchName is null', () => {
-    const { getByTestId } = render(<CollapsedHeader {...baseProps} branchName={null} />)
-    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.children)
-      .toBe('Free Filter Coffee with Any Thali')
-  })
-})
-
 describe('CollapsedHeader — SAVE chip', () => {
   it('renders the chip', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
@@ -114,18 +140,18 @@ describe('CollapsedHeader — SAVE chip', () => {
 })
 
 describe('CollapsedHeader — overflow protection', () => {
-  it('title has numberOfLines=1 + ellipsizeMode=tail + adjustsFontSizeToFit', () => {
+  it('all text Texts have numberOfLines=1 + ellipsizeMode=tail', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
-    const node = getByTestId('collapsed-header-title', HIDDEN_OPT)
-    expect(node.props.numberOfLines).toBe(1)
-    expect(node.props.ellipsizeMode).toBe('tail')
-    expect(node.props.adjustsFontSizeToFit).toBe(true)
+    for (const id of ['collapsed-header-merchant', 'collapsed-header-branch', 'collapsed-header-title']) {
+      const node = getByTestId(id, HIDDEN_OPT)
+      expect(node.props.numberOfLines).toBe(1)
+      expect(node.props.ellipsizeMode).toBe('tail')
+    }
   })
 
-  it('context line has numberOfLines=1 + ellipsizeMode=tail', () => {
+  it('merchant + title use adjustsFontSizeToFit so long content shrinks before truncating', () => {
     const { getByTestId } = render(<CollapsedHeader {...baseProps} />)
-    const node = getByTestId('collapsed-header-context', HIDDEN_OPT)
-    expect(node.props.numberOfLines).toBe(1)
-    expect(node.props.ellipsizeMode).toBe('tail')
+    expect(getByTestId('collapsed-header-merchant', HIDDEN_OPT).props.adjustsFontSizeToFit).toBe(true)
+    expect(getByTestId('collapsed-header-title', HIDDEN_OPT).props.adjustsFontSizeToFit).toBe(true)
   })
 })
