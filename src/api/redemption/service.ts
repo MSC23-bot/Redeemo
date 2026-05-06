@@ -166,11 +166,88 @@ export async function createRedemption(
     throw new AppError('INVALID_PIN', { remainingAttempts })
   }
 
-  // 8. Atomic transaction
+  // 11. Atomic write — race-safe conditional claim.
+  //
+  // Two concurrent createRedemption calls for the same (userId, voucherId)
+  // can both pass the pre-PIN cycle check at step 7 (which reads cycle
+  // state without a row lock). Without the conditional claim below, both
+  // would write VoucherRedemption rows and the upsert would silently let
+  // both succeed — duplicate redemption rows, double branch attribution,
+  // inflated merchant analytics.
+  //
+  // Defense: use the existing @@unique([userId, voucherId]) on
+  // UserVoucherCycleState as a single-row claim point. Only ONE racing
+  // request can claim the row for the current cycle:
+  //   1. Conditional updateMany — succeeds only if the row is from an
+  //      older cycle (stale, can be reclaimed) or current cycle but not
+  //      yet redeemed.
+  //   2. If count === 0, no matching row → try create. P2002 means a
+  //      concurrent winner created the row between updateMany and create;
+  //      retry the conditional updateMany once.
+  //   3. If still unclaimable, throw ALREADY_REDEEMED — race lost.
+  //   4. Only AFTER cycle-state is claimed, write the VoucherRedemption.
   const redemptionCode = generateRedemptionCode()
 
   const redemption = await prisma.$transaction(async (tx) => {
-    const created = await tx.voucherRedemption.create({
+    // Step 1: Conditional claim.
+    const claimWhere = {
+      userId,
+      voucherId: data.voucherId,
+      OR: [
+        { cycleStartDate: { lt: cycleStart } },           // stale, can be reclaimed
+        { isRedeemedInCurrentCycle: false },               // current cycle, not yet claimed
+      ],
+    }
+    const claimData = {
+      cycleStartDate:           cycleStart,
+      isRedeemedInCurrentCycle: true,
+      lastRedeemedAt:           now,
+    }
+
+    const updated = await tx.userVoucherCycleState.updateMany({
+      where: claimWhere,
+      data:  claimData,
+    })
+
+    let claimed = updated.count === 1
+
+    if (!claimed) {
+      // Step 2: No matching row — try create.
+      try {
+        await tx.userVoucherCycleState.create({
+          data: {
+            userId,
+            voucherId: data.voucherId,
+            cycleStartDate:           cycleStart,
+            isRedeemedInCurrentCycle: true,
+            lastRedeemedAt:           now,
+          },
+        })
+        claimed = true
+      } catch (err: any) {
+        // P2002 = unique constraint violation; concurrent winner created
+        // the row between our updateMany and our create. Retry once.
+        if (err?.code === 'P2002') {
+          const retried = await tx.userVoucherCycleState.updateMany({
+            where: claimWhere,
+            data:  claimData,
+          })
+          claimed = retried.count === 1
+        } else {
+          throw err
+        }
+      }
+    }
+
+    if (!claimed) {
+      // Step 3: Race lost — concurrent winner already redeemed for the
+      // current cycle. The pre-PIN check at step 7 missed it because the
+      // row was claimed AFTER our read but BEFORE our write attempt.
+      throw new AppError('ALREADY_REDEEMED')
+    }
+
+    // Step 4: Cycle state is claimed; safe to create the redemption record.
+    return tx.voucherRedemption.create({
       data: {
         userId,
         voucherId:       data.voucherId,
@@ -181,24 +258,6 @@ export async function createRedemption(
         redeemedAt:      now,
       },
     })
-
-    await tx.userVoucherCycleState.upsert({
-      where:  { userId_voucherId: { userId, voucherId: data.voucherId } },
-      create: {
-        userId,
-        voucherId:                data.voucherId,
-        cycleStartDate:           cycleStart,
-        isRedeemedInCurrentCycle: true,
-        lastRedeemedAt:           now,
-      },
-      update: {
-        cycleStartDate:           cycleStart,
-        isRedeemedInCurrentCycle: true,
-        lastRedeemedAt:           now,
-      },
-    })
-
-    return created
   })
 
   // 9. Reset fail counter on success
