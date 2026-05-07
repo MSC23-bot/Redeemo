@@ -62,12 +62,34 @@ export function BranchPickerSheet({
   onConfirm,
   onDismiss,
 }: Props) {
-  const [previewId, setPreviewId] = useState<string | null>(currentBranchId)
+  // Normalise `currentBranchId` to null unless it actually exists in
+  // the passed `branches` list. The picker is given an
+  // already-active-filtered list (orchestrator filters via
+  // `b.isActive`); if the URL/state's currentBranchId points at a
+  // branch that's been removed from the list (deactivated, deleted,
+  // wrong merchant), pre-selecting it would let the user tap
+  // Confirm and submit a hidden id that the backend would reject
+  // with BRANCH_UNAVAILABLE. Locked 2026-05-07 from device QA
+  // edge-case review — Confirm must be disabled until the user
+  // picks a row that is visibly available in the sheet.
+  const validInitialId = currentBranchId !== null
+    && branches.some((b) => b.id === currentBranchId)
+    ? currentBranchId
+    : null
 
-  // Reset preview when sheet opens / current branch changes externally.
+  const [previewId, setPreviewId] = useState<string | null>(validInitialId)
+
+  // Reset preview when sheet opens / current branch changes externally,
+  // also normalising against the visible branches list.
   useEffect(() => {
-    if (visible) setPreviewId(currentBranchId)
-  }, [visible, currentBranchId])
+    if (visible) {
+      const next = currentBranchId !== null
+        && branches.some((b) => b.id === currentBranchId)
+        ? currentBranchId
+        : null
+      setPreviewId(next)
+    }
+  }, [visible, currentBranchId, branches])
 
   const handleConfirm = () => {
     if (!previewId) return

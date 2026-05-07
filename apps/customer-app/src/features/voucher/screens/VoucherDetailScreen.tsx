@@ -325,19 +325,32 @@ export function VoucherDetailScreen() {
     if (!merchant) return null
     if (targetBranchId) {
       // URL/picker target: prefer the rich selectedBranch when it
-      // matches; otherwise the lighter BranchTile. Either way, never
-      // fall back to a different branch (would break attribution).
-      if (merchant.selectedBranch?.id === targetBranchId) {
+      // matches; otherwise the lighter BranchTile. Either path is
+      // gated on `isActive` — a deactivated/suspended branch must
+      // never resolve as display-ready, even if its row is still in
+      // merchant.branches. Without this gate, the active Redeem CTA
+      // could appear for an inactive target and the user would only
+      // see BRANCH_UNAVAILABLE after entering a PIN. Locked
+      // 2026-05-07 from device QA edge-case review.
+      if (
+        merchant.selectedBranch?.id === targetBranchId
+        && merchant.selectedBranch.isActive
+      ) {
         const sb = merchant.selectedBranch
         return { id: sb.id, name: sb.name, distance: sb.distance, logoUrl: sb.logoUrl }
       }
-      const tile = merchant.branches.find((b) => b.id === targetBranchId)
+      const tile = merchant.branches.find(
+        (b) => b.id === targetBranchId && b.isActive,
+      )
       if (!tile) return null
       return { id: tile.id, name: tile.name, distance: tile.distance, logoUrl: null }
     }
-    // No URL/picker target → cold-open fallback to selectedBranch.
-    if (!merchant.selectedBranch) return null
+    // No URL/picker target → cold-open fallback to selectedBranch,
+    // also gated on isActive (defense-in-depth: the backend should
+    // never resolve selectedBranch to an inactive row, but if it
+    // ever does we don't want the customer to see it).
     const sb = merchant.selectedBranch
+    if (!sb || !sb.isActive) return null
     return { id: sb.id, name: sb.name, distance: sb.distance, logoUrl: sb.logoUrl }
   }, [merchant, targetBranchId])
 
@@ -347,10 +360,11 @@ export function VoucherDetailScreen() {
   // Error semantics:
   //   - merchantQuery isError → error.
   //   - merchant data settled (NOT fetching) AND we have a target id
-  //     AND it's not in merchant.branches → branch genuinely missing
-  //     (deleted / wrong merchant). Error.
-  //   - merchant data settled AND no target AND no selectedBranch →
-  //     cold-open with no resolvable branch. Error.
+  //     AND it's not in merchant.branches as ACTIVE → branch
+  //     genuinely missing (deleted / wrong merchant) OR inactive
+  //     (suspended / deactivated). Either way, error.
+  //   - merchant data settled AND no target AND no active
+  //     selectedBranch → cold-open with no resolvable branch. Error.
   //   - merchant data still fetching → not an error; the UI just
   //     waits in the unresolved state until the refetch lands.
   const branchErrored = merchantQuery.isError || (
@@ -358,8 +372,8 @@ export function VoucherDetailScreen() {
     && !merchantQuery.isFetching
     && (
       targetBranchId
-        ? !merchant.branches.find((b) => b.id === targetBranchId)
-        : !merchant.selectedBranch
+        ? !merchant.branches.find((b) => b.id === targetBranchId && b.isActive)
+        : !merchant.selectedBranch || !merchant.selectedBranch.isActive
     )
   )
   // Schedule the auto-show timer. All gates must hold:

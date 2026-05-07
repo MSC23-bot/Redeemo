@@ -846,4 +846,37 @@ describe('Voucher Detail M2 — URL-first display branch (issue #2)', () => {
     // MerchantRow shows the resolved branch line, not the placeholder.
     expect(getByTestId('redeem-at-line')).toBeTruthy()
   })
+
+  it('URL=B2 inactive in merchant.branches: no active CTA, no display-ready state, error surfaces', () => {
+    // Edge case (locked 2026-05-07 from device QA): URL targets a
+    // branch that exists in merchant.branches but with isActive=false
+    // (suspended / deactivated). Pre-fix: displayBranch resolved
+    // anyway → branchReady true → active Redeem CTA appeared →
+    // backend rejected with BRANCH_UNAVAILABLE only after PIN entry.
+    // Post-fix: the isActive gate in displayBranch makes branchReady
+    // false; branchErrored fires (settled merchant + no
+    // active-and-matching branch); the screen shows the error state
+    // before the user reaches PIN entry.
+    mockParams = { id: 'v1', branch: 'b2' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea'),
+        // B2 is in the list but inactive (suspended).
+        { ...makeBranch('b2', 'Colchester', 12_000), isActive: false },
+      ],
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // No active Redeem CTA — defense-in-depth. The screen MUST NOT
+    // let the user reach PIN entry for an inactive branch.
+    expect(queryByTestId('redeem-cta-active')).toBeNull()
+    // No "branch-loading" CTA either (that wasn't the regression
+    // — but pin its absence so the hide-the-wrap pattern is
+    // preserved alongside the isActive gate).
+    expect(queryByTestId('redeem-cta-branch-loading')).toBeNull()
+    // The voucher-detail-error surface renders — settled merchant
+    // data, no active+matching target branch.
+    expect(getByTestId('voucher-detail-error')).toBeTruthy()
+  })
 })
