@@ -1989,7 +1989,11 @@ Add a new dated section reflecting M3 LIVE on main + the cleanup state.
 - §P1 — flip to closed (M3 shipped).
 - §P2 — flip to closed for current-cycle persisted return-visit; past-cycle history remains §Q5.
 - §Q6 — confirm the cycle-rollover invariant test landed.
+- §O1 (TIME_LIMITED) — VERIFY the 2026-05-08 audit-time expansion is intact (current-state verification, schema options a/b/c/d, recommended hybrid default, merchant-portal dependency, full UI-spec cross-refs). If any details have drifted by M3 ship time (e.g. main has moved), refresh the audit-state lines without losing the structure. **No new content needed** — this is a verification step.
+- §T / §T1 (REUSABLE multi-redemption) — VERIFY the 2026-05-08 audit-time entry is intact (today's reality, candidate rules R1-R5, recommended R3+R4 hybrid direction, abuse-prevention risks, schema implications, frontend implications, no-M3-dependency confirmation, Tier 3 brainstorm-first sequencing). **No new content needed** — verification step.
 - Add new entries for any M3-derived deferrals discovered during implementation.
+
+> **Why these two entries are pre-populated.** Owner direction 2026-05-08: TIME_LIMITED + REUSABLE audit captured ahead of M3 plan-write so the workstreams aren't lost. Both confirmed to NOT block M3. The entries went into memory at audit time (commit `<plan-branch-sha>` on `plan/voucher-m3-show-to-staff`). Task 22 verifies them post-M3-merge — checking nothing in the M3 implementation invalidated the audit findings.
 
 - [ ] **Step 5: Update memory `MEMORY.md` index** to point at the new project_current_state.md state.
 
