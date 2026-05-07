@@ -1146,7 +1146,7 @@ describe('Voucher Detail M2 — picker intent split (issue: change vs redeem)', 
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent branch swap)', () => {
-  it('change-intent + actually-different branch → handleBack URL includes branchChanged=1', async () => {
+  it('change-intent + actually-different branch → handleBack URL routes to NEW branch AND carries branchChanged=1', async () => {
     mockSubscribed = true
     mockVoucherData = baseVoucher()
     mockParams = { id: 'v1', branch: 'b1', from: 'merchant', returnMerchantId: 'm1' }
@@ -1165,12 +1165,68 @@ describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent bra
     fireEvent.press(getByTestId('branch-picker-row-b2'))
     fireEvent.press(getByTestId('branch-picker-confirm'))
 
-    // Hit the back nav — handleBack uses buildReturnUrl with the
-    // branchChanged flag set.
+    // Hit the back nav — handleBack reads `changedBranchOnVoucherId`
+    // (the synchronous local store of the picker confirm), so the
+    // return URL routes to B2 EVEN IF `useLocalSearchParams` hasn't
+    // caught up to the router.replace fired during confirm.
     fireEvent.press(getByLabelText('Go back'))
-    expect(mockReplace).toHaveBeenCalledWith(
-      expect.stringContaining('branchChanged=1'),
-    )
+    // The back URL must carry BOTH the new branch AND the toast flag.
+    // Pre-fix the back URL could carry branch=b1 (stale URL) +
+    // branchChanged=1 (toast fires) — toast says "now viewing B2"
+    // while the screen actually returned to B1. Pin both halves.
+    const backCalls = (mockReplace as jest.Mock).mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/(app)/merchant/'))
+    expect(backCalls.length).toBeGreaterThan(0)
+    const backUrl = backCalls[backCalls.length - 1]
+    expect(backUrl).toContain('branch=b2')
+    expect(backUrl).toContain('branchChanged=1')
+    // Negative pin: must NOT carry the stale branch.
+    expect(backUrl).not.toContain('branch=b1&')
+    expect(backUrl).not.toMatch(/branch=b1$/)
+  })
+
+  it('change-intent + immediate Back BEFORE URL catch-up → return URL still routes to new branch (synchronous local source)', async () => {
+    // Critical race-free test (locked 2026-05-07 from device QA
+    // re-review): tap Back the very next interaction after Confirm.
+    // The router.replace fired by Confirm has run, but the test does
+    // NOT explicitly wait for `useLocalSearchParams` to re-sync — the
+    // back tap happens synchronously in the same fireEvent batch.
+    // handleBack must still produce branch=b2 because it reads
+    // changedBranchOnVoucherId, not params.branch.
+    mockSubscribed = true
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1', from: 'merchant', returnMerchantId: 'm1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea', 1500),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+
+    const { getByTestId, getByLabelText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByLabelText('Change ▾'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+    fireEvent.press(getByTestId('branch-picker-row-b2'))
+
+    // Confirm + Back synchronously, no `await` between them. The
+    // mock useLocalSearchParams returns whatever `mockParams` is at
+    // the moment of the call — we never mutate `mockParams.branch`
+    // here, so it's STILL 'b1' when Back fires. That's exactly the
+    // device-QA race the resolver guards against.
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+    fireEvent.press(getByLabelText('Go back'))
+
+    const backCalls = (mockReplace as jest.Mock).mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/(app)/merchant/'))
+    const backUrl = backCalls[backCalls.length - 1]
+    expect(backUrl).toContain('branch=b2')
+    expect(backUrl).toContain('branchChanged=1')
+    // mockParams was never mutated — confirms the local id is what
+    // saved us, not URL catch-up.
+    expect(mockParams.branch).toBe('b1')
   })
 
   it('back without any branch change → return URL does NOT carry branchChanged', () => {

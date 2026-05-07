@@ -283,15 +283,22 @@ export function VoucherDetailScreen() {
   // handlePickerConfirm reads this to decide what happens after
   // the URL/picker-local branch is updated.
   const [pickerIntent, setPickerIntent] = useState<'change' | 'redeem'>('redeem')
-  // True when the user changed the branch on this voucher detail
-  // session via the 'change' intent (and the new branch differs from
-  // the URL branch at confirm time). On back-navigation,
-  // `buildReturnUrl` appends `branchChanged=1` so Merchant Profile
-  // can show a one-time confirmation toast. Locked 2026-05-07 from
-  // device QA — the user might not realise the branch changed when
-  // they tap back, especially when the merchant-profile chip + band
-  // are scrolled off-screen.
-  const [userChangedBranchOnVoucher, setUserChangedBranchOnVoucher] = useState(false)
+  // The branch id the user picked via 'change' intent on this voucher
+  // detail session, when different from the URL branch at confirm
+  // time. Stored as the explicit id (not a boolean flag) so
+  // `handleBack` can route to that branch DIRECTLY without depending
+  // on `useLocalSearchParams` having caught up after the
+  // `router.replace` inside the picker confirm. Locked 2026-05-07
+  // from device QA — a back tap immediately after Confirm could
+  // otherwise carry the stale URL branch into the return URL while
+  // still appending branchChanged=1, producing a contradictory toast
+  // ("changed to B2") and destination ("B1").
+  //
+  // Null means: no change-intent confirm has happened yet, OR the
+  // user picked the same branch they were already on (no-op).
+  // `handleBack` reads this first; the URL branch is the cold-open
+  // fallback when the local id is null.
+  const [changedBranchOnVoucherId, setChangedBranchOnVoucherId] = useState<string | null>(null)
   const [pinSheetVisible, setPinSheetVisible] = useState(false)
   const [successPopup, setSuccessPopup] = useState<RedeemResponse | null>(null)
   const [lastRedemption, setLastRedemption] = useState<RedeemResponse | null>(null)
@@ -517,12 +524,26 @@ export function VoucherDetailScreen() {
   // queries having resolved. Round-5 plan §1.
   const handleBack = useCallback(() => {
     lightHaptic()
+    // Branch source priority for the return URL:
+    //   1. `changedBranchOnVoucherId` — synchronous local store of
+    //      the most recent change-intent confirm (when different
+    //      from URL). Reading this FIRST means the back URL routes
+    //      to the user's intended branch even if they tap back
+    //      before `useLocalSearchParams` has caught up to the
+    //      `router.replace` fired by the picker.
+    //   2. `params.branch` — URL truth, the cold-open / steady-state
+    //      source.
+    //
+    // `branchChanged` flips on if and only if the local id is
+    // non-null, i.e. the user actually changed branch this session
+    // (not a no-op same-branch confirm).
+    const returnBranch = changedBranchOnVoucherId ?? params.branch
     const returnUrl = buildReturnUrl({
       from:             params.from,
       returnMerchantId: params.returnMerchantId,
-      branch:           params.branch,
+      branch:           returnBranch,
       tab:              params.tab,
-      branchChanged:    userChangedBranchOnVoucher,
+      branchChanged:    changedBranchOnVoucherId !== null,
     })
     if (returnUrl) {
       // router.replace ensures Voucher Detail leaves the stack
@@ -536,7 +557,7 @@ export function VoucherDetailScreen() {
       return
     }
     router.replace('/(app)/' as never)
-  }, [router, params.from, params.returnMerchantId, params.branch, params.tab, userChangedBranchOnVoucher])
+  }, [router, params.from, params.returnMerchantId, params.branch, params.tab, changedBranchOnVoucherId])
 
   const handleFav = useCallback(() => {
     Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
@@ -665,14 +686,15 @@ export function VoucherDetailScreen() {
     //   • 'change' — close the picker, stay on Voucher Detail.
     //   • 'redeem' — close the picker, open PinEntrySheet.
     //
-    // For 'change' intent specifically, also remember that the user
-    // ended up on a different branch than the URL had at confirm
-    // time. `buildReturnUrl` will then append `branchChanged=1` to
-    // the back-navigation URL so Merchant Profile can show a
-    // one-time confirmation toast. Doesn't fire when the user picks
-    // the same branch they were already on (no-op).
+    // For 'change' intent specifically, store the confirmed branch
+    // id locally so `handleBack` can route to that branch directly
+    // (independent of `useLocalSearchParams` having caught up after
+    // the router.replace below). `buildReturnUrl` reads this id to
+    // append `branchChanged=1` AND to set the return URL's `branch`
+    // param. Doesn't fire when the user picks the same branch they
+    // were already on (no-op).
     if (pickerIntent === 'change' && branchId !== branchIdParam) {
-      setUserChangedBranchOnVoucher(true)
+      setChangedBranchOnVoucherId(branchId)
     }
     // Local source set FIRST (synchronous, ref-like). Subsequent
     // router.replace fires; URL catches up next render and the
