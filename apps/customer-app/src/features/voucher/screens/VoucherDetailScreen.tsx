@@ -376,6 +376,29 @@ export function VoucherDetailScreen() {
         : !merchant.selectedBranch || !merchant.selectedBranch.isActive
     )
   )
+
+  // Resolve the actual REDEMPTION branch from `lastRedemption.branchId`
+  // (the in-memory mutation response) against `merchant.branches`. This
+  // is the branch the redemption was attributed to — distinct from
+  // `displayBranch`, which tracks the URL/picker target. On
+  // immediate-after-redemption, both are usually the same branch; on
+  // a hypothetical drift (URL changed mid-flow) they could differ —
+  // the MerchantRow eyebrow + branch name should always reflect
+  // WHERE THE REDEMPTION HAPPENED, not where the user is currently
+  // pointing the URL.
+  //
+  // Returns null when:
+  //   • `lastRedemption` isn't in memory (return-visit; M2 doesn't
+  //     persist redemption details — see §P2 in deferred-followups
+  //     for the M3 backend payload work).
+  //   • `lastRedemption.branchId` doesn't match any row in
+  //     `merchant.branches` (race or merchant data missing).
+  const lastRedemptionBranch = useMemo(() => {
+    if (!lastRedemption || !merchant) return null
+    const tile = merchant.branches.find((b) => b.id === lastRedemption.branchId)
+    if (!tile) return null
+    return { name: tile.name, distance: tile.distance }
+  }, [lastRedemption, merchant])
   // Schedule the auto-show timer. All gates must hold:
   //   • screen is focused (cancels mid-delay if user navigates away)
   //   • voucher data has loaded (no flash before content)
@@ -656,21 +679,55 @@ export function VoucherDetailScreen() {
     }
   }, [redeem, voucherQuery])
 
-  // Picker branches list — filter to active branches only. Inactive
-  // branches must NOT appear because the backend rejects redemption
-  // with BRANCH_UNAVAILABLE per PR #43 (and surfacing them in a picker
-  // would be a usability bug — user picks, gets rejected at submit).
+  // Picker branches list — filter + sort (locked 2026-05-07 from
+  // device QA).
+  //
+  //   Filter: active only. Inactive branches must NOT appear because
+  //   the backend rejects redemption with BRANCH_UNAVAILABLE per
+  //   PR #43, and surfacing them would be a usability bug (user
+  //   picks, then gets rejected at submit).
+  //
+  //   Sort:
+  //     1. Current/target branch first — matches the picker's
+  //        already-selected pre-state (BranchPickerSheet's
+  //        `currentBranchId` defaults to the same three-tier source).
+  //        Putting it on top means "tap Confirm" is a one-step
+  //        confirmation, not a scroll-and-find.
+  //     2. Remaining branches sorted by ascending distance.
+  //     3. Branches without distance (null) sit AFTER all
+  //        branches with distance — those rows are usually the
+  //        far-away ones where GPS didn't apply or the row is
+  //        fixture/seed data without coords.
+  //     4. Final tie-break on name (A→Z) for deterministic order
+  //        when two branches have the same distance (rare).
   const pickerBranches: PickerBranch[] = useMemo(() => {
     if (!merchant) return []
-    return merchant.branches
-      .filter((b) => b.isActive)
+    const currentId =
+      pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id ?? null
+
+    const active = merchant.branches.filter((b) => b.isActive)
+    return [...active]
+      .sort((a, b) => {
+        // Current first.
+        if (a.id === currentId && b.id !== currentId) return -1
+        if (b.id === currentId && a.id !== currentId) return 1
+        // Distance: nulls after non-nulls.
+        if (a.distance == null && b.distance != null) return 1
+        if (b.distance == null && a.distance != null) return -1
+        // Both non-null, ascending distance.
+        if (a.distance != null && b.distance != null && a.distance !== b.distance) {
+          return a.distance - b.distance
+        }
+        // Tie-break: alphabetical by name.
+        return a.name.localeCompare(b.name)
+      })
       .map((b) => ({
-        id: b.id,
-        name: b.name,
-        city: b.city,
+        id:             b.id,
+        name:           b.name,
+        city:           b.city,
         distanceMetres: b.distance,
       }))
-  }, [merchant])
+  }, [merchant, pickerConfirmedBranchId, branchIdParam, selectedBranch])
 
   // RedeemCTA derivation per state. Active states gate on `branchReady`.
   const cta = useMemo(() => {
@@ -861,15 +918,45 @@ export function VoucherDetailScreen() {
           </View>
         ) : null}
 
+        {/* MerchantRow mode + branch values per state (locked 2026-05-07
+            from device QA):
+              • active redeemable          → mode='redeem',
+                                             branchName/distance from displayBranch.
+              • redeemed + lastRedemption  → mode='redeemed-known',
+                                             branchName/distance from
+                                             lastRedemptionBranch (the
+                                             actual redemption branch,
+                                             NOT the URL target).
+              • redeemed return-visit (M2) → mode='redeemed-unknown',
+                                             branchName=null (the row
+                                             omits the branch line and
+                                             shows neutral "REDEEMED THIS
+                                             CYCLE" copy). Persisted
+                                             redemption branch lands in
+                                             M3 (§P2 in deferred index).
+        */}
         <MerchantRow
           merchantName={voucher.merchant.businessName}
           merchantLogoUrl={voucher.merchant.logoUrl}
           merchantDescriptor={merchantDescriptor}
-          branchName={branchName}
-          branchDistanceMeters={branchDistance}
+          branchName={
+            stateKey === 'redeemed-this-cycle' && lastRedemptionBranch
+              ? lastRedemptionBranch.name
+              : branchName
+          }
+          branchDistanceMeters={
+            stateKey === 'redeemed-this-cycle' && lastRedemptionBranch
+              ? lastRedemptionBranch.distance
+              : branchDistance
+          }
           isMultiBranch={isMultiBranch}
           onChangeBranch={handleChangeBranch}
           disableChangeBranch={stateKey === 'redeemed-this-cycle'}
+          mode={
+            stateKey === 'redeemed-this-cycle'
+              ? (lastRedemptionBranch ? 'redeemed-known' : 'redeemed-unknown')
+              : 'redeem'
+          }
           onPress={handleMerchantTap}
         />
 

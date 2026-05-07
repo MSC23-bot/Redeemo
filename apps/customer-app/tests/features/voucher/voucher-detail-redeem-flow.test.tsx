@@ -462,7 +462,7 @@ describe('Voucher Detail M2 — already-redeemed cannot reopen redemption (issue
     expect(queryByLabelText('Change ▾')).toBeNull()
   })
 
-  it('redeemed-this-cycle: tapping branch row does NOT open BranchPickerSheet', () => {
+  it('redeemed-this-cycle: tapping the merchant row does NOT open BranchPickerSheet', () => {
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
     mockParams = { id: 'v1', branch: 'b1' }
     ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
@@ -471,11 +471,15 @@ describe('Voucher Detail M2 — already-redeemed cannot reopen redemption (issue
     })
 
     const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
-    // The branch row Pressable is still mounted (it carries the
-    // "Redeem at <branch>" text), but disabled. Tapping should be
-    // a no-op — no picker, no PIN sheet, no API call.
-    const branchRow = getByTestId('redeem-at-line')
-    fireEvent.press(branchRow.parent ?? branchRow)
+    // In `redeemed-this-cycle` state with no `lastRedemption` in
+    // memory (return-visit case), MerchantRow renders in
+    // 'redeemed-unknown' mode — the branch line is hidden, so the
+    // 'redeem-at-line' / 'redeemed-at-line' testIDs are absent.
+    // The merchant-row container Pressable still exists for the
+    // top-of-card merchant tap, but the branch panel below has no
+    // change-branch affordance. Tap the container; nothing should
+    // open the picker or trigger a redeem call.
+    fireEvent.press(getByTestId('merchant-row'))
     expect(queryByTestId('voucher-branch-picker-sheet')).toBeNull()
     expect(queryByTestId('pin-entry-sheet')).toBeNull()
     expect(redemptionApi.redeem).not.toHaveBeenCalled()
@@ -880,3 +884,144 @@ describe('Voucher Detail M2 — URL-first display branch (issue #2)', () => {
     expect(getByTestId('voucher-detail-error')).toBeTruthy()
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────
+// Redeemed-state MerchantRow copy (locked 2026-05-07 from device QA)
+// ─────────────────────────────────────────────────────────────────────
+//
+// "REDEEM AT" must never appear when the voucher has already been
+// redeemed in the current cycle — the eyebrow is misleading because
+// redemption is locked across all branches per (userId, voucherId).
+// Two redeemed-state variants:
+//   • Immediately after redemption: lastRedemption is in memory, so
+//     the row knows the actual redemption branch → "REDEEMED AT
+//     <branch>".
+//   • Return visit: lastRedemption is null (M2 doesn't persist the
+//     redemption branch — see §P2 deferred follow-up). The row
+//     shows "REDEEMED THIS CYCLE" and hides the branch line entirely.
+
+describe('Voucher Detail — redeemed-this-cycle does not render "REDEEM AT"', () => {
+  it('return-visit redeemed (no lastRedemption): renders "REDEEMED THIS CYCLE", hides branch line, NO "REDEEM AT"', () => {
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+
+    const { getByText, queryByText, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // Eyebrow is the neutral redeemed-unknown copy.
+    expect(getByText('REDEEMED THIS CYCLE')).toBeTruthy()
+    // Critical: no "REDEEM AT" eyebrow anywhere on the screen.
+    expect(queryByText('REDEEM AT')).toBeNull()
+    // Branch line is hidden — passed branchName could be misleading
+    // on return visit (it's the URL/selectedBranch fallback, not
+    // the actual redemption branch).
+    expect(queryByText('Brightlingsea')).toBeNull()
+    expect(queryByTestId('redeem-at-line')).toBeNull()
+    expect(queryByTestId('redeemed-at-line')).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// Picker default-select + sort + inactive filter (locked 2026-05-07)
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Voucher Detail — picker branches list (default-select + sort + filter)', () => {
+  function openPickerAndGetRowOrder(getByTestId: (id: string) => any): string[] {
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    // Walk the rendered picker sheet's tree in DOM order, pulling
+    // testIDs that match `branch-picker-row-<id>`. `findAll` can
+    // surface a testID multiple times (the Pressable plus nested
+    // host elements that inherit it); dedupe by first occurrence.
+    // The remaining order reflects the sort applied by
+    // `pickerBranches` in the orchestrator.
+    const sheet = getByTestId('voucher-branch-picker-sheet')
+    const rows = sheet.findAll((el: any) => {
+      const tid = el.props?.testID
+      return typeof tid === 'string' && tid.startsWith('branch-picker-row-')
+    })
+    const seen = new Set<string>()
+    const ordered: string[] = []
+    for (const el of rows) {
+      const id = String(el.props.testID).replace('branch-picker-row-', '')
+      if (seen.has(id)) continue
+      seen.add(id)
+      ordered.push(id)
+    }
+    return ordered
+  }
+
+  it('current branch (URL=B2) renders FIRST in the picker; remaining branches sorted by ascending distance', async () => {
+    // Fixtures: B1 (1500m), B2 (12000m, current), B3 (no distance),
+    // B4 (500m). Expected sort: B2 (current first), B4 (500m),
+    // B1 (1500m), B3 (null distance, last).
+    mockParams = { id: 'v1', branch: 'b2' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b2',
+      branches: [
+        makeBranch('b1', 'Brightlingsea', 1500),
+        makeBranch('b2', 'Colchester',    12_000),
+        makeBranch('b3', 'Wivenhoe',      null),
+        makeBranch('b4', 'Tendring',      500),
+      ],
+    })
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const order = openPickerAndGetRowOrder(getByTestId)
+    // Current first, then nearest, then farther, then null distance.
+    expect(order).toEqual(['b2', 'b4', 'b1', 'b3'])
+  })
+
+  it('picker pre-selects the current branch (B2) — Confirm without further taps submits B2', async () => {
+    mockParams = { id: 'v1', branch: 'b2' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b2',
+      branches: [
+        makeBranch('b1', 'Brightlingsea', 1500),
+        makeBranch('b2', 'Colchester',    12_000),
+      ],
+    })
+    ;(redemptionApi.redeem as jest.Mock).mockResolvedValue({ ...successResponse, branchId: 'b2' })
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+
+    // B2 is pre-selected.
+    expect(getByTestId('branch-picker-row-b2').props.accessibilityState).toEqual({ selected: true })
+    expect(getByTestId('branch-picker-row-b1').props.accessibilityState).toEqual({ selected: false })
+
+    // User confirms without picking another row → submits B2.
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+    fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    await waitFor(() => {
+      expect(redemptionApi.redeem).toHaveBeenCalledWith({
+        voucherId: 'v1', branchId: 'b2', pin: '1234',
+      })
+    })
+  })
+
+  it('inactive branches do not appear in the picker', async () => {
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea', 1500),
+        // B2 is suspended/deactivated — must NOT render in the
+        // picker.
+        { ...makeBranch('b2', 'Colchester', 12_000), isActive: false },
+        makeBranch('b3', 'Wivenhoe', 5_000),
+      ],
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+
+    expect(getByTestId('branch-picker-row-b1')).toBeTruthy()
+    expect(queryByTestId('branch-picker-row-b2')).toBeNull()  // inactive — hidden
+    expect(getByTestId('branch-picker-row-b3')).toBeTruthy()
+  })
+})
+
