@@ -247,14 +247,58 @@ Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md
 
 Spec reference: `.superpowers/brainstorm/88554-1776435672/content/voucher-detail-v4.html` (locked v4 mockup) + the inline §11 branch-attribution contract in the plan doc.
 
-### Phase 3C.1c (M2/M3) — Voucher Detail Redemption flow (IMPLEMENTED on `feature/customer-app` reference branch — pending dedicated rebaseline PR)
-- M2 redemption flow: PinEntrySheet → RedeemMutation → SuccessPopup → state #3 routes
-- M3 ShowToStaff: full-screen QR + brightness boost + screenshot guard + auto-hide timer + live polling
-- Branch picker for multi-branch merchants at redemption time
-- §O6 Already-Redeemed full visual treatment (backend payload deps: `lastRedeemedAt`, `redemptionCode`, redeemed-branch, `availableAgainAt`)
-- Reference implementation already exists on `feature/customer-app` per the original 3C.1c plan
-- Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §7 milestones M2 + M3
-- Pick up: as a fresh dedicated rebaseline PR onto current `main`, after the next phase decision (owner call)
+### ✅ Phase 3C.1c (M2) — Voucher Detail Redemption flow (LIVE on origin/main 2026-05-07, merge `aea73f4`)
+
+PRs #43 → #44 → #45 → #46 closed M2 end-to-end. Four waves:
+- **PR #43 (backend, merge `8822458`)** — 12-step safe guard order in `createRedemption` + race-safe atomic claim using `prisma.$transaction` with cross-transaction P2002 retry. Backend now returns `remainingAttempts` / `retryAfter` on PIN failure + lockout payloads.
+- **PR #44 (frontend M2 Section B, merge `c233f04`)** — PinEntrySheet → useRedeem → SuccessPopup → state-3 surface, all per the M2 plan. SuccessPopup "Show to Staff" + RedemptionDetailsCard "Show to Staff again" both fire deferral alerts pointing at M3.
+- **PR #45 (PIN defensive fixes, merge `40d1f9f`)** — defensive INVALID_PIN fallback when backend doesn't return structured `remainingAttempts` payload; `textContentType="none"` to suppress iOS one-time-code autofill stealing focus; non-PIN backend errors visible to users (PIN_NOT_CONFIGURED, BRANCH_UNAVAILABLE, BRANCH_MERCHANT_MISMATCH, PHONE_NOT_VERIFIED, SUBSCRIPTION_REQUIRED, VOUCHER_NOT_FOUND).
+- **PR #46 (device-QA follow-ups, merge `aea73f4`, 2026-05-07)** — eight functional/copy/layout decisions from on-device QA. The functional + product-clarity items closed in this PR; the visual + microcopy redesign is the deferred §S design pass.
+
+What ships on M2 (locked):
+- **Already-redeemed safety hard-block** — branch picker / "Change ▾" pill / Redeem CTA all hard-blocked at three layers (MerchantRow `disableChangeBranch` + `handleChangeBranch` early-return + `handlePickerConfirm` defensive twin). Once redeemed, the user cannot reopen the redemption flow until the cycle rolls over.
+- **Redemption code format** — 8-char uppercase A–Z + 0–9 minus O,I, displayed 4+4 (e.g. `A7K2 P9X4`). Backend alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ0123456789` (34 chars). 34^8 ≈ 1.79 × 10^12 combinations; `redemptionCode @unique` constraint backstops collisions. Reason: 10-char mixed-case codes were too long, mis-readable when staff transcribe them onto bills, and easily confused (O/0, I/1).
+- **URL-first display branch resolver** — `displayBranch = pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id` with an `isActive` gate at all three resolution paths. Closes a stale-branch flash + an alarming "Resolving Branch…" CTA that shipped in PR #44.
+- **Branch picker change vs redeem intent** — `BranchPickerSheet` gains an `intent: 'change' | 'redeem'` prop. Title + CTA copy swap. `handlePickerConfirm` branches: change-intent updates branch only; redeem-intent confirms branch then opens PIN sheet.
+- **Race-safe back navigation after branch change** — voucher detail tracks `changedBranchOnVoucherId: string | null` (synchronous local state, not URL). `handleBack` reads `changedBranchOnVoucherId ?? params.branch`. Merchant Profile receives `?branchChanged=1`, fires `BranchSwitchToast`, scrubs the param via `router.replace`.
+- **Branch picker ordering** — selected/current first, then active branches sorted by distance, then unknown-distance branches last. Inactive branches gated out. `previewId` normalised to null when `currentBranchId` not in passed branches.
+- **`availableAgainAt` payload + CycleRulesCard** — backend `getCustomerVoucher` returns `availableAgainAt` (ISO string) for ACTIVE/TRIALLING subs, computed from `getCurrentCycleWindow(cycleAnchorDate, now).cycleEnd` (en-GB / Europe/London). Customer-app: `voucherDetailSchema.availableAgainAt: z.string().nullable()`. CycleRulesCard renders state-aware copy with prominent date in brand-rose tinted block:
+  - Pre-redemption: "Use this voucher once during your current cycle. After you redeem it, it will refresh on the renewal date shown below."
+  - Post-redemption: "You've used this voucher for your current cycle. It will be ready to use again on the renewal date shown below."
+- **VoucherTypeExplainerCard (renamed from `AboutThisOfferCard`)** — collapsible (default collapsed), per-type title ("What is a BOGO voucher?" / "What is a Discount voucher?" / etc.) sourced from `productCopy.voucherTypeExplainerTitle(type)` + `voucherTypeExplainer(type)`.
+- **"How redemption works" rename** — was "How It Works". Title only; default-expanded for free users, default-collapsed for subscribed.
+- **Auto-scroll on collapsible expand** — both VoucherTypeExplainerCard and HowItWorks call `onExpand(layoutY)`; `VoucherDetailScreen.handleCardExpand` calls `scrollViewRef.scrollTo({ y: cardY - 80, animated: true })` deferred via `requestAnimationFrame` so the body doesn't sit underneath the sticky bottom CTA.
+- **Layout reorder by state — locked DOM order:**
+  - **Redeemed:** hero → RedemptionDetailsCard → CycleRulesCard → coupon body → MerchantRow (`mode='redeemed-known'` showing "REDEEMED AT <branch>" if known, OR `mode='redeemed-unknown'` neutral wording when not known) → VoucherTypeExplainerCard → HowItWorks.
+  - **Non-redeemed:** hero → coupon body → CycleRulesCard → MerchantRow (`mode='redeem'` with "Change ▾" pill if multi-branch) → VoucherTypeExplainerCard → HowItWorks.
+- **MerchantRow `mode` prop** — `'redeem' | 'redeemed-known' | 'redeemed-unknown'` driving copy + Change-pill suppression.
+- **"Saved up to" past-tense copy + corrected disclaimer** on post-redemption RedemptionDetailsCard.
+- **16pt card spacing standardization** — all card-level top margins normalised to 16pt for consistent rhythm.
+- **Em-dash sweep** on customer-facing copy (productCopy.ts BOGO + REUSABLE bodies, CycleRulesCard, voucher-detail surfaces). Negative-pin tests in `product-copy.test.ts`.
+- **M2 ships immediate-after-redemption RedemptionDetailsCard ONLY** — driven by in-memory `lastRedemption` from the redeem mutation response. Return visits during the active cycle currently see only the RedeemedBadge + disabled CTA. Persisted return-visit RedemptionDetailsCard remains deferred (§P2 — needs `redemptionCode` / `redeemedAt` / `branch` fields on the voucher payload).
+- **QA-only reset-cycle dev script** — `prisma/reset-qa-redemption-cycle.ts` (default scope: `customer@redeemo.com` + 3 seeded Covelum/Kovalam vouchers; override via `--email` / `--voucherId`).
+
+Test counts at PR #46 merge: backend vitest 483/483; customer-app jest 792/793 (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts`); `tsc --noEmit` clean.
+
+Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M2.1 (full as-shipped contract).
+Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §5.5 / §6.7 / §8.9 (shipped-state deltas).
+
+### Phase 3C.1c (M3) — ShowToStaff + QR + anti-fraud (PENDING — re-framed as REQUIRED, not optional polish)
+
+The full Show-to-Staff full-screen surface is required for merchant validation/manual-recording readiness. The text-code path on the SuccessPopup + RedemptionDetailsCard is *usable* for manual recording today (a merchant can write `A7K2 P9X4` on a bill or read it aloud), but it is **not the locked end-state of the redemption flow** — some merchants will not have the merchant app installed at platform launch and need a QR they can scan with a generic QR scanner.
+
+Required scope (all four — NOT optional, see deferred follow-ups §P1):
+- **QR/code view** — full-screen rendering of the redemption code as a QR + the formatted text fallback. Reference: `voucher-detail-v6.html` Screen 7b "Show to Staff (Full Screen)".
+- **Brightness boost** — temporarily ramp screen brightness so staff scanners pick up the QR cleanly. Restore on unmount.
+- **Screenshot / screen-recording guard** — anti-fraud: detect screenshot or recording attempts and either (a) blank the QR, (b) flag the redemption to the backend, (c) both.
+- **Auto-hide timer** — close after a short window. Owner direction needed at M3 plan time: 30s? 60s? 5min? Survives backgrounding?
+- **Validation polling** — call `redemptionApi.getMyRedemption(redemptionId)` (`/api/v1/redemption/my/:id`) on a poll while Show-to-Staff is open; transition to "validated" success state when the backend marks `isValidated: true`.
+
+Plus §P2 persisted return-visit RedemptionDetailsCard (backend payload deps: `redemptionCode` / `redeemedAt` / `branch`) and §Q1-Q5 redeemed-state visual + composition design pass + §Q5 Settings → Redemption History surface for past redemptions, all bundled with M3 since they share the same backend payload extension.
+
+Pick up: as a dedicated Tier 2 (or Tier 3 if owner wants a fresh brainstorm on screenshot-guard behaviour) PR after on-device QA on PR #46 settles. Not started.
+
+Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §7 milestone M3.
 
 ### ✅ Phase 3C.1d — Merchant Profile (LIVE on origin/main 2026-05-05)
 - Branch-aware: customer API exposes `selectedBranch` block resolved from `?branch=<id>`; cold-open uses nearest-by-GPS or `Branch.isMainBranch`; in-tab switch via `router.replace`. Vouchers stay merchant-wide; redemption is branch-attributed.
@@ -439,11 +483,11 @@ On the project owner's local clone there is a stash labelled `discovery: drop me
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
 2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Surfaces still pending after the Merchant Profile track (PR #35, 2026-05-05) and the Voucher Detail M1 track (PR #40, 2026-05-06):
    - Phase 3C.1b — Home / Discovery / Map
-   - Phase 3C.1c (M2/M3) — Voucher Detail Redemption flow + Already-Redeemed full surface (M1 view-only LIVE on main via PR #40)
+   - Phase 3C.1c (M3) — Voucher Detail Show-to-Staff full-screen QR + brightness boost + screenshot guard + auto-hide + validation polling. Bundles §P2 persisted return-visit RedemptionDetailsCard + §Q1-Q5 redeemed-state visual redesign + Settings → Redemption History. M1 view-only LIVE on main via PR #40 (2026-05-06); M2 redemption flow LIVE on main via PRs #43/#44/#45/#46 (2026-05-07).
    - Phase 3C.1f — Savings tab
    - Phase 3C.1g — Favourites screen
    - Phase 3C.1h — Profile tab (full surface; minimal shell shipped via PR #27)
-   - Phase 3C.1i — QR rendering
+   - Phase 3C.1i — QR rendering (rolled into Phase 3C.1c M3 since the redemption flow is the only consumer)
    Several worktrees are already cut for these (`customer-app-discovery-map`, `customer-app-discovery-search`, etc.). Cross-check each against current `main` before resuming — main has moved significantly since they were created.
 3. **Plan 4 — location model** (Tier 3, brainstorm-first per `project_discovery_sequencing_plan4.md`). Foundational for discovery experience; queued once the post-Plan-1 Home/Discovery QA sequencing wraps.
 4. **Open follow-ups** — see `project_merchant_profile_ux_refinement_complete.md` for the merchant-profile open list (tap-target A11y, seed enrichment, `closesAt` device-local removal, discovery card ratings via `contextBranchId`).

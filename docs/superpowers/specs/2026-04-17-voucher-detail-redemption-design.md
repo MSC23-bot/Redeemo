@@ -328,6 +328,16 @@ Same sheet but keyboard is dismissed:
 - **Redeem button:** deeply disabled (opacity 0.3)
 - Timer counts down in real-time. When it reaches 0, sheet resets to Screen 3 (PIN entry)
 
+### 5.5 As shipped (PRs #44 → #45 → #46)
+
+Initial spec assumed a single happy/error/lockout flow per backend response. Device QA on PR #44 surfaced three additional concerns; PR #45 + PR #46 closed them.
+
+- **Defensive INVALID_PIN fallback (PR #45):** when the backend returns a wrong-PIN error without the structured `remainingAttempts` payload (e.g. unexpected error shape, network glitch parsed as PIN-invalid), the sheet still falls back to a clear wrong-PIN banner and lets the user retry. The spec assumed the backend payload would always be well-formed.
+- **No SMS one-time-code autofill (PR #45):** `textContentType="none"` on the PIN field. iOS otherwise hijacks the field with one-time-code autofill (the app uses Twilio for OTP flows elsewhere, so the OS sees the field as eligible). Suppresses the autofill prompt that would steal focus from the PIN entry.
+- **Non-PIN backend errors visible to user (PR #45):** the 6 non-PIN error codes (PIN_NOT_CONFIGURED, BRANCH_UNAVAILABLE, BRANCH_MERCHANT_MISMATCH, PHONE_NOT_VERIFIED, SUBSCRIPTION_REQUIRED, VOUCHER_NOT_FOUND) now show a title + body banner inside the sheet rather than silently dismissing. Action-button routing on each banner (e.g. "Verify phone" / "Subscribe now" / "Choose another branch") is the §P4 deferred follow-up.
+
+**Cross-ref:** the full as-shipped contract is captured in [`docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md`](../plans/2026-05-06-voucher-detail-redemption-rebaseline.md) §M2.1.
+
 ---
 
 ## Section 6: Screen 7 — Redemption Success Popup
@@ -388,6 +398,14 @@ Same sheet but keyboard is dismissed:
 - **Secondary actions row:** flex, 8px gap
   - "Rate & Review" button: BOGO purple tint bg, purple text, star icon, 1.5px purple border
   - "Done" button: transparent, navy text, 1.5px border colour border
+
+### 6.7 As shipped (PRs #44 → #46)
+
+- **Code shape:** the spec example assumes a 10-char code with 4px letter-spacing. The shipped code is **8-char uppercase A–Z + 0–9 minus O,I**, displayed as **4+4 with monospace font** (e.g. `A7K2 P9X4`). Excluded characters eliminate the most common manual-entry confusion (O/0, I/1). Backend alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ0123456789` (34 chars). 34^8 ≈ 1.79 × 10^12 combinations; `redemptionCode @unique` constraint backstops collisions. Reason: device QA on the original 10-char mixed-case code (PR #44 first ship) surfaced staff-side transcription errors when writing codes onto bills.
+- **No confetti yet:** the §6.3 confetti animation was descoped from PR #44 (Tier 1 polish). Tracked as deferred follow-up §P3 — not a regression, just deferred decoration.
+- **"Show to Staff" button still fires a deferral alert** in M2 — the full §7 Show-to-Staff full-screen surface is required for M3 (re-framed as REQUIRED for merchant validation/manual-recording readiness, NOT optional polish — see §P1 deferred follow-up). Until M3, the formatted text code is the only customer-side surface for handing off to staff.
+
+**Cross-ref:** [`docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md`](../plans/2026-05-06-voucher-detail-redemption-rebaseline.md) §M2.1.
 
 ---
 
@@ -492,6 +510,30 @@ This is the anti-fraud showpiece:
 - **Background:** muted grey (`#9CA3AF`), no shadow
 - **Text:** "Already Redeemed This Cycle" with check icon
 - **Opacity:** 0.6, `cursor: default` — not pressable
+
+### 8.9 As shipped (PRs #44 → #46)
+
+The full §8 visual treatment (washed-out coupon, REDEEMED stamp, dimmed merchant card, voucher-banner greyscale, terms opacity reduction) is **deferred** as §Q1-Q5 — a Tier 2 design + composition pass that pairs with M3. PR #46 closed the **functional** parts of redeemed-state safety; the **visual** redesign is held out intentionally.
+
+What ships on M2:
+
+- **State-3 (already-redeemed) safety hard-block:** branch picker / "Change ▾" pill / Redeem CTA all hard-blocked (three layers — see plan §M2.1 issue 1). Once redeemed, the user cannot reopen the redemption flow until the cycle rolls over.
+- **MerchantRow `mode` prop:** in redeemed state, MerchantRow renders `mode='redeemed-known'` ("REDEEMED AT <branch>") when the redemption branch is known, or `mode='redeemed-unknown'` (neutral redeemed-cycle wording) when not known. The "Change ▾" pill is suppressed in both modes.
+- **CycleRulesCard post-redemption variant** (new for PR #46): warmer state-aware copy "You've used this voucher for your current cycle. It will be ready to use again on the renewal date shown below." with the renewal date in a brand-rose tinted block.
+- **RedemptionDetailsCard placement:** between hero and coupon body in redeemed state (NOT below all other cards). Includes voucher summary block (type, title, merchant, "Saved up to" past-tense + corrected disclaimer) above the redemption code/branch/date rows.
+- **Redeemed-state DOM order (locked):** hero → RedemptionDetailsCard → CycleRulesCard → coupon body → MerchantRow → VoucherTypeExplainerCard (collapsible) → HowItWorks (collapsible).
+- **M2 immediate-after-redemption only:** the RedemptionDetailsCard renders for users who just redeemed (driven by in-memory `lastRedemption` from the redeem mutation response). Return visits during the active cycle currently see only the RedeemedBadge + disabled CTA — not the full card. Persisted return-visit RedemptionDetailsCard remains deferred (§P2 — needs `redemptionCode` / `redeemedAt` / `branch` fields on the voucher payload).
+- **Cycle-renewed cleanup invariant** (§Q6, locked 2026-05-08): when the cycle rolls over, the page-level state machine reverts to active automatically via `voucher.isRedeemedThisCycle === false`. The §P2 implementer must gate the persisted card on the same flag, NOT on persisted-fields-existing — past redemptions belong on Settings → Redemption History (§Q5), not on voucher detail.
+
+What's deferred (§Q1-Q5):
+
+- Washed-out coupon header (`grayscale(0.4) brightness(0.8) opacity(0.65)`).
+- Solid green "Voucher Redeemed" stamp positioned outside the filtered header.
+- Dimmed merchant card / banner / terms.
+- Merchant profile voucher-card redeemed treatment.
+- Settings → Redemption History surface for past redemptions.
+
+**Cross-ref:** [`docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md`](../plans/2026-05-06-voucher-detail-redemption-rebaseline.md) §M2.1 (locked DOM order + decisions); deferred follow-ups index §P2 / §Q1-Q6.
 
 ---
 

@@ -422,6 +422,159 @@ Tests:
 
 Pause for owner on-device QA.
 
+### M2.1 — As shipped (PRs #43 → #44 → #45 → #46, merged 2026-05-06 to 2026-05-07)
+
+This addendum captures the full M2 contract as it actually landed on `main`. Scope expanded substantially during three waves of device QA. Recorded here so future readers can see the M2-as-shipped contract, not just the M2-as-planned shape. PR numbers refer to the four commits that closed M2 end-to-end.
+
+**Wave 1 — backend (PR #43, merge `8822458`).** 12-step safe guard order in `createRedemption` + race-safe atomic claim using `prisma.$transaction` with cross-transaction retry on Postgres `P2002`. Backend now returns `remainingAttempts` / `retryAfter` on PIN failure + lockout payloads. Sets the contract M2 frontend builds against.
+
+**Wave 2 — frontend redemption flow (PR #44, merge `c233f04`).** PinEntrySheet → useRedeem → SuccessPopup → state-3 surface, all per the M2 plan above. SuccessPopup "Show to Staff" + RedemptionDetailsCard "Show to Staff again" both fire deferral alerts pointing at M3.
+
+**Wave 3 — PIN sheet defensive fixes (PR #45, merge `40d1f9f`).** Three concerns from device QA: defensive INVALID_PIN fallback when backend doesn't return the structured `remainingAttempts` payload (treat as wrong-PIN with banner copy); `textContentType="none"` on the PIN field to suppress iOS one-time-code autofill stealing focus; non-PIN backend errors surface visibly to the user instead of silently dismissing the sheet.
+
+**Wave 4 — device-QA follow-ups (PR #46, merge `aea73f4`, 2026-05-07).** Eight concerns from on-device QA. The functional + product-clarity items closed in this PR; the visual + microcopy redesign is the deferred §S design pass.
+
+#### Locked decisions from PR #46
+
+**(1) Already-redeemed branch-picker bypass — hard-blocked at three layers.**
+
+A redeemed-this-cycle voucher must NOT be able to reopen the redemption flow via the branch-change pill. Defence in depth:
+- `MerchantRow` gains `disableChangeBranch` prop. Hides the "Change ▾" pill, disables the Pressable, flips `accessibilityRole` from `button` to `text`.
+- `VoucherDetailScreen.handleChangeBranch` early-returns when `stateKey === 'redeemed-this-cycle'`.
+- `VoucherDetailScreen.handlePickerConfirm` gates the same way (defensive twin to `handleChangeBranch`).
+- `handlePinSubmit` ALREADY_REDEEMED branch now also calls `redeem.reset()` so a defensive backend rejection doesn't leave stale mutation state.
+
+Pinned by three regression tests in `voucher-detail-redeem-flow.test.tsx` + `merchant-row.test.tsx`.
+
+**(2) Redemption code format — 8-char uppercase A-Z+0-9 minus O,I, displayed 4+4.**
+
+> **Supersedes the original D4 5+5 mixed-case lock from 2026-05-06.** Top of §1 has the full superseded note; D4 itself carries a strikethrough.
+
+- Backend alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ0123456789` (34 chars). `generateRedemptionCode` default length 10 → 8.
+- 34^8 ≈ 1.79 × 10^12 combinations. `redemptionCode @unique` constraint backstops collisions. The narrowed alphabet means the existing P2002 retry path becomes more important — see deferred follow-up R1 (collision retry hardening, Tier 1 backend fix).
+- Customer-app: `RedeemResponseSchema.redemptionCode: z.string().regex(/^[ABCDEFGHJKLMNPQRSTUVWXYZ0-9]{8}$/)`. `formatRedemptionCode` rewritten for length-8 → "4+4". Old 10-char codes pass through unchanged for legacy persisted data.
+- Reason for the change: device QA showed 10-char mixed-case codes (e.g. `LQGFhpaoun`) were too long, mis-readable when staff transcribe them onto bills, and easily confused (O/0, I/1). New shape (e.g. `A7K2 P9X4`) is staff-friendly for manual recording.
+
+**(3) URL-first display branch resolver + inactive-branch gate.**
+
+Closes a stale-branch flash + an alarming "Resolving Branch…" CTA shipping after a branch switch in PR #44. Three-tier source priority for the displayed branch:
+
+```
+displayBranch = pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id
+```
+
+Plus an `isActive` gate at all three resolution paths — an inactive (suspended) branch never becomes display-ready and never confirms from a hidden/stale `previewId`. The `BranchPickerSheet` normalises `previewId` to `null` when the passed `currentBranchId` isn't in the branches list (defensive against stale URL state).
+
+Branch picker ordering: selected/current branch first, then active branches sorted by distance, then unknown-distance branches last.
+
+**(4) Branch picker — `change` vs `redeem` intent split.**
+
+`BranchPickerSheet` gains an `intent: 'change' | 'redeem'` prop. Title + CTA copy swap based on intent. The `VoucherDetailScreen` carries a `pickerIntent` state so `handlePickerConfirm` branches: change-intent updates branch only; redeem-intent confirms branch then opens PIN sheet.
+
+Race-safe back navigation after change: voucher detail tracks `changedBranchOnVoucherId: string | null` (synchronous local state, NOT URL). `handleBack` reads `changedBranchOnVoucherId ?? params.branch` so the back URL routes to the actually-confirmed branch even when the URL hasn't caught up yet. Merchant Profile receives `?branchChanged=1`, fires `BranchSwitchToast`, and scrubs the param via `router.replace`.
+
+**(5) `availableAgainAt` payload + `CycleRulesCard`.**
+
+Backend `getCustomerVoucher` returns `availableAgainAt` (ISO string) for ACTIVE/TRIALLING subscribers, computed from `getCurrentCycleWindow(subscription.cycleAnchorDate, now).cycleEnd`. Free users / cancelled / past-due → `null`. Reuses the already-fetched subscription row, no extra DB hit.
+
+Customer-app: `voucherDetailSchema.availableAgainAt: z.string().nullable()`.
+
+`CycleRulesCard` is the new on-screen surface:
+- **State-aware copy (warmer, branch-agnostic, locked from PR #46 final QA round):**
+  - Pre-redemption: "Use this voucher once during your current cycle. After you redeem it, it will refresh on the renewal date shown below."
+  - Post-redemption: "You've used this voucher for your current cycle. It will be ready to use again on the renewal date shown below."
+- **Renewal date prominence:** brand-rose tinted block with eyebrow + heading-sized value. en-GB / Europe/London `Intl.DateTimeFormat`. Defensive raw-ISO fallback.
+- Returns `null` when `availableAgainAt` is null (free user path).
+- Date label: "Renews on Thursday 4 June" pre-redemption; "Available again on Thursday 4 June" post-redemption.
+
+**(6) `VoucherTypeExplainerCard` — collapsible, type-specific.**
+
+Renamed from `AboutThisOfferCard`. Carries the unabridged offer description PLUS a per-type explainer ("What is a BOGO voucher?" / "What is a Discount voucher?" / etc.) sourced from `productCopy.voucherTypeExplainerTitle(type)` + `voucherTypeExplainer(type)`.
+
+Default state = collapsed (mirrors `HowItWorks` non-free-user default). Expands on tap. testIDs: `voucher-type-explainer`, `voucher-type-explainer-toggle`, `voucher-type-explainer-title`, `voucher-type-explainer-body`.
+
+**(7) "How redemption works" — rename + collapsibility parity.**
+
+`HowItWorks` title renamed "How It Works" → "How redemption works". Added `onExpand(layoutY)` prop with `useEffect`/`useRef` for collapse-to-expand transitions firing through `requestAnimationFrame`.
+
+**(8) Collapsible auto-scroll — both `VoucherTypeExplainerCard` and `HowItWorks`.**
+
+When the user expands a collapsed card whose body would land underneath the sticky bottom CTA, the page auto-scrolls. Implementation:
+- Each card calls `onExpand(layoutY)` on the expand transition (captured via `onLayout` y-position in scroll content coordinates).
+- `VoucherDetailScreen.handleCardExpand` calls `scrollViewRef.scrollTo({ y: cardY - 80, animated: true })` deferred via `requestAnimationFrame` so layout has settled.
+
+**(9) Layout reorder by state — locked DOM order.**
+
+`RedemptionDetailsCard` placement changed from below all other cards to **between hero and coupon body** in redeemed state. M2 ships immediate-after-redemption only (driven by in-memory `lastRedemption` from the redeem mutation response); persisted return-visit RedemptionDetailsCard remains deferred (§P2 — backend payload deps `redemptionCode` / `redeemedAt` / `branch`).
+
+**Redeemed state DOM order (locked, top-down):**
+
+1. Hero
+2. RedemptionDetailsCard (voucher summary block + code + branch + saved-up-to past-tense + disclaimer)
+3. CycleRulesCard (post-redemption variant — "You've used this voucher…")
+4. Coupon body
+5. MerchantRow (`mode='redeemed-known'` showing "REDEEMED AT <branch>" if known, OR `mode='redeemed-unknown'` neutral wording when not known; "Change ▾" pill hidden via `disableChangeBranch`)
+6. VoucherTypeExplainerCard (collapsible, default collapsed)
+7. HowItWorks (collapsible, default collapsed for subscribed)
+
+**Non-redeemed state DOM order (locked, top-down):**
+
+1. Hero
+2. Coupon body
+3. CycleRulesCard (pre-redemption variant — "Use this voucher once…")
+4. MerchantRow (`mode='redeem'` with "Change ▾" pill if multi-branch)
+5. VoucherTypeExplainerCard (collapsible, default collapsed)
+6. HowItWorks (collapsible — default expanded for free users, collapsed for subscribed)
+
+`MerchantRow` gains a `mode: 'redeem' | 'redeemed-known' | 'redeemed-unknown'` prop driving copy + the Change-pill suppression.
+
+**(10) "Saved up to" past-tense copy + corrected disclaimer.**
+
+Post-redemption RedemptionDetailsCard uses past-tense "Saved up to" (not "Save up to"). Disclaimer corrected to reflect actual savings semantics.
+
+**(11) 16pt card spacing standardization.**
+
+All card-level top margins normalised to 16pt to give consistent rhythm between cards on both states. CycleRulesCard's internal `card` style still owns its own `marginHorizontal:22`; the in-stack mount is unwrapped to avoid double-margining.
+
+**(12) Em-dash sweep on customer-facing copy.**
+
+Em dashes removed from `productCopy.ts` (BOGO body, REUSABLE body), `CycleRulesCard` copy, and any other voucher-detail customer-surface copy. Negative-pin tests in `product-copy.test.ts` lock the no-em-dash invariant. Per-skill convention (interaction-design / impeccable) and project-wide voucher-flow copy rule.
+
+**(13) QA-only reset-cycle dev script.**
+
+`prisma/reset-qa-redemption-cycle.ts` — direct DB helper. Default scope: `customer@redeemo.com` + 3 seeded Covelum/Kovalam vouchers (COV-RMV-001, COV-RMV-002, COV-RCV-001). Override via `--email <email> --voucherId <id-or-code>`. Deletes `VoucherRedemption` rows + resets `UserVoucherCycleState.cycleStartDate` to epoch (cleanly clears the cycle gate). Documented that `VoucherType.REUSABLE` is label-only today and still obeys cycle lockout — production REUSABLE semantics are NOT defined yet, so no backend bypass logic.
+
+#### Test counts at PR #46 merge
+
+- Backend vitest: 483/483 passing.
+- Customer-app jest: 792/793 passing (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts` — documented in CLAUDE.md, unchanged by this PR).
+- Customer-app `tsc --noEmit`: clean.
+
+#### Deferred items (tracked in `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_deferred_followups_index.md`)
+
+**Out of M2 scope (M3 / Tier 2 / Phase 4):**
+- §P1 — Show-to-Staff full-screen QR surface (REQUIRED for merchant validation/manual-recording readiness, NOT optional polish — re-framed 2026-05-07).
+- §P2 — Persisted return-visit RedemptionDetailsCard (`redemptionCode` / `redeemedAt` / `branch` payload deps; cycle-window gate invariant per §Q6).
+- §P3 — SuccessPopup confetti (Tier 1 polish).
+- §P4 — Defensive routing for non-PIN redemption errors (Tier 1/2 UX follow-up — action buttons on each error banner).
+- §P5 — Test-hygiene follow-up (Tier 1 — `act()` warnings + open-handle audit).
+- §Q1-Q4 — Redeemed-state visual + composition design pass (washed-out coupon, REDEEMED stamp, voucher-card treatment in merchant profile).
+- §Q5 — Settings / Voucher Redemptions / Activity surface (past redemptions live here, not on voucher detail).
+- §Q6 — Cycle-renewed cleanup invariant (locked 2026-05-08): persisted card MUST gate on `voucher.isRedeemedThisCycle`, NOT just on persisted fields existing.
+- §R1 — Redemption-code collision retry hardening (P2002 needs to distinguish cycle-state collision from code collision; regenerate-and-retry on the latter with bounded counter).
+- §R2 — Dead `nanoid` mock in `service.test.ts` (Tier 1 hygiene).
+- §R3 — Future `<InfoCard>` primitive extraction (opportunistic — when the next similar card lands).
+- §R4 — Branch-restricted merchant portal access + automated monthly statements (Tier 3 / Phase 4 architecture — branch managers see their branch only; per-user capabilities; Resend-driven monthly statements per branch).
+- §S1-S3 — Redemption-flow design + copy pass (PIN sheet hierarchy, success popup live treatment, Show-to-Staff full-screen design).
+- §N11 — Merchant profile branch-switch perceived-lag UX polish (Tier 1/2 follow-up).
+
+**Closed during M2:**
+- M2 plan's "PIN failure at one branch doesn't affect retry eligibility at the same or different branch" — pinned by tests in PR #44.
+- M2 plan's "state #3 renders the same RedeemedBadge regardless of which branch the picker has selected" — pinned by tests in PR #46.
+- §O7 (closed in PR #40 round 23, recorded in M1.1).
+
+PRs landed: #43 (backend, merge `8822458`); #44 (frontend M2 Section B, merge `c233f04`); #45 (PIN defensive fixes, merge `40d1f9f`); #46 (device-QA follow-ups, merge `aea73f4`).
+
 ### M3 — ShowToStaff + QR + anti-fraud (PR 3)
 
 Goal: full-screen QR with brightness boost, screenshot guard, auto-hide. SuccessPopup auto-dismisses into this screen.
