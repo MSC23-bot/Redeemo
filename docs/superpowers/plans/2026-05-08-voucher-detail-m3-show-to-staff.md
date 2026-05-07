@@ -39,6 +39,69 @@ Reference predates: 8-char code format (currently 6-char on reference), the lock
 
 ---
 
+## Scope manifest — what M3 ships, what's deferred, where deferred items live
+
+> Locked 2026-05-08. This is the canonical scope chart. If a question arises mid-implementation about whether something belongs in M3, this section answers it. Anything not in column "M3 ships now" is OUT-OF-SCOPE — escalate before pulling it in.
+
+### What M3 ships now (in this PR)
+
+| Surface / capability | Why it's in M3 |
+|---|---|
+| ShowToStaff full-screen component (composed from 4 hooks + QRCodeBlock + LiveClock) | Core of the workstream |
+| QRCodeBlock with Redeemo logo overlay + blurred state + a11y label | Required by ShowToStaff |
+| PulsingDot in design-system/motion (with reduced-motion fallback) | Required by ShowToStaff LIVE pulse |
+| 8-char 4+4 code display under the QR | Required by D5; staff-readable manual fallback |
+| Brightness boost on mount + restore on unmount + re-apply on focus | D6; QR scannability |
+| iOS screenshot listener + 5s dedup + best-effort backend telemetry | D2; anti-fraud signal |
+| Android `FLAG_SECURE` via `expo-screen-capture.preventScreenCaptureAsync` | D2; system-level anti-fraud |
+| Validation polling by 8-char code (5s cadence, 15-min budget, pause on blur) | D1; closes the validate→success loop |
+| Auto-hide timer (2 min idle / 10s warning / freeze on validated / pause-rearm on focus-blur) | D6 |
+| Validation success transition (~2 s validated state then auto-route) | D7 |
+| Backgrounding behavior (stay mounted, pause polling/timer, restore brightness on blur, re-arm on focus) | Locked 2026-05-08 post-review |
+| Persisted return-visit `RedemptionDetailsCard` for the active cycle | D3 — needed so users can reach Show-to-Staff after relaunch |
+| Backend `getMyRedemptionByCode` endpoint | Polling target |
+| Backend `flagRedemptionScreenshot` endpoint + `RedemptionScreenshotEvent` model (single declaration, no reference-branch duplication) | Anti-fraud telemetry |
+| `voucher.lastRedemption` payload extension on `getCustomerVoucher` (cycle-window gated per §Q6) | Drives persisted card on return visits |
+| Customer-app API client + Zod schema additions | Wiring |
+| §Q6 cycle-rollover invariant regression test (3 phases incl. defensive drift) | Critical safety net |
+| Bundle E — plan §M3.1 + spec §7.7 + spec §8.10 + CLAUDE.md flip + memory updates | Standing rule: docs ship inside the implementation PR |
+| Memory: verify §O1 (TIME_LIMITED) + §T1 (REUSABLE) audit-time entries + add §U1 (customer-display-name) | Lock the cross-cutting deferred-tracking |
+
+### What's deferred from M3 (NOT in this PR)
+
+> Each item below has an existing entry in `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_deferred_followups_index.md`. Cross-references prevent duplication.
+
+| Item | Deferred-followup ref | Future workstream |
+|---|---|---|
+| Full redeemed visual redesign (washed-out coupon, REDEEMED stamp, stronger redeemed-state visual) | §Q1 | Tier 2 design pass — paired with §S1-S3 |
+| Merchant Profile redeemed voucher card treatment (mark unavailable, sort below active) | §Q4 | Tier 2 design pass — paired with §Q1 |
+| Settings → Redemption History surface (past-cycle redemption browsing) | §Q5 | Standalone Tier 2 surface — backend already exists (`GET /redemption/my`) |
+| Branch-restricted merchant portal access (per-user capabilities, branch-scoped accounts) | §R4 | Tier 3 / Phase 4 — Merchant Portal architecture |
+| Merchant/branch validation portal (web-based scan + verify) | §R4 | Tier 3 / Phase 4 — same arch as above |
+| Automated monthly statements (per-merchant + per-branch reconciliation emails) | §R4 | Tier 3 / Phase 4 / Phase 6 comms — needs Resend |
+| TIME_LIMITED availability windows + active/upcoming/outside-window CTA states + backend enforcement | §O1 (expanded 2026-05-08) | M4 (Tier 2 plan-first; light schema brainstorm on hybrid window shape) |
+| REUSABLE multi-redemption with cooldowns / rate limits / abuse protection | §T1 (NEW 2026-05-08) | M5 (Tier 3 brainstorm-first) |
+| SuccessPopup confetti animation | §P3 | Tier 1 polish — opportunistic |
+| Non-PIN error action-button routing on PinEntrySheet banners | §P4 | Tier 1/2 UX follow-up |
+| Redemption-code collision retry hardening (P2002 distinguishing cycle-state vs code collision) | §R1 | Tier 1 backend hygiene |
+| Merchant Profile branch-switch perceived-lag UX polish | §N11 | Tier 1/2 follow-up |
+| Broader UI/design polish pass on PIN sheet + success popup + Show-to-Staff | §S1-S3 | Tier 2 design pass — paired with §Q |
+| Customer display name on Show-to-Staff (`customerName=""` locked for M3 — see Task 16) | §U1 (NEW 2026-05-08) | Tier 1 follow-up after merchant-portal validation surfaces lock; design with §R4 for parity |
+| Test hygiene items (act() warnings, dead nanoid mock, open-handle audit) | §P5 + §R2 | Tier 1 batch — opportunistic |
+
+### Where each deferred item is revisited
+
+| Workstream | When it picks up | What it bundles |
+|---|---|---|
+| **M4 — TIME_LIMITED availability windows** | After M3 ships + on-device QA settles | §O1 — backend schema + admin UI + redemption enforcement + `useTimeLimited` un-stub + 3-state UI fork. Tier 2 plan-first; light brainstorm on schema shape only. |
+| **M5 — REUSABLE multi-redemption** | After M4 (or earlier if owner re-prioritises) | §T1 — full Tier 3 brainstorm → spec → plan → implementation. Covers rule choice (R1-R5), schema, abuse-prevention, redeemed-state UX, merchant analytics distinction. |
+| **Redeemed-state design pass (Tier 2)** | After M3 + M4 ship; informed by on-device QA | §Q1 + §Q2 + §Q4 + §S1-S3 — single coherent design pass producing locked baselines, then split implementation across PRs. |
+| **Settings → Redemption History (Tier 2)** | Standalone after redeemed-state design pass | §Q5 — new top-level Activity surface. Backend already exists. |
+| **Phase 4 Merchant Portal** | Phase 4 architecture spec → plan → impl | §R4 — branch-restricted access, validation portal, automated statements. Tier 3 brainstorm-first; biggest workstream of the lot. |
+| **Tier 1 polish batches** | Opportunistic | §P3 + §P4 + §P5 + §R1 + §R2 + §N11 + §U1 — assemble small follow-up PRs as bandwidth allows. |
+
+---
+
 ## Data contracts
 
 ### Backend payload — `GET /api/v1/redemption/me/:code` (NEW)
@@ -185,6 +248,23 @@ Backend uses `crypto.randomBytes` rejection-sampled to a 34-char alphabet (`ABCD
 - LIVE pulse becomes static dot.
 - 2s validated transition becomes instant.
 - Brightness boost still ramps (it's not motion).
+
+---
+
+## Backgrounding behavior — locked 2026-05-08 (post-review)
+
+When the user backgrounds the app (Home button, app switcher, lock screen, incoming call) with ShowToStaff visible, then returns:
+
+- **Surface stays mounted across background → foreground.** ShowToStaff is NOT auto-dismissed by `AppState.change`. The user expects to come back to the same QR.
+- **Polling pauses on blur, resumes on focus.** The existing `AppState` / `useFocusEffect` patterns already used in M2's PinEntrySheet apply: `useRedemptionPolling` accepts a `paused` flag derived from `AppState`; on `'background'` the React Query refetch is suspended; on `'active'` polling resumes from the last `startedAt` (the 15-min total budget continues counting — backgrounded time still consumes the budget).
+- **Auto-hide timer pauses on blur, re-arms on focus.** Same pattern. Backgrounded time DOES NOT count toward the 2-min idle. Re-arming on focus keeps the visible state and restarts the 2-min idle window — matches user mental model ("I just came back, the QR should be ready").
+- **Brightness restores on blur, re-applies on focus.** Don't hold elevated brightness while the app is backgrounded — iOS will already ramp it down on lock anyway, but we restore explicitly on `AppState === 'background'` to be defensive. On `'active'` we re-capture the current brightness and re-boost to 1, so the state machine remains correct across multiple foreground cycles.
+- **Screenshot guard stays subscribed across background.** iOS listener detaches naturally on background and reattaches on foreground via the existing `expo-screen-capture` semantics; Android `FLAG_SECURE` is restored on focus. No extra wiring needed beyond confirming the `useScreenshotGuard` hook handles the focus/blur cycle.
+- **App-process-killed → reopen via persisted RedemptionDetailsCard.** If the OS kills the JS bundle (background memory pressure / explicit user kill from app switcher), there is no recovery for the ShowToStaff modal itself — `useState` is gone. The user reopens Redeemo, navigates to Voucher Detail, sees the persisted RedemptionDetailsCard (M3d Task 17), taps "Show to Staff again," and ShowToStaff reopens with the same code. This is the §P2 + §M3 redeemed-state contract.
+
+**Why we don't auto-dismiss on backgrounding.** Three reasons: (1) the user's intent when backgrounding is usually "I'm coming right back" (e.g. checking a notification, looking up the merchant's loyalty card). Auto-dismissing punishes that intent. (2) The auto-hide timer already covers the "left and forgot" case via the 2-min idle countdown. (3) Persistence of the ShowToStaff state across foreground cycles is the existing iOS / Android user expectation for any modal that holds a value the user is showing to someone.
+
+**This is locked.** Implementation in Task 13 + Task 16 must follow this contract; tests pin pause-on-blur + resume-on-focus for polling, timer, and brightness.
 
 ---
 
@@ -827,9 +907,25 @@ Expected: FAIL — `lastRedemption` undefined on result.
 
 - [ ] **Step 3: Implement the payload extension**
 
-Edit `src/api/customer/discovery/service.ts`, inside `getCustomerVoucher`. After computing `isRedeemedThisCycle`, add:
+> **Scope correction (post-review):** on current main, [`src/api/customer/discovery/service.ts:911`](src/api/customer/discovery/service.ts#L911) declares `cycleStart` and `cycleEnd` *inside* the inner `if (subscription && status === 'ACTIVE' || 'TRIALLING')` block. To make `availableAgainAt`, `isRedeemedThisCycle`, AND the new `lastRedemption` all derive from the same single `getCurrentCycleWindow()` computation, hoist the window declarations to the outer scope first, then assign inside the existing subscription-status branch.
+
+Edit `src/api/customer/discovery/service.ts`, inside `getCustomerVoucher`. The full refactor:
 
 ```ts
+// EXISTING: outer-scope `let` declarations near the top of the
+// userId-authenticated block (already present for isRedeemedThisCycle,
+// isFavourited, availableAgainAt — keep those).
+let isRedeemedThisCycle = false
+let isFavourited        = false
+let availableAgainAt: string | null = null
+
+// NEW: hoist the cycle window to the outer scope so the same
+// computation drives availableAgainAt, isRedeemedThisCycle, AND
+// lastRedemption. Null when there is no active subscription.
+let cycleStart: Date | null = null
+let cycleEnd:   Date | null = null
+
+// NEW: lastRedemption block.
 let lastRedemption: {
   code: string
   redeemedAt: string
@@ -838,25 +934,50 @@ let lastRedemption: {
   validatedAt: string | null
 } | null = null
 
-if (isRedeemedThisCycle && cycleStart && cycleEnd) {
-  const row = await prisma.voucherRedemption.findFirst({
-    where:   { userId, voucherId, redeemedAt: { gte: cycleStart, lt: cycleEnd } },
-    orderBy: { redeemedAt: 'desc' },
-    include: { branch: { select: { id: true, name: true } } },
-  })
-  if (row) {
-    lastRedemption = {
-      code:        row.redemptionCode,
-      redeemedAt:  row.redeemedAt.toISOString(),
-      branch:      row.branch,
-      isValidated: row.isValidated,
-      validatedAt: row.validatedAt ? row.validatedAt.toISOString() : null,
+if (userId) {
+  const [subscription, cycleState, fav] = await Promise.all([/* …existing… */])
+  isFavourited = fav !== null
+
+  if (
+    subscription
+    && (subscription.status === 'ACTIVE' || subscription.status === 'TRIALLING')
+  ) {
+    // Compute the cycle window once, in the outer-scope variables.
+    const window = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
+    cycleStart       = window.cycleStart
+    cycleEnd         = window.cycleEnd
+    availableAgainAt = cycleEnd.toISOString()
+    if (cycleState && cycleState.isRedeemedInCurrentCycle) {
+      isRedeemedThisCycle = cycleState.cycleStartDate >= cycleStart
+    }
+  }
+
+  // NEW: only fetch lastRedemption when the gate is fully satisfied
+  // — same `isRedeemedThisCycle` flag the customer-app reads, plus
+  // the cycle window we just computed. After cycle rollover BOTH
+  // flip together; the §Q6 invariant holds by construction.
+  if (isRedeemedThisCycle && cycleStart && cycleEnd) {
+    const row = await prisma.voucherRedemption.findFirst({
+      where:   { userId, voucherId, redeemedAt: { gte: cycleStart, lt: cycleEnd } },
+      orderBy: { redeemedAt: 'desc' },
+      include: { branch: { select: { id: true, name: true } } },
+    })
+    if (row) {
+      lastRedemption = {
+        code:        row.redemptionCode,
+        redeemedAt:  row.redeemedAt.toISOString(),
+        branch:      row.branch,
+        isValidated: row.isValidated,
+        validatedAt: row.validatedAt ? row.validatedAt.toISOString() : null,
+      }
     }
   }
 }
 ```
 
-Add `lastRedemption` to the return object.
+Add `lastRedemption` to the return object alongside `availableAgainAt`.
+
+**Why this matters:** the cycle-window math is the load-bearing primitive for the entire redeemed-state experience. Three derived values (`availableAgainAt`, `isRedeemedThisCycle`, `lastRedemption`) MUST agree on which cycle window they're in. Hoisting `cycleStart`/`cycleEnd` once + assigning in the subscription branch is the safe shape — separate `getCurrentCycleWindow()` calls would technically work but would duplicate logic and risk subtle drift if the function ever becomes time-sensitive.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1468,7 +1589,7 @@ const baseProps = {
   voucherType: 'BOGO' as const,
   merchantName: 'Pizza Palace',
   branchName: 'High Street',
-  customerName: 'John D.',
+  customerName: '',                     // M3 lock — see Task 16 + §U1.
   redeemedAt: '2026-05-08T10:00:00Z',
   onDone: jest.fn(),
 }
@@ -1516,8 +1637,45 @@ describe('ShowToStaff', () => {
     fireEvent.press(getByA11yLabel('Done'))
     expect(onDone).toHaveBeenCalled()
   })
+
+  it('suppresses the Customer info row when customerName is empty (M3 lock — §U1)', () => {
+    const { queryByText } = render(<ShowToStaff {...baseProps} />, { wrapper })
+    // The "Customer" label MUST NOT render when there is no name to show.
+    // Rendering the label with an empty value misleads staff about what
+    // the field means.
+    expect(queryByText(/^Customer$/)).toBeNull()
+  })
+
+  it('renders the Customer info row when a name is provided (forward-compat for §U1)', () => {
+    const { getByText } = render(<ShowToStaff {...baseProps} customerName="John D." />, { wrapper })
+    expect(getByText(/^Customer$/)).toBeTruthy()
+    expect(getByText('John D.')).toBeTruthy()
+  })
+
+  it('reduced-motion: validated transition is instant + entrance animation suppressed', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true)
+    jest.useFakeTimers()
+    const onDone = jest.fn()
+    ;(redemptionApi.getMyRedemptionByCode as jest.Mock).mockResolvedValue({
+      code:'A7K2P9X4', isValidated:true, validatedAt:'2026-05-08T10:01:00Z', validationMethod:'QR_SCAN',
+      voucherId:'v1', merchantName:'Pizza Palace', branchName:'High Street',
+    })
+    const { findByText, getByTestId } = render(<ShowToStaff {...baseProps} onDone={onDone} />, { wrapper })
+
+    // Component mounts and renders fully without depending on motion.
+    expect(getByTestId('show-to-staff')).toBeTruthy()
+    // Modal animationType prop is 'none' under reduced-motion.
+    expect(getByTestId('show-to-staff').props.animationType).toBe('none')
+    // Validated state still flips correctly.
+    expect(await findByText(/Verified by staff/i)).toBeTruthy()
+    // Validated → onDone is instant (no 2s wait), or near-instant.
+    await waitFor(() => expect(onDone).toHaveBeenCalled(), { timeout: 100 })
+    jest.useRealTimers()
+  })
 })
 ```
+
+The component must accept `AccessibilityInfo.isReduceMotionEnabled() === true` and suppress: (1) the slide-in entrance animation (set `Modal.animationType` to `'none'`), (2) the 2s `setTimeout` between validated phase and `onDone` (call `onDone` immediately when `phase === 'validated'` under reduced motion), (3) the LIVE pulse (already covered by `PulsingDot`'s reduced-motion handling from Task 8). The component itself remains fully functional — code, QR, branch, datetime ticker all render normally. The auto-dismiss timer in `useAutoHideTimer` is independent of reduced-motion and stays active per its own logic.
 
 - [ ] **Step 2: Run + verify FAIL**
 
@@ -1692,7 +1850,7 @@ git commit -m "feat(voucher): ShowToStaff anti-fraud — blur QR + banner on scr
 
 ---
 
-### M3d — Wiring + persisted return-visit (Tasks 16–19)
+### M3d — Wiring + persisted return-visit (Tasks 16–18)
 
 #### Task 16: Mount `ShowToStaff` from `VoucherDetailScreen` + replace `SuccessPopup` alert
 
@@ -1750,14 +1908,18 @@ Mount `<ShowToStaff>` near the bottom of the JSX (after `SuccessPopup`):
     voucherType={voucher.type}
     merchantName={voucher.merchant.businessName}
     branchName={showToStaff.branchName}
-    customerName={firstNameInitial}
+    customerName=""    // M3 LOCK: empty string. See note below.
     redeemedAt={showToStaff.redeemedAt}
     onDone={() => setShowToStaff(null)}
   />
 ) : null}
 ```
 
-`firstNameInitial` should derive from the existing user/profile context (e.g. `John D.`). If not available today, hard-code the customer name to empty string and surface this as a follow-up — do NOT block on it.
+**Customer display name — M3 lock (post-review):** pass `customerName=""` for M3. **Do NOT plumb a profile/auth lookup in M3.** Reasons: (1) the v6 mockup shows "John D." as a glassmorphic info-row only — staff visually verify the QR + live datetime ticker, not the customer name; (2) routing the auth state into ShowToStaff adds a dependency without product gain at the M3 functional bar; (3) the alternative — a non-empty placeholder — would mislead staff and customers about what the field means.
+
+The ShowToStaff component must handle `customerName=""` cleanly: when empty, the "Customer" info-row is suppressed (do not render an empty value with the label visible). This is a render contract, NOT optional polish — pin it with a Task 13 test.
+
+Surfacing the customer's first-name + last-initial is tracked as deferred follow-up §U1 ("Customer display name on Show-to-Staff") in `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_deferred_followups_index.md`. Lift it once we know whether the merchant-side validation surfaces (§R4) need name parity with the customer surface, so both sides are designed together rather than drifting.
 
 - [ ] **Step 4: Run + verify PASS**
 
@@ -1770,79 +1932,71 @@ git commit -m "feat(voucher): wire SuccessPopup → ShowToStaff (delete M2 alert
 
 ---
 
-#### Task 17: Render persisted RedemptionDetailsCard from `voucher.lastRedemption`
+#### Task 17: Render persisted RedemptionDetailsCard + re-enable "Show to Staff" button (collapsed Task 17 + 18)
+
+> **Single green commit.** This task touches both `RedemptionDetailsCard.tsx` AND its existing test file in the same commit. Two test files land green at the end of this task: the new `voucher-detail-persisted-return-visit.test.tsx` AND the updated existing `redemption-details-card.test.tsx`. **No intermediate red state.**
 
 **Files:**
 - Modify: `apps/customer-app/src/features/voucher/screens/VoucherDetailScreen.tsx`
 - Modify: `apps/customer-app/src/features/voucher/components/RedemptionDetailsCard.tsx`
 - Create: `apps/customer-app/tests/features/voucher/voucher-detail-persisted-return-visit.test.tsx`
+- **Modify** (same commit): `apps/customer-app/tests/features/voucher/redemption-details-card.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Create `voucher-detail-persisted-return-visit.test.tsx`. The test mocks `useCustomerVoucher` to return a payload with `isRedeemedThisCycle: true` + `lastRedemption: { code, redeemedAt, branch, isValidated:false, validatedAt:null }` AND no in-memory `lastRedemption` (simulating an app relaunch). Asserts:
-1. `RedemptionDetailsCard` renders.
-2. Its `code` displays as `A7K2 P9X4`.
-3. Its branch displays correctly.
-4. Tapping "Show to Staff" opens `ShowToStaff` with the persisted code.
-5. When `voucher.isRedeemedThisCycle === false` (cycle rolled), card does NOT render even if `lastRedemption` somehow exists (defensive — test explicitly sets both).
+Create the new persisted-return-visit test:
 
-- [ ] **Step 2: Run + verify FAIL**
-
-- [ ] **Step 3: Implement the gate**
-
-In `VoucherDetailScreen.tsx`, around the existing block at [VoucherDetailScreen.tsx:976](VoucherDetailScreen.tsx#L976):
 ```tsx
-{stateKey === 'redeemed-this-cycle' && (lastRedemption || voucher.lastRedemption) ? (
-  <RedemptionDetailsCard
-    redemptionCode={ lastRedemption?.redemptionCode ?? voucher.lastRedemption!.code }
-    redeemedAt={    lastRedemption?.redeemedAt    ?? voucher.lastRedemption!.redeemedAt }
-    branchName={
-      lastRedemption
-        ? lastRedemptionBranch?.name
-        : voucher.lastRedemption!.branch.name
-    }
-    voucherTitle={voucher.title}
-    voucherType={voucher.type}
-    merchantName={voucher.merchant.businessName}
-    estimatedSaving={voucher.estimatedSaving}
-    isValidated={ lastRedemption ? false : voucher.lastRedemption!.isValidated }
-    onShowToStaff={() => setShowToStaff({
-      code:       lastRedemption?.redemptionCode ?? voucher.lastRedemption!.code,
-      redeemedAt: lastRedemption?.redeemedAt    ?? voucher.lastRedemption!.redeemedAt,
-      branchName: (lastRedemption ? lastRedemptionBranch?.name : voucher.lastRedemption!.branch.name) ?? '',
-    })}
-  />
-) : null}
+// apps/customer-app/tests/features/voucher/voucher-detail-persisted-return-visit.test.tsx
+import React from 'react'
+import { render, fireEvent } from '@testing-library/react-native'
+import { useCustomerVoucher } from '@/features/voucher/hooks/useCustomerVoucher'
+import VoucherDetailScreen from '@/features/voucher/screens/VoucherDetailScreen'
+
+jest.mock('@/features/voucher/hooks/useCustomerVoucher')
+
+const persistedVoucher = {
+  id: 'v1', title: 'BOGO Pizza', type: 'BOGO',
+  description: null, terms: null, imageUrl: null,
+  estimatedSaving: 4.5, expiryDate: null, code: null,
+  status: 'ACTIVE', approvalStatus: 'APPROVED',
+  merchant: { id: 'm1', businessName: 'Pizza Palace', tradingName: null, logoUrl: null, status: 'ACTIVE' },
+  isRedeemedThisCycle: true,
+  isFavourited: false,
+  availableAgainAt: '2026-06-05T00:00:00.000Z',
+  lastRedemption: {
+    code: 'A7K2P9X4',
+    redeemedAt: '2026-05-08T10:00:00.000Z',
+    branch: { id: 'b1', name: 'High Street' },
+    isValidated: false,
+    validatedAt: null,
+  },
+}
+
+describe('VoucherDetailScreen — persisted return-visit', () => {
+  it('renders RedemptionDetailsCard with formatted code from voucher.lastRedemption', () => {
+    (useCustomerVoucher as jest.Mock).mockReturnValue({ data: persistedVoucher, isLoading: false })
+    const { getByText } = render(<VoucherDetailScreen />)
+    expect(getByText(/A7K2 P9X4/)).toBeTruthy()
+    expect(getByText('High Street')).toBeTruthy()
+  })
+
+  it('"Show to Staff" on persisted card opens ShowToStaff with the persisted code', () => {
+    (useCustomerVoucher as jest.Mock).mockReturnValue({ data: persistedVoucher, isLoading: false })
+    const { getByA11yLabel, getByText } = render(<VoucherDetailScreen />)
+    fireEvent.press(getByA11yLabel(/show.+to staff/i))
+    // ShowToStaff renders the same code
+    expect(getByText(/A7K2 P9X4/)).toBeTruthy()
+  })
+})
 ```
 
-§Q6 invariant: the outer condition `stateKey === 'redeemed-this-cycle'` is gated on `voucher.isRedeemedThisCycle === true` upstream — when the cycle rolls over, `stateKey` reverts and the card does NOT render even if `lastRedemption` is somehow stale.
+Update the existing RedemptionDetailsCard test to drop the disabled-button assertion and replace with the live-button contract:
 
-Update `RedemptionDetailsCard.tsx`:
-- Replace the M2 stub button (line 166-181) with a tappable button that calls `onShowToStaff?.()` (already wired to fire the alert today; just remove the alert).
-- Make the button visually full-strength (no longer disabled).
-- Add the new optional prop `isValidated?: boolean` and surface a small "Validated by staff" indicator if true.
-
-- [ ] **Step 4: Run + verify PASS**
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add apps/customer-app/src/features/voucher/screens/VoucherDetailScreen.tsx apps/customer-app/src/features/voucher/components/RedemptionDetailsCard.tsx apps/customer-app/tests/features/voucher/voucher-detail-persisted-return-visit.test.tsx
-git commit -m "feat(voucher): render persisted RedemptionDetailsCard from voucher.lastRedemption (gated on isRedeemedThisCycle per §Q6)"
-```
-
----
-
-#### Task 18: Replace `RedemptionDetailsCard` "Show to Staff again" stub
-
-**Files:**
-- Modify: `apps/customer-app/src/features/voucher/components/RedemptionDetailsCard.tsx`
-- Modify: `apps/customer-app/tests/features/voucher/redemption-details-card.test.tsx`
-
-- [ ] **Step 1: Update existing test that asserts the alert/disabled-button path**
-
-Find the test that asserts disabled-button behavior; replace with:
 ```tsx
+// apps/customer-app/tests/features/voucher/redemption-details-card.test.tsx
+// REMOVE: any test asserting onShowToStaff button is disabled or fires Alert.alert
+// ADD:
 it('"Show to Staff" button calls onShowToStaff and is no longer disabled', () => {
   const onShowToStaff = jest.fn()
   const { getByA11yLabel } = render(
@@ -1857,29 +2011,105 @@ it('"Show to Staff" button calls onShowToStaff and is no longer disabled', () =>
       onShowToStaff={onShowToStaff}
     />
   )
-  fireEvent.press(getByA11yLabel(/show.+to staff/i))
+  const button = getByA11yLabel(/^Show redemption code to staff$/)   // a11y label dropped the "(available in next milestone)" suffix
+  expect(button.props.accessibilityState?.disabled).toBeFalsy()
+  fireEvent.press(button)
   expect(onShowToStaff).toHaveBeenCalled()
+})
+
+it('renders "Validated by staff" indicator when isValidated is true', () => {
+  const { getByText } = render(
+    <RedemptionDetailsCard
+      redemptionCode="A7K2P9X4"
+      redeemedAt="2026-05-08T10:00:00Z"
+      branchName="High Street"
+      voucherTitle="BOGO"
+      voucherType="BOGO"
+      merchantName="Pizza Palace"
+      estimatedSaving={4.5}
+      isValidated
+    />
+  )
+  expect(getByText(/Validated by staff/i)).toBeTruthy()
 })
 ```
 
 - [ ] **Step 2: Run + verify FAIL**
 
-- [ ] **Step 3: Re-enable the button**
+Run: `cd apps/customer-app && npx jest tests/features/voucher/voucher-detail-persisted-return-visit.test.tsx tests/features/voucher/redemption-details-card.test.tsx --forceExit`
+Expected: FAIL on the new test (component not yet rendering persisted card) AND on the updated existing test (disabled-state assertions changed).
 
-In `RedemptionDetailsCard.tsx`, the changes from Task 17 already remove the disabled state. Confirm the a11y label reads "Show redemption code to staff" (drop the "(available in next milestone)" suffix).
+- [ ] **Step 3: Implement the gate AND re-enable the button**
 
-- [ ] **Step 4: Run + verify PASS**
+In `VoucherDetailScreen.tsx`, around the existing block at [VoucherDetailScreen.tsx:976](VoucherDetailScreen.tsx#L976):
+
+```tsx
+// Derive a single normalised source-of-truth before the JSX. Avoids
+// repeated non-null assertions and makes the §Q6 gate explicit.
+const displayRedemption = lastRedemption
+  ? {
+      code:        lastRedemption.redemptionCode,
+      redeemedAt:  lastRedemption.redeemedAt,
+      branchName:  lastRedemptionBranch?.name ?? '',
+      isValidated: false,                                     // just-redeemed, not yet validated
+    }
+  : voucher.lastRedemption
+    ? {
+        code:        voucher.lastRedemption.code,
+        redeemedAt:  voucher.lastRedemption.redeemedAt,
+        branchName:  voucher.lastRedemption.branch.name,
+        isValidated: voucher.lastRedemption.isValidated,
+      }
+    : null
+
+// §Q6 invariant: the outer condition `stateKey === 'redeemed-this-cycle'`
+// is the LOAD-BEARING gate. When the cycle rolls over, stateKey reverts
+// (driven by voucher.isRedeemedThisCycle === false). Even if
+// voucher.lastRedemption is somehow stale, the card does NOT render.
+{stateKey === 'redeemed-this-cycle' && displayRedemption ? (
+  <RedemptionDetailsCard
+    redemptionCode={displayRedemption.code}
+    redeemedAt={displayRedemption.redeemedAt}
+    branchName={displayRedemption.branchName}
+    voucherTitle={voucher.title}
+    voucherType={voucher.type}
+    merchantName={voucher.merchant.businessName}
+    estimatedSaving={voucher.estimatedSaving}
+    isValidated={displayRedemption.isValidated}
+    onShowToStaff={() => setShowToStaff({
+      code:       displayRedemption.code,
+      redeemedAt: displayRedemption.redeemedAt,
+      branchName: displayRedemption.branchName,
+    })}
+  />
+) : null}
+```
+
+Update `RedemptionDetailsCard.tsx` (single coherent edit, NOT split across tasks):
+- Replace the M2 stub button (line 166-181) with a tappable Pressable that calls `onShowToStaff?.()`. Remove the alert.
+- Drop the `(available in next milestone)` suffix from the accessibility label — the new label is `"Show redemption code to staff"`.
+- Remove the `accessibilityState={{ disabled: true }}` and the muted styling.
+- Add a new optional prop `isValidated?: boolean`. When `true`, render a small "Validated by staff" indicator (e.g. green check pill below the redemption code).
+
+- [ ] **Step 4: Run + verify BOTH test files pass**
+
+Run: `cd apps/customer-app && npx jest tests/features/voucher/voucher-detail-persisted-return-visit.test.tsx tests/features/voucher/redemption-details-card.test.tsx --forceExit`
+Expected: ALL PASS in both files. Then re-run the broader voucher suite to confirm no other regression: `npx jest tests/features/voucher --forceExit`. **Tests stay green at end-of-task.**
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/customer-app/src/features/voucher/components/RedemptionDetailsCard.tsx apps/customer-app/tests/features/voucher/redemption-details-card.test.tsx
-git commit -m "feat(voucher): RedemptionDetailsCard 'Show to Staff' button live (no longer stubbed)"
+git add \
+  apps/customer-app/src/features/voucher/screens/VoucherDetailScreen.tsx \
+  apps/customer-app/src/features/voucher/components/RedemptionDetailsCard.tsx \
+  apps/customer-app/tests/features/voucher/voucher-detail-persisted-return-visit.test.tsx \
+  apps/customer-app/tests/features/voucher/redemption-details-card.test.tsx
+git commit -m "feat(voucher): persisted RedemptionDetailsCard + Show-to-Staff button live (gated on isRedeemedThisCycle per §Q6)"
 ```
 
 ---
 
-#### Task 19: §Q6 cycle-rollover invariant integration test
+#### Task 18: §Q6 cycle-rollover invariant integration test
 
 **Files:**
 - Create: `apps/customer-app/tests/features/voucher/voucher-detail-q6-cycle-rollover.test.tsx`
@@ -1888,43 +2118,109 @@ This task pins the §Q6 invariant explicitly. It belongs to its own test file be
 
 - [ ] **Step 1: Write the test**
 
+Create `apps/customer-app/tests/features/voucher/voucher-detail-q6-cycle-rollover.test.tsx`:
+
 ```tsx
-// Mocks: useCustomerVoucher returns:
-//   PHASE 1: { isRedeemedThisCycle: true,  lastRedemption: {...} }
-//   PHASE 2: { isRedeemedThisCycle: false, lastRedemption: null }
-//
-// Assertions:
-//   PHASE 1: RedemptionDetailsCard rendered, RedeemCTA disabled
-//   PHASE 2: RedemptionDetailsCard NOT rendered, RedeemCTA active
-//
-// AND a defensive case: even if backend returns
-//   { isRedeemedThisCycle: false, lastRedemption: {...} }
-// (drift between flags) the card MUST NOT render — `isRedeemedThisCycle`
-// is the load-bearing gate per §Q6.
+import React from 'react'
+import { render, fireEvent } from '@testing-library/react-native'
+import { useCustomerVoucher } from '@/features/voucher/hooks/useCustomerVoucher'
+import { useSubscription }    from '@/lib/hooks/useSubscription'
+import VoucherDetailScreen    from '@/features/voucher/screens/VoucherDetailScreen'
+
+jest.mock('@/features/voucher/hooks/useCustomerVoucher')
+jest.mock('@/lib/hooks/useSubscription')
+
+const baseVoucher = {
+  id: 'v1', title: 'BOGO Pizza', type: 'BOGO',
+  description: null, terms: null, imageUrl: null,
+  estimatedSaving: 4.5, expiryDate: null, code: null,
+  status: 'ACTIVE', approvalStatus: 'APPROVED',
+  merchant: { id: 'm1', businessName: 'Pizza Palace', tradingName: null, logoUrl: null, status: 'ACTIVE' },
+  isFavourited: false,
+  availableAgainAt: '2026-06-05T00:00:00.000Z',
+}
+
+const persistedRedemption = {
+  code: 'A7K2P9X4',
+  redeemedAt: '2026-05-08T10:00:00.000Z',
+  branch: { id: 'b1', name: 'High Street' },
+  isValidated: false,
+  validatedAt: null,
+}
+
+beforeEach(() => {
+  ;(useSubscription as jest.Mock).mockReturnValue({ isSubscribed: true, isLoading: false })
+})
+
+describe('§Q6 cycle-rollover invariant — RedemptionDetailsCard gate', () => {
+  it('PHASE 1 — current cycle: isRedeemedThisCycle:true + lastRedemption present → card renders, CTA shows redeemed-state', () => {
+    (useCustomerVoucher as jest.Mock).mockReturnValue({
+      data: { ...baseVoucher, isRedeemedThisCycle: true, lastRedemption: persistedRedemption },
+      isLoading: false,
+    })
+    const { getByText, getByA11yLabel, queryByA11yLabel } = render(<VoucherDetailScreen />)
+
+    // RedemptionDetailsCard mounted with the persisted code + branch
+    expect(getByText(/A7K2 P9X4/)).toBeTruthy()
+    expect(getByText('High Street')).toBeTruthy()
+    expect(getByA11yLabel(/^Show redemption code to staff$/)).toBeTruthy()
+
+    // RedeemCTA is in the redeemed-state (disabled / "Already Redeemed This Cycle")
+    expect(queryByA11yLabel(/^Redeem this voucher$/i)).toBeNull()
+  })
+
+  it('PHASE 2 — rolled-over cycle: isRedeemedThisCycle:false + lastRedemption:null → card does NOT render, CTA active', () => {
+    (useCustomerVoucher as jest.Mock).mockReturnValue({
+      data: { ...baseVoucher, isRedeemedThisCycle: false, lastRedemption: null },
+      isLoading: false,
+    })
+    const { queryByText, getByA11yLabel } = render(<VoucherDetailScreen />)
+
+    // No persisted card
+    expect(queryByText(/A7K2 P9X4/)).toBeNull()
+    expect(queryByText('High Street')).toBeNull()
+    // RedeemCTA reverts to active
+    expect(getByA11yLabel(/^Redeem this voucher$/i)).toBeTruthy()
+  })
+
+  it('PHASE 3 (defensive drift) — isRedeemedThisCycle:false + lastRedemption STILL PRESENT → card MUST NOT render', () => {
+    // Defensive: even if the backend serves an inconsistent payload
+    // (the rollover crossed the line between the two fields being
+    // computed), the load-bearing gate is isRedeemedThisCycle.
+    // The card MUST stay hidden — staying tied to the cycle flag, not
+    // to the persistence shape.
+    (useCustomerVoucher as jest.Mock).mockReturnValue({
+      data: { ...baseVoucher, isRedeemedThisCycle: false, lastRedemption: persistedRedemption },
+      isLoading: false,
+    })
+    const { queryByText, queryByA11yLabel, getByA11yLabel } = render(<VoucherDetailScreen />)
+
+    expect(queryByText(/A7K2 P9X4/)).toBeNull()
+    expect(queryByA11yLabel(/^Show redemption code to staff$/)).toBeNull()
+    expect(getByA11yLabel(/^Redeem this voucher$/i)).toBeTruthy()
+  })
+})
 ```
 
-- [ ] **Step 2: Run + verify FAIL** (it should pass on the happy paths and fail on the defensive case if the gate is mis-coded)
+- [ ] **Step 2: Run + verify**
 
-- [ ] **Step 3: Confirm the gate code**
+Run: `cd apps/customer-app && npx jest tests/features/voucher/voucher-detail-q6-cycle-rollover.test.tsx --forceExit`
+Expected behaviour against Task 17's gate code: PHASE 1 + PHASE 2 + PHASE 3 all PASS. **If PHASE 3 fails, the gate is mis-coded** — the implementer almost certainly used `lastRedemption || voucher.lastRedemption` as the outer condition instead of the `stateKey === 'redeemed-this-cycle'` first. Re-read Task 17's `displayRedemption` block; the load-bearing gate is `stateKey`, not the redemption-data presence.
 
-Re-read [VoucherDetailScreen.tsx lines around the persisted-card block from Task 17] to verify the outer condition is `stateKey === 'redeemed-this-cycle'` (which only flips true when `voucher.isRedeemedThisCycle === true`). If `lastRedemption` were checked first, the defensive case would fail. Adjust if needed.
-
-- [ ] **Step 4: Run + verify PASS**
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add apps/customer-app/tests/features/voucher/voucher-detail-q6-cycle-rollover.test.tsx
-git commit -m "test(voucher): pin §Q6 cycle-rollover invariant — card gates on isRedeemedThisCycle, not lastRedemption"
+git commit -m "test(voucher): pin §Q6 cycle-rollover invariant — card gates on isRedeemedThisCycle, not lastRedemption (3 phases incl. defensive drift)"
 ```
 
 ---
 
-### M3e — Docs / spec / deferred-followups consistency pass (Tasks 20–22)
+### M3e — Docs / spec / deferred-followups consistency pass (Tasks 19–21)
 
 > Standing rule: bundle this INSIDE the M3 PR. Do NOT defer to a separate docs PR.
 
-#### Task 20: Plan §M3.1 as-shipped addendum
+#### Task 19: Plan §M3.1 as-shipped addendum
 
 **File:** `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md`
 
@@ -1941,7 +2237,7 @@ git commit -m "docs(plan): voucher-detail rebaseline §M3.1 as-shipped addendum"
 
 ---
 
-#### Task 21: Spec §7 + §8 shipped-state deltas
+#### Task 20: Spec §7 + §8 shipped-state deltas
 
 **File:** `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md`
 
@@ -1968,7 +2264,7 @@ git commit -m "docs(spec): voucher-detail-redemption §7.7 + §8.10 M3 shipped-s
 
 ---
 
-#### Task 22: CLAUDE.md flip + Next Planned Work + memory
+#### Task 21: CLAUDE.md flip + Next Planned Work + memory
 
 **File:** `CLAUDE.md` + memory updates
 
@@ -1988,12 +2284,14 @@ Add a new dated section reflecting M3 LIVE on main + the cleanup state.
 
 - §P1 — flip to closed (M3 shipped).
 - §P2 — flip to closed for current-cycle persisted return-visit; past-cycle history remains §Q5.
-- §Q6 — confirm the cycle-rollover invariant test landed.
+- §Q6 — confirm the cycle-rollover invariant test landed (Task 18, 3-phase regression).
 - §O1 (TIME_LIMITED) — VERIFY the 2026-05-08 audit-time expansion is intact (current-state verification, schema options a/b/c/d, recommended hybrid default, merchant-portal dependency, full UI-spec cross-refs). If any details have drifted by M3 ship time (e.g. main has moved), refresh the audit-state lines without losing the structure. **No new content needed** — this is a verification step.
 - §T / §T1 (REUSABLE multi-redemption) — VERIFY the 2026-05-08 audit-time entry is intact (today's reality, candidate rules R1-R5, recommended R3+R4 hybrid direction, abuse-prevention risks, schema implications, frontend implications, no-M3-dependency confirmation, Tier 3 brainstorm-first sequencing). **No new content needed** — verification step.
+- §U1 (Customer display name on Show-to-Staff) — VERIFY the entry is intact (M3 lock at `customerName=""`, suppression contract, lift conditions, cross-ref to §R4 parity decision). **No new content needed** — verification step.
+- §V (M3 deferred manifest, cross-cutting) — VERIFY the cross-reference table accurately maps every M3-deferred item to its owning entry. Update only if M3 implementation discovers a new deferral that didn't exist at plan-time.
 - Add new entries for any M3-derived deferrals discovered during implementation.
 
-> **Why these two entries are pre-populated.** Owner direction 2026-05-08: TIME_LIMITED + REUSABLE audit captured ahead of M3 plan-write so the workstreams aren't lost. Both confirmed to NOT block M3. The entries went into memory at audit time (commit `<plan-branch-sha>` on `plan/voucher-m3-show-to-staff`). Task 22 verifies them post-M3-merge — checking nothing in the M3 implementation invalidated the audit findings.
+> **Why these entries are pre-populated.** Owner direction 2026-05-08: voucher-type audit (TIME_LIMITED + REUSABLE) AND M3 cross-cutting deferred manifest captured ahead of M3 plan-write so the workstreams aren't lost. All M3-deferred items confirmed to NOT block M3. The entries went into memory at audit time (commit on `plan/voucher-m3-show-to-staff`). Task 21 verifies them post-M3-merge — checking nothing in the M3 implementation invalidated the audit findings.
 
 - [ ] **Step 5: Update memory `MEMORY.md` index** to point at the new project_current_state.md state.
 
@@ -2025,7 +2323,8 @@ Devices: iPhone 14/15/16 Pro (Dynamic Island + brightness), iPhone 11–13 (notc
 - [ ] **iOS screenshot:** ShowToStaff visible → take a screenshot → QR blurs immediately + banner appears with copy "Screenshot taken — staff verify only the live screen" + tap-to-show restores. Inspect backend `RedemptionScreenshotEvent` table — one new row.
 - [ ] **iOS screenshot dedup:** take 3 screenshots within 5 seconds → only one row created in `RedemptionScreenshotEvent`.
 - [ ] **Android screenshot:** ShowToStaff visible → attempt screenshot → blocked by FLAG_SECURE; recents screen shows black thumbnail.
-- [ ] **Backgrounded ShowToStaff:** open ShowToStaff → Home → reopen Redeemo → ShowToStaff is still visible OR cleanly dismissed (decide during impl QA — owner direction needed). Either way, brightness restored to original on dismiss.
+- [ ] **Backgrounded ShowToStaff (locked 2026-05-08):** open ShowToStaff → Home → reopen Redeemo → ShowToStaff is **still visible** with the same code. Polling has paused on blur and resumed on focus (5-min subjective wait → first poll fires within 5s of return). Auto-hide 2-min idle timer is paused while backgrounded and re-arms on focus. Brightness was restored on background and re-boosted on foreground.
+- [ ] **App-killed mid-Show:** open ShowToStaff → kill the app from the switcher → relaunch → navigate to the same voucher → persisted RedemptionDetailsCard renders → tap "Show to Staff again" → ShowToStaff reopens with the same code.
 - [ ] **Brightness restoration:** open ShowToStaff → screen brightens to max → Done → original brightness restored.
 - [ ] **Brightness API rejection (iOS Low Power Mode):** enable Low Power Mode → open ShowToStaff → screen renders normally without crashing (no boost; that's expected).
 
@@ -2053,11 +2352,11 @@ Devices: iPhone 14/15/16 Pro (Dynamic Island + brightness), iPhone 11–13 (notc
 
 The PR is mergeable when:
 
-1. ✅ All 22 tasks committed.
+1. ✅ All 21 tasks committed.
 2. ✅ Backend vitest 488+/488+ passing (existing 483 + new tests in Tasks 2/3/5/4).
 3. ✅ Customer-app jest 800+/800+ passing (existing 792 + new tests in Tasks 6/7/8/9/10/11/12/13/14/15/16/17/18/19).
 4. ✅ `tsc --noEmit` clean across backend + customer-app.
-5. ✅ §Q6 cycle-rollover invariant test (Task 19) passes — pinned regression.
+5. ✅ §Q6 cycle-rollover invariant test (Task 18) passes — pinned regression with all 3 phases (current cycle / rolled-over / defensive drift).
 6. ✅ Manual device QA checklist completed on at least one iOS device + one Android device, with golden paths and anti-fraud paths verified.
 7. ✅ Plan §M3.1 + spec §7.7 + spec §8.10 + CLAUDE.md updated in the same PR (Bundle E).
 8. ✅ No code copied wholesale from `feature/customer-app` reference branch — every adapted file references the reference but uses current main's tokens, contracts, and patterns.
