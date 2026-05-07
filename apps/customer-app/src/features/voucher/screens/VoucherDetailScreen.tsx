@@ -176,15 +176,14 @@ export function VoucherDetailScreen() {
   const timeLimited = useTimeLimited(voucher)
 
   // Branch context for the redemption attribution UX.
+  //
+  // `selectedBranch` is the server-resolved cold-open fallback only;
+  // never used for display when the URL or picker has a target.
+  // See `displayBranch` below for the URL-first resolver that actually
+  // drives the screen.
   const selectedBranch = merchant?.selectedBranch ?? null
   const isMultiBranch  = (merchant?.branches.length ?? 0) > 1
-  const branchName     = selectedBranch?.name ?? null
-  const branchDistance = selectedBranch?.distance ?? null
   const merchantDescriptor = merchant?.descriptor ?? null
-  const branchReady    = !!selectedBranch
-  const branchErrored  = merchantQuery.isError || (
-    !!merchant && !merchant.selectedBranch
-  )
 
   // ── Scroll-driven chrome handoff ─────────────────────────────────────
   // FADE_START / FADE_END define the visual crossfade band; HANDOFF_AT
@@ -276,6 +275,93 @@ export function VoucherDetailScreen() {
       setPickerConfirmedBranchId(null)
     }
   }, [branchIdParam, pickerConfirmedBranchId])
+
+  // ── URL-first display branch resolver (locked 2026-05-07 from device QA) ──
+  //
+  // The display surface (MerchantRow, CollapsedHeader, PinEntrySheet
+  // header, SuccessPopup branch line, RedemptionDetailsCard branch line,
+  // CTA gating) MUST mirror the mutation's three-tier priority so the
+  // user never sees a different branch than the one redemption would
+  // actually attribute to.
+  //
+  // Priority (matches `useRedeem({ getBranchId })` at the call site below):
+  //   1. pickerConfirmedBranchId — synchronous local state from the
+  //      picker confirm. Bridges the render gap before URL catches up.
+  //   2. branchIdParam — URL `?branch=<id>`. The user's intended target.
+  //   3. selectedBranch — server-resolved cold-open fallback. Used ONLY
+  //      when no URL/picker target exists. Never displayed when it
+  //      conflicts with the URL/picker target.
+  //
+  // Behaviour when a URL/picker target exists but the matching branch
+  // is not yet in `merchant.branches` (race during cold-open or
+  // refetch): displayBranch is `null` and the screen shows a NEUTRAL
+  // unresolved state — never the stale selectedBranch. CTA is hidden
+  // (no alarming "Resolving Branch…" primary button). Once the
+  // refetch completes and the matching branch lands in
+  // `merchant.branches`, displayBranch resolves and the CTA appears.
+  const targetBranchId =
+    pickerConfirmedBranchId ?? branchIdParam ?? null
+
+  // Display branch is a thin shape carrying the four fields the
+  // screen actually renders (name, distance, logoUrl, id). Two
+  // sources contribute, in priority order:
+  //   • merchant.selectedBranch — rich; carries logoUrl. Used when
+  //     its id matches the target (or on cold-open).
+  //   • merchant.branches[i] (BranchTile) — lighter; no logoUrl.
+  //     Used during the keepPreviousData refetch window when
+  //     selectedBranch is stale but the new target IS in the
+  //     branches list.
+  // The CollapsedHeader logo falls back to merchant.logoUrl when
+  // displayBranch.logoUrl is null, so the BranchTile path is a
+  // graceful degradation rather than a missing-asset bug.
+  type DisplayBranch = {
+    id: string
+    name: string
+    distance: number | null
+    logoUrl: string | null
+  }
+
+  const displayBranch = useMemo<DisplayBranch | null>(() => {
+    if (!merchant) return null
+    if (targetBranchId) {
+      // URL/picker target: prefer the rich selectedBranch when it
+      // matches; otherwise the lighter BranchTile. Either way, never
+      // fall back to a different branch (would break attribution).
+      if (merchant.selectedBranch?.id === targetBranchId) {
+        const sb = merchant.selectedBranch
+        return { id: sb.id, name: sb.name, distance: sb.distance, logoUrl: sb.logoUrl }
+      }
+      const tile = merchant.branches.find((b) => b.id === targetBranchId)
+      if (!tile) return null
+      return { id: tile.id, name: tile.name, distance: tile.distance, logoUrl: null }
+    }
+    // No URL/picker target → cold-open fallback to selectedBranch.
+    if (!merchant.selectedBranch) return null
+    const sb = merchant.selectedBranch
+    return { id: sb.id, name: sb.name, distance: sb.distance, logoUrl: sb.logoUrl }
+  }, [merchant, targetBranchId])
+
+  const branchName     = displayBranch?.name ?? null
+  const branchDistance = displayBranch?.distance ?? null
+  const branchReady    = !!displayBranch
+  // Error semantics:
+  //   - merchantQuery isError → error.
+  //   - merchant data settled (NOT fetching) AND we have a target id
+  //     AND it's not in merchant.branches → branch genuinely missing
+  //     (deleted / wrong merchant). Error.
+  //   - merchant data settled AND no target AND no selectedBranch →
+  //     cold-open with no resolvable branch. Error.
+  //   - merchant data still fetching → not an error; the UI just
+  //     waits in the unresolved state until the refetch lands.
+  const branchErrored = merchantQuery.isError || (
+    !!merchant
+    && !merchantQuery.isFetching
+    && (
+      targetBranchId
+        ? !merchant.branches.find((b) => b.id === targetBranchId)
+        : !merchant.selectedBranch
+    )
+  )
   // Schedule the auto-show timer. All gates must hold:
   //   • screen is focused (cancels mid-delay if user navigates away)
   //   • voucher data has loaded (no flash before content)
@@ -581,7 +667,17 @@ export function VoucherDetailScreen() {
       case 'time-limited-available':
       case 'time-limited-urgent':
         if (!branchReady) {
-          return { label: CTA_LABELS.branchLoading, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-branch-loading' }
+          // Branch unresolved — URL/picker target hasn't matched a
+          // row in `merchant.branches` yet (refetch race), or the
+          // cold-open fallback hasn't completed. Return `null` so
+          // the sticky CTA wrap doesn't render. Locked 2026-05-07
+          // from device QA — the previous "Resolving Branch…"
+          // disabled primary button flashed as the customer's first
+          // CTA impression on hard-load / app relaunch / post-login,
+          // which read as "broken/uncertain" rather than "loading".
+          // Hiding the wrap is preferable to a large alarming
+          // disabled button.
+          return null
         }
         return { label: CTA_LABELS.redeemActive, disabled: false, variant: 'primary' as const, testID: 'redeem-cta-active' }
       case 'redeemed-this-cycle':
@@ -813,12 +909,14 @@ export function VoucherDetailScreen() {
           pointerEvents. Round-12: back + logo + merchant + branch,
           with the same vertical cream gradient as the merchant
           profile's identity zone (#FFF9F5 → #FCF0E5).
-          Logo is branch-aware — selectedBranch.logoUrl wins over
-          merchant.logoUrl, mirroring the merchant profile pattern. */}
+          Logo is branch-aware — displayBranch.logoUrl wins over
+          merchant.logoUrl, mirroring the merchant profile pattern.
+          (Reads displayBranch instead of selectedBranch so the logo
+          tracks the URL/picker target, not stale selectedBranch.) */}
       <CollapsedHeader
         merchantName={voucher.merchant.businessName}
         branchName={branchName}
-        logoUrl={selectedBranch?.logoUrl ?? voucher.merchant.logoUrl ?? null}
+        logoUrl={displayBranch?.logoUrl ?? voucher.merchant.logoUrl ?? null}
         insetTop={insets.top}
         scrollY={scrollY}
         fadeStart={FADE_START}

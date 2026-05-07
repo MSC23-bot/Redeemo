@@ -110,7 +110,18 @@ describe('productCopy — CTA + How It Works copy is Title Case (v4 parity)', ()
     expect(CTA_LABELS.redeemed).toBe('Already Redeemed This Cycle')
     expect(CTA_LABELS.expired).toBe('Expired')
     expect(CTA_LABELS.unavailable).toBe('Currently Unavailable')
-    expect(CTA_LABELS.branchLoading).toBe('Resolving Branch…')
+  })
+
+  it('no `branchLoading` label exists (hide-the-wrap pattern, locked 2026-05-07)', () => {
+    // The previous "Resolving Branch…" disabled-primary CTA flashed
+    // as the customer's first impression on hard-load / app
+    // relaunch / post-login. Owner direction 2026-05-07: hide the
+    // sticky CTA wrap entirely while branch is unresolved, rather
+    // than render a large alarming button. The label constant was
+    // removed to enforce this — anyone who tries to surface a
+    // "loading" CTA copy must explicitly add a new state instead
+    // of accidentally re-using the old label.
+    expect((CTA_LABELS as Record<string, string>).branchLoading).toBeUndefined()
   })
 
   it('How It Works free-user variant has 5 steps starting with "Subscribe to Unlock"', () => {

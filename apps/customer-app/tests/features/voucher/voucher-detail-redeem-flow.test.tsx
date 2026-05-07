@@ -60,13 +60,21 @@ jest.mock('@/features/voucher/hooks/useCustomerVoucher', () => ({
   }),
 }))
 ;(globalThis as any).__voucherProfileMock__ = {
-  data: null as any, isLoading: false, isError: false, spy: jest.fn(),
+  data: null as any, isLoading: false, isError: false, isFetching: false, spy: jest.fn(),
 }
 jest.mock('@/features/merchant/hooks/useMerchantProfile', () => ({
   useMerchantProfile: (id: string | undefined, opts: any) => {
     const m = (globalThis as any).__voucherProfileMock__
     m.spy(id, opts)
-    return { data: m.data, isLoading: m.isLoading, isError: m.isError }
+    return {
+      data:       m.data,
+      isLoading:  m.isLoading,
+      isError:    m.isError,
+      // `isFetching` toggles independently of `data`/`isLoading` —
+      // simulates React Query's `keepPreviousData` window where data
+      // is the previous snapshot but a refetch is in flight.
+      isFetching: m.isFetching ?? false,
+    }
   },
 }))
 let mockSubscribed = true
@@ -169,6 +177,7 @@ beforeEach(() => {
   ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({ branches: [makeBranch('b1', 'Brightlingsea')] })
   ;(globalThis as any).__voucherProfileMock__.isLoading = false
   ;(globalThis as any).__voucherProfileMock__.isError = false
+  ;(globalThis as any).__voucherProfileMock__.isFetching = false
   mockPush.mockClear()
   mockReplace.mockClear()
   mockBack.mockClear()
@@ -720,5 +729,121 @@ describe('Voucher Detail M2 — non-PIN backend errors surface (review fix #3)',
     await waitFor(() => expect(getByTestId('pin-lockout-card')).toBeTruthy())
     // Lockout state suppresses the generic banner.
     expect(queryByTestId('pin-backend-error-banner')).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// URL-first display branch resolver (locked 2026-05-07 from device QA)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Pre-fix: VoucherDetailScreen displayed merchant.selectedBranch
+// directly. Under React Query keepPreviousData, this could flash the
+// previous (stale) branch when navigating from one branch context to
+// another, before the refetch caught up. That's a branch-attribution
+// trust issue — the customer tapped from a known branch on the
+// merchant page, the URL has the right ?branch= param, but the screen
+// briefly showed a different branch.
+//
+// Post-fix: a `displayBranch` resolver mirrors the mutation contract:
+//   pickerConfirmedBranchId  → URL ?branch=  → selectedBranch (cold-open only)
+// When a URL/picker target exists, display ONLY renders the matching
+// branch from merchant.branches. Stale selectedBranch is never shown.
+
+describe('Voucher Detail M2 — URL-first display branch (issue #2)', () => {
+  it('URL=B2 + selectedBranch stale=B1 + branches contains B2: displays B2 immediately + CTA active', async () => {
+    // Most common keepPreviousData scenario — merchant data came
+    // from the previous branch context (selectedBranch=B1) but the
+    // user navigated with ?branch=B2 in the URL. branches list
+    // already contains B2 (same merchant, both branches in the
+    // list). Display must use B2; CTA must be active.
+    mockParams = { id: 'v1', branch: 'b2' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',  // STALE
+      branches: [
+        makeBranch('b1', 'Brightlingsea'),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+
+    const { getByTestId, queryByText } = wrap(<VoucherDetailScreen />)
+    // Display reflects B2 (URL truth), not B1 (stale selectedBranch).
+    expect(getByTestId('redeem-at-line').props.children).toBeTruthy()
+    expect(queryByText(/Brightlingsea/)).toBeNull()
+    // Active CTA visible — branchReady is true because B2 was found.
+    expect(getByTestId('redeem-cta-active')).toBeTruthy()
+  })
+
+  it('URL=B2 + selectedBranch stale=B1 + branches NOT yet containing B2 (refetch in flight): hides CTA, no stale branch flash', () => {
+    // Edge case — merchant query is mid-refetch (isFetching=true).
+    // The stale `data` still includes only B1 and selectedBranch=B1.
+    // Display must NOT fall back to B1 (URL truth wins). CTA must
+    // be hidden (no large alarming "Resolving Branch…" button).
+    mockParams = { id: 'v1', branch: 'b2' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+    ;(globalThis as any).__voucherProfileMock__.isFetching = true
+
+    const { queryByText, queryByTestId, getByTestId } = wrap(<VoucherDetailScreen />)
+    // Stale Brightlingsea branch must NOT appear anywhere.
+    expect(queryByText(/Brightlingsea/)).toBeNull()
+    // No active CTA. No "branch-loading" CTA either — the wrap is
+    // hidden entirely. No success popup.
+    expect(queryByTestId('redeem-cta-active')).toBeNull()
+    expect(queryByTestId('redeem-cta-branch-loading')).toBeNull()
+    // Quieter inline signal — MerchantRow placeholder.
+    expect(getByTestId('redeem-at-placeholder')).toBeTruthy()
+  })
+
+  it('Picker-confirmed B2 + URL still B1 (one-render gap): display + mutation both use B2', async () => {
+    // Picker confirm sets local pickerConfirmedBranchId synchronously
+    // BEFORE router.replace fires; for one render the URL still says
+    // B1 but the local pickerConfirmedBranchId says B2. The mutation
+    // (proven by existing TIER 1 test elsewhere) uses B2; this test
+    // pins that the DISPLAY also uses B2 in that exact render.
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea'),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+    ;(redemptionApi.redeem as jest.Mock).mockResolvedValue({ ...successResponse, branchId: 'b2' })
+
+    const { getByTestId, queryByText } = wrap(<VoucherDetailScreen />)
+    // Open picker, confirm B2 — sets pickerConfirmedBranchId locally.
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+    fireEvent.press(getByTestId(`branch-picker-row-b2`))
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+
+    // PIN sheet opens with the B2 branch name in its header — proves
+    // display uses pickerConfirmedBranchId, not selectedBranch.
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    // Brightlingsea (the stale URL/selectedBranch value) must NOT
+    // appear in the PIN sheet header.
+    expect(queryByText(/Brightlingsea/)).toBeNull()
+  })
+
+  it('Cold-open with NO branch URL param: selectedBranch fallback still works', () => {
+    // Per the locked branch-attribution contract, cold-open without
+    // a URL ?branch= param falls back to merchant.selectedBranch
+    // (server-resolved nearest-by-GPS or main-branch fallback).
+    // Pre-fix this was the only display source; the fix preserves
+    // it for the no-target case.
+    mockParams = { id: 'v1' } // no branch param
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    // Active CTA renders — branchReady is true (selectedBranch
+    // resolved B1).
+    expect(getByTestId('redeem-cta-active')).toBeTruthy()
+    // MerchantRow shows the resolved branch line, not the placeholder.
+    expect(getByTestId('redeem-at-line')).toBeTruthy()
   })
 })

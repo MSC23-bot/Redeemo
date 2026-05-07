@@ -49,8 +49,8 @@ type Props = {
  *   • cycle quota is merchant-wide per voucher (across all branches)
  * This card surfaces that to the customer.
  *
- * Visual hierarchy mirrors HowItWorks/AboutThisOfferCard — same
- * shadow weight, same warm-white background, same icon-pill heading.
+ * Visual hierarchy mirrors HowItWorks / VoucherTypeExplainerCard —
+ * same shadow weight, warm-white background, icon-pill heading.
  * The body is two short paragraphs:
  *   • the rule (multi-branch-aware)
  *   • the renewal date (Renews / Available again, depending on

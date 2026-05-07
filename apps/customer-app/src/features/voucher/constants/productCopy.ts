@@ -216,7 +216,11 @@ export const CTA_LABELS = {
   redeemed:        'Already Redeemed This Cycle',
   expired:         'Expired',
   unavailable:     'Currently Unavailable',
-  branchLoading:   'Resolving Branch…',
+  // No `branchLoading` label — the sticky CTA wrap is hidden when
+  // branch is unresolved (locked 2026-05-07 from device QA).
+  // VoucherDetailScreen returns null from the cta memo in that
+  // state; the {cta ? <wrap> : null} JSX guard collapses the
+  // wrap entirely.
 } as const
 
 /**
