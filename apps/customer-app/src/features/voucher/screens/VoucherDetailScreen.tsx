@@ -30,7 +30,7 @@ import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
-import { AboutThisOfferCard } from '../components/AboutThisOfferCard'
+import { VoucherTypeExplainerCard } from '../components/VoucherTypeExplainerCard'
 import { CycleRulesCard } from '../components/CycleRulesCard'
 // M2 Section B — redemption flow components + hook
 import { BranchPickerSheet, type PickerBranch } from '../components/BranchPickerSheet'
@@ -763,17 +763,16 @@ export function VoucherDetailScreen() {
           onPress={handleMerchantTap}
         />
 
-        {/* "About this offer" — full merchant-authored description.
-            Shown whenever there's non-empty description text.
-            CouponHeader still shows the 3-line teaser; this card
-            carries the unabridged copy so customers see the offer
-            details before redeeming. (Owner direction 2026-05-07
-            following device QA — long descriptions were getting
-            ellipsised in the hero, leaving merchant-authored detail
-            invisible.) */}
-        {voucher.description && voucher.description.trim().length > 0 ? (
-          <AboutThisOfferCard description={voucher.description} />
-        ) : null}
+        {/* "What this voucher means" — voucher-type explainer card.
+            Educates first-time customers on what THIS TYPE of
+            voucher (BOGO, FREEBIE, etc.) means in general. Distinct
+            from the merchant-authored offer description (which lives
+            in the hero teaser) — this card is type-driven, not
+            description-driven. Owner direction 2026-05-07 following
+            device QA: the previous "About this offer" card duplicated
+            the merchant description; customers actually need help
+            understanding the offer category. */}
+        <VoucherTypeExplainerCard type={voucher.type} />
 
         {/* "Voucher cycle" — explains the one-redemption-per-cycle
             rule + renewal date. Multi-branch-aware copy so users

@@ -94,6 +94,66 @@ export function fairUseLinesForVoucherType(type: VoucherType): readonly string[]
 }
 
 /**
+ * Voucher-type explainer card (locked 2026-05-07 from device QA).
+ *
+ * The Voucher Detail page already shows the merchant-authored
+ * `voucher.description` in the hero teaser. The explainer card sits
+ * separately and educates the customer about what THIS TYPE of
+ * voucher means in general — e.g. "what is a BOGO" — so first-time
+ * users understand the offer category before they tap Redeem. Copy
+ * is type-driven (NOT description-driven); the merchant's own offer
+ * detail is unchanged.
+ *
+ * Voucher type list is locked at the 8 enum values in
+ * `prisma/schema.prisma` `VoucherType`: BOGO, FREEBIE,
+ * SPEND_AND_SAVE, DISCOUNT_FIXED, DISCOUNT_PERCENT, PACKAGE_DEAL,
+ * TIME_LIMITED, REUSABLE.
+ *
+ * **REUSABLE wording — important.** REUSABLE is currently
+ * label-only in the backend; it does NOT bypass the
+ * once-per-cycle rule (see `src/api/redemption/service.ts` cycle
+ * lockout — no type-aware branch, ALREADY_REDEEMED fires for
+ * REUSABLE the same as any other type). The explainer must NOT
+ * imply unlimited reuse. Today's accurate description: an offer
+ * that the merchant runs continuously, returning next cycle,
+ * still subject to one-per-cycle.
+ */
+export const VOUCHER_TYPE_EXPLAINER_TITLE = 'What this voucher means'
+
+export function voucherTypeExplainer(type: VoucherType): string {
+  switch (type) {
+    case 'BOGO':
+      return "Buy one eligible item and get a second item — either free or discounted, depending on the offer. Ask staff which items qualify before ordering."
+    case 'FREEBIE':
+      return "Claim a free item or add-on when you meet the offer's conditions. Check the voucher details for exactly what's included."
+    case 'SPEND_AND_SAVE':
+      return "Spend the amount shown to unlock the saving on this voucher. Check the merchant's terms for what counts towards the threshold."
+    case 'DISCOUNT_FIXED':
+      return "Get a fixed amount off your bill or eligible items, as set by the merchant. The voucher details list what qualifies."
+    case 'DISCOUNT_PERCENT':
+      return "Get a percentage off your bill or eligible items, as set by the merchant. The voucher details list what qualifies."
+    case 'PACKAGE_DEAL':
+      return "A bundle or set-menu offer. The voucher details list exactly what's included and any conditions."
+    case 'TIME_LIMITED':
+      return "This voucher is only redeemable during specific times or days. Check availability before ordering."
+    case 'REUSABLE':
+      // Honest about current backend semantics — REUSABLE is a
+      // merchant intent flag (the offer persists across cycles), not
+      // a per-cycle bypass. One redemption per cycle still applies.
+      return "An ongoing offer the merchant runs continuously. Like all vouchers, you can redeem this once per cycle — it returns again next cycle."
+    default: {
+      // Exhaustiveness guard — if a new VoucherType is added to the
+      // enum without updating this switch, TS will error here. At
+      // runtime fall back to a generic description so the screen
+      // doesn't break for an unknown type.
+      const _exhaustive: never = type
+      void _exhaustive
+      return "Check the voucher details for what's included and how to redeem."
+    }
+  }
+}
+
+/**
  * "How It Works" steps — voucher-detail-specific, two variants.
  *
  * Round 17 (owner direction): both variants are now 5 steps. Steps
