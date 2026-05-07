@@ -57,7 +57,7 @@ function formatTimeLine(iso: string): string {
  * M2 surface:
  *   • Header row: green check-circle icon + "Redemption Details" title +
  *     redeemed-at date subtitle.
- *   • Code row: REDEMPTION CODE label + 5+5-grouped code in monospace.
+ *   • Code row: REDEMPTION CODE label + 4+4-grouped code in monospace.
  *   • Branch + date + time info rows.
  *   • Disabled "Show to Staff" stub (visually present, accessibilityState
  *     disabled, muted styling) so the user understands this is where
