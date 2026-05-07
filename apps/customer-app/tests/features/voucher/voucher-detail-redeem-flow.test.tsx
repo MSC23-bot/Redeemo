@@ -1025,3 +1025,195 @@ describe('Voucher Detail — picker branches list (default-select + sort + filte
   })
 })
 
+// ─────────────────────────────────────────────────────────────────────
+// Picker intent split (locked 2026-05-07 from device QA)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Two distinct entry points, two distinct outcomes:
+//   • MerchantRow "Change ▾" pill → 'change' intent → confirm
+//     updates branch context only, picker closes, NO PIN sheet.
+//   • Sticky "Redeem This Voucher" CTA → 'redeem' intent → confirm
+//     updates branch context AND opens PIN sheet.
+// Pre-fix: both paths opened PIN on confirm, which surprised users
+// who only wanted to change the branch context.
+
+describe('Voucher Detail M2 — picker intent split (issue: change vs redeem)', () => {
+  it("'change' intent: tap MerchantRow 'Change ▾' → pick B2 → Confirm → URL replace fires, NO PIN sheet, Redeem CTA still visible", async () => {
+    mockSubscribed = true
+    mockVoucherData = baseVoucher() // can-redeem
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea', 1500),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+
+    const { getByTestId, getByLabelText, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // Tap the Change ▾ pill — sets pickerIntent='change'.
+    fireEvent.press(getByLabelText('Change ▾'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+
+    fireEvent.press(getByTestId('branch-picker-row-b2'))
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+
+    // URL replace must fire with branch=b2 (context updated).
+    expect(mockReplace).toHaveBeenCalledWith(
+      expect.stringContaining('branch=b2'),
+    )
+    // CRITICAL: PIN sheet does NOT open — that was the device-QA bug.
+    expect(queryByTestId('pin-entry-sheet')).toBeNull()
+    // Picker is closed.
+    expect(queryByTestId('voucher-branch-picker-sheet')).toBeNull()
+    // The Redeem CTA stays the active variant — the screen state
+    // didn't transition to anything weird; the user can still redeem
+    // when they're ready.
+    expect(getByTestId('redeem-cta-active')).toBeTruthy()
+    // No mutation attempt on the network.
+    expect(redemptionApi.redeem).not.toHaveBeenCalled()
+  })
+
+  it("'change' intent picker shows 'Choose branch' title + 'Change Branch' confirm CTA", async () => {
+    mockSubscribed = true
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea'),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+
+    const { getByText, getByLabelText, queryByText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByLabelText('Change ▾'))
+
+    // Picker copy reflects the change intent.
+    await waitFor(() => expect(getByText('Choose branch')).toBeTruthy())
+    expect(getByText('Change Branch')).toBeTruthy()
+    // Redeem-intent copy must NOT appear.
+    expect(queryByText('Confirm redemption branch')).toBeNull()
+    expect(queryByText('Confirm & Enter PIN')).toBeNull()
+  })
+
+  it("'redeem' intent: tap sticky CTA → picker confirm → PIN sheet opens", async () => {
+    mockSubscribed = true
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea'),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+
+    // PIN sheet opens — that's the redeem-intent contract.
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+  })
+
+  it("'redeem' intent picker shows 'Confirm redemption branch' title + 'Confirm & Enter PIN' confirm CTA", async () => {
+    mockSubscribed = true
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea'),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+
+    const { getByText, getByTestId, queryByText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByText('Confirm redemption branch')).toBeTruthy())
+    expect(getByText('Confirm & Enter PIN')).toBeTruthy()
+    // Change-intent copy must NOT appear.
+    expect(queryByText('Choose branch')).toBeNull()
+    expect(queryByText('Change Branch')).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// branchChanged return-URL flag (locked 2026-05-07 from device QA)
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent branch swap)', () => {
+  it('change-intent + actually-different branch → handleBack URL includes branchChanged=1', async () => {
+    mockSubscribed = true
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1', from: 'merchant', returnMerchantId: 'm1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea', 1500),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+
+    const { getByTestId, getByLabelText } = wrap(<VoucherDetailScreen />)
+    // Open via change pill, swap to B2.
+    fireEvent.press(getByLabelText('Change ▾'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+    fireEvent.press(getByTestId('branch-picker-row-b2'))
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+
+    // Hit the back nav — handleBack uses buildReturnUrl with the
+    // branchChanged flag set.
+    fireEvent.press(getByLabelText('Go back'))
+    expect(mockReplace).toHaveBeenCalledWith(
+      expect.stringContaining('branchChanged=1'),
+    )
+  })
+
+  it('back without any branch change → return URL does NOT carry branchChanged', () => {
+    mockSubscribed = true
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1', from: 'merchant', returnMerchantId: 'm1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+
+    const { getByLabelText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByLabelText('Go back'))
+    // Some replace call happened (returning to merchant), but it
+    // does NOT include the branchChanged flag.
+    expect(mockReplace).toHaveBeenCalled()
+    const calls = (mockReplace as jest.Mock).mock.calls
+    expect(calls.every(([url]) => !String(url).includes('branchChanged'))).toBe(true)
+  })
+
+  it('change-intent + same branch picked (no-op) → return URL does NOT carry branchChanged', async () => {
+    // User opens picker via Change ▾, taps Confirm without picking a
+    // different row. branchId === branchIdParam, so the flag stays
+    // false. (The current branch is the default-selected row.)
+    mockSubscribed = true
+    mockVoucherData = baseVoucher()
+    mockParams = { id: 'v1', branch: 'b1', from: 'merchant', returnMerchantId: 'm1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [
+        makeBranch('b1', 'Brightlingsea'),
+        makeBranch('b2', 'Colchester', 12_000),
+      ],
+    })
+
+    const { getByTestId, getByLabelText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByLabelText('Change ▾'))
+    await waitFor(() => expect(getByTestId('voucher-branch-picker-sheet')).toBeTruthy())
+    // Confirm immediately — same branch (B1) preselected.
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+
+    fireEvent.press(getByLabelText('Go back'))
+    const calls = (mockReplace as jest.Mock).mock.calls
+    expect(calls.every(([url]) => !String(url).includes('branchChanged'))).toBe(true)
+  })
+})

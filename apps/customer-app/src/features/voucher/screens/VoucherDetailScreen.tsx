@@ -127,11 +127,22 @@ export function buildReturnUrl(params: {
   returnMerchantId?: string | undefined
   branch?: string | undefined
   tab?: string | undefined
+  /**
+   * When true, append `branchChanged=1` to the return URL so the
+   * Merchant Profile screen can show a one-time confirmation toast
+   * ("Now viewing <branch>"). Locked 2026-05-07 from device QA — the
+   * user might not realise the branch context changed when they
+   * back-navigate from voucher detail to merchant profile, especially
+   * when the chip + band are off-screen below the fold.
+   */
+  branchChanged?: boolean
 }): string | null {
   if (params.from === 'merchant' && params.returnMerchantId && params.branch) {
     const enc = encodeURIComponent
     const tab = params.tab ?? 'vouchers'
-    return `/(app)/merchant/${enc(params.returnMerchantId)}?branch=${enc(params.branch)}&tab=${enc(tab)}`
+    let url = `/(app)/merchant/${enc(params.returnMerchantId)}?branch=${enc(params.branch)}&tab=${enc(tab)}`
+    if (params.branchChanged) url += '&branchChanged=1'
+    return url
   }
   return null
 }
@@ -262,6 +273,25 @@ export function VoucherDetailScreen() {
   // in the picker; it bridges the render gap before the URL ?branch=
   // catches up via router.replace, then auto-clears once URL matches.
   const [pickerVisible, setPickerVisible] = useState(false)
+  // Why the user opened the picker (locked 2026-05-07 from device QA):
+  //   • 'change' — tapped the "Change ▾" pill on MerchantRow. They
+  //     want to update the branch context only; do NOT open PIN
+  //     entry on confirm.
+  //   • 'redeem' — tapped the sticky "Redeem This Voucher" CTA on a
+  //     multi-branch merchant. The picker is the final
+  //     branch-confirmation step; on confirm, open PIN entry.
+  // handlePickerConfirm reads this to decide what happens after
+  // the URL/picker-local branch is updated.
+  const [pickerIntent, setPickerIntent] = useState<'change' | 'redeem'>('redeem')
+  // True when the user changed the branch on this voucher detail
+  // session via the 'change' intent (and the new branch differs from
+  // the URL branch at confirm time). On back-navigation,
+  // `buildReturnUrl` appends `branchChanged=1` so Merchant Profile
+  // can show a one-time confirmation toast. Locked 2026-05-07 from
+  // device QA — the user might not realise the branch changed when
+  // they tap back, especially when the merchant-profile chip + band
+  // are scrolled off-screen.
+  const [userChangedBranchOnVoucher, setUserChangedBranchOnVoucher] = useState(false)
   const [pinSheetVisible, setPinSheetVisible] = useState(false)
   const [successPopup, setSuccessPopup] = useState<RedeemResponse | null>(null)
   const [lastRedemption, setLastRedemption] = useState<RedeemResponse | null>(null)
@@ -492,6 +522,7 @@ export function VoucherDetailScreen() {
       returnMerchantId: params.returnMerchantId,
       branch:           params.branch,
       tab:              params.tab,
+      branchChanged:    userChangedBranchOnVoucher,
     })
     if (returnUrl) {
       // router.replace ensures Voucher Detail leaves the stack
@@ -505,7 +536,7 @@ export function VoucherDetailScreen() {
       return
     }
     router.replace('/(app)/' as never)
-  }, [router, params.from, params.returnMerchantId, params.branch, params.tab])
+  }, [router, params.from, params.returnMerchantId, params.branch, params.tab, userChangedBranchOnVoucher])
 
   const handleFav = useCallback(() => {
     Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
@@ -576,6 +607,10 @@ export function VoucherDetailScreen() {
       router.push(buildSubscriptionUrl('monthly') as never)
       return
     }
+    // 'change' intent — confirm updates the branch context only and
+    // closes the picker. PIN entry MUST NOT open. The user is just
+    // changing what branch the voucher detail page is talking about.
+    setPickerIntent('change')
     setPickerVisible(true)
   }, [stateKey, isSubscribed, router, buildSubscriptionUrl])
 
@@ -624,6 +659,21 @@ export function VoucherDetailScreen() {
       router.push(buildSubscriptionUrl('monthly') as never)
       return
     }
+    // Branch context is updated for BOTH intents — the URL replace
+    // and the synchronous local picker source happen regardless.
+    // Only the post-confirm step differs:
+    //   • 'change' — close the picker, stay on Voucher Detail.
+    //   • 'redeem' — close the picker, open PinEntrySheet.
+    //
+    // For 'change' intent specifically, also remember that the user
+    // ended up on a different branch than the URL had at confirm
+    // time. `buildReturnUrl` will then append `branchChanged=1` to
+    // the back-navigation URL so Merchant Profile can show a
+    // one-time confirmation toast. Doesn't fire when the user picks
+    // the same branch they were already on (no-op).
+    if (pickerIntent === 'change' && branchId !== branchIdParam) {
+      setUserChangedBranchOnVoucher(true)
+    }
     // Local source set FIRST (synchronous, ref-like). Subsequent
     // router.replace fires; URL catches up next render and the
     // useEffect above clears the local source.
@@ -640,8 +690,12 @@ export function VoucherDetailScreen() {
       router.replace(`/voucher/${enc(voucher.id)}?${qs.join('&')}` as never)
     }
     setPickerVisible(false)
-    setPinSheetVisible(true)
-  }, [stateKey, isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt])
+    if (pickerIntent === 'redeem') {
+      setPinSheetVisible(true)
+    }
+    // 'change' intent: stop here. PIN sheet stays closed; user
+    // remains on Voucher Detail with the new branch context.
+  }, [stateKey, isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt, pickerIntent, branchIdParam])
 
   // PIN submit → mutate → success | typed error.
   const handlePinSubmit = useCallback(async (pin: string) => {
@@ -652,9 +706,12 @@ export function VoucherDetailScreen() {
       setLastRedemption(result)
     } catch (err) {
       const e = err as UseRedeemError
-      // NULL_BRANCH (client-side defensive) → reopen picker.
+      // NULL_BRANCH (client-side defensive) → reopen picker as
+      // 'redeem' intent. The user was mid-redeem-flow; on confirm
+      // they should proceed to PIN (not just update branch context).
       if (e?.code === 'NULL_BRANCH') {
         setPinSheetVisible(false)
+        setPickerIntent('redeem')
         setPickerVisible(true)
         return
       }
@@ -771,12 +828,18 @@ export function VoucherDetailScreen() {
     }
     // M2 Section B — active redeem states open the picker (multi-branch)
     // or PIN sheet directly (single-branch).
+    //
+    // Multi-branch picker is opened with `pickerIntent='redeem'` —
+    // confirm updates the branch context AND opens PIN entry. This
+    // is the inverse of the change-branch intent set in
+    // handleChangeBranch.
     if (
       stateKey === 'can-redeem' ||
       stateKey === 'time-limited-available' ||
       stateKey === 'time-limited-urgent'
     ) {
       if (isMultiBranch) {
+        setPickerIntent('redeem')
         setPickerVisible(true)
       } else {
         setPinSheetVisible(true)
@@ -1072,6 +1135,7 @@ export function VoucherDetailScreen() {
         }
         onConfirm={handlePickerConfirm}
         onDismiss={() => setPickerVisible(false)}
+        intent={pickerIntent}
       />
       <PinEntrySheet
         visible={pinSheetVisible}
