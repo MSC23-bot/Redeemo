@@ -9,11 +9,14 @@ const TEXT_2ND = '#4B5563'
 
 type Props = {
   /**
-   * `true` when the merchant has more than one active branch. Drives
-   * the multi-branch-aware rule copy — the user must understand that
-   * redeeming at one branch consumes the voucher across ALL branches
-   * for the active cycle. Without this, multi-branch users could
-   * mis-interpret "one redemption" as "one redemption per branch".
+   * `true` when the merchant has more than one active branch.
+   *
+   * 2026-05-08 update: the customer-facing copy is currently
+   * branch-agnostic (same line for single- and multi-branch
+   * merchants). The prop is kept on the API surface for forward
+   * compat — branch-aware variants can be re-introduced if
+   * specific multi-branch nuance is needed without a breaking
+   * change to the orchestrator's call site.
    */
   isMultiBranch: boolean
   /**
@@ -62,9 +65,25 @@ export function CycleRulesCard({ isMultiBranch, availableAgainAt, isRedeemed }: 
   // copy elsewhere; this card is for subscribed users only.
   if (!availableAgainAt) return null
 
-  const ruleCopy = isMultiBranch
-    ? 'Redeeming this voucher at one branch uses it across every branch until the next cycle.'
-    : 'This voucher can be redeemed once per cycle.'
+  // State-aware copy (locked 2026-05-08 from device QA):
+  //   • Non-redeemed (pre-redemption guidance) — explains the rule
+  //     before the user redeems. Multi-branch variant calls out the
+  //     branch-shared invariant. The renewal date answers "if I use
+  //     it now, when can I use it again?"
+  //   • Redeemed (post-redemption acknowledgement) — warmer, more
+  //     direct, branch-AGNOSTIC. The same line works for both
+  //     single- and multi-branch merchants because "you've used this
+  //     voucher" implicitly covers the branch-shared invariant
+  //     without re-litigating it. Avoids the colder "has already
+  //     been redeemed" phrasing.
+  // Non-redeemed copy is intentionally branch-agnostic for now
+  // (locked 2026-05-08 from device QA). Same line for single- and
+  // multi-branch merchants — keeps the message helpful and concise.
+  // Branch-aware variants can be re-introduced later if specific
+  // multi-branch nuance is needed.
+  const ruleCopy = isRedeemed
+    ? "You’ve used this voucher for your current cycle. It will be ready to use again on the renewal date shown below."
+    : "Use this voucher once during your current cycle. After you redeem it, it will refresh on the renewal date shown below."
 
   const dateLabel = isRedeemed ? 'Available again on' : 'Renews on'
   const formattedDate = formatCycleDate(availableAgainAt)
@@ -129,7 +148,12 @@ function formatCycleDate(iso: string): string {
 const styles = StyleSheet.create({
   card: {
     marginHorizontal: 22,
-    marginTop: 32,
+    // 16pt is the standardised card-level gap on the voucher detail
+    // page (locked 2026-05-08 from device QA — applied uniformly to
+    // RedemptionDetailsCard wrapper, CycleRulesCard, VoucherTypeExplainerCard,
+    // HowItWorks, and MerchantRow). Older 32pt was uneven with the
+    // other cards above the merchant row.
+    marginTop: 16,
     backgroundColor: '#FDFBF8',
     borderRadius: 18,
     borderWidth: 1,

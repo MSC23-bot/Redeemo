@@ -148,7 +148,7 @@ export function voucherTypeExplainerTitle(type: VoucherType): string {
 export function voucherTypeExplainer(type: VoucherType): string {
   switch (type) {
     case 'BOGO':
-      return "Buy one eligible item and get a second item — either free or discounted, depending on the offer. Ask staff which items qualify before ordering."
+      return "Buy one eligible item and get a second item, either free or discounted, depending on the offer. Ask staff which items qualify before ordering."
     case 'FREEBIE':
       return "Claim a free item or add-on when you meet the offer's conditions. Check the voucher details for exactly what's included."
     case 'SPEND_AND_SAVE':
@@ -165,7 +165,7 @@ export function voucherTypeExplainer(type: VoucherType): string {
       // Honest about current backend semantics — REUSABLE is a
       // merchant intent flag (the offer persists across cycles), not
       // a per-cycle bypass. One redemption per cycle still applies.
-      return "An ongoing offer the merchant runs continuously. Like all vouchers, you can redeem this once per cycle — it returns again next cycle."
+      return "An ongoing offer the merchant runs continuously. Like all vouchers, you can redeem this once per cycle, then it returns again next cycle."
     default: {
       // Exhaustiveness guard — if a new VoucherType is added to the
       // enum without updating this switch, TS will error here. At

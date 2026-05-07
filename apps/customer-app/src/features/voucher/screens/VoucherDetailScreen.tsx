@@ -229,6 +229,21 @@ export function VoucherDetailScreen() {
     }, [scrollY]),
   )
 
+  // Auto-scroll when a collapsible card expands (locked 2026-05-08
+  // from device QA). Without this, expanding HowItWorks or
+  // VoucherTypeExplainerCard near the bottom of the page leaves the
+  // newly-revealed body underneath the sticky CTA wrap, forcing the
+  // user to manually scroll. The card calls this with its `layoutY`
+  // (in scroll content coords); we scroll its top to a small fixed
+  // offset from the viewport top so the body lands well above the
+  // sticky CTA. RN clamps to 0 if `target` would be negative (card
+  // already visible at the top).
+  const handleCardExpand = useCallback((cardLayoutY: number) => {
+    const TOP_OFFSET = insets.top + 80  // safe-area top + collapsed-header room
+    const target = Math.max(0, cardLayoutY - TOP_OFFSET)
+    scrollViewRef.current?.scrollTo({ y: target, animated: true })
+  }, [insets.top])
+
   const [collapsedActive, setCollapsedActive] = useState(false)
   useAnimatedReaction(
     () => scrollY.value > HANDOFF_AT,
@@ -972,6 +987,26 @@ export function VoucherDetailScreen() {
             </View>
           ) : null}
 
+          {/* CycleRulesCard — REDEEMED-STATE position (locked
+              2026-05-08 from device QA). Sits inside the coupon
+              stack between RedemptionDetailsCard and the coupon body
+              card. Once redeemed, the renewal date is the most-asked
+              question; lifting the cycle card up the page surfaces
+              that answer next to the redemption details rather than
+              after the merchant row. The non-redeemed mount-site is
+              outside the coupon stack (below). The two mount sites
+              are mutually exclusive via `stateKey` so the card never
+              renders twice. */}
+          {stateKey === 'redeemed-this-cycle' ? (
+            <View style={styles.redeemedCycleInStack}>
+              <CycleRulesCard
+                isMultiBranch={isMultiBranch}
+                availableAgainAt={voucher.availableAgainAt}
+                isRedeemed
+              />
+            </View>
+          ) : null}
+
           <View style={styles.couponCardWrap}>
             <View style={styles.couponTopRound}>
               <CouponTopCard
@@ -1038,6 +1073,24 @@ export function VoucherDetailScreen() {
                                              redemption branch lands in
                                              M3 (§P2 in deferred index).
         */}
+        {/* CycleRulesCard — NON-REDEEMED-STATE position (locked
+            2026-05-08 from device QA). Sits between the coupon body
+            card and MerchantRow so the cycle rule + renewal date are
+            visible BEFORE the user hits the redeem CTA. The
+            redeemed-state mount-site is inside the coupon stack
+            (above). The two mount sites are mutually exclusive via
+            `stateKey`. The card itself early-returns when
+            availableAgainAt is null (free users / guests / non-active
+            subscriptions), so we pass through unconditionally and
+            let the card decide. */}
+        {stateKey !== 'redeemed-this-cycle' ? (
+          <CycleRulesCard
+            isMultiBranch={isMultiBranch}
+            availableAgainAt={voucher.availableAgainAt}
+            isRedeemed={false}
+          />
+        ) : null}
+
         <MerchantRow
           merchantName={voucher.merchant.businessName}
           merchantLogoUrl={voucher.merchant.logoUrl}
@@ -1063,29 +1116,14 @@ export function VoucherDetailScreen() {
           onPress={handleMerchantTap}
         />
 
-        {/* "What this voucher means" — voucher-type explainer card.
-            Educates first-time customers on what THIS TYPE of
-            voucher (BOGO, FREEBIE, etc.) means in general. Distinct
-            from the merchant-authored offer description (which lives
-            in the hero teaser) — this card is type-driven, not
-            description-driven. Owner direction 2026-05-07 following
-            device QA: the previous "About this offer" card duplicated
-            the merchant description; customers actually need help
-            understanding the offer category. */}
-        <VoucherTypeExplainerCard type={voucher.type} />
-
-        {/* "Voucher cycle" — explains the one-redemption-per-cycle
-            rule + renewal date. Multi-branch-aware copy so users
-            understand the voucher is shared across all branches.
-            Hidden for free users / guests / non-active subscriptions
-            (the card itself early-returns when availableAgainAt is
-            null). The orchestrator passes through unconditionally; the
-            card decides whether to render. */}
-        <CycleRulesCard
-          isMultiBranch={isMultiBranch}
-          availableAgainAt={voucher.availableAgainAt}
-          isRedeemed={stateKey === 'redeemed-this-cycle'}
-        />
+        {/* "What is a <type> voucher?" — voucher-type explainer card.
+            Collapsed by default (locked 2026-05-08 from device QA);
+            tap the header to expand. Educates first-time customers
+            on what THIS TYPE of voucher (BOGO, FREEBIE, etc.) means
+            in general. Distinct from the merchant-authored offer
+            description (which lives in the hero teaser) — this card
+            is type-driven, not description-driven. */}
+        <VoucherTypeExplainerCard type={voucher.type} onExpand={handleCardExpand} />
 
         {/* "How It Works" — round 16: shown for ALL states with
             subscription-aware copy. Free-user variant inserts the
@@ -1096,7 +1134,7 @@ export function VoucherDetailScreen() {
             step. See productCopy.ts for the exact copy.
             Round 15 hid this for free users; round 16 owner direction
             restored it with a free-user-specific 7-step list. */}
-        <HowItWorks isSubscribed={isSubscribed} />
+        <HowItWorks isSubscribed={isSubscribed} onExpand={handleCardExpand} />
 
         {/* Spacer above the sticky CTA. Round-7 trim: insets.bottom
             + 30 (= 64 on iPhone Pro Max). Step 4's bottom edge
@@ -1333,16 +1371,26 @@ const styles = StyleSheet.create({
     marginHorizontal: 22,
   },
 
-  // RedemptionDetailsCard wrapper when sitting INSIDE the coupon
-  // stack — between the hero (CouponHeader + outer perforation) and
-  // the coupon body card. Locked 2026-05-07 from device QA. Margins
-  // mirror tlBanner so the card aligns with the other in-stack
-  // banners.
+  // RedemptionDetailsCard wrapper — INSIDE the coupon stack between
+  // hero+perforation and coupon body. Locked 2026-05-08 spacing
+  // standardisation — every card-level gap on the page is 16pt;
+  // marginTop here, no marginBottom. The next card (CycleRulesCard)
+  // brings its own marginTop:16 for the gap.
   redeemedDetailsInStack: {
-    marginTop: 14,
+    marginTop: 16,
     marginHorizontal: 22,
-    marginBottom: 8,
   },
+  // CycleRulesCard wrapper for the IN-STACK redeemed-state mount.
+  // CycleRulesCard's own card style has marginTop:16 (inherited
+  // from the standardised card-gap pattern), but it has no
+  // marginBottom — the next sibling (couponCardWrap) doesn't carry
+  // a marginTop because it relies on perforation visual continuity
+  // in the non-redeemed flow. So in the redeemed flow we add
+  // marginBottom:16 here to keep the 16pt gap consistent.
+  redeemedCycleInStack: {
+    marginBottom: 16,
+  },
+
 
   // ── Sticky CTA ──────────────────────────────────────────────────────
   ctaWrap: {

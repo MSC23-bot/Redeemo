@@ -19,7 +19,7 @@ describe('CycleRulesCard', () => {
     expect(queryByTestId('cycle-rules')).toBeNull()
   })
 
-  it('single-branch + not yet redeemed: shows the simple rule + "Renews on <date>"', () => {
+  it('single-branch + not yet redeemed: shows the positive pre-redemption copy + "Renews on <date>"', () => {
     const { getByText, getByTestId } = render(
       <CycleRulesCard
         isMultiBranch={false}
@@ -28,11 +28,17 @@ describe('CycleRulesCard', () => {
       />,
     )
     expect(getByTestId('cycle-rules')).toBeTruthy()
-    expect(getByText('This voucher can be redeemed once per cycle.')).toBeTruthy()
-    // Date prominence (locked 2026-05-08 from device QA) — the date
-    // sits in its own block as a heading-sized standalone value with
-    // an uppercase eyebrow label above it, NOT inline alongside body
-    // text. Pin both halves.
+    // Locked 2026-05-08 from device QA — non-redeemed copy is
+    // helpful and positive ("Use this voucher", "it will refresh"),
+    // not negative-framing.
+    expect(
+      getByText(
+        /Use this voucher once during your current cycle\. After you redeem it, it will refresh on the renewal date shown below\./,
+      ),
+    ).toBeTruthy()
+    // Date prominence — the date sits in its own block as a
+    // heading-sized standalone value with an uppercase eyebrow
+    // label above it.
     expect(getByText('RENEWS ON')).toBeTruthy()
     expect(getByText('Thursday 4 June')).toBeTruthy()
   })
@@ -56,19 +62,135 @@ describe('CycleRulesCard', () => {
     expect(value.props.children).toBe('Thursday 4 June')
   })
 
-  it('multi-branch + not yet redeemed: shows the branch-shared rule', () => {
-    const { getByText } = render(
+  it('multi-branch + not yet redeemed: SAME branch-agnostic copy as single-branch', () => {
+    // Locked 2026-05-08 from device QA — non-redeemed copy is
+    // intentionally branch-agnostic for now. The same line works
+    // for both single- and multi-branch merchants. (Branch-aware
+    // variants can be re-introduced later if specific multi-branch
+    // nuance is needed.)
+    const single = render(
+      <CycleRulesCard
+        isMultiBranch={false}
+        availableAgainAt="2026-06-04T00:00:00.000Z"
+        isRedeemed={false}
+      />,
+    ).getByTestId('cycle-rules-rule').props.children
+    const multi = render(
+      <CycleRulesCard
+        isMultiBranch={true}
+        availableAgainAt="2026-06-04T00:00:00.000Z"
+        isRedeemed={false}
+      />,
+    ).getByTestId('cycle-rules-rule').props.children
+    expect(single).toBe(multi)
+    expect(String(single)).toMatch(
+      /Use this voucher once during your current cycle\. After you redeem it, it will refresh on the renewal date shown below\./,
+    )
+  })
+
+  it('non-redeemed copy contains no em dashes (locked 2026-05-08 — no em dashes in customer-facing copy)', () => {
+    // Pin negative — catches a future copy edit that re-introduces
+    // em-dash punctuation in the cycle card.
+    const { getByTestId } = render(
       <CycleRulesCard
         isMultiBranch={true}
         availableAgainAt="2026-06-04T00:00:00.000Z"
         isRedeemed={false}
       />,
     )
-    expect(
-      getByText(
-        'Redeeming this voucher at one branch uses it across every branch until the next cycle.',
-      ),
-    ).toBeTruthy()
+    const ruleText = String(getByTestId('cycle-rules-rule').props.children ?? '')
+    expect(ruleText).not.toMatch(/—/)
+  })
+
+  it('redeemed copy contains no em dashes', () => {
+    const { getByTestId } = render(
+      <CycleRulesCard
+        isMultiBranch={true}
+        availableAgainAt="2026-06-04T00:00:00.000Z"
+        isRedeemed={true}
+      />,
+    )
+    const ruleText = String(getByTestId('cycle-rules-rule').props.children ?? '')
+    expect(ruleText).not.toMatch(/—/)
+  })
+
+  // State-aware copy (locked 2026-05-08 from device QA). Pre-redemption
+  // copy frames the rule as guidance; post-redemption copy
+  // acknowledges that the voucher has already been used and points to
+  // the renewal date below. The pre/post variants must be DIFFERENT
+  // so the user understands which world they're in.
+
+  describe('state-aware copy — redeemed (post-redemption acknowledgement, branch-agnostic)', () => {
+    it('single-branch + redeemed: warmer "You’ve used this voucher" copy, points to renewal date', () => {
+      const { getByText } = render(
+        <CycleRulesCard
+          isMultiBranch={false}
+          availableAgainAt="2026-06-04T00:00:00.000Z"
+          isRedeemed={true}
+        />,
+      )
+      // Locked 2026-05-08 from device QA — warmer, more direct
+      // wording than the previous "has already been redeemed".
+      expect(
+        getByText(
+          /You’ve used this voucher for your current cycle\. It will be ready to use again on the renewal date shown below\./,
+        ),
+      ).toBeTruthy()
+    })
+
+    it('redeemed copy is the SAME for single-branch and multi-branch (branch-agnostic)', () => {
+      // Locked 2026-05-08 from device QA — the redeemed message
+      // doesn't re-litigate the branch-shared rule. "You've used
+      // this voucher" implicitly covers all branches because the
+      // user's redemption is gone for the cycle, regardless of
+      // which branch consumed it. This pin makes sure no future
+      // edit re-introduces a multi-branch-specific redeemed line.
+      const single = render(
+        <CycleRulesCard
+          isMultiBranch={false}
+          availableAgainAt="2026-06-04T00:00:00.000Z"
+          isRedeemed={true}
+        />,
+      ).getByTestId('cycle-rules-rule').props.children
+      const multi = render(
+        <CycleRulesCard
+          isMultiBranch={true}
+          availableAgainAt="2026-06-04T00:00:00.000Z"
+          isRedeemed={true}
+        />,
+      ).getByTestId('cycle-rules-rule').props.children
+      expect(single).toBe(multi)
+    })
+
+    it('redeemed copy does NOT use the pre-redemption "can be redeemed" wording', () => {
+      // Regression pin — a future copy edit that reverts to the
+      // present-tense pre-redemption form would mislead the user
+      // into thinking the voucher is still redeemable.
+      const { queryByText } = render(
+        <CycleRulesCard
+          isMultiBranch={false}
+          availableAgainAt="2026-06-04T00:00:00.000Z"
+          isRedeemed={true}
+        />,
+      )
+      expect(queryByText(/can be redeemed once during your current cycle/i)).toBeNull()
+    })
+
+    it('redeemed copy does NOT use the older "has already been redeemed" or "Switching branches" phrasings', () => {
+      // Locked 2026-05-08 from device QA — those were the previous
+      // (colder) variants; the warmer redirect is the canonical
+      // wording. Pin negative to prevent regression.
+      const { getByTestId } = render(
+        <CycleRulesCard
+          isMultiBranch={true}
+          availableAgainAt="2026-06-04T00:00:00.000Z"
+          isRedeemed={true}
+        />,
+      )
+      const ruleText = String(getByTestId('cycle-rules-rule').props.children ?? '')
+      expect(ruleText).not.toMatch(/has already been redeemed/)
+      expect(ruleText).not.toMatch(/Switching branches will not make it redeemable again/)
+    })
   })
 
   it('redeemed-this-cycle: a11y label uses "Available again on" wording', () => {

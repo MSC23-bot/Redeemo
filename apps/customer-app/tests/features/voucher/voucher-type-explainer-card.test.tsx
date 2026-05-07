@@ -1,8 +1,12 @@
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { fireEvent, render } from '@testing-library/react-native'
 import { VoucherTypeExplainerCard } from '@/features/voucher/components/VoucherTypeExplainerCard'
 import { voucherTypeExplainer } from '@/features/voucher/constants/productCopy'
 import type { VoucherType } from '@/lib/api/voucher'
+
+jest.mock('@/design-system/haptics', () => ({
+  lightHaptic: jest.fn(),
+}))
 
 // Locked 2026-05-07 from device QA. The card is type-driven (NOT
 // description-driven) — it explains what THIS TYPE of voucher means
@@ -54,8 +58,12 @@ describe('VoucherTypeExplainerCard', () => {
     'REUSABLE',
   ]
 
-  it.each(ALL_TYPES)('renders the canonical body for type %s', (type) => {
-    const { getByTestId } = render(<VoucherTypeExplainerCard type={type} />)
+  it.each(ALL_TYPES)('renders the canonical body for type %s when expanded', (type) => {
+    // Card is collapsed by default (locked 2026-05-08); use the
+    // `defaultExpanded` test prop to show the body immediately.
+    const { getByTestId } = render(
+      <VoucherTypeExplainerCard type={type} defaultExpanded />,
+    )
     const body = getByTestId('voucher-type-explainer-body')
     expect(body.props.children).toBe(voucherTypeExplainer(type))
   })
@@ -97,6 +105,16 @@ describe('VoucherTypeExplainerCard', () => {
     expect(unique.size).toBe(ALL_TYPES.length)
   })
 
+  it('no type explainer body uses em dashes (locked 2026-05-08 — customer-facing copy is em-dash-free)', () => {
+    // Em dashes are banned from customer-facing copy in the voucher
+    // detail flow. Pin negative across all 8 types to catch future
+    // copy edits that re-introduce them.
+    for (const type of ALL_TYPES) {
+      const text = voucherTypeExplainer(type)
+      expect(text).not.toMatch(/—/)
+    }
+  })
+
   it('component is type-driven only — does NOT take a description prop', () => {
     // The previous AboutThisOfferCard took a `description` prop and
     // rendered the merchant's text verbatim. The new component must
@@ -104,10 +122,130 @@ describe('VoucherTypeExplainerCard', () => {
     // a compile-time check disguised as runtime — TS would already
     // reject `<VoucherTypeExplainerCard description="x" />`. Asserting
     // here documents the contract for future refactors.
-    const { getByTestId } = render(<VoucherTypeExplainerCard type="BOGO" />)
+    const { getByTestId } = render(<VoucherTypeExplainerCard type="BOGO" defaultExpanded />)
     const body = getByTestId('voucher-type-explainer-body')
     // Body must be the type-level explainer, not any merchant string
     // (which we never pass in).
     expect(body.props.children).toBe(voucherTypeExplainer('BOGO'))
+  })
+
+  // Collapsible behaviour (locked 2026-05-08 from device QA). The
+  // card defaults to collapsed so the voucher detail page stays
+  // light. Users tap the header to expand if they want the
+  // type-level explanation. Same affordance pattern as HowItWorks.
+
+  describe('collapsible', () => {
+    it('defaults to collapsed — body NOT rendered, title still visible', () => {
+      const { getByTestId, queryByTestId } = render(<VoucherTypeExplainerCard type="BOGO" />)
+      // Title row stays visible (it's the tappable header).
+      expect(getByTestId('voucher-type-explainer-title')).toBeTruthy()
+      // Body is hidden in the default collapsed state.
+      expect(queryByTestId('voucher-type-explainer-body')).toBeNull()
+    })
+
+    it('tapping the header expands the card — body becomes visible', () => {
+      const { getByTestId, queryByTestId } = render(<VoucherTypeExplainerCard type="BOGO" />)
+      expect(queryByTestId('voucher-type-explainer-body')).toBeNull()
+
+      fireEvent.press(getByTestId('voucher-type-explainer-toggle'))
+      expect(getByTestId('voucher-type-explainer-body')).toBeTruthy()
+    })
+
+    it('tapping the header again collapses the card', () => {
+      const { getByTestId, queryByTestId } = render(<VoucherTypeExplainerCard type="BOGO" />)
+      const toggle = getByTestId('voucher-type-explainer-toggle')
+
+      fireEvent.press(toggle)
+      expect(getByTestId('voucher-type-explainer-body')).toBeTruthy()
+      fireEvent.press(toggle)
+      expect(queryByTestId('voucher-type-explainer-body')).toBeNull()
+    })
+
+    it('accessibilityState.expanded mirrors the visible state', () => {
+      const { getByTestId } = render(<VoucherTypeExplainerCard type="BOGO" />)
+      const toggle = getByTestId('voucher-type-explainer-toggle')
+
+      // Default: collapsed.
+      expect(toggle.props.accessibilityState).toEqual({ expanded: false })
+      fireEvent.press(toggle)
+      expect(toggle.props.accessibilityState).toEqual({ expanded: true })
+    })
+
+    it('accessibilityLabel switches between Expand/Collapse with the per-type title', () => {
+      const { getByTestId } = render(<VoucherTypeExplainerCard type="BOGO" />)
+      const toggle = getByTestId('voucher-type-explainer-toggle')
+
+      expect(toggle.props.accessibilityLabel).toBe(
+        'Expand What is a buy one, get one free voucher?',
+      )
+      fireEvent.press(toggle)
+      expect(toggle.props.accessibilityLabel).toBe(
+        'Collapse What is a buy one, get one free voucher?',
+      )
+    })
+
+    it('defaultExpanded=true opens the card without a tap', () => {
+      const { getByTestId } = render(<VoucherTypeExplainerCard type="BOGO" defaultExpanded />)
+      expect(getByTestId('voucher-type-explainer-body')).toBeTruthy()
+    })
+  })
+
+  // Auto-scroll on expand (locked 2026-05-08 from device QA). The
+  // card emits `onExpand(layoutY)` after a collapse-to-expand
+  // transition so the parent can scroll it into view above the
+  // sticky CTA wrap. Tests use fake timers + manual rAF flush since
+  // the effect uses requestAnimationFrame to defer the call.
+  describe('onExpand scroll-into-view callback', () => {
+    let rafSpy: jest.SpyInstance
+    beforeEach(() => {
+      // Run rAF callbacks synchronously so we don't need fake
+      // timers (which can collide with React's scheduler in jest).
+      rafSpy = jest
+        .spyOn(globalThis, 'requestAnimationFrame')
+        .mockImplementation((cb: any) => {
+          cb(0)
+          return 0 as any
+        })
+    })
+    afterEach(() => {
+      rafSpy.mockRestore()
+    })
+
+    it('fires onExpand on the collapse-to-expand transition', () => {
+      const onExpand = jest.fn()
+      const { getByTestId } = render(
+        <VoucherTypeExplainerCard type="BOGO" onExpand={onExpand} />,
+      )
+      // Default collapsed → no fire on initial render.
+      expect(onExpand).not.toHaveBeenCalled()
+      fireEvent.press(getByTestId('voucher-type-explainer-toggle'))
+      // After expand, onExpand fires once with the captured layoutY.
+      expect(onExpand).toHaveBeenCalledTimes(1)
+      // layoutY default is 0 in the test renderer (no real layout).
+      // The contract is that SOMETHING numeric was passed.
+      expect(typeof onExpand.mock.calls[0]?.[0]).toBe('number')
+    })
+
+    it('does NOT fire onExpand on initial render even when defaultExpanded=true', () => {
+      // The effect only fires on a transition; mounting in the
+      // expanded state isn't a transition.
+      const onExpand = jest.fn()
+      render(
+        <VoucherTypeExplainerCard type="BOGO" defaultExpanded onExpand={onExpand} />,
+      )
+      expect(onExpand).not.toHaveBeenCalled()
+    })
+
+    it('does NOT fire onExpand when collapsing (expand-to-collapse transition)', () => {
+      const onExpand = jest.fn()
+      const { getByTestId } = render(
+        <VoucherTypeExplainerCard type="BOGO" onExpand={onExpand} />,
+      )
+      const toggle = getByTestId('voucher-type-explainer-toggle')
+      fireEvent.press(toggle)  // expand
+      expect(onExpand).toHaveBeenCalledTimes(1)
+      fireEvent.press(toggle)  // collapse — no second fire
+      expect(onExpand).toHaveBeenCalledTimes(1)
+    })
   })
 })

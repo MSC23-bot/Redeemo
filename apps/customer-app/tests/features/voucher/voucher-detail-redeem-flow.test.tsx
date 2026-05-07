@@ -436,17 +436,39 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
   })
 
-  it('redeemed-this-cycle layout: hero (CouponHeader) → RedemptionDetailsCard → coupon body, in DOM order', async () => {
-    // Locked 2026-05-07 from device QA. The redeemed-state
-    // orchestration places the card BETWEEN the hero (CouponHeader
-    // + outer perforation) and the coupon body card. The hero
-    // anchors visual identity; the redemption details are the
-    // dominant post-redemption content; the original coupon body
-    // stays visible beneath as secondary context. Three testIDs
-    // pinned in order:
-    //   coupon-header < redemption-details-card < coupon-top-card.
-    // (`coupon-top-card` is the first child of the coupon body
-    //  wrapper — anything that comes after the details card.)
+  // Helper for ordering tests: walk the rendered tree from any
+  // anchor, dedupe testIDs by first occurrence, return them in DOM
+  // order. testIDs can surface multiple times in React Test Renderer
+  // (Pressable + nested host elements each carry the prop), so we
+  // dedupe.
+  function orderedTestIds(anchor: any): string[] {
+    let node: any = anchor
+    while (node?.parent) node = node.parent
+    const root = node
+    const all = root
+      .findAll((el: any) => typeof el.props?.testID === 'string')
+      .map((el: any) => el.props.testID as string)
+    const seen = new Set<string>()
+    const ordered: string[] = []
+    for (const id of all) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      ordered.push(id)
+    }
+    return ordered
+  }
+
+  it('redeemed-this-cycle layout: hero → RedemptionDetailsCard → CycleRulesCard → coupon body → MerchantRow → VoucherTypeExplainer → HowItWorks', async () => {
+    // Locked 2026-05-08 from device QA. Once redeemed, redemption
+    // information becomes the dominant content. Order:
+    //   1. coupon-header (hero / red voucher header)
+    //   2. redemption-details-card (in-stack, after hero)
+    //   3. cycle-rules (in-stack, between details and coupon body —
+    //      the renewal date is the most-asked question post-redeem)
+    //   4. coupon-top-card (start of the coupon body card)
+    //   5. merchant-row (after coupon body)
+    //   6. voucher-type-explainer (after merchant row, collapsed)
+    //   7. how-it-works (last)
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: false })
     mockParams = { id: 'v1', branch: 'b1' }
     ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
@@ -463,39 +485,107 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
     fireEvent.press(getByTestId('success-done'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
-
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
 
-    // Walk the rendered tree from a common ancestor.
-    const detailsCard = getByTestId('redemption-details-card')
-    let node: any = detailsCard
-    while (node?.parent) node = node.parent
-    const root = node
-    const ids = root
-      .findAll((el: any) => typeof el.props?.testID === 'string')
-      .map((el: any) => el.props.testID as string)
+    const ids = orderedTestIds(getByTestId('redemption-details-card'))
+    const idx = (t: string) => ids.indexOf(t)
 
-    // Dedupe by first occurrence (testIDs can surface multiple
-    // times in React Test Renderer — Pressable + nested host elements
-    // each carry the prop).
-    const firstIdx = (id: string) => ids.indexOf(id)
+    // All seven testIDs must be present.
+    expect(idx('coupon-header')).toBeGreaterThanOrEqual(0)
+    expect(idx('redemption-details-card')).toBeGreaterThanOrEqual(0)
+    expect(idx('cycle-rules')).toBeGreaterThanOrEqual(0)
+    expect(idx('coupon-top-card')).toBeGreaterThanOrEqual(0)
+    expect(idx('merchant-row')).toBeGreaterThanOrEqual(0)
+    expect(idx('voucher-type-explainer')).toBeGreaterThanOrEqual(0)
+    expect(idx('how-it-works')).toBeGreaterThanOrEqual(0)
 
-    const headerIdx        = firstIdx('coupon-header')
-    const detailsIdx       = firstIdx('redemption-details-card')
-    const couponTopCardIdx = firstIdx('coupon-top-card')
-    const merchantRowIdx   = firstIdx('merchant-row')
+    // Locked order (each greater-than relation pins one boundary).
+    expect(idx('redemption-details-card')).toBeGreaterThan(idx('coupon-header'))
+    expect(idx('cycle-rules')).toBeGreaterThan(idx('redemption-details-card'))
+    expect(idx('coupon-top-card')).toBeGreaterThan(idx('cycle-rules'))
+    expect(idx('merchant-row')).toBeGreaterThan(idx('coupon-top-card'))
+    expect(idx('voucher-type-explainer')).toBeGreaterThan(idx('merchant-row'))
+    expect(idx('how-it-works')).toBeGreaterThan(idx('voucher-type-explainer'))
+  })
 
-    // All four testIDs must be present.
-    expect(headerIdx).toBeGreaterThanOrEqual(0)
-    expect(detailsIdx).toBeGreaterThanOrEqual(0)
-    expect(couponTopCardIdx).toBeGreaterThanOrEqual(0)
-    expect(merchantRowIdx).toBeGreaterThanOrEqual(0)
+  it('non-redeemed layout: hero → coupon body → CycleRulesCard → MerchantRow → VoucherTypeExplainer → HowItWorks (no RedemptionDetailsCard)', () => {
+    // Locked 2026-05-08 from device QA. In the steady-state
+    // pre-redemption flow there is no RedemptionDetailsCard, and
+    // the cycle card sits BETWEEN the coupon body and MerchantRow
+    // (NOT inside the coupon stack). Order:
+    //   1. coupon-header
+    //   2. coupon-top-card (no in-stack details/cycle)
+    //   3. cycle-rules (after coupon body, before merchant row)
+    //   4. merchant-row
+    //   5. voucher-type-explainer
+    //   6. how-it-works
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: false })
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
+    })
 
-    // Locked order: hero before details, details before coupon body
-    // top card, coupon body before merchant-row (existing pin).
-    expect(detailsIdx).toBeGreaterThan(headerIdx)
-    expect(couponTopCardIdx).toBeGreaterThan(detailsIdx)
-    expect(merchantRowIdx).toBeGreaterThan(couponTopCardIdx)
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // CRITICAL: no redemption-details-card in non-redeemed state.
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+
+    const ids = orderedTestIds(getByTestId('coupon-header'))
+    const idx = (t: string) => ids.indexOf(t)
+
+    expect(idx('coupon-header')).toBeGreaterThanOrEqual(0)
+    expect(idx('coupon-top-card')).toBeGreaterThanOrEqual(0)
+    expect(idx('cycle-rules')).toBeGreaterThanOrEqual(0)
+    expect(idx('merchant-row')).toBeGreaterThanOrEqual(0)
+    expect(idx('voucher-type-explainer')).toBeGreaterThanOrEqual(0)
+    expect(idx('how-it-works')).toBeGreaterThanOrEqual(0)
+
+    // Locked order.
+    expect(idx('coupon-top-card')).toBeGreaterThan(idx('coupon-header'))
+    expect(idx('cycle-rules')).toBeGreaterThan(idx('coupon-top-card'))
+    expect(idx('merchant-row')).toBeGreaterThan(idx('cycle-rules'))
+    expect(idx('voucher-type-explainer')).toBeGreaterThan(idx('merchant-row'))
+    expect(idx('how-it-works')).toBeGreaterThan(idx('voucher-type-explainer'))
+  })
+
+  it('non-redeemed renders cycle-rules exactly ONCE (not double-mounted)', () => {
+    // The orchestrator has two mutually-exclusive mount sites for
+    // CycleRulesCard. Pin that the non-redeemed state only renders
+    // the outer mount, never both.
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: false })
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const ids = orderedTestIds(getByTestId('coupon-header'))
+    const cycleHits = ids.filter((id) => id === 'cycle-rules')
+    expect(cycleHits.length).toBe(1)
+  })
+
+  it('redeemed renders cycle-rules exactly ONCE (in-stack mount only)', async () => {
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: false })
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+    ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
+    fireEvent.press(getByTestId('success-done'))
+    await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+    await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
+
+    const ids = orderedTestIds(getByTestId('redemption-details-card'))
+    const cycleHits = ids.filter((id) => id === 'cycle-rules')
+    expect(cycleHits.length).toBe(1)
   })
 })
 
