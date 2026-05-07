@@ -435,6 +435,58 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     // RedemptionDetailsCard mounts via lastRedemption-state branch.
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
   })
+
+  it('redeemed-this-cycle layout: RedemptionDetailsCard renders BEFORE the coupon body in DOM order', async () => {
+    // Locked 2026-05-07 from device QA. Once redeemed, redemption
+    // details (code + voucher summary) should be the dominant
+    // content; the original coupon detail card stays visible
+    // beneath as secondary context. We pin the DOM order here so a
+    // future refactor can't accidentally re-shuffle the redeemed
+    // surface back to the post-coupon position.
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: false })
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+    ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
+    fireEvent.press(getByTestId('success-done'))
+    await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+
+    // Walk the rendered tree: collect testIDs in DOM order. The
+    // RedemptionDetailsCard testID must appear BEFORE the coupon
+    // body's `coupon-body-card` testID (which lives inside
+    // CouponBodyCard).
+    await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
+    // The orchestrator scroll view is the natural root for the
+    // ordering walk; find the closest ancestor with both testIDs.
+    const detailsCard = getByTestId('redemption-details-card')
+    // Walk up to find a common parent that also contains a
+    // CouponBodyCard descendant.
+    let node: any = detailsCard
+    while (node?.parent) node = node.parent
+    const root = node
+    const ids = root
+      .findAll((el: any) => typeof el.props?.testID === 'string')
+      .map((el: any) => el.props.testID as string)
+    const detailsIdx = ids.indexOf('redemption-details-card')
+    // CouponBodyCard renders its own testID — find any testID that
+    // signals the coupon body. Most reliable: the coupon-body type
+    // chip / coupon body container. We approximate by looking for
+    // the merchant-row testID, which sits inside the coupon stack
+    // but AFTER the body card. If merchant-row appears, the coupon
+    // body must have rendered before it.
+    const merchantRowIdx = ids.indexOf('merchant-row')
+    expect(detailsIdx).toBeGreaterThanOrEqual(0)
+    expect(merchantRowIdx).toBeGreaterThan(detailsIdx)
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────

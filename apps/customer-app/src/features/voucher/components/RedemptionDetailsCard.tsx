@@ -5,11 +5,25 @@ import { CheckCircle2, Eye } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, opacity, radius, spacing } from '@/design-system/tokens'
 import { formatRedemptionCode } from '../utils/formatRedemptionCode'
+import { formatPounds, voucherTypeLabel } from '../utils/voucherTheme'
+import type { VoucherType } from '@/lib/api/voucher'
 
 type Props = {
   redemptionCode: string
   redeemedAt: string  // ISO string
   branchName: string | null
+  /**
+   * Voucher context (locked 2026-05-07 from device QA). The card is
+   * the most-prominent surface on a redeemed voucher detail page; it
+   * needs to identify exactly what was redeemed so the customer or
+   * staff don't have to scan the rest of the page. Sourced from
+   * `voucher.title` / `voucher.type` / `voucher.merchant.businessName`
+   * / `voucher.estimatedSaving` — never invented.
+   */
+  voucherType: VoucherType
+  voucherTitle: string
+  merchantName: string
+  estimatedSaving: number
   /**
    * "Show to Staff" — disabled stub in M2. M3 wires the full-screen
    * QR + brightness boost + screenshot guard. Caller may pass a no-op
@@ -53,9 +67,15 @@ export function RedemptionDetailsCard({
   redemptionCode,
   redeemedAt,
   branchName,
+  voucherType,
+  voucherTitle,
+  merchantName,
+  estimatedSaving,
   onShowToStaff,
 }: Props) {
   const formattedCode = formatRedemptionCode(redemptionCode)
+  const typeLabel = voucherTypeLabel(voucherType).toUpperCase()
+  const savingFormatted = formatPounds(estimatedSaving)
 
   return (
     <View style={styles.card} testID="redemption-details-card">
@@ -71,6 +91,38 @@ export function RedemptionDetailsCard({
             Redeemed {formatDateLine(redeemedAt)}
           </Text>
         </View>
+      </View>
+
+      {/* Voucher summary block (locked 2026-05-07 from device QA).
+          Identifies exactly what was redeemed — type label, title,
+          merchant, "Save up to" — so the customer/staff don't have
+          to scan the rest of the page. Sits above the redemption
+          code so the eye lands on the offer first, then the code. */}
+      <View style={styles.summaryBox} testID="redemption-details-summary">
+        <Text variant="label.md" style={styles.summaryType} testID="redemption-details-type">
+          {typeLabel}
+        </Text>
+        <Text
+          variant="body.md"
+          style={styles.summaryTitle}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+          testID="redemption-details-title"
+        >
+          {voucherTitle}
+        </Text>
+        <Text
+          variant="body.sm"
+          style={styles.summaryMerchant}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          testID="redemption-details-merchant"
+        >
+          {merchantName}
+        </Text>
+        <Text variant="label.md" style={styles.summarySaving} testID="redemption-details-saving">
+          Save up to {savingFormatted}
+        </Text>
       </View>
 
       <View style={styles.codeBox}>
@@ -92,6 +144,17 @@ export function RedemptionDetailsCard({
         <InfoRow label="Date"   value={formatDateLine(redeemedAt)} />
         <InfoRow label="Time"   value={formatTimeLine(redeemedAt)} />
       </View>
+
+      {/* Save-up-to disclaimer (locked 2026-05-07 from device QA).
+          The "Save up to" amount is the maximum estimated saving;
+          actual depends on what the user orders + merchant terms
+          (especially BOGO and percentage-discount types). The
+          disclaimer sits at the bottom of the card so it doesn't
+          steal attention from the code, but is present whenever
+          the saving is shown. */}
+      <Text variant="body.sm" style={styles.savingDisclaimer} testID="redemption-details-saving-disclaimer">
+        “Save up to” is the maximum estimated saving. Your actual saving may depend on the item, service, bill value, and merchant terms.
+      </Text>
 
       {/* Show-to-Staff stub — visible but disabled in M2.
           M3 wires the full-screen QR target. No haptic on the disabled
@@ -169,6 +232,42 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 11,
     color: color.text.tertiary,
+  },
+  summaryBox: {
+    paddingTop: spacing[1],
+    paddingBottom: spacing[3],
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+    borderBottomWidth: 1,
+    gap: spacing[1],
+  },
+  summaryType: {
+    fontSize: 10,
+    color: color.brandRose,
+    letterSpacing: 1.4,
+    fontWeight: '800',
+  },
+  summaryTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: color.text.primary,
+    lineHeight: 22,
+  },
+  summaryMerchant: {
+    fontSize: 13,
+    color: color.text.secondary,
+    marginTop: 2,
+  },
+  summarySaving: {
+    fontSize: 13,
+    color: color.savingsGreen,
+    fontWeight: '800',
+    marginTop: spacing[1],
+  },
+  savingDisclaimer: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: color.text.tertiary,
+    fontStyle: 'italic',
   },
   codeBox: {
     backgroundColor: color.surface.subtle,

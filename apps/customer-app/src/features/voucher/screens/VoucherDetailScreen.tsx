@@ -917,6 +917,28 @@ export function VoucherDetailScreen() {
         onScroll={scrollHandler}
         scrollEventThrottle={16}
       >
+        {/* RedemptionDetailsCard — sits ABOVE the coupon card in
+            redeemed-this-cycle state (locked 2026-05-07 from device
+            QA). Once redeemed, the redemption code + voucher summary
+            are the meaningful content; the original coupon details
+            stay visible below as secondary context. Only renders
+            when `lastRedemption` is in memory (immediate
+            after-redemption); persisted return-visit details remain
+            §P2 deferred. */}
+        {stateKey === 'redeemed-this-cycle' && lastRedemption ? (
+          <View style={styles.redeemedDetailsAbove}>
+            <RedemptionDetailsCard
+              redemptionCode={lastRedemption.redemptionCode}
+              redeemedAt={lastRedemption.redeemedAt}
+              branchName={branchName}
+              voucherType={voucher.type}
+              voucherTitle={voucher.title}
+              merchantName={voucher.merchant.businessName}
+              estimatedSaving={voucher.estimatedSaving}
+            />
+          </View>
+        ) : null}
+
         {/* ── Coupon stack ── */}
         <View style={styles.coupon}>
           {/* Hero + outer perforation — wrapped TOGETHER in an
@@ -970,27 +992,22 @@ export function VoucherDetailScreen() {
           </View>
         </View>
 
+        {/* Redeemed-this-cycle surface (locked 2026-05-07 from device
+            QA): RedeemedBadge stays at the top, but the
+            RedemptionDetailsCard now sits BEFORE the main coupon card
+            below — see the conditional render at the top of the
+            scroll view, above the coupon stack. We keep the badge
+            here so the eye still picks up "Redeemed" near the hero,
+            but the meaningful surface (code + voucher summary) lands
+            above the now-secondary coupon details.
+
+            Persisted return-visit RedemptionDetailsCard is still
+            deferred (§P2 / §O6 — backend payload dependency: needs
+            lastRedeemedAt + redemptionCode + branch on the voucher
+            payload). On return visits, lastRedemption is null and
+            only the badge surfaces. */}
         {stateKey === 'redeemed-this-cycle' ? (
-          <>
-            <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
-            {/* M2 Section B: full RedemptionDetailsCard ONLY when we have
-                the redemption response in memory (immediately after
-                successful redeem, before the user navigates away). On
-                return-visit lastRedemption is null → fall back to the
-                M1 RedeemedBadge above. Persisted return-visit details
-                are §O6 in the deferred-followups index (M3 backend dep
-                on lastRedeemedAt + redemptionCode + availableAgainAt
-                fields on the voucher payload). */}
-            {lastRedemption ? (
-              <View style={styles.tlBanner}>
-                <RedemptionDetailsCard
-                  redemptionCode={lastRedemption.redemptionCode}
-                  redeemedAt={lastRedemption.redeemedAt}
-                  branchName={branchName}
-                />
-              </View>
-            ) : null}
-          </>
+          <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
         ) : null}
 
         {timeLimited.isTimeLimited ? (
@@ -1313,6 +1330,15 @@ const styles = StyleSheet.create({
   tlBanner: {
     marginTop: 14,
     marginHorizontal: 22,
+  },
+
+  // RedemptionDetailsCard wrapper when sitting above the coupon
+  // stack in redeemed-this-cycle state. Bigger top margin than
+  // tlBanner because it's the dominant content on the page.
+  redeemedDetailsAbove: {
+    marginTop: 18,
+    marginHorizontal: 22,
+    marginBottom: 8,
   },
 
   // ── Sticky CTA ──────────────────────────────────────────────────────
