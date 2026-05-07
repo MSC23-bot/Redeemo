@@ -39,7 +39,7 @@ describe('SuccessPopup — render + content', () => {
     expect(getByTestId('success-check-ring')).toBeTruthy()
   })
 
-  it('formats the redemption code as 5+5 with a single space', () => {
+  it('formats the redemption code as 4+4 with a single space', () => {
     const { getByTestId } = render(<SuccessPopup {...defaults()} />)
     const code = getByTestId('success-code')
     expect(code.props.children).toBe('A7K2 P9X4')

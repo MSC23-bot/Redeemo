@@ -28,7 +28,7 @@ describe('RedemptionDetailsCard', () => {
     expect(getByTestId('redemption-details-code')).toBeTruthy()
   })
 
-  it('formats the redemption code as 5+5 with single space', () => {
+  it('formats the redemption code as 4+4 with single space', () => {
     const { getByTestId } = render(<RedemptionDetailsCard {...defaults()} />)
     const code = getByTestId('redemption-details-code')
     expect(code.props.children).toBe('A7K2 P9X4')

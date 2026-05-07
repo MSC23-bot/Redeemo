@@ -80,7 +80,7 @@ export function CycleRulesCard({ isMultiBranch, availableAgainAt, isRedeemed }: 
           <RefreshCw size={18} color={color.brandRose} strokeWidth={2.2} />
         </View>
         <Text variant="label.md" style={styles.title}>
-          {isRedeemed ? 'Voucher cycle' : 'Voucher cycle'}
+          Voucher cycle
         </Text>
       </View>
 
