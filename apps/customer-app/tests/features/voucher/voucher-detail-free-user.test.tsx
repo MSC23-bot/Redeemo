@@ -209,7 +209,7 @@ describe('Voucher Detail — How It Works variant', () => {
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     const node = getByTestId('how-it-works')
     expect(node).toBeTruthy()
-    expect(node.props.accessibilityLabel).toBe('How It Works (5 steps)')
+    expect(node.props.accessibilityLabel).toBe('How redemption works (5 steps)')
   })
 
   it('subscribed-user state renders the 5-step variant (starting "Review the Voucher")', () => {
@@ -217,7 +217,7 @@ describe('Voucher Detail — How It Works variant', () => {
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     const node = getByTestId('how-it-works')
     expect(node).toBeTruthy()
-    expect(node.props.accessibilityLabel).toBe('How It Works (5 steps)')
+    expect(node.props.accessibilityLabel).toBe('How redemption works (5 steps)')
   })
 
   // ── Round 19: card-shaped tappable section, both states ─────
@@ -231,7 +231,7 @@ describe('Voucher Detail — How It Works variant', () => {
     const toggle = getByTestId('how-it-works-toggle')
     expect(toggle.props.accessibilityRole).toBe('button')
     expect(toggle.props.accessibilityState).toEqual({ expanded: true })
-    expect(toggle.props.accessibilityLabel).toBe('Collapse How It Works')
+    expect(toggle.props.accessibilityLabel).toBe('Collapse How redemption works')
   })
 
   it('free-user state — tapping the header collapses the steps', () => {
@@ -240,7 +240,7 @@ describe('Voucher Detail — How It Works variant', () => {
     expect(queryByTestId('how-it-works-steps')).toBeNull()
     const toggle = getByTestId('how-it-works-toggle')
     expect(toggle.props.accessibilityState).toEqual({ expanded: false })
-    expect(toggle.props.accessibilityLabel).toBe('Expand How It Works')
+    expect(toggle.props.accessibilityLabel).toBe('Expand How redemption works')
   })
 
   it('subscribed-user state — section is a tappable card, default COLLAPSED', () => {
@@ -249,7 +249,7 @@ describe('Voucher Detail — How It Works variant', () => {
     const toggle = getByTestId('how-it-works-toggle')
     expect(toggle.props.accessibilityRole).toBe('button')
     expect(toggle.props.accessibilityState).toEqual({ expanded: false })
-    expect(toggle.props.accessibilityLabel).toBe('Expand How It Works')
+    expect(toggle.props.accessibilityLabel).toBe('Expand How redemption works')
     expect(queryByTestId('how-it-works-steps')).toBeNull()
   })
 
@@ -260,7 +260,7 @@ describe('Voucher Detail — How It Works variant', () => {
     expect(getByTestId('how-it-works-steps')).toBeTruthy()
     const toggle = getByTestId('how-it-works-toggle')
     expect(toggle.props.accessibilityState).toEqual({ expanded: true })
-    expect(toggle.props.accessibilityLabel).toBe('Collapse How It Works')
+    expect(toggle.props.accessibilityLabel).toBe('Collapse How redemption works')
     // Tap again → collapses.
     fireEvent.press(toggle)
     expect(queryByTestId('how-it-works-steps')).toBeNull()

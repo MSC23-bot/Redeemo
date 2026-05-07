@@ -5,7 +5,7 @@ import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import type { VoucherType } from '@/lib/api/voucher'
 import {
-  VOUCHER_TYPE_EXPLAINER_TITLE,
+  voucherTypeExplainerTitle,
   voucherTypeExplainer,
 } from '../constants/productCopy'
 
@@ -43,20 +43,21 @@ type Props = {
  * `<InfoCard>` extraction.)
  */
 export function VoucherTypeExplainerCard({ type }: Props) {
-  const body = voucherTypeExplainer(type)
+  const title = voucherTypeExplainerTitle(type)
+  const body  = voucherTypeExplainer(type)
 
   return (
     <View
       style={styles.card}
       testID="voucher-type-explainer"
-      accessibilityLabel={`${VOUCHER_TYPE_EXPLAINER_TITLE}. ${body}`}
+      accessibilityLabel={`${title}. ${body}`}
     >
       <View style={styles.heading}>
         <View style={styles.headingIconWrap} pointerEvents="none">
           <Info size={18} color={color.brandRose} strokeWidth={2.2} />
         </View>
-        <Text variant="label.md" style={styles.title}>
-          {VOUCHER_TYPE_EXPLAINER_TITLE}
+        <Text variant="label.md" style={styles.title} testID="voucher-type-explainer-title">
+          {title}
         </Text>
       </View>
 

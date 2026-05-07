@@ -57,7 +57,7 @@ export function HowItWorks({ isSubscribed }: Props) {
     <View
       style={styles.card}
       testID="how-it-works"
-      accessibilityLabel={`How It Works (${steps.length} steps)`}
+      accessibilityLabel={`How redemption works (${steps.length} steps)`}
     >
       <Pressable
         onPress={() => {
@@ -67,7 +67,7 @@ export function HowItWorks({ isSubscribed }: Props) {
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         accessibilityLabel={
-          expanded ? 'Collapse How It Works' : 'Expand How It Works'
+          expanded ? 'Collapse How redemption works' : 'Expand How redemption works'
         }
         style={({ pressed }) => [styles.heading, pressed && styles.headingPressed]}
         testID="how-it-works-toggle"
@@ -76,7 +76,7 @@ export function HowItWorks({ isSubscribed }: Props) {
         <View style={styles.headingIconWrap} pointerEvents="none">
           <HelpCircle size={18} color={color.brandRose} strokeWidth={2.2} />
         </View>
-        <Text variant="label.md" style={styles.title}>How It Works</Text>
+        <Text variant="label.md" style={styles.title}>How redemption works</Text>
         <View style={styles.headingSpacer} />
         {expanded ? (
           <ChevronUp size={20} color={TEXT_2ND} strokeWidth={2.4} />

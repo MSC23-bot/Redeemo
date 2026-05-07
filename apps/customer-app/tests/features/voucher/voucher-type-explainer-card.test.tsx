@@ -14,9 +14,29 @@ import type { VoucherType } from '@/lib/api/voucher'
 // productCopy.ts comment + service.ts cycle guard).
 
 describe('VoucherTypeExplainerCard', () => {
-  it('renders the constant title "What this voucher means"', () => {
-    const { getByText } = render(<VoucherTypeExplainerCard type="BOGO" />)
-    expect(getByText('What this voucher means')).toBeTruthy()
+  // Per-type titles (locked 2026-05-08 from device QA). Each
+  // VoucherType produces a "What is a <type> voucher?" title that
+  // confirms the article matches the user's voucher.
+
+  it.each([
+    ['BOGO',             'What is a buy one, get one free voucher?'],
+    ['FREEBIE',          'What is a freebie voucher?'],
+    ['SPEND_AND_SAVE',   'What is a spend & save voucher?'],
+    ['DISCOUNT_FIXED',   'What is a discount voucher?'],
+    ['DISCOUNT_PERCENT', 'What is a discount voucher?'],
+    ['PACKAGE_DEAL',     'What is a package deal voucher?'],
+    ['TIME_LIMITED',     'What is a time-limited voucher?'],
+    ['REUSABLE',         'What is a reusable voucher?'],
+  ] as const)('renders the per-type title for %s', (type, expectedTitle) => {
+    const { getByTestId } = render(<VoucherTypeExplainerCard type={type} />)
+    expect(getByTestId('voucher-type-explainer-title').props.children).toBe(expectedTitle)
+  })
+
+  it('does NOT render the legacy generic "What this voucher means" title', () => {
+    // Regression pin — a future revert to the generic copy would
+    // break the per-type contract.
+    const { queryByText } = render(<VoucherTypeExplainerCard type="BOGO" />)
+    expect(queryByText('What this voucher means')).toBeNull()
   })
 
   // Each VoucherType yields a body string that comes from

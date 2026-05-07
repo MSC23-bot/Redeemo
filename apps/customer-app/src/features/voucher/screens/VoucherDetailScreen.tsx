@@ -917,28 +917,6 @@ export function VoucherDetailScreen() {
         onScroll={scrollHandler}
         scrollEventThrottle={16}
       >
-        {/* RedemptionDetailsCard — sits ABOVE the coupon card in
-            redeemed-this-cycle state (locked 2026-05-07 from device
-            QA). Once redeemed, the redemption code + voucher summary
-            are the meaningful content; the original coupon details
-            stay visible below as secondary context. Only renders
-            when `lastRedemption` is in memory (immediate
-            after-redemption); persisted return-visit details remain
-            §P2 deferred. */}
-        {stateKey === 'redeemed-this-cycle' && lastRedemption ? (
-          <View style={styles.redeemedDetailsAbove}>
-            <RedemptionDetailsCard
-              redemptionCode={lastRedemption.redemptionCode}
-              redeemedAt={lastRedemption.redeemedAt}
-              branchName={branchName}
-              voucherType={voucher.type}
-              voucherTitle={voucher.title}
-              merchantName={voucher.merchant.businessName}
-              estimatedSaving={voucher.estimatedSaving}
-            />
-          </View>
-        ) : null}
-
         {/* ── Coupon stack ── */}
         <View style={styles.coupon}>
           {/* Hero + outer perforation — wrapped TOGETHER in an
@@ -970,6 +948,29 @@ export function VoucherDetailScreen() {
             />
             <PerforationLine pageBg={PAGE_BG} variant="outer" />
           </Animated.View>
+
+          {/* RedemptionDetailsCard — sits BETWEEN the hero (CouponHeader
+              + outer perforation) AND the coupon body card on
+              redeemed-this-cycle state. Locked 2026-05-07 from device
+              QA: the card is the dominant post-redemption content
+              (code + voucher summary + saved amount), but the hero
+              still anchors visual identity, so the card belongs UNDER
+              the hero, not above it. Persisted return-visit details
+              remain §P2 deferred — only renders when `lastRedemption`
+              is in memory immediately after redemption. */}
+          {stateKey === 'redeemed-this-cycle' && lastRedemption ? (
+            <View style={styles.redeemedDetailsInStack}>
+              <RedemptionDetailsCard
+                redemptionCode={lastRedemption.redemptionCode}
+                redeemedAt={lastRedemption.redeemedAt}
+                branchName={branchName}
+                voucherType={voucher.type}
+                voucherTitle={voucher.title}
+                merchantName={voucher.merchant.businessName}
+                estimatedSaving={voucher.estimatedSaving}
+              />
+            </View>
+          ) : null}
 
           <View style={styles.couponCardWrap}>
             <View style={styles.couponTopRound}>
@@ -1332,11 +1333,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 22,
   },
 
-  // RedemptionDetailsCard wrapper when sitting above the coupon
-  // stack in redeemed-this-cycle state. Bigger top margin than
-  // tlBanner because it's the dominant content on the page.
-  redeemedDetailsAbove: {
-    marginTop: 18,
+  // RedemptionDetailsCard wrapper when sitting INSIDE the coupon
+  // stack — between the hero (CouponHeader + outer perforation) and
+  // the coupon body card. Locked 2026-05-07 from device QA. Margins
+  // mirror tlBanner so the card aligns with the other in-stack
+  // banners.
+  redeemedDetailsInStack: {
+    marginTop: 14,
     marginHorizontal: 22,
     marginBottom: 8,
   },

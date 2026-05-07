@@ -89,9 +89,18 @@ export function CycleRulesCard({ isMultiBranch, availableAgainAt, isRedeemed }: 
       <Text variant="body.md" style={styles.ruleText} testID="cycle-rules-rule">
         {ruleCopy}
       </Text>
-      <Text variant="body.md" style={styles.dateText} testID="cycle-rules-date">
-        {dateLabel} <Text style={styles.dateBold}>{formattedDate}</Text>
-      </Text>
+
+      {/* Renewal date block (locked 2026-05-08 from device QA). The
+          date is the most-asked question on this card, so it gets
+          its own surface — bigger, bolder, on a tinted background —
+          rather than sitting as inline body text alongside the
+          label. The label sits above as a small uppercase eyebrow. */}
+      <View style={styles.dateBlock} testID="cycle-rules-date">
+        <Text variant="label.md" style={styles.dateLabel}>{dateLabel.toUpperCase()}</Text>
+        <Text variant="heading.sm" style={styles.dateValue} testID="cycle-rules-date-value">
+          {formattedDate}
+        </Text>
+      </View>
     </View>
   )
 }
@@ -163,15 +172,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: TEXT_2ND,
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  dateText: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: TEXT_2ND,
+  dateBlock: {
+    backgroundColor: 'rgba(226,12,4,0.06)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
-  dateBold: {
-    fontWeight: '700',
+  dateLabel: {
+    fontSize: 10,
+    color: '#7C2A23',
+    letterSpacing: 1.2,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  dateValue: {
+    fontSize: 18,
+    fontWeight: '800',
     color: NAVY,
+    letterSpacing: -0.2,
   },
 })

@@ -436,13 +436,17 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
   })
 
-  it('redeemed-this-cycle layout: RedemptionDetailsCard renders BEFORE the coupon body in DOM order', async () => {
-    // Locked 2026-05-07 from device QA. Once redeemed, redemption
-    // details (code + voucher summary) should be the dominant
-    // content; the original coupon detail card stays visible
-    // beneath as secondary context. We pin the DOM order here so a
-    // future refactor can't accidentally re-shuffle the redeemed
-    // surface back to the post-coupon position.
+  it('redeemed-this-cycle layout: hero (CouponHeader) → RedemptionDetailsCard → coupon body, in DOM order', async () => {
+    // Locked 2026-05-07 from device QA. The redeemed-state
+    // orchestration places the card BETWEEN the hero (CouponHeader
+    // + outer perforation) and the coupon body card. The hero
+    // anchors visual identity; the redemption details are the
+    // dominant post-redemption content; the original coupon body
+    // stays visible beneath as secondary context. Three testIDs
+    // pinned in order:
+    //   coupon-header < redemption-details-card < coupon-top-card.
+    // (`coupon-top-card` is the first child of the coupon body
+    //  wrapper — anything that comes after the details card.)
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: false })
     mockParams = { id: 'v1', branch: 'b1' }
     ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
@@ -460,32 +464,38 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     fireEvent.press(getByTestId('success-done'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
 
-    // Walk the rendered tree: collect testIDs in DOM order. The
-    // RedemptionDetailsCard testID must appear BEFORE the coupon
-    // body's `coupon-body-card` testID (which lives inside
-    // CouponBodyCard).
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
-    // The orchestrator scroll view is the natural root for the
-    // ordering walk; find the closest ancestor with both testIDs.
+
+    // Walk the rendered tree from a common ancestor.
     const detailsCard = getByTestId('redemption-details-card')
-    // Walk up to find a common parent that also contains a
-    // CouponBodyCard descendant.
     let node: any = detailsCard
     while (node?.parent) node = node.parent
     const root = node
     const ids = root
       .findAll((el: any) => typeof el.props?.testID === 'string')
       .map((el: any) => el.props.testID as string)
-    const detailsIdx = ids.indexOf('redemption-details-card')
-    // CouponBodyCard renders its own testID — find any testID that
-    // signals the coupon body. Most reliable: the coupon-body type
-    // chip / coupon body container. We approximate by looking for
-    // the merchant-row testID, which sits inside the coupon stack
-    // but AFTER the body card. If merchant-row appears, the coupon
-    // body must have rendered before it.
-    const merchantRowIdx = ids.indexOf('merchant-row')
+
+    // Dedupe by first occurrence (testIDs can surface multiple
+    // times in React Test Renderer — Pressable + nested host elements
+    // each carry the prop).
+    const firstIdx = (id: string) => ids.indexOf(id)
+
+    const headerIdx        = firstIdx('coupon-header')
+    const detailsIdx       = firstIdx('redemption-details-card')
+    const couponTopCardIdx = firstIdx('coupon-top-card')
+    const merchantRowIdx   = firstIdx('merchant-row')
+
+    // All four testIDs must be present.
+    expect(headerIdx).toBeGreaterThanOrEqual(0)
     expect(detailsIdx).toBeGreaterThanOrEqual(0)
-    expect(merchantRowIdx).toBeGreaterThan(detailsIdx)
+    expect(couponTopCardIdx).toBeGreaterThanOrEqual(0)
+    expect(merchantRowIdx).toBeGreaterThanOrEqual(0)
+
+    // Locked order: hero before details, details before coupon body
+    // top card, coupon body before merchant-row (existing pin).
+    expect(detailsIdx).toBeGreaterThan(headerIdx)
+    expect(couponTopCardIdx).toBeGreaterThan(detailsIdx)
+    expect(merchantRowIdx).toBeGreaterThan(couponTopCardIdx)
   })
 })
 

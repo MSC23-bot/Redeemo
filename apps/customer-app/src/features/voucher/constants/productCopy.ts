@@ -118,7 +118,32 @@ export function fairUseLinesForVoucherType(type: VoucherType): readonly string[]
  * that the merchant runs continuously, returning next cycle,
  * still subject to one-per-cycle.
  */
-export const VOUCHER_TYPE_EXPLAINER_TITLE = 'What this voucher means'
+/**
+ * Per-type explainer title (locked 2026-05-08 from device QA). The
+ * earlier generic "What this voucher means" wasn't specific enough —
+ * users want immediate confirmation that the article they're reading
+ * matches the voucher type they're holding. Each type gets its own
+ * "What is a <type> voucher?" title. DISCOUNT_FIXED and
+ * DISCOUNT_PERCENT collapse to the same title because the body copy
+ * already explains the difference.
+ */
+export function voucherTypeExplainerTitle(type: VoucherType): string {
+  switch (type) {
+    case 'BOGO':              return 'What is a buy one, get one free voucher?'
+    case 'FREEBIE':           return 'What is a freebie voucher?'
+    case 'SPEND_AND_SAVE':    return 'What is a spend & save voucher?'
+    case 'DISCOUNT_FIXED':
+    case 'DISCOUNT_PERCENT':  return 'What is a discount voucher?'
+    case 'PACKAGE_DEAL':      return 'What is a package deal voucher?'
+    case 'TIME_LIMITED':      return 'What is a time-limited voucher?'
+    case 'REUSABLE':          return 'What is a reusable voucher?'
+    default: {
+      const _exhaustive: never = type
+      void _exhaustive
+      return 'What this voucher means'
+    }
+  }
+}
 
 export function voucherTypeExplainer(type: VoucherType): string {
   switch (type) {

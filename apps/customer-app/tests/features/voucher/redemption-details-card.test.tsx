@@ -110,28 +110,54 @@ describe('RedemptionDetailsCard', () => {
       expect(getByTestId('redemption-details-merchant').props.children).toBe('Covelum Restaurant')
     })
 
-    it('renders "Save up to £X" for the estimated saving', () => {
+    it('renders "Saved up to £X" (past tense, post-redemption) for the estimated saving', () => {
       const { getByTestId } = render(<RedemptionDetailsCard {...defaults({ estimatedSaving: 2.50 })} />)
-      // formatPounds(2.50) → "£2.50"
+      // formatPounds(2.50) → "£2.50". Past-tense copy because the
+      // card is shown AFTER redemption — "Save up to" would imply
+      // the discount is still pending. Locked 2026-05-07 from device
+      // QA.
       const node = getByTestId('redemption-details-saving')
-      expect(node.props.children).toEqual(['Save up to ', '£2.50'])
+      expect(node.props.children).toEqual(['Saved up to ', '£2.50'])
     })
 
     it('formats whole pounds without decimals', () => {
       const { getByTestId } = render(<RedemptionDetailsCard {...defaults({ estimatedSaving: 5 })} />)
       const node = getByTestId('redemption-details-saving')
-      expect(node.props.children).toEqual(['Save up to ', '£5'])
+      expect(node.props.children).toEqual(['Saved up to ', '£5'])
     })
 
-    it('renders the "Save up to" disclaimer copy', () => {
+    it('saving copy is past tense ("Saved", not "Save") so it does NOT regress to pre-redemption wording', () => {
+      // Regression pin (locked 2026-05-07 from device QA) — explicit
+      // negative assertion catches a future copy edit that
+      // accidentally reverts to the present-tense pre-redemption
+      // form.
+      const { getByTestId } = render(<RedemptionDetailsCard {...defaults()} />)
+      const savingChildren = getByTestId('redemption-details-saving').props.children
+      expect(savingChildren[0]).toMatch(/^Saved up to /)
+      expect(savingChildren[0]).not.toMatch(/^Save up to /)
+    })
+
+    it('renders the "Saved up to" disclaimer copy (past tense)', () => {
       const { getByTestId, getByText } = render(<RedemptionDetailsCard {...defaults()} />)
       expect(getByTestId('redemption-details-saving-disclaimer')).toBeTruthy()
       // Pin the substance of the copy without locking the exact
-      // wording — copy may evolve.
+      // wording — copy may evolve. Both tense and the
+      // "actual saving may depend" qualifier must be present.
       expect(
-        getByText(/Save up to.*maximum estimated saving/i),
+        getByText(/Saved up to.*maximum estimated saving/i),
       ).toBeTruthy()
       expect(getByText(/actual saving may depend/i)).toBeTruthy()
+    })
+
+    it('disclaimer uses past tense — does NOT use the pre-redemption "Save up to" form', () => {
+      // Mirrors the saving-copy regression pin — the disclaimer
+      // must read as a post-redemption explanation, not a
+      // pre-redemption claim.
+      const { getByTestId } = render(<RedemptionDetailsCard {...defaults()} />)
+      const disclaimer = getByTestId('redemption-details-saving-disclaimer')
+      const text = String(disclaimer.props.children ?? '')
+      expect(text).toMatch(/Saved up to/)
+      expect(text).not.toMatch(/“Save up to”/)
     })
 
     it('summary block renders BEFORE the redemption code in the rendered tree', () => {

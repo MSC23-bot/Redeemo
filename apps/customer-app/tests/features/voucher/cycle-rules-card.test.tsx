@@ -29,10 +29,31 @@ describe('CycleRulesCard', () => {
     )
     expect(getByTestId('cycle-rules')).toBeTruthy()
     expect(getByText('This voucher can be redeemed once per cycle.')).toBeTruthy()
-    // The label "Renews on " and the date "Thursday 4 June" render in
-    // the same parent Text but as separate children — the date child
-    // gets the bold style. RNTL's getByText finds either one.
+    // Date prominence (locked 2026-05-08 from device QA) — the date
+    // sits in its own block as a heading-sized standalone value with
+    // an uppercase eyebrow label above it, NOT inline alongside body
+    // text. Pin both halves.
+    expect(getByText('RENEWS ON')).toBeTruthy()
     expect(getByText('Thursday 4 June')).toBeTruthy()
+  })
+
+  it('renewal date renders as a heading-prominent block, not inline body text', () => {
+    // Locked 2026-05-08 from device QA — the date is the most-asked
+    // question on the cycle card, so it must render in its own
+    // surface (testID `cycle-rules-date-value`) with a tinted
+    // background block (testID `cycle-rules-date`).
+    const { getByTestId } = render(
+      <CycleRulesCard
+        isMultiBranch={false}
+        availableAgainAt="2026-06-04T00:00:00.000Z"
+        isRedeemed={false}
+      />,
+    )
+    const block = getByTestId('cycle-rules-date')
+    const value = getByTestId('cycle-rules-date-value')
+    expect(block).toBeTruthy()
+    // The date value is its own Text child of the block.
+    expect(value.props.children).toBe('Thursday 4 June')
   })
 
   it('multi-branch + not yet redeemed: shows the branch-shared rule', () => {

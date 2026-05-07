@@ -121,7 +121,7 @@ export function RedemptionDetailsCard({
           {merchantName}
         </Text>
         <Text variant="label.md" style={styles.summarySaving} testID="redemption-details-saving">
-          Save up to {savingFormatted}
+          Saved up to {savingFormatted}
         </Text>
       </View>
 
@@ -145,15 +145,16 @@ export function RedemptionDetailsCard({
         <InfoRow label="Time"   value={formatTimeLine(redeemedAt)} />
       </View>
 
-      {/* Save-up-to disclaimer (locked 2026-05-07 from device QA).
-          The "Save up to" amount is the maximum estimated saving;
-          actual depends on what the user orders + merchant terms
-          (especially BOGO and percentage-discount types). The
-          disclaimer sits at the bottom of the card so it doesn't
-          steal attention from the code, but is present whenever
-          the saving is shown. */}
+      {/* "Saved up to" disclaimer (locked 2026-05-07 from device QA).
+          The card is shown post-redemption, so the copy is past
+          tense ("Saved up to") and the disclaimer follows. The
+          ceiling-amount is what the voucher promises; actual depends
+          on what the user ordered + merchant terms (especially BOGO
+          and percentage-discount types). The disclaimer sits at the
+          bottom of the card so it doesn't steal attention from the
+          code, but is present whenever the saving is shown. */}
       <Text variant="body.sm" style={styles.savingDisclaimer} testID="redemption-details-saving-disclaimer">
-        “Save up to” is the maximum estimated saving. Your actual saving may depend on the item, service, bill value, and merchant terms.
+        “Saved up to” is the maximum estimated saving for this voucher. Your actual saving may depend on the item, service, bill value, and merchant terms.
       </Text>
 
       {/* Show-to-Staff stub — visible but disabled in M2.
