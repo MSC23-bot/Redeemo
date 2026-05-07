@@ -89,7 +89,7 @@ describe('redemption routes', () => {
 
   it('POST /api/v1/redemption returns 201 on success (customer token)', async () => {
     const mockRedemption = {
-      id: 'r1', redemptionCode: 'ABCDE12345', isValidated: false, redeemedAt: new Date().toISOString(),
+      id: 'r1', redemptionCode: 'A7K2P9X4', isValidated: false, redeemedAt: new Date().toISOString(),
     }
     vi.mocked(createRedemption).mockResolvedValue(mockRedemption as any)
 
@@ -101,7 +101,7 @@ describe('redemption routes', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body).redemptionCode).toBe('ABCDE12345')
+    expect(JSON.parse(res.body).redemptionCode).toBe('A7K2P9X4')
     expect(createRedemption).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -208,7 +208,7 @@ describe('redemption routes', () => {
       method:  'POST',
       url:     '/api/v1/redemption/verify',
       headers: { authorization: `Bearer ${branchToken}` },
-      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+      payload: { code: 'A7K2P9X4', method: 'MANUAL' },
     })
 
     expect(res.statusCode).toBe(200)
@@ -216,7 +216,7 @@ describe('redemption routes', () => {
     expect(body.isValidated).toBe(true)
     expect(verifyRedemption).toHaveBeenCalledWith(
       expect.anything(),
-      'ABCDE12345',
+      'A7K2P9X4',
       'MANUAL',
       expect.objectContaining({ role: 'branch', branchId: BRANCH_ID, merchantId: MERCHANT_ID }),
       expect.objectContaining({ ipAddress: expect.any(String) })
@@ -252,7 +252,7 @@ describe('redemption routes', () => {
       method:  'POST',
       url:     '/api/v1/redemption/verify',
       headers: { authorization: `Bearer ${customerToken}` },
-      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+      payload: { code: 'A7K2P9X4', method: 'MANUAL' },
     })
 
     expect(res.statusCode).toBe(403)
@@ -263,7 +263,7 @@ describe('redemption routes', () => {
     const res = await app.inject({
       method:  'POST',
       url:     '/api/v1/redemption/verify',
-      payload: { code: 'ABCDE12345', method: 'MANUAL' },
+      payload: { code: 'A7K2P9X4', method: 'MANUAL' },
     })
 
     expect(res.statusCode).toBe(403)

@@ -38,6 +38,16 @@ type Props = {
    * no-op. M2: opens BranchPickerSheet.
    */
   onChangeBranch?: () => void
+  /**
+   * When `true`, hide the "Change ▾" affordance and disable the
+   * branch-row Pressable entirely. Used to lock the row in
+   * `redeemed-this-cycle` state — the voucher's one-redemption rule
+   * is keyed on `(userId, voucherId)` across ALL branches, so
+   * exposing a Change-Branch path post-redemption would mislead the
+   * user into a PIN flow that would only get rejected with
+   * ALREADY_REDEEMED. Locked 2026-05-07 from device QA.
+   */
+  disableChangeBranch?: boolean
   /** Tap target for the whole card — opens the merchant profile. */
   onPress?: () => void
 }
@@ -86,9 +96,14 @@ export function MerchantRow({
   branchDistanceMeters,
   isMultiBranch,
   onChangeBranch,
+  disableChangeBranch = false,
   onPress,
 }: Props) {
   const distance = formatDistance(branchDistanceMeters)
+  // The Change ▾ pill is only interactive when the merchant has more
+  // than one active branch AND the consumer hasn't locked the row
+  // (e.g. redeemed-this-cycle state).
+  const canChangeBranch = isMultiBranch && !disableChangeBranch
 
   return (
     <View style={styles.root} testID="merchant-row">
@@ -127,19 +142,19 @@ export function MerchantRow({
 
       {/* Bottom: branch attribution (branch-level — DISTINCT, ACTION CONTEXT) */}
       <Pressable
-        onPress={isMultiBranch ? onChangeBranch : undefined}
-        disabled={!isMultiBranch || !branchName}
-        accessibilityRole={isMultiBranch ? 'button' : 'text'}
+        onPress={canChangeBranch ? onChangeBranch : undefined}
+        disabled={!canChangeBranch || !branchName}
+        accessibilityRole={canChangeBranch ? 'button' : 'text'}
         accessibilityLabel={
           branchName
-            ? (isMultiBranch
+            ? (canChangeBranch
                 ? `Redeem at ${branchName}. Tap to change branch.`
                 : `Redeem at ${branchName}`)
             : 'Resolving redemption branch'
         }
         style={({ pressed }) => [
           styles.branchRow,
-          pressed && isMultiBranch ? styles.branchRowPressed : null,
+          pressed && canChangeBranch ? styles.branchRowPressed : null,
         ]}
       >
         <View style={styles.branchIconWrap}>
@@ -160,7 +175,7 @@ export function MerchantRow({
           )}
         </View>
 
-        {isMultiBranch && branchName ? (
+        {canChangeBranch && branchName ? (
           <View style={styles.changeWrap} accessible accessibilityLabel="Change ▾">
             <Text variant="label.md" style={styles.changeText}>Change ▾</Text>
             <ChevronDown size={14} color={color.brandRose} strokeWidth={2.4} />

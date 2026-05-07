@@ -15,7 +15,7 @@ jest.mock('@/lib/api/redemption', () => {
 function makeRedeemResponse(overrides: Partial<RedeemResponse> = {}): RedeemResponse {
   return {
     id: 'r1', userId: 'u1', voucherId: 'v1', branchId: 'b1',
-    redemptionCode: 'aB3xKZmLp9', estimatedSaving: 4.5,
+    redemptionCode: 'A7K2P9X4', estimatedSaving: 4.5,
     isValidated: false, redeemedAt: '2026-05-06T12:00:00Z',
     ...overrides,
   }

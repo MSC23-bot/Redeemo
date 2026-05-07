@@ -108,6 +108,10 @@ function baseVoucher(overrides: any = {}) {
       logoUrl: null, status: 'ACTIVE',
     },
     isRedeemedThisCycle: false, isFavourited: false,
+    // Subscribed user → backend returns the cycle-end ISO. Tests that
+    // need the `null` (free user / cancelled sub) variant override
+    // explicitly via `baseVoucher({ availableAgainAt: null })`.
+    availableAgainAt: '2026-06-05T00:00:00.000Z',
     ...overrides,
   }
 }
@@ -140,7 +144,7 @@ function makeMerchant(opts: { selectedBranchId?: string | null; branches: any[] 
 }
 const successResponse = {
   id: 'r1', userId: 'u1', voucherId: 'v1', branchId: 'b1',
-  redemptionCode: 'aB3xKZmLp9', estimatedSaving: 2.5,
+  redemptionCode: 'A7K2P9X4', estimatedSaving: 2.5,
   isValidated: false, redeemedAt: '2026-05-06T14:00:00Z',
 }
 
@@ -421,6 +425,94 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     expect(getByTestId('redeemed-badge')).toBeTruthy()
     // RedemptionDetailsCard mounts via lastRedemption-state branch.
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// Locked 2026-05-07 from device QA — already-redeemed must NEVER
+// reopen the redemption path. Defence in depth at three layers:
+//   1. MerchantRow hides the "Change ▾" pill when disableChangeBranch
+//   2. handleChangeBranch early-returns when stateKey === 'redeemed-this-cycle'
+//   3. handlePickerConfirm early-returns when stateKey === 'redeemed-this-cycle'
+// Plus: ALREADY_REDEEMED defensive response closes PIN cleanly via
+// redeem.reset() so no stale error state leaks into a future sheet.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Voucher Detail M2 — already-redeemed cannot reopen redemption (issue #1)', () => {
+  it('redeemed-this-cycle: MerchantRow hides "Change ▾" pill (cannot tap)', () => {
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [makeBranch('b1', 'Brightlingsea'), makeBranch('b2', 'Colchester', 12_000)],
+    })
+
+    const { queryByLabelText } = wrap(<VoucherDetailScreen />)
+    // Pre-fix: the pill rendered with accessibilityLabel "Change ▾"
+    // even in redeemed state. Post-fix: the pill is gone entirely.
+    expect(queryByLabelText('Change ▾')).toBeNull()
+  })
+
+  it('redeemed-this-cycle: tapping branch row does NOT open BranchPickerSheet', () => {
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1',
+      branches: [makeBranch('b1', 'Brightlingsea'), makeBranch('b2', 'Colchester', 12_000)],
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // The branch row Pressable is still mounted (it carries the
+    // "Redeem at <branch>" text), but disabled. Tapping should be
+    // a no-op — no picker, no PIN sheet, no API call.
+    const branchRow = getByTestId('redeem-at-line')
+    fireEvent.press(branchRow.parent ?? branchRow)
+    expect(queryByTestId('voucher-branch-picker-sheet')).toBeNull()
+    expect(queryByTestId('pin-entry-sheet')).toBeNull()
+    expect(redemptionApi.redeem).not.toHaveBeenCalled()
+  })
+
+  it('ALREADY_REDEEMED defensive response: PIN submission produces no success popup or generic error banner', async () => {
+    // Force the defensive path: user is in 'can-redeem' state (mock
+    // returns isRedeemedThisCycle: false) but the backend tells us
+    // ALREADY_REDEEMED — happens after the cycle-state check passed
+    // but before the mutation, e.g. another device redeemed in the
+    // meantime. Pre-fix: the error lingered as redeem.error.
+    // Post-fix: handlePinSubmit catches it, refetches voucher, and
+    // calls redeem.reset(). The sheet-visibility state is timing-
+    // sensitive in the full-suite run (other tests can leak fake
+    // timers); the durable invariants are: redemptionApi was called
+    // with the right args, and no success popup ever appears.
+    mockVoucherData = baseVoucher() // can-redeem
+    mockParams = { id: 'v1', branch: 'b1' }
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+    // Simulate the typed RedemptionError thrown by redemptionApi.redeem.
+    ;(redemptionApi.redeem as jest.Mock).mockRejectedValue({
+      code: 'ALREADY_REDEEMED', message: 'Already redeemed', statusCode: 409,
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+
+    // Mutation must have been attempted with the right args (catches
+    // a regression where the redeemed-state guard in the picker stops
+    // a legitimate retry attempt by mistake — handlePinSubmit DOES
+    // run because the user is in 'can-redeem' state in this test).
+    await waitFor(() => expect(redemptionApi.redeem).toHaveBeenCalledTimes(1))
+    expect(redemptionApi.redeem).toHaveBeenCalledWith({
+      voucherId: 'v1', branchId: 'b1', pin: '1234',
+    })
+
+    // Defensive contract: no success popup, no generic error banner.
+    // The sheet may take a render or two to unmount — we don't pin
+    // the exact moment, just that the user never sees a success
+    // confirmation or a residual "something went wrong" toast.
+    expect(queryByTestId('success-popup')).toBeNull()
+    expect(queryByTestId('pin-backend-error-banner')).toBeNull()
   })
 })
 

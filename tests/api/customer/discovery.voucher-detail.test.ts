@@ -265,4 +265,134 @@ describe('getCustomerVoucher — guest (userId null)', () => {
     expect(prisma.userVoucherCycleState.findUnique).not.toHaveBeenCalled()
     expect(prisma.favouriteVoucher.findUnique).not.toHaveBeenCalled()
   })
+
+  it('returns availableAgainAt:null for a guest', async () => {
+    const prisma = makePrisma()
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, null)
+    expect(result.availableAgainAt).toBeNull()
+  })
+})
+
+// availableAgainAt — computed from getCurrentCycleWindow().cycleEnd for
+// ACTIVE/TRIALLING subscribers. Frontend uses this in two places: the
+// pre-redemption "Renews on <date>" copy and the post-redemption
+// "Available again on <date>" copy. Free users / cancelled subs see
+// subscription copy instead of cycle copy, so availableAgainAt is null
+// there.
+describe('getCustomerVoucher — availableAgainAt', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('ACTIVE sub: returns ISO cycleEnd (anchor day-of-month rolled forward)', async () => {
+    const prisma = makePrisma()
+    const now = new Date('2026-05-15T12:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+
+    prisma.subscription.findUnique.mockResolvedValue({
+      status: 'ACTIVE',
+      cycleAnchorDate: new Date('2026-05-05T00:00:00.000Z'),
+    })
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    // Anchor day = 5; current cycle = May 5 → June 5; cycleEnd = June 5.
+    expect(result.availableAgainAt).toBe('2026-06-05T00:00:00.000Z')
+    vi.useRealTimers()
+  })
+
+  it('TRIALLING sub: same cycleEnd computation as ACTIVE', async () => {
+    const prisma = makePrisma()
+    const now = new Date('2026-05-15T12:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+
+    prisma.subscription.findUnique.mockResolvedValue({
+      status: 'TRIALLING',
+      cycleAnchorDate: new Date('2026-05-05T00:00:00.000Z'),
+    })
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    expect(result.availableAgainAt).toBe('2026-06-05T00:00:00.000Z')
+    vi.useRealTimers()
+  })
+
+  it('availableAgainAt is independent of redemption history — returns cycleEnd even when user has not yet redeemed', async () => {
+    // The pre-redemption "Renews on <date>" copy needs the cycle window
+    // for users who haven't touched the voucher yet. cycleState=null
+    // is the steady-state for new vouchers; availableAgainAt must
+    // still be populated.
+    const prisma = makePrisma()
+    const now = new Date('2026-05-15T12:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+
+    prisma.subscription.findUnique.mockResolvedValue({
+      status: 'ACTIVE',
+      cycleAnchorDate: new Date('2026-05-05T00:00:00.000Z'),
+    })
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    expect(result.availableAgainAt).toBe('2026-06-05T00:00:00.000Z')
+    expect(result.isRedeemedThisCycle).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('NO subscription: returns availableAgainAt:null (free user / guest path)', async () => {
+    const prisma = makePrisma()
+    prisma.subscription.findUnique.mockResolvedValue(null)
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    expect(result.availableAgainAt).toBeNull()
+  })
+
+  it('CANCELLED subscription: returns availableAgainAt:null (only ACTIVE/TRIALLING qualify)', async () => {
+    const prisma = makePrisma()
+    prisma.subscription.findUnique.mockResolvedValue({
+      status: 'CANCELLED',
+      cycleAnchorDate: new Date('2026-05-05T00:00:00.000Z'),
+    })
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    expect(result.availableAgainAt).toBeNull()
+  })
+
+  it('PAST_DUE subscription: returns availableAgainAt:null', async () => {
+    const prisma = makePrisma()
+    prisma.subscription.findUnique.mockResolvedValue({
+      status: 'PAST_DUE',
+      cycleAnchorDate: new Date('2026-05-05T00:00:00.000Z'),
+    })
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    expect(result.availableAgainAt).toBeNull()
+  })
+
+  it('day-clamp behaviour preserved: anchor day 31 in February returns 28-Feb cycleEnd', async () => {
+    // Validates the date math reuses getCurrentCycleWindow's clamp
+    // logic (anchor day 31 → 28 Feb in non-leap years).
+    const prisma = makePrisma()
+    const now = new Date('2026-02-15T12:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+
+    prisma.subscription.findUnique.mockResolvedValue({
+      status: 'ACTIVE',
+      cycleAnchorDate: new Date('2026-01-31T00:00:00.000Z'),
+    })
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    // Anchor day = 31; current cycle starts Jan 31; cycleEnd is the
+    // anchor day of the next month — clamped to 28 Feb (2026 is not
+    // a leap year).
+    expect(result.availableAgainAt).toBe('2026-02-28T00:00:00.000Z')
+    vi.useRealTimers()
+  })
 })

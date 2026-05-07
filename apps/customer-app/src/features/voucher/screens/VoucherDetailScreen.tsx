@@ -30,6 +30,8 @@ import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
+import { AboutThisOfferCard } from '../components/AboutThisOfferCard'
+import { CycleRulesCard } from '../components/CycleRulesCard'
 // M2 Section B — redemption flow components + hook
 import { BranchPickerSheet, type PickerBranch } from '../components/BranchPickerSheet'
 import { PinEntrySheet } from '../components/PinEntrySheet'
@@ -436,13 +438,23 @@ export function VoucherDetailScreen() {
   // the picker → PinEntrySheet wiring would let them reach PIN entry
   // without an active subscription. Owner constraint #1 — free users
   // never reach PIN. Route them through the conversion flow instead.
+  //
+  // Redeemed-this-cycle gate (locked 2026-05-07 from device QA): the
+  // voucher's one-redemption rule is keyed on (userId, voucherId)
+  // across ALL branches. If we let a redeemed-this-cycle user re-open
+  // the picker → PIN sheet, the backend would correctly reject with
+  // ALREADY_REDEEMED, but the user has already wasted three taps and
+  // a PIN entry. Hard-block here. The MerchantRow also hides the
+  // affordance via `disableChangeBranch` — this handler guard is
+  // defence in depth.
   const handleChangeBranch = useCallback(() => {
+    if (stateKey === 'redeemed-this-cycle') return
     if (!isSubscribed) {
       router.push(buildSubscriptionUrl('monthly') as never)
       return
     }
     setPickerVisible(true)
-  }, [isSubscribed, router, buildSubscriptionUrl])
+  }, [stateKey, isSubscribed, router, buildSubscriptionUrl])
 
   const handleMerchantTap = useCallback(() => {
     if (voucher && merchant) {
@@ -473,7 +485,17 @@ export function VoucherDetailScreen() {
   // handleCTA both gate above), but if a future code path opens it
   // without going through those, this guard ensures we still don't
   // open PIN entry for non-subscribed users.
+  //
+  // Redeemed-this-cycle gate (locked 2026-05-07 from device QA): same
+  // defence-in-depth philosophy as handleChangeBranch above. If a
+  // future code path opens the picker for a redeemed user, this guard
+  // ensures we still don't open PIN entry → backend ALREADY_REDEEMED
+  // → confused user.
   const handlePickerConfirm = useCallback((branchId: string) => {
+    if (stateKey === 'redeemed-this-cycle') {
+      setPickerVisible(false)
+      return
+    }
     if (!isSubscribed) {
       setPickerVisible(false)
       router.push(buildSubscriptionUrl('monthly') as never)
@@ -496,7 +518,7 @@ export function VoucherDetailScreen() {
     }
     setPickerVisible(false)
     setPinSheetVisible(true)
-  }, [isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt])
+  }, [stateKey, isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt])
 
   // PIN submit → mutate → success | typed error.
   const handlePinSubmit = useCallback(async (pin: string) => {
@@ -514,10 +536,18 @@ export function VoucherDetailScreen() {
         return
       }
       // ALREADY_REDEEMED → close sheet, refetch voucher (state machine
-      // will re-derive to 'redeemed-this-cycle' on next render).
+      // will re-derive to 'redeemed-this-cycle' on next render), and
+      // call redeem.reset() so the typed error doesn't linger in
+      // mutation state. Without the reset, `redeem.error` stays set
+      // until the next mutation runs, which would render through
+      // PinEntrySheet's `error` prop the next time the sheet opens
+      // (defensive only — sheet's own backendErrorBanner switch has
+      // no ALREADY_REDEEMED branch, but the residual state still
+      // makes test assertions and on-device debug overlays misleading).
       if (e?.code === 'ALREADY_REDEEMED') {
         setPinSheetVisible(false)
         voucherQuery.refetch()
+        redeem.reset()
         return
       }
       // INVALID_PIN / PIN_RATE_LIMIT_EXCEEDED / others — stay on the
@@ -729,7 +759,33 @@ export function VoucherDetailScreen() {
           branchDistanceMeters={branchDistance}
           isMultiBranch={isMultiBranch}
           onChangeBranch={handleChangeBranch}
+          disableChangeBranch={stateKey === 'redeemed-this-cycle'}
           onPress={handleMerchantTap}
+        />
+
+        {/* "About this offer" — full merchant-authored description.
+            Shown whenever there's non-empty description text.
+            CouponHeader still shows the 3-line teaser; this card
+            carries the unabridged copy so customers see the offer
+            details before redeeming. (Owner direction 2026-05-07
+            following device QA — long descriptions were getting
+            ellipsised in the hero, leaving merchant-authored detail
+            invisible.) */}
+        {voucher.description && voucher.description.trim().length > 0 ? (
+          <AboutThisOfferCard description={voucher.description} />
+        ) : null}
+
+        {/* "Voucher cycle" — explains the one-redemption-per-cycle
+            rule + renewal date. Multi-branch-aware copy so users
+            understand the voucher is shared across all branches.
+            Hidden for free users / guests / non-active subscriptions
+            (the card itself early-returns when availableAgainAt is
+            null). The orchestrator passes through unconditionally; the
+            card decides whether to render. */}
+        <CycleRulesCard
+          isMultiBranch={isMultiBranch}
+          availableAgainAt={voucher.availableAgainAt}
+          isRedeemed={stateKey === 'redeemed-this-cycle'}
         />
 
         {/* "How It Works" — round 16: shown for ALL states with

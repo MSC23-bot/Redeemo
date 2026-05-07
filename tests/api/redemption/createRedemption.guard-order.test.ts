@@ -62,7 +62,7 @@ function mockHappyPrisma() {
     },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     $transaction: vi.fn().mockResolvedValue({
-      id: 'r1', redemptionCode: 'TESTCODE123',
+      id: 'r1', redemptionCode: 'A7K2P9X4',
       voucherId: 'v1', branchId: 'b1', userId: 'user-1',
       redeemedAt: new Date(), isValidated: false,
       estimatedSaving: 5.00,
@@ -203,7 +203,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: REAL_PIN }, baseCtx
     )
 
-    expect(result.redemptionCode).toBe('TESTCODE123')
+    expect(result.redemptionCode).toBe('A7K2P9X4')
     expect(redis.del).toHaveBeenCalled()
     expect(redis.incr).not.toHaveBeenCalled()
   })

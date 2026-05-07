@@ -18,6 +18,7 @@ const baseVoucher = (overrides: Partial<VoucherDetail> = {}): VoucherDetail => (
   merchant: { id: 'm1', businessName: 'X', tradingName: null, logoUrl: null, status: 'ACTIVE' },
   isRedeemedThisCycle: false,
   isFavourited: false,
+  availableAgainAt: null,
   ...overrides,
 })
 

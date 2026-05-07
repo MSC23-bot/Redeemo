@@ -64,6 +64,11 @@ const voucherDetailSchema = z.object({
   merchant:        voucherDetailMerchantSchema,
   isRedeemedThisCycle: z.boolean(),
   isFavourited:        z.boolean(),
+  // ISO timestamp for when the user's current cycle ends — i.e. when
+  // this voucher becomes redeemable again. Null for free users /
+  // guests / non-active subscriptions; the UI hides cycle copy in
+  // those cases and shows subscription copy instead.
+  availableAgainAt:    z.string().nullable(),
 })
 
 export type VoucherType   = z.infer<typeof voucherTypeSchema>

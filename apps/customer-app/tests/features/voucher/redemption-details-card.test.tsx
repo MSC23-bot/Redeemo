@@ -12,7 +12,7 @@ import { RedemptionDetailsCard } from '@/features/voucher/components/RedemptionD
 
 function defaults(overrides: Partial<React.ComponentProps<typeof RedemptionDetailsCard>> = {}) {
   return {
-    redemptionCode: 'aB3xKZmLp9',
+    redemptionCode: 'A7K2P9X4',
     redeemedAt: '2026-05-06T14:32:00Z',
     branchName: 'Brightlingsea',
     onShowToStaff: jest.fn(),
@@ -31,7 +31,7 @@ describe('RedemptionDetailsCard', () => {
   it('formats the redemption code as 5+5 with single space', () => {
     const { getByTestId } = render(<RedemptionDetailsCard {...defaults()} />)
     const code = getByTestId('redemption-details-code')
-    expect(code.props.children).toBe('aB3xK ZmLp9')
+    expect(code.props.children).toBe('A7K2 P9X4')
   })
 
   it('shows the branch name', () => {

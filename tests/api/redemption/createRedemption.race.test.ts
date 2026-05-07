@@ -53,7 +53,7 @@ function mockHappyPrisma() {
     voucherRedemption: {
       create: vi.fn().mockResolvedValue({
         id: 'r1', userId: 'user-1', voucherId: 'v1', branchId: 'b1',
-        redemptionCode: 'TESTCODE123',
+        redemptionCode: 'A7K2P9X4',
         estimatedSaving: 5.00,
         isValidated: false,
         redeemedAt: new Date(),
@@ -119,7 +119,7 @@ describe('createRedemption — race-safe atomic cycle-state claim (cross-transac
     expect(tx.userVoucherCycleState.updateMany).toHaveBeenCalledTimes(1)
     expect(tx.userVoucherCycleState.create).not.toHaveBeenCalled()
     expect(tx.voucherRedemption.create).toHaveBeenCalledTimes(1)
-    expect(result.redemptionCode).toBe('TESTCODE123')
+    expect(result.redemptionCode).toBe('A7K2P9X4')
   })
 
   it('FIRST TX, NO RETRY — updateMany count=0 → create succeeds → claim ok, redemption written', async () => {
@@ -136,7 +136,7 @@ describe('createRedemption — race-safe atomic cycle-state claim (cross-transac
     expect(tx.userVoucherCycleState.updateMany).toHaveBeenCalledTimes(1)
     expect(tx.userVoucherCycleState.create).toHaveBeenCalledTimes(1)
     expect(tx.voucherRedemption.create).toHaveBeenCalledTimes(1)
-    expect(result.redemptionCode).toBe('TESTCODE123')
+    expect(result.redemptionCode).toBe('A7K2P9X4')
   })
 
   it('TWO TX — first updateMany count=0 → first create P2002 → fresh tx updateMany count=1 → claim ok, redemption written', async () => {
@@ -160,7 +160,7 @@ describe('createRedemption — race-safe atomic cycle-state claim (cross-transac
     expect(tx.userVoucherCycleState.updateMany).toHaveBeenCalledTimes(2)
     expect(tx.userVoucherCycleState.create).toHaveBeenCalledTimes(1) // only in first tx
     expect(tx.voucherRedemption.create).toHaveBeenCalledTimes(1)     // only after retry succeeds
-    expect(result.redemptionCode).toBe('TESTCODE123')
+    expect(result.redemptionCode).toBe('A7K2P9X4')
   })
 
   it('TWO TX — first updateMany count=0 → first create P2002 → fresh tx updateMany count=0 → ALREADY_REDEEMED, no redemption written', async () => {

@@ -27,12 +27,19 @@ export type RedeemRequest = z.infer<typeof RedeemRequestSchema>
 
 // Prisma Decimal serializes as string in JSON; coerce to number client-side.
 // (Pattern locked since PR #39's z.coerce.number lesson.)
+//
+// `redemptionCode` shape (locked 2026-05-07 from device QA): 8 characters,
+// uppercase A-Z + digits 0-9 with `O` and `I` excluded to avoid the
+// common O/0 and I/1 manual-entry confusion. Backend alphabet is
+// `ABCDEFGHJKLMNPQRSTUVWXYZ0123456789` (34 chars) — see
+// `src/api/redemption/service.ts`. Display is 4+4 grouped via
+// `formatRedemptionCode`.
 export const RedeemResponseSchema = z.object({
   id:              z.string(),
   userId:          z.string(),
   voucherId:       z.string(),
   branchId:        z.string(),
-  redemptionCode:  z.string().regex(/^[A-Za-z0-9]{10}$/),
+  redemptionCode:  z.string().regex(/^[ABCDEFGHJKLMNPQRSTUVWXYZ0-9]{8}$/),
   estimatedSaving: z.coerce.number(),
   isValidated:     z.boolean(),
   redeemedAt:      z.string(),
