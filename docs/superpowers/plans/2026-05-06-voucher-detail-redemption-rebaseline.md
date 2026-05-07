@@ -30,7 +30,7 @@ Confirmed via `src/api/redemption/{routes,service}.ts`:
 | `GET /api/v1/redemption/my/:id` | Get a specific redemption by row id (customer self-lookup). Returns voucher + branch metadata. |
 | `POST /api/v1/redemption/verify` | Branch staff or merchant admin validates a code (QR scan or manual). Sets `isValidated=true`, records `validationMethod`. |
 
-**Redemption code shape:** alphanumeric (mixed case + digits), **10 characters**, generated via `crypto.randomBytes` rejection-sampled to 62-char alphabet (`src/api/redemption/service.ts` `generateRedemptionCode`). The CLAUDE.md note about "3+3 grouping for 6-char codes" was an aspirational design-doc fragment that didn't ship; current backend emits 10-char codes. UI should format readably (e.g. `5+5` grouping with a non-breaking-space separator) but treat the value as opaque.
+**Redemption code shape:** ~~alphanumeric (mixed case + digits), **10 characters**, generated via `crypto.randomBytes` rejection-sampled to 62-char alphabet~~ — **SUPERSEDED 2026-05-07 (PR #46): now 8 characters, uppercase A-Z + digits 0-9 with `O` and `I` excluded** (34-char alphabet). Same `crypto.randomBytes` rejection-sampling pattern. Display is `4+4` grouping. The change came from device QA: 10-char mixed-case codes (e.g. `LQGFhpaoun`) were too long, mis-readable when transcribed onto bills, and easily confused (O/0, I/1). New shape (e.g. `A7K2 P9X4`) is staff-friendly for manual recording. UI still treats the value as opaque.
 
 ### 1.3 Subscription / cycle contract — locked + tested
 
@@ -180,13 +180,13 @@ When the user taps a voucher inside a merchant page that has a selectedBranch re
 
 ### D4. Redemption code formatting
 
-Backend emits 10-char alphanumeric. UI display:
+> **SUPERSEDED 2026-05-07 (PR #46) — see top of §1 for the new shape.** Original recommendation A (5+5 mixed-case) was owner-locked 2026-05-06 and shipped in PR #44. Device QA on 2026-05-07 surfaced: mixed-case codes are easy to misread when staff transcribe them onto bills (e.g. "is this an O or a 0?", "is that l a one?"), and 10 chars is too many to read aloud. Owner override: 8-char uppercase, 4+4 grouping, alphabet excludes O and I. Locked.
 
-- **(A) Recommended: `5+5` grouping with monospace font** — e.g. `aB3xK ZmLp9`. Easier to read aloud / compare on a small screen. Same approach the reference 3C.1i used (it shipped with 6-char `3+3`; we use the same separator strategy with the actual 10-char shape).
+Backend emits 8-char uppercase alphanumeric (alphabet: `ABCDEFGHJKLMNPQRSTUVWXYZ0123456789`, 34 chars). UI display:
+
+- **(A) Locked: `4+4` grouping with monospace font** — e.g. `A7K2 P9X4`. Easier to read aloud / write down / compare on a small screen than 10 chars. Excluded characters (O, I) eliminate the most common manual-entry confusion (O/0, I/1). Backend `@unique` constraint backstops collisions; alphabet provides 34^8 ≈ 1.79 × 10^12 combinations.
 - (B) Show as one continuous string. Harder to read.
-- (C) Add hyphens (`aB3xK-ZmLp9`). Easy on the eye but introduces a glyph users might mistake for part of the code.
-
-**Recommendation:** A. Monospace font + space separator at midpoint.
+- (C) Add hyphens (`A7K2-P9X4`). Easy on the eye but introduces a glyph users might mistake for part of the code.
 
 ### D5. Show-to-Staff anti-fraud scope
 

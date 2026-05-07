@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import { LinearGradient } from 'expo-linear-gradient'
-import { router } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
@@ -171,6 +171,14 @@ export function MerchantProfileScreen({ id }: Props) {
   // visible there).
   const [pendingToastForBranchId, setPendingToastForBranchId] = useState<string | null>(null)
   const [toastBranchName,         setToastBranchName]         = useState<string | null>(null)
+  // Tracks whether the inbound-from-voucher confirmation toast has
+  // already fired this mount. Locked 2026-05-07 from device QA — when
+  // the user changes branch on Voucher Detail and back-navigates here,
+  // the URL carries `?branchChanged=1` and we want to surface a
+  // one-time "Now viewing <branch>" toast so the change isn't silent.
+  // The flag is local state (not URL) so re-renders don't re-fire it
+  // even before we scrub the URL param.
+  const [branchChangedToastFired, setBranchChangedToastFired] = useState(false)
 
   // On branch switch (URL `?branch=` change): close any open sheets, close
   // the free-user gate, and re-arm the SuspendedBranchBanner so the new
@@ -200,6 +208,43 @@ export function MerchantProfileScreen({ id }: Props) {
     setToastBranchName(branchShortName(newBranchName))
     setPendingToastForBranchId(null)
   }, [branchId, pendingToastForBranchId, merchant])
+
+  // Inbound-from-voucher branch-changed toast (locked 2026-05-07 from
+  // device QA). When the user changes branch on Voucher Detail and
+  // back-navigates here, the URL carries `?branchChanged=1`. This
+  // effect:
+  //   1. Reads the URL param.
+  //   2. Waits for `branchId` and `merchant.branches` to be available
+  //      so the toast can show the *current* branch name.
+  //   3. Fires the toast exactly once via `branchChangedToastFired`.
+  //   4. Scrubs `branchChanged=1` from the URL via router.replace,
+  //      preserving the other params (id, branch, tab) so the page
+  //      doesn't re-mount or re-position.
+  // Skipped if the chip-picker / Other-Locations toast is already
+  // pending — that path will run its own toast and the URL param is
+  // a separate trigger.
+  const screenParams = useLocalSearchParams<{ branch?: string; tab?: string; branchChanged?: string }>()
+  const branchChangedParam = screenParams.branchChanged
+  useEffect(() => {
+    if (branchChangedToastFired) return
+    if (branchChangedParam !== '1') return
+    if (!merchant || !branchId) return
+    const newBranchName = merchant.branches.find(b => b.id === branchId)?.name
+    if (!newBranchName) return
+
+    setToastBranchName(branchShortName(newBranchName))
+    setBranchChangedToastFired(true)
+
+    // Scrub `branchChanged=1` from the URL — keep the rest. The route
+    // path is /(app)/merchant/<id>; query is `branch=<id>&tab=<id>`.
+    if (merchantId) {
+      const enc = encodeURIComponent
+      const tab = typeof screenParams.tab === 'string' ? screenParams.tab : 'vouchers'
+      router.replace(
+        `/(app)/merchant/${enc(merchantId)}?branch=${enc(branchId)}&tab=${enc(tab)}` as never,
+      )
+    }
+  }, [branchChangedParam, branchChangedToastFired, merchant, branchId, merchantId, screenParams.tab])
 
   const tabs = useMemo(() => {
     const isMultiBranch = (merchant?.branches.length ?? 0) > 1

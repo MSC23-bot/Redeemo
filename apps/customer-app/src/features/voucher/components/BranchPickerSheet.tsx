@@ -34,6 +34,19 @@ type Props = {
    */
   onConfirm: (branchId: string) => void
   onDismiss: () => void
+  /**
+   * Why the picker was opened (locked 2026-05-07 from device QA):
+   *   • 'redeem' (default) — picker is the final branch confirmation
+   *     step before PIN entry. Title "Confirm redemption branch",
+   *     CTA "Confirm & Enter PIN".
+   *   • 'change' — picker is a branch-context update only. Confirm
+   *     updates the URL/state and closes; no PIN entry follows.
+   *     Title "Choose branch", CTA "Change Branch".
+   * The actual flow-after-confirm is owned by the caller's
+   * `onConfirm`; this prop only swaps the visible copy so the user
+   * understands what will happen when they tap Confirm.
+   */
+  intent?: 'redeem' | 'change'
 }
 
 function formatDistance(m: number | null): string | null {
@@ -61,13 +74,40 @@ export function BranchPickerSheet({
   currentBranchId,
   onConfirm,
   onDismiss,
+  intent = 'redeem',
 }: Props) {
-  const [previewId, setPreviewId] = useState<string | null>(currentBranchId)
+  const titleText =
+    intent === 'change' ? 'Choose branch' : 'Confirm redemption branch'
+  const confirmText =
+    intent === 'change' ? 'Change Branch' : 'Confirm & Enter PIN'
+  // Normalise `currentBranchId` to null unless it actually exists in
+  // the passed `branches` list. The picker is given an
+  // already-active-filtered list (orchestrator filters via
+  // `b.isActive`); if the URL/state's currentBranchId points at a
+  // branch that's been removed from the list (deactivated, deleted,
+  // wrong merchant), pre-selecting it would let the user tap
+  // Confirm and submit a hidden id that the backend would reject
+  // with BRANCH_UNAVAILABLE. Locked 2026-05-07 from device QA
+  // edge-case review — Confirm must be disabled until the user
+  // picks a row that is visibly available in the sheet.
+  const validInitialId = currentBranchId !== null
+    && branches.some((b) => b.id === currentBranchId)
+    ? currentBranchId
+    : null
 
-  // Reset preview when sheet opens / current branch changes externally.
+  const [previewId, setPreviewId] = useState<string | null>(validInitialId)
+
+  // Reset preview when sheet opens / current branch changes externally,
+  // also normalising against the visible branches list.
   useEffect(() => {
-    if (visible) setPreviewId(currentBranchId)
-  }, [visible, currentBranchId])
+    if (visible) {
+      const next = currentBranchId !== null
+        && branches.some((b) => b.id === currentBranchId)
+        ? currentBranchId
+        : null
+      setPreviewId(next)
+    }
+  }, [visible, currentBranchId, branches])
 
   const handleConfirm = () => {
     if (!previewId) return
@@ -85,7 +125,7 @@ export function BranchPickerSheet({
     >
       <View testID="voucher-branch-picker-sheet">
         <Text variant="heading.sm" style={styles.title}>
-          Where are you redeeming?
+          {titleText}
         </Text>
         <Text variant="body.sm" style={styles.subtitle}>
           Pick the branch you're at right now. The PIN you'll enter is
@@ -173,7 +213,7 @@ export function BranchPickerSheet({
           />
           <Tag size={18} color={color.onBrand} strokeWidth={2.4} />
           <Text variant="label.md" style={styles.confirmText}>
-            Confirm Branch
+            {confirmText}
           </Text>
         </Pressable>
       </View>

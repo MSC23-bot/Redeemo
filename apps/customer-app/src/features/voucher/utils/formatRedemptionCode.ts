@@ -1,15 +1,21 @@
-// Format a 10-character alphanumeric redemption code as two 5-char groups
-// separated by a single space. Pure function; case-preserving.
+// Format an 8-character uppercase alphanumeric redemption code as two
+// 4-char groups separated by a single space. Pure function;
+// case-preserving (the backend alphabet is uppercase only — including
+// `O` and `I` excluded — so the input is already uppercase by
+// contract; this helper does not transform case).
 //
-// Backend emits 10 chars from the alphabet [A-Za-z0-9]; spec §6 / decision
-// D4 in the rebaseline plan locks the display format at "5+5" with a
-// monospace font in the success popup + redemption-details card.
+// Backend emits 8 chars from the alphabet
+// `ABCDEFGHJKLMNPQRSTUVWXYZ0123456789` (locked 2026-05-07 from
+// device QA). Locked design baseline: `4+4` grouping with a monospace
+// font in the success popup + redemption-details card. Easier for
+// merchants to read aloud and write on bills than the previous
+// 10-char mixed-case `5+5`.
 //
-// Inputs that are not exactly 10 chars are returned unchanged so the
-// utility is safe for any code shape (defensive against future backend
-// changes).
+// Inputs that are not exactly 8 chars are returned unchanged so the
+// utility is safe for any code shape (defensive against legacy or
+// future backend changes).
 
 export function formatRedemptionCode(code: string): string {
-  if (code.length !== 10) return code
-  return `${code.slice(0, 5)} ${code.slice(5)}`
+  if (code.length !== 8) return code
+  return `${code.slice(0, 4)} ${code.slice(4)}`
 }

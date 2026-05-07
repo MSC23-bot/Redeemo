@@ -7,9 +7,20 @@ import { writeAuditLog } from '../shared/audit'
 import { RedisKey } from '../shared/redis-keys'
 import { getCurrentCycleWindow } from '../subscription/cycle'
 
-const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+// Redemption code alphabet (locked 2026-05-07 from device QA).
+//
+// Uppercase A-Z + digits 0-9, with `O` and `I` excluded to avoid the
+// common `O` vs `0` and `I` vs `1` confusion when staff manually
+// transcribe a code onto a bill or read it aloud over the counter.
+//
+// Alphabet length: 26 - 2 + 10 = 34 characters.
+// Code length: 8 characters → 34^8 ≈ 1.79 × 10^12 combinations.
+// `redemptionCode` is `@unique` in the schema — a collision retries
+// the generation in the backend caller; with this many combinations
+// real-world collisions are functionally non-existent.
+const ALPHANUMERIC = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789'
 
-function generateRedemptionCode(length = 10): string {
+function generateRedemptionCode(length = 8): string {
   const bytes = crypto.randomBytes(length)
   let code = ''
   for (let i = 0; i < length; i++) {

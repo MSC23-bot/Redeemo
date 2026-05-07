@@ -131,3 +131,64 @@ describe('Voucher BranchPickerSheet — preview / confirm flow', () => {
     expect(getByTestId('branch-picker-row-b1').props.accessibilityState).toEqual({ selected: true })
   })
 })
+
+// Locked 2026-05-07 from device QA edge-case review. The
+// orchestrator filters merchant.branches by `isActive` BEFORE
+// passing them in, so the picker only sees active rows. But
+// `currentBranchId` could still point at a branch that was filtered
+// out (e.g. the URL ?branch= param targets a recently-deactivated
+// branch, or carries an id from a merchant the user is no longer
+// visiting). Pre-fix: previewId initialised to that hidden id, and
+// Confirm submitted it to the parent — backend then rejected with
+// BRANCH_UNAVAILABLE. Post-fix: previewId normalises to null until
+// the user picks a row that is visibly available in the sheet.
+
+describe('Voucher BranchPickerSheet — currentBranchId not in branches (stale-id safety)', () => {
+  it('initialises previewId to null when currentBranchId is not present in the visible branches list', () => {
+    // The orchestrator filtered out 'INACTIVE-X' (e.g. it's
+    // suspended), so the picker sees [b1, b2, b3]. The URL still
+    // says branch=INACTIVE-X. The picker MUST NOT pre-select it.
+    const onConfirm = jest.fn()
+    const { queryByTestId, getByTestId } = render(
+      <BranchPickerSheet {...defaults({ onConfirm, currentBranchId: 'INACTIVE-X' })} />,
+    )
+    // No row is pre-selected (the hidden id can't render a row).
+    expect(getByTestId('branch-picker-row-b1').props.accessibilityState).toEqual({ selected: false })
+    expect(getByTestId('branch-picker-row-b2').props.accessibilityState).toEqual({ selected: false })
+    expect(getByTestId('branch-picker-row-b3').props.accessibilityState).toEqual({ selected: false })
+    // No row exists for the hidden id.
+    expect(queryByTestId('branch-picker-row-INACTIVE-X')).toBeNull()
+  })
+
+  it('Confirm is disabled when currentBranchId is not in branches AND user has not yet picked a visible row', () => {
+    const onConfirm = jest.fn()
+    const { getByTestId } = render(
+      <BranchPickerSheet {...defaults({ onConfirm, currentBranchId: 'INACTIVE-X' })} />,
+    )
+    const confirm = getByTestId('branch-picker-confirm')
+    // Disabled — pressing it is a no-op, the hidden id is never sent.
+    expect(confirm.props.accessibilityState).toEqual({ disabled: true })
+    fireEvent.press(confirm)
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('Confirm enables once the user picks a visible active row, and submits THAT row id (not the stale currentBranchId)', () => {
+    const onConfirm = jest.fn()
+    const { getByTestId } = render(
+      <BranchPickerSheet {...defaults({ onConfirm, currentBranchId: 'INACTIVE-X' })} />,
+    )
+    // Initially Confirm is disabled.
+    expect(getByTestId('branch-picker-confirm').props.accessibilityState).toEqual({ disabled: true })
+
+    // User taps b2 — preview now b2.
+    fireEvent.press(getByTestId('branch-picker-row-b2'))
+    expect(getByTestId('branch-picker-row-b2').props.accessibilityState).toEqual({ selected: true })
+    // Confirm is now enabled.
+    expect(getByTestId('branch-picker-confirm').props.accessibilityState).toEqual({ disabled: false })
+
+    fireEvent.press(getByTestId('branch-picker-confirm'))
+    // CRITICAL: Confirm submits b2, NOT the stale 'INACTIVE-X' id.
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+    expect(onConfirm).toHaveBeenCalledWith('b2')
+  })
+})

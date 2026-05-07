@@ -24,6 +24,7 @@ const validVoucherResponse = {
   },
   isRedeemedThisCycle: false,
   isFavourited: false,
+  availableAgainAt: '2026-06-04T00:00:00.000Z',
 }
 
 describe('voucherApi.getById', () => {

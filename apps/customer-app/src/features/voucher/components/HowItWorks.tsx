@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react-native'
@@ -23,6 +23,14 @@ type Props = {
    * Both states are tappable — the card affordance is consistent.
    */
   isSubscribed: boolean
+  /**
+   * Fires when the user expands the card (collapse-to-expand
+   * transition only). The parent uses this to scroll the card into
+   * view above the sticky CTA wrap. `layoutY` is the card's
+   * y-position in its scroll container's content coordinate space
+   * (from `onLayout`). Locked 2026-05-08 from device QA.
+   */
+  onExpand?: (layoutY: number) => void
 }
 
 /**
@@ -47,17 +55,35 @@ type Props = {
  * "process explanation" rather than competing with the voucher's
  * primary content (terms + fair use).
  */
-export function HowItWorks({ isSubscribed }: Props) {
+export function HowItWorks({ isSubscribed, onExpand }: Props) {
   const steps = isSubscribed ? HOW_IT_WORKS_STEPS_SUBSCRIBED : HOW_IT_WORKS_STEPS_FREE
 
   // Free users start expanded; subscribed users start collapsed.
   const [expanded, setExpanded] = useState(!isSubscribed)
+  // Card's y-position in the parent scroll view's content coords —
+  // captured via onLayout, consumed by the post-expand effect.
+  const cardYRef = useRef<number>(0)
+  const prevExpandedRef = useRef(expanded)
+  useEffect(() => {
+    if (!expanded || prevExpandedRef.current === expanded || !onExpand) {
+      prevExpandedRef.current = expanded
+      return
+    }
+    prevExpandedRef.current = expanded
+    const id = requestAnimationFrame(() => {
+      onExpand(cardYRef.current)
+    })
+    return () => cancelAnimationFrame(id)
+  }, [expanded, onExpand])
 
   return (
     <View
       style={styles.card}
       testID="how-it-works"
-      accessibilityLabel={`How It Works (${steps.length} steps)`}
+      accessibilityLabel={`How redemption works (${steps.length} steps)`}
+      onLayout={(e) => {
+        cardYRef.current = e.nativeEvent.layout.y
+      }}
     >
       <Pressable
         onPress={() => {
@@ -67,7 +93,7 @@ export function HowItWorks({ isSubscribed }: Props) {
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         accessibilityLabel={
-          expanded ? 'Collapse How It Works' : 'Expand How It Works'
+          expanded ? 'Collapse How redemption works' : 'Expand How redemption works'
         }
         style={({ pressed }) => [styles.heading, pressed && styles.headingPressed]}
         testID="how-it-works-toggle"
@@ -76,7 +102,7 @@ export function HowItWorks({ isSubscribed }: Props) {
         <View style={styles.headingIconWrap} pointerEvents="none">
           <HelpCircle size={18} color={color.brandRose} strokeWidth={2.2} />
         </View>
-        <Text variant="label.md" style={styles.title}>How It Works</Text>
+        <Text variant="label.md" style={styles.title}>How redemption works</Text>
         <View style={styles.headingSpacer} />
         {expanded ? (
           <ChevronUp size={20} color={TEXT_2ND} strokeWidth={2.4} />
@@ -134,7 +160,10 @@ const styles = StyleSheet.create({
   // ── Card surface ─────────────────────────────────────────────
   card: {
     marginHorizontal: 22,
-    marginTop: 32,
+    // 16pt standardised card-level gap (locked 2026-05-08 from
+    // device QA) — uniform with CycleRulesCard / VoucherTypeExplainerCard /
+    // RedemptionDetailsCard wrapper / MerchantRow.
+    marginTop: 16,
     backgroundColor: '#FDFBF8',  // tinted warm white in brand H≈30 family
     borderRadius: 18,
     borderWidth: 1,

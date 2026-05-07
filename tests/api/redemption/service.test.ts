@@ -6,7 +6,7 @@ vi.mock('../../../src/api/shared/encryption', () => ({
   decrypt: vi.fn((v: string) => v.replace('enc:', '')),
 }))
 
-vi.mock('nanoid', () => ({ nanoid: vi.fn(() => 'TESTCODE123') }))
+vi.mock('nanoid', () => ({ nanoid: vi.fn(() => 'A7K2P9X4') }))
 
 import {
   createRedemption,
@@ -203,7 +203,7 @@ describe('createRedemption', () => {
       isRedeemedInCurrentCycle: true,
       cycleStartDate: new Date(Date.UTC(2025, 10, 10)),
     })
-    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'TESTCODE123' })
+    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'A7K2P9X4' })
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
@@ -224,7 +224,7 @@ describe('createRedemption', () => {
     })
     prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
     const redemption = {
-      id: 'r1', redemptionCode: 'TESTCODE123', voucherId: 'v1',
+      id: 'r1', redemptionCode: 'A7K2P9X4', voucherId: 'v1',
       branchId: 'b1', redeemedAt: new Date(), isValidated: false,
       estimatedSaving: 5.00,
     }
@@ -256,7 +256,7 @@ describe('createRedemption', () => {
       merchant: { status: 'ACTIVE' },
     })
     prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
-    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'TESTCODE123' })
+    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'A7K2P9X4' })
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b-branch-b', pin: '1234' }, baseCtx)
@@ -283,7 +283,7 @@ describe('createRedemption', () => {
       isRedeemedInCurrentCycle: true,
       cycleStartDate: new Date(Date.UTC(2025, 11, 15)), // Dec 15 — previous cycle
     })
-    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'TESTCODE123' })
+    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'A7K2P9X4' })
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
@@ -342,7 +342,7 @@ describe('createRedemption', () => {
       merchant: { status: 'ACTIVE' },
     })
     prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
-    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'TESTCODE123' })
+    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'A7K2P9X4' })
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
@@ -367,7 +367,7 @@ describe('createRedemption', () => {
       isRedeemedInCurrentCycle: true,
       cycleStartDate: new Date(Date.UTC(2025, 8, 10)), // Sep 2025 — old subscription
     })
-    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'TESTCODE123' })
+    prisma.$transaction.mockResolvedValue({ id: 'r1', redemptionCode: 'A7K2P9X4' })
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
@@ -408,7 +408,7 @@ describe('verifyRedemption', () => {
     })
 
     await expect(
-      verifyRedemption(prisma, 'CODE1', 'QR_SCAN', { role: 'branch', branchId: 'b1', merchantId: 'm1', actorId: 'bu1' }, baseCtx)
+      verifyRedemption(prisma, 'A7K2P9X4', 'QR_SCAN', { role: 'branch', branchId: 'b1', merchantId: 'm1', actorId: 'bu1' }, baseCtx)
     ).rejects.toThrow('ALREADY_VALIDATED')
   })
 
@@ -420,7 +420,7 @@ describe('verifyRedemption', () => {
     })
 
     await expect(
-      verifyRedemption(prisma, 'CODE1', 'QR_SCAN', { role: 'branch', branchId: 'b1', merchantId: 'm1', actorId: 'bu1' }, baseCtx)
+      verifyRedemption(prisma, 'A7K2P9X4', 'QR_SCAN', { role: 'branch', branchId: 'b1', merchantId: 'm1', actorId: 'bu1' }, baseCtx)
     ).rejects.toThrow('BRANCH_ACCESS_DENIED')
   })
 
@@ -432,7 +432,7 @@ describe('verifyRedemption', () => {
     })
 
     await expect(
-      verifyRedemption(prisma, 'CODE1', 'QR_SCAN', { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' }, baseCtx)
+      verifyRedemption(prisma, 'A7K2P9X4', 'QR_SCAN', { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' }, baseCtx)
     ).rejects.toThrow('MERCHANT_MISMATCH')
   })
 
@@ -448,7 +448,7 @@ describe('verifyRedemption', () => {
     })
 
     const result = await verifyRedemption(
-      prisma, 'CODE1', 'QR_SCAN',
+      prisma, 'A7K2P9X4', 'QR_SCAN',
       { role: 'branch', branchId: 'b1', merchantId: 'm1', actorId: 'bu1' },
       baseCtx
     )
@@ -475,7 +475,7 @@ describe('verifyRedemption', () => {
     })
 
     const result = await verifyRedemption(
-      prisma, 'CODE1', 'MANUAL',
+      prisma, 'A7K2P9X4', 'MANUAL',
       { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' },
       baseCtx
     )
@@ -488,7 +488,7 @@ describe('listMyRedemptions', () => {
   it('returns paginated list with voucher and branch details', async () => {
     const prisma = mockPrisma()
     const redemptions = [
-      { id: 'r1', redemptionCode: 'CODE1', redeemedAt: new Date(), isValidated: false,
+      { id: 'r1', redemptionCode: 'A7K2P9X4', redeemedAt: new Date(), isValidated: false,
         estimatedSaving: 5.00,
         voucher: { id: 'v1', title: 'Test', merchant: { businessName: 'Acme', logoUrl: null } },
         branch: { id: 'b1', name: 'Main Branch' } },
@@ -515,7 +515,7 @@ describe('getMyRedemption', () => {
 
   it('returns redemption with voucher and branch details', async () => {
     const prisma = mockPrisma()
-    const redemption = { id: 'r1', userId: 'user-1', redemptionCode: 'CODE1', estimatedSaving: 5.00 }
+    const redemption = { id: 'r1', userId: 'user-1', redemptionCode: 'A7K2P9X4', estimatedSaving: 5.00 }
     prisma.voucherRedemption.findUnique.mockResolvedValue(redemption)
 
     const result = await getMyRedemption(prisma, 'user-1', 'r1')

@@ -31,7 +31,7 @@ describe('redemption API schemas', () => {
     // Backend returns Decimal as JSON string; coerce to number client-side.
     const r = RedeemResponseSchema.parse({
       id: 'r1', userId: 'u1', voucherId: 'v1', branchId: 'b1',
-      redemptionCode: 'aB3xKZmLp9', estimatedSaving: '4.50',
+      redemptionCode: 'A7K2P9X4', estimatedSaving: '4.50',
       isValidated: false, redeemedAt: '2026-05-06T12:00:00Z',
     })
     expect(r.estimatedSaving).toBe(4.5)
@@ -84,7 +84,7 @@ describe('redemption API schemas', () => {
 
   it('RedemptionSummarySchema parses listMyRedemptions item shape', () => {
     const r = RedemptionSummarySchema.parse({
-      id: 'r1', voucherId: 'v1', branchId: 'b1', redemptionCode: 'aB3xKZmLp9',
+      id: 'r1', voucherId: 'v1', branchId: 'b1', redemptionCode: 'A7K2P9X4',
       estimatedSaving: '4.50', isValidated: false, redeemedAt: '2026-05-06T12:00:00Z',
     })
     expect(r.estimatedSaving).toBe(4.5)
@@ -106,12 +106,12 @@ describe('redemptionApi.redeem — typed-error mapping', () => {
   it('on success returns parsed RedeemResponse', async () => {
     global.fetch = jest.fn(async () => mockResponse({
       id: 'r1', userId: 'u1', voucherId: 'v1', branchId: 'b1',
-      redemptionCode: 'aB3xKZmLp9', estimatedSaving: '4.50',
+      redemptionCode: 'A7K2P9X4', estimatedSaving: '4.50',
       isValidated: false, redeemedAt: '2026-05-06T12:00:00Z',
     }, 201)) as unknown as typeof fetch
 
     const r = await redemptionApi.redeem({ voucherId: 'v1', branchId: 'b1', pin: '1234' })
-    expect(r.redemptionCode).toBe('aB3xKZmLp9')
+    expect(r.redemptionCode).toBe('A7K2P9X4')
     expect(r.estimatedSaving).toBe(4.5)
   })
 

@@ -391,13 +391,24 @@ describe('VoucherDetailScreen — branch attribution (plan §11)', () => {
 // ── Active-CTA gating (PR #40 review blocker — plan §11) ──────────────────────
 
 describe('VoucherDetailScreen — active CTA gated on branch readiness', () => {
-  it('renders disabled "Resolving branch…" CTA when merchant query is still loading', () => {
+  it('hides the sticky CTA wrap entirely when branch is unresolved (no alarming "Resolving Branch…" button)', () => {
+    // Locked 2026-05-07 from device QA — pre-fix this rendered a
+    // disabled primary "Resolving Branch…" CTA which read as
+    // "broken/uncertain" rather than "loading". Post-fix the cta
+    // memo returns null and the {cta ? <wrap> : null} guard
+    // collapses the sticky wrap. The MerchantRow placeholder
+    // ("Resolving branch…") still surfaces inline to give the
+    // user a quieter signal that branch context is loading.
     setMerchantLoading(true)
     setMerchantData(null)
-    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
-    expect(getByTestId('redeem-cta-branch-loading')).toBeTruthy()
+    const { queryByTestId, getByTestId } = wrap(<VoucherDetailScreen />)
+    // No CTA at all — neither the active variant nor any
+    // "branch-loading" variant should render.
     expect(queryByTestId('redeem-cta-active')).toBeNull()
-    // The "Resolving branch…" placeholder also surfaces in MerchantRow.
+    expect(queryByTestId('redeem-cta-branch-loading')).toBeNull()
+    expect(queryByTestId('redeem-cta-subscribe')).toBeNull()
+    expect(queryByTestId('redeem-cta-redeemed')).toBeNull()
+    // Quieter inline signal — the MerchantRow placeholder.
     expect(getByTestId('redeem-at-placeholder')).toBeTruthy()
   })
 

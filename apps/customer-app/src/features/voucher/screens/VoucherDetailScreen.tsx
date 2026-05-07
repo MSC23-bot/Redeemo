@@ -30,6 +30,8 @@ import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
+import { VoucherTypeExplainerCard } from '../components/VoucherTypeExplainerCard'
+import { CycleRulesCard } from '../components/CycleRulesCard'
 // M2 Section B — redemption flow components + hook
 import { BranchPickerSheet, type PickerBranch } from '../components/BranchPickerSheet'
 import { PinEntrySheet } from '../components/PinEntrySheet'
@@ -125,11 +127,22 @@ export function buildReturnUrl(params: {
   returnMerchantId?: string | undefined
   branch?: string | undefined
   tab?: string | undefined
+  /**
+   * When true, append `branchChanged=1` to the return URL so the
+   * Merchant Profile screen can show a one-time confirmation toast
+   * ("Now viewing <branch>"). Locked 2026-05-07 from device QA — the
+   * user might not realise the branch context changed when they
+   * back-navigate from voucher detail to merchant profile, especially
+   * when the chip + band are off-screen below the fold.
+   */
+  branchChanged?: boolean
 }): string | null {
   if (params.from === 'merchant' && params.returnMerchantId && params.branch) {
     const enc = encodeURIComponent
     const tab = params.tab ?? 'vouchers'
-    return `/(app)/merchant/${enc(params.returnMerchantId)}?branch=${enc(params.branch)}&tab=${enc(tab)}`
+    let url = `/(app)/merchant/${enc(params.returnMerchantId)}?branch=${enc(params.branch)}&tab=${enc(tab)}`
+    if (params.branchChanged) url += '&branchChanged=1'
+    return url
   }
   return null
 }
@@ -174,15 +187,14 @@ export function VoucherDetailScreen() {
   const timeLimited = useTimeLimited(voucher)
 
   // Branch context for the redemption attribution UX.
+  //
+  // `selectedBranch` is the server-resolved cold-open fallback only;
+  // never used for display when the URL or picker has a target.
+  // See `displayBranch` below for the URL-first resolver that actually
+  // drives the screen.
   const selectedBranch = merchant?.selectedBranch ?? null
   const isMultiBranch  = (merchant?.branches.length ?? 0) > 1
-  const branchName     = selectedBranch?.name ?? null
-  const branchDistance = selectedBranch?.distance ?? null
   const merchantDescriptor = merchant?.descriptor ?? null
-  const branchReady    = !!selectedBranch
-  const branchErrored  = merchantQuery.isError || (
-    !!merchant && !merchant.selectedBranch
-  )
 
   // ── Scroll-driven chrome handoff ─────────────────────────────────────
   // FADE_START / FADE_END define the visual crossfade band; HANDOFF_AT
@@ -216,6 +228,21 @@ export function VoucherDetailScreen() {
       scrollY.value = 0
     }, [scrollY]),
   )
+
+  // Auto-scroll when a collapsible card expands (locked 2026-05-08
+  // from device QA). Without this, expanding HowItWorks or
+  // VoucherTypeExplainerCard near the bottom of the page leaves the
+  // newly-revealed body underneath the sticky CTA wrap, forcing the
+  // user to manually scroll. The card calls this with its `layoutY`
+  // (in scroll content coords); we scroll its top to a small fixed
+  // offset from the viewport top so the body lands well above the
+  // sticky CTA. RN clamps to 0 if `target` would be negative (card
+  // already visible at the top).
+  const handleCardExpand = useCallback((cardLayoutY: number) => {
+    const TOP_OFFSET = insets.top + 80  // safe-area top + collapsed-header room
+    const target = Math.max(0, cardLayoutY - TOP_OFFSET)
+    scrollViewRef.current?.scrollTo({ y: target, animated: true })
+  }, [insets.top])
 
   const [collapsedActive, setCollapsedActive] = useState(false)
   useAnimatedReaction(
@@ -261,6 +288,32 @@ export function VoucherDetailScreen() {
   // in the picker; it bridges the render gap before the URL ?branch=
   // catches up via router.replace, then auto-clears once URL matches.
   const [pickerVisible, setPickerVisible] = useState(false)
+  // Why the user opened the picker (locked 2026-05-07 from device QA):
+  //   • 'change' — tapped the "Change ▾" pill on MerchantRow. They
+  //     want to update the branch context only; do NOT open PIN
+  //     entry on confirm.
+  //   • 'redeem' — tapped the sticky "Redeem This Voucher" CTA on a
+  //     multi-branch merchant. The picker is the final
+  //     branch-confirmation step; on confirm, open PIN entry.
+  // handlePickerConfirm reads this to decide what happens after
+  // the URL/picker-local branch is updated.
+  const [pickerIntent, setPickerIntent] = useState<'change' | 'redeem'>('redeem')
+  // The branch id the user picked via 'change' intent on this voucher
+  // detail session, when different from the URL branch at confirm
+  // time. Stored as the explicit id (not a boolean flag) so
+  // `handleBack` can route to that branch DIRECTLY without depending
+  // on `useLocalSearchParams` having caught up after the
+  // `router.replace` inside the picker confirm. Locked 2026-05-07
+  // from device QA — a back tap immediately after Confirm could
+  // otherwise carry the stale URL branch into the return URL while
+  // still appending branchChanged=1, producing a contradictory toast
+  // ("changed to B2") and destination ("B1").
+  //
+  // Null means: no change-intent confirm has happened yet, OR the
+  // user picked the same branch they were already on (no-op).
+  // `handleBack` reads this first; the URL branch is the cold-open
+  // fallback when the local id is null.
+  const [changedBranchOnVoucherId, setChangedBranchOnVoucherId] = useState<string | null>(null)
   const [pinSheetVisible, setPinSheetVisible] = useState(false)
   const [successPopup, setSuccessPopup] = useState<RedeemResponse | null>(null)
   const [lastRedemption, setLastRedemption] = useState<RedeemResponse | null>(null)
@@ -274,6 +327,130 @@ export function VoucherDetailScreen() {
       setPickerConfirmedBranchId(null)
     }
   }, [branchIdParam, pickerConfirmedBranchId])
+
+  // ── URL-first display branch resolver (locked 2026-05-07 from device QA) ──
+  //
+  // The display surface (MerchantRow, CollapsedHeader, PinEntrySheet
+  // header, SuccessPopup branch line, RedemptionDetailsCard branch line,
+  // CTA gating) MUST mirror the mutation's three-tier priority so the
+  // user never sees a different branch than the one redemption would
+  // actually attribute to.
+  //
+  // Priority (matches `useRedeem({ getBranchId })` at the call site below):
+  //   1. pickerConfirmedBranchId — synchronous local state from the
+  //      picker confirm. Bridges the render gap before URL catches up.
+  //   2. branchIdParam — URL `?branch=<id>`. The user's intended target.
+  //   3. selectedBranch — server-resolved cold-open fallback. Used ONLY
+  //      when no URL/picker target exists. Never displayed when it
+  //      conflicts with the URL/picker target.
+  //
+  // Behaviour when a URL/picker target exists but the matching branch
+  // is not yet in `merchant.branches` (race during cold-open or
+  // refetch): displayBranch is `null` and the screen shows a NEUTRAL
+  // unresolved state — never the stale selectedBranch. CTA is hidden
+  // (no alarming "Resolving Branch…" primary button). Once the
+  // refetch completes and the matching branch lands in
+  // `merchant.branches`, displayBranch resolves and the CTA appears.
+  const targetBranchId =
+    pickerConfirmedBranchId ?? branchIdParam ?? null
+
+  // Display branch is a thin shape carrying the four fields the
+  // screen actually renders (name, distance, logoUrl, id). Two
+  // sources contribute, in priority order:
+  //   • merchant.selectedBranch — rich; carries logoUrl. Used when
+  //     its id matches the target (or on cold-open).
+  //   • merchant.branches[i] (BranchTile) — lighter; no logoUrl.
+  //     Used during the keepPreviousData refetch window when
+  //     selectedBranch is stale but the new target IS in the
+  //     branches list.
+  // The CollapsedHeader logo falls back to merchant.logoUrl when
+  // displayBranch.logoUrl is null, so the BranchTile path is a
+  // graceful degradation rather than a missing-asset bug.
+  type DisplayBranch = {
+    id: string
+    name: string
+    distance: number | null
+    logoUrl: string | null
+  }
+
+  const displayBranch = useMemo<DisplayBranch | null>(() => {
+    if (!merchant) return null
+    if (targetBranchId) {
+      // URL/picker target: prefer the rich selectedBranch when it
+      // matches; otherwise the lighter BranchTile. Either path is
+      // gated on `isActive` — a deactivated/suspended branch must
+      // never resolve as display-ready, even if its row is still in
+      // merchant.branches. Without this gate, the active Redeem CTA
+      // could appear for an inactive target and the user would only
+      // see BRANCH_UNAVAILABLE after entering a PIN. Locked
+      // 2026-05-07 from device QA edge-case review.
+      if (
+        merchant.selectedBranch?.id === targetBranchId
+        && merchant.selectedBranch.isActive
+      ) {
+        const sb = merchant.selectedBranch
+        return { id: sb.id, name: sb.name, distance: sb.distance, logoUrl: sb.logoUrl }
+      }
+      const tile = merchant.branches.find(
+        (b) => b.id === targetBranchId && b.isActive,
+      )
+      if (!tile) return null
+      return { id: tile.id, name: tile.name, distance: tile.distance, logoUrl: null }
+    }
+    // No URL/picker target → cold-open fallback to selectedBranch,
+    // also gated on isActive (defense-in-depth: the backend should
+    // never resolve selectedBranch to an inactive row, but if it
+    // ever does we don't want the customer to see it).
+    const sb = merchant.selectedBranch
+    if (!sb || !sb.isActive) return null
+    return { id: sb.id, name: sb.name, distance: sb.distance, logoUrl: sb.logoUrl }
+  }, [merchant, targetBranchId])
+
+  const branchName     = displayBranch?.name ?? null
+  const branchDistance = displayBranch?.distance ?? null
+  const branchReady    = !!displayBranch
+  // Error semantics:
+  //   - merchantQuery isError → error.
+  //   - merchant data settled (NOT fetching) AND we have a target id
+  //     AND it's not in merchant.branches as ACTIVE → branch
+  //     genuinely missing (deleted / wrong merchant) OR inactive
+  //     (suspended / deactivated). Either way, error.
+  //   - merchant data settled AND no target AND no active
+  //     selectedBranch → cold-open with no resolvable branch. Error.
+  //   - merchant data still fetching → not an error; the UI just
+  //     waits in the unresolved state until the refetch lands.
+  const branchErrored = merchantQuery.isError || (
+    !!merchant
+    && !merchantQuery.isFetching
+    && (
+      targetBranchId
+        ? !merchant.branches.find((b) => b.id === targetBranchId && b.isActive)
+        : !merchant.selectedBranch || !merchant.selectedBranch.isActive
+    )
+  )
+
+  // Resolve the actual REDEMPTION branch from `lastRedemption.branchId`
+  // (the in-memory mutation response) against `merchant.branches`. This
+  // is the branch the redemption was attributed to — distinct from
+  // `displayBranch`, which tracks the URL/picker target. On
+  // immediate-after-redemption, both are usually the same branch; on
+  // a hypothetical drift (URL changed mid-flow) they could differ —
+  // the MerchantRow eyebrow + branch name should always reflect
+  // WHERE THE REDEMPTION HAPPENED, not where the user is currently
+  // pointing the URL.
+  //
+  // Returns null when:
+  //   • `lastRedemption` isn't in memory (return-visit; M2 doesn't
+  //     persist redemption details — see §P2 in deferred-followups
+  //     for the M3 backend payload work).
+  //   • `lastRedemption.branchId` doesn't match any row in
+  //     `merchant.branches` (race or merchant data missing).
+  const lastRedemptionBranch = useMemo(() => {
+    if (!lastRedemption || !merchant) return null
+    const tile = merchant.branches.find((b) => b.id === lastRedemption.branchId)
+    if (!tile) return null
+    return { name: tile.name, distance: tile.distance }
+  }, [lastRedemption, merchant])
   // Schedule the auto-show timer. All gates must hold:
   //   • screen is focused (cancels mid-delay if user navigates away)
   //   • voucher data has loaded (no flash before content)
@@ -362,11 +539,26 @@ export function VoucherDetailScreen() {
   // queries having resolved. Round-5 plan §1.
   const handleBack = useCallback(() => {
     lightHaptic()
+    // Branch source priority for the return URL:
+    //   1. `changedBranchOnVoucherId` — synchronous local store of
+    //      the most recent change-intent confirm (when different
+    //      from URL). Reading this FIRST means the back URL routes
+    //      to the user's intended branch even if they tap back
+    //      before `useLocalSearchParams` has caught up to the
+    //      `router.replace` fired by the picker.
+    //   2. `params.branch` — URL truth, the cold-open / steady-state
+    //      source.
+    //
+    // `branchChanged` flips on if and only if the local id is
+    // non-null, i.e. the user actually changed branch this session
+    // (not a no-op same-branch confirm).
+    const returnBranch = changedBranchOnVoucherId ?? params.branch
     const returnUrl = buildReturnUrl({
       from:             params.from,
       returnMerchantId: params.returnMerchantId,
-      branch:           params.branch,
+      branch:           returnBranch,
       tab:              params.tab,
+      branchChanged:    changedBranchOnVoucherId !== null,
     })
     if (returnUrl) {
       // router.replace ensures Voucher Detail leaves the stack
@@ -380,7 +572,7 @@ export function VoucherDetailScreen() {
       return
     }
     router.replace('/(app)/' as never)
-  }, [router, params.from, params.returnMerchantId, params.branch, params.tab])
+  }, [router, params.from, params.returnMerchantId, params.branch, params.tab, changedBranchOnVoucherId])
 
   const handleFav = useCallback(() => {
     Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
@@ -436,13 +628,27 @@ export function VoucherDetailScreen() {
   // the picker → PinEntrySheet wiring would let them reach PIN entry
   // without an active subscription. Owner constraint #1 — free users
   // never reach PIN. Route them through the conversion flow instead.
+  //
+  // Redeemed-this-cycle gate (locked 2026-05-07 from device QA): the
+  // voucher's one-redemption rule is keyed on (userId, voucherId)
+  // across ALL branches. If we let a redeemed-this-cycle user re-open
+  // the picker → PIN sheet, the backend would correctly reject with
+  // ALREADY_REDEEMED, but the user has already wasted three taps and
+  // a PIN entry. Hard-block here. The MerchantRow also hides the
+  // affordance via `disableChangeBranch` — this handler guard is
+  // defence in depth.
   const handleChangeBranch = useCallback(() => {
+    if (stateKey === 'redeemed-this-cycle') return
     if (!isSubscribed) {
       router.push(buildSubscriptionUrl('monthly') as never)
       return
     }
+    // 'change' intent — confirm updates the branch context only and
+    // closes the picker. PIN entry MUST NOT open. The user is just
+    // changing what branch the voucher detail page is talking about.
+    setPickerIntent('change')
     setPickerVisible(true)
-  }, [isSubscribed, router, buildSubscriptionUrl])
+  }, [stateKey, isSubscribed, router, buildSubscriptionUrl])
 
   const handleMerchantTap = useCallback(() => {
     if (voucher && merchant) {
@@ -473,11 +679,37 @@ export function VoucherDetailScreen() {
   // handleCTA both gate above), but if a future code path opens it
   // without going through those, this guard ensures we still don't
   // open PIN entry for non-subscribed users.
+  //
+  // Redeemed-this-cycle gate (locked 2026-05-07 from device QA): same
+  // defence-in-depth philosophy as handleChangeBranch above. If a
+  // future code path opens the picker for a redeemed user, this guard
+  // ensures we still don't open PIN entry → backend ALREADY_REDEEMED
+  // → confused user.
   const handlePickerConfirm = useCallback((branchId: string) => {
+    if (stateKey === 'redeemed-this-cycle') {
+      setPickerVisible(false)
+      return
+    }
     if (!isSubscribed) {
       setPickerVisible(false)
       router.push(buildSubscriptionUrl('monthly') as never)
       return
+    }
+    // Branch context is updated for BOTH intents — the URL replace
+    // and the synchronous local picker source happen regardless.
+    // Only the post-confirm step differs:
+    //   • 'change' — close the picker, stay on Voucher Detail.
+    //   • 'redeem' — close the picker, open PinEntrySheet.
+    //
+    // For 'change' intent specifically, store the confirmed branch
+    // id locally so `handleBack` can route to that branch directly
+    // (independent of `useLocalSearchParams` having caught up after
+    // the router.replace below). `buildReturnUrl` reads this id to
+    // append `branchChanged=1` AND to set the return URL's `branch`
+    // param. Doesn't fire when the user picks the same branch they
+    // were already on (no-op).
+    if (pickerIntent === 'change' && branchId !== branchIdParam) {
+      setChangedBranchOnVoucherId(branchId)
     }
     // Local source set FIRST (synchronous, ref-like). Subsequent
     // router.replace fires; URL catches up next render and the
@@ -495,8 +727,12 @@ export function VoucherDetailScreen() {
       router.replace(`/voucher/${enc(voucher.id)}?${qs.join('&')}` as never)
     }
     setPickerVisible(false)
-    setPinSheetVisible(true)
-  }, [isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt])
+    if (pickerIntent === 'redeem') {
+      setPinSheetVisible(true)
+    }
+    // 'change' intent: stop here. PIN sheet stays closed; user
+    // remains on Voucher Detail with the new branch context.
+  }, [stateKey, isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt, pickerIntent, branchIdParam])
 
   // PIN submit → mutate → success | typed error.
   const handlePinSubmit = useCallback(async (pin: string) => {
@@ -507,17 +743,28 @@ export function VoucherDetailScreen() {
       setLastRedemption(result)
     } catch (err) {
       const e = err as UseRedeemError
-      // NULL_BRANCH (client-side defensive) → reopen picker.
+      // NULL_BRANCH (client-side defensive) → reopen picker as
+      // 'redeem' intent. The user was mid-redeem-flow; on confirm
+      // they should proceed to PIN (not just update branch context).
       if (e?.code === 'NULL_BRANCH') {
         setPinSheetVisible(false)
+        setPickerIntent('redeem')
         setPickerVisible(true)
         return
       }
       // ALREADY_REDEEMED → close sheet, refetch voucher (state machine
-      // will re-derive to 'redeemed-this-cycle' on next render).
+      // will re-derive to 'redeemed-this-cycle' on next render), and
+      // call redeem.reset() so the typed error doesn't linger in
+      // mutation state. Without the reset, `redeem.error` stays set
+      // until the next mutation runs, which would render through
+      // PinEntrySheet's `error` prop the next time the sheet opens
+      // (defensive only — sheet's own backendErrorBanner switch has
+      // no ALREADY_REDEEMED branch, but the residual state still
+      // makes test assertions and on-device debug overlays misleading).
       if (e?.code === 'ALREADY_REDEEMED') {
         setPinSheetVisible(false)
         voucherQuery.refetch()
+        redeem.reset()
         return
       }
       // INVALID_PIN / PIN_RATE_LIMIT_EXCEEDED / others — stay on the
@@ -526,21 +773,55 @@ export function VoucherDetailScreen() {
     }
   }, [redeem, voucherQuery])
 
-  // Picker branches list — filter to active branches only. Inactive
-  // branches must NOT appear because the backend rejects redemption
-  // with BRANCH_UNAVAILABLE per PR #43 (and surfacing them in a picker
-  // would be a usability bug — user picks, gets rejected at submit).
+  // Picker branches list — filter + sort (locked 2026-05-07 from
+  // device QA).
+  //
+  //   Filter: active only. Inactive branches must NOT appear because
+  //   the backend rejects redemption with BRANCH_UNAVAILABLE per
+  //   PR #43, and surfacing them would be a usability bug (user
+  //   picks, then gets rejected at submit).
+  //
+  //   Sort:
+  //     1. Current/target branch first — matches the picker's
+  //        already-selected pre-state (BranchPickerSheet's
+  //        `currentBranchId` defaults to the same three-tier source).
+  //        Putting it on top means "tap Confirm" is a one-step
+  //        confirmation, not a scroll-and-find.
+  //     2. Remaining branches sorted by ascending distance.
+  //     3. Branches without distance (null) sit AFTER all
+  //        branches with distance — those rows are usually the
+  //        far-away ones where GPS didn't apply or the row is
+  //        fixture/seed data without coords.
+  //     4. Final tie-break on name (A→Z) for deterministic order
+  //        when two branches have the same distance (rare).
   const pickerBranches: PickerBranch[] = useMemo(() => {
     if (!merchant) return []
-    return merchant.branches
-      .filter((b) => b.isActive)
+    const currentId =
+      pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id ?? null
+
+    const active = merchant.branches.filter((b) => b.isActive)
+    return [...active]
+      .sort((a, b) => {
+        // Current first.
+        if (a.id === currentId && b.id !== currentId) return -1
+        if (b.id === currentId && a.id !== currentId) return 1
+        // Distance: nulls after non-nulls.
+        if (a.distance == null && b.distance != null) return 1
+        if (b.distance == null && a.distance != null) return -1
+        // Both non-null, ascending distance.
+        if (a.distance != null && b.distance != null && a.distance !== b.distance) {
+          return a.distance - b.distance
+        }
+        // Tie-break: alphabetical by name.
+        return a.name.localeCompare(b.name)
+      })
       .map((b) => ({
-        id: b.id,
-        name: b.name,
-        city: b.city,
+        id:             b.id,
+        name:           b.name,
+        city:           b.city,
         distanceMetres: b.distance,
       }))
-  }, [merchant])
+  }, [merchant, pickerConfirmedBranchId, branchIdParam, selectedBranch])
 
   // RedeemCTA derivation per state. Active states gate on `branchReady`.
   const cta = useMemo(() => {
@@ -551,7 +832,17 @@ export function VoucherDetailScreen() {
       case 'time-limited-available':
       case 'time-limited-urgent':
         if (!branchReady) {
-          return { label: CTA_LABELS.branchLoading, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-branch-loading' }
+          // Branch unresolved — URL/picker target hasn't matched a
+          // row in `merchant.branches` yet (refetch race), or the
+          // cold-open fallback hasn't completed. Return `null` so
+          // the sticky CTA wrap doesn't render. Locked 2026-05-07
+          // from device QA — the previous "Resolving Branch…"
+          // disabled primary button flashed as the customer's first
+          // CTA impression on hard-load / app relaunch / post-login,
+          // which read as "broken/uncertain" rather than "loading".
+          // Hiding the wrap is preferable to a large alarming
+          // disabled button.
+          return null
         }
         return { label: CTA_LABELS.redeemActive, disabled: false, variant: 'primary' as const, testID: 'redeem-cta-active' }
       case 'redeemed-this-cycle':
@@ -574,12 +865,18 @@ export function VoucherDetailScreen() {
     }
     // M2 Section B — active redeem states open the picker (multi-branch)
     // or PIN sheet directly (single-branch).
+    //
+    // Multi-branch picker is opened with `pickerIntent='redeem'` —
+    // confirm updates the branch context AND opens PIN entry. This
+    // is the inverse of the change-branch intent set in
+    // handleChangeBranch.
     if (
       stateKey === 'can-redeem' ||
       stateKey === 'time-limited-available' ||
       stateKey === 'time-limited-urgent'
     ) {
       if (isMultiBranch) {
+        setPickerIntent('redeem')
         setPickerVisible(true)
       } else {
         setPinSheetVisible(true)
@@ -667,6 +964,49 @@ export function VoucherDetailScreen() {
             <PerforationLine pageBg={PAGE_BG} variant="outer" />
           </Animated.View>
 
+          {/* RedemptionDetailsCard — sits BETWEEN the hero (CouponHeader
+              + outer perforation) AND the coupon body card on
+              redeemed-this-cycle state. Locked 2026-05-07 from device
+              QA: the card is the dominant post-redemption content
+              (code + voucher summary + saved amount), but the hero
+              still anchors visual identity, so the card belongs UNDER
+              the hero, not above it. Persisted return-visit details
+              remain §P2 deferred — only renders when `lastRedemption`
+              is in memory immediately after redemption. */}
+          {stateKey === 'redeemed-this-cycle' && lastRedemption ? (
+            <View style={styles.redeemedDetailsInStack}>
+              <RedemptionDetailsCard
+                redemptionCode={lastRedemption.redemptionCode}
+                redeemedAt={lastRedemption.redeemedAt}
+                branchName={branchName}
+                voucherType={voucher.type}
+                voucherTitle={voucher.title}
+                merchantName={voucher.merchant.businessName}
+                estimatedSaving={voucher.estimatedSaving}
+              />
+            </View>
+          ) : null}
+
+          {/* CycleRulesCard — REDEEMED-STATE position (locked
+              2026-05-08 from device QA). Sits inside the coupon
+              stack between RedemptionDetailsCard and the coupon body
+              card. Once redeemed, the renewal date is the most-asked
+              question; lifting the cycle card up the page surfaces
+              that answer next to the redemption details rather than
+              after the merchant row. The non-redeemed mount-site is
+              outside the coupon stack (below). The two mount sites
+              are mutually exclusive via `stateKey` so the card never
+              renders twice. */}
+          {stateKey === 'redeemed-this-cycle' ? (
+            <View style={styles.redeemedCycleInStack}>
+              <CycleRulesCard
+                isMultiBranch={isMultiBranch}
+                availableAgainAt={voucher.availableAgainAt}
+                isRedeemed
+              />
+            </View>
+          ) : null}
+
           <View style={styles.couponCardWrap}>
             <View style={styles.couponTopRound}>
               <CouponTopCard
@@ -688,27 +1028,22 @@ export function VoucherDetailScreen() {
           </View>
         </View>
 
+        {/* Redeemed-this-cycle surface (locked 2026-05-07 from device
+            QA): RedeemedBadge stays at the top, but the
+            RedemptionDetailsCard now sits BEFORE the main coupon card
+            below — see the conditional render at the top of the
+            scroll view, above the coupon stack. We keep the badge
+            here so the eye still picks up "Redeemed" near the hero,
+            but the meaningful surface (code + voucher summary) lands
+            above the now-secondary coupon details.
+
+            Persisted return-visit RedemptionDetailsCard is still
+            deferred (§P2 / §O6 — backend payload dependency: needs
+            lastRedeemedAt + redemptionCode + branch on the voucher
+            payload). On return visits, lastRedemption is null and
+            only the badge surfaces. */}
         {stateKey === 'redeemed-this-cycle' ? (
-          <>
-            <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
-            {/* M2 Section B: full RedemptionDetailsCard ONLY when we have
-                the redemption response in memory (immediately after
-                successful redeem, before the user navigates away). On
-                return-visit lastRedemption is null → fall back to the
-                M1 RedeemedBadge above. Persisted return-visit details
-                are §O6 in the deferred-followups index (M3 backend dep
-                on lastRedeemedAt + redemptionCode + availableAgainAt
-                fields on the voucher payload). */}
-            {lastRedemption ? (
-              <View style={styles.tlBanner}>
-                <RedemptionDetailsCard
-                  redemptionCode={lastRedemption.redemptionCode}
-                  redeemedAt={lastRedemption.redeemedAt}
-                  branchName={branchName}
-                />
-              </View>
-            ) : null}
-          </>
+          <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
         ) : null}
 
         {timeLimited.isTimeLimited ? (
@@ -721,16 +1056,74 @@ export function VoucherDetailScreen() {
           </View>
         ) : null}
 
+        {/* MerchantRow mode + branch values per state (locked 2026-05-07
+            from device QA):
+              • active redeemable          → mode='redeem',
+                                             branchName/distance from displayBranch.
+              • redeemed + lastRedemption  → mode='redeemed-known',
+                                             branchName/distance from
+                                             lastRedemptionBranch (the
+                                             actual redemption branch,
+                                             NOT the URL target).
+              • redeemed return-visit (M2) → mode='redeemed-unknown',
+                                             branchName=null (the row
+                                             omits the branch line and
+                                             shows neutral "REDEEMED THIS
+                                             CYCLE" copy). Persisted
+                                             redemption branch lands in
+                                             M3 (§P2 in deferred index).
+        */}
+        {/* CycleRulesCard — NON-REDEEMED-STATE position (locked
+            2026-05-08 from device QA). Sits between the coupon body
+            card and MerchantRow so the cycle rule + renewal date are
+            visible BEFORE the user hits the redeem CTA. The
+            redeemed-state mount-site is inside the coupon stack
+            (above). The two mount sites are mutually exclusive via
+            `stateKey`. The card itself early-returns when
+            availableAgainAt is null (free users / guests / non-active
+            subscriptions), so we pass through unconditionally and
+            let the card decide. */}
+        {stateKey !== 'redeemed-this-cycle' ? (
+          <CycleRulesCard
+            isMultiBranch={isMultiBranch}
+            availableAgainAt={voucher.availableAgainAt}
+            isRedeemed={false}
+          />
+        ) : null}
+
         <MerchantRow
           merchantName={voucher.merchant.businessName}
           merchantLogoUrl={voucher.merchant.logoUrl}
           merchantDescriptor={merchantDescriptor}
-          branchName={branchName}
-          branchDistanceMeters={branchDistance}
+          branchName={
+            stateKey === 'redeemed-this-cycle' && lastRedemptionBranch
+              ? lastRedemptionBranch.name
+              : branchName
+          }
+          branchDistanceMeters={
+            stateKey === 'redeemed-this-cycle' && lastRedemptionBranch
+              ? lastRedemptionBranch.distance
+              : branchDistance
+          }
           isMultiBranch={isMultiBranch}
           onChangeBranch={handleChangeBranch}
+          disableChangeBranch={stateKey === 'redeemed-this-cycle'}
+          mode={
+            stateKey === 'redeemed-this-cycle'
+              ? (lastRedemptionBranch ? 'redeemed-known' : 'redeemed-unknown')
+              : 'redeem'
+          }
           onPress={handleMerchantTap}
         />
+
+        {/* "What is a <type> voucher?" — voucher-type explainer card.
+            Collapsed by default (locked 2026-05-08 from device QA);
+            tap the header to expand. Educates first-time customers
+            on what THIS TYPE of voucher (BOGO, FREEBIE, etc.) means
+            in general. Distinct from the merchant-authored offer
+            description (which lives in the hero teaser) — this card
+            is type-driven, not description-driven. */}
+        <VoucherTypeExplainerCard type={voucher.type} onExpand={handleCardExpand} />
 
         {/* "How It Works" — round 16: shown for ALL states with
             subscription-aware copy. Free-user variant inserts the
@@ -741,7 +1134,7 @@ export function VoucherDetailScreen() {
             step. See productCopy.ts for the exact copy.
             Round 15 hid this for free users; round 16 owner direction
             restored it with a free-user-specific 7-step list. */}
-        <HowItWorks isSubscribed={isSubscribed} />
+        <HowItWorks isSubscribed={isSubscribed} onExpand={handleCardExpand} />
 
         {/* Spacer above the sticky CTA. Round-7 trim: insets.bottom
             + 30 (= 64 on iPhone Pro Max). Step 4's bottom edge
@@ -758,12 +1151,14 @@ export function VoucherDetailScreen() {
           pointerEvents. Round-12: back + logo + merchant + branch,
           with the same vertical cream gradient as the merchant
           profile's identity zone (#FFF9F5 → #FCF0E5).
-          Logo is branch-aware — selectedBranch.logoUrl wins over
-          merchant.logoUrl, mirroring the merchant profile pattern. */}
+          Logo is branch-aware — displayBranch.logoUrl wins over
+          merchant.logoUrl, mirroring the merchant profile pattern.
+          (Reads displayBranch instead of selectedBranch so the logo
+          tracks the URL/picker target, not stale selectedBranch.) */}
       <CollapsedHeader
         merchantName={voucher.merchant.businessName}
         branchName={branchName}
-        logoUrl={selectedBranch?.logoUrl ?? voucher.merchant.logoUrl ?? null}
+        logoUrl={displayBranch?.logoUrl ?? voucher.merchant.logoUrl ?? null}
         insetTop={insets.top}
         scrollY={scrollY}
         fadeStart={FADE_START}
@@ -818,6 +1213,7 @@ export function VoucherDetailScreen() {
         }
         onConfirm={handlePickerConfirm}
         onDismiss={() => setPickerVisible(false)}
+        intent={pickerIntent}
       />
       <PinEntrySheet
         visible={pinSheetVisible}
@@ -974,6 +1370,27 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginHorizontal: 22,
   },
+
+  // RedemptionDetailsCard wrapper — INSIDE the coupon stack between
+  // hero+perforation and coupon body. Locked 2026-05-08 spacing
+  // standardisation — every card-level gap on the page is 16pt;
+  // marginTop here, no marginBottom. The next card (CycleRulesCard)
+  // brings its own marginTop:16 for the gap.
+  redeemedDetailsInStack: {
+    marginTop: 16,
+    marginHorizontal: 22,
+  },
+  // CycleRulesCard wrapper for the IN-STACK redeemed-state mount.
+  // CycleRulesCard's own card style has marginTop:16 (inherited
+  // from the standardised card-gap pattern), but it has no
+  // marginBottom — the next sibling (couponCardWrap) doesn't carry
+  // a marginTop because it relies on perforation visual continuity
+  // in the non-redeemed flow. So in the redeemed flow we add
+  // marginBottom:16 here to keep the 16pt gap consistent.
+  redeemedCycleInStack: {
+    marginBottom: 16,
+  },
+
 
   // ── Sticky CTA ──────────────────────────────────────────────────────
   ctaWrap: {

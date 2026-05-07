@@ -13,7 +13,7 @@ import { SuccessPopup } from '@/features/voucher/components/SuccessPopup'
 function defaults(overrides: Partial<React.ComponentProps<typeof SuccessPopup>> = {}) {
   return {
     visible: true,
-    redemptionCode: 'aB3xKZmLp9',
+    redemptionCode: 'A7K2P9X4',
     redeemedAt: '2026-05-06T14:32:00Z',
     voucherTitle: 'Free Filter Coffee with Any Thali',
     voucherType: 'FREEBIE' as const,
@@ -39,10 +39,10 @@ describe('SuccessPopup — render + content', () => {
     expect(getByTestId('success-check-ring')).toBeTruthy()
   })
 
-  it('formats the redemption code as 5+5 with a single space', () => {
+  it('formats the redemption code as 4+4 with a single space', () => {
     const { getByTestId } = render(<SuccessPopup {...defaults()} />)
     const code = getByTestId('success-code')
-    expect(code.props.children).toBe('aB3xK ZmLp9')
+    expect(code.props.children).toBe('A7K2 P9X4')
   })
 
   it('shows the voucher title + merchant name in the strip', () => {

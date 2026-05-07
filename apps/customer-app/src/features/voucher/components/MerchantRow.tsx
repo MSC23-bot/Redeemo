@@ -38,6 +38,40 @@ type Props = {
    * no-op. M2: opens BranchPickerSheet.
    */
   onChangeBranch?: () => void
+  /**
+   * When `true`, hide the "Change ▾" affordance and disable the
+   * branch-row Pressable entirely. Used to lock the row in
+   * `redeemed-this-cycle` state — the voucher's one-redemption rule
+   * is keyed on `(userId, voucherId)` across ALL branches, so
+   * exposing a Change-Branch path post-redemption would mislead the
+   * user into a PIN flow that would only get rejected with
+   * ALREADY_REDEEMED. Locked 2026-05-07 from device QA.
+   */
+  disableChangeBranch?: boolean
+  /**
+   * Display mode for the branch panel (locked 2026-05-07 from device QA):
+   *
+   *  • `'redeem'` (default): active/redeemable voucher. Eyebrow reads
+   *    "REDEEM AT", branch name + distance shown, Change ▾ pill
+   *    visible when multi-branch and not disabled.
+   *  • `'redeemed-known'`: voucher redeemed this cycle AND the parent
+   *    knows which branch was used (e.g. immediate-after-redemption
+   *    with `lastRedemption` in memory). Eyebrow reads "REDEEMED AT",
+   *    branch name + distance still shown, Change ▾ pill hidden.
+   *  • `'redeemed-unknown'`: voucher redeemed this cycle AND the
+   *    parent does NOT know which branch was used (return-visit; M2
+   *    voucher payload doesn't yet carry persisted redemption details).
+   *    The branch name passed in COULD be misleading (it's the URL/
+   *    selectedBranch fallback, not the actual redemption branch),
+   *    so the row renders neutral copy ("REDEEMED THIS CYCLE") and
+   *    omits the branch line + distance entirely. Change ▾ pill
+   *    hidden.
+   *
+   * `'redeemed-known'` and `'redeemed-unknown'` both override
+   * `disableChangeBranch` to true; passing it explicitly is redundant
+   * but harmless.
+   */
+  mode?: 'redeem' | 'redeemed-known' | 'redeemed-unknown'
   /** Tap target for the whole card — opens the merchant profile. */
   onPress?: () => void
 }
@@ -86,9 +120,33 @@ export function MerchantRow({
   branchDistanceMeters,
   isMultiBranch,
   onChangeBranch,
+  disableChangeBranch = false,
+  mode = 'redeem',
   onPress,
 }: Props) {
-  const distance = formatDistance(branchDistanceMeters)
+  // Redeemed modes always disable the Change ▾ affordance regardless
+  // of the explicit `disableChangeBranch` prop — the rule is keyed on
+  // (userId, voucherId) across all branches, so reopening the picker
+  // post-redemption is a UX trap.
+  const isRedeemed = mode !== 'redeem'
+  const canChangeBranch =
+    isMultiBranch && !disableChangeBranch && !isRedeemed
+
+  // Eyebrow copy + branch-line visibility per mode:
+  //  • 'redeem'           → "REDEEM AT" + branch name + distance
+  //  • 'redeemed-known'   → "REDEEMED AT" + branch name + distance
+  //                         (parent passes lastRedemption-derived
+  //                         branch name + distance)
+  //  • 'redeemed-unknown' → "REDEEMED THIS CYCLE", NO branch line
+  //                         (the passed branchName / distance could
+  //                         be misleading on return-visit because
+  //                         M2 doesn't persist redemption details)
+  const eyebrowLabel =
+    mode === 'redeemed-known'   ? 'REDEEMED AT' :
+    mode === 'redeemed-unknown' ? 'REDEEMED THIS CYCLE' :
+                                  'REDEEM AT'
+  const showBranchLine = mode !== 'redeemed-unknown'
+  const distance = showBranchLine ? formatDistance(branchDistanceMeters) : null
 
   return (
     <View style={styles.root} testID="merchant-row">
@@ -127,40 +185,51 @@ export function MerchantRow({
 
       {/* Bottom: branch attribution (branch-level — DISTINCT, ACTION CONTEXT) */}
       <Pressable
-        onPress={isMultiBranch ? onChangeBranch : undefined}
-        disabled={!isMultiBranch || !branchName}
-        accessibilityRole={isMultiBranch ? 'button' : 'text'}
+        onPress={canChangeBranch ? onChangeBranch : undefined}
+        disabled={!canChangeBranch || !branchName}
+        accessibilityRole={canChangeBranch ? 'button' : 'text'}
         accessibilityLabel={
-          branchName
-            ? (isMultiBranch
-                ? `Redeem at ${branchName}. Tap to change branch.`
-                : `Redeem at ${branchName}`)
-            : 'Resolving redemption branch'
+          mode === 'redeemed-unknown'
+            ? 'Voucher already redeemed this cycle'
+            : mode === 'redeemed-known' && branchName
+              ? `Redeemed at ${branchName}`
+              : branchName
+                ? (canChangeBranch
+                    ? `Redeem at ${branchName}. Tap to change branch.`
+                    : `Redeem at ${branchName}`)
+                : 'Resolving redemption branch'
         }
         style={({ pressed }) => [
           styles.branchRow,
-          pressed && isMultiBranch ? styles.branchRowPressed : null,
+          pressed && canChangeBranch ? styles.branchRowPressed : null,
         ]}
       >
         <View style={styles.branchIconWrap}>
           <MapPin size={14} color={color.brandRose} strokeWidth={2.4} />
         </View>
 
-        <View style={styles.branchText} testID={branchName ? 'redeem-at-line' : undefined}>
-          <Text variant="label.md" style={styles.redeemAtLabel}>REDEEM AT</Text>
-          {branchName ? (
+        <View
+          style={styles.branchText}
+          testID={
+            showBranchLine && branchName
+              ? (mode === 'redeemed-known' ? 'redeemed-at-line' : 'redeem-at-line')
+              : undefined
+          }
+        >
+          <Text variant="label.md" style={styles.redeemAtLabel}>{eyebrowLabel}</Text>
+          {showBranchLine && branchName ? (
             <Text variant="body.md" style={styles.branchName} numberOfLines={1} ellipsizeMode="tail">
               {branchName}
               {distance ? <Text style={styles.distanceText}>{` · ${distance}`}</Text> : null}
             </Text>
-          ) : (
+          ) : showBranchLine ? (
             <Text variant="body.sm" style={styles.branchPlaceholder} testID="redeem-at-placeholder">
               Resolving branch…
             </Text>
-          )}
+          ) : null}
         </View>
 
-        {isMultiBranch && branchName ? (
+        {canChangeBranch && branchName ? (
           <View style={styles.changeWrap} accessible accessibilityLabel="Change ▾">
             <Text variant="label.md" style={styles.changeText}>Change ▾</Text>
             <ChevronDown size={14} color={color.brandRose} strokeWidth={2.4} />

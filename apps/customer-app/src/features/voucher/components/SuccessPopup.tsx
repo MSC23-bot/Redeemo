@@ -64,7 +64,7 @@ function formatTimeLine(iso: string): string {
  *   • Checkmark in 48-px green ring with 200ms-delayed bounce.
  *   • Brand-gradient header strip with "Voucher Redeemed!" title.
  *   • Voucher strip (cream bg) with type-coloured badge + title.
- *   • Code box: monospace 5+5 grouping ("aB3xK ZmLp9").
+ *   • Code box: monospace 4+4 grouping ("A7K2 P9X4").
  *   • Three info rows: date, time, branch.
  *   • Three CTAs: Show to Staff (gradient primary), Rate & Review
  *     (purple secondary), Done (transparent navy).

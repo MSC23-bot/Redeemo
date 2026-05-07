@@ -872,6 +872,11 @@ export async function getCustomerVoucher(
 
   let isRedeemedThisCycle = false
   let isFavourited = false
+  // ISO timestamp marking when the current cycle ends — i.e. when this
+  // voucher's one-per-cycle counter resets. Computed for ACTIVE /
+  // TRIALLING subscribers only; null for free users / guests / paused
+  // subscriptions (those see subscription copy, not cycle copy).
+  let availableAgainAt: string | null = null
   if (userId) {
     // Mirror the redemption guard's eligibility check exactly
     // (src/api/redemption/service.ts:108-124). The previous version
@@ -902,11 +907,12 @@ export async function getCustomerVoucher(
     if (
       subscription
       && (subscription.status === 'ACTIVE' || subscription.status === 'TRIALLING')
-      && cycleState
-      && cycleState.isRedeemedInCurrentCycle
     ) {
-      const { cycleStart } = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
-      isRedeemedThisCycle = cycleState.cycleStartDate >= cycleStart
+      const { cycleStart, cycleEnd } = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
+      availableAgainAt = cycleEnd.toISOString()
+      if (cycleState && cycleState.isRedeemedInCurrentCycle) {
+        isRedeemedThisCycle = cycleState.cycleStartDate >= cycleStart
+      }
     }
   }
 
@@ -915,6 +921,7 @@ export async function getCustomerVoucher(
     estimatedSaving: Number(voucher.estimatedSaving),
     isRedeemedThisCycle,
     isFavourited,
+    availableAgainAt,
   }
 }
 
