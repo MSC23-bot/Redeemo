@@ -30,6 +30,19 @@ jest.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: any) => children ?? null,
 }))
 
+// ── expo-screen-capture mock ────────────────────────────────────────────
+// Voucher Detail mounts `useScreenCaptureProtection` whenever the code
+// surface is visible (locked 2026-05-08, PR #49 review). The mock lets
+// us assert prevent/allow native calls without going through real native.
+// `addScreenshotListener` is also stubbed because ShowToStaff (when
+// mounted via the mock above) doesn't call it, but having the export
+// keeps the import boundary safe for any indirect call paths.
+jest.mock('expo-screen-capture', () => ({
+  preventScreenCaptureAsync: jest.fn().mockResolvedValue(undefined),
+  allowScreenCaptureAsync:   jest.fn().mockResolvedValue(undefined),
+  addScreenshotListener:     jest.fn(() => ({ remove: jest.fn() })),
+}))
+
 // ── ShowToStaff mock ────────────────────────────────────────────────────
 // M3 Task 16+17 introduced ShowToStaff as a Modal target wired from
 // SuccessPopup AND from RedemptionDetailsCard. We mock it here so the
@@ -130,6 +143,7 @@ jest.mock('@/lib/api/redemption', () => {
 
 import { VoucherDetailScreen } from '@/features/voucher/screens/VoucherDetailScreen'
 import { redemptionApi } from '@/lib/api/redemption'
+import * as ScreenCapture from 'expo-screen-capture'
 
 // ── Fixtures ──────────────────────────────────────────────────────────
 function baseVoucher(overrides: any = {}) {
@@ -214,6 +228,8 @@ beforeEach(() => {
   ;(redemptionApi.redeem as jest.Mock).mockReset()
   ;(redemptionApi.getMyRedemption as jest.Mock).mockReset()
   ;(redemptionApi.listMyRedemptions as jest.Mock).mockReset()
+  ;(ScreenCapture.preventScreenCaptureAsync as jest.Mock).mockClear()
+  ;(ScreenCapture.allowScreenCaptureAsync as jest.Mock).mockClear()
 })
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1826,5 +1842,111 @@ describe('§AE — Voucher Detail presentation-window gate', () => {
     })
     const { queryByTestId } = wrap(<VoucherDetailScreen />)
     expect(queryByTestId('redeemed-seal')).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// §AE6 — Screen-capture protection on Voucher Detail (locked 2026-05-08,
+// owner direction PR #49 review).
+//
+// Rule: ANY surface that displays the redemption code or QR must have
+// screen-capture protection active. ShowToStaff and SuccessPopup already
+// install the protection via their own hooks; this block pins that
+// Voucher Detail itself does the same — necessary because the persisted
+// RedemptionDetailsCard surfaces the code on return visits during the
+// 2-hour presentation window.
+//
+// Active condition (mirrors the card's `showCodeSurface` gate):
+//   stateKey === 'redeemed-this-cycle'
+//   AND a redemption exists to display
+//   AND isPresentationActive === true
+//   AND isRedemptionValidated === false
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('§AE6 — Voucher Detail screen-capture protection', () => {
+  function persistedAt(redeemedAt: string, overrides: any = {}) {
+    return {
+      code:        'A7K2P9X4',
+      redeemedAt,
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+      ...overrides,
+    }
+  }
+
+  it('IN-WINDOW redeemed (code visible) calls preventScreenCaptureAsync on mount', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('OUT-OF-WINDOW redeemed (code hidden) does NOT call preventScreenCaptureAsync', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    // The hook is called with `active=false` — `useScreenCaptureProtection`
+    // is a no-op in that branch (verified in its own unit tests).
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('VALIDATED redeemed (code hidden, regardless of window) does NOT call preventScreenCaptureAsync', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        { isValidated: true, validatedAt: new Date().toISOString() },
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('NON-REDEEMED voucher does NOT call preventScreenCaptureAsync (no code surface to protect)', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,
+      lastRedemption: null,
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('UNMOUNT after IN-WINDOW: allowScreenCaptureAsync called to release prevention', () => {
+    // Symmetric pin — when Voucher Detail unmounts (user navigates back
+    // to merchant profile, etc.), prevention must be released so other
+    // app screens can be recorded normally afterwards. The hook's
+    // cleanup is responsible for this.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { unmount } = wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+    unmount()
+    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('LOADING state does NOT call preventScreenCaptureAsync (no voucher → no code surface)', () => {
+    // Defensive pin: while voucher data is loading, stateKey is
+    // 'loading' — not 'redeemed-this-cycle'. Protection must stay off.
+    mockVoucherData = null
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
   })
 })

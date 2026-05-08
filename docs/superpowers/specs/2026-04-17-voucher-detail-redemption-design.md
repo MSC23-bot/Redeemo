@@ -722,6 +722,56 @@ The persisted-return-visit RedemptionDetailsCard from §8.10 is correct for the 
 
 **Cross-ref:** plan `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 Post-Bundle-E (D); deferred-followups §AE (locked picks + state machine) and §AF (backend mirror deferral).
 
+### 8.10.2 Screen-capture protection on Voucher Detail (locked 2026-05-08, PR #49 review wave 2)
+
+Owner-locked rule: ANY surface that displays the redemption code or QR must have screen-capture protection active. ShowToStaff (§7.7) and SuccessPopup (§7.6) already enforce this via the shared `useScreenCaptureProtection` hook. The persisted RedemptionDetailsCard surfaces the same code on Voucher Detail return visits during the 2-hour window — Voucher Detail must therefore enforce the same baseline.
+
+**Wiring:** `VoucherDetailScreen` installs `useScreenCaptureProtection(codeVisibleOnVoucherDetail)` where:
+
+```ts
+codeVisibleOnVoucherDetail =
+  stateKey === 'redeemed-this-cycle'
+  && !!redemptionRedeemedAt
+  && isPresentationActive
+  && !isRedemptionValidated
+```
+
+**Why this gate:** mirrors the card's `showCodeSurface = isPresentationActive && !isValidated` so prevention lifts the moment the code surface collapses (window expiry OR validation transition). No reason to keep protection on for the seal-only / validated-only states — there's nothing sensitive to protect.
+
+**Cleanup:** the hook's unmount-allow path releases prevention so other app screens (reviews, profile, etc.) can be recorded normally after the user navigates away.
+
+**Platform asymmetry (same as §7.7 / §7.6):** Android FLAG_SECURE blocks BOTH screenshots and recordings system-wide; iOS 11+ overlays a blurred snapshot during active recording / mirroring; iOS screenshots cannot be PREVENTED by Apple's SDK — the post-fact `useScreenshotGuard` listener stays Show-to-Staff-only (Voucher Detail does NOT install the listener; telemetry surface stays focused).
+
+**Tests** (`tests/features/voucher/voucher-detail-redeem-flow.test.tsx` §AE6, 6 cases): IN-WINDOW prevent / OUT-OF-WINDOW no-prevent / VALIDATED no-prevent / NON-REDEEMED no-prevent / UNMOUNT-allow / LOADING no-prevent.
+
+### 8.10.3 User-facing helper copy (locked 2026-05-08, PR #49 review wave 3)
+
+Owner-locked tone direction: *"calm and helpful, not punitive; make it clear the redemption is still saved, only the staff-showing code has been hidden"*. The disappearing code must not feel broken.
+
+**In-window helper line** — near the Show-to-Staff CTA inside `RedemptionDetailsCard`:
+
+- Preferred copy (when `redeemedAt` is parseable): *"Available to show staff until \<HH:mm\>."* — exact expiry time computed from `redeemedAt + PRESENTATION_WINDOW_MS`, formatted en-GB / Europe/London / 24-hour. Format helper: `formatExpiryClock(redeemedAtIso) → '17:32' | null`.
+- Fallback (defensive — when `redeemedAt` is malformed): *"You can show this code to staff for 2 hours after redeeming."* — never renders "Invalid Date".
+- testID: `redemption-details-availability-helper`.
+
+**Out-of-window calm explanation** — near the history tip inside `RedemptionDetailsCard`, ONLY when `!isPresentationActive && !isValidated`:
+
+- Copy: *"Staff handoff window ended. Your redemption details are saved below."*
+- testID: `redemption-details-window-ended`.
+- Suppressed in the validated state because the validated pill carries the success message; pairing "ended" with "validated by staff" reads as a contradiction.
+
+**Existing history tip** (§8.10.1) remains unchanged: *"You'll be able to find this code in Profile → Redemption History."* It points users to where to find the code if they need it after the window. Both lines (ended-window + history tip) coexist in the out-of-window-not-validated state.
+
+**Tests** (`tests/features/voucher/redemption-details-card.test.tsx`, 8 cases): clock format / malformed fallback / out-of-window calm explanation / coexistence with history tip / validated suppresses "available" / validated suppresses "ended-window" / in-window suppresses "ended-window" / day-boundary clock formatting.
+
+### 8.10.4 QA helper — `prisma/qa-set-redeemed-at.ts`
+
+One-shot dev/QA helper that sets `VoucherRedemption.redeemedAt` for the most-recent `(user, voucher)` pair to "now minus N minutes". Lets QA observe the §AE5 boundary flip in <5 minutes without waiting two real hours per cycle.
+
+Defaults: `customer@redeemo.com` + `COV-RCV-001` (Covelum FREEBIE) + 115 minutes ago. Overrides via `--email`, `--voucherId`, `--minutes-ago`. Refuses to run without an existing redemption row (points the QA tester at the redeem flow first). Touches NO other (user, voucher) pair. If the redemption is already validated, shifts `validatedAt` by the same delta to keep relative ordering coherent.
+
+After running, the QA tester pulls-to-refresh OR navigates away-and-back so React Query picks up the new `redeemedAt`; the hook then arms a `setTimeout` for the remaining window and the boundary flip can be observed live without further reloads.
+
 ---
 
 ## Section 9: Post-Redemption Automations

@@ -287,4 +287,123 @@ describe('RedemptionDetailsCard', () => {
       expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
     })
   })
+
+  // User-facing copy for the 2-hour presentation window. Owner direction
+  // (locked 2026-05-08, PR #49 review): "calm and helpful, not punitive;
+  // make it clear the redemption is still saved, only the staff-showing
+  // code has been hidden". Two pieces of copy:
+  //   - In-window: "Available to show staff until <HH:mm>." near the
+  //     Show-to-Staff CTA. Falls back to the simpler 2-hour phrasing if
+  //     the redeemedAt is malformed.
+  //   - Out-of-window: "Staff handoff window ended. Your redemption
+  //     details are saved below." near the history-tip line. Suppressed
+  //     when validated (the validated pill carries the message).
+  describe('presentation-window helper copy', () => {
+    it('IN-WINDOW shows "Available to show staff until <HH:mm>." with formatted en-GB Europe/London time', () => {
+      // redeemedAt = 14:32 UTC. May is BST (UTC+1), so London-local =
+      // 15:32 BST. Window expiry = 15:32 + 2h = 17:32 BST.
+      const { getByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({
+            redeemedAt:           '2026-05-09T14:32:00Z',
+            isPresentationActive: true,
+          })}
+        />,
+      )
+      const helper = getByTestId('redemption-details-availability-helper')
+      expect(helper.props.children).toBe('Available to show staff until 17:32.')
+    })
+
+    it('IN-WINDOW falls back to the 2-hour phrasing when redeemedAt is malformed', () => {
+      const { getByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({
+            redeemedAt:           'not-a-date',
+            isPresentationActive: true,
+          })}
+        />,
+      )
+      const helper = getByTestId('redemption-details-availability-helper')
+      expect(helper.props.children).toBe(
+        'You can show this code to staff for 2 hours after redeeming.',
+      )
+    })
+
+    it('OUT-OF-WINDOW shows the calm "Staff handoff window ended" explanation', () => {
+      const { getByTestId, getByText } = render(
+        <RedemptionDetailsCard
+          {...defaults({ isPresentationActive: false, isValidated: false })}
+        />,
+      )
+      expect(getByTestId('redemption-details-window-ended')).toBeTruthy()
+      expect(
+        getByText(/Staff handoff window ended\. Your redemption details are saved below\./),
+      ).toBeTruthy()
+    })
+
+    it('OUT-OF-WINDOW keeps the existing Profile → Redemption History note alongside the ended-window line', () => {
+      const { getByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({ isPresentationActive: false, isValidated: false })}
+        />,
+      )
+      // Both lines render — the ended-window note explains WHY the
+      // code is gone; the history tip explains WHERE to find it again.
+      expect(getByTestId('redemption-details-window-ended')).toBeTruthy()
+      expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
+    })
+
+    it('VALIDATED state does NOT show the "Available to show staff until" copy', () => {
+      // Locked owner direction (test 4 of the copy spec): once
+      // validated, surfacing "available to show" copy would be
+      // confusing — staff already validated.
+      const { queryByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({ isPresentationActive: true, isValidated: true })}
+        />,
+      )
+      expect(queryByTestId('redemption-details-availability-helper')).toBeNull()
+    })
+
+    it('VALIDATED state does NOT show the "Staff handoff window ended" copy either (validated pill carries the message)', () => {
+      // Defensive pin — the ended-window copy is for the naturally-
+      // expired path. When validated, the validated pill is the
+      // user-facing signal; adding "ended" alongside reads as a
+      // contradiction ("ended? but staff DID see it").
+      const { queryByTestId, getByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({ isPresentationActive: false, isValidated: true })}
+        />,
+      )
+      expect(queryByTestId('redemption-details-window-ended')).toBeNull()
+      // The validated pill + history tip remain.
+      expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+      expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
+    })
+
+    it('IN-WINDOW does NOT show the "Staff handoff window ended" copy (window is still open)', () => {
+      const { queryByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({ isPresentationActive: true, isValidated: false })}
+        />,
+      )
+      expect(queryByTestId('redemption-details-window-ended')).toBeNull()
+    })
+
+    it('expiry-clock helper formats correctly across the day boundary (early-morning redemption)', () => {
+      // redeemedAt 23:30 UTC on 9 May. May is BST (UTC+1), so London-
+      // local = 00:30 on 10 May. Window expiry = 00:30 + 2h = 02:30.
+      // Verifies the format helper doesn't choke on day-rollover.
+      const { getByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({
+            redeemedAt:           '2026-05-09T23:30:00Z',
+            isPresentationActive: true,
+          })}
+        />,
+      )
+      const helper = getByTestId('redemption-details-availability-helper')
+      expect(helper.props.children).toBe('Available to show staff until 02:30.')
+    })
+  })
 })

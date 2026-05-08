@@ -41,6 +41,7 @@ import { RedeemedSeal } from '../components/RedeemedSeal'
 import { ShowToStaff } from '../components/ShowToStaff'
 import { useRedeem, type UseRedeemError } from '../hooks/useRedeem'
 import { usePresentationActive } from '../utils/presentationWindow'
+import { useScreenCaptureProtection } from '../hooks/useScreenCaptureProtection'
 import type { RedeemResponse } from '@/lib/api/redemption'
 import { CTA_LABELS } from '../constants/productCopy'
 
@@ -590,6 +591,40 @@ export function VoucherDetailScreen() {
 
     return 'can-redeem'
   }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited, branchErrored])
+
+  // ── Screen-capture protection on Voucher Detail ─────────────────────
+  //
+  // Locked rule (2026-05-08, owner direction PR #49 review): ANY surface
+  // that displays the redemption code or QR must have screen-capture
+  // protection active. ShowToStaff already does this via its own hook;
+  // SuccessPopup does this via the shared hook; Voucher Detail must too,
+  // because the persisted RedemptionDetailsCard surfaces the code on
+  // return visits during the 2-hour presentation window.
+  //
+  // Active when ALL hold:
+  //   • redeemed-this-cycle (the only state that can show the code).
+  //   • a redemption exists to display (in-memory OR persisted).
+  //   • presentation window is open (under 2h since redeemedAt).
+  //   • staff has NOT validated yet (validation is terminal — once the
+  //     code is hidden, protection is no longer needed).
+  //
+  // Mirrors the `showCodeSurface` gate inside RedemptionDetailsCard so
+  // protection lifts the moment the code surface collapses (boundary
+  // expiry OR validation transition). Cleanup on the hook releases
+  // prevention so other app screens can be recorded normally afterwards.
+  //
+  // Android: FLAG_SECURE blocks BOTH screenshots and recordings.
+  // iOS 11+: system overlays a blurred snapshot during active recording
+  //   / mirroring. iOS screenshots cannot be PREVENTED by Apple's
+  //   SDK — that path remains the post-fact `useScreenshotGuard` on
+  //   ShowToStaff (Voucher Detail does NOT install the listener; this
+  //   stays Show-to-Staff-specific to keep telemetry focused).
+  const codeVisibleOnVoucherDetail =
+    stateKey === 'redeemed-this-cycle'
+    && !!redemptionRedeemedAt
+    && isPresentationActive
+    && !isRedemptionValidated
+  useScreenCaptureProtection(codeVisibleOnVoucherDetail)
 
   // Back navigation — URL-only, does NOT depend on voucher/merchant
   // queries having resolved. Round-5 plan §1.

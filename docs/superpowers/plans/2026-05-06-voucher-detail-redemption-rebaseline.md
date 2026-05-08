@@ -763,7 +763,54 @@ Tests added:
 - `tests/features/voucher/utils/presentationWindow.test.ts` (NEW): **16/16 ✅** — constant value, in-window/at-boundary/out-of-window helper, malformed-ISO defence, default-now, hook null/expired/active mount paths, single-timer (no polling) pin, unmount-cleanup pin, redeemedAt-change re-arm, malformed-ISO no-timer.
 - `tests/features/voucher/redemption-details-card.test.tsx`: **28/28 ✅** (was 21: +7 presentation-window state-machine cases — default open, in-window+!validated, out-of-window, validated regardless of window, history-tip copy pin, non-sensitive details remain, regression CTA-hidden pin).
 - `tests/features/voucher/voucher-detail-redeem-flow.test.tsx`: **61/61 ✅** (was 56: +5 §AE pins — in-window code visible, out-of-window code hidden + tip + seal, validated regardless of window, defense-in-depth no-mount-on-press, non-redeemed states do not render seal). Earlier persisted-fixture `redeemedAt` constants updated to `new Date(Date.now() - 30 * 60 * 1000).toISOString()` so they remain inside the window regardless of when the test runs (was failing post-2026-05-08T10:00Z).
-- Focused voucher sweep (26 suites): **444/444 ✅**.
+- Focused voucher sweep (26 suites): **444/444 ✅** at the §AE wave landing point.
+
+**(D.2) Screen-capture protection on Voucher Detail** (added 2026-05-08, PR #49 review wave 2 from owner-flagged QA finding).
+
+QA finding: Voucher Detail still allows a screenshot of the persisted RedemptionDetailsCard while the redemption code is visible during the 2-hour window. ShowToStaff and SuccessPopup already enforce screen-capture protection via the shared `useScreenCaptureProtection` hook; Voucher Detail itself was the gap — the persisted card surfaces the same code on return visits and must enforce the same baseline.
+
+Owner-locked rule: ANY surface that displays the redemption code or QR must have screen-capture protection active.
+
+What ships:
+
+- `VoucherDetailScreen` calls `useScreenCaptureProtection(codeVisibleOnVoucherDetail)` where `codeVisibleOnVoucherDetail = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt && isPresentationActive && !isRedemptionValidated`.
+- Mirrors the card's `showCodeSurface` gate. Protection lifts the moment the code surface collapses (boundary expiry OR validation transition) — no need to leave protection on for the seal-only / validated-only states.
+- Hook unmount-cleanup releases prevention so other app screens (reviews, profile, etc.) can be recorded normally afterwards.
+- Same Android/iOS asymmetry as ShowToStaff and SuccessPopup: Android FLAG_SECURE blocks both screenshots and recordings; iOS 11+ overlays a blurred snapshot during recording / mirroring; iOS screenshots cannot be PREVENTED (Apple has no SDK) — that listener-based path stays Show-to-Staff-only.
+
+Tests added (`tests/features/voucher/voucher-detail-redeem-flow.test.tsx` §AE6, +6 cases, 67/67 total):
+
+- IN-WINDOW redeemed (code visible) calls `preventScreenCaptureAsync` once.
+- OUT-OF-WINDOW redeemed (code hidden) does NOT call `preventScreenCaptureAsync`.
+- VALIDATED (code hidden, regardless of window) does NOT call `preventScreenCaptureAsync`.
+- NON-REDEEMED voucher does NOT call `preventScreenCaptureAsync`.
+- UNMOUNT after IN-WINDOW: `allowScreenCaptureAsync` called to release prevention.
+- LOADING state does NOT call `preventScreenCaptureAsync`.
+
+**(D.3) User-facing helper copy** (added 2026-05-08, PR #49 review wave 3 from owner-flagged tone-finding).
+
+Owner direction: "the code disappearing must not feel broken". Two calm copy lines, both pinned to be tonally non-punitive:
+
+- **In-window helper**, near the Show-to-Staff CTA inside the card:
+  - When `redeemedAt` is parseable: *"Available to show staff until \<HH:mm\>."* — exact expiry time computed from `redeemedAt + PRESENTATION_WINDOW_MS`, formatted en-GB / Europe/London / 24-hour. testID `redemption-details-availability-helper`.
+  - Fallback when `redeemedAt` is malformed: *"You can show this code to staff for 2 hours after redeeming."* — never renders "Invalid Date".
+- **Out-of-window calm explanation**, near the history tip: *"Staff handoff window ended. Your redemption details are saved below."* testID `redemption-details-window-ended`. Renders ONLY when `!isPresentationActive && !isValidated` — surfacing this alongside the validated pill would read as a contradiction ("ended? but staff DID see it").
+- The existing *"You'll be able to find this code in Profile → Redemption History."* tip remains as the routing pointer.
+
+Tests added (`tests/features/voucher/redemption-details-card.test.tsx`, +8 helper-copy cases, 36/36 total):
+
+- IN-WINDOW formats clock correctly across en-GB / Europe/London (BST in May → UTC+1).
+- IN-WINDOW falls back to the 2-hour phrasing on malformed ISO.
+- OUT-OF-WINDOW shows the calm "Staff handoff window ended" explanation.
+- OUT-OF-WINDOW keeps the existing Profile → Redemption History note alongside the ended-window line.
+- VALIDATED does NOT show the "Available to show staff until" copy.
+- VALIDATED does NOT show the "Staff handoff window ended" copy either (validated pill is the message).
+- IN-WINDOW does NOT show the "Staff handoff window ended" copy (window is still open).
+- Day-boundary edge case: 23:30 UTC → 02:30 BST clock formatted correctly.
+
+**(D.4) QA helper script** (added 2026-05-08): `prisma/qa-set-redeemed-at.ts`. Bumps the most-recent `VoucherRedemption.redeemedAt` for `(user, voucher)` to "now minus N minutes" so the §AE5 boundary flip can be observed in <5 minutes of QA without waiting two real hours per cycle. Defaults: `customer@redeemo.com` + `COV-RCV-001` (Covelum FREEBIE) + 115 minutes ago. Override via `--email`, `--voucherId`, `--minutes-ago`. Refuses to run without an existing redemption row (points the QA tester at the redeem flow first). Touches no other (user, voucher) pair.
+
+Final test counts after D.2 + D.3 + D.4: backend vitest 112/112; customer-app jest **458/458** across 26 voucher suites. Focused 6-suite sweep (presentationWindow / redemption-details-card / voucher-detail-redeem-flow / success-popup / use-screen-capture-protection / show-to-staff): **178/178 ✅**.
 
 Backend:
 

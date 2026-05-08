@@ -6,6 +6,7 @@ import { Text } from '@/design-system/Text'
 import { color, radius, spacing } from '@/design-system/tokens'
 import { formatRedemptionCode } from '../utils/formatRedemptionCode'
 import { formatPounds, voucherTypeLabel } from '../utils/voucherTheme'
+import { PRESENTATION_WINDOW_MS } from '../utils/presentationWindow'
 import type { VoucherType } from '@/lib/api/voucher'
 
 type Props = {
@@ -70,6 +71,25 @@ function formatDateLine(iso: string): string {
 function formatTimeLine(iso: string): string {
   const d = new Date(iso)
   return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * Formats the 2-hour-after-redemption expiry as a clock-only line
+ * for the in-window helper copy ("Available to show staff until HH:mm.").
+ *
+ * en-GB / Europe/London / 24-hour. Returns null on malformed input
+ * so the helper can fall back to the simpler 2-hour-window phrasing
+ * rather than rendering "Invalid Date".
+ */
+function formatExpiryClock(redeemedAtIso: string): string | null {
+  const redeemedAtMs = new Date(redeemedAtIso).getTime()
+  if (Number.isNaN(redeemedAtMs)) return null
+  const expiry = new Date(redeemedAtMs + PRESENTATION_WINDOW_MS)
+  return expiry.toLocaleTimeString('en-GB', {
+    hour:     '2-digit',
+    minute:   '2-digit',
+    timeZone: 'Europe/London',
+  })
 }
 
 /**
@@ -214,32 +234,72 @@ export function RedemptionDetailsCard({
           Redemption History to retrieve the code if they need it
           again. Locked 2026-05-08, PR #49 review. */}
       {showCodeSurface ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Show redemption code to staff"
-          testID="redemption-details-show-to-staff"
-          onPress={() => onShowToStaff?.()}
-          style={({ pressed }) => [styles.showToStaffCta, pressed && styles.showToStaffCtaPressed]}
-        >
-          <LinearGradient
-            colors={[color.brandRose, color.brandCoral]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <Eye size={18} color="#FFFFFF" strokeWidth={2.4} />
-          <Text variant="label.md" style={styles.showToStaffText}>
-            Show to Staff
-          </Text>
-        </Pressable>
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Show redemption code to staff"
+            testID="redemption-details-show-to-staff"
+            onPress={() => onShowToStaff?.()}
+            style={({ pressed }) => [styles.showToStaffCta, pressed && styles.showToStaffCtaPressed]}
+          >
+            <LinearGradient
+              colors={[color.brandRose, color.brandCoral]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <Eye size={18} color="#FFFFFF" strokeWidth={2.4} />
+            <Text variant="label.md" style={styles.showToStaffText}>
+              Show to Staff
+            </Text>
+          </Pressable>
+
+          {/* In-window helper line — calmly tells the user how long
+              they have to show the code to staff. Falls back to the
+              simpler "2 hours after redeeming" phrasing if the
+              redeemedAt is malformed (defensive — never renders
+              "Invalid Date"). Locked 2026-05-08, PR #49 review:
+              owner-direction tone "calm and helpful, not punitive". */}
+          {(() => {
+            const expiryClock = formatExpiryClock(redeemedAt)
+            return (
+              <Text
+                variant="body.sm"
+                style={styles.availabilityHelper}
+                testID="redemption-details-availability-helper"
+              >
+                {expiryClock
+                  ? `Available to show staff until ${expiryClock}.`
+                  : 'You can show this code to staff for 2 hours after redeeming.'}
+              </Text>
+            )
+          })()}
+        </>
       ) : (
-        <Text
-          variant="body.sm"
-          style={styles.historyTip}
-          testID="redemption-details-history-tip"
-        >
-          You'll be able to find this code in Profile → Redemption History.
-        </Text>
+        <>
+          {/* Ended-window calm explanation — surfaces ONLY on the
+              "naturally expired" path (out-of-window AND not validated).
+              When validated, the validated pill carries the message;
+              showing "Staff handoff window ended" alongside it would
+              be confusing ("if staff did see it, what does 'ended' mean?").
+              Locked 2026-05-08, PR #49 review. */}
+          {!isValidated ? (
+            <Text
+              variant="body.sm"
+              style={styles.windowEndedNote}
+              testID="redemption-details-window-ended"
+            >
+              Staff handoff window ended. Your redemption details are saved below.
+            </Text>
+          ) : null}
+          <Text
+            variant="body.sm"
+            style={styles.historyTip}
+            testID="redemption-details-history-tip"
+          >
+            You'll be able to find this code in Profile → Redemption History.
+          </Text>
+        </>
       )}
 
       {/* M3 validated indicator — rendered when staff has already
@@ -409,6 +469,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: spacing[2],
     paddingHorizontal: spacing[3],
+  },
+  availabilityHelper: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: color.text.tertiary,
+    textAlign: 'center',
+    paddingTop: spacing[1],
+    paddingHorizontal: spacing[3],
+  },
+  windowEndedNote: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: color.text.primary,
+    textAlign: 'center',
+    paddingTop: spacing[2],
+    paddingHorizontal: spacing[3],
+    fontWeight: '600',
   },
   validatedPill: {
     flexDirection: 'row',
