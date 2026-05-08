@@ -95,3 +95,90 @@ describe('voucher detail schema — pin contract directly', () => {
     expect(result.success).toBe(false)
   })
 })
+
+describe('voucher detail schema — lastRedemption (M3 §P2 persisted return-visit)', () => {
+  // Mirrors the backend contract from Task 5 / src/api/customer/discovery/service.ts.
+  // Payload shape:
+  //   lastRedemption?: {
+  //     code:        string
+  //     redeemedAt:  string                    // ISO
+  //     branch:      { id: string; name: string }
+  //     isValidated: boolean
+  //     validatedAt: string | null              // ISO
+  //   } | null
+
+  const lastRedemptionFixture = {
+    code:        'A7K2P9X4',
+    redeemedAt:  '2026-05-12T18:30:00.000Z',
+    branch:      { id: 'b1', name: 'High Street' },
+    isValidated: false,
+    validatedAt: null,
+  }
+
+  it('accepts lastRedemption present (current-cycle redeemed state)', () => {
+    const result = schema.safeParse({
+      ...validVoucherResponse,
+      isRedeemedThisCycle: true,
+      lastRedemption: lastRedemptionFixture,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.lastRedemption?.code).toBe('A7K2P9X4')
+      expect(result.data.lastRedemption?.branch.name).toBe('High Street')
+      expect(result.data.lastRedemption?.isValidated).toBe(false)
+      expect(result.data.lastRedemption?.validatedAt).toBeNull()
+    }
+  })
+
+  it('accepts lastRedemption null (free user / rolled-over / not redeemed)', () => {
+    const result = schema.safeParse({ ...validVoucherResponse, lastRedemption: null })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.lastRedemption).toBeNull()
+  })
+
+  it('accepts lastRedemption absent — backward compatibility / cache safety', () => {
+    // A response cached before the M3 backend rolled out won't have
+    // the field at all. Schema must accept its absence so existing
+    // React Query caches don't silently null out vouchers post-update.
+    // (validVoucherResponse intentionally omits lastRedemption — this
+    // is the pre-M3 wire shape we need to keep parsing.)
+    const result = schema.safeParse(validVoucherResponse)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.lastRedemption).toBeUndefined()
+  })
+
+  it('accepts validated lastRedemption — isValidated:true with ISO validatedAt', () => {
+    const result = schema.safeParse({
+      ...validVoucherResponse,
+      isRedeemedThisCycle: true,
+      lastRedemption: {
+        ...lastRedemptionFixture,
+        isValidated: true,
+        validatedAt: '2026-05-12T18:31:15.000Z',
+      },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.lastRedemption?.isValidated).toBe(true)
+      expect(result.data.lastRedemption?.validatedAt).toBe('2026-05-12T18:31:15.000Z')
+    }
+  })
+
+  it('rejects lastRedemption with missing required fields', () => {
+    // Defensive: the inner shape is { code, redeemedAt, branch{id,name},
+    // isValidated, validatedAt:nullable }. A backend drift that drops
+    // `branch` should null the voucher rather than render a broken
+    // RedemptionDetailsCard.
+    const result = schema.safeParse({
+      ...validVoucherResponse,
+      lastRedemption: {
+        code:        'A7K2P9X4',
+        redeemedAt:  '2026-05-12T18:30:00.000Z',
+        // branch:    missing
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    expect(result.success).toBe(false)
+  })
+})

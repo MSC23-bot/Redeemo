@@ -49,6 +49,26 @@ const voucherDetailMerchantSchema = z.object({
 // `Number(voucher.estimatedSaving)` server-side so it's always a real
 // number on the wire today, but coerce defensively in case the
 // serialisation changes.
+// M3 §P2 — persisted return-visit RedemptionDetailsCard payload.
+// Mirrors the backend `lastRedemption` block on `getCustomerVoucher`
+// (Task 5). Non-null ONLY when the voucher is redeemed in the
+// current ACTIVE/TRIALLING cycle window — by construction, all three
+// of `isRedeemedThisCycle`, `availableAgainAt`, and this field
+// derive from the same `getCurrentCycleWindow()` call. After cycle
+// rollover the backend flips them all together; the frontend's
+// §Q6 invariant gate (load-bearing on `isRedeemedThisCycle`, NOT
+// on this field's presence) holds by construction.
+const voucherDetailLastRedemptionSchema = z.object({
+  code:        z.string(),
+  redeemedAt:  z.string(),                   // ISO
+  branch:      z.object({
+    id:   z.string(),
+    name: z.string(),
+  }),
+  isValidated: z.boolean(),
+  validatedAt: z.string().nullable(),        // ISO when validated, null otherwise
+})
+
 const voucherDetailSchema = z.object({
   id:              z.string(),
   title:           z.string(),
@@ -69,6 +89,12 @@ const voucherDetailSchema = z.object({
   // guests / non-active subscriptions; the UI hides cycle copy in
   // those cases and shows subscription copy instead.
   availableAgainAt:    z.string().nullable(),
+  // M3 — persisted return-visit RedemptionDetailsCard.
+  // `.optional().nullable()` — accepts the field being absent
+  // (backward compat for pre-M3 cached responses), null (free user
+  // / rolled-over / not-redeemed), or the inner shape (current-cycle
+  // redeemed state).
+  lastRedemption:      voucherDetailLastRedemptionSchema.nullable().optional(),
 })
 
 export type VoucherType   = z.infer<typeof voucherTypeSchema>
