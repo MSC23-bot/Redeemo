@@ -1526,3 +1526,70 @@ describe('persisted return-visit RedemptionDetailsCard (M3 Task 17)', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════
+// M3 Task 18 — §Q6 cycle-rollover invariant.
+//
+// THE GATE IS LOAD-BEARING: the persisted RedemptionDetailsCard MUST
+// render only when stateKey === 'redeemed-this-cycle' (driven by
+// voucher.isRedeemedThisCycle), NOT merely when lastRedemption data
+// is present. After cycle rollover the backend flips both the flag
+// AND the data together (Task 5 hoisted cycle-window math), but
+// payload drift could in theory expose a stale lastRedemption with
+// isRedeemedThisCycle=false. The frontend gate must hold the line.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('§Q6 cycle-rollover invariant — RedemptionDetailsCard gate (M3 Task 18)', () => {
+  const persistedFixture = {
+    code:        'A7K2P9X4',
+    redeemedAt:  '2026-05-08T10:00:00.000Z',
+    branch:      { id: 'b1', name: 'Brightlingsea' },
+    isValidated: false,
+    validatedAt: null,
+  }
+
+  it('PHASE 1 — current cycle: isRedeemedThisCycle:true + lastRedemption present → card renders', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedFixture,
+    })
+    const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(getByText('A7K2 P9X4')).toBeTruthy()
+  })
+
+  it('PHASE 2 — rolled-over: isRedeemedThisCycle:false + lastRedemption:null → card hidden, redeemable state restored', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+
+  it('PHASE 3 (defensive drift) — isRedeemedThisCycle:false + lastRedemption STILL PRESENT → card MUST stay hidden', () => {
+    // Critical pin: backend payload drift (cycle flag flipped but
+    // lastRedemption hasn't cleared yet, OR a stale React Query
+    // cache hit) must NOT cause the card to render. The frontend
+    // gate is `stateKey === 'redeemed-this-cycle'`, NOT presence
+    // of lastRedemption data.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,           // backend says cycle is fresh
+      lastRedemption: persistedFixture,     // ...but stale data lingers
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+
+  it('PHASE 4 (negative defense) — isRedeemedThisCycle:true + lastRedemption:null → no card (no source for data)', () => {
+    // The opposite drift case: cycle flag says redeemed but no
+    // lastRedemption payload. The card needs a source — without
+    // either the in-memory or persisted shape, there's nothing to
+    // render. Verifies the §Q6 gate doesn't crash on this combo.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+})
