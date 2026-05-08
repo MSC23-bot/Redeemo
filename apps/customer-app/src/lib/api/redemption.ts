@@ -59,6 +59,35 @@ export const RedemptionSummarySchema = z.object({
 })
 export type RedemptionSummary = z.infer<typeof RedemptionSummarySchema>
 
+// ── Show-to-Staff polling — slim payload by-code ─────────────────────────
+//
+// Backend route: GET /api/v1/redemption/me/:code (M3 Task 4).
+// Hit every 5s while ShowToStaff is open (15-min budget).
+//
+// Slim by design — exactly 7 keys. NO userId, NO validatedById, NO
+// estimatedSaving, NO redeemedAt. The schema strips any extras the
+// backend might accidentally serialise so the customer-app stays
+// honest about what it consumes. Owner direction at Task 6 kickoff:
+// "no extra customer or validation actor fields should leak into
+// the client schema."
+export const RedemptionStatusByCodeSchema = z.object({
+  code:             z.string(),
+  isValidated:      z.boolean(),
+  validatedAt:      z.string().nullable(),
+  validationMethod: z.enum(['QR_SCAN', 'MANUAL']).nullable(),
+  voucherId:        z.string(),
+  merchantName:     z.string(),
+  branchName:       z.string(),
+})
+export type RedemptionStatusByCode = z.infer<typeof RedemptionStatusByCodeSchema>
+
+// ── Screenshot-flag telemetry response ───────────────────────────────────
+
+export const ScreenshotFlagResponseSchema = z.object({
+  accepted: z.boolean(),
+})
+export type ScreenshotFlagResponse = z.infer<typeof ScreenshotFlagResponseSchema>
+
 // ── Error response (discriminated union by `code`) ───────────────────────
 
 // Mirrors the backend's 8 customer-facing error codes from
@@ -160,17 +189,62 @@ export const redemptionApi = {
   /**
    * Customer self-lookup of a redemption by ID.
    *
-   * Backend route: `GET /api/v1/redemption/my/:id` (NOT `/me/:code`).
-   * The backend does NOT support code-based lookup — the path takes
-   * the redemption row's primary id. Customers receive both the id
-   * and the code in the create-redemption response.
-   *
-   * Used by (M3) Show-to-Staff polling for live validation status.
-   * M2 does not call this directly.
+   * Backend route: `GET /api/v1/redemption/my/:id`.
+   * For code-based lookup (used by M3 Show-to-Staff polling), see
+   * `getMyRedemptionByCode` below.
    */
   async getMyRedemption(redemptionId: string): Promise<RedeemResponse> {
     const json = await api.get<unknown>(`/api/v1/redemption/my/${encodeURIComponent(redemptionId)}`)
     return RedeemResponseSchema.parse(json)
+  },
+
+  /**
+   * Customer self-lookup by redemption CODE (slim payload).
+   *
+   * Backend route: `GET /api/v1/redemption/me/:code` (M3 Task 4).
+   * Drives the M3 Show-to-Staff polling hook (5s cadence, 15-min
+   * budget) — flips `isValidated: false → true` when staff validates
+   * the code.
+   *
+   * Encoding: URL-encode the code via `encodeURIComponent` for
+   * transport safety. Normalisation (uppercasing, stripping
+   * whitespace + hyphens) stays server-side — the backend service
+   * is the single source of truth for the canonical shape. Two
+   * client-side normalisers would drift.
+   *
+   * Auth: customer JWT via the redemption plugin's scoped
+   * preHandler. Backend rejects with REDEMPTION_NOT_FOUND if the
+   * code doesn't exist OR belongs to a different user.
+   */
+  async getMyRedemptionByCode(code: string): Promise<RedemptionStatusByCode> {
+    const json = await api.get<unknown>(`/api/v1/redemption/me/${encodeURIComponent(code)}`)
+    return RedemptionStatusByCodeSchema.parse(json)
+  },
+
+  /**
+   * Best-effort anti-fraud telemetry for the M3 Show-to-Staff
+   * surface. iOS detects screenshot events after the fact via
+   * `expo-screen-capture.addScreenshotListener`; the customer-app
+   * fires this on every event.
+   *
+   * Backend route: `POST /api/v1/redemption/:code/screenshot-flag`
+   * (M3 Task 4). Server dedupes via Redis SETNX with 5s TTL — a
+   * burst of fires for the same `(userId, code)` writes exactly
+   * one row. Returns `{ accepted: false }` on dedup hit.
+   *
+   * **Best-effort contract:** callers MUST swallow errors. The
+   * Show-to-Staff surface MUST NOT block on this call rejecting.
+   * useScreenshotGuard (M3 Task 14) wraps this in a try/catch.
+   */
+  async postScreenshotFlag(
+    code: string,
+    platform: 'ios' | 'android',
+  ): Promise<ScreenshotFlagResponse> {
+    const json = await api.post<unknown>(
+      `/api/v1/redemption/${encodeURIComponent(code)}/screenshot-flag`,
+      { platform },
+    )
+    return ScreenshotFlagResponseSchema.parse(json)
   },
 
   /**
