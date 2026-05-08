@@ -127,18 +127,19 @@ model User {
   onboardingCompletedAt     DateTime?
   subscriptionPromptSeenAt  DateTime?
 
-  ssoProviders         UserSsoProvider[]
-  interests            UserInterest[]
-  redemptions          VoucherRedemption[]
-  voucherCycleStates   UserVoucherCycleState[]
-  subscription         Subscription?
-  reviews              Review[]
-  reviewReports        ReviewReport[]
-  reviewHelpfuls       ReviewHelpful[]
-  favouriteMerchants   FavouriteMerchant[]
-  favouriteVouchers    FavouriteVoucher[]
-  notifications        Notification[]
-  communications       CommunicationLog[]
+  ssoProviders               UserSsoProvider[]
+  interests                  UserInterest[]
+  redemptions                VoucherRedemption[]
+  voucherCycleStates         UserVoucherCycleState[]
+  subscription               Subscription?
+  reviews                    Review[]
+  reviewReports              ReviewReport[]
+  reviewHelpfuls             ReviewHelpful[]
+  favouriteMerchants         FavouriteMerchant[]
+  favouriteVouchers          FavouriteVoucher[]
+  notifications              Notification[]
+  communications             CommunicationLog[]
+  redemptionScreenshotEvents RedemptionScreenshotEvent[]
 
   @@index([email])
   @@index([phone])
@@ -866,6 +867,7 @@ model VoucherRedemption {
   voucher          Voucher      @relation(fields: [voucherId], references: [id])
   branch           Branch       @relation(fields: [branchId], references: [id])
   validatedBy      BranchUser?  @relation(fields: [validatedById], references: [id])
+  screenshotEvents RedemptionScreenshotEvent[]
 
   @@index([userId])
   @@index([voucherId])
@@ -873,6 +875,29 @@ model VoucherRedemption {
   @@index([redeemedAt])
   @@index([userId, voucherId])
   @@index([redemptionCode])
+}
+
+// ─────────────────────────────────────────
+// REDEMPTION SCREENSHOT EVENT
+// Anti-fraud telemetry: records when a customer takes a screenshot of
+// the Show-to-Staff surface (iOS — Android blocks via FLAG_SECURE).
+// Best-effort: write must never block the customer surface. Deduped
+// at the Redis layer (5s SETNX) before reaching this table — see
+// flagRedemptionScreenshot service.
+// ─────────────────────────────────────────
+
+model RedemptionScreenshotEvent {
+  id           String            @id @default(uuid())
+  userId       String
+  redemptionId String
+  platform     String            // 'ios' | 'android'
+  occurredAt   DateTime          @default(now())
+
+  user         User              @relation(fields: [userId],       references: [id])
+  redemption   VoucherRedemption @relation(fields: [redemptionId], references: [id])
+
+  @@index([redemptionId, occurredAt])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────
