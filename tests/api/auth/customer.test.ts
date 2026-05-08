@@ -83,6 +83,12 @@ describe('customer auth routes', () => {
     const body = JSON.parse(res.body)
     expect(body.accessToken).toBeTruthy()
     expect(body.refreshToken).toBeTruthy()
+    // sessionId is REQUIRED on the customer-app's `authResponseSchema`
+    // (PR #50, deferred-followups §Y). Stripping it from the register
+    // response would 500 the schema parse and break fresh sign-up.
+    // Pinned 2026-05-08, PR #51 P1 fix.
+    expect(body.sessionId).toBeTruthy()
+    expect(typeof body.sessionId).toBe('string')
     expect(body.user.email).toBe('test@example.com')
     expect(body.user.phone).toBe('+447700900000')
     expect(body.user.phoneVerified).toBe(false)
@@ -230,6 +236,11 @@ describe('customer auth routes', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
     expect(body.accessToken).toBeTruthy()
+    expect(body.refreshToken).toBeTruthy()
+    // sessionId is REQUIRED on the customer-app's `authResponseSchema`
+    // — same gate as register. Pinned 2026-05-08, PR #51 P1 fix.
+    expect(body.sessionId).toBeTruthy()
+    expect(typeof body.sessionId).toBe('string')
     expect(body.user.emailVerified).toBe(false)
   })
 

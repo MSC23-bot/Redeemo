@@ -16,7 +16,16 @@ type Tokens = {
 }
 
 let tokens: Tokens = { access: null, refresh: null, sessionId: null, entityId: null }
-let onSessionExpiredCb: (() => void) | null = null
+
+/**
+ * Reason a customer session ended. Drives copy selection in the bridge —
+ * `SESSION_REPLACED` shows the "signed in on another device" message,
+ * everything else shows the generic "session expired" message. Locked
+ * 2026-05-08, deferred-followups §AC7 / §AD6.
+ */
+export type SignOutReason = 'SESSION_EXPIRED' | 'SESSION_REPLACED'
+
+let onSessionExpiredCb: ((reason: SignOutReason) => void) | null = null
 // Notifies subscribers when the backend rotates access + refresh tokens
 // during a 401 retry. The store-side bridge persists the new pair to
 // secureStorage and updates zustand state so the next bootstrap reads
@@ -28,6 +37,20 @@ let onTokensRefreshedCb:
   | ((next: { accessToken: string; refreshToken: string }) => void)
   | null = null
 let refreshing: Promise<void> | null = null
+
+/**
+ * Internal sentinel thrown from `refreshTokens()` when the refresh
+ * response carries a recognised customer-facing error code (currently
+ * `SESSION_REPLACED`). The catch path in `doFetch` reads `.reason` to
+ * decide which user-facing copy the bridge should show.
+ */
+class RefreshFailedError extends Error {
+  readonly reason: SignOutReason
+  constructor(reason: SignOutReason, message?: string) {
+    super(message ?? 'refresh failed')
+    this.reason = reason
+  }
+}
 
 export class ApiClientError extends Error {
   readonly code: string
@@ -83,10 +106,23 @@ async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): P
     try {
       await refreshTokens()
       return doFetch<T>(path, init, false)
-    } catch {
+    } catch (refreshErr) {
+      // Inspect the inner error code so the bridge can show distinct
+      // copy for "signed in on another device" vs generic "session
+      // expired". `RefreshFailedError.reason` is set by `refreshTokens()`
+      // when the backend returns a recognised code; any other failure
+      // (network, parse, missing-context) falls back to SESSION_EXPIRED.
+      const reason: SignOutReason =
+        refreshErr instanceof RefreshFailedError ? refreshErr.reason : 'SESSION_EXPIRED'
       tokens = { access: null, refresh: null, sessionId: null, entityId: null }
-      onSessionExpiredCb?.()
-      throw new ApiClientError('Session expired', 'SESSION_EXPIRED', 401)
+      onSessionExpiredCb?.(reason)
+      throw new ApiClientError(
+        reason === 'SESSION_REPLACED'
+          ? 'Your account was signed in on another device, so this session has ended.'
+          : 'Session expired',
+        reason,
+        401,
+      )
     }
   }
 
@@ -134,7 +170,22 @@ async function refreshTokens(): Promise<void> {
         entityId:     tokens.entityId,
       }),
     })
-    if (!r.ok) throw new Error('refresh failed')
+    if (!r.ok) {
+      // Parse the error envelope so the inner code (REFRESH_TOKEN_INVALID
+      // vs SESSION_REPLACED vs anything else) propagates to the catch in
+      // `doFetch` via `RefreshFailedError.reason`. Best-effort parse —
+      // a malformed body falls back to generic SESSION_EXPIRED treatment.
+      let reason: SignOutReason = 'SESSION_EXPIRED'
+      try {
+        const errBody = (await r.json()) as { error?: { code?: string } }
+        if (errBody?.error?.code === 'SESSION_REPLACED') {
+          reason = 'SESSION_REPLACED'
+        }
+      } catch {
+        /* swallow — body wasn't JSON; fall through to generic reason */
+      }
+      throw new RefreshFailedError(reason)
+    }
     const body = (await r.json()) as { accessToken: string; refreshToken: string }
     // sessionId + entityId are stable across refresh — backend rotates the
     // access + refresh tokens against the same Redis session row.
@@ -180,7 +231,24 @@ export const api = {
   setTokens(access: string | null, refresh: string | null, sessionId: string | null, entityId: string | null) {
     tokens = { access, refresh, sessionId, entityId }
   },
-  onSessionExpired(cb: () => void) { onSessionExpiredCb = cb },
+  /**
+   * Subscribe to forced sign-out events. Called with a `reason` so the
+   * subscriber can pick distinct copy: `SESSION_REPLACED` → "Your
+   * account was signed in on another device, so this session has
+   * ended." Any other reason → generic "Your session has expired.
+   * Please sign in again."
+   *
+   * Single-subscriber by design: a second `onSessionExpired(cb)` call
+   * REPLACES the previous handler. The store-level
+   * `SessionExpiredBridge` registers the only subscriber today; future
+   * code attaching a listener must coordinate to avoid silently
+   * dropping it.
+   *
+   * JS-level note: passing a no-arg callback still works — JS ignores
+   * extra arguments. TypeScript will complain unless the call site
+   * widens the signature.
+   */
+  onSessionExpired(cb: (reason: SignOutReason) => void) { onSessionExpiredCb = cb },
   /**
    * Subscribe to access+refresh-token rotation events. Fires inside
    * `refreshTokens()` after the in-memory `tokens` object has been

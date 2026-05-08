@@ -116,6 +116,84 @@ describe('api refresh client', () => {
     expect(expiredFired).toBe(1)
   })
 
+  it('propagates SESSION_REPLACED reason when refresh response carries that code (one-mobile-device rule)', async () => {
+    // PR #51 / deferred-followups §AC6 + §AD6. When Device B signs in,
+    // Device A's next refresh attempt hits the `SUPERSEDED_BY_NEW_LOGIN`
+    // branch on the backend → returns SESSION_REPLACED. The api client
+    // must propagate that distinct code (NOT collapse to generic
+    // SESSION_EXPIRED) so the bridge can show the right copy.
+    api.__setTokensForTests('STALE', 'A_REFRESH', 'sess_a', 'user_a')
+    const reasons: string[] = []
+    api.onSessionExpired((reason) => {
+      reasons.push(reason)
+    })
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 'SESSION_REPLACED',
+              message: 'Your account was signed in on another device, so this session has ended.',
+              statusCode: 401,
+            },
+          }),
+          { status: 401, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/anything')).rejects.toMatchObject({
+      code: 'SESSION_REPLACED',
+      status: 401,
+    })
+    expect(reasons).toEqual(['SESSION_REPLACED'])
+  })
+
+  it('falls back to SESSION_EXPIRED when refresh response has no parseable body (network error / non-JSON)', async () => {
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
+    const reasons: string[] = []
+    api.onSessionExpired((reason) => {
+      reasons.push(reason)
+    })
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response('not json', { status: 502 })
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/anything')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+      status: 401,
+    })
+    expect(reasons).toEqual(['SESSION_EXPIRED'])
+  })
+
+  it('preserves the user-facing SESSION_REPLACED message on the thrown ApiClientError', async () => {
+    api.__setTokensForTests('STALE', 'A_REFRESH', 'sess_a', 'user_a')
+    api.onSessionExpired(() => {})
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 'SESSION_REPLACED',
+              message: 'Your account was signed in on another device, so this session has ended.',
+              statusCode: 401,
+            },
+          }),
+          { status: 401, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/anything')).rejects.toMatchObject({
+      message: 'Your account was signed in on another device, so this session has ended.',
+    })
+  })
+
   it('clears tokens, fires onSessionExpired, and throws SESSION_EXPIRED when refresh returns 400 (Zod-parse failure on backend)', async () => {
     // This is the exact failure mode that caused the 2026-05-08 device-QA
     // sign-outs: pre-fix client posted only { refreshToken } and the

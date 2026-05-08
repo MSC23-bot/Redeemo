@@ -81,7 +81,13 @@ async function issueCustomerTokens(
   )
 
   const accessToken = app.jwt.customer.sign(
-    { sub: user.id, role: 'customer', deviceId: ctx.deviceId, sessionId },
+    {
+      sub:        user.id,
+      role:       'customer',
+      deviceId:   ctx.deviceId,
+      deviceType: ctx.deviceType,
+      sessionId,
+    },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
 
@@ -100,7 +106,7 @@ export async function registerCustomer(
     phone: string
     marketingConsent: boolean
   } & LoginContext
-): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary }> {
+): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary; sessionId: string }> {
   if (!validatePasswordPolicy(data.password)) {
     throw new AppError('PASSWORD_POLICY_VIOLATION')
   }
@@ -148,7 +154,18 @@ export async function registerCustomer(
     deviceId: data.deviceId, deviceType: data.deviceType, deviceName: data.deviceName,
   })
 
-  return { accessToken: issued.accessToken, refreshToken: issued.refreshToken, user: issued.user }
+  // `sessionId` is REQUIRED on the customer-app's `authResponseSchema`
+  // (PR #50, deferred-followups §Y) — the refresh client posts
+  // `{ refreshToken, sessionId, entityId }` and reads sessionId from
+  // the auth response. Stripping it here would 500 the schema parse
+  // on a successful register and break fresh sign-up. Pinned by the
+  // backend contract test in `customer.test.ts`.
+  return {
+    accessToken:  issued.accessToken,
+    refreshToken: issued.refreshToken,
+    user:         issued.user,
+    sessionId:    issued.sessionId,
+  }
 }
 
 export async function verifyEmail(
@@ -244,7 +261,7 @@ export async function loginCustomer(
   redis: Redis,
   app: any,
   data: { email: string; password: string } & LoginContext
-): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary }> {
+): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary; sessionId: string }> {
   const user = await prisma.user.findUnique({ where: { email: data.email } })
 
   if (!user || !user.passwordHash) {
@@ -280,7 +297,18 @@ export async function loginCustomer(
     deviceId: data.deviceId, sessionId: issued.sessionId,
   })
 
-  return { accessToken: issued.accessToken, refreshToken: issued.refreshToken, user: issued.user }
+  // `sessionId` is REQUIRED on the customer-app's `authResponseSchema`
+  // (PR #50, deferred-followups §Y) — the refresh client posts
+  // `{ refreshToken, sessionId, entityId }` and reads sessionId from
+  // the auth response. Stripping it here would 500 the schema parse
+  // on a successful login and break fresh sign-in. Pinned by the
+  // backend contract test in `customer.test.ts`.
+  return {
+    accessToken:  issued.accessToken,
+    refreshToken: issued.refreshToken,
+    user:         issued.user,
+    sessionId:    issued.sessionId,
+  }
 }
 
 export async function refreshCustomerToken(
@@ -293,11 +321,24 @@ export async function refreshCustomerToken(
   const stored = await redis.get(key)
 
   if (!stored || !validateRefreshToken(stored, data.refreshToken)) {
+    // Distinguish supersession (Device B logged in → A's row was
+    // deliberately revoked) from generic invalidation (TTL expiry,
+    // logout, security revoke). The UserSession row carries the
+    // reason via `revokedReason` so the customer app can show the
+    // right copy ("signed in on another device" vs generic "session
+    // expired"). Locked product rule: one mobile device per account.
+    const session = await prisma.userSession.findFirst({
+      where:  { sessionId: data.sessionId, entityId: data.entityId, entityType: 'customer' },
+      select: { revokedReason: true },
+    })
+    const supersededByLogin = session?.revokedReason === 'SUPERSEDED_BY_NEW_LOGIN'
+
     writeAuditLog(prisma, {
-      entityId: data.entityId, entityType: 'customer', event: 'AUTH_REFRESH_FAILED',
+      entityId: data.entityId, entityType: 'customer',
+      event: supersededByLogin ? 'AUTH_SESSION_REPLACED' : 'AUTH_REFRESH_FAILED',
       ipAddress: data.ipAddress, userAgent: data.userAgent,
     })
-    throw new AppError('REFRESH_TOKEN_INVALID')
+    throw new AppError(supersededByLogin ? 'SESSION_REPLACED' : 'REFRESH_TOKEN_INVALID')
   }
 
   const parsed = JSON.parse(stored)
@@ -317,8 +358,21 @@ export async function refreshCustomerToken(
     data:  { lastActiveAt: new Date() },
   })
 
+  // Mint a fresh access token. `deviceType` is now part of the JWT
+  // claims (added 2026-05-08 alongside SESSION_REPLACED) so the
+  // `authenticateCustomer` preHandler can enforce the active-mobile-
+  // session check on ios/android sessions only without an extra DB
+  // lookup. Legacy JWTs minted before this PR don't carry deviceType
+  // and pre-handler treats their absence as "skip the mobile check"
+  // — those tokens age out at the 15-minute access-token TTL.
   const accessToken = app.jwt.customer.sign(
-    { sub: data.entityId, role: 'customer', deviceId: parsed.deviceId, sessionId: data.sessionId },
+    {
+      sub:        data.entityId,
+      role:       'customer',
+      deviceId:   parsed.deviceId,
+      deviceType: parsed.deviceType,
+      sessionId:  data.sessionId,
+    },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
 
