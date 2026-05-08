@@ -35,7 +35,12 @@ export function useLoginFlow() {
       const res = await authApi.login(input)
       // setTokens fetches /profile and sets status:'authed' atomically.
       // resolveRedirect in AuthLayout then owns all routing — no explicit router.replace needed.
-      await setTokens({ accessToken: res.accessToken, refreshToken: res.refreshToken })
+      await setTokens({
+        accessToken:  res.accessToken,
+        refreshToken: res.refreshToken,
+        sessionId:    res.sessionId,
+        entityId:     res.user.id,
+      })
       // Update local profile-completion state for UI (non-critical, best-effort).
       try {
         const me = await profileApi.getMe()

@@ -2,10 +2,31 @@ import Constants from 'expo-constants'
 
 const BASE_URL: string = (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ?? 'http://localhost:3000'
 
-type Tokens = { access: string | null; refresh: string | null }
+// All four fields are required for a successful refresh round-trip.
+// Backend `POST /api/v1/customer/auth/refresh` parses
+// `{ refreshToken, sessionId, entityId }` via Zod (see
+// src/api/auth/customer/routes.ts:81-94). Until 2026-05-08 the client
+// posted only `{ refreshToken }` — every 15-minute access-token expiry
+// triggered a Zod-rejection 400 → forced sign-out (M3 device QA).
+type Tokens = {
+  access:    string | null
+  refresh:   string | null
+  sessionId: string | null
+  entityId:  string | null
+}
 
-let tokens: Tokens = { access: null, refresh: null }
+let tokens: Tokens = { access: null, refresh: null, sessionId: null, entityId: null }
 let onSessionExpiredCb: (() => void) | null = null
+// Notifies subscribers when the backend rotates access + refresh tokens
+// during a 401 retry. The store-side bridge persists the new pair to
+// secureStorage and updates zustand state so the next bootstrap reads
+// the live tokens — without this, an app relaunch after rotation reads
+// the stale refresh token, posts it back, and gets REFRESH_TOKEN_INVALID
+// from Redis (the old key was deleted by the rotation that issued the
+// new pair). 2026-05-08 PR #50 P2 fix.
+let onTokensRefreshedCb:
+  | ((next: { accessToken: string; refreshToken: string }) => void)
+  | null = null
 let refreshing: Promise<void> | null = null
 
 export class ApiClientError extends Error {
@@ -47,12 +68,23 @@ async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): P
   if (tokens.access) headers['Authorization'] = `Bearer ${tokens.access}` as string
   const res = await fetch(`${BASE_URL}${path}`, { ...init, headers })
 
-  if (res.status === 401 && retry && tokens.refresh && !path.endsWith('/auth/refresh')) {
+  // Refresh + retry path — guarded on ALL three refresh-payload fields so
+  // we never POST a partial body to the backend (would 400 → spurious
+  // logout). If sessionId or entityId were lost in memory (e.g.
+  // mid-bootstrap), surface the original 401 instead of forcing a logout.
+  if (
+    res.status === 401 &&
+    retry &&
+    tokens.refresh &&
+    tokens.sessionId &&
+    tokens.entityId &&
+    !path.endsWith('/auth/refresh')
+  ) {
     try {
       await refreshTokens()
       return doFetch<T>(path, init, false)
     } catch {
-      tokens = { access: null, refresh: null }
+      tokens = { access: null, refresh: null, sessionId: null, entityId: null }
       onSessionExpiredCb?.()
       throw new ApiClientError('Session expired', 'SESSION_EXPIRED', 401)
     }
@@ -90,23 +122,53 @@ async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): P
 }
 
 async function refreshTokens(): Promise<void> {
-  if (!tokens.refresh) throw new Error('no refresh token')
+  if (!tokens.refresh || !tokens.sessionId || !tokens.entityId) throw new Error('missing refresh context')
   if (refreshing) return refreshing
   refreshing = (async () => {
     const r = await fetch(`${BASE_URL}/api/v1/customer/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: tokens.refresh }),
+      body: JSON.stringify({
+        refreshToken: tokens.refresh,
+        sessionId:    tokens.sessionId,
+        entityId:     tokens.entityId,
+      }),
     })
     if (!r.ok) throw new Error('refresh failed')
     const body = (await r.json()) as { accessToken: string; refreshToken: string }
-    tokens = { access: body.accessToken, refresh: body.refreshToken }
+    // sessionId + entityId are stable across refresh — backend rotates the
+    // access + refresh tokens against the same Redis session row.
+    tokens = {
+      access:    body.accessToken,
+      refresh:   body.refreshToken,
+      sessionId: tokens.sessionId,
+      entityId:  tokens.entityId,
+    }
+    // Fire AFTER the in-memory swap so a subscriber that reads via
+    // `api.get(...)` immediately on the next tick already sees the new
+    // bearer. Subscribers MUST treat this as a fire-and-forget signal —
+    // any persistence work they do is best-effort and asynchronous; if
+    // it throws, the in-memory rotation still stands and the very next
+    // request succeeds. Uniform try/catch matches the SessionExpired
+    // notification contract.
+    try {
+      onTokensRefreshedCb?.({ accessToken: body.accessToken, refreshToken: body.refreshToken })
+    } catch {
+      /* swallow — subscribers are best-effort */
+    }
   })()
   try { await refreshing } finally { refreshing = null }
 }
 
-export function setTokens({ accessToken, refreshToken }: { accessToken: string | null; refreshToken: string | null }) {
-  tokens = { access: accessToken, refresh: refreshToken }
+export type SetTokensInput = {
+  accessToken:  string | null
+  refreshToken: string | null
+  sessionId:    string | null
+  entityId:     string | null
+}
+
+export function setTokens({ accessToken, refreshToken, sessionId, entityId }: SetTokensInput) {
+  tokens = { access: accessToken, refresh: refreshToken, sessionId, entityId }
 }
 
 export const api = {
@@ -115,7 +177,26 @@ export const api = {
   patch: <T>(path: string, body: unknown) => doFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   put:   <T>(path: string, body: unknown) => doFetch<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   del:   <T>(path: string) => doFetch<T>(path, { method: 'DELETE' }),
-  setTokens(access: string | null, refresh: string | null) { tokens = { access, refresh } },
+  setTokens(access: string | null, refresh: string | null, sessionId: string | null, entityId: string | null) {
+    tokens = { access, refresh, sessionId, entityId }
+  },
   onSessionExpired(cb: () => void) { onSessionExpiredCb = cb },
-  __setTokensForTests(a: string | null, r: string | null) { tokens = { access: a, refresh: r } },
+  /**
+   * Subscribe to access+refresh-token rotation events. Fires inside
+   * `refreshTokens()` after the in-memory `tokens` object has been
+   * updated to the new pair. Single-subscriber by design (mirrors
+   * `onSessionExpired`); a second `onTokensRefreshed(cb)` call replaces
+   * the previous handler. The store-side `TokensPersistenceBridge`
+   * registers exactly one handler at app boot and keeps it for the
+   * session lifetime.
+   */
+  onTokensRefreshed(cb: (next: { accessToken: string; refreshToken: string }) => void) {
+    onTokensRefreshedCb = cb
+  },
+  __setTokensForTests(
+    access:    string | null,
+    refresh:   string | null,
+    sessionId: string | null = null,
+    entityId:  string | null = null,
+  ) { tokens = { access, refresh, sessionId, entityId } },
 }

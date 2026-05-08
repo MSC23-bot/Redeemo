@@ -21,6 +21,12 @@ function getDeviceType(): 'ios' | 'android' | 'web' {
   return 'web'
 }
 
+// `sessionId` is required: backend returns it in the issueCustomerTokens
+// response (src/api/auth/customer/service.ts:88) and the refresh endpoint
+// requires it on the request body
+// (src/api/auth/customer/routes.ts:81-94). Surfacing it here is the
+// 2026-05-08 hotfix that closes the latent contract gap behind the M3
+// device-QA sign-out.
 const authResponseSchema = z.object({
   user: z.object({
     id: z.string(),
@@ -33,8 +39,9 @@ const authResponseSchema = z.object({
     phoneVerified: z.boolean().default(false),
     profileImageUrl: z.string().nullable().optional(),
   }),
-  accessToken: z.string(),
+  accessToken:  z.string(),
   refreshToken: z.string(),
+  sessionId:    z.string(),
 })
 export type AuthResponse = z.infer<typeof authResponseSchema>
 
@@ -51,8 +58,11 @@ export const authApi = {
   },
   logout: (data: { refreshToken: string }) =>
     api.post<{ success: boolean }>('/api/v1/customer/auth/logout', data),
-  refresh: (refreshToken: string) =>
-    api.post<{ accessToken: string; refreshToken: string }>('/api/v1/customer/auth/refresh', { refreshToken }),
+  // The interceptor in `api.ts` is the canonical refresh path — this
+  // method exists for symmetry but is currently unused. Body shape mirrors
+  // the backend contract: `{ refreshToken, sessionId, entityId }`.
+  refresh: (data: { refreshToken: string; sessionId: string; entityId: string }) =>
+    api.post<{ accessToken: string; refreshToken: string }>('/api/v1/customer/auth/refresh', data),
   sendPhoneOtp: (opts?: { phoneNumber?: string }) =>
     api.post<{ success: boolean }>(
       '/api/v1/customer/auth/verify-phone/send',

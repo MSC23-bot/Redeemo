@@ -3,7 +3,7 @@ import { authApi } from '@/lib/api/auth'
 import { profileApi } from '@/lib/api/profile'
 import { prefsStorage, secureStorage } from '@/lib/storage'
 import { setHapticsEnabled } from '@/design-system/haptics'
-import { setTokens as apiSetTokens } from '@/lib/api'
+import { api as apiClient, setTokens as apiSetTokens } from '@/lib/api'
 import { clearAllQueries } from '@/lib/query-client'
 import { stepIndex, type ProfileStep } from '@/features/profile-completion/steps'
 
@@ -35,8 +35,14 @@ export type MinimalUser = {
 }
 
 type SetTokensInput = {
-  accessToken: string
+  accessToken:  string
   refreshToken: string
+  // Required as of 2026-05-08 — the customer-app's /auth/refresh client
+  // posts `{ refreshToken, sessionId, entityId }` per the backend
+  // contract. `sessionId` comes from the auth response;
+  // `entityId === user.id`.
+  sessionId:    string
+  entityId:     string
   /** Optional bootstrap snapshot used only if /profile fetch fails. */
   user?: MinimalUser
 }
@@ -109,15 +115,37 @@ export const useAuthStore = create<State>((set, get) => ({
       set({ hapticsEnabled, motionScale })
     } catch { /* best-effort */ }
 
-    const [access, refresh] = await Promise.all([
+    const [access, refresh, sessionId, entityId] = await Promise.all([
       secureStorage.get('accessToken'),
       secureStorage.get('refreshToken'),
+      secureStorage.get('sessionId'),
+      secureStorage.get('entityId'),
     ])
-    if (!access || !refresh) {
+    // Hotfix migration (2026-05-08): pre-fix builds persisted only
+    // accessToken + refreshToken. Any user upgrading from such a build
+    // will be missing sessionId / entityId — treat as forced sign-out
+    // so the next sign-in re-populates the full set. One-time UX cost.
+    if (!access || !refresh || !sessionId || !entityId) {
+      await Promise.all([
+        secureStorage.remove('accessToken'),
+        secureStorage.remove('refreshToken'),
+        secureStorage.remove('sessionId'),
+        secureStorage.remove('entityId'),
+      ])
       set({ status: 'unauthenticated' })
       return
     }
-    apiSetTokens({ accessToken: access, refreshToken: refresh })
+    apiSetTokens({ accessToken: access, refreshToken: refresh, sessionId, entityId })
+    // Populate the store-level token fields BEFORE the profile fetch so
+    // a rotation that fires inside `profileApi.getMe()` (a 401 → refresh
+    // round-trip when the access token has expired across an extended
+    // close) can update them via the module-init persistence handler.
+    // The final `set(...)` after profile success deliberately omits
+    // accessToken/refreshToken so it cannot clobber a fresh rotation
+    // that happened mid-flight. The api module is the source of truth
+    // for outgoing-request bearer tokens; the store-level fields are
+    // mirrored state for any UI that reads them.
+    set({ accessToken: access, refreshToken: refresh })
     try {
       const me = await profileApi.getMe()
       const minimal: MinimalUser = {
@@ -135,12 +163,17 @@ export const useAuthStore = create<State>((set, get) => ({
         subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
       }
       const onboarding = await loadOnboarding(me.id)
-      set({ status: 'authed', user: minimal, accessToken: access, refreshToken: refresh, onboarding })
+      set({ status: 'authed', user: minimal, onboarding })
     } catch {
       // Bootstrap failure → treat as a forced sign-out so any cached data
       // from a prior session can't leak. See `clearAllQueries` doc comment.
-      apiSetTokens({ accessToken: null, refreshToken: null })
-      await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
+      apiSetTokens({ accessToken: null, refreshToken: null, sessionId: null, entityId: null })
+      await Promise.all([
+        secureStorage.remove('accessToken'),
+        secureStorage.remove('refreshToken'),
+        secureStorage.remove('sessionId'),
+        secureStorage.remove('entityId'),
+      ])
       clearAllQueries()
       set({ status: 'unauthenticated', user: null, accessToken: null, refreshToken: null })
     }
@@ -152,8 +185,13 @@ export const useAuthStore = create<State>((set, get) => ({
       // Fire-and-forget: local state clears unconditionally even if the API call fails
       void authApi.logout({ refreshToken: refresh }).catch(() => {})
     }
-    await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
-    apiSetTokens({ accessToken: null, refreshToken: null })
+    await Promise.all([
+      secureStorage.remove('accessToken'),
+      secureStorage.remove('refreshToken'),
+      secureStorage.remove('sessionId'),
+      secureStorage.remove('entityId'),
+    ])
+    apiSetTokens({ accessToken: null, refreshToken: null, sessionId: null, entityId: null })
     // CRITICAL: wipe the React Query cache before flipping auth state. Reviews,
     // favourites, profile, savings and any other user-scoped resources bake the
     // current user's identity into their payload (`isOwnReview`, `isFavourited`,
@@ -165,8 +203,13 @@ export const useAuthStore = create<State>((set, get) => ({
   },
 
   async clearLocalAuth() {
-    await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
-    apiSetTokens({ accessToken: null, refreshToken: null })
+    await Promise.all([
+      secureStorage.remove('accessToken'),
+      secureStorage.remove('refreshToken'),
+      secureStorage.remove('sessionId'),
+      secureStorage.remove('entityId'),
+    ])
+    apiSetTokens({ accessToken: null, refreshToken: null, sessionId: null, entityId: null })
     // Same reasoning as signOut — see comment there. This path runs when the
     // API client gets a 401 it couldn't refresh (forced session expiry).
     clearAllQueries()
@@ -201,7 +244,7 @@ export const useAuthStore = create<State>((set, get) => ({
     } catch { /* best-effort — stale user remains until next bootstrap */ }
   },
 
-  async setTokens({ accessToken, refreshToken, user }) {
+  async setTokens({ accessToken, refreshToken, sessionId, entityId, user }) {
     // Clear any cached query data BEFORE installing the new session. This is
     // belt-and-braces — signOut + clearLocalAuth already clear, and the
     // normal login flow goes through one of those first. But if a fresh
@@ -210,9 +253,13 @@ export const useAuthStore = create<State>((set, get) => ({
     // with an empty cache. Cost: zero — the cache is already meant to be
     // empty at this point in any well-formed flow.
     clearAllQueries()
-    await secureStorage.set('accessToken', accessToken)
-    await secureStorage.set('refreshToken', refreshToken)
-    apiSetTokens({ accessToken, refreshToken })
+    await Promise.all([
+      secureStorage.set('accessToken',  accessToken),
+      secureStorage.set('refreshToken', refreshToken),
+      secureStorage.set('sessionId',    sessionId),
+      secureStorage.set('entityId',     entityId),
+    ])
+    apiSetTokens({ accessToken, refreshToken, sessionId, entityId })
     // Fetch full profile so resolveRedirect has server-authoritative flags
     // (emailVerified / phoneVerified / onboardingCompletedAt / required profile fields).
     // Falls back to the snapshot from register/login response if /profile fails.
@@ -281,10 +328,43 @@ export const useAuthStore = create<State>((set, get) => ({
   },
 
   async __resetForTests() {
-    await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
-    apiSetTokens({ accessToken: null, refreshToken: null })
+    await Promise.all([
+      secureStorage.remove('accessToken'),
+      secureStorage.remove('refreshToken'),
+      secureStorage.remove('sessionId'),
+      secureStorage.remove('entityId'),
+    ])
+    apiSetTokens({ accessToken: null, refreshToken: null, sessionId: null, entityId: null })
     set({ status: 'bootstrapping', user: null, accessToken: null, refreshToken: null, onboarding: INITIAL_ONBOARDING, hapticsEnabled: true, motionScale: 1 })
   },
 }))
+
+// Persist rotated access + refresh tokens at module-init time so the
+// handler is registered BEFORE `bootstrap()` runs and BEFORE any React
+// tree mounts. Bootstrap calls `profileApi.getMe()` immediately after
+// installing the stored tokens; if the access token has expired (e.g.
+// the user closed the app for >15 minutes) that call triggers a 401 →
+// refresh round-trip → token rotation. The rotation must be captured
+// even though the splash screen is still rendering — i.e. before any
+// React-mounted bridge could exist. Earlier shipped a
+// `TokensPersistenceBridge` component, but its useEffect only ran once
+// the auth status flipped off `'bootstrapping'`, leaving a window
+// where bootstrap-time rotations were not persisted. PR #50 second-
+// review fix: shape #3 — auth store owns the path directly.
+//
+// The handler runs synchronously to mirror state into zustand, then
+// schedules secureStorage writes asynchronously. Persistence errors
+// are swallowed (best-effort) so they cannot wedge any caller. Single-
+// subscriber by api-module design — calling `apiClient.onTokensRefreshed`
+// again replaces this handler, which is fine for tests that swap it.
+apiClient.onTokensRefreshed(({ accessToken, refreshToken }) => {
+  useAuthStore.setState({ accessToken, refreshToken })
+  void Promise.all([
+    secureStorage.set('accessToken',  accessToken),
+    secureStorage.set('refreshToken', refreshToken),
+  ]).catch(() => {
+    /* swallow — best-effort persistence */
+  })
+})
 
 export type { ProfileStep }
