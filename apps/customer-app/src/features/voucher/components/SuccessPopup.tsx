@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Modal, Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
   Easing,
@@ -44,13 +44,49 @@ const TYPE_LABELS: Record<VoucherType, string> = {
   REUSABLE:         'Reusable',
 }
 
-function formatDateLine(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+// en-GB / Europe/London formatters mirror ShowToStaff for consistency.
+// The receipt-style fields ("Redeemed on") use date+time without
+// seconds; the live trust signal includes seconds so a screenshot
+// freezes a stale timestamp that staff can spot. Hermes-CLDR-robust
+// pattern (numeric Intl parts + composed display) — see
+// `reference_london_clock_helper.md` in memory.
+const REDEEMED_AT_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/London',
+  day:    '2-digit',
+  month:  'short',
+  year:   'numeric',
+  hour:   '2-digit',
+  minute: '2-digit',
+  hour12: false,
+})
+
+const LIVE_CLOCK_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/London',
+  day:    '2-digit',
+  month:  'short',
+  year:   'numeric',
+  hour:   '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
+function formatRedeemedAtLine(iso: string): string {
+  // Receipt-detail tone: "08 May 2026, 14:24". Drops seconds — the
+  // static value is a permanent record, not a real-time signal. The
+  // live trust line below carries seconds.
+  return REDEEMED_AT_FORMATTER.format(new Date(iso))
 }
-function formatTimeLine(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+
+function formatLiveLine(now: Date): string {
+  // "08 May 2026 · 14:24:38" — date and time joined with a middot.
+  // Splits the formatter output to avoid Hermes-CLDR locale quirks
+  // (the comma separator from `Intl` can render differently per
+  // engine; the join is explicit).
+  const parts = LIVE_CLOCK_FORMATTER.format(now).split(', ')
+  const date = parts[0] ?? ''
+  const time = parts[1] ?? ''
+  return date && time ? `${date} · ${time}` : LIVE_CLOCK_FORMATTER.format(now)
 }
 
 /**
@@ -95,6 +131,18 @@ export function SuccessPopup({
   const scale = useSharedValue(0.8)
   const ty = useSharedValue(30)
   const checkScale = useSharedValue(0)
+
+  // Live ticking timestamp — anti-screenshot trust signal. Updates
+  // every 1s while the popup is visible. The interval is unconditional
+  // on `prefers-reduced-motion`: this is a trust signal, not
+  // decorative motion, so reduced-motion users still see it tick (per
+  // owner direction 2026-05-08).
+  const [now, setNow] = useState<Date>(() => new Date())
+  useEffect(() => {
+    if (!visible) return
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [visible])
 
   useEffect(() => {
     if (visible) {
@@ -146,8 +194,12 @@ export function SuccessPopup({
             <Text variant="heading.md" style={styles.headerTitle}>
               Voucher Redeemed!
             </Text>
-            <Text variant="label.md" style={styles.headerSub}>
-              Show this to staff to claim your discount
+            <Text
+              variant="label.md"
+              style={styles.headerSub}
+              testID="success-staff-verify-copy"
+            >
+              Staff verify on the live Show to Staff screen
             </Text>
           </View>
 
@@ -173,8 +225,14 @@ export function SuccessPopup({
 
           {/* Body — code + info rows + CTAs */}
           <View style={styles.body}>
-            {/* Code box */}
-            <View style={styles.codeBox}>
+            {/* Code box — anti-fraud trust area. The live timestamp is
+                rendered HERE next to the code (not in the receipt rows
+                below) so a screenshot cannot crop one without the
+                other. The live ticker is the screenshot-detection
+                signal: trained staff see a frozen second-counter on
+                a static screenshot. Locked 2026-05-08, deferred-
+                followups §AC anti-fraud parity with Show-to-Staff. */}
+            <View style={styles.codeBox} testID="success-proof-area">
               <Text variant="label.md" style={styles.codeLabel}>
                 REDEMPTION CODE
               </Text>
@@ -186,12 +244,25 @@ export function SuccessPopup({
               >
                 {formattedCode}
               </Text>
+              <Text
+                variant="label.md"
+                style={styles.liveLine}
+                testID="success-live-timestamp"
+                accessibilityLabel={`Live time: ${formatLiveLine(now)}`}
+              >
+                Live: {formatLiveLine(now)}
+              </Text>
             </View>
 
-            {/* Info rows */}
+            {/* Info rows — receipt-detail tone. The "Redeemed on" line
+                is the static record from `redeemedAt`; the live ticker
+                lives in the proof area above. */}
             <View style={styles.infoRows}>
-              <InfoRow label="Date"   value={formatDateLine(redeemedAt)} />
-              <InfoRow label="Time"   value={formatTimeLine(redeemedAt)} />
+              <InfoRow
+                label="Redeemed on"
+                value={formatRedeemedAtLine(redeemedAt)}
+                testID="success-redeemed-at"
+              />
               <InfoRow label="Branch" value={branchName ?? '—'} />
             </View>
 
@@ -256,9 +327,9 @@ export function SuccessPopup({
   )
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value, testID }: { label: string; value: string; testID?: string }) {
   return (
-    <View style={styles.infoRow}>
+    <View style={styles.infoRow} testID={testID}>
       <Text variant="label.md" style={styles.infoLabel}>
         {label}
       </Text>
@@ -380,6 +451,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: color.text.primary,
     letterSpacing: 4,
+    fontVariant: ['tabular-nums'],
+  },
+  liveLine: {
+    marginTop: spacing[2],
+    fontSize: 11,
+    color: color.text.tertiary,
+    letterSpacing: 0.4,
     fontVariant: ['tabular-nums'],
   },
   infoRows: {
