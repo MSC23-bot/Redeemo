@@ -55,30 +55,46 @@ describe('RedemptionDetailsCard', () => {
     expect(matches.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows the Show-to-Staff stub button as disabled (M2 stub for M3 QR)', () => {
-    const { getByTestId } = render(<RedemptionDetailsCard {...defaults()} />)
-    const stub = getByTestId('redemption-details-show-to-staff-stub')
-    expect(stub.props.accessibilityState).toEqual({ disabled: true })
+  it('Show-to-Staff button is live in M3 (no longer disabled)', () => {
+    const { getByTestId, queryByTestId } = render(<RedemptionDetailsCard {...defaults()} />)
+    // M2 stub testID is gone — replaced by the live testID.
+    expect(queryByTestId('redemption-details-show-to-staff-stub')).toBeNull()
+    const button = getByTestId('redemption-details-show-to-staff')
+    expect(button.props.accessibilityState?.disabled).toBeFalsy()
   })
 
-  it('Show-to-Staff stub does NOT fire its handler when pressed (disabled)', () => {
+  it('Show-to-Staff button fires onShowToStaff when pressed', () => {
     const onShowToStaff = jest.fn()
     const { getByTestId } = render(
       <RedemptionDetailsCard {...defaults({ onShowToStaff })} />,
     )
-    fireEvent.press(getByTestId('redemption-details-show-to-staff-stub'))
-    // disabled prop stops the press event.
-    expect(onShowToStaff).not.toHaveBeenCalled()
+    fireEvent.press(getByTestId('redemption-details-show-to-staff'))
+    expect(onShowToStaff).toHaveBeenCalledTimes(1)
   })
 
-  it('stub copy explicitly calls out the next-milestone scope', () => {
-    const { getByText } = render(<RedemptionDetailsCard {...defaults()} />)
-    expect(getByText(/next milestone/i)).toBeTruthy()
+  it('Show-to-Staff button accessibility label drops the next-milestone suffix', () => {
+    const { getByLabelText } = render(<RedemptionDetailsCard {...defaults()} />)
+    expect(getByLabelText('Show redemption code to staff')).toBeTruthy()
   })
 
-  it('does not render any QR section in M2', () => {
+  it('does not render the validated pill by default', () => {
     const { queryByTestId } = render(<RedemptionDetailsCard {...defaults()} />)
-    // No QR-shaped testIDs that would indicate M3 QR sneaking into M2.
+    expect(queryByTestId('redemption-details-validated-pill')).toBeNull()
+  })
+
+  it('renders the "Validated by staff" pill when isValidated is true', () => {
+    const { getByText, getByTestId } = render(
+      <RedemptionDetailsCard {...defaults({ isValidated: true })} />,
+    )
+    expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+    expect(getByText(/Validated by staff/i)).toBeTruthy()
+  })
+
+  it('does not render any QR section in M2/M3 — the QR is owned by ShowToStaff', () => {
+    const { queryByTestId } = render(<RedemptionDetailsCard {...defaults()} />)
+    // The QR is a property of the full-screen ShowToStaff surface,
+    // NOT of the inline card. The card surfaces the code in 4+4 and
+    // routes to ShowToStaff via Show-to-Staff button.
     expect(queryByTestId('redemption-details-qr')).toBeNull()
     expect(queryByTestId('redemption-details-qr-svg')).toBeNull()
   })

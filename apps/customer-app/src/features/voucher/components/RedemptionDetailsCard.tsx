@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { CheckCircle2, Eye } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
-import { color, opacity, radius, spacing } from '@/design-system/tokens'
+import { color, radius, spacing } from '@/design-system/tokens'
 import { formatRedemptionCode } from '../utils/formatRedemptionCode'
 import { formatPounds, voucherTypeLabel } from '../utils/voucherTheme'
 import type { VoucherType } from '@/lib/api/voucher'
@@ -25,12 +25,21 @@ type Props = {
   merchantName: string
   estimatedSaving: number
   /**
-   * "Show to Staff" — disabled stub in M2. M3 wires the full-screen
-   * QR + brightness boost + screenshot guard. Caller may pass a no-op
-   * or an alert; the button stays visible but accessibilityState
-   * disabled and visually muted.
+   * "Show to Staff" — live in M3 (Task 17). Caller (VoucherDetailScreen)
+   * mounts the full-screen ShowToStaff modal with the persisted
+   * code/redeemedAt/branch. Optional only because the standalone
+   * test fixtures don't always supply it; the card always renders
+   * the button.
    */
   onShowToStaff?: () => void
+  /**
+   * Visual indicator when the redemption has been validated by staff
+   * (M3). Optional — defaults to false. When true, renders a small
+   * "Validated by staff" pill below the action button so a return
+   * visitor can see the redemption already cleared without opening
+   * Show-to-Staff again.
+   */
+  isValidated?: boolean
 }
 
 function formatDateLine(iso: string): string {
@@ -72,6 +81,7 @@ export function RedemptionDetailsCard({
   merchantName,
   estimatedSaving,
   onShowToStaff,
+  isValidated = false,
 }: Props) {
   const formattedCode = formatRedemptionCode(redemptionCode)
   const typeLabel = voucherTypeLabel(voucherType).toUpperCase()
@@ -157,30 +167,41 @@ export function RedemptionDetailsCard({
         “Saved up to” is the maximum estimated saving for this voucher. Your actual saving may depend on the item, service, bill value, and merchant terms.
       </Text>
 
-      {/* Show-to-Staff stub — visible but disabled in M2.
-          M3 wires the full-screen QR target. No haptic on the disabled
-          stub (PR #44 review cleanup) — the button is non-interactive
-          and a haptic would be misleading. */}
+      {/* Show-to-Staff — live in M3 (Task 17). Mounts the full-screen
+          ShowToStaff modal via the parent screen's onShowToStaff
+          handler. Brand-rose gradient matches the Voucher Detail
+          primary CTA so the action reads as the dominant next step
+          on the redeemed surface. */}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Show redemption code to staff (available in next milestone)"
-        accessibilityState={{ disabled: true }}
-        testID="redemption-details-show-to-staff-stub"
-        disabled
+        accessibilityLabel="Show redemption code to staff"
+        testID="redemption-details-show-to-staff"
         onPress={() => onShowToStaff?.()}
-        style={styles.stubCta}
+        style={({ pressed }) => [styles.showToStaffCta, pressed && styles.showToStaffCtaPressed]}
       >
         <LinearGradient
-          colors={[color.surface.subtle, color.surface.subtle]}
+          colors={[color.brandRose, color.brandCoral]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={StyleSheet.absoluteFillObject}
         />
-        <Eye size={18} color={color.text.tertiary} strokeWidth={2.4} />
-        <Text variant="label.md" style={styles.stubText}>
-          Show to Staff (available next milestone)
+        <Eye size={18} color="#FFFFFF" strokeWidth={2.4} />
+        <Text variant="label.md" style={styles.showToStaffText}>
+          Show to Staff
         </Text>
       </Pressable>
+
+      {/* M3 validated indicator — rendered when staff has already
+          validated the redemption. Surfaces on return visits so the
+          user doesn't need to reopen Show-to-Staff to see the status. */}
+      {isValidated ? (
+        <View style={styles.validatedPill} testID="redemption-details-validated-pill">
+          <CheckCircle2 size={14} color={color.savingsGreen} strokeWidth={2.4} />
+          <Text variant="label.md" style={styles.validatedText}>
+            Validated by staff
+          </Text>
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -312,7 +333,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginLeft: spacing[3],
   },
-  stubCta: {
+  showToStaffCta: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -320,11 +341,31 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3],
     borderRadius: radius.lg,
     overflow: 'hidden',
-    opacity: opacity.disabled,
   },
-  stubText: {
+  showToStaffCtaPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  showToStaffText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  validatedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(22, 163, 74, 0.10)',
+    marginTop: spacing[2],
+  },
+  validatedText: {
     fontSize: 12,
     fontWeight: '700',
-    color: color.text.tertiary,
+    color: color.savingsGreen,
   },
 })

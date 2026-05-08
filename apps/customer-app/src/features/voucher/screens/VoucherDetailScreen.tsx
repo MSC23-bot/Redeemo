@@ -978,22 +978,60 @@ export function VoucherDetailScreen() {
               QA: the card is the dominant post-redemption content
               (code + voucher summary + saved amount), but the hero
               still anchors visual identity, so the card belongs UNDER
-              the hero, not above it. Persisted return-visit details
-              remain §P2 deferred — only renders when `lastRedemption`
-              is in memory immediately after redemption. */}
-          {stateKey === 'redeemed-this-cycle' && lastRedemption ? (
-            <View style={styles.redeemedDetailsInStack}>
-              <RedemptionDetailsCard
-                redemptionCode={lastRedemption.redemptionCode}
-                redeemedAt={lastRedemption.redeemedAt}
-                branchName={branchName}
-                voucherType={voucher.type}
-                voucherTitle={voucher.title}
-                merchantName={voucher.merchant.businessName}
-                estimatedSaving={voucher.estimatedSaving}
-              />
-            </View>
-          ) : null}
+              the hero, not above it.
+
+              **§Q6 invariant (locked 2026-05-08):** the LOAD-BEARING
+              gate is `stateKey === 'redeemed-this-cycle'`, NOT the
+              presence of any redemption data. After cycle rollover
+              `voucher.isRedeemedThisCycle` flips false → stateKey
+              reverts → this branch returns null even if a stale
+              `voucher.lastRedemption` persists in the payload.
+
+              Source priority (post-M3 Task 17): in-memory
+              `lastRedemption` (just-redeemed, freshest data + branch
+              tile from merchant.branches) takes precedence over the
+              persisted `voucher.lastRedemption` block from the
+              backend payload (return visits during the active
+              cycle). Both are merged into a single `displayRedemption`
+              shape so the JSX stays readable. */}
+          {(() => {
+            if (stateKey !== 'redeemed-this-cycle') return null
+            const displayRedemption = lastRedemption
+              ? {
+                  code:        lastRedemption.redemptionCode,
+                  redeemedAt:  lastRedemption.redeemedAt,
+                  branchName:  branchName,
+                  isValidated: false,            // just-redeemed; backend hasn't yet observed staff scan
+                }
+              : voucher.lastRedemption
+                ? {
+                    code:        voucher.lastRedemption.code,
+                    redeemedAt:  voucher.lastRedemption.redeemedAt,
+                    branchName:  voucher.lastRedemption.branch.name,
+                    isValidated: voucher.lastRedemption.isValidated,
+                  }
+                : null
+            if (!displayRedemption) return null
+            return (
+              <View style={styles.redeemedDetailsInStack}>
+                <RedemptionDetailsCard
+                  redemptionCode={displayRedemption.code}
+                  redeemedAt={displayRedemption.redeemedAt}
+                  branchName={displayRedemption.branchName}
+                  voucherType={voucher.type}
+                  voucherTitle={voucher.title}
+                  merchantName={voucher.merchant.businessName}
+                  estimatedSaving={voucher.estimatedSaving}
+                  isValidated={displayRedemption.isValidated}
+                  onShowToStaff={() => setShowToStaff({
+                    code:       displayRedemption.code,
+                    redeemedAt: displayRedemption.redeemedAt,
+                    branchName: displayRedemption.branchName ?? '',
+                  })}
+                />
+              </View>
+            )
+          })()}
 
           {/* CycleRulesCard — REDEEMED-STATE position (locked
               2026-05-08 from device QA). Sits inside the coupon

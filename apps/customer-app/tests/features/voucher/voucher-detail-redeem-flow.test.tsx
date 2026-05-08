@@ -30,6 +30,33 @@ jest.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: any) => children ?? null,
 }))
 
+// ── ShowToStaff mock ────────────────────────────────────────────────────
+// M3 Task 16+17 introduced ShowToStaff as a Modal target wired from
+// SuccessPopup AND from RedemptionDetailsCard. We mock it here so the
+// existing 46 redeem-flow tests don't have to render the real
+// full-screen surface (which has its own 24-case suite). The mock
+// captures props as a JSON string in `accessibilityLabel` so M3d
+// integration tests can assert wiring without globalThis state.
+jest.mock('@/features/voucher/components/ShowToStaff', () => {
+  const React = require('react')
+  const { View } = require('react-native')
+  return {
+    ShowToStaff: jest.fn((props) =>
+      React.createElement(View, {
+        testID: 'show-to-staff-mounted',
+        accessibilityLabel: JSON.stringify({
+          code:         props.redemptionCode,
+          branch:       props.branchName,
+          title:        props.voucherTitle,
+          type:         props.voucherType,
+          merchant:     props.merchantName,
+          customerName: props.customerName,
+        }),
+      }),
+    ),
+  }
+})
+
 // ── expo-router stub ────────────────────────────────────────────────────
 let mockParams: Record<string, string | undefined> = { id: 'v1' }
 const mockPush = jest.fn()
@@ -1425,3 +1452,77 @@ describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent bra
     expect(calls.every(([url]) => !String(url).includes('branchChanged'))).toBe(true)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════
+// M3 Task 17 — persisted return-visit RedemptionDetailsCard.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('persisted return-visit RedemptionDetailsCard (M3 Task 17)', () => {
+  function persistedRedemption(overrides: any = {}) {
+    return {
+      code:        'A7K2P9X4',
+      redeemedAt:  '2026-05-08T10:00:00.000Z',
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+      ...overrides,
+    }
+  }
+
+  it('renders RedemptionDetailsCard from voucher.lastRedemption when no in-memory redemption exists', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption(),
+    })
+
+    const { getByText, getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(getByText('A7K2 P9X4')).toBeTruthy()
+    // Branch surfaces from voucher.lastRedemption.branch.name.
+    expect(getByText('Brightlingsea')).toBeTruthy()
+  })
+
+  it('Show-to-Staff button on the persisted card mounts ShowToStaff with the persisted code', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption(),
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('show-to-staff-mounted')).toBeNull()
+
+    fireEvent.press(getByTestId('redemption-details-show-to-staff'))
+
+    const mounted = getByTestId('show-to-staff-mounted')
+    const props = JSON.parse(mounted.props.accessibilityLabel as string)
+    expect(props.code).toBe('A7K2P9X4')
+    expect(props.branch).toBe('Brightlingsea')
+    expect(props.title).toBe('Free Filter Coffee with Any Thali')
+    expect(props.type).toBe('FREEBIE')
+    expect(props.merchant).toBe('Covelum Restaurant')
+    expect(props.customerName).toBe('') // §U1 lock
+  })
+
+  it('renders the validated pill when voucher.lastRedemption.isValidated is true', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption({
+        isValidated: true,
+        validatedAt: '2026-05-08T10:01:30.000Z',
+      }),
+    })
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+  })
+
+  it('does NOT render RedemptionDetailsCard when voucher.lastRedemption is null and not redeemed', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+})
+
