@@ -150,7 +150,10 @@ describe('api refresh client', () => {
     expect(reasons).toEqual(['SESSION_REPLACED'])
   })
 
-  it('falls back to SESSION_EXPIRED when refresh response has no parseable body (network error / non-JSON)', async () => {
+  it('falls back to SESSION_EXPIRED when refresh 4xx body is non-JSON (auth-terminal default)', async () => {
+    // 4xx + non-JSON body → still auth-terminal. Backend returned a
+    // status-coded reject; we just couldn't read the inner code, so
+    // we conservatively assume generic SESSION_EXPIRED.
     api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
     const reasons: string[] = []
     api.onSessionExpired((reason) => {
@@ -158,7 +161,7 @@ describe('api refresh client', () => {
     })
     global.fetch = jest.fn(async (url: string) => {
       if (url.endsWith('/api/v1/customer/auth/refresh')) {
-        return new Response('not json', { status: 502 })
+        return new Response('not json', { status: 401 })
       }
       return new Response('{}', { status: 401 })
     }) as unknown as typeof fetch
@@ -192,6 +195,147 @@ describe('api refresh client', () => {
     await expect(api.get('/anything')).rejects.toMatchObject({
       message: 'Your account was signed in on another device, so this session has ended.',
     })
+  })
+
+  // ── Transport vs auth-terminal distinction (PR #52 deferred-followups §AC11) ────
+  //
+  // Owner-locked rule 2026-05-08: transport failures during refresh
+  // (network down, server unreachable, 5xx, dev-server bouncing on
+  // EADDRINUSE, gateway returning HTML) MUST NOT clear the user's
+  // auth state. The refresh token might still be valid; only an
+  // auth-terminal 4xx response (REFRESH_TOKEN_INVALID, SESSION_REPLACED)
+  // is allowed to sign the user out. Otherwise a flaky network blip
+  // bounces them back to the login screen.
+
+  it('preserves tokens + does NOT fire onSessionExpired when refresh fetch() throws (network unreachable)', async () => {
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
+    const reasons: string[] = []
+    api.onSessionExpired((reason) => reasons.push(reason))
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        // Simulates DNS failure, connection refused, server unreachable.
+        throw new Error('Network request failed')
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/anything')).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+    })
+    expect(reasons).toEqual([])
+
+    // Critical regression pin: a follow-up request must still carry
+    // the OLD bearer because tokens were NOT cleared. If this assertion
+    // fails, the user has been spuriously signed out by a network blip.
+    let bearerSeen: string | undefined
+    global.fetch = jest.fn(async (_url: string, init?: RequestInit) => {
+      bearerSeen = ((init?.headers ?? {}) as Record<string, string>)['Authorization']
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    await api.get('/follow-up')
+    expect(bearerSeen).toBe('Bearer STALE')
+  })
+
+  it('preserves tokens + does NOT fire onSessionExpired when refresh returns 500 (server error)', async () => {
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
+    const reasons: string[] = []
+    api.onSessionExpired((reason) => reasons.push(reason))
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response('{"error": "Internal Server Error"}', { status: 500 })
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/anything')).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+    })
+    expect(reasons).toEqual([])
+  })
+
+  it('preserves tokens + does NOT fire onSessionExpired when refresh returns 502 with HTML body (gateway error)', async () => {
+    // Real-world: corporate proxy / Cloudflare / load balancer returns
+    // 502/503/504 with an HTML error page during a backend outage. We
+    // must NOT log the user out for a temporary gateway problem.
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
+    const reasons: string[] = []
+    api.onSessionExpired((reason) => reasons.push(reason))
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response('<html><body>502 Bad Gateway</body></html>', {
+          status: 502,
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/anything')).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+    })
+    expect(reasons).toEqual([])
+  })
+
+  it('preserves tokens + does NOT fire onSessionExpired when refresh returns 503 (service unavailable)', async () => {
+    // The exact dev-QA scenario: backend bounced on `EADDRINUSE` while
+    // the user was off-network, came back, server returns 503 during
+    // restart. App must NOT sign the user out for a 5-second outage.
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
+    const reasons: string[] = []
+    api.onSessionExpired((reason) => reasons.push(reason))
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response('Service Unavailable', { status: 503 })
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/anything')).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+    })
+    expect(reasons).toEqual([])
+  })
+
+  it('preserves tokens across a transport failure → next refresh attempt can succeed normally (the user stays signed in)', async () => {
+    // Belt-and-braces full round trip: transport fail, then network
+    // recovers, refresh succeeds, original retry works. Pins the
+    // "stay signed in across transient blips" contract.
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
+
+    // Phase 1: refresh fetch throws → NETWORK_ERROR, tokens preserved.
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        throw new Error('Network request failed')
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+    await expect(api.get('/x')).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+
+    // Phase 2: network recovers. Same access token → 401 again →
+    // refresh now succeeds → retry uses NEW token. The refreshing
+    // promise was nulled by the previous failure so a fresh attempt
+    // can run.
+    let calls = 0
+    global.fetch = jest.fn(async (url: string) => {
+      calls++
+      if (calls === 1) return new Response('{}', { status: 401 })
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response(
+          JSON.stringify({ accessToken: 'NEW_ACCESS', refreshToken: 'NEW_REFRESH' }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    const res = await api.get<{ ok: boolean }>('/y')
+    expect(res.ok).toBe(true)
   })
 
   it('clears tokens, fires onSessionExpired, and throws SESSION_EXPIRED when refresh returns 400 (Zod-parse failure on backend)', async () => {

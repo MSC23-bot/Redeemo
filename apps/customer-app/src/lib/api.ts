@@ -39,16 +39,49 @@ let onTokensRefreshedCb:
 let refreshing: Promise<void> | null = null
 
 /**
- * Internal sentinel thrown from `refreshTokens()` when the refresh
- * response carries a recognised customer-facing error code (currently
- * `SESSION_REPLACED`). The catch path in `doFetch` reads `.reason` to
- * decide which user-facing copy the bridge should show.
+ * AUTH-TERMINAL refresh failure. Thrown from `refreshTokens()` when the
+ * backend returns a 4xx response indicating the session is genuinely
+ * over (`REFRESH_TOKEN_INVALID`, `SESSION_REPLACED`). The catch path
+ * in `doFetch` clears tokens, fires `onSessionExpired(reason)`, and
+ * throws `ApiClientError` with the matching code. After this fires
+ * the user IS signed out.
  */
 class RefreshFailedError extends Error {
+  readonly kind = 'auth-terminal' as const
   readonly reason: SignOutReason
   constructor(reason: SignOutReason, message?: string) {
-    super(message ?? 'refresh failed')
+    super(message ?? `refresh failed (${reason})`)
+    this.name = 'RefreshFailedError'
     this.reason = reason
+  }
+}
+
+/**
+ * TRANSPORT refresh failure. Thrown from `refreshTokens()` when the
+ * refresh request itself could not complete or the backend returned a
+ * 5xx response. Cases that fall here:
+ *   - `fetch()` rejection: DNS failure, connection refused, server
+ *     unreachable, request abort/timeout, offline.
+ *   - HTTP 5xx response: backend crashed, gateway timeout, dev server
+ *     restarting (e.g. `EADDRINUSE` during a hot-reload).
+ *   - Non-JSON response from a misbehaving gateway.
+ *
+ * Critical contract: this case MUST NOT clear the user's auth state.
+ * The refresh token might still be valid; the user must stay signed
+ * in across transient network/server blips and try again later.
+ * `doFetch` translates this into a NETWORK_ERROR `ApiClientError` so
+ * React Query / mutation cache callers can retry without the user
+ * being kicked back to the login screen.
+ *
+ * Locked 2026-05-08, deferred-followups §AC11 (PR #52).
+ */
+class RefreshTransportError extends Error {
+  readonly kind = 'transport' as const
+  readonly cause?: unknown
+  constructor(message: string, cause?: unknown) {
+    super(message)
+    this.name = 'RefreshTransportError'
+    if (cause !== undefined) this.cause = cause
   }
 }
 
@@ -107,21 +140,32 @@ async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): P
       await refreshTokens()
       return doFetch<T>(path, init, false)
     } catch (refreshErr) {
-      // Inspect the inner error code so the bridge can show distinct
-      // copy for "signed in on another device" vs generic "session
-      // expired". `RefreshFailedError.reason` is set by `refreshTokens()`
-      // when the backend returns a recognised code; any other failure
-      // (network, parse, missing-context) falls back to SESSION_EXPIRED.
-      const reason: SignOutReason =
-        refreshErr instanceof RefreshFailedError ? refreshErr.reason : 'SESSION_EXPIRED'
-      tokens = { access: null, refresh: null, sessionId: null, entityId: null }
-      onSessionExpiredCb?.(reason)
+      // Auth-terminal: backend confirmed the session is over. Clear
+      // tokens, notify the bridge with the reason so it can pick
+      // distinct copy (SESSION_REPLACED vs SESSION_EXPIRED), and
+      // surface a typed ApiClientError to callers.
+      if (refreshErr instanceof RefreshFailedError) {
+        tokens = { access: null, refresh: null, sessionId: null, entityId: null }
+        onSessionExpiredCb?.(refreshErr.reason)
+        throw new ApiClientError(
+          refreshErr.reason === 'SESSION_REPLACED'
+            ? 'Your account was signed in on another device, so this session has ended.'
+            : 'Session expired',
+          refreshErr.reason,
+          401,
+        )
+      }
+      // Transport: network blip, server unreachable, 5xx, dev-server
+      // restarting (EADDRINUSE), gateway returning HTML. The user must
+      // STAY signed in — refresh will succeed on the next attempt.
+      // Surface a retryable NETWORK_ERROR so the caller (React Query
+      // mutation cache, query retry) can handle it as a transient
+      // failure. tokens are intentionally NOT cleared.
+      // Locked 2026-05-08, deferred-followups §AC11.
       throw new ApiClientError(
-        reason === 'SESSION_REPLACED'
-          ? 'Your account was signed in on another device, so this session has ended.'
-          : 'Session expired',
-        reason,
-        401,
+        'Connection lost. Check your network and try again.',
+        'NETWORK_ERROR',
+        0,
       )
     }
   }
@@ -161,15 +205,33 @@ async function refreshTokens(): Promise<void> {
   if (!tokens.refresh || !tokens.sessionId || !tokens.entityId) throw new Error('missing refresh context')
   if (refreshing) return refreshing
   refreshing = (async () => {
-    const r = await fetch(`${BASE_URL}/api/v1/customer/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        refreshToken: tokens.refresh,
-        sessionId:    tokens.sessionId,
-        entityId:     tokens.entityId,
-      }),
-    })
+    // fetch() rejection is a TRANSPORT failure — DNS down, server
+    // unreachable, request abort, offline. NEVER auth-terminal: the
+    // refresh token might still be valid. Locked 2026-05-08
+    // (deferred-followups §AC11) after a device-QA logout caused by
+    // the dev server bouncing on `EADDRINUSE` while the phone was
+    // off-network.
+    let r: Response
+    try {
+      r = await fetch(`${BASE_URL}/api/v1/customer/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          refreshToken: tokens.refresh,
+          sessionId:    tokens.sessionId,
+          entityId:     tokens.entityId,
+        }),
+      })
+    } catch (fetchErr) {
+      throw new RefreshTransportError('refresh fetch failed', fetchErr)
+    }
+    // 5xx → server-side problem. Same treatment as a network failure:
+    // preserve auth, surface a retryable error, the user stays signed
+    // in. Covers backend crash, gateway 502/503/504, dev-server hot-
+    // reload windows, etc.
+    if (r.status >= 500) {
+      throw new RefreshTransportError(`refresh server error (${r.status})`)
+    }
     if (!r.ok) {
       // Parse the error envelope so the inner code (REFRESH_TOKEN_INVALID
       // vs SESSION_REPLACED vs anything else) propagates to the catch in
