@@ -1464,7 +1464,11 @@ describe('persisted return-visit RedemptionDetailsCard (M3 Task 17)', () => {
   function persistedRedemption(overrides: any = {}) {
     return {
       code:        'A7K2P9X4',
-      redeemedAt:  '2026-05-08T10:00:00.000Z',
+      // 30 min ago — inside the 2h presentation window, so the
+      // RedemptionDetailsCard renders the code + Show-to-Staff button
+      // (the §AE gate is open). Computed at call time so the value
+      // stays "recent" regardless of when the test runs.
+      redeemedAt:  new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       branch:      { id: 'b1', name: 'Brightlingsea' },
       isValidated: false,
       validatedAt: null,
@@ -1542,9 +1546,14 @@ describe('persisted return-visit RedemptionDetailsCard (M3 Task 17)', () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('§Q6 cycle-rollover invariant — RedemptionDetailsCard gate (M3 Task 18)', () => {
+  // The §Q6 invariant is independent of the presentation-window gate —
+  // it operates on `voucher.isRedeemedThisCycle`, not on `redeemedAt`.
+  // BUT in PHASE 1 the test asserts the rendered CODE is visible, which
+  // requires the §AE window to ALSO be open. Use a recent timestamp so
+  // both gates align.
   const persistedFixture = {
     code:        'A7K2P9X4',
-    redeemedAt:  '2026-05-08T10:00:00.000Z',
+    redeemedAt:  new Date(Date.now() - 30 * 60 * 1000).toISOString(),
     branch:      { id: 'b1', name: 'Brightlingsea' },
     isValidated: false,
     validatedAt: null,
@@ -1616,7 +1625,11 @@ describe('ShowToStaff → RedemptionDetailsCard validated propagation (PR #49 re
   function persistedRedemption(overrides: any = {}) {
     return {
       code:        'A7K2P9X4',
-      redeemedAt:  '2026-05-08T10:00:00.000Z',
+      // 30 min ago — inside the 2h presentation window, so the
+      // RedemptionDetailsCard renders the code + Show-to-Staff button
+      // (the §AE gate is open). Computed at call time so the value
+      // stays "recent" regardless of when the test runs.
+      redeemedAt:  new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       branch:      { id: 'b1', name: 'Brightlingsea' },
       isValidated: false,
       validatedAt: null,
@@ -1699,5 +1712,119 @@ describe('ShowToStaff → RedemptionDetailsCard validated propagation (PR #49 re
     })
     const view2 = wrap(<VoucherDetailScreen />)
     expect(view2.queryByTestId('redemption-details-validated-pill')).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// §AE — Presentation-window gate on Voucher Detail (locked 2026-05-08,
+// owner direction PR #49 review).
+//
+// Once the 2-hour handoff window expires (or staff has validated), the
+// redemption code + Show-to-Staff entry point disappear from Voucher
+// Detail. The user still sees a redeemed-state surface — the seal +
+// non-sensitive details — but cannot re-show a code that staff might
+// be tricked into scanning a second time. Code retrieval moves to
+// Profile → Redemption History (full surface deferred).
+//
+// Pin both branches: in-window (button visible) AND out-of-window
+// (button hidden + history tip + seal surfaces).
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('§AE — Voucher Detail presentation-window gate', () => {
+  function persistedAt(redeemedAt: string) {
+    return {
+      code:        'A7K2P9X4',
+      redeemedAt,
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+    }
+  }
+
+  it('IN-WINDOW (30 min ago): code + Show-to-Staff visible, history tip hidden, seal hidden', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(getByTestId('redemption-details-code')).toBeTruthy()
+    expect(getByTestId('redemption-details-show-to-staff')).toBeTruthy()
+    expect(queryByTestId('redemption-details-history-tip')).toBeNull()
+    expect(queryByTestId('redeemed-seal')).toBeNull()
+  })
+
+  it('OUT-OF-WINDOW (3 hours ago): code hidden, Show-to-Staff hidden, history tip + seal surface', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // Card surface is still mounted (for header / summary / info rows /
+    // disclaimer + validated pill if applicable) but the code surface
+    // and Show-to-Staff entry are gone.
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(queryByTestId('redemption-details-code')).toBeNull()
+    expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+    expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
+    // RedeemedSeal mounts at the screen level (between RedeemedBadge
+    // and the time-limited banner).
+    expect(getByTestId('redeemed-seal')).toBeTruthy()
+  })
+
+  it('VALIDATED (regardless of window): code hidden, Show-to-Staff hidden, validated pill + seal surface', () => {
+    // Validated is terminal — once staff has scanned, the code
+    // surface collapses even if the customer is technically still
+    // inside the 2h window.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 min ago, in-window
+      ),
+    })
+    // Override the persisted isValidated flag.
+    mockVoucherData.lastRedemption.isValidated = true
+    mockVoucherData.lastRedemption.validatedAt = new Date().toISOString()
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-code')).toBeNull()
+    expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+    expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+    expect(getByTestId('redeemed-seal')).toBeTruthy()
+  })
+
+  it('OUT-OF-WINDOW does NOT mount ShowToStaff even with a programmatic press attempt', () => {
+    // Defense-in-depth pin (locked 2026-05-08, PR #49 review): the
+    // card hides the CTA, but if a future render-tree race re-attaches
+    // it, the parent's onShowToStaff handler must ALSO refuse to mount
+    // ShowToStaff. The test confirms `show-to-staff-mounted` does not
+    // appear after the gate has flipped closed.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    // The CTA testID is gone — there's nothing to press. This is the
+    // user-visible surface guarantee. The handler-side guard is
+    // implicit: even if a press were synthesised against a stale
+    // node, the `if (showRedeemedSeal) return` early-out in
+    // VoucherDetailScreen would block ShowToStaff from mounting.
+    expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+    expect(queryByTestId('show-to-staff-mounted')).toBeNull()
+  })
+
+  it('non-redeemed states do NOT render the seal (gate is scoped to redeemed-this-cycle)', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redeemed-seal')).toBeNull()
   })
 })

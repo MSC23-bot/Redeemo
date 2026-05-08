@@ -191,4 +191,100 @@ describe('RedemptionDetailsCard', () => {
       expect(codeIdx).toBeGreaterThan(summaryIdx)
     })
   })
+
+  // Presentation-window state machine (locked 2026-05-08, owner direction
+  // PR #49). The card surfaces the redemption code + Show-to-Staff button
+  // ONLY when both gates pass:
+  //   - isPresentationActive = true (≤2h since redemption)
+  //   - isValidated = false (staff hasn't verified yet)
+  // When either gate fails, the code surface collapses to a tip line
+  // pointing at Profile → Redemption History; the rest of the card
+  // (header, summary, info rows, disclaimer) stays so the surface still
+  // answers "what / where / when".
+  describe('presentation-window state machine', () => {
+    it('default (isPresentationActive omitted, isValidated false): shows code + Show-to-Staff', () => {
+      // Back-compat default — when the prop is unspecified the gate is
+      // open. SuccessPopup test fixtures + the in-memory just-redeemed
+      // flow rely on this.
+      const { getByTestId, queryByTestId } = render(
+        <RedemptionDetailsCard {...defaults()} />,
+      )
+      expect(getByTestId('redemption-details-code')).toBeTruthy()
+      expect(getByTestId('redemption-details-show-to-staff')).toBeTruthy()
+      expect(queryByTestId('redemption-details-history-tip')).toBeNull()
+    })
+
+    it('isPresentationActive=true + !isValidated: shows code + Show-to-Staff (in-window persisted return)', () => {
+      const { getByTestId, queryByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({ isPresentationActive: true, isValidated: false })}
+        />,
+      )
+      expect(getByTestId('redemption-details-code')).toBeTruthy()
+      expect(getByTestId('redemption-details-show-to-staff')).toBeTruthy()
+      expect(queryByTestId('redemption-details-history-tip')).toBeNull()
+    })
+
+    it('isPresentationActive=false: hides code, hides Show-to-Staff, shows history tip', () => {
+      const { getByTestId, queryByTestId } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
+      )
+      expect(queryByTestId('redemption-details-code')).toBeNull()
+      expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+      expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
+    })
+
+    it('isValidated=true (regardless of window): hides code + button, shows tip + validated pill', () => {
+      // Validation is terminal — once staff has scanned, the user no
+      // longer needs the code re-exposed even if they're inside the
+      // 2h window.
+      const { getByTestId, queryByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({ isPresentationActive: true, isValidated: true })}
+        />,
+      )
+      expect(queryByTestId('redemption-details-code')).toBeNull()
+      expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+      expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
+      expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+    })
+
+    it('history tip copy points to Profile → Redemption History', () => {
+      const { getByText } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
+      )
+      expect(
+        getByText(/find this code in Profile → Redemption History/i),
+      ).toBeTruthy()
+    })
+
+    it('non-sensitive details remain when window expired (header / summary / info rows / disclaimer)', () => {
+      // The card still answers "what was used, where, when" even with
+      // the code surface collapsed. Critical for the "I redeemed
+      // something hours ago, what was it?" return-visit case.
+      const { getByText, getByTestId } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
+      )
+      // Header
+      expect(getByText('Redemption Details')).toBeTruthy()
+      // Voucher summary block
+      expect(getByTestId('redemption-details-summary')).toBeTruthy()
+      expect(getByTestId('redemption-details-title')).toBeTruthy()
+      expect(getByTestId('redemption-details-merchant')).toBeTruthy()
+      // Branch / date / time info row (one of three)
+      expect(getByText('Brightlingsea')).toBeTruthy()
+      // Saving disclaimer
+      expect(getByTestId('redemption-details-saving-disclaimer')).toBeTruthy()
+    })
+
+    it('Show-to-Staff is also hidden under a press-attempt fallback (regression pin)', () => {
+      // Belt-and-braces: if a future refactor reintroduces the button
+      // without re-evaluating the gate, this test will fail because
+      // there's no testID to press.
+      const { queryByTestId } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
+      )
+      expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+    })
+  })
 })

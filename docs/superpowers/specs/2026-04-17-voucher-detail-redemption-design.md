@@ -665,6 +665,63 @@ After the Bundle E task list completed, three commits landed on the M3 branch ad
 
 **Locked SuccessPopup deferred polish (cross-ref §S2).** The broader visual redesign — confetti, saving amount surfacing, Rate & Review CTA visual treatment, Rate & Review routing — remains deferred. M3 ships the ANTI-FRAUD baseline (live timestamp + staff-verify copy); the design pass is a §S2 follow-up.
 
+### 8.10.1 As shipped — Presentation-window gate (§AE, locked 2026-05-08, owner direction PR #49)
+
+The persisted-return-visit RedemptionDetailsCard from §8.10 is correct for the realistic post-redemption "I want to see my code on the way to the till" use case during the in-store handoff window. Persisting the live code surface beyond that window — hours or days later — re-exposes a code that staff might be tricked into honouring a second time. Backend cycle quota (§Q6) is the hard authority and rejects the second server-side claim, but staff who don't run the validation flow can still be socially-engineered. This subsection closes that gap.
+
+**Owner-locked product picks (do not relitigate without explicit approval):**
+
+- **Window: 2 hours from `redeemedAt`.** Constant: `PRESENTATION_WINDOW_MS = 2 * 60 * 60 * 1000`.
+- **Behaviour after window: FULLY HIDE.** No QR, no manual code, no "for your records" text on Voucher Detail.
+- **Validated is terminal regardless of window.** Once staff has scanned, the code surface collapses even inside the 2h window.
+- **Code retrieval after window**: tip line points users to **Profile → Redemption History**. Full surface deferred (§Q5).
+- **Hook design: setTimeout-at-expiry, not polling.**
+
+**Frontend wiring:**
+
+- New helper + hook at `apps/customer-app/src/features/voucher/utils/presentationWindow.ts`:
+  - `PRESENTATION_WINDOW_MS = 2 * 60 * 60 * 1000`.
+  - `isPresentationActive(redeemedAt: string, now: number = Date.now()): boolean` — pure helper. Defensive on malformed ISO (returns false, no throw).
+  - `usePresentationActive(redeemedAt: string | null): boolean` — hook. Single setTimeout fires once at the boundary; no interval/polling. Returns false on null. Already-expired-on-mount path skips arming a timer.
+- New `<RedeemedSeal>` component at `apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx` — tilted (-8°) brand-rose badge with two lines:
+  - "VOUCHER REDEEMED" (heading, 900-weight, uppercase, brand-rose).
+  - "Renews on <date>" (small, 700-weight, brand-rose, opacity 0.85).
+  - Mounts at the screen level between RedeemedBadge and the time-limited banner (NOT inside the card).
+- `<RedemptionDetailsCard>` extended with `isPresentationActive?: boolean` prop (defaults to `true` for back-compat with SuccessPopup test fixtures + the in-memory just-redeemed flow):
+  - `showCodeSurface = isPresentationActive AND !isValidated`.
+  - When `showCodeSurface` is true: full card surface unchanged from §8.10.
+  - When `showCodeSurface` is false: REDEMPTION CODE box + Show-to-Staff CTA are SUPPRESSED. A tip line replaces them: *"You'll be able to find this code in Profile → Redemption History."* (testID `redemption-details-history-tip`). Header / voucher summary / branch+date+time info rows / saving disclaimer / validated pill all remain.
+- `VoucherDetailScreen` wiring:
+  - `redemptionRedeemedAt = lastRedemption?.redeemedAt ?? voucher?.lastRedemption?.redeemedAt ?? null` (lifted out of the displayRedemption IIFE so the hook is called unconditionally per rules-of-hooks).
+  - `isPresentationActive = usePresentationActive(redemptionRedeemedAt)`.
+  - `isRedemptionValidated = (validatedSession === lastRedemption?.redemptionCode) || voucher?.lastRedemption?.isValidated || false`.
+  - `showRedeemedSeal = !!redemptionRedeemedAt && (!isPresentationActive || isRedemptionValidated)`.
+  - Hero (`<CouponHeader>`) wrapped in `<View style={showRedeemedSeal ? styles.heroDimmed : null}>` where `heroDimmed: { opacity: 0.55 }`.
+  - `<RedeemedSeal availableAgainAt={voucher.availableAgainAt} />` mounts when `stateKey === 'redeemed-this-cycle' && showRedeemedSeal`.
+  - `RedemptionDetailsCard.onShowToStaff` callback gated with `if (showRedeemedSeal) return` — defense-in-depth alongside the hidden CTA. Even a programmatic press / re-render race / synthesised event cannot mount ShowToStaff after the gate has flipped.
+
+**Screen-capture protection released after window.** No special handling needed: the protection hook only mounts inside `<ShowToStaff>`, and ShowToStaff cannot open after the gate flips. The static seal + non-sensitive details surface does not carry code-grade sensitivity.
+
+**Test pins:**
+
+- `tests/features/voucher/utils/presentationWindow.test.ts`: 16/16 — constant value, helper boundaries, hook null/active/expired paths, single-timer pin (no polling), unmount cleanup, redeemedAt-change re-arm.
+- `tests/features/voucher/redemption-details-card.test.tsx`: +7 state-machine cases (28/28 total) — default open, in-window+!validated, out-of-window, validated regardless of window, history-tip copy pin, non-sensitive details remain, regression CTA-hidden pin.
+- `tests/features/voucher/voucher-detail-redeem-flow.test.tsx`: +5 §AE cases (61/61 total) — in-window code visible, out-of-window code hidden + tip + seal, validated regardless of window, defense-in-depth (no mount on press), non-redeemed states do not render seal. Earlier persisted-fixture `redeemedAt` constants updated to `new Date(Date.now() - 30 * 60 * 1000).toISOString()` so they remain inside the window regardless of when the test runs.
+
+**Backend:**
+
+- No backend changes in M3 §AE wave. The window is computed entirely client-side from `redeemedAt`. A future iteration may surface a backend `presentationExpiresAt` on the voucher payload (mirror of the client constant) for cross-device consistency / ops override capability — tracked as deferred-followups §AF.
+
+**Deferred to follow-up workstreams:**
+
+- Full polished SVG circular stamp replacing the text-based seal (§Q1).
+- Washed-out coupon visual treatment beyond the static `opacity: 0.55` hero overlay (§Q1).
+- Merchant-profile redeemed-card alignment (§Q1).
+- Profile → Redemption History full surface (the tip line points users there but the surface itself is not in M3) (Tier 2 plan-first workstream, §Q5).
+- Backend `presentationExpiresAt` mirror (§AF).
+
+**Cross-ref:** plan `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 Post-Bundle-E (D); deferred-followups §AE (locked picks + state machine) and §AF (backend mirror deferral).
+
 ---
 
 ## Section 9: Post-Redemption Automations

@@ -37,8 +37,10 @@ import { BranchPickerSheet, type PickerBranch } from '../components/BranchPicker
 import { PinEntrySheet } from '../components/PinEntrySheet'
 import { SuccessPopup } from '../components/SuccessPopup'
 import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
+import { RedeemedSeal } from '../components/RedeemedSeal'
 import { ShowToStaff } from '../components/ShowToStaff'
 import { useRedeem, type UseRedeemError } from '../hooks/useRedeem'
+import { usePresentationActive } from '../utils/presentationWindow'
 import type { RedeemResponse } from '@/lib/api/redemption'
 import { CTA_LABELS } from '../constants/productCopy'
 
@@ -472,6 +474,39 @@ export function VoucherDetailScreen() {
     if (!tile) return null
     return { name: tile.name, distance: tile.distance }
   }, [lastRedemption, merchant])
+
+  // ── Presentation-window gate (locked 2026-05-08, owner direction PR #49) ──
+  //
+  // Resolve the `redeemedAt` we'll pin the 2-hour window to, using the
+  // same source priority as the displayRedemption IIFE below: in-memory
+  // (PRIMARY) → persisted (FALLBACK) → null. Lifted out of the IIFE so
+  // `usePresentationActive` can be called unconditionally per rules of
+  // hooks, and so the boolean threads down to multiple surfaces (card,
+  // hero opacity, ShowToStaff handler guards) from a single source.
+  //
+  // After this redeemedAt + 2 hours elapse, the QR / code / Show-to-Staff
+  // entry points disappear from Voucher Detail. See
+  // `utils/presentationWindow.ts` for the contract.
+  const redemptionRedeemedAt = useMemo<string | null>(() => {
+    if (lastRedemption) return lastRedemption.redeemedAt
+    return voucher?.lastRedemption?.redeemedAt ?? null
+  }, [lastRedemption, voucher?.lastRedemption?.redeemedAt])
+  const isPresentationActive = usePresentationActive(redemptionRedeemedAt)
+  // Validated session covers the in-memory branch (which can't observe
+  // staff scan otherwise). For the persisted branch, the voucher
+  // payload's `lastRedemption.isValidated` is authoritative. Combined
+  // here so the hero treatment / ShowToStaff guard / card all read from
+  // a single resolved boolean.
+  const isRedemptionValidated = useMemo<boolean>(() => {
+    if (validatedSession && lastRedemption?.redemptionCode === validatedSession) return true
+    return voucher?.lastRedemption?.isValidated ?? false
+  }, [validatedSession, lastRedemption?.redemptionCode, voucher?.lastRedemption?.isValidated])
+  // The "redeemed seal" surfaces (a) after the 2h handoff window, OR
+  // (b) once validated. Either condition collapses Voucher Detail to
+  // the non-sensitive "you redeemed this; renews on <date>" view.
+  // Used to mount RedeemedSeal + apply hero opacity treatment + block
+  // ShowToStaff handlers (defense-in-depth alongside the hidden CTA).
+  const showRedeemedSeal = !!redemptionRedeemedAt && (!isPresentationActive || isRedemptionValidated)
   // Schedule the auto-show timer. All gates must hold:
   //   • screen is focused (cancels mid-delay if user navigates away)
   //   • voucher data has loaded (no flash before content)
@@ -967,21 +1002,30 @@ export function VoucherDetailScreen() {
               the gesture, opening the cream gap below the
               perforation. */}
           <Animated.View style={heroAnchorStyle}>
-            <CouponHeader
-              type={voucher.type}
-              title={voucher.title}
-              description={voucher.description}
-              estimatedSaving={voucher.estimatedSaving}
-              insetTop={insets.top}
-              onBack={handleBack}
-              onShare={handleShare}
-              onFav={handleFav}
-              isFavourited={voucher.isFavourited}
-              scrollY={scrollY}
-              fadeStart={FADE_START}
-              fadeEnd={FADE_END}
-              collapsedActive={collapsedActive}
-            />
+            {/* Hero opacity treatment — when the redeemed seal is
+                surfaced (post-2h window OR validated), mute the
+                hero so the seal carries the visual weight. The
+                scrolling/anchor behaviour is unchanged; this is a
+                static opacity overlay on top of the hero contents.
+                Locked 2026-05-08, PR #49 review (owner direction).
+                Defers full washed-out coupon design to §Q1. */}
+            <View style={showRedeemedSeal ? styles.heroDimmed : null}>
+              <CouponHeader
+                type={voucher.type}
+                title={voucher.title}
+                description={voucher.description}
+                estimatedSaving={voucher.estimatedSaving}
+                insetTop={insets.top}
+                onBack={handleBack}
+                onShare={handleShare}
+                onFav={handleFav}
+                isFavourited={voucher.isFavourited}
+                scrollY={scrollY}
+                fadeStart={FADE_START}
+                fadeEnd={FADE_END}
+                collapsedActive={collapsedActive}
+              />
+            </View>
             <PerforationLine pageBg={PAGE_BG} variant="outer" />
           </Animated.View>
 
@@ -1053,11 +1097,21 @@ export function VoucherDetailScreen() {
                   merchantName={voucher.merchant.businessName}
                   estimatedSaving={voucher.estimatedSaving}
                   isValidated={displayRedemption.isValidated}
-                  onShowToStaff={() => setShowToStaff({
-                    code:       displayRedemption.code,
-                    redeemedAt: displayRedemption.redeemedAt,
-                    branchName: displayRedemption.branchName ?? '',
-                  })}
+                  isPresentationActive={isPresentationActive}
+                  onShowToStaff={() => {
+                    // Defense-in-depth: even if the card's hidden CTA
+                    // is somehow reached (re-render race, stale render
+                    // tree, programmatic test invocation), refuse to
+                    // mount ShowToStaff once the seal state holds.
+                    // The card hides the button visually; this guard
+                    // hides the SURFACE. Locked 2026-05-08, PR #49.
+                    if (showRedeemedSeal) return
+                    setShowToStaff({
+                      code:       displayRedemption.code,
+                      redeemedAt: displayRedemption.redeemedAt,
+                      branchName: displayRedemption.branchName ?? '',
+                    })
+                  }}
                 />
               </View>
             )
@@ -1123,6 +1177,22 @@ export function VoucherDetailScreen() {
             Past-cycle history surface remains §Q5. */}
         {stateKey === 'redeemed-this-cycle' ? (
           <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
+        ) : null}
+
+        {/* RedeemedSeal — text-based "stamp" that surfaces once the
+            2-hour presentation window closes OR staff has validated.
+            Sits below the RedeemedBadge so the eye picks up:
+              "Redeemed on <date>"          (small green pill)
+              "VOUCHER REDEEMED"            (tilted brand seal)
+              "Renews on <date>"            (under the seal)
+            The seal IS the user-visible signal that this surface no
+            longer carries the redemption code. Without it, the
+            collapsed card alone wouldn't read as "this is closed off"
+            — it would just look like data with a missing button.
+            Full polished SVG stamp deferred to §Q1. Locked
+            2026-05-08, PR #49 review. */}
+        {stateKey === 'redeemed-this-cycle' && showRedeemedSeal ? (
+          <RedeemedSeal availableAgainAt={voucher.availableAgainAt ?? null} />
         ) : null}
 
         {timeLimited.isTimeLimited ? (
@@ -1506,6 +1576,13 @@ const styles = StyleSheet.create({
   // marginBottom:16 here to keep the 16pt gap consistent.
   redeemedCycleInStack: {
     marginBottom: 16,
+  },
+
+  // Hero dimming — applied when the redeemed seal is surfaced
+  // (post-2h handoff window OR validated). Just a static opacity;
+  // full washed-out coupon visual treatment is deferred to §Q1.
+  heroDimmed: {
+    opacity: 0.55,
   },
 
 

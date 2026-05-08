@@ -738,6 +738,45 @@ Test counts after final wave (after the hook split):
 
 **Locked iOS limitation (do not relitigate without owner approval):** the FIRST screenshot will capture the unblurred QR + 8-char code BEFORE the listener-driven blur paints. The blur + banner are post-fact mitigations. Staff training + merchant validation policy (never accept screenshots as proof) is the load-bearing fraud control. Cross-ref §AB iOS live-screen trust framing + §AE stronger anti-fraud options for v2 (QR hidden by default, tap-to-reveal, rotating QR, merchant policy formalisation).
 
+**(D) Presentation-window gate on Voucher Detail** (§AE, owner-direction PR #49 review).
+
+Owner reasoning: the persisted-return-visit RedemptionDetailsCard (Wave M3d Task 17) is correct for the realistic post-redemption "I want to see my code again" use case during the in-store handoff window, but persisting the live code surface beyond that window opens a social-engineering re-show vector. The backend cycle quota (§Q6) is the hard authority — the second redeem attempt server-side is rejected — but staff who don't run the validation flow can be tricked into honouring a code that's already been claimed. Closing the visible code surface after a 2-hour handoff window mitigates this without sacrificing the legitimate persisted-return-visit case (most users who reopen the voucher do so within minutes, not hours).
+
+Owner-locked picks (do not relitigate without explicit approval):
+
+- **Window duration: 2 hours.** Long enough to forgive an interrupted journey to the till; short enough that returning much later does not expose the code. Constant: `PRESENTATION_WINDOW_MS = 2 * 60 * 60 * 1000`.
+- **Behaviour after window: FULLY HIDE.** No QR, no manual code, no "for your records" text on Voucher Detail. Code retrieval moves to Profile → Redemption History (full surface deferred — M3 ships the tip line as the routing pointer).
+- **Validated is terminal regardless of window.** Once staff has scanned, the code surface collapses even if technically still inside the 2h window.
+- **Hook design: setTimeout-at-expiry, not polling.** Single timer fires once at the boundary. Backgrounding pauses the JS timer; on resume the timer fires either immediately (if it overran) or on time. Rules-of-hooks-safe because `usePresentationActive` is called unconditionally from the screen with the resolved `redeemedAt` priority (in-memory PRIMARY ?? persisted FALLBACK ?? null).
+- **Defense-in-depth: hide-and-guard.** The card hides the CTA visually; `VoucherDetailScreen.onShowToStaff` ALSO checks `if (showRedeemedSeal) return` so a programmatic press / re-render race / synthesised event cannot mount ShowToStaff after the gate has flipped.
+
+What ships:
+
+- **New helper + hook** at [apps/customer-app/src/features/voucher/utils/presentationWindow.ts](apps/customer-app/src/features/voucher/utils/presentationWindow.ts) — `PRESENTATION_WINDOW_MS`, `isPresentationActive(redeemedAt, now?)`, `usePresentationActive(redeemedAt: string | null)`. Defensive on malformed ISO (returns false, no throw). Defensive on null (returns false, no timer scheduled).
+- **New `<RedeemedSeal>` component** at [apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx](apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx) — tilted (-8°) brand-rose badge with two-line copy: "VOUCHER REDEEMED" + "Renews on <date>". Mounts at the screen level between RedeemedBadge and the time-limited banner. Replaces the M2/M3 active-state energy with a clear "this surface is closed" signal.
+- **`<RedemptionDetailsCard>` extended** with optional `isPresentationActive?: boolean` prop (defaults to `true` for back-compat with SuccessPopup test fixtures + the in-memory just-redeemed flow). When `(isPresentationActive AND !isValidated)` is false, the code box + Show-to-Staff CTA are suppressed; replaced by a tip line testID `redemption-details-history-tip` reading *"You'll be able to find this code in Profile → Redemption History."* Header / voucher summary / branch+date+time info rows / saving disclaimer / validated pill all remain — the card still answers "what was used, where, when".
+- **`VoucherDetailScreen` wiring**: lifts `redemptionRedeemedAt` resolution out of the displayRedemption IIFE so `usePresentationActive` is called unconditionally; computes `isRedemptionValidated` from `(validatedSession === code) || voucher.lastRedemption.isValidated`; computes `showRedeemedSeal = !!redeemedAt && (!isPresentationActive || isRedemptionValidated)`; passes `isPresentationActive` to the card; mounts `<RedeemedSeal>` when `stateKey === 'redeemed-this-cycle' && showRedeemedSeal`; wraps the hero (`<CouponHeader>`) in a View with `style={showRedeemedSeal ? styles.heroDimmed : null}` (`opacity: 0.55`); guards `onShowToStaff` with `if (showRedeemedSeal) return`.
+- **Screen-capture protection released after window.** No special handling needed: the protection hook on `<ShowToStaff>` only mounts when ShowToStaff is open, and ShowToStaff cannot be opened after the gate flips. The static seal + non-sensitive details surface does not carry code-grade sensitivity.
+
+Tests added:
+
+- `tests/features/voucher/utils/presentationWindow.test.ts` (NEW): **16/16 ✅** — constant value, in-window/at-boundary/out-of-window helper, malformed-ISO defence, default-now, hook null/expired/active mount paths, single-timer (no polling) pin, unmount-cleanup pin, redeemedAt-change re-arm, malformed-ISO no-timer.
+- `tests/features/voucher/redemption-details-card.test.tsx`: **28/28 ✅** (was 21: +7 presentation-window state-machine cases — default open, in-window+!validated, out-of-window, validated regardless of window, history-tip copy pin, non-sensitive details remain, regression CTA-hidden pin).
+- `tests/features/voucher/voucher-detail-redeem-flow.test.tsx`: **61/61 ✅** (was 56: +5 §AE pins — in-window code visible, out-of-window code hidden + tip + seal, validated regardless of window, defense-in-depth no-mount-on-press, non-redeemed states do not render seal). Earlier persisted-fixture `redeemedAt` constants updated to `new Date(Date.now() - 30 * 60 * 1000).toISOString()` so they remain inside the window regardless of when the test runs (was failing post-2026-05-08T10:00Z).
+- Focused voucher sweep (26 suites): **444/444 ✅**.
+
+Backend:
+
+- No backend changes in M3 §AE wave. The window is computed entirely client-side from `redeemedAt`. A future iteration may surface a backend `presentationExpiresAt` on the voucher payload (mirror of the client constant) for cross-device consistency / ops override capability — tracked under the §AF deferred follow-up.
+
+Known deferred (do NOT bundle into M3):
+
+- **Full polished SVG circular stamp** (replaces the text-based seal). §Q1 design pass.
+- **Washed-out coupon visual treatment** beyond the static `opacity: 0.55` hero overlay. §Q1.
+- **Merchant-profile redeemed-card** treatment alignment. §Q1.
+- **Profile → Redemption History** full surface (the tip line points users there but the surface itself is not in M3). Tier 2 plan-first workstream.
+- **Backend `presentationExpiresAt`** field on `voucher.lastRedemption` payload. §AF deferred — for now the constant lives only on the client.
+
 ---
 
 ## 8. On-device QA plan (cumulative across milestones)
