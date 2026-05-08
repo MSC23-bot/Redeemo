@@ -502,12 +502,10 @@ export function VoucherDetailScreen() {
     if (validatedSession && lastRedemption?.redemptionCode === validatedSession) return true
     return voucher?.lastRedemption?.isValidated ?? false
   }, [validatedSession, lastRedemption?.redemptionCode, voucher?.lastRedemption?.isValidated])
-  // The "redeemed seal" surfaces (a) after the 2h handoff window, OR
-  // (b) once validated. Either condition collapses Voucher Detail to
-  // the non-sensitive "you redeemed this; renews on <date>" view.
-  // Used to mount RedeemedSeal + apply hero opacity treatment + block
-  // ShowToStaff handlers (defense-in-depth alongside the hidden CTA).
-  const showRedeemedSeal = !!redemptionRedeemedAt && (!isPresentationActive || isRedemptionValidated)
+  // (Redeemed-state visual treatment — `showRedeemedSeal` +
+  // `blockShowToStaffMount` — is computed BELOW after `stateKey` is
+  // defined; can't be hoisted up here because `stateKey` depends on
+  // `voucher`, `subscription`, `timeLimited`, etc.)
   // Schedule the auto-show timer. All gates must hold:
   //   • screen is focused (cancels mid-delay if user navigates away)
   //   • voucher data has loaded (no flash before content)
@@ -591,6 +589,37 @@ export function VoucherDetailScreen() {
 
     return 'can-redeem'
   }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited, branchErrored])
+
+  // ── Redeemed-state visual treatment ─────────────────────────────────
+  //
+  // Owner direction (locked 2026-05-09 PR #49 device QA wave 8): the
+  // hero washed-out + seal overlay must appear AS SOON AS the voucher
+  // is redeemed — not gated on presentation-window expiry. The user
+  // needs an immediate visual confirmation that the voucher is now
+  // redeemed, even while the code is still being shown for the 2h
+  // handoff window. Previously these were gated on
+  // `(!isPresentationActive || isRedemptionValidated)`, so the hero
+  // stayed unchanged until the window closed — exactly the QA report.
+  //
+  // The two concerns are now intentionally separate:
+  //
+  //   • `showRedeemedSeal` — VISUAL treatment (hero dim + seal
+  //     overlay). True whenever the voucher is redeemed in this
+  //     cycle and we have a redeemedAt source to anchor the seal.
+  //     Independent of the presentation window — "your voucher is
+  //     redeemed" is true the moment you tap Redeem, regardless of
+  //     whether the code is still on screen.
+  //
+  //   • `blockShowToStaffMount` — HANDLER guard (defense-in-depth
+  //     against synthesised press / re-render race against the
+  //     hidden CTA). True only when the code surface itself is
+  //     hidden (out-of-window OR validated). During the in-window
+  //     state the user CAN legitimately tap "Show to Staff" from
+  //     the card; this guard must NOT fire then.
+  const isRedeemed = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt
+  const showRedeemedSeal = isRedeemed
+  const blockShowToStaffMount =
+    isRedeemed && (!isPresentationActive || isRedemptionValidated)
 
   // ── Screen-capture protection on Voucher Detail ─────────────────────
   //
@@ -1202,10 +1231,15 @@ export function VoucherDetailScreen() {
                     // Defense-in-depth: even if the card's hidden CTA
                     // is somehow reached (re-render race, stale render
                     // tree, programmatic test invocation), refuse to
-                    // mount ShowToStaff once the seal state holds.
-                    // The card hides the button visually; this guard
-                    // hides the SURFACE. Locked 2026-05-08, PR #49.
-                    if (showRedeemedSeal) return
+                    // mount ShowToStaff once the code surface has
+                    // collapsed (out-of-window OR validated). The
+                    // card hides the button visually; this guard
+                    // hides the SURFACE. Uses `blockShowToStaffMount`
+                    // (NOT `showRedeemedSeal`) so the seal can fire
+                    // its visual treatment immediately on redemption
+                    // without blocking the in-window Show-to-Staff
+                    // flow. Locked 2026-05-09, PR #49 wave 8.
+                    if (blockShowToStaffMount) return
                     setShowToStaff({
                       code:       displayRedemption.code,
                       redeemedAt: displayRedemption.redeemedAt,

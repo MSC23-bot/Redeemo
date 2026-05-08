@@ -1779,19 +1779,27 @@ describe('§AE — Voucher Detail presentation-window gate', () => {
     }
   }
 
-  it('IN-WINDOW (30 min ago): code + Show-to-Staff visible, history tip hidden, seal hidden', () => {
+  it('IN-WINDOW (30 min ago): code + Show-to-Staff visible AND hero seal also visible (owner wave 8: immediate visual confirmation)', () => {
+    // Locked 2026-05-09 PR #49 device QA wave 8: the hero washed-out
+    // + seal must surface AS SOON AS the voucher is redeemed, not
+    // only after the 2h window expires. Previously the seal was
+    // gated on `(!isPresentationActive || isRedemptionValidated)`,
+    // so the hero stayed unchanged for the in-window state — owner
+    // QA report said this made the page not feel "redeemed enough".
     mockVoucherData = baseVoucher({
       isRedeemedThisCycle: true,
       lastRedemption: persistedAt(
         new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       ),
     })
-    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    // Code + Show-to-Staff visible (in-window).
     expect(getByTestId('redemption-details-card')).toBeTruthy()
     expect(getByTestId('redemption-details-code')).toBeTruthy()
     expect(getByTestId('redemption-details-show-to-staff')).toBeTruthy()
-    expect(queryByTestId('redemption-details-history-tip')).toBeNull()
-    expect(queryByTestId('redeemed-seal')).toBeNull()
+    // Seal AND hero overlay are now ALSO visible during the in-window
+    // state (wave 8 change).
+    expect(getByTestId('voucher-detail-hero-seal')).toBeTruthy()
   })
 
   it('OUT-OF-WINDOW (3 hours ago): code hidden, Show-to-Staff hidden, expired-window inner notice + hero seal surface', () => {
