@@ -454,6 +454,60 @@ This is the anti-fraud showpiece:
 - White text, 15px, 700 weight, 16px border-radius
 - **Tapping:** dismisses back to Screen 7 popup
 
+### 7.7 As shipped (M3, branch `feature/voucher-m3-show-to-staff`)
+
+The full Show-to-Staff full-screen surface is now LIVE in M3. All five locked anti-fraud + UX behaviors are wired end-to-end. Ships INSIDE the M3 implementation PR per the standing merge rule.
+
+**QR payload format (D5 + plan §Security model — locked).**
+- The QR carries the OPAQUE 8-character redemption code only (e.g. `A7K2P9X4`).
+- NO public validation URL. NO scheme. Generic scanners read it as plain text.
+- **Self-validation loophole NOT possible.** The customer-side `me/:code` endpoint is read-only and customer-JWT-scoped. The staff `verify` route requires merchant/branch auth that the customer JWT cannot reach. There is no client-side mark-as-validated path. A leaked code from another customer cannot surface their redemption status to a third party's session (returns `REDEMPTION_NOT_FOUND`).
+
+**Brightness boost — best-effort + kill-switch.**
+- `useBrightnessBoost` ramps to maximum on mount, restores prior value on unmount. Every `expo-brightness` API call is wrapped in try/catch. Failures (Low Power Mode, permissions, platform quirks) silently no-op.
+- Restore guard: only attempts a restore if the capture step succeeded.
+- `BRIGHTNESS_BOOST_ENABLED` const at the top of `ShowToStaff.tsx` — flip to `false` to ship a build that disables brightness boost without affecting the QR, manual code, polling, auto-hide, or AppState wiring. Owner-clarification kill-switch (locked 2026-05-08).
+
+**Auto-hide timer — 2 min idle / 10 s warning / freeze on validated.**
+- 1m50s idle → state flips to `warning` (small inline hint above the Done button).
+- +10 s → state flips to `hidden` (QR blurs via the QRCodeBlock blurred prop). Tap-to-show recovery via Pressable wrapper.
+- `frozen: true` (validated phase) short-circuits — surface stays visible until the 2s auto-dismiss completes.
+- `active: false` (background) clears all timers and pins `visible` so backgrounded time does NOT consume the 2-min idle budget.
+
+**Validation polling — 5s cadence, 15-min budget, two flags.**
+- `useRedemptionPolling(code, { enabled, paused })` — enabled drives mount-toggle; paused (AppState background) suspends refetch but PRESERVES `startedAt` so backgrounded time still consumes the 15-min budget. Resume on focus picks up where it left off.
+- Phase flips polling → validated when backend `me/:code` returns `isValidated: true`.
+
+**Validation success transition — ~2s validated state then auto-dismiss.**
+- `successHaptic()` fires on phase flip.
+- Surface shows green-tinted glassmorphic badge: "Verified by staff at <branch>" (deviation #2 from v6 — v6 was pre-validation-flow).
+- After 2,000 ms, `onDone` is called automatically and the modal dismisses.
+- **Reduced motion** (`AccessibilityInfo.isReduceMotionEnabled === true`): `onDone` fires instantly; Modal `animationType` is `'none'`; PulsingDot's reduced-motion fallback handles the LIVE pulse.
+
+**Screenshot guard — best-effort + kill-switch + platform-specific.**
+- iOS path: `expo-screen-capture.addScreenshotListener` subscription. On fire → `onBannerShown()` (caller blurs QR + surfaces a banner) THEN fire-and-forget POST to `/api/v1/redemption/:code/screenshot-flag`. **5-second client-side dedup** so rapid Side-button + Volume-Up bursts collapse to one banner + one POST. Backend Redis SETNX (Task 2) is the second layer.
+- Android path: `preventScreenCaptureAsync()` enables `FLAG_SECURE` on mount, blocks screenshots system-wide while the surface is mounted; recents-screen previews go black. `allowScreenCaptureAsync()` clears on unmount. No listener — OS prevents capture before there's anything to react to.
+- Banner copy: "Screenshot taken — staff verify only the live screen. Tap the QR to show again."
+- **Anti-fraud invariant (pinned by `qr-code-block.test.tsx`):** when blurred, the QRCodeBlock returns ONLY a Pressable + BlurView. The QR child element is gone from the tree. A screenshot taken while blurred captures the blur, NOT the underlying code.
+- `SCREENSHOT_GUARD_ENABLED` const matching the brightness pattern. Flip to `false` to disable the guard if `expo-screen-capture` misbehaves on a specific device/version.
+- Validated phase takes precedence: when `phase === 'validated'`, the screenshot banner is suppressed even if the user hadn't dismissed it (the surface is about to auto-dismiss anyway).
+
+**AppState backgrounding contract (locked plan §Backgrounding behavior).**
+- Surface stays MOUNTED across background → foreground.
+- Polling pauses on blur, resumes on focus (15-min budget continues counting).
+- Auto-hide timer pauses on blur, re-arms on focus (2-min idle does NOT count backgrounded time).
+- Brightness restores on blur, re-applies on foreground (try/catch silent on failure).
+- App-killed → recovery via persisted RedemptionDetailsCard (§8.10 below).
+
+**Customer name (M3 §U1 lock).** `<ShowToStaff customerName="">` is the M3 default. The component conditionally renders the "Customer" info-row only when `customerName.length > 0`. Empty string suppresses both label and value entirely. Surfacing first-name + last-initial is tracked as `§U1` deferred follow-up — pick up after merchant-portal validation surfaces (§R4) lock so both sides design together.
+
+**Two reachability paths.**
+- **SuccessPopup → ShowToStaff** (just-redeemed): `setSuccessPopup(null)` THEN `setShowToStaff({...})` — popup closes first so user lands cleanly on the QR.
+- **RedemptionDetailsCard "Show to Staff" button → ShowToStaff** (return visit during active cycle): same `setShowToStaff` path, code/branchName sourced from `voucher.lastRedemption` (see §8.10).
+- M2's `Alert.alert('Show to Staff', '…ships in next milestone')` stub is gone.
+
+**Cross-ref:** plan `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 carries the full implementation contract (commit map + 10 locked decisions + test counts + v6 deviations).
+
 ---
 
 ## Section 8: Screen 8 — Voucher Detail (Already Redeemed)
@@ -534,6 +588,56 @@ What's deferred (§Q1-Q5):
 - Settings → Redemption History surface for past redemptions.
 
 **Cross-ref:** [`docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md`](../plans/2026-05-06-voucher-detail-redemption-rebaseline.md) §M2.1 (locked DOM order + decisions); deferred follow-ups index §P2 / §Q1-Q6.
+
+### 8.10 As shipped (M3 — persisted return-visit RedemptionDetailsCard live)
+
+M3 closes the §P2 persisted-return-visit gap that M2 explicitly held back. The §8.9 line "M2 ships immediate-after-redemption RedemptionDetailsCard ONLY — return visits during the active cycle currently see only the RedeemedBadge + disabled CTA" is **superseded** for M3 onward.
+
+**What's now live:**
+
+- **`voucher.lastRedemption` payload extension** on `GET /api/v1/customer/vouchers/:id` (M3 Task 5). Surface shape:
+  ```ts
+  lastRedemption: {
+    code:        string                    // 8-char canonical
+    redeemedAt:  string                    // ISO
+    branch:      { id: string; name: string }
+    isValidated: boolean
+    validatedAt: string | null             // ISO when validated
+  } | null
+  ```
+- **Cycle-window-gated.** Non-null ONLY when (1) ACTIVE/TRIALLING subscription, (2) `isRedeemedThisCycle === true`, AND (3) a `VoucherRedemption` row exists for `(userId, voucherId)` with `redeemedAt` within `[cycleStart, cycleEnd)`. After cycle rollover, the backend flips `isRedeemedThisCycle` AND `lastRedemption` together by construction (single hoisted `getCurrentCycleWindow()` call drives all three derived values per §M3.1 / §Q6).
+
+**Frontend rendering — dual-source `displayRedemption` shape.**
+
+The `RedemptionDetailsCard` mount on `VoucherDetailScreen` resolves a single `displayRedemption` object from two possible sources:
+- **PRIMARY: in-memory `lastRedemption`** (just-redeemed path). Freshest data + `branchName` sourced from the merchant-profile branch lookup. `isValidated: false` (just created).
+- **FALLBACK: `voucher.lastRedemption`** (return visits during the active cycle). `isValidated` from the backend payload — drives a green "Validated by staff" pill when staff has already cleared the redemption.
+
+The two sources never both render — the in-memory path takes precedence; the persisted path fills the gap for app relaunches and React Query cold-cache opens.
+
+**§Q6 invariant — load-bearing gate (locked + pinned by Task 18).**
+
+The `RedemptionDetailsCard` renders ONLY when `stateKey === 'redeemed-this-cycle'` (driven by `voucher.isRedeemedThisCycle`). The presence of `lastRedemption` data is a SECONDARY guard (no source → no render), NEVER the primary gate. Even if a stale `voucher.lastRedemption` lingers in a payload OR React Query cache after rollover, the frontend gate holds.
+
+**Pinned by 4 phases** in `voucher-detail-redeem-flow.test.tsx`:
+- PHASE 1 — current cycle: `isRedeemedThisCycle:true` + `lastRedemption` present → card renders.
+- PHASE 2 — rolled-over: `isRedeemedThisCycle:false` + `lastRedemption: null` → card hidden, redeemable state restored.
+- PHASE 3 — defensive drift: `isRedeemedThisCycle:false` + `lastRedemption` STILL PRESENT → card MUST stay hidden. **Critical pin** against future refactors that would otherwise break the gate.
+- PHASE 4 — negative defense: `isRedeemedThisCycle:true` + `lastRedemption: null` → no card (no source to render from).
+
+**RedemptionDetailsCard button — live in M3.**
+
+The "Show to Staff" button is no longer disabled. testID `redemption-details-show-to-staff` (was `…-stub`); accessibility label drops the `(available in next milestone)` suffix; brand-rose → coral gradient matching the screen's primary CTA. Press fires `onShowToStaff()` which mounts the full-screen `<ShowToStaff>` modal (§7.7).
+
+**Validated indicator on return visit.**
+
+When `voucher.lastRedemption.isValidated === true`, the card renders a small green "Validated by staff" pill below the action button. Surfaces on return visits so the user doesn't need to reopen Show-to-Staff just to see status.
+
+**Q1-Q5 visual redesign STILL deferred.**
+
+The full washed-out coupon header / REDEEMED stamp / dimmed merchant card / merchant-profile voucher-card treatment / Settings → Redemption History surface — all remain deferred per §Q1-Q5. M3 ships the FUNCTIONAL persisted return-visit; the full visual redesign is a separate Tier 2 design pass paired with §S1-S3.
+
+**Cross-ref:** plan `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 (10 locked decisions + commit map); deferred-followups index §P1 (closed-by-M3), §P2 (closed-by-M3 for current cycle; past-cycle history → §Q5), §Q6 (pinned-by-Task-18).
 
 ---
 
