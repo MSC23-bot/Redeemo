@@ -54,26 +54,53 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
   return (
     <View style={styles.wrap} testID="redeemed-seal">
       <View style={styles.seal}>
-        {/* Title wrapper — relative-positioned so the ink-fade band
-            below can overlay the top edge of letter ascenders.
-            Locked 2026-05-09 PR #49 device QA wave 7: rubber-stamp
-            "less ink pressed at the top" rustic feel without
-            geometrically clipping glyphs. */}
+        {/* Title wrapper — relative-positioned so the ink-fade band +
+            speckles below can overlay the title at controlled
+            positions. Locked 2026-05-09 PR #49 device QA wave 9
+            (matches owner's reference screenshot of the original
+            stamp with visible top-clipping + missing-ink character).
+            Three distress overlays combine into the rubber-stamp
+            feel:
+              1. `inkFadeTop` — thicker cream band cuts visibly into
+                 the top of letter ascenders (the "rubber didn't
+                 fully press at the top" look).
+              2. `inkSpeckle` × 5 — small cream dots scattered
+                 through the text simulating where ink didn't
+                 transfer from the rubber stamp. Positions are
+                 percentage-based + varied in y so they look
+                 unevenly distributed, not lined up.
+              3. Title opacity 0.92 + sharper textShadow → ink-
+                 pressure character on the strokes themselves. */}
         <View style={styles.titleWrap}>
           <Text variant="label.md" style={styles.title}>
             Voucher Redeemed
           </Text>
-          {/* Top-edge ink fade. A thin cream band at low opacity
-              overlays just the top ~3px of letter ascenders. The
-              red text stays visible underneath (cream is 55% opaque
-              → 45% of red shows through), so each letter is still
-              clearly identifiable, but the very top strokes (E top
-              bar, R/D/T tops) read as faintly broken or faded —
-              the visual signature of an actual rubber stamp where
-              the rubber didn't make full contact at the upper edge.
-              Negative left/right insets so the band catches letter
-              ends near the seal's inner padding. */}
           <View style={styles.inkFadeTop} pointerEvents="none" />
+          {/* Ink-missing speckles. Five cream dots at varied
+              percentages + heights overlay the title at fixed
+              points. Sizes vary 3-4px; some round, some slightly
+              elongated — reads as natural ink-pressure variance
+              rather than a regular pattern. */}
+          <View
+            style={[styles.inkSpeckle, { top: 10, left: '14%', width: 3, height: 4 }]}
+            pointerEvents="none"
+          />
+          <View
+            style={[styles.inkSpeckle, { top: 19, left: '32%', width: 4, height: 3 }]}
+            pointerEvents="none"
+          />
+          <View
+            style={[styles.inkSpeckle, { top: 13, left: '52%', width: 3, height: 5 }]}
+            pointerEvents="none"
+          />
+          <View
+            style={[styles.inkSpeckle, { top: 21, left: '71%', width: 4, height: 3 }]}
+            pointerEvents="none"
+          />
+          <View
+            style={[styles.inkSpeckle, { top: 11, left: '88%', width: 3, height: 4 }]}
+            pointerEvents="none"
+          />
         </View>
         {renewalLabel ? (
           <Text variant="label.md" style={styles.subtitle}>
@@ -174,28 +201,45 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
     textTransform: 'uppercase',
     includeFontPadding: true,
-    opacity: 0.94,
+    // Wave 9 (rustic — locked 2026-05-09 from owner reference
+    // screenshot). Slightly more pronounced fade than wave 7
+    // (0.94 → 0.92) — combines with the textShadow to give the
+    // text an "ink that's slightly faded" character.
+    opacity: 0.92,
     textShadowColor: 'rgba(226,12,4,0.45)',
     textShadowOffset: { width: 0.5, height: 0.5 },
     textShadowRadius: 0,
   },
-  // Top-edge ink-pressure fade. `top` lands on the top of letter
-  // ascenders within the 32px line box (iOS default font: ascent
-  // ≈ 0.92 × fontSize, so for fontSize 22 the letter tops sit
-  // ~5px from the top of the line box). Negative left/right
-  // insets so the band reaches the outermost letters near the
-  // seal's inner padding. Height 3 keeps the fade limited to the
-  // top ink edge — the rest of the glyph stays full red.
+  // Top-edge ink-pressure fade. Wave 9 (locked 2026-05-09 from
+  // owner reference): thicker (3 → 5px) and more opaque (0.55 →
+  // 0.75) so the top of letter ascenders is VISIBLY clipped — the
+  // rubber-stamp "rubber didn't fully press at the top" look the
+  // owner asked for in the reference screenshot. The cream band
+  // sits over the top of the glyphs; from a distance the letter
+  // tops read as cut/faded, but the lower 70% of each glyph is
+  // full red so letters are still unambiguously identifiable.
   inkFadeTop: {
     position: 'absolute',
-    top: 5,
+    top: 4,
     left: -8,
     right: -8,
-    height: 3,
-    // Matches the seal background (#FFF6EE) at 55% opacity. The
-    // band visually "reaches into" the letter tops without ever
-    // clipping the glyphs at a geometry level.
-    backgroundColor: 'rgba(255, 246, 238, 0.55)',
+    height: 5,
+    backgroundColor: 'rgba(255, 246, 238, 0.75)',
+  },
+  // Ink-missing speckles. Small cream dots overlaid on the title
+  // at percentage-based horizontal positions + varied vertical
+  // offsets simulate natural ink-pressure variance on a real
+  // rubber stamp. Owner direction: "we could have some dots,
+  // white dots in the text here and there, as if ink missing
+  // from certain parts of letters". Each speckle uses a small
+  // border-radius for a soft round/pill shape rather than crisp
+  // rectangles. Background opacity 0.85 — strong enough to read
+  // as ink missing, not strong enough to hide the underlying
+  // letter stroke.
+  inkSpeckle: {
+    position: 'absolute',
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 246, 238, 0.85)',
   },
   subtitle: {
     fontSize: 13,
