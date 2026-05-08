@@ -744,15 +744,46 @@ codeVisibleOnVoucherDetail =
 
 **Tests** (`tests/features/voucher/voucher-detail-redeem-flow.test.tsx` §AE6, 6 cases): IN-WINDOW prevent / OUT-OF-WINDOW no-prevent / VALIDATED no-prevent / NON-REDEEMED no-prevent / UNMOUNT-allow / LOADING no-prevent.
 
+#### 8.10.2.1 iOS post-fact screenshot detection on Voucher Detail (locked 2026-05-09, PR #49 device QA wave 2)
+
+Apple has no SDK to PREVENT iOS screenshots — `preventScreenCaptureAsync` only blocks recordings + mirroring (system blur during active capture). To match Show-to-Staff's behaviour (the locked product expectation: any surface that displays the code/QR enforces the same protection baseline), Voucher Detail also installs `useScreenshotGuard` when the code is visible.
+
+**Wiring:**
+
+```ts
+useScreenshotGuard(screenshotGuardCode, {
+  active: codeVisibleOnVoucherDetail,
+  onBannerShown: () => setScreenshotBannerVisible(true),
+})
+```
+
+`screenshotGuardCode` priority mirrors `displayRedemption`: in-memory `lastRedemption?.redemptionCode` PRIMARY → persisted `voucher.lastRedemption?.code` FALLBACK → empty string. The hook's `active` gate is the same `codeVisibleOnVoucherDetail` boolean as the prevention hook above, so install/teardown happens at the exact moment the code surface appears/disappears.
+
+**On screenshot fire (iOS):**
+
+1. Hook posts telemetry: `redemptionApi.postScreenshotFlag(code, 'ios')` (best-effort; rejection is silenced).
+2. Hook fires `onBannerShown` callback.
+3. Voucher Detail flips `screenshotBannerVisible: true`.
+4. Screen-level banner overlay renders: *"Screenshot detected. Staff verify only the live screen."* (testID `voucher-detail-screenshot-banner`).
+5. Auto-dismiss timer (4 seconds) clears the banner. Or the banner clears immediately if the gate flips closed (window expiry / validation transition / unmount).
+
+**Platform asymmetry:** Android skips this hook entirely. FLAG_SECURE (installed by `useScreenCaptureProtection`) blocks screenshots BEFORE they happen — there's no post-fact event to listen for. The captured photo on Android is blank.
+
+**Locked iOS limitation (cross-ref §AB / §AE):** the FIRST iOS screenshot still captures the unblurred code; the banner + telemetry are POST-FACT mitigations, not prevention. The user-visible signal is the live screen + the banner explaining we noticed; the operational signal is the telemetry POST. Stronger options (QR hidden by default, tap-to-reveal, rotating QR payload, merchant validation policy) remain deferred to deferred-followups §AE1-AE4 for v2 product brainstorm.
+
+**Tests** (§AE6.2, 9 cases): listener install gating (in-window iOS install / out-of-window no-install / validated no-install / non-redeemed no-install / Android no-install) + banner behaviour (iOS fire surfaces banner / iOS fire posts telemetry / banner auto-dismisses after 4s / listener removed on unmount).
+
 ### 8.10.3 User-facing helper copy (locked 2026-05-08, PR #49 review wave 3)
 
 Owner-locked tone direction: *"calm and helpful, not punitive; make it clear the redemption is still saved, only the staff-showing code has been hidden"*. The disappearing code must not feel broken.
 
 **In-window helper line** — near the Show-to-Staff CTA inside `RedemptionDetailsCard`:
 
-- Preferred copy (when `redeemedAt` is parseable): *"Available to show staff until \<HH:mm\>."* — exact expiry time computed from `redeemedAt + PRESENTATION_WINDOW_MS`, formatted en-GB / Europe/London / 24-hour. Format helper: `formatExpiryClock(redeemedAtIso) → '17:32' | null`.
+- Preferred copy (when `redeemedAt` is parseable): *"Available to show staff until \<D Mon, HH:mm\>."* — e.g. *"Available to show staff until 9 May, 00:55."* Exact expiry time computed from `redeemedAt + PRESENTATION_WINDOW_MS`, formatted en-GB / Europe/London / 24-hour. **Always includes the date** so cross-midnight expiry cannot be confused with the same clock time on the redeemed day. Format helper: `formatExpiryLine(redeemedAtIso) → '9 May, 00:55' | null`.
 - Fallback (defensive — when `redeemedAt` is malformed): *"You can show this code to staff for 2 hours after redeeming."* — never renders "Invalid Date".
 - testID: `redemption-details-availability-helper`.
+
+**Hermes-robust formatter (locked 2026-05-09 from PR #49 device QA).** The first ship of this helper used `expiry.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })`. On-device QA showed it silently rendering the redeemed time instead of the +2h expiry — same Hermes/CLDR fragility class as the `weekday: 'short'` issue locked in `apps/customer-app/src/features/merchant/utils/londonNow.ts` (Hermes ships a stripped-down CLDR set; some option combinations on `toLocaleTimeString` fall through to fragile defaults). Replacement uses `Intl.DateTimeFormat('en-US', { ... }).formatToParts(expiry)` for numeric extraction + a hardcoded English month-name array (`['Jan', 'Feb', ..., 'Dec']`). Numeric Intl parts are universally supported across runtimes.
 
 **Out-of-window calm explanation** — near the history tip inside `RedemptionDetailsCard`, ONLY when `!isPresentationActive && !isValidated`:
 
@@ -762,7 +793,7 @@ Owner-locked tone direction: *"calm and helpful, not punitive; make it clear the
 
 **Existing history tip** (§8.10.1) remains unchanged: *"You'll be able to find this code in Profile → Redemption History."* It points users to where to find the code if they need it after the window. Both lines (ended-window + history tip) coexist in the out-of-window-not-validated state.
 
-**Tests** (`tests/features/voucher/redemption-details-card.test.tsx`, 8 cases): clock format / malformed fallback / out-of-window calm explanation / coexistence with history tip / validated suppresses "available" / validated suppresses "ended-window" / in-window suppresses "ended-window" / day-boundary clock formatting.
+**Tests** (`tests/features/voucher/redemption-details-card.test.tsx`, 12 cases): full date+time format / malformed fallback / out-of-window calm explanation / coexistence with history tip / validated suppresses "available" / validated suppresses "ended-window" / in-window suppresses "ended-window" / day-boundary edge case (23:30 UTC → 02:30 next-day BST) / **PR #49 device-QA scenario verbatim (21:55 UTC → 9 May, 00:55 BST cross-midnight)** / day-numeric without leading zero / month transition (31 May → 1 Jun).
 
 ### 8.10.4 QA helper — `prisma/qa-set-redeemed-at.ts`
 

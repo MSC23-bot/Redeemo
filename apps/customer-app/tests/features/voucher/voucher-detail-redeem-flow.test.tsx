@@ -31,12 +31,16 @@ jest.mock('expo-linear-gradient', () => ({
 }))
 
 // ── expo-screen-capture mock ────────────────────────────────────────────
-// Voucher Detail mounts `useScreenCaptureProtection` whenever the code
-// surface is visible (locked 2026-05-08, PR #49 review). The mock lets
-// us assert prevent/allow native calls without going through real native.
-// `addScreenshotListener` is also stubbed because ShowToStaff (when
-// mounted via the mock above) doesn't call it, but having the export
-// keeps the import boundary safe for any indirect call paths.
+// Voucher Detail mounts `useScreenCaptureProtection` AND (locked
+// 2026-05-09 PR #49 device QA) `useScreenshotGuard` when the code is
+// visible. The mock lets us:
+//   - assert prevent/allow native calls (preventScreenCaptureAsync /
+//     allowScreenCaptureAsync) — already pinned in §AE6 below;
+//   - capture the screenshot-listener callback so a test can simulate
+//     an iOS screenshot firing and assert the banner appears.
+//
+// `addScreenshotListener` defaults to a no-op return; tests that want
+// to fire the listener override the mock implementation in beforeEach.
 jest.mock('expo-screen-capture', () => ({
   preventScreenCaptureAsync: jest.fn().mockResolvedValue(undefined),
   allowScreenCaptureAsync:   jest.fn().mockResolvedValue(undefined),
@@ -137,6 +141,10 @@ jest.mock('@/lib/api/redemption', () => {
       redeem: jest.fn(),
       getMyRedemption: jest.fn(),
       listMyRedemptions: jest.fn(),
+      // Used by `useScreenshotGuard` when an iOS screenshot fires while
+      // the code is visible. Stub returns a resolved promise so the
+      // hook's best-effort telemetry POST never rejects in tests.
+      postScreenshotFlag: jest.fn().mockResolvedValue({ accepted: true }),
     },
   }
 })
@@ -230,6 +238,8 @@ beforeEach(() => {
   ;(redemptionApi.listMyRedemptions as jest.Mock).mockReset()
   ;(ScreenCapture.preventScreenCaptureAsync as jest.Mock).mockClear()
   ;(ScreenCapture.allowScreenCaptureAsync as jest.Mock).mockClear()
+  ;(ScreenCapture.addScreenshotListener as jest.Mock).mockClear()
+  ;(ScreenCapture.addScreenshotListener as jest.Mock).mockImplementation(() => ({ remove: jest.fn() }))
 })
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1948,5 +1958,155 @@ describe('§AE6 — Voucher Detail screen-capture protection', () => {
     mockVoucherData = null
     wrap(<VoucherDetailScreen />)
     expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// §AE6.2 — iOS post-fact screenshot detection on Voucher Detail (locked
+// 2026-05-09, owner direction PR #49 device QA wave 2).
+//
+// Apple has no SDK to PREVENT iOS screenshots; the captured photo will
+// always contain the unblurred code. The best we can do is detect via
+// `addScreenshotListener`, surface a screen-level banner so the user
+// sees we noticed, and post-fire telemetry. Mirrors the Show-to-Staff
+// post-fact pattern (locked iOS framing §AB / deferred-followups §AE5).
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('§AE6.2 — Voucher Detail iOS screenshot listener + banner', () => {
+  let listener: () => void
+  const removeSpy = jest.fn()
+  const { Platform } = require('react-native') as typeof import('react-native')
+  const { redemptionApi: api } = require('@/lib/api/redemption')
+
+  function persistedAt(redeemedAt: string) {
+    return {
+      code:        'A7K2P9X4',
+      redeemedAt,
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+    }
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers()
+    Platform.OS = 'ios' as any
+    removeSpy.mockClear()
+    ;(api.postScreenshotFlag as jest.Mock).mockClear()
+    ;(api.postScreenshotFlag as jest.Mock).mockResolvedValue({ accepted: true })
+    ;(ScreenCapture.addScreenshotListener as jest.Mock).mockImplementation(
+      (cb: () => void) => {
+        listener = cb
+        return { remove: removeSpy }
+      },
+    )
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('IN-WINDOW redeemed (code visible) on iOS installs the screenshot listener', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).toHaveBeenCalledTimes(1)
+  })
+
+  it('OUT-OF-WINDOW (code hidden) does NOT install the screenshot listener', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
+  })
+
+  it('VALIDATED (code hidden) does NOT install the screenshot listener', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: {
+        ...persistedAt(new Date(Date.now() - 5 * 60 * 1000).toISOString()),
+        isValidated: true,
+        validatedAt: new Date().toISOString(),
+      },
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
+  })
+
+  it('NON-REDEEMED state does NOT install the screenshot listener', () => {
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: false, lastRedemption: null })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
+  })
+
+  it('Android does NOT install the listener (FLAG_SECURE handles both)', () => {
+    Platform.OS = 'android' as any
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
+  })
+
+  it('iOS screenshot fire surfaces the post-fact banner', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { queryByTestId, getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('voucher-detail-screenshot-banner')).toBeNull()
+    act(() => { listener() })
+    expect(getByTestId('voucher-detail-screenshot-banner')).toBeTruthy()
+  })
+
+  it('iOS screenshot fire posts telemetry with the redemption code + ios platform', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    act(() => { listener() })
+    expect(api.postScreenshotFlag).toHaveBeenCalledWith('A7K2P9X4', 'ios')
+  })
+
+  it('banner auto-dismisses after 4 seconds', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { queryByTestId, getByTestId } = wrap(<VoucherDetailScreen />)
+    act(() => { listener() })
+    expect(getByTestId('voucher-detail-screenshot-banner')).toBeTruthy()
+    act(() => { jest.advanceTimersByTime(4_001) })
+    expect(queryByTestId('voucher-detail-screenshot-banner')).toBeNull()
+  })
+
+  it('listener is removed on unmount', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { unmount } = wrap(<VoucherDetailScreen />)
+    expect(removeSpy).not.toHaveBeenCalled()
+    unmount()
+    expect(removeSpy).toHaveBeenCalledTimes(1)
   })
 })

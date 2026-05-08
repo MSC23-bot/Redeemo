@@ -161,6 +161,29 @@ async function main() {
       nextValidatedAt = new Date(redemption.validatedAt.getTime() - deltaMs)
     }
 
+    const expiryAt = new Date(targetRedeemedAt.getTime() + PRESENTATION_WINDOW_MIN * 60 * 1000)
+    const stateLabel =
+      minutesUntilExpiry > 0
+        ? `IN-WINDOW (${minutesUntilExpiry.toFixed(1)} min until expiry)`
+        : `OUT-OF-WINDOW (${Math.abs(minutesUntilExpiry).toFixed(1)} min past 2h boundary)`
+
+    // BEFORE block — prints exactly what's currently in the DB so
+    // the QA tester has a baseline to verify against. Owner direction
+    // 2026-05-09 (PR #49 device QA): the previous output was ambiguous
+    // about whether the script actually shifted the targeted row.
+    console.log('')
+    console.log('────────────── BEFORE ──────────────')
+    console.log(`  redemption  : ${redemption.id}`)
+    console.log(`  user        : ${user.email}`)
+    console.log(`  voucher     : ${voucher.code ?? voucher.id} · ${voucher.title}`)
+    console.log(`  code        : ${redemption.redemptionCode}`)
+    console.log(`  redeemedAt  : ${redemption.redeemedAt.toISOString()}`)
+    if (redemption.isValidated && redemption.validatedAt) {
+      console.log(`  validatedAt : ${redemption.validatedAt.toISOString()} (validated by staff)`)
+    } else {
+      console.log(`  validatedAt : (not validated)`)
+    }
+
     await prisma.voucherRedemption.update({
       where: { id: redemption.id },
       data:  {
@@ -169,28 +192,36 @@ async function main() {
       },
     })
 
-    const stateLabel =
-      minutesUntilExpiry > 0
-        ? `IN-WINDOW (${minutesUntilExpiry.toFixed(1)} min until expiry)`
-        : `OUT-OF-WINDOW (${Math.abs(minutesUntilExpiry).toFixed(1)} min past 2h boundary)`
-
+    // AFTER block — re-reads the row to confirm the write took.
+    // (Skipping the re-read would let "the write succeeded" be a
+    // tautology; reading back proves the row really changed.)
+    const updated = await prisma.voucherRedemption.findUnique({
+      where:  { id: redemption.id },
+      select: { redeemedAt: true, validatedAt: true },
+    })
     console.log('')
-    console.log(`✓ Updated VoucherRedemption ${redemption.id}`)
-    console.log(`    user        : ${user.email}`)
-    console.log(`    voucher     : ${voucher.code ?? voucher.id} · ${voucher.title}`)
-    console.log(`    code        : ${redemption.redemptionCode}`)
-    console.log(`    was         : redeemedAt=${redemption.redeemedAt.toISOString()}`)
-    console.log(`    now         : redeemedAt=${targetRedeemedAt.toISOString()}`)
-    console.log(`    minutes ago : ${args.minutesAgo}`)
-    console.log(`    state       : ${stateLabel}`)
-    if (redemption.isValidated && redemption.validatedAt && nextValidatedAt) {
-      console.log(`    validatedAt : ${redemption.validatedAt.toISOString()} → ${nextValidatedAt.toISOString()}`)
+    console.log('────────────── AFTER  ──────────────')
+    console.log(`  redeemedAt  : ${updated?.redeemedAt.toISOString() ?? '(not found — write failed?)'}`)
+    if (updated?.validatedAt) {
+      console.log(`  validatedAt : ${updated.validatedAt.toISOString()}`)
+    } else {
+      console.log(`  validatedAt : (not validated)`)
     }
+    console.log(`  minutes ago : ${args.minutesAgo}`)
+    console.log(`  expiry at   : ${expiryAt.toISOString()}  (= redeemedAt + 2h)`)
+    console.log(`  state       : ${stateLabel}`)
     console.log('')
-    console.log('Now reload Voucher Detail in the app (pull-to-refresh OR navigate away')
-    console.log('and back) so the React Query cache picks up the new redeemedAt. The')
-    console.log('hook will arm a setTimeout for the remaining window; no further app')
-    console.log('reload is needed to observe the boundary flip.')
+    console.log('────────────── NEXT STEPS ──────────────')
+    console.log('  React Query caches `getCustomerVoucher` aggressively. To force the app')
+    console.log('  to pick up the new redeemedAt:')
+    console.log('  1. EITHER kill the app and relaunch, then open the voucher again;')
+    console.log('  2. OR navigate back to merchant profile, then re-tap the voucher.')
+    console.log('  3. (Pull-to-refresh on Voucher Detail is NOT currently wired — option 1')
+    console.log('     or 2 above is the reliable path.)')
+    console.log('  Once Voucher Detail re-mounts with the new redeemedAt, the')
+    console.log('  presentation-window hook arms a setTimeout for the remaining window;')
+    console.log('  no further reloads are needed to observe the boundary flip.')
+    console.log('')
   } finally {
     await prisma.$disconnect()
     await pool.end()

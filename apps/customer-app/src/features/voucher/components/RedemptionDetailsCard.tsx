@@ -74,22 +74,63 @@ function formatTimeLine(iso: string): string {
 }
 
 /**
- * Formats the 2-hour-after-redemption expiry as a clock-only line
- * for the in-window helper copy ("Available to show staff until HH:mm.").
+ * Formats the 2-hour-after-redemption expiry as a "<day> <Month>, HH:mm"
+ * line for the in-window helper copy ("Available to show staff until 9 May, 00:55.").
  *
- * en-GB / Europe/London / 24-hour. Returns null on malformed input
- * so the helper can fall back to the simpler 2-hour-window phrasing
- * rather than rendering "Invalid Date".
+ * en-GB / Europe/London / 24-hour. ALWAYS includes the date so a
+ * cross-midnight expiry (e.g. redeemed at 22:55 → expires 00:55 next
+ * day) can never be confused with the same-clock-time on the redeemed
+ * day. Owner direction 2026-05-09 (PR #49 QA): "the safest default may
+ * be to always show date + time".
+ *
+ * Hermes robustness (same pattern as londonNow.ts): uses NUMERIC
+ * `formatToParts` and a hardcoded English month-name array instead
+ * of `toLocaleTimeString` / `month: 'short'`. iOS Hermes builds
+ * sometimes ship a stripped-down CLDR set where locale-string parts
+ * (`month: 'short'`, `weekday: 'short'`, etc.) silently fall through
+ * to fragile defaults. Numeric parts are universally supported.
+ *
+ * Returns null on malformed input so the caller can fall back to the
+ * simpler 2-hour-window phrasing rather than rendering "Invalid Date".
  */
-function formatExpiryClock(redeemedAtIso: string): string | null {
+const MONTH_SHORT_EN = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+function formatExpiryLine(redeemedAtIso: string): string | null {
   const redeemedAtMs = new Date(redeemedAtIso).getTime()
   if (Number.isNaN(redeemedAtMs)) return null
   const expiry = new Date(redeemedAtMs + PRESENTATION_WINDOW_MS)
-  return expiry.toLocaleTimeString('en-GB', {
-    hour:     '2-digit',
-    minute:   '2-digit',
-    timeZone: 'Europe/London',
-  })
+  // en-US locale for the most stable numeric `formatToParts` output
+  // across runtimes — we read only numbers and look up month name
+  // from a hardcoded English array, so locale-string formatting is
+  // never on the hot path.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone:  'Europe/London',
+    day:       'numeric',
+    month:     'numeric',
+    hour:      'numeric',
+    minute:    'numeric',
+    hour12:    false,
+    hourCycle: 'h23',
+  }).formatToParts(expiry)
+  const find = (type: string) => parts.find((p) => p.type === type)?.value
+  const dayNum   = parseInt(find('day')    ?? '', 10)
+  const monthNum = parseInt(find('month')  ?? '', 10)
+  const hourRaw  = parseInt(find('hour')   ?? '', 10)
+  const minRaw   = parseInt(find('minute') ?? '', 10)
+  if (
+    !Number.isFinite(dayNum) ||
+    !Number.isFinite(monthNum) ||
+    !Number.isFinite(hourRaw) ||
+    !Number.isFinite(minRaw) ||
+    monthNum < 1 || monthNum > 12
+  ) return null
+  // Belt-and-braces against the V8 "hour 0 formatted as 24" quirk.
+  const hour = hourRaw === 24 ? 0 : hourRaw
+  const hh = String(hour).padStart(2, '0')
+  const mm = String(minRaw).padStart(2, '0')
+  return `${dayNum} ${MONTH_SHORT_EN[monthNum - 1]}, ${hh}:${mm}`
 }
 
 /**
@@ -255,21 +296,25 @@ export function RedemptionDetailsCard({
           </Pressable>
 
           {/* In-window helper line — calmly tells the user how long
-              they have to show the code to staff. Falls back to the
-              simpler "2 hours after redeeming" phrasing if the
-              redeemedAt is malformed (defensive — never renders
-              "Invalid Date"). Locked 2026-05-08, PR #49 review:
-              owner-direction tone "calm and helpful, not punitive". */}
+              they have to show the code to staff. ALWAYS includes the
+              date (e.g. "9 May, 00:55") so a cross-midnight expiry
+              cannot be confused with the same-clock-time on the
+              redeemed day. Falls back to the simpler "2 hours after
+              redeeming" phrasing on malformed redeemedAt (defensive —
+              never renders "Invalid Date"). Locked 2026-05-09 from
+              PR #49 device QA: "Available until 22:55" (just the
+              clock) was reported confusing because the redeemed time
+              was ALSO 22:55 — hence date-inclusive default. */}
           {(() => {
-            const expiryClock = formatExpiryClock(redeemedAt)
+            const expiryLine = formatExpiryLine(redeemedAt)
             return (
               <Text
                 variant="body.sm"
                 style={styles.availabilityHelper}
                 testID="redemption-details-availability-helper"
               >
-                {expiryClock
-                  ? `Available to show staff until ${expiryClock}.`
+                {expiryLine
+                  ? `Available to show staff until ${expiryLine}.`
                   : 'You can show this code to staff for 2 hours after redeeming.'}
               </Text>
             )

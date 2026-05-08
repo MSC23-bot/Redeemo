@@ -42,6 +42,7 @@ import { ShowToStaff } from '../components/ShowToStaff'
 import { useRedeem, type UseRedeemError } from '../hooks/useRedeem'
 import { usePresentationActive } from '../utils/presentationWindow'
 import { useScreenCaptureProtection } from '../hooks/useScreenCaptureProtection'
+import { useScreenshotGuard } from '../hooks/useScreenshotGuard'
 import type { RedeemResponse } from '@/lib/api/redemption'
 import { CTA_LABELS } from '../constants/productCopy'
 
@@ -616,15 +617,62 @@ export function VoucherDetailScreen() {
   // Android: FLAG_SECURE blocks BOTH screenshots and recordings.
   // iOS 11+: system overlays a blurred snapshot during active recording
   //   / mirroring. iOS screenshots cannot be PREVENTED by Apple's
-  //   SDK — that path remains the post-fact `useScreenshotGuard` on
-  //   ShowToStaff (Voucher Detail does NOT install the listener; this
-  //   stays Show-to-Staff-specific to keep telemetry focused).
+  //   SDK — see `useScreenshotGuard` below for the post-fact path.
   const codeVisibleOnVoucherDetail =
     stateKey === 'redeemed-this-cycle'
     && !!redemptionRedeemedAt
     && isPresentationActive
     && !isRedemptionValidated
   useScreenCaptureProtection(codeVisibleOnVoucherDetail)
+
+  // ── iOS post-fact screenshot detection on Voucher Detail ───────────
+  //
+  // Owner direction (locked 2026-05-09, PR #49 device QA): the
+  // `useScreenCaptureProtection` hook above blocks SCREEN RECORDINGS
+  // on iOS (system blur during active capture / mirroring) and BOTH
+  // screenshots + recordings on Android (FLAG_SECURE). It does NOT
+  // prevent iOS screenshots — Apple has no SDK to do so.
+  //
+  // QA finding: Voucher Detail allowed an iOS screenshot of the code,
+  // expected behaviour is to match Show-to-Staff (which detects
+  // post-fact via `addScreenshotListener` and shows a banner). This
+  // installs the same listener on Voucher Detail when the code is
+  // visible — best-effort post-fact mitigation; the captured photo
+  // contains the unblurred code, but the live screen surfaces a
+  // banner so the user sees we noticed.
+  //
+  // The banner is a screen-level overlay; the code itself stays
+  // rendered (hiding it AFTER the screenshot is already taken adds
+  // no value — see §AB locked iOS framing). The banner is the user-
+  // visible signal + telemetry firing is the operational signal.
+  const [screenshotBannerVisible, setScreenshotBannerVisible] = useState(false)
+  // The code we'd telemetry against — same priority as displayRedemption.
+  // Empty string when no redemption (the hook is also gated on
+  // `active`, but we keep `code` non-load-bearing).
+  const screenshotGuardCode =
+    lastRedemption?.redemptionCode
+    ?? voucher?.lastRedemption?.code
+    ?? ''
+  useScreenshotGuard(screenshotGuardCode, {
+    active: codeVisibleOnVoucherDetail,
+    onBannerShown: () => setScreenshotBannerVisible(true),
+  })
+  // Auto-dismiss the screenshot banner after 4 seconds. ShowToStaff
+  // keeps its banner up until the user taps the QR to clear the blur,
+  // but Voucher Detail has no equivalent "tap to clear" gesture, so
+  // a timed auto-dismiss is the user-visible exit. Clears immediately
+  // if the gate flips closed (window expiry, validation, navigation
+  // away) — no point keeping the banner up after the code surface
+  // collapses.
+  useEffect(() => {
+    if (!screenshotBannerVisible) return
+    if (!codeVisibleOnVoucherDetail) {
+      setScreenshotBannerVisible(false)
+      return
+    }
+    const id = setTimeout(() => setScreenshotBannerVisible(false), 4_000)
+    return () => clearTimeout(id)
+  }, [screenshotBannerVisible, codeVisibleOnVoucherDetail])
 
   // Back navigation — URL-only, does NOT depend on voucher/merchant
   // queries having resolved. Round-5 plan §1.
@@ -1475,6 +1523,26 @@ export function VoucherDetailScreen() {
           onDone={() => setShowToStaff(null)}
         />
       ) : null}
+
+      {/* iOS post-fact screenshot banner. Surfaces only when
+          `useScreenshotGuard` fires while the code is visible.
+          Non-blocking overlay anchored to the safe-area top so it
+          floats above the scroll without taking layout space. Auto-
+          dismisses after 4s (see effect above) or immediately when
+          the gate flips closed. Locked 2026-05-09, PR #49 device QA. */}
+      {screenshotBannerVisible ? (
+        <View
+          style={[styles.screenshotBanner, { top: insets.top + 12 }]}
+          pointerEvents="none"
+          testID="voucher-detail-screenshot-banner"
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+        >
+          <Text variant="label.md" style={styles.screenshotBannerText}>
+            Screenshot detected. Staff verify only the live screen.
+          </Text>
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -1618,6 +1686,26 @@ const styles = StyleSheet.create({
   // full washed-out coupon visual treatment is deferred to §Q1.
   heroDimmed: {
     opacity: 0.55,
+  },
+
+  // iOS post-fact screenshot banner. Floats top-anchored over the
+  // scroll; pointerEvents=none so it doesn't intercept taps.
+  screenshotBanner: {
+    position: 'absolute',
+    left: 22,
+    right: 22,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    zIndex: 30,
+  },
+  screenshotBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
 
 

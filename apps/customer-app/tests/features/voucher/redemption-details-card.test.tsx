@@ -299,9 +299,10 @@ describe('RedemptionDetailsCard', () => {
   //     details are saved below." near the history-tip line. Suppressed
   //     when validated (the validated pill carries the message).
   describe('presentation-window helper copy', () => {
-    it('IN-WINDOW shows "Available to show staff until <HH:mm>." with formatted en-GB Europe/London time', () => {
+    it('IN-WINDOW shows "Available to show staff until <D Mon, HH:mm>." with formatted en-GB Europe/London date+time', () => {
       // redeemedAt = 14:32 UTC. May is BST (UTC+1), so London-local =
-      // 15:32 BST. Window expiry = 15:32 + 2h = 17:32 BST.
+      // 15:32 BST on 9 May. Window expiry = 15:32 + 2h = 17:32 BST,
+      // still 9 May. Date-inclusive copy by default (locked 2026-05-09).
       const { getByTestId } = render(
         <RedemptionDetailsCard
           {...defaults({
@@ -311,7 +312,7 @@ describe('RedemptionDetailsCard', () => {
         />,
       )
       const helper = getByTestId('redemption-details-availability-helper')
-      expect(helper.props.children).toBe('Available to show staff until 17:32.')
+      expect(helper.props.children).toBe('Available to show staff until 9 May, 17:32.')
     })
 
     it('IN-WINDOW falls back to the 2-hour phrasing when redeemedAt is malformed', () => {
@@ -392,8 +393,10 @@ describe('RedemptionDetailsCard', () => {
 
     it('expiry-clock helper formats correctly across the day boundary (early-morning redemption)', () => {
       // redeemedAt 23:30 UTC on 9 May. May is BST (UTC+1), so London-
-      // local = 00:30 on 10 May. Window expiry = 00:30 + 2h = 02:30.
-      // Verifies the format helper doesn't choke on day-rollover.
+      // local = 00:30 on 10 May. Window expiry = 00:30 + 2h = 02:30
+      // on 10 May. Date inclusion is critical here — without it, the
+      // helper would say "02:30" with no indication that it's the
+      // NEXT day, which is exactly the QA bug we're closing.
       const { getByTestId } = render(
         <RedemptionDetailsCard
           {...defaults({
@@ -403,7 +406,60 @@ describe('RedemptionDetailsCard', () => {
         />,
       )
       const helper = getByTestId('redemption-details-availability-helper')
-      expect(helper.props.children).toBe('Available to show staff until 02:30.')
+      expect(helper.props.children).toBe('Available to show staff until 10 May, 02:30.')
+    })
+
+    it('matches the PR #49 device-QA scenario: redeemed at 21:55Z (22:55 BST on 8 May), expires 23:55Z (00:55 BST on 9 May)', () => {
+      // The exact reported scenario: redeemed at 22:55 BST on 8 May.
+      // Bug was the helper said "Available until 22:55." — the
+      // SAME clock time as the redeemed time. Root cause: Hermes
+      // silently ignoring `timeZone: 'Europe/London'` on
+      // `toLocaleTimeString` (or some related path). Fixed by
+      // switching to `formatToParts` numeric extraction with a
+      // hardcoded English month-name array. Date-inclusive copy
+      // also disambiguates the cross-midnight case unambiguously.
+      const { getByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({
+            redeemedAt:           '2026-05-08T21:55:00Z',
+            isPresentationActive: true,
+          })}
+        />,
+      )
+      const helper = getByTestId('redemption-details-availability-helper')
+      expect(helper.props.children).toBe('Available to show staff until 9 May, 00:55.')
+    })
+
+    it('renders day-numeric without leading zero (e.g. "9 May" not "09 May")', () => {
+      // Owner direction-style en-GB short form. Pin the format so
+      // a future refactor doesn't regress to "09 May".
+      const { getByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({
+            redeemedAt:           '2026-05-09T08:00:00Z',
+            isPresentationActive: true,
+          })}
+        />,
+      )
+      const helper = getByTestId('redemption-details-availability-helper')
+      // 08:00 UTC + 2h = 10:00 UTC = 11:00 BST on 9 May.
+      expect(helper.props.children).toBe('Available to show staff until 9 May, 11:00.')
+    })
+
+    it('formats month transitions correctly (last day of month → next month)', () => {
+      // Redeemed at 22:30 UTC on 31 May. London-local = 23:30 BST
+      // 31 May. Expiry = 23:30 + 2h = 01:30 BST on 1 June. Pins
+      // both date rollover AND month rollover.
+      const { getByTestId } = render(
+        <RedemptionDetailsCard
+          {...defaults({
+            redeemedAt:           '2026-05-31T22:30:00Z',
+            isPresentationActive: true,
+          })}
+        />,
+      )
+      const helper = getByTestId('redemption-details-availability-helper')
+      expect(helper.props.children).toBe('Available to show staff until 1 Jun, 01:30.')
     })
   })
 })
