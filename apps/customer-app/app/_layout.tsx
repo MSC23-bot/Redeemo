@@ -11,7 +11,6 @@ import { useAuthStore } from '@/stores/auth'
 import { DeepLinkListener } from '@/app-bootstrap/DeepLinkListener'
 import { ReduceMotionListener } from '@/app-bootstrap/ReduceMotionListener'
 import { SessionExpiredBridge } from '@/app-bootstrap/SessionExpiredBridge'
-import { TokensPersistenceBridge } from '@/app-bootstrap/TokensPersistenceBridge'
 import { getQueryClient } from '@/lib/query-client'
 
 export default function RootLayout() {
@@ -51,7 +50,6 @@ export default function RootLayout() {
               <DeepLinkListener />
               <ReduceMotionListener />
               <SessionExpiredBridge />
-              <TokensPersistenceBridge />
               <StatusBar style="auto" />
               <Slot />
             </View>

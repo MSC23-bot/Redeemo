@@ -3,7 +3,7 @@ import { authApi } from '@/lib/api/auth'
 import { profileApi } from '@/lib/api/profile'
 import { prefsStorage, secureStorage } from '@/lib/storage'
 import { setHapticsEnabled } from '@/design-system/haptics'
-import { setTokens as apiSetTokens } from '@/lib/api'
+import { api as apiClient, setTokens as apiSetTokens } from '@/lib/api'
 import { clearAllQueries } from '@/lib/query-client'
 import { stepIndex, type ProfileStep } from '@/features/profile-completion/steps'
 
@@ -136,6 +136,16 @@ export const useAuthStore = create<State>((set, get) => ({
       return
     }
     apiSetTokens({ accessToken: access, refreshToken: refresh, sessionId, entityId })
+    // Populate the store-level token fields BEFORE the profile fetch so
+    // a rotation that fires inside `profileApi.getMe()` (a 401 → refresh
+    // round-trip when the access token has expired across an extended
+    // close) can update them via the module-init persistence handler.
+    // The final `set(...)` after profile success deliberately omits
+    // accessToken/refreshToken so it cannot clobber a fresh rotation
+    // that happened mid-flight. The api module is the source of truth
+    // for outgoing-request bearer tokens; the store-level fields are
+    // mirrored state for any UI that reads them.
+    set({ accessToken: access, refreshToken: refresh })
     try {
       const me = await profileApi.getMe()
       const minimal: MinimalUser = {
@@ -153,7 +163,7 @@ export const useAuthStore = create<State>((set, get) => ({
         subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
       }
       const onboarding = await loadOnboarding(me.id)
-      set({ status: 'authed', user: minimal, accessToken: access, refreshToken: refresh, onboarding })
+      set({ status: 'authed', user: minimal, onboarding })
     } catch {
       // Bootstrap failure → treat as a forced sign-out so any cached data
       // from a prior session can't leak. See `clearAllQueries` doc comment.
@@ -328,5 +338,33 @@ export const useAuthStore = create<State>((set, get) => ({
     set({ status: 'bootstrapping', user: null, accessToken: null, refreshToken: null, onboarding: INITIAL_ONBOARDING, hapticsEnabled: true, motionScale: 1 })
   },
 }))
+
+// Persist rotated access + refresh tokens at module-init time so the
+// handler is registered BEFORE `bootstrap()` runs and BEFORE any React
+// tree mounts. Bootstrap calls `profileApi.getMe()` immediately after
+// installing the stored tokens; if the access token has expired (e.g.
+// the user closed the app for >15 minutes) that call triggers a 401 →
+// refresh round-trip → token rotation. The rotation must be captured
+// even though the splash screen is still rendering — i.e. before any
+// React-mounted bridge could exist. Earlier shipped a
+// `TokensPersistenceBridge` component, but its useEffect only ran once
+// the auth status flipped off `'bootstrapping'`, leaving a window
+// where bootstrap-time rotations were not persisted. PR #50 second-
+// review fix: shape #3 — auth store owns the path directly.
+//
+// The handler runs synchronously to mirror state into zustand, then
+// schedules secureStorage writes asynchronously. Persistence errors
+// are swallowed (best-effort) so they cannot wedge any caller. Single-
+// subscriber by api-module design — calling `apiClient.onTokensRefreshed`
+// again replaces this handler, which is fine for tests that swap it.
+apiClient.onTokensRefreshed(({ accessToken, refreshToken }) => {
+  useAuthStore.setState({ accessToken, refreshToken })
+  void Promise.all([
+    secureStorage.set('accessToken',  accessToken),
+    secureStorage.set('refreshToken', refreshToken),
+  ]).catch(() => {
+    /* swallow — best-effort persistence */
+  })
+})
 
 export type { ProfileStep }

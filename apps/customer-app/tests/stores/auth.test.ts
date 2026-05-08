@@ -11,8 +11,17 @@ jest.mock('@/lib/storage', () => ({
   },
 }))
 import { prefsStorage } from '@/lib/storage'
+// `onTokensRefreshed` MUST be on the mocked `api` surface — the auth
+// store's module-init code calls `apiClient.onTokensRefreshed(...)` at
+// import time to install the persistence handler before bootstrap runs
+// (PR #50 second-review fix). A bare `jest.fn()` is enough; tests that
+// need to invoke the registered handler retrieve it via `mock.calls[0][0]`.
 jest.mock('@/lib/api', () => ({
-  api: { setTokens: jest.fn(), onSessionExpired: jest.fn() },
+  api: {
+    setTokens:          jest.fn(),
+    onSessionExpired:   jest.fn(),
+    onTokensRefreshed:  jest.fn(),
+  },
   setTokens: jest.fn(),
 }))
 jest.mock('@/lib/api/auth', () => ({
@@ -210,5 +219,68 @@ describe('auth store', () => {
 
     expect(useAuthStore.getState().status).toBe('authed')
     expect(useAuthStore.getState().user?.id).toBe('u1')
+  })
+
+  // PR #50 second-review fix (lifecycle P2): the persistence handler
+  // for rotated tokens must be registered at module-init time, not
+  // mounted via a React component. Otherwise a refresh that fires
+  // during bootstrap (e.g. `profileApi.getMe()` hitting a 401 because
+  // the access token expired while the app was closed) would rotate
+  // the refresh token in api-module memory, but secureStorage would
+  // keep the dead token — the next app relaunch would post the dead
+  // token and the user would be signed out again.
+  it('persists rotated tokens to secureStorage during a bootstrap-time refresh — handler registered before any React mounts', async () => {
+    const { secureStorage } = jest.requireMock('@/lib/storage') as {
+      secureStorage: { get: jest.Mock; set: jest.Mock; remove: jest.Mock }
+    }
+    const apiMock = jest.requireMock('@/lib/api') as {
+      api: { onTokensRefreshed: jest.Mock; setTokens: jest.Mock; onSessionExpired: jest.Mock }
+    }
+
+    // Module-init registration must already have happened — the auth
+    // store imports trigger `apiClient.onTokensRefreshed(...)` at file
+    // load time. This proves the handler exists BEFORE any React tree
+    // (including any bridge component) could possibly mount.
+    expect(apiMock.api.onTokensRefreshed).toHaveBeenCalled()
+    const persistenceHandler = apiMock.api.onTokensRefreshed.mock.calls[0]?.[0] as
+      | ((next: { accessToken: string; refreshToken: string }) => void)
+      | undefined
+    expect(typeof persistenceHandler).toBe('function')
+
+    // Pre-populate secureStorage as if a previous session was active.
+    secureStorage.get.mockImplementation(async (key: string) => {
+      if (key === 'accessToken')  return 'OLD_ACCESS'
+      if (key === 'refreshToken') return 'OLD_REFRESH'
+      if (key === 'sessionId')    return 'sess_x'
+      if (key === 'entityId')     return 'u1'
+      return null
+    })
+
+    // Simulate the realistic path: the 401-refresh-retry happens INSIDE
+    // `profileApi.getMe()`. The doFetch interceptor would receive a 401,
+    // call `refreshTokens()` (which fires `onTokensRefreshed`), retry
+    // the original request with the new bearer, and resolve. From the
+    // store's vantage point this looks like getMe() resolved normally,
+    // but a rotation happened during the call.
+    ;(profileApi.getMe as jest.Mock).mockImplementationOnce(async () => {
+      persistenceHandler!({ accessToken: 'NEW_ACCESS', refreshToken: 'NEW_REFRESH' })
+      return profileFixture()
+    })
+
+    await useAuthStore.getState().bootstrap()
+
+    // Allow the best-effort secureStorage.set Promise to resolve.
+    await new Promise((r) => setImmediate(r))
+
+    expect(secureStorage.set).toHaveBeenCalledWith('accessToken',  'NEW_ACCESS')
+    expect(secureStorage.set).toHaveBeenCalledWith('refreshToken', 'NEW_REFRESH')
+    // Zustand state must reflect the rotation, NOT the OLD tokens that
+    // bootstrap initially read from secureStorage. This pins that the
+    // bootstrap's final `set(...)` cannot clobber a rotation that fired
+    // mid-flight.
+    expect(useAuthStore.getState().accessToken).toBe('NEW_ACCESS')
+    expect(useAuthStore.getState().refreshToken).toBe('NEW_REFRESH')
+    // And the user is signed in with the live profile.
+    expect(useAuthStore.getState().status).toBe('authed')
   })
 })

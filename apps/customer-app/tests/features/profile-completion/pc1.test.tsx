@@ -2,7 +2,7 @@ jest.mock('@/lib/storage', () => ({
   secureStorage: { get: jest.fn(async () => null), set: jest.fn(async () => {}), remove: jest.fn(async () => {}) },
   prefsStorage: { get: jest.fn(async () => null), set: jest.fn(async () => {}), remove: jest.fn(async () => {}) },
 }))
-jest.mock('@/lib/api', () => ({ api: { setTokens: jest.fn(), onSessionExpired: jest.fn() }, setTokens: jest.fn() }))
+jest.mock('@/lib/api', () => ({ api: { setTokens: jest.fn(), onSessionExpired: jest.fn(), onTokensRefreshed: jest.fn() }, setTokens: jest.fn() }))
 jest.mock('@/lib/api/auth', () => ({ authApi: { logout: jest.fn(async () => ({})) } }))
 jest.mock('@/design-system/haptics', () => ({ setHapticsEnabled: jest.fn(), haptics: {} }))
 jest.mock('@/lib/api/profile')
