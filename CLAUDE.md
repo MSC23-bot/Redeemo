@@ -283,22 +283,35 @@ Test counts at PR #46 merge: backend vitest 483/483; customer-app jest 792/793 (
 Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M2.1 (full as-shipped contract).
 Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §5.5 / §6.7 / §8.9 (shipped-state deltas).
 
-### Phase 3C.1c (M3) — ShowToStaff + QR + anti-fraud (PENDING — re-framed as REQUIRED, not optional polish)
+### ✅ Phase 3C.1c (M3) — ShowToStaff + QR + anti-fraud + persisted return-visit (LIVE on `feature/voucher-m3-show-to-staff`, awaiting merge)
 
-The full Show-to-Staff full-screen surface is required for merchant validation/manual-recording readiness. The text-code path on the SuccessPopup + RedemptionDetailsCard is *usable* for manual recording today (a merchant can write `A7K2 P9X4` on a bill or read it aloud), but it is **not the locked end-state of the redemption flow** — some merchants will not have the merchant app installed at platform launch and need a QR they can scan with a generic QR scanner.
+22 commits across 5 milestones (M3a backend → M3b building blocks → M3c anti-fraud → M3d wiring → M3e docs/spec consistency). Owner-locked decisions D1-D10 + post-implementation owner clarifications all encoded.
 
-Required scope (all four — NOT optional, see deferred follow-ups §P1):
-- **QR/code view** — full-screen rendering of the redemption code as a QR + the formatted text fallback. Reference: `voucher-detail-v6.html` Screen 7b "Show to Staff (Full Screen)".
-- **Brightness boost** — temporarily ramp screen brightness so staff scanners pick up the QR cleanly. Restore on unmount.
-- **Screenshot / screen-recording guard** — anti-fraud: detect screenshot or recording attempts and either (a) blank the QR, (b) flag the redemption to the backend, (c) both.
-- **Auto-hide timer** — close after a short window. Owner direction needed at M3 plan time: 30s? 60s? 5min? Survives backgrounding?
-- **Validation polling** — call `redemptionApi.getMyRedemption(redemptionId)` (`/api/v1/redemption/my/:id`) on a poll while Show-to-Staff is open; transition to "validated" success state when the backend marks `isValidated: true`.
+What ships on M3 (locked):
 
-Plus §P2 persisted return-visit RedemptionDetailsCard (backend payload deps: `redemptionCode` / `redeemedAt` / `branch`) and §Q1-Q5 redeemed-state visual + composition design pass + §Q5 Settings → Redemption History surface for past redemptions, all bundled with M3 since they share the same backend payload extension.
+- **ShowToStaff full-screen surface** reachable from BOTH SuccessPopup (just-redeemed) AND RedemptionDetailsCard (return visit during active cycle). M2's `Alert.alert('Show to Staff', '…ships in next milestone')` stub is gone.
+- **Backend additive:** `RedemptionScreenshotEvent` Prisma model + migration, `flagRedemptionScreenshot` service with Redis SETNX 5s dedup, `getMyRedemptionByCode` customer self-lookup, two new customer routes (`GET /redemption/me/:code` + `POST /redemption/:code/screenshot-flag`), `getCustomerVoucher` payload extension with cycle-window-gated `lastRedemption` block.
+- **QR payload format:** opaque 8-character redemption code only (e.g. `A7K2P9X4`). NO public validation URL. Self-validation loophole NOT possible — customer-side `me/:code` is read-only customer-JWT-scoped; staff `verify` route requires merchant/branch auth that customers cannot reach.
+- **Building blocks:** PulsingDot (design-system, additive testID/style props), QRCodeBlock (logo overlay + blurred state with anti-fraud invariant — QR child NOT rendered when blurred), useRedemptionPolling (5s/15min budget + enabled/paused flags), useBrightnessBoost (best-effort capture/restore), useAutoHideTimer (2min idle / 10s warning / freeze-on-validated), useScreenshotGuard (iOS listener + Android FLAG_SECURE + 5s client dedup + best-effort backend telemetry).
+- **AppState backgrounding contract (locked plan §Backgrounding):** surface stays mounted across background → foreground; polling/timer/brightness all pause/resume cleanly. Polling 15-min budget DOES count backgrounded time; auto-hide 2-min idle does NOT.
+- **Validated transition:** `successHaptic()` + green-tinted "Verified by staff at <branch>" badge + 2s auto-dismiss → onDone. Reduced motion routes through onDone instantly.
+- **Two kill-switches** (post-implementation owner clarifications): `BRIGHTNESS_BOOST_ENABLED` and `SCREENSHOT_GUARD_ENABLED` consts at the top of `ShowToStaff.tsx`. Default `true`. Flip to `false` to ship a build that disables the respective hook entirely without affecting QR/manual code/polling/auto-hide/AppState wiring. Owner-approved fast-remediation paths if device QA surfaces instability.
+- **Persisted return-visit RedemptionDetailsCard** (closes §P2 for current cycle): `voucher.lastRedemption` payload (cycle-window gated) drives the card on app relaunches and React Query cold-cache opens. Dual-source `displayRedemption`: in-memory `lastRedemption` PRIMARY (just-redeemed); `voucher.lastRedemption` FALLBACK (return visits). RedemptionDetailsCard's "Show to Staff" button is now LIVE (no longer stubbed) — testID `redemption-details-show-to-staff` (was `…-stub`); accessibility label drops the next-milestone suffix.
+- **§Q6 cycle-rollover invariant pinned:** the load-bearing gate is `stateKey === 'redeemed-this-cycle'` (driven by `voucher.isRedeemedThisCycle`), NOT `lastRedemption` data presence. Pinned by 4 phases in `voucher-detail-redeem-flow.test.tsx` (current cycle / rolled-over / defensive drift / negative defense). Defensive drift is the critical pin.
+- **Validated pill** (`Validated by staff` green): renders on RedemptionDetailsCard when `voucher.lastRedemption.isValidated === true`. Surfaces on return visits so the user doesn't need to reopen Show-to-Staff for status.
+- **customerName="" §U1 lock:** ShowToStaff suppresses the "Customer" info-row when name is empty. Forward-compat: passing a real first-name + last-initial renders the row. Tracked as §U1 deferred follow-up — pick up after merchant-portal validation surfaces (§R4) lock.
 
-Pick up: as a dedicated Tier 2 (or Tier 3 if owner wants a fresh brainstorm on screenshot-guard behaviour) PR after on-device QA on PR #46 settles. Not started.
+What stays deferred from M3:
+- §Q1-Q5 redeemed-state visual redesign (washed-out coupon, REDEEMED stamp, dimmed merchant card, merchant-profile voucher-card treatment, Settings → Redemption History past-cycle surface). Tier 2 design pass paired with §S1-S3.
+- §S2 animated gradient border on the code card (intentional v6 mockup deviation — static gradient ships in M3; the LIVE pulse + live datetime ticker already animate as the alive-signal).
+- TIME_LIMITED window enforcement (§O1, M4).
+- REUSABLE multi-redemption (§T1, M5 brainstorm-first).
+- §P3 SuccessPopup confetti, §P4 non-PIN error action-button routing, §R1 collision-retry hardening, §R2 dead nanoid mock cleanup — Tier 1 polish batches.
 
-Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §7 milestone M3.
+Test counts at branch tip: backend vitest 112/112 across the redemption + voucher-detail surface; customer-app jest **173/173** across 11 M3-touched files (PulsingDot 5, QRCodeBlock 9, useRedemptionPolling 5, useBrightnessBoost 5, useAutoHideTimer 7, useScreenshotGuard 13, ShowToStaff 24, voucher-detail-redeem-flow 54, redemption-details-card 21, redemption.show-to-staff 12, voucher 13). `tsc --noEmit` zero new errors in `src/api/`.
+
+Plan: `docs/superpowers/plans/2026-05-08-voucher-detail-m3-show-to-staff.md` (forward-looking) + `2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 (as-shipped).
+Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §7.7 + §8.10 (M3 shipped-state deltas).
 
 ### ✅ Phase 3C.1d — Merchant Profile (LIVE on origin/main 2026-05-05)
 - Branch-aware: customer API exposes `selectedBranch` block resolved from `?branch=<id>`; cold-open uses nearest-by-GPS or `Branch.isMainBranch`; in-tab switch via `router.replace`. Vouchers stay merchant-wide; redemption is branch-attributed.
@@ -481,17 +494,19 @@ On the project owner's local clone there is a stash labelled `discovery: drop me
 ### 🔲 Next planned work
 
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
-2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Surfaces still pending after the Merchant Profile track (PR #35, 2026-05-05) and the Voucher Detail M1 track (PR #40, 2026-05-06):
+2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Surfaces still pending after the Merchant Profile track (PR #35), Voucher Detail M1 (PR #40), Voucher Detail M2 (PRs #43-#46), and Voucher Detail M3 (branch `feature/voucher-m3-show-to-staff`, awaiting merge):
    - Phase 3C.1b — Home / Discovery / Map
-   - Phase 3C.1c (M3) — Voucher Detail Show-to-Staff full-screen QR + brightness boost + screenshot guard + auto-hide + validation polling. Bundles §P2 persisted return-visit RedemptionDetailsCard + §Q1-Q5 redeemed-state visual redesign + Settings → Redemption History. M1 view-only LIVE on main via PR #40 (2026-05-06); M2 redemption flow LIVE on main via PRs #43/#44/#45/#46 (2026-05-07).
    - Phase 3C.1f — Savings tab
    - Phase 3C.1g — Favourites screen
    - Phase 3C.1h — Profile tab (full surface; minimal shell shipped via PR #27)
-   - Phase 3C.1i — QR rendering (rolled into Phase 3C.1c M3 since the redemption flow is the only consumer)
+   - **Voucher Detail M4** — TIME_LIMITED availability windows (Tier 2 plan-first; light schema brainstorm). See deferred-followups §O1.
+   - **Voucher Detail M5** — REUSABLE multi-redemption (Tier 3 brainstorm-first). See deferred-followups §T1.
+   - **Redeemed-state design pass** (Tier 2) — bundles §Q1-Q5 (washed-out coupon, REDEEMED stamp, dimmed merchant card, merchant-profile voucher-card treatment, Settings → Redemption History) + §S1-S3 (PIN sheet + success popup + Show-to-Staff design polish).
+   - **Customer name on Show-to-Staff** (§U1) — Tier 1 follow-up, picked up after merchant-portal validation surfaces lock so both sides design together.
    Several worktrees are already cut for these (`customer-app-discovery-map`, `customer-app-discovery-search`, etc.). Cross-check each against current `main` before resuming — main has moved significantly since they were created.
 3. **Plan 4 — location model** (Tier 3, brainstorm-first per `project_discovery_sequencing_plan4.md`). Foundational for discovery experience; queued once the post-Plan-1 Home/Discovery QA sequencing wraps.
 4. **Open follow-ups** — see `project_merchant_profile_ux_refinement_complete.md` for the merchant-profile open list (tap-target A11y, seed enrichment, `closesAt` device-local removal, discovery card ratings via `contextBranchId`).
-5. **Phase 4** — Merchant Portal + Mobile App (queued).
+5. **Phase 4** — Merchant Portal + Mobile App (queued). See deferred-followups §R4 for the locked architecture (branch-restricted access, per-user capabilities, automated monthly statements). Locked production-resilience standing checklist (memory §W) applies — high-traffic flows + third-party deps need explicit consideration.
 
 ### 🔲 Phase 3C — explicitly deferred items
 - **Subscribe purchase flow** — iOS requires Apple IAP (Stripe cannot be used inside iOS app). Android could use Stripe or Google Play Billing. Deferred pending IAP decision. Placeholder screen exists at `subscription-prompt` (renamed from `subscribe-prompt` in PR #5; the locked CTA contract — alert-only premium, stamp+nav free — is preserved).
