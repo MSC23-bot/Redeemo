@@ -54,9 +54,27 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
   return (
     <View style={styles.wrap} testID="redeemed-seal">
       <View style={styles.seal}>
-        <Text variant="label.md" style={styles.title}>
-          Voucher Redeemed
-        </Text>
+        {/* Title wrapper — relative-positioned so the ink-fade band
+            below can overlay the top edge of letter ascenders.
+            Locked 2026-05-09 PR #49 device QA wave 7: rubber-stamp
+            "less ink pressed at the top" rustic feel without
+            geometrically clipping glyphs. */}
+        <View style={styles.titleWrap}>
+          <Text variant="label.md" style={styles.title}>
+            Voucher Redeemed
+          </Text>
+          {/* Top-edge ink fade. A thin cream band at low opacity
+              overlays just the top ~3px of letter ascenders. The
+              red text stays visible underneath (cream is 55% opaque
+              → 45% of red shows through), so each letter is still
+              clearly identifiable, but the very top strokes (E top
+              bar, R/D/T tops) read as faintly broken or faded —
+              the visual signature of an actual rubber stamp where
+              the rubber didn't make full contact at the upper edge.
+              Negative left/right insets so the band catches letter
+              ends near the seal's inner padding. */}
+          <View style={styles.inkFadeTop} pointerEvents="none" />
+        </View>
         {renewalLabel ? (
           <Text variant="label.md" style={styles.subtitle}>
             Renews on {renewalLabel}
@@ -125,6 +143,29 @@ const styles = StyleSheet.create({
     overflow: 'visible',
     gap: 6,
   },
+  // Wave 7 (rustic feel) — locked 2026-05-09 PR #49 device QA.
+  // Owner direction: "give it a rustic look so it looks like a genuine
+  // rubber seal stamp. The line at the top should stay visible, but
+  // it should be thin … rustic feel … like a proper rubber seal stamp."
+  // Two compound techniques:
+  //   1. Slight overall opacity reduction (0.94) — moves the title
+  //      off "perfectly printed digital text" toward "actual ink".
+  //   2. A 3px cream-tinted band overlay (`inkFadeTop`) sits across
+  //      the top edge of letter ascenders, simulating where the
+  //      rubber didn't make full contact at the upper edge. The
+  //      red text underneath stays visible at 45% (cream is 55%
+  //      opaque) — letters remain identifiable, but their top
+  //      strokes (E top bar, R/D/T tops) read as faintly faded.
+  //   3. Tighter, sharper textShadow (offset 0.5/0.5, radius 0,
+  //      opacity 0.45) — mimics ink slightly bleeding to one side
+  //      under stamp pressure, more "pressed onto paper" than
+  //      "rendered on a screen".
+  // Rustic feel comes from these three combined, NOT from
+  // geometric clipping of the glyphs (the prior wave-6 clipping
+  // bug). overflow:visible on the seal stays in place.
+  titleWrap: {
+    position: 'relative',
+  },
   title: {
     fontSize: 22,
     lineHeight: 32,
@@ -133,11 +174,28 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
     textTransform: 'uppercase',
     includeFontPadding: true,
-    // textShadow on iOS via React Native — strengthens the red
-    // stroke against the cream fill (the "ink pressure" feel).
-    textShadowColor: 'rgba(226,12,4,0.25)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 1,
+    opacity: 0.94,
+    textShadowColor: 'rgba(226,12,4,0.45)',
+    textShadowOffset: { width: 0.5, height: 0.5 },
+    textShadowRadius: 0,
+  },
+  // Top-edge ink-pressure fade. `top` lands on the top of letter
+  // ascenders within the 32px line box (iOS default font: ascent
+  // ≈ 0.92 × fontSize, so for fontSize 22 the letter tops sit
+  // ~5px from the top of the line box). Negative left/right
+  // insets so the band reaches the outermost letters near the
+  // seal's inner padding. Height 3 keeps the fade limited to the
+  // top ink edge — the rest of the glyph stays full red.
+  inkFadeTop: {
+    position: 'absolute',
+    top: 5,
+    left: -8,
+    right: -8,
+    height: 3,
+    // Matches the seal background (#FFF6EE) at 55% opacity. The
+    // band visually "reaches into" the letter tops without ever
+    // clipping the glyphs at a geometry level.
+    backgroundColor: 'rgba(255, 246, 238, 0.55)',
   },
   subtitle: {
     fontSize: 13,
