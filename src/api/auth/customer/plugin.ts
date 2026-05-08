@@ -41,7 +41,7 @@ async function customerAuthPlugin(app: FastifyInstance) {
           error: { code: 'REFRESH_TOKEN_INVALID', message: 'Unauthorized.', statusCode: 401 },
         })
       }
-      const activeSessionId = await getActiveMobileSessionId((app as any).redis, 'customer', claims.sub)
+      const activeSessionId = await getActiveMobileSessionId(app.redis, 'customer', claims.sub)
       if (activeSessionId && activeSessionId !== claims.sessionId) {
         return reply.status(401).send({
           error: {

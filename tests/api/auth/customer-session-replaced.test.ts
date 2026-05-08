@@ -168,6 +168,16 @@ describe('one-mobile-device enforcement — SESSION_REPLACED', () => {
     expect(decoded.deviceType).toBe('ios')
     expect(decoded.sessionId).toBe(SESSION_B)
     expect(decoded.sub).toBe(ENTITY_ID)
+
+    // Refresh MUST NOT touch the active-mobile-session pointer —
+    // that's login-time only. If this regresses, two devices logging
+    // in concurrently could race the active-mobile-session writes
+    // through refresh and break the one-mobile-device rule.
+    const setCalls = (app.redis.set as ReturnType<typeof vi.fn>).mock.calls
+    const touchedActiveSession = setCalls.some(([key]) =>
+      typeof key === 'string' && key.startsWith('sessions:mobile:'),
+    )
+    expect(touchedActiveSession).toBe(false)
   })
 
   // ── preHandler: stale-token immediate rejection ─────────────────────────
@@ -217,12 +227,12 @@ describe('one-mobile-device enforcement — SESSION_REPLACED', () => {
       payload: { refreshToken: 'whatever' },
     })
 
-    // Logout itself may 200 or 500 depending on prisma mock; only
-    // care that it's NOT 401 SESSION_REPLACED.
-    if (res.statusCode === 401) {
-      const body = JSON.parse(res.body)
-      expect(body.error.code).not.toBe('SESSION_REPLACED')
-    }
+    // Pin: preHandler did NOT trip. Logout success is the deterministic
+    // observable — `routes.ts` returns `{ success: true }` on the
+    // happy path. A `if (statusCode === 401)` conditional would pass
+    // vacuously here when the assertion never runs.
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ message: 'Logged out.' })
   })
 
   it('authenticateCustomer accepts web JWT (deviceType="web") even when an active mobile session exists', async () => {
@@ -244,10 +254,9 @@ describe('one-mobile-device enforcement — SESSION_REPLACED', () => {
       payload: { refreshToken: 'whatever' },
     })
 
-    if (res.statusCode === 401) {
-      const body = JSON.parse(res.body)
-      expect(body.error.code).not.toBe('SESSION_REPLACED')
-    }
+    // Pin: preHandler did NOT trip. Conditional asserts pass vacuously.
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ message: 'Logged out.' })
   })
 
   it('authenticateCustomer accepts legacy JWT (no deviceType claim) — backward compat for tokens minted before this PR', async () => {
@@ -272,10 +281,9 @@ describe('one-mobile-device enforcement — SESSION_REPLACED', () => {
       payload: { refreshToken: 'whatever' },
     })
 
-    if (res.statusCode === 401) {
-      const body = JSON.parse(res.body)
-      expect(body.error.code).not.toBe('SESSION_REPLACED')
-    }
+    // Pin: preHandler did NOT trip. Conditional asserts pass vacuously.
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ message: 'Logged out.' })
   })
 
   it('authenticateCustomer accepts mobile JWT when no active mobile session exists in Redis (e.g. after logout)', async () => {
@@ -299,9 +307,8 @@ describe('one-mobile-device enforcement — SESSION_REPLACED', () => {
       payload: { refreshToken: 'whatever' },
     })
 
-    if (res.statusCode === 401) {
-      const body = JSON.parse(res.body)
-      expect(body.error.code).not.toBe('SESSION_REPLACED')
-    }
+    // Pin: preHandler did NOT trip. Conditional asserts pass vacuously.
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ message: 'Logged out.' })
   })
 })

@@ -44,6 +44,12 @@ const TABLE: Record<string, Omit<MappedError, 'code'>> = {
   RATE_LIMITED:               { message: 'Too many attempts. Please wait a moment and try again.', surface: 'toast', retryable: false },
   NETWORK_ERROR:              { message: 'Connection lost. Check your network.',                surface: 'toast',    retryable: true  },
   SESSION_EXPIRED:            { message: 'Please sign in again.',                               surface: 'silent',   retryable: false },
+  // Surface is 'silent' so a query/mutation error mapper does NOT
+  // double-toast over the SessionExpiredBridge (the bridge owns the
+  // user-facing copy). Mirrors SESSION_EXPIRED's behaviour. Without
+  // this entry, mapError() falls through to the default "Something
+  // went wrong" toast — locked 2026-05-08 from PR #51 review.
+  SESSION_REPLACED:           { message: 'Your account was signed in on another device.',       surface: 'silent',   retryable: false },
 }
 
 function getCode(err: unknown): string | null {

@@ -6,6 +6,13 @@ export type AuditEvent =
   | 'AUTH_SSO_LOGIN_SUCCESS'
   | 'AUTH_LOGOUT'
   | 'AUTH_REFRESH_FAILED'
+  // Distinct from AUTH_REFRESH_FAILED — fired when the previous mobile
+  // session was deliberately superseded by a newer login on another
+  // device (one-mobile-device-per-account rule). Lets the audit log
+  // distinguish "natural expiry" from "kicked off by another login"
+  // so security/observability dashboards can track the latter
+  // separately. Locked 2026-05-08, deferred-followups §AC6 / §AD2.
+  | 'AUTH_SESSION_REPLACED'
   | 'AUTH_OTP_SENT'
   | 'AUTH_OTP_VERIFIED'
   | 'AUTH_OTP_FAILED'

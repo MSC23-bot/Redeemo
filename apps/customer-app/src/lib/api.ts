@@ -236,9 +236,17 @@ export const api = {
    * subscriber can pick distinct copy: `SESSION_REPLACED` → "Your
    * account was signed in on another device, so this session has
    * ended." Any other reason → generic "Your session has expired.
-   * Please sign in again." Backward-compat: a no-arg callback still
-   * works (extra args are ignored), so existing subscribers don't
-   * need to change.
+   * Please sign in again."
+   *
+   * Single-subscriber by design: a second `onSessionExpired(cb)` call
+   * REPLACES the previous handler. The store-level
+   * `SessionExpiredBridge` registers the only subscriber today; future
+   * code attaching a listener must coordinate to avoid silently
+   * dropping it.
+   *
+   * JS-level note: passing a no-arg callback still works — JS ignores
+   * extra arguments. TypeScript will complain unless the call site
+   * widens the signature.
    */
   onSessionExpired(cb: (reason: SignOutReason) => void) { onSessionExpiredCb = cb },
   /**

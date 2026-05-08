@@ -34,7 +34,7 @@ async function rateLimitPlugin(app: FastifyInstance) {
 
   if (RELAX) {
     app.log.warn(
-      `[rate-limit] RATE_LIMIT_RELAX=true — dev limits active: login ${TIERS.login.dev.max}/min, forgot-password ${TIERS.forgotPassword.dev.max}/min, global ${GLOBAL.dev.max}/min. NEVER enable in production.`,
+      `[rate-limit] RATE_LIMIT_RELAX=true — dev limits active: login ${TIERS.login.dev.max}/min, forgot-password ${TIERS.forgotPassword.dev.max}/min, refresh ${TIERS.refresh.dev.max}/min, global ${GLOBAL.dev.max}/min. NEVER enable in production.`,
     )
   }
 }
