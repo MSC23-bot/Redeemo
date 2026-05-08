@@ -8,7 +8,10 @@ jest.mock('@/design-system/haptics', () => ({
   lightHaptic: jest.fn(),
 }))
 
-import { RedemptionDetailsCard } from '@/features/voucher/components/RedemptionDetailsCard'
+import {
+  RedemptionDetailsCard,
+  formatExpiryLine,
+} from '@/features/voucher/components/RedemptionDetailsCard'
 
 function defaults(overrides: Partial<React.ComponentProps<typeof RedemptionDetailsCard>> = {}) {
   return {
@@ -211,7 +214,7 @@ describe('RedemptionDetailsCard', () => {
       )
       expect(getByTestId('redemption-details-code')).toBeTruthy()
       expect(getByTestId('redemption-details-show-to-staff')).toBeTruthy()
-      expect(queryByTestId('redemption-details-history-tip')).toBeNull()
+      expect(queryByTestId('redemption-details-expired-notice')).toBeNull()
     })
 
     it('isPresentationActive=true + !isValidated: shows code + Show-to-Staff (in-window persisted return)', () => {
@@ -222,22 +225,26 @@ describe('RedemptionDetailsCard', () => {
       )
       expect(getByTestId('redemption-details-code')).toBeTruthy()
       expect(getByTestId('redemption-details-show-to-staff')).toBeTruthy()
-      expect(queryByTestId('redemption-details-history-tip')).toBeNull()
+      expect(queryByTestId('redemption-details-expired-notice')).toBeNull()
     })
 
-    it('isPresentationActive=false: hides code, hides Show-to-Staff, shows history tip', () => {
+    it('isPresentationActive=false: hides code + Show-to-Staff, shows the expired-window inner notice card', () => {
       const { getByTestId, queryByTestId } = render(
         <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
       )
       expect(queryByTestId('redemption-details-code')).toBeNull()
       expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
-      expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
+      // Inner notice card replaces the loose-text bottom block.
+      expect(getByTestId('redemption-details-expired-notice')).toBeTruthy()
+      expect(getByTestId('redemption-details-expired-headline')).toBeTruthy()
+      expect(getByTestId('redemption-details-expired-support')).toBeTruthy()
     })
 
-    it('isValidated=true (regardless of window): hides code + button, shows tip + validated pill', () => {
+    it('isValidated=true (regardless of window): hides code + button + expired-notice, shows ONLY the validated pill', () => {
       // Validation is terminal — once staff has scanned, the user no
       // longer needs the code re-exposed even if they're inside the
-      // 2h window.
+      // 2h window. The expired-window notice ALSO suppresses because
+      // the validated pill is the user-facing signal.
       const { getByTestId, queryByTestId } = render(
         <RedemptionDetailsCard
           {...defaults({ isPresentationActive: true, isValidated: true })}
@@ -245,17 +252,8 @@ describe('RedemptionDetailsCard', () => {
       )
       expect(queryByTestId('redemption-details-code')).toBeNull()
       expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
-      expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
+      expect(queryByTestId('redemption-details-expired-notice')).toBeNull()
       expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
-    })
-
-    it('history tip copy points to Profile → Redemption History', () => {
-      const { getByText } = render(
-        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
-      )
-      expect(
-        getByText(/find this code in Profile → Redemption History/i),
-      ).toBeTruthy()
     })
 
     it('non-sensitive details remain when window expired (header / summary / info rows / disclaimer)', () => {
@@ -288,21 +286,101 @@ describe('RedemptionDetailsCard', () => {
     })
   })
 
-  // User-facing copy for the 2-hour presentation window. Owner direction
-  // (locked 2026-05-08, PR #49 review): "calm and helpful, not punitive;
-  // make it clear the redemption is still saved, only the staff-showing
-  // code has been hidden". Two pieces of copy:
-  //   - In-window: "Available to show staff until <HH:mm>." near the
-  //     Show-to-Staff CTA. Falls back to the simpler 2-hour phrasing if
-  //     the redeemedAt is malformed.
-  //   - Out-of-window: "Staff handoff window ended. Your redemption
-  //     details are saved below." near the history-tip line. Suppressed
-  //     when validated (the validated pill carries the message).
+  // Expired-window inner notice card (locked 2026-05-09 from PR #49
+  // device QA wave 4). Replaces the previous loose-text-at-bottom
+  // treatment with an intentional inner notice in the slot where the
+  // code panel used to be.
+  describe('expired-window inner notice card', () => {
+    it('renders the headline + supporting line copy locked by owner', () => {
+      const { getByText } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
+      )
+      expect(getByText('Staff handoff window ended')).toBeTruthy()
+      expect(
+        getByText(
+          'Your code is now saved in Profile → Redemption History for your records.',
+        ),
+      ).toBeTruthy()
+    })
+
+    it('does NOT use the previous loose-text "your details are saved below" copy', () => {
+      // Owner direction: "Do not repeat 'your details are saved below'
+      // because the details are already visible below."
+      const { queryByText } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
+      )
+      expect(queryByText(/your redemption details are saved below/i)).toBeNull()
+    })
+
+    it('positions the notice card BEFORE the info rows in the rendered tree (where the code box used to be)', () => {
+      // The notice replaces the code box in the same DOM slot — sits
+      // above the Branch/Date/Time info rows. Without this, the
+      // visual treatment regresses to the old loose-text-at-bottom.
+      const { getByTestId } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
+      )
+      const card = getByTestId('redemption-details-card')
+      const ids = card
+        .findAll((el: any) => typeof el.props?.testID === 'string')
+        .map((el: any) => el.props.testID as string)
+      const noticeIdx = ids.indexOf('redemption-details-expired-notice')
+      const summaryIdx = ids.indexOf('redemption-details-summary')
+      const disclaimerIdx = ids.indexOf('redemption-details-saving-disclaimer')
+      expect(noticeIdx).toBeGreaterThanOrEqual(0)
+      // After summary (notice replaces the code-box slot, which was
+      // between summary and info rows).
+      expect(noticeIdx).toBeGreaterThan(summaryIdx)
+      // Before the saving disclaimer (which sits below the info rows).
+      expect(noticeIdx).toBeLessThan(disclaimerIdx)
+    })
+
+    it('does NOT render alongside the code box (mutually exclusive surface slots)', () => {
+      // In-window: code box renders, notice does not.
+      const { queryByTestId } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: true })} />,
+      )
+      expect(queryByTestId('redemption-details-code')).toBeTruthy()
+      expect(queryByTestId('redemption-details-expired-notice')).toBeNull()
+    })
+
+    it('previous loose-text testIDs are GONE (regression pin against partial revert)', () => {
+      // The old `redemption-details-window-ended` and
+      // `redemption-details-history-tip` testIDs were removed when
+      // the inner notice card replaced both lines. This pin will
+      // fail if a future refactor accidentally reintroduces the
+      // loose-text variants.
+      const { queryByTestId } = render(
+        <RedemptionDetailsCard {...defaults({ isPresentationActive: false })} />,
+      )
+      expect(queryByTestId('redemption-details-window-ended')).toBeNull()
+      expect(queryByTestId('redemption-details-history-tip')).toBeNull()
+    })
+  })
+
+  // User-facing helper copy for the 2-hour presentation window.
+  //
+  // Display timezone: DEVICE-LOCAL (locked 2026-05-09 from PR #49 device
+  // QA wave 4). The card's Date/Time info rows already use device-local;
+  // the helper now matches so the user sees one consistent timezone
+  // throughout the surface — their wall clock matches the helper.
+  //
+  // The math is ABSOLUTE in milliseconds (`redeemedAtMs +
+  // PRESENTATION_WINDOW_MS`). Display layer reformats the resulting
+  // Date in the resolved timezone. Calculation correctness is
+  // independent of display TZ.
+  //
+  // To keep these tests deterministic across host timezones (Qatar dev /
+  // UTC CI / London /...), they call the exported `formatExpiryLine`
+  // pure function with an explicit `timeZone` argument. The integration
+  // test rendering the full card relies on the host's local TZ for the
+  // helper output — which means it asserts STRUCTURE, not the exact
+  // clock string. Owner direction explicitly asked for Qatar AND London
+  // scenarios — these are pinned via `formatExpiryLine` direct calls.
   describe('presentation-window helper copy', () => {
-    it('IN-WINDOW shows "Available to show staff until <D Mon, HH:mm>." with formatted en-GB Europe/London date+time', () => {
-      // redeemedAt = 14:32 UTC. May is BST (UTC+1), so London-local =
-      // 15:32 BST on 9 May. Window expiry = 15:32 + 2h = 17:32 BST,
-      // still 9 May. Date-inclusive copy by default (locked 2026-05-09).
+    it('IN-WINDOW renders the helper line on the rendered card (testID present, copy starts with "Available to show staff until")', () => {
+      // Integration assertion: structure only, since the host TZ is
+      // unknown in CI. Specific clock-string tests live below using
+      // `formatExpiryLine` with explicit `timeZone`.
       const { getByTestId } = render(
         <RedemptionDetailsCard
           {...defaults({
@@ -312,7 +390,8 @@ describe('RedemptionDetailsCard', () => {
         />,
       )
       const helper = getByTestId('redemption-details-availability-helper')
-      expect(helper.props.children).toBe('Available to show staff until 9 May, 17:32.')
+      expect(typeof helper.props.children).toBe('string')
+      expect(helper.props.children).toMatch(/^Available to show staff until \d{1,2} \w{3}, \d{2}:\d{2}\.$/)
     })
 
     it('IN-WINDOW falls back to the 2-hour phrasing when redeemedAt is malformed', () => {
@@ -330,34 +409,10 @@ describe('RedemptionDetailsCard', () => {
       )
     })
 
-    it('OUT-OF-WINDOW shows the calm "Staff handoff window ended" explanation', () => {
-      const { getByTestId, getByText } = render(
-        <RedemptionDetailsCard
-          {...defaults({ isPresentationActive: false, isValidated: false })}
-        />,
-      )
-      expect(getByTestId('redemption-details-window-ended')).toBeTruthy()
-      expect(
-        getByText(/Staff handoff window ended\. Your redemption details are saved below\./),
-      ).toBeTruthy()
-    })
-
-    it('OUT-OF-WINDOW keeps the existing Profile → Redemption History note alongside the ended-window line', () => {
-      const { getByTestId } = render(
-        <RedemptionDetailsCard
-          {...defaults({ isPresentationActive: false, isValidated: false })}
-        />,
-      )
-      // Both lines render — the ended-window note explains WHY the
-      // code is gone; the history tip explains WHERE to find it again.
-      expect(getByTestId('redemption-details-window-ended')).toBeTruthy()
-      expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
-    })
-
     it('VALIDATED state does NOT show the "Available to show staff until" copy', () => {
-      // Locked owner direction (test 4 of the copy spec): once
-      // validated, surfacing "available to show" copy would be
-      // confusing — staff already validated.
+      // Locked owner direction: once validated, surfacing
+      // "available to show" copy would be confusing — staff already
+      // validated.
       const { queryByTestId } = render(
         <RedemptionDetailsCard
           {...defaults({ isPresentationActive: true, isValidated: true })}
@@ -365,101 +420,90 @@ describe('RedemptionDetailsCard', () => {
       )
       expect(queryByTestId('redemption-details-availability-helper')).toBeNull()
     })
+  })
 
-    it('VALIDATED state does NOT show the "Staff handoff window ended" copy either (validated pill carries the message)', () => {
-      // Defensive pin — the ended-window copy is for the naturally-
-      // expired path. When validated, the validated pill is the
-      // user-facing signal; adding "ended" alongside reads as a
-      // contradiction ("ended? but staff DID see it").
-      const { queryByTestId, getByTestId } = render(
-        <RedemptionDetailsCard
-          {...defaults({ isPresentationActive: false, isValidated: true })}
-        />,
-      )
-      expect(queryByTestId('redemption-details-window-ended')).toBeNull()
-      // The validated pill + history tip remain.
-      expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
-      expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
+  // Pure-function `formatExpiryLine` tests with explicit `timeZone`
+  // parameter — deterministic regardless of the host (Qatar dev / UTC
+  // CI / London laptop). Owner direction PR #49 device QA wave 4
+  // explicitly asked for Qatar AND London scenarios.
+  describe('formatExpiryLine — timezone-explicit pure function', () => {
+    // Reference scenario throughout: redeemedAt = 19:55 UTC 8 May 2026.
+    // - In Asia/Qatar (UTC+3): redeemed local = 22:55 8 May; expiry
+    //   UTC = 21:55, expiry local Qatar = 00:55 9 May.
+    // - In Europe/London (BST, UTC+1): redeemed local = 20:55 8 May;
+    //   expiry UTC = 21:55, expiry local London = 22:55 8 May.
+    // - In UTC: redeemed = 19:55 8 May; expiry = 21:55 8 May.
+    const REDEEMED = '2026-05-08T19:55:00Z'
+
+    it('Asia/Qatar — expiry crosses midnight to 9 May', () => {
+      // Reproduces the user's exact PR #49 device-QA scenario. User
+      // is in Qatar; redeems at 22:55 device-local; expiry is
+      // 00:55 device-local on the NEXT day — date inclusion makes
+      // this unambiguous.
+      expect(formatExpiryLine(REDEEMED, 'Asia/Qatar')).toBe('9 May, 00:55')
     })
 
-    it('IN-WINDOW does NOT show the "Staff handoff window ended" copy (window is still open)', () => {
-      const { queryByTestId } = render(
-        <RedemptionDetailsCard
-          {...defaults({ isPresentationActive: true, isValidated: false })}
-        />,
-      )
-      expect(queryByTestId('redemption-details-window-ended')).toBeNull()
+    it('Europe/London (BST in May) — expiry stays on 8 May', () => {
+      // Same absolute redemption instant; London display lands at
+      // 22:55 BST on 8 May (BST = UTC+1). Date inclusion still
+      // present even when the expiry is same-day.
+      expect(formatExpiryLine(REDEEMED, 'Europe/London')).toBe('8 May, 22:55')
     })
 
-    it('expiry-clock helper formats correctly across the day boundary (early-morning redemption)', () => {
-      // redeemedAt 23:30 UTC on 9 May. May is BST (UTC+1), so London-
-      // local = 00:30 on 10 May. Window expiry = 00:30 + 2h = 02:30
-      // on 10 May. Date inclusion is critical here — without it, the
-      // helper would say "02:30" with no indication that it's the
-      // NEXT day, which is exactly the QA bug we're closing.
-      const { getByTestId } = render(
-        <RedemptionDetailsCard
-          {...defaults({
-            redeemedAt:           '2026-05-09T23:30:00Z',
-            isPresentationActive: true,
-          })}
-        />,
-      )
-      const helper = getByTestId('redemption-details-availability-helper')
-      expect(helper.props.children).toBe('Available to show staff until 10 May, 02:30.')
+    it('UTC — baseline reference', () => {
+      expect(formatExpiryLine(REDEEMED, 'UTC')).toBe('8 May, 21:55')
     })
 
-    it('matches the PR #49 device-QA scenario: redeemed at 21:55Z (22:55 BST on 8 May), expires 23:55Z (00:55 BST on 9 May)', () => {
-      // The exact reported scenario: redeemed at 22:55 BST on 8 May.
-      // Bug was the helper said "Available until 22:55." — the
-      // SAME clock time as the redeemed time. Root cause: Hermes
-      // silently ignoring `timeZone: 'Europe/London'` on
-      // `toLocaleTimeString` (or some related path). Fixed by
-      // switching to `formatToParts` numeric extraction with a
-      // hardcoded English month-name array. Date-inclusive copy
-      // also disambiguates the cross-midnight case unambiguously.
-      const { getByTestId } = render(
-        <RedemptionDetailsCard
-          {...defaults({
-            redeemedAt:           '2026-05-08T21:55:00Z',
-            isPresentationActive: true,
-          })}
-        />,
-      )
-      const helper = getByTestId('redemption-details-availability-helper')
-      expect(helper.props.children).toBe('Available to show staff until 9 May, 00:55.')
+    it('absolute math is timezone-independent — 2h delta in ALL three timezones', () => {
+      // Sanity pin: regardless of how the display TZ is reformatted,
+      // the ABSOLUTE delta from redeemedAt to expiry is exactly
+      // 2 hours. The display tests above prove the timezone shifts
+      // are reformatting the same absolute moment.
+      const redeemedMs = new Date(REDEEMED).getTime()
+      const expiryUTC = new Date(redeemedMs + 2 * 60 * 60 * 1000)
+      // The pure function takes the REDEEMED iso and adds 2h
+      // internally. Verify by formatting the same expiryUTC manually
+      // and comparing to formatExpiryLine output for each TZ.
+      const fmtPart = (d: Date, tz: string) => {
+        const parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz, day: 'numeric', month: 'numeric',
+          hour: 'numeric', minute: 'numeric', hour12: false, hourCycle: 'h23',
+        }).formatToParts(d)
+        const find = (t: string) => parts.find((p) => p.type === t)?.value
+        return { d: parseInt(find('day') ?? '', 10), m: parseInt(find('month') ?? '', 10) }
+      }
+      // For all three timezones, the day+month of the expiry render
+      // must match what `formatExpiryLine` returns (sanity-checking
+      // we're computing the same absolute moment).
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      for (const tz of ['Asia/Qatar', 'Europe/London', 'UTC']) {
+        const { d, m } = fmtPart(expiryUTC, tz)
+        const formatted = formatExpiryLine(REDEEMED, tz) ?? ''
+        expect(formatted).toContain(`${d} ${months[m - 1]},`)
+      }
     })
 
-    it('renders day-numeric without leading zero (e.g. "9 May" not "09 May")', () => {
-      // Owner direction-style en-GB short form. Pin the format so
-      // a future refactor doesn't regress to "09 May".
-      const { getByTestId } = render(
-        <RedemptionDetailsCard
-          {...defaults({
-            redeemedAt:           '2026-05-09T08:00:00Z',
-            isPresentationActive: true,
-          })}
-        />,
-      )
-      const helper = getByTestId('redemption-details-availability-helper')
-      // 08:00 UTC + 2h = 10:00 UTC = 11:00 BST on 9 May.
-      expect(helper.props.children).toBe('Available to show staff until 9 May, 11:00.')
+    it('day-numeric without leading zero (e.g. "9 May" not "09 May")', () => {
+      // 08:00 UTC 9 May + 2h = 10:00 UTC 9 May → 13:00 Qatar 9 May.
+      expect(formatExpiryLine('2026-05-09T08:00:00Z', 'Asia/Qatar')).toBe('9 May, 13:00')
     })
 
-    it('formats month transitions correctly (last day of month → next month)', () => {
-      // Redeemed at 22:30 UTC on 31 May. London-local = 23:30 BST
-      // 31 May. Expiry = 23:30 + 2h = 01:30 BST on 1 June. Pins
-      // both date rollover AND month rollover.
-      const { getByTestId } = render(
-        <RedemptionDetailsCard
-          {...defaults({
-            redeemedAt:           '2026-05-31T22:30:00Z',
-            isPresentationActive: true,
-          })}
-        />,
-      )
-      const helper = getByTestId('redemption-details-availability-helper')
-      expect(helper.props.children).toBe('Available to show staff until 1 Jun, 01:30.')
+    it('month transition — 31 May → 1 Jun (Qatar)', () => {
+      // 22:30 UTC 31 May + 2h = 00:30 UTC 1 June → 03:30 Qatar 1 June.
+      expect(formatExpiryLine('2026-05-31T22:30:00Z', 'Asia/Qatar')).toBe('1 Jun, 03:30')
+    })
+
+    it('returns null on malformed ISO (defensive — never renders "Invalid Date")', () => {
+      expect(formatExpiryLine('not-a-date', 'UTC')).toBeNull()
+      expect(formatExpiryLine('', 'UTC')).toBeNull()
+    })
+
+    it('production call (no `timeZone` argument) uses device-local — runs without crashing', () => {
+      // Don't assert the exact clock string (depends on host TZ);
+      // assert structure: a string in the expected format.
+      const out = formatExpiryLine('2026-05-09T08:00:00Z')
+      expect(out).not.toBeNull()
+      expect(out).toMatch(/^\d{1,2} \w{3}, \d{2}:\d{2}$/)
     })
   })
 })

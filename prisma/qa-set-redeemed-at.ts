@@ -162,24 +162,45 @@ async function main() {
     }
 
     const expiryAt = new Date(targetRedeemedAt.getTime() + PRESENTATION_WINDOW_MIN * 60 * 1000)
+    const nowAt = new Date()
     const stateLabel =
       minutesUntilExpiry > 0
-        ? `IN-WINDOW (${minutesUntilExpiry.toFixed(1)} min until expiry)`
-        : `OUT-OF-WINDOW (${Math.abs(minutesUntilExpiry).toFixed(1)} min past 2h boundary)`
+        ? `IN-WINDOW  (${minutesUntilExpiry.toFixed(1)} min until expiry)`
+        : `OUT-OF-WINDOW  (${Math.abs(minutesUntilExpiry).toFixed(1)} min past 2h boundary)`
+
+    // Device-local timezone resolution — what the customer-app would
+    // render `formatTimeLine(redeemedAt)` and `formatExpiryLine(redeemedAt)`
+    // as on a device with this Node-host's TZ. Different from London
+    // BST or any specific user's device; printed here as a sanity-
+    // check anchor, not as the user-facing output.
+    const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const fmtLocal = (d: Date) => d.toLocaleString('en-GB', {
+      timeZone: localTz,
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+      hour12: false,
+    })
+    const fmtLondon = (d: Date) => d.toLocaleString('en-GB', {
+      timeZone: 'Europe/London',
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+      hour12: false,
+    })
 
     // BEFORE block — prints exactly what's currently in the DB so
     // the QA tester has a baseline to verify against. Owner direction
-    // 2026-05-09 (PR #49 device QA): the previous output was ambiguous
-    // about whether the script actually shifted the targeted row.
+    // 2026-05-09 (PR #49 device QA wave 4): explicit timezone-labelled
+    // output so the customer-app's display rendering can be cross-
+    // checked against the absolute UTC math without ambiguity.
     console.log('')
     console.log('────────────── BEFORE ──────────────')
     console.log(`  redemption  : ${redemption.id}`)
     console.log(`  user        : ${user.email}`)
     console.log(`  voucher     : ${voucher.code ?? voucher.id} · ${voucher.title}`)
     console.log(`  code        : ${redemption.redemptionCode}`)
-    console.log(`  redeemedAt  : ${redemption.redeemedAt.toISOString()}`)
+    console.log(`  redeemedAt  : ${redemption.redeemedAt.toISOString()}     (raw DB / UTC)`)
     if (redemption.isValidated && redemption.validatedAt) {
-      console.log(`  validatedAt : ${redemption.validatedAt.toISOString()} (validated by staff)`)
+      console.log(`  validatedAt : ${redemption.validatedAt.toISOString()}     (validated by staff)`)
     } else {
       console.log(`  validatedAt : (not validated)`)
     }
@@ -201,15 +222,33 @@ async function main() {
     })
     console.log('')
     console.log('────────────── AFTER  ──────────────')
-    console.log(`  redeemedAt  : ${updated?.redeemedAt.toISOString() ?? '(not found — write failed?)'}`)
+    console.log(`  redeemedAt  : ${updated?.redeemedAt.toISOString() ?? '(not found — write failed?)'}     (raw DB / UTC)`)
     if (updated?.validatedAt) {
       console.log(`  validatedAt : ${updated.validatedAt.toISOString()}`)
     } else {
       console.log(`  validatedAt : (not validated)`)
     }
     console.log(`  minutes ago : ${args.minutesAgo}`)
-    console.log(`  expiry at   : ${expiryAt.toISOString()}  (= redeemedAt + 2h)`)
-    console.log(`  state       : ${stateLabel}`)
+    console.log('')
+    console.log('────────────── EXPIRY MATH (absolute UTC + display previews) ──────────────')
+    console.log(`  redeemedAt UTC          : ${targetRedeemedAt.toISOString()}`)
+    console.log(`  + 2h presentation window`)
+    console.log(`  expires at UTC          : ${expiryAt.toISOString()}`)
+    console.log(`  delta                   : 2:00:00 (absolute, timezone-independent)`)
+    console.log('')
+    console.log(`  How the customer-app card will display these (en-GB, 24-hour):`)
+    console.log(`    redeemed (this host's TZ = ${localTz}):  ${fmtLocal(targetRedeemedAt)}`)
+    console.log(`    expires  (this host's TZ = ${localTz}):  ${fmtLocal(expiryAt)}`)
+    console.log(`    redeemed (Europe/London — UK reference): ${fmtLondon(targetRedeemedAt)}`)
+    console.log(`    expires  (Europe/London — UK reference): ${fmtLondon(expiryAt)}`)
+    console.log('')
+    console.log(`  now (this host UTC) : ${nowAt.toISOString()}`)
+    console.log(`  state               : ${stateLabel}`)
+    console.log('')
+    console.log('  IMPORTANT: the in-app card uses DEVICE-LOCAL timezone for the redeemed Date/')
+    console.log('  Time rows AND the "Available to show staff until …" helper line, so on a')
+    console.log('  device in a different TZ from this host, the displayed clock will differ —')
+    console.log('  but the absolute redeemedAt/expiry instants above are the same on every device.')
     console.log('')
     console.log('────────────── NEXT STEPS ──────────────')
     console.log('  React Query caches `getCustomerVoucher` aggressively. To force the app')

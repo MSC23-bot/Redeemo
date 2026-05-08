@@ -722,6 +722,15 @@ The persisted-return-visit RedemptionDetailsCard from §8.10 is correct for the 
 
 **Cross-ref:** plan `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 Post-Bundle-E (D); deferred-followups §AE (locked picks + state machine) and §AF (backend mirror deferral).
 
+#### 8.10.1.1 Layout consolidation + seal-on-hero (locked 2026-05-09, PR #49 device QA wave 4)
+
+Owner direction (consolidated from device QA): the previous redeemed-state surface had THREE separate "redeemed" signals — a green RedeemedBadge pill above the coupon, a standalone tilted RedeemedSeal block between the voucher and the merchant card, and the loose-text "Staff handoff window ended..." + history-tip pair at the bottom of the RedemptionDetailsCard. Consolidated into TWO surfaces:
+
+- **Hero-overlay seal.** The RedeemedSeal moves onto the hero/banner as an absolute overlay (testID `voucher-detail-hero-seal`). Anchored at `insets.top + 96` so it lands across the title/saving area, slightly tilted (-8°), with `pointerEvents='none'` so the hero stays tappable. Hero is dimmed (opacity 0.55) — the seal carries the visual weight. Solid pale-cream fill, brand-rose border + text, drop-shadow for separation. The standalone seal mount + RedeemedBadge pill are GONE.
+- **Inner expired-notice card.** Replaces the previous loose-text pair (§8.10.3). Soft warm-tinted card with Clock icon + bold headline + supporting line. Sits where the code box used to be. testIDs `redemption-details-expired-notice` / `…-expired-headline` / `…-expired-support`.
+
+Page now reads as: stamped voucher → redemption details card (with code OR expired notice) → coupon body → merchant card. ONE intentional treatment per state instead of multiple redundant indicators.
+
 ### 8.10.2 Screen-capture protection on Voucher Detail (locked 2026-05-08, PR #49 review wave 2)
 
 Owner-locked rule: ANY surface that displays the redemption code or QR must have screen-capture protection active. ShowToStaff (§7.7) and SuccessPopup (§7.6) already enforce this via the shared `useScreenCaptureProtection` hook. The persisted RedemptionDetailsCard surfaces the same code on Voucher Detail return visits during the 2-hour window — Voucher Detail must therefore enforce the same baseline.

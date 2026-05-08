@@ -448,16 +448,26 @@ describe('Voucher Detail M2 — backend error handling', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
-  it('return visit (no lastRedemption in memory) shows the M1 RedeemedBadge but NOT the full RedemptionDetailsCard', () => {
+  it('return visit (no lastRedemption in memory, no persisted) shows the redeemed hero treatment but NOT the RedemptionDetailsCard', () => {
+    // M3 §AE: the standalone RedeemedBadge pill + middle-page seal
+    // were consolidated into a single hero-overlay seal (locked
+    // 2026-05-09 PR #49 device QA wave 4). When the cycle says
+    // redeemed but no source data exists, the card stays hidden;
+    // the hero seal still appears (driven by the persistence-window
+    // gate computed against `redemptionRedeemedAt`, but ALSO needs
+    // a redeemedAt source — without one, neither the seal nor the
+    // card render). This test asserts the card-not-rendered case.
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
     mockParams = { id: 'v1', branch: 'b1' }
     ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
       selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
     })
 
-    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
-    expect(getByTestId('redeemed-badge')).toBeTruthy()
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
     expect(queryByTestId('redemption-details-card')).toBeNull()
+    // The standalone redeemed-badge pill is GONE entirely (locked
+    // 2026-05-09); the hero seal is the only redeemed indicator.
+    expect(queryByTestId('redeemed-badge')).toBeNull()
   })
 
   it('immediately after redemption (lastRedemption in memory) shows the M2 RedemptionDetailsCard', async () => {
@@ -485,11 +495,13 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
 
     // After Done, screen is still mounted with lastRedemption in state.
-    // The RedeemedBadge always shows for redeemed-this-cycle; the
-    // RedemptionDetailsCard appears only when lastRedemption is truthy.
-    expect(getByTestId('redeemed-badge')).toBeTruthy()
-    // RedemptionDetailsCard mounts via lastRedemption-state branch.
+    // RedemptionDetailsCard appears via the lastRedemption-state branch;
+    // the hero seal renders as an absolute overlay (testID
+    // `voucher-detail-hero-seal`) — the standalone RedeemedBadge pill
+    // was consolidated into the hero seal in PR #49 wave 4.
+    expect(queryByTestId('redeemed-badge')).toBeNull()
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
+    expect(getByTestId('voucher-detail-hero-seal')).toBeTruthy()
   })
 
   // Helper for ordering tests: walk the rendered tree from any
@@ -1782,7 +1794,7 @@ describe('§AE — Voucher Detail presentation-window gate', () => {
     expect(queryByTestId('redeemed-seal')).toBeNull()
   })
 
-  it('OUT-OF-WINDOW (3 hours ago): code hidden, Show-to-Staff hidden, history tip + seal surface', () => {
+  it('OUT-OF-WINDOW (3 hours ago): code hidden, Show-to-Staff hidden, expired-window inner notice + hero seal surface', () => {
     mockVoucherData = baseVoucher({
       isRedeemedThisCycle: true,
       lastRedemption: persistedAt(
@@ -1791,15 +1803,20 @@ describe('§AE — Voucher Detail presentation-window gate', () => {
     })
     const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
     // Card surface is still mounted (for header / summary / info rows /
-    // disclaimer + validated pill if applicable) but the code surface
-    // and Show-to-Staff entry are gone.
+    // disclaimer) but the code surface and Show-to-Staff entry are gone.
     expect(getByTestId('redemption-details-card')).toBeTruthy()
     expect(queryByTestId('redemption-details-code')).toBeNull()
     expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
-    expect(getByTestId('redemption-details-history-tip')).toBeTruthy()
-    // RedeemedSeal mounts at the screen level (between RedeemedBadge
-    // and the time-limited banner).
-    expect(getByTestId('redeemed-seal')).toBeTruthy()
+    // Inner notice card (the new design) replaces the previous
+    // loose-text "Staff handoff window ended..." + "history tip"
+    // bottom-of-card pair. Sits in the slot where the code box was.
+    expect(getByTestId('redemption-details-expired-notice')).toBeTruthy()
+    // Seal is now an OVERLAY on the hero/banner (testID `voucher-
+    // detail-hero-seal`). The previous standalone middle-page mount
+    // (`redeemed-seal` testID exposed via the component) is gone —
+    // the component still has its testID, but now mounts inside the
+    // hero overlay wrapper.
+    expect(getByTestId('voucher-detail-hero-seal')).toBeTruthy()
   })
 
   it('VALIDATED (regardless of window): code hidden, Show-to-Staff hidden, validated pill + seal surface', () => {

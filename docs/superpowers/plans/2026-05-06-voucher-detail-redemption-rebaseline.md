@@ -824,6 +824,30 @@ Three issues surfaced; all closed in this wave.
 
 Final test counts after D.5: backend vitest 112/112; customer-app jest **470/470** across 26 voucher suites. Focused 7-suite sweep: **201/201 ✅**.
 
+**(D.6) Device-QA wave 4-6 — timezone consistency, layout consolidation, seal prominence** (added 2026-05-09 from owner's continuing PR #49 device QA on a Qatar device).
+
+Owner reported a second pass of issues on the same surface:
+- Helper expiry copy looked confusing because the card mixed two display timezones — Date/Time info rows in device-local (Qatar UTC+3), helper line in Europe/London (BST UTC+1). On a Qatar phone the redeemed local time and London expiry happened to coincidentally render the same clock string ("22:55"), making the math LOOK suspicious even though it was mathematically correct (absolute milliseconds).
+- The expired-window loose-text-at-bottom treatment ("Staff handoff window ended..." + history tip on separate lines) read as "loose text at the bottom of the card", not an intentional surface.
+- Two redeemed indicators (RedeemedBadge pill + standalone RedeemedSeal mount) felt redundant.
+- The seal got lost against the washed-out hero (translucent rose fill couldn't compete with the gradient) — and after boosting it, the headline letters clipped at the top.
+
+Fixes (one wave per concern):
+
+(D.6.a) **Timezone consistency — helper switched to device-local.** `formatExpiryLine` now omits `timeZone: 'Europe/London'` in production calls, formatting in the runtime-resolved local TZ (matches the existing `formatTimeLine` / `formatDateLine` for Date/Time info rows). Math stays absolute milliseconds. Function gained an optional `timeZone` parameter for testing — Qatar / Europe/London / UTC scenarios are now pinned via direct `formatExpiryLine` calls regardless of the host's TZ. Exported for direct import in tests.
+
+(D.6.b) **Inner notice card — replaces loose text.** The two text lines ("Staff handoff window ended..." + "Profile → Redemption History tip") were consolidated into a single inner notice card positioned in the slot where the redemption-code box used to be. Soft warm-tinted background (`rgba(226, 12, 4, 0.06)`), Clock icon, 14pt bold headline ("Staff handoff window ended"), 12pt supporting line ("Your code is now saved in Profile → Redemption History for your records."). New testIDs: `redemption-details-expired-notice` / `redemption-details-expired-headline` / `redemption-details-expired-support`. Suppressed when validated (the validated pill is the message). Old testIDs `redemption-details-window-ended` and `redemption-details-history-tip` removed; regression pin verifies they don't accidentally come back.
+
+(D.6.c) **Hero-overlay seal + removed RedeemedBadge.** The standalone RedeemedSeal mount between the voucher and merchant card AND the small green "Redeemed this cycle" pill (`<RedeemedBadge>`) were both removed. The seal now mounts as an absolute overlay on the hero/banner area (testID `voucher-detail-hero-seal`, anchored at `insets.top + 96`, `pointerEvents='none'`). Page signals "redeemed" with one stamped-voucher treatment instead of two redundant indicators. RedeemedBadge import removed from VoucherDetailScreen entirely; the component file remains in case other surfaces want it later, but it's no longer mounted anywhere.
+
+(D.6.d) **Seal prominence boost.** Cream solid fill (`#FFF6EE`) instead of translucent rose; border 3px → 4px; shadow opacity 0.2 → 0.35 + larger radius; title 18pt → 22pt weight 900 with ink-pressure `textShadow`; subtitle 11pt opacity-0.85 → 13pt full opacity weight 800. Seal now reads as the dominant element while the green hero stays visible behind it.
+
+(D.6.e) **Seal clipping fix.** Owner reported the top of "VOUCHER REDEEMED" letter ascenders being cut off after the prominence boost. Root cause: the design-system `<Text>` variant's default `lineHeight` was below the bumped `fontSize: 22`, so RN clipped at the line-box top. Fix: explicit `lineHeight: 32` on title (1.45× ratio for generous ascender headroom), explicit `lineHeight: 18` on subtitle, `includeFontPadding: true`, `paddingVertical` 16 → 20, explicit `overflow: 'visible'` on the seal container as a regression guard against future refactors.
+
+(D.6.f) **QA script timezone-explicit output.** Now prints raw UTC redeemedAt/expiry, the calculated 2h delta, AND device-local + Europe/London display previews so the QA tester can cross-check the customer-app's display rendering against the absolute math without ambiguity. Includes a clear note that the in-app card uses device-local TZ for display so cross-device clock differences are expected (the absolute instants are the same).
+
+Final test counts after D.6: backend vitest 112/112; customer-app jest **474/474** across 26 voucher suites (was 470 — +4 from new card pure-function tests). Focused 7-suite sweep: **205/205 ✅**.
+
 Backend:
 
 - No backend changes in M3 §AE wave. The window is computed entirely client-side from `redeemedAt`. A future iteration may surface a backend `presentationExpiresAt` on the voucher payload (mirror of the client constant) for cross-device consistency / ops override capability — tracked under the §AF deferred follow-up.

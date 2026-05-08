@@ -1,7 +1,7 @@
 import React from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { CheckCircle2, Eye } from 'lucide-react-native'
+import { CheckCircle2, Clock, Eye } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, radius, spacing } from '@/design-system/tokens'
 import { formatRedemptionCode } from '../utils/formatRedemptionCode'
@@ -77,11 +77,28 @@ function formatTimeLine(iso: string): string {
  * Formats the 2-hour-after-redemption expiry as a "<day> <Month>, HH:mm"
  * line for the in-window helper copy ("Available to show staff until 9 May, 00:55.").
  *
- * en-GB / Europe/London / 24-hour. ALWAYS includes the date so a
- * cross-midnight expiry (e.g. redeemed at 22:55 → expires 00:55 next
- * day) can never be confused with the same-clock-time on the redeemed
- * day. Owner direction 2026-05-09 (PR #49 QA): "the safest default may
- * be to always show date + time".
+ * Display timezone — device-local (matches `formatDateLine`/
+ * `formatTimeLine` on the same card so the user sees ONE consistent
+ * timezone throughout the redeemed surface; their wall-clock matches
+ * the helper). Owner direction 2026-05-09 PR #49 QA wave 3:
+ *   "The display timezone can be London or local, but the calculation
+ *    must be absolute and consistent."
+ * Picked LOCAL because:
+ *   • Date/Time info rows already use device-local (smaller change).
+ *   • Most natural for users — no mental TZ conversion ("my phone says
+ *     22:55, the helper says 00:55, expiry is 2h away" reads cleanly).
+ *   • The previous Europe/London version on a Qatar device produced
+ *     same-clock-time-different-timezone output ("8 May 22:55 BST" =
+ *     "9 May 00:55 Qatar") — visually identical to the redeemed
+ *     22:55 row but representing a different absolute moment.
+ *
+ * Math: ABSOLUTE in milliseconds (`redeemedAtMs + PRESENTATION_WINDOW_MS`).
+ * Display layer reformats the resulting `Date` in whatever timezone is
+ * resolved. Calculation correctness is independent of display TZ.
+ *
+ * Date is ALWAYS included so a cross-midnight expiry (e.g. redeemed
+ * 22:55 → expires 00:55 next day) can never be confused with the
+ * same-clock-time on the redeemed day.
  *
  * Hermes robustness (same pattern as londonNow.ts): uses NUMERIC
  * `formatToParts` and a hardcoded English month-name array instead
@@ -90,6 +107,9 @@ function formatTimeLine(iso: string): string {
  * (`month: 'short'`, `weekday: 'short'`, etc.) silently fall through
  * to fragile defaults. Numeric parts are universally supported.
  *
+ * Tests pin scenarios by passing an explicit `timeZone` — production
+ * always omits it (device-local).
+ *
  * Returns null on malformed input so the caller can fall back to the
  * simpler 2-hour-window phrasing rather than rendering "Invalid Date".
  */
@@ -97,7 +117,10 @@ const MONTH_SHORT_EN = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ]
-function formatExpiryLine(redeemedAtIso: string): string | null {
+export function formatExpiryLine(
+  redeemedAtIso: string,
+  timeZone?: string,
+): string | null {
   const redeemedAtMs = new Date(redeemedAtIso).getTime()
   if (Number.isNaN(redeemedAtMs)) return null
   const expiry = new Date(redeemedAtMs + PRESENTATION_WINDOW_MS)
@@ -106,7 +129,7 @@ function formatExpiryLine(redeemedAtIso: string): string | null {
   // from a hardcoded English array, so locale-string formatting is
   // never on the hot path.
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone:  'Europe/London',
+    ...(timeZone ? { timeZone } : {}),
     day:       'numeric',
     month:     'numeric',
     hour:      'numeric',
@@ -242,6 +265,36 @@ export function RedemptionDetailsCard({
             {formattedCode}
           </Text>
         </View>
+      ) : !isValidated ? (
+        // Window-expired inner notice card — sits in the slot where
+        // the redemption code box used to be (locked 2026-05-09 from
+        // PR #49 device QA wave 4: previous loose-text-at-bottom
+        // treatment was reported as "out of place"). Soft warm tint
+        // + small icon + headline + supporting line. Suppressed when
+        // validated (the validated pill at the bottom of the card is
+        // the message; the seal at the screen level is the visual
+        // signal). Owner-locked copy: warmer, friendlier variant.
+        <View style={styles.expiredNotice} testID="redemption-details-expired-notice">
+          <View style={styles.expiredNoticeIcon}>
+            <Clock size={18} color={color.brandRose} strokeWidth={2.2} />
+          </View>
+          <View style={styles.expiredNoticeBody}>
+            <Text
+              variant="label.md"
+              style={styles.expiredNoticeHeadline}
+              testID="redemption-details-expired-headline"
+            >
+              Staff handoff window ended
+            </Text>
+            <Text
+              variant="body.sm"
+              style={styles.expiredNoticeSupport}
+              testID="redemption-details-expired-support"
+            >
+              Your code is now saved in Profile → Redemption History for your records.
+            </Text>
+          </View>
+        </View>
       ) : null}
 
       <View style={styles.infoRows}>
@@ -320,32 +373,7 @@ export function RedemptionDetailsCard({
             )
           })()}
         </>
-      ) : (
-        <>
-          {/* Ended-window calm explanation — surfaces ONLY on the
-              "naturally expired" path (out-of-window AND not validated).
-              When validated, the validated pill carries the message;
-              showing "Staff handoff window ended" alongside it would
-              be confusing ("if staff did see it, what does 'ended' mean?").
-              Locked 2026-05-08, PR #49 review. */}
-          {!isValidated ? (
-            <Text
-              variant="body.sm"
-              style={styles.windowEndedNote}
-              testID="redemption-details-window-ended"
-            >
-              Staff handoff window ended. Your redemption details are saved below.
-            </Text>
-          ) : null}
-          <Text
-            variant="body.sm"
-            style={styles.historyTip}
-            testID="redemption-details-history-tip"
-          >
-            You'll be able to find this code in Profile → Redemption History.
-          </Text>
-        </>
-      )}
+      ) : null}
 
       {/* M3 validated indicator — rendered when staff has already
           validated the redemption. Surfaces on return visits so the
@@ -507,14 +535,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.4,
   },
-  historyTip: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: color.text.secondary,
-    textAlign: 'center',
-    paddingVertical: spacing[2],
-    paddingHorizontal: spacing[3],
-  },
   availabilityHelper: {
     fontSize: 11,
     lineHeight: 16,
@@ -523,14 +543,38 @@ const styles = StyleSheet.create({
     paddingTop: spacing[1],
     paddingHorizontal: spacing[3],
   },
-  windowEndedNote: {
+  // Window-expired inner notice card. Sits in the slot where the
+  // redemption-code box used to be — soft warm tint with a brand-rose
+  // accent that ties to the seal on the hero. Locked 2026-05-09 from
+  // PR #49 device QA wave 4.
+  expiredNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing[3],
+    backgroundColor: 'rgba(226, 12, 4, 0.06)',
+    borderRadius: radius.lg,
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+    borderWidth: 1,
+    borderColor: 'rgba(226, 12, 4, 0.10)',
+  },
+  expiredNoticeIcon: {
+    marginTop: 2,
+  },
+  expiredNoticeBody: {
+    flex: 1,
+    gap: 4,
+  },
+  expiredNoticeHeadline: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: color.text.primary,
+    letterSpacing: 0.1,
+  },
+  expiredNoticeSupport: {
     fontSize: 12,
     lineHeight: 18,
-    color: color.text.primary,
-    textAlign: 'center',
-    paddingTop: spacing[2],
-    paddingHorizontal: spacing[3],
-    fontWeight: '600',
+    color: color.text.secondary,
   },
   validatedPill: {
     flexDirection: 'row',

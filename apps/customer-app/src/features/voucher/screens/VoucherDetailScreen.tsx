@@ -26,7 +26,6 @@ import { PerforationLine } from '../components/PerforationLine'
 import { MerchantRow } from '../components/MerchantRow'
 import { HowItWorks } from '../components/HowItWorks'
 import { RedeemCTA } from '../components/RedeemCTA'
-import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
@@ -1085,29 +1084,47 @@ export function VoucherDetailScreen() {
               the gesture, opening the cream gap below the
               perforation. */}
           <Animated.View style={heroAnchorStyle}>
-            {/* Hero opacity treatment — when the redeemed seal is
-                surfaced (post-2h window OR validated), mute the
-                hero so the seal carries the visual weight. The
-                scrolling/anchor behaviour is unchanged; this is a
-                static opacity overlay on top of the hero contents.
-                Locked 2026-05-08, PR #49 review (owner direction).
-                Defers full washed-out coupon design to §Q1. */}
-            <View style={showRedeemedSeal ? styles.heroDimmed : null}>
-              <CouponHeader
-                type={voucher.type}
-                title={voucher.title}
-                description={voucher.description}
-                estimatedSaving={voucher.estimatedSaving}
-                insetTop={insets.top}
-                onBack={handleBack}
-                onShare={handleShare}
-                onFav={handleFav}
-                isFavourited={voucher.isFavourited}
-                scrollY={scrollY}
-                fadeStart={FADE_START}
-                fadeEnd={FADE_END}
-                collapsedActive={collapsedActive}
-              />
+            {/* Hero treatment when redeemed (locked 2026-05-09 from
+                PR #49 device QA wave 4 — owner direction):
+                  • Dimmed hero (opacity 0.55) — already in place.
+                  • RedeemedSeal moved ONTO the hero as an absolute
+                    overlay, like a physical stamp on the voucher
+                    itself, instead of sitting as a standalone block
+                    between the voucher and the merchant card.
+                  • Sized to overlap the title/saving area so the
+                    voucher reads as visibly "stamped redeemed".
+                  • Owner direction: "It is okay if it overlaps the
+                    voucher text slightly, as long as the text is
+                    still somewhat readable."
+                Defers full washed-out coupon visual + polished SVG
+                stamp to §Q1. */}
+            <View style={styles.heroSealWrap}>
+              <View style={showRedeemedSeal ? styles.heroDimmed : null}>
+                <CouponHeader
+                  type={voucher.type}
+                  title={voucher.title}
+                  description={voucher.description}
+                  estimatedSaving={voucher.estimatedSaving}
+                  insetTop={insets.top}
+                  onBack={handleBack}
+                  onShare={handleShare}
+                  onFav={handleFav}
+                  isFavourited={voucher.isFavourited}
+                  scrollY={scrollY}
+                  fadeStart={FADE_START}
+                  fadeEnd={FADE_END}
+                  collapsedActive={collapsedActive}
+                />
+              </View>
+              {showRedeemedSeal ? (
+                <View
+                  style={[styles.heroSealOverlay, { top: insets.top + 96 }]}
+                  pointerEvents="none"
+                  testID="voucher-detail-hero-seal"
+                >
+                  <RedeemedSeal availableAgainAt={voucher.availableAgainAt ?? null} />
+                </View>
+              ) : null}
             </View>
             <PerforationLine pageBg={PAGE_BG} variant="outer" />
           </Animated.View>
@@ -1241,42 +1258,16 @@ export function VoucherDetailScreen() {
           </View>
         </View>
 
-        {/* Redeemed-this-cycle surface (locked 2026-05-07 from device
-            QA): RedeemedBadge stays at the top, but the
-            RedemptionDetailsCard now sits BEFORE the main coupon card
-            below — see the conditional render at the top of the
-            scroll view, above the coupon stack. We keep the badge
-            here so the eye still picks up "Redeemed" near the hero,
-            but the meaningful surface (code + voucher summary) lands
-            above the now-secondary coupon details.
-
-            Persisted return-visit RedemptionDetailsCard ships in
-            M3 (closed §P2 for the active cycle). The
-            `displayRedemption` block above resolves from EITHER
-            in-memory `lastRedemption` (just-redeemed PRIMARY) OR
-            `voucher.lastRedemption` (return-visit FALLBACK). The
-            badge here remains so "Redeemed" reads near the hero
-            even when the dominant card is offscreen above the fold.
-            Past-cycle history surface remains §Q5. */}
-        {stateKey === 'redeemed-this-cycle' ? (
-          <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
-        ) : null}
-
-        {/* RedeemedSeal — text-based "stamp" that surfaces once the
-            2-hour presentation window closes OR staff has validated.
-            Sits below the RedeemedBadge so the eye picks up:
-              "Redeemed on <date>"          (small green pill)
-              "VOUCHER REDEEMED"            (tilted brand seal)
-              "Renews on <date>"            (under the seal)
-            The seal IS the user-visible signal that this surface no
-            longer carries the redemption code. Without it, the
-            collapsed card alone wouldn't read as "this is closed off"
-            — it would just look like data with a missing button.
-            Full polished SVG stamp deferred to §Q1. Locked
-            2026-05-08, PR #49 review. */}
-        {stateKey === 'redeemed-this-cycle' && showRedeemedSeal ? (
-          <RedeemedSeal availableAgainAt={voucher.availableAgainAt ?? null} />
-        ) : null}
+        {/* Note (locked 2026-05-09, PR #49 device QA wave 4):
+            previously we mounted a green "Redeemed this cycle"
+            RedeemedBadge here AND a standalone RedeemedSeal block
+            between the voucher and the merchant card. Owner direction
+            consolidated both into a SINGLE surface — the seal is now
+            an absolute overlay on the hero/banner above (see
+            heroSealOverlay). No separate badge or middle-of-page
+            seal mount remains: the page now signals "redeemed" with
+            ONE visual treatment (stamped voucher) rather than two
+            redundant indicators. */}
 
         {timeLimited.isTimeLimited ? (
           <View style={styles.tlBanner}>
@@ -1686,6 +1677,22 @@ const styles = StyleSheet.create({
   // full washed-out coupon visual treatment is deferred to §Q1.
   heroDimmed: {
     opacity: 0.55,
+  },
+  // Hero-seal overlay positioning (locked 2026-05-09, PR #49 device
+  // QA wave 4). The seal mounts as an absolute overlay anchored to
+  // the hero so it sits ON TOP of the dimmed banner — like a
+  // physical stamp on paper. `top` is set inline to `insets.top + 96`
+  // so it lands over the title/saving area regardless of safe-area
+  // device variance. `pointerEvents=none` so the seal doesn't
+  // intercept hero taps.
+  heroSealWrap: {
+    position: 'relative',
+  },
+  heroSealOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
 
   // iOS post-fact screenshot banner. Floats top-anchored over the

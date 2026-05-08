@@ -67,6 +67,33 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
   )
 }
 
+// Locked 2026-05-09 PR #49 device QA wave 5 — seal prominence boost +
+// wave 6 clipping fix.
+//
+// Wave 5 (prominence) tweaks:
+//   • Solid pale-cream fill behind the stamp (was rgba(red, 0.06)
+//     translucent — got lost against the washed-out hero).
+//   • Bumped border 3px → 4px, slightly darker brand-rose ink.
+//   • Shadow opacity 0.2 → 0.35 + larger radius for separation from
+//     the hero text behind it.
+//   • Heavier text weight + larger title size (18→22) so it reads
+//     first; subtitle slightly larger too.
+//
+// Wave 6 (clipping fix) — owner direction: "the top of 'VOUCHER
+// REDEEMED' is clearly cut off, especially across the upper strokes".
+// The previous title style had no explicit `lineHeight`; the design-
+// system Text variant's default lineHeight was smaller than the
+// bumped fontSize, so RN clipped letter ascenders at the line-box
+// top. Fix:
+//   • Explicit `lineHeight: 32` for a 22pt fontSize (1.45× ratio)
+//     gives ascenders generous headroom — well above the 1.2× minimum
+//     for `fontWeight: '900'` + uppercase glyphs.
+//   • `includeFontPadding: true` (Android default; explicit here for
+//     intent) preserves the native font's top metric padding.
+//   • Subtitle gets explicit lineHeight too.
+//   • Seal `paddingVertical` 16 → 20 for breathing room above/below.
+// Rustic feel preserved via the textShadow + opacity + tilt — NOT
+// via clipping the glyphs.
 const styles = StyleSheet.create({
   wrap: {
     alignItems: 'center',
@@ -75,31 +102,49 @@ const styles = StyleSheet.create({
   },
   seal: {
     transform: [{ rotate: '-8deg' }],
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 16,
-    borderWidth: 3,
+    paddingVertical: 20,
+    paddingHorizontal: 32,
+    borderRadius: 18,
+    borderWidth: 4,
     borderColor: color.brandRose,
-    backgroundColor: 'rgba(226,12,4,0.06)',
+    // Solid pale-cream fill — high contrast against the washed-out
+    // hero gradient behind the stamp, making the red border + text
+    // read as the dominant element. Faintly warm so it doesn't read
+    // as "white sticker on green coupon" (which would feel like a
+    // notification, not a stamp).
+    backgroundColor: '#FFF6EE',
     shadowColor: color.brandRose,
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
     alignItems: 'center',
-    gap: 4,
+    // overflow:visible is the RN default — being explicit here so a
+    // future refactor doesn't accidentally enable overflow:hidden
+    // (which would re-introduce the wave-6 clipping bug).
+    overflow: 'visible',
+    gap: 6,
   },
   title: {
-    fontSize: 18,
+    fontSize: 22,
+    lineHeight: 32,
     fontWeight: '900',
     color: color.brandRose,
-    letterSpacing: 1.6,
+    letterSpacing: 1.8,
     textTransform: 'uppercase',
+    includeFontPadding: true,
+    // textShadow on iOS via React Native — strengthens the red
+    // stroke against the cream fill (the "ink pressure" feel).
+    textShadowColor: 'rgba(226,12,4,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
   },
   subtitle: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
     color: color.brandRose,
-    letterSpacing: 0.5,
-    opacity: 0.85,
+    letterSpacing: 0.6,
+    includeFontPadding: true,
   },
 })
