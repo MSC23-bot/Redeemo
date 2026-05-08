@@ -17,6 +17,16 @@ type Tokens = {
 
 let tokens: Tokens = { access: null, refresh: null, sessionId: null, entityId: null }
 let onSessionExpiredCb: (() => void) | null = null
+// Notifies subscribers when the backend rotates access + refresh tokens
+// during a 401 retry. The store-side bridge persists the new pair to
+// secureStorage and updates zustand state so the next bootstrap reads
+// the live tokens — without this, an app relaunch after rotation reads
+// the stale refresh token, posts it back, and gets REFRESH_TOKEN_INVALID
+// from Redis (the old key was deleted by the rotation that issued the
+// new pair). 2026-05-08 PR #50 P2 fix.
+let onTokensRefreshedCb:
+  | ((next: { accessToken: string; refreshToken: string }) => void)
+  | null = null
 let refreshing: Promise<void> | null = null
 
 export class ApiClientError extends Error {
@@ -134,6 +144,18 @@ async function refreshTokens(): Promise<void> {
       sessionId: tokens.sessionId,
       entityId:  tokens.entityId,
     }
+    // Fire AFTER the in-memory swap so a subscriber that reads via
+    // `api.get(...)` immediately on the next tick already sees the new
+    // bearer. Subscribers MUST treat this as a fire-and-forget signal —
+    // any persistence work they do is best-effort and asynchronous; if
+    // it throws, the in-memory rotation still stands and the very next
+    // request succeeds. Uniform try/catch matches the SessionExpired
+    // notification contract.
+    try {
+      onTokensRefreshedCb?.({ accessToken: body.accessToken, refreshToken: body.refreshToken })
+    } catch {
+      /* swallow — subscribers are best-effort */
+    }
   })()
   try { await refreshing } finally { refreshing = null }
 }
@@ -159,6 +181,18 @@ export const api = {
     tokens = { access, refresh, sessionId, entityId }
   },
   onSessionExpired(cb: () => void) { onSessionExpiredCb = cb },
+  /**
+   * Subscribe to access+refresh-token rotation events. Fires inside
+   * `refreshTokens()` after the in-memory `tokens` object has been
+   * updated to the new pair. Single-subscriber by design (mirrors
+   * `onSessionExpired`); a second `onTokensRefreshed(cb)` call replaces
+   * the previous handler. The store-side `TokensPersistenceBridge`
+   * registers exactly one handler at app boot and keeps it for the
+   * session lifetime.
+   */
+  onTokensRefreshed(cb: (next: { accessToken: string; refreshToken: string }) => void) {
+    onTokensRefreshedCb = cb
+  },
   __setTokensForTests(
     access:    string | null,
     refresh:   string | null,

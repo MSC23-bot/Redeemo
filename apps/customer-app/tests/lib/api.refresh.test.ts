@@ -22,6 +22,9 @@ afterEach(() => {
   global.fetch = originalFetch
   // Reset module-level state between tests
   api.__setTokensForTests(null, null, null, null)
+  // Single-subscriber callbacks persist on the module — clear so a
+  // subscriber installed by one test cannot leak into the next.
+  api.onTokensRefreshed(() => {})
 })
 
 describe('api refresh client', () => {
@@ -174,6 +177,83 @@ describe('api refresh client', () => {
 
     await expect(api.get('/x')).rejects.toBeInstanceOf(ApiClientError)
     expect(callPaths.some((p) => p.endsWith('/api/v1/customer/auth/refresh'))).toBe(false)
+  })
+
+  it('fires onTokensRefreshed with the NEW pair after a successful rotation (PR #50 P2 fix)', async () => {
+    // The api module's `tokens` object holding the new pair is not enough
+    // — secureStorage and zustand state still have the old refresh
+    // token. Without this notification the next bootstrap reads the
+    // stale token, posts it back, and gets REFRESH_TOKEN_INVALID.
+    api.__setTokensForTests('STALE', 'OLD_REFRESH', 'sess_x', 'user_x')
+    const fired: Array<{ accessToken: string; refreshToken: string }> = []
+    api.onTokensRefreshed((next) => fired.push(next))
+    let calls = 0
+    global.fetch = jest.fn(async (url: string) => {
+      calls++
+      if (calls === 1) return new Response('{}', { status: 401 })
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response(
+          JSON.stringify({ accessToken: 'NEW_ACCESS', refreshToken: 'NEW_REFRESH' }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    await api.get<{ ok: boolean }>('/anything')
+
+    expect(fired).toEqual([{ accessToken: 'NEW_ACCESS', refreshToken: 'NEW_REFRESH' }])
+    // Reset the global subscriber so subsequent tests aren't polluted.
+    api.onTokensRefreshed(() => {})
+  })
+
+  it('does NOT fire onTokensRefreshed when the refresh request fails', async () => {
+    // Failed refresh = no rotation = no persistence event. Pin so we
+    // never accidentally write null/undefined into secureStorage and
+    // race with the SESSION_EXPIRED → signOut path.
+    api.__setTokensForTests('STALE', 'OLD_REFRESH', 'sess_x', 'user_x')
+    const fired: Array<unknown> = []
+    api.onTokensRefreshed((next) => fired.push(next))
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response('{}', { status: 401 })
+      }
+      return new Response('{}', { status: 401 })
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/x')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' })
+    expect(fired).toEqual([])
+    api.onTokensRefreshed(() => {})
+  })
+
+  it('a throwing onTokensRefreshed subscriber does NOT block the retry from succeeding', async () => {
+    // Best-effort contract: subscribers cannot wedge the refresh path.
+    // If the bridge's persistence work throws, the in-memory rotation
+    // still stands and the original retry returns the live response.
+    api.__setTokensForTests('STALE', 'OLD_REFRESH', 'sess_x', 'user_x')
+    api.onTokensRefreshed(() => { throw new Error('persistence kaboom') })
+    let calls = 0
+    global.fetch = jest.fn(async (url: string) => {
+      calls++
+      if (calls === 1) return new Response('{}', { status: 401 })
+      if (url.endsWith('/api/v1/customer/auth/refresh')) {
+        return new Response(
+          JSON.stringify({ accessToken: 'NEW_ACCESS', refreshToken: 'NEW_REFRESH' }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    const res = await api.get<{ ok: boolean }>('/anything')
+    expect(res.ok).toBe(true)
+    api.onTokensRefreshed(() => {})
   })
 
   it('serializes concurrent 401s through a single refresh call (existing behaviour, re-pinned)', async () => {
