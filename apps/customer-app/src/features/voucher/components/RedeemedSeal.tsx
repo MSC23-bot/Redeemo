@@ -89,26 +89,61 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
               the rubber is uneven. Lower opacity (0.45) so it's
               suggestive, not a solid line. */}
           <View style={styles.inkFadeMid} pointerEvents="none" />
-          {/* Ink-missing speckles — wave 10 increases count 5 → 9
-              and sizes 3-5px → 4-7px and opacity 0.85 → 1.0 (solid
-              cream — "white dots" in the red ink). Positions are
-              hand-tuned to fall over letter strokes rather than
-              between letters. */}
-          <View style={[styles.inkSpeckle, { top: 9,  left: '8%',  width: 5, height: 5 }]} pointerEvents="none" />
+          {/* Ink-missing speckles — wave 11 (locked 2026-05-09 from
+              owner QA): removed 3 speckles that were landing on O
+              + the two visible E's in "VOUCHER REDEEMED" — owner
+              direction "remove from O and the two E's, keep the
+              style exactly as is". Remaining 6 speckles fall over
+              U / C / R / space / E-D-boundary / M, so the rubber-
+              stamp ink-missing character is preserved on the other
+              letters but vowels-with-curves stay clean. */}
           <View style={[styles.inkSpeckle, { top: 17, left: '18%', width: 4, height: 5 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 22, left: '29%', width: 6, height: 4 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 11, left: '40%', width: 5, height: 6 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 19, left: '50%', width: 4, height: 4 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 14, left: '62%', width: 7, height: 5 }]} pointerEvents="none" />
-          <View style={[styles.inkSpeckle, { top: 23, left: '73%', width: 5, height: 4 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 10, left: '83%', width: 4, height: 6 }]} pointerEvents="none" />
-          <View style={[styles.inkSpeckle, { top: 20, left: '92%', width: 5, height: 4 }]} pointerEvents="none" />
         </View>
         {renewalLabel ? (
-          <Text variant="label.md" style={styles.subtitle}>
-            Renews on {renewalLabel}
-          </Text>
+          // Subtitle wrapper — same distress overlay treatment as
+          // the title, scaled down for the 13pt subtitle. Wave 11
+          // (locked 2026-05-09 from owner QA: "apply the same style
+          // … on the renews on 6 June 2026 renewal date as well").
+          <View style={styles.subtitleWrap}>
+            <Text variant="label.md" style={styles.subtitle}>
+              Renews on {renewalLabel}
+            </Text>
+            <View style={styles.subtitleInkFadeTop} pointerEvents="none" />
+            {/* Subtitle speckles — fewer + smaller than the title
+                (3 dots, 2-4px) so they read as ink-missing without
+                hiding the smaller text. */}
+            <View style={[styles.inkSpeckle, { top: 6,  left: '20%', width: 3, height: 3 }]} pointerEvents="none" />
+            <View style={[styles.inkSpeckle, { top: 10, left: '50%', width: 4, height: 2 }]} pointerEvents="none" />
+            <View style={[styles.inkSpeckle, { top: 5,  left: '78%', width: 3, height: 3 }]} pointerEvents="none" />
+          </View>
         ) : null}
+        {/* Border distress — wave 11 (locked 2026-05-09 from owner
+            QA: "apply the same style … on the border of the card").
+            Small cream notches along the four border edges break up
+            the 4px brand-rose stroke the way an uneven rubber stamp
+            does. Positioned at fixed offsets covering the border
+            width (top:-1, height:6 — overlaps the 4px border with
+            1px bleed both inside and outside for a soft notch).
+            Pointer-events:none so they don't intercept gestures. */}
+        {/* Top edge */}
+        <View style={[styles.borderNotch, { top: -1, left: '14%', width: 8, height: 6 }]} pointerEvents="none" />
+        <View style={[styles.borderNotch, { top: -1, left: '46%', width: 6, height: 6 }]} pointerEvents="none" />
+        <View style={[styles.borderNotch, { top: -1, left: '78%', width: 9, height: 6 }]} pointerEvents="none" />
+        {/* Bottom edge */}
+        <View style={[styles.borderNotch, { bottom: -1, left: '22%', width: 7, height: 6 }]} pointerEvents="none" />
+        <View style={[styles.borderNotch, { bottom: -1, left: '60%', width: 9, height: 6 }]} pointerEvents="none" />
+        <View style={[styles.borderNotch, { bottom: -1, left: '88%', width: 6, height: 6 }]} pointerEvents="none" />
+        {/* Left edge */}
+        <View style={[styles.borderNotch, { left: -1, top: '30%',  width: 6, height: 8 }]} pointerEvents="none" />
+        <View style={[styles.borderNotch, { left: -1, top: '70%',  width: 6, height: 6 }]} pointerEvents="none" />
+        {/* Right edge */}
+        <View style={[styles.borderNotch, { right: -1, top: '20%', width: 6, height: 7 }]} pointerEvents="none" />
+        <View style={[styles.borderNotch, { right: -1, top: '60%', width: 6, height: 9 }]} pointerEvents="none" />
       </View>
     </View>
   )
@@ -256,6 +291,9 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
     backgroundColor: '#FFF6EE',
   },
+  subtitleWrap: {
+    position: 'relative',
+  },
   subtitle: {
     fontSize: 13,
     lineHeight: 18,
@@ -263,5 +301,33 @@ const styles = StyleSheet.create({
     color: color.brandRose,
     letterSpacing: 0.6,
     includeFontPadding: true,
+    // Wave 11 — match the title's slight ink-fade character at
+    // the smaller scale.
+    opacity: 0.92,
+    textShadowColor: 'rgba(226,12,4,0.35)',
+    textShadowOffset: { width: 0.4, height: 0.4 },
+    textShadowRadius: 0,
+  },
+  // Subtitle top-edge fade — same overlay trick as the title but
+  // scaled to the 18px lineHeight. Lands at top:2 (subtitle's
+  // ascender top within the 18px line box) with a 3px-tall band
+  // at 0.85 opacity. Reads as the same rubber-stamp top-clip on
+  // the smaller text without overwhelming it.
+  subtitleInkFadeTop: {
+    position: 'absolute',
+    top: 2,
+    left: -6,
+    right: -6,
+    height: 3,
+    backgroundColor: 'rgba(255, 246, 238, 0.85)',
+  },
+  // Border distress notch — small cream rectangle with rounded
+  // corners that overlays the brand-rose border to simulate an
+  // uneven stamp impression. Same opacity and softness as the
+  // letter speckles for visual consistency.
+  borderNotch: {
+    position: 'absolute',
+    borderRadius: 2,
+    backgroundColor: '#FFF6EE',
   },
 })
