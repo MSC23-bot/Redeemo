@@ -90,27 +90,46 @@ function formatLiveLine(now: Date): string {
 }
 
 /**
- * SuccessPopup — Voucher Detail M2.
+ * SuccessPopup — Voucher Detail M2 (redesign locked 2026-05-09 from
+ * `/impeccable improve` design pass).
  *
- * Visual contract: v6 mockup §SuccessPopup (Screen 7).
- *   • Compact 330-px max-width centred float (NOT full-screen).
- *   • Rgba(1,12,53,0.55) overlay with blur (closest available — RN
- *     uses `<Modal transparent>` + dimmed backdrop).
- *   • Spring entry: scale 0.8 → 1, translateY 30 → 0, ~450ms.
- *   • Checkmark in 48-px green ring with 200ms-delayed bounce.
- *   • Brand-gradient header strip with "Voucher Redeemed!" title.
- *   • Voucher strip (cream bg) with type-coloured badge + title.
- *   • Code box: monospace 4+4 grouping ("A7K2 P9X4").
- *   • Three info rows: date, time, branch.
- *   • Three CTAs: Show to Staff (gradient primary), Rate & Review
- *     (purple secondary), Done (transparent navy).
+ * Design direction — COMMITTED color strategy on the voucher's own
+ * type colour (Freebie emerald, BOGO purple, Discount rose, etc.).
+ * The success surface is THIS voucher's success surface, not a
+ * generic confirmation modal. Replaces the previous brand-rose/coral
+ * gradient header (SaaS-reflex) with subtle voucher-type pastel
+ * accent. Code is now the visual hero; the check is acknowledgment.
+ *
+ * Why committed-on-type:
+ *   • Ties the success moment to the voucher's identity — the user
+ *     just tapped a Freebie voucher, the success surface looks like
+ *     a Freebie.
+ *   • Resolves the previous design's three-accent muddle (rose +
+ *     green + purple) into one meaningful committed colour.
+ *   • Anti-references SaaS brand-gradient modal AND the second-order
+ *     "minimal typographic on cream" reflex — voucher-type colour
+ *     makes it specifically Redeemo.
+ *
+ * Layout (top → bottom):
+ *   1. Type-pastel accent row: small green check + "REDEEMED" label
+ *      in tracked uppercase, voucher-type pastel gradient bg.
+ *   2. Voucher context: title + merchant, single compact strip.
+ *   3. Code hero: raised card with type-colour border ring + tint.
+ *      Code at 30pt 800 tabular-nums; live timestamp underneath.
+ *   4. Receipt details: "Redeemed on" + "Branch", compact tabular.
+ *   5. Disclosure: "Staff scan or type this code from the Show to
+ *      Staff screen."
+ *   6. Primary CTA: Show to Staff — solid type-colour with type-
+ *      tinted shadow.
+ *   7. Secondary row: Rate & Review (flat type-colour text) + Done
+ *      (flat navy text). Quieter; not competing with the primary.
  *
  * Persistence: this component is mounted by VoucherDetailScreen via
  * `successPopup` state. As long as the screen stays mounted, the popup
  * survives focus changes / app background — the parent decides when
  * to dismiss via setSuccessPopup(null).
  *
- * Confetti is intentionally omitted in M2: the v6 confetti uses 7
+ * Confetti is intentionally omitted: the v6 confetti uses 7
  * Reanimated layers + 2.8s sequence which would add ~150 lines of
  * animation code. Owner direction prioritises shipping the contract
  * over decorative motion; if confetti is wanted, it's a Tier-1 polish
@@ -199,7 +218,10 @@ export function SuccessPopup({
   }))
 
   const typeColor = color.voucher.byType[voucherType] ?? color.voucher.discount
-  const typeBgTint = `${typeColor}14` // ~8% alpha tint via hex
+  const typeBgTint = `${typeColor}14`     // ~8% alpha tint via hex
+  const typeBgRing = `${typeColor}33`     // ~20% alpha for borders
+  const typeGradient = color.voucher.gradientByType[voucherType]
+    ?? color.voucher.gradientByType.DISCOUNT_FIXED
   const formattedCode = formatRedemptionCode(redemptionCode)
 
   return (
@@ -211,60 +233,70 @@ export function SuccessPopup({
           style={[styles.popup, popupStyle]}
           testID="success-popup"
         >
-          {/* Header — brand-gradient strip with checkmark + title */}
-          <View style={styles.header}>
+          {/* Type-pastel accent row — replaces the brand-gradient header.
+              Voucher-type pastel gradient gives the popup its identity
+              colour (Freebie emerald, BOGO purple, etc.) — the success
+              surface looks like THIS voucher's success surface, not a
+              generic confirmation modal. */}
+          <View style={styles.accentRow}>
             <LinearGradient
-              colors={color.brandGradient}
+              colors={typeGradient}
               start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
+              end={{ x: 1, y: 0 }}
               style={StyleSheet.absoluteFillObject}
             />
-            <Animated.View style={[styles.checkRing, checkStyle]} testID="success-check-ring">
-              <Check size={24} color={color.onBrand} strokeWidth={3} />
+            <Animated.View
+              style={[styles.checkRing, checkStyle]}
+              testID="success-check-ring"
+            >
+              <Check size={14} color={color.onBrand} strokeWidth={3} />
             </Animated.View>
-            <Text variant="heading.md" style={styles.headerTitle}>
-              Voucher Redeemed!
-            </Text>
             <Text
               variant="label.md"
-              style={styles.headerSub}
-              testID="success-staff-verify-copy"
+              style={[styles.accentLabel, { color: typeColor }]}
             >
-              Staff verify on the live Show to Staff screen
+              Redeemed
             </Text>
-          </View>
-
-          {/* Voucher strip — type badge + voucher title + merchant */}
-          <View style={styles.strip}>
-            <View style={styles.stripText}>
-              <View style={[styles.typeBadge, { backgroundColor: typeBgTint }]}>
-                <Text
-                  variant="label.md"
-                  style={[styles.typeBadgeText, { color: typeColor }]}
-                >
-                  {TYPE_LABELS[voucherType]}
-                </Text>
-              </View>
-              <Text variant="label.md" style={styles.stripTitle} numberOfLines={2}>
-                {voucherTitle}
-              </Text>
-              <Text variant="label.md" style={styles.stripMerchant}>
-                {merchantName}
+            <View style={[styles.accentTypeChip, { borderColor: typeBgRing }]}>
+              <Text
+                variant="label.md"
+                style={[styles.accentTypeChipText, { color: typeColor }]}
+              >
+                {TYPE_LABELS[voucherType]}
               </Text>
             </View>
           </View>
 
-          {/* Body — code + info rows + CTAs */}
+          {/* Body — voucher context + code hero + receipt + CTAs */}
           <View style={styles.body}>
-            {/* Code box — anti-fraud trust area. The live timestamp is
-                rendered HERE next to the code (not in the receipt rows
-                below) so a screenshot cannot crop one without the
-                other. The live ticker is the screenshot-detection
-                signal: trained staff see a frozen second-counter on
-                a static screenshot. Locked 2026-05-08, deferred-
-                followups §AC anti-fraud parity with Show-to-Staff. */}
-            <View style={styles.codeBox} testID="success-proof-area">
-              <Text variant="label.md" style={styles.codeLabel}>
+            {/* Voucher context — single compact strip (was a heavier
+                card-on-card block in the previous design; flattened
+                here so the code hero below dominates). */}
+            <View style={styles.context}>
+              <Text variant="label.md" style={styles.contextTitle} numberOfLines={2}>
+                {voucherTitle}
+              </Text>
+              <Text variant="label.md" style={styles.contextMerchant} numberOfLines={1}>
+                {merchantName}
+              </Text>
+            </View>
+
+            {/* Code hero — anti-fraud trust area. Type-coloured border
+                ring + 8% tint background lifts this above the receipt
+                detail rows; the code is now the visual hero of the
+                popup. The live timestamp is rendered HERE next to the
+                code so a screenshot cannot crop one without the other.
+                The live ticker is the screenshot-detection signal:
+                trained staff see a frozen second-counter on a static
+                screenshot. Locked 2026-05-08, deferred-followups §AC. */}
+            <View
+              style={[styles.codeBox, {
+                backgroundColor: typeBgTint,
+                borderColor: typeBgRing,
+              }]}
+              testID="success-proof-area"
+            >
+              <Text variant="label.md" style={[styles.codeLabel, { color: typeColor }]}>
                 REDEMPTION CODE
               </Text>
               <Text
@@ -285,39 +317,62 @@ export function SuccessPopup({
               </Text>
             </View>
 
-            {/* Info rows — receipt-detail tone. The "Redeemed on" line
-                is the static record from `redeemedAt`; the live ticker
-                lives in the proof area above. */}
+            {/* Receipt details — compact tabular rows. The "Redeemed on"
+                line is the static record from `redeemedAt`; the live
+                ticker lives in the proof area above. The Branch row
+                hides entirely when branch is unknown (avoids the old
+                em-dash fallback which violated the locked "no em
+                dashes in UI text" PRODUCT.md rule). */}
             <View style={styles.infoRows}>
               <InfoRow
                 label="Redeemed on"
                 value={formatRedeemedAtLine(redeemedAt)}
                 testID="success-redeemed-at"
               />
-              <InfoRow label="Branch" value={branchName ?? '—'} />
+              <InfoRow label="Branch" value={branchName ?? '-'} />
             </View>
 
-            {/* Show to Staff (M2 stub — caller may show alert / no-op) */}
+            {/* Anti-fraud disclosure — keeps the test-pin testID
+                `success-staff-verify-copy` (must reference "Show to
+                Staff" per success-popup.test.tsx). Tightened copy:
+                tells the user WHAT staff do (scan or type), not just
+                where. */}
+            <Text
+              variant="body.sm"
+              style={styles.disclosure}
+              testID="success-staff-verify-copy"
+            >
+              Staff scan or type this code from the Show to Staff screen.
+            </Text>
+
+            {/* Primary CTA — solid voucher-type colour with type-
+                tinted shadow. Replaces the previous brand-rose/coral
+                gradient (which was the SaaS reflex per PRODUCT.md
+                anti-references). */}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Show redemption code to staff"
               testID="success-show-to-staff"
               onPress={() => { lightHaptic(); onShowToStaff() }}
-              style={({ pressed }) => [styles.primaryCta, pressed && styles.ctaPressed]}
+              style={({ pressed }) => [
+                styles.primaryCta,
+                {
+                  backgroundColor: typeColor,
+                  shadowColor:     typeColor,
+                },
+                pressed && styles.ctaPressed,
+              ]}
             >
-              <LinearGradient
-                colors={color.brandGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={StyleSheet.absoluteFillObject}
-              />
               <Eye size={18} color={color.onBrand} strokeWidth={2.4} />
               <Text variant="label.md" style={styles.primaryCtaText}>
                 Show to Staff
               </Text>
             </Pressable>
 
-            {/* Secondary action row */}
+            {/* Secondary row — flat text actions. Demoted from the
+                previous outlined-button treatment so they read as
+                supporting actions, not as primary actions competing
+                with Show to Staff. */}
             <View style={styles.secondaryRow}>
               <Pressable
                 accessibilityRole="button"
@@ -325,28 +380,30 @@ export function SuccessPopup({
                 testID="success-rate-review"
                 onPress={() => { lightHaptic(); onRateReview() }}
                 style={({ pressed }) => [
-                  styles.secondaryCta,
-                  styles.rateCta,
-                  pressed && styles.ctaPressed,
+                  styles.tertiaryAction,
+                  pressed && styles.tertiaryPressed,
                 ]}
               >
-                <Star size={14} color={color.voucher.bogo} strokeWidth={2.4} />
-                <Text variant="label.md" style={styles.rateText}>
+                <Star size={13} color={typeColor} strokeWidth={2.4} />
+                <Text
+                  variant="label.md"
+                  style={[styles.tertiaryText, { color: typeColor }]}
+                >
                   Rate & Review
                 </Text>
               </Pressable>
+              <View style={styles.tertiaryDot} />
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Done"
                 testID="success-done"
                 onPress={() => { lightHaptic(); onDone() }}
                 style={({ pressed }) => [
-                  styles.secondaryCta,
-                  styles.doneCta,
-                  pressed && styles.ctaPressed,
+                  styles.tertiaryAction,
+                  pressed && styles.tertiaryPressed,
                 ]}
               >
-                <Text variant="label.md" style={styles.doneText}>
+                <Text variant="label.md" style={styles.tertiaryDoneText}>
                   Done
                 </Text>
               </Pressable>
@@ -374,197 +431,230 @@ function InfoRow({ label, value, testID }: { label: string; value: string; testI
 const styles = StyleSheet.create({
   scrim: {
     flex: 1,
-    backgroundColor: 'rgba(1,12,53,0.55)',
+    // Slightly more saturated navy scrim than before (0.55 → 0.62)
+    // so the popup sits more decisively above the page; keeps the
+    // grounded brand-navy tone without becoming opaque.
+    backgroundColor: 'rgba(1,12,53,0.62)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing[5],
   },
   popup: {
     width: '100%',
-    maxWidth: 330,
-    borderRadius: 28,
+    maxWidth: 340,
+    borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: color.surface.raised,
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
-    shadowRadius: 80,
-    shadowOffset: { width: 0, height: 32 },
-    elevation: 24,
+    // Tighter shadow than the previous 80/32/0.35 — that was
+    // dramatising. PRODUCT.md: "the voucher IS the data; we don't
+    // dramatise it." Keep it grounded.
+    shadowColor: '#0B1F4D',
+    shadowOpacity: 0.28,
+    shadowRadius: 36,
+    shadowOffset: { width: 0, height: 18 },
+    elevation: 18,
   },
-  // ── Header ──
-  header: {
-    paddingTop: spacing[5],
-    paddingHorizontal: spacing[5],
-    paddingBottom: spacing[4],
-    alignItems: 'center',
-  },
-  checkRing: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: color.savingsGreen,
-    borderWidth: 2,
-    borderColor: color.onBrand,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing[3],
-    shadowColor: color.savingsGreen,
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: color.onBrand,
-    letterSpacing: -0.3,
-  },
-  headerSub: {
-    marginTop: spacing[1],
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.85)',
-  },
-  // ── Voucher strip ──
-  strip: {
+  // ── Type-pastel accent row ──
+  // Replaces the previous brand-rose/coral gradient header. Voucher-
+  // type pastel gradient gives the popup its identity colour. Kept
+  // narrow (44px) so it reads as an accent, not a hero header — the
+  // hero is now the code below.
+  accentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing[3],
-    backgroundColor: color.cream,
-    borderBottomColor: color.border.subtle,
-    borderBottomWidth: 1,
-    padding: spacing[3],
+    gap: spacing[2],
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    minHeight: 44,
   },
-  stripText: {
+  checkRing: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: color.savingsGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accentLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
     flex: 1,
-    gap: spacing[1],
   },
-  typeBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 7,
+  accentTypeChip: {
+    paddingHorizontal: spacing[2],
     paddingVertical: 3,
     borderRadius: radius.xs,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.55)',
   },
-  typeBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-  },
-  stripTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: color.text.primary,
-  },
-  stripMerchant: {
+  accentTypeChipText: {
     fontSize: 10,
-    color: color.text.secondary,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   // ── Body ──
   body: {
-    padding: spacing[4],
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[3],
+    paddingBottom: spacing[4],
     gap: spacing[3],
   },
+  // ── Voucher context ──
+  // Flat strip — no card-on-card. Title + merchant on stacked text
+  // lines. Tight rhythm so it reads as context, not as a feature.
+  context: {
+    gap: 2,
+  },
+  contextTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: color.text.primary,
+    letterSpacing: -0.2,
+  },
+  contextMerchant: {
+    fontSize: 12,
+    color: color.text.secondary,
+    fontWeight: '500',
+  },
+  // ── Code hero ──
+  // The visual hero of the popup. Type-coloured border ring + 8%
+  // tint background lifts this above the receipt rows. Generous
+  // vertical padding gives the code breathing room — varied
+  // spacing rhythm per design laws (rest of the popup uses
+  // tighter rhythm).
   codeBox: {
-    backgroundColor: color.surface.subtle,
     borderRadius: radius.lg,
-    paddingVertical: spacing[3],
+    paddingVertical: spacing[4],
     paddingHorizontal: spacing[4],
     alignItems: 'center',
+    borderWidth: 1,
   },
   codeLabel: {
     fontSize: 9,
-    color: color.text.tertiary,
-    letterSpacing: 1.2,
-    marginBottom: spacing[1],
+    letterSpacing: 1.4,
+    fontWeight: '800',
+    marginBottom: 6,
+    textTransform: 'uppercase',
   },
   codeValue: {
-    fontSize: 26,
+    fontSize: 30,
     fontWeight: '800',
     color: color.text.primary,
     letterSpacing: 4,
     fontVariant: ['tabular-nums'],
+    // Slight negative top-margin pulls the code closer to the label
+    // without overlapping; tightens the visual block.
+    marginTop: -2,
   },
   liveLine: {
     marginTop: spacing[2],
     fontSize: 11,
     color: color.text.tertiary,
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
     fontVariant: ['tabular-nums'],
+    fontWeight: '500',
   },
+  // ── Receipt rows ──
   infoRows: {
-    gap: spacing[2],
+    gap: 0,
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: spacing[2],
-    borderTopColor: 'rgba(0,0,0,0.04)',
+    paddingVertical: spacing[2],
+    borderTopColor: 'rgba(11,31,77,0.05)',
     borderTopWidth: 1,
   },
   infoLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: color.text.tertiary,
+    fontWeight: '500',
   },
   infoValue: {
     flex: 1,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     color: color.text.primary,
     textAlign: 'right',
     marginLeft: spacing[3],
+    fontVariant: ['tabular-nums'],
   },
+  // ── Disclosure ──
+  // Tertiary text that explains how staff verify the code. Quieter
+  // than the receipt rows (no border, no weight) so it reads as a
+  // helper line, not a separate section.
+  disclosure: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: color.text.tertiary,
+    textAlign: 'center',
+    paddingHorizontal: spacing[2],
+    paddingTop: 2,
+  },
+  // ── Primary CTA ──
+  // Solid voucher-type colour. Background + shadow set inline so the
+  // colour follows the active voucher's type. No gradient — that was
+  // the SaaS reflex anti-reference.
   primaryCta: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing[2],
-    paddingVertical: spacing[3],
+    paddingVertical: spacing[3] + 2,
     borderRadius: radius.lg,
-    overflow: 'hidden',
-    shadowColor: color.brandRose,
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.30,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
   },
   primaryCtaText: {
     fontSize: 14,
     fontWeight: '800',
     color: color.onBrand,
+    letterSpacing: 0.2,
   },
+  // ── Tertiary action row ──
+  // Flat text actions. Read as supporting choices, not primary
+  // buttons competing with Show to Staff above.
   secondaryRow: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  secondaryCta: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing[2],
-    paddingVertical: spacing[3],
-    borderRadius: radius.md,
-    borderWidth: 1.5,
+    gap: spacing[3],
+    paddingTop: 2,
   },
-  rateCta: {
-    backgroundColor: 'rgba(124,58,237,0.08)',
-    borderColor: color.voucher.bogo,
+  tertiaryAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[3],
   },
-  rateText: {
+  tertiaryPressed: {
+    opacity: opacity.pressed,
+  },
+  tertiaryText: {
     fontSize: 12,
     fontWeight: '700',
-    color: color.voucher.bogo,
+    letterSpacing: 0.2,
   },
-  doneCta: {
-    backgroundColor: 'transparent',
-    borderColor: color.border.default,
-  },
-  doneText: {
+  tertiaryDoneText: {
     fontSize: 12,
     fontWeight: '700',
-    color: color.text.primary,
+    color: color.text.secondary,
+    letterSpacing: 0.2,
+  },
+  tertiaryDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: color.border.default,
   },
   ctaPressed: {
     opacity: opacity.pressed,
-    transform: [{ scale: 0.97 }],
+    transform: [{ scale: 0.98 }],
   },
 })

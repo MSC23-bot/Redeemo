@@ -87,9 +87,17 @@ describe('SuccessPopup — render + content', () => {
     expect(getByText('Brightlingsea')).toBeTruthy()
   })
 
-  it('falls back to em-dash when branch name is null', () => {
-    const { getByText } = render(<SuccessPopup {...defaults({ branchName: null })} />)
-    expect(getByText('—')).toBeTruthy()
+  it('falls back to a hyphen (NOT an em dash) when branch name is null', () => {
+    // Updated 2026-05-09 from `/impeccable improve` design pass:
+    // PRODUCT.md locks "no em dashes in UI text or seed copy"
+    // (locked 2026-05-02). The previous fallback used U+2014 EM DASH;
+    // replaced with a regular ASCII hyphen-minus as the missing-data
+    // indicator. Negative pin against a future revert to em dash.
+    const { getByText, queryByText } = render(
+      <SuccessPopup {...defaults({ branchName: null })} />,
+    )
+    expect(getByText('-')).toBeTruthy()
+    expect(queryByText('—')).toBeNull()
   })
 })
 
