@@ -31,6 +31,12 @@ vi.mock('../../../generated/prisma/client', () => {
     subscription            = { findUnique: vi.fn() }
     userVoucherCycleState   = { findUnique: vi.fn() }
     favouriteVoucher        = { findUnique: vi.fn() }
+    // M3 Task 5 — getCustomerVoucher now also queries
+    // voucherRedemption.findFirst for the lastRedemption block when
+    // the cycle gate is open. These existing tests pre-date M3 and
+    // don't care about lastRedemption; default findFirst → null so
+    // the gate-open paths return lastRedemption:null without crashing.
+    voucherRedemption       = { findFirst: vi.fn().mockResolvedValue(null) }
     constructor(_opts?: any) {}
   }
   return {

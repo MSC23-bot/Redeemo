@@ -877,6 +877,24 @@ export async function getCustomerVoucher(
   // TRIALLING subscribers only; null for free users / guests / paused
   // subscriptions (those see subscription copy, not cycle copy).
   let availableAgainAt: string | null = null
+  // Cycle window hoisted to outer scope so availableAgainAt,
+  // isRedeemedThisCycle, AND lastRedemption all derive from the SAME
+  // single getCurrentCycleWindow() call. Locked at M3 plan-time after
+  // PR #48 owner review (Fix 1) — see plan §M3a Task 5.
+  let cycleStart: Date | null = null
+  let cycleEnd:   Date | null = null
+  // M3 §P2 — persisted return-visit RedemptionDetailsCard. Non-null
+  // ONLY when (1) ACTIVE/TRIALLING sub, (2) isRedeemedThisCycle is
+  // true, and (3) a VoucherRedemption row exists in [cycleStart,
+  // cycleEnd). After cycle rollover all three flip together by
+  // construction — §Q6 invariant. See M3 plan §Persisted return-visit.
+  let lastRedemption: {
+    code:        string
+    redeemedAt:  string
+    branch:      { id: string; name: string }
+    isValidated: boolean
+    validatedAt: string | null
+  } | null = null
   if (userId) {
     // Mirror the redemption guard's eligibility check exactly
     // (src/api/redemption/service.ts:108-124). The previous version
@@ -908,10 +926,41 @@ export async function getCustomerVoucher(
       subscription
       && (subscription.status === 'ACTIVE' || subscription.status === 'TRIALLING')
     ) {
-      const { cycleStart, cycleEnd } = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
+      // Compute the cycle window ONCE; hoist into outer-scope vars so
+      // the lastRedemption query below can reuse the exact same range.
+      const window = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
+      cycleStart = window.cycleStart
+      cycleEnd   = window.cycleEnd
       availableAgainAt = cycleEnd.toISOString()
       if (cycleState && cycleState.isRedeemedInCurrentCycle) {
         isRedeemedThisCycle = cycleState.cycleStartDate >= cycleStart
+      }
+    }
+
+    // §P2 lastRedemption — only fetch when the gate is fully open. By
+    // construction this is impossible to satisfy without an
+    // ACTIVE/TRIALLING subscription, because isRedeemedThisCycle stays
+    // false for any other status. After cycle rollover the gate closes
+    // automatically — the §Q6 invariant the customer-app's
+    // RedemptionDetailsCard depends on.
+    if (isRedeemedThisCycle && cycleStart && cycleEnd) {
+      const row = await prisma.voucherRedemption.findFirst({
+        where: {
+          userId,
+          voucherId,
+          redeemedAt: { gte: cycleStart, lt: cycleEnd },
+        },
+        orderBy: { redeemedAt: 'desc' },
+        include: { branch: { select: { id: true, name: true } } },
+      })
+      if (row) {
+        lastRedemption = {
+          code:        row.redemptionCode,
+          redeemedAt:  row.redeemedAt.toISOString(),
+          branch:      row.branch,
+          isValidated: row.isValidated,
+          validatedAt: row.validatedAt ? row.validatedAt.toISOString() : null,
+        }
       }
     }
   }
@@ -922,6 +971,7 @@ export async function getCustomerVoucher(
     isRedeemedThisCycle,
     isFavourited,
     availableAgainAt,
+    lastRedemption,
   }
 }
 
