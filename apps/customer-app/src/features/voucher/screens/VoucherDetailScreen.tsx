@@ -325,6 +325,16 @@ export function VoucherDetailScreen() {
     redeemedAt: string
     branchName: string
   } | null>(null)
+  // M3 — validated-this-session override. Set by ShowToStaff's
+  // onValidated callback when polling reaches `phase: 'validated'`.
+  // Drives the RedemptionDetailsCard validated pill on the
+  // post-dismiss return-to-VoucherDetail render. Without this, the
+  // in-memory `lastRedemption` branch would hardcode `isValidated:
+  // false` and the user would see "Verified by staff" inside
+  // ShowToStaff but no pill on the card. Tracks the redemption code
+  // it validated for so a follow-up redemption (e.g. cycle reset
+  // mid-session in QA) clears the stale flag automatically.
+  const [validatedSession, setValidatedSession] = useState<string | null>(null)
   const [pickerConfirmedBranchId, setPickerConfirmedBranchId] = useState<string | null>(null)
 
   // Clear the picker-local source once the URL catches up to its value.
@@ -448,9 +458,12 @@ export function VoucherDetailScreen() {
   // pointing the URL.
   //
   // Returns null when:
-  //   • `lastRedemption` isn't in memory (return-visit; M2 doesn't
-  //     persist redemption details — see §P2 in deferred-followups
-  //     for the M3 backend payload work).
+  //   • `lastRedemption` isn't in memory. On a return visit during
+  //     the active cycle the persisted `voucher.lastRedemption` block
+  //     (M3 Task 5) drives the RedemptionDetailsCard via the FALLBACK
+  //     branch in the `displayRedemption` derivation below; this
+  //     local branch-tile lookup is only relevant for the in-memory
+  //     PRIMARY path right after redemption.
   //   • `lastRedemption.branchId` doesn't match any row in
   //     `merchant.branches` (race or merchant data missing).
   const lastRedemptionBranch = useMemo(() => {
@@ -996,12 +1009,18 @@ export function VoucherDetailScreen() {
               shape so the JSX stays readable. */}
           {(() => {
             if (stateKey !== 'redeemed-this-cycle') return null
-            const displayRedemption = lastRedemption
+            // Base shape from in-memory (PRIMARY) or persisted (FALLBACK).
+            const baseDisplay = lastRedemption
               ? {
                   code:        lastRedemption.redemptionCode,
                   redeemedAt:  lastRedemption.redeemedAt,
                   branchName:  branchName,
-                  isValidated: false,            // just-redeemed; backend hasn't yet observed staff scan
+                  // In-memory branch can't observe staff validation by
+                  // itself (the redeem mutation response always returns
+                  // isValidated:false). The session-scoped override
+                  // below merges in the validated signal from
+                  // ShowToStaff.onValidated.
+                  isValidated: false,
                 }
               : voucher.lastRedemption
                 ? {
@@ -1011,7 +1030,18 @@ export function VoucherDetailScreen() {
                     isValidated: voucher.lastRedemption.isValidated,
                   }
                 : null
-            if (!displayRedemption) return null
+            if (!baseDisplay) return null
+            // Apply validated-session override: if ShowToStaff's polling
+            // observed validation for THIS code in this session, the
+            // pill shows even before the next voucher payload refetch
+            // lands. The refetch fires alongside the override (see the
+            // ShowToStaff `onValidated` handler below) so subsequent
+            // navigation away + back without a full relaunch picks up
+            // the persisted truth too.
+            const displayRedemption = {
+              ...baseDisplay,
+              isValidated: baseDisplay.isValidated || (validatedSession === baseDisplay.code),
+            }
             return (
               <View style={styles.redeemedDetailsInStack}>
                 <RedemptionDetailsCard
@@ -1083,11 +1113,14 @@ export function VoucherDetailScreen() {
             but the meaningful surface (code + voucher summary) lands
             above the now-secondary coupon details.
 
-            Persisted return-visit RedemptionDetailsCard is still
-            deferred (§P2 / §O6 — backend payload dependency: needs
-            lastRedeemedAt + redemptionCode + branch on the voucher
-            payload). On return visits, lastRedemption is null and
-            only the badge surfaces. */}
+            Persisted return-visit RedemptionDetailsCard ships in
+            M3 (closed §P2 for the active cycle). The
+            `displayRedemption` block above resolves from EITHER
+            in-memory `lastRedemption` (just-redeemed PRIMARY) OR
+            `voucher.lastRedemption` (return-visit FALLBACK). The
+            badge here remains so "Redeemed" reads near the hero
+            even when the dominant card is offscreen above the fold.
+            Past-cycle history surface remains §Q5. */}
         {stateKey === 'redeemed-this-cycle' ? (
           <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
         ) : null}
@@ -1111,13 +1144,17 @@ export function VoucherDetailScreen() {
                                              lastRedemptionBranch (the
                                              actual redemption branch,
                                              NOT the URL target).
-              • redeemed return-visit (M2) → mode='redeemed-unknown',
-                                             branchName=null (the row
-                                             omits the branch line and
-                                             shows neutral "REDEEMED THIS
-                                             CYCLE" copy). Persisted
-                                             redemption branch lands in
-                                             M3 (§P2 in deferred index).
+              • redeemed return-visit (M3+) → resolved from
+                                             `voucher.lastRedemption.
+                                             branch.name` via the
+                                             FALLBACK path in
+                                             `displayRedemption`
+                                             above. The
+                                             `redeemed-unknown`
+                                             mode survives only
+                                             when both in-memory and
+                                             persisted sources are
+                                             null (defensive).
         */}
         {/* CycleRulesCard — NON-REDEEMED-STATE position (locked
             2026-05-08 from device QA). Sits between the coupon body
@@ -1317,6 +1354,19 @@ export function VoucherDetailScreen() {
           branchName={showToStaff.branchName}
           customerName=""
           redeemedAt={showToStaff.redeemedAt}
+          onValidated={() => {
+            // Two-layer update so the validated pill reflects truth on
+            // BOTH the immediate post-dismiss render AND on subsequent
+            // navigation away + back:
+            //   (1) Session override — paints the pill on the in-memory
+            //       branch (which can't observe staff scan otherwise).
+            //   (2) Refetch — pulls the persisted
+            //       `voucher.lastRedemption.isValidated` so the FALLBACK
+            //       branch picks up reality after a relaunch / cache
+            //       eviction (PR #49 review fix).
+            setValidatedSession(showToStaff.code)
+            voucherQuery.refetch().catch(() => { /* best-effort */ })
+          }}
           onDone={() => setShowToStaff(null)}
         />
       ) : null}

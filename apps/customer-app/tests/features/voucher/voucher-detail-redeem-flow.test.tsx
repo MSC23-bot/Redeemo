@@ -83,7 +83,10 @@ let mockVoucherData: any = null
 jest.mock('@/features/voucher/hooks/useCustomerVoucher', () => ({
   useCustomerVoucher: () => ({
     data: mockVoucherData, isLoading: false, isError: false,
-    refetch: jest.fn(),
+    // refetch must return a Promise — VoucherDetailScreen calls
+    // `.catch()` on the result inside the ShowToStaff onValidated
+    // handler (PR #49 review fix).
+    refetch: jest.fn().mockResolvedValue({ data: mockVoucherData }),
   }),
 }))
 ;(globalThis as any).__voucherProfileMock__ = {
@@ -1591,5 +1594,110 @@ describe('§Q6 cycle-rollover invariant — RedemptionDetailsCard gate (M3 Task 
     })
     const { queryByTestId } = wrap(<VoucherDetailScreen />)
     expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// PR #49 review fix — validated state propagation from ShowToStaff
+// back to the parent's RedemptionDetailsCard. Without this, the user
+// saw "Verified by staff" inside ShowToStaff but the validated pill
+// stayed hidden after auto-dismiss because the in-memory
+// `lastRedemption` branch hardcoded `isValidated: false`.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('ShowToStaff → RedemptionDetailsCard validated propagation (PR #49 review fix)', () => {
+  // Pull the mocked ShowToStaff so we can invoke its props directly.
+  const ShowToStaffMock = require('@/features/voucher/components/ShowToStaff').ShowToStaff as jest.Mock
+
+  beforeEach(() => {
+    ShowToStaffMock.mockClear()
+  })
+
+  function persistedRedemption(overrides: any = {}) {
+    return {
+      code:        'A7K2P9X4',
+      redeemedAt:  '2026-05-08T10:00:00.000Z',
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+      ...overrides,
+    }
+  }
+
+  it('persisted-card path: ShowToStaff onValidated flips RedemptionDetailsCard to show the validated pill after dismiss', () => {
+    // Voucher arrives in the redeemed-this-cycle state with a NOT-YET-
+    // VALIDATED persisted lastRedemption — i.e. user redeemed earlier,
+    // killed the app, relaunched, came back to voucher detail.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption({ isValidated: false }),
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // Initial: card renders, no validated pill (persisted isValidated:false).
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(queryByTestId('redemption-details-validated-pill')).toBeNull()
+
+    // User taps "Show to Staff" on the persisted card → ShowToStaff
+    // mounts. We need the latest props (the mock captures every render's
+    // props via mock.calls).
+    fireEvent.press(getByTestId('redemption-details-show-to-staff'))
+    expect(getByTestId('show-to-staff-mounted')).toBeTruthy()
+
+    // ShowToStaff polls + flips to validated. We invoke its onValidated
+    // callback directly. Then dismiss via onDone.
+    const lastMountProps =
+      ShowToStaffMock.mock.calls[ShowToStaffMock.mock.calls.length - 1][0]
+    expect(typeof lastMountProps.onValidated).toBe('function')
+    expect(typeof lastMountProps.onDone).toBe('function')
+
+    act(() => {
+      lastMountProps.onValidated()
+      lastMountProps.onDone()
+    })
+
+    // Now back on VoucherDetail: the validated pill MUST render —
+    // either via the session override (immediate) or via the refetched
+    // voucher.lastRedemption.isValidated (eventual). Even with no
+    // refetch in the test (mockVoucherData unchanged), the session
+    // override carries the pill.
+    expect(queryByTestId('show-to-staff-mounted')).toBeNull()
+    expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+  })
+
+  it('session override is keyed by redemption code — clears for a different code', () => {
+    // Voucher with persisted lastRedemption #1.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption({ code: 'AAAAAAAA' }),
+    })
+
+    const view = wrap(<VoucherDetailScreen />)
+    fireEvent.press(view.getByTestId('redemption-details-show-to-staff'))
+
+    const props =
+      ShowToStaffMock.mock.calls[ShowToStaffMock.mock.calls.length - 1][0]
+
+    // Session override fires for code AAAAAAAA — the validated pill
+    // should appear.
+    act(() => {
+      props.onValidated()
+      props.onDone()
+    })
+    expect(view.getByTestId('redemption-details-validated-pill')).toBeTruthy()
+
+    // Now mock a DIFFERENT code surfacing on the voucher (e.g. cycle
+    // reset + fresh redemption). The session override's stored code
+    // (AAAAAAAA) shouldn't match the new code (BBBBBBBB), so the pill
+    // disappears.
+    view.unmount()
+
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption({ code: 'BBBBBBBB', isValidated: false }),
+    })
+    const view2 = wrap(<VoucherDetailScreen />)
+    expect(view2.queryByTestId('redemption-details-validated-pill')).toBeNull()
   })
 })

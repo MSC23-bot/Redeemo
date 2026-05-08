@@ -108,6 +108,14 @@ type Props = {
   /** ISO timestamp when the redemption was created. */
   redeemedAt: string
   onDone: () => void
+  /** Fires ONCE when polling reaches `phase === 'validated'` —
+   *  before the 2 s auto-dismiss. The parent uses this signal to
+   *  flip RedemptionDetailsCard's "Validated by staff" pill on
+   *  the post-dismiss return-to-VoucherDetail render (PR #49 review
+   *  fix — without this, the pill stayed hidden until a later
+   *  refetch path because the in-memory `lastRedemption` branch
+   *  hardcoded `isValidated: false`). */
+  onValidated?: () => void
 }
 
 // Hoisted to module scope so the formatters are constructed once at
@@ -173,6 +181,7 @@ export function ShowToStaff({
   customerName,
   redeemedAt,
   onDone,
+  onValidated,
 }: Props) {
   const motionScale = useMotionScale()
   const reduced = motionScale === 0
@@ -239,14 +248,28 @@ export function ShowToStaff({
 
   // Auto-dismiss after validated transition. Reduced motion routes
   // straight through onDone (no 2s wait — the surface is no longer
-  // load-bearing once validated). `onDone` is captured in a ref so
-  // unstable parent closures don't re-arm the 2 s timer on every
-  // render (issue from PR #49 review).
+  // load-bearing once validated). `onDone` and `onValidated` are
+  // captured in refs so unstable parent closures don't re-arm the
+  // 2 s timer or re-fire the validated callback on every render
+  // (issue from PR #49 review). `onValidated` fires ONCE per
+  // validated transition — guarded by a session-scoped ref so a
+  // re-mount during the auto-dismiss window doesn't double-fire.
   const onDoneRef = useRef(onDone)
+  const onValidatedRef = useRef(onValidated)
+  const validatedFiredRef = useRef(false)
   useEffect(() => { onDoneRef.current = onDone }, [onDone])
+  useEffect(() => { onValidatedRef.current = onValidated }, [onValidated])
   useEffect(() => {
     if (poll.phase !== 'validated') return
     successHaptic()
+    // Fire onValidated once per session — drives the parent's
+    // validated-pill override (PR #49 review fix). Guarded by ref
+    // so a parent re-render between phase flip and auto-dismiss
+    // doesn't double-fire.
+    if (!validatedFiredRef.current) {
+      validatedFiredRef.current = true
+      onValidatedRef.current?.()
+    }
     if (reduced) {
       onDoneRef.current()
       return
