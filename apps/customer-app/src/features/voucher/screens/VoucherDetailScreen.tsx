@@ -37,6 +37,7 @@ import { BranchPickerSheet, type PickerBranch } from '../components/BranchPicker
 import { PinEntrySheet } from '../components/PinEntrySheet'
 import { SuccessPopup } from '../components/SuccessPopup'
 import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
+import { ShowToStaff } from '../components/ShowToStaff'
 import { useRedeem, type UseRedeemError } from '../hooks/useRedeem'
 import type { RedeemResponse } from '@/lib/api/redemption'
 import { CTA_LABELS } from '../constants/productCopy'
@@ -317,6 +318,13 @@ export function VoucherDetailScreen() {
   const [pinSheetVisible, setPinSheetVisible] = useState(false)
   const [successPopup, setSuccessPopup] = useState<RedeemResponse | null>(null)
   const [lastRedemption, setLastRedemption] = useState<RedeemResponse | null>(null)
+  // M3 — Show-to-Staff full-screen modal target. Non-null while
+  // visible. Drives the Modal mount at the bottom of the JSX.
+  const [showToStaff, setShowToStaff] = useState<{
+    code:       string
+    redeemedAt: string
+    branchName: string
+  } | null>(null)
   const [pickerConfirmedBranchId, setPickerConfirmedBranchId] = useState<string | null>(null)
 
   // Clear the picker-local source once the URL catches up to its value.
@@ -1237,13 +1245,17 @@ export function VoucherDetailScreen() {
           merchantName={voucher.merchant.businessName}
           branchName={branchName}
           onShowToStaff={() => {
-            // M3 stub — full QR + brightness boost ships in M3.
-            // For M2 the button routes to a small alert acknowledging
-            // the deferral.
-            Alert.alert(
-              'Show to Staff',
-              'The full-screen redemption display ships in the next milestone (M3). Your code is shown above — please show it to staff.',
-            )
+            // M3 — open the full-screen ShowToStaff surface with the
+            // just-created redemption. Close the SuccessPopup first
+            // so the user lands on the QR/code surface cleanly when
+            // ShowToStaff dismisses (auto-dismiss after validated, or
+            // Done press).
+            setSuccessPopup(null)
+            setShowToStaff({
+              code:       successPopup.redemptionCode,
+              redeemedAt: successPopup.redeemedAt,
+              branchName,
+            })
           }}
           onRateReview={() => {
             // M2 keeps the review path unchanged — closes the popup;
@@ -1251,6 +1263,23 @@ export function VoucherDetailScreen() {
             setSuccessPopup(null)
           }}
           onDone={() => setSuccessPopup(null)}
+        />
+      ) : null}
+      {/* ShowToStaff full-screen Modal (M3 Task 16). Mounts only
+          when both `showToStaff` state is set AND voucher data is
+          present. customerName="" per the M3 §U1 lock — see
+          ShowToStaff component header for the suppression contract. */}
+      {showToStaff && voucher ? (
+        <ShowToStaff
+          visible
+          redemptionCode={showToStaff.code}
+          voucherTitle={voucher.title}
+          voucherType={voucher.type}
+          merchantName={voucher.merchant.businessName}
+          branchName={showToStaff.branchName}
+          customerName=""
+          redeemedAt={showToStaff.redeemedAt}
+          onDone={() => setShowToStaff(null)}
         />
       ) : null}
     </View>
