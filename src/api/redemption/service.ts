@@ -381,13 +381,69 @@ export async function getMyRedemption(
   return { ...redemption, estimatedSaving: Number(redemption.estimatedSaving) }
 }
 
-// ─── Show-to-Staff anti-fraud telemetry ───────────────────────────────────────
+// ─── Show-to-Staff polling + anti-fraud telemetry ─────────────────────────────
 
 const SCREENSHOT_DEDUP_TTL_SECONDS = 5
 
-/** Normalise a user-supplied redemption code to its canonical form. */
+/**
+ * Normalise a user-supplied redemption code to its canonical form.
+ * Strips whitespace + hyphens (so the user-friendly "A7K2 P9X4"
+ * displayed in the UI matches the canonical "A7K2P9X4" stored in
+ * the DB) and uppercases (the alphabet is already uppercase, this
+ * is defensive against hand-entered lowercase from a future manual
+ * entry surface).
+ *
+ * Shared between `flagRedemptionScreenshot` and
+ * `getMyRedemptionByCode` so dedup keys and DB lookups always agree
+ * on the canonical shape.
+ */
 function normaliseCode(code: string): string {
   return code.replace(/[\s-]/g, '').toUpperCase()
+}
+
+/**
+ * Customer self-lookup by redemption code. Drives the Show-to-Staff
+ * polling hook (5s cadence, 15-min budget) — flips the screen from
+ * polling → validated when the backend marks `isValidated: true`.
+ *
+ * Slim payload by design: no userId, no validatedById, no
+ * estimatedSaving, no redeemedAt. Only the fields the polling hook
+ * + ShowToStaff component need. This endpoint is hit ~180 times
+ * per session; keep the wire small.
+ *
+ * Auth shape mirrors `getMyRedemption` and `flagRedemptionScreenshot`:
+ * rejects with `REDEMPTION_NOT_FOUND` when the code does not exist
+ * OR the redemption belongs to a different user. A leaked code
+ * from another customer MUST NOT surface their redemption status
+ * to a different user's session.
+ */
+export async function getMyRedemptionByCode(
+  prisma: PrismaClient,
+  userId: string,
+  code:   string,
+) {
+  const normalised = normaliseCode(code)
+
+  const redemption = await prisma.voucherRedemption.findUnique({
+    where: { redemptionCode: normalised },
+    include: {
+      voucher: { select: { id: true, merchant: { select: { businessName: true } } } },
+      branch:  { select: { name: true } },
+    },
+  })
+  if (!redemption || redemption.userId !== userId) {
+    throw new AppError('REDEMPTION_NOT_FOUND')
+  }
+
+  return {
+    code:             redemption.redemptionCode,
+    isValidated:      redemption.isValidated,
+    validatedAt:      redemption.validatedAt,
+    validationMethod: redemption.validationMethod,
+    voucherId:        redemption.voucher.id,
+    merchantName:     redemption.voucher.merchant.businessName,
+    branchName:       redemption.branch.name,
+  }
 }
 
 /**
