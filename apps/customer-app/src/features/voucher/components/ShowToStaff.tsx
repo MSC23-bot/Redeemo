@@ -34,7 +34,8 @@ import type { VoucherType } from '@/lib/api/redemption'
  *     `paused` driven by AppState !== 'active' so backgrounded time
  *     still consumes the 15-min budget per locked plan §Backgrounding.
  *   - useBrightnessBoost (Task 11) — `active = visible && appActive`.
- *     Restores on background, re-applies on foreground.
+ *     Restores on background, re-applies on foreground. **Best-effort
+ *     and fail-safe** — see BRIGHTNESS_BOOST_ENABLED kill-switch below.
  *   - useAutoHideTimer (Task 12) — `active = visible && appActive`,
  *     `frozen` flips to true on validated phase so the screen pins
  *     open until the auto-dismiss completes.
@@ -51,9 +52,33 @@ import type { VoucherType } from '@/lib/api/redemption'
  * Anti-fraud screenshot guard: NOT in this task — Task 15 wires
  * `useScreenshotGuard` and the blurred-state recovery on top of
  * the QRCodeBlock's `blurred` prop.
+ *
+ * **Brightness-boost kill-switch (locked owner direction 2026-05-08):**
+ * Brightness boost is best-effort and fail-safe — it MUST NOT affect
+ * QR or manual-code rendering, and the surface MUST work without it.
+ * If device QA surfaces instability (stuck brightness, hangs,
+ * permission edge-cases on any platform), flip the constant below
+ * to `false` to disable the boost without touching anything else.
+ * The QR, code, polling, auto-hide, AppState wiring, validated
+ * transition, and Done button are all independent of brightness.
+ *
+ * The Task 11 `useBrightnessBoost` hook is itself fail-safe — every
+ * Brightness API call is wrapped in try/catch, and the unmount
+ * cleanup is guarded by a "did we capture a prior value" check.
+ * The kill-switch here is the second layer: a way to suppress the
+ * call entirely without redeploying the hook.
  */
 
 const AUTO_DISMISS_MS = 2_000
+
+/**
+ * Kill-switch for the brightness boost. Default: true (boost engaged).
+ * Flip to `false` to ship a build that disables brightness boost
+ * entirely — useful as a fast remediation if device QA surfaces
+ * instability. The QR, manual-code display, and rest of the surface
+ * are unaffected.
+ */
+const BRIGHTNESS_BOOST_ENABLED = true
 
 type Props = {
   visible: boolean
@@ -139,7 +164,11 @@ export function ShowToStaff({
     enabled: visible,
     paused:  !appActive,
   })
-  useBrightnessBoost(active)
+  // Brightness boost is gated by the kill-switch above. The hook itself
+  // is fail-safe (try/catch around every Brightness API call) but
+  // turning the call off entirely is the fastest remediation path if
+  // anything goes wrong on a specific device.
+  useBrightnessBoost(BRIGHTNESS_BOOST_ENABLED && active)
   const { state: hideState, resetTimer } = useAutoHideTimer({
     active,
     frozen: poll.phase === 'validated',

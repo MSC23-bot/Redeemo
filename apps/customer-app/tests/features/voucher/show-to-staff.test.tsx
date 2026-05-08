@@ -111,9 +111,25 @@ describe('ShowToStaff — render', () => {
 })
 
 describe('ShowToStaff — building-block composition', () => {
-  it('wires useBrightnessBoost(true) when visible AND app is active', () => {
+  it('wires useBrightnessBoost(true) when visible AND app is active (kill-switch ON, default)', () => {
     render(<ShowToStaff {...baseProps} />)
+    // Default ships with BRIGHTNESS_BOOST_ENABLED=true. If device QA
+    // ever requires shipping with the kill-switch flipped off, the
+    // hook receives `false` and the QR/code/polling/auto-hide/AppState
+    // wiring all continue to work — see the kill-switch comment at
+    // the top of ShowToStaff.tsx.
     expect(brightness.useBrightnessBoost).toHaveBeenCalledWith(true)
+  })
+
+  it('brightness-boost is gated through the kill-switch — never called with anything other than booleans', () => {
+    render(<ShowToStaff {...baseProps} />)
+    // Defensive pin against future bugs that might pass a truthy
+    // non-boolean value into the hook (e.g. a number or undefined).
+    // The hook contract from Task 11 expects a strict boolean.
+    const calls = (brightness.useBrightnessBoost as jest.Mock).mock.calls
+    for (const [arg] of calls) {
+      expect(typeof arg).toBe('boolean')
+    }
   })
 
   it('wires useRedemptionPolling with enabled=visible + paused=false initially', () => {
