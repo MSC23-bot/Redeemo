@@ -59,6 +59,14 @@ function profileFixture(overrides: Partial<Record<string, unknown>> = {}) {
 describe('auth store', () => {
   beforeEach(async () => {
     ;(profileApi.getMe as jest.Mock).mockResolvedValue(profileFixture())
+    // Reset per-test so secureStorage.get / prefsStorage.get from prior
+    // tests doesn't leak into the next.
+    const { secureStorage, prefsStorage: prefs } = jest.requireMock('@/lib/storage') as {
+      secureStorage: { get: jest.Mock; set: jest.Mock; remove: jest.Mock }
+      prefsStorage:  { get: jest.Mock; set: jest.Mock; remove: jest.Mock }
+    }
+    secureStorage.get.mockImplementation(async () => null)
+    prefs.get.mockImplementation(async () => null)
     await useAuthStore.getState().__resetForTests()
   })
 
@@ -67,7 +75,7 @@ describe('auth store', () => {
   })
 
   it('setTokens transitions to authed and persists minimal user', async () => {
-    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r' })
+    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r', sessionId: 'sess_a', entityId: 'u1' })
     expect(useAuthStore.getState().status).toBe('authed')
     expect(useAuthStore.getState().user?.emailVerified).toBe(false)
   })
@@ -79,7 +87,7 @@ describe('auth store', () => {
     ;(profileApi.getMe as jest.Mock).mockResolvedValueOnce(
       profileFixture({ emailVerified: true, phoneVerified: false }),
     )
-    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r' })
+    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r', sessionId: 'sess_a', entityId: 'u1' })
     const { status, user } = useAuthStore.getState()
     expect(status).toBe('authed')
     expect(user?.emailVerified).toBe(true)
@@ -91,7 +99,7 @@ describe('auth store', () => {
     ;(profileApi.getMe as jest.Mock).mockResolvedValueOnce(
       profileFixture({ emailVerified: true, phoneVerified: true }),
     )
-    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r' })
+    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r', sessionId: 'sess_a', entityId: 'u1' })
     expect(useAuthStore.getState().user?.phoneVerified).toBe(true)
 
     // Step 2: sign out — store must be fully cleared
@@ -103,12 +111,12 @@ describe('auth store', () => {
     ;(profileApi.getMe as jest.Mock).mockResolvedValueOnce(
       profileFixture({ emailVerified: true, phoneVerified: false }),
     )
-    await useAuthStore.getState().setTokens({ accessToken: 'b', refreshToken: 'r2' })
+    await useAuthStore.getState().setTokens({ accessToken: 'b', refreshToken: 'r2', sessionId: 'sess_b', entityId: 'u1' })
     expect(useAuthStore.getState().user?.phoneVerified).toBe(false)
   })
 
   it('syncVerificationState patches only provided fields', async () => {
-    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r' })
+    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r', sessionId: 'sess_a', entityId: 'u1' })
     await useAuthStore.getState().syncVerificationState({ emailVerified: true })
     expect(useAuthStore.getState().user?.emailVerified).toBe(true)
     expect(useAuthStore.getState().user?.phoneVerified).toBe(false)
@@ -122,7 +130,7 @@ describe('auth store', () => {
 
   it('markProfileCompletion("dismissed") keeps user authed', async () => {
     ;(profileApi.getMe as jest.Mock).mockResolvedValueOnce(profileFixture({ emailVerified: true, phoneVerified: true }))
-    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r' })
+    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r', sessionId: 'sess_a', entityId: 'u1' })
     await useAuthStore.getState().markProfileCompletion('dismissed')
     expect(useAuthStore.getState().status).toBe('authed')
     expect(useAuthStore.getState().onboarding.profileCompletion).toBe('dismissed')
@@ -150,11 +158,57 @@ describe('auth store', () => {
 
   it('clearLocalAuth transitions to unauthenticated and clears tokens without API call', async () => {
     ;(profileApi.getMe as jest.Mock).mockResolvedValueOnce(profileFixture({ emailVerified: true, phoneVerified: true }))
-    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r' })
+    await useAuthStore.getState().setTokens({ accessToken: 'a', refreshToken: 'r', sessionId: 'sess_a', entityId: 'u1' })
     await useAuthStore.getState().clearLocalAuth()
     expect(useAuthStore.getState().status).toBe('unauthenticated')
     expect(useAuthStore.getState().accessToken).toBeNull()
     expect(useAuthStore.getState().refreshToken).toBeNull()
     expect(useAuthStore.getState().user).toBeNull()
+  })
+
+  // Hotfix migration: pre-fix builds (≤ 2026-05-08) persisted only
+  // accessToken + refreshToken to secureStorage. Existing-build users
+  // upgrading to the fix have those two keys but no sessionId / entityId.
+  // Bootstrap MUST treat that state as forced sign-out so the next sign-in
+  // re-populates the full set, instead of attempting a refresh with a
+  // partial body (which is the exact bug we're closing).
+  it('bootstrap forces sign-out when sessionId is missing from secureStorage (pre-fix migration)', async () => {
+    const { secureStorage } = jest.requireMock('@/lib/storage') as {
+      secureStorage: { get: jest.Mock; remove: jest.Mock }
+    }
+    secureStorage.get.mockImplementation(async (key: string) => {
+      if (key === 'accessToken')  return 'old_access'
+      if (key === 'refreshToken') return 'old_refresh'
+      // sessionId and entityId — pre-fix build never wrote these
+      return null
+    })
+
+    await useAuthStore.getState().bootstrap()
+
+    expect(useAuthStore.getState().status).toBe('unauthenticated')
+    // The stale tokens must be wiped so they can't be reused mid-session
+    expect(secureStorage.remove).toHaveBeenCalledWith('accessToken')
+    expect(secureStorage.remove).toHaveBeenCalledWith('refreshToken')
+    expect(secureStorage.remove).toHaveBeenCalledWith('sessionId')
+    expect(secureStorage.remove).toHaveBeenCalledWith('entityId')
+  })
+
+  it('bootstrap restores authed state when all four tokens are present', async () => {
+    const { secureStorage } = jest.requireMock('@/lib/storage') as {
+      secureStorage: { get: jest.Mock; remove: jest.Mock }
+    }
+    secureStorage.get.mockImplementation(async (key: string) => {
+      if (key === 'accessToken')  return 'a'
+      if (key === 'refreshToken') return 'r'
+      if (key === 'sessionId')    return 'sess_x'
+      if (key === 'entityId')     return 'u1'
+      return null
+    })
+    ;(profileApi.getMe as jest.Mock).mockResolvedValueOnce(profileFixture())
+
+    await useAuthStore.getState().bootstrap()
+
+    expect(useAuthStore.getState().status).toBe('authed')
+    expect(useAuthStore.getState().user?.id).toBe('u1')
   })
 })

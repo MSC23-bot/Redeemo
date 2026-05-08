@@ -17,7 +17,10 @@ describe('api client', () => {
   })
 
   it('refreshes on 401 and retries once', async () => {
-    api.__setTokensForTests('STALE', 'REFRESH')
+    // sessionId + entityId are required for the refresh body shape (see
+    // tests/lib/api.refresh.test.ts for the full contract). Without
+    // them set, the 401 retry path skips refresh entirely.
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
     let calls = 0
     global.fetch = jest.fn(async (url: string) => {
       calls++

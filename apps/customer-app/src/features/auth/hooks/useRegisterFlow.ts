@@ -52,7 +52,12 @@ export function useRegisterFlow() {
     setFieldErrorsState({})
     try {
       const res = await authApi.register(input)
-      await setTokens({ accessToken: res.accessToken, refreshToken: res.refreshToken })
+      await setTokens({
+        accessToken:  res.accessToken,
+        refreshToken: res.refreshToken,
+        sessionId:    res.sessionId,
+        entityId:     res.user.id,
+      })
       router.replace('/(auth)/verify-email')
       return null
     } catch (e) {

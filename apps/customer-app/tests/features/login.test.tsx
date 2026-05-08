@@ -55,7 +55,7 @@ describe('useLoginFlow', () => {
   })
 
   it('does not redirect when email is unverified (email verification is no longer a login gate; resolveRedirect handles it)', async () => {
-    ;(authApi.login as jest.Mock).mockResolvedValueOnce({ accessToken: 'at', refreshToken: 'rt', user: { id: 'u1' } })
+    ;(authApi.login as jest.Mock).mockResolvedValueOnce({ accessToken: 'at', refreshToken: 'rt', sessionId: 'sess_at', user: { id: 'u1' } })
     ;(profileApi.getMe as jest.Mock).mockResolvedValue({ ...meBase, emailVerified: false, phoneVerified: true })
     const { result } = renderHook(() => useLoginFlow())
     await act(async () => { await result.current.submit({ email: 'a@x.com', password: 'Passw0rd!' }) })
@@ -63,7 +63,7 @@ describe('useLoginFlow', () => {
   })
 
   it('does not explicitly navigate when phoneVerified is false — resolveRedirect in AuthLayout owns routing', async () => {
-    ;(authApi.login as jest.Mock).mockResolvedValueOnce({ accessToken: 'at', refreshToken: 'rt', user: { id: 'u1' } })
+    ;(authApi.login as jest.Mock).mockResolvedValueOnce({ accessToken: 'at', refreshToken: 'rt', sessionId: 'sess_at', user: { id: 'u1' } })
     ;(profileApi.getMe as jest.Mock).mockResolvedValueOnce({ ...meBase, phoneVerified: false })
     const { result } = renderHook(() => useLoginFlow())
     await act(async () => { await result.current.submit({ email: 'a@x.com', password: 'Passw0rd!' }) })
@@ -71,7 +71,7 @@ describe('useLoginFlow', () => {
   })
 
   it('does not redirect when phoneVerified is true', async () => {
-    ;(authApi.login as jest.Mock).mockResolvedValueOnce({ accessToken: 'at', refreshToken: 'rt', user: { id: 'u1' } })
+    ;(authApi.login as jest.Mock).mockResolvedValueOnce({ accessToken: 'at', refreshToken: 'rt', sessionId: 'sess_at', user: { id: 'u1' } })
     ;(profileApi.getMe as jest.Mock).mockResolvedValueOnce({ ...meBase, phoneVerified: true })
     const { result } = renderHook(() => useLoginFlow())
     await act(async () => { await result.current.submit({ email: 'a@x.com', password: 'Passw0rd!' }) })

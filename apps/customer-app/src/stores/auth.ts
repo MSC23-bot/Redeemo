@@ -35,8 +35,14 @@ export type MinimalUser = {
 }
 
 type SetTokensInput = {
-  accessToken: string
+  accessToken:  string
   refreshToken: string
+  // Required as of 2026-05-08 — the customer-app's /auth/refresh client
+  // posts `{ refreshToken, sessionId, entityId }` per the backend
+  // contract. `sessionId` comes from the auth response;
+  // `entityId === user.id`.
+  sessionId:    string
+  entityId:     string
   /** Optional bootstrap snapshot used only if /profile fetch fails. */
   user?: MinimalUser
 }
@@ -109,15 +115,27 @@ export const useAuthStore = create<State>((set, get) => ({
       set({ hapticsEnabled, motionScale })
     } catch { /* best-effort */ }
 
-    const [access, refresh] = await Promise.all([
+    const [access, refresh, sessionId, entityId] = await Promise.all([
       secureStorage.get('accessToken'),
       secureStorage.get('refreshToken'),
+      secureStorage.get('sessionId'),
+      secureStorage.get('entityId'),
     ])
-    if (!access || !refresh) {
+    // Hotfix migration (2026-05-08): pre-fix builds persisted only
+    // accessToken + refreshToken. Any user upgrading from such a build
+    // will be missing sessionId / entityId — treat as forced sign-out
+    // so the next sign-in re-populates the full set. One-time UX cost.
+    if (!access || !refresh || !sessionId || !entityId) {
+      await Promise.all([
+        secureStorage.remove('accessToken'),
+        secureStorage.remove('refreshToken'),
+        secureStorage.remove('sessionId'),
+        secureStorage.remove('entityId'),
+      ])
       set({ status: 'unauthenticated' })
       return
     }
-    apiSetTokens({ accessToken: access, refreshToken: refresh })
+    apiSetTokens({ accessToken: access, refreshToken: refresh, sessionId, entityId })
     try {
       const me = await profileApi.getMe()
       const minimal: MinimalUser = {
@@ -139,8 +157,13 @@ export const useAuthStore = create<State>((set, get) => ({
     } catch {
       // Bootstrap failure → treat as a forced sign-out so any cached data
       // from a prior session can't leak. See `clearAllQueries` doc comment.
-      apiSetTokens({ accessToken: null, refreshToken: null })
-      await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
+      apiSetTokens({ accessToken: null, refreshToken: null, sessionId: null, entityId: null })
+      await Promise.all([
+        secureStorage.remove('accessToken'),
+        secureStorage.remove('refreshToken'),
+        secureStorage.remove('sessionId'),
+        secureStorage.remove('entityId'),
+      ])
       clearAllQueries()
       set({ status: 'unauthenticated', user: null, accessToken: null, refreshToken: null })
     }
@@ -152,8 +175,13 @@ export const useAuthStore = create<State>((set, get) => ({
       // Fire-and-forget: local state clears unconditionally even if the API call fails
       void authApi.logout({ refreshToken: refresh }).catch(() => {})
     }
-    await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
-    apiSetTokens({ accessToken: null, refreshToken: null })
+    await Promise.all([
+      secureStorage.remove('accessToken'),
+      secureStorage.remove('refreshToken'),
+      secureStorage.remove('sessionId'),
+      secureStorage.remove('entityId'),
+    ])
+    apiSetTokens({ accessToken: null, refreshToken: null, sessionId: null, entityId: null })
     // CRITICAL: wipe the React Query cache before flipping auth state. Reviews,
     // favourites, profile, savings and any other user-scoped resources bake the
     // current user's identity into their payload (`isOwnReview`, `isFavourited`,
@@ -165,8 +193,13 @@ export const useAuthStore = create<State>((set, get) => ({
   },
 
   async clearLocalAuth() {
-    await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
-    apiSetTokens({ accessToken: null, refreshToken: null })
+    await Promise.all([
+      secureStorage.remove('accessToken'),
+      secureStorage.remove('refreshToken'),
+      secureStorage.remove('sessionId'),
+      secureStorage.remove('entityId'),
+    ])
+    apiSetTokens({ accessToken: null, refreshToken: null, sessionId: null, entityId: null })
     // Same reasoning as signOut — see comment there. This path runs when the
     // API client gets a 401 it couldn't refresh (forced session expiry).
     clearAllQueries()
@@ -201,7 +234,7 @@ export const useAuthStore = create<State>((set, get) => ({
     } catch { /* best-effort — stale user remains until next bootstrap */ }
   },
 
-  async setTokens({ accessToken, refreshToken, user }) {
+  async setTokens({ accessToken, refreshToken, sessionId, entityId, user }) {
     // Clear any cached query data BEFORE installing the new session. This is
     // belt-and-braces — signOut + clearLocalAuth already clear, and the
     // normal login flow goes through one of those first. But if a fresh
@@ -210,9 +243,13 @@ export const useAuthStore = create<State>((set, get) => ({
     // with an empty cache. Cost: zero — the cache is already meant to be
     // empty at this point in any well-formed flow.
     clearAllQueries()
-    await secureStorage.set('accessToken', accessToken)
-    await secureStorage.set('refreshToken', refreshToken)
-    apiSetTokens({ accessToken, refreshToken })
+    await Promise.all([
+      secureStorage.set('accessToken',  accessToken),
+      secureStorage.set('refreshToken', refreshToken),
+      secureStorage.set('sessionId',    sessionId),
+      secureStorage.set('entityId',     entityId),
+    ])
+    apiSetTokens({ accessToken, refreshToken, sessionId, entityId })
     // Fetch full profile so resolveRedirect has server-authoritative flags
     // (emailVerified / phoneVerified / onboardingCompletedAt / required profile fields).
     // Falls back to the snapshot from register/login response if /profile fails.
@@ -281,8 +318,13 @@ export const useAuthStore = create<State>((set, get) => ({
   },
 
   async __resetForTests() {
-    await Promise.all([secureStorage.remove('accessToken'), secureStorage.remove('refreshToken')])
-    apiSetTokens({ accessToken: null, refreshToken: null })
+    await Promise.all([
+      secureStorage.remove('accessToken'),
+      secureStorage.remove('refreshToken'),
+      secureStorage.remove('sessionId'),
+      secureStorage.remove('entityId'),
+    ])
+    apiSetTokens({ accessToken: null, refreshToken: null, sessionId: null, entityId: null })
     set({ status: 'bootstrapping', user: null, accessToken: null, refreshToken: null, onboarding: INITIAL_ONBOARDING, hapticsEnabled: true, motionScale: 1 })
   },
 }))
