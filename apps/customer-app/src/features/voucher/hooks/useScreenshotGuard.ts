@@ -55,7 +55,11 @@ export function useScreenshotGuard(code: string, { active, onBannerShown }: Opti
   useEffect(() => {
     if (!active) return
 
-    let cancelled = false
+    // Reset the dedup window on every (active, code) transition. Without
+    // this, a future hook reuse that swaps `code` mid-mount could
+    // silently dedup the new code's first screenshot against the old
+    // code's timestamp. PR #49 review hardening.
+    lastFireRef.current = 0
 
     if (Platform.OS === 'android') {
       // FLAG_SECURE — best-effort. Rejection is silent.
@@ -63,8 +67,6 @@ export function useScreenshotGuard(code: string, { active, onBannerShown }: Opti
         /* swallow — see best-effort contract above */
       })
       return () => {
-        if (cancelled) return
-        cancelled = true
         ScreenCapture.allowScreenCaptureAsync().catch(() => {
           /* swallow — best-effort */
         })
@@ -88,7 +90,6 @@ export function useScreenshotGuard(code: string, { active, onBannerShown }: Opti
       })
 
       return () => {
-        cancelled = true
         try {
           subscription?.remove?.()
         } catch {

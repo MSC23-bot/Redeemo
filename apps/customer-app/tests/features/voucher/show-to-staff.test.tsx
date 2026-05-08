@@ -362,3 +362,52 @@ describe('ShowToStaff — screenshot guard wiring (Task 15)', () => {
     }
   })
 })
+
+describe('ShowToStaff — auto-hide blur (PR #49 review fix)', () => {
+  it('blurs the QR + shows the auto-hide banner when useAutoHideTimer reaches "hidden"', () => {
+    setAutoHide('hidden')
+    const { queryByText, queryByTestId, getByLabelText } = render(<ShowToStaff {...baseProps} />)
+
+    // Auto-hide banner copy is distinct from the screenshot banner.
+    expect(queryByText(/QR hidden after 2 minutes of inactivity/i)).toBeTruthy()
+    expect(queryByText(/Screenshot taken/i)).toBeNull()
+    // The QR child is gone — only the blurred wrapper (Pressable) remains.
+    expect(queryByTestId('qrcode-svg-stub')).toBeNull()
+    expect(getByLabelText(/Code hidden\. Tap to show again\./i)).toBeTruthy()
+  })
+
+  it('does NOT blur the QR while useAutoHideTimer is in "warning" state', () => {
+    setAutoHide('warning')
+    const { getByText, getByTestId } = render(<ShowToStaff {...baseProps} />)
+
+    // Warning shows the inline hint above the Done button.
+    expect(getByText(/QR will hide in 10 seconds/i)).toBeTruthy()
+    // QR is still visible.
+    expect(getByTestId('qrcode-svg-stub')).toBeTruthy()
+  })
+
+  it('tapping the blurred QR clears the blur AND resets the auto-hide timer', () => {
+    setAutoHide('hidden')
+    const resetTimer = jest.fn()
+    ;(autoHide.useAutoHideTimer as jest.Mock).mockReturnValue({ state: 'hidden', resetTimer })
+
+    const { getByLabelText, queryByText } = render(<ShowToStaff {...baseProps} />)
+    expect(queryByText(/QR hidden after 2 minutes/i)).toBeTruthy()
+
+    fireEvent.press(getByLabelText(/Code hidden\. Tap to show again\./i))
+
+    // Banner gone (blurReason cleared) + timer reset.
+    expect(queryByText(/QR hidden after 2 minutes/i)).toBeNull()
+    expect(resetTimer).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the auto-hide banner when polling phase becomes validated', () => {
+    setAutoHide('hidden')
+    const { queryByText, rerender } = render(<ShowToStaff {...baseProps} />)
+    expect(queryByText(/QR hidden after 2 minutes/i)).toBeTruthy()
+
+    setPolling('validated')
+    rerender(<ShowToStaff {...baseProps} />)
+    expect(queryByText(/QR hidden after 2 minutes/i)).toBeNull()
+  })
+})

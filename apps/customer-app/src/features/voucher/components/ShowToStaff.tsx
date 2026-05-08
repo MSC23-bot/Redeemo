@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   AppState,
   type AppStateStatus,
@@ -110,6 +110,33 @@ type Props = {
   onDone: () => void
 }
 
+// Hoisted to module scope so the formatters are constructed once at
+// module-load time, not on every render. Locale + timezone are
+// constant; numeric parts only (Hermes-CLDR-robust per project
+// convention — see reference_london_clock_helper memory + CLAUDE.md).
+const LIVE_CLOCK_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/London',
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
+// Same options minus seconds — used for the Redeemed info-row in the
+// glassmorphic card (only-once-per-render but still cheaper to share).
+const REDEEMED_AT_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/London',
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+})
+
 function LiveClock({ active }: { active: boolean }) {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
@@ -118,25 +145,13 @@ function LiveClock({ active }: { active: boolean }) {
     return () => clearInterval(id)
   }, [active])
 
-  // Numeric Intl parts only — Hermes-CLDR-robust per project convention
-  // (see reference_london_clock_helper memory + CLAUDE.md).
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  })
   // en-GB short month is reliably available; date format yields
   // e.g. "08 May 2026, 14:24:38" — split into date · time for the
   // locked v6 visual.
-  const parts = formatter.format(now).split(', ')
+  const parts = LIVE_CLOCK_FORMATTER.format(now).split(', ')
   const date = parts[0] ?? ''
   const time = parts[1] ?? ''
-  const display = date && time ? `${date} · ${time}` : formatter.format(now)
+  const display = date && time ? `${date} · ${time}` : LIVE_CLOCK_FORMATTER.format(now)
 
   return (
     <View style={styles.liveDatetimeRow}>
@@ -175,11 +190,18 @@ export function ShowToStaff({
 
   const active = visible && appActive
 
-  // Anti-fraud blur state: iOS screenshot listener flips this true; user
-  // tap on the blurred QR (QRCodeBlock onShow) flips it back. Android's
-  // FLAG_SECURE blocks screenshots entirely, so this state only ever
-  // toggles on iOS in practice.
-  const [blurred, setBlurred] = useState(false)
+  // QR blur source — null when QR is fully visible, otherwise tracks
+  // WHY the QR is blurred so the surface can render the right banner
+  // copy. Both sources clear on QRCodeBlock's onShow (tap-to-show).
+  // - 'screenshot': iOS screenshot listener fired (Android's FLAG_SECURE
+  //   blocks screenshots before this fires; in practice 'screenshot' is
+  //   iOS-only).
+  // - 'auto-hide': useAutoHideTimer reached the 'hidden' state (2 min
+  //   idle + 10 s warning). Anti-fraud guard for the "QR sitting on a
+  //   coffee-shop table for 30 minutes" case.
+  type BlurReason = 'screenshot' | 'auto-hide'
+  const [blurReason, setBlurReason] = useState<BlurReason | null>(null)
+  const blurred = blurReason !== null
 
   // Building-block hooks
   const poll = useRedemptionPolling(redemptionCode, {
@@ -202,22 +224,36 @@ export function ShowToStaff({
   // app is foregrounded.
   useScreenshotGuard(redemptionCode, {
     active: SCREENSHOT_GUARD_ENABLED && active,
-    onBannerShown: () => setBlurred(true),
+    onBannerShown: () => setBlurReason('screenshot'),
   })
+
+  // Auto-hide → blur. When useAutoHideTimer reaches 'hidden' (2 min
+  // idle + 10 s warning), flip the QR to blurred so it isn't sitting
+  // unattended on a screen. Independent of the screenshot guard's
+  // path — a user who ignores the 10 s warning still gets the QR
+  // hidden at 2 min. Validated phase freezes the timer (locked plan
+  // §M3b Task 12) so this branch is unreachable when validated.
+  useEffect(() => {
+    if (hideState === 'hidden') setBlurReason('auto-hide')
+  }, [hideState])
 
   // Auto-dismiss after validated transition. Reduced motion routes
   // straight through onDone (no 2s wait — the surface is no longer
-  // load-bearing once validated).
+  // load-bearing once validated). `onDone` is captured in a ref so
+  // unstable parent closures don't re-arm the 2 s timer on every
+  // render (issue from PR #49 review).
+  const onDoneRef = useRef(onDone)
+  useEffect(() => { onDoneRef.current = onDone }, [onDone])
   useEffect(() => {
     if (poll.phase !== 'validated') return
     successHaptic()
     if (reduced) {
-      onDone()
+      onDoneRef.current()
       return
     }
-    const id = setTimeout(onDone, AUTO_DISMISS_MS)
+    const id = setTimeout(() => onDoneRef.current(), AUTO_DISMISS_MS)
     return () => clearTimeout(id)
-  }, [poll.phase, reduced, onDone])
+  }, [poll.phase, reduced])
 
   if (!visible) return null
 
@@ -225,15 +261,8 @@ export function ShowToStaff({
   const showCustomerRow = customerName.length > 0
   const formattedCode = formatRedemptionCode(redemptionCode)
   // ISO `redeemedAt` → "08 May 2026, 14:24" en-GB / Europe/London
-  const redeemedDisplay = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(redeemedAt))
+  // (formatter hoisted to module scope above).
+  const redeemedDisplay = REDEEMED_AT_FORMATTER.format(new Date(redeemedAt))
 
   return (
     <Modal
@@ -298,9 +327,12 @@ export function ShowToStaff({
                   {formattedCode}
                 </Text>
 
-                {/* QR — `blurred` flips to true when the screenshot
-                    guard's listener fires (iOS); user tap on the
-                    blurred QR (QRCodeBlock.onShow) flips it back. */}
+                {/* QR — blurred when EITHER (a) the screenshot guard
+                    listener fired on iOS, OR (b) the auto-hide timer
+                    reached the 'hidden' state (2 min idle + 10 s
+                    warning). User tap on the blurred QR
+                    (QRCodeBlock.onShow) clears the blur AND resets
+                    the auto-hide timer so the QR re-arms. */}
                 <View style={styles.qrWrapper}>
                   <QRCodeBlock
                     value={redemptionCode}
@@ -308,7 +340,10 @@ export function ShowToStaff({
                     hero
                     testID="show-to-staff-qr"
                     blurred={blurred}
-                    onShow={() => setBlurred(false)}
+                    onShow={() => {
+                      setBlurReason(null)
+                      resetTimer()
+                    }}
                   />
                 </View>
 
@@ -339,16 +374,21 @@ export function ShowToStaff({
               </View>
             </View>
 
-            {/* Screenshot-detected banner (iOS only in practice;
-                Android FLAG_SECURE blocks the screenshot before the
-                listener can fire). Surfaces only while blurred AND
-                not yet validated. The QR itself is hidden behind the
-                BlurView (QRCodeBlock blurred state); tapping it
-                clears the blur via onShow. */}
-            {blurred && !isValidated ? (
-              <View style={styles.screenshotBanner}>
-                <Text variant="label.md" style={styles.screenshotBannerText}>
-                  Screenshot taken — staff verify only the live screen. Tap the QR to show again.
+            {/* Blur reason banner — surfaces only while blurred AND
+                not yet validated. Distinct copy per source so the user
+                understands why the QR hid. Tapping the QR clears the
+                blur via onShow + resets the auto-hide timer. */}
+            {blurReason === 'screenshot' && !isValidated ? (
+              <View style={styles.blurReasonBanner}>
+                <Text variant="label.md" style={styles.blurReasonBannerText}>
+                  Screenshot taken. Staff verify only the live screen. Tap the QR to show again.
+                </Text>
+              </View>
+            ) : null}
+            {blurReason === 'auto-hide' && !isValidated ? (
+              <View style={styles.blurReasonBanner}>
+                <Text variant="label.md" style={styles.blurReasonBannerText}>
+                  QR hidden after 2 minutes of inactivity. Tap the QR to show again.
                 </Text>
               </View>
             ) : null}
@@ -537,7 +577,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
     marginBottom: 12,
   },
-  screenshotBanner: {
+  blurReasonBanner: {
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 12,
@@ -546,7 +586,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.18)',
     marginBottom: 12,
   },
-  screenshotBannerText: {
+  blurReasonBannerText: {
     color: '#FFFFFF',
     textAlign: 'center',
   },
