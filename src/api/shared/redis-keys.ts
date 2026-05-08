@@ -43,4 +43,9 @@ export const RedisKey = {
   // PIN brute-force counter — keyed per (userId, branchId) so failures at one branch
   // don't block the user at a different branch
   pinFailCount:        (userId: string, branchId: string) => `pin:fail:${userId}:${branchId}`,
+
+  // Show-to-Staff screenshot anti-fraud telemetry dedup. Set with NX + 5s TTL
+  // so a rapid burst of screenshot events for the same (userId, code) writes
+  // exactly one RedemptionScreenshotEvent row instead of N.
+  redemptionScreenshotDedup: (userId: string, code: string) => `rl:ss:${userId}:${code}`,
 } as const
