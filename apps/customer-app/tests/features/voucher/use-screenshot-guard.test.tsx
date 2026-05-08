@@ -97,6 +97,65 @@ describe('useScreenshotGuard — iOS', () => {
     expect(removeSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('does NOT re-install the screenshot listener or re-call preventScreenCaptureAsync when the parent passes a new callback identity (re-render stability)', () => {
+    // Parent re-renders that pass `onBannerShown: () => setBlurReason('screenshot')`
+    // generate a fresh function identity each render. The hook MUST
+    // read the latest callback via a ref and key the native-subscription
+    // install on `(active, code)` only — NOT on the callback identity.
+    // Without this, anti-fraud subscriptions would tear down + re-arm
+    // on every parent state change, opening tiny windows where
+    // prevention/listener are absent. Locked 2026-05-08, PR #49 review.
+    const cb1 = jest.fn()
+    const cb2 = jest.fn()
+    const cb3 = jest.fn()
+    const { rerender } = renderHook(
+      ({ onBannerShown }: { onBannerShown: () => void }) =>
+        useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown }),
+      { initialProps: { onBannerShown: cb1 } },
+    )
+    const initialPreventCalls = (ScreenCapture.preventScreenCaptureAsync as jest.Mock).mock.calls.length
+    const initialListenerCalls = (ScreenCapture.addScreenshotListener as jest.Mock).mock.calls.length
+
+    // Re-render twice with fresh callback identities.
+    rerender({ onBannerShown: cb2 })
+    rerender({ onBannerShown: cb3 })
+
+    // Native subscription paths must NOT have been re-armed.
+    expect((ScreenCapture.preventScreenCaptureAsync as jest.Mock).mock.calls.length)
+      .toBe(initialPreventCalls)
+    expect((ScreenCapture.addScreenshotListener as jest.Mock).mock.calls.length)
+      .toBe(initialListenerCalls)
+    expect(removeSpy).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+
+    // But firing the listener picks up the LATEST callback (the ref
+    // pattern is what makes it safe to drop `onBannerShown` from the
+    // effect deps).
+    act(() => { listener() })
+    expect(cb1).not.toHaveBeenCalled()
+    expect(cb2).not.toHaveBeenCalled()
+    expect(cb3).toHaveBeenCalledTimes(1)
+  })
+
+  it('DOES re-install the screenshot listener when `code` changes (per-code dedup window reset still applies)', () => {
+    // Counterpart to the stability test above — the install IS keyed
+    // on `code`, so a code change must rebuild the subscription with
+    // a fresh dedup window. Locked 2026-05-08, PR #49 review.
+    const onBannerShown = jest.fn()
+    const { rerender } = renderHook(
+      ({ code }: { code: string }) =>
+        useScreenshotGuard(code, { active: true, onBannerShown }),
+      { initialProps: { code: 'A7K2P9X4' } },
+    )
+    const initialListenerCalls = (ScreenCapture.addScreenshotListener as jest.Mock).mock.calls.length
+
+    rerender({ code: 'B8L3Q0Y5' })
+
+    expect((ScreenCapture.addScreenshotListener as jest.Mock).mock.calls.length)
+      .toBe(initialListenerCalls + 1)
+    expect(removeSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('survives postScreenshotFlag rejection silently (best-effort contract)', () => {
     ;(redemptionApi.postScreenshotFlag as jest.Mock).mockRejectedValueOnce(new Error('net'))
     const onBannerShown = jest.fn()

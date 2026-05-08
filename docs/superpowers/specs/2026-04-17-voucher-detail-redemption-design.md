@@ -639,6 +639,29 @@ The full washed-out coupon header / REDEEMED stamp / dimmed merchant card / merc
 
 **Cross-ref:** plan `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 (10 locked decisions + commit map); deferred-followups index §P1 (closed-by-M3), §P2 (closed-by-M3 for current cycle; past-cycle history → §Q5), §Q6 (pinned-by-Task-18).
 
+### Post-Bundle-E final wave (locked 2026-05-08, 3 commits on top of original M3 contract)
+
+After the Bundle E task list completed, three commits landed on the M3 branch addressing device-QA findings during the rebase-and-merge cycle. The as-shipped M3 surface includes:
+
+**SuccessPopup anti-fraud parity (§7.6 update + §8.9 spec extension).**
+- Live ticking timestamp (`Live: 08 May 2026 · 14:24:38`) inside the proof area, RIGHT NEXT TO the redemption code so a screenshot cannot crop one without the other. Updates every 1s including under reduced motion (trust signal, not decorative motion).
+- Static "Redeemed on" receipt-style row replaces the previous separate Date + Time rows. Format `08 May 2026, 14:24` (en-GB / Europe/London, no seconds — receipt detail).
+- Header subtitle: *"Staff verify on the live Show to Staff screen"* (replaces *"Show this to staff to claim your discount"* — old framing implied the popup itself was the proof).
+- Closes the parity gap with §7.7 ShowToStaff: both surfaces now have live trust signals, so a screenshot of either freezes the live-clock and trained staff can spot it.
+
+**iOS screen-recording prevention (§7.7 update).**
+- `useScreenshotGuard` iOS path now ALSO calls `preventScreenCaptureAsync()` on mount (alongside the existing `addScreenshotListener`). Per `expo-screen-capture@8.0.9`, this is iOS 11+ system-level protection: the OS observes `UIScreen.isCaptured` and overlays the captured view with a blurred snapshot. Active screen RECORDINGS and AirPlay/screen-mirroring sessions capture a blurred view, NOT the QR.
+- Does NOT prevent SCREENSHOTS on iOS (Apple has no API). Listener-based post-fact path continues for screenshots.
+- Banner copy tightened: `"Screenshot detected"` (was `"Screenshot taken"`) — more accurate framing of OS-driven detection.
+- Cleanup symmetry: iOS unmount calls `allowScreenCaptureAsync()` so other app screens can be recorded normally.
+
+**Ref-pattern callback stability (post-review hardening).**
+- `useScreenshotGuard` now stashes `onBannerShown` in a `useRef` and keys the native-subscription effect ONLY on `[active, code]`. Without this, parent re-renders that pass a fresh inline callback would tear down and re-install the screenshot listener AND `preventScreenCaptureAsync` on every render. For anti-fraud code we require zero re-arm windows. Pinned by `does NOT re-install ... when the parent passes a new callback identity (re-render stability)` test + the counterpart `DOES re-install when code changes` test.
+
+**Locked iOS limitation (cross-ref §AB / §AE).** The FIRST screenshot on iOS will capture the unblurred QR + 8-char code BEFORE the listener-driven blur paints. The blur + banner are post-fact mitigations. Staff training + merchant validation policy (never accept screenshots as proof) is the load-bearing fraud control. Stronger anti-fraud options (QR hidden by default, tap-to-reveal, short-lived rotating QR, merchant validation policy formalisation, telemetry dashboards) are deferred to §AE for v2 product brainstorm.
+
+**Locked SuccessPopup deferred polish (cross-ref §S2).** The broader visual redesign — confetti, saving amount surfacing, Rate & Review CTA visual treatment, Rate & Review routing — remains deferred. M3 ships the ANTI-FRAUD baseline (live timestamp + staff-verify copy); the design pass is a §S2 follow-up.
+
 ---
 
 ## Section 9: Post-Redemption Automations

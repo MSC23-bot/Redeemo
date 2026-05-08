@@ -72,6 +72,19 @@ type Options = {
 
 export function useScreenshotGuard(code: string, { active, onBannerShown }: Options) {
   const lastFireRef = useRef<number>(0)
+  // Stash the callback in a ref so the native-subscription effect
+  // below does NOT depend on `onBannerShown`. Without this pattern,
+  // any parent re-render that passes a fresh inline callback
+  // (`onBannerShown: () => setBlurReason('screenshot')`) would tear
+  // down and re-install the screenshot listener AND
+  // preventScreenCaptureAsync. For anti-fraud code we want zero
+  // re-arm windows; the native subscription should be installed once
+  // per (active, code) and then left alone.
+  // Locked 2026-05-08, PR #49 review hardening.
+  const onBannerShownRef = useRef(onBannerShown)
+  useEffect(() => {
+    onBannerShownRef.current = onBannerShown
+  }, [onBannerShown])
 
   useEffect(() => {
     if (!active) return
@@ -114,7 +127,10 @@ export function useScreenshotGuard(code: string, { active, onBannerShown }: Opti
 
         // Banner first — user-visible state must NOT depend on
         // telemetry succeeding. Then fire-and-forget the POST.
-        onBannerShown()
+        // `onBannerShownRef.current` reads the LATEST callback so
+        // parent re-renders that swap the callback don't lose state
+        // updates — but the LISTENER itself was installed once.
+        onBannerShownRef.current()
         redemptionApi
           .postScreenshotFlag(code, 'ios')
           .catch(() => { /* swallow — best-effort telemetry */ })
@@ -133,6 +149,11 @@ export function useScreenshotGuard(code: string, { active, onBannerShown }: Opti
           /* swallow — best-effort */
         })
       }
+      // NOTE: `onBannerShown` is intentionally NOT in the deps array.
+      // It's read via the ref above. Native install is keyed only on
+      // `(active, code)` so a parent re-render with a fresh callback
+      // identity does NOT re-install the listener or re-call
+      // preventScreenCaptureAsync.
     }
-  }, [active, code, onBannerShown])
+  }, [active, code])
 }

@@ -694,6 +694,40 @@ Per the audit + plan-write decision: TIME_LIMITED window enforcement (§O1) and 
 - §U1 Customer display name on Show-to-Staff — verified intact, customerName="" lock applied across all M3d wiring.
 - §V M3 deferred manifest — verified intact.
 
+#### M3.1 — Post-Bundle-E final wave (added 2026-05-08 from device-QA findings + reviewer hardening)
+
+Three more commits landed on the M3 branch AFTER the Bundle E task list was complete, addressing device-QA findings during the rebase-and-merge cycle. Recorded here so the as-shipped contract matches reality.
+
+**(A) SuccessPopup anti-fraud parity** (`da8ae32`, 3 files +223 / -21).
+
+Locked product reasoning: Show-to-Staff has anti-screenshot trust signals (animated border, pulsing LIVE dot, ticking en-GB London clock, validated chip transition). The SuccessPopup ALSO displays the 8-char redemption code, but had NO live signals — a screenshot of the popup looked identical to a real redemption to staff who don't run the validation flow. Adds:
+
+- **Live ticking timestamp** (`Live: 08 May 2026 · 14:24:38`) inside the proof area, RIGHT NEXT TO the code (so a screenshot can't crop one without the other). `setInterval(() => setNow(new Date()), 1000)`. Updates unconditionally, including under reduced motion (it's a trust signal, not decorative motion).
+- **Static "Redeemed on" receipt-style row** replaces the previous separate `Date` + `Time` rows. Format `08 May 2026, 14:24` (en-GB, Europe/London, no seconds — receipt detail, not real-time).
+- **Header subtitle** changed from `"Show this to staff to claim your discount"` → `"Staff verify on the live Show to Staff screen"`. Old framing read like the popup itself was the proof; new framing makes Show-to-Staff the explicit verification surface.
+- **Tests** (6 owner-specified + extension of existing): live timestamp updates after 1s; reduced-motion does NOT disable it; staff-verify copy renders + old "claim your discount" copy is gone; code + live timestamp render in the same proof area (visually-adjacent pin); receipt-style "Redeemed on" line renders the formatted date+time. **20/20 in success-popup.test.tsx**.
+
+Cross-ref: deferred-followups §S2 (broader SuccessPopup design pass: confetti, saving amount, Rate & Review CTA visual treatment, Rate & Review routing — kept open for v2 polish).
+
+**(B) Dev-only refresh-body-shape diagnostic** (`da8ae32`, in `apps/customer-app/src/lib/api.ts`).
+
+Owner request after a 400-on-refresh QA finding that needed a console hint to distinguish "stale build / stale secureStorage missing sessionId" from "live build with all 4 keys but backend rejected for some other reason". Logs presence flags ONLY (never token values), gated on `__DEV__`, stripped from production. Plus a response-status log so a 400 vs 401 vs 5xx surfaces immediately in the Metro/Expo console.
+
+**(C) iOS screen-recording prevention + ref-pattern callback stability** (`0e062f9` + post-review hardening, `useScreenshotGuard.ts` + tests).
+
+Owner-flagged from M3 device QA: screen recording is a bigger anti-fraud risk than screenshots on iOS. A user can record Show-to-Staff while it's open, capturing the QR + the live ticking clock + the LIVE pulse + animations — replay would defeat all the live trust signals. Screenshots are well-mitigated (live signals freeze on a static frame; trained staff can spot it). Recordings preserve every signal.
+
+What ships:
+
+- **iOS path now ALSO calls `preventScreenCaptureAsync()` on mount** (alongside the existing `addScreenshotListener`). Per the package docs (`expo-screen-capture@8.0.9`), iOS 11+ has system-level protection: the OS observes `UIScreen.isCaptured` and overlays the captured view with a blurred snapshot. Active screen RECORDINGS and AirPlay/screen-mirroring sessions capture a blurred view, NOT the QR. Does NOT prevent SCREENSHOTS on iOS (Apple has no API — listener-based post-fact path continues).
+- **iOS unmount calls `allowScreenCaptureAsync()`** so OTHER screens of the app (reviews, profile, etc.) can be recorded normally after leaving Show-to-Staff. Cleanup symmetry with Android.
+- **Banner copy tightened** from `"Screenshot taken"` → `"Screenshot detected"`. Same intent, more accurate framing — the OS notified us; we didn't take the screenshot.
+- **Ref-pattern callback stability (post-review hardening).** `onBannerShown` now stashed in `onBannerShownRef`; the native-subscription effect keys ONLY on `[active, code]`. Without this, parent re-renders that pass a fresh inline callback (`onBannerShown: () => setBlurReason('screenshot')`) would tear down and re-install the screenshot listener AND `preventScreenCaptureAsync` on every render. For anti-fraud code we want zero re-arm windows. Pinned by 2 new tests: parent re-render with new callback identity does NOT re-install; code change DOES re-install (per-code dedup window reset).
+
+Test counts after final wave: `use-screenshot-guard.test.tsx` **17/17** (was 13: +1 iOS prevention, +1 unmount cleanup, +1 prevention-rejection, +2 callback stability); `success-popup.test.tsx` **20/20** (was 14: +6 anti-fraud cases); `show-to-staff.test.tsx` banner-copy assertions updated (7 `Screenshot taken` → `Screenshot detected`); `voucher-detail-redeem-flow.test.tsx` 46/46 unchanged. Focused M3 sweep: **119/119 ✅**.
+
+**Locked iOS limitation (do not relitigate without owner approval):** the FIRST screenshot will capture the unblurred QR + 8-char code BEFORE the listener-driven blur paints. The blur + banner are post-fact mitigations. Staff training + merchant validation policy (never accept screenshots as proof) is the load-bearing fraud control. Cross-ref §AB iOS live-screen trust framing + §AE stronger anti-fraud options for v2 (QR hidden by default, tap-to-reveal, rotating QR, merchant policy formalisation).
+
 ---
 
 ## 8. On-device QA plan (cumulative across milestones)
