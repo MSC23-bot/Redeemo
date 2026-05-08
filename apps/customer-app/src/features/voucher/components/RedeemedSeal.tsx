@@ -89,20 +89,20 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
               the rubber is uneven. Lower opacity (0.45) so it's
               suggestive, not a solid line. */}
           <View style={styles.inkFadeMid} pointerEvents="none" />
-          {/* Ink-missing speckles — wave 11 (locked 2026-05-09 from
-              owner QA): removed 3 speckles that were landing on O
-              + the two visible E's in "VOUCHER REDEEMED" — owner
-              direction "remove from O and the two E's, keep the
-              style exactly as is". Remaining 6 speckles fall over
-              U / C / R / space / E-D-boundary / M, so the rubber-
-              stamp ink-missing character is preserved on the other
-              letters but vowels-with-curves stay clean. */}
+          {/* Ink-missing speckles — wave 12 (locked 2026-05-09 from
+              owner's circled-E QA screenshot): removed the 83%
+              speckle which was visibly landing on the E before the
+              final D in "REDEEMED". Wave-11 had already removed
+              speckles on O + two earlier E's; wave 12 removes the
+              third visible E speckle. Remaining 5 fall over
+              U / C-H / R / space / E-D-boundary / M (the M
+              speckle moved to 60% from 83% to keep coverage
+              balanced after losing the right-side dot). */}
           <View style={[styles.inkSpeckle, { top: 17, left: '18%', width: 4, height: 5 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 22, left: '29%', width: 6, height: 4 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 11, left: '40%', width: 5, height: 6 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 19, left: '50%', width: 4, height: 4 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 14, left: '62%', width: 7, height: 5 }]} pointerEvents="none" />
-          <View style={[styles.inkSpeckle, { top: 10, left: '83%', width: 4, height: 6 }]} pointerEvents="none" />
         </View>
         {renewalLabel ? (
           // Subtitle wrapper — same distress overlay treatment as
@@ -113,37 +113,39 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
             <Text variant="label.md" style={styles.subtitle}>
               Renews on {renewalLabel}
             </Text>
+            {/* Subtitle distress — wave 12 (locked 2026-05-09 from
+                owner QA): removed all 3 speckles per direction; kept
+                the top-fade band; ADDED a light mid-stroke band.
+                Both bands are scaled down + lighter than the title's
+                versions so the 13pt subtitle text stays readable. */}
             <View style={styles.subtitleInkFadeTop} pointerEvents="none" />
-            {/* Subtitle speckles — fewer + smaller than the title
-                (3 dots, 2-4px) so they read as ink-missing without
-                hiding the smaller text. */}
-            <View style={[styles.inkSpeckle, { top: 6,  left: '20%', width: 3, height: 3 }]} pointerEvents="none" />
-            <View style={[styles.inkSpeckle, { top: 10, left: '50%', width: 4, height: 2 }]} pointerEvents="none" />
-            <View style={[styles.inkSpeckle, { top: 5,  left: '78%', width: 3, height: 3 }]} pointerEvents="none" />
+            <View style={styles.subtitleInkFadeMid} pointerEvents="none" />
           </View>
         ) : null}
-        {/* Border distress — wave 11 (locked 2026-05-09 from owner
-            QA: "apply the same style … on the border of the card").
-            Small cream notches along the four border edges break up
-            the 4px brand-rose stroke the way an uneven rubber stamp
-            does. Positioned at fixed offsets covering the border
-            width (top:-1, height:6 — overlaps the 4px border with
-            1px bleed both inside and outside for a soft notch).
-            Pointer-events:none so they don't intercept gestures. */}
-        {/* Top edge */}
-        <View style={[styles.borderNotch, { top: -1, left: '14%', width: 8, height: 6 }]} pointerEvents="none" />
-        <View style={[styles.borderNotch, { top: -1, left: '46%', width: 6, height: 6 }]} pointerEvents="none" />
-        <View style={[styles.borderNotch, { top: -1, left: '78%', width: 9, height: 6 }]} pointerEvents="none" />
+        {/* Border distress — wave 12 (locked 2026-05-09 from owner
+            QA: "apply the same Top fade and mid stroke band as you
+            have done to the word voucher redeemed to the red borders
+            around the card"). Reshaped from wave-11's small dots
+            into elongated cream STRIPS (12-22px along their border
+            edge) so the visual rhyme with the title's top-fade band
+            (a clear horizontal cream band cutting through the red
+            ink) extends to the border. Each strip overlaps the
+            4px border with 1px bleed on both sides for soft edges.
+            pointerEvents:none so they don't intercept gestures. */}
+        {/* Top edge — 3 strips of varying length */}
+        <View style={[styles.borderStrip, { top: -1, left: '12%', width: 22, height: 6 }]} pointerEvents="none" />
+        <View style={[styles.borderStrip, { top: -1, left: '44%', width: 14, height: 6 }]} pointerEvents="none" />
+        <View style={[styles.borderStrip, { top: -1, left: '76%', width: 18, height: 6 }]} pointerEvents="none" />
         {/* Bottom edge */}
-        <View style={[styles.borderNotch, { bottom: -1, left: '22%', width: 7, height: 6 }]} pointerEvents="none" />
-        <View style={[styles.borderNotch, { bottom: -1, left: '60%', width: 9, height: 6 }]} pointerEvents="none" />
-        <View style={[styles.borderNotch, { bottom: -1, left: '88%', width: 6, height: 6 }]} pointerEvents="none" />
-        {/* Left edge */}
-        <View style={[styles.borderNotch, { left: -1, top: '30%',  width: 6, height: 8 }]} pointerEvents="none" />
-        <View style={[styles.borderNotch, { left: -1, top: '70%',  width: 6, height: 6 }]} pointerEvents="none" />
-        {/* Right edge */}
-        <View style={[styles.borderNotch, { right: -1, top: '20%', width: 6, height: 7 }]} pointerEvents="none" />
-        <View style={[styles.borderNotch, { right: -1, top: '60%', width: 6, height: 9 }]} pointerEvents="none" />
+        <View style={[styles.borderStrip, { bottom: -1, left: '20%', width: 16, height: 6 }]} pointerEvents="none" />
+        <View style={[styles.borderStrip, { bottom: -1, left: '54%', width: 22, height: 6 }]} pointerEvents="none" />
+        <View style={[styles.borderStrip, { bottom: -1, left: '84%', width: 12, height: 6 }]} pointerEvents="none" />
+        {/* Left edge — vertical strips */}
+        <View style={[styles.borderStrip, { left: -1, top: '24%', width: 6, height: 16 }]} pointerEvents="none" />
+        <View style={[styles.borderStrip, { left: -1, top: '66%', width: 6, height: 14 }]} pointerEvents="none" />
+        {/* Right edge — vertical strips */}
+        <View style={[styles.borderStrip, { right: -1, top: '18%', width: 6, height: 14 }]} pointerEvents="none" />
+        <View style={[styles.borderStrip, { right: -1, top: '58%', width: 6, height: 18 }]} pointerEvents="none" />
       </View>
     </View>
   )
@@ -321,11 +323,27 @@ const styles = StyleSheet.create({
     height: 3,
     backgroundColor: 'rgba(255, 246, 238, 0.85)',
   },
-  // Border distress notch — small cream rectangle with rounded
-  // corners that overlays the brand-rose border to simulate an
-  // uneven stamp impression. Same opacity and softness as the
-  // letter speckles for visual consistency.
-  borderNotch: {
+  // Subtitle mid-stroke band — wave 12 addition. Owner direction:
+  // "lightly" applied to the renewal date. Lower opacity (0.30 vs
+  // title's 0.45) and thinner (1px vs 2px) so the 13pt subtitle
+  // doesn't lose readability. Lands at top:9 (~50% down the 18px
+  // line box).
+  subtitleInkFadeMid: {
+    position: 'absolute',
+    top: 9,
+    left: -6,
+    right: -6,
+    height: 1,
+    backgroundColor: 'rgba(255, 246, 238, 0.30)',
+  },
+  // Border distress strip — wave 12 (locked 2026-05-09 from owner
+  // QA). Reshaped from wave-11's small notch dots (6-9px square)
+  // into elongated cream rectangles (12-22px along the border
+  // edge). The visual rhyme with the title's top-fade band — a
+  // clear horizontal cream band cutting through red ink — now
+  // extends to the four border edges. Same softness as the letter
+  // overlays via borderRadius 2.
+  borderStrip: {
     position: 'absolute',
     borderRadius: 2,
     backgroundColor: '#FFF6EE',
