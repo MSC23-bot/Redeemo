@@ -302,13 +302,13 @@ describe('ShowToStaff — screenshot guard wiring (Task 15)', () => {
     const { queryByText, getByText, queryByTestId, getByLabelText } = render(<ShowToStaff {...baseProps} />)
 
     // Initial: no banner, QR is visible (qrcode-svg-stub renders).
-    expect(queryByText(/Screenshot taken/i)).toBeNull()
+    expect(queryByText(/Screenshot detected/i)).toBeNull()
     expect(queryByTestId('qrcode-svg-stub')).toBeTruthy()
 
     act(() => { onBannerShown() })
 
     // Banner now visible.
-    expect(getByText(/Screenshot taken/i)).toBeTruthy()
+    expect(getByText(/Screenshot detected/i)).toBeTruthy()
     // QR is now hidden behind the BlurView — qrcode-svg-stub is gone;
     // the blurred wrapper is a Pressable with the tap-to-show label.
     expect(queryByTestId('qrcode-svg-stub')).toBeNull()
@@ -326,12 +326,12 @@ describe('ShowToStaff — screenshot guard wiring (Task 15)', () => {
     const { queryByText, getByLabelText, getByTestId } = render(<ShowToStaff {...baseProps} />)
 
     act(() => { onBannerShown() })
-    expect(queryByText(/Screenshot taken/i)).toBeTruthy()
+    expect(queryByText(/Screenshot detected/i)).toBeTruthy()
 
     fireEvent.press(getByLabelText(/Code hidden\. Tap to show again\./i))
 
     // Banner gone, QR re-rendered.
-    expect(queryByText(/Screenshot taken/i)).toBeNull()
+    expect(queryByText(/Screenshot detected/i)).toBeNull()
     expect(getByTestId('qrcode-svg-stub')).toBeTruthy()
   })
 
@@ -345,13 +345,13 @@ describe('ShowToStaff — screenshot guard wiring (Task 15)', () => {
 
     const { queryByText, rerender } = render(<ShowToStaff {...baseProps} />)
     act(() => { onBannerShown() })
-    expect(queryByText(/Screenshot taken/i)).toBeTruthy()
+    expect(queryByText(/Screenshot detected/i)).toBeTruthy()
 
     // Validated transition — even if the user hasn't dismissed the
     // banner, the validated state takes precedence.
     setPolling('validated')
     rerender(<ShowToStaff {...baseProps} />)
-    expect(queryByText(/Screenshot taken/i)).toBeNull()
+    expect(queryByText(/Screenshot detected/i)).toBeNull()
   })
 
   it('passes only booleans into the screenshot guard active prop (defensive)', () => {
@@ -370,7 +370,7 @@ describe('ShowToStaff — auto-hide blur (PR #49 review fix)', () => {
 
     // Auto-hide banner copy is distinct from the screenshot banner.
     expect(queryByText(/QR hidden after 2 minutes of inactivity/i)).toBeTruthy()
-    expect(queryByText(/Screenshot taken/i)).toBeNull()
+    expect(queryByText(/Screenshot detected/i)).toBeNull()
     // The QR child is gone — only the blurred wrapper (Pressable) remains.
     expect(queryByTestId('qrcode-svg-stub')).toBeNull()
     expect(getByLabelText(/Code hidden\. Tap to show again\./i)).toBeTruthy()

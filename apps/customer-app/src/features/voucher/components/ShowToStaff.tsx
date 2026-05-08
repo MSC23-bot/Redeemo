@@ -404,7 +404,7 @@ export function ShowToStaff({
             {blurReason === 'screenshot' && !isValidated ? (
               <View style={styles.blurReasonBanner}>
                 <Text variant="label.md" style={styles.blurReasonBannerText}>
-                  Screenshot taken. Staff verify only the live screen. Tap the QR to show again.
+                  Screenshot detected. Staff verify only the live screen. Tap the QR to show again.
                 </Text>
               </View>
             ) : null}

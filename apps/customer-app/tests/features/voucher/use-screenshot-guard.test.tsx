@@ -111,12 +111,41 @@ describe('useScreenshotGuard — iOS', () => {
     expect(onBannerShown).toHaveBeenCalledTimes(1)
   })
 
-  it('does NOT call FLAG_SECURE prevent/allow on iOS', () => {
+  it('calls preventScreenCaptureAsync on iOS for SCREEN-RECORDING protection (iOS 11+ system blur during capture)', () => {
+    // Locked 2026-05-08 (deferred-followups §AB / §AE) — extends iOS
+    // anti-fraud beyond just post-fact screenshot detection. iOS does
+    // NOT prevent screenshots (Apple has no API), but
+    // `expo-screen-capture.preventScreenCaptureAsync` does cover
+    // screen recording / mirroring on iOS 11+ via the system
+    // `UIScreen.isCaptured` observer + a blurred-snapshot overlay.
+    // Without this, a screen recording would capture the QR + the
+    // live ticking clock + the LIVE pulse — replay would defeat the
+    // live trust signals. WITH this, recordings capture a blurred
+    // view.
     renderHook(() =>
       useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
     )
-    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls allowScreenCaptureAsync on unmount so other app screens are unaffected', () => {
+    const { unmount } = renderHook(() =>
+      useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
+    )
     expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+    unmount()
+    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('survives preventScreenCaptureAsync rejection silently (best-effort contract; listener still installs)', () => {
+    ;(ScreenCapture.preventScreenCaptureAsync as jest.Mock).mockRejectedValueOnce(new Error('iOS unsupported'))
+    expect(() => {
+      renderHook(() =>
+        useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
+      )
+    }).not.toThrow()
+    // Listener still installs even if the screen-recording prevention failed.
+    expect(ScreenCapture.addScreenshotListener).toHaveBeenCalled()
   })
 })
 
