@@ -20,6 +20,7 @@ import { voucherTypeLabel } from '../utils/voucherTheme'
 import { useRedemptionPolling } from '../hooks/useRedemptionPolling'
 import { useBrightnessBoost } from '../hooks/useBrightnessBoost'
 import { useAutoHideTimer } from '../hooks/useAutoHideTimer'
+import { useScreenshotGuard } from '../hooks/useScreenshotGuard'
 import type { VoucherType } from '@/lib/api/redemption'
 
 /**
@@ -79,6 +80,21 @@ const AUTO_DISMISS_MS = 2_000
  * are unaffected.
  */
 const BRIGHTNESS_BOOST_ENABLED = true
+
+/**
+ * Kill-switch for the screenshot anti-fraud guard (M3 Task 15).
+ * Default: true. Same fail-safe spirit as BRIGHTNESS_BOOST_ENABLED —
+ * if `expo-screen-capture` misbehaves on a specific device or
+ * platform version, flip to `false` to disable the guard entirely
+ * without affecting QR/manual-code rendering, polling, validated
+ * transition, auto-hide, or AppState wiring.
+ *
+ * iOS path is "after-the-fact" so disabling means: no banner,
+ * no telemetry. Android path is FLAG_SECURE so disabling means:
+ * screenshots succeed silently. Both are best-effort; the QR
+ * + manual code never depend on either.
+ */
+const SCREENSHOT_GUARD_ENABLED = true
 
 type Props = {
   visible: boolean
@@ -159,6 +175,12 @@ export function ShowToStaff({
 
   const active = visible && appActive
 
+  // Anti-fraud blur state: iOS screenshot listener flips this true; user
+  // tap on the blurred QR (QRCodeBlock onShow) flips it back. Android's
+  // FLAG_SECURE blocks screenshots entirely, so this state only ever
+  // toggles on iOS in practice.
+  const [blurred, setBlurred] = useState(false)
+
   // Building-block hooks
   const poll = useRedemptionPolling(redemptionCode, {
     enabled: visible,
@@ -172,6 +194,15 @@ export function ShowToStaff({
   const { state: hideState, resetTimer } = useAutoHideTimer({
     active,
     frozen: poll.phase === 'validated',
+  })
+  // Screenshot guard — best-effort. iOS post-fact listener; Android
+  // FLAG_SECURE. See `useScreenshotGuard` (Task 14) for the full
+  // contract. `active` mirrors the same gating as brightness/auto-hide
+  // so the guard is only engaged while the surface is visible AND the
+  // app is foregrounded.
+  useScreenshotGuard(redemptionCode, {
+    active: SCREENSHOT_GUARD_ENABLED && active,
+    onBannerShown: () => setBlurred(true),
   })
 
   // Auto-dismiss after validated transition. Reduced motion routes
@@ -267,9 +298,18 @@ export function ShowToStaff({
                   {formattedCode}
                 </Text>
 
-                {/* QR */}
+                {/* QR — `blurred` flips to true when the screenshot
+                    guard's listener fires (iOS); user tap on the
+                    blurred QR (QRCodeBlock.onShow) flips it back. */}
                 <View style={styles.qrWrapper}>
-                  <QRCodeBlock value={redemptionCode} size={160} hero testID="show-to-staff-qr" />
+                  <QRCodeBlock
+                    value={redemptionCode}
+                    size={160}
+                    hero
+                    testID="show-to-staff-qr"
+                    blurred={blurred}
+                    onShow={() => setBlurred(false)}
+                  />
                 </View>
 
                 {/* Live date/time ticker — anti-fraud signal */}
@@ -298,6 +338,20 @@ export function ShowToStaff({
                 <Text variant="body.sm" style={styles.infoValue}>{redeemedDisplay}</Text>
               </View>
             </View>
+
+            {/* Screenshot-detected banner (iOS only in practice;
+                Android FLAG_SECURE blocks the screenshot before the
+                listener can fire). Surfaces only while blurred AND
+                not yet validated. The QR itself is hidden behind the
+                BlurView (QRCodeBlock blurred state); tapping it
+                clears the blur via onShow. */}
+            {blurred && !isValidated ? (
+              <View style={styles.screenshotBanner}>
+                <Text variant="label.md" style={styles.screenshotBannerText}>
+                  Screenshot taken — staff verify only the live screen. Tap the QR to show again.
+                </Text>
+              </View>
+            ) : null}
 
             {/* Validated overlay — sits inside the column so it doesn't
                 cover the QR; the v6 mockup didn't spec this state but
@@ -482,6 +536,19 @@ const styles = StyleSheet.create({
   warningHint: {
     color: 'rgba(255,255,255,0.85)',
     marginBottom: 12,
+  },
+  screenshotBanner: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    marginBottom: 12,
+  },
+  screenshotBannerText: {
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
   doneBtn: {
     width: '100%',

@@ -6,6 +6,7 @@ import * as motionScale from '@/design-system/useMotionScale'
 import * as polling from '@/features/voucher/hooks/useRedemptionPolling'
 import * as brightness from '@/features/voucher/hooks/useBrightnessBoost'
 import * as autoHide from '@/features/voucher/hooks/useAutoHideTimer'
+import * as screenshotGuard from '@/features/voucher/hooks/useScreenshotGuard'
 
 // Hook mocks — we control the building-block contracts directly so
 // ShowToStaff tests verify composition + props wiring without
@@ -18,6 +19,9 @@ jest.mock('@/features/voucher/hooks/useBrightnessBoost', () => ({
 }))
 jest.mock('@/features/voucher/hooks/useAutoHideTimer', () => ({
   useAutoHideTimer: jest.fn(),
+}))
+jest.mock('@/features/voucher/hooks/useScreenshotGuard', () => ({
+  useScreenshotGuard: jest.fn(),
 }))
 
 // QR + Blur stubs from QRCodeBlock pattern.
@@ -86,6 +90,7 @@ beforeEach(() => {
   setPolling('polling')
   setAutoHide('visible')
   ;(brightness.useBrightnessBoost as jest.Mock).mockReturnValue(undefined)
+  ;(screenshotGuard.useScreenshotGuard as jest.Mock).mockReturnValue(undefined)
   ;(baseProps.onDone as jest.Mock).mockReset()
 })
 
@@ -266,5 +271,94 @@ describe('ShowToStaff — visible=false', () => {
       'A7K2P9X4',
       expect.objectContaining({ enabled: false }),
     )
+  })
+})
+
+describe('ShowToStaff — screenshot guard wiring (Task 15)', () => {
+  it('wires useScreenshotGuard with active=true while visible AND app is active', () => {
+    render(<ShowToStaff {...baseProps} />)
+    expect(screenshotGuard.useScreenshotGuard).toHaveBeenCalledWith(
+      'A7K2P9X4',
+      expect.objectContaining({ active: true }),
+    )
+  })
+
+  it('wires useScreenshotGuard with active=false when visible=false', () => {
+    render(<ShowToStaff {...baseProps} visible={false} />)
+    expect(screenshotGuard.useScreenshotGuard).toHaveBeenCalledWith(
+      'A7K2P9X4',
+      expect.objectContaining({ active: false }),
+    )
+  })
+
+  it('blurs the QR + shows the screenshot banner when onBannerShown fires', () => {
+    let onBannerShown: () => void = () => {}
+    ;(screenshotGuard.useScreenshotGuard as jest.Mock).mockImplementation(
+      (_code: string, opts: { onBannerShown: () => void }) => {
+        onBannerShown = opts.onBannerShown
+      },
+    )
+
+    const { queryByText, getByText, queryByTestId, getByLabelText } = render(<ShowToStaff {...baseProps} />)
+
+    // Initial: no banner, QR is visible (qrcode-svg-stub renders).
+    expect(queryByText(/Screenshot taken/i)).toBeNull()
+    expect(queryByTestId('qrcode-svg-stub')).toBeTruthy()
+
+    act(() => { onBannerShown() })
+
+    // Banner now visible.
+    expect(getByText(/Screenshot taken/i)).toBeTruthy()
+    // QR is now hidden behind the BlurView — qrcode-svg-stub is gone;
+    // the blurred wrapper is a Pressable with the tap-to-show label.
+    expect(queryByTestId('qrcode-svg-stub')).toBeNull()
+    expect(getByLabelText(/Code hidden\. Tap to show again\./i)).toBeTruthy()
+  })
+
+  it('tapping the blurred QR clears blur + hides the banner (tap-to-show)', () => {
+    let onBannerShown: () => void = () => {}
+    ;(screenshotGuard.useScreenshotGuard as jest.Mock).mockImplementation(
+      (_code: string, opts: { onBannerShown: () => void }) => {
+        onBannerShown = opts.onBannerShown
+      },
+    )
+
+    const { queryByText, getByLabelText, getByTestId } = render(<ShowToStaff {...baseProps} />)
+
+    act(() => { onBannerShown() })
+    expect(queryByText(/Screenshot taken/i)).toBeTruthy()
+
+    fireEvent.press(getByLabelText(/Code hidden\. Tap to show again\./i))
+
+    // Banner gone, QR re-rendered.
+    expect(queryByText(/Screenshot taken/i)).toBeNull()
+    expect(getByTestId('qrcode-svg-stub')).toBeTruthy()
+  })
+
+  it('hides the screenshot banner when the polling phase becomes validated', () => {
+    let onBannerShown: () => void = () => {}
+    ;(screenshotGuard.useScreenshotGuard as jest.Mock).mockImplementation(
+      (_code: string, opts: { onBannerShown: () => void }) => {
+        onBannerShown = opts.onBannerShown
+      },
+    )
+
+    const { queryByText, rerender } = render(<ShowToStaff {...baseProps} />)
+    act(() => { onBannerShown() })
+    expect(queryByText(/Screenshot taken/i)).toBeTruthy()
+
+    // Validated transition — even if the user hasn't dismissed the
+    // banner, the validated state takes precedence.
+    setPolling('validated')
+    rerender(<ShowToStaff {...baseProps} />)
+    expect(queryByText(/Screenshot taken/i)).toBeNull()
+  })
+
+  it('passes only booleans into the screenshot guard active prop (defensive)', () => {
+    render(<ShowToStaff {...baseProps} />)
+    const calls = (screenshotGuard.useScreenshotGuard as jest.Mock).mock.calls
+    for (const [, opts] of calls) {
+      expect(typeof opts.active).toBe('boolean')
+    }
   })
 })
