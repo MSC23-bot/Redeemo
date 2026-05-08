@@ -89,20 +89,22 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
               the rubber is uneven. Lower opacity (0.45) so it's
               suggestive, not a solid line. */}
           <View style={styles.inkFadeMid} pointerEvents="none" />
-          {/* Ink-missing speckles — wave 12 (locked 2026-05-09 from
-              owner's circled-E QA screenshot): removed the 83%
-              speckle which was visibly landing on the E before the
-              final D in "REDEEMED". Wave-11 had already removed
-              speckles on O + two earlier E's; wave 12 removes the
-              third visible E speckle. Remaining 5 fall over
-              U / C-H / R / space / E-D-boundary / M (the M
-              speckle moved to 60% from 83% to keep coverage
-              balanced after losing the right-side dot). */}
+          {/* Ink-missing speckles — wave 13 (locked 2026-05-09 from
+              owner QA "7th letter of REDEEMED still has a speckle"):
+              defensively removed the 62% speckle. By uniform-width
+              math 62% lands on the E-D boundary, but real letter
+              widths vary so the speckle's right edge could overlap
+              the E in REDEEMED. Removing it eliminates ambiguity —
+              all remaining 4 speckles are safely in the LEFT half
+              of the title (over "VOUCHER"), leaving the right half
+              ("REDEEMED") clean of speckles. The visual rhyme with
+              the title's other distress (top-fade band, mid-stroke
+              band, ink-pressure textShadow) carries the rubber-stamp
+              feel even with fewer dots on the right side. */}
           <View style={[styles.inkSpeckle, { top: 17, left: '18%', width: 4, height: 5 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 22, left: '29%', width: 6, height: 4 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 11, left: '40%', width: 5, height: 6 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 19, left: '50%', width: 4, height: 4 }]} pointerEvents="none" />
-          <View style={[styles.inkSpeckle, { top: 14, left: '62%', width: 7, height: 5 }]} pointerEvents="none" />
         </View>
         {renewalLabel ? (
           // Subtitle wrapper — same distress overlay treatment as
