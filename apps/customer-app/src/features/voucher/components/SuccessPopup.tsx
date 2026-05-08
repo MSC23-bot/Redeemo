@@ -5,7 +5,6 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -159,12 +158,31 @@ export function SuccessPopup({
 
   useEffect(() => {
     if (visible) {
-      scale.value = withSpring(1, { damping: 12, stiffness: 120 })
-      ty.value = withSpring(0, { damping: 14, stiffness: 100 })
-      // Checkmark bounces ~200ms after the popup enters.
+      // Wave 14 (locked 2026-05-09 from owner QA "too bouncy"):
+      // replaced 3 springs with ease-out timing to remove the
+      // bounce/oscillation. Mirrors the locked merchant-profile
+      // subscribe-prompt pattern (320ms ease-out-expo, "springify
+      // rejected as too bouncy" — see memory `project_merchant_
+      // profile_ux_refinement_complete`). Result: snappy, settled
+      // entrance with no overshoot.
+      scale.value = withTiming(1, {
+        duration: 320,
+        easing:   Easing.out(Easing.exp),
+      })
+      ty.value = withTiming(0, {
+        duration: 320,
+        easing:   Easing.out(Easing.exp),
+      })
+      // Check ring uses ease-out-cubic for a snappy-but-settled
+      // entrance. The previous spring had overshoot 10-15% which
+      // owner flagged as too bouncy; cubic ease-out has zero
+      // overshoot and reads as "confident" rather than "wobbly".
       checkScale.value = withDelay(
         200,
-        withSpring(1, { damping: 10, stiffness: 180, overshootClamping: false }),
+        withTiming(1, {
+          duration: 240,
+          easing:   Easing.out(Easing.cubic),
+        }),
       )
     } else {
       scale.value = withTiming(0.8, { duration: 200, easing: Easing.in(Easing.quad) })

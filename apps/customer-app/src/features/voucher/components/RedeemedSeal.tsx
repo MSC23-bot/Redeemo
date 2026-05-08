@@ -1,5 +1,13 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { StyleSheet, View } from 'react-native'
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 
@@ -42,6 +50,42 @@ type Props = {
  *   - deferred-followups §AE (presentation-window contract).
  *   - utils/presentationWindow.ts (drives WHEN this surfaces).
  */
+// Stamp-impact entrance motion (locked 2026-05-09, PR #49 device QA
+// wave 14). Owner direction: "add some sort of motion to this voucher
+// redeemed stamp on the voucher detail page. Use appropriate motion
+// that is relevant to stamps."
+//
+// Real rubber stamp behaviour: hand brings the stamp down from above
+// (gentle approach), it accelerates as it descends, hits the paper
+// with a small compression, then settles. Mimicked via:
+//
+//   Phase 1 (0-260ms — drop): translateY -28 → 0, scale 1.45 → 1,
+//     opacity 0 → 1, rotation -2° → -8°. Easing.in(cubic) — starts
+//     gently and accelerates, exactly the gravity arc of a stamp
+//     coming down.
+//   Phase 2 (260-360ms — impact compression): scale briefly
+//     overshoots 1 → 1.06 → 1 over ~100ms. Reads as the rubber
+//     pressing into the paper before lifting back to its rest
+//     height. Sequence preserved via `withSequence` so the
+//     overshoot is anchored to the end of phase 1.
+//
+// `useReducedMotion` skips the entrance — the seal renders in its
+// final state immediately so accessibility users still get the
+// "redeemed" signal without the motion.
+//
+// Mount-only animation via `useEffect([])`. If the user navigates
+// away and back, the seal re-mounts and the stamp animation plays
+// again — natural because each visit IS a fresh "I'm looking at
+// this voucher" moment, and the motion is short (<400ms) so it
+// doesn't feel intrusive.
+const DROP_DURATION_MS    = 260
+const IMPACT_DURATION_MS  = 100
+const INITIAL_TRANSLATE_Y = -28
+const INITIAL_SCALE       = 1.45
+const INITIAL_ROTATION    = -2
+const REST_ROTATION       = -8
+const IMPACT_SCALE        = 1.06
+
 export function RedeemedSeal({ availableAgainAt }: Props) {
   const renewalLabel = availableAgainAt
     ? new Date(availableAgainAt).toLocaleDateString('en-GB', {
@@ -51,9 +95,62 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
       })
     : null
 
+  const reducedMotion = useReducedMotion()
+  const ty       = useSharedValue(reducedMotion ? 0 : INITIAL_TRANSLATE_Y)
+  const scale    = useSharedValue(reducedMotion ? 1 : INITIAL_SCALE)
+  const rotation = useSharedValue(reducedMotion ? REST_ROTATION : INITIAL_ROTATION)
+  const opacity  = useSharedValue(reducedMotion ? 1 : 0)
+
+  useEffect(() => {
+    if (reducedMotion) return
+    // Phase 1 — drop with accelerating gravity (ease-in-cubic).
+    ty.value = withTiming(0, {
+      duration: DROP_DURATION_MS,
+      easing:   Easing.in(Easing.cubic),
+    })
+    rotation.value = withTiming(REST_ROTATION, {
+      duration: DROP_DURATION_MS,
+      easing:   Easing.in(Easing.cubic),
+    })
+    opacity.value = withTiming(1, {
+      duration: DROP_DURATION_MS * 0.7,
+      easing:   Easing.out(Easing.quad),
+    })
+    // Phase 1 + 2 — drop into target scale, then briefly compress
+    // (impact overshoot) and settle back to 1.0. Sequence anchors
+    // the overshoot to the end of the drop.
+    scale.value = withSequence(
+      withTiming(1, {
+        duration: DROP_DURATION_MS,
+        easing:   Easing.in(Easing.cubic),
+      }),
+      withTiming(IMPACT_SCALE, {
+        duration: IMPACT_DURATION_MS * 0.4,
+        easing:   Easing.out(Easing.quad),
+      }),
+      withTiming(1, {
+        duration: IMPACT_DURATION_MS * 0.6,
+        easing:   Easing.out(Easing.quad),
+      }),
+    )
+    // Mount-only — empty deps. SharedValues + reducedMotion are
+    // stable across renders; eslint-disable for the deps lint
+    // because the motion intentionally fires once per mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity:   opacity.value,
+    transform: [
+      { translateY: ty.value },
+      { rotate:     `${rotation.value}deg` },
+      { scale:      scale.value },
+    ],
+  }))
+
   return (
     <View style={styles.wrap} testID="redeemed-seal">
-      <View style={styles.seal}>
+      <Animated.View style={[styles.seal, animatedStyle]}>
         {/* Title wrapper — relative-positioned so the ink-fade band +
             speckles below can overlay the title at controlled
             positions. Locked 2026-05-09 PR #49 device QA wave 9
@@ -124,31 +221,14 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
             <View style={styles.subtitleInkFadeMid} pointerEvents="none" />
           </View>
         ) : null}
-        {/* Border distress — wave 12 (locked 2026-05-09 from owner
-            QA: "apply the same Top fade and mid stroke band as you
-            have done to the word voucher redeemed to the red borders
-            around the card"). Reshaped from wave-11's small dots
-            into elongated cream STRIPS (12-22px along their border
-            edge) so the visual rhyme with the title's top-fade band
-            (a clear horizontal cream band cutting through the red
-            ink) extends to the border. Each strip overlaps the
-            4px border with 1px bleed on both sides for soft edges.
-            pointerEvents:none so they don't intercept gestures. */}
-        {/* Top edge — 3 strips of varying length */}
-        <View style={[styles.borderStrip, { top: -1, left: '12%', width: 22, height: 6 }]} pointerEvents="none" />
-        <View style={[styles.borderStrip, { top: -1, left: '44%', width: 14, height: 6 }]} pointerEvents="none" />
-        <View style={[styles.borderStrip, { top: -1, left: '76%', width: 18, height: 6 }]} pointerEvents="none" />
-        {/* Bottom edge */}
-        <View style={[styles.borderStrip, { bottom: -1, left: '20%', width: 16, height: 6 }]} pointerEvents="none" />
-        <View style={[styles.borderStrip, { bottom: -1, left: '54%', width: 22, height: 6 }]} pointerEvents="none" />
-        <View style={[styles.borderStrip, { bottom: -1, left: '84%', width: 12, height: 6 }]} pointerEvents="none" />
-        {/* Left edge — vertical strips */}
-        <View style={[styles.borderStrip, { left: -1, top: '24%', width: 6, height: 16 }]} pointerEvents="none" />
-        <View style={[styles.borderStrip, { left: -1, top: '66%', width: 6, height: 14 }]} pointerEvents="none" />
-        {/* Right edge — vertical strips */}
-        <View style={[styles.borderStrip, { right: -1, top: '18%', width: 6, height: 14 }]} pointerEvents="none" />
-        <View style={[styles.borderStrip, { right: -1, top: '58%', width: 6, height: 18 }]} pointerEvents="none" />
-      </View>
+        {/* Note (wave 14, locked 2026-05-09 from owner QA): all
+            border distress strips have been removed per owner
+            direction "completely remove the speckles from the red
+            borders around the card". The clean 4px brand-rose
+            border carries the seal's outer shape; the rubber-stamp
+            character is delivered by the title + subtitle distress
+            overlays alone. */}
+      </Animated.View>
     </View>
   )
 }
@@ -187,7 +267,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   seal: {
-    transform: [{ rotate: '-8deg' }],
+    // Rotation now lives on the animated transform (rest at -8°
+    // after the entrance motion settles). Wave 14 — keep the
+    // static transform OUT of styles so it doesn't conflict with
+    // the animated transform array.
     paddingVertical: 20,
     paddingHorizontal: 32,
     borderRadius: 18,
@@ -338,16 +421,5 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255, 246, 238, 0.30)',
   },
-  // Border distress strip — wave 12 (locked 2026-05-09 from owner
-  // QA). Reshaped from wave-11's small notch dots (6-9px square)
-  // into elongated cream rectangles (12-22px along the border
-  // edge). The visual rhyme with the title's top-fade band — a
-  // clear horizontal cream band cutting through red ink — now
-  // extends to the four border edges. Same softness as the letter
-  // overlays via borderRadius 2.
-  borderStrip: {
-    position: 'absolute',
-    borderRadius: 2,
-    backgroundColor: '#FFF6EE',
-  },
+  // (Wave 14: borderStrip style removed — owner direction.)
 })
