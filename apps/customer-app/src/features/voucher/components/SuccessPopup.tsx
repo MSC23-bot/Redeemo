@@ -14,6 +14,7 @@ import { Text } from '@/design-system/Text'
 import { color, opacity, radius, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 import { formatRedemptionCode } from '../utils/formatRedemptionCode'
+import { useScreenCaptureProtection } from '../hooks/useScreenCaptureProtection'
 import type { VoucherType } from '@/lib/api/redemption'
 
 type Props = {
@@ -128,6 +129,18 @@ export function SuccessPopup({
   onRateReview,
   onDone,
 }: Props) {
+  // Cross-platform screen-capture protection while the popup is
+  // visible. Android FLAG_SECURE blocks screenshots + recordings;
+  // iOS 11+ overlays a blurred snapshot on active recordings /
+  // mirroring. Best-effort — the popup renders normally if the
+  // native call rejects. Locked 2026-05-08, PR #49 final wave —
+  // shares the prevention baseline with `<ShowToStaff>` so a
+  // screenshot/recording of EITHER surface that displays the code
+  // is protected. SuccessPopup intentionally does NOT install the
+  // iOS post-fact screenshot listener (no banner, no telemetry) —
+  // that surface area stays Show-to-Staff-specific.
+  useScreenCaptureProtection(visible)
+
   const scale = useSharedValue(0.8)
   const ty = useSharedValue(30)
   const checkScale = useSharedValue(0)

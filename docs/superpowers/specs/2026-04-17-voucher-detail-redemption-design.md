@@ -649,11 +649,14 @@ After the Bundle E task list completed, three commits landed on the M3 branch ad
 - Header subtitle: *"Staff verify on the live Show to Staff screen"* (replaces *"Show this to staff to claim your discount"* — old framing implied the popup itself was the proof).
 - Closes the parity gap with §7.7 ShowToStaff: both surfaces now have live trust signals, so a screenshot of either freezes the live-clock and trained staff can spot it.
 
-**iOS screen-recording prevention (§7.7 update).**
-- `useScreenshotGuard` iOS path now ALSO calls `preventScreenCaptureAsync()` on mount (alongside the existing `addScreenshotListener`). Per `expo-screen-capture@8.0.9`, this is iOS 11+ system-level protection: the OS observes `UIScreen.isCaptured` and overlays the captured view with a blurred snapshot. Active screen RECORDINGS and AirPlay/screen-mirroring sessions capture a blurred view, NOT the QR.
-- Does NOT prevent SCREENSHOTS on iOS (Apple has no API). Listener-based post-fact path continues for screenshots.
+**Cross-platform screen-capture protection split (§7.6 + §7.7 update).**
+- New `useScreenCaptureProtection(active)` hook owns the cross-platform prevent/allow lifecycle: Android FLAG_SECURE blocks screenshots + recordings; iOS 11+ overlays a blurred snapshot during active recording / mirroring. Per `expo-screen-capture@8.0.9` documentation.
+- `useScreenshotGuard` slimmed to iOS-listener-only (post-fact screenshot detection + 5s dedup + best-effort telemetry + ref-pattern callback stability). Android branch removed (was a duplicate FLAG_SECURE call).
+- `<ShowToStaff>` now calls BOTH hooks: `useScreenCaptureProtection` for prevention, `useScreenshotGuard` for iOS post-fact screenshot signalling.
+- `<SuccessPopup>` now calls `useScreenCaptureProtection(visible)` to share the prevention baseline. Intentionally does NOT install the iOS screenshot listener — no banner, no telemetry. Both surfaces displaying the code now have parity protection without duplicating native call logic.
+- Does NOT prevent SCREENSHOTS on iOS (Apple has no API). Listener-based post-fact path continues for screenshots on Show-to-Staff only.
 - Banner copy tightened: `"Screenshot detected"` (was `"Screenshot taken"`) — more accurate framing of OS-driven detection.
-- Cleanup symmetry: iOS unmount calls `allowScreenCaptureAsync()` so other app screens can be recorded normally.
+- Cleanup symmetry: protection hook releases on unmount so other app screens can be recorded normally.
 
 **Ref-pattern callback stability (post-review hardening).**
 - `useScreenshotGuard` now stashes `onBannerShown` in a `useRef` and keys the native-subscription effect ONLY on `[active, code]`. Without this, parent re-renders that pass a fresh inline callback would tear down and re-install the screenshot listener AND `preventScreenCaptureAsync` on every render. For anti-fraud code we require zero re-arm windows. Pinned by `does NOT re-install ... when the parent passes a new callback identity (re-render stability)` test + the counterpart `DOES re-install when code changes` test.

@@ -135,9 +135,32 @@ async function main() {
       }
     }
 
-    // 3. For each voucher, delete redemption rows + reset cycle state.
+    // 3. For each voucher, delete dependent screenshot events first
+    //    (M3 RedemptionScreenshotEvent has ON DELETE RESTRICT FKs to
+    //    VoucherRedemption — see deferred-followups §X. Without this
+    //    delete-first step, the redemption delete below fails with
+    //    P2003 foreign-key-constraint-violation), then delete the
+    //    redemption rows + reset cycle state.
     console.log(`Resetting redemption + cycle-state for ${user.email} on ${vouchers.length} voucher(s)…`)
     for (const v of vouchers) {
+      // Find the redemption ids first so we can null out their
+      // dependent screenshot events.
+      const redemptionsForVoucher = await prisma.voucherRedemption.findMany({
+        where: { userId: user.id, voucherId: v.id },
+        select: { id: true },
+      })
+      if (redemptionsForVoucher.length > 0) {
+        const redemptionIds = redemptionsForVoucher.map((r) => r.id)
+        const screenshotEvents = await prisma.redemptionScreenshotEvent.deleteMany({
+          where: { redemptionId: { in: redemptionIds } },
+        })
+        if (screenshotEvents.count > 0) {
+          console.log(
+            `  • voucher ${v.code} (${v.title}): cleared ${screenshotEvents.count} ` +
+            `screenshot event(s) referencing redemption rows`,
+          )
+        }
+      }
       const redemptions = await prisma.voucherRedemption.deleteMany({
         where: { userId: user.id, voucherId: v.id },
       })

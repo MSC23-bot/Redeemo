@@ -4,54 +4,31 @@ import * as ScreenCapture from 'expo-screen-capture'
 import { redemptionApi } from '@/lib/api/redemption'
 
 /**
- * Show-to-Staff anti-fraud screen-capture guard (M3 Task 14, extended
- * 2026-05-08 with iOS screen-recording prevention).
+ * Show-to-Staff iOS post-fact screenshot detection (M3 Task 14, slimmed
+ * 2026-05-08 PR #49 final wave).
  *
- * Platform asymmetry — locked product framing
- * (deferred-followups §AB; never describe iOS as "screenshot
- * prevention" in spec/PR/marketing/in-app copy):
+ * Single-purpose: subscribes to `addScreenshotListener` on iOS so the
+ * caller can blur the QR + show a "Screenshot detected" banner +
+ * post telemetry AFTER iOS has written the screenshot to Photos.
+ * Apple does NOT expose any way to PREVENT screenshots on iOS —
+ * the captured Photo will contain the unblurred QR + 8-char code.
+ * The user-visible trust signal on iOS is the LIVE SCREEN ITSELF
+ * (animated border, pulsing LIVE dot, ticking en-GB London datetime,
+ * validated chip transition) — a static screenshot freezes all of
+ * these and trained staff can spot it. Locked at deferred-followups
+ * §AB; never frame iOS as "screenshot prevention".
  *
- * Android — `preventScreenCaptureAsync()` enables `FLAG_SECURE` on
- *   mount. The OS blocks BOTH screenshots AND screen recordings
- *   system-wide while ShowToStaff is mounted; recents-screen previews
- *   go black; recordings capture a blank frame. `allowScreenCaptureAsync()`
- *   clears the flag on unmount. No listener needed because the OS
- *   prevents capture before we'd have anything to react to.
+ * Cross-platform `preventScreenCaptureAsync` (FLAG_SECURE on Android;
+ * iOS 11+ system blur during screen recording / mirroring) lives in
+ * the sibling `useScreenCaptureProtection` hook so both
+ * `<ShowToStaff>` and `<SuccessPopup>` share the prevention baseline
+ * without duplicating native call logic. Consumers of THIS hook
+ * (currently only ShowToStaff) should also call
+ * `useScreenCaptureProtection` for the prevention path.
  *
- * iOS — TWO complementary paths, both best-effort:
- *
- *   (a) `preventScreenCaptureAsync()` — per `expo-screen-capture` v8,
- *       on iOS 11+ the package observes `UIScreen.isCaptured` and
- *       overlays the captured view with a blurred snapshot. Active
- *       SCREEN RECORDINGS and AirPlay/screen-mirroring sessions
- *       capture a blurred view, NOT the QR. This closes the bigger
- *       fraud vector: a screen recording that captures the QR + the
- *       live ticking clock + the LIVE pulse animations, replayed
- *       later. Without this, the live trust signals can be replayed.
- *       NOTE: this does NOT prevent SCREENSHOTS on iOS — Apple does
- *       not expose any API for that.
- *
- *   (b) `addScreenshotListener()` — fires AFTER a screenshot is taken
- *       (the captured image WILL contain the unblurred QR + 8-char
- *       code). On every fire:
- *         1. Calls `onBannerShown` so ShowToStaff can blur the QR
- *            view + surface a banner ("Screenshot detected. Staff
- *            verify only the live screen. Tap the QR to show again.").
- *         2. Fire-and-forget POST to `/api/v1/redemption/:code/
- *            screenshot-flag` for backend telemetry. Server-side
- *            Redis SETNX dedupes within 5s; we ALSO dedupe on the
- *            client to avoid spamming the banner + the network on
- *            rapid bursts.
- *       The user-visible trust signal on iOS for screenshots is the
- *       LIVE SCREEN ITSELF (animated border, pulsing LIVE dot,
- *       ticking en-GB London datetime, validated chip transition) —
- *       a static screenshot freezes all of these and trained staff
- *       can spot it. Locked: never frame iOS as "screenshot
- *       prevention". See deferred-followups §AB.
- *
- * Best-effort contract (matches Task 11 brightness boost):
- *   - Every Native API call is wrapped in `try`/`catch` or
- *     `.catch(() => {})`. Failures are silent.
+ * Best-effort contract (matches the brightness boost + protection
+ * hooks):
+ *   - Listener install rejection is silent.
  *   - Telemetry POSTs are fire-and-forget; rejection does NOT
  *     prevent `onBannerShown` from firing.
  *   - ShowToStaff render is independent of this hook's success.
@@ -61,6 +38,13 @@ import { redemptionApi } from '@/lib/api/redemption'
  * banner + one telemetry POST per (userId, code) per 5s. The
  * backend (Task 2) also dedupes via Redis SETNX so this is belt-
  * and-braces.
+ *
+ * Callback stability: `onBannerShown` is stashed in a ref so the
+ * native-listener install is keyed only on `[active, code]`. Without
+ * this, parent re-renders that pass a fresh inline callback would
+ * tear down + re-install the listener on every render — small re-arm
+ * windows we want to avoid for anti-fraud code. The latest callback
+ * still fires when the listener triggers because we read via the ref.
  */
 
 const DEDUP_WINDOW_MS = 5_000
@@ -73,14 +57,8 @@ type Options = {
 export function useScreenshotGuard(code: string, { active, onBannerShown }: Options) {
   const lastFireRef = useRef<number>(0)
   // Stash the callback in a ref so the native-subscription effect
-  // below does NOT depend on `onBannerShown`. Without this pattern,
-  // any parent re-render that passes a fresh inline callback
-  // (`onBannerShown: () => setBlurReason('screenshot')`) would tear
-  // down and re-install the screenshot listener AND
-  // preventScreenCaptureAsync. For anti-fraud code we want zero
-  // re-arm windows; the native subscription should be installed once
-  // per (active, code) and then left alone.
-  // Locked 2026-05-08, PR #49 review hardening.
+  // below does NOT depend on `onBannerShown`. Locked 2026-05-08,
+  // PR #49 review hardening.
   const onBannerShownRef = useRef(onBannerShown)
   useEffect(() => {
     onBannerShownRef.current = onBannerShown
@@ -88,72 +66,43 @@ export function useScreenshotGuard(code: string, { active, onBannerShown }: Opti
 
   useEffect(() => {
     if (!active) return
+    // Android FLAG_SECURE blocks screenshots before they happen, so
+    // there's no after-the-fact event to listen for. The screen-
+    // capture protection hook (`useScreenCaptureProtection`) handles
+    // FLAG_SECURE; this hook is iOS-only.
+    if (Platform.OS !== 'ios') return
 
     // Reset the dedup window on every (active, code) transition. Without
     // this, a future hook reuse that swaps `code` mid-mount could
     // silently dedup the new code's first screenshot against the old
-    // code's timestamp. PR #49 review hardening.
+    // code's timestamp.
     lastFireRef.current = 0
 
-    if (Platform.OS === 'android') {
-      // FLAG_SECURE — best-effort. Blocks BOTH screenshots and
-      // screen recordings on Android. Rejection is silent.
-      ScreenCapture.preventScreenCaptureAsync().catch(() => {
-        /* swallow — see best-effort contract above */
-      })
-      return () => {
-        ScreenCapture.allowScreenCaptureAsync().catch(() => {
-          /* swallow — best-effort */
-        })
+    const subscription = ScreenCapture.addScreenshotListener(() => {
+      const now = Date.now()
+      if (now - lastFireRef.current < DEDUP_WINDOW_MS) return
+      lastFireRef.current = now
+
+      // Banner first — user-visible state must NOT depend on
+      // telemetry succeeding. Then fire-and-forget the POST.
+      // `onBannerShownRef.current` reads the LATEST callback so
+      // parent re-renders that swap the callback don't lose state
+      // updates — but the LISTENER itself was installed once.
+      onBannerShownRef.current()
+      redemptionApi
+        .postScreenshotFlag(code, 'ios')
+        .catch(() => { /* swallow — best-effort telemetry */ })
+    })
+
+    return () => {
+      try {
+        subscription?.remove?.()
+      } catch {
+        /* swallow — listener cleanup is also best-effort */
       }
     }
-
-    if (Platform.OS === 'ios') {
-      // (a) preventScreenCaptureAsync — covers SCREEN RECORDING +
-      // mirroring on iOS 11+ via the system isCaptured observer +
-      // blurred-snapshot overlay. Does NOT prevent SCREENSHOTS on
-      // iOS (Apple has no public API for that).
-      ScreenCapture.preventScreenCaptureAsync().catch(() => {
-        /* swallow — best-effort */
-      })
-
-      // (b) addScreenshotListener — post-fact detection of screenshots.
-      // Dedup at the client side so a burst of fires doesn't spam
-      // onBannerShown + telemetry.
-      const subscription = ScreenCapture.addScreenshotListener(() => {
-        const now = Date.now()
-        if (now - lastFireRef.current < DEDUP_WINDOW_MS) return
-        lastFireRef.current = now
-
-        // Banner first — user-visible state must NOT depend on
-        // telemetry succeeding. Then fire-and-forget the POST.
-        // `onBannerShownRef.current` reads the LATEST callback so
-        // parent re-renders that swap the callback don't lose state
-        // updates — but the LISTENER itself was installed once.
-        onBannerShownRef.current()
-        redemptionApi
-          .postScreenshotFlag(code, 'ios')
-          .catch(() => { /* swallow — best-effort telemetry */ })
-      })
-
-      return () => {
-        try {
-          subscription?.remove?.()
-        } catch {
-          /* swallow — listener cleanup is also best-effort */
-        }
-        // Also clear the screen-capture prevention so the user can
-        // screenshot/record OTHER screens of the app normally after
-        // leaving Show-to-Staff.
-        ScreenCapture.allowScreenCaptureAsync().catch(() => {
-          /* swallow — best-effort */
-        })
-      }
-      // NOTE: `onBannerShown` is intentionally NOT in the deps array.
-      // It's read via the ref above. Native install is keyed only on
-      // `(active, code)` so a parent re-render with a fresh callback
-      // identity does NOT re-install the listener or re-call
-      // preventScreenCaptureAsync.
-    }
+    // NOTE: `onBannerShown` is intentionally NOT in the deps array.
+    // It's read via the ref above. Native install is keyed only on
+    // `(active, code)`.
   }, [active, code])
 }

@@ -7,7 +7,12 @@ jest.mock('expo-linear-gradient', () => ({
 jest.mock('@/design-system/haptics', () => ({
   lightHaptic: jest.fn(),
 }))
+jest.mock('expo-screen-capture', () => ({
+  preventScreenCaptureAsync: jest.fn().mockResolvedValue(undefined),
+  allowScreenCaptureAsync:   jest.fn().mockResolvedValue(undefined),
+}))
 
+import * as ScreenCapture from 'expo-screen-capture'
 import { SuccessPopup } from '@/features/voucher/components/SuccessPopup'
 
 function defaults(overrides: Partial<React.ComponentProps<typeof SuccessPopup>> = {}) {
@@ -228,3 +233,54 @@ function textOf(node: any): string {
   if (node.props && node.props.children !== undefined) return textOf(node.props.children)
   return ''
 }
+
+// ── Screen-capture protection (PR #49 final wave, 2026-05-08) ─────────
+//
+// SuccessPopup shares the cross-platform prevent/allow lifecycle with
+// ShowToStaff via the `useScreenCaptureProtection` hook. Android
+// FLAG_SECURE blocks both screenshots and recordings; iOS 11+ overlays
+// a blurred snapshot during active recording / mirroring. The popup
+// intentionally does NOT install the iOS post-fact screenshot listener
+// (no banner, no telemetry) — that surface area stays Show-to-Staff-
+// specific. Locked at deferred-followups §AB / §AE.
+
+describe('SuccessPopup — screen-capture protection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('calls preventScreenCaptureAsync when visible=true on mount', () => {
+    render(<SuccessPopup {...defaults({ visible: true })} />)
+    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('does NOT call prevention when visible=false', () => {
+    render(<SuccessPopup {...defaults({ visible: false })} />)
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('calls allowScreenCaptureAsync on unmount (cleanup releases prevention)', () => {
+    const { unmount } = render(<SuccessPopup {...defaults({ visible: true })} />)
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+    unmount()
+    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('toggles prevent/allow when `visible` flips false → true → false', () => {
+    const { rerender } = render(<SuccessPopup {...defaults({ visible: false })} />)
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    rerender(<SuccessPopup {...defaults({ visible: true })} />)
+    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
+    rerender(<SuccessPopup {...defaults({ visible: false })} />)
+    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders normally even if preventScreenCaptureAsync rejects (best-effort, fail-safe contract)', () => {
+    ;(ScreenCapture.preventScreenCaptureAsync as jest.Mock).mockRejectedValueOnce(new Error('unsupported'))
+    expect(() => {
+      render(<SuccessPopup {...defaults({ visible: true })} />)
+    }).not.toThrow()
+  })
+})

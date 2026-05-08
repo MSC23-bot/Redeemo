@@ -97,14 +97,17 @@ describe('useScreenshotGuard — iOS', () => {
     expect(removeSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('does NOT re-install the screenshot listener or re-call preventScreenCaptureAsync when the parent passes a new callback identity (re-render stability)', () => {
+  it('does NOT re-install the screenshot listener when the parent passes a new callback identity (re-render stability)', () => {
     // Parent re-renders that pass `onBannerShown: () => setBlurReason('screenshot')`
     // generate a fresh function identity each render. The hook MUST
     // read the latest callback via a ref and key the native-subscription
     // install on `(active, code)` only — NOT on the callback identity.
     // Without this, anti-fraud subscriptions would tear down + re-arm
     // on every parent state change, opening tiny windows where
-    // prevention/listener are absent. Locked 2026-05-08, PR #49 review.
+    // the listener is absent. Locked 2026-05-08, PR #49 review.
+    //
+    // (Cross-platform prevent/allow lifecycle is now in the sibling
+    // `useScreenCaptureProtection` hook — see its test file.)
     const cb1 = jest.fn()
     const cb2 = jest.fn()
     const cb3 = jest.fn()
@@ -113,20 +116,16 @@ describe('useScreenshotGuard — iOS', () => {
         useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown }),
       { initialProps: { onBannerShown: cb1 } },
     )
-    const initialPreventCalls = (ScreenCapture.preventScreenCaptureAsync as jest.Mock).mock.calls.length
     const initialListenerCalls = (ScreenCapture.addScreenshotListener as jest.Mock).mock.calls.length
 
     // Re-render twice with fresh callback identities.
     rerender({ onBannerShown: cb2 })
     rerender({ onBannerShown: cb3 })
 
-    // Native subscription paths must NOT have been re-armed.
-    expect((ScreenCapture.preventScreenCaptureAsync as jest.Mock).mock.calls.length)
-      .toBe(initialPreventCalls)
+    // Listener must NOT have been re-armed.
     expect((ScreenCapture.addScreenshotListener as jest.Mock).mock.calls.length)
       .toBe(initialListenerCalls)
     expect(removeSpy).not.toHaveBeenCalled()
-    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
 
     // But firing the listener picks up the LATEST callback (the ref
     // pattern is what makes it safe to drop `onBannerShown` from the
@@ -170,46 +169,12 @@ describe('useScreenshotGuard — iOS', () => {
     expect(onBannerShown).toHaveBeenCalledTimes(1)
   })
 
-  it('calls preventScreenCaptureAsync on iOS for SCREEN-RECORDING protection (iOS 11+ system blur during capture)', () => {
-    // Locked 2026-05-08 (deferred-followups §AB / §AE) — extends iOS
-    // anti-fraud beyond just post-fact screenshot detection. iOS does
-    // NOT prevent screenshots (Apple has no API), but
-    // `expo-screen-capture.preventScreenCaptureAsync` does cover
-    // screen recording / mirroring on iOS 11+ via the system
-    // `UIScreen.isCaptured` observer + a blurred-snapshot overlay.
-    // Without this, a screen recording would capture the QR + the
-    // live ticking clock + the LIVE pulse — replay would defeat the
-    // live trust signals. WITH this, recordings capture a blurred
-    // view.
-    renderHook(() =>
-      useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
-    )
-    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
-  })
-
-  it('calls allowScreenCaptureAsync on unmount so other app screens are unaffected', () => {
-    const { unmount } = renderHook(() =>
-      useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
-    )
-    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
-    unmount()
-    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
-  })
-
-  it('survives preventScreenCaptureAsync rejection silently (best-effort contract; listener still installs)', () => {
-    ;(ScreenCapture.preventScreenCaptureAsync as jest.Mock).mockRejectedValueOnce(new Error('iOS unsupported'))
-    expect(() => {
-      renderHook(() =>
-        useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
-      )
-    }).not.toThrow()
-    // Listener still installs even if the screen-recording prevention failed.
-    expect(ScreenCapture.addScreenshotListener).toHaveBeenCalled()
-  })
 })
 
 // =========================================================================
-// Android — FLAG_SECURE blocks screenshots system-wide for the screen
+// Android — useScreenshotGuard is iOS-only; Android relies on
+// `useScreenCaptureProtection` (FLAG_SECURE blocks both screenshots
+// and recordings system-wide before the listener could fire).
 // =========================================================================
 
 describe('useScreenshotGuard — Android', () => {
@@ -217,41 +182,19 @@ describe('useScreenshotGuard — Android', () => {
     Platform.OS = 'android' as any
   })
 
-  it('calls preventScreenCaptureAsync on mount when active', () => {
-    renderHook(() =>
-      useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
-    )
-    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
-  })
-
-  it('calls allowScreenCaptureAsync on unmount', () => {
-    const { unmount } = renderHook(() =>
-      useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
-    )
-    unmount()
-    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
-  })
-
-  it('does NOT call preventScreenCaptureAsync when active=false', () => {
-    renderHook(() =>
-      useScreenshotGuard('A7K2P9X4', { active: false, onBannerShown: jest.fn() }),
-    )
-    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
-  })
-
-  it('does NOT install a listener on Android (no after-the-fact detect needed)', () => {
+  it('does NOT install a listener on Android (no after-the-fact detect needed; FLAG_SECURE handled by useScreenCaptureProtection)', () => {
     renderHook(() =>
       useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
     )
     expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
   })
 
-  it('survives preventScreenCaptureAsync rejection silently (best-effort contract)', () => {
-    ;(ScreenCapture.preventScreenCaptureAsync as jest.Mock).mockRejectedValueOnce(new Error('Permission'))
-    expect(() => {
-      renderHook(() =>
-        useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
-      )
-    }).not.toThrow()
+  it('does NOT call any prevent/allow native API (those moved to useScreenCaptureProtection)', () => {
+    const { unmount } = renderHook(() =>
+      useScreenshotGuard('A7K2P9X4', { active: true, onBannerShown: jest.fn() }),
+    )
+    unmount()
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
   })
 })

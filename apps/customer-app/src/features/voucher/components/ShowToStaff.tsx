@@ -21,6 +21,7 @@ import { useRedemptionPolling } from '../hooks/useRedemptionPolling'
 import { useBrightnessBoost } from '../hooks/useBrightnessBoost'
 import { useAutoHideTimer } from '../hooks/useAutoHideTimer'
 import { useScreenshotGuard } from '../hooks/useScreenshotGuard'
+import { useScreenCaptureProtection } from '../hooks/useScreenCaptureProtection'
 import type { VoucherType } from '@/lib/api/redemption'
 
 /**
@@ -226,11 +227,19 @@ export function ShowToStaff({
     active,
     frozen: poll.phase === 'validated',
   })
-  // Screenshot guard — best-effort. iOS post-fact listener; Android
-  // FLAG_SECURE. See `useScreenshotGuard` (Task 14) for the full
-  // contract. `active` mirrors the same gating as brightness/auto-hide
-  // so the guard is only engaged while the surface is visible AND the
-  // app is foregrounded.
+  // Screen-capture protection — cross-platform prevent/allow
+  // lifecycle. Android FLAG_SECURE blocks BOTH screenshots AND
+  // recordings; iOS 11+ overlays a blurred snapshot on active
+  // recordings/mirroring. Shared between `<ShowToStaff>` and
+  // `<SuccessPopup>` via this hook so both surfaces have the same
+  // baseline. Locked 2026-05-08, PR #49 final wave.
+  useScreenCaptureProtection(SCREENSHOT_GUARD_ENABLED && active)
+  // iOS post-fact screenshot listener. Apple has no screenshot-
+  // prevention API, so the listener fires AFTER iOS has written
+  // the screenshot to Photos; we then blur the QR + show a banner +
+  // post telemetry. See `useScreenshotGuard` for the full contract.
+  // `active` mirrors the same gating as the protection hook so both
+  // engage / disengage together.
   useScreenshotGuard(redemptionCode, {
     active: SCREENSHOT_GUARD_ENABLED && active,
     onBannerShown: () => setBlurReason('screenshot'),
