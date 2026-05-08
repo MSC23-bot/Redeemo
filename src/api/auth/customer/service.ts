@@ -106,7 +106,7 @@ export async function registerCustomer(
     phone: string
     marketingConsent: boolean
   } & LoginContext
-): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary }> {
+): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary; sessionId: string }> {
   if (!validatePasswordPolicy(data.password)) {
     throw new AppError('PASSWORD_POLICY_VIOLATION')
   }
@@ -154,7 +154,18 @@ export async function registerCustomer(
     deviceId: data.deviceId, deviceType: data.deviceType, deviceName: data.deviceName,
   })
 
-  return { accessToken: issued.accessToken, refreshToken: issued.refreshToken, user: issued.user }
+  // `sessionId` is REQUIRED on the customer-app's `authResponseSchema`
+  // (PR #50, deferred-followups §Y) — the refresh client posts
+  // `{ refreshToken, sessionId, entityId }` and reads sessionId from
+  // the auth response. Stripping it here would 500 the schema parse
+  // on a successful register and break fresh sign-up. Pinned by the
+  // backend contract test in `customer.test.ts`.
+  return {
+    accessToken:  issued.accessToken,
+    refreshToken: issued.refreshToken,
+    user:         issued.user,
+    sessionId:    issued.sessionId,
+  }
 }
 
 export async function verifyEmail(
@@ -250,7 +261,7 @@ export async function loginCustomer(
   redis: Redis,
   app: any,
   data: { email: string; password: string } & LoginContext
-): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary }> {
+): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary; sessionId: string }> {
   const user = await prisma.user.findUnique({ where: { email: data.email } })
 
   if (!user || !user.passwordHash) {
@@ -286,7 +297,18 @@ export async function loginCustomer(
     deviceId: data.deviceId, sessionId: issued.sessionId,
   })
 
-  return { accessToken: issued.accessToken, refreshToken: issued.refreshToken, user: issued.user }
+  // `sessionId` is REQUIRED on the customer-app's `authResponseSchema`
+  // (PR #50, deferred-followups §Y) — the refresh client posts
+  // `{ refreshToken, sessionId, entityId }` and reads sessionId from
+  // the auth response. Stripping it here would 500 the schema parse
+  // on a successful login and break fresh sign-in. Pinned by the
+  // backend contract test in `customer.test.ts`.
+  return {
+    accessToken:  issued.accessToken,
+    refreshToken: issued.refreshToken,
+    user:         issued.user,
+    sessionId:    issued.sessionId,
+  }
 }
 
 export async function refreshCustomerToken(
