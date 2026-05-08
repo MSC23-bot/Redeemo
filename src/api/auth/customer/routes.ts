@@ -77,8 +77,15 @@ export async function customerAuthRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  // Refresh token
-  app.post(`${prefix}/refresh`, async (req, reply) => {
+  // Refresh token. Rate-limited at 30/min/IP in prod so brute-force
+  // enumeration of refresh-token chains can't run at scale; legitimate
+  // sessions refresh ~once per 15 minutes per device, so 30/min/IP is
+  // generous enough to never false-positive on real users (including
+  // shared-IP / NAT scenarios). Locked 2026-05-08, deferred-followups
+  // §AC8 / §AD4.
+  app.post(`${prefix}/refresh`, {
+    config: { rateLimit: routeRateLimit('refresh') },
+  }, async (req, reply) => {
     const body = z.object({
       refreshToken: z.string(),
       sessionId:    z.string(),

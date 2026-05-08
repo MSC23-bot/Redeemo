@@ -12,6 +12,13 @@ export const ERROR_DEFINITIONS = {
   OTP_EXPIRED:                    { statusCode: 400, message: 'This code has expired. Please request a new one.' },
   OTP_MAX_ATTEMPTS:               { statusCode: 429, message: 'Too many incorrect attempts. Please try again in 5 minutes.' },
   REFRESH_TOKEN_INVALID:          { statusCode: 401, message: 'Your session has expired. Please log in again.' },
+  // Distinct from REFRESH_TOKEN_INVALID — fired when the previous mobile
+  // session was deliberately superseded by a newer login on another
+  // device. The customer app maps this to specific copy:
+  // "Your account was signed in on another device, so this session has
+  // ended." See `apps/customer-app/src/app-bootstrap/SessionExpiredBridge.tsx`.
+  // Locked product rule: one mobile device per account at a time.
+  SESSION_REPLACED:               { statusCode: 401, message: 'Your account was signed in on another device, so this session has ended.' },
   RESET_TOKEN_INVALID:            { statusCode: 400, message: 'This password reset link is invalid.' },
   RESET_TOKEN_EXPIRED:            { statusCode: 400, message: 'This password reset link has expired.' },
   MERCHANT_SUSPENDED:             { statusCode: 403, message: 'This merchant account is suspended.' },
