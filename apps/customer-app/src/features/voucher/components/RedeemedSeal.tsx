@@ -75,32 +75,34 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
           <Text variant="label.md" style={styles.title}>
             Voucher Redeemed
           </Text>
+          {/* Top-edge ink fade — wave 10 (locked 2026-05-09 from
+              owner's "still looks too clean" QA): 5 → 7px tall and
+              0.75 → 0.92 opacity. The top of letter ascenders is
+              now unmistakably faded — visible as a clear pale band
+              cutting into the upper third of "VOUCHER REDEEMED". */}
           <View style={styles.inkFadeTop} pointerEvents="none" />
-          {/* Ink-missing speckles. Five cream dots at varied
-              percentages + heights overlay the title at fixed
-              points. Sizes vary 3-4px; some round, some slightly
-              elongated — reads as natural ink-pressure variance
-              rather than a regular pattern. */}
-          <View
-            style={[styles.inkSpeckle, { top: 10, left: '14%', width: 3, height: 4 }]}
-            pointerEvents="none"
-          />
-          <View
-            style={[styles.inkSpeckle, { top: 19, left: '32%', width: 4, height: 3 }]}
-            pointerEvents="none"
-          />
-          <View
-            style={[styles.inkSpeckle, { top: 13, left: '52%', width: 3, height: 5 }]}
-            pointerEvents="none"
-          />
-          <View
-            style={[styles.inkSpeckle, { top: 21, left: '71%', width: 4, height: 3 }]}
-            pointerEvents="none"
-          />
-          <View
-            style={[styles.inkSpeckle, { top: 11, left: '88%', width: 3, height: 4 }]}
-            pointerEvents="none"
-          />
+          {/* Mid-stroke distress band — wave 10 addition. A second
+              thinner cream band cuts horizontally across the middle
+              of the letter strokes at ~55% down the line height.
+              Reads as "ink missing along this row", breaking up the
+              letter strokes the way a real rubber stamp does when
+              the rubber is uneven. Lower opacity (0.45) so it's
+              suggestive, not a solid line. */}
+          <View style={styles.inkFadeMid} pointerEvents="none" />
+          {/* Ink-missing speckles — wave 10 increases count 5 → 9
+              and sizes 3-5px → 4-7px and opacity 0.85 → 1.0 (solid
+              cream — "white dots" in the red ink). Positions are
+              hand-tuned to fall over letter strokes rather than
+              between letters. */}
+          <View style={[styles.inkSpeckle, { top: 9,  left: '8%',  width: 5, height: 5 }]} pointerEvents="none" />
+          <View style={[styles.inkSpeckle, { top: 17, left: '18%', width: 4, height: 5 }]} pointerEvents="none" />
+          <View style={[styles.inkSpeckle, { top: 22, left: '29%', width: 6, height: 4 }]} pointerEvents="none" />
+          <View style={[styles.inkSpeckle, { top: 11, left: '40%', width: 5, height: 6 }]} pointerEvents="none" />
+          <View style={[styles.inkSpeckle, { top: 19, left: '50%', width: 4, height: 4 }]} pointerEvents="none" />
+          <View style={[styles.inkSpeckle, { top: 14, left: '62%', width: 7, height: 5 }]} pointerEvents="none" />
+          <View style={[styles.inkSpeckle, { top: 23, left: '73%', width: 5, height: 4 }]} pointerEvents="none" />
+          <View style={[styles.inkSpeckle, { top: 10, left: '83%', width: 4, height: 6 }]} pointerEvents="none" />
+          <View style={[styles.inkSpeckle, { top: 20, left: '92%', width: 5, height: 4 }]} pointerEvents="none" />
         </View>
         {renewalLabel ? (
           <Text variant="label.md" style={styles.subtitle}>
@@ -210,36 +212,49 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0.5, height: 0.5 },
     textShadowRadius: 0,
   },
-  // Top-edge ink-pressure fade. Wave 9 (locked 2026-05-09 from
-  // owner reference): thicker (3 → 5px) and more opaque (0.55 →
-  // 0.75) so the top of letter ascenders is VISIBLY clipped — the
-  // rubber-stamp "rubber didn't fully press at the top" look the
-  // owner asked for in the reference screenshot. The cream band
-  // sits over the top of the glyphs; from a distance the letter
-  // tops read as cut/faded, but the lower 70% of each glyph is
-  // full red so letters are still unambiguously identifiable.
+  // Top-edge ink-pressure fade. Wave 10 (locked 2026-05-09 from
+  // owner's "still looks too clean" QA — bumped from wave 9's
+  // 5px@0.75 to 7px@0.92). The top quarter of letter ascenders
+  // is now unmistakably faded — reads as a visibly pale band
+  // cutting across the upper portion of "VOUCHER REDEEMED",
+  // exactly the rubber-stamp "rubber didn't press at the top"
+  // look from the owner reference screenshot. Sits over the top
+  // of glyphs at near-solid cream; the lower ~65% of each glyph
+  // is full red so letters remain unambiguously identifiable.
   inkFadeTop: {
     position: 'absolute',
-    top: 4,
+    top: 3,
     left: -8,
     right: -8,
-    height: 5,
-    backgroundColor: 'rgba(255, 246, 238, 0.75)',
+    height: 7,
+    backgroundColor: 'rgba(255, 246, 238, 0.92)',
   },
-  // Ink-missing speckles. Small cream dots overlaid on the title
-  // at percentage-based horizontal positions + varied vertical
-  // offsets simulate natural ink-pressure variance on a real
-  // rubber stamp. Owner direction: "we could have some dots,
-  // white dots in the text here and there, as if ink missing
-  // from certain parts of letters". Each speckle uses a small
-  // border-radius for a soft round/pill shape rather than crisp
-  // rectangles. Background opacity 0.85 — strong enough to read
-  // as ink missing, not strong enough to hide the underlying
-  // letter stroke.
+  // Mid-stroke distress band — wave 10 addition. Thinner cream
+  // band cuts horizontally across the middle of the letter
+  // strokes (~55% down the line box). Reads as "ink missing along
+  // this row", breaking up the letter strokes the way a real
+  // rubber stamp does when the rubber is uneven. Lower opacity
+  // (0.45) so it's suggestive of broken ink, not a solid line.
+  inkFadeMid: {
+    position: 'absolute',
+    top: 17,
+    left: -8,
+    right: -8,
+    height: 2,
+    backgroundColor: 'rgba(255, 246, 238, 0.45)',
+  },
+  // Ink-missing speckles. Wave 10 (locked 2026-05-09 from owner
+  // QA). Bumped from 5 cream-on-red dots @ 0.85 opacity → 9 dots
+  // @ 1.0 opacity (solid cream — "white dots in the red ink",
+  // matching the owner's literal phrasing). Sizes 4-7px (was
+  // 3-5px) so they're clearly visible against the letter strokes.
+  // Hand-positioned to fall over actual letter glyphs rather than
+  // gaps between letters; reads as natural ink-pressure variance
+  // on a real rubber stamp.
   inkSpeckle: {
     position: 'absolute',
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 246, 238, 0.85)',
+    borderRadius: 2.5,
+    backgroundColor: '#FFF6EE',
   },
   subtitle: {
     fontSize: 13,
