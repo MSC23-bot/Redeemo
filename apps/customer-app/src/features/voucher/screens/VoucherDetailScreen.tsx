@@ -1680,9 +1680,17 @@ export function VoucherDetailScreen() {
           redemptionCode={showToStaff.code}
           voucherTitle={voucher.title}
           voucherType={voucher.type}
-          // PR-B T1 — vertical-receipt payload. Both fields captured
-          // at open-time in `showToStaff` state so the surface stays
-          // stable across in-flight voucher refetches.
+          // PR-B T1 — vertical-receipt payload.  Captured in
+          // `showToStaff` state alongside the existing `branchName`
+          // snapshot for visual consistency on the receipt: branch
+          // attribution can flip mid-modal via the URL param +
+          // `displayBranch` resolver, and once we're snapshotting one
+          // identity field we keep the description + logo on the
+          // same snapshot rhythm.  `voucherTitle` / `voucherType` /
+          // `merchantName` continue to read from the live `voucher`
+          // query — voucher-level identity is stable mid-session by
+          // contract (voucher id doesn't change while the modal is
+          // open).
           voucherDescription={showToStaff.voucherDescription}
           merchantName={voucher.merchant.businessName}
           merchantLogoUrl={showToStaff.merchantLogoUrl}

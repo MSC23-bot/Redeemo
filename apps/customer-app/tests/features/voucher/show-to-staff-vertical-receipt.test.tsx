@@ -345,13 +345,13 @@ describe('ShowToStaff — anti-fraud + live signals (PR-B T1 regression pins)', 
   })
 
   it('live clock ticker still renders within the QR card (regression pin)', () => {
-    // The LiveClock component renders inside the code-card border.
-    // It uses the Hermes-robust formatter; we check that some date/time
-    // text is rendered (exact format pinned in showToStaffFormatters
-    // unit tests, not here).
+    // Pin the seconds-precision pattern unique to the LIVE clock —
+    // `formatShowToStaffLive` renders HH:MM:SS while the static
+    // `formatShowToStaffRedeemed` Redeemed row renders only HH:MM.
+    // A regex that matched both would let LiveClock be deleted
+    // entirely without failing the pin (caught in code review).
     const { getAllByText } = render(<ShowToStaff {...baseProps} />)
-    // The clock contains "May 2026" (formatShowToStaffLive pattern).
-    expect(getAllByText(/May 2026/).length).toBeGreaterThanOrEqual(1)
+    expect(getAllByText(/\d{2}:\d{2}:\d{2}/).length).toBeGreaterThanOrEqual(1)
   })
 
   it('validation pill transition still fires on validated phase (regression pin)', () => {

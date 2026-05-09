@@ -200,8 +200,13 @@ export function ShowToStaff({
   const blurred = blurReason !== null
 
   // Logo error tracking — graceful fallback to initials when remote
-  // image fails to load.
+  // image fails to load.  Reset whenever the URL changes so a stale
+  // error from URL-A doesn't permanently force initials when the
+  // component is reused with URL-B.  Today the parent unmounts the
+  // modal between sessions, but the reset keeps the component robust
+  // as a standalone unit.
   const [logoError, setLogoError] = useState(false)
+  useEffect(() => { setLogoError(false) }, [merchantLogoUrl])
   const showLogo = merchantLogoUrl !== null && !logoError
 
   // Building-block hooks — wired exactly as M3 baseline.
