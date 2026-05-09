@@ -33,6 +33,7 @@ import { HoursPreviewSheet } from '../components/HoursPreviewSheet'
 import { SuspendedBranchBanner } from '../components/SuspendedBranchBanner'
 import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
 import { useFavourite } from '@/hooks/useFavourite'
+import { deriveInitialOpenWriteFor } from '../utils/initialOpenWriteFor'
 import { useUserLocation } from '@/hooks/useLocation'
 import { MerchantHeadline } from '../components/MerchantHeadline'
 import { BranchContextBand } from '../components/BranchContextBand'
@@ -223,7 +224,67 @@ export function MerchantProfileScreen({ id }: Props) {
   // Skipped if the chip-picker / Other-Locations toast is already
   // pending — that path will run its own toast and the URL param is
   // a separate trigger.
-  const screenParams = useLocalSearchParams<{ branch?: string; tab?: string; branchChanged?: string }>()
+  const screenParams = useLocalSearchParams<{
+    branch?: string
+    tab?: string
+    branchChanged?: string
+    // PR-C T11 §0.3 LOCKED 2026-05-09: SuccessPopup's Rate & Review
+    // CTA (T13) writes these on the route URL so the Reviews tab
+    // auto-opens the WriteReviewSheet for the redeemed branch with
+    // the verified-redemption linkage.  Scrubbed below after the
+    // auto-open fires so back-nav doesn't re-trigger.
+    openWriteReview?: string
+    fromRedemption?:  string
+  }>()
+  // PR-C T11 §0.3 LOCKED 2026-05-09 — URL-driven Reviews-tab auto-open.
+  //
+  // Flow:
+  //   SuccessPopup Rate & Review CTA (T13) → router.push to this
+  //   route with ?tab=reviews&openWriteReview=1&fromRedemption=<id>
+  //   → here we read those params, force activeTab='reviews',
+  //   compute initialOpenWriteFor for ReviewsTab, scrub the
+  //   transient params from the URL.
+  //
+  // The scrub is critical: without it, swiping back from a
+  // descendant screen (or React Query refetch causing a re-render)
+  // re-triggers the auto-open useEffect inside ReviewsTab.  Mirrors
+  // the branchChanged=1 scrub pattern below.
+  const initialOpenWriteFor = useMemo(
+    () => deriveInitialOpenWriteFor(screenParams),
+    [screenParams.branch, screenParams.openWriteReview, screenParams.fromRedemption],
+  )
+
+  // Force the active tab to 'reviews' on mount when the URL says so.
+  // Runs once per URL-param-identity change.  Subsequent user taps
+  // via TabBar take precedence (no re-force).
+  const reviewsTabRequested = screenParams.tab === 'reviews'
+  const [reviewsTabForced, setReviewsTabForced] = useState(false)
+  useEffect(() => {
+    if (!reviewsTabRequested) return
+    if (reviewsTabForced) return
+    setActiveTab('reviews')
+    setReviewsTabForced(true)
+  }, [reviewsTabRequested, reviewsTabForced])
+
+  // Scrub openWriteReview + fromRedemption from the URL after the
+  // auto-open fires once.  Keeps `branch` and `tab` so the page
+  // doesn't re-mount or re-position; only strips the one-shot flags.
+  const [openWriteScrubbed, setOpenWriteScrubbed] = useState(false)
+  useEffect(() => {
+    if (openWriteScrubbed) return
+    if (!initialOpenWriteFor) return
+    if (!merchantId) return
+    setOpenWriteScrubbed(true)
+    const enc = encodeURIComponent
+    const tab = typeof screenParams.tab === 'string' ? screenParams.tab : 'reviews'
+    const branchPart = initialOpenWriteFor.branchId
+      ? `?branch=${enc(initialOpenWriteFor.branchId)}&tab=${enc(tab)}`
+      : `?tab=${enc(tab)}`
+    router.replace(
+      `/(app)/merchant/${enc(merchantId)}${branchPart}` as never,
+    )
+  }, [initialOpenWriteFor, openWriteScrubbed, merchantId, screenParams.tab])
+
   const branchChangedParam = screenParams.branchChanged
   useEffect(() => {
     if (branchChangedToastFired) return
@@ -710,6 +771,7 @@ export function MerchantProfileScreen({ id }: Props) {
               isMultiBranch={isMultiBranch}
               currentBranchCount={sb.reviewCount}
               allBranchesCount={merchant.reviewCount}
+              initialOpenWriteFor={initialOpenWriteFor}
             />
           )}
         </Animated.View>
