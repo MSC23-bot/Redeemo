@@ -61,6 +61,18 @@ type Props = {
   onRateReview?: () => void
 }
 
+// Secondary navy gradient — mirrors the navy gradient used by the
+// merchant-profile ActionRow Contact button (locked PR direction
+// 2026-05-09 §B).  PR-C T16 wave 3: visual-consistency change for
+// the Rate & Review CTA — Star + label on a filled navy gradient
+// instead of the previous brand-rose outlined pill.  Reads as
+// clearly secondary to the brand-gradient primary "View voucher
+// code" CTA above (saturated brand-rose vs cooler navy) while the
+// gradient fill confirms it's actionable, not disabled.  Matched
+// verbatim by the Voucher Detail "Share your experience" prompt
+// (`ReviewPromptCard`) so both entry points share one identity.
+const NAVY_GRADIENT = ['#010C35', '#1F2A55'] as const
+
 // en-GB / Europe/London formatter for the "Redeemed on" receipt row.
 // Hermes-CLDR-robust pattern — see `reference_london_clock_helper.md`
 // in memory.  No seconds — the receipt value is a permanent record.
@@ -400,7 +412,13 @@ export function SuccessPopup({
                     pressed && styles.ctaPressed,
                   ]}
                 >
-                  <Star size={16} color={color.brandRose} strokeWidth={2.4} />
+                  <LinearGradient
+                    colors={NAVY_GRADIENT}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                  <Star size={16} color={color.onBrand} strokeWidth={2.4} />
                   <Text variant="body.md" style={styles.rateReviewText}>
                     Rate & Review
                   </Text>
@@ -664,16 +682,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: spacing[1],
   },
-  // ── Rate & Review pill (PR-C T12 §0.3.1, refined T16 wave 2) ──
-  // Flat outlined pill, secondary register against the brand-gradient
-  // primary CTA above.  PR-C T16 device-QA fix wave 2 (locked
-  // 2026-05-09 owner direction §B): spacing widened so the pill
-  // breathes properly now that Done is gone — paddingVertical 11→12
-  // (48pt total tap height, clears HIG 44pt with margin),
-  // paddingHorizontal 16→22 (more lateral room for the Star + label
-  // pairing), gap 8→10 between glyph and text.  Border + colour
-  // unchanged (1px brand-rose 30% alpha + brand-rose Star + body.md
-  // text — all flat, no gradient, no shadow).
+  // ── Rate & Review pill (PR-C T12 §0.3.1, refined T16 wave 3) ──
+  // Filled navy gradient — secondary register against the brand-
+  // gradient primary CTA above.  PR-C T16 device-QA fix wave 3
+  // (LOCKED 2026-05-09 owner direction §B visual consistency):
+  // switched from the brand-rose OUTLINED pill to a filled NAVY
+  // gradient.  Mirrors the Contact button on the merchant-profile
+  // ActionRow so both surfaces share one secondary-action identity.
+  // Tap target: paddingVertical 12 + body.md lineHeight 24 = 48pt
+  // total (clears HIG 44pt with margin).  paddingHorizontal 22 +
+  // 10pt gap give comfortable breathing room around Star + label.
+  // Gradient + softer navy shadow read clearly tappable (NOT
+  // disabled) while staying visually subordinate to the warm brand-
+  // gradient primary above.
+  //
+  // overflow:hidden so the LinearGradient (which fills via
+  // StyleSheet.absoluteFillObject) stays inside the rounded corners.
   rateReviewPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -681,12 +705,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 22,
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(226, 12, 4, 0.30)',
-    backgroundColor: 'transparent',
+    overflow: 'hidden',
+    shadowColor: color.navy,
+    shadowOpacity: 0.20,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
   rateReviewText: {
-    color: color.brandRose,
+    color: color.onBrand,
     fontWeight: '700',
     letterSpacing: 0.1,
   },

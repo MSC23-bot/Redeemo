@@ -1,5 +1,6 @@
 import React from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 import { Star } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, radius, spacing } from '@/design-system/tokens'
@@ -8,6 +9,14 @@ import { lightHaptic } from '@/design-system/haptics'
 type Props = {
   onPress: () => void
 }
+
+// Secondary navy gradient — mirrors the navy gradient used by the
+// merchant-profile ActionRow Contact button AND SuccessPopup's
+// Rate & Review pill (locked PR direction 2026-05-09 §B visual
+// consistency).  Switched from the earlier brand-rose outlined
+// pill so both verified-review entry points share one secondary-
+// action identity.
+const NAVY_GRADIENT = ['#010C35', '#1F2A55'] as const
 
 /**
  * ReviewPromptCard — second entry point into the verified-review
@@ -21,17 +30,19 @@ type Props = {
  * affordance for the just-redeemed moment; this surface picks up
  * the slack on subsequent visits during the active cycle.
  *
- * Visual hierarchy (owner-locked):
+ * Visual hierarchy (owner-locked, refined T16 wave 3):
  *   - SECONDARY to the staff-handoff / code actions on
- *     RedemptionDetailsCard above.  No brand-gradient fill, no
- *     coloured shadow — flat warm-cream surface with a subtle
- *     border.  Reads as a calm prompt, not a competing CTA.
+ *     RedemptionDetailsCard above.  Cream-tinted card surface, 1px
+ *     hairline border — quiet container that doesn't compete.
  *   - Heading + body lift the framing from "leave a review" (admin
  *     task) to "share your experience" (positive contribution).
- *   - Outlined pill matches SuccessPopup's Rate & Review treatment
- *     verbatim so the affordance reads as the same action across
- *     both entry points (1px brand-rose 30% alpha border, brand-
- *     rose Star icon, body.md text, ≥44pt tap target).
+ *   - Filled NAVY GRADIENT pill matches SuccessPopup's Rate & Review
+ *     treatment verbatim so the affordance reads as the same action
+ *     across both entry points (Star + label, white-on-navy, ≥44pt
+ *     tap target via paddingVertical 12 + body.md lineHeight 24 =
+ *     48pt).  Reads clearly tappable (gradient fill confirms
+ *     actionable, not disabled) while staying subordinate to the
+ *     warm brand-gradient primary CTAs elsewhere on the page.
  *
  * Visibility + routing live on the parent (VoucherDetailScreen) —
  * this component is purely presentational.  Parent gates on
@@ -54,7 +65,13 @@ export function ReviewPromptCard({ onPress }: Props) {
         onPress={() => { lightHaptic(); onPress() }}
         style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
       >
-        <Star size={16} color={color.brandRose} strokeWidth={2.4} />
+        <LinearGradient
+          colors={NAVY_GRADIENT}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <Star size={16} color={color.onBrand} strokeWidth={2.4} />
         <Text variant="body.md" style={styles.ctaText}>
           Rate & Review
         </Text>
@@ -86,25 +103,30 @@ const styles = StyleSheet.create({
     color: color.text.secondary,
     marginBottom: spacing[2],
   },
-  // Flat outlined pill — verbatim treatment from SuccessPopup's
-  // rateReviewPill (T12).  Same brand-rose 30% alpha border + Star
-  // glyph + body.md text + 44pt+ tap height (paddingVertical 11 +
-  // body.md lineHeight 24 = 46pt).  alignSelf flex-start so the
-  // pill hugs its content rather than stretching to the card width.
+  // Filled navy gradient pill — verbatim treatment from
+  // SuccessPopup's rateReviewPill (T16 wave 3, locked 2026-05-09
+  // §B visual consistency).  alignSelf flex-start so the pill hugs
+  // its content rather than stretching to the card width.
+  // overflow:hidden so the LinearGradient (absolute-fill) stays
+  // inside the rounded corners.  Tap target: paddingVertical 12 +
+  // body.md lineHeight 24 = 48pt total (clears HIG 44pt minimum).
   cta: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    gap: spacing[2],
-    paddingVertical: 11,
-    paddingHorizontal: spacing[4],
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(226, 12, 4, 0.30)',
-    backgroundColor: 'transparent',
+    overflow: 'hidden',
+    shadowColor: color.navy,
+    shadowOpacity: 0.20,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
   ctaText: {
-    color: color.brandRose,
+    color: color.onBrand,
     fontWeight: '700',
     letterSpacing: 0.1,
   },
