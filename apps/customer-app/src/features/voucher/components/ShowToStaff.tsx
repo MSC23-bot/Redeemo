@@ -5,7 +5,6 @@ import {
   Image,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
 } from 'react-native'
@@ -34,24 +33,51 @@ import { SCREENSHOT_GUARD_ENABLED } from '../hooks/screenshotGuardConfig'
 import type { VoucherType } from '@/lib/api/redemption'
 
 /**
- * Show-to-Staff full-screen surface — vertical receipt register
- * (PR-B T1, locked 2026-05-09).
+ * Show-to-Staff full-screen surface — navy-gradient compact trust
+ * surface (PR-B T8c, locked 2026-05-09 from device-QA blockers).
  *
- * **Register shift from M3 baseline.** The previous brand-red gradient
- * "QR card" surface read as a generic mobile coupon screen. PR-B
- * shifts to an "official document" / Apple Wallet pass / boarding-pass
- * register: cream identity zone at the top (Redeemo wordmark + close),
- * eyebrow + voucher title + description, merchant logo + branch row,
- * the QR + code as the visual anchor (kept inside the existing animated
- * brand-rose border + LIVE pulse + ticking en-GB London datetime), and
- * a "Verified through Redeemo" footer. The screen IS the proof of
- * redemption — see brief §3.1 + §5.1 for the full design contract.
+ * **Register shift from PR-B T1 vertical receipt.** T1 introduced a
+ * cream "official document" / Apple Wallet pass register that read
+ * well in light environments but on-device QA found three blockers:
  *
- * **Locked / preserved verbatim from M3:**
+ *   1. Layout DID NOT FIT — content clipped at the bottom of iPhone SE
+ *      1st gen (375×667) at default Dynamic Type. The page is NOT
+ *      scrollable by product direction, so a no-scroll fit is required.
+ *   2. Done button + voucher description weren't visible on the QA
+ *      device because they were pushed offscreen by the cream layout.
+ *   3. The cream document register blended too closely with normal app
+ *      surfaces — staff-trust signal needed to read distinctly.
+ *
+ * T8c shifts to a navy gradient with a subtle warm brand-rose glow:
+ * outermost layer is `['#010C35', '#1F2A55']` (matches NAVY_GRADIENT
+ * used on ActionRow Contact button cross-surface), with a second
+ * brand-rose-tinted gradient overlaid at low alpha to create a "warm
+ * glow behind the QR" feel (RN doesn't ship radial gradients native).
+ * Layout is compressed to a single screen at default Dynamic Type
+ * with NO ScrollView — every section sized so the total fits 667pt
+ * minus safe-areas. The X close icon top-right is the only dismissal
+ * affordance (matches the locked PR-A §C decision; no bottom Done
+ * button — see brief §"Done button / X close" interpretation (a)).
+ *
+ * **Layout fit math (iPhone SE 1st gen, 375 × 667pt, default DT):**
+ *   safe-area top (20) + 16 padding              =  36
+ *   compact header (28pt logo + close + 12 pad)  =  60
+ *   eyebrow + voucher title (heading.md 18/24)   =  44
+ *   voucher description (body.sm × 2 lines max)  =  42
+ *   merchant row (single line, tight)            =  44
+ *   QR card border + inner pads + QR(200) + ...  = 360
+ *   safe-area bottom                             =   0
+ *   ----------------------------------------------------
+ *   total                                        ≈ 586  (fits 667 ✓)
+ *
+ * **Locked / preserved verbatim from M3 (anti-fraud surfaces):**
  *   - 8-character 4+4 redemption code (formatRedemptionCode).
- *   - QRCodeBlock (M3 Task 9) — QR + Redeemo R logo overlay + blur.
+ *   - QRCodeBlock — QR + Redeemo R logo overlay + blur. QR remains on
+ *     a WHITE inner card so QR-scanner contrast (black-on-white) stays
+ *     readable under the navy gradient bg.
  *   - PulsingDot LIVE badge.
- *   - Animated brand-rose code-card border.
+ *   - Animated brand-rose code-card border (the LinearGradient that
+ *     wraps the QR + LIVE pulse + 4+4 code + datetime ticker).
  *   - Live datetime ticker (Hermes-robust formatter).
  *   - useRedemptionPolling — `enabled` driven by `visible`, `paused`
  *     by AppState !== 'active' so backgrounded time still consumes the
@@ -66,24 +92,27 @@ import type { VoucherType } from '@/lib/api/redemption'
  *   - Validated transition haptic + 2 s auto-dismiss + onDone.
  *   - Reduced-motion paths.
  *
- * **NEW props in PR-B:**
- *   - `voucherDescription: string | null` — voucher.description from
- *     the customer voucher payload. Renders a 3-line ellipsis block
- *     beneath the voucher title.
- *   - `merchantLogoUrl: string | null` — voucher.merchant.logoUrl.
- *     Renders a 48 × 48 logo, OR collapses to merchant initials in a
- *     cream-tint circle when null, OR falls back to initials when the
- *     `<Image onError>` fires.
+ * **PR-B T1 props preserved:**
+ *   - `voucherDescription: string | null` — voucher description block
+ *     beneath the title. Truncated to 2 lines (was 3 in T1) so the
+ *     navy-gradient surface fits without scroll on 375×667.
+ *   - `merchantLogoUrl: string | null` — 36 × 36 logo (was 48×48 in T1
+ *     — compressed for the no-scroll fit), OR initials fallback in a
+ *     navy-tint circle, OR onError fallback to initials.
  *
  * **Customer name (M3 §U1):** `customerName=""` is the locked M3
- * default. The Customer info row is suppressed when the prop is empty.
- * Forward-compat: passing a real name renders the row.
+ * default. We retain the prop and the suppression behaviour for
+ * forward-compat, but the Customer info row is no longer rendered as a
+ * full-width row in T8c — the navy-gradient compact register replaces
+ * the M3 "info card" (Voucher Type / Redeemed / Customer rows) with a
+ * lean Voucher-Type chip + an inline Redeemed timestamp inside the QR
+ * card area.
  *
  * **Brightness-boost kill-switch (locked owner direction 2026-05-08):**
  * Brightness boost is best-effort and fail-safe — flipping
  * `BRIGHTNESS_BOOST_ENABLED` to `false` disables the boost without
  * touching anything else. The QR, code, polling, auto-hide, AppState
- * wiring, validated transition, and Done button are all independent.
+ * wiring, and validated transition are all independent.
  */
 
 const AUTO_DISMISS_MS = 2_000
@@ -99,18 +128,27 @@ const BRIGHTNESS_BOOST_ENABLED = true
 // (shared with VoucherDetailScreen — locked 2026-05-09 from
 // deferred-followups §AG5). Imported above. Same fail-safe semantics.
 
+/**
+ * Navy gradient — base trust-surface treatment. Mirrors
+ * NAVY_GRADIENT in ActionRow.tsx so cross-surface visual identity
+ * stays consistent (Contact button, Review prompt, Success popup).
+ */
+const NAVY_GRADIENT = ['#010C35', '#1F2A55'] as const
+
 type Props = {
   visible: boolean
   redemptionCode: string
   voucherTitle: string
   voucherType: VoucherType
-  /** PR-B T1 — voucher.description (string | null). Renders a 3-line
-   *  ellipsis block beneath the voucher title when non-null. */
+  /** PR-B T1 — voucher.description (string | null). Renders a 2-line
+   *  ellipsis block beneath the voucher title when non-null.
+   *  (T1 used 3 lines; T8c compresses to 2 for the no-scroll fit.) */
   voucherDescription: string | null
   merchantName: string
   /** PR-B T1 — voucher.merchant.logoUrl (string | null). Renders a
-   *  48 × 48 logo when non-null, collapses to merchant initials in a
-   *  cream-tint circle when null OR when the `<Image onError>` fires. */
+   *  36 × 36 logo when non-null, collapses to merchant initials in a
+   *  navy-tint circle when null OR when the `<Image onError>` fires.
+   *  (T1 used 48×48; T8c compresses to 36 for the no-scroll fit.) */
   merchantLogoUrl: string | null
   branchName: string
   /** M3 lock — see §U1 in deferred-followups. Pass empty string. */
@@ -153,8 +191,8 @@ function LiveClock({ active }: { active: boolean }) {
 
   return (
     <View style={styles.liveDatetimeRow}>
-      <Clock size={16} color={color.brandRose} />
-      <Text variant="heading.md" style={styles.liveDatetimeText}>
+      <Clock size={14} color={color.brandRose} />
+      <Text variant="label.lg" style={styles.liveDatetimeText}>
         {display}
       </Text>
     </View>
@@ -202,9 +240,7 @@ export function ShowToStaff({
   // Logo error tracking — graceful fallback to initials when remote
   // image fails to load.  Reset whenever the URL changes so a stale
   // error from URL-A doesn't permanently force initials when the
-  // component is reused with URL-B.  Today the parent unmounts the
-  // modal between sessions, but the reset keeps the component robust
-  // as a standalone unit.
+  // component is reused with URL-B.
   const [logoError, setLogoError] = useState(false)
   useEffect(() => { setLogoError(false) }, [merchantLogoUrl])
   const showLogo = merchantLogoUrl !== null && !logoError
@@ -259,10 +295,13 @@ export function ShowToStaff({
   const formattedCode = formatRedemptionCode(redemptionCode)
   const redeemedDisplay = formatShowToStaffRedeemed(new Date(redeemedAt))
 
-  // Identity-zone padding honours the device safe-area top so the cream
-  // band absorbs the notch / Dynamic Island clearance per brief §9.2.
+  // Identity-zone padding honours the device safe-area top so the
+  // navy gradient absorbs the notch / Dynamic Island clearance.
   const identityZonePaddingTop = (insets.top ?? 0) + 16
-  const footerPaddingBottom = (insets.bottom ?? 0) + 12
+  // Bottom safe-area on iPhone SE 1st gen is 0 — but on home-bar
+  // devices we still want clearance so the QR card doesn't bleed into
+  // the indicator. Min 12 keeps a visual rhythm even at SE.
+  const bottomPad = Math.max((insets.bottom ?? 0) + 8, 12)
 
   return (
     <Modal
@@ -271,26 +310,48 @@ export function ShowToStaff({
       presentationStyle="fullScreen"
       onRequestClose={onDone}
     >
-      {/* Cream document body — replaces the M3 brand-red gradient. The
-          surface now reads as an "official document" / Apple Wallet
-          pass under both ambient light + customer-side brightness boost.
-          Anchor refs: brief §3.1. */}
+      {/* Outermost layer — navy gradient trust surface. Replaces the
+          T1 cream document register; matches NAVY_GRADIENT used on
+          ActionRow Contact button + ReviewPromptCard + SuccessPopup
+          for cross-surface visual consistency. */}
       <LinearGradient
-        colors={[color.cream, '#FCF0E5']}
+        colors={NAVY_GRADIENT}
         locations={[0, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={styles.background}
       >
-        {/* Cream identity zone — Redeemo wordmark (left) + close (right). */}
+        {/* Subtle warm brand-rose glow overlay — positioned diagonally
+            from the top-right toward the QR card area. RN doesn't have
+            radial gradients; we approximate the "glow behind the QR"
+            feel with a low-alpha linear gradient angled into the QR
+            position. pointerEvents='none' so taps pass through to the
+            tap-surface below. */}
+        <LinearGradient
+          colors={[
+            'rgba(226,12,4,0.18)',
+            'rgba(232,74,0,0.12)',
+            'rgba(1,12,53,0)',
+          ]}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.warmGlow}
+          pointerEvents="none"
+        />
+
+        {/* Compact identity zone — Redeemo logo (left, prominent at
+            28pt) + close icon (right). Replaces the T1 cream band so
+            the navy gradient flows uninterrupted; the prominent
+            Redeemo logo carries identity that the dropped footer used
+            to hold. */}
         <View
           style={[styles.identityZone, { paddingTop: identityZonePaddingTop }]}
           testID="show-to-staff-identity-zone"
         >
           <View style={styles.identityZoneLeft}>
-            <RedeemoLogo size={24} />
+            <RedeemoLogo size={28} />
             <Text
-              variant="heading.sm"
+              variant="heading.md"
               style={styles.identityWordmark}
               testID="show-to-staff-redeemo-wordmark"
             >
@@ -308,251 +369,224 @@ export function ShowToStaff({
               pressed && styles.closeButtonPressed,
             ]}
           >
-            <X size={20} color={color.text.secondary} />
+            <X size={20} color={color.onBrand} />
           </Pressable>
         </View>
 
         {/* Tap surface — resets the auto-hide timer on any non-button
-            tap inside the document body. Wraps the scrolling content
-            so the cream identity zone + footer aren't part of the tap
-            target (would feel weird if pressing the close-icon area
-            also reset the timer). */}
+            tap. Wraps the body so taps on the identity zone X-icon
+            don't accidentally reset the timer. */}
         <Pressable
-          style={styles.bodyTapSurface}
+          style={[styles.bodyTapSurface, { paddingBottom: bottomPad }]}
           onPress={resetTimer}
           accessibilityRole="none"
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Eyebrow — "VERIFIED VOUCHER" in brand-rose. */}
-            <View style={styles.eyebrowBlock}>
-              <Text
-                variant="label.eyebrow"
-                style={styles.eyebrowText}
-                testID="show-to-staff-eyebrow"
-              >
-                Verified Voucher
-              </Text>
-            </View>
+          {/* Eyebrow — "VERIFIED VOUCHER" in brand-rose. Reads
+              against the navy bg with strong contrast. */}
+          <View style={styles.eyebrowBlock}>
+            <Text
+              variant="label.eyebrow"
+              style={styles.eyebrowText}
+              testID="show-to-staff-eyebrow"
+            >
+              Verified Voucher
+            </Text>
+          </View>
 
-            {/* Voucher info — title + description (3 lines, ellipsis). */}
-            <View style={styles.voucherInfoBlock}>
+          {/* Voucher info — title (white) + description (white@85%,
+              max 2 lines for the no-scroll fit). The description was
+              missing from device QA on T1; T8c keeps it visible. */}
+          <View style={styles.voucherInfoBlock}>
+            <Text
+              variant="heading.md"
+              style={styles.voucherTitle}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              testID="show-to-staff-voucher-title"
+            >
+              {voucherTitle}
+            </Text>
+            {voucherDescription ? (
               <Text
-                variant="heading.md"
-                style={styles.voucherTitle}
-                testID="show-to-staff-voucher-title"
+                variant="body.sm"
+                style={styles.voucherDescription}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+                testID="show-to-staff-voucher-description"
               >
-                {voucherTitle}
+                {voucherDescription}
               </Text>
-              {voucherDescription ? (
-                <Text
-                  variant="body.md"
-                  style={styles.voucherDescription}
-                  numberOfLines={3}
-                  ellipsizeMode="tail"
-                  testID="show-to-staff-voucher-description"
-                >
-                  {voucherDescription}
-                </Text>
-              ) : null}
-            </View>
+            ) : null}
+          </View>
 
-            {/* Merchant block — logo (or initials) + name + branch. */}
-            <View style={styles.merchantBlock}>
-              {showLogo ? (
-                <Image
-                  testID="show-to-staff-merchant-logo"
-                  accessibilityLabel={`${merchantName} logo`}
-                  source={{ uri: merchantLogoUrl ?? undefined }}
-                  style={styles.merchantLogo}
-                  onError={() => setLogoError(true)}
-                />
-              ) : (
-                <View
-                  style={styles.merchantInitialsCircle}
-                  testID="show-to-staff-merchant-initials"
-                  accessibilityLabel={`${merchantName} logo`}
-                >
-                  <Text
-                    variant="heading.sm"
-                    style={styles.merchantInitialsText}
-                  >
-                    {getInitials(merchantName)}
-                  </Text>
-                </View>
-              )}
-              <View style={styles.merchantText}>
-                <Text
-                  variant="heading.sm"
-                  style={styles.merchantName}
-                  numberOfLines={1}
-                  testID="show-to-staff-merchant-name"
-                >
-                  {merchantName}
-                </Text>
+          {/* Compact merchant row — small logo OR initials + name (white)
+              + branch (white@70%). Logo size dropped from 48 to 36 for
+              fit. */}
+          <View style={styles.merchantBlock}>
+            {showLogo ? (
+              <Image
+                testID="show-to-staff-merchant-logo"
+                accessibilityLabel={`${merchantName} logo`}
+                source={{ uri: merchantLogoUrl ?? undefined }}
+                style={styles.merchantLogo}
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <View
+                style={styles.merchantInitialsCircle}
+                testID="show-to-staff-merchant-initials"
+                accessibilityLabel={`${merchantName} logo`}
+              >
                 <Text
                   variant="label.lg"
-                  style={styles.merchantBranch}
-                  numberOfLines={1}
-                  testID="show-to-staff-branch"
+                  style={styles.merchantInitialsText}
                 >
-                  {branchName}
+                  {getInitials(merchantName)}
                 </Text>
               </View>
+            )}
+            <View style={styles.merchantText}>
+              <Text
+                variant="heading.sm"
+                style={styles.merchantName}
+                numberOfLines={1}
+                testID="show-to-staff-merchant-name"
+              >
+                {merchantName}
+              </Text>
+              <Text
+                variant="label.md"
+                style={styles.merchantBranch}
+                numberOfLines={1}
+                testID="show-to-staff-branch"
+              >
+                {branchName}
+              </Text>
             </View>
+          </View>
 
-            {/* QR anchor — animated brand-rose border (preserved verbatim
-                from M3) wraps QR + LIVE badge + 4+4 code. The
-                "alive" anti-fraud signals (LIVE pulse + live datetime
-                ticker) animate inside this card. */}
-            <LinearGradient
-              colors={['#FFFFFF', 'rgba(255,255,255,0.5)', '#FCD34D', '#FFFFFF']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.codeCardBorder}
-              testID="show-to-staff-code-card-border"
-            >
-              <View style={styles.codeCardInner}>
-                {/* LIVE badge — preserved verbatim. */}
-                <View style={styles.liveRow}>
-                  <View style={styles.liveBadge}>
-                    <PulsingDot color={color.brandRose} size={7} />
-                    <Text variant="label.eyebrow" style={styles.liveText}>
-                      LIVE
-                    </Text>
-                  </View>
+          {/* QR anchor — animated brand-rose border (preserved verbatim)
+              wraps a WHITE inner card so QR contrast (black-on-white)
+              stays scanner-readable. The "alive" anti-fraud signals
+              (LIVE pulse + live datetime ticker) animate inside this
+              card. */}
+          <LinearGradient
+            colors={['#FFFFFF', 'rgba(255,255,255,0.5)', '#FCD34D', '#FFFFFF']}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={styles.codeCardBorder}
+            testID="show-to-staff-code-card-border"
+          >
+            <View style={styles.codeCardInner}>
+              {/* Top row: voucher-type chip (left) + LIVE badge (right).
+                  Folds the M3 "Voucher Type" info row into a compact
+                  chip on the QR card. Customer name still suppressed
+                  on empty (M3 §U1) — no row visible at all. */}
+              <View style={styles.topRow}>
+                <View style={styles.typeChip}>
+                  <Text variant="label.md" style={styles.typeChipText}>
+                    {voucherTypeLabel(voucherType)}
+                  </Text>
                 </View>
-
-                {/* QR — blurred when EITHER (a) iOS screenshot listener
-                    fired OR (b) auto-hide timer reached 'hidden'. Tap on
-                    the blurred QR clears the blur AND resets the
-                    auto-hide timer. */}
-                <View style={styles.qrWrapper}>
-                  <QRCodeBlock
-                    value={redemptionCode}
-                    size={160}
-                    hero
-                    testID="show-to-staff-qr"
-                    blurred={blurred}
-                    onShow={() => {
-                      setBlurReason(null)
-                      resetTimer()
-                    }}
-                  />
-                </View>
-
-                {/* Code value (4+4) — preserved verbatim. */}
-                <Text
-                  variant="display.lg"
-                  align="center"
-                  style={styles.codeValue}
-                  testID="show-to-staff-code"
-                >
-                  {formattedCode}
-                </Text>
-
-                {/* Live datetime ticker — anti-fraud signal. */}
-                <View style={styles.liveDatetimeWrapper}>
-                  <LiveClock active={active} />
+                <View style={styles.liveBadge}>
+                  <PulsingDot color={color.brandRose} size={6} />
+                  <Text variant="label.eyebrow" style={styles.liveText}>
+                    LIVE
+                  </Text>
                 </View>
               </View>
-            </LinearGradient>
 
-            {/* Info card — Voucher Type + Redeemed + (optional) Customer
-                rows. Preserved as-is from M3 per brief §11 "All other
-                copy unchanged from M3". Sits beneath the QR anchor as
-                supplementary metadata; the receipt's primary
-                identity-and-anchor stack is above. */}
-            <View style={styles.infoCard}>
+              {/* QR — blurred when EITHER (a) iOS screenshot listener
+                  fired OR (b) auto-hide timer reached 'hidden'. Tap on
+                  the blurred QR clears the blur AND resets the
+                  auto-hide timer. */}
+              <View style={styles.qrWrapper}>
+                <QRCodeBlock
+                  value={redemptionCode}
+                  size={160}
+                  hero
+                  testID="show-to-staff-qr"
+                  blurred={blurred}
+                  onShow={() => {
+                    setBlurReason(null)
+                    resetTimer()
+                  }}
+                />
+              </View>
+
+              {/* Code value (4+4) — preserved verbatim. */}
+              <Text
+                variant="display.md"
+                align="center"
+                style={styles.codeValue}
+                testID="show-to-staff-code"
+              >
+                {formattedCode}
+              </Text>
+
+              {/* Bottom row: live datetime ticker + redeemed timestamp.
+                  Folds the M3 "Redeemed" info row into a compact line
+                  alongside the LIVE clock. Anti-fraud signal — LIVE
+                  clock ticks every second per the regression pin. */}
+              <View style={styles.cardFooterRow}>
+                <LiveClock active={active} />
+                <View style={styles.redeemedInline}>
+                  <Text variant="label.md" style={styles.redeemedLabel}>
+                    Redeemed {redeemedDisplay}
+                  </Text>
+                </View>
+              </View>
               {showCustomerRow ? (
-                <View style={styles.infoRow}>
-                  <Text variant="body.sm" style={styles.infoLabel}>Customer</Text>
-                  <Text variant="body.sm" style={styles.infoValue}>{customerName}</Text>
+                <View style={styles.customerInline}>
+                  <Text variant="label.md" style={styles.customerLabel}>
+                    Customer
+                  </Text>
+                  <Text variant="label.md" style={styles.customerValue}>
+                    {customerName}
+                  </Text>
                 </View>
               ) : null}
-              <View style={styles.infoRow}>
-                <Text variant="body.sm" style={styles.infoLabel}>Voucher Type</Text>
-                <Text variant="body.sm" style={styles.infoValue}>
-                  {voucherTypeLabel(voucherType)}
-                </Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text variant="body.sm" style={styles.infoLabel}>Redeemed</Text>
-                <Text variant="body.sm" style={styles.infoValue}>{redeemedDisplay}</Text>
-              </View>
             </View>
+          </LinearGradient>
 
-            {/* Blur reason banner — surfaces only while blurred AND not
-                yet validated. Distinct copy per source. Tapping the QR
-                clears blur via onShow + resets the auto-hide timer. */}
-            {blurReason === 'screenshot' && !isValidated ? (
-              <View style={styles.blurReasonBanner}>
-                <Text variant="label.md" style={styles.blurReasonBannerText}>
-                  Screenshot detected. Staff verify only the live screen. Tap the QR to show again.
-                </Text>
-              </View>
-            ) : null}
-            {blurReason === 'auto-hide' && !isValidated ? (
-              <View style={styles.blurReasonBanner}>
-                <Text variant="label.md" style={styles.blurReasonBannerText}>
-                  QR hidden after 2 minutes of inactivity. Tap the QR to show again.
-                </Text>
-              </View>
-            ) : null}
-
-            {/* Validated overlay — the savings-green pill takes the place
-                of the redemption code as the load-bearing signal once
-                staff has scanned. Auto-dismisses 2 s after entry. */}
-            {isValidated ? (
-              <View style={styles.validatedRow}>
-                <ShieldCheck size={18} color="#FFFFFF" />
-                <Text variant="heading.sm" style={styles.validatedText}>
-                  Verified by staff at {branchName}
-                </Text>
-              </View>
-            ) : null}
-
-            {/* Auto-hide warning hint — surfaces 10 s before the QR
-                hides. Inline copy above the Done button. */}
-            {hideState === 'warning' && !isValidated ? (
-              <Text variant="label.md" align="center" style={styles.warningHint}>
-                QR will hide in 10 seconds. Tap to keep visible.
+          {/* Blur reason banner — surfaces only while blurred AND not
+              yet validated. Distinct copy per source. */}
+          {blurReason === 'screenshot' && !isValidated ? (
+            <View style={styles.blurReasonBanner}>
+              <Text variant="label.md" style={styles.blurReasonBannerText}>
+                Screenshot detected. Staff verify only the live screen. Tap the QR to show again.
               </Text>
-            ) : null}
+            </View>
+          ) : null}
+          {blurReason === 'auto-hide' && !isValidated ? (
+            <View style={styles.blurReasonBanner}>
+              <Text variant="label.md" style={styles.blurReasonBannerText}>
+                QR hidden after 2 minutes of inactivity. Tap the QR to show again.
+              </Text>
+            </View>
+          ) : null}
 
-            {/* Done button — primary dismiss path; close-icon in the
-                identity zone is the secondary path. Both route to
-                onDone. */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Done"
-              onPress={() => { lightHaptic(); onDone() }}
-              style={({ pressed }) => [
-                styles.doneBtn,
-                pressed && styles.doneBtnPressed,
-              ]}
-            >
-              <Text variant="heading.sm" style={styles.doneBtnText}>Done</Text>
-            </Pressable>
-          </ScrollView>
+          {/* Validated overlay — savings-green pill replaces the
+              redemption code as the load-bearing signal once staff
+              has scanned. Auto-dismisses 2 s after entry. */}
+          {isValidated ? (
+            <View style={styles.validatedRow}>
+              <ShieldCheck size={18} color="#FFFFFF" />
+              <Text variant="heading.sm" style={styles.validatedText}>
+                Verified by staff at {branchName}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Auto-hide warning hint — surfaces 10 s before the QR
+              hides. Inline copy below the QR card. */}
+          {hideState === 'warning' && !isValidated ? (
+            <Text variant="label.md" align="center" style={styles.warningHint}>
+              QR will hide in 10 seconds. Tap to keep visible.
+            </Text>
+          ) : null}
         </Pressable>
 
-        {/* Footer — "Verified through Redeemo" wordmark on a neutral
-            tint. Sits outside the scroll area so it stays anchored at
-            the bottom of the document body. */}
-        <View
-          style={[styles.footer, { paddingBottom: footerPaddingBottom }]}
-        >
-          <Text
-            variant="label.md"
-            style={styles.footerText}
-            testID="show-to-staff-footer"
-          >
-            Verified through Redeemo
-          </Text>
-        </View>
       </LinearGradient>
     </Modal>
   )
@@ -562,44 +596,47 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
   },
+  warmGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   identityZone: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing[4],
-    paddingBottom: 12,
-    minHeight: 64,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(1,12,53,0.08)',
+    paddingBottom: 8,
+    minHeight: 48,
   },
   identityZoneLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   identityWordmark: {
-    color: color.text.primary,
-    letterSpacing: 0.2,
+    color: color.onBrand,
+    letterSpacing: 0.4,
+    fontFamily: 'Lato-Bold',
   },
   closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(1,12,53,0.04)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
   closeButtonPressed: {
-    backgroundColor: 'rgba(1,12,53,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.20)',
     transform: [{ scale: 0.96 }],
   },
   bodyTapSurface: {
     flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 32,
+    paddingHorizontal: 20,
+    paddingTop: 8,
     alignItems: 'stretch',
   },
   eyebrowBlock: {
@@ -609,72 +646,85 @@ const styles = StyleSheet.create({
     color: color.brandRose,
   },
   voucherInfoBlock: {
-    paddingTop: 8,
-    gap: 8,
+    paddingTop: 4,
+    gap: 4,
   },
   voucherTitle: {
-    color: color.text.primary,
+    color: color.onBrand,
     fontFamily: 'Lato-Bold',
   },
   voucherDescription: {
-    color: color.text.secondary,
+    color: 'rgba(255,255,255,0.85)',
   },
   merchantBlock: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   merchantLogo: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(1,12,53,0.04)',
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm,
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
   merchantInitialsCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: color.cream,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.10)',
     borderWidth: 1,
-    borderColor: 'rgba(226,12,4,0.18)',
+    borderColor: 'rgba(226,12,4,0.30)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   merchantInitialsText: {
-    color: color.text.primary,
+    color: color.onBrand,
     fontFamily: 'Lato-Bold',
   },
   merchantText: {
     flex: 1,
     flexDirection: 'column',
-    gap: 2,
+    gap: 1,
   },
   merchantName: {
-    color: color.text.primary,
+    color: color.onBrand,
   },
   merchantBranch: {
-    color: color.text.tertiary,
+    color: 'rgba(255,255,255,0.70)',
   },
   codeCardBorder: {
     width: '100%',
     borderRadius: 22,
     padding: 3,
-    marginTop: 8,
+    marginTop: 4,
   },
   codeCardInner: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    paddingVertical: 24,
-    paddingHorizontal: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     alignItems: 'center',
   },
-  liveRow: {
+  topRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  typeChip: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(1,12,53,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(1,12,53,0.10)',
+  },
+  typeChipText: {
+    color: color.navy,
+    fontFamily: 'Lato-SemiBold',
   },
   liveBadge: {
     flexDirection: 'row',
@@ -682,7 +732,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 10,
     borderRadius: 20,
-    backgroundColor: 'rgba(226,12,4,0.06)',
+    backgroundColor: 'rgba(226,12,4,0.08)',
   },
   liveText: {
     marginLeft: 6,
@@ -690,52 +740,51 @@ const styles = StyleSheet.create({
   },
   qrWrapper: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   codeValue: {
     color: color.navy,
-    letterSpacing: 6,
+    letterSpacing: 5,
     fontVariant: ['tabular-nums'],
-    marginBottom: 20,
+    marginBottom: 10,
   },
-  liveDatetimeWrapper: {
+  cardFooterRow: {
     width: '100%',
-    paddingTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.06)',
     borderStyle: 'dashed',
-    alignItems: 'center',
   },
   liveDatetimeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
   },
   liveDatetimeText: {
-    marginLeft: 8,
+    marginLeft: 6,
     color: color.navy,
     fontVariant: ['tabular-nums'],
   },
-  infoCard: {
-    width: '100%',
-    backgroundColor: 'rgba(1,12,53,0.04)',
-    borderRadius: radius.lg,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(1,12,53,0.08)',
-    marginTop: 16,
-  },
-  infoRow: {
+  redeemedInline: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
   },
-  infoLabel: {
+  redeemedLabel: {
+    color: color.text.tertiary,
+  },
+  customerInline: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+  },
+  customerLabel: {
     color: color.text.secondary,
   },
-  infoValue: {
+  customerValue: {
     color: color.text.primary,
   },
   validatedRow: {
@@ -753,45 +802,20 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   warningHint: {
-    color: color.text.secondary,
+    color: 'rgba(255,255,255,0.75)',
     marginTop: 12,
   },
   blurReasonBanner: {
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: 'rgba(1,12,53,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
     borderWidth: 1,
-    borderColor: 'rgba(1,12,53,0.12)',
+    borderColor: 'rgba(255,255,255,0.16)',
     marginTop: 12,
   },
   blurReasonBannerText: {
-    color: color.text.primary,
+    color: color.onBrand,
     textAlign: 'center',
-  },
-  doneBtn: {
-    width: '100%',
-    paddingVertical: 15,
-    borderRadius: 16,
-    backgroundColor: color.navy,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  doneBtnPressed: {
-    transform: [{ scale: 0.97 }],
-    opacity: 0.92,
-  },
-  doneBtnText: {
-    color: '#FFFFFF',
-  },
-  footer: {
-    alignItems: 'center',
-    paddingTop: 12,
-    paddingHorizontal: 24,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(1,12,53,0.08)',
-  },
-  footerText: {
-    color: color.text.tertiary,
   },
 })

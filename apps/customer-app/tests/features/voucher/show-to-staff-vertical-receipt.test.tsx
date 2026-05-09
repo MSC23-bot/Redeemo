@@ -184,10 +184,10 @@ describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
     expect(queryByTestId('show-to-staff-voucher-description')).toBeNull()
   })
 
-  it('truncates voucherDescription to 3 lines with tail ellipsis', () => {
+  it('truncates voucherDescription to 2 lines with tail ellipsis (PR-B T8c — was 3 in T1; compressed for the no-scroll fit on iPhone SE 1st gen)', () => {
     const { getByTestId } = render(<ShowToStaff {...baseProps} />)
     const desc = getByTestId('show-to-staff-voucher-description')
-    expect(desc.props.numberOfLines).toBe(3)
+    expect(desc.props.numberOfLines).toBe(2)
     expect(desc.props.ellipsizeMode).toBe('tail')
   })
 
@@ -273,10 +273,16 @@ describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
     expect(getByText('A7K2 P9X4')).toBeTruthy()
   })
 
-  it('renders the "Verified through Redeemo" footer', () => {
+  it('renders the prominent Redeemo wordmark in the header (PR-B T8c — "Verified through Redeemo" footer dropped; the prominent header logo + wordmark now carries the cross-surface Redeemo identity role)', () => {
     const { getByTestId, getByText } = render(<ShowToStaff {...baseProps} />)
-    expect(getByTestId('show-to-staff-footer')).toBeTruthy()
-    expect(getByText('Verified through Redeemo')).toBeTruthy()
+    // The Redeemo wordmark in the cream → navy identity zone is the
+    // canonical Redeemo identity surface in T8c. The dropped footer
+    // copy ("Verified through Redeemo") is intentionally retired —
+    // the prominent header logo (28pt) + "Redeemo" wordmark replaces
+    // it, freeing the bottom of the surface for the QR card to fit
+    // 375×667 without scrolling.
+    expect(getByTestId('show-to-staff-redeemo-wordmark')).toBeTruthy()
+    expect(getByText('Redeemo')).toBeTruthy()
   })
 
   it('safe-area top inset is honoured for the cream identity zone', () => {
@@ -298,7 +304,7 @@ describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
-  it('VoiceOver read order: identity → eyebrow → title → description → merchant → branch → code → footer', () => {
+  it('VoiceOver read order: identity → eyebrow → title → description → merchant → branch → code (PR-B T8c — footer testID dropped along with the footer surface; the Redeemo wordmark in the identity zone now carries that role)', () => {
     const { getByTestId } = render(<ShowToStaff {...baseProps} />)
     // Pin the testIDs all exist; their DOM order is enforced by the
     // JSX top-down. Reading order cannot be re-ordered by CSS in RN
@@ -311,7 +317,6 @@ describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
       'show-to-staff-merchant-name',
       'show-to-staff-branch',
       'show-to-staff-code',
-      'show-to-staff-footer',
     ]
     ids.forEach(id => expect(getByTestId(id)).toBeTruthy())
   })
@@ -360,5 +365,47 @@ describe('ShowToStaff — anti-fraud + live signals (PR-B T1 regression pins)', 
       <ShowToStaff {...baseProps} branchName="High Street" />,
     )
     expect(getByText(/Verified by staff at High Street/i)).toBeTruthy()
+  })
+})
+
+describe('ShowToStaff — navy-gradient compact trust surface (PR-B T8c device-QA fix)', () => {
+  it('renders ONLY the X close icon top-right as the dismissal affordance — NO bottom Done button (PR-A §C lock)', () => {
+    const { queryByLabelText, getByLabelText } = render(<ShowToStaff {...baseProps} />)
+    // Single dismissal — Close icon top-right per PR-A §C.
+    expect(getByLabelText('Close')).toBeTruthy()
+    // The previously-rendered bottom Done button is gone in T8c —
+    // device QA found it clipped on iPhone SE 1st gen because the
+    // T1 cream layout pushed it offscreen at default Dynamic Type.
+    // The X icon is now the only dismissal route.
+    expect(queryByLabelText('Done')).toBeNull()
+  })
+
+  it('does NOT render the dropped "Verified through Redeemo" footer copy', () => {
+    const { queryByText } = render(<ShowToStaff {...baseProps} />)
+    // T8c drops the footer copy entirely; the prominent header logo
+    // + wordmark carries the Redeemo identity role instead. This pin
+    // protects against an accidental partial revert.
+    expect(queryByText('Verified through Redeemo')).toBeNull()
+  })
+
+  it('merchant logo + initials circle compressed from 48×48 (T1) to 36×36 (T8c) for the no-scroll fit', () => {
+    // T8c compresses the merchant identity row to fit 375×667 at
+    // default Dynamic Type without scroll. The merchant logo + initials
+    // circle drop from 48 → 36 pt. Pinning the structural size keeps
+    // the no-scroll fit guarantee load-bearing.
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    const initialsCircle = getByTestId('show-to-staff-merchant-initials')
+    const flat = Array.isArray(initialsCircle.props.style)
+      ? Object.assign({}, ...initialsCircle.props.style)
+      : initialsCircle.props.style
+    expect(flat.width).toBe(36)
+    expect(flat.height).toBe(36)
+  })
+
+  it('voucher title is single-line ellipsis (PR-B T8c — was unconstrained in T1; compressed for no-scroll fit)', () => {
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    const title = getByTestId('show-to-staff-voucher-title')
+    expect(title.props.numberOfLines).toBe(1)
+    expect(title.props.ellipsizeMode).toBe('tail')
   })
 })

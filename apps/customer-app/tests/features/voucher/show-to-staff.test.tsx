@@ -126,12 +126,16 @@ beforeEach(() => {
 })
 
 describe('ShowToStaff — render', () => {
-  it('renders the formatted 4+4 code, voucher-type label, merchant + branch identity, and Done button', () => {
+  it('renders the formatted 4+4 code, voucher-type label, merchant + branch identity, and Close button', () => {
     // PR-B T1 — vertical-receipt restructure splits the merchant +
     // branch into two stacked Text nodes (heading.sm + label.lg).
     // The single-line `merchantName · branchName` of the M3 baseline
     // was a presentation detail of the brand-red gradient register
     // and is intentionally retired by the brief §3.1 register shift.
+    //
+    // PR-B T8c — the bottom Done button was dropped; the X icon
+    // top-right (accessibilityLabel="Close") is the locked single
+    // dismissal affordance. Both routes still call onDone.
     const { getByText, getAllByText, getByLabelText, getByTestId } = render(<ShowToStaff {...baseProps} />)
     expect(getByText('A7K2 P9X4')).toBeTruthy()
     // voucher-type label appears in the info card row.
@@ -139,7 +143,7 @@ describe('ShowToStaff — render', () => {
     expect(getByTestId('show-to-staff-merchant-name')).toBeTruthy()
     expect(getByText('Pizza Palace')).toBeTruthy()
     expect(getByText('High Street')).toBeTruthy()
-    expect(getByLabelText('Done')).toBeTruthy()
+    expect(getByLabelText('Close')).toBeTruthy()
   })
 
   it('renders the QR code via QRCodeBlock', () => {
@@ -229,11 +233,11 @@ describe('ShowToStaff — validated transition', () => {
   })
 })
 
-describe('ShowToStaff — Done button + customer info row', () => {
-  it('Done button calls onDone', () => {
+describe('ShowToStaff — Close button + customer info row', () => {
+  it('Close button calls onDone (PR-B T8c — X icon top-right is the locked single dismissal affordance)', () => {
     const onDone = jest.fn()
     const { getByLabelText } = render(<ShowToStaff {...baseProps} onDone={onDone} />)
-    fireEvent.press(getByLabelText('Done'))
+    fireEvent.press(getByLabelText('Close'))
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
@@ -248,10 +252,19 @@ describe('ShowToStaff — Done button + customer info row', () => {
     expect(getByText('John D.')).toBeTruthy()
   })
 
-  it('renders the Voucher Type and Redeemed info rows always', () => {
-    const { getByText } = render(<ShowToStaff {...baseProps} />)
-    expect(getByText(/Voucher Type/i)).toBeTruthy()
-    expect(getByText(/Redeemed/i)).toBeTruthy()
+  it('renders the voucher-type label + Redeemed timestamp always (PR-B T8c — Voucher Type label folded into chip; Redeemed label folded into inline timestamp)', () => {
+    // PR-B T8c — the M3 "info card" (Voucher Type / Redeemed / Customer
+    // rows) has been folded into the QR card area for the no-scroll
+    // fit on iPhone SE 1st gen. The voucher-type label is now the chip
+    // text in the QR card top-row; the redeemed timestamp is inline
+    // alongside the LIVE clock with a "Redeemed " prefix. Underlying
+    // behaviour preserved (both signals always visible); presentation
+    // surface compressed.
+    const { getByText, getAllByText } = render(<ShowToStaff {...baseProps} />)
+    // Voucher-type chip (the label string from voucherTypeLabel).
+    expect(getAllByText(/Buy one, get one free/i).length).toBeGreaterThanOrEqual(1)
+    // Redeemed inline label.
+    expect(getByText(/Redeemed /i)).toBeTruthy()
   })
 })
 
