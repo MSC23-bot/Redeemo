@@ -359,6 +359,139 @@ describe('Voucher Detail M2 — happy-path end-to-end', () => {
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
   })
 
+  // PR-C T13 (LOCKED 2026-05-09 §0.3.1) — Rate & Review CTA on
+  // SuccessPopup routes to the merchant profile reviews tab with
+  // the verified-review URL contract:
+  //   /merchant/<merchantId>?branch=<branchId>&tab=reviews
+  //     &openWriteReview=1&fromRedemption=<redemptionId>
+  // Hide rule: parent (VoucherDetailScreen) only passes
+  // `onRateReview` when `successPopup.branchId` is reliable.  The
+  // RedeemResponse schema pins branchId as a non-empty string so in
+  // practice the CTA is always rendered after a successful redeem;
+  // the empty-string defensive guard tests the hide path.
+  describe('Rate & Review CTA (PR-C T13)', () => {
+    it('renders the Rate & Review CTA on SuccessPopup when branchId is reliable', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+      expect(getByTestId('success-rate-review')).toBeTruthy()
+    })
+
+    it('pressing Rate & Review routes to merchant reviews tab with openWriteReview=1, branch=<branchId>, fromRedemption=<redemptionId>', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+
+      fireEvent.press(getByTestId('success-rate-review'))
+
+      // Popup closes (state cleared) and router.push fires with the
+      // verified-review URL contract.  Pinning the full params shape
+      // catches any future regression that drops a key or routes to
+      // a different tab.
+      await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+      expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({
+        pathname: '/(app)/merchant/[id]',
+        params:   expect.objectContaining({
+          id:              'm1',
+          branch:          'b1',  // from successResponse.branchId
+          tab:             'reviews',
+          openWriteReview: '1',
+          fromRedemption:  'r1',  // from successResponse.id
+        }),
+      }))
+    })
+
+    it('hides the Rate & Review CTA when successResponse.branchId is empty (defensive)', async () => {
+      // RedeemResponse.branchId is z.string() — currently always
+      // non-empty in practice — but the hide rule must hold against
+      // a malformed/empty value rather than route into a malformed
+      // URL.  Stub the response with empty branchId and confirm the
+      // CTA stays hidden.
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue({
+        ...successResponse,
+        branchId: '',
+      })
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+
+      // Popup mounts but the secondary row carries only Done.
+      expect(queryByTestId('success-rate-review')).toBeNull()
+      expect(getByTestId('success-done')).toBeTruthy()
+    })
+
+    it('Done still works independently when Rate & Review is rendered alongside it', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+      expect(getByTestId('success-rate-review')).toBeTruthy()
+
+      // Done dismisses without firing router.push.
+      fireEvent.press(getByTestId('success-done'))
+      await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('View voucher code still routes to ShowToStaff when Rate & Review is rendered alongside it', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+      expect(getByTestId('success-rate-review')).toBeTruthy()
+
+      // Show-to-Staff path should still mount the surface and close
+      // the popup.  Rate & Review must not have fired.
+      fireEvent.press(getByTestId('success-show-to-staff'))
+      await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+      await waitFor(() => expect(getByTestId('show-to-staff-mounted')).toBeTruthy())
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+  })
+
   it('single-branch: CTA → PIN sheet directly (no picker)', async () => {
     mockParams = { id: 'v1', branch: 'b1' }
     ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({

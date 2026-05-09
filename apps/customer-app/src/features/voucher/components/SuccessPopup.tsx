@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Check, Eye } from 'lucide-react-native'
+import { Check, Eye, Star } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, radius, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -46,6 +46,19 @@ type Props = {
   onShowToStaff: () => void
   /** "Done" — caller closes the popup; voucher detail re-renders state-3. */
   onDone: () => void
+  /**
+   * Secondary CTA — "Rate & Review" (PR-C T12 §0.3.1, locked
+   * 2026-05-09).  When provided, renders a flat outlined pill in
+   * the secondary row alongside Done.  Tapping closes the popup
+   * and routes to the merchant profile reviews tab with the
+   * verified-review URL contract (handled by the parent).
+   *
+   * Hide rule: caller must omit this prop when no reliable
+   * branchId is available — the URL needs a branchId and we MUST
+   * NOT fall back to branchName.  Omitting → the secondary row
+   * carries only the Done dismiss action.
+   */
+  onRateReview?: () => void
 }
 
 // en-GB / Europe/London formatter for the "Redeemed on" receipt row.
@@ -123,6 +136,7 @@ export function SuccessPopup({
   branchName,
   onShowToStaff,
   onDone,
+  onRateReview,
 }: Props) {
   const scale = useSharedValue(0.8)
   const ty = useSharedValue(30)
@@ -330,10 +344,31 @@ export function SuccessPopup({
               </Text>
             </Pressable>
 
-            {/* Secondary row — Done is the only tertiary action in
-                PR-A.  Rate & Review hidden until PR-C lands the
-                verified-review backend (D12 / §0.2). */}
+            {/* Secondary row — two-column layout `[Rate & Review] [Done]`
+                when the parent provides `onRateReview` (PR-C T12 §0.3.1
+                locked 2026-05-09); otherwise carries only Done.  The
+                Rate & Review pill is a flat outlined pill (1px brand-rose
+                30% alpha border, brand-rose Star icon, body.md text,
+                ≥44pt tap target via paddingVertical) — secondary action,
+                not competing with the primary "View voucher code" CTA. */}
             <View style={styles.secondaryRow}>
+              {onRateReview ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Rate and Review"
+                  testID="success-rate-review"
+                  onPress={() => { lightHaptic(); onRateReview() }}
+                  style={({ pressed }) => [
+                    styles.rateReviewPill,
+                    pressed && styles.ctaPressed,
+                  ]}
+                >
+                  <Star size={16} color={color.brandRose} strokeWidth={2.4} />
+                  <Text variant="body.md" style={styles.rateReviewText}>
+                    Rate & Review
+                  </Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Done"
@@ -606,6 +641,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing[3],
     paddingTop: spacing[3],
+  },
+  // ── Rate & Review pill (PR-C T12 §0.3.1) ──
+  // Flat outlined pill — secondary action that lives next to Done in
+  // the secondaryRow.  1px brand-rose 30% alpha border keeps the pill
+  // recessive against the brand-gradient primary CTA above (no
+  // gradient fill, no shadow — flat).  body.md text + Star icon both
+  // in brand-rose.  Vertical padding 11pt + body.md lineHeight 24
+  // gives a 46pt total tap height (clears the 44pt iOS HIG minimum
+  // and the locked owner direction "≥44pt tap target").
+  rateReviewPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    paddingVertical: 11,
+    paddingHorizontal: spacing[4],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 12, 4, 0.30)',
+    backgroundColor: 'transparent',
+  },
+  rateReviewText: {
+    color: color.brandRose,
+    fontWeight: '700',
+    letterSpacing: 0.1,
   },
   tertiaryAction: {
     flexDirection: 'row',

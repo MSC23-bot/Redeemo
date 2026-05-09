@@ -1528,6 +1528,41 @@ export function VoucherDetailScreen() {
             })
           }}
           onDone={() => setSuccessPopup(null)}
+          // PR-C T13 (LOCKED 2026-05-09 §0.3.1): Rate & Review CTA
+          // routes to the merchant profile reviews tab with the
+          // verified-review URL contract:
+          //   /merchant/<merchantId>?branch=<branchId>&tab=reviews
+          //     &openWriteReview=1&fromRedemption=<redemptionId>
+          // MerchantProfileScreen reads these params, forces
+          // activeTab='reviews', forwards `initialOpenWriteFor` to
+          // ReviewsTab (which auto-opens WriteReviewSheet), then
+          // scrubs `openWriteReview` + `fromRedemption` via
+          // router.replace so back-nav doesn't re-trigger the flow.
+          //
+          // Hide rule (§0.3.1 owner-locked): only render the CTA
+          // when we have a reliable branchId.  `successPopup.branchId`
+          // comes straight from the redemption response (RedeemResponse
+          // schema pins it as a non-empty string), so when the popup
+          // mounts, this prop is always present.  The defensive
+          // truthiness guard below covers the (currently impossible
+          // but defensive) empty-string case — empty branchId ⇒ no
+          // prop ⇒ CTA hidden, NOT a malformed URL.  We do NOT fall
+          // back to `branchName` (locked).
+          onRateReview={successPopup.branchId
+            ? () => {
+                setSuccessPopup(null)
+                router.push({
+                  pathname: '/(app)/merchant/[id]',
+                  params: {
+                    id:              voucher.merchant.id,
+                    branch:          successPopup.branchId,
+                    tab:             'reviews',
+                    openWriteReview: '1',
+                    fromRedemption:  successPopup.id,
+                  },
+                })
+              }
+            : undefined}
         />
       ) : null}
       {/* ShowToStaff full-screen Modal (M3 Task 16). Mounts only

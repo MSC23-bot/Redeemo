@@ -212,7 +212,12 @@ describe('SuccessPopup — negative pins (revised PR-A scope)', () => {
     expect(queryByText(/Staff scan or type/i)).toBeNull()
   })
 
-  it('does NOT render the Rate & Review CTA (D12 — returns in PR-C with verified-review backend)', () => {
+  it('does NOT render the Rate & Review CTA when onRateReview prop is omitted (parent has no reliable branchId)', () => {
+    // PR-C T12 (LOCKED 2026-05-09 §0.3.1): the CTA is OPT-IN.  The
+    // parent (VoucherDetailScreen) only passes `onRateReview` when it
+    // has a reliable branchId for the URL.  Omitting the prop must
+    // leave the secondary row carrying ONLY the Done dismiss action.
+    // This is the locked "hide if no reliable branchId" behaviour.
     const { queryByTestId, queryByText } = render(<SuccessPopup {...defaults()} />)
     expect(queryByTestId('success-rate-review')).toBeNull()
     expect(queryByText('Rate & Review')).toBeNull()
@@ -283,5 +288,99 @@ describe('SuccessPopup — A4 saving callout', () => {
   it("SUPPRESSED when estimatedSaving < 0 (defensive)", () => {
     const { queryByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: -5 })} />)
     expect(queryByTestId('success-saving-callout')).toBeNull()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────
+// PR-C T12 (LOCKED 2026-05-09 §0.3.1) — Rate & Review CTA returns.
+// Owner-locked decisions:
+//   - Visual: flat outlined pill, 1px brand-rose 30% alpha border,
+//     brand-rose Star icon, body.md text, ≥44pt tap target.
+//   - Layout: two-column secondaryRow `[Rate & Review] [Done]`.
+//   - Behaviour: tapping closes the popup AND routes to merchant
+//     profile reviews tab with `?openWriteReview=1&fromRedemption=…`.
+//   - Hide rule: CTA renders ONLY when the parent passes
+//     `onRateReview`.  Parent gates this on having a reliable
+//     branchId (no fallback to branchName).  Omitted prop ⇒ secondary
+//     row carries only the Done action.
+// ──────────────────────────────────────────────────────────────────
+
+describe('SuccessPopup — Rate & Review CTA (PR-C T12 §0.3.1)', () => {
+  it('renders the Rate & Review pill when onRateReview is provided', () => {
+    const { getByTestId, getByText } = render(
+      <SuccessPopup {...defaults({ onRateReview: jest.fn() })} />,
+    )
+    expect(getByTestId('success-rate-review')).toBeTruthy()
+    expect(getByText('Rate & Review')).toBeTruthy()
+  })
+
+  it('hides the Rate & Review pill when onRateReview is omitted', () => {
+    // Already covered by the negative pin above — re-asserted here
+    // alongside the positive case so the visibility contract reads
+    // as a coherent pair within the T12 describe.
+    const { queryByTestId } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByTestId('success-rate-review')).toBeNull()
+  })
+
+  it('pressing the Rate & Review pill fires onRateReview exactly once', () => {
+    const onRateReview = jest.fn()
+    const { getByTestId } = render(
+      <SuccessPopup {...defaults({ onRateReview })} />,
+    )
+    fireEvent.press(getByTestId('success-rate-review'))
+    expect(onRateReview).toHaveBeenCalledTimes(1)
+  })
+
+  it('pressing Rate & Review does NOT fire onShowToStaff or onDone (independent handlers)', () => {
+    const onRateReview = jest.fn()
+    const onShowToStaff = jest.fn()
+    const onDone = jest.fn()
+    const { getByTestId } = render(
+      <SuccessPopup {...defaults({ onRateReview, onShowToStaff, onDone })} />,
+    )
+    fireEvent.press(getByTestId('success-rate-review'))
+    expect(onRateReview).toHaveBeenCalledTimes(1)
+    expect(onShowToStaff).not.toHaveBeenCalled()
+    expect(onDone).not.toHaveBeenCalled()
+  })
+
+  it('CTA accessibilityLabel reads "Rate and Review"', () => {
+    // "and" spelled out for screen readers — "&" is read inconsistently
+    // across iOS/Android voiceover engines.
+    const { getByTestId } = render(
+      <SuccessPopup {...defaults({ onRateReview: jest.fn() })} />,
+    )
+    expect(getByTestId('success-rate-review').props.accessibilityLabel).toBe(
+      'Rate and Review',
+    )
+  })
+
+  it('CTA exposes accessibilityRole="button"', () => {
+    const { getByTestId } = render(
+      <SuccessPopup {...defaults({ onRateReview: jest.fn() })} />,
+    )
+    expect(getByTestId('success-rate-review').props.accessibilityRole).toBe('button')
+  })
+
+  it('Done still works independently when Rate & Review is rendered alongside it', () => {
+    const onRateReview = jest.fn()
+    const onDone = jest.fn()
+    const { getByTestId } = render(
+      <SuccessPopup {...defaults({ onRateReview, onDone })} />,
+    )
+    fireEvent.press(getByTestId('success-done'))
+    expect(onDone).toHaveBeenCalledTimes(1)
+    expect(onRateReview).not.toHaveBeenCalled()
+  })
+
+  it('View voucher code still works independently when Rate & Review is rendered alongside it', () => {
+    const onRateReview = jest.fn()
+    const onShowToStaff = jest.fn()
+    const { getByTestId } = render(
+      <SuccessPopup {...defaults({ onRateReview, onShowToStaff })} />,
+    )
+    fireEvent.press(getByTestId('success-show-to-staff'))
+    expect(onShowToStaff).toHaveBeenCalledTimes(1)
+    expect(onRateReview).not.toHaveBeenCalled()
   })
 })
