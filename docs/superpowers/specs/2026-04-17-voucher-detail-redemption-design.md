@@ -654,7 +654,7 @@ After the Bundle E task list completed, three commits landed on the M3 branch ad
 - `useScreenshotGuard` slimmed to iOS-listener-only (post-fact screenshot detection + 5s dedup + best-effort telemetry + ref-pattern callback stability). Android branch removed (was a duplicate FLAG_SECURE call).
 - `<ShowToStaff>` now calls BOTH hooks: `useScreenCaptureProtection` for prevention, `useScreenshotGuard` for iOS post-fact screenshot signalling.
 - `<SuccessPopup>` now calls `useScreenCaptureProtection(visible)` to share the prevention baseline. Intentionally does NOT install the iOS screenshot listener — no banner, no telemetry. Both surfaces displaying the code now have parity protection without duplicating native call logic.
-- Does NOT prevent SCREENSHOTS on iOS (Apple has no API). Listener-based post-fact path continues for screenshots on Show-to-Staff only.
+- Does NOT prevent SCREENSHOTS on iOS (Apple has no API). Listener-based post-fact path runs on both Show-to-Staff AND Voucher Detail when the code is visible (added on Voucher Detail in §AE6.2 wave 2 — this paragraph's earlier "Show-to-Staff only" framing is superseded). SuccessPopup remains excluded as a short-lived popup.
 - Banner copy tightened: `"Screenshot detected"` (was `"Screenshot taken"`) — more accurate framing of OS-driven detection.
 - Cleanup symmetry: protection hook releases on unmount so other app screens can be recorded normally.
 
