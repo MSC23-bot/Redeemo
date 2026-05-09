@@ -297,13 +297,15 @@ export function PinEntrySheet({
           When you confirm it, we'll create the code staff can check.
         </Text>
 
-        {/* Locked-out card replaces the PIN input */}
+        {/* Locked-out card replaces the PIN input.  Typography bumped
+            2026-05-09 (cross-surface consistency pass): title heading.sm,
+            timer heading.lg, body + label use design-system variants. */}
         {isLocked ? (
           <View style={styles.lockoutCard} testID="pin-lockout-card">
             <View style={styles.lockoutIconWrap}>
               <Lock size={22} color="#FFFFFF" strokeWidth={2.4} />
             </View>
-            <Text variant="label.md" style={styles.lockoutTitle}>
+            <Text variant="heading.sm" style={styles.lockoutTitle}>
               Too Many Attempts
             </Text>
             <Text variant="body.sm" style={styles.lockoutBody}>
@@ -311,7 +313,7 @@ export function PinEntrySheet({
               after the timer below.
             </Text>
             <Text
-              variant="heading.sm"
+              variant="heading.lg"
               style={styles.lockoutTimer}
               testID="pin-lockout-timer"
             >
@@ -388,7 +390,7 @@ export function PinEntrySheet({
             than rendering a blank counter. */}
         {showInvalidPinBar ? (
           <View style={styles.errorBar} testID="pin-error-bar">
-            <Text variant="label.md" style={styles.errorBarText}>
+            <Text variant="body.sm" style={styles.errorBarText}>
               {remainingAttempts !== null
                 ? `Wrong PIN · ${remainingAttempts} attempt${remainingAttempts === 1 ? '' : 's'} remaining`
                 : 'Wrong PIN. Try again.'}
@@ -403,7 +405,7 @@ export function PinEntrySheet({
             different framing — these aren't the user's fault). */}
         {errorBanner && !isLocked ? (
           <View style={styles.backendErrorBanner} testID="pin-backend-error-banner">
-            <Text variant="label.md" style={styles.backendErrorTitle}>
+            <Text variant="heading.sm" style={styles.backendErrorTitle}>
               {errorBanner.title}
             </Text>
             <Text variant="body.sm" style={styles.backendErrorBody}>
@@ -597,8 +599,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing[3],
     alignItems: 'center',
   },
+  // body.sm (14 / 21) variant drives.  fontSize override removed
+  // 2026-05-09 (cross-surface consistency pass).
   errorBarText: {
-    fontSize: 11,
     fontWeight: '600',
     color: color.danger,
   },
@@ -614,15 +617,15 @@ const styles = StyleSheet.create({
     padding: spacing[3],
     marginBottom: spacing[3],
   },
+  // heading.sm (16 / 22) variant drives — backend errors are
+  // user-actionable, must be readable.
   backendErrorTitle: {
-    fontSize: 12,
     fontWeight: '800',
     color: '#92400E',
     marginBottom: 2,
   },
+  // body.sm (14 / 21) variant drives.
   backendErrorBody: {
-    fontSize: 11,
-    lineHeight: 16,
     color: '#92400E',
   },
   // Disclaimer banner — cream-tinted card with brand-rose 12% ring +
@@ -697,28 +700,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: spacing[3],
   },
+  // heading.sm (16 / 22) variant drives the title; bumped from
+  // label.md so "Too Many Attempts" reads with the weight the
+  // moment deserves.  Cross-surface consistency pass 2026-05-09.
   lockoutTitle: {
-    fontSize: 14,
     fontWeight: '800',
     color: color.danger,
     marginBottom: spacing[2],
   },
+  // body.sm (14 / 21) variant drives — readable explanation copy.
   lockoutBody: {
-    fontSize: 11,
-    lineHeight: 16,
     color: '#92400E',
     textAlign: 'center',
     marginBottom: spacing[3],
   },
+  // heading.lg (20 / 26) variant drives the mm:ss timer.  Bumped
+  // from heading.sm so the countdown is the visual anchor of the
+  // lockout card.
   lockoutTimer: {
-    fontSize: 18,
     fontWeight: '800',
     color: color.danger,
     fontVariant: ['tabular-nums'],
   },
+  // label.md (12 / 16) variant drives.  fontSize override removed.
   lockoutLabel: {
     marginTop: 2,
-    fontSize: 10,
     color: '#92400E',
   },
 })

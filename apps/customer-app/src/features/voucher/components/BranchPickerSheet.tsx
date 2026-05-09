@@ -124,10 +124,14 @@ export function BranchPickerSheet({
       accessibilityLabel="Choose redemption branch"
     >
       <View testID="voucher-branch-picker-sheet">
-        <Text variant="heading.sm" style={styles.title}>
+        {/* Title + subtitle bumped 2026-05-09 (cross-surface consistency
+            with PIN sheet readability pass).  heading.md (18) +
+            body.md (16) match the PinEntrySheet rhythm so the
+            redemption journey reads at a consistent scale. */}
+        <Text variant="heading.md" style={styles.title}>
           {titleText}
         </Text>
-        <Text variant="body.sm" style={styles.subtitle}>
+        <Text variant="body.md" style={styles.subtitle}>
           Pick the branch you're at right now. The PIN you'll enter is
           specific to that branch.
         </Text>
@@ -155,28 +159,28 @@ export function BranchPickerSheet({
               >
                 <View style={styles.iconWrap}>
                   <MapPin
-                    size={16}
+                    size={18}
                     color={isPreview ? color.brandRose : color.text.tertiary}
                     strokeWidth={2.4}
                   />
                 </View>
                 <View style={styles.rowText}>
-                  <Text variant="label.md" style={styles.rowName}>
+                  <Text variant="body.md" style={styles.rowName}>
                     {b.name}
                   </Text>
                   <View style={styles.metaRow}>
                     {b.city ? (
-                      <Text variant="label.md" style={styles.rowMeta}>
+                      <Text variant="body.sm" style={styles.rowMeta}>
                         {b.city}
                       </Text>
                     ) : null}
                     {b.city && distance ? (
-                      <Text variant="label.md" style={styles.rowMetaDot}>
+                      <Text variant="body.sm" style={styles.rowMetaDot}>
                         ·
                       </Text>
                     ) : null}
                     {distance ? (
-                      <Text variant="label.md" style={styles.rowMeta}>
+                      <Text variant="body.sm" style={styles.rowMeta}>
                         {distance}
                       </Text>
                     ) : null}
@@ -212,7 +216,7 @@ export function BranchPickerSheet({
             style={StyleSheet.absoluteFillObject}
           />
           <Tag size={18} color={color.onBrand} strokeWidth={2.4} />
-          <Text variant="label.md" style={styles.confirmText}>
+          <Text variant="body.md" style={styles.confirmText}>
             {confirmText}
           </Text>
         </Pressable>
@@ -222,16 +226,16 @@ export function BranchPickerSheet({
 }
 
 const styles = StyleSheet.create({
+  // heading.md (18 / 24) variant drives.  fontSize override removed
+  // 2026-05-09 (cross-surface consistency with PinEntrySheet).
   title: {
-    fontSize: 18,
     fontWeight: '800',
     color: color.text.primary,
     textAlign: 'center',
   },
+  // body.md (16 / 24) variant drives.
   subtitle: {
     marginTop: spacing[2],
-    fontSize: 12,
-    lineHeight: 18,
     color: color.text.secondary,
     textAlign: 'center',
     marginBottom: spacing[4],
@@ -268,8 +272,9 @@ const styles = StyleSheet.create({
   rowText: {
     flex: 1,
   },
+  // body.md (16 / 24) drives — branch name is the primary identifier
+  // in each row and now reads with the weight it deserves.
   rowName: {
-    fontSize: 13,
     fontWeight: '700',
     color: color.text.primary,
   },
@@ -278,12 +283,11 @@ const styles = StyleSheet.create({
     gap: spacing[1],
     marginTop: 2,
   },
+  // body.sm (14 / 21) drives — supporting context.
   rowMeta: {
-    fontSize: 11,
     color: color.text.secondary,
   },
   rowMetaDot: {
-    fontSize: 11,
     color: color.text.tertiary,
   },
   checkWrap: {
@@ -292,11 +296,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Confirm button — minHeight 56 for tap-target comfort at the
+  // bumped body.md text size, matching PinEntrySheet's submit.
   confirm: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing[2],
+    minHeight: 56,
     paddingVertical: spacing[4],
     borderRadius: radius.lg,
     overflow: 'hidden',
@@ -312,8 +319,8 @@ const styles = StyleSheet.create({
   confirmPressed: {
     transform: [{ scale: 0.97 }],
   },
+  // body.md (16 / 24) drives.  fontSize override removed.
   confirmText: {
-    fontSize: 15,
     fontWeight: '800',
     color: color.onBrand,
   },

@@ -264,7 +264,7 @@ export function SuccessPopup({
               <Check size={14} color={color.onBrand} strokeWidth={3} />
             </Animated.View>
             <Text
-              variant="label.md"
+              variant="label.lg"
               style={[styles.accentLabel, { color: typeColor }]}
             >
               Redeemed
@@ -383,6 +383,8 @@ export function SuccessPopup({
             >
               Staff scan or type this code from the Show to Staff screen.
             </Text>
+            {/* disclosure body.sm variant drives 14/21 (cross-surface
+                consistency 2026-05-09 — fontSize override stripped). */}
 
             {/* Primary CTA — solid voucher-type colour with type-
                 tinted shadow. Replaces the previous brand-rose/coral
@@ -457,10 +459,10 @@ export function SuccessPopup({
 function InfoRow({ label, value, testID }: { label: string; value: string; testID?: string }) {
   return (
     <View style={styles.infoRow} testID={testID}>
-      <Text variant="label.md" style={styles.infoLabel}>
+      <Text variant="label.lg" style={styles.infoLabel}>
         {label}
       </Text>
-      <Text variant="label.md" style={styles.infoValue} numberOfLines={1}>
+      <Text variant="label.lg" style={styles.infoValue} numberOfLines={1}>
         {value}
       </Text>
     </View>
@@ -641,14 +643,16 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(11,31,77,0.05)',
     borderTopWidth: 1,
   },
+  // label.lg (14 / 18, ls 0.2) variant drives.  Bumped from label.md
+  // 2026-05-09 (cross-surface consistency) — receipt rows still
+  // read as eyebrow-y but legible alongside the bumped surrounding
+  // typography.
   infoLabel: {
-    fontSize: 12,
     color: color.text.tertiary,
     fontWeight: '500',
   },
   infoValue: {
     flex: 1,
-    fontSize: 12,
     fontWeight: '700',
     color: color.text.primary,
     textAlign: 'right',
@@ -659,9 +663,9 @@ const styles = StyleSheet.create({
   // Tertiary text that explains how staff verify the code. Quieter
   // than the receipt rows (no border, no weight) so it reads as a
   // helper line, not a separate section.
+  // body.sm (14 / 21) variant drives.  fontSize/lineHeight overrides
+  // removed 2026-05-09 (cross-surface consistency).
   disclosure: {
-    fontSize: 11,
-    lineHeight: 16,
     color: color.text.tertiary,
     textAlign: 'center',
     paddingHorizontal: spacing[2],
