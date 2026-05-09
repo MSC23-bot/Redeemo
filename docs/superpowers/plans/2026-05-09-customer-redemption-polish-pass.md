@@ -1,5 +1,7 @@
 # Customer Redemption Polish Pass — Plan
 
+> **POST-MERGE NOTE (2026-05-09):** PR-A and PR-C have both shipped. PR-A merged earlier in 2026-05-09; PR-C merged at `a80f427` later the same day. Statements in this plan that frame Rate & Review as "hidden in PR-A / returns in PR-C" are now historical — the CTA went live, the routing wired up, and the verified-review backend is operational. Read `docs/superpowers/plans/2026-05-09-pr-c-verified-review-backend.md` §9 (as-shipped addendum) for the final contract. PR-B (visual design pass) remains the open item from this sequencing plan.
+
 > **Status:** REV 2 — owner decisions locked 2026-05-09. PR-A file-level plan pending review (§3a). No implementation begins until §3a is reviewed.
 > **Date:** 2026-05-09
 > **Tier mix:** Tier 1 quick polish PR, Tier 2 design-pass PRs (each via `/impeccable` + `/ui-ux-pro-max`), explicit deferrals.

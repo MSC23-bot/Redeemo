@@ -1,5 +1,7 @@
 # PIN Sheet + SuccessPopup Polish — Shape Brief (PR-A)
 
+> **POST-MERGE NOTE (2026-05-09):** PR-A shipped earlier in 2026-05-09; PR-C followed at `a80f427`. The "Rate & Review CTA hidden in PR-A / reintroduced in PR-C" framing throughout this brief is now historical. PR-C re-introduced the CTA with a navy-gradient pill on SuccessPopup AND added a second entry point on Voucher Detail (`<ReviewPromptCard>`). See `docs/superpowers/plans/2026-05-09-pr-c-verified-review-backend.md` §9 for the as-shipped contract.
+
 > **Status:** DRAFT — pending owner review. **No production code is written until this brief is owner-approved and committed.**
 > **Date:** 2026-05-09
 > **Plan reference:** [docs/superpowers/plans/2026-05-09-customer-redemption-polish-pass.md](../superpowers/plans/2026-05-09-customer-redemption-polish-pass.md) §0 + §3a (PR-A locked scope).
