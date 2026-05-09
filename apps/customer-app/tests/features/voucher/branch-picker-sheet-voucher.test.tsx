@@ -143,6 +143,113 @@ describe('Voucher BranchPickerSheet — preview / confirm flow', () => {
 // BRANCH_UNAVAILABLE. Post-fix: previewId normalises to null until
 // the user picks a row that is visibly available in the sheet.
 
+describe('Voucher BranchPickerSheet — PR-B T8l visual contract (impeccable pass)', () => {
+  // The impeccable pass on this sheet locks four visual contracts:
+  //   1. Title is Mustica Pro Semibold display.sm 22pt (was heading.md
+  //      Lato Semibold 18pt).  DESIGN.md "Mustica-for-Display Rule"
+  //      applies to the gateway-moment between browsing and redeeming.
+  //   2. Branch rows are a list with hairline dividers, NOT bordered
+  //      cards.  DESIGN.md "No-Card-On-Card Rule" — rows inside a sheet
+  //      that's already a card-like surface should not nest cards.
+  //   3. Selected row uses surface-tint warm cream `#FEF6F5` for its
+  //      bg (NOT `color.cream` which is reserved for identity zones).
+  //   4. CTA borderRadius is radius.md (12) per DESIGN.md
+  //      "Buttons Shape: rounded-md (12px) on every variant".
+  //
+  // These pins guard against future regressions that would soften the
+  // refactor (e.g. re-introducing per-row bordered cards or swapping
+  // back to heading.md for the title).
+
+  function flat(node: any): Record<string, any> {
+    const s = node?.props?.style
+    if (!s) return {}
+    if (Array.isArray(s)) return Object.assign({}, ...s.flat(Infinity).filter(Boolean))
+    return s
+  }
+
+  it('title uses Mustica Pro Semibold display.sm 22pt with tight tracking (Mustica-for-Display Rule)', () => {
+    const { getByText } = render(<BranchPickerSheet {...defaults()} />)
+    const title = getByText('Confirm redemption branch')
+    const style = flat(title)
+    expect(style.fontFamily).toBe('MusticaPro-SemiBold')
+    expect(style.fontSize).toBe(22)
+    // Tight tracking signature: -0.3.  The previous heading.md baseline
+    // had no negative tracking; if a regression reverts to heading.md
+    // OR drops the tracking, this pin fails.
+    expect(style.letterSpacing).toBe(-0.3)
+  })
+
+  it('branch rows are a list with hairline dividers, NOT bordered cards (No-Card-On-Card Rule)', () => {
+    // Render with currentBranchId NOT in the default list so we can
+    // pin all three rows as not-selected — the selected-row bg is the
+    // ONE bg allowed by the contract; non-selected rows carry no bg.
+    const { getByTestId } = render(
+      <BranchPickerSheet {...defaults({ currentBranchId: 'INACTIVE-X' })} />,
+    )
+    const row1 = getByTestId('branch-picker-row-b1')
+    const row2 = getByTestId('branch-picker-row-b2')
+    const row3 = getByTestId('branch-picker-row-b3')
+    const s1 = flat(row1)
+    const s2 = flat(row2)
+    const s3 = flat(row3)
+    // Hairline divider is present on non-last rows.
+    expect(s1.borderBottomWidth).toBeGreaterThan(0)
+    expect(s2.borderBottomWidth).toBeGreaterThan(0)
+    // Last row drops the divider so the list ends cleanly.
+    expect(s3.borderBottomWidth ?? 0).toBe(0)
+    // Negative pin: the previous bordered-card-per-row contract MUST
+    // NOT resurface — `borderWidth` (ALL sides) belongs only to a
+    // card variant, never on these list rows.
+    expect(s1.borderWidth).toBeUndefined()
+    expect(s2.borderWidth).toBeUndefined()
+    expect(s3.borderWidth).toBeUndefined()
+    // Negative pin: non-selected rows do NOT carry a per-row bg
+    // (the previous contract used surface.raised on every row).  The
+    // ONE bg the contract allows is on the selected row and is
+    // covered by the next test in this describe block.
+    expect(s1.backgroundColor).toBeUndefined()
+    expect(s2.backgroundColor).toBeUndefined()
+    expect(s3.backgroundColor).toBeUndefined()
+  })
+
+  it('selected row uses surface-tint warm cream (NOT identity-zone cream) per Cream-for-Identity Rule', () => {
+    const { getByTestId } = render(<BranchPickerSheet {...defaults({ currentBranchId: 'b2' })} />)
+    const selectedRow = getByTestId('branch-picker-row-b2')
+    const style = flat(selectedRow)
+    // surface-tint = '#FEF6F5'.  This is the quieter cream-adjacent
+    // reserved for state moments.  `color.cream` (#FFF9F5) is reserved
+    // for identity-zone framing (auth chrome, voucher hero).
+    expect(style.backgroundColor).toBe('#FEF6F5')
+    // Negative pin: the previous identity-cream `#FFF9F5` MUST NOT
+    // resurface as the selected-row bg (would conflate state with
+    // identity per DESIGN.md "Cream-for-Identity Rule").
+    expect(style.backgroundColor).not.toBe('#FFF9F5')
+  })
+
+  it('confirm CTA uses borderRadius 12 (radius.md) per DESIGN.md button-primary-lg spec', () => {
+    const { getByTestId } = render(<BranchPickerSheet {...defaults()} />)
+    const cta = getByTestId('branch-picker-confirm')
+    const style = flat(cta)
+    // DESIGN.md "Buttons Shape: rounded-md (12px) on every variant".
+    // The previous contract used radius.lg (16) which read as
+    // chunkier than the brand voice.
+    expect(style.borderRadius).toBe(12)
+    // Negative pin: 16 MUST NOT resurface.
+    expect(style.borderRadius).not.toBe(16)
+  })
+
+  it('confirm CTA shadow softened to 0.20 / 18 (was 0.30 / 24) per Glow-is-the-CTA Rule', () => {
+    const { getByTestId } = render(<BranchPickerSheet {...defaults()} />)
+    const cta = getByTestId('branch-picker-confirm')
+    const style = flat(cta)
+    expect(style.shadowOpacity).toBe(0.20)
+    expect(style.shadowRadius).toBe(18)
+    // Negative pins: the louder previous values MUST NOT resurface.
+    expect(style.shadowOpacity).not.toBe(0.30)
+    expect(style.shadowRadius).not.toBe(24)
+  })
+})
+
 describe('Voucher BranchPickerSheet — currentBranchId not in branches (stale-id safety)', () => {
   it('initialises previewId to null when currentBranchId is not present in the visible branches list', () => {
     // The orchestrator filtered out 'INACTIVE-X' (e.g. it's
