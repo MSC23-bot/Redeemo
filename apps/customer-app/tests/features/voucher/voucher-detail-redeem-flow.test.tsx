@@ -355,7 +355,7 @@ describe('Voucher Detail M2 — happy-path end-to-end', () => {
     expect(queryByTestId('pin-entry-sheet')).toBeNull()
 
     // Tap Done → popup closes.
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
   })
 
@@ -444,10 +444,10 @@ describe('Voucher Detail M2 — happy-path end-to-end', () => {
 
       // Popup mounts but the secondary row carries only Done.
       expect(queryByTestId('success-rate-review')).toBeNull()
-      expect(getByTestId('success-done')).toBeTruthy()
+      expect(getByTestId('success-close')).toBeTruthy()
     })
 
-    it('Done still works independently when Rate & Review is rendered alongside it', async () => {
+    it('Close icon still works independently when Rate & Review is rendered alongside it', async () => {
       mockParams = { id: 'v1', branch: 'b1' }
       ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
         selectedBranchId: 'b1',
@@ -463,7 +463,7 @@ describe('Voucher Detail M2 — happy-path end-to-end', () => {
       expect(getByTestId('success-rate-review')).toBeTruthy()
 
       // Done dismisses without firing router.push.
-      fireEvent.press(getByTestId('success-done'))
+      fireEvent.press(getByTestId('success-close'))
       await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
       expect(mockPush).not.toHaveBeenCalled()
     })
@@ -530,7 +530,7 @@ describe('Voucher Detail M2 — happy-path end-to-end', () => {
       // voucher mock to `isRedeemedThisCycle: true` to mirror the
       // real refetch outcome.
       mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
-      fireEvent.press(getByTestId('success-done'))
+      fireEvent.press(getByTestId('success-close'))
 
       // Prompt card surfaces under the redeemed-state stack.
       await waitFor(() => expect(getByTestId('voucher-detail-review-prompt')).toBeTruthy())
@@ -612,7 +612,7 @@ describe('Voucher Detail M2 — happy-path end-to-end', () => {
 
       // Flip persisted state + dismiss popup so the prompt renders.
       mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
-      fireEvent.press(getByTestId('success-done'))
+      fireEvent.press(getByTestId('success-close'))
       await waitFor(() => expect(getByTestId('voucher-detail-review-prompt')).toBeTruthy())
 
       // Clear push state from any prior interaction (popup pressed
@@ -846,7 +846,7 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     // lastRedemption in memory, we flip the mock to redeemed and let
     // the popup close.
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
 
     // After Done, screen is still mounted with lastRedemption in state.
@@ -906,7 +906,7 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
 
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
 
@@ -1002,7 +1002,7 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
 
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
 

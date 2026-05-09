@@ -36,9 +36,17 @@ type Props = {
   // useCreateReview → reviewsApi → backend, where the §0.3 5-condition
   // rule is validated.  Null/undefined → no auto-open, normal review flow.
   initialOpenWriteFor?: { branchId: string; redemptionId?: string } | null
+  // PR-C T16 device-QA fix (LOCKED 2026-05-09): fired AFTER the
+  // auto-open useEffect has consumed `initialOpenWriteFor` and
+  // opened the sheet.  Lets the parent defer URL scrub until the
+  // sheet is actually open — closes the production race where the
+  // scrub stripped openWriteReview/fromRedemption before
+  // ReviewsTab even mounted, leaving the auto-open with a null
+  // prop.  No-op when omitted.
+  onAutoOpenConsumed?: () => void
 }
 
-export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch, currentBranchCount, allBranchesCount, initialOpenWriteFor }: Props) {
+export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch, currentBranchCount, allBranchesCount, initialOpenWriteFor, onAutoOpenConsumed }: Props) {
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
 
@@ -128,7 +136,13 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
       redemptionId: initialOpenWriteFor.redemptionId ?? null,
     })
     setShowWriteSheet(true)
-  }, [initialOpenWriteFor])
+    // Signal consumption AFTER the sheet has been requested open.
+    // The parent uses this to defer URL scrub until now — without
+    // it, the scrub races ahead and strips openWriteReview/
+    // fromRedemption before this effect ever runs (PR-C T16
+    // device-QA fix, locked 2026-05-09).
+    onAutoOpenConsumed?.()
+  }, [initialOpenWriteFor, onAutoOpenConsumed])
 
   // Reset sort on toggle flip (spec §4.5; brainstorm Q5: "Pagination + sort:
   // reset on toggle flip"). Pagination state isn't in this component yet —

@@ -134,4 +134,50 @@ describe('ReviewsTab — D10/T10 initialOpenWriteFor auto-open', () => {
     // Probe renders 'null' literal when fromRedemptionId is not set.
     expect(getByTestId('probe-from-redemption-id').props.children).toBe('null')
   })
+
+  // PR-C T16 device-QA fix (LOCKED 2026-05-09): ReviewsTab now fires
+  // `onAutoOpenConsumed` AFTER the auto-open useEffect successfully
+  // requests the sheet open.  The parent uses this to defer URL
+  // scrub until consumption — without it the scrub races ahead and
+  // strips openWriteReview/fromRedemption before this effect ever
+  // runs.
+  describe('onAutoOpenConsumed callback (Codex device-QA fix)', () => {
+    it('fires onAutoOpenConsumed when initialOpenWriteFor triggers auto-open', () => {
+      const onAutoOpenConsumed = jest.fn()
+      render(
+        <ReviewsTab
+          {...baseProps}
+          initialOpenWriteFor={{ branchId: 'b1', redemptionId: 'red-1' }}
+          onAutoOpenConsumed={onAutoOpenConsumed}
+        />,
+        { wrapper: makeWrapper() },
+      )
+      expect(onAutoOpenConsumed).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT fire onAutoOpenConsumed when initialOpenWriteFor is null', () => {
+      const onAutoOpenConsumed = jest.fn()
+      render(
+        <ReviewsTab
+          {...baseProps}
+          initialOpenWriteFor={null}
+          onAutoOpenConsumed={onAutoOpenConsumed}
+        />,
+        { wrapper: makeWrapper() },
+      )
+      expect(onAutoOpenConsumed).not.toHaveBeenCalled()
+    })
+
+    it('does NOT throw when onAutoOpenConsumed is omitted (optional prop)', () => {
+      // No onAutoOpenConsumed provided.  Auto-open still fires, no
+      // error.
+      expect(() => render(
+        <ReviewsTab
+          {...baseProps}
+          initialOpenWriteFor={{ branchId: 'b1', redemptionId: 'red-1' }}
+        />,
+        { wrapper: makeWrapper() },
+      )).not.toThrow()
+    })
+  })
 })

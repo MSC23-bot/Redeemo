@@ -64,16 +64,22 @@ describe('WriteReviewSheet — D23 verified-review banner (PR-C T8)', () => {
     expect(queryByTestId('write-review-verified-banner')).toBeNull()
   })
 
+  // PR-C T16 device-QA fix (locked 2026-05-09 §AI Option A): when
+  // `initialRating > 0` the sheet flips to UPDATE copy ("Update
+  // review" instead of "Submit review") because that signals an
+  // existing review is being edited.  These payload-forwarding
+  // tests use `getByTestId('write-review-submit-text')` so they're
+  // robust to either copy variant.
   it('forwards redemptionId in the onSubmit payload when set', () => {
     const onSubmit = jest.fn()
-    const { getByLabelText, getByText } = render(
+    const { getByLabelText, getByTestId } = render(
       <WriteReviewSheet
         {...defaults({ onSubmit, fromRedemptionId: 'red-1', initialRating: 5 })}
       />,
     )
     // Re-tap the 5-star button to ensure rating commits.
     fireEvent.press(getByLabelText('5 stars'))
-    fireEvent.press(getByText('Submit Review'))
+    fireEvent.press(getByTestId('write-review-submit-text'))
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       rating: 5,
       redemptionId: 'red-1',
@@ -82,11 +88,11 @@ describe('WriteReviewSheet — D23 verified-review banner (PR-C T8)', () => {
 
   it('omits redemptionId from the onSubmit payload when not set', () => {
     const onSubmit = jest.fn()
-    const { getByLabelText, getByText } = render(
+    const { getByLabelText, getByTestId } = render(
       <WriteReviewSheet {...defaults({ onSubmit, initialRating: 4 })} />,
     )
     fireEvent.press(getByLabelText('4 stars'))
-    fireEvent.press(getByText('Submit Review'))
+    fireEvent.press(getByTestId('write-review-submit-text'))
     expect(onSubmit).toHaveBeenCalledTimes(1)
     const payload = onSubmit.mock.calls[0][0]
     expect(payload).toEqual({ rating: 4 })
@@ -95,14 +101,14 @@ describe('WriteReviewSheet — D23 verified-review banner (PR-C T8)', () => {
 
   it('forwards redemptionId WITH comment when both are present', () => {
     const onSubmit = jest.fn()
-    const { getByLabelText, getByText, getByPlaceholderText } = render(
+    const { getByLabelText, getByTestId, getByPlaceholderText } = render(
       <WriteReviewSheet
         {...defaults({ onSubmit, fromRedemptionId: 'red-1', initialRating: 5 })}
       />,
     )
     fireEvent.changeText(getByPlaceholderText('Share your experience (optional)'), 'Great place')
     fireEvent.press(getByLabelText('5 stars'))
-    fireEvent.press(getByText('Submit Review'))
+    fireEvent.press(getByTestId('write-review-submit-text'))
     expect(onSubmit).toHaveBeenCalledWith({
       rating: 5,
       comment: 'Great place',

@@ -55,10 +55,26 @@ export function WriteReviewSheet({
     onSubmit(payload)
   }, [rating, comment, fromRedemptionId, onSubmit])
 
+  // PR-C T16 device-QA fix (LOCKED 2026-05-09 §AI Option A) — when
+  // the user already has a review for this branch (signalled by a
+  // non-zero initialRating OR a non-empty initialComment from the
+  // parent's `myReview` pre-fill), reframe the sheet as an UPDATE
+  // surface rather than a fresh-write surface.  The current schema
+  // enforces one review per (userId, branchId) via @@unique, so
+  // editing the existing row is the only path; the copy must
+  // reflect that truthfully instead of pretending this is a new
+  // review.  Multi-review / one-per-redemption stays deferred under
+  // memory §AI as Tier 3 review-system v2 work.
+  const hasExistingReview = initialRating > 0 || initialComment.trim().length > 0
+  const titleCopy        = hasExistingReview ? 'Update your review' : 'Write a review'
+  const submitIdleCopy   = hasExistingReview ? 'Update review'      : 'Submit review'
+  const submitLoadingCopy = hasExistingReview ? 'Updating…'         : 'Submitting…'
+  const a11yLabel        = hasExistingReview ? 'Update your review' : 'Write a review'
+
   return (
-    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Write a review">
+    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel={a11yLabel}>
       <View style={styles.headerRow}>
-        <Text variant="heading.lg" style={styles.title}>Write a Review</Text>
+        <Text variant="heading.lg" style={styles.title} testID="write-review-title">{titleCopy}</Text>
         <Pressable onPress={onDismiss} style={styles.closeBtn} accessibilityLabel="Close">
           <X size={20} color="#9CA3AF" />
         </Pressable>
@@ -126,8 +142,8 @@ export function WriteReviewSheet({
           end={{ x: 1, y: 1 }}
           style={styles.submitGradient}
         >
-          <Text variant="label.lg" style={styles.submitText}>
-            {isLoading ? 'Submitting...' : 'Submit Review'}
+          <Text variant="label.lg" style={styles.submitText} testID="write-review-submit-text">
+            {isLoading ? submitLoadingCopy : submitIdleCopy}
           </Text>
         </LinearGradient>
       </Pressable>

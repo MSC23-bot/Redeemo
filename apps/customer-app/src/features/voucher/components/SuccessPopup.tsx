@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Check, Eye, Star } from 'lucide-react-native'
+import { Check, Eye, Star, X } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, radius, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -202,6 +202,34 @@ export function SuccessPopup({
           style={[styles.popup, popupStyle]}
           testID="success-popup"
         >
+          {/* Top-right close affordance (PR-C T16 device-QA fix —
+              locked 2026-05-09 owner direction §C).  Replaces the
+              bottom-row Done button which was reading as a peer to
+              Rate & Review.  X icon is visually quiet (low-weight
+              circular tap target on the cream surface) so the user-
+              facing hierarchy becomes:
+                  Primary:    "View voucher code"
+                  Secondary:  Rate & Review
+                  Dismissal:  X (top-right)
+              Modal.onRequestClose still wires hardware back; tapping
+              the X delegates to the same `onDone` handler so all
+              dismiss paths share one entry. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            testID="success-close"
+            onPress={() => { lightHaptic(); onDone() }}
+            style={({ pressed }) => [
+              styles.closeIcon,
+              pressed && styles.closeIconPressed,
+            ]}
+            // Boost the tap target — the icon itself is 16pt; the
+            // surrounding hit slop pushes effective size above the
+            // 44pt iOS HIG minimum without enlarging the visual.
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <X size={18} color={color.text.tertiary} strokeWidth={2.4} />
+          </Pressable>
           {/* Type-pastel accent row — gradient signals voucher type;
               animated check ring + title carry the success message.
               Type chip + "Redeemed" eyebrow removed (D16) — the title
@@ -344,15 +372,18 @@ export function SuccessPopup({
               </Text>
             </Pressable>
 
-            {/* Secondary row — two-column layout `[Rate & Review] [Done]`
-                when the parent provides `onRateReview` (PR-C T12 §0.3.1
-                locked 2026-05-09); otherwise carries only Done.  The
-                Rate & Review pill is a flat outlined pill (1px brand-rose
-                30% alpha border, brand-rose Star icon, body.md text,
-                ≥44pt tap target via paddingVertical) — secondary action,
-                not competing with the primary "View voucher code" CTA. */}
-            <View style={styles.secondaryRow}>
-              {onRateReview ? (
+            {/* Secondary row — Rate & Review pill, centred.  Done was
+                removed (PR-C T16 device-QA fix — locked 2026-05-09
+                owner direction §C): it was reading as a peer to Rate
+                & Review even though it's mere dismissal.  The X close
+                icon at the top-right of the popup now carries the
+                dismiss affordance with much lower visual weight, and
+                `Modal.onRequestClose` keeps hardware back wired.  The
+                row is suppressed entirely when the parent doesn't
+                provide `onRateReview` (no reliable branchId) — at
+                that point the only path forward IS the primary CTA. */}
+            {onRateReview ? (
+              <View style={styles.secondaryRow}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Rate and Review"
@@ -368,22 +399,8 @@ export function SuccessPopup({
                     Rate & Review
                   </Text>
                 </Pressable>
-              ) : null}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Done"
-                testID="success-done"
-                onPress={() => { lightHaptic(); onDone() }}
-                style={({ pressed }) => [
-                  styles.tertiaryAction,
-                  pressed && styles.tertiaryPressed,
-                ]}
-              >
-                <Text variant="label.md" style={styles.tertiaryDoneText}>
-                  Done
-                </Text>
-              </Pressable>
-            </View>
+              </View>
+            ) : null}
           </View>
         </Animated.View>
       </View>
@@ -666,21 +683,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.1,
   },
-  tertiaryAction: {
-    flexDirection: 'row',
+  // Top-right close icon — visually quiet so it doesn't compete
+  // with the primary CTA.  Absolute positioning lets it float over
+  // the accent row without nudging layout.  PR-C T16 device-QA fix,
+  // locked 2026-05-09.
+  closeIcon: {
+    position: 'absolute',
+    top: spacing[3],
+    right: spacing[3],
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: spacing[2],
-    paddingHorizontal: spacing[3],
+    justifyContent: 'center',
+    zIndex: 2,
+    backgroundColor: 'rgba(255,255,255,0.55)',
   },
-  tertiaryPressed: {
-    opacity: 0.85,
-  },
-  tertiaryDoneText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: color.text.secondary,
-    letterSpacing: 0.2,
+  closeIconPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.96 }],
   },
   ctaPressed: {
     opacity: 0.85,

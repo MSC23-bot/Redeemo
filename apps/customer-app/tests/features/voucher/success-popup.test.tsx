@@ -116,11 +116,32 @@ describe('SuccessPopup — CTAs', () => {
     expect(onShowToStaff).toHaveBeenCalledTimes(1)
   })
 
-  it('Done fires onDone', () => {
+  // PR-C T16 device-QA fix (LOCKED 2026-05-09 §C): the bottom-row
+  // "Done" text button was removed because it was reading as a
+  // peer to Rate & Review even though it's mere dismissal.
+  // Dismissal is now carried by:
+  //   - X close icon at the top-right (testID `success-close`)
+  //   - Modal.onRequestClose (hardware back) — same handler
+  //   - scrim tap (Modal default behaviour)
+  // All three paths route to the same `onDone` callback.
+
+  it('top-right close icon fires onDone', () => {
     const onDone = jest.fn()
     const { getByTestId } = render(<SuccessPopup {...defaults({ onDone })} />)
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('top-right close icon accessibilityLabel reads "Close"', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
+    expect(getByTestId('success-close').props.accessibilityLabel).toBe('Close')
+    expect(getByTestId('success-close').props.accessibilityRole).toBe('button')
+  })
+
+  it('does NOT render the bottom-row Done button (locked dismissal moved to X icon)', () => {
+    const { queryByTestId, queryByText } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByTestId('success-done')).toBeNull()
+    expect(queryByText('Done')).toBeNull()
   })
 
   it('CTAs do not fire each other (independent handlers)', () => {
@@ -362,13 +383,15 @@ describe('SuccessPopup — Rate & Review CTA (PR-C T12 §0.3.1)', () => {
     expect(getByTestId('success-rate-review').props.accessibilityRole).toBe('button')
   })
 
-  it('Done still works independently when Rate & Review is rendered alongside it', () => {
+  it('top-right close icon still works independently when Rate & Review is rendered alongside it', () => {
+    // PR-C T16 device-QA fix: dismissal is now via the X icon at
+    // the top-right, NOT a Done text button at the bottom row.
     const onRateReview = jest.fn()
     const onDone = jest.fn()
     const { getByTestId } = render(
       <SuccessPopup {...defaults({ onRateReview, onDone })} />,
     )
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     expect(onDone).toHaveBeenCalledTimes(1)
     expect(onRateReview).not.toHaveBeenCalled()
   })
