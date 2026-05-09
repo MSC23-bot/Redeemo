@@ -12,6 +12,8 @@ import { Check, Eye, Star, X } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, radius, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
+import { SparkleRing } from './SparkleRing'
+import { useCountUp } from '../utils/useCountUp'
 
 type Props = {
   visible: boolean
@@ -156,6 +158,18 @@ export function SuccessPopup({
   const [logoError, setLogoError] = useState(false)
   const showLogo = merchantLogoUrl !== null && !logoError
 
+  // PR-B T2 §3.2 (LOCKED 2026-05-09) — count-up motion for the
+  // saving amount.  Duration scales with magnitude so a £0.50
+  // saving doesn't sweep too long and a £999.99 saving doesn't
+  // sweep too short.  Bounded:
+  //   - min 600ms  : enough sweep to register on small values
+  //   - max 1000ms : capped so large values still feel snappy
+  // ease-out-quart (in the hook) lands the value cleanly.
+  // Reduced-motion path: hook returns target immediately on first
+  // render (data, not decoration).
+  const countUpDurationMs = Math.min(1000, Math.max(600, estimatedSaving * 100))
+  const animatedSaving = useCountUp(estimatedSaving, countUpDurationMs)
+
   useEffect(() => {
     if (visible) {
       // Wave 14 (locked 2026-05-09 from owner QA "too bouncy"):
@@ -248,12 +262,22 @@ export function SuccessPopup({
               end={{ x: 1, y: 0 }}
               style={StyleSheet.absoluteFillObject}
             />
-            <Animated.View
-              style={[styles.checkRing, checkStyle]}
-              testID="success-check-ring"
-            >
-              <Check size={14} color={color.onBrand} strokeWidth={3} />
-            </Animated.View>
+            {/* Check-ring + sparkle wrapper.  PR-B T2 §3.2 (LOCKED
+                2026-05-09): the SparkleRing sits absolutely on top of
+                the check ring, centered.  The wrapper carries the
+                check ring's flex placement; the SparkleRing is a
+                pointerEvents="none" decorative halo.  Both share the
+                same accent-row child slot so the title's `flex: 1`
+                still claims the remaining row width cleanly. */}
+            <View style={styles.checkSlot}>
+              <Animated.View
+                style={[styles.checkRing, checkStyle]}
+                testID="success-check-ring"
+              >
+                <Check size={14} color={color.onBrand} strokeWidth={3} />
+              </Animated.View>
+              <SparkleRing visible={visible} />
+            </View>
             <Text
               variant="heading.md"
               style={styles.accentTitle}
@@ -328,7 +352,7 @@ export function SuccessPopup({
                   style={styles.savingAmount}
                   testID="success-saving-amount"
                 >
-                  £{estimatedSaving.toFixed(2)}
+                  £{animatedSaving.toFixed(2)}
                 </Text>
               </View>
             ) : null}
@@ -488,6 +512,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[6],
     minHeight: 72,
+  },
+  // PR-B T2 §3.2 (LOCKED 2026-05-09) — the check-ring slot.
+  // Sized to the SparkleRing diameter (36pt) so the absolute halo
+  // sits centred on the 22pt check ring inside.  alignItems +
+  // justifyContent center the check ring within its slot.  The
+  // outer wrapper takes the flex-row child position the bare
+  // check ring used to occupy, so the row layout is unchanged.
+  checkSlot: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   checkRing: {
     width: 22,

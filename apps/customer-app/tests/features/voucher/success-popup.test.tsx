@@ -8,6 +8,18 @@ jest.mock('@/design-system/haptics', () => ({
   lightHaptic: jest.fn(),
 }))
 
+// PR-B T2 (LOCKED 2026-05-09 §3.2) — useCountUp animates the saving
+// amount from 0 → target on entrance.  Under the global tests/setup.ts
+// reanimated mock, `useReducedMotion()` returns false, which would
+// leave the saving amount at £0.00 on the synchronous render path
+// these existing assertions (£6.99 / £12.00 / £1234.56) check.
+// Stub useCountUp to a pass-through so the synchronous assertions
+// continue to read the final value.  The animated/reduced-motion
+// paths are exercised in `success-popup-celebration.test.tsx`.
+jest.mock('@/features/voucher/utils/useCountUp', () => ({
+  useCountUp: (target: number) => target,
+}))
+
 import { SuccessPopup } from '@/features/voucher/components/SuccessPopup'
 
 // PR-A revised scope (locked 2026-05-09 §0.9 + §0.10 + §0.11):
