@@ -602,6 +602,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     alignItems: 'center',
     borderWidth: 1,
+    // Defense-in-depth against ascender clipping (mirrors the M3
+    // RedeemedSeal wave-6 pattern): even if a future style override
+    // shrinks the code's line-box, the parent never crops the glyphs.
+    overflow: 'visible',
   },
   codeLabel: {
     fontSize: 9,
@@ -610,15 +614,25 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textTransform: 'uppercase',
   },
+  // Code hero — fontSize 30 overrides the heading.md variant (which
+  // is 18 / 24).  RN's <Text> applies the variant lineHeight FIRST,
+  // so without an explicit lineHeight bump here the line box is
+  // 24pt while the glyphs need ~30pt — clipping the ascenders.
+  // Owner-reported on-device 2026-05-09; same fragility class as
+  // the M3 RedeemedSeal wave-6 bug.  Fix: lineHeight 42 (1.4× ratio,
+  // gives ascenders generous headroom) + drop the negative
+  // marginTop that pulled glyphs up into the clip + parent codeBox
+  // gets overflow: 'visible' as a regression guard.
   codeValue: {
     fontSize: 30,
+    lineHeight: 42,
     fontWeight: '800',
     color: color.text.primary,
     letterSpacing: 4,
     fontVariant: ['tabular-nums'],
-    // Slight negative top-margin pulls the code closer to the label
-    // without overlapping; tightens the visual block.
-    marginTop: -2,
+    // Android safety: ensures the system-reserved padding around
+    // text doesn't get suppressed.  Mirrors RedeemedSeal wave-6.
+    includeFontPadding: true,
   },
   // body.sm (14 / 21) variant drives.  fontSize override removed
   // 2026-05-09 (PR-A §3.3): live timestamp is the screenshot-detection
