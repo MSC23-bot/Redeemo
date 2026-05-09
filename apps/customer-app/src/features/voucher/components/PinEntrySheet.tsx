@@ -280,8 +280,14 @@ export function PinEntrySheet({
           </View>
         </View>
 
-        {/* Title */}
-        <Text variant="heading.md" style={styles.title}>
+        {/* Title (PR-B T8m, impeccable pass) — Mustica Pro Semibold
+            display.sm 22pt with tight tracking (-0.3) per DESIGN.md
+            "Mustica-for-Display Rule".  This sheet is the gateway
+            moment between branch confirmation and redemption; the
+            display tier matches the surface importance.  Was
+            heading.md (Lato Semibold 18) + fontWeight 800 override
+            (the override doesn't synthesize cleanly on iOS Lato). */}
+        <Text variant="display.sm" style={styles.title}>
           Enter Branch PIN
         </Text>
         {/* Subtitle — locked copy 2026-05-09 (PR-A shape brief §5.1).
@@ -476,12 +482,12 @@ export function PinEntrySheet({
                 size={6}
                 testID="pin-submit-pulsing-dot"
               />
-              <Text variant="body.md" style={styles.submitText}>
+              <Text variant="heading.sm" style={styles.submitText}>
                 Confirming…
               </Text>
             </>
           ) : (
-            <Text variant="body.md" style={styles.submitText}>
+            <Text variant="heading.sm" style={styles.submitText}>
               Confirm
             </Text>
           )}
@@ -495,9 +501,12 @@ const styles = StyleSheet.create({
   // Header rhythm — 2026-05-09 horizontal-layout + density refinement.
   // Padding/margin reduced one step from the initial PR-A bump so the
   // sheet starts a little lower and doesn't crowd the screen top.
+  // PR-B T8m (impeccable pass): 1px border → StyleSheet.hairlineWidth
+  // for a more refined separator (resolves to ~0.5pt on iOS, 1px on
+  // Android — the right "barely there" weight per Flat-By-Default Rule).
   headerRow: {
     paddingBottom: spacing[3],
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.border.subtle,
     marginBottom: spacing[4],
   },
@@ -527,8 +536,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(226, 12, 4, 0.08)',
     backgroundColor: color.surface.tint,
   },
-  // body.md (16) + SemiBold weight.  Left-aligned in the horizontal
-  // header layout (the {logo + text} unit is centered together).
+  // body.md (16) lifted to 700 weight — the merchant line is the
+  // primary identity in the header.  Lato has a real Bold cut so
+  // the 700 lift renders cleanly (unlike adding 800 on Semibold).
   merchantLine: {
     fontWeight: '700',
     color: color.text.primary,
@@ -538,11 +548,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
     color: color.text.secondary,
   },
-  // heading.md variant (18 / 24) drives.  No fontSize override.
+  // PR-B T8m (impeccable pass): title moved to display.sm Mustica Pro
+  // Semibold 22pt with -0.3 tight tracking.  The Mustica Semibold
+  // weight is what the brand calls for at display tier; the previous
+  // fontWeight: 800 override on Lato Semibold doesn't synthesize
+  // cleanly on iOS and is dropped.
   title: {
-    fontWeight: '800',
     color: color.text.primary,
     textAlign: 'center',
+    letterSpacing: -0.3,
   },
   // body.md (16 / 24) variant drives.  Two-line subtitle: line 1
   // (instruction) uses primary text; line 2 (mechanic) uses secondary.
@@ -557,24 +571,37 @@ const styles = StyleSheet.create({
     color: color.text.secondary,
     textAlign: 'center',
   },
-  // PIN boxes — gap 14 keeps 56×64 boxes visually separated.  Vertical
-  // breathing space tightened 2026-05-09 to compress overall sheet.
+  // PIN boxes — gap 12 (spacing[3]) keeps 56×64 boxes visually
+  // separated; PR-B T8m bumped from 14 to align with the spacing
+  // token system.
   pinRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 14,
+    gap: spacing[3],
     marginTop: spacing[4],
     marginBottom: spacing[4],
   },
   // 56×64 PIN boxes (D6 locked).  Comfortable 44pt+ tap target with
   // 26pt digit weight already proven readable in M2.
+  // PR-B T8m (impeccable pass) refinements:
+  //   • borderRadius radius.lg (16) → radius.md (12).  The lg radius
+  //     read as chunkier than the brand voice; md keeps the box
+  //     refined while still soft.
+  //   • borderWidth 2 → 1.5.  Premium hairline weight; reads as
+  //     "intentionally drawn" rather than "outlined chunky".
+  //   • Idle bg color.cream → color.surface.tint.  DESIGN.md
+  //     "Cream-for-Identity Rule" — cream is identity-zone framing,
+  //     surface.tint is the quieter cream-adjacent reserved for
+  //     state surfaces.
+  //   • Idle border hardcoded `#E8E2DC` → color.border.subtle.
+  //     Token alignment.
   pinBox: {
     width: 56,
     height: 64,
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    borderColor: '#E8E2DC',
-    backgroundColor: color.cream,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: color.border.subtle,
+    backgroundColor: color.surface.tint,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -630,26 +657,33 @@ const styles = StyleSheet.create({
     marginBottom: spacing[3],
   },
   // heading.sm (16 / 22) variant drives — backend errors are
-  // user-actionable, must be readable.
+  // user-actionable, must be readable.  PR-B T8m: dropped the
+  // fontWeight: '800' override; Lato Semibold (already 600) doesn't
+  // synthesize cleanly to 800 on iOS.  Switched amber tone from
+  // hardcoded `#92400E` → `color.warning` (`#B45309`) per DESIGN.md
+  // Status palette token alignment.
   backendErrorTitle: {
-    fontWeight: '800',
-    color: '#92400E',
+    color: color.warning,
     marginBottom: 2,
   },
   // body.sm (14 / 21) variant drives.
   backendErrorBody: {
-    color: '#92400E',
+    color: color.warning,
   },
   // Disclaimer banner — icon-left, vertically centred (2026-05-09).
   // Lock icon centred against the full text height (~2 lines) so
   // the icon visually balances the two-line copy block.  Text takes
   // the remaining card width via flex: 1 and wraps naturally.
   // Single Text holds both sentences so "cycle." never orphans.
+  // PR-B T8m: bg color.cream → color.surface.tint per DESIGN.md
+  // "Cream-for-Identity Rule" (cream is identity-zone framing;
+  // surface.tint is the quieter cream-adjacent reserved for state
+  // surfaces like this commitment-warning card).
   disclaimer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[2],
-    backgroundColor: color.cream,
+    backgroundColor: color.surface.tint,
     borderColor: 'rgba(226, 12, 4, 0.12)',
     borderWidth: 1,
     borderRadius: radius.md,
@@ -663,9 +697,16 @@ const styles = StyleSheet.create({
     flex: 1,
     color: color.text.primary,
   },
-  // Submit button — body.md (16) drives via variant.  Min-height 56
-  // gives a comfortable tap target at the bumped text size; gap 8
-  // sits between PulsingDot (when loading) and "Confirming…" label.
+  // Submit button — PR-B T8m (impeccable pass) aligned to DESIGN.md
+  // `button-primary-lg`:
+  //   • borderRadius radius.md (12) — DESIGN.md "Buttons Shape:
+  //     rounded-md (12px) on every variant".  Was radius.lg (16).
+  //   • shadowOpacity 0.30 → 0.20, shadowRadius 24 → 18 — calmer
+  //     brand glow per DESIGN.md "Glow-is-the-CTA Rule" (the glow
+  //     is a brand pulse, not a marketing flare).
+  //   • paddingHorizontal 24 explicit per the spec.
+  //   • Label moves body.md (16) + fontWeight 700 override → heading.sm
+  //     (Lato Semibold 16) so the variant carries the weight cleanly.
   submit: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -673,11 +714,12 @@ const styles = StyleSheet.create({
     gap: spacing[2],
     minHeight: 56,
     paddingVertical: spacing[4],
-    borderRadius: radius.lg,
+    paddingHorizontal: 24,
+    borderRadius: radius.md,
     overflow: 'hidden',
     shadowColor: color.brandRose,
-    shadowOpacity: 0.3,
-    shadowRadius: 24,
+    shadowOpacity: 0.20,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
   },
   submitDisabled: {
@@ -686,11 +728,7 @@ const styles = StyleSheet.create({
   submitPressed: {
     transform: [{ scale: 0.97 }],
   },
-  // body.md (16 / 24) variant drives.  No fontSize override.
-  // SemiBold weight via fontWeight: '700' (Lato-Regular variant
-  // base is 400, lifted here for action-button presence).
   submitText: {
-    fontWeight: '700',
     color: color.onBrand,
   },
   // ── Lockout card ──
@@ -715,35 +753,45 @@ const styles = StyleSheet.create({
   // heading.sm (16 / 22) variant drives the title; bumped from
   // label.md so "Too Many Attempts" reads with the weight the
   // moment deserves.  Cross-surface consistency pass 2026-05-09.
+  // PR-B T8m: dropped the fontWeight: '800' override (Lato Semibold
+  // already carries the 600 weight cleanly; the 800 lift doesn't
+  // synthesize on iOS).
   lockoutTitle: {
-    fontWeight: '800',
     color: color.danger,
     marginBottom: spacing[2],
   },
   // body.sm (14 / 21) variant drives — readable explanation copy.
   // Split into two sibling Text blocks so each sentence is its own
-  // line (sentence-per-line discipline).
+  // line (sentence-per-line discipline).  PR-B T8m: hardcoded amber
+  // `#92400E` → `color.text.secondary` (#4B5563 navy-grey).  The
+  // amber body on a red-tinted danger card is inconsistent with the
+  // brand-rose / danger title and timer above; switching to
+  // text.secondary aligns the body to the DESIGN.md "three text
+  // steps" rule and reads cleaner on the soft-danger bg.
   lockoutBody: {
-    color: '#92400E',
+    color: color.text.secondary,
     textAlign: 'center',
   },
   lockoutBodySecondary: {
-    color: '#92400E',
+    color: color.text.secondary,
     textAlign: 'center',
     marginTop: 2,
     marginBottom: spacing[3],
   },
   // heading.lg (20 / 26) variant drives the mm:ss timer.  Bumped
   // from heading.sm so the countdown is the visual anchor of the
-  // lockout card.
+  // lockout card.  PR-B T8m: dropped fontWeight: '800' override
+  // (Lato Semibold variant already carries the right weight).
   lockoutTimer: {
-    fontWeight: '800',
     color: color.danger,
     fontVariant: ['tabular-nums'],
   },
-  // label.md (12 / 16) variant drives.  fontSize override removed.
+  // label.md (12 / 16) variant drives.  PR-B T8m: hardcoded amber
+  // `#92400E` → `color.text.secondary` for the same alignment
+  // reason as `lockoutBody` (consistent body tone on the
+  // danger-tinted card).
   lockoutLabel: {
     marginTop: 2,
-    color: '#92400E',
+    color: color.text.secondary,
   },
 })
