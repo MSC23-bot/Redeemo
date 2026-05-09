@@ -109,4 +109,78 @@ describe('flagRedemptionScreenshot', () => {
       data: { userId: 'u1', redemptionId: 'r1', platform: 'android' },
     })
   })
+
+  // Graceful degradation when Redis fails (locked 2026-05-09 from
+  // deferred-followups §AG4 — post-PR-#49 cleanup). The customer-app
+  // already swallows telemetry failures client-side, but a 500 here
+  // generates noisy server logs that would mask genuine bugs and
+  // potentially trigger client retry storms. Treating Redis failures
+  // as "dedup unavailable" keeps the route at HTTP 200 with
+  // `{ accepted: false }`.
+  describe('Redis-failure graceful degradation', () => {
+    it('returns { accepted: false } without throwing when redis.set rejects', async () => {
+      // Simulate ioredis throwing (connection lost, timeout, etc).
+      redis.set.mockRejectedValue(new Error('ECONNREFUSED'))
+      const result = await flagRedemptionScreenshot(
+        prisma as any,
+        redis  as any,
+        'u1',
+        'A7K2P9X4',
+        'ios',
+      )
+      expect(result).toEqual({ accepted: false })
+    })
+
+    it('does NOT write a DB row when redis.set rejects (skip DB write per §AG4 contract)', async () => {
+      // Owner direction: "Do not write a DB row if dedup cannot be
+      // performed safely." Skipping the write avoids generating
+      // duplicates if Redis recovers and the customer retries, AND
+      // avoids storming the audit table during a Redis outage.
+      redis.set.mockRejectedValue(new Error('ETIMEDOUT'))
+      await flagRedemptionScreenshot(
+        prisma as any,
+        redis  as any,
+        'u1',
+        'A7K2P9X4',
+        'ios',
+      )
+      expect(prisma.redemptionScreenshotEvent.create).not.toHaveBeenCalled()
+    })
+
+    it('preserves REDEMPTION_NOT_FOUND auth-boundary even if Redis is unavailable', async () => {
+      // The redemption-lookup auth check runs BEFORE the Redis call,
+      // so a leaked code from a different user must still produce
+      // REDEMPTION_NOT_FOUND regardless of Redis health.
+      prisma.voucherRedemption.findUnique.mockResolvedValue({
+        id:             'r1',
+        userId:         'OTHER_USER',  // belongs to someone else
+        redemptionCode: 'A7K2P9X4',
+      })
+      // Even if Redis would fail, we must reject before getting there.
+      redis.set.mockRejectedValue(new Error('ECONNREFUSED'))
+      await expect(
+        flagRedemptionScreenshot(prisma as any, redis as any, 'u1', 'A7K2P9X4', 'ios'),
+      ).rejects.toThrow('REDEMPTION_NOT_FOUND')
+      // And nothing was written.
+      expect(prisma.redemptionScreenshotEvent.create).not.toHaveBeenCalled()
+    })
+
+    it('preserves the dedup-hit path (Redis returns null) — distinct from Redis failure', async () => {
+      // Redis returning `null` means the SETNX hit an existing key
+      // (dedup'd within the 5s window). This is the "burst" path,
+      // not a failure — same return shape but skip-DB by different
+      // logic. Pinning both paths so a future refactor can't
+      // collapse them by mistake.
+      redis.set.mockResolvedValue(null)
+      const result = await flagRedemptionScreenshot(
+        prisma as any,
+        redis  as any,
+        'u1',
+        'A7K2P9X4',
+        'ios',
+      )
+      expect(result).toEqual({ accepted: false })
+      expect(prisma.redemptionScreenshotEvent.create).not.toHaveBeenCalled()
+    })
+  })
 })

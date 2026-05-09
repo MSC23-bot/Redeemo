@@ -483,14 +483,35 @@ export async function flagRedemptionScreenshot(
   // the telemetry write — the dedup happens before the DB hit, so a
   // burst of screenshot events at most generates one row per
   // (userId, code) per 5 seconds.
+  //
+  // **Graceful degradation if Redis fails** (locked 2026-05-09 from
+  // deferred-followups §AG4 — post-PR-#49 cleanup). Redis being down
+  // or misbehaving must NOT surface a 500 to the customer-app — the
+  // client (`useScreenshotGuard`) already swallows telemetry failures
+  // via `.catch(() => {})`, but a 500 here generates noisy server-
+  // side error logs that mask genuine bugs. We treat any Redis
+  // exception as a "dedup unavailable" condition and skip the DB
+  // write entirely (per owner direction: "do not write a DB row if
+  // dedup cannot be performed safely"). The route returns 200 with
+  // `{ accepted: false }` and the customer's visible state is
+  // unaffected (the screenshot banner already fired client-side).
   const dedupKey = RedisKey.redemptionScreenshotDedup(userId, normalised)
-  const setResult = await redis.set(
-    dedupKey,
-    '1',
-    'EX',
-    SCREENSHOT_DEDUP_TTL_SECONDS,
-    'NX',
-  )
+  let setResult: string | null
+  try {
+    setResult = await redis.set(
+      dedupKey,
+      '1',
+      'EX',
+      SCREENSHOT_DEDUP_TTL_SECONDS,
+      'NX',
+    )
+  } catch {
+    // Redis failure — degrade to "accepted: false" without writing.
+    // Skipping the DB write avoids generating duplicates if Redis
+    // recovers later, AND avoids storming the audit table during a
+    // Redis outage.
+    return { accepted: false }
+  }
   if (setResult !== 'OK') return { accepted: false }
 
   await prisma.redemptionScreenshotEvent.create({
