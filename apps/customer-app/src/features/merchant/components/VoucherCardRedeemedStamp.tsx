@@ -1,67 +1,62 @@
 import React from 'react'
 import { StyleSheet, View } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 
 /**
- * VoucherCardRedeemedStamp — small "REDEEMED" rubber-stamp variant
- * sized for the merchant-profile voucher card hero (PR-B T5,
- * closes deferred-followups §Q4).
+ * VoucherCardRedeemedStamp — refined "Voucher Redeemed" mark for the
+ * merchant-profile voucher card hero (PR-B T8i, owner-locked
+ * 2026-05-10).
  *
- * Visual DNA mirrors the larger `RedeemedSeal` (Voucher Detail's
- * hero overlay): brand-rose ink at reduced opacity for the rubber-
- * stamp ink-pressure feel + cream fill + brand-rose border + ~5°
- * tilt + ink-pressure textShadow. NO entrance animation — the stamp
- * renders static at mount per brief §6 "Reduced motion" requirement
- * (and parity with the broader §Q4 spec — the larger seal animates
- * on Voucher Detail because that's the primary surface; on a list
- * card we want the redeemed-state recognition to be instant).
+ * **Owner direction trail:**
+ *   • T8h (REVERTED at T8i): tried a refined hairline-accent treatment
+ *     on the LARGER Voucher Detail hero seal — wrong surface; reverted.
+ *   • T8i revert: the Voucher Detail hero seal stays on the original
+ *     rubber-stamp design.  The refined treatment lives ONLY here.
+ *   • T8i refinement (this round): owner direction "now it reads
+ *     redeemed, but it should read voucher redeemed.  And it does
+ *     not need to be top right corner.  It could be in the center,
+ *     slightly bigger, but please change the style".
+ *
+ * Visual contract (T8i refinement):
+ *   • Copy:    "Voucher Redeemed" — two words, level, all-caps.  Was
+ *              "REDEEMED" single word.
+ *   • Backdrop: soft cream → pale-rose vertical gradient.
+ *   • Border:  1.5px brand-rose @ 55%.
+ *   • Layout:  level (no tilt).  Position is owned by the parent
+ *              VoucherCard — T8i moves the wrap from the top-right
+ *              corner to a centered overlay across the hero.
+ *   • Title:   letter-spaced wide, brand-rose colour, full opacity.
+ *              No textShadow, no ink-pressure cues.
+ *   • Lift:    subtle brand-rose drop shadow for depth.
+ *   • Sizing:  default 52pt outer (was 36pt) — bumped per T8i
+ *              "slightly bigger".  Text + paddings derive from the
+ *              outer size.
+ *   • No entrance animation per brief §6 — instant recognition on a
+ *              list card.
  *
  * Cross-refs:
- *   - design brief §3.5 + §5.5 + §8.5 + §6 Key States
- *   - plan §Task 5 Step 5.1
  *   - apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx
- *     (the larger Voucher Detail hero seal — same visual language at
- *     larger scale + entrance animation)
- *   - deferred-followups §Q4 (closed by this component)
- *
- * The component is intentionally separate from `RedeemedSeal` rather
- * than a size variant: the parent surfaces have different mount
- * patterns (Voucher Detail hero overlay vs merchant-profile card
- * hero overlay) and keeping each surface independently tunable lets
- * a future polish pass on either side land without coupling the
- * other.
+ *     (Voucher Detail hero — rubber-stamp DNA, intentionally separate).
+ *   - deferred-followups §Q4 — stays closed.
  */
 type Props = {
   /**
-   * Diameter / outer size in pt. Default 36 — sits within brief
-   * §3.5 "30-40pt diameter" range. The brief leaves the exact
-   * value for impl-time on-device review at small (375pt) +
-   * large (430pt) device widths.
+   * Outer height in pt. Default 52 — T8i "slightly bigger" bump from
+   * the previous 36 to give the centered mark visual weight on a
+   * card-scale hero.  Override at call site if a tighter fit is
+   * required for narrower devices.
    */
   size?: number
 }
 
-export function VoucherCardRedeemedStamp({ size = 36 }: Props) {
-  // Internal text auto-scales with the outer size so the component
-  // looks balanced across 30-40pt range without a separate prop.
-  // 36pt outer → ~9pt label.eyebrow-ish glyphs after rotation.
-  const fontSize = Math.max(8, Math.round(size * 0.25))
-  const paddingV = Math.round(size * 0.16)
-  const paddingH = Math.round(size * 0.22)
-  const borderRadius = Math.round(size * 0.20)
+export function VoucherCardRedeemedStamp({ size = 52 }: Props) {
+  const fontSize     = Math.max(11, Math.round(size * 0.27))
+  const paddingV     = Math.round(size * 0.20)
+  const paddingH     = Math.round(size * 0.42)
+  const borderRadius = Math.round(size * 0.24)
 
-  // Note on a11y: this component does NOT set
-  // `accessibilityElementsHidden` / `importantForAccessibility="no"`
-  // even though the parent VoucherCard already announces redeemed
-  // status via its `accessibilityLabel` (". Already redeemed this
-  // cycle"). The cleaner trade-off is to leave the inner Text node
-  // accessible to the RNTL `getByText('REDEEMED')` query — which
-  // the existing voucher-card.test.tsx pin uses — at the cost of
-  // a screen-reader hearing "REDEEMED" twice on the same card
-  // (once via parent a11y label, once via the stamp's text). On a
-  // visually-stamped surface the duplication is mild and the
-  // alternative (hiding the subtree) breaks the test pin.
   return (
     <View
       testID="voucher-card-redeemed-stamp"
@@ -69,17 +64,25 @@ export function VoucherCardRedeemedStamp({ size = 36 }: Props) {
       style={[
         styles.stamp,
         {
-          paddingVertical: paddingV,
+          paddingVertical:   paddingV,
           paddingHorizontal: paddingH,
           borderRadius,
         },
       ]}
     >
+      {/* Soft cream → pale-rose gradient backdrop. */}
+      <LinearGradient
+        colors={['#FFFBF5', '#FFEFE8']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
       <Text
         variant="label.eyebrow"
-        style={[styles.text, { fontSize, lineHeight: Math.round(fontSize * 1.2) }]}
+        style={[styles.text, { fontSize, lineHeight: Math.round(fontSize * 1.3) }]}
       >
-        REDEEMED
+        Voucher Redeemed
       </Text>
     </View>
   )
@@ -87,41 +90,23 @@ export function VoucherCardRedeemedStamp({ size = 36 }: Props) {
 
 const styles = StyleSheet.create({
   stamp: {
-    // Rubber-stamp tilt — mirrors RedeemedSeal's rest rotation
-    // direction at smaller magnitude (-5° here vs -8° on the
-    // larger Voucher Detail seal). Static — no entrance motion
-    // per brief §6.
-    transform: [{ rotate: '-5deg' }],
-    backgroundColor: '#FFF6EE',
-    borderWidth: 2,
-    borderColor: color.brandRose,
+    // Level — no tilt.  T8i premium / editorial direction.
+    borderWidth: 1.5,
+    borderColor: 'rgba(226, 12, 4, 0.55)',
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    // Subtle drop so the stamp lifts off the muted hero gradient.
-    // Brand-rose tint matches the parent card's per-type shadow
-    // language (each card already drops a colour-tinted shadow).
     shadowColor: color.brandRose,
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-    overflow: 'visible',
+    shadowOpacity: 0.20,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   text: {
     color: color.brandRose,
-    fontWeight: '900',
-    letterSpacing: 1.6,
-    // ~50% opacity per brief §3.5 — preserves the rubber-stamp
-    // ink-pressure feel (the cream fill behind it gives the text
-    // its visual weight; the 50% opacity reads as "stamped ink",
-    // not "freshly printed").
-    opacity: 0.55,
-    // Ink-pressure textShadow — same trick RedeemedSeal uses:
-    // tight 0.5/0.5 offset with 0 radius mimics ink slightly
-    // bleeding to one side under stamp pressure.
-    textShadowColor: 'rgba(226,12,4,0.45)',
-    textShadowOffset: { width: 0.5, height: 0.5 },
-    textShadowRadius: 0,
+    fontWeight: '700',
+    letterSpacing: 2.4,
+    textTransform: 'uppercase',
     includeFontPadding: true,
   },
 })

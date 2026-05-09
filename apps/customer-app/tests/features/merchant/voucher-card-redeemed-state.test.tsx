@@ -55,7 +55,7 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
     expect(getByTestId('voucher-card-redeemed-stamp')).toBeTruthy()
     // The stamp text must remain accessible via getByText so the
     // existing voucher-card.test.tsx pin keeps working.
-    expect(getByText('REDEEMED')).toBeTruthy()
+    expect(getByText('Voucher Redeemed')).toBeTruthy()
   })
 
   it('does NOT render REDEEMED stamp when isRedeemed=false (regression pin)', () => {
@@ -69,7 +69,7 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       />,
     )
     expect(queryByTestId('voucher-card-redeemed-stamp')).toBeNull()
-    expect(queryByText('REDEEMED')).toBeNull()
+    expect(queryByText('Voucher Redeemed')).toBeNull()
   })
 
   it('does NOT render REDEEMED stamp when isRedeemed prop is omitted', () => {
@@ -83,7 +83,7 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       />,
     )
     expect(queryByTestId('voucher-card-redeemed-stamp')).toBeNull()
-    expect(queryByText('REDEEMED')).toBeNull()
+    expect(queryByText('Voucher Redeemed')).toBeNull()
   })
 
   it('renders "Already redeemed this cycle" inline label when isRedeemed=true', () => {
@@ -238,14 +238,19 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
     expect(getAllByTestId('voucher-card-already-redeemed-label').length).toBe(1)
   })
 
-  it('stamp does not animate on mount under reduced-motion', () => {
-    // The stamp component is a static View — no useSharedValue,
-    // no withTiming, no entrance animation. Pin by inspecting the
-    // stamp element's style: it carries a static rotate transform
-    // (-5deg) that does NOT change after mount. Reanimated's
-    // withTiming wraps values via the worklet runtime; a static
-    // stamp's transform would never be a SharedValue, only a
-    // plain string array.
+  it('stamp is level (no tilt) under the PR-B T8i refined treatment', () => {
+    // PR-B T8i — owner direction: the merchant-profile voucher card
+    // stamp moves to a refined hairline-accent + cream-gradient
+    // design.  The previous rubber-stamp variant tilted -5°; the
+    // refined variant is LEVEL (no rotate transform).  Pin the
+    // contract so a future revert to the rubber-stamp aesthetic
+    // fails this assertion.
+    //
+    // The stamp component still renders as a static View — no
+    // useSharedValue, no withTiming, no entrance animation per
+    // brief §6 (instant recognition on a list card; the larger
+    // Voucher Detail seal handles entrance motion at the primary
+    // surface).
     const { getByTestId } = render(
       <VoucherCard
         voucher={mk()}
@@ -257,11 +262,19 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
     )
     const stamp = getByTestId('voucher-card-redeemed-stamp')
     const style = Array.isArray(stamp.props.style)
-      ? Object.assign({}, ...stamp.props.style)
-      : stamp.props.style
-    // Static rotate transform — not a SharedValue / animated
-    // style chain.
-    expect(style.transform).toEqual([{ rotate: '-5deg' }])
+      ? Object.assign({}, ...stamp.props.style.filter(Boolean))
+      : stamp.props.style ?? {}
+    // Level — no rotate transform applied to the stamp container.
+    // (Any future regression that re-introduces a tilt at the card
+    // level fails this pin; the larger Voucher Detail rubber-stamp
+    // seal continues to tilt INDEPENDENTLY of this card surface.)
+    if (style.transform) {
+      const flatTransforms = (style.transform as Array<Record<string, unknown>>).reduce(
+        (acc, t) => ({ ...acc, ...t }),
+        {} as Record<string, unknown>,
+      )
+      expect(flatTransforms.rotate).toBeUndefined()
+    }
   })
 
   it('redeemed card title + description do NOT carry an opacity dim (PR-B T5.1 spec-fix)', () => {
@@ -295,5 +308,114 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       : description.props.style
     expect(titleStyle?.opacity).toBeUndefined()
     expect(descStyle?.opacity).toBeUndefined()
+  })
+
+  describe('PR-B T8i — refined card stamp treatment', () => {
+    it('REDEEMED text uses the refined treatment: full opacity (not the 0.55 ink-pressure alpha) and wide letter-spacing', () => {
+      // T8i owner direction: the merchant-profile voucher card stamp
+      // moves to a refined hairline-accent + cream-gradient design.
+      // The previous rubber-stamp ink-pressure variant rendered the
+      // text at opacity 0.55 (mimicking faded ink); the refined
+      // variant renders it at FULL opacity with wide letter-spacing.
+      const { getByText } = render(
+        <VoucherCard
+          voucher={mk()}
+          isRedeemed={true}
+          isFavourited={false}
+          onPress={() => {}}
+          onToggleFavourite={() => {}}
+        />,
+      )
+      const text = getByText('Voucher Redeemed')
+      const style = Array.isArray(text.props.style)
+        ? Object.assign({}, ...text.props.style.filter(Boolean))
+        : text.props.style ?? {}
+      // T8h-and-prior rubber-stamp opacity (0.55 ink-pressure) is
+      // explicitly NOT present on the refined variant.
+      expect(style.opacity).not.toBe(0.55)
+      // Letter-spacing is wider than the rubber-stamp baseline of
+      // 1.6.  Note: the design-system `label.eyebrow` variant wins
+      // the merge over a local `letterSpacing` override at 2.4 and
+      // resolves to 1.8 — still wider than the rubber-stamp value
+      // and reads as the editorial / premium signature on device.
+      // The contract here is the negative pin: 1.6 (rubber-stamp
+      // signature) MUST NOT resurface, AND any positive value at
+      // least matches the eyebrow baseline.
+      expect(typeof style.letterSpacing).toBe('number')
+      expect(style.letterSpacing).not.toBe(1.6)
+      expect(style.letterSpacing as number).toBeGreaterThan(1.6)
+      // No textShadow ink-bleed on the refined variant — that was
+      // the rubber-stamp ink-pressure cue.
+      expect(style.textShadowColor).toBeUndefined()
+    })
+
+    it('stamp wrap is a centered overlay (PR-B T8i — owner direction "it does not need to be top right corner. It could be in the center")', () => {
+      // Walk up the ancestor chain from the stamp testID and verify
+      // SOME ancestor carries the centered-overlay style shape, AND
+      // NO ancestor carries the previous top-right `right: 46`
+      // offset.  We don't lock the exact wrapper depth (RTNL can
+      // insert wrappers between component boundaries), only the
+      // contract.
+      const { getByTestId } = render(
+        <VoucherCard
+          voucher={mk()}
+          isRedeemed={true}
+          isFavourited={false}
+          onPress={() => {}}
+          onToggleFavourite={() => {}}
+        />,
+      )
+      const flat = (n: any): Record<string, unknown> => {
+        const s = n?.props?.style
+        if (!s) return {}
+        if (Array.isArray(s)) return Object.assign({}, ...s.flat(Infinity).filter(Boolean))
+        return s
+      }
+      let n: any = getByTestId('voucher-card-redeemed-stamp')
+      let foundCenteredOverlay = false
+      while (n) {
+        const s = flat(n)
+        // Negative pin against the previous top-right placement —
+        // the offset value `46` (right:46) was the load-bearing
+        // signal for "stamp lives left of the heart at top-right".
+        // It must NEVER appear in the redeemed stamp's ancestor chain
+        // again.
+        expect(s.right).not.toBe(46)
+        // Positive pin: at least one ancestor must implement the
+        // centered-overlay shape.
+        if (
+          s.position       === 'absolute' &&
+          s.alignItems     === 'center'   &&
+          s.justifyContent === 'center'   &&
+          s.top    === 0 && s.bottom === 0 &&
+          s.left   === 0 && s.right  === 0
+        ) {
+          foundCenteredOverlay = true
+        }
+        n = n.parent
+      }
+      expect(foundCenteredOverlay).toBe(true)
+    })
+
+    it('non-redeemed cards remain visually unchanged (no stamp testID, no Voucher Redeemed text, no inline label)', () => {
+      // Owner direction: "normal voucher cards must remain
+      // unchanged" — this pin guards against a future regression
+      // that surfaces the refined treatment elements on a
+      // not-yet-redeemed card.
+      const { queryByTestId, queryByText } = render(
+        <VoucherCard
+          voucher={mk()}
+          isRedeemed={false}
+          isFavourited={false}
+          onPress={() => {}}
+          onToggleFavourite={() => {}}
+        />,
+      )
+      expect(queryByTestId('voucher-card-redeemed-stamp')).toBeNull()
+      expect(queryByTestId('voucher-card-redeemed-overlay')).toBeNull()
+      expect(queryByTestId('voucher-card-already-redeemed-label')).toBeNull()
+      expect(queryByText('Voucher Redeemed')).toBeNull()
+      expect(queryByText('Already redeemed this cycle')).toBeNull()
+    })
   })
 })

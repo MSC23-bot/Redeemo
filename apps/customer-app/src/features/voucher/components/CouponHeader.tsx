@@ -131,13 +131,15 @@ export function CouponHeader({
 
   const paddingTop = insetTop + NAV_ROOM
 
-  // PR-B T8h: when dimmed, the voucher content reads as "redeemed"
-  // through the gradient cream wash overlay below + a soft 0.85
-  // opacity on the title / description / save badge.  The 0.85 is
-  // intentionally lighter than the previous 0.55 flat dim — the wash
-  // overlay carries the visual weight, and the content stays clearly
-  // legible.  The navRow NEVER receives the dim — it stays at full
-  // opacity so the action controls feel tappable.
+  // PR-B T8h fix — selective hero dim for the redeemed-this-cycle
+  // state.  When `dimmed` is true, opacity 0.55 applies to the
+  // gradient backdrop + content + saveBadge ONLY.  The navRow NEVER
+  // receives the dim so the back / share / favourite controls stay
+  // full opacity and tappable-looking (owner-locked at T8h: "navigation
+  // buttons are washed out").  The flat-opacity treatment is the
+  // approved Voucher Detail hero behaviour — the more elaborate
+  // "premium washed-out gradient" experiment from T8h was reverted
+  // at T8i because it was applied to the wrong surface.
   const dimStyle = dimmed ? styles.dimmed : null
 
   // Hero NavRow opacity — interpolated INVERSELY to CollapsedHeader
@@ -163,22 +165,21 @@ export function CouponHeader({
 
   return (
     <View style={[styles.root, { paddingTop }]} testID="coupon-header">
-      {/* Base type gradient — kept at FULL color even when redeemed so
-          the brand identity carries through.  The redeemed wash is
-          delivered by a gradient cream overlay below + a slight content
-          opacity, not by dimming the base gradient. */}
+      {/* Base type gradient — dimmed when the voucher is stamped
+          redeemed (PR-B T8h fix). */}
       <LinearGradient
         colors={gradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
+        style={[StyleSheet.absoluteFillObject, dimStyle]}
         testID="coupon-header-gradient"
       />
-      {/* Vertical vignette — slight darken at top + bottom for depth. */}
+      {/* Vertical vignette — slight darken at top + bottom for depth.
+          Also dimmed alongside the base gradient. */}
       <LinearGradient
         colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.30)']}
         locations={[0, 0.4, 1]}
-        style={StyleSheet.absoluteFillObject}
+        style={[StyleSheet.absoluteFillObject, dimStyle]}
         pointerEvents="none"
       />
       {/* Highlight wash (approximated radial via diagonal). */}
@@ -186,32 +187,9 @@ export function CouponHeader({
         colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0)']}
         start={{ x: 0.2, y: 0.85 }}
         end={{ x: 0.85, y: 0.2 }}
-        style={StyleSheet.absoluteFillObject}
+        style={[StyleSheet.absoluteFillObject, dimStyle]}
         pointerEvents="none"
       />
-      {/* PR-B T8h — premium washed-out gradient overlay (replaces the
-          flat 0.55 opacity dim).  Soft cream tones fade across the
-          voucher: lighter at top, stronger toward the bottom-right.
-          Reads as "the voucher has been used" without flattening the
-          brand gradient underneath.  Owner direction: "maybe with the
-          washed out effect you've added, maybe you can make it gradient
-          washed out".  Sits at zIndex 0 (behind the navRow at zIndex 30
-          and behind content at zIndex 1) so the cream overlay paints
-          over the gradient backdrop but UNDER the action controls + text. */}
-      {dimmed ? (
-        <LinearGradient
-          colors={[
-            'rgba(255,246,238,0.20)',
-            'rgba(255,246,238,0.45)',
-            'rgba(255,246,238,0.65)',
-          ]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFillObject, styles.washOverlay]}
-          pointerEvents="none"
-          testID="coupon-header-wash-overlay"
-        />
-      ) : null}
 
       {/* NavRow lives INSIDE the hero so it scrolls away with it.
           Wrapped in Animated.View so its opacity crossfades inversely
@@ -336,20 +314,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     overflow: 'hidden',
   },
-  // PR-B T8h — selective fade on title/description/save badge when
-  // the voucher is in the redeemed state.  Light 0.85 (was 0.55):
-  // the gradient cream wash overlay carries the redeemed weight; the
-  // content stays clearly readable while reading as "less prominent".
-  // Never applied to the navRow.
+  // PR-B T8h fix — selective dim applied to gradient + content +
+  // saveBadge ONLY (never to navRow).  See CouponHeader's `dimmed`
+  // prop comment for the rationale.
   dimmed: {
-    opacity: 0.85,
-  },
-  // Cream wash overlay z-index — sits between the base gradient
-  // layers (default zIndex 0) and the content (zIndex 1) so the
-  // wash paints over the brand colour but under the title / save
-  // badge / nav row.
-  washOverlay: {
-    zIndex: 0,
+    opacity: 0.55,
   },
   // ── NavRow inside hero ────────────────────────────────────────────
   navRow: {

@@ -157,34 +157,25 @@ describe('CouponHeader — dimmed prop applies to visual layer ONLY, never the n
     return s
   }
 
-  it('default (dimmed omitted) — content + save badge carry no dim opacity, AND no wash overlay is mounted', () => {
-    const { getByTestId, queryByTestId } = render(<CouponHeader {...baseProps} />)
+  it('default (dimmed omitted) — gradient, content, and save badge are NOT dimmed', () => {
+    const { getByTestId } = render(<CouponHeader {...baseProps} />)
+    expect(flat(getByTestId('coupon-header-gradient')).opacity).toBeUndefined()
     expect(flat(getByTestId('coupon-header-content')).opacity).toBeUndefined()
     expect(flat(getByTestId('coupon-header-save-badge')).opacity).toBeUndefined()
-    // PR-B T8h: cream gradient wash overlay is gated on `dimmed`.
-    expect(queryByTestId('coupon-header-wash-overlay')).toBeNull()
   })
 
-  it('dimmed=true — premium washed-out treatment: cream gradient overlay mounts, content + saveBadge fade to 0.85, base gradient stays at full color', () => {
+  it('dimmed=true — gradient + content + saveBadge get opacity 0.55 (T8i revert: the approved Voucher Detail hero treatment is the flat-opacity dim, NOT the cream gradient wash overlay that briefly shipped at T8h)', () => {
     const { getByTestId } = render(<CouponHeader {...baseProps} dimmed />)
-    // PR-B T8h: gradient wash overlay carries the visible "redeemed"
-    // weight; content opacity is intentionally LIGHT (0.85, not the
-    // previous flat 0.55) so the title stays clearly readable.
-    expect(getByTestId('coupon-header-wash-overlay')).toBeTruthy()
-    expect(flat(getByTestId('coupon-header-content')).opacity).toBe(0.85)
-    expect(flat(getByTestId('coupon-header-save-badge')).opacity).toBe(0.85)
-    // Base gradient stays at full color when dimmed — the wash
-    // overlay paints OVER it rather than the gradient itself losing
-    // saturation.  Brand identity carries through.
-    expect(flat(getByTestId('coupon-header-gradient')).opacity).toBeUndefined()
+    expect(flat(getByTestId('coupon-header-gradient')).opacity).toBe(0.55)
+    expect(flat(getByTestId('coupon-header-content')).opacity).toBe(0.55)
+    expect(flat(getByTestId('coupon-header-save-badge')).opacity).toBe(0.55)
   })
 
-  it('dimmed=true — back / share / favourite nav buttons keep full opacity (NEVER washed out alongside the voucher visual layer)', () => {
+  it('dimmed=true — back / share / favourite nav buttons keep full opacity (NEVER washed out alongside the visual layer)', () => {
     const { getByLabelText } = render(<CouponHeader {...baseProps} dimmed />)
-    // Walk up from each nav button to its ancestors and assert none
-    // of them carry the dim's signature opacity (0.85) — that value
-    // ONLY belongs on the voucher visual layer, never on functional
-    // controls.
+    // Walk up from each nav button to its nearest opacity-bearing
+    // ancestor (any wrapping View styled with opacity).  The contract
+    // is: NO ancestor in the navRow path ever carries opacity 0.55.
     const buttons = [
       getByLabelText('Go back'),
       getByLabelText('Share voucher'),
@@ -194,10 +185,10 @@ describe('CouponHeader — dimmed prop applies to visual layer ONLY, never the n
       let n: any = btn
       while (n) {
         const s = flat(n)
-        // The dim's signature opacity is 0.85 (T8h).  The previous
-        // flat 0.55 is also still banned defensively in case a
-        // future regression resurfaces it on the navRow.
-        expect(s.opacity).not.toBe(0.85)
+        // The only opacity allowed in the nav button's ancestry is the
+        // pressed-state 0.85 (only present mid-tap; not in baseline
+        // render) or the navAnimStyle scroll fade (1 at scrollY=0).
+        // 0.55 is the dim's signature value — must NEVER appear here.
         expect(s.opacity).not.toBe(0.55)
         n = n.parent
       }
@@ -208,10 +199,14 @@ describe('CouponHeader — dimmed prop applies to visual layer ONLY, never the n
     const { getByLabelText } = render(<CouponHeader {...baseProps} dimmed isFavourited />)
     let n: any = getByLabelText('Remove from favourites')
     while (n) {
-      expect(flat(n).opacity).not.toBe(0.85)
       expect(flat(n).opacity).not.toBe(0.55)
       n = n.parent
     }
+  })
+
+  it('dimmed=true — does NOT mount the cream gradient wash overlay (T8i revert pin: the wash overlay was an experiment from T8h applied to the wrong surface; the approved Voucher Detail hero behaviour is the flat-opacity dim ONLY)', () => {
+    const { queryByTestId } = render(<CouponHeader {...baseProps} dimmed />)
+    expect(queryByTestId('coupon-header-wash-overlay')).toBeNull()
   })
 })
 

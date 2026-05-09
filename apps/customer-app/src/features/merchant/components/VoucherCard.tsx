@@ -314,19 +314,18 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
         {/* 1px white-tinted lip at the very top edge — glassy. */}
         <View style={styles.topHighlight} pointerEvents="none" />
 
-        {/* PR-B T5 (§Q4): redeemed-state hero stamp. Absolutely
-            positioned in the top-right corner of the card so it
-            reads as the rubber-stamp marker on the voucher's
-            "front".  Placed inside the Pressable so it shares the
-            card's tap surface (the stamp itself sets
-            pointerEvents='none' so taps pass through cleanly).
-            The stamp renders at FULL opacity per brief §3.5;
-            the rubber-stamp visual cue (cream fill + brand-rose
-            border + ~5° tilt + 50% ink alpha) is the load-bearing
-            signal at list-scan distance. */}
+        {/* PR-B T8i refinement: the redeemed-state stamp moves from
+            the top-right corner to a CENTERED overlay across the card
+            hero, "Voucher Redeemed" copy, slightly bigger.  Owner
+            direction: "it does not need to be top right corner.  It
+            could be in the center, slightly bigger".  The wrap is
+            absolute-positioned to fill the hero region and centers the
+            stamp horizontally + vertically.  The stamp itself remains
+            pointerEvents='none' so taps pass through to the card
+            press surface beneath. */}
         {isRedeemed ? (
           <View style={styles.heroStampWrap} pointerEvents="none">
-            <VoucherCardRedeemedStamp size={36} />
+            <VoucherCardRedeemedStamp size={52} />
           </View>
         ) : null}
 
@@ -498,26 +497,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 240, 235, 0.3)',
   },
 
-  // PR-B T5 (§Q4): hero stamp wrap — absolutely positioned in the
-  // top-right region of the card hero. The locked PR #35 layout
-  // has the heart at top-right (~24pt at right:8); the stamp
-  // sits to the LEFT of the heart (right:46) so both remain
-  // visible. The 6° tilt + ink-pressure shadow keep the stamp
-  // reading as the dominant redeemed signal without occluding
-  // the favourite toggle.
-  //
-  // Trade-off: the brief §5.5 ASCII shows the stamp centred in
-  // the upper region with no heart present. Honouring the locked
-  // PR #35 heart top-right placement, we offset the stamp to its
-  // left rather than restructure the topRow. On-device QA
-  // covers visual balance (T6.1 stress test).
+  // PR-B T8i refinement: hero stamp wrap — absolutely positioned to
+  // fill the card hero so the stamp itself centers horizontally +
+  // vertically.  Owner direction (T8i): "it does not need to be top
+  // right corner.  It could be in the center, slightly bigger".
+  // The previous top-right layout (top:8, right:46) is replaced by
+  // a full-card overlay with center alignment so the stamp reads as
+  // the dominant focal point of a redeemed voucher.  The heart at
+  // top-right stays visible because the stamp is `pointerEvents:
+  // none` and its centered position doesn't occlude the heart at
+  // top:8 right:8.  zIndex 2 keeps it above the watermark /
+  // topRow chip layer.
   heroStampWrap: {
     position: 'absolute',
-    top: 8,
-    right: 46,
-    // Above the watermark + topRow heart so the stamp reads as
-    // foreground signal. zIndex bump matches the existing chip /
-    // hero / CTA layers.
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
     zIndex: 2,
   },
 
