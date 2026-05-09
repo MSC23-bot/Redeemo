@@ -63,7 +63,27 @@ Tier 3 brainstorm-first when customer base + review volume warrant the investmen
 
 PR-C is intentionally narrow: link a review to its triggering redemption, mark verified, validate linkage. Nothing else about the review system changes.
 
-### §0.3 — Verified-review semantics (LOCKED)
+### §0.3.1 — Auto-link + preserve amendment (LOCKED 2026-05-09 mid-PR-C)
+
+After T1–T11 shipped, owner amended the verified-review contract: a review should be verified ALSO when the customer goes directly to the merchant-profile Reviews tab (no SuccessPopup CTA) and writes a review for a branch where they redeemed in the current cycle. Same row-level Path A contract (`isVerified ⇔ redemptionId !== null`); the server auto-populates the column when an eligible redemption exists.
+
+**Three derivation paths in `upsertBranchReview`:**
+
+| # | When | Behaviour |
+|---|------|-----------|
+| **Path A — strict** | Client passes explicit `data.redemptionId` | Validate the §0.3 5-condition rule. Mismatch → `REDEMPTION_NOT_FOUND` / `REDEMPTION_BRANCH_MISMATCH` / `REDEMPTION_MERCHANT_MISMATCH`. Match → persist that id. (Existing behaviour from T3.) |
+| **Path B — auto-link** | Client does NOT pass `redemptionId` AND existing review has `redemptionId === null` (or no existing review) | Try to find the most recent eligible redemption: `userId` + `branchId` match, `voucher.merchantId === branch.merchantId`, `redeemedAt ∈ [cycleStart, cycleEnd)`. `orderBy redeemedAt desc, take 1`. None found → review persists with `redemptionId: null` (unverified, no error). |
+| **Path C — preserve** | Client does NOT pass `redemptionId` AND existing review has `redemptionId !== null` | Keep the existing linkage. Don't clear, don't auto-link. (User editing rating/comment of an already-verified review must not lose verification.) |
+
+**Cycle-window source:** `getCurrentCycleWindow(subscription.cycleAnchorDate, now)` (`src/api/subscription/cycle.ts`). If the user has no `Subscription` record (not even a cancelled one) → no auto-link possible (returns null, review persists unverified).
+
+**Strictness asymmetry — intentional:**
+- Path A (explicit): no cycle filter. User is asserting "this is the redemption I want linked"; server validates ownership / branch / merchant only. Verifies any redemption regardless of when it occurred.
+- Path B (auto-link): cycle filter required. Server is inferring without explicit user confirmation, so the inference window is constrained to the current cycle. Limits abuse / staleness.
+
+**Most-recent wins:** when multiple eligible redemptions exist in the current cycle window (rare — multiple vouchers redeemed at the same branch in the same month), the auto-link picks the most recent. This matches what the user is most likely thinking of when they sit down to write the review.
+
+### §0.3 — Verified-review semantics (LOCKED — original 5-condition rule, still binding)
 
 `review.isVerified === true` IFF all five conditions hold:
 
@@ -951,6 +971,62 @@ git commit -m "feat(voucher): wire SuccessPopup Rate & Review → merchant profi
 ```
 
 ---
+
+### Task 15 — Auto-link + preserve amendment (PR-C §0.3.1, LOCKED 2026-05-09)
+
+**Files:**
+- Modify: `src/api/customer/reviews/service.ts` (`upsertBranchReview`)
+- Create: `tests/api/customer/reviews.upsert-auto-link.test.ts`
+
+**Test cases (TDD red phase first, ~10 cases):**
+
+- AUTO-LINK happy: user submits without `redemptionId`, eligible redemption exists in current cycle → attached + isVerified=true
+- AUTO-LINK no eligible: user has no current-cycle redemption at this branch → review persists with redemptionId=null (no error)
+- AUTO-LINK previous-cycle redemption is NOT eligible (cycle filter)
+- AUTO-LINK ignores wrong-branch redemption
+- AUTO-LINK ignores wrong-merchant redemption (defensive)
+- AUTO-LINK multiple eligible → most recent wins (`orderBy redeemedAt desc`)
+- AUTO-LINK no Subscription record → returns null (no auto-link possible)
+- PRESERVE: existing review has redemptionId=X, user edits without redemptionId → still X
+- PRESERVE: existing review has null redemptionId, user edits without redemptionId → auto-link runs (Path B)
+- STRICT-WINS: existing review has redemptionId=X, user submits explicit redemptionId=Y (valid) → switches to Y (validates strict)
+
+**Implementation outline:**
+
+```ts
+// 1. Existing strict validation when data.redemptionId provided.
+// 2. New: when data.redemptionId is undefined, peek the existing
+//    review row (inside the tx) to know if it has a redemptionId.
+//    - If existing.redemptionId !== null → use that (Path C).
+//    - Else → call autoLinkRedemption() (Path B).
+// 3. Pass the resolved redemptionId to the upsert/update branches.
+
+async function autoLinkRedemption(
+  prisma, userId, branchId, branchMerchantId, now,
+): Promise<string | null> {
+  const sub = await prisma.subscription.findUnique({
+    where: { userId },
+    select: { cycleAnchorDate: true },
+  })
+  if (!sub) return null
+  const { cycleStart, cycleEnd } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
+  const r = await prisma.voucherRedemption.findFirst({
+    where: {
+      userId, branchId,
+      voucher: { merchantId: branchMerchantId },
+      redeemedAt: { gte: cycleStart, lt: cycleEnd },
+    },
+    orderBy: { redeemedAt: 'desc' },
+    select: { id: true },
+  })
+  return r?.id ?? null
+}
+```
+
+**Out of scope** for T15 (per owner direction):
+- Multi-review per user-branch (deferred §AI v2).
+- Spam / rate-limit / moderation tooling (deferred §AI v2).
+- Backfilling pre-PR-C reviews via auto-link (no historical backfill).
 
 ### Task 14 — End-to-end integration verification + final tests
 
