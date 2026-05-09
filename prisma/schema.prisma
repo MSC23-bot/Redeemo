@@ -868,6 +868,9 @@ model VoucherRedemption {
   branch           Branch       @relation(fields: [branchId], references: [id])
   validatedBy      BranchUser?  @relation(fields: [validatedById], references: [id])
   screenshotEvents RedemptionScreenshotEvent[]
+  // PR-C 2026-05-09: at most one verified review per redemption
+  // (Review.redemptionId is @unique).  Back-relation; not a column.
+  review           Review?
 
   @@index([userId])
   @@index([voucherId])
@@ -1032,6 +1035,21 @@ model Review {
   id           String   @id @default(uuid())
   userId       String
   branchId     String
+  // PR-C 2026-05-09: links a review to the redemption that triggered
+  // it.  Nullable because:
+  //   • Pre-PR-C reviews stay non-verified retrospectively (no
+  //     backfill).
+  //   • Reviews submitted from the merchant profile (not from a
+  //     redemption flow) intentionally lack a redemptionId.
+  // @unique because a redemption can only be linked to AT MOST one
+  // review (a redemption row models a single redemption event, and
+  // only one review can claim it as verification).  Postgres allows
+  // multiple NULLs on a UNIQUE column, so non-verified reviews don't
+  // conflict with each other.
+  // FK uses ON DELETE SET NULL — a deleted redemption (rare —
+  // admin/audit cleanup) demotes the review to non-verified rather
+  // than cascade-deleting it.
+  redemptionId String?  @unique
   rating       Int
   comment      String?
   isReported   Boolean  @default(false)
@@ -1041,8 +1059,9 @@ model Review {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user         User           @relation(fields: [userId], references: [id])
-  branch       Branch         @relation(fields: [branchId], references: [id])
+  user         User                @relation(fields: [userId], references: [id])
+  branch       Branch              @relation(fields: [branchId], references: [id])
+  redemption   VoucherRedemption?  @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
   reports      ReviewReport[]
   helpfuls     ReviewHelpful[]
 
