@@ -297,3 +297,78 @@ describe('SuccessPopup — screen-capture protection', () => {
     }).not.toThrow()
   })
 })
+
+// ──────────────────────────────────────────────────────────────────
+// PR-A A4 saving callout (2026-05-09).  Shape brief §7.
+// ──────────────────────────────────────────────────────────────────
+
+describe('SuccessPopup — A4 saving callout', () => {
+  it('renders the saving callout when estimatedSaving > 0', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: 6.99 })} />)
+    expect(getByTestId('success-saving-callout')).toBeTruthy()
+  })
+
+  it('renders the saving amount as £X.XX with toFixed(2)', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: 6.99 })} />)
+    expect(getByTestId('success-saving-amount').props.children.join('')).toBe('£6.99')
+  })
+
+  it('handles whole-pound savings (£12.00) without trimming the trailing zero', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: 12 })} />)
+    expect(getByTestId('success-saving-amount').props.children.join('')).toBe('£12.00')
+  })
+
+  it('handles 4-digit savings without breaking layout', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: 1234.56 })} />)
+    expect(getByTestId('success-saving-amount').props.children.join('')).toBe('£1234.56')
+  })
+
+  it('renders the "You saved" label in savingsGreen', () => {
+    const { getByText } = render(<SuccessPopup {...defaults()} />)
+    expect(getByText('You saved')).toBeTruthy()
+  })
+
+  it('SUPPRESSED when estimatedSaving === 0 (D9 locked)', () => {
+    const { queryByTestId, queryByText } = render(<SuccessPopup {...defaults({ estimatedSaving: 0 })} />)
+    expect(queryByTestId('success-saving-callout')).toBeNull()
+    expect(queryByText('You saved')).toBeNull()
+  })
+
+  it('SUPPRESSED when estimatedSaving < 0 (defensive — shouldn\'t happen but graceful)', () => {
+    const { queryByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: -5 })} />)
+    expect(queryByTestId('success-saving-callout')).toBeNull()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────
+// Defensive pins — PR-A explicitly does NOT touch the Rate & Review
+// CTA hierarchy or `onRateReview` callback.  Those changes ship in
+// PR-C alongside the verified-review backend (per plan §0.2).  These
+// pins block accidental scope creep.
+// ──────────────────────────────────────────────────────────────────
+
+describe('SuccessPopup — PR-A defensive pins (Rate & Review unchanged)', () => {
+  it('Rate & Review CTA still calls onRateReview when pressed', () => {
+    const onRateReview = jest.fn()
+    const { getByTestId } = render(<SuccessPopup {...defaults({ onRateReview })} />)
+    fireEvent.press(getByTestId('success-rate-review'))
+    expect(onRateReview).toHaveBeenCalledTimes(1)
+  })
+
+  it('Rate & Review label is still "Rate & Review" (no copy change in PR-A)', () => {
+    const { getByText } = render(<SuccessPopup {...defaults()} />)
+    expect(getByText('Rate & Review')).toBeTruthy()
+  })
+
+  it('Done CTA still calls onDone when pressed', () => {
+    const onDone = jest.fn()
+    const { getByTestId } = render(<SuccessPopup {...defaults({ onDone })} />)
+    fireEvent.press(getByTestId('success-done'))
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('Done label is still "Done"', () => {
+    const { getByText } = render(<SuccessPopup {...defaults()} />)
+    expect(getByText('Done')).toBeTruthy()
+  })
+})

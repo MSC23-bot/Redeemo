@@ -330,3 +330,156 @@ describe('PinEntrySheet — abuse-prevention guards', () => {
     expect(onSubmit).not.toHaveBeenCalled()
   })
 })
+
+// ──────────────────────────────────────────────────────────────────
+// PR-A polish pass (2026-05-09) — A1 logo, A2 copy, A3 spinner.
+// ──────────────────────────────────────────────────────────────────
+
+describe('PinEntrySheet — A1 merchant logo (2026-05-09)', () => {
+  it('renders the merchant logo when merchantLogoUrl is provided', () => {
+    const { getByTestId } = render(
+      <PinEntrySheet
+        {...defaultProps({ merchantLogoUrl: 'https://example.test/covelum.png' })}
+      />,
+    )
+    expect(getByTestId('pin-merchant-logo')).toBeTruthy()
+  })
+
+  it('does NOT render the logo when merchantLogoUrl is null (text-only fallback)', () => {
+    const { queryByTestId } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(queryByTestId('pin-merchant-logo')).toBeNull()
+  })
+
+  it('logo accessibilityLabel includes the merchant name', () => {
+    const { getByTestId } = render(
+      <PinEntrySheet
+        {...defaultProps({
+          merchantName: 'Covelum Restaurant',
+          merchantLogoUrl: 'https://example.test/covelum.png',
+        })}
+      />,
+    )
+    expect(getByTestId('pin-merchant-logo').props.accessibilityLabel).toBe(
+      'Covelum Restaurant logo',
+    )
+  })
+})
+
+describe('PinEntrySheet — A2 copy (2026-05-09)', () => {
+  // Locked subtitle line 1 + 2 (D1) + disclaimer (D2) per shape brief
+  // §5.  Each test pins the EXACT wording so a future refactor cannot
+  // silently re-introduce alarmist / legalistic language.
+  it('subtitle line 1 reads "Ask staff at {merchantName} for their 4-digit PIN."', () => {
+    const { getByText } = render(
+      <PinEntrySheet {...defaultProps({ merchantName: 'Covelum Restaurant' })} />,
+    )
+    expect(getByText('Ask staff at Covelum Restaurant for their 4-digit PIN.')).toBeTruthy()
+  })
+
+  it("subtitle line 2 reads the locked D1 second line", () => {
+    const { getByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(getByText("When you confirm it, we'll create the code staff can check.")).toBeTruthy()
+  })
+
+  it('disclaimer banner reads the locked D2 copy', () => {
+    const { getByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(
+      getByText(
+        "Confirming the correct PIN redeems this voucher for this cycle. Continue when you're ready to use it.",
+      ),
+    ).toBeTruthy()
+  })
+
+  it('title reads "Enter Branch PIN"', () => {
+    const { getByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(getByText('Enter Branch PIN')).toBeTruthy()
+  })
+
+  // Negative pins per PRODUCT.md ## Tone + Owner-clarification 1 (2026-
+  // 05-09).  These guard against accidental regression to the prior
+  // alarmist framing.
+  it('NO copy includes "cannot be undone"', () => {
+    const { queryByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(queryByText(/cannot be undone/i)).toBeNull()
+  })
+
+  it('NO copy includes "permanently"', () => {
+    const { queryByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(queryByText(/permanently/i)).toBeNull()
+  })
+
+  it('NO copy includes "irreversible"', () => {
+    const { queryByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(queryByText(/irreversible/i)).toBeNull()
+  })
+
+  it('NO copy includes em dash or en dash characters', () => {
+    const { queryByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(queryByText(/—/)).toBeNull()  // em dash
+    expect(queryByText(/–/)).toBeNull()  // en dash
+  })
+
+  it('NO copy uses "staff handoff code" internal jargon', () => {
+    // Owner-direction 2026-05-09: "staff handoff code" reads as
+    // product-team shorthand, not customer-facing.
+    const { queryByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(queryByText(/staff handoff code/i)).toBeNull()
+  })
+
+  it('NO copy uses "locked" framing for the voucher', () => {
+    // Owner-clarification 1 (2026-05-09): "locked in for this cycle"
+    // feels punitive.  Locked copy ("redeems this voucher for this
+    // cycle") replaces it.
+    const { queryByText } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(queryByText(/your voucher is locked/i)).toBeNull()
+    expect(queryByText(/voucher is being locked/i)).toBeNull()
+  })
+})
+
+describe('PinEntrySheet — A3 loading state (2026-05-09)', () => {
+  it('shows the pulsing dot + "Confirming…" label when isLoading is true', () => {
+    const { getByTestId, getByText } = render(
+      <PinEntrySheet {...defaultProps({ isLoading: true })} />,
+    )
+    expect(getByTestId('pin-submit-pulsing-dot')).toBeTruthy()
+    expect(getByText('Confirming…')).toBeTruthy()
+  })
+
+  it('shows the idle "Confirm" label when isLoading is false', () => {
+    const { queryByTestId, getByText } = render(
+      <PinEntrySheet {...defaultProps({ isLoading: false })} />,
+    )
+    expect(queryByTestId('pin-submit-pulsing-dot')).toBeNull()
+    expect(getByText('Confirm')).toBeTruthy()
+  })
+
+  it('submit accessibilityState busy is true while loading', () => {
+    const { getByTestId } = render(
+      <PinEntrySheet {...defaultProps({ isLoading: true })} />,
+    )
+    expect(getByTestId('pin-submit').props.accessibilityState).toMatchObject({
+      busy: true,
+    })
+  })
+
+  it('submit accessibilityState busy is false when idle', () => {
+    const { getByTestId } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(getByTestId('pin-submit').props.accessibilityState).toMatchObject({
+      busy: false,
+    })
+  })
+
+  it('submit accessibilityLabel reflects loading vs idle', () => {
+    const { getByTestId, rerender } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(getByTestId('pin-submit').props.accessibilityLabel).toBe('Confirm PIN')
+    rerender(<PinEntrySheet {...defaultProps({ isLoading: true })} />)
+    expect(getByTestId('pin-submit').props.accessibilityLabel).toBe('Confirming PIN')
+  })
+
+  it('submit pointerEvents flips to "none" while loading (defense-in-depth)', () => {
+    const { getByTestId, rerender } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(getByTestId('pin-submit').props.pointerEvents).toBe('auto')
+    rerender(<PinEntrySheet {...defaultProps({ isLoading: true })} />)
+    expect(getByTestId('pin-submit').props.pointerEvents).toBe('none')
+  })
+})
