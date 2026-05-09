@@ -26,7 +26,6 @@ import { PerforationLine } from '../components/PerforationLine'
 import { MerchantRow } from '../components/MerchantRow'
 import { HowItWorks } from '../components/HowItWorks'
 import { RedeemCTA } from '../components/RedeemCTA'
-import { RedeemedBadge } from '../components/RedeemedBadge'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
@@ -37,7 +36,12 @@ import { BranchPickerSheet, type PickerBranch } from '../components/BranchPicker
 import { PinEntrySheet } from '../components/PinEntrySheet'
 import { SuccessPopup } from '../components/SuccessPopup'
 import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
+import { RedeemedSeal } from '../components/RedeemedSeal'
+import { ShowToStaff } from '../components/ShowToStaff'
 import { useRedeem, type UseRedeemError } from '../hooks/useRedeem'
+import { usePresentationActive } from '../utils/presentationWindow'
+import { useScreenCaptureProtection } from '../hooks/useScreenCaptureProtection'
+import { useScreenshotGuard } from '../hooks/useScreenshotGuard'
 import type { RedeemResponse } from '@/lib/api/redemption'
 import { CTA_LABELS } from '../constants/productCopy'
 
@@ -317,6 +321,23 @@ export function VoucherDetailScreen() {
   const [pinSheetVisible, setPinSheetVisible] = useState(false)
   const [successPopup, setSuccessPopup] = useState<RedeemResponse | null>(null)
   const [lastRedemption, setLastRedemption] = useState<RedeemResponse | null>(null)
+  // M3 — Show-to-Staff full-screen modal target. Non-null while
+  // visible. Drives the Modal mount at the bottom of the JSX.
+  const [showToStaff, setShowToStaff] = useState<{
+    code:       string
+    redeemedAt: string
+    branchName: string
+  } | null>(null)
+  // M3 — validated-this-session override. Set by ShowToStaff's
+  // onValidated callback when polling reaches `phase: 'validated'`.
+  // Drives the RedemptionDetailsCard validated pill on the
+  // post-dismiss return-to-VoucherDetail render. Without this, the
+  // in-memory `lastRedemption` branch would hardcode `isValidated:
+  // false` and the user would see "Verified by staff" inside
+  // ShowToStaff but no pill on the card. Tracks the redemption code
+  // it validated for so a follow-up redemption (e.g. cycle reset
+  // mid-session in QA) clears the stale flag automatically.
+  const [validatedSession, setValidatedSession] = useState<string | null>(null)
   const [pickerConfirmedBranchId, setPickerConfirmedBranchId] = useState<string | null>(null)
 
   // Clear the picker-local source once the URL catches up to its value.
@@ -440,9 +461,12 @@ export function VoucherDetailScreen() {
   // pointing the URL.
   //
   // Returns null when:
-  //   • `lastRedemption` isn't in memory (return-visit; M2 doesn't
-  //     persist redemption details — see §P2 in deferred-followups
-  //     for the M3 backend payload work).
+  //   • `lastRedemption` isn't in memory. On a return visit during
+  //     the active cycle the persisted `voucher.lastRedemption` block
+  //     (M3 Task 5) drives the RedemptionDetailsCard via the FALLBACK
+  //     branch in the `displayRedemption` derivation below; this
+  //     local branch-tile lookup is only relevant for the in-memory
+  //     PRIMARY path right after redemption.
   //   • `lastRedemption.branchId` doesn't match any row in
   //     `merchant.branches` (race or merchant data missing).
   const lastRedemptionBranch = useMemo(() => {
@@ -451,6 +475,37 @@ export function VoucherDetailScreen() {
     if (!tile) return null
     return { name: tile.name, distance: tile.distance }
   }, [lastRedemption, merchant])
+
+  // ── Presentation-window gate (locked 2026-05-08, owner direction PR #49) ──
+  //
+  // Resolve the `redeemedAt` we'll pin the 2-hour window to, using the
+  // same source priority as the displayRedemption IIFE below: in-memory
+  // (PRIMARY) → persisted (FALLBACK) → null. Lifted out of the IIFE so
+  // `usePresentationActive` can be called unconditionally per rules of
+  // hooks, and so the boolean threads down to multiple surfaces (card,
+  // hero opacity, ShowToStaff handler guards) from a single source.
+  //
+  // After this redeemedAt + 2 hours elapse, the QR / code / Show-to-Staff
+  // entry points disappear from Voucher Detail. See
+  // `utils/presentationWindow.ts` for the contract.
+  const redemptionRedeemedAt = useMemo<string | null>(() => {
+    if (lastRedemption) return lastRedemption.redeemedAt
+    return voucher?.lastRedemption?.redeemedAt ?? null
+  }, [lastRedemption, voucher?.lastRedemption?.redeemedAt])
+  const isPresentationActive = usePresentationActive(redemptionRedeemedAt)
+  // Validated session covers the in-memory branch (which can't observe
+  // staff scan otherwise). For the persisted branch, the voucher
+  // payload's `lastRedemption.isValidated` is authoritative. Combined
+  // here so the hero treatment / ShowToStaff guard / card all read from
+  // a single resolved boolean.
+  const isRedemptionValidated = useMemo<boolean>(() => {
+    if (validatedSession && lastRedemption?.redemptionCode === validatedSession) return true
+    return voucher?.lastRedemption?.isValidated ?? false
+  }, [validatedSession, lastRedemption?.redemptionCode, voucher?.lastRedemption?.isValidated])
+  // (Redeemed-state visual treatment — `showRedeemedSeal` +
+  // `blockShowToStaffMount` — is computed BELOW after `stateKey` is
+  // defined; can't be hoisted up here because `stateKey` depends on
+  // `voucher`, `subscription`, `timeLimited`, etc.)
   // Schedule the auto-show timer. All gates must hold:
   //   • screen is focused (cancels mid-delay if user navigates away)
   //   • voucher data has loaded (no flash before content)
@@ -534,6 +589,118 @@ export function VoucherDetailScreen() {
 
     return 'can-redeem'
   }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited, branchErrored])
+
+  // ── Redeemed-state visual treatment ─────────────────────────────────
+  //
+  // Owner direction (locked 2026-05-09 PR #49 device QA wave 8): the
+  // hero washed-out + seal overlay must appear AS SOON AS the voucher
+  // is redeemed — not gated on presentation-window expiry. The user
+  // needs an immediate visual confirmation that the voucher is now
+  // redeemed, even while the code is still being shown for the 2h
+  // handoff window. Previously these were gated on
+  // `(!isPresentationActive || isRedemptionValidated)`, so the hero
+  // stayed unchanged until the window closed — exactly the QA report.
+  //
+  // The two concerns are now intentionally separate:
+  //
+  //   • `showRedeemedSeal` — VISUAL treatment (hero dim + seal
+  //     overlay). True whenever the voucher is redeemed in this
+  //     cycle and we have a redeemedAt source to anchor the seal.
+  //     Independent of the presentation window — "your voucher is
+  //     redeemed" is true the moment you tap Redeem, regardless of
+  //     whether the code is still on screen.
+  //
+  //   • `blockShowToStaffMount` — HANDLER guard (defense-in-depth
+  //     against synthesised press / re-render race against the
+  //     hidden CTA). True only when the code surface itself is
+  //     hidden (out-of-window OR validated). During the in-window
+  //     state the user CAN legitimately tap "Show to Staff" from
+  //     the card; this guard must NOT fire then.
+  const isRedeemed = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt
+  const showRedeemedSeal = isRedeemed
+  const blockShowToStaffMount =
+    isRedeemed && (!isPresentationActive || isRedemptionValidated)
+
+  // ── Screen-capture protection on Voucher Detail ─────────────────────
+  //
+  // Locked rule (2026-05-08, owner direction PR #49 review): ANY surface
+  // that displays the redemption code or QR must have screen-capture
+  // protection active. ShowToStaff already does this via its own hook;
+  // SuccessPopup does this via the shared hook; Voucher Detail must too,
+  // because the persisted RedemptionDetailsCard surfaces the code on
+  // return visits during the 2-hour presentation window.
+  //
+  // Active when ALL hold:
+  //   • redeemed-this-cycle (the only state that can show the code).
+  //   • a redemption exists to display (in-memory OR persisted).
+  //   • presentation window is open (under 2h since redeemedAt).
+  //   • staff has NOT validated yet (validation is terminal — once the
+  //     code is hidden, protection is no longer needed).
+  //
+  // Mirrors the `showCodeSurface` gate inside RedemptionDetailsCard so
+  // protection lifts the moment the code surface collapses (boundary
+  // expiry OR validation transition). Cleanup on the hook releases
+  // prevention so other app screens can be recorded normally afterwards.
+  //
+  // Android: FLAG_SECURE blocks BOTH screenshots and recordings.
+  // iOS 11+: system overlays a blurred snapshot during active recording
+  //   / mirroring. iOS screenshots cannot be PREVENTED by Apple's
+  //   SDK — see `useScreenshotGuard` below for the post-fact path.
+  const codeVisibleOnVoucherDetail =
+    stateKey === 'redeemed-this-cycle'
+    && !!redemptionRedeemedAt
+    && isPresentationActive
+    && !isRedemptionValidated
+  useScreenCaptureProtection(codeVisibleOnVoucherDetail)
+
+  // ── iOS post-fact screenshot detection on Voucher Detail ───────────
+  //
+  // Owner direction (locked 2026-05-09, PR #49 device QA): the
+  // `useScreenCaptureProtection` hook above blocks SCREEN RECORDINGS
+  // on iOS (system blur during active capture / mirroring) and BOTH
+  // screenshots + recordings on Android (FLAG_SECURE). It does NOT
+  // prevent iOS screenshots — Apple has no SDK to do so.
+  //
+  // QA finding: Voucher Detail allowed an iOS screenshot of the code,
+  // expected behaviour is to match Show-to-Staff (which detects
+  // post-fact via `addScreenshotListener` and shows a banner). This
+  // installs the same listener on Voucher Detail when the code is
+  // visible — best-effort post-fact mitigation; the captured photo
+  // contains the unblurred code, but the live screen surfaces a
+  // banner so the user sees we noticed.
+  //
+  // The banner is a screen-level overlay; the code itself stays
+  // rendered (hiding it AFTER the screenshot is already taken adds
+  // no value — see §AB locked iOS framing). The banner is the user-
+  // visible signal + telemetry firing is the operational signal.
+  const [screenshotBannerVisible, setScreenshotBannerVisible] = useState(false)
+  // The code we'd telemetry against — same priority as displayRedemption.
+  // Empty string when no redemption (the hook is also gated on
+  // `active`, but we keep `code` non-load-bearing).
+  const screenshotGuardCode =
+    lastRedemption?.redemptionCode
+    ?? voucher?.lastRedemption?.code
+    ?? ''
+  useScreenshotGuard(screenshotGuardCode, {
+    active: codeVisibleOnVoucherDetail,
+    onBannerShown: () => setScreenshotBannerVisible(true),
+  })
+  // Auto-dismiss the screenshot banner after 4 seconds. ShowToStaff
+  // keeps its banner up until the user taps the QR to clear the blur,
+  // but Voucher Detail has no equivalent "tap to clear" gesture, so
+  // a timed auto-dismiss is the user-visible exit. Clears immediately
+  // if the gate flips closed (window expiry, validation, navigation
+  // away) — no point keeping the banner up after the code surface
+  // collapses.
+  useEffect(() => {
+    if (!screenshotBannerVisible) return
+    if (!codeVisibleOnVoucherDetail) {
+      setScreenshotBannerVisible(false)
+      return
+    }
+    const id = setTimeout(() => setScreenshotBannerVisible(false), 4_000)
+    return () => clearTimeout(id)
+  }, [screenshotBannerVisible, codeVisibleOnVoucherDetail])
 
   // Back navigation — URL-only, does NOT depend on voucher/merchant
   // queries having resolved. Round-5 plan §1.
@@ -946,21 +1113,48 @@ export function VoucherDetailScreen() {
               the gesture, opening the cream gap below the
               perforation. */}
           <Animated.View style={heroAnchorStyle}>
-            <CouponHeader
-              type={voucher.type}
-              title={voucher.title}
-              description={voucher.description}
-              estimatedSaving={voucher.estimatedSaving}
-              insetTop={insets.top}
-              onBack={handleBack}
-              onShare={handleShare}
-              onFav={handleFav}
-              isFavourited={voucher.isFavourited}
-              scrollY={scrollY}
-              fadeStart={FADE_START}
-              fadeEnd={FADE_END}
-              collapsedActive={collapsedActive}
-            />
+            {/* Hero treatment when redeemed (locked 2026-05-09 from
+                PR #49 device QA wave 4 — owner direction):
+                  • Dimmed hero (opacity 0.55) — already in place.
+                  • RedeemedSeal moved ONTO the hero as an absolute
+                    overlay, like a physical stamp on the voucher
+                    itself, instead of sitting as a standalone block
+                    between the voucher and the merchant card.
+                  • Sized to overlap the title/saving area so the
+                    voucher reads as visibly "stamped redeemed".
+                  • Owner direction: "It is okay if it overlaps the
+                    voucher text slightly, as long as the text is
+                    still somewhat readable."
+                Defers full washed-out coupon visual + polished SVG
+                stamp to §Q1. */}
+            <View style={styles.heroSealWrap}>
+              <View style={showRedeemedSeal ? styles.heroDimmed : null}>
+                <CouponHeader
+                  type={voucher.type}
+                  title={voucher.title}
+                  description={voucher.description}
+                  estimatedSaving={voucher.estimatedSaving}
+                  insetTop={insets.top}
+                  onBack={handleBack}
+                  onShare={handleShare}
+                  onFav={handleFav}
+                  isFavourited={voucher.isFavourited}
+                  scrollY={scrollY}
+                  fadeStart={FADE_START}
+                  fadeEnd={FADE_END}
+                  collapsedActive={collapsedActive}
+                />
+              </View>
+              {showRedeemedSeal ? (
+                <View
+                  style={[styles.heroSealOverlay, { top: insets.top + 96 }]}
+                  pointerEvents="none"
+                  testID="voucher-detail-hero-seal"
+                >
+                  <RedeemedSeal availableAgainAt={voucher.availableAgainAt ?? null} />
+                </View>
+              ) : null}
+            </View>
             <PerforationLine pageBg={PAGE_BG} variant="outer" />
           </Animated.View>
 
@@ -970,22 +1164,92 @@ export function VoucherDetailScreen() {
               QA: the card is the dominant post-redemption content
               (code + voucher summary + saved amount), but the hero
               still anchors visual identity, so the card belongs UNDER
-              the hero, not above it. Persisted return-visit details
-              remain §P2 deferred — only renders when `lastRedemption`
-              is in memory immediately after redemption. */}
-          {stateKey === 'redeemed-this-cycle' && lastRedemption ? (
-            <View style={styles.redeemedDetailsInStack}>
-              <RedemptionDetailsCard
-                redemptionCode={lastRedemption.redemptionCode}
-                redeemedAt={lastRedemption.redeemedAt}
-                branchName={branchName}
-                voucherType={voucher.type}
-                voucherTitle={voucher.title}
-                merchantName={voucher.merchant.businessName}
-                estimatedSaving={voucher.estimatedSaving}
-              />
-            </View>
-          ) : null}
+              the hero, not above it.
+
+              **§Q6 invariant (locked 2026-05-08):** the LOAD-BEARING
+              gate is `stateKey === 'redeemed-this-cycle'`, NOT the
+              presence of any redemption data. After cycle rollover
+              `voucher.isRedeemedThisCycle` flips false → stateKey
+              reverts → this branch returns null even if a stale
+              `voucher.lastRedemption` persists in the payload.
+
+              Source priority (post-M3 Task 17): in-memory
+              `lastRedemption` (just-redeemed, freshest data + branch
+              tile from merchant.branches) takes precedence over the
+              persisted `voucher.lastRedemption` block from the
+              backend payload (return visits during the active
+              cycle). Both are merged into a single `displayRedemption`
+              shape so the JSX stays readable. */}
+          {(() => {
+            if (stateKey !== 'redeemed-this-cycle') return null
+            // Base shape from in-memory (PRIMARY) or persisted (FALLBACK).
+            const baseDisplay = lastRedemption
+              ? {
+                  code:        lastRedemption.redemptionCode,
+                  redeemedAt:  lastRedemption.redeemedAt,
+                  branchName:  branchName,
+                  // In-memory branch can't observe staff validation by
+                  // itself (the redeem mutation response always returns
+                  // isValidated:false). The session-scoped override
+                  // below merges in the validated signal from
+                  // ShowToStaff.onValidated.
+                  isValidated: false,
+                }
+              : voucher.lastRedemption
+                ? {
+                    code:        voucher.lastRedemption.code,
+                    redeemedAt:  voucher.lastRedemption.redeemedAt,
+                    branchName:  voucher.lastRedemption.branch.name,
+                    isValidated: voucher.lastRedemption.isValidated,
+                  }
+                : null
+            if (!baseDisplay) return null
+            // Apply validated-session override: if ShowToStaff's polling
+            // observed validation for THIS code in this session, the
+            // pill shows even before the next voucher payload refetch
+            // lands. The refetch fires alongside the override (see the
+            // ShowToStaff `onValidated` handler below) so subsequent
+            // navigation away + back without a full relaunch picks up
+            // the persisted truth too.
+            const displayRedemption = {
+              ...baseDisplay,
+              isValidated: baseDisplay.isValidated || (validatedSession === baseDisplay.code),
+            }
+            return (
+              <View style={styles.redeemedDetailsInStack}>
+                <RedemptionDetailsCard
+                  redemptionCode={displayRedemption.code}
+                  redeemedAt={displayRedemption.redeemedAt}
+                  branchName={displayRedemption.branchName}
+                  voucherType={voucher.type}
+                  voucherTitle={voucher.title}
+                  merchantName={voucher.merchant.businessName}
+                  estimatedSaving={voucher.estimatedSaving}
+                  isValidated={displayRedemption.isValidated}
+                  isPresentationActive={isPresentationActive}
+                  onShowToStaff={() => {
+                    // Defense-in-depth: even if the card's hidden CTA
+                    // is somehow reached (re-render race, stale render
+                    // tree, programmatic test invocation), refuse to
+                    // mount ShowToStaff once the code surface has
+                    // collapsed (out-of-window OR validated). The
+                    // card hides the button visually; this guard
+                    // hides the SURFACE. Uses `blockShowToStaffMount`
+                    // (NOT `showRedeemedSeal`) so the seal can fire
+                    // its visual treatment immediately on redemption
+                    // without blocking the in-window Show-to-Staff
+                    // flow. Locked 2026-05-09, PR #49 wave 8.
+                    if (blockShowToStaffMount) return
+                    setShowToStaff({
+                      code:       displayRedemption.code,
+                      redeemedAt: displayRedemption.redeemedAt,
+                      branchName: displayRedemption.branchName ?? '',
+                    })
+                  }}
+                />
+              </View>
+            )
+          })()}
 
           {/* CycleRulesCard — REDEEMED-STATE position (locked
               2026-05-08 from device QA). Sits inside the coupon
@@ -1028,23 +1292,16 @@ export function VoucherDetailScreen() {
           </View>
         </View>
 
-        {/* Redeemed-this-cycle surface (locked 2026-05-07 from device
-            QA): RedeemedBadge stays at the top, but the
-            RedemptionDetailsCard now sits BEFORE the main coupon card
-            below — see the conditional render at the top of the
-            scroll view, above the coupon stack. We keep the badge
-            here so the eye still picks up "Redeemed" near the hero,
-            but the meaningful surface (code + voucher summary) lands
-            above the now-secondary coupon details.
-
-            Persisted return-visit RedemptionDetailsCard is still
-            deferred (§P2 / §O6 — backend payload dependency: needs
-            lastRedeemedAt + redemptionCode + branch on the voucher
-            payload). On return visits, lastRedemption is null and
-            only the badge surfaces. */}
-        {stateKey === 'redeemed-this-cycle' ? (
-          <RedeemedBadge redeemedAt={lastRedemption?.redeemedAt ?? null} />
-        ) : null}
+        {/* Note (locked 2026-05-09, PR #49 device QA wave 4):
+            previously we mounted a green "Redeemed this cycle"
+            RedeemedBadge here AND a standalone RedeemedSeal block
+            between the voucher and the merchant card. Owner direction
+            consolidated both into a SINGLE surface — the seal is now
+            an absolute overlay on the hero/banner above (see
+            heroSealOverlay). No separate badge or middle-of-page
+            seal mount remains: the page now signals "redeemed" with
+            ONE visual treatment (stamped voucher) rather than two
+            redundant indicators. */}
 
         {timeLimited.isTimeLimited ? (
           <View style={styles.tlBanner}>
@@ -1065,13 +1322,17 @@ export function VoucherDetailScreen() {
                                              lastRedemptionBranch (the
                                              actual redemption branch,
                                              NOT the URL target).
-              • redeemed return-visit (M2) → mode='redeemed-unknown',
-                                             branchName=null (the row
-                                             omits the branch line and
-                                             shows neutral "REDEEMED THIS
-                                             CYCLE" copy). Persisted
-                                             redemption branch lands in
-                                             M3 (§P2 in deferred index).
+              • redeemed return-visit (M3+) → resolved from
+                                             `voucher.lastRedemption.
+                                             branch.name` via the
+                                             FALLBACK path in
+                                             `displayRedemption`
+                                             above. The
+                                             `redeemed-unknown`
+                                             mode survives only
+                                             when both in-memory and
+                                             persisted sources are
+                                             null (defensive).
         */}
         {/* CycleRulesCard — NON-REDEEMED-STATE position (locked
             2026-05-08 from device QA). Sits between the coupon body
@@ -1237,13 +1498,17 @@ export function VoucherDetailScreen() {
           merchantName={voucher.merchant.businessName}
           branchName={branchName}
           onShowToStaff={() => {
-            // M3 stub — full QR + brightness boost ships in M3.
-            // For M2 the button routes to a small alert acknowledging
-            // the deferral.
-            Alert.alert(
-              'Show to Staff',
-              'The full-screen redemption display ships in the next milestone (M3). Your code is shown above — please show it to staff.',
-            )
+            // M3 — open the full-screen ShowToStaff surface with the
+            // just-created redemption. Close the SuccessPopup first
+            // so the user lands on the QR/code surface cleanly when
+            // ShowToStaff dismisses (auto-dismiss after validated, or
+            // Done press).
+            setSuccessPopup(null)
+            setShowToStaff({
+              code:       successPopup.redemptionCode,
+              redeemedAt: successPopup.redeemedAt,
+              branchName,
+            })
           }}
           onRateReview={() => {
             // M2 keeps the review path unchanged — closes the popup;
@@ -1252,6 +1517,56 @@ export function VoucherDetailScreen() {
           }}
           onDone={() => setSuccessPopup(null)}
         />
+      ) : null}
+      {/* ShowToStaff full-screen Modal (M3 Task 16). Mounts only
+          when both `showToStaff` state is set AND voucher data is
+          present. customerName="" per the M3 §U1 lock — see
+          ShowToStaff component header for the suppression contract. */}
+      {showToStaff && voucher ? (
+        <ShowToStaff
+          visible
+          redemptionCode={showToStaff.code}
+          voucherTitle={voucher.title}
+          voucherType={voucher.type}
+          merchantName={voucher.merchant.businessName}
+          branchName={showToStaff.branchName}
+          customerName=""
+          redeemedAt={showToStaff.redeemedAt}
+          onValidated={() => {
+            // Two-layer update so the validated pill reflects truth on
+            // BOTH the immediate post-dismiss render AND on subsequent
+            // navigation away + back:
+            //   (1) Session override — paints the pill on the in-memory
+            //       branch (which can't observe staff scan otherwise).
+            //   (2) Refetch — pulls the persisted
+            //       `voucher.lastRedemption.isValidated` so the FALLBACK
+            //       branch picks up reality after a relaunch / cache
+            //       eviction (PR #49 review fix).
+            setValidatedSession(showToStaff.code)
+            voucherQuery.refetch().catch(() => { /* best-effort */ })
+          }}
+          onDone={() => setShowToStaff(null)}
+        />
+      ) : null}
+
+      {/* iOS post-fact screenshot banner. Surfaces only when
+          `useScreenshotGuard` fires while the code is visible.
+          Non-blocking overlay anchored to the safe-area top so it
+          floats above the scroll without taking layout space. Auto-
+          dismisses after 4s (see effect above) or immediately when
+          the gate flips closed. Locked 2026-05-09, PR #49 device QA. */}
+      {screenshotBannerVisible ? (
+        <View
+          style={[styles.screenshotBanner, { top: insets.top + 12 }]}
+          pointerEvents="none"
+          testID="voucher-detail-screenshot-banner"
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+        >
+          <Text variant="label.md" style={styles.screenshotBannerText}>
+            Screenshot detected. Staff verify only the live screen.
+          </Text>
+        </View>
       ) : null}
     </View>
   )
@@ -1389,6 +1704,49 @@ const styles = StyleSheet.create({
   // marginBottom:16 here to keep the 16pt gap consistent.
   redeemedCycleInStack: {
     marginBottom: 16,
+  },
+
+  // Hero dimming — applied when the redeemed seal is surfaced
+  // (post-2h handoff window OR validated). Just a static opacity;
+  // full washed-out coupon visual treatment is deferred to §Q1.
+  heroDimmed: {
+    opacity: 0.55,
+  },
+  // Hero-seal overlay positioning (locked 2026-05-09, PR #49 device
+  // QA wave 4). The seal mounts as an absolute overlay anchored to
+  // the hero so it sits ON TOP of the dimmed banner — like a
+  // physical stamp on paper. `top` is set inline to `insets.top + 96`
+  // so it lands over the title/saving area regardless of safe-area
+  // device variance. `pointerEvents=none` so the seal doesn't
+  // intercept hero taps.
+  heroSealWrap: {
+    position: 'relative',
+  },
+  heroSealOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+
+  // iOS post-fact screenshot banner. Floats top-anchored over the
+  // scroll; pointerEvents=none so it doesn't intercept taps.
+  screenshotBanner: {
+    position: 'absolute',
+    left: 22,
+    right: 22,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    zIndex: 30,
+  },
+  screenshotBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
 
 

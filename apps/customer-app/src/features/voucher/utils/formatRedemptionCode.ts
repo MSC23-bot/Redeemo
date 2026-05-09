@@ -19,3 +19,24 @@ export function formatRedemptionCode(code: string): string {
   if (code.length !== 8) return code
   return `${code.slice(0, 4)} ${code.slice(4)}`
 }
+
+/**
+ * Screen-reader friendly version of the redemption code. VoiceOver /
+ * TalkBack would otherwise slur 'A7K2P9X4' into a single confusing
+ * word; spacing each character forces character-by-character
+ * announcement, and the comma between the two groups gives the
+ * reader a natural pause matching the visual 4+4 layout.
+ *
+ * Example: 'A7K2P9X4' → 'Redemption code A 7 K 2, P 9 X 4'.
+ *
+ * For non-8-char inputs (defensive against legacy / future code
+ * shapes) the raw code is read out unchanged.
+ *
+ * Used by `<QRCodeBlock>` (M3 Task 9) for `accessibilityLabel`.
+ */
+export function codeAccessibilityLabel(code: string): string {
+  if (code.length !== 8) return `Redemption code ${code}`
+  const left  = code.slice(0, 4).split('').join(' ')
+  const right = code.slice(4).split('').join(' ')
+  return `Redemption code ${left}, ${right}`
+}

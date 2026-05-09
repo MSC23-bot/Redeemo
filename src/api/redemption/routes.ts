@@ -5,6 +5,8 @@ import {
   verifyRedemption,
   listMyRedemptions,
   getMyRedemption,
+  getMyRedemptionByCode,
+  flagRedemptionScreenshot,
   listBranchRedemptions,
   VerifyActor,
 } from './service'
@@ -50,6 +52,37 @@ export async function customerRedemptionRoutes(app: FastifyInstance) {
 
     const redemption = await getMyRedemption(app.prisma, req.user.sub, id)
     return reply.send(redemption)
+  })
+
+  // GET /api/v1/redemption/me/:code — self-lookup by redemption code, used
+  // by the Show-to-Staff polling hook (5s cadence) to detect staff
+  // validation transitions. Slim payload by design — see service.
+  // Customer JWT is enforced by the redemption plugin's scoped
+  // `app.authenticateCustomer` preHandler (plugin.ts:8).
+  app.get(`${prefix}/redemption/me/:code`, async (req: FastifyRequest, reply) => {
+    const { code } = (req.params as { code: string })
+
+    const result = await getMyRedemptionByCode(app.prisma, req.user.sub, code)
+    return reply.send(result)
+  })
+
+  // POST /api/v1/redemption/:code/screenshot-flag — anti-fraud telemetry
+  // for the Show-to-Staff full-screen surface. Best-effort: dedup'd
+  // server-side via Redis SETNX (5s TTL) — burst events for the same
+  // (userId, code) write exactly one row. Customer JWT enforced by
+  // the redemption plugin's scoped preHandler.
+  app.post(`${prefix}/redemption/:code/screenshot-flag`, async (req: FastifyRequest, reply) => {
+    const { code } = (req.params as { code: string })
+    const body = z.object({ platform: z.enum(['ios', 'android']) }).parse(req.body)
+
+    const result = await flagRedemptionScreenshot(
+      app.prisma,
+      app.redis,
+      req.user.sub,
+      code,
+      body.platform,
+    )
+    return reply.send(result)
   })
 }
 

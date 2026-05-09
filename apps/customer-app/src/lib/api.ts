@@ -204,6 +204,20 @@ async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): P
 async function refreshTokens(): Promise<void> {
   if (!tokens.refresh || !tokens.sessionId || !tokens.entityId) throw new Error('missing refresh context')
   if (refreshing) return refreshing
+  // DEV-ONLY diagnostic: log refresh body shape (presence flags, NEVER
+  // values) before the fetch. Locked 2026-05-08 after a device-QA
+  // 400-on-refresh that needed a console hint to distinguish "stale
+  // build / stale secureStorage missing sessionId" from "live build
+  // with all 4 keys but backend rejected for some other reason".
+  // Stripped from production by the `__DEV__` guard.
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    // eslint-disable-next-line no-console
+    console.info('[api.refresh] body shape:', {
+      hasRefreshToken: !!tokens.refresh,
+      hasSessionId:    !!tokens.sessionId,
+      hasEntityId:     !!tokens.entityId,
+    })
+  }
   refreshing = (async () => {
     // fetch() rejection is a TRANSPORT failure — DNS down, server
     // unreachable, request abort, offline. NEVER auth-terminal: the
@@ -224,6 +238,13 @@ async function refreshTokens(): Promise<void> {
       })
     } catch (fetchErr) {
       throw new RefreshTransportError('refresh fetch failed', fetchErr)
+    }
+    // DEV-ONLY: log refresh response status so a 400 vs 401 vs 5xx
+    // shows up immediately in the Metro/Expo console, paired with the
+    // shape log above. Stripped from production.
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      // eslint-disable-next-line no-console
+      console.info('[api.refresh] response status:', r.status)
     }
     // 5xx → server-side problem. Same treatment as a network failure:
     // preserve auth, surface a retryable error, the user stays signed

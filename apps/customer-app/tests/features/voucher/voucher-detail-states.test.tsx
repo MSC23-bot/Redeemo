@@ -227,9 +227,15 @@ describe('VoucherDetailScreen — state machine', () => {
 
   it('renders state 3 (already redeemed) when isRedeemedThisCycle is true', () => {
     mockVoucherData = { ...baseVoucher(), isRedeemedThisCycle: true }
-    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
     expect(getByTestId('voucher-detail-state-redeemed-this-cycle')).toBeTruthy()
-    expect(getByTestId('redeemed-badge')).toBeTruthy()
+    // M3 §AE wave 4 (locked 2026-05-09): the standalone RedeemedBadge
+    // pill was removed and the seal moved onto the hero overlay.
+    // No redeemedAt source here (no in-memory + no persisted), so
+    // neither the seal nor the badge render — only the CTA's
+    // redeemed-state copy + page state-key surface confirm we're in
+    // the redeemed-this-cycle state.
+    expect(queryByTestId('redeemed-badge')).toBeNull()
     expect(getByTestId('redeem-cta-redeemed')).toBeTruthy()
   })
 
@@ -317,23 +323,27 @@ describe('VoucherDetailScreen — branch attribution (plan §11)', () => {
 
   it('keeps state 3 (already redeemed) regardless of which branch is selected — eligibility is branch-INDEPENDENT (§11 C4)', () => {
     // First render: selected branch = CorrectSB, voucher already redeemed.
+    // M3 §AE wave 4 (locked 2026-05-09): the standalone RedeemedBadge
+    // was removed; the redeemed signal is now the hero seal overlay.
+    // With no redeemedAt source in this fixture, neither surfaces —
+    // we assert the page state-key as the redeemed-state pin.
     mockVoucherData = { ...baseVoucher(), isRedeemedThisCycle: true }
     let result = wrap(<VoucherDetailScreen />)
     expect(result.getByTestId('voucher-detail-state-redeemed-this-cycle')).toBeTruthy()
-    expect(result.getByTestId('redeemed-badge')).toBeTruthy()
+    expect(result.getByTestId('redeem-cta-redeemed')).toBeTruthy()
     result.unmount()
 
     // Re-render with a DIFFERENT selected branch — voucher is still
     // marked redeemed in this cycle, eligibility is per (userId,
     // voucherId) NOT per (userId, voucherId, branchId), so the state
-    // and the badge MUST stay.
+    // and the redeemed-CTA copy MUST stay.
     setMerchantData({
       ...baseMerchant(),
       selectedBranch: { ...baseMerchant().selectedBranch, id: 'DIFFERENT-BRANCH', name: 'OtherBranch' },
     })
     result = wrap(<VoucherDetailScreen />)
     expect(result.getByTestId('voucher-detail-state-redeemed-this-cycle')).toBeTruthy()
-    expect(result.getByTestId('redeemed-badge')).toBeTruthy()
+    expect(result.getByTestId('redeem-cta-redeemed')).toBeTruthy()
   })
 
   it('threads the ?branch=<id> URL param into useMerchantProfile.opts.branchId', () => {

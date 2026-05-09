@@ -30,6 +30,50 @@ jest.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: any) => children ?? null,
 }))
 
+// ── expo-screen-capture mock ────────────────────────────────────────────
+// Voucher Detail mounts `useScreenCaptureProtection` AND (locked
+// 2026-05-09 PR #49 device QA) `useScreenshotGuard` when the code is
+// visible. The mock lets us:
+//   - assert prevent/allow native calls (preventScreenCaptureAsync /
+//     allowScreenCaptureAsync) — already pinned in §AE6 below;
+//   - capture the screenshot-listener callback so a test can simulate
+//     an iOS screenshot firing and assert the banner appears.
+//
+// `addScreenshotListener` defaults to a no-op return; tests that want
+// to fire the listener override the mock implementation in beforeEach.
+jest.mock('expo-screen-capture', () => ({
+  preventScreenCaptureAsync: jest.fn().mockResolvedValue(undefined),
+  allowScreenCaptureAsync:   jest.fn().mockResolvedValue(undefined),
+  addScreenshotListener:     jest.fn(() => ({ remove: jest.fn() })),
+}))
+
+// ── ShowToStaff mock ────────────────────────────────────────────────────
+// M3 Task 16+17 introduced ShowToStaff as a Modal target wired from
+// SuccessPopup AND from RedemptionDetailsCard. We mock it here so the
+// existing 46 redeem-flow tests don't have to render the real
+// full-screen surface (which has its own 24-case suite). The mock
+// captures props as a JSON string in `accessibilityLabel` so M3d
+// integration tests can assert wiring without globalThis state.
+jest.mock('@/features/voucher/components/ShowToStaff', () => {
+  const React = require('react')
+  const { View } = require('react-native')
+  return {
+    ShowToStaff: jest.fn((props) =>
+      React.createElement(View, {
+        testID: 'show-to-staff-mounted',
+        accessibilityLabel: JSON.stringify({
+          code:         props.redemptionCode,
+          branch:       props.branchName,
+          title:        props.voucherTitle,
+          type:         props.voucherType,
+          merchant:     props.merchantName,
+          customerName: props.customerName,
+        }),
+      }),
+    ),
+  }
+})
+
 // ── expo-router stub ────────────────────────────────────────────────────
 let mockParams: Record<string, string | undefined> = { id: 'v1' }
 const mockPush = jest.fn()
@@ -56,7 +100,10 @@ let mockVoucherData: any = null
 jest.mock('@/features/voucher/hooks/useCustomerVoucher', () => ({
   useCustomerVoucher: () => ({
     data: mockVoucherData, isLoading: false, isError: false,
-    refetch: jest.fn(),
+    // refetch must return a Promise — VoucherDetailScreen calls
+    // `.catch()` on the result inside the ShowToStaff onValidated
+    // handler (PR #49 review fix).
+    refetch: jest.fn().mockResolvedValue({ data: mockVoucherData }),
   }),
 }))
 ;(globalThis as any).__voucherProfileMock__ = {
@@ -94,12 +141,17 @@ jest.mock('@/lib/api/redemption', () => {
       redeem: jest.fn(),
       getMyRedemption: jest.fn(),
       listMyRedemptions: jest.fn(),
+      // Used by `useScreenshotGuard` when an iOS screenshot fires while
+      // the code is visible. Stub returns a resolved promise so the
+      // hook's best-effort telemetry POST never rejects in tests.
+      postScreenshotFlag: jest.fn().mockResolvedValue({ accepted: true }),
     },
   }
 })
 
 import { VoucherDetailScreen } from '@/features/voucher/screens/VoucherDetailScreen'
 import { redemptionApi } from '@/lib/api/redemption'
+import * as ScreenCapture from 'expo-screen-capture'
 
 // ── Fixtures ──────────────────────────────────────────────────────────
 function baseVoucher(overrides: any = {}) {
@@ -184,6 +236,10 @@ beforeEach(() => {
   ;(redemptionApi.redeem as jest.Mock).mockReset()
   ;(redemptionApi.getMyRedemption as jest.Mock).mockReset()
   ;(redemptionApi.listMyRedemptions as jest.Mock).mockReset()
+  ;(ScreenCapture.preventScreenCaptureAsync as jest.Mock).mockClear()
+  ;(ScreenCapture.allowScreenCaptureAsync as jest.Mock).mockClear()
+  ;(ScreenCapture.addScreenshotListener as jest.Mock).mockClear()
+  ;(ScreenCapture.addScreenshotListener as jest.Mock).mockImplementation(() => ({ remove: jest.fn() }))
 })
 
 // ─────────────────────────────────────────────────────────────────────
@@ -392,16 +448,26 @@ describe('Voucher Detail M2 — backend error handling', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
-  it('return visit (no lastRedemption in memory) shows the M1 RedeemedBadge but NOT the full RedemptionDetailsCard', () => {
+  it('return visit (no lastRedemption in memory, no persisted) shows the redeemed hero treatment but NOT the RedemptionDetailsCard', () => {
+    // M3 §AE: the standalone RedeemedBadge pill + middle-page seal
+    // were consolidated into a single hero-overlay seal (locked
+    // 2026-05-09 PR #49 device QA wave 4). When the cycle says
+    // redeemed but no source data exists, the card stays hidden;
+    // the hero seal still appears (driven by the persistence-window
+    // gate computed against `redemptionRedeemedAt`, but ALSO needs
+    // a redeemedAt source — without one, neither the seal nor the
+    // card render). This test asserts the card-not-rendered case.
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
     mockParams = { id: 'v1', branch: 'b1' }
     ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
       selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
     })
 
-    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
-    expect(getByTestId('redeemed-badge')).toBeTruthy()
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
     expect(queryByTestId('redemption-details-card')).toBeNull()
+    // The standalone redeemed-badge pill is GONE entirely (locked
+    // 2026-05-09); the hero seal is the only redeemed indicator.
+    expect(queryByTestId('redeemed-badge')).toBeNull()
   })
 
   it('immediately after redemption (lastRedemption in memory) shows the M2 RedemptionDetailsCard', async () => {
@@ -429,11 +495,13 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
 
     // After Done, screen is still mounted with lastRedemption in state.
-    // The RedeemedBadge always shows for redeemed-this-cycle; the
-    // RedemptionDetailsCard appears only when lastRedemption is truthy.
-    expect(getByTestId('redeemed-badge')).toBeTruthy()
-    // RedemptionDetailsCard mounts via lastRedemption-state branch.
+    // RedemptionDetailsCard appears via the lastRedemption-state branch;
+    // the hero seal renders as an absolute overlay (testID
+    // `voucher-detail-hero-seal`) — the standalone RedeemedBadge pill
+    // was consolidated into the hero seal in PR #49 wave 4.
+    expect(queryByTestId('redeemed-badge')).toBeNull()
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
+    expect(getByTestId('voucher-detail-hero-seal')).toBeTruthy()
   })
 
   // Helper for ordering tests: walk the rendered tree from any
@@ -1423,5 +1491,647 @@ describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent bra
     fireEvent.press(getByLabelText('Go back'))
     const calls = (mockReplace as jest.Mock).mock.calls
     expect(calls.every(([url]) => !String(url).includes('branchChanged'))).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// M3 Task 17 — persisted return-visit RedemptionDetailsCard.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('persisted return-visit RedemptionDetailsCard (M3 Task 17)', () => {
+  function persistedRedemption(overrides: any = {}) {
+    return {
+      code:        'A7K2P9X4',
+      // 30 min ago — inside the 2h presentation window, so the
+      // RedemptionDetailsCard renders the code + Show-to-Staff button
+      // (the §AE gate is open). Computed at call time so the value
+      // stays "recent" regardless of when the test runs.
+      redeemedAt:  new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+      ...overrides,
+    }
+  }
+
+  it('renders RedemptionDetailsCard from voucher.lastRedemption when no in-memory redemption exists', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption(),
+    })
+
+    const { getByText, getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(getByText('A7K2 P9X4')).toBeTruthy()
+    // Branch surfaces from voucher.lastRedemption.branch.name.
+    expect(getByText('Brightlingsea')).toBeTruthy()
+  })
+
+  it('Show-to-Staff button on the persisted card mounts ShowToStaff with the persisted code', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption(),
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('show-to-staff-mounted')).toBeNull()
+
+    fireEvent.press(getByTestId('redemption-details-show-to-staff'))
+
+    const mounted = getByTestId('show-to-staff-mounted')
+    const props = JSON.parse(mounted.props.accessibilityLabel as string)
+    expect(props.code).toBe('A7K2P9X4')
+    expect(props.branch).toBe('Brightlingsea')
+    expect(props.title).toBe('Free Filter Coffee with Any Thali')
+    expect(props.type).toBe('FREEBIE')
+    expect(props.merchant).toBe('Covelum Restaurant')
+    expect(props.customerName).toBe('') // §U1 lock
+  })
+
+  it('renders the validated pill when voucher.lastRedemption.isValidated is true', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption({
+        isValidated: true,
+        validatedAt: '2026-05-08T10:01:30.000Z',
+      }),
+    })
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+  })
+
+  it('does NOT render RedemptionDetailsCard when voucher.lastRedemption is null and not redeemed', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// M3 Task 18 — §Q6 cycle-rollover invariant.
+//
+// THE GATE IS LOAD-BEARING: the persisted RedemptionDetailsCard MUST
+// render only when stateKey === 'redeemed-this-cycle' (driven by
+// voucher.isRedeemedThisCycle), NOT merely when lastRedemption data
+// is present. After cycle rollover the backend flips both the flag
+// AND the data together (Task 5 hoisted cycle-window math), but
+// payload drift could in theory expose a stale lastRedemption with
+// isRedeemedThisCycle=false. The frontend gate must hold the line.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('§Q6 cycle-rollover invariant — RedemptionDetailsCard gate (M3 Task 18)', () => {
+  // The §Q6 invariant is independent of the presentation-window gate —
+  // it operates on `voucher.isRedeemedThisCycle`, not on `redeemedAt`.
+  // BUT in PHASE 1 the test asserts the rendered CODE is visible, which
+  // requires the §AE window to ALSO be open. Use a recent timestamp so
+  // both gates align.
+  const persistedFixture = {
+    code:        'A7K2P9X4',
+    redeemedAt:  new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    branch:      { id: 'b1', name: 'Brightlingsea' },
+    isValidated: false,
+    validatedAt: null,
+  }
+
+  it('PHASE 1 — current cycle: isRedeemedThisCycle:true + lastRedemption present → card renders', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedFixture,
+    })
+    const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(getByText('A7K2 P9X4')).toBeTruthy()
+  })
+
+  it('PHASE 2 — rolled-over: isRedeemedThisCycle:false + lastRedemption:null → card hidden, redeemable state restored', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+
+  it('PHASE 3 (defensive drift) — isRedeemedThisCycle:false + lastRedemption STILL PRESENT → card MUST stay hidden', () => {
+    // Critical pin: backend payload drift (cycle flag flipped but
+    // lastRedemption hasn't cleared yet, OR a stale React Query
+    // cache hit) must NOT cause the card to render. The frontend
+    // gate is `stateKey === 'redeemed-this-cycle'`, NOT presence
+    // of lastRedemption data.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,           // backend says cycle is fresh
+      lastRedemption: persistedFixture,     // ...but stale data lingers
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+
+  it('PHASE 4 (negative defense) — isRedeemedThisCycle:true + lastRedemption:null → no card (no source for data)', () => {
+    // The opposite drift case: cycle flag says redeemed but no
+    // lastRedemption payload. The card needs a source — without
+    // either the in-memory or persisted shape, there's nothing to
+    // render. Verifies the §Q6 gate doesn't crash on this combo.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// PR #49 review fix — validated state propagation from ShowToStaff
+// back to the parent's RedemptionDetailsCard. Without this, the user
+// saw "Verified by staff" inside ShowToStaff but the validated pill
+// stayed hidden after auto-dismiss because the in-memory
+// `lastRedemption` branch hardcoded `isValidated: false`.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('ShowToStaff → RedemptionDetailsCard validated propagation (PR #49 review fix)', () => {
+  // Pull the mocked ShowToStaff so we can invoke its props directly.
+  const ShowToStaffMock = require('@/features/voucher/components/ShowToStaff').ShowToStaff as jest.Mock
+
+  beforeEach(() => {
+    ShowToStaffMock.mockClear()
+  })
+
+  function persistedRedemption(overrides: any = {}) {
+    return {
+      code:        'A7K2P9X4',
+      // 30 min ago — inside the 2h presentation window, so the
+      // RedemptionDetailsCard renders the code + Show-to-Staff button
+      // (the §AE gate is open). Computed at call time so the value
+      // stays "recent" regardless of when the test runs.
+      redeemedAt:  new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+      ...overrides,
+    }
+  }
+
+  it('persisted-card path: ShowToStaff onValidated flips RedemptionDetailsCard to show the validated pill after dismiss', () => {
+    // Voucher arrives in the redeemed-this-cycle state with a NOT-YET-
+    // VALIDATED persisted lastRedemption — i.e. user redeemed earlier,
+    // killed the app, relaunched, came back to voucher detail.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption({ isValidated: false }),
+    })
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // Initial: card renders, no validated pill (persisted isValidated:false).
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(queryByTestId('redemption-details-validated-pill')).toBeNull()
+
+    // User taps "Show to Staff" on the persisted card → ShowToStaff
+    // mounts. We need the latest props (the mock captures every render's
+    // props via mock.calls).
+    fireEvent.press(getByTestId('redemption-details-show-to-staff'))
+    expect(getByTestId('show-to-staff-mounted')).toBeTruthy()
+
+    // ShowToStaff polls + flips to validated. We invoke its onValidated
+    // callback directly. Then dismiss via onDone.
+    const lastMountProps =
+      ShowToStaffMock.mock.calls[ShowToStaffMock.mock.calls.length - 1][0]
+    expect(typeof lastMountProps.onValidated).toBe('function')
+    expect(typeof lastMountProps.onDone).toBe('function')
+
+    act(() => {
+      lastMountProps.onValidated()
+      lastMountProps.onDone()
+    })
+
+    // Now back on VoucherDetail: the validated pill MUST render —
+    // either via the session override (immediate) or via the refetched
+    // voucher.lastRedemption.isValidated (eventual). Even with no
+    // refetch in the test (mockVoucherData unchanged), the session
+    // override carries the pill.
+    expect(queryByTestId('show-to-staff-mounted')).toBeNull()
+    expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+  })
+
+  it('session override is keyed by redemption code — clears for a different code', () => {
+    // Voucher with persisted lastRedemption #1.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption({ code: 'AAAAAAAA' }),
+    })
+
+    const view = wrap(<VoucherDetailScreen />)
+    fireEvent.press(view.getByTestId('redemption-details-show-to-staff'))
+
+    const props =
+      ShowToStaffMock.mock.calls[ShowToStaffMock.mock.calls.length - 1][0]
+
+    // Session override fires for code AAAAAAAA — the validated pill
+    // should appear.
+    act(() => {
+      props.onValidated()
+      props.onDone()
+    })
+    expect(view.getByTestId('redemption-details-validated-pill')).toBeTruthy()
+
+    // Now mock a DIFFERENT code surfacing on the voucher (e.g. cycle
+    // reset + fresh redemption). The session override's stored code
+    // (AAAAAAAA) shouldn't match the new code (BBBBBBBB), so the pill
+    // disappears.
+    view.unmount()
+
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedRedemption({ code: 'BBBBBBBB', isValidated: false }),
+    })
+    const view2 = wrap(<VoucherDetailScreen />)
+    expect(view2.queryByTestId('redemption-details-validated-pill')).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// §AE — Presentation-window gate on Voucher Detail (locked 2026-05-08,
+// owner direction PR #49 review).
+//
+// Once the 2-hour handoff window expires (or staff has validated), the
+// redemption code + Show-to-Staff entry point disappear from Voucher
+// Detail. The user still sees a redeemed-state surface — the seal +
+// non-sensitive details — but cannot re-show a code that staff might
+// be tricked into scanning a second time. Code retrieval moves to
+// Profile → Redemption History (full surface deferred).
+//
+// Pin both branches: in-window (button visible) AND out-of-window
+// (button hidden + history tip + seal surfaces).
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('§AE — Voucher Detail presentation-window gate', () => {
+  function persistedAt(redeemedAt: string) {
+    return {
+      code:        'A7K2P9X4',
+      redeemedAt,
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+    }
+  }
+
+  it('IN-WINDOW (30 min ago): code + Show-to-Staff visible AND hero seal also visible (owner wave 8: immediate visual confirmation)', () => {
+    // Locked 2026-05-09 PR #49 device QA wave 8: the hero washed-out
+    // + seal must surface AS SOON AS the voucher is redeemed, not
+    // only after the 2h window expires. Previously the seal was
+    // gated on `(!isPresentationActive || isRedemptionValidated)`,
+    // so the hero stayed unchanged for the in-window state — owner
+    // QA report said this made the page not feel "redeemed enough".
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    // Code + Show-to-Staff visible (in-window).
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(getByTestId('redemption-details-code')).toBeTruthy()
+    expect(getByTestId('redemption-details-show-to-staff')).toBeTruthy()
+    // Seal AND hero overlay are now ALSO visible during the in-window
+    // state (wave 8 change).
+    expect(getByTestId('voucher-detail-hero-seal')).toBeTruthy()
+  })
+
+  it('OUT-OF-WINDOW (3 hours ago): code hidden, Show-to-Staff hidden, expired-window inner notice + hero seal surface', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    // Card surface is still mounted (for header / summary / info rows /
+    // disclaimer) but the code surface and Show-to-Staff entry are gone.
+    expect(getByTestId('redemption-details-card')).toBeTruthy()
+    expect(queryByTestId('redemption-details-code')).toBeNull()
+    expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+    // Inner notice card (the new design) replaces the previous
+    // loose-text "Staff handoff window ended..." + "history tip"
+    // bottom-of-card pair. Sits in the slot where the code box was.
+    expect(getByTestId('redemption-details-expired-notice')).toBeTruthy()
+    // Seal is now an OVERLAY on the hero/banner (testID `voucher-
+    // detail-hero-seal`). The previous standalone middle-page mount
+    // (`redeemed-seal` testID exposed via the component) is gone —
+    // the component still has its testID, but now mounts inside the
+    // hero overlay wrapper.
+    expect(getByTestId('voucher-detail-hero-seal')).toBeTruthy()
+  })
+
+  it('VALIDATED (regardless of window): code hidden, Show-to-Staff hidden, validated pill + seal surface', () => {
+    // Validated is terminal — once staff has scanned, the code
+    // surface collapses even if the customer is technically still
+    // inside the 2h window.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 min ago, in-window
+      ),
+    })
+    // Override the persisted isValidated flag.
+    mockVoucherData.lastRedemption.isValidated = true
+    mockVoucherData.lastRedemption.validatedAt = new Date().toISOString()
+
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-code')).toBeNull()
+    expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+    expect(getByTestId('redemption-details-validated-pill')).toBeTruthy()
+    expect(getByTestId('redeemed-seal')).toBeTruthy()
+  })
+
+  it('OUT-OF-WINDOW does NOT mount ShowToStaff even with a programmatic press attempt', () => {
+    // Defense-in-depth pin (locked 2026-05-08, PR #49 review): the
+    // card hides the CTA, but if a future render-tree race re-attaches
+    // it, the parent's onShowToStaff handler must ALSO refuse to mount
+    // ShowToStaff. The test confirms `show-to-staff-mounted` does not
+    // appear after the gate has flipped closed.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    // The CTA testID is gone — there's nothing to press. This is the
+    // user-visible surface guarantee. The handler-side guard is
+    // implicit: even if a press were synthesised against a stale
+    // node, the `if (showRedeemedSeal) return` early-out in
+    // VoucherDetailScreen would block ShowToStaff from mounting.
+    expect(queryByTestId('redemption-details-show-to-staff')).toBeNull()
+    expect(queryByTestId('show-to-staff-mounted')).toBeNull()
+  })
+
+  it('non-redeemed states do NOT render the seal (gate is scoped to redeemed-this-cycle)', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redeemed-seal')).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// §AE6 — Screen-capture protection on Voucher Detail (locked 2026-05-08,
+// owner direction PR #49 review).
+//
+// Rule: ANY surface that displays the redemption code or QR must have
+// screen-capture protection active. ShowToStaff and SuccessPopup already
+// install the protection via their own hooks; this block pins that
+// Voucher Detail itself does the same — necessary because the persisted
+// RedemptionDetailsCard surfaces the code on return visits during the
+// 2-hour presentation window.
+//
+// Active condition (mirrors the card's `showCodeSurface` gate):
+//   stateKey === 'redeemed-this-cycle'
+//   AND a redemption exists to display
+//   AND isPresentationActive === true
+//   AND isRedemptionValidated === false
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('§AE6 — Voucher Detail screen-capture protection', () => {
+  function persistedAt(redeemedAt: string, overrides: any = {}) {
+    return {
+      code:        'A7K2P9X4',
+      redeemedAt,
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+      ...overrides,
+    }
+  }
+
+  it('IN-WINDOW redeemed (code visible) calls preventScreenCaptureAsync on mount', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('OUT-OF-WINDOW redeemed (code hidden) does NOT call preventScreenCaptureAsync', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    // The hook is called with `active=false` — `useScreenCaptureProtection`
+    // is a no-op in that branch (verified in its own unit tests).
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('VALIDATED redeemed (code hidden, regardless of window) does NOT call preventScreenCaptureAsync', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        { isValidated: true, validatedAt: new Date().toISOString() },
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('NON-REDEEMED voucher does NOT call preventScreenCaptureAsync (no code surface to protect)', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: false,
+      lastRedemption: null,
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+
+  it('UNMOUNT after IN-WINDOW: allowScreenCaptureAsync called to release prevention', () => {
+    // Symmetric pin — when Voucher Detail unmounts (user navigates back
+    // to merchant profile, etc.), prevention must be released so other
+    // app screens can be recorded normally afterwards. The hook's
+    // cleanup is responsible for this.
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { unmount } = wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
+    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
+    unmount()
+    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('LOADING state does NOT call preventScreenCaptureAsync (no voucher → no code surface)', () => {
+    // Defensive pin: while voucher data is loading, stateKey is
+    // 'loading' — not 'redeemed-this-cycle'. Protection must stay off.
+    mockVoucherData = null
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// §AE6.2 — iOS post-fact screenshot detection on Voucher Detail (locked
+// 2026-05-09, owner direction PR #49 device QA wave 2).
+//
+// Apple has no SDK to PREVENT iOS screenshots; the captured photo will
+// always contain the unblurred code. The best we can do is detect via
+// `addScreenshotListener`, surface a screen-level banner so the user
+// sees we noticed, and post-fire telemetry. Mirrors the Show-to-Staff
+// post-fact pattern (locked iOS framing §AB / deferred-followups §AE5).
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('§AE6.2 — Voucher Detail iOS screenshot listener + banner', () => {
+  let listener: () => void
+  const removeSpy = jest.fn()
+  const { Platform } = require('react-native') as typeof import('react-native')
+  const { redemptionApi: api } = require('@/lib/api/redemption')
+
+  function persistedAt(redeemedAt: string) {
+    return {
+      code:        'A7K2P9X4',
+      redeemedAt,
+      branch:      { id: 'b1', name: 'Brightlingsea' },
+      isValidated: false,
+      validatedAt: null,
+    }
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers()
+    Platform.OS = 'ios' as any
+    removeSpy.mockClear()
+    ;(api.postScreenshotFlag as jest.Mock).mockClear()
+    ;(api.postScreenshotFlag as jest.Mock).mockResolvedValue({ accepted: true })
+    ;(ScreenCapture.addScreenshotListener as jest.Mock).mockImplementation(
+      (cb: () => void) => {
+        listener = cb
+        return { remove: removeSpy }
+      },
+    )
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('IN-WINDOW redeemed (code visible) on iOS installs the screenshot listener', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).toHaveBeenCalledTimes(1)
+  })
+
+  it('OUT-OF-WINDOW (code hidden) does NOT install the screenshot listener', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
+  })
+
+  it('VALIDATED (code hidden) does NOT install the screenshot listener', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: {
+        ...persistedAt(new Date(Date.now() - 5 * 60 * 1000).toISOString()),
+        isValidated: true,
+        validatedAt: new Date().toISOString(),
+      },
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
+  })
+
+  it('NON-REDEEMED state does NOT install the screenshot listener', () => {
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: false, lastRedemption: null })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
+  })
+
+  it('Android does NOT install the listener (FLAG_SECURE handles both)', () => {
+    Platform.OS = 'android' as any
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    expect(ScreenCapture.addScreenshotListener).not.toHaveBeenCalled()
+  })
+
+  it('iOS screenshot fire surfaces the post-fact banner', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { queryByTestId, getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('voucher-detail-screenshot-banner')).toBeNull()
+    act(() => { listener() })
+    expect(getByTestId('voucher-detail-screenshot-banner')).toBeTruthy()
+  })
+
+  it('iOS screenshot fire posts telemetry with the redemption code + ios platform', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    wrap(<VoucherDetailScreen />)
+    act(() => { listener() })
+    expect(api.postScreenshotFlag).toHaveBeenCalledWith('A7K2P9X4', 'ios')
+  })
+
+  it('banner auto-dismisses after 4 seconds', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { queryByTestId, getByTestId } = wrap(<VoucherDetailScreen />)
+    act(() => { listener() })
+    expect(getByTestId('voucher-detail-screenshot-banner')).toBeTruthy()
+    act(() => { jest.advanceTimersByTime(4_001) })
+    expect(queryByTestId('voucher-detail-screenshot-banner')).toBeNull()
+  })
+
+  it('listener is removed on unmount', () => {
+    mockVoucherData = baseVoucher({
+      isRedeemedThisCycle: true,
+      lastRedemption: persistedAt(
+        new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      ),
+    })
+    const { unmount } = wrap(<VoucherDetailScreen />)
+    expect(removeSpy).not.toHaveBeenCalled()
+    unmount()
+    expect(removeSpy).toHaveBeenCalledTimes(1)
   })
 })

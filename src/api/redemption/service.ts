@@ -381,6 +381,124 @@ export async function getMyRedemption(
   return { ...redemption, estimatedSaving: Number(redemption.estimatedSaving) }
 }
 
+// ─── Show-to-Staff polling + anti-fraud telemetry ─────────────────────────────
+
+const SCREENSHOT_DEDUP_TTL_SECONDS = 5
+
+/**
+ * Normalise a user-supplied redemption code to its canonical form.
+ * Strips whitespace + hyphens (so the user-friendly "A7K2 P9X4"
+ * displayed in the UI matches the canonical "A7K2P9X4" stored in
+ * the DB) and uppercases (the alphabet is already uppercase, this
+ * is defensive against hand-entered lowercase from a future manual
+ * entry surface).
+ *
+ * Shared between `flagRedemptionScreenshot` and
+ * `getMyRedemptionByCode` so dedup keys and DB lookups always agree
+ * on the canonical shape.
+ */
+function normaliseCode(code: string): string {
+  return code.replace(/[\s-]/g, '').toUpperCase()
+}
+
+/**
+ * Customer self-lookup by redemption code. Drives the Show-to-Staff
+ * polling hook (5s cadence, 15-min budget) — flips the screen from
+ * polling → validated when the backend marks `isValidated: true`.
+ *
+ * Slim payload by design: no userId, no validatedById, no
+ * estimatedSaving, no redeemedAt. Only the fields the polling hook
+ * + ShowToStaff component need. This endpoint is hit ~180 times
+ * per session; keep the wire small.
+ *
+ * Auth shape mirrors `getMyRedemption` and `flagRedemptionScreenshot`:
+ * rejects with `REDEMPTION_NOT_FOUND` when the code does not exist
+ * OR the redemption belongs to a different user. A leaked code
+ * from another customer MUST NOT surface their redemption status
+ * to a different user's session.
+ */
+export async function getMyRedemptionByCode(
+  prisma: PrismaClient,
+  userId: string,
+  code:   string,
+) {
+  const normalised = normaliseCode(code)
+
+  const redemption = await prisma.voucherRedemption.findUnique({
+    where: { redemptionCode: normalised },
+    include: {
+      voucher: { select: { id: true, merchant: { select: { businessName: true } } } },
+      branch:  { select: { name: true } },
+    },
+  })
+  if (!redemption || redemption.userId !== userId) {
+    throw new AppError('REDEMPTION_NOT_FOUND')
+  }
+
+  return {
+    code:             redemption.redemptionCode,
+    isValidated:      redemption.isValidated,
+    validatedAt:      redemption.validatedAt,
+    validationMethod: redemption.validationMethod,
+    voucherId:        redemption.voucher.id,
+    merchantName:     redemption.voucher.merchant.businessName,
+    branchName:       redemption.branch.name,
+  }
+}
+
+/**
+ * Best-effort anti-fraud telemetry for the Show-to-Staff full-screen
+ * surface. iOS detects screenshot events after the fact via
+ * `expo-screen-capture.addScreenshotListener`; the customer-app calls
+ * this endpoint on every fire to record an audit trail.
+ *
+ * Dedup is enforced via Redis `SET NX EX 5` so a rapid burst of events
+ * for the same `(userId, code)` writes exactly one row instead of N.
+ * On dedup hit the function returns `{ accepted: false }` without
+ * touching Postgres.
+ *
+ * Auth shape mirrors `getMyRedemption`: rejects with `REDEMPTION_NOT_FOUND`
+ * when the code does not exist OR the redemption belongs to a different
+ * user. The customer-app must never block the visible Show-to-Staff
+ * surface on this call rejecting — failures are silent on the client.
+ */
+export async function flagRedemptionScreenshot(
+  prisma: PrismaClient,
+  redis:  Redis,
+  userId: string,
+  code:   string,
+  platform: 'ios' | 'android',
+): Promise<{ accepted: boolean }> {
+  const normalised = normaliseCode(code)
+
+  const redemption = await prisma.voucherRedemption.findUnique({
+    where: { redemptionCode: normalised },
+  })
+  if (!redemption || redemption.userId !== userId) {
+    throw new AppError('REDEMPTION_NOT_FOUND')
+  }
+
+  // SET NX EX dedup. ioredis returns 'OK' on first write within the
+  // window, null on subsequent writes inside the TTL. We do NOT race
+  // the telemetry write — the dedup happens before the DB hit, so a
+  // burst of screenshot events at most generates one row per
+  // (userId, code) per 5 seconds.
+  const dedupKey = RedisKey.redemptionScreenshotDedup(userId, normalised)
+  const setResult = await redis.set(
+    dedupKey,
+    '1',
+    'EX',
+    SCREENSHOT_DEDUP_TTL_SECONDS,
+    'NX',
+  )
+  if (setResult !== 'OK') return { accepted: false }
+
+  await prisma.redemptionScreenshotEvent.create({
+    data: { userId, redemptionId: redemption.id, platform },
+  })
+  return { accepted: true }
+}
+
 export async function listBranchRedemptions(
   prisma: PrismaClient,
   branchId: string,
