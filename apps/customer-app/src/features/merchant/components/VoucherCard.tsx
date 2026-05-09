@@ -15,6 +15,7 @@ import { lightHaptic } from '@/design-system/haptics'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
+import { VoucherCardRedeemedStamp } from './VoucherCardRedeemedStamp'
 
 // Round 5 §32: dial colour back up. The owner shared a §22-era
 // screenshot as the colour reference and wanted the energy
@@ -128,7 +129,18 @@ const WHITE_TEXT = '#FFFCFA'
 
 type Props = {
   voucher: MerchantVoucher
-  isRedeemed: boolean
+  /**
+   * Redeemed-this-cycle marker. When true, the card renders the
+   * redeemed-state visual variant (PR-B T5, closes deferred-followup
+   * §Q4): muted hero gradient overlay + REDEEMED stamp top-right of
+   * the hero + "Already redeemed this cycle" inline label below the
+   * saving block. Bottom-row CTA is suppressed.
+   *
+   * Accepts undefined → treated as false; the variant is opt-in so
+   * the card defaults to the active-state design baseline (locked
+   * PR #35) when callers haven't plumbed the flag yet.
+   */
+  isRedeemed?: boolean
   isFavourited: boolean
   onPress: () => void
   onToggleFavourite: () => void
@@ -160,7 +172,7 @@ const REDEEMO_R_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080
   <polygon fill="#FFFFFF" points="487.2 818.12 244.4 994.7 245.05 681.39 487.2 818.12"/>
 </svg>`
 
-export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onToggleFavourite }: Props) {
+export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress, onToggleFavourite }: Props) {
   const motionScale = useMotionScale()
   const typeKey   = voucher.type as VoucherType
   const gradient  = TYPE_GRADIENTS[typeKey] ?? TYPE_GRADIENTS.DISCOUNT_FIXED
@@ -241,6 +253,26 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           style={StyleSheet.absoluteFillObject}
         />
 
+        {/* PR-B T5 (§Q4): when redeemed, soft cream-tint overlay on
+            top of the gradient mutes the per-type colour without
+            washing it out — reads as ~70% saturation per brief
+            §3.5. The cream tint matches the page-bg cream
+            (#FFF9F5 → #F5F0EB family) used elsewhere in the app
+            (cf. MerchantProfileScreen / VoucherDetailScreen muted-
+            surface pattern). pointerEvents='none' so the underlying
+            Pressable still receives taps. The card's outer 0.6
+            opacity (cardRedeemed style — locked PR #35 baseline
+            for active-vs-redeemed contrast) compounds with this
+            overlay; together the redeemed card reads as clearly
+            "muted but identifiable" against active siblings. */}
+        {isRedeemed ? (
+          <View
+            style={styles.redeemedGradientOverlay}
+            pointerEvents="none"
+            testID="voucher-card-redeemed-overlay"
+          />
+        ) : null}
+
         {/* Top-half gloss — faint white reflection 0→30%. */}
         <LinearGradient
           colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0)']}
@@ -278,6 +310,22 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
         {/* 1px white-tinted lip at the very top edge — glassy. */}
         <View style={styles.topHighlight} pointerEvents="none" />
 
+        {/* PR-B T5 (§Q4): redeemed-state hero stamp. Absolutely
+            positioned in the top-right corner of the card so it
+            reads as the rubber-stamp marker on the voucher's
+            "front". Placed inside the Pressable (so it inherits
+            cardRedeemed's 0.6 opacity along with the rest of the
+            card — keeps the active-vs-redeemed contrast pinned by
+            PR #35). pointerEvents='none' on the stamp itself so
+            taps pass through to the card. The stamp tilt + cream
+            fill + brand-rose border carry the redeemed signal at
+            list-scan distance even at 0.6 opacity. */}
+        {isRedeemed ? (
+          <View style={styles.heroStampWrap} pointerEvents="none">
+            <VoucherCardRedeemedStamp size={36} />
+          </View>
+        ) : null}
+
         <View style={styles.content}>
           {/* Row 1: type chip (left) + heart (right). */}
           <View style={styles.topRow}>
@@ -312,6 +360,25 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             <Text style={styles.heroLabel}>Save up to</Text>
             <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
           </View>
+          {/* PR-B T5 (§Q4): "Already redeemed this cycle" inline
+              label, rendered immediately below the saving block
+              (heroBlock) per plan §Step 3. Uses label.md / 12pt 500
+              ls 0.4 from the design-system Text variant. The
+              `meta` flag enables `color="tertiary"` on body/heading
+              variants — kept on label.md (no-op) for forward-
+              compatibility if the variant changes. testID lets
+              tests target this label without the bottom-row
+              "Redeemed this cycle" meta text colliding with the
+              query. */}
+          {isRedeemed ? (
+            <Text
+              variant="label.md"
+              style={styles.alreadyRedeemedLabel}
+              testID="voucher-card-already-redeemed-label"
+            >
+              Already redeemed this cycle
+            </Text>
+          ) : null}
           <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
             {voucher.title}
           </Text>
@@ -340,11 +407,17 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="tail">
               {isRedeemed ? 'Redeemed this cycle' : (expiryLabel ?? 'No expiry')}
             </Text>
-            {isRedeemed ? (
-              <View style={styles.redeemedStamp}>
-                <Text style={styles.redeemedStampText}>REDEEMED</Text>
-              </View>
-            ) : (
+            {/* PR-B T5 (§Q4): when redeemed, the bottom-row dark
+                pill is suppressed — the redeemed signal is now
+                carried by the hero top-right stamp + inline label
+                below the saving block. The locked PR #35 baseline
+                kept the bottom-row pill as the only redeemed cue;
+                the brief §5.5 redesign moves that signal to the
+                hero so it reads at list-scan distance. The bottom-
+                row meta text on the LEFT ("Redeemed this cycle")
+                stays — it backs up the new hero signal AND keeps
+                the existing voucher-card.test.tsx pin GREEN. */}
+            {isRedeemed ? null : (
               <View style={styles.redeemBtn}>
                 <Text style={[styles.redeemBtnText, { color: accent }]}>Redeem</Text>
                 <ArrowRight size={13} color={accent} strokeWidth={2.8} />
@@ -398,6 +471,57 @@ const styles = StyleSheet.create({
   },
   cardRedeemed: {
     opacity: 0.6,
+  },
+
+  // PR-B T5 (§Q4): cream-tint overlay that mutes the per-type
+  // gradient to ~70% saturation. Soft warm-cream rgba is
+  // consistent with the muted-surface pattern used elsewhere
+  // (MerchantProfileScreen / VoucherDetailScreen). Compounds
+  // with cardRedeemed's 0.6 opacity to give the redeemed card
+  // its washed-but-recognisable look.
+  redeemedGradientOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(245, 240, 235, 0.3)',
+  },
+
+  // PR-B T5 (§Q4): hero stamp wrap — absolutely positioned in the
+  // top-right region of the card hero. The locked PR #35 layout
+  // has the heart at top-right (~24pt at right:8); the stamp
+  // sits to the LEFT of the heart (right:46) so both remain
+  // visible. The 6° tilt + ink-pressure shadow keep the stamp
+  // reading as the dominant redeemed signal without occluding
+  // the favourite toggle.
+  //
+  // Trade-off: the brief §5.5 ASCII shows the stamp centred in
+  // the upper region with no heart present. Honouring the locked
+  // PR #35 heart top-right placement, we offset the stamp to its
+  // left rather than restructure the topRow. On-device QA
+  // covers visual balance (T6.1 stress test).
+  heroStampWrap: {
+    position: 'absolute',
+    top: 8,
+    right: 46,
+    // Above the watermark + topRow heart so the stamp reads as
+    // foreground signal. zIndex bump matches the existing chip /
+    // hero / CTA layers.
+    zIndex: 2,
+  },
+
+  // PR-B T5 (§Q4): "Already redeemed this cycle" inline label,
+  // rendered immediately below the heroBlock (saving block).
+  // label.md (12pt 500 ls 0.4) is the plan-pinned variant; the
+  // tinted off-white reads as a calm secondary signal against
+  // the muted hero gradient. Sits in the same horizontal slot
+  // as the eyebrow/£value above it (alignSelf: flex-start +
+  // marginTop 4) so the visual rhythm of the saving block
+  // extends naturally into the redeemed message.
+  alreadyRedeemedLabel: {
+    color: 'rgba(255,252,250,0.85)',
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 
   // §35 decorative blobs — distributed across the card, not
@@ -660,19 +784,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.2,
-  },
-
-  redeemedStamp: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.30)',
-  },
-  redeemedStampText: {
-    color: '#FFF',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.2,
   },
 
   notch: {
