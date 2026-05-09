@@ -14,6 +14,8 @@ import { color, radius, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 import { SparkleRing } from './SparkleRing'
 import { useCountUp } from '../utils/useCountUp'
+import { voucherTypeLabel } from '../utils/voucherTheme'
+import type { VoucherType } from '@/lib/api/redemption'
 
 type Props = {
   visible: boolean
@@ -31,6 +33,13 @@ type Props = {
    */
   estimatedSaving: number
   voucherTitle: string
+  /**
+   * Voucher type — drives the navy-hero type chip (PR-B T8e device-QA
+   * fix, locked 2026-05-09).  Owner direction: customer should see
+   * what KIND of voucher they redeemed at the success moment, not
+   * just the title.
+   */
+  voucherType: VoucherType
   merchantName: string
   /**
    * Merchant logo URL from `voucher.merchant.logoUrl`.  Renders a
@@ -145,6 +154,7 @@ export function SuccessPopup({
   redeemedAt,
   estimatedSaving,
   voucherTitle,
+  voucherType,
   merchantName,
   merchantLogoUrl,
   branchName,
@@ -220,16 +230,21 @@ export function SuccessPopup({
     transform: [{ scale: checkScale.value }],
   }))
 
-  // PR-B T8b (locked from device QA): the accent gradient was
-  // previously `['#FFF9F5', '#FCF0E5']` — too close to the popup
-  // body's `color.cream` (`#FFF9F5`), making the hero band visually
-  // blend into the body.  Bumped to a deeper warm-cream → peach-
-  // wash gradient that separates clearly from the body while
-  // staying within the brand-rose hue family (no type-driven
-  // colour, consistent with the D27 §14.7 identity rule).
-  // Saturation and warmth carry the celebration energy without
-  // jumping registers.
-  const accentGradient = ['#FCF0E5', '#FBE2D0'] as const
+  // PR-B T8e (locked 2026-05-09 from device QA, third wave —
+  // brand-correctness fix): the earlier T8e first-pass used a
+  // 2-stop fabricated navy gradient `['#010C35', '#1F2A55']`.
+  // Owner correction: that second stop is NOT a brand-locked
+  // colour.  PRODUCT.md only locks ONE navy (`color.navy =
+  // '#010C35'`) as the primary brand secondary.  We honour that
+  // exactly and let the brand-rose glow overlay carry the depth
+  // and "red glow" the brief asked for — solid brand navy +
+  // layered warm-rose glow = navy-with-glow surface, no
+  // fabricated mid-stops.
+  const heroGlowGradient = [
+    color.brandRose + '40',  // ~25% alpha at the glow centre
+    color.brandRose + '1A',  // ~10% mid
+    'transparent',
+  ] as const
 
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={onDone}>
@@ -267,50 +282,78 @@ export function SuccessPopup({
               Modal.onRequestClose still wires hardware back; tapping
               the X delegates to the same `onDone` handler so all
               dismiss paths share one entry. */}
-          <View style={styles.accentRow}>
-            <LinearGradient
-              colors={accentGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={StyleSheet.absoluteFillObject}
+          {/* Navy hero band (PR-B T8e device-QA fix) — three layers
+              from back to front:
+                1. Navy gradient base (`heroGradient`) — full bleed.
+                2. Brand-rose radial-feeling glow overlay
+                   (`heroGlowGradient`) — diagonal at low alpha,
+                   approximates a soft rose glow behind the
+                   celebration content (RN ships no native radial).
+                3. Content row (check ring + title + close icon).
+              The voucher-type chip sits BELOW the title row so the
+              title can keep `flex: 1` for breathing room — chip is
+              the tap-light secondary identity cue, not a header
+              element. */}
+          <View style={styles.heroBand}>
+            {/* Solid brand navy base — `color.navy` (#010C35) per
+                PRODUCT.md primary palette.  No fabricated 2-stop
+                gradient. */}
+            <View
+              style={[StyleSheet.absoluteFillObject, { backgroundColor: color.navy }]}
             />
-            {/* Check-ring + sparkle wrapper.  PR-B T2 §3.2 (LOCKED
-                2026-05-09): the SparkleRing sits absolutely on top of
-                the check ring, centered.  The wrapper carries the
-                check ring's flex placement; the SparkleRing is a
-                pointerEvents="none" decorative halo.  Both share the
-                same accent-row child slot so the title's `flex: 1`
-                still claims the remaining row width cleanly. */}
-            <View style={styles.checkSlot}>
-              <Animated.View
-                style={[styles.checkRing, checkStyle]}
-                testID="success-check-ring"
+            {/* Brand-rose glow overlay carries the "red glow" the
+                brief asked for.  Diagonal positioning approximates
+                a soft radial since RN ships no native radial. */}
+            <LinearGradient
+              colors={heroGlowGradient}
+              start={{ x: 0.15, y: 0.0 }}
+              end={{ x: 0.85, y: 1.0 }}
+              style={StyleSheet.absoluteFillObject}
+              pointerEvents="none"
+            />
+            <View style={styles.heroRow}>
+              <View style={styles.checkSlot}>
+                <Animated.View
+                  style={[styles.checkRing, checkStyle]}
+                  testID="success-check-ring"
+                >
+                  <Check size={14} color={color.onBrand} strokeWidth={3} />
+                </Animated.View>
+                <SparkleRing visible={visible} />
+              </View>
+              <Text
+                variant="heading.md"
+                style={styles.accentTitle}
+                numberOfLines={2}
+                testID="success-title"
               >
-                <Check size={14} color={color.onBrand} strokeWidth={3} />
-              </Animated.View>
-              <SparkleRing visible={visible} />
+                Voucher redeemed successfully
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                testID="success-close"
+                onPress={() => { lightHaptic(); onDone() }}
+                style={({ pressed }) => [
+                  styles.closeIcon,
+                  pressed && styles.closeIconPressed,
+                ]}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <X size={18} color={'rgba(255,255,255,0.85)'} strokeWidth={2.4} />
+              </Pressable>
             </View>
-            <Text
-              variant="heading.md"
-              style={styles.accentTitle}
-              numberOfLines={2}
-              testID="success-title"
-            >
-              Voucher redeemed successfully
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              testID="success-close"
-              onPress={() => { lightHaptic(); onDone() }}
-              style={({ pressed }) => [
-                styles.closeIcon,
-                pressed && styles.closeIconPressed,
-              ]}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            >
-              <X size={18} color={color.text.tertiary} strokeWidth={2.4} />
-            </Pressable>
+            {/* Voucher-type chip — small white-on-navy pill that names
+                the kind of voucher the customer just redeemed.  Sits
+                below the title row so the row layout doesn't have to
+                shrink to fit it.  Outlined treatment (1px brand-rose
+                70% alpha) keeps it tap-light against the heavy navy
+                hero — it's identity, not action. */}
+              <View style={styles.typeChip} testID="success-voucher-type-chip">
+                <Text variant="label.eyebrow" style={styles.typeChipText}>
+                  {voucherTypeLabel(voucherType).toUpperCase()}
+                </Text>
+              </View>
           </View>
 
           {/* Body — voucher context + saving + receipt + CTAs */}
@@ -442,16 +485,10 @@ export function SuccessPopup({
                   onPress={() => { lightHaptic(); onRateReview() }}
                   style={({ pressed }) => [
                     styles.rateReviewPill,
-                    pressed && styles.ctaPressed,
+                    pressed && styles.rateReviewPillPressed,
                   ]}
                 >
-                  <LinearGradient
-                    colors={NAVY_GRADIENT}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFillObject}
-                  />
-                  <Star size={16} color={color.onBrand} strokeWidth={2.4} />
+                  <Star size={18} color={color.brandRose} strokeWidth={2.4} />
                   <Text variant="body.md" style={styles.rateReviewText}>
                     Rate & Review
                   </Text>
@@ -509,7 +546,11 @@ const styles = StyleSheet.create({
   },
   popup: {
     width: '100%',
-    maxWidth: 340,
+    // PR-B T8e (locked 2026-05-09 from device QA, second wave):
+    // bumped 340 → 360 to give the airier body more breathing
+    // room.  Still card-shaped, not full-width — the navy hero +
+    // skeleton-red CTA hierarchy reads cleaner with extra padding.
+    maxWidth: 360,
     borderRadius: 24,
     overflow: 'hidden',
     // D27c §14.7 (LOCKED 2026-05-09): cream body bg replaces the
@@ -524,21 +565,45 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 18 },
     elevation: 18,
   },
-  // ── Type-pastel accent row ──
-  // Voucher-type pastel gradient gives the popup its identity colour.
-  // D26 §14 (LOCKED 2026-05-09 owner direction): paddingVertical
-  // 16 → 24 and minHeight 52 → 72 lift the row from a thin accent
-  // strip into a hero band — owner: "appropriately positioned and
-  // laid out", section bigger.  Text scale unchanged (still
-  // heading.md 18); the hero feel comes from extra vertical
-  // breathing space around content.
-  accentRow: {
+  // ── Navy hero band ──
+  // PR-B T8e (LOCKED 2026-05-09 from device QA, second wave):
+  // navy gradient + brand-rose glow.  Same trust-surface treatment
+  // as Show-to-Staff (T8c) so the redemption moment + the staff
+  // handoff share ONE brand identity.  The earlier T8b peach-cream
+  // gradient was rejected as "nothing to do with our branding".
+  //
+  // Two-tier layout: row 1 holds check-ring + title + close icon;
+  // row 2 holds the voucher-type chip.  Splitting the chip into
+  // its own row gives the title a full `flex: 1` line and stops
+  // the chip from shrinking the title under Dynamic Type.
+  heroBand: {
+    paddingHorizontal: spacing[5],
+    paddingTop: spacing[6],
+    paddingBottom: spacing[5],
+    gap: spacing[3],
+  },
+  heroRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[6],
-    minHeight: 72,
+  },
+  // PR-B T8e — voucher-type chip in the navy hero.  Outlined pill
+  // so it stays tap-light against the heavy navy bg (it's identity,
+  // NOT action).  alignSelf flex-start so the chip hugs its
+  // content rather than stretching across the row.
+  typeChip: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing[3],
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: color.brandRose + 'B3', // ~70% alpha
+    backgroundColor: 'rgba(226, 12, 4, 0.10)',
+  },
+  typeChipText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    letterSpacing: 1.2,
   },
   // PR-B T2 §3.2 (LOCKED 2026-05-09) — the check-ring slot.
   // Sized to the SparkleRing diameter (36pt) so the absolute halo
@@ -572,19 +637,23 @@ const styles = StyleSheet.create({
   // is the moment statement and should read consistently across
   // every voucher type.  PRODUCT.md tone: trust-first, grounded
   // navy reads as official / clear-text on every pastel gradient.
+  // PR-B T8e (LOCKED 2026-05-09): title flips to white-on-navy
+  // since the hero band is now navy gradient (was cream pastel).
   accentTitle: {
     flex: 1,
     fontWeight: '700',
-    color: color.text.primary,
+    color: '#FFFFFF',
   },
   // ── Body ──
-  // D22 (LOCKED 2026-05-09 §14): gap 12 → 16; paddingTop 12 → 16.
-  // Section breathing room scales for the simpler 3-block body.
+  // PR-B T8e (LOCKED 2026-05-09 from device QA, second wave): bumped
+  // paddingHorizontal spacing[4] → spacing[5] (16 → 20) and gap
+  // spacing[4] → spacing[5] (16 → 20) for the airier feel the
+  // owner asked for.  Bottom padding spacing[4] → spacing[5] too.
   body: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[4],
-    paddingBottom: spacing[4],
-    gap: spacing[4],
+    paddingHorizontal: spacing[5],
+    paddingTop: spacing[5],
+    paddingBottom: spacing[5],
+    gap: spacing[5],
   },
   // ── Voucher context (horizontal block: logo + text stack) ──
   // D23 (LOCKED 2026-05-09 §14): merchant logo 48×48 sits to the
@@ -756,6 +825,17 @@ const styles = StyleSheet.create({
   // `secondaryRow` no longer constrains via `justifyContent`.
   // Cross-surface consistency: both CTAs read as the same button-
   // system, only colour differs.
+  // PR-B T8e (LOCKED 2026-05-09 from device QA, second wave):
+  // skeleton-red treatment — outlined brand-rose pill, transparent
+  // fill, brand-rose Star icon + label.  Owner direction:
+  //   "skeleton red button with the typography in red, and the icon
+  //    as well, without having a solid color inside."
+  // Hierarchy now reads via fill: solid brand gradient (primary)
+  // vs outlined brand-rose (secondary) — strongest hierarchy via
+  // the fill/outline split, not via colour family.  Same physical
+  // dimensions as the primary CTA so they feel like one button-
+  // system; only the fill differs.  Drops the prior shadow because
+  // a skeleton button shouldn't carry elevation.
   rateReviewPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -763,31 +843,32 @@ const styles = StyleSheet.create({
     gap: spacing[2],
     paddingVertical: spacing[3] + 2,
     borderRadius: radius.lg,
-    overflow: 'hidden',
-    shadowColor: color.navy,
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    borderWidth: 1.5,
+    borderColor: color.brandRose,
+    backgroundColor: 'transparent',
+  },
+  rateReviewPillPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
+    backgroundColor: 'rgba(226, 12, 4, 0.06)',
   },
   rateReviewText: {
-    color: color.onBrand,
+    color: color.brandRose,
     fontWeight: '700',
     letterSpacing: 0.1,
   },
-  // Top-right close icon — inline flex child of the accent row.
-  // Visually quiet (semi-transparent cream-tint disc) so it never
-  // competes with the primary CTA below.  Sits at the END of the
-  // row via `gap` + `flex: 1` on the title, with no absolute
-  // positioning to avoid the title overlap that surfaced in device
-  // QA wave 2.  PR-C T16 device-QA fix wave 2, locked 2026-05-09.
+  // PR-B T8e (LOCKED 2026-05-09): close icon now sits on the navy
+  // hero, so the previous semi-transparent CREAM disc no longer
+  // makes sense.  Switched to a soft white-on-navy disc — 12% white
+  // alpha so the icon affordance reads without competing with the
+  // brand-rose Rate & Review CTA below.
   closeIcon: {
     width: 32,
     height: 32,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   closeIconPressed: {
     opacity: 0.7,

@@ -1602,6 +1602,7 @@ export function VoucherDetailScreen() {
           visible
           redeemedAt={successPopup.redeemedAt}
           estimatedSaving={successPopup.estimatedSaving}
+          voucherType={voucher.type}
           voucherTitle={voucher.title}
           merchantName={voucher.merchant.businessName}
           merchantLogoUrl={voucher.merchant.logoUrl ?? null}

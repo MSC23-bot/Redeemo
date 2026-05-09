@@ -38,6 +38,7 @@ function defaults(overrides: Partial<React.ComponentProps<typeof SuccessPopup>> 
     redeemedAt: '2026-05-06T14:32:00Z',
     estimatedSaving: 6.99,
     voucherTitle: 'Free Filter Coffee with Any Thali',
+    voucherType: 'FREEBIE' as const,
     merchantName: 'Covelum Restaurant',
     // D23 §14 (LOCKED 2026-05-09): merchantLogoUrl required prop.
     // Default null exercises the text-only fallback so existing

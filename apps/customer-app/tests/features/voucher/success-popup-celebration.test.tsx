@@ -133,6 +133,7 @@ function defaults(
     redeemedAt: '2026-05-06T14:32:00Z',
     estimatedSaving: 6.99,
     voucherTitle: 'Free Filter Coffee with Any Thali',
+    voucherType: 'FREEBIE' as const,
     merchantName: 'Covelum Restaurant',
     merchantLogoUrl: null,
     branchName: 'Brightlingsea',
