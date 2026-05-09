@@ -86,6 +86,12 @@ export const ERROR_DEFINITIONS = {
   REVIEW_NOT_FOUND:                { statusCode: 404, message: 'Review not found.' },
   REVIEW_NOT_OWNED:                { statusCode: 403, message: 'You can only edit or delete your own reviews.' },
   REVIEW_ALREADY_EXISTS:           { statusCode: 409, message: 'You have already reviewed this branch.' },
+  // PR-C 2026-05-09: verified-review redemption-linkage validation.
+  // Distinct from BRANCH_MERCHANT_MISMATCH (voucher-vs-branch) and
+  // MERCHANT_MISMATCH (redemption-code-vs-merchant-staff) — these
+  // codes specifically describe a review-side linkage failure.
+  REDEMPTION_BRANCH_MISMATCH:      { statusCode: 400, message: 'This redemption was at a different branch.' },
+  REDEMPTION_MERCHANT_MISMATCH:    { statusCode: 400, message: 'This redemption is for a different merchant.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS

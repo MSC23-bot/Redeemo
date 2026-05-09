@@ -291,12 +291,21 @@ describe('GET /api/v1/customer/merchants/:id — selectedBranch (P1)', () => {
     expect(body.selectedBranch!.myReview).toBeNull()
   })
 
-  it('selectedBranch.myReview.isVerified is true when the user has a validated redemption at the branch', async () => {
+  it('selectedBranch.myReview.isVerified is true when the review row is linked to the redemption (PR-C Path A)', async () => {
+    // PR-C 2026-05-09 (Path A LOCKED): isVerified is now derived
+    // from Review.redemptionId — the row must explicitly link to a
+    // redemption that belongs to the user, was at the same branch,
+    // and is for the same merchant.  isValidated on the redemption
+    // is intentionally NOT a requirement (locked §0.3).
+    //
+    // Pre-PR-C behaviour required only "user has any validated
+    // redemption at this branch" — that reviewer-level signal was
+    // replaced.  This test now seeds the review WITH the
+    // redemptionId linkage to assert the new contract.
     const m = await createMerchant()
     const targetBranch = m.branches[0]!
     const { id: userId } = await createUser()
 
-    // Seed an active voucher + a validated redemption so the verified check has something to find.
     const voucher = await prisma.voucher.create({
       data: {
         merchantId: m.id,
@@ -308,20 +317,22 @@ describe('GET /api/v1/customer/merchants/:id — selectedBranch (P1)', () => {
         estimatedSaving: 5,
       },
     })
-    await prisma.voucherRedemption.create({
+    const redemption = await prisma.voucherRedemption.create({
       data: {
         userId,
         branchId: targetBranch.id,
         voucherId: voucher.id,
         redemptionCode: `VRTEST${Date.now().toString().slice(-6)}`,
-        isValidated: true,
-        validatedAt: new Date(),
-        validationMethod: 'MANUAL',
+        isValidated: false,  // Path A: validation NOT required
         estimatedSaving: 5,
       },
     })
     await prisma.review.create({
-      data: { userId, branchId: targetBranch.id, rating: 5, comment: 'Verified review' },
+      data: {
+        userId, branchId: targetBranch.id,
+        redemptionId: redemption.id,  // Path A: explicit row-level link
+        rating: 5, comment: 'Verified review',
+      },
     })
 
     const body = await getCustomerMerchant(prisma, m.id, userId, { branchId: targetBranch.id })

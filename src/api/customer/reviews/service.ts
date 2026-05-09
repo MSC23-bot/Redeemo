@@ -7,17 +7,14 @@ export function buildDisplayName(firstName: string | null, lastName: string | nu
   return `${firstName} ${lastName.charAt(0)}.`
 }
 
-async function batchGetVerifiedSet(
-  prisma: PrismaClient,
-  pairs: Array<{ userId: string; branchId: string }>,
-): Promise<Set<string>> {
-  if (pairs.length === 0) return new Set()
-  const redemptions = await prisma.voucherRedemption.findMany({
-    where: { OR: pairs.map(p => ({ userId: p.userId, branchId: p.branchId, isValidated: true })) },
-    select: { userId: true, branchId: true },
-  })
-  return new Set(redemptions.map(r => `${r.userId}:${r.branchId}`))
-}
+// PR-C 2026-05-09 (Path A): the previous `batchGetVerifiedSet` helper
+// derived `isVerified` from "user has any validated redemption at this
+// branch" — a reviewer-level trust signal that REQUIRED isValidated.
+// Replaced by row-level `Review.redemptionId !== null` derivation
+// inside `formatReview`.  Locked rule §0.3: a review is verified iff
+// its redemptionId column points to a real redemption owned by the
+// user, at the same branch, for the same merchant.  Staff validation
+// is NOT required.
 
 // Which of the given reviewIds has the user marked as helpful? Returns a Set
 // of reviewId for O(1) lookup. Empty when the user is unauthenticated or the
@@ -38,6 +35,7 @@ async function batchGetUserHelpfulSet(
 export function formatReview(
   review: {
     id: string; branchId: string
+    redemptionId: string | null
     branch: { name: string }
     user: { firstName: string | null; lastName: string | null }
     rating: number; comment: string | null
@@ -45,7 +43,6 @@ export function formatReview(
     _count?: { helpfuls: number }
   },
   opts: {
-    isVerified: boolean
     requestingUserId: string | null
     reviewUserId: string
     userMarkedHelpful: boolean
@@ -58,7 +55,12 @@ export function formatReview(
     displayName:        buildDisplayName(review.user.firstName, review.user.lastName),
     rating:             review.rating,
     comment:            review.comment,
-    isVerified:         opts.isVerified,
+    // PR-C §0.3 (Path A): row-level verified-review derivation.
+    // True iff the review row is linked to a specific redemption
+    // (validated server-side at create/update time per the
+    // 5-condition rule).  Replaces the old reviewer-level
+    // batchGetVerifiedSet which required isValidated.
+    isVerified:         review.redemptionId !== null,
     isOwnReview:        opts.requestingUserId !== null && opts.requestingUserId === opts.reviewUserId,
     createdAt:          review.createdAt.toISOString(),
     updatedAt:          review.updatedAt.toISOString(),
@@ -69,6 +71,10 @@ export function formatReview(
 
 const REVIEW_SELECT = {
   id: true, branchId: true, userId: true, rating: true, comment: true,
+  // PR-C 2026-05-09 (Path A): drives row-level isVerified derivation
+  // inside formatReview.  Null when the review wasn't submitted from
+  // the redemption flow (= isVerified === false).
+  redemptionId: true,
   createdAt: true, updatedAt: true,
   branch: { select: { name: true } },
   user:   { select: { firstName: true, lastName: true } },
@@ -99,14 +105,12 @@ export async function listMerchantReviews(
     prisma.review.count({ where }),
   ])
 
-  const [verifiedSet, helpfulSet] = await Promise.all([
-    batchGetVerifiedSet(prisma, reviews.map(r => ({ userId: r.userId, branchId: r.branchId }))),
-    batchGetUserHelpfulSet(prisma, params.requestingUserId, reviews.map(r => r.id)),
-  ])
+  const helpfulSet = await batchGetUserHelpfulSet(
+    prisma, params.requestingUserId, reviews.map(r => r.id),
+  )
 
   const formatted = reviews.map(r =>
     formatReview(r, {
-      isVerified:        verifiedSet.has(`${r.userId}:${r.branchId}`),
       requestingUserId:  params.requestingUserId,
       reviewUserId:      r.userId,
       userMarkedHelpful: helpfulSet.has(r.id),
@@ -141,14 +145,12 @@ export async function listBranchReviews(
     prisma.review.count({ where }),
   ])
 
-  const [verifiedSet, helpfulSet] = await Promise.all([
-    batchGetVerifiedSet(prisma, reviews.map(r => ({ userId: r.userId, branchId: r.branchId }))),
-    batchGetUserHelpfulSet(prisma, params.requestingUserId, reviews.map(r => r.id)),
-  ])
+  const helpfulSet = await batchGetUserHelpfulSet(
+    prisma, params.requestingUserId, reviews.map(r => r.id),
+  )
 
   const formatted = reviews.map(r =>
     formatReview(r, {
-      isVerified:        verifiedSet.has(`${r.userId}:${r.branchId}`),
       requestingUserId:  params.requestingUserId,
       reviewUserId:      r.userId,
       userMarkedHelpful: helpfulSet.has(r.id),
@@ -167,8 +169,46 @@ export async function upsertBranchReview(
   prisma: PrismaClient,
   branchId: string,
   userId: string,
-  data: { rating: number; comment?: string },
+  data: { rating: number; comment?: string; redemptionId?: string },
 ) {
+  // PR-C 2026-05-09 (locked §0.3): when the caller supplies
+  // redemptionId, validate the linkage BEFORE the upsert so a failed
+  // validation never persists a row.  Five conditions per §0.3:
+  //   1. review has a non-null redemptionId — caller passed it
+  //   2. redemption belongs to the calling user
+  //      (findFirst's userId scope handles this — null result on
+  //       wrong-owner is reported as REDEMPTION_NOT_FOUND to avoid
+  //       leaking that the redemption exists for a different user)
+  //   3. redemption.branchId === target branchId
+  //      (REDEMPTION_BRANCH_MISMATCH otherwise)
+  //   4. redemption.voucher.merchantId === branch.merchantId
+  //      (REDEMPTION_MERCHANT_MISMATCH otherwise)
+  //   5. redemption was successfully created — its existence in
+  //      VoucherRedemption covers it
+  // isValidated is intentionally NOT checked; staff validation is a
+  // stronger signal but not a verified-review requirement.
+  const branch = await prisma.branch.findFirst({
+    where:  { id: branchId, isActive: true },
+    select: { id: true, merchantId: true },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+
+  if (data.redemptionId) {
+    const redemption = await prisma.voucherRedemption.findFirst({
+      where:  { id: data.redemptionId, userId },
+      select: {
+        id:       true,
+        branchId: true,
+        voucher:  { select: { merchantId: true } },
+      },
+    })
+    if (!redemption) throw new AppError('REDEMPTION_NOT_FOUND')
+    if (redemption.branchId !== branchId) throw new AppError('REDEMPTION_BRANCH_MISMATCH')
+    if (redemption.voucher.merchantId !== branch.merchantId) {
+      throw new AppError('REDEMPTION_MERCHANT_MISMATCH')
+    }
+  }
+
   // Three paths inside one transaction so the read-then-write is consistent
   // (no race between findUnique and update):
   //
@@ -198,6 +238,15 @@ export async function upsertBranchReview(
   // same `Review.id` across delete→re-write cycles (we can't insert a
   // second row), but the revive path strips every piece of state that
   // could leak old activity onto new content.
+  //
+  // PR-C: redemptionId is set explicitly on every path (including null
+  // when the caller didn't supply one).  This means an UPDATE without
+  // redemptionId CLEARS any prior linkage — the most recent submit
+  // wins.  If a user reviews from the merchant profile (no redemption)
+  // after an earlier verified submit, the verified flag goes away.
+  // Owner-locked: most-recent-submit-wins semantics.
+  const redemptionId = data.redemptionId ?? null
+
   const review = await prisma.$transaction(async (tx) => {
     const existing = await tx.review.findUnique({
       where:  { userId_branchId: { userId, branchId } },
@@ -210,10 +259,11 @@ export async function upsertBranchReview(
       return tx.review.update({
         where:  { id: existing.id },
         data:   {
-          rating:    data.rating,
-          comment:   data.comment ?? null,
-          isHidden:  false,
-          createdAt: new Date(),
+          rating:       data.rating,
+          comment:      data.comment ?? null,
+          redemptionId,
+          isHidden:     false,
+          createdAt:    new Date(),
         },
         select: REVIEW_SELECT,
       })
@@ -221,18 +271,14 @@ export async function upsertBranchReview(
 
     return tx.review.upsert({
       where:  { userId_branchId: { userId, branchId } },
-      create: { userId, branchId, rating: data.rating, comment: data.comment ?? null },
-      update: { rating: data.rating, comment: data.comment ?? null, isHidden: false },
+      create: { userId, branchId, rating: data.rating, comment: data.comment ?? null, redemptionId },
+      update: { rating: data.rating, comment: data.comment ?? null, redemptionId, isHidden: false },
       select: REVIEW_SELECT,
     })
   }) as ReviewRow
 
-  const [verifiedSet, helpfulSet] = await Promise.all([
-    batchGetVerifiedSet(prisma, [{ userId, branchId }]),
-    batchGetUserHelpfulSet(prisma, userId, [review.id]),
-  ])
+  const helpfulSet = await batchGetUserHelpfulSet(prisma, userId, [review.id])
   return formatReview(review, {
-    isVerified:        verifiedSet.has(`${userId}:${branchId}`),
     requestingUserId:  userId,
     reviewUserId:      userId,
     userMarkedHelpful: helpfulSet.has(review.id),

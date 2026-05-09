@@ -23,8 +23,8 @@ const fakePrisma = () => {
     reviewReport:  { deleteMany: vi.fn() },
   }
   return {
-    branch:            { findUnique: vi.fn() },
-    voucherRedemption: { findFirst:  vi.fn() },
+    branch:            { findFirst: vi.fn() },
+    voucherRedemption: { findFirst: vi.fn() },
     reviewHelpful:     { findMany: vi.fn().mockResolvedValue([]) },
     $transaction:      vi.fn(async (fn: any) => fn(tx)),
     __tx:              tx,
@@ -45,8 +45,8 @@ describe('upsertBranchReview — PR-C redemption-link validation', () => {
 
   beforeEach(() => {
     prisma = fakePrisma()
-    prisma.branch.findUnique.mockResolvedValue({
-      id: 'branch-1', merchantId: 'merchant-1', deletedAt: null,
+    prisma.branch.findFirst.mockResolvedValue({
+      id: 'branch-1', merchantId: 'merchant-1',
     })
     prisma.__tx.review.findUnique.mockResolvedValue(null)  // no existing review
     prisma.__tx.review.upsert.mockResolvedValue(SEED_REVIEW_ROW)
