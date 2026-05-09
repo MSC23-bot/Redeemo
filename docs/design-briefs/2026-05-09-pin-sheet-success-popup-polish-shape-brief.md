@@ -658,3 +658,56 @@ Confetti was always deferred to PR-B per plan §3 (B2 — "SuccessPopup confetti
 ---
 
 **End of shape brief. Amendment §13 LOCKED 2026-05-09 by owner approval; binds production code from this point forward.**
+
+---
+
+## 14. Amendment — SuccessPopup layout refinement (LOCKED 2026-05-09 — narrow PR-A polish before merge)
+
+After the §13 revision (code removed, popup simplified), on-device review surfaced that the simpler popup needs a layout tune to feel complete and rebalance the hierarchy. This is a narrow refinement INSIDE PR-A, NOT broader PR-B work (confetti, ShowToStaff polish, Voucher Detail redeemed-state, full visual pass — all stay in PR-B).
+
+```
+IMPECCABLE_PREFLIGHT: context=pass product=pass command_reference=pass(shape) shape=pass(owner-approved 2026-05-09) image_gate=skipped:layout-refinement-of-existing-surface mutation=open
+```
+
+### 14.1 — Issues addressed
+
+1. Title `heading.sm` (16) overshadowed by saving callout `heading.md` (18) — title carries the moment, must equal the saving amount in scale.
+2. Body `gap: 12` was tuned for a 5-block body; with 3 blocks the rhythm reads choppy.
+3. Receipt rows still wear the ticker-style `borderTop` hairlines that paired visually with the deleted code box — leftover ticker fragments without anchor.
+4. Primary CTA → Done crammed (`paddingTop: 2`) — popup ends abruptly.
+5. Popup feels deflated on bigger phones (lost ~150pt of height when the code box went).
+6. No merchant identity beyond text — popup body region empty where the code box used to be.
+
+### 14.2 — Locked decisions D18–D24
+
+| # | Decision | Locked value |
+|---|----------|--------------|
+| D18 | Title scale | `heading.sm` (16) → **`heading.md`** (18) |
+| D19 | Accent row breathing room | `paddingVertical` 12 → 16; `minHeight` 44 → 52 |
+| D20 | Saving amount scale | `heading.md` (18) → **`heading.lg`** (20) |
+| D21 | Receipt rows | **D21b** — borderless flat rows (drop top-border hairlines; no container) |
+| D22 | Body rhythm + CTA stack | body `gap` 12 → 16; body `paddingTop` 12 → 16; primary→Done gap 2 → 12 |
+| D23 | Merchant logo | NEW — 48×48 logo on the LEFT of the voucher context strip; whole {logo + text} block left-aligned within body; mirrors PIN sheet D5 verbatim (radius.md, 1px brand-rose 8% alpha ring, surface.tint background); null URL / `<Image onError>` → text-only fallback |
+| D24 | RedemptionDetailsCard CTA rename | `View voucher code` → **`Open staff view`**. Why: the persisted card already displays the redemption code during the 2-hour handoff window, so "View voucher code" reads as redundant/conflicting. "Open staff view" describes what the CTA opens (the dedicated live handoff surface) without repeating the already-visible code. SuccessPopup keeps `View voucher code` because no code is shown there. Helper line `Your voucher code is available until <date>.` stays unchanged — that describes the code-visibility window, not the CTA. |
+
+### 14.3 — Hierarchy after the bumps
+
+- **Twin big notes:** title `heading.md` (18, type-coloured, single big statement) + saving amount `heading.lg` (20, savings-green amount).
+- **The what:** logo + voucher title `heading.sm` + merchant name `body.sm` — single horizontal block with merchant identity.
+- **Where + when:** receipt rows borderless, label `label.lg` + value `label.lg`.
+- **Action:** primary CTA `body.md` "View voucher code".
+- **Dismiss:** Done `label.md`.
+
+### 14.4 — Review-fix pass bundled into the implementation commit
+
+Owner-flagged in the same approval message:
+
+1. **RedemptionDetailsCard accessibilityLabel** — "Show redemption code to staff" → match the new CTA framing ("Open staff view" per D24).
+2. **SuccessPopup title `numberOfLines={1}`** — Dynamic Type truncation risk. Bump to `numberOfLines={2}` so the title wraps safely instead of being cut off.
+3. **Stale comments / unused TYPE_LABELS** — sweep SuccessPopup for code-surface references that no longer apply; remove `TYPE_LABELS` const (was used by the deleted type chip); update `useScreenCaptureProtection` hook docstring to drop SuccessPopup from the consumer list.
+
+### 14.5 — Out of scope (unchanged from §13.2 / §0.12)
+
+Confetti, Rate & Review CTA, decorative imagery, ShowToStaff layout/branding/voucher-description polish, Voucher Detail redeemed-state polish, full visual pass — all explicitly STAY in PR-B.
+
+**§14 LOCKED 2026-05-09 by owner approval; binds the implementation commit on `feature/voucher-pin-success-polish`.**
