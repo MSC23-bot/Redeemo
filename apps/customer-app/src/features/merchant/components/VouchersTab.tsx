@@ -39,10 +39,19 @@ export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds
     return aRedeemed - bRedeemed
   })
 
+  // PR-B T8h owner direction: when a voucher is redeemed this cycle,
+  // the "{n} offers available" copy must reflect what's still
+  // redeemable, not the total.  Subtract redeemed-this-cycle vouchers
+  // from the count.  The label itself also handles the all-redeemed
+  // edge case ("All offers redeemed this cycle") so the user sees a
+  // clear product statement instead of "0 offers available".
+  const availableCount = vouchers.length - redeemedVoucherIds.size
+
   return (
     <>
       <VoucherContextLabel
-        count={vouchers.length}
+        count={availableCount}
+        totalCount={vouchers.length}
         branchShortName={branchShortName}
         isMultiBranch={isMultiBranch}
         hasVouchers={true}

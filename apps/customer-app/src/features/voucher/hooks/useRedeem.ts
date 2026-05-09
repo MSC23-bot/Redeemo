@@ -40,6 +40,17 @@ type UseRedeemOpts = {
  *
  * On success, invalidates:
  *   - ['voucher', voucherId]      — voucher.isRedeemedThisCycle flips
+ *   - ['merchantProfile']          — voucher cards on Merchant Profile
+ *                                    Voucher tab carry isRedeemedThisCycle
+ *                                    per voucher; without this invalidation
+ *                                    the cards show stale "redeem"
+ *                                    affordance until staleTime (60 s)
+ *                                    expires or the user pull-to-refreshes
+ *                                    (PR-B T8h fix).  Wide invalidation
+ *                                    by intent — at most 1-2 merchant
+ *                                    profiles are cached at any time, so
+ *                                    the refetch cost is negligible
+ *                                    compared to a delayed-update bug.
  *   - ['savings']                  — lifetime / monthly aggregates
  *   - ['favouriteVouchers']        — voucher card chip state
  *   - ['my-redemptions']           — redemption history list
@@ -68,6 +79,7 @@ export function useRedeem({ voucherId, getBranchId }: UseRedeemOpts) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['voucher', voucherId] })
+      qc.invalidateQueries({ queryKey: ['merchantProfile'] })
       qc.invalidateQueries({ queryKey: ['savings'] })
       qc.invalidateQueries({ queryKey: ['favouriteVouchers'] })
       qc.invalidateQueries({ queryKey: ['my-redemptions'] })

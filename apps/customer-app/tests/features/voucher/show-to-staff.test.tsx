@@ -271,8 +271,8 @@ describe('ShowToStaff — Done button + customer info row', () => {
     expect(getByTestId('show-to-staff-redeemed-row')).toBeTruthy()
     expect(getByTestId('show-to-staff-redeemed-date-row')).toBeTruthy()
     expect(getByTestId('show-to-staff-redeemed-time-row')).toBeTruthy()
-    expect(getByText(/^Date$/)).toBeTruthy()
-    expect(getByText(/^Time$/)).toBeTruthy()
+    expect(getByText(/^Date Redeemed$/)).toBeTruthy()
+    expect(getByText(/^Time Redeemed$/)).toBeTruthy()
   })
 })
 

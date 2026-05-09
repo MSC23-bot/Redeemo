@@ -328,7 +328,12 @@ export function ShowToStaff({
 
   // Identity-zone padding honours the device safe-area top so the
   // navy bg absorbs the notch / Dynamic Island clearance.
-  const identityZonePaddingTop = (insets.top ?? 0) + 12
+  // PR-B T8h owner direction: drop the Redeemo lockup down a little —
+  // the identity zone now sits with insets.top + 28 of breathing
+  // (was +12).  Adds 16pt of vertical air between the safe-area edge
+  // and the R glyph + wordmark so the header reads as a "page mark"
+  // rather than crowding the notch / Dynamic Island.
+  const identityZonePaddingTop = (insets.top ?? 0) + 28
   // Bottom safe-area on iPhone SE 1st gen is 0 — but on home-bar
   // devices we still want clearance so the Done pill doesn't bleed
   // into the indicator.  Min 12 keeps a visual rhythm even at SE.
@@ -395,11 +400,23 @@ export function ShowToStaff({
           onPress={resetTimer}
           accessibilityRole="none"
         >
-          {/* PR-B T8g — the "Verified Voucher" eyebrow is intentionally
-              GONE.  Pre-scan the voucher is NOT verified; the only
-              verified claim the surface ever makes is the savings-green
-              "Verified by staff" pill that flips on the validated
-              transition (see `validatedRow` below). */}
+          {/* Eyebrow — "PRESENT TO STAFF" in brand-rose, all-caps,
+              same typography as the dropped "Verified Voucher" line.
+              PR-B T8h owner direction: re-introduce a page-title-style
+              eyebrow that is accurate to what this surface DOES (the
+              voucher is already redeemed; the user is presenting the
+              code to staff for verification).  Replaces the previously
+              dropped "Verified Voucher" copy that was misleading
+              pre-scan. */}
+          <View style={styles.eyebrowBlock}>
+            <Text
+              variant="label.eyebrow"
+              style={styles.eyebrowText}
+              testID="show-to-staff-eyebrow"
+            >
+              Present to Staff
+            </Text>
+          </View>
 
           {/* Voucher info — title (white) + description (white@85%,
               max 2 lines for the no-scroll fit). */}
@@ -568,7 +585,7 @@ export function ShowToStaff({
           <View style={styles.footerInfo} testID="show-to-staff-redeemed-row">
             <View style={styles.detailRow} testID="show-to-staff-redeemed-date-row">
               <Text variant="label.lg" style={styles.redeemedLabel}>
-                Date
+                Date Redeemed
               </Text>
               <Text
                 variant="label.lg"
@@ -580,7 +597,7 @@ export function ShowToStaff({
             </View>
             <View style={styles.detailRow} testID="show-to-staff-redeemed-time-row">
               <Text variant="label.lg" style={styles.redeemedLabel}>
-                Time
+                Time Redeemed
               </Text>
               <Text
                 variant="label.lg"
@@ -712,8 +729,18 @@ const styles = StyleSheet.create({
     paddingTop: spacing[2],
     alignItems: 'stretch',
   },
+  // Eyebrow — "PRESENT TO STAFF" in brand-rose all-caps (PR-B T8h).
+  // Mirrors the dropped "Verified Voucher" treatment from T8g but
+  // with accurate page-title copy.
+  eyebrowBlock: {
+    alignItems: 'flex-start',
+    paddingTop: spacing[2],
+  },
+  eyebrowText: {
+    color: color.brandRose,
+  },
   voucherInfoBlock: {
-    paddingTop: spacing[3],
+    paddingTop: spacing[1],
     gap: 4,
   },
   voucherTitle: {

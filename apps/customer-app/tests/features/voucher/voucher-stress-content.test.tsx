@@ -128,6 +128,93 @@ describe('CouponHeader — save badge adapts to large amounts', () => {
   })
 })
 
+describe('CouponHeader — dimmed prop applies to visual layer ONLY, never the nav buttons (PR-B T8h)', () => {
+  // Owner-reported device QA: when the redeemed seal renders, the
+  // back / share / favourite buttons in the hero NavRow read as
+  // washed-out because the previous `<View style={heroDimmed}>`
+  // wrapper applied opacity 0.55 to the entire CouponHeader subtree.
+  // T8h moves the dim INTO CouponHeader as a `dimmed` prop applied
+  // selectively to gradient + content + saveBadge.  These pins guard
+  // the contract: action controls stay full opacity, voucher visuals
+  // get the stamp-effect dim.
+
+  const baseProps = {
+    type: 'BOGO' as const,
+    title: 'Test voucher',
+    description: 'Test description',
+    estimatedSaving: 8.99,
+    insetTop: 59,
+    onBack:  jest.fn(),
+    onShare: jest.fn(),
+    onFav:   jest.fn(),
+    isFavourited: false,
+  }
+
+  function flat(node: any): Record<string, any> {
+    const s = node?.props?.style
+    if (!s) return {}
+    if (Array.isArray(s)) return Object.assign({}, ...s.flat(Infinity).filter(Boolean))
+    return s
+  }
+
+  it('default (dimmed omitted) — content + save badge carry no dim opacity, AND no wash overlay is mounted', () => {
+    const { getByTestId, queryByTestId } = render(<CouponHeader {...baseProps} />)
+    expect(flat(getByTestId('coupon-header-content')).opacity).toBeUndefined()
+    expect(flat(getByTestId('coupon-header-save-badge')).opacity).toBeUndefined()
+    // PR-B T8h: cream gradient wash overlay is gated on `dimmed`.
+    expect(queryByTestId('coupon-header-wash-overlay')).toBeNull()
+  })
+
+  it('dimmed=true — premium washed-out treatment: cream gradient overlay mounts, content + saveBadge fade to 0.85, base gradient stays at full color', () => {
+    const { getByTestId } = render(<CouponHeader {...baseProps} dimmed />)
+    // PR-B T8h: gradient wash overlay carries the visible "redeemed"
+    // weight; content opacity is intentionally LIGHT (0.85, not the
+    // previous flat 0.55) so the title stays clearly readable.
+    expect(getByTestId('coupon-header-wash-overlay')).toBeTruthy()
+    expect(flat(getByTestId('coupon-header-content')).opacity).toBe(0.85)
+    expect(flat(getByTestId('coupon-header-save-badge')).opacity).toBe(0.85)
+    // Base gradient stays at full color when dimmed — the wash
+    // overlay paints OVER it rather than the gradient itself losing
+    // saturation.  Brand identity carries through.
+    expect(flat(getByTestId('coupon-header-gradient')).opacity).toBeUndefined()
+  })
+
+  it('dimmed=true — back / share / favourite nav buttons keep full opacity (NEVER washed out alongside the voucher visual layer)', () => {
+    const { getByLabelText } = render(<CouponHeader {...baseProps} dimmed />)
+    // Walk up from each nav button to its ancestors and assert none
+    // of them carry the dim's signature opacity (0.85) — that value
+    // ONLY belongs on the voucher visual layer, never on functional
+    // controls.
+    const buttons = [
+      getByLabelText('Go back'),
+      getByLabelText('Share voucher'),
+      getByLabelText('Add to favourites'),
+    ]
+    for (const btn of buttons) {
+      let n: any = btn
+      while (n) {
+        const s = flat(n)
+        // The dim's signature opacity is 0.85 (T8h).  The previous
+        // flat 0.55 is also still banned defensively in case a
+        // future regression resurfaces it on the navRow.
+        expect(s.opacity).not.toBe(0.85)
+        expect(s.opacity).not.toBe(0.55)
+        n = n.parent
+      }
+    }
+  })
+
+  it('dimmed=true — favourite button keeps full opacity when isFavourited toggles', () => {
+    const { getByLabelText } = render(<CouponHeader {...baseProps} dimmed isFavourited />)
+    let n: any = getByLabelText('Remove from favourites')
+    while (n) {
+      expect(flat(n).opacity).not.toBe(0.85)
+      expect(flat(n).opacity).not.toBe(0.55)
+      n = n.parent
+    }
+  })
+})
+
 // ── CollapsedHeader stress tests ───────────────────────────────────
 
 describe('CollapsedHeader — long content doesn\'t break layout', () => {

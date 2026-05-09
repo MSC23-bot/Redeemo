@@ -154,13 +154,17 @@ describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
     expect(queryByTestId('show-to-staff-close')).toBeNull()
   })
 
-  it('does NOT render a "Verified Voucher" eyebrow (PR-B T8g — pre-scan the voucher is not verified; the only "verified" claim the surface ever makes is the savings-green pill on the validated transition)', () => {
-    const { queryByText, queryByTestId } = render(<ShowToStaff {...baseProps} />)
-    // Owner direction: "voucher is not verified until ... merchant ...
-    // QR code".  Pin both the testID is gone AND the literal source
-    // string is absent so a future regression that re-adds either path
-    // fails this assertion.
-    expect(queryByTestId('show-to-staff-eyebrow')).toBeNull()
+  it('renders a "Present to Staff" eyebrow above the voucher title (PR-B T8h — re-introduces the eyebrow surface dropped in T8g, with accurate page-title copy)', () => {
+    const { getByText, getByTestId, queryByText } = render(<ShowToStaff {...baseProps} />)
+    // T8g dropped the misleading "Verified Voucher" eyebrow because
+    // the voucher isn't verified pre-scan.  T8h re-introduces an
+    // eyebrow with copy that's accurate to what the surface DOES
+    // (the user is presenting the code to staff for verification).
+    // Pin both the testID + the literal copy so a future regression
+    // that drops the eyebrow OR reverts to the misleading "Verified
+    // Voucher" string fails this assertion.
+    expect(getByTestId('show-to-staff-eyebrow')).toBeTruthy()
+    expect(getByText('Present to Staff')).toBeTruthy()
     expect(queryByText(/Verified Voucher/i)).toBeNull()
   })
 
@@ -286,14 +290,14 @@ describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
     expect(getByText('Redeemo')).toBeTruthy()
   })
 
-  it('safe-area top inset is honoured for the identity zone (PR-B T8f — paddingTop = insets.top + 12; was +16 in T8c)', () => {
+  it('safe-area top inset + breathing room for the identity zone (PR-B T8h — paddingTop = insets.top + 28, bumped from T8f\'s +12 to drop the Redeemo lockup down)', () => {
     const { getByTestId } = render(<ShowToStaff {...baseProps} />)
     const zone = getByTestId('show-to-staff-identity-zone')
-    // useSafeAreaInsets mock → top: 47. PR-B T8f: paddingTop = top + 12.
+    // useSafeAreaInsets mock → top: 47. PR-B T8h: paddingTop = top + 28.
     const flat = Array.isArray(zone.props.style)
       ? Object.assign({}, ...zone.props.style)
       : zone.props.style
-    expect(flat.paddingTop).toBe(47 + 12)
+    expect(flat.paddingTop).toBe(47 + 28)
   })
 
   it('Done button at the bottom fires onDone (PR-B T8f — replaces the X close icon top-right)', () => {
@@ -305,15 +309,14 @@ describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
-  it('VoiceOver read order: identity → title → description → merchant → branch → code (PR-B T8g — eyebrow testID dropped along with the misleading "Verified Voucher" copy)', () => {
+  it('VoiceOver read order: identity → eyebrow → title → description → merchant → branch → code (PR-B T8h re-introduced the eyebrow with accurate page-title copy)', () => {
     const { getByTestId } = render(<ShowToStaff {...baseProps} />)
     // Pin the testIDs all exist; their DOM order is enforced by the
     // JSX top-down. Reading order cannot be re-ordered by CSS in RN
-    // (no `order` semantic), so DOM order == VoiceOver order.  T8g
-    // drops the eyebrow from the read order along with the visual
-    // surface (owner direction: pre-scan the voucher is NOT verified).
+    // (no `order` semantic), so DOM order == VoiceOver order.
     const ids = [
       'show-to-staff-identity-zone',
+      'show-to-staff-eyebrow',
       'show-to-staff-voucher-title',
       'show-to-staff-voucher-description',
       'show-to-staff-merchant-name',
@@ -484,8 +487,8 @@ describe('ShowToStaff — PR-B T8g (device-QA fix round 3)', () => {
     // corroborate against the live ticking clock.
     expect(getByTestId('show-to-staff-redeemed-date-row')).toBeTruthy()
     expect(getByTestId('show-to-staff-redeemed-time-row')).toBeTruthy()
-    expect(getByText(/^Date$/)).toBeTruthy()
-    expect(getByText(/^Time$/)).toBeTruthy()
+    expect(getByText(/^Date Redeemed$/)).toBeTruthy()
+    expect(getByText(/^Time Redeemed$/)).toBeTruthy()
   })
 
   it('Date value renders day Month YYYY (no time) and Time value renders HH:MM:SS (with seconds)', () => {

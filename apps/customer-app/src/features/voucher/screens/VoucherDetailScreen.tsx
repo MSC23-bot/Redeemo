@@ -1199,7 +1199,12 @@ export function VoucherDetailScreen() {
           <Animated.View style={heroAnchorStyle}>
             {/* Hero treatment when redeemed (locked 2026-05-09 from
                 PR #49 device QA wave 4 — owner direction):
-                  • Dimmed hero (opacity 0.55) — already in place.
+                  • Dimmed hero (opacity 0.55) — applied SELECTIVELY
+                    to the voucher visual layer (gradient + content +
+                    saveBadge) via the CouponHeader `dimmed` prop.
+                    The nav row (back / share / favourite) stays at
+                    full opacity per PR-B T8h owner direction
+                    "navigation buttons are washed out".
                   • RedeemedSeal moved ONTO the hero as an absolute
                     overlay, like a physical stamp on the voucher
                     itself, instead of sitting as a standalone block
@@ -1212,23 +1217,22 @@ export function VoucherDetailScreen() {
                 Defers full washed-out coupon visual + polished SVG
                 stamp to §Q1. */}
             <View style={styles.heroSealWrap}>
-              <View style={showRedeemedSeal ? styles.heroDimmed : null}>
-                <CouponHeader
-                  type={voucher.type}
-                  title={voucher.title}
-                  description={voucher.description}
-                  estimatedSaving={voucher.estimatedSaving}
-                  insetTop={insets.top}
-                  onBack={handleBack}
-                  onShare={handleShare}
-                  onFav={handleFav}
-                  isFavourited={voucher.isFavourited}
-                  scrollY={scrollY}
-                  fadeStart={FADE_START}
-                  fadeEnd={FADE_END}
-                  collapsedActive={collapsedActive}
-                />
-              </View>
+              <CouponHeader
+                type={voucher.type}
+                title={voucher.title}
+                description={voucher.description}
+                estimatedSaving={voucher.estimatedSaving}
+                insetTop={insets.top}
+                onBack={handleBack}
+                onShare={handleShare}
+                onFav={handleFav}
+                isFavourited={voucher.isFavourited}
+                scrollY={scrollY}
+                fadeStart={FADE_START}
+                fadeEnd={FADE_END}
+                collapsedActive={collapsedActive}
+                dimmed={showRedeemedSeal}
+              />
               {showRedeemedSeal ? (
                 <View
                   style={[styles.heroSealOverlay, { top: insets.top + 96 }]}
@@ -1880,12 +1884,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // Hero dimming — applied when the redeemed seal is surfaced
-  // (post-2h handoff window OR validated). Just a static opacity;
-  // full washed-out coupon visual treatment is deferred to §Q1.
-  heroDimmed: {
-    opacity: 0.55,
-  },
+  // (Hero dimming was previously a wrapping `<View style={heroDimmed}>`
+  // around the entire CouponHeader subtree — that washed out the back /
+  // share / favourite nav buttons too.  PR-B T8h moves the dim INTO
+  // CouponHeader as a `dimmed` prop applied selectively to the gradient
+  // + content + saveBadge.  The wrapper + style here are intentionally
+  // gone.)
+
   // Hero-seal overlay positioning (locked 2026-05-09, PR #49 device
   // QA wave 4). The seal mounts as an absolute overlay anchored to
   // the hero so it sits ON TOP of the dimmed banner — like a
