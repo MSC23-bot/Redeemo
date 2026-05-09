@@ -70,6 +70,61 @@ describe('useCreateReview', () => {
     })
     expect(invalidateSpy).not.toHaveBeenCalled()
   })
+
+  // PR-C T7 (LOCKED 2026-05-09 §0.3): when the WriteReviewSheet is
+  // opened from a redemption flow, the redemptionId flows through the
+  // hook → reviewsApi.createReview → backend, where the §0.3 5-condition
+  // rule is validated and the review row gains the linkage that drives
+  // isVerified === true.
+
+  it('forwards redemptionId to reviewsApi.createReview when supplied', async () => {
+    ;(reviewsApi.createReview as jest.Mock).mockResolvedValueOnce({
+      id: 'r1', branchId: 'b1', branchName: 'Main', displayName: 'Ada L.',
+      rating: 5, comment: 'Verified', isVerified: true, isOwnReview: true,
+      createdAt: '2026-05-09T00:00:00Z', updatedAt: '2026-05-09T00:00:00Z',
+    })
+    const { Wrap } = makeWrapper()
+    const { result } = renderHook(() => useCreateReview('m1'), { wrapper: Wrap })
+    await act(async () => {
+      await result.current.mutateAsync({
+        branchId: 'b1', rating: 5, comment: 'Verified', redemptionId: 'red-1',
+      })
+    })
+    expect(reviewsApi.createReview).toHaveBeenCalledWith('b1', {
+      rating: 5, comment: 'Verified', redemptionId: 'red-1',
+    })
+  })
+
+  it('forwards redemptionId without comment when caller omits comment', async () => {
+    ;(reviewsApi.createReview as jest.Mock).mockResolvedValueOnce({
+      id: 'r1', branchId: 'b1', branchName: 'Main', displayName: 'Ada L.',
+      rating: 5, comment: null, isVerified: true, isOwnReview: true,
+      createdAt: '2026-05-09T00:00:00Z', updatedAt: '2026-05-09T00:00:00Z',
+    })
+    const { Wrap } = makeWrapper()
+    const { result } = renderHook(() => useCreateReview('m1'), { wrapper: Wrap })
+    await act(async () => {
+      await result.current.mutateAsync({ branchId: 'b1', rating: 5, redemptionId: 'red-1' })
+    })
+    expect(reviewsApi.createReview).toHaveBeenCalledWith('b1', {
+      rating: 5, redemptionId: 'red-1',
+    })
+  })
+
+  it('omits redemptionId when not supplied (backwards-compat)', async () => {
+    ;(reviewsApi.createReview as jest.Mock).mockResolvedValueOnce({
+      id: 'r1', branchId: 'b1', branchName: 'Main', displayName: 'Ada L.',
+      rating: 4, comment: 'Good', isVerified: false, isOwnReview: true,
+      createdAt: '2026-05-09T00:00:00Z', updatedAt: '2026-05-09T00:00:00Z',
+    })
+    const { Wrap } = makeWrapper()
+    const { result } = renderHook(() => useCreateReview('m1'), { wrapper: Wrap })
+    await act(async () => {
+      await result.current.mutateAsync({ branchId: 'b1', rating: 4, comment: 'Good' })
+    })
+    const [, body] = (reviewsApi.createReview as jest.Mock).mock.calls[0]!
+    expect(body).not.toHaveProperty('redemptionId')
+  })
 })
 
 describe('useDeleteReview', () => {
