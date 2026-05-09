@@ -322,7 +322,7 @@ export function SuccessPopup({
                 <SparkleRing visible={visible} />
               </View>
               <Text
-                variant="heading.md"
+                variant="display.sm"
                 style={styles.accentTitle}
                 numberOfLines={2}
                 testID="success-title"
@@ -461,7 +461,7 @@ export function SuccessPopup({
                 style={StyleSheet.absoluteFillObject}
               />
               <Eye size={18} color={color.onBrand} strokeWidth={2.4} />
-              <Text variant="body.md" style={styles.primaryCtaText}>
+              <Text variant="heading.sm" style={styles.primaryCtaText}>
                 View voucher code
               </Text>
             </Pressable>
@@ -489,7 +489,7 @@ export function SuccessPopup({
                   ]}
                 >
                   <Star size={18} color={color.brandRose} strokeWidth={2.4} />
-                  <Text variant="body.md" style={styles.rateReviewText}>
+                  <Text variant="heading.sm" style={styles.rateReviewText}>
                     Rate & Review
                   </Text>
                 </Pressable>
@@ -511,7 +511,7 @@ function AnimatedSavingAmount({ target, durationMs }: { target: number; duration
   const value = useCountUp(target, durationMs)
   return (
     <Text
-      variant="heading.lg"
+      variant="display.md"
       style={styles.savingAmount}
       testID="success-saving-amount"
     >
@@ -551,7 +551,14 @@ const styles = StyleSheet.create({
     // room.  Still card-shaped, not full-width — the navy hero +
     // skeleton-red CTA hierarchy reads cleaner with extra padding.
     maxWidth: 360,
-    borderRadius: 24,
+    // PR-B T8n (impeccable + interface-design pass): hardcoded 24
+    // → radius.xl (22).  Token alignment per the interface-design
+    // "border radius: build a scale" rule and DESIGN.md token
+    // architecture.  Visual difference is 2pt — imperceptible —
+    // but the token alignment closes the "random hex / random
+    // number" gap that interface-design flags as the clearest
+    // sign of no system.
+    borderRadius: radius.xl,
     overflow: 'hidden',
     // D27c §14.7 (LOCKED 2026-05-09): cream body bg replaces the
     // generic white surface.raised.  PRODUCT.md design-system
@@ -600,9 +607,11 @@ const styles = StyleSheet.create({
     borderColor: color.brandRose + 'B3', // ~70% alpha
     backgroundColor: 'rgba(226, 12, 4, 0.10)',
   },
+  // PR-B T8n: dropped the fontWeight: '800' override.  Lato Semibold
+  // (already 600) doesn't synthesize cleanly to 800 on iOS; the
+  // label.eyebrow variant now carries the right weight.
   typeChipText: {
     color: '#FFFFFF',
-    fontWeight: '800',
     letterSpacing: 1.2,
   },
   // PR-B T2 §3.2 (LOCKED 2026-05-09) — the check-ring slot.
@@ -625,24 +634,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // heading.md (18 / 24) variant drives the success title (D18 §14
-  // bumped from heading.sm so title equals the saving amount in
-  // hierarchy).  flex: 1 claims the row width remaining after the
-  // check ring.  numberOfLines={2} on the Text — title wraps to
-  // two lines under Dynamic Type rather than truncating.
-  // D25 §14 (LOCKED 2026-05-09 owner direction): title color is
-  // neutral navy (color.text.primary) — NOT the voucher type
-  // colour.  The gradient already carries type identity; the
-  // green check ring carries the success signal; the title text
-  // is the moment statement and should read consistently across
-  // every voucher type.  PRODUCT.md tone: trust-first, grounded
-  // navy reads as official / clear-text on every pastel gradient.
-  // PR-B T8e (LOCKED 2026-05-09): title flips to white-on-navy
-  // since the hero band is now navy gradient (was cream pastel).
+  // PR-B T8n (impeccable + interface-design pass): the success title
+  // moves from heading.md (Lato Semibold 18) → display.sm (Mustica Pro
+  // Semibold 22 + -0.3 tight tracking) per DESIGN.md "Mustica-for-
+  // Display Rule".  This is the celebration-moment headline; the
+  // brand calls for Mustica Pro at display tier here.  Owner-locked
+  // size hierarchy preserved (the saving amount below is now
+  // display.md 26pt — bigger than the title, as before).
+  //
+  // The previous fontWeight: '700' override on Lato Semibold is
+  // dropped; the Mustica Semibold variant carries the right weight
+  // natively.
+  //
+  // Title color stays white-on-navy per T8e (the navy hero band
+  // wasn't part of T8n's scope).
+  //
+  // flex: 1 claims the row width remaining after the check ring.
+  // numberOfLines={2} on the Text — title wraps to two lines under
+  // Dynamic Type rather than truncating.
   accentTitle: {
     flex: 1,
-    fontWeight: '700',
     color: '#FFFFFF',
+    letterSpacing: -0.3,
   },
   // ── Body ──
   // PR-B T8e (LOCKED 2026-05-09 from device QA, second wave): bumped
@@ -716,16 +729,19 @@ const styles = StyleSheet.create({
     color: color.savingsGreen,
     fontWeight: '500',
   },
-  // heading.lg (20 / 26) variant drives — the value confirmation is
-  // the popup's biggest non-title element so "you got this much
-  // value" reads as the load-bearing trust signal (D20 §14 bumped
-  // from heading.md).  No clip risk — variant lineHeight 26 covers
-  // fontSize 20.
+  // PR-B T8n (interface-design SIGNATURE elevation): saving amount
+  // moves from heading.lg (Lato Semibold 20) → display.md (Mustica
+  // Pro Semibold 26 + -0.5 tight tracking).  Per DESIGN.md "Do put
+  // the savings amount in display.md or larger in Mustica Pro on
+  // every voucher card.  The saving is the data; the data is the
+  // hero."  The savings-green count-up is THE signature of this
+  // popup (Stripe doesn't do this; coupon apps don't do this) — it
+  // deserves display tier.  fontWeight 700 override dropped; the
+  // Mustica Semibold variant carries the right weight natively.
   savingAmount: {
     color: color.savingsGreen,
-    fontWeight: '700',
     fontVariant: ['tabular-nums'],
-    letterSpacing: -0.2,
+    letterSpacing: -0.5,
   },
   // (Code hero, code label, code value, live timestamp styles all
   // removed 2026-05-09 — the popup is no longer a sensitive code
@@ -775,28 +791,27 @@ const styles = StyleSheet.create({
   },
 
   // ── Primary CTA ──
-  // D27b §14.7 (LOCKED 2026-05-09): brand gradient + brand-rose
-  // shadow.  Cross-surface consistency — matches RedemptionDetailsCard's
-  // "Open staff view" CTA.  Both lead to the same destination
-  // (Show-to-Staff screen) and now share the brand-rose/coral
-  // identity treatment.
+  // PR-B T8n (impeccable pass) aligned to DESIGN.md `button-primary-lg`:
+  //   • borderRadius radius.lg (16) → radius.md (12) per DESIGN.md
+  //     "Buttons Shape: rounded-md (12px) on every variant".
+  //   • shadowOpacity 0.30 → 0.20 per DESIGN.md "Glow-is-the-CTA Rule"
+  //     (calmer brand glow; matches PinSheet T8m + BranchPicker T8l).
+  //   • Label moves body.md + fontWeight 800 override → heading.sm
+  //     (Lato Semibold 16) so the variant carries the weight cleanly.
   primaryCta: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing[2],
     paddingVertical: spacing[3] + 2,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     overflow: 'hidden',
     shadowColor: color.brandRose,
-    shadowOpacity: 0.30,
+    shadowOpacity: 0.20,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
   },
-  // body.md (16 / 24) variant drives.  fontSize override removed
-  // 2026-05-09 (PR-A §3.3 readability bump for primary action).
   primaryCtaText: {
-    fontWeight: '800',
     color: color.onBrand,
     letterSpacing: 0.2,
   },
@@ -836,13 +851,17 @@ const styles = StyleSheet.create({
   // dimensions as the primary CTA so they feel like one button-
   // system; only the fill differs.  Drops the prior shadow because
   // a skeleton button shouldn't carry elevation.
+  // PR-B T8n: rate-review pill borderRadius radius.lg (16) → radius.md
+  // (12) for cross-CTA consistency with the primary above (also moved
+  // to radius.md per DESIGN.md "Buttons Shape" rule).  Skeleton-red
+  // outline + brand-rose Star + label preserved verbatim.
   rateReviewPill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing[2],
     paddingVertical: spacing[3] + 2,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1.5,
     borderColor: color.brandRose,
     backgroundColor: 'transparent',
@@ -852,9 +871,10 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
     backgroundColor: 'rgba(226, 12, 4, 0.06)',
   },
+  // PR-B T8n: heading.sm (Lato Semibold 16) variant drives.  fontWeight:
+  // '700' override dropped (variant carries the weight).
   rateReviewText: {
     color: color.brandRose,
-    fontWeight: '700',
     letterSpacing: 0.1,
   },
   // PR-B T8e (LOCKED 2026-05-09): close icon now sits on the navy
