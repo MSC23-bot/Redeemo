@@ -426,20 +426,11 @@ export function PinEntrySheet({
             primary PIN-entry instruction; padding reduced one step. */}
         {!isLocked ? (
           <View style={styles.disclaimer}>
-            {/* Icon-on-top layout + single Text block (2026-05-09
-                owner correction).  Sentence 1 is 62 chars and won't
-                fit on one line at body.sm 14 even at full card width,
-                so it always wraps.  Splitting into two Text blocks
-                orphans "cycle." on its own row and pushes sentence 2
-                to a third row.  Combining both sentences into a
-                single Text lets RN flow them naturally:
-                  line 1: "Confirming the correct PIN redeems this
-                           voucher for this"
-                  line 2: "cycle. Continue when you're ready to use it."
-                Two rows, no orphan.  D2 copy unchanged.
-                Refines the sentence-per-line discipline: it applies
-                when each sentence fits on its own line; when sentence
-                1 wraps, continuous flow is the cleaner choice. */}
+            {/* Icon-left + single Text block (2026-05-09 final form).
+                The two sentences live in one Text so RN flows them
+                naturally; the wrap-row absorbs both the trailing
+                words of sentence 1 AND sentence 2 → no orphan
+                "cycle." on its own line.  D2 copy unchanged. */}
             <Lock size={16} color={color.brandRose} strokeWidth={2.4} />
             <Text variant="body.sm" style={styles.disclaimerText}>
               Confirming the correct PIN redeems this voucher for this cycle. Continue when you're ready to use it.
@@ -649,13 +640,12 @@ const styles = StyleSheet.create({
   backendErrorBody: {
     color: '#92400E',
   },
-  // Disclaimer banner — icon-on-top layout (2026-05-09 owner
-  // correction: locked sentence 1 is 62 chars and won't fit on one
-  // line at body.sm 14 inside an icon-left column).  Cream-tinted
-  // card with brand-rose 12% ring; Lock icon stacks above the copy.
-  // Both sentences render at body.sm (14) with no orphan wrap.
+  // Disclaimer banner — icon-left layout (2026-05-09 final form).
+  // Lock icon top-left aligned with the first line of copy; Text
+  // takes the remaining card width via flex: 1 and wraps naturally.
+  // Single Text holds both sentences so "cycle." never orphans.
   disclaimer: {
-    flexDirection: 'column',
+    flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing[2],
     backgroundColor: color.cream,
@@ -666,9 +656,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     marginBottom: spacing[4],
   },
-  // body.sm (14 / 21) drives.  Single Text holds both sentences;
-  // RN flows them together so "cycle." never orphans on its own row.
+  // body.sm (14 / 21) drives.  flex: 1 so the Text claims the row
+  // width remaining after the Lock icon column.
   disclaimerText: {
+    flex: 1,
     color: color.text.primary,
   },
   // Submit button — body.md (16) drives via variant.  Min-height 56
