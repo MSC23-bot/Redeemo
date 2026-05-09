@@ -16,22 +16,24 @@ type Props = {
    * the ring fires once on popup mount and again after a remount.
    */
   visible: boolean
-  /** Outer ring diameter.  Defaults to 36pt — sized to wrap a 22pt check ring. */
+  /** Outer ring diameter at peak scale.  Defaults to 56pt — wraps a 22pt check ring with breathing room. */
   size?: number
-  /** Delay before the pulse starts.  Defaults to 480ms — fires after the check-ring lands. */
+  /** Delay before the pulse starts.  Defaults to 360ms — fires soon after the check-ring lands. */
   delayMs?: number
-  /** Total duration of the pulse (rise + fade).  Defaults to 1200ms. */
+  /** Total duration of the pulse (rise + fade).  Defaults to 1400ms. */
   durationMs?: number
 }
 
 /**
- * SparkleRing — subtle brand-rose ring around the SuccessPopup
- * check ring.  Single 1.2s opacity pulse: 0 → 0.3 → 0.  Triggers
- * 480ms after the check ring lands (so the user reads the check
- * first, then the soft halo confirms).
+ * SparkleRing — soft brand-rose halo that breathes once around the
+ * SuccessPopup check ring.  Single 1.4s pulse combining opacity
+ * 0 → 0.55 → 0 AND scale 0.7 → 1.0 → 1.05.  The combined opacity +
+ * scale gives the halo a perceptible "breathe" feel — the
+ * earlier-iteration pure-opacity-only pulse was too quiet on
+ * device (T8b device-QA fix).
  *
  * Brief §3.2 (PR-B T2) — restraint register.  No confetti, no
- * radial sparks; one quiet halo that suggests "earned" without
+ * radial sparks; one premium halo that suggests "earned" without
  * shouting.  Cross-references Apple Pay micro-celebration energy.
  *
  * Reduced-motion contract:
@@ -46,38 +48,59 @@ type Props = {
  */
 export function SparkleRing({
   visible,
-  size = 36,
-  delayMs = 480,
-  durationMs = 1200,
+  size = 56,
+  delayMs = 360,
+  durationMs = 1400,
 }: Props) {
   const reducedMotion = useReducedMotion()
   const opacity = useSharedValue(0)
+  const scale = useSharedValue(0.7)
 
   useEffect(() => {
     if (!visible || reducedMotion) {
       opacity.value = 0
+      scale.value = 0.7
       return
     }
-    // Rise + fade: 0 → 0.3 over the first 40% of the pulse, then
-    // 0.3 → 0 over the remaining 60%.  Cubic-style ease in/out
-    // approximated via Easing.exp curves which read smoothly
-    // under Reanimated's worklet runtime.
+    // Opacity rise + fade: 0 → 0.55 over the first 35% of the
+    // pulse, then 0.55 → 0 over the remaining 65%.  Bumped from
+    // 0.3 peak (T2 baseline) to 0.55 (T8b fix) so the halo reads
+    // on-device against the cream popup body.
     opacity.value = withDelay(
       delayMs,
       withTiming(
-        0.3,
-        { duration: durationMs * 0.4, easing: Easing.out(Easing.exp) },
+        0.55,
+        { duration: durationMs * 0.35, easing: Easing.out(Easing.exp) },
         () => {
           opacity.value = withTiming(0, {
-            duration: durationMs * 0.6,
+            duration: durationMs * 0.65,
             easing: Easing.in(Easing.exp),
           })
         },
       ),
     )
-  }, [visible, reducedMotion, delayMs, durationMs, opacity])
+    // Scale breathe: 0.7 → 1.0 over the first 35%, then 1.0 →
+    // 1.05 over the remaining 65%.  Subtle outward expansion keeps
+    // the halo feeling "alive" rather than a static fade.
+    scale.value = withDelay(
+      delayMs,
+      withTiming(
+        1.0,
+        { duration: durationMs * 0.35, easing: Easing.out(Easing.exp) },
+        () => {
+          scale.value = withTiming(1.05, {
+            duration: durationMs * 0.65,
+            easing: Easing.out(Easing.quad),
+          })
+        },
+      ),
+    )
+  }, [visible, reducedMotion, delayMs, durationMs, opacity, scale])
 
-  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }))
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }))
 
   if (reducedMotion) return null
 
@@ -97,10 +120,14 @@ export function SparkleRing({
 const styles = StyleSheet.create({
   ring: {
     position: 'absolute',
-    borderWidth: 2,
-    // 25% alpha hex variant on brand-rose.  Matches brief §3.2 spec:
-    // soft halo, not a saturated outline.  '40' suffix = 25% in hex
-    // alpha (64/255 ≈ 0.25).
-    borderColor: color.brandRose + '40',
+    // Bumped from 2 (T2 baseline) to 3 (T8b fix): the 56pt ring at
+    // 55% peak alpha needs slightly more stroke weight to read at
+    // device pixel density without looking thready.
+    borderWidth: 3,
+    // 55% alpha hex variant on brand-rose.  '8C' suffix = 55%
+    // (140/255 ≈ 0.549).  Bumped from '40' (25%) per T8b device
+    // QA: the earlier 25% halo was effectively invisible on a
+    // cream background.
+    borderColor: color.brandRose + '8C',
   },
 })

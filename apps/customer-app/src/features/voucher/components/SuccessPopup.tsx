@@ -220,12 +220,16 @@ export function SuccessPopup({
     transform: [{ scale: checkScale.value }],
   }))
 
-  // D27 §14.7 (LOCKED 2026-05-09): consistent Redeemo branding across
-  // all voucher types.  The accent row uses the cream identity-zone
-  // gradient (PRODUCT.md design-system anchor); the primary CTA uses
-  // the brand gradient (matching RedemptionDetailsCard's CTA).  No
-  // type-driven colours on this surface.
-  const accentGradient = ['#FFF9F5', '#FCF0E5'] as const
+  // PR-B T8b (locked from device QA): the accent gradient was
+  // previously `['#FFF9F5', '#FCF0E5']` — too close to the popup
+  // body's `color.cream` (`#FFF9F5`), making the hero band visually
+  // blend into the body.  Bumped to a deeper warm-cream → peach-
+  // wash gradient that separates clearly from the body while
+  // staying within the brand-rose hue family (no type-driven
+  // colour, consistent with the D27 §14.7 identity rule).
+  // Saturation and warmth carry the celebration energy without
+  // jumping registers.
+  const accentGradient = ['#FCF0E5', '#FBE2D0'] as const
 
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={onDone}>
@@ -728,48 +732,43 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   // ── Secondary action row ──
-  // Centres the Rate & Review pill below the primary CTA.  The
-  // body's `gap: spacing[4]` already provides 16pt above; an
-  // additional small `paddingTop` adds breathing space without
-  // doubling up.  PR-C T16 device-QA fix wave 2 (locked 2026-05-09):
-  // tightened from `paddingTop: spacing[3]` (12) since Done is now
-  // gone — the row needs less weight than when it carried two
-  // actions side-by-side.
+  // PR-B T8b device-QA fix (locked 2026-05-09): the row is now a
+  // full-width container so the Rate & Review pill (below) can
+  // stretch to match the primary CTA's width.  Visual hierarchy
+  // now lives in COLOUR (warm brand-gradient primary vs cool navy-
+  // gradient secondary), not in size — which the device QA flagged
+  // as inconsistent on a card-style modal.
   secondaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingTop: spacing[1],
   },
-  // ── Rate & Review pill (PR-C T12 §0.3.1, refined T16 wave 3) ──
+  // ── Rate & Review pill (PR-C T12 §0.3.1, refined T8b) ──
   // Filled navy gradient — secondary register against the brand-
-  // gradient primary CTA above.  PR-C T16 device-QA fix wave 3
-  // (LOCKED 2026-05-09 owner direction §B visual consistency):
-  // switched from the brand-rose OUTLINED pill to a filled NAVY
-  // gradient.  Mirrors the Contact button on the merchant-profile
-  // ActionRow so both surfaces share one secondary-action identity.
-  // Tap target: paddingVertical 12 + body.md lineHeight 24 = 48pt
-  // total (clears HIG 44pt with margin).  paddingHorizontal 22 +
-  // 10pt gap give comfortable breathing room around Star + label.
-  // Gradient + softer navy shadow read clearly tappable (NOT
-  // disabled) while staying visually subordinate to the warm brand-
-  // gradient primary above.
-  //
-  // overflow:hidden so the LinearGradient (which fills via
-  // StyleSheet.absoluteFillObject) stays inside the rounded corners.
+  // gradient primary CTA above.  PR-B T8b device-QA fix
+  // (locked 2026-05-09): aligned the pill's PHYSICAL DIMENSIONS to
+  // the primary CTA — same paddingVertical (`spacing[3] + 2`),
+  // same borderRadius (`radius.lg`), same overflow:hidden, same
+  // gap (`spacing[2]`), same justifyContent: 'center' — but kept
+  // it visually secondary via:
+  //   - cooler navy gradient (vs the warm brand rose-coral primary)
+  //   - softer navy shadow (vs the brand-rose 30% primary shadow)
+  //   - lighter elevation (4 vs 6)
+  // The pill stretches to the body's full width because the parent
+  // `secondaryRow` no longer constrains via `justifyContent`.
+  // Cross-surface consistency: both CTAs read as the same button-
+  // system, only colour differs.
   rateReviewPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 22,
+    justifyContent: 'center',
+    gap: spacing[2],
+    paddingVertical: spacing[3] + 2,
     borderRadius: radius.lg,
     overflow: 'hidden',
     shadowColor: color.navy,
-    shadowOpacity: 0.20,
+    shadowOpacity: 0.16,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 4,
   },
   rateReviewText: {
     color: color.onBrand,
