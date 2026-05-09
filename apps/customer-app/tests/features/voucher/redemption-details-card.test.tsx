@@ -377,10 +377,14 @@ describe('RedemptionDetailsCard', () => {
   // clock string. Owner direction explicitly asked for Qatar AND London
   // scenarios — these are pinned via `formatExpiryLine` direct calls.
   describe('presentation-window helper copy', () => {
-    it('IN-WINDOW renders the helper line on the rendered card (testID present, copy starts with "Available to show staff until")', () => {
+    it('IN-WINDOW renders the helper line on the rendered card (testID present, copy starts with "Your voucher code is available until")', () => {
       // Integration assertion: structure only, since the host TZ is
       // unknown in CI. Specific clock-string tests live below using
       // `formatExpiryLine` with explicit `timeZone`.
+      // Helper copy renamed 2026-05-09 (D13 §0.10): old "Available to
+      // show staff until <date>" → "Your voucher code is available
+      // until <date>".  Customer-POV framing matches the new "View
+      // voucher code" CTA.
       const { getByTestId } = render(
         <RedemptionDetailsCard
           {...defaults({
@@ -391,7 +395,7 @@ describe('RedemptionDetailsCard', () => {
       )
       const helper = getByTestId('redemption-details-availability-helper')
       expect(typeof helper.props.children).toBe('string')
-      expect(helper.props.children).toMatch(/^Available to show staff until \d{1,2} \w{3}, \d{2}:\d{2}\.$/)
+      expect(helper.props.children).toMatch(/^Your voucher code is available until \d{1,2} \w{3}, \d{2}:\d{2}\.$/)
     })
 
     it('IN-WINDOW falls back to the 2-hour phrasing when redeemedAt is malformed', () => {
@@ -405,11 +409,11 @@ describe('RedemptionDetailsCard', () => {
       )
       const helper = getByTestId('redemption-details-availability-helper')
       expect(helper.props.children).toBe(
-        'You can show this code to staff for 2 hours after redeeming.',
+        'Your voucher code is available for 2 hours after redeeming.',
       )
     })
 
-    it('VALIDATED state does NOT show the "Available to show staff until" copy', () => {
+    it('VALIDATED state does NOT show the "Your voucher code is available until" copy', () => {
       // Locked owner direction: once validated, surfacing
       // "available to show" copy would be confusing — staff already
       // validated.

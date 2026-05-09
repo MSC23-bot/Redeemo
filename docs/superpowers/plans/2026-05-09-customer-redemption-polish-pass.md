@@ -84,6 +84,87 @@ Item #5 from the original ask is its own workstream (Phase 6 / §AE dependency).
 
 See §3a below. No implementation begins on PR-A until §3a is reviewed and approved.
 
+### 0.9 — SuccessPopup composition: code REMOVED, simplified celebration (LOCKED 2026-05-09)
+
+After on-device QA mid-PR-A, owner direction shifted: **the redemption code does NOT belong on the SuccessPopup**.
+
+**Rationale:**
+
+1. **Strengthens the §AB / §AE5 anti-fraud architecture.** The trust signal is the *live* Show-to-Staff screen (animated border, pulsing LIVE dot, ticking en-GB datetime, validated chip, screen-capture protection). A static popup can't carry those signals. Having the code on a popup creates a screenshot-friendly surface that bypasses the live-screen protection.
+2. **Resolves duplication.** The code currently appeared on three surfaces (SuccessPopup, ShowToStaff, RedemptionDetailsCard). Removing it from the popup leaves it on the two surfaces where it actually belongs — the dedicated live screen and the persisted return-visit card.
+3. **Cleaner mental model.** SuccessPopup confirms the redemption happened. The code lives on the dedicated screen the customer opens with one tap.
+
+**Locked composition for the SuccessPopup (PR-A revised):**
+
+| Element | State |
+|---------|-------|
+| Type-pastel accent row + check ring + "Redeemed" label + type chip | UNCHANGED |
+| Voucher title + merchant name strip | UNCHANGED |
+| Saving callout (`You saved £X.XX`) | UNCHANGED (A4 from earlier in PR-A) |
+| Receipt rows (`Redeemed on`, `Branch`) | UNCHANGED — these stay; they confirm what + where |
+| **Redemption code box** (`YOUR REDEMPTION CODE` + 4+4 code) | **REMOVED** |
+| **Live timestamp ticker** | **REMOVED** (only existed as anti-fraud signal alongside the code) |
+| **Anti-fraud disclosure** ("Staff scan or type this code from the Show to Staff screen.") | **REMOVED** (no code here, no need to disclose handoff mechanics) |
+| **Title eyebrow** "Redeemed" | **REPLACED** — see §0.11 |
+| Primary CTA | RENAMED — see §0.10 |
+| **Rate & Review CTA** | **HIDDEN in PR-A**; reintroduced in PR-C with verified-review backend wire-up. See §0.2: PR-A must NOT present a CTA that doesn't actually route. |
+| Done CTA | UNCHANGED |
+| `useScreenCaptureProtection` hook | **REMOVED** (locked 2026-05-09 mid-implementation). Once the code is no longer rendered on this surface, SuccessPopup is no longer a sensitive code surface — there is nothing for screen-capture protection to guard. Code surfaces (`ShowToStaff`, `VoucherDetailScreen` while code is visible) keep their protection unchanged. |
+
+**Implication for tests:** all existing pins on the code rendering, live timestamp, disclosure copy, Rate & Review CTA, AND screen-capture protection lifecycle (prevent on visible / allow on hide / cleanup-on-unmount) are removed or repurposed. New defensive pin: SuccessPopup MUST NOT render the code, live timestamp, OR install useScreenCaptureProtection (regression guard).
+
+**Cross-ref deferred-followups:** the §AB iOS live-screen-trust framing and §AE6 / §AE6.2 protections on the code surfaces (ShowToStaff + Voucher Detail) are unchanged — those still install both `useScreenCaptureProtection` AND `useScreenshotGuard` as the locked anti-fraud architecture.
+
+### 0.11 — SuccessPopup title: "Redeemed" → "Voucher redeemed successfully" (LOCKED 2026-05-09)
+
+The previous accent-row eyebrow `Redeemed` (label.lg uppercase tracked) was too terse for the moment. Replaced with the explicit success statement `Voucher redeemed successfully`.
+
+This sits in the accent row as the popup title (variant + sizing audited during implementation against §0.8 readability + density-with-scale; aim is for the title to read clearly at the top of the popup without competing with the saving callout).
+
+Accessibility label on the popup wrapper updates to match: `"Voucher redeemed successfully"` (already the existing label).
+
+### 0.12 — Show-to-Staff improvements: deferred to PR-B (LOCKED 2026-05-09)
+
+Owner-requested Show-to-Staff polish surfaced during PR-A QA. Five items:
+
+1. Move content down from the iPhone Dynamic Island / top safe area
+2. Add the merchant logo
+3. Add Redeemo branding (subtle / washed-back) so merchants see it as a Redeemo verification surface
+4. Add the voucher description so staff can confirm what offer is being claimed
+5. Keep code/QR as the main focus; supporting details support the code, not crowd it
+
+**Classification: PR-B (Tier 2 design pass).**
+
+**Rationale:**
+
+- None of these are *required* to support the new "View voucher code" CTA. PR-A only changes WHICH CTA opens the Show-to-Staff screen, not what's on the screen.
+- All five are visual / branding / spacing improvements — exactly the shape of work `/impeccable` + `/ui-ux-pro-max` shape briefs are for. Bundling into the existing PR-B design pass keeps the design work coherent (PR-B already covers PIN sheet full layout, SuccessPopup confetti, and Voucher Detail redeemed-state polish).
+- Show-to-Staff is the load-bearing anti-fraud surface (§AB / §AE5 / §AE6). Adding merchant logo + voucher description + branding requires a layout audit that doesn't compromise the live-trust signals (animated border, pulsing LIVE dot, ticking datetime, validated chip). That's design-pass work, not Tier 1 polish.
+- PR-A is already extending past its original scope; further expansion risks ballooning review surface.
+
+**PR-A leaves Show-to-Staff visually unchanged.** The screen content stays as M3 shipped it. The CTA leading INTO the screen (from SuccessPopup + RedemptionDetailsCard) renames to `View voucher code`; the screen TITLE stays `Show to Staff` (per §0.10).
+
+PR-B will pick up these five items as a dedicated Show-to-Staff design pass alongside the existing PR-B scope.
+
+### 0.10 — CTA rename: "Show to Staff" → "View voucher code" (LOCKED 2026-05-09)
+
+The CTA wording shifts to a customer's POV. "Show to Staff" carried the staff-perspective framing; "View voucher code" frames the action from the customer's perspective using the consumer-friendly word "voucher" (matches PRODUCT.md / customer-app domain language throughout).
+
+**Affected surfaces (audit):**
+
+| Surface | Old | New |
+|---------|-----|-----|
+| `SuccessPopup` primary CTA | `Show to Staff` | `View voucher code` |
+| `RedemptionDetailsCard` CTA | `Show to Staff` | `View voucher code` |
+| `RedemptionDetailsCard` in-window helper line | `Available to show staff until <date>.` | `Your voucher code is available until <date>.` |
+| Accessibility labels on the above | match new copy | — |
+| Test fixture pins for the above | match new copy | — |
+
+**Untouched:**
+
+- **`ShowToStaff` screen title — keep `Show to Staff`.** When the customer is *on* the screen with their code visible, "Show to Staff" reads as a clear instruction *to the customer about what to do next* (physically show the screen). The customer-friendly framing applies to the CTA leading INTO the screen; the screen identity itself stays action-instructive.
+- **`useScreenshotGuard` / `useScreenCaptureProtection` internal docstrings + cross-refs to "Show to Staff"** — these are internal API docs / hook references, not customer-facing copy.
+
 ### 0.8 — Readability and scale: LOCKED first-class requirement (2026-05-09)
 
 Owner direction: device QA has surfaced typography that feels too small / hard to read on real iPhones. **Readability and scale are now a first-class design requirement for this entire workstream — not an afterthought, not a per-component polish item.**

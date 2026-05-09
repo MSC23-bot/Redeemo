@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { Modal, Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
   Easing,
@@ -8,38 +8,37 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Check, Eye, Star } from 'lucide-react-native'
+import { Check, Eye } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
-import { color, opacity, radius, spacing } from '@/design-system/tokens'
+import { color, radius, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
-import { formatRedemptionCode } from '../utils/formatRedemptionCode'
-import { useScreenCaptureProtection } from '../hooks/useScreenCaptureProtection'
 import type { VoucherType } from '@/lib/api/redemption'
 
 type Props = {
   visible: boolean
-  /** The successful RedeemResponse from useRedeem. null when popup hidden. */
-  redemptionCode: string
-  redeemedAt: string  // ISO string
   /**
-   * RedeemResponse.estimatedSaving — already on the wire (see
-   * apps/customer-app/src/lib/api/redemption.ts:43).  Renders the
-   * "You saved £X.XX" callout between the voucher context strip and
-   * the code hero.  Suppressed when value <= 0 (graceful no-op for
-   * REUSABLE / £0 vouchers).  Hardcoded GBP formatting per the
-   * shape brief (D10) — locale-aware deferred to a future i18n
-   * workstream because Hermes-CLDR currency formatting is fragile
-   * (cross-ref deferred-followups §AG2).
+   * ISO string used by the receipt "Redeemed on" row.  The redemption
+   * code itself is NOT rendered on this surface (locked 2026-05-09
+   * §0.9 — popup is no longer a sensitive code surface; the code
+   * lives on ShowToStaff + RedemptionDetailsCard).
+   */
+  redeemedAt: string
+  /**
+   * RedeemResponse.estimatedSaving — drives the "You saved £X.XX"
+   * callout.  Suppressed when value <= 0 (D9).  Hardcoded GBP
+   * (D10).
    */
   estimatedSaving: number
   voucherTitle: string
   voucherType: VoucherType
   merchantName: string
   branchName: string | null
-  /** "Show to Staff" — M3 stub in M2 (caller passes a no-op or alert). */
+  /**
+   * Primary CTA — "View voucher code" (D11 / §0.10).  Opens the
+   * dedicated Show-to-Staff screen where the live, anti-fraud-
+   * protected code surface lives.
+   */
   onShowToStaff: () => void
-  /** "Rate & Review" — M2 keeps as a stub or routes to existing review flow. */
-  onRateReview: () => void
   /** "Done" — caller closes the popup; voucher detail re-renders state-3. */
   onDone: () => void
 }
@@ -55,12 +54,9 @@ const TYPE_LABELS: Record<VoucherType, string> = {
   REUSABLE:         'Reusable',
 }
 
-// en-GB / Europe/London formatters mirror ShowToStaff for consistency.
-// The receipt-style fields ("Redeemed on") use date+time without
-// seconds; the live trust signal includes seconds so a screenshot
-// freezes a stale timestamp that staff can spot. Hermes-CLDR-robust
-// pattern (numeric Intl parts + composed display) — see
-// `reference_london_clock_helper.md` in memory.
+// en-GB / Europe/London formatter for the "Redeemed on" receipt row.
+// Hermes-CLDR-robust pattern — see `reference_london_clock_helper.md`
+// in memory.  No seconds — the receipt value is a permanent record.
 const REDEEMED_AT_FORMATTER = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Europe/London',
   day:    '2-digit',
@@ -71,84 +67,60 @@ const REDEEMED_AT_FORMATTER = new Intl.DateTimeFormat('en-GB', {
   hour12: false,
 })
 
-const LIVE_CLOCK_FORMATTER = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/London',
-  day:    '2-digit',
-  month:  'short',
-  year:   'numeric',
-  hour:   '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-})
-
 function formatRedeemedAtLine(iso: string): string {
-  // Receipt-detail tone: "08 May 2026, 14:24". Drops seconds — the
-  // static value is a permanent record, not a real-time signal. The
-  // live trust line below carries seconds.
+  // Receipt-detail tone: "08 May 2026, 14:24".
   return REDEEMED_AT_FORMATTER.format(new Date(iso))
 }
 
-function formatLiveLine(now: Date): string {
-  // "08 May 2026 · 14:24:38" — date and time joined with a middot.
-  // Splits the formatter output to avoid Hermes-CLDR locale quirks
-  // (the comma separator from `Intl` can render differently per
-  // engine; the join is explicit).
-  const parts = LIVE_CLOCK_FORMATTER.format(now).split(', ')
-  const date = parts[0] ?? ''
-  const time = parts[1] ?? ''
-  return date && time ? `${date} · ${time}` : LIVE_CLOCK_FORMATTER.format(now)
-}
-
 /**
- * SuccessPopup — Voucher Detail M2 (redesign locked 2026-05-09 from
- * `/impeccable improve` design pass).
+ * SuccessPopup — Voucher redemption confirmation (REVISED PR-A
+ * locked 2026-05-09 §0.9 + §0.10 + §0.11).
  *
- * Design direction — COMMITTED color strategy on the voucher's own
- * type colour (Freebie emerald, BOGO purple, Discount rose, etc.).
- * The success surface is THIS voucher's success surface, not a
- * generic confirmation modal. Replaces the previous brand-rose/coral
- * gradient header (SaaS-reflex) with subtle voucher-type pastel
- * accent. Code is now the visual hero; the check is acknowledgment.
+ * Product direction shift mid-PR-A:  the popup is no longer a
+ * sensitive code surface.  The redemption code, live ticking
+ * timestamp, anti-fraud disclosure copy, AND the
+ * `useScreenCaptureProtection` hook were all REMOVED.  The code
+ * lives on the dedicated `<ShowToStaff>` screen (live signals,
+ * screen-capture protection, screenshot guard) and on the
+ * persisted `<RedemptionDetailsCard>` during the 2-hour
+ * presentation window.  Three-surface duplication resolved.
  *
- * Why committed-on-type:
- *   • Ties the success moment to the voucher's identity — the user
- *     just tapped a Freebie voucher, the success surface looks like
- *     a Freebie.
- *   • Resolves the previous design's three-accent muddle (rose +
- *     green + purple) into one meaningful committed colour.
- *   • Anti-references SaaS brand-gradient modal AND the second-order
- *     "minimal typographic on cream" reflex — voucher-type colour
- *     makes it specifically Redeemo.
+ * Why: §AB / §AE5 / §AE6 anti-fraud architecture rests on the
+ * LIVE Show-to-Staff screen as the trust signal.  A static popup
+ * with the code creates a screenshot-friendly bypass surface;
+ * removing the code closes that gap.  See plan §0.9 for the
+ * decision rationale.
  *
- * Layout (top → bottom):
- *   1. Type-pastel accent row: small green check + "REDEEMED" label
- *      in tracked uppercase, voucher-type pastel gradient bg.
- *   2. Voucher context: title + merchant, single compact strip.
- *   3. Code hero: raised card with type-colour border ring + tint.
- *      Code at 30pt 800 tabular-nums; live timestamp underneath.
- *   4. Receipt details: "Redeemed on" + "Branch", compact tabular.
- *   5. Disclosure: "Staff scan or type this code from the Show to
- *      Staff screen."
- *   6. Primary CTA: Show to Staff — solid type-colour with type-
- *      tinted shadow.
- *   7. Secondary row: Rate & Review (flat type-colour text) + Done
- *      (flat navy text). Quieter; not competing with the primary.
+ * Design direction — COMMITTED colour on the voucher's own type
+ * (Freebie emerald, BOGO purple, Discount rose, etc.).  The
+ * success surface is THIS voucher's success surface, not a generic
+ * confirmation modal.
  *
- * Persistence: this component is mounted by VoucherDetailScreen via
- * `successPopup` state. As long as the screen stays mounted, the popup
- * survives focus changes / app background — the parent decides when
- * to dismiss via setSuccessPopup(null).
+ * Layout (top → bottom, post-revision):
+ *   1. Type-pastel accent row — gradient bg, animated check ring +
+ *      title "Voucher redeemed successfully" (D16).  No type chip
+ *      and no eyebrow text — gradient signals voucher type;
+ *      title carries the success message.
+ *   2. Voucher context — title + merchant strip.
+ *   3. Saving callout — "You saved £X.XX" (suppressed when 0).
+ *   4. Receipt details — "Redeemed on" + "Branch".
+ *   5. Primary CTA — "View voucher code" (D11): opens the
+ *      dedicated Show-to-Staff screen.
+ *   6. Done CTA — flat dismiss text.
  *
- * Confetti is intentionally omitted: the v6 confetti uses 7
- * Reanimated layers + 2.8s sequence which would add ~150 lines of
- * animation code. Owner direction prioritises shipping the contract
- * over decorative motion; if confetti is wanted, it's a Tier-1 polish
- * follow-up on top of the working popup.
+ * Removed in revised PR-A scope (LOCKED 2026-05-09):
+ *   • Code box (label + 4+4 code rendering)
+ *   • Live ticking timestamp
+ *   • Anti-fraud disclosure copy
+ *   • `useScreenCaptureProtection(visible)` (D15)
+ *   • Rate & Review CTA — hidden in PR-A; reintroduced in PR-C
+ *     with verified-review backend wire-up (D12).
+ *
+ * Confetti / celebration motion remains deferred to PR-B (Tier 2
+ * design pass).
  */
 export function SuccessPopup({
   visible,
-  redemptionCode,
   redeemedAt,
   estimatedSaving,
   voucherTitle,
@@ -156,36 +128,11 @@ export function SuccessPopup({
   merchantName,
   branchName,
   onShowToStaff,
-  onRateReview,
   onDone,
 }: Props) {
-  // Cross-platform screen-capture protection while the popup is
-  // visible. Android FLAG_SECURE blocks screenshots + recordings;
-  // iOS 11+ overlays a blurred snapshot on active recordings /
-  // mirroring. Best-effort — the popup renders normally if the
-  // native call rejects. Locked 2026-05-08, PR #49 final wave —
-  // shares the prevention baseline with `<ShowToStaff>` so a
-  // screenshot/recording of EITHER surface that displays the code
-  // is protected. SuccessPopup intentionally does NOT install the
-  // iOS post-fact screenshot listener (no banner, no telemetry) —
-  // that surface area stays Show-to-Staff-specific.
-  useScreenCaptureProtection(visible)
-
   const scale = useSharedValue(0.8)
   const ty = useSharedValue(30)
   const checkScale = useSharedValue(0)
-
-  // Live ticking timestamp — anti-screenshot trust signal. Updates
-  // every 1s while the popup is visible. The interval is unconditional
-  // on `prefers-reduced-motion`: this is a trust signal, not
-  // decorative motion, so reduced-motion users still see it tick (per
-  // owner direction 2026-05-08).
-  const [now, setNow] = useState<Date>(() => new Date())
-  useEffect(() => {
-    if (!visible) return
-    const id = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(id)
-  }, [visible])
 
   useEffect(() => {
     if (visible) {
@@ -230,11 +177,8 @@ export function SuccessPopup({
   }))
 
   const typeColor = color.voucher.byType[voucherType] ?? color.voucher.discount
-  const typeBgTint = `${typeColor}14`     // ~8% alpha tint via hex
-  const typeBgRing = `${typeColor}33`     // ~20% alpha for borders
   const typeGradient = color.voucher.gradientByType[voucherType]
     ?? color.voucher.gradientByType.DISCOUNT_FIXED
-  const formattedCode = formatRedemptionCode(redemptionCode)
 
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={onDone}>
@@ -245,11 +189,12 @@ export function SuccessPopup({
           style={[styles.popup, popupStyle]}
           testID="success-popup"
         >
-          {/* Type-pastel accent row — replaces the brand-gradient header.
-              Voucher-type pastel gradient gives the popup its identity
-              colour (Freebie emerald, BOGO purple, etc.) — the success
-              surface looks like THIS voucher's success surface, not a
-              generic confirmation modal. */}
+          {/* Type-pastel accent row — gradient signals voucher type;
+              animated check ring + title carry the success message.
+              Type chip + "Redeemed" eyebrow removed (D16) — the title
+              now reads as a clear success statement instead of a small
+              uppercase eyebrow.  Title aria-hidden because the modal's
+              accessibilityLabel already announces the same string. */}
           <View style={styles.accentRow}>
             <LinearGradient
               colors={typeGradient}
@@ -264,19 +209,13 @@ export function SuccessPopup({
               <Check size={14} color={color.onBrand} strokeWidth={3} />
             </Animated.View>
             <Text
-              variant="label.lg"
-              style={[styles.accentLabel, { color: typeColor }]}
+              variant="heading.sm"
+              style={[styles.accentTitle, { color: typeColor }]}
+              numberOfLines={1}
+              testID="success-title"
             >
-              Redeemed
+              Voucher redeemed successfully
             </Text>
-            <View style={[styles.accentTypeChip, { borderColor: typeBgRing }]}>
-              <Text
-                variant="label.md"
-                style={[styles.accentTypeChipText, { color: typeColor }]}
-              >
-                {TYPE_LABELS[voucherType]}
-              </Text>
-            </View>
           </View>
 
           {/* Body — voucher context + code hero + receipt + CTAs */}
@@ -320,48 +259,15 @@ export function SuccessPopup({
               </View>
             ) : null}
 
-            {/* Code hero — anti-fraud trust area. Type-coloured border
-                ring + 8% tint background lifts this above the receipt
-                detail rows; the code is now the visual hero of the
-                popup. The live timestamp is rendered HERE next to the
-                code so a screenshot cannot crop one without the other.
-                The live ticker is the screenshot-detection signal:
-                trained staff see a frozen second-counter on a static
-                screenshot. Locked 2026-05-08, deferred-followups §AC. */}
-            <View
-              style={[styles.codeBox, {
-                backgroundColor: typeBgTint,
-                borderColor: typeBgRing,
-              }]}
-              testID="success-proof-area"
-            >
-              <Text variant="label.md" style={[styles.codeLabel, { color: typeColor }]}>
-                REDEMPTION CODE
-              </Text>
-              <Text
-                variant="heading.md"
-                style={styles.codeValue}
-                testID="success-code"
-                accessibilityLabel={`Code: ${formattedCode.split('').join(' ')}`}
-              >
-                {formattedCode}
-              </Text>
-              <Text
-                variant="body.sm"
-                style={styles.liveLine}
-                testID="success-live-timestamp"
-                accessibilityLabel={`Live time: ${formatLiveLine(now)}`}
-              >
-                Live: {formatLiveLine(now)}
-              </Text>
-            </View>
+            {/* Code box + live timestamp + anti-fraud disclosure all
+                REMOVED 2026-05-09 (§0.9).  This popup is no longer a
+                sensitive code surface; the code lives on
+                <ShowToStaff> + persisted <RedemptionDetailsCard>.
+                See plan §0.9 for the rationale. */}
 
-            {/* Receipt details — compact tabular rows. The "Redeemed on"
-                line is the static record from `redeemedAt`; the live
-                ticker lives in the proof area above. The Branch row
-                hides entirely when branch is unknown (avoids the old
-                em-dash fallback which violated the locked "no em
-                dashes in UI text" PRODUCT.md rule). */}
+            {/* Receipt details — compact tabular rows confirming the
+                redemption.  Branch hides when unknown (avoids the
+                em-dash fallback which violated the no-em-dash rule). */}
             <View style={styles.infoRows}>
               <InfoRow
                 label="Redeemed on"
@@ -371,28 +277,13 @@ export function SuccessPopup({
               <InfoRow label="Branch" value={branchName ?? '-'} />
             </View>
 
-            {/* Anti-fraud disclosure — keeps the test-pin testID
-                `success-staff-verify-copy` (must reference "Show to
-                Staff" per success-popup.test.tsx). Tightened copy:
-                tells the user WHAT staff do (scan or type), not just
-                where. */}
-            <Text
-              variant="body.sm"
-              style={styles.disclosure}
-              testID="success-staff-verify-copy"
-            >
-              Staff scan or type this code from the Show to Staff screen.
-            </Text>
-            {/* disclosure body.sm variant drives 14/21 (cross-surface
-                consistency 2026-05-09 — fontSize override stripped). */}
-
-            {/* Primary CTA — solid voucher-type colour with type-
-                tinted shadow. Replaces the previous brand-rose/coral
-                gradient (which was the SaaS reflex per PRODUCT.md
-                anti-references). */}
+            {/* Primary CTA — "View voucher code" (D11 / §0.10).
+                Solid voucher-type colour with type-tinted shadow.
+                Opens the dedicated Show-to-Staff screen where the
+                live, anti-fraud-protected code surface lives. */}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Show redemption code to staff"
+              accessibilityLabel="View voucher code"
               testID="success-show-to-staff"
               onPress={() => { lightHaptic(); onShowToStaff() }}
               style={({ pressed }) => [
@@ -406,34 +297,14 @@ export function SuccessPopup({
             >
               <Eye size={18} color={color.onBrand} strokeWidth={2.4} />
               <Text variant="body.md" style={styles.primaryCtaText}>
-                Show to Staff
+                View voucher code
               </Text>
             </Pressable>
 
-            {/* Secondary row — flat text actions. Demoted from the
-                previous outlined-button treatment so they read as
-                supporting actions, not as primary actions competing
-                with Show to Staff. */}
+            {/* Secondary row — Done is the only tertiary action in
+                PR-A.  Rate & Review hidden until PR-C lands the
+                verified-review backend (D12 / §0.2). */}
             <View style={styles.secondaryRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Rate and review"
-                testID="success-rate-review"
-                onPress={() => { lightHaptic(); onRateReview() }}
-                style={({ pressed }) => [
-                  styles.tertiaryAction,
-                  pressed && styles.tertiaryPressed,
-                ]}
-              >
-                <Star size={13} color={typeColor} strokeWidth={2.4} />
-                <Text
-                  variant="label.md"
-                  style={[styles.tertiaryText, { color: typeColor }]}
-                >
-                  Rate & Review
-                </Text>
-              </Pressable>
-              <View style={styles.tertiaryDot} />
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Done"
@@ -516,25 +387,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  accentLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
+  // heading.sm (16 / 22) variant drives the success title.  flex: 1
+  // claims the row width remaining after the check ring.  Type chip
+  // and uppercase eyebrow are gone — gradient signals voucher type;
+  // title carries the success message clearly (D16).
+  accentTitle: {
     flex: 1,
-  },
-  accentTypeChip: {
-    paddingHorizontal: spacing[2],
-    paddingVertical: 3,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.55)',
-  },
-  accentTypeChipText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    fontWeight: '700',
   },
   // ── Body ──
   body: {
@@ -590,62 +449,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
-  // ── Code hero ──
-  // The visual hero of the popup. Type-coloured border ring + 8%
-  // tint background lifts this above the receipt rows. Generous
-  // vertical padding gives the code breathing room — varied
-  // spacing rhythm per design laws (rest of the popup uses
-  // tighter rhythm).
-  codeBox: {
-    borderRadius: radius.lg,
-    paddingVertical: spacing[4],
-    paddingHorizontal: spacing[4],
-    alignItems: 'center',
-    borderWidth: 1,
-    // Defense-in-depth against ascender clipping (mirrors the M3
-    // RedeemedSeal wave-6 pattern): even if a future style override
-    // shrinks the code's line-box, the parent never crops the glyphs.
-    overflow: 'visible',
-  },
-  codeLabel: {
-    fontSize: 9,
-    letterSpacing: 1.4,
-    fontWeight: '800',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  // Code hero — fontSize 30 overrides the heading.md variant (which
-  // is 18 / 24).  RN's <Text> applies the variant lineHeight FIRST,
-  // so without an explicit lineHeight bump here the line box is
-  // 24pt while the glyphs need ~30pt — clipping the ascenders.
-  // Owner-reported on-device 2026-05-09; same fragility class as
-  // the M3 RedeemedSeal wave-6 bug.  Fix: lineHeight 42 (1.4× ratio,
-  // gives ascenders generous headroom) + drop the negative
-  // marginTop that pulled glyphs up into the clip + parent codeBox
-  // gets overflow: 'visible' as a regression guard.
-  codeValue: {
-    fontSize: 30,
-    lineHeight: 42,
-    fontWeight: '800',
-    color: color.text.primary,
-    letterSpacing: 4,
-    fontVariant: ['tabular-nums'],
-    // Android safety: ensures the system-reserved padding around
-    // text doesn't get suppressed.  Mirrors RedeemedSeal wave-6.
-    includeFontPadding: true,
-  },
-  // body.sm (14 / 21) variant drives.  fontSize override removed
-  // 2026-05-09 (PR-A §3.3): live timestamp is the screenshot-detection
-  // trust signal — staff verify the second-counter is moving.  At 11pt
-  // it was too tight against the 30pt code; at 14pt it reads
-  // comfortably without competing.
-  liveLine: {
-    marginTop: spacing[2],
-    color: color.text.tertiary,
-    letterSpacing: 0.3,
-    fontVariant: ['tabular-nums'],
-    fontWeight: '500',
-  },
+  // (Code hero, code label, code value, live timestamp styles all
+  // removed 2026-05-09 — the popup is no longer a sensitive code
+  // surface.  The code lives on <ShowToStaff> + <RedemptionDetailsCard>.)
+
   // ── Receipt rows ──
   infoRows: {
     gap: 0,
@@ -673,18 +480,9 @@ const styles = StyleSheet.create({
     marginLeft: spacing[3],
     fontVariant: ['tabular-nums'],
   },
-  // ── Disclosure ──
-  // Tertiary text that explains how staff verify the code. Quieter
-  // than the receipt rows (no border, no weight) so it reads as a
-  // helper line, not a separate section.
-  // body.sm (14 / 21) variant drives.  fontSize/lineHeight overrides
-  // removed 2026-05-09 (cross-surface consistency).
-  disclosure: {
-    color: color.text.tertiary,
-    textAlign: 'center',
-    paddingHorizontal: spacing[2],
-    paddingTop: 2,
-  },
+  // (Disclosure style removed 2026-05-09 — the anti-fraud disclosure
+  // line was tied to the code rendering on this surface.)
+
   // ── Primary CTA ──
   // Solid voucher-type colour. Background + shadow set inline so the
   // colour follows the active voucher's type. No gradient — that was
@@ -708,8 +506,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   // ── Tertiary action row ──
-  // Flat text actions. Read as supporting choices, not primary
-  // buttons competing with Show to Staff above.
+  // Flat dismiss text only.  Rate & Review removed for PR-A —
+  // returns in PR-C with verified-review backend (D12).  The row
+  // structure is preserved (centred, no separator) so PR-C can
+  // restore the second action without restructuring.
   secondaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -725,12 +525,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
   },
   tertiaryPressed: {
-    opacity: opacity.pressed,
-  },
-  tertiaryText: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.2,
+    opacity: 0.85,
   },
   tertiaryDoneText: {
     fontSize: 12,
@@ -738,14 +533,8 @@ const styles = StyleSheet.create({
     color: color.text.secondary,
     letterSpacing: 0.2,
   },
-  tertiaryDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: color.border.default,
-  },
   ctaPressed: {
-    opacity: opacity.pressed,
+    opacity: 0.85,
     transform: [{ scale: 0.98 }],
   },
 })

@@ -615,8 +615,8 @@ export function VoucherDetailScreen() {
   //     against synthesised press / re-render race against the
   //     hidden CTA). True only when the code surface itself is
   //     hidden (out-of-window OR validated). During the in-window
-  //     state the user CAN legitimately tap "Show to Staff" from
-  //     the card; this guard must NOT fire then.
+  //     state the user CAN legitimately tap the "View voucher code"
+  //     CTA from the card; this guard must NOT fire then.
   const isRedeemed = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt
   const showRedeemedSeal = isRedeemed
   const blockShowToStaffMount =
@@ -1501,7 +1501,6 @@ export function VoucherDetailScreen() {
       {successPopup && voucher ? (
         <SuccessPopup
           visible
-          redemptionCode={successPopup.redemptionCode}
           redeemedAt={successPopup.redeemedAt}
           estimatedSaving={successPopup.estimatedSaving}
           voucherTitle={voucher.title}
@@ -1509,11 +1508,10 @@ export function VoucherDetailScreen() {
           merchantName={voucher.merchant.businessName}
           branchName={branchName}
           onShowToStaff={() => {
-            // M3 — open the full-screen ShowToStaff surface with the
-            // just-created redemption. Close the SuccessPopup first
-            // so the user lands on the QR/code surface cleanly when
-            // ShowToStaff dismisses (auto-dismiss after validated, or
-            // Done press).
+            // Primary CTA — "View voucher code" (D11 / §0.10).  Opens
+            // the dedicated ShowToStaff screen where the live, anti-
+            // fraud-protected code surface lives.  The popup itself
+            // no longer renders the code (§0.9).
             //
             // `branchName` is `string | null` (display branch may not
             // resolve in races / cold-open paths); the `setShowToStaff`
@@ -1528,11 +1526,6 @@ export function VoucherDetailScreen() {
               redeemedAt: successPopup.redeemedAt,
               branchName: branchName ?? '',
             })
-          }}
-          onRateReview={() => {
-            // M2 keeps the review path unchanged — closes the popup;
-            // future milestones will route into the existing review flow.
-            setSuccessPopup(null)
           }}
           onDone={() => setSuccessPopup(null)}
         />

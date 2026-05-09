@@ -585,4 +585,76 @@ This shape brief must be approved by the owner before:
 
 ---
 
-**End of shape brief. Awaiting owner approval before commit + production code.**
+## 13. Amendment — SuccessPopup composition + CTA rename (LOCKED 2026-05-09 mid-PR-A)
+
+After implementation began, on-device QA surfaced product-direction shifts. This section AMENDS the brief above; where this section conflicts with §3 / §7 / §12 it wins. See plan §0.9 + §0.10 for the binding-contract version.
+
+### 13.1 — SuccessPopup no longer shows the redemption code
+
+D7 (type-scale bumps for SuccessPopup) and §3.3 (audit table for SuccessPopup typography) both contained recommendations for the *redemption code box, code label, and live timestamp*. **Those elements are removed from the SuccessPopup entirely.**
+
+Removed elements:
+- `codeBox` — entire block (label + 4+4 code + live timestamp)
+- `codeValue` styling — including the `lineHeight: 42` glyph-clip fix shipped in commit 90cc7bb (now obsolete since the element is gone)
+- `liveLine` — the ticking en-GB London timestamp
+- `disclosure` — "Staff scan or type this code from the Show to Staff screen." (no code on this surface, no need to disclose handoff mechanics here)
+- **`useScreenCaptureProtection(visible)` hook installation** (locked 2026-05-09 mid-implementation): once the code is no longer rendered on this surface, the popup is no longer a sensitive code surface — there is nothing for screen-capture protection to guard. Code surfaces (`ShowToStaff`, `VoucherDetailScreen` while code is visible) keep their protection unchanged.
+
+Why: §AB / §AE5 anti-fraud architecture rests on the live Show-to-Staff screen as the trust signal. A static popup with the code creates a screenshot-friendly bypass surface. Removing the code reinforces the architecture and resolves the three-surface duplication (popup + Show-to-Staff + RedemptionDetailsCard).
+
+### 13.1a — Title eyebrow: "Redeemed" → "Voucher redeemed successfully"
+
+The accent-row eyebrow `Redeemed` (label.lg uppercase tracked) was too terse for the moment. Replaced with the explicit success statement `Voucher redeemed successfully`.
+
+Variant + sizing for the new title locked during implementation per §0.8 readability + density-with-scale rules. Aim: the title reads clearly at the top of the popup without competing with the saving callout below.
+
+The `accessibilityLabel="Voucher redeemed successfully"` on the popup wrapper already matches; no a11y change.
+
+### 13.2 — Rate & Review CTA hidden in PR-A
+
+Per plan §0.2, the Rate & Review CTA cannot ship live until PR-C lands the verified-review backend. Until then, tapping it just dismissed the popup — same as Done — which presented a misleading dead-end.
+
+PR-A action: **the CTA is hidden in this surface.** The `onRateReview` prop is removed from the SuccessPopup. The defensive pins from commit 62a7bda that asserted "Rate & Review CTA still calls onRateReview" are repurposed into negative pins — "Rate & Review CTA does NOT render in PR-A."
+
+PR-C will reintroduce the CTA together with WriteReviewSheet `fromRedemptionId` plumb-through, ReviewCard verified badge, and the schema migration.
+
+### 13.3 — CTA rename: "Show to Staff" → "View voucher code"
+
+Customer-POV framing. "Voucher code" matches the consumer-facing language used throughout the app. Three surfaces affected:
+
+- `SuccessPopup` primary CTA
+- `RedemptionDetailsCard` CTA (persisted return-visit card)
+- `RedemptionDetailsCard` in-window helper copy: `Available to show staff until <date>.` → `Your voucher code is available until <date>.`
+
+`ShowToStaff` screen title is **kept as "Show to Staff"** — it's action-instructive when the customer is already on the screen. Internal docstrings + hook cross-refs that mention "Show to Staff" as the screen NAME stay (they describe the screen identity, not customer-facing copy).
+
+### 13.4 — Updated decision table
+
+| # | Decision | Status |
+|---|----------|--------|
+| D1 | PIN subtitle | LOCKED |
+| D2 | PIN disclaimer | LOCKED |
+| D3 | Submit idle copy `Confirm` | LOCKED |
+| D4 | Submit loading copy + pulsing dot | LOCKED |
+| D5 | Logo 48×48 | LOCKED |
+| D6 | PIN box 56×64, gap 14 | LOCKED |
+| D7 | Type-scale bumps (PIN sheet portion) | LOCKED |
+| D7 | Type-scale bumps (SuccessPopup portion — code/timestamp/disclosure) | **SUPERSEDED** by §13.1 — those elements removed |
+| D8 | Live timestamp bump 12 → 14 | **SUPERSEDED** by §13.1 — timestamp removed |
+| D9 | Saving callout suppression (`estimatedSaving <= 0` hides) | LOCKED |
+| D10 | Hardcoded GBP formatting | LOCKED |
+| D11 | NEW — SuccessPopup primary CTA `View voucher code` | LOCKED 2026-05-09 |
+| D12 | NEW — Rate & Review CTA hidden in PR-A | LOCKED 2026-05-09 |
+| D13 | NEW — RedemptionDetailsCard helper copy `Your voucher code is available until <date>.` | LOCKED 2026-05-09 |
+| D14 | NEW — ShowToStaff screen title kept as `Show to Staff` | LOCKED 2026-05-09 |
+| D15 | NEW — `useScreenCaptureProtection` REMOVED from SuccessPopup (no longer a sensitive code surface) | LOCKED 2026-05-09 |
+| D16 | NEW — SuccessPopup title `Voucher redeemed successfully` (replaces `Redeemed` eyebrow) | LOCKED 2026-05-09 |
+| D17 | NEW — Show-to-Staff polish (logo, branding, description, safe-area, layout) DEFERRED to PR-B | LOCKED 2026-05-09 |
+
+### 13.5 — Confetti / celebration motion
+
+Confetti was always deferred to PR-B per plan §3 (B2 — "SuccessPopup confetti animation"). The simplified popup shape locked here is a better starting canvas for that work — fewer competing visual signals to contend with.
+
+---
+
+**End of shape brief. Amendment §13 LOCKED 2026-05-09 by owner approval; binds production code from this point forward.**
