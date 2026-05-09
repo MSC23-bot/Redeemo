@@ -42,6 +42,7 @@ import { useRedeem, type UseRedeemError } from '../hooks/useRedeem'
 import { usePresentationActive } from '../utils/presentationWindow'
 import { useScreenCaptureProtection } from '../hooks/useScreenCaptureProtection'
 import { useScreenshotGuard } from '../hooks/useScreenshotGuard'
+import { SCREENSHOT_GUARD_ENABLED } from '../hooks/screenshotGuardConfig'
 import type { RedeemResponse } from '@/lib/api/redemption'
 import { CTA_LABELS } from '../constants/productCopy'
 
@@ -651,7 +652,13 @@ export function VoucherDetailScreen() {
     && !!redemptionRedeemedAt
     && isPresentationActive
     && !isRedemptionValidated
-  useScreenCaptureProtection(codeVisibleOnVoucherDetail)
+  // AND-gated with the shared kill-switch (locked 2026-05-09 from
+  // deferred-followups §AG5). Same gate as ShowToStaff so flipping
+  // the constant in `screenshotGuardConfig` disables BOTH surfaces'
+  // capture protection at once. With the default `SCREENSHOT_GUARD_
+  // ENABLED = true` the behaviour is byte-for-byte identical to the
+  // pre-§AG5 unconditional call.
+  useScreenCaptureProtection(SCREENSHOT_GUARD_ENABLED && codeVisibleOnVoucherDetail)
 
   // ── iOS post-fact screenshot detection on Voucher Detail ───────────
   //
@@ -682,7 +689,9 @@ export function VoucherDetailScreen() {
     ?? voucher?.lastRedemption?.code
     ?? ''
   useScreenshotGuard(screenshotGuardCode, {
-    active: codeVisibleOnVoucherDetail,
+    // AND-gated with the shared kill-switch — see comment on
+    // `useScreenCaptureProtection` above and §AG5.
+    active: SCREENSHOT_GUARD_ENABLED && codeVisibleOnVoucherDetail,
     onBannerShown: () => setScreenshotBannerVisible(true),
   })
   // Auto-dismiss the screenshot banner after 4 seconds. ShowToStaff

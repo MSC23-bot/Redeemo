@@ -26,6 +26,7 @@ import { useBrightnessBoost } from '../hooks/useBrightnessBoost'
 import { useAutoHideTimer } from '../hooks/useAutoHideTimer'
 import { useScreenshotGuard } from '../hooks/useScreenshotGuard'
 import { useScreenCaptureProtection } from '../hooks/useScreenCaptureProtection'
+import { SCREENSHOT_GUARD_ENABLED } from '../hooks/screenshotGuardConfig'
 import type { VoucherType } from '@/lib/api/redemption'
 
 /**
@@ -86,20 +87,14 @@ const AUTO_DISMISS_MS = 2_000
  */
 const BRIGHTNESS_BOOST_ENABLED = true
 
-/**
- * Kill-switch for the screenshot anti-fraud guard (M3 Task 15).
- * Default: true. Same fail-safe spirit as BRIGHTNESS_BOOST_ENABLED —
- * if `expo-screen-capture` misbehaves on a specific device or
- * platform version, flip to `false` to disable the guard entirely
- * without affecting QR/manual-code rendering, polling, validated
- * transition, auto-hide, or AppState wiring.
- *
- * iOS path is "after-the-fact" so disabling means: no banner,
- * no telemetry. Android path is FLAG_SECURE so disabling means:
- * screenshots succeed silently. Both are best-effort; the QR
- * + manual code never depend on either.
- */
-const SCREENSHOT_GUARD_ENABLED = true
+// `SCREENSHOT_GUARD_ENABLED` lives in `../hooks/screenshotGuardConfig`
+// (shared with VoucherDetailScreen — locked 2026-05-09 from
+// deferred-followups §AG5). Imported above. Same fail-safe semantics
+// as `BRIGHTNESS_BOOST_ENABLED` below — flipping the shared constant
+// to `false` disables the iOS post-fact listener AND the cross-
+// platform prevent/allow lifecycle on BOTH ShowToStaff and Voucher
+// Detail at once. QR, manual code, polling, validated transition,
+// auto-hide, AppState wiring — none depend on it.
 
 type Props = {
   visible: boolean
