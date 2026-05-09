@@ -717,4 +717,26 @@ Confetti, Rate & Review CTA, decorative imagery, ShowToStaff layout/branding/vou
 | D25 | Title colour | `typeColor` → **`color.text.primary`** (neutral navy). The title carries the success moment and should read consistently across every voucher type. The gradient already carries voucher identity; the green check ring already carries the success signal; the title text is the moment statement — colour belongs to the gradient + check, not the words. PRODUCT.md tone: trust-first, grounded navy reads as official / clear-text on every pastel gradient. |
 | D26 | Accent row height | `paddingVertical` 16 → **24** (`spacing[6]`); `minHeight` 52 → **72**. Lifts the row from a thin accent strip into a hero band per owner: *"that section at the top could be a little bit bigger… in terms of height. and appropriately positioned and laid out."* Text scale unchanged (still heading.md 18); the hero feel comes from extra vertical breathing space around content, not from scaling the text. |
 
-**§14 still LOCKED. D25 + D26 are post-implementation refinements within §14 scope.**
+### 14.7 — Consistent Redeemo branding (D27 + D28, LOCKED 2026-05-09 from owner direction after D25/D26 first-pass)
+
+Owner direction: *"the background on the main body, uh, inside the card, um, is not quite in line with our branding… I don't know how I feel about having to change the design of this screen depending on the voucher. I think it should be consistent, and then we should keep it within our own branding."*
+
+This is a meaningful direction shift away from the M2 "committed colour on voucher type" rationale that drove the original SuccessPopup redesign. **Branding consistency wins.**
+
+| # | Decision | Locked value |
+|---|----------|--------------|
+| D27a | Accent row gradient | `gradientByType[voucherType]` (varies) → **`['#FFF9F5', '#FCF0E5']`** (PRODUCT.md identity-zone gradient). Cream-to-cream-tinted warm intro. Subtle, branded, doesn't compete with the savings-green callout. |
+| D27b | Primary CTA | `typeColor` solid + type-coloured shadow → **brand gradient `[color.brandRose, color.brandCoral]` + brand-rose shadow**. Cross-surface consistency with `RedemptionDetailsCard`'s "Open staff view" CTA — both lead to Show-to-Staff, both look identical. |
+| D27c | Body background | `color.surface.raised` (white) → **`color.cream`** (`#FFF9F5`). PRODUCT.md design-system anchor: cream is the project's canonical warm-neutral surface. Popup body becomes "Redeemo's warm space" instead of generic white. |
+| D27d | Semantic green KEPT | Check ring + saving callout stay `savingsGreen`. These are semantic signals (success acknowledgement + money saved), not voucher-type identity. PRODUCT.md tone: trust-first / precise about money. |
+| D27e | `voucherType` prop dropped | No remaining consumers in SuccessPopup. Removed from Props + VoucherDetailScreen pass-through + test fixture. Import of `VoucherType` removed. |
+| D28 | CTA helper line | NEW — `Tap below to show your code to staff and apply this offer to your bill.` Concise body.sm centred line above the primary CTA. Bridges action → staff role → bill outcome. The §13.1 anti-fraud disclosure was removed alongside the code; this helper restores the user's "what does this button do" cue without re-introducing the code. |
+
+After D27 the popup looks identical regardless of voucher type. Three trust colours operating consistently:
+
+- **Brand rose / coral** → Redeemo identity (CTA, primary brand action)
+- **Savings green** → success signal + money saved (semantic, never type-coloured)
+- **Cream** → Redeemo's warm canvas (body + hero band, identity without shouting)
+- **Navy** → clear text on the warm bg
+
+**§14 still LOCKED. D25–D28 are post-implementation refinements within §14 scope.**

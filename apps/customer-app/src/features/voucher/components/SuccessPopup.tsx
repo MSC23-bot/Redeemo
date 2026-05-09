@@ -12,7 +12,6 @@ import { Check, Eye } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, radius, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
-import type { VoucherType } from '@/lib/api/redemption'
 
 type Props = {
   visible: boolean
@@ -30,7 +29,6 @@ type Props = {
    */
   estimatedSaving: number
   voucherTitle: string
-  voucherType: VoucherType
   merchantName: string
   /**
    * Merchant logo URL from `voucher.merchant.logoUrl`.  Renders a
@@ -120,7 +118,6 @@ export function SuccessPopup({
   redeemedAt,
   estimatedSaving,
   voucherTitle,
-  voucherType,
   merchantName,
   merchantLogoUrl,
   branchName,
@@ -175,9 +172,12 @@ export function SuccessPopup({
     transform: [{ scale: checkScale.value }],
   }))
 
-  const typeColor = color.voucher.byType[voucherType] ?? color.voucher.discount
-  const typeGradient = color.voucher.gradientByType[voucherType]
-    ?? color.voucher.gradientByType.DISCOUNT_FIXED
+  // D27 §14.7 (LOCKED 2026-05-09): consistent Redeemo branding across
+  // all voucher types.  The accent row uses the cream identity-zone
+  // gradient (PRODUCT.md design-system anchor); the primary CTA uses
+  // the brand gradient (matching RedemptionDetailsCard's CTA).  No
+  // type-driven colours on this surface.
+  const accentGradient = ['#FFF9F5', '#FCF0E5'] as const
 
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={onDone}>
@@ -196,7 +196,7 @@ export function SuccessPopup({
               accessibilityLabel already announces the same string. */}
           <View style={styles.accentRow}>
             <LinearGradient
-              colors={typeGradient}
+              colors={accentGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={StyleSheet.absoluteFillObject}
@@ -291,8 +291,21 @@ export function SuccessPopup({
               <InfoRow label="Branch" value={branchName ?? '-'} />
             </View>
 
+            {/* CTA helper line — D28 §14.7 (LOCKED 2026-05-09).
+                Without the old anti-fraud disclosure (which referenced
+                the on-popup code that we removed in §13.1), the user
+                had no cue for what the primary CTA does.  This concise
+                line bridges action → staff role → bill outcome. */}
+            <Text
+              variant="body.sm"
+              style={styles.ctaHelper}
+              testID="success-cta-helper"
+            >
+              Tap below to show your code to staff and apply this offer to your bill.
+            </Text>
+
             {/* Primary CTA — "View voucher code" (D11 / §0.10).
-                Solid voucher-type colour with type-tinted shadow.
+                Brand gradient + brand-rose shadow (D27b §14.7).
                 Opens the dedicated Show-to-Staff screen where the
                 live, anti-fraud-protected code surface lives. */}
             <Pressable
@@ -302,13 +315,15 @@ export function SuccessPopup({
               onPress={() => { lightHaptic(); onShowToStaff() }}
               style={({ pressed }) => [
                 styles.primaryCta,
-                {
-                  backgroundColor: typeColor,
-                  shadowColor:     typeColor,
-                },
                 pressed && styles.ctaPressed,
               ]}
             >
+              <LinearGradient
+                colors={[color.brandRose, color.brandCoral]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFillObject}
+              />
               <Eye size={18} color={color.onBrand} strokeWidth={2.4} />
               <Text variant="body.md" style={styles.primaryCtaText}>
                 View voucher code
@@ -370,10 +385,12 @@ const styles = StyleSheet.create({
     maxWidth: 340,
     borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: color.surface.raised,
-    // Tighter shadow than the previous 80/32/0.35 — that was
-    // dramatising. PRODUCT.md: "the voucher IS the data; we don't
-    // dramatise it." Keep it grounded.
+    // D27c §14.7 (LOCKED 2026-05-09): cream body bg replaces the
+    // generic white surface.raised.  PRODUCT.md design-system
+    // anchor: cream (#FFF9F5) is the project's canonical warm-
+    // neutral surface.  The popup body becomes "Redeemo's warm
+    // space" instead of an unbranded white card.
+    backgroundColor: color.cream,
     shadowColor: '#0B1F4D',
     shadowOpacity: 0.28,
     shadowRadius: 36,
@@ -539,10 +556,22 @@ const styles = StyleSheet.create({
   // (Disclosure style removed 2026-05-09 — the anti-fraud disclosure
   // line was tied to the code rendering on this surface.)
 
+  // ── CTA helper line (D28 §14.7) ──
+  // body.sm (14 / 21) variant drives.  Centred, navy.muted tone so
+  // it reads as supporting context for the primary CTA below
+  // without competing for attention.
+  ctaHelper: {
+    color: color.text.secondary,
+    textAlign: 'center',
+    paddingHorizontal: spacing[2],
+  },
+
   // ── Primary CTA ──
-  // Solid voucher-type colour. Background + shadow set inline so the
-  // colour follows the active voucher's type. No gradient — that was
-  // the SaaS reflex anti-reference.
+  // D27b §14.7 (LOCKED 2026-05-09): brand gradient + brand-rose
+  // shadow.  Cross-surface consistency — matches RedemptionDetailsCard's
+  // "Open staff view" CTA.  Both lead to the same destination
+  // (Show-to-Staff screen) and now share the brand-rose/coral
+  // identity treatment.
   primaryCta: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -550,6 +579,8 @@ const styles = StyleSheet.create({
     gap: spacing[2],
     paddingVertical: spacing[3] + 2,
     borderRadius: radius.lg,
+    overflow: 'hidden',
+    shadowColor: color.brandRose,
     shadowOpacity: 0.30,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },

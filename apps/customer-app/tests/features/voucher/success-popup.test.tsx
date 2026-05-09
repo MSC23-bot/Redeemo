@@ -26,7 +26,6 @@ function defaults(overrides: Partial<React.ComponentProps<typeof SuccessPopup>> 
     redeemedAt: '2026-05-06T14:32:00Z',
     estimatedSaving: 6.99,
     voucherTitle: 'Free Filter Coffee with Any Thali',
-    voucherType: 'FREEBIE' as const,
     merchantName: 'Covelum Restaurant',
     // D23 §14 (LOCKED 2026-05-09): merchantLogoUrl required prop.
     // Default null exercises the text-only fallback so existing
@@ -87,6 +86,14 @@ describe('SuccessPopup — render + content', () => {
   it('shows branch name', () => {
     const { getByText } = render(<SuccessPopup {...defaults()} />)
     expect(getByText('Brightlingsea')).toBeTruthy()
+  })
+
+  it('shows the D28 CTA helper line above the primary CTA (LOCKED 2026-05-09 §14.7)', () => {
+    const { getByTestId, getByText } = render(<SuccessPopup {...defaults()} />)
+    expect(getByTestId('success-cta-helper')).toBeTruthy()
+    expect(
+      getByText('Tap below to show your code to staff and apply this offer to your bill.'),
+    ).toBeTruthy()
   })
 
   it('falls back to a hyphen (NOT an em dash) when branch name is null', () => {

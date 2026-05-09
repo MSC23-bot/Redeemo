@@ -1504,7 +1504,6 @@ export function VoucherDetailScreen() {
           redeemedAt={successPopup.redeemedAt}
           estimatedSaving={successPopup.estimatedSaving}
           voucherTitle={voucher.title}
-          voucherType={voucher.type}
           merchantName={voucher.merchant.businessName}
           merchantLogoUrl={voucher.merchant.logoUrl ?? null}
           branchName={branchName}
