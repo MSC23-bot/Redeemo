@@ -641,3 +641,31 @@ This plan does NOT mutate any code until the [shape brief](../../design-briefs/2
 - [ ] Sequencing T0 → T1 → T2 → T5 → T3 → T4 → T6 → T7
 
 Once approved, implementation begins.
+
+---
+
+## §AS. As Shipped (T8 device-QA + impeccable rounds, locked at PR head `545882a`)
+
+The implementation diverged from this plan in several owner-direction-driven ways during the 12-round T8 device-QA + impeccable-pass cycle. The full per-surface as-shipped contract lives in the brief at [§A](../../design-briefs/2026-05-09-pr-b-customer-redemption-visual-design-brief.md). This section captures only the structural divergences from the task list above.
+
+### Tasks added beyond T0-T7
+
+- **T8a-T8r — 12 device-QA + impeccable rounds.** Each round was a focused commit (one workstream per commit) on top of the T1-T5 baseline. Round trail: T8a (backend `isRedeemedThisCycle`) → T8b/T8c (initial SuccessPopup + Show-to-Staff fixes from device QA) → T8e/T8f (brand-correctness fixes — only one navy is brand-locked per PRODUCT.md) → T8g (Show-to-Staff content discipline + diagonal stamp on merchant card) → T8h (cache invalidation + nav-buttons-not-dimmed + count copy) → T8i (Voucher Detail hero seal REVERTED to pre-`8802084` — the T8h "premium hairline" was applied to the wrong surface; refined treatment moved to merchant card) → T8j (impeccable: card-body recession via wash + flat shadow) → T8k (interaction-design: card stamp redesigned as diagonal Mustica overprint with motion entry) → T8l (impeccable BranchPickerSheet) → T8m (impeccable PinEntrySheet) → T8n (impeccable + interface-design SuccessPopup — Mustica display tier on title + saving) → T8o (owner: enlarge green check) → T8p (impeccable Show-to-Staff — `mono.redemption` variant) → T8q (QR overlay swapped to brand SVG + white anchor) → T8r (QR overlay navy + slightly bigger + identity-zone gap tightened).
+
+### Surface scope changes vs original plan
+
+- **Voucher BranchPickerSheet** — NOT in the original plan (T0-T7); added at T8l as part of the impeccable design-system alignment pass alongside PinEntrySheet T8m.
+- **PinEntrySheet** — was audit-only at T4; T8m promoted to a full impeccable pass (token alignment + Mustica title + button-primary-lg spec) without touching any owner-iterated copy or layout decision.
+- **Voucher Detail hero seal** — was `dimmed` prop addition at T3; T8i reverted to pre-`8802084` rubber-stamp `RedeemedSeal` exactly. The `dimmed` prop architecture remains (selectively applied to gradient + content + saveBadge; nav row stays full opacity).
+- **Merchant Profile voucher card stamp** — original plan §3.5 single-word "REDEEMED" stamp top-right corner shipped at T5; iterated through T8i (centered "Voucher Redeemed" cream pill) → T8k (diagonal Mustica Pro Semibold 22pt cancellation overprint at -10°). Final shipped state in brief §A.1.
+
+### Closed deferrals
+
+- **§Q4 — Merchant Profile redeemed-card treatment** — closed via T5 + T8a (backend) + T8j (card body) + T8k (stamp). Marked closed in deferred-followups memory.
+
+### Test totals at merge (`545882a`)
+
+- Customer-app jest full suite: **1309/1310 ✅** (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts` — documented existing-state, not introduced by PR-B).
+- Voucher + merchant scope: **941/941 ✅** across 77 suites.
+- Backend vitest: **553/553 ✅** across 60 files.
+- `tsc --noEmit` (customer-app): clean.
