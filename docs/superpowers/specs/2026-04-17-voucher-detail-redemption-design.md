@@ -548,11 +548,19 @@ The full Show-to-Staff full-screen surface is now LIVE in M3. All five locked an
 - **Info rows:** Code (16px, 800 weight, navy, 3px letter-spacing, tabular-nums), Branch, Date, Time — each 12px, labels muted, values navy bold
 - **QR code section:** below info rows, separated by dashed border-top. "Redemption QR Code" label (10px, uppercase, muted). 100×100px QR box with Redeemo logo
 
-### 8.6 Rate & Review CTA
+### 8.6 Rate & Review CTA — SHIPPED via PR-C (PR #57, locked 2026-05-09)
 
-- Full width, BOGO purple tint bg (`rgba(124,58,237,0.06)`), purple text, star icon, 1.5px purple border
-- Text: "Rate & Review Pizza Palace" — 14px, 700 weight
-- **Tapping:** opens merchant review flow
+**Final state — supersedes the original mockup-derived spec above.**
+
+The Rate & Review entry on Voucher Detail is now a dedicated `<ReviewPromptCard>` mounted immediately AFTER `<RedemptionDetailsCard>` in the redeemed-this-cycle state, NOT a separate full-width tinted button stuck on the bottom. The two surfaces (SuccessPopup + Voucher Detail) share one CTA identity:
+
+- **Card surface** (Voucher Detail only): cream-tinted background (`color.cream`), 20pt corner radius, 1px hairline border (`rgba(0,0,0,0.04)`), no shadow. Holds heading "Share your experience", body "Your review helps others choose this branch.", and the CTA pill.
+- **CTA pill** (both surfaces, identical): filled NAVY GRADIENT `['#010C35', '#1F2A55']`, white-on-navy Star icon + "Rate & Review" label (`body.md`, 700 weight, 0.1 letter-spacing). Soft navy shadow (opacity 0.20, radius 10). Tap target: paddingVertical 12 + body.md lineHeight 24 = 48pt total (clears HIG 44pt). paddingHorizontal 22, gap 10pt around glyph + label.
+- **Tapping:** routes to `/(app)/merchant/<id>?branch=<branchId>&tab=reviews&openWriteReview=1&fromRedemption=<redemptionId?>`. The merchant profile auto-opens `<WriteReviewSheet>` on the Reviews tab. If the user already has a review for this branch, the sheet shows "Update your review" / "Update review" copy (Option A — current `@@unique([userId, branchId])` model).
+- **Visibility gate:** `stateKey === 'redeemed-this-cycle' && reviewPromptContext?.branchId` truthy. Defensive empty-branchId check hides the prompt rather than routing into a malformed URL. No fall-back to branchName.
+- **Verified-review attribution:** in-memory just-redeemed path includes `fromRedemption=<id>` in the URL → backend Path A validates ownership/branch/merchant/current-cycle and surfaces the verified banner upfront on `<WriteReviewSheet>`. Persisted return-visit path omits `fromRedemption` (the persisted `lastRedemption` payload doesn't expose redemption id today) and relies on backend Path B auto-link to verify on submit.
+
+The previous "BOGO purple tint bg, purple text" framing from the original mockup is superseded — the navy gradient locks visual consistency with the merchant-profile ActionRow Contact button across all secondary actions.
 
 ### 8.7 Terms & Conditions
 
@@ -663,7 +671,14 @@ After the Bundle E task list completed, three commits landed on the M3 branch ad
 
 **Locked iOS limitation (cross-ref §AB / §AE).** The FIRST screenshot on iOS will capture the unblurred QR + 8-char code BEFORE the listener-driven blur paints. The blur + banner are post-fact mitigations. Staff training + merchant validation policy (never accept screenshots as proof) is the load-bearing fraud control. Stronger anti-fraud options (QR hidden by default, tap-to-reveal, short-lived rotating QR, merchant validation policy formalisation, telemetry dashboards) are deferred to §AE for v2 product brainstorm.
 
-**Locked SuccessPopup deferred polish (cross-ref §S2).** The broader visual redesign — confetti, saving amount surfacing, Rate & Review CTA visual treatment, Rate & Review routing — remains deferred. M3 ships the ANTI-FRAUD baseline (live timestamp + staff-verify copy); the design pass is a §S2 follow-up.
+**Locked SuccessPopup deferred polish (cross-ref §S2).** The broader visual redesign — confetti, saving amount surfacing — remains deferred. M3 ships the ANTI-FRAUD baseline (live timestamp + staff-verify copy); the design pass is a §S2 follow-up.
+
+**Update 2026-05-09 — Rate & Review CTA + routing SHIPPED via PR-C (PR #57).** The "Rate & Review CTA visual treatment" + "Rate & Review routing" line items previously listed here as deferred are now LIVE:
+
+- SuccessPopup: top-right X close icon (replaces former bottom-row Done button); bottom row carries only the navy-gradient Rate & Review pill (`['#010C35', '#1F2A55']` filled, white-on-navy Star + label, soft navy shadow, 48pt tap target). Pill matches the Voucher Detail `<ReviewPromptCard>` byte-for-byte so both surfaces share one CTA identity.
+- Routing: tap closes popup and `router.push`es to `/(app)/merchant/<id>?branch=<branchId>&tab=reviews&openWriteReview=1&fromRedemption=<redemptionId>`. MerchantProfile auto-opens `<WriteReviewSheet>` with the verified-review banner. See plan `docs/superpowers/plans/2026-05-09-pr-c-verified-review-backend.md` §9 for the full as-shipped contract.
+
+What stays deferred under §S2: confetti animation + saving-amount celebratory motion + the broader SuccessPopup visual redesign.
 
 ### 8.10.1 As shipped — Presentation-window gate (§AE, locked 2026-05-08, owner direction PR #49)
 

@@ -1169,3 +1169,61 @@ This plan does NOT mutate any code until owner approves. After approval:
 - [ ] Sequencing — T1 first, then linear T2–T14
 
 Once approved, I'll begin T1 and report after each milestone (backend complete / frontend reachable / end-to-end working).
+
+---
+
+## 9. As shipped — PR #57 (LIVE on origin/main 2026-05-09, merge `a80f427`)
+
+This addendum captures the final merged state versus the planned tasks above. Source of truth for the verified-review contract going forward; supersedes the planning sections wherever they diverge.
+
+### Final verified-review contract — three derivation paths
+
+`Review.redemptionId` is nullable, `@unique`, FK to `VoucherRedemption` with `ON DELETE SET NULL`. Surface-level rule: `isVerified = review.redemptionId !== null`. Staff validation (`isValidated`) is intentionally NOT required.
+
+`upsertBranchReview` resolves the persisted `redemptionId` per three derivation paths:
+
+| Path | Trigger | Behaviour |
+|---|---|---|
+| **A — strict** | caller passes `data.redemptionId` | validate the 5-condition rule BEFORE the upsert (ownership / branch / merchant / current-cycle window / existence). Failures throw 400 with `REDEMPTION_NOT_FOUND` / `REDEMPTION_BRANCH_MISMATCH` / `REDEMPTION_MERCHANT_MISMATCH`. **Cycle-window constraint added per Codex F1 (locked 2026-05-09)** — prevents replaying a stale (previous-cycle) redemption to verify a fresh review. Stale-redemption surfaces as `REDEMPTION_NOT_FOUND` (NOT a distinct cycle code) so existence isn't leaked. |
+| **B — auto-link** | no explicit `redemptionId` AND no existing review row | `autoLinkRedemption()` finds the most-recent eligible redemption in the user's current cycle window via `getCurrentCycleWindow(sub.cycleAnchorDate, now)`. None → unverified, no error. No subscription → unverified, no error. Most-recent-wins: `orderBy: { redeemedAt: 'desc' }`. |
+| **C — preserve** | no explicit `redemptionId` AND existing review row already has `redemptionId` set | keep the existing linkage. Editing a verified review without re-supplying `redemptionId` no longer silently strips the verified flag. REVIVE path (soft-deleted re-write) honours preserve too. |
+
+Path A and Path B share the same `getUserCycleWindowOrNull` helper so the cycle constraint is DRY across both. The `Review.redemptionId @unique` constraint guards against a single redemption being claimed by two reviews.
+
+### Shipped frontend behaviour
+
+- **SuccessPopup Rate & Review CTA** — filled navy gradient pill (`['#010C35', '#1F2A55']`, navy shadow, white-on-navy Star + label), 48pt tap height. Top-right X close icon (inline flex child of the accent row to avoid the absolute-overlay overlap caught in device QA wave 2). Done text button removed entirely; dismissal via X / hardware back / scrim — all three route to `onDone`.
+- **Voucher Detail prompt card** (`<ReviewPromptCard>`) — secondary card mounted immediately AFTER `<RedemptionDetailsCard>` in the redeemed-this-cycle state. Cream surface, 1px hairline border, no shadow on the card itself. CTA is the SAME navy gradient pill verbatim from SuccessPopup so both entry points share one identity. Heading "Share your experience"; body "Your review helps others choose this branch."; CTA "Rate & Review".
+- **URL contract** — both entry points push to `/(app)/merchant/[id]?branch=<id>&tab=reviews&openWriteReview=1&fromRedemption=<id?>`. Just-redeemed path includes `fromRedemption` (in-memory `lastRedemption.id` from RedeemResponse). Cold-open return-visit path omits `fromRedemption` (persisted `voucher.lastRedemption` schema doesn't expose redemption id today) and relies on backend Path B auto-link to verify on submit.
+- **MerchantProfileScreen receiving end** — lazy `useState` initialiser reads `screenParams.tab` so ReviewsTab mounts on render 1 (no Vouchers-tab flash). Effect on `initialOpenWriteFor` non-null forces `activeTab='reviews'` on every fresh attribution (handles both cold-mount AND the in-session repeat case where URL `tab` value didn't change). URL scrub deferred via `onAutoOpenConsumed` callback so ReviewsTab's auto-open effect consumes the prop BEFORE `router.replace` strips `openWriteReview` / `fromRedemption`.
+- **WriteReviewSheet — "Update your review" framing (Option A locked)** — when `initialRating > 0 OR initialComment.trim().length > 0` (i.e. parent pre-filled from `myReview`), the sheet swaps title to "Update your review", submit CTA to "Update review", loading to "Updating…", and `BottomSheet` a11y label tracks. Verified banner stays compatible with both copy variants — an UPDATE can still earn verification on a fresh redemption (Path A or B). Multi-review architecture (Option B / review-system v2) remains deferred under §AI.
+- **ReviewCard verified badge** — green Check icon + "Verified redemption" copy, savings-green tinted background, accessibility label "Verified redemption".
+
+### Test totals at merge (head `1ce387a`)
+
+- Backend full sweep — **553 / 553** (60 files)
+- Customer-app voucher + merchant + lib/api/reviews — **847 / 847** (74 suites)
+- Customer-app `tsc --noEmit` — clean
+
+### Diverges from the original plan
+
+- **§0.3.1 amendment (auto-link + preserve)** was added mid-flight via T15. Original §0.3 only had Path A (strict). Locked in plan §1 above; final contract documented in this addendum.
+- **CTA visual treatment** was iterated three times: outlined brand-rose pill (T12) → outlined wider pill (T16 wave 2) → **filled navy gradient (T16 wave 3, final)**. The navy gradient locks visual consistency with the merchant-profile ActionRow Contact button.
+- **SuccessPopup hierarchy** added X close icon top-right + removed Done button entirely (T16 device-QA wave 1). The bottom row carries only the Rate & Review pill now.
+- **`<ReviewPromptCard>`** (T16) was a mid-flight addition not in the original task list. Added after device QA flagged the absence of a second entry point on Voucher Detail post-dismiss.
+- **Path A current-cycle constraint** (Codex F1) caught at code review post-T15 — original Path A only enforced ownership/branch/merchant/existence. Cycle constraint added so explicit and auto-link paths share the same temporal boundary.
+- **`fromRedemptionId` forwarded on populated-state ReviewsTab path** (Codex F2) — originally only the empty-state render path forwarded the prop, breaking the verified banner on branches that already had reviews.
+
+### Known follow-ups carried forward (NOT shipped in PR-C)
+
+- **Prompt card "Update your review" copy** (deferred Tier 1) — both entry-point cards keep "Share your experience" copy because `useCustomerVoucher` doesn't expose `myReview`. Once `myReview` is added to the voucher detail payload, the copy can become aware of existing reviews. Sheet itself already swaps once opened.
+- **Persisted return-visit verified banner upfront** (deferred Tier 1) — needs `id` added to `voucherDetailLastRedemptionSchema`. Today the verified banner only shows on the in-memory just-redeemed path; cold-open return visits verify via Path B auto-link with the badge appearing AFTER submit.
+- **Path A TOCTOU on hard-delete** (Minor, accepted) — the Path A `findFirst` + upsert run in separate transactions; if a redemption is hard-deleted between them, the upsert FK-violates. Hard-deletes are admin-only and rare; user retries cleanly.
+- **Pre-PR-C reviews lose old "Verified" status** (locked behavioural note, no backfill) — existing reviews where the user had a validated redemption at that branch silently flip to non-verified post-deploy. Owner-locked at §0.3.
+
+### Cross-refs
+
+- Memory §AI — review-system v2 deferral (multi-review, abuse controls, moderation) remains intact and Tier 3 brainstorm-first.
+- Memory `project_pr_c_verified_review_complete.md` — locked baseline summary for future sessions.
+- `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §8.6 — voucher-detail spec verified-review delta.
+
