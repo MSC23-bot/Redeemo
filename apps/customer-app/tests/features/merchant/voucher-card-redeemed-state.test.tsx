@@ -259,4 +259,37 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
     // style chain.
     expect(style.transform).toEqual([{ rotate: '-5deg' }])
   })
+
+  it('redeemed card title + description do NOT carry an opacity dim (PR-B T5.1 spec-fix)', () => {
+    // Regression pin against the previous PR #35 baseline behaviour:
+    // `cardRedeemed: { opacity: 0.6 }` dimmed the entire redeemed
+    // card including title + description.  Brief §3.5 explicitly
+    // says "Title + description stay full opacity (still legible)"
+    // and the §3.5 anti-reference calls out "greyscale-everything
+    // fade" as the failure mode.  PR-B's three new contrast cues
+    // (cream-tint overlay + REDEEMED stamp + 'Already redeemed
+    // this cycle' inline label) carry the contrast at full opacity;
+    // the 0.6 dim is removed.  This pin guards against any future
+    // re-introduction of a per-element opacity override on the
+    // redeemed variant.
+    const { getByText } = render(
+      <VoucherCard
+        voucher={mk()}
+        isRedeemed={true}
+        isFavourited={false}
+        onPress={() => {}}
+        onToggleFavourite={() => {}}
+      />,
+    )
+    const title = getByText('Free Filter Coffee with Any Thali')
+    const description = getByText('Order any thali plate and get a complimentary coffee.')
+    const titleStyle = Array.isArray(title.props.style)
+      ? Object.assign({}, ...title.props.style.filter(Boolean))
+      : title.props.style
+    const descStyle = Array.isArray(description.props.style)
+      ? Object.assign({}, ...description.props.style.filter(Boolean))
+      : description.props.style
+    expect(titleStyle?.opacity).toBeUndefined()
+    expect(descStyle?.opacity).toBeUndefined()
+  })
 })

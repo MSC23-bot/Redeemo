@@ -241,7 +241,7 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
         onPressOut={handlePressOut}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
-        style={[styles.card, isRedeemed && styles.cardRedeemed]}
+        style={styles.card}
       >
         {/* Per-type 3-stop gradient — deep accent holds from 30%
             so white text reads across the whole card. */}
@@ -405,7 +405,7 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
               restored. */}
           <View style={styles.bottomRow}>
             <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="tail">
-              {isRedeemed ? 'Redeemed this cycle' : (expiryLabel ?? 'No expiry')}
+              {expiryLabel ?? 'No expiry'}
             </Text>
             {/* PR-B T5 (§Q4): when redeemed, the bottom-row dark
                 pill is suppressed — the redeemed signal is now
@@ -469,16 +469,23 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
   },
-  cardRedeemed: {
-    opacity: 0.6,
-  },
+  // PR-B T5.1 spec-fix (locked 2026-05-09): the previous PR #35
+  // baseline used `cardRedeemed: { opacity: 0.6 }` to dim the entire
+  // redeemed card.  Brief §3.5 explicitly says "Title + description
+  // stay full opacity (still legible)" — and brief §3.5's anti-
+  // reference calls out greyscale-everything fades as the failure
+  // mode that "loses the type identity that makes the card
+  // recognisable."  PR-B's three new contrast cues (cream-tint
+  // overlay below + REDEEMED stamp + 'Already redeemed this cycle'
+  // inline label) carry the contrast at full opacity.  The 0.6
+  // dim is removed.
 
   // PR-B T5 (§Q4): cream-tint overlay that mutes the per-type
-  // gradient to ~70% saturation. Soft warm-cream rgba is
+  // gradient to ~70% saturation.  Soft warm-cream rgba is
   // consistent with the muted-surface pattern used elsewhere
-  // (MerchantProfileScreen / VoucherDetailScreen). Compounds
-  // with cardRedeemed's 0.6 opacity to give the redeemed card
-  // its washed-but-recognisable look.
+  // (MerchantProfileScreen / VoucherDetailScreen).  This overlay
+  // alone now carries the gradient saturation drop — content
+  // (title, description, stamp, inline label) stays full opacity.
   redeemedGradientOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(245, 240, 235, 0.3)',

@@ -83,6 +83,12 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
   })
 
   it('replaces the Redeem CTA with REDEEMED stamp when isRedeemed', () => {
+    // PR-B T5.1 spec-fix: the prior bottom-row "Redeemed this cycle"
+    // meta text is gone — the brief §5.5 places the redeemed cue at
+    // the hero (REDEEMED stamp) + below the saving block ("Already
+    // redeemed this cycle" inline label).  The bottom-row left text
+    // now falls back to the expiry / "No expiry" copy like every
+    // other card, so the row visually rebalances.
     const { queryByText, getByText } = render(
       <VoucherCard
         voucher={mk()}
@@ -94,7 +100,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
     )
     expect(queryByText('Redeem')).toBeNull()
     expect(getByText('REDEEMED')).toBeTruthy()
-    expect(getByText('Redeemed this cycle')).toBeTruthy()
+    expect(getByText('Already redeemed this cycle')).toBeTruthy()
+    // Negative pin: the duplicate bottom-row meta MUST NOT reappear.
+    expect(queryByText('Redeemed this cycle')).toBeNull()
   })
 
   it('fires onPress when card body tapped', () => {
