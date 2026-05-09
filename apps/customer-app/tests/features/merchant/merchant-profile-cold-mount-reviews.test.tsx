@@ -332,6 +332,53 @@ describe('MerchantProfileScreen — cold-mount with Rate & Review URL (T16 devic
     expect(renderedNonNull.length).toBeGreaterThanOrEqual(1)
   })
 
+  it('repeat in-session flow: tab=reviews already in URL + user flipped to Vouchers + new openWriteReview re-arm STILL forces Reviews', async () => {
+    // Device-QA bug (PR #57 wave N): after the FIRST Rate & Review
+    // flow, the scrub preserves `tab=reviews` (only strips
+    // openWriteReview + fromRedemption).  If the user then manually
+    // taps the Vouchers tab in the same MP instance and later
+    // re-navigates with a fresh openWriteReview=1, the URL goes from
+    //   tab=reviews             →   tab=reviews&openWriteReview=1
+    // — same tab value, no transition, the URL-transition fix
+    // doesn't force.  activeTab stays 'vouchers'.
+    //
+    // The right signal is `initialOpenWriteFor` flipping non-null,
+    // not `tab` transitions.  This test pins that semantic.
+    mockParams = { branch: 'b1', tab: 'reviews' }
+    getProfileSpy.mockResolvedValue(makeMerchant() as any)
+
+    const { getByLabelText, findByLabelText, queryByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
+    // Initial mount: lazy useState reads tab=reviews → on Reviews tab.
+    await findByLabelText('reviews-tab')
+
+    // Simulate user manually flipping to Vouchers.
+    const { fireEvent: fe } = require('@testing-library/react-native')
+    fe.press(getByLabelText('tabbar-vouchers'))
+    await findByLabelText('vouchers-tab')
+
+    // Re-navigate with a fresh Rate & Review trigger.  URL `tab` is
+    // unchanged ('reviews' → 'reviews'); the new signal is
+    // openWriteReview=1.  Reviews must still re-activate.
+    const { act } = require('@testing-library/react-native')
+    await act(async () => {
+      mockApplyRouterReplace({
+        params: {
+          branch:           'b1',
+          tab:              'reviews',
+          openWriteReview:  '1',
+          fromRedemption:   'red-3',
+        },
+      })
+    })
+
+    await findByLabelText('reviews-tab')
+    expect(queryByLabelText('vouchers-tab')).toBeNull()
+    const sawRed3 = mockReviewsTabRenderSpy.mock.calls.some(
+      ([props]) => props.initialOpenWriteFor?.redemptionId === 'red-3',
+    )
+    expect(sawRed3).toBe(true)
+  })
+
   it('re-navigation: a SECOND tab=reviews URL onto an already-mounted screen still forces Reviews + auto-opens', async () => {
     // The previous one-shot `reviewsTabForced` flag prevented this
     // case (your question 4).  Replaced with URL-transition

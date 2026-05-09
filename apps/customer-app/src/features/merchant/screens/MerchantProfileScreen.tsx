@@ -269,17 +269,32 @@ export function MerchantProfileScreen({ id }: Props) {
     [screenParams.branch, screenParams.openWriteReview, screenParams.fromRedemption],
   )
 
-  // URL-transition detection: when `?tab=reviews` arrives (cold-open
-  // OR re-navigation onto an already-mounted instance), force the
-  // active tab to 'reviews'.  Replaces the one-shot
-  // `reviewsTabForced` flag (PR-C T16 device-QA fix, locked
-  // 2026-05-09): the old flag prevented re-forcing on a second
-  // navigation, which broke the Rate & Review flow when the screen
-  // instance was reused.  Now we track the LAST-SEEN tab value via a
-  // ref and force whenever the URL transitions TO 'reviews'.  User
-  // taps via TabBar still take precedence — they don't change the
-  // URL, so this effect doesn't re-fire and the manual selection
-  // sticks.
+  // Force the active tab to 'reviews' whenever a Rate & Review
+  // attribution is requested via the URL.  Driven by
+  // `initialOpenWriteFor` (a useMemo over `branch` + `openWriteReview`
+  // + `fromRedemption`) so the effect re-fires every time the
+  // attribution identity changes — INCLUDING the repeat-in-session
+  // case where the URL `tab` was already `reviews` from the first
+  // round but the user manually flipped to Vouchers in between.
+  //
+  // PR-C T16 device-QA wave 2 fix (LOCKED 2026-05-09): the previous
+  // URL-transition detection only fired on `tab` value transitions,
+  // which missed the repeat case (URL `tab` stays 'reviews' after
+  // the first scrub; second nav re-adds openWriteReview=1 but the
+  // tab value is unchanged).  The right semantic is "every fresh
+  // attribution requests Reviews" — `initialOpenWriteFor` flipping
+  // null → non-null is exactly that signal.
+  useEffect(() => {
+    if (initialOpenWriteFor) {
+      setActiveTab('reviews')
+    }
+  }, [initialOpenWriteFor])
+
+  // Belt-and-braces: also honour a URL `tab=reviews` that arrives
+  // WITHOUT an openWriteReview attribution (e.g. a tab-only deep
+  // link).  Tracks the last-seen URL tab via a ref and forces only
+  // on transitions TO 'reviews' so user TabBar taps still take
+  // precedence (TabBar taps don't change the URL).
   const lastUrlTabRef = useRef<string | undefined>(screenParams.tab)
   useEffect(() => {
     const cur = screenParams.tab

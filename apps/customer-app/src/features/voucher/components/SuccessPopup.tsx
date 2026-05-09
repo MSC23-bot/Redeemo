@@ -202,40 +202,33 @@ export function SuccessPopup({
           style={[styles.popup, popupStyle]}
           testID="success-popup"
         >
-          {/* Top-right close affordance (PR-C T16 device-QA fix —
-              locked 2026-05-09 owner direction §C).  Replaces the
-              bottom-row Done button which was reading as a peer to
-              Rate & Review.  X icon is visually quiet (low-weight
-              circular tap target on the cream surface) so the user-
-              facing hierarchy becomes:
+          {/* Type-pastel accent row — gradient signals voucher type;
+              animated check ring + title carry the success message;
+              top-right X close icon shares the row as a flex child
+              (no overlap; layout flow handles spacing).  Type chip +
+              "Redeemed" eyebrow removed (D16) — the title now reads
+              as a clear success statement instead of a small
+              uppercase eyebrow.  Title aria-hidden because the
+              modal's accessibilityLabel already announces the same
+              string.
+
+              Close affordance (PR-C T16 device-QA fix wave 2 —
+              LOCKED 2026-05-09 owner direction §C).  Inline flex
+              child of the accent row instead of an absolute overlay
+              — the previous absolute placement collided with the
+              title under Dynamic Type / on narrower devices.  The
+              row's `gap` + the title's `flex: 1` reserve the X's
+              space cleanly:
+                  [ ✓ ring ]   [ Title (flex 1)              ]   [ X ]
+              Visually quiet (semi-transparent cream-tint disc, 32pt
+              circular tap with 12pt hitSlop = effective 56pt) so
+              the user-facing hierarchy stays:
                   Primary:    "View voucher code"
                   Secondary:  Rate & Review
                   Dismissal:  X (top-right)
               Modal.onRequestClose still wires hardware back; tapping
               the X delegates to the same `onDone` handler so all
               dismiss paths share one entry. */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            testID="success-close"
-            onPress={() => { lightHaptic(); onDone() }}
-            style={({ pressed }) => [
-              styles.closeIcon,
-              pressed && styles.closeIconPressed,
-            ]}
-            // Boost the tap target — the icon itself is 16pt; the
-            // surrounding hit slop pushes effective size above the
-            // 44pt iOS HIG minimum without enlarging the visual.
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <X size={18} color={color.text.tertiary} strokeWidth={2.4} />
-          </Pressable>
-          {/* Type-pastel accent row — gradient signals voucher type;
-              animated check ring + title carry the success message.
-              Type chip + "Redeemed" eyebrow removed (D16) — the title
-              now reads as a clear success statement instead of a small
-              uppercase eyebrow.  Title aria-hidden because the modal's
-              accessibilityLabel already announces the same string. */}
           <View style={styles.accentRow}>
             <LinearGradient
               colors={accentGradient}
@@ -257,6 +250,19 @@ export function SuccessPopup({
             >
               Voucher redeemed successfully
             </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              testID="success-close"
+              onPress={() => { lightHaptic(); onDone() }}
+              style={({ pressed }) => [
+                styles.closeIcon,
+                pressed && styles.closeIconPressed,
+              ]}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <X size={18} color={color.text.tertiary} strokeWidth={2.4} />
+            </Pressable>
           </View>
 
           {/* Body — voucher context + saving + receipt + CTAs */}
@@ -644,35 +650,36 @@ const styles = StyleSheet.create({
     color: color.onBrand,
     letterSpacing: 0.2,
   },
-  // ── Tertiary action row ──
-  // Flat dismiss text only.  Rate & Review removed for PR-A —
-  // returns in PR-C with verified-review backend (D12).  The row
-  // structure is preserved (centred, no separator) so PR-C can
-  // restore the second action without restructuring.
-  // D22 (LOCKED 2026-05-09 §14): paddingTop 2 → 12 so Done sits in
-  // its own implied region and the popup ends with calm pacing,
-  // not a primary→Done cram.
+  // ── Secondary action row ──
+  // Centres the Rate & Review pill below the primary CTA.  The
+  // body's `gap: spacing[4]` already provides 16pt above; an
+  // additional small `paddingTop` adds breathing space without
+  // doubling up.  PR-C T16 device-QA fix wave 2 (locked 2026-05-09):
+  // tightened from `paddingTop: spacing[3]` (12) since Done is now
+  // gone — the row needs less weight than when it carried two
+  // actions side-by-side.
   secondaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing[3],
-    paddingTop: spacing[3],
+    paddingTop: spacing[1],
   },
-  // ── Rate & Review pill (PR-C T12 §0.3.1) ──
-  // Flat outlined pill — secondary action that lives next to Done in
-  // the secondaryRow.  1px brand-rose 30% alpha border keeps the pill
-  // recessive against the brand-gradient primary CTA above (no
-  // gradient fill, no shadow — flat).  body.md text + Star icon both
-  // in brand-rose.  Vertical padding 11pt + body.md lineHeight 24
-  // gives a 46pt total tap height (clears the 44pt iOS HIG minimum
-  // and the locked owner direction "≥44pt tap target").
+  // ── Rate & Review pill (PR-C T12 §0.3.1, refined T16 wave 2) ──
+  // Flat outlined pill, secondary register against the brand-gradient
+  // primary CTA above.  PR-C T16 device-QA fix wave 2 (locked
+  // 2026-05-09 owner direction §B): spacing widened so the pill
+  // breathes properly now that Done is gone — paddingVertical 11→12
+  // (48pt total tap height, clears HIG 44pt with margin),
+  // paddingHorizontal 16→22 (more lateral room for the Star + label
+  // pairing), gap 8→10 between glyph and text.  Border + colour
+  // unchanged (1px brand-rose 30% alpha + brand-rose Star + body.md
+  // text — all flat, no gradient, no shadow).
   rateReviewPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing[2],
-    paddingVertical: 11,
-    paddingHorizontal: spacing[4],
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: 'rgba(226, 12, 4, 0.30)',
@@ -683,20 +690,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.1,
   },
-  // Top-right close icon — visually quiet so it doesn't compete
-  // with the primary CTA.  Absolute positioning lets it float over
-  // the accent row without nudging layout.  PR-C T16 device-QA fix,
-  // locked 2026-05-09.
+  // Top-right close icon — inline flex child of the accent row.
+  // Visually quiet (semi-transparent cream-tint disc) so it never
+  // competes with the primary CTA below.  Sits at the END of the
+  // row via `gap` + `flex: 1` on the title, with no absolute
+  // positioning to avoid the title overlap that surfaced in device
+  // QA wave 2.  PR-C T16 device-QA fix wave 2, locked 2026-05-09.
   closeIcon: {
-    position: 'absolute',
-    top: spacing[3],
-    right: spacing[3],
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 2,
     backgroundColor: 'rgba(255,255,255,0.55)',
   },
   closeIconPressed: {
