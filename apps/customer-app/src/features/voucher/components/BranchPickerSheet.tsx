@@ -124,16 +124,19 @@ export function BranchPickerSheet({
       accessibilityLabel="Choose redemption branch"
     >
       <View testID="voucher-branch-picker-sheet">
-        {/* Title + subtitle (2026-05-09 owner direction): heading.sm
-            (16) + body.sm (14) — matches the lockout-card title scale
-            and dials back from the initial bump that read too large.
-            Subtitle split into sentence-per-line layout so the two
-            sentences each sit cleanly on their own row instead of
-            wrapping mid-sentence. */}
-        <Text variant="heading.sm" style={styles.title}>
+        {/* Hierarchy (2026-05-09 owner correction):
+              title             heading.md (18)  — largest
+              instruction       body.md   (16)   — primary, matches row name
+              supporting line   body.sm   (14)   — context
+              row name          body.md   (16)
+              row meta          body.sm   (14)
+            Instruction must NOT be smaller than the options the user
+            is being asked to pick (was body.sm 14 before — read odd
+            against body.md 16 row names). */}
+        <Text variant="heading.md" style={styles.title}>
           {titleText}
         </Text>
-        <Text variant="body.sm" style={styles.subtitle}>
+        <Text variant="body.md" style={styles.subtitle}>
           Pick the branch you're at right now.
         </Text>
         <Text variant="body.sm" style={styles.subtitleSecondary}>
@@ -237,13 +240,15 @@ const styles = StyleSheet.create({
     color: color.text.primary,
     textAlign: 'center',
   },
-  // body.sm (14 / 21) variant drives.  Two-line sentence-per-line
-  // layout: subtitle + subtitleSecondary stack vertically.
+  // Instruction (body.md 16) — primary; matches the branch row name
+  // weight so the user reads "what to do" + "options" at the same
+  // hierarchy step.
   subtitle: {
     marginTop: spacing[2],
-    color: color.text.secondary,
+    color: color.text.primary,
     textAlign: 'center',
   },
+  // Supporting context (body.sm 14) — secondary tone.
   subtitleSecondary: {
     marginTop: 2,
     color: color.text.secondary,

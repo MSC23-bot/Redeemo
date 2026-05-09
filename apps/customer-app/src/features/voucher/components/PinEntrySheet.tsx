@@ -426,19 +426,19 @@ export function PinEntrySheet({
             primary PIN-entry instruction; padding reduced one step. */}
         {!isLocked ? (
           <View style={styles.disclaimer}>
+            {/* Icon-on-top layout (2026-05-09 owner correction):
+                the locked sentence 1 is 62 chars and won't fit on
+                one line at body.sm 14 inside an icon-left column.
+                Moving the icon above the text gives the copy full
+                card width — sentence 1 fits on line 1, sentence 2
+                on line 2, no orphan "cycle" or wrapped third line. */}
             <Lock size={16} color={color.brandRose} strokeWidth={2.4} />
-            {/* Sentence-per-line layout (locked 2026-05-09):
-                consequence sentence on line 1, calm gate on line 2.
-                Each sentence is its own Text so it never wraps with
-                a clause hanging awkwardly. */}
-            <View style={styles.disclaimerTextWrap}>
-              <Text variant="body.sm" style={styles.disclaimerText}>
-                Confirming the correct PIN redeems this voucher for this cycle.
-              </Text>
-              <Text variant="body.sm" style={[styles.disclaimerText, styles.disclaimerTextSecondary]}>
-                Continue when you're ready to use it.
-              </Text>
-            </View>
+            <Text variant="body.sm" style={styles.disclaimerText}>
+              Confirming the correct PIN redeems this voucher for this cycle.
+            </Text>
+            <Text variant="body.sm" style={styles.disclaimerTextSecondary}>
+              Continue when you're ready to use it.
+            </Text>
           </View>
         ) : null}
 
@@ -644,14 +644,13 @@ const styles = StyleSheet.create({
   backendErrorBody: {
     color: '#92400E',
   },
-  // Disclaimer banner — cream-tinted card with brand-rose 12% ring +
-  // Lock icon.  Density refinement 2026-05-09: text bumped DOWN to
-  // body.sm (14) so the disclaimer reads as tertiary hierarchy under
-  // the primary subtitle (body.md 16); padding tightened one step.
-  // Still readable, still warm; no longer competes with the main
-  // instruction.
+  // Disclaimer banner — icon-on-top layout (2026-05-09 owner
+  // correction: locked sentence 1 is 62 chars and won't fit on one
+  // line at body.sm 14 inside an icon-left column).  Cream-tinted
+  // card with brand-rose 12% ring; Lock icon stacks above the copy.
+  // Both sentences render at body.sm (14) with no orphan wrap.
   disclaimer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
     gap: spacing[2],
     backgroundColor: color.cream,
@@ -662,17 +661,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     marginBottom: spacing[4],
   },
-  // Wrapper so the two-Text sentence-per-line layout takes the
-  // remaining width beside the Lock icon.
-  disclaimerTextWrap: {
-    flex: 1,
-  },
-  // body.sm (14 / 21) drives.  No fontSize override.
+  // body.sm (14 / 21) drives — sentence 1 (consequence).
   disclaimerText: {
     color: color.text.primary,
   },
+  // body.sm (14 / 21) drives — sentence 2 (calm gate).  marginTop 0
+  // because the disclaimer parent uses gap: spacing[2] for spacing.
   disclaimerTextSecondary: {
-    marginTop: 2,
+    marginTop: 0,
+    color: color.text.primary,
   },
   // Submit button — body.md (16) drives via variant.  Min-height 56
   // gives a comfortable tap target at the bumped text size; gap 8
