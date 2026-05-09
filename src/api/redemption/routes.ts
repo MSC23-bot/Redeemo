@@ -65,21 +65,29 @@ export async function customerRedemptionRoutes(app: FastifyInstance) {
   // §AG1 — post-PR-#49 pre-public-launch hardening). Polling cadence
   // is 5 s × up to 15 min = ~180 hits/session = ~12 req/min legitimate;
   // 30/min/customer in prod (100/min in dev) is 2.5× that and
-  // accommodates retries / jitter without false-positives. The
-  // `keyGenerator` override keys on `req.user.sub` (auth has populated
-  // this by the time this handler runs — `authenticateCustomer`
-  // preHandler installed in plugin.ts:8). Falls back to `req.ip` if
-  // `req.user` is missing for any reason (defensive — should never
-  // happen on this auth-gated route, but the global limit at IP level
-  // is the right secondary). Other redemption routes
-  // (POST /redemption/:code/screenshot-flag, /redemption/my,
-  // /redemption/my/:id, POST /redemption) are NOT covered by this
-  // tier — each has different traffic shape and is left under the
-  // global IP-based default.
+  // accommodates retries / jitter without false-positives.
+  //
+  // **`hook: 'preHandler'` is LOAD-BEARING.** `@fastify/rate-limit`
+  // defaults to running at the `onRequest` lifecycle hook, which fires
+  // BEFORE the `authenticateCustomer` preHandler (installed in
+  // plugin.ts:8). Without this override the rate-limit would always
+  // see `req.user === undefined` and silently fall back to IP keying,
+  // which defeats the per-customer guarantee on shared-NAT / Wi-Fi.
+  // Forcing `preHandler` puts the rate-limit AFTER auth so
+  // `req.user.sub` is populated. Pinned by a route-config test.
+  //
+  // The `keyGenerator` keys on `req.user.sub` (populated by auth).
+  // Falls back to `req.ip` only as defence-in-depth — should never
+  // happen on this auth-gated route now that the hook timing is
+  // correct. Other redemption routes (POST /redemption,
+  // POST /redemption/:code/screenshot-flag, GET /redemption/my,
+  // GET /redemption/my/:id) are NOT covered by this tier — each has
+  // different traffic shape and remains on the global IP default.
   app.get(`${prefix}/redemption/me/:code`, {
     config: {
       rateLimit: {
         ...routeRateLimit('redemptionPolling'),
+        hook: 'preHandler',
         keyGenerator: (req: FastifyRequest) => req.user?.sub ?? req.ip,
       },
     },

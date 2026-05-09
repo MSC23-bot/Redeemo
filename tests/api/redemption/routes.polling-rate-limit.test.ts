@@ -73,6 +73,23 @@ describe('customerRedemptionRoutes — GET /redemption/me/:code rate-limit confi
     expect(opts.config!.rateLimit).toBeDefined()
   })
 
+  it("uses hook: 'preHandler' so the rate-limit runs AFTER customer auth (req.user.sub populated)", async () => {
+    // **Load-bearing pin.** `@fastify/rate-limit` defaults to
+    // hook: 'onRequest', which runs BEFORE the authenticateCustomer
+    // preHandler (installed in src/api/redemption/plugin.ts:8).
+    // Without the explicit 'preHandler' override the keyGenerator
+    // would always see req.user === undefined and silently fall
+    // back to IP keying — defeating the per-customer guarantee on
+    // shared-NAT environments. This test fails loudly if a future
+    // refactor drops the override.
+    const { get, app } = captureRoutes()
+    await customerRedemptionRoutes(app)
+
+    const call = findGetCallFor(get, '/api/v1/redemption/me/:code')!
+    const cfg  = (call[1] as any).config.rateLimit
+    expect(cfg.hook).toBe('preHandler')
+  })
+
   it('uses the redemptionPolling tier values (max + timeWindow inherited from routeRateLimit)', async () => {
     const { get, app } = captureRoutes()
     await customerRedemptionRoutes(app)
