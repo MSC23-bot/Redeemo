@@ -25,6 +25,12 @@ const fakePrisma = () => {
   return {
     branch:            { findFirst: vi.fn() },
     voucherRedemption: { findFirst: vi.fn() },
+    // PR-C T15 (§0.3.1): autoLinkRedemption reads subscription.cycleAnchorDate.
+    // The Path A tests don't exercise auto-link (explicit redemptionId always
+    // wins), but the helper still needs `subscription.findUnique` to exist on
+    // the fake when no-existing-no-explicit cases fall through to Path B —
+    // mock returns null so auto-link short-circuits (no cycle window).
+    subscription:      { findUnique: vi.fn().mockResolvedValue(null) },
     reviewHelpful:     { findMany: vi.fn().mockResolvedValue([]) },
     $transaction:      vi.fn(async (fn: any) => fn(tx)),
     __tx:              tx,
