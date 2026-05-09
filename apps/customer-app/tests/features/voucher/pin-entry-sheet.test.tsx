@@ -381,12 +381,16 @@ describe('PinEntrySheet — A2 copy (2026-05-09)', () => {
     expect(getByText("When you confirm it, we'll create the code staff can check.")).toBeTruthy()
   })
 
-  it('disclaimer banner reads the locked D2 copy (split sentence-per-line 2026-05-09)', () => {
+  it('disclaimer banner reads the locked D2 copy (single Text 2026-05-09)', () => {
     const { getByText } = render(<PinEntrySheet {...defaultProps()} />)
-    // Each sentence is rendered in its own <Text> so word-wrap
-    // never lands a clause hanging off line 1.
-    expect(getByText("Confirming the correct PIN redeems this voucher for this cycle.")).toBeTruthy()
-    expect(getByText("Continue when you're ready to use it.")).toBeTruthy()
+    // Both sentences live in one Text element so RN flows them
+    // together; sentence 1 wraps, sentence 2 joins on the wrap-row,
+    // no orphan "cycle." on its own line.
+    expect(
+      getByText(
+        "Confirming the correct PIN redeems this voucher for this cycle. Continue when you're ready to use it.",
+      ),
+    ).toBeTruthy()
   })
 
   it('title reads "Enter Branch PIN"', () => {

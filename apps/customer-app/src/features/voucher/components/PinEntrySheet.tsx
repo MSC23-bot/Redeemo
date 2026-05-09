@@ -426,18 +426,23 @@ export function PinEntrySheet({
             primary PIN-entry instruction; padding reduced one step. */}
         {!isLocked ? (
           <View style={styles.disclaimer}>
-            {/* Icon-on-top layout (2026-05-09 owner correction):
-                the locked sentence 1 is 62 chars and won't fit on
-                one line at body.sm 14 inside an icon-left column.
-                Moving the icon above the text gives the copy full
-                card width — sentence 1 fits on line 1, sentence 2
-                on line 2, no orphan "cycle" or wrapped third line. */}
+            {/* Icon-on-top layout + single Text block (2026-05-09
+                owner correction).  Sentence 1 is 62 chars and won't
+                fit on one line at body.sm 14 even at full card width,
+                so it always wraps.  Splitting into two Text blocks
+                orphans "cycle." on its own row and pushes sentence 2
+                to a third row.  Combining both sentences into a
+                single Text lets RN flow them naturally:
+                  line 1: "Confirming the correct PIN redeems this
+                           voucher for this"
+                  line 2: "cycle. Continue when you're ready to use it."
+                Two rows, no orphan.  D2 copy unchanged.
+                Refines the sentence-per-line discipline: it applies
+                when each sentence fits on its own line; when sentence
+                1 wraps, continuous flow is the cleaner choice. */}
             <Lock size={16} color={color.brandRose} strokeWidth={2.4} />
             <Text variant="body.sm" style={styles.disclaimerText}>
-              Confirming the correct PIN redeems this voucher for this cycle.
-            </Text>
-            <Text variant="body.sm" style={styles.disclaimerTextSecondary}>
-              Continue when you're ready to use it.
+              Confirming the correct PIN redeems this voucher for this cycle. Continue when you're ready to use it.
             </Text>
           </View>
         ) : null}
@@ -661,14 +666,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     marginBottom: spacing[4],
   },
-  // body.sm (14 / 21) drives — sentence 1 (consequence).
+  // body.sm (14 / 21) drives.  Single Text holds both sentences;
+  // RN flows them together so "cycle." never orphans on its own row.
   disclaimerText: {
-    color: color.text.primary,
-  },
-  // body.sm (14 / 21) drives — sentence 2 (calm gate).  marginTop 0
-  // because the disclaimer parent uses gap: spacing[2] for spacing.
-  disclaimerTextSecondary: {
-    marginTop: 0,
     color: color.text.primary,
   },
   // Submit button — body.md (16) drives via variant.  Min-height 56
