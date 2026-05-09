@@ -683,22 +683,24 @@ The persisted-return-visit RedemptionDetailsCard from §8.10 is correct for the 
   - `PRESENTATION_WINDOW_MS = 2 * 60 * 60 * 1000`.
   - `isPresentationActive(redeemedAt: string, now: number = Date.now()): boolean` — pure helper. Defensive on malformed ISO (returns false, no throw).
   - `usePresentationActive(redeemedAt: string | null): boolean` — hook. Single setTimeout fires once at the boundary; no interval/polling. Returns false on null. Already-expired-on-mount path skips arming a timer.
-- New `<RedeemedSeal>` component at `apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx` — tilted (-8°) brand-rose badge with two lines:
-  - "VOUCHER REDEEMED" (heading, 900-weight, uppercase, brand-rose).
-  - "Renews on <date>" (small, 700-weight, brand-rose, opacity 0.85).
-  - Mounts at the screen level between RedeemedBadge and the time-limited banner (NOT inside the card).
+- New `<RedeemedSeal>` component at `apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx` — rustic rubber-stamp seal with two lines:
+  - "VOUCHER REDEEMED" (heading, 900-weight, uppercase, brand-rose, with intentional top-edge ink fade + ink-missing speckles for stamp character).
+  - "Renews on \<date\>" (smaller, 800-weight, brand-rose, light fade band).
+  - **Final placement: absolute overlay on the hero/banner** (testID `voucher-detail-hero-seal`, anchored at `insets.top + 96`, `pointerEvents='none'`). The seal physically stamps the voucher itself rather than mounting as a standalone block elsewhere on the page. (The earlier "between RedeemedBadge and the time-limited banner" placement from the wave-1 draft was superseded in §8.10.1.1.)
 - `<RedemptionDetailsCard>` extended with `isPresentationActive?: boolean` prop (defaults to `true` for back-compat with SuccessPopup test fixtures + the in-memory just-redeemed flow):
   - `showCodeSurface = isPresentationActive AND !isValidated`.
   - When `showCodeSurface` is true: full card surface unchanged from §8.10.
-  - When `showCodeSurface` is false: REDEMPTION CODE box + Show-to-Staff CTA are SUPPRESSED. A tip line replaces them: *"You'll be able to find this code in Profile → Redemption History."* (testID `redemption-details-history-tip`). Header / voucher summary / branch+date+time info rows / saving disclaimer / validated pill all remain.
-- `VoucherDetailScreen` wiring:
+  - When `showCodeSurface` is false: REDEMPTION CODE box + Show-to-Staff CTA are SUPPRESSED. An INNER NOTICE CARD takes the slot where the code box used to be (testIDs `redemption-details-expired-notice` / `redemption-details-expired-headline` / `redemption-details-expired-support`). Headline: *"Staff handoff window ended"*. Supporting line: *"Your code is now saved in Profile → Redemption History for your records."* (See §8.10.3 for the locked copy + visual treatment.) Header / voucher summary / branch+date+time info rows / saving disclaimer / validated pill all remain.
+- `VoucherDetailScreen` wiring (final shipped state — wave-8 split locked 2026-05-09):
   - `redemptionRedeemedAt = lastRedemption?.redeemedAt ?? voucher?.lastRedemption?.redeemedAt ?? null` (lifted out of the displayRedemption IIFE so the hook is called unconditionally per rules-of-hooks).
   - `isPresentationActive = usePresentationActive(redemptionRedeemedAt)`.
   - `isRedemptionValidated = (validatedSession === lastRedemption?.redemptionCode) || voucher?.lastRedemption?.isValidated || false`.
-  - `showRedeemedSeal = !!redemptionRedeemedAt && (!isPresentationActive || isRedemptionValidated)`.
+  - `isRedeemed = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt`.
+  - `showRedeemedSeal = isRedeemed` — fires IMMEDIATELY on redemption (visual treatment: hero dim + seal overlay). Independent of the presentation window, so the user gets instant visual confirmation that the voucher is redeemed.
+  - `blockShowToStaffMount = isRedeemed && (!isPresentationActive || isRedemptionValidated)` — narrower than `showRedeemedSeal`; only fires when the code surface itself is hidden (out-of-window OR validated).
   - Hero (`<CouponHeader>`) wrapped in `<View style={showRedeemedSeal ? styles.heroDimmed : null}>` where `heroDimmed: { opacity: 0.55 }`.
-  - `<RedeemedSeal availableAgainAt={voucher.availableAgainAt} />` mounts when `stateKey === 'redeemed-this-cycle' && showRedeemedSeal`.
-  - `RedemptionDetailsCard.onShowToStaff` callback gated with `if (showRedeemedSeal) return` — defense-in-depth alongside the hidden CTA. Even a programmatic press / re-render race / synthesised event cannot mount ShowToStaff after the gate has flipped.
+  - Hero-seal absolute overlay mounted when `showRedeemedSeal` is true.
+  - `RedemptionDetailsCard.onShowToStaff` callback gated with `if (blockShowToStaffMount) return` — defense-in-depth alongside the hidden CTA. The narrower guard means the in-window Show-to-Staff button still works; only the out-of-window/validated programmatic press is blocked.
 
 **Screen-capture protection released after window.** No special handling needed: the protection hook only mounts inside `<ShowToStaff>`, and ShowToStaff cannot open after the gate flips. The static seal + non-sensitive details surface does not carry code-grade sensitivity.
 
@@ -749,7 +751,7 @@ codeVisibleOnVoucherDetail =
 
 **Cleanup:** the hook's unmount-allow path releases prevention so other app screens (reviews, profile, etc.) can be recorded normally after the user navigates away.
 
-**Platform asymmetry (same as §7.7 / §7.6):** Android FLAG_SECURE blocks BOTH screenshots and recordings system-wide; iOS 11+ overlays a blurred snapshot during active recording / mirroring; iOS screenshots cannot be PREVENTED by Apple's SDK — the post-fact `useScreenshotGuard` listener stays Show-to-Staff-only (Voucher Detail does NOT install the listener; telemetry surface stays focused).
+**Platform asymmetry (same as §7.7 / §7.6):** Android FLAG_SECURE blocks BOTH screenshots and recordings system-wide; iOS 11+ overlays a blurred snapshot during active recording / mirroring; iOS screenshots cannot be PREVENTED by Apple's SDK — the post-fact `useScreenshotGuard` listener is now ALSO installed on Voucher Detail when the code is visible (see §8.10.2.1 below for the wiring + banner behaviour). SuccessPopup intentionally does NOT install the iOS screenshot listener — its surface is short-lived (popup) and doesn't carry the persistence-window state that Voucher Detail does.
 
 **Tests** (`tests/features/voucher/voucher-detail-redeem-flow.test.tsx` §AE6, 6 cases): IN-WINDOW prevent / OUT-OF-WINDOW no-prevent / VALIDATED no-prevent / NON-REDEEMED no-prevent / UNMOUNT-allow / LOADING no-prevent.
 
@@ -788,19 +790,20 @@ Owner-locked tone direction: *"calm and helpful, not punitive; make it clear the
 
 **In-window helper line** — near the Show-to-Staff CTA inside `RedemptionDetailsCard`:
 
-- Preferred copy (when `redeemedAt` is parseable): *"Available to show staff until \<D Mon, HH:mm\>."* — e.g. *"Available to show staff until 9 May, 00:55."* Exact expiry time computed from `redeemedAt + PRESENTATION_WINDOW_MS`, formatted en-GB / Europe/London / 24-hour. **Always includes the date** so cross-midnight expiry cannot be confused with the same clock time on the redeemed day. Format helper: `formatExpiryLine(redeemedAtIso) → '9 May, 00:55' | null`.
+- Preferred copy (when `redeemedAt` is parseable): *"Available to show staff until \<D Mon, HH:mm\>."* — e.g. *"Available to show staff until 9 May, 00:55."* Exact expiry time computed from `redeemedAt + PRESENTATION_WINDOW_MS`. **Display timezone is DEVICE-LOCAL** in production calls (locked 2026-05-09 wave 4 — was Europe/London in the wave-1 draft; switched to local for consistency with the Date/Time info rows on the same card so a user in any timezone sees ONE consistent timezone throughout). The math is absolute milliseconds, so calculation correctness is independent of display timezone. **Always includes the date** so cross-midnight expiry cannot be confused with the same clock time on the redeemed day. Format helper: `formatExpiryLine(redeemedAtIso, timeZone?) → '9 May, 00:55' | null`. The optional `timeZone` parameter is for tests only — Qatar / Europe/London / UTC scenarios are pinned via direct calls regardless of host TZ.
 - Fallback (defensive — when `redeemedAt` is malformed): *"You can show this code to staff for 2 hours after redeeming."* — never renders "Invalid Date".
 - testID: `redemption-details-availability-helper`.
 
 **Hermes-robust formatter (locked 2026-05-09 from PR #49 device QA).** The first ship of this helper used `expiry.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })`. On-device QA showed it silently rendering the redeemed time instead of the +2h expiry — same Hermes/CLDR fragility class as the `weekday: 'short'` issue locked in `apps/customer-app/src/features/merchant/utils/londonNow.ts` (Hermes ships a stripped-down CLDR set; some option combinations on `toLocaleTimeString` fall through to fragile defaults). Replacement uses `Intl.DateTimeFormat('en-US', { ... }).formatToParts(expiry)` for numeric extraction + a hardcoded English month-name array (`['Jan', 'Feb', ..., 'Dec']`). Numeric Intl parts are universally supported across runtimes.
 
-**Out-of-window calm explanation** — near the history tip inside `RedemptionDetailsCard`, ONLY when `!isPresentationActive && !isValidated`:
+**Out-of-window inner notice card** — replaces the loose-text-at-bottom-of-card treatment from the wave-1 draft (locked 2026-05-09 wave 4). Sits in the slot where the redemption-code box used to be. Renders ONLY when `!isPresentationActive && !isValidated`:
 
-- Copy: *"Staff handoff window ended. Your redemption details are saved below."*
-- testID: `redemption-details-window-ended`.
+- Soft warm-tinted card with a Clock icon, bold 14pt headline, and 12pt supporting line.
+- Headline copy: *"Staff handoff window ended"*.
+- Supporting copy: *"Your code is now saved in Profile → Redemption History for your records."*
+- testIDs: `redemption-details-expired-notice` / `redemption-details-expired-headline` / `redemption-details-expired-support`.
 - Suppressed in the validated state because the validated pill carries the success message; pairing "ended" with "validated by staff" reads as a contradiction.
-
-**Existing history tip** (§8.10.1) remains unchanged: *"You'll be able to find this code in Profile → Redemption History."* It points users to where to find the code if they need it after the window. Both lines (ended-window + history tip) coexist in the out-of-window-not-validated state.
+- The earlier `redemption-details-window-ended` + `redemption-details-history-tip` testIDs (with copy *"…your redemption details are saved below."*) are GONE; the notice card consolidates both into one intentional surface. Negative regression pin in `redemption-details-card.test.tsx` verifies the old testIDs don't accidentally come back.
 
 **Tests** (`tests/features/voucher/redemption-details-card.test.tsx`, 12 cases): full date+time format / malformed fallback / out-of-window calm explanation / coexistence with history tip / validated suppresses "available" / validated suppresses "ended-window" / in-window suppresses "ended-window" / day-boundary edge case (23:30 UTC → 02:30 next-day BST) / **PR #49 device-QA scenario verbatim (21:55 UTC → 9 May, 00:55 BST cross-midnight)** / day-numeric without leading zero / month transition (31 May → 1 Jun).
 

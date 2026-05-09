@@ -405,7 +405,7 @@ Goal: PinEntrySheet → RedeemMutation → SuccessPopup → routes back to Vouch
 - `useRedeem` reads `branchId` from `merchant.selectedBranch.id` at mutation time (a function-of-state read, NOT a captured-earlier value). Defensive guard: if `selectedBranch == null`, abort and reopen picker.
 - **REQUIRED test:** assert `useRedeem` sends `branchId === selectedBranch.id` and not from any other source (merchant aggregate, branches[0], etc).
 - **REQUIRED test:** PIN failure at one branch does not affect retry eligibility at the same or different branch (rate-limit is per `(userId, branchId)`).
-- **REQUIRED test:** state #3 (already-redeemed) renders the same RedeemedBadge regardless of which branch the picker has selected — eligibility is branch-independent.
+- **REQUIRED test:** state #3 (already-redeemed) renders the same redeemed visual treatment regardless of which branch the picker has selected — eligibility is branch-independent. (Wave-1 M2 mounted a `<RedeemedBadge>` pill for this signal; the final shipped state replaces that with the hero-overlay seal — see D.6.c.)
 
 Files (new):
 - `apps/customer-app/src/features/voucher/components/{PinEntrySheet,SuccessPopup,RedemptionDetailsCard}.tsx`
@@ -570,7 +570,7 @@ Em dashes removed from `productCopy.ts` (BOGO body, REUSABLE body), `CycleRulesC
 
 **Closed during M2:**
 - M2 plan's "PIN failure at one branch doesn't affect retry eligibility at the same or different branch" — pinned by tests in PR #44.
-- M2 plan's "state #3 renders the same RedeemedBadge regardless of which branch the picker has selected" — pinned by tests in PR #46.
+- M2 plan's "state #3 renders the same redeemed visual treatment regardless of which branch the picker has selected" — pinned by tests in PR #46. (M2 used a `<RedeemedBadge>` pill for this signal; M3 D.6.c replaced it with the hero-overlay seal.)
 - §O7 (closed in PR #40 round 23, recorded in M1.1).
 
 PRs landed: #43 (backend, merge `8822458`); #44 (frontend M2 Section B, merge `c233f04`); #45 (PIN defensive fixes, merge `40d1f9f`); #46 (device-QA follow-ups, merge `aea73f4`).
@@ -748,14 +748,23 @@ Owner-locked picks (do not relitigate without explicit approval):
 - **Behaviour after window: FULLY HIDE.** No QR, no manual code, no "for your records" text on Voucher Detail. Code retrieval moves to Profile → Redemption History (full surface deferred — M3 ships the tip line as the routing pointer).
 - **Validated is terminal regardless of window.** Once staff has scanned, the code surface collapses even if technically still inside the 2h window.
 - **Hook design: setTimeout-at-expiry, not polling.** Single timer fires once at the boundary. Backgrounding pauses the JS timer; on resume the timer fires either immediately (if it overran) or on time. Rules-of-hooks-safe because `usePresentationActive` is called unconditionally from the screen with the resolved `redeemedAt` priority (in-memory PRIMARY ?? persisted FALLBACK ?? null).
-- **Defense-in-depth: hide-and-guard.** The card hides the CTA visually; `VoucherDetailScreen.onShowToStaff` ALSO checks `if (showRedeemedSeal) return` so a programmatic press / re-render race / synthesised event cannot mount ShowToStaff after the gate has flipped.
+- **Defense-in-depth: hide-and-guard.** The card hides the CTA visually; `VoucherDetailScreen.onShowToStaff` ALSO checks `if (blockShowToStaffMount) return` so a programmatic press / re-render race / synthesised event cannot mount ShowToStaff once the code surface has collapsed (out-of-window OR validated). NOTE: `blockShowToStaffMount` is the narrower-than-`showRedeemedSeal` guard introduced in D.6 wave 8 — see below for the two-boolean split that lets the seal fire visually on redemption while keeping the in-window Show-to-Staff button clickable.
 
-What ships:
+What ships (FINAL — superseding parts of this wave-1 description appear in D.6):
 
 - **New helper + hook** at [apps/customer-app/src/features/voucher/utils/presentationWindow.ts](apps/customer-app/src/features/voucher/utils/presentationWindow.ts) — `PRESENTATION_WINDOW_MS`, `isPresentationActive(redeemedAt, now?)`, `usePresentationActive(redeemedAt: string | null)`. Defensive on malformed ISO (returns false, no throw). Defensive on null (returns false, no timer scheduled).
-- **New `<RedeemedSeal>` component** at [apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx](apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx) — tilted (-8°) brand-rose badge with two-line copy: "VOUCHER REDEEMED" + "Renews on <date>". Mounts at the screen level between RedeemedBadge and the time-limited banner. Replaces the M2/M3 active-state energy with a clear "this surface is closed" signal.
-- **`<RedemptionDetailsCard>` extended** with optional `isPresentationActive?: boolean` prop (defaults to `true` for back-compat with SuccessPopup test fixtures + the in-memory just-redeemed flow). When `(isPresentationActive AND !isValidated)` is false, the code box + Show-to-Staff CTA are suppressed; replaced by a tip line testID `redemption-details-history-tip` reading *"You'll be able to find this code in Profile → Redemption History."* Header / voucher summary / branch+date+time info rows / saving disclaimer / validated pill all remain — the card still answers "what was used, where, when".
-- **`VoucherDetailScreen` wiring**: lifts `redemptionRedeemedAt` resolution out of the displayRedemption IIFE so `usePresentationActive` is called unconditionally; computes `isRedemptionValidated` from `(validatedSession === code) || voucher.lastRedemption.isValidated`; computes `showRedeemedSeal = !!redeemedAt && (!isPresentationActive || isRedemptionValidated)`; passes `isPresentationActive` to the card; mounts `<RedeemedSeal>` when `stateKey === 'redeemed-this-cycle' && showRedeemedSeal`; wraps the hero (`<CouponHeader>`) in a View with `style={showRedeemedSeal ? styles.heroDimmed : null}` (`opacity: 0.55`); guards `onShowToStaff` with `if (showRedeemedSeal) return`.
+- **New `<RedeemedSeal>` component** at [apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx](apps/customer-app/src/features/voucher/components/RedeemedSeal.tsx) — tilted (-8°) brand-rose seal with two-line copy: "VOUCHER REDEEMED" + "Renews on \<date\>". **Final placement is an absolute overlay on the hero/banner of Voucher Detail** (testID `voucher-detail-hero-seal`, anchored at `insets.top + 96`, `pointerEvents='none'`) — the seal physically stamps the voucher itself rather than sitting as a standalone block elsewhere. The standalone middle-of-page mount AND the green RedeemedBadge pill that initially co-existed were both removed in D.6.c (wave 4).
+- **`<RedemptionDetailsCard>` extended** with an `isPresentationActive?: boolean` prop. When `(isPresentationActive AND !isValidated)` is false, the code box + Show-to-Staff CTA are suppressed and replaced by an INNER NOTICE CARD (NOT loose text — that was the wave-1 design, replaced in D.6.b wave 4): testIDs `redemption-details-expired-notice` / `redemption-details-expired-headline` / `redemption-details-expired-support`. Soft warm-tinted background, Clock icon, 14pt bold headline ("Staff handoff window ended"), 12pt supporting line ("Your code is now saved in Profile → Redemption History for your records."). Header / voucher summary / branch+date+time info rows / saving disclaimer / validated pill all remain.
+- **`VoucherDetailScreen` wiring (final shipped state — see D.6.c wave 8 for the split):**
+  - Lifts `redemptionRedeemedAt` resolution above the displayRedemption IIFE so `usePresentationActive` is called unconditionally.
+  - Computes `isRedemptionValidated` from `(validatedSession === code) || voucher.lastRedemption.isValidated`.
+  - Computes TWO independent booleans:
+    - `showRedeemedSeal = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt` (visual; fires immediately on redemption).
+    - `blockShowToStaffMount = isRedeemed && (!isPresentationActive || isRedemptionValidated)` (handler guard; only when code surface is hidden).
+  - Passes `isPresentationActive` to the card.
+  - Mounts the hero seal overlay when `showRedeemedSeal` is true (so it fires immediately on redemption, not gated on window expiry).
+  - Wraps `<CouponHeader>` in a View with `style={showRedeemedSeal ? styles.heroDimmed : null}` (`opacity: 0.55`).
+  - Guards `onShowToStaff` with `if (blockShowToStaffMount) return` — NARROWER than `showRedeemedSeal` so the legitimate in-window "Show to Staff" press still works while the seal still surfaces.
 - **Screen-capture protection released after window.** No special handling needed: the protection hook on `<ShowToStaff>` only mounts when ShowToStaff is open, and ShowToStaff cannot be opened after the gate flips. The static seal + non-sensitive details surface does not carry code-grade sensitivity.
 
 Tests added:
@@ -763,7 +772,7 @@ Tests added:
 - `tests/features/voucher/utils/presentationWindow.test.ts` (NEW): **16/16 ✅** — constant value, in-window/at-boundary/out-of-window helper, malformed-ISO defence, default-now, hook null/expired/active mount paths, single-timer (no polling) pin, unmount-cleanup pin, redeemedAt-change re-arm, malformed-ISO no-timer.
 - `tests/features/voucher/redemption-details-card.test.tsx`: **28/28 ✅** (was 21: +7 presentation-window state-machine cases — default open, in-window+!validated, out-of-window, validated regardless of window, history-tip copy pin, non-sensitive details remain, regression CTA-hidden pin).
 - `tests/features/voucher/voucher-detail-redeem-flow.test.tsx`: **61/61 ✅** (was 56: +5 §AE pins — in-window code visible, out-of-window code hidden + tip + seal, validated regardless of window, defense-in-depth no-mount-on-press, non-redeemed states do not render seal). Earlier persisted-fixture `redeemedAt` constants updated to `new Date(Date.now() - 30 * 60 * 1000).toISOString()` so they remain inside the window regardless of when the test runs (was failing post-2026-05-08T10:00Z).
-- Focused voucher sweep (26 suites): **444/444 ✅** at the §AE wave landing point.
+- Focused voucher sweep (26 suites): **444/444 ✅** at the §AE wave-1 landing point (HISTORICAL wave snapshot — the final pre-merge gate is at the bottom of D.6 / D.7; do not read this number as branch tip).
 
 **(D.2) Screen-capture protection on Voucher Detail** (added 2026-05-08, PR #49 review wave 2 from owner-flagged QA finding).
 
@@ -776,7 +785,7 @@ What ships:
 - `VoucherDetailScreen` calls `useScreenCaptureProtection(codeVisibleOnVoucherDetail)` where `codeVisibleOnVoucherDetail = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt && isPresentationActive && !isRedemptionValidated`.
 - Mirrors the card's `showCodeSurface` gate. Protection lifts the moment the code surface collapses (boundary expiry OR validation transition) — no need to leave protection on for the seal-only / validated-only states.
 - Hook unmount-cleanup releases prevention so other app screens (reviews, profile, etc.) can be recorded normally afterwards.
-- Same Android/iOS asymmetry as ShowToStaff and SuccessPopup: Android FLAG_SECURE blocks both screenshots and recordings; iOS 11+ overlays a blurred snapshot during recording / mirroring; iOS screenshots cannot be PREVENTED (Apple has no SDK) — that listener-based path stays Show-to-Staff-only.
+- Same Android/iOS asymmetry as ShowToStaff: Android FLAG_SECURE blocks both screenshots and recordings; iOS 11+ overlays a blurred snapshot during recording / mirroring; iOS screenshots cannot be PREVENTED (Apple has no SDK). Voucher Detail ADDITIONALLY installs the post-fact `useScreenshotGuard` listener (see D.5.b below for the iOS-listener wiring on Voucher Detail) — the wave-1 D.2 framing of "listener stays Show-to-Staff-only" was superseded in D.5.b. SuccessPopup is the only remaining surface that intentionally does NOT install the iOS listener (it's a short-lived popup, not a persistent surface).
 
 Tests added (`tests/features/voucher/voucher-detail-redeem-flow.test.tsx` §AE6, +6 cases, 67/67 total):
 
@@ -789,13 +798,13 @@ Tests added (`tests/features/voucher/voucher-detail-redeem-flow.test.tsx` §AE6,
 
 **(D.3) User-facing helper copy** (added 2026-05-08, PR #49 review wave 3 from owner-flagged tone-finding).
 
-Owner direction: "the code disappearing must not feel broken". Two calm copy lines, both pinned to be tonally non-punitive:
+Owner direction: "the code disappearing must not feel broken". Two calm copy treatments, both pinned to be tonally non-punitive (final shipped state — superseded copy/testIDs from this wave's first draft are documented in D.6.a + D.6.b below):
 
 - **In-window helper**, near the Show-to-Staff CTA inside the card:
-  - When `redeemedAt` is parseable: *"Available to show staff until \<HH:mm\>."* — exact expiry time computed from `redeemedAt + PRESENTATION_WINDOW_MS`, formatted en-GB / Europe/London / 24-hour. testID `redemption-details-availability-helper`.
+  - Final shipped copy when `redeemedAt` is parseable: *"Available to show staff until \<D Mon, HH:mm\>."* — e.g. *"Available to show staff until 9 May, 00:55."* The date is always included so cross-midnight expiry can never be confused with the same-clock-time on the redeemed day. testID `redemption-details-availability-helper`. **Display timezone is DEVICE-LOCAL** in production calls (was Europe/London in this wave's first draft; switched in D.6.a — see below for the rationale). The math is absolute milliseconds (`redeemedAtMs + PRESENTATION_WINDOW_MS`); only the display layer formats in the user's local timezone.
   - Fallback when `redeemedAt` is malformed: *"You can show this code to staff for 2 hours after redeeming."* — never renders "Invalid Date".
-- **Out-of-window calm explanation**, near the history tip: *"Staff handoff window ended. Your redemption details are saved below."* testID `redemption-details-window-ended`. Renders ONLY when `!isPresentationActive && !isValidated` — surfacing this alongside the validated pill would read as a contradiction ("ended? but staff DID see it").
-- The existing *"You'll be able to find this code in Profile → Redemption History."* tip remains as the routing pointer.
+- **Out-of-window calm explanation:** consolidated into an INNER NOTICE CARD (NOT loose text — the wave-1 design was loose text, replaced in D.6.b). Final testIDs: `redemption-details-expired-notice` / `redemption-details-expired-headline` / `redemption-details-expired-support`. Headline copy: *"Staff handoff window ended"*. Supporting copy: *"Your code is now saved in Profile → Redemption History for your records."* Renders ONLY when `!isPresentationActive && !isValidated` — surfacing this alongside the validated pill would read as a contradiction.
+- The "Profile → Redemption History" pointer is now part of the inner notice card's supporting copy (not a separate loose-text tip line below).
 
 Tests added (`tests/features/voucher/redemption-details-card.test.tsx`, +8 helper-copy cases, 36/36 total):
 
@@ -810,7 +819,7 @@ Tests added (`tests/features/voucher/redemption-details-card.test.tsx`, +8 helpe
 
 **(D.4) QA helper script** (added 2026-05-08): `prisma/qa-set-redeemed-at.ts`. Bumps the most-recent `VoucherRedemption.redeemedAt` for `(user, voucher)` to "now minus N minutes" so the §AE5 boundary flip can be observed in <5 minutes of QA without waiting two real hours per cycle. Defaults: `customer@redeemo.com` + `COV-RCV-001` (Covelum FREEBIE) + 115 minutes ago. Override via `--email`, `--voucherId`, `--minutes-ago`. Refuses to run without an existing redemption row (points the QA tester at the redeem flow first). Touches no other (user, voucher) pair.
 
-Final test counts after D.2 + D.3 + D.4: backend vitest 112/112; customer-app jest **458/458** across 26 voucher suites. Focused 6-suite sweep (presentationWindow / redemption-details-card / voucher-detail-redeem-flow / success-popup / use-screen-capture-protection / show-to-staff): **178/178 ✅**.
+HISTORICAL wave snapshot at D.2 + D.3 + D.4 landing point: backend vitest 112/112; customer-app jest **458/458** across 26 voucher suites; focused 6-suite sweep **178/178 ✅** (presentationWindow / redemption-details-card / voucher-detail-redeem-flow / success-popup / use-screen-capture-protection / show-to-staff). Subsequent waves D.5/D.6/D.7 added more pins — see the bottom of this section for the final pre-merge gate. Do not read 178/458 as branch tip.
 
 **(D.5) Device-QA hardening waves** (added 2026-05-09 from owner's PR #49 device QA findings on a screenshot at 00:42 BST 9 May):
 
@@ -822,7 +831,7 @@ Three issues surfaced; all closed in this wave.
 
 (D.5.c) **QA script output was ambiguous.** Owner asked whether the script actually updated the targeted row. Script now prints a structured BEFORE / AFTER / NEXT STEPS block: BEFORE shows the existing redemption (id, code, redeemedAt, validatedAt status); the script writes; AFTER re-reads the row from the DB to prove the write took (skipping the re-read would let "the write succeeded" be a tautology); NEXT STEPS spells out exactly how to invalidate the React Query cache (kill-and-relaunch OR navigate-back-and-re-tap; pull-to-refresh on Voucher Detail is NOT currently wired) so the owner doesn't have to guess.
 
-Final test counts after D.5: backend vitest 112/112; customer-app jest **470/470** across 26 voucher suites. Focused 7-suite sweep: **201/201 ✅**.
+HISTORICAL wave snapshot at D.5 landing point: backend vitest 112/112; customer-app jest **470/470** across 26 voucher suites; focused 7-suite sweep **201/201 ✅**. Superseded by D.6 / D.7 below — see the final pre-merge gate.
 
 **(D.6) Device-QA wave 4-6 — timezone consistency, layout consolidation, seal prominence** (added 2026-05-09 from owner's continuing PR #49 device QA on a Qatar device).
 
@@ -846,7 +855,20 @@ Fixes (one wave per concern):
 
 (D.6.f) **QA script timezone-explicit output.** Now prints raw UTC redeemedAt/expiry, the calculated 2h delta, AND device-local + Europe/London display previews so the QA tester can cross-check the customer-app's display rendering against the absolute math without ambiguity. Includes a clear note that the in-app card uses device-local TZ for display so cross-device clock differences are expected (the absolute instants are the same).
 
-Final test counts after D.6: backend vitest 112/112; customer-app jest **474/474** across 26 voucher suites (was 470 — +4 from new card pure-function tests). Focused 7-suite sweep: **205/205 ✅**.
+HISTORICAL wave snapshot at D.6 landing point: backend vitest 112/112; customer-app jest **474/474** across 26 voucher suites (was 470 — +4 from new card pure-function tests); focused 7-suite sweep **205/205 ✅**. Final pre-merge gate (after D.7 + the wave-8 hero-immediate-seal split + the `/impeccable` SuccessPopup redesign) sits at the bottom of this section.
+
+---
+
+#### M3.1 — Final pre-merge gate (PR #49 branch tip)
+
+After all waves above (D.1 → D.7), the canonical pre-merge gate that this PR ships against is:
+
+- Focused customer-app M3 / auth sweep: **207/207 ✅** (covers the M3-touched suites the owner runs locally before merge).
+- Backend M3 redemption + discovery suite: **112/112 ✅**.
+- Wider full-voucher jest sweep (26 suites — defence-in-depth): **474/474 ✅**.
+- `tsc --noEmit`: zero new errors. Single pre-existing unrelated `branchName: string | null` error in `VoucherDetailScreen.tsx` is NOT introduced by PR #49.
+
+Treat the per-wave snapshots above as the wave-by-wave change log, NOT as the branch-tip number. The 207/112 numbers are the merge gate.
 
 Backend:
 
@@ -870,7 +892,7 @@ Devices that matter: iPhone 14/15/16 Pro (Dynamic Island + brightness boost), iP
 
 1. Subscribed user, single-branch merchant, voucher ACTIVE → tap Redeem → enter PIN → see SuccessPopup → arrive at ShowToStaff with QR. Code visible. Staff scans (or types) → app polls + transitions to "Validated" state.
 2. Subscribed user, multi-branch merchant → tap Redeem → BranchPicker opens → pick branch → PIN entry → success → ShowToStaff (with branch attribution surfaced).
-3. Already-redeemed-this-cycle return visit → voucher detail shows RedeemedBadge + RedemptionDetailsCard → "Show to Staff again" reopens ShowToStaff with same code.
+3. Already-redeemed-this-cycle return visit → voucher detail shows the hero-overlay RedeemedSeal stamping the washed-out hero + RedemptionDetailsCard below (with code surface live during the 2h window OR the inner expired-notice card after window expiry / validation) → tap Show-to-Staff (during the window) reopens ShowToStaff with same code. RedeemedBadge pill is NOT mounted on Voucher Detail in the final shipped state — it was consolidated into the hero-overlay seal in D.6.c wave 4.
 4. Free user → tap Redeem → SubscribePromptScreen (the Coming-soon Alert path).
 
 ### State-machine paths
@@ -968,7 +990,7 @@ The user MUST be able to change the redemption branch BEFORE entering the PIN. A
 
 The 12-state UI MUST treat `isRedeemedThisCycle === true` as voucher-locked across ALL branches:
 
-- State #3 (already redeemed) shows the same RedeemedBadge regardless of which branch the user selects via the picker.
+- State #3 (already redeemed) renders the same redeemed visual treatment regardless of which branch the user selects via the picker — final shipped surface is the hero-overlay RedeemedSeal + dimmed hero (the standalone RedeemedBadge pill that wave-1 M2 mounted is no longer part of the page; consolidated into the seal in D.6.c wave 4). Eligibility is per `(userId, voucherId)` not per branch.
 - Switching branches in the picker on a state-#3 voucher does NOT change eligibility or unlock the voucher.
 - A redemption attempt at Branch B for a voucher already redeemed at Branch A returns `ALREADY_REDEEMED` from the backend — the frontend respects that error and does NOT retry against a different branch.
 
