@@ -124,16 +124,20 @@ export function BranchPickerSheet({
       accessibilityLabel="Choose redemption branch"
     >
       <View testID="voucher-branch-picker-sheet">
-        {/* Title + subtitle bumped 2026-05-09 (cross-surface consistency
-            with PIN sheet readability pass).  heading.md (18) +
-            body.md (16) match the PinEntrySheet rhythm so the
-            redemption journey reads at a consistent scale. */}
-        <Text variant="heading.md" style={styles.title}>
+        {/* Title + subtitle (2026-05-09 owner direction): heading.sm
+            (16) + body.sm (14) — matches the lockout-card title scale
+            and dials back from the initial bump that read too large.
+            Subtitle split into sentence-per-line layout so the two
+            sentences each sit cleanly on their own row instead of
+            wrapping mid-sentence. */}
+        <Text variant="heading.sm" style={styles.title}>
           {titleText}
         </Text>
-        <Text variant="body.md" style={styles.subtitle}>
-          Pick the branch you're at right now. The PIN you'll enter is
-          specific to that branch.
+        <Text variant="body.sm" style={styles.subtitle}>
+          Pick the branch you're at right now.
+        </Text>
+        <Text variant="body.sm" style={styles.subtitleSecondary}>
+          The PIN you'll enter is specific to that branch.
         </Text>
 
         <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
@@ -233,9 +237,15 @@ const styles = StyleSheet.create({
     color: color.text.primary,
     textAlign: 'center',
   },
-  // body.md (16 / 24) variant drives.
+  // body.sm (14 / 21) variant drives.  Two-line sentence-per-line
+  // layout: subtitle + subtitleSecondary stack vertically.
   subtitle: {
     marginTop: spacing[2],
+    color: color.text.secondary,
+    textAlign: 'center',
+  },
+  subtitleSecondary: {
+    marginTop: 2,
     color: color.text.secondary,
     textAlign: 'center',
     marginBottom: spacing[4],

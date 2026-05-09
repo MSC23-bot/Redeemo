@@ -293,7 +293,7 @@ export function PinEntrySheet({
         <Text variant="body.md" style={styles.subtitle}>
           Ask staff at {merchantName} for their 4-digit PIN.
         </Text>
-        <Text variant="body.md" style={styles.subtitleSecondary}>
+        <Text variant="body.sm" style={styles.subtitleSecondary}>
           When you confirm it, we'll create the code staff can check.
         </Text>
 
@@ -308,12 +308,17 @@ export function PinEntrySheet({
             <Text variant="heading.sm" style={styles.lockoutTitle}>
               Too Many Attempts
             </Text>
+            {/* Sentence-per-line layout — locked rule 2026-05-09:
+                each sentence gets its own Text so word wrap doesn't
+                land in awkward places. */}
             <Text variant="body.sm" style={styles.lockoutBody}>
-              You've entered the wrong PIN too many times. Try again
-              after the timer below.
+              You've entered the wrong PIN too many times.
+            </Text>
+            <Text variant="body.sm" style={styles.lockoutBodySecondary}>
+              Try again after the timer below.
             </Text>
             <Text
-              variant="heading.lg"
+              variant="heading.md"
               style={styles.lockoutTimer}
               testID="pin-lockout-timer"
             >
@@ -422,9 +427,18 @@ export function PinEntrySheet({
         {!isLocked ? (
           <View style={styles.disclaimer}>
             <Lock size={16} color={color.brandRose} strokeWidth={2.4} />
-            <Text variant="body.sm" style={styles.disclaimerText}>
-              Confirming the correct PIN redeems this voucher for this cycle. Continue when you're ready to use it.
-            </Text>
+            {/* Sentence-per-line layout (locked 2026-05-09):
+                consequence sentence on line 1, calm gate on line 2.
+                Each sentence is its own Text so it never wraps with
+                a clause hanging awkwardly. */}
+            <View style={styles.disclaimerTextWrap}>
+              <Text variant="body.sm" style={styles.disclaimerText}>
+                Confirming the correct PIN redeems this voucher for this cycle.
+              </Text>
+              <Text variant="body.sm" style={[styles.disclaimerText, styles.disclaimerTextSecondary]}>
+                Continue when you're ready to use it.
+              </Text>
+            </View>
           </View>
         ) : null}
 
@@ -491,12 +505,14 @@ const styles = StyleSheet.create({
     borderBottomColor: color.border.subtle,
     marginBottom: spacing[4],
   },
-  // Horizontal block — logo (left) + merchant text (right), centered
-  // as a unit on the row.  Switched from vertical stack 2026-05-09.
+  // Horizontal block — logo (left) + merchant text (right), aligned
+  // to the leading edge of the sheet (left in LTR locales).  Owner
+  // direction 2026-05-09: left-align rather than centred so the
+  // identity reads as a header bar, not a centred title block.
   headerInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'center',
+    alignSelf: 'flex-start',
     gap: spacing[3],
   },
   headerText: {
@@ -646,10 +662,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     marginBottom: spacing[4],
   },
+  // Wrapper so the two-Text sentence-per-line layout takes the
+  // remaining width beside the Lock icon.
+  disclaimerTextWrap: {
+    flex: 1,
+  },
   // body.sm (14 / 21) drives.  No fontSize override.
   disclaimerText: {
-    flex: 1,
     color: color.text.primary,
+  },
+  disclaimerTextSecondary: {
+    marginTop: 2,
   },
   // Submit button — body.md (16) drives via variant.  Min-height 56
   // gives a comfortable tap target at the bumped text size; gap 8
@@ -709,9 +732,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing[2],
   },
   // body.sm (14 / 21) variant drives — readable explanation copy.
+  // Split into two sibling Text blocks so each sentence is its own
+  // line (sentence-per-line discipline).
   lockoutBody: {
     color: '#92400E',
     textAlign: 'center',
+  },
+  lockoutBodySecondary: {
+    color: '#92400E',
+    textAlign: 'center',
+    marginTop: 2,
     marginBottom: spacing[3],
   },
   // heading.lg (20 / 26) variant drives the mm:ss timer.  Bumped
