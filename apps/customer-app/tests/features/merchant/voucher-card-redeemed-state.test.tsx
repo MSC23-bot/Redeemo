@@ -152,12 +152,11 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         onToggleFavourite={() => {}}
       />,
     )
-    // Type chip text renders at full readable opacity — no
-    // dimming style applied to the chip itself. The whole-card
-    // cardRedeemed opacity 0.6 is the locked PR #35 active-vs-
-    // redeemed contrast and is intentionally preserved; this pin
-    // confirms the chip text is NOT additionally dimmed beyond
-    // that baseline (no per-chip opacity override).
+    // Type chip text renders at full readable opacity per brief
+    // §3.5 — "Type chip stays full saturation (still tells you
+    // what type the voucher is)".  T5.1 spec-fix removed the
+    // previous card-wide 0.6 opacity dim entirely; this pin
+    // confirms no per-chip opacity override exists either.
     const chip = getByText('Freebie')
     const style = Array.isArray(chip.props.style)
       ? Object.assign({}, ...chip.props.style)

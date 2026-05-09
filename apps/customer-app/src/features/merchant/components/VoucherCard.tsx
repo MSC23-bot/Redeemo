@@ -36,9 +36,12 @@ import { VoucherCardRedeemedStamp } from './VoucherCardRedeemedStamp'
 //   2. Active vs redeemed contrast preserved. The owner
 //      flagged that washed-out cards confuse "redeemable"
 //      with "redeemed". Active state is now visibly more
-//      vivid; cardRedeemed style still drops opacity to 0.6
-//      so the redeemed state reads clearly washed by
-//      comparison.
+//      vivid.  PR-B T5 (§Q4) added the redeemed variant
+//      with three independent muted-state cues (cream-tint
+//      gradient overlay + REDEEMED hero stamp + 'Already
+//      redeemed this cycle' inline label below the saving
+//      block); content (title, description, type chip) stays
+//      at full opacity per brief §3.5.
 //
 //   3. Decorative blobs DIAGONALLY spread across the card.
 //      §32 had three blobs all clustered on the LEFT (top,
@@ -260,11 +263,12 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
             (#FFF9F5 → #F5F0EB family) used elsewhere in the app
             (cf. MerchantProfileScreen / VoucherDetailScreen muted-
             surface pattern). pointerEvents='none' so the underlying
-            Pressable still receives taps. The card's outer 0.6
-            opacity (cardRedeemed style — locked PR #35 baseline
-            for active-vs-redeemed contrast) compounds with this
-            overlay; together the redeemed card reads as clearly
-            "muted but identifiable" against active siblings. */}
+            Pressable still receives taps.  The overlay alone now
+            carries the gradient-saturation drop — content (title,
+            description, type chip, stamp, inline label) sits ABOVE
+            the overlay and renders at full opacity per the brief
+            §3.5 contract (T5.1 spec-fix removed the previous
+            card-wide 0.6 opacity dim). */}
         {isRedeemed ? (
           <View
             style={styles.redeemedGradientOverlay}
@@ -313,13 +317,13 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
         {/* PR-B T5 (§Q4): redeemed-state hero stamp. Absolutely
             positioned in the top-right corner of the card so it
             reads as the rubber-stamp marker on the voucher's
-            "front". Placed inside the Pressable (so it inherits
-            cardRedeemed's 0.6 opacity along with the rest of the
-            card — keeps the active-vs-redeemed contrast pinned by
-            PR #35). pointerEvents='none' on the stamp itself so
-            taps pass through to the card. The stamp tilt + cream
-            fill + brand-rose border carry the redeemed signal at
-            list-scan distance even at 0.6 opacity. */}
+            "front".  Placed inside the Pressable so it shares the
+            card's tap surface (the stamp itself sets
+            pointerEvents='none' so taps pass through cleanly).
+            The stamp renders at FULL opacity per brief §3.5;
+            the rubber-stamp visual cue (cream fill + brand-rose
+            border + ~5° tilt + 50% ink alpha) is the load-bearing
+            signal at list-scan distance. */}
         {isRedeemed ? (
           <View style={styles.heroStampWrap} pointerEvents="none">
             <VoucherCardRedeemedStamp size={36} />
@@ -362,14 +366,16 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
           </View>
           {/* PR-B T5 (§Q4): "Already redeemed this cycle" inline
               label, rendered immediately below the saving block
-              (heroBlock) per plan §Step 3. Uses label.md / 12pt 500
-              ls 0.4 from the design-system Text variant. The
+              (heroBlock) per plan §Step 3.  Uses label.md / 12pt 500
+              ls 0.4 from the design-system Text variant.  The
               `meta` flag enables `color="tertiary"` on body/heading
               variants — kept on label.md (no-op) for forward-
-              compatibility if the variant changes. testID lets
-              tests target this label without the bottom-row
-              "Redeemed this cycle" meta text colliding with the
-              query. */}
+              compatibility if the variant changes.  This is the
+              ONLY redeemed-cycle copy on the card — the bottom-row
+              meta text always shows the expiry / "No expiry" copy
+              regardless of redeemed state (T5.1 spec-fix removed
+              the duplicate "Redeemed this cycle" bottom-row text
+              that previously co-existed with this label). */}
           {isRedeemed ? (
             <Text
               variant="label.md"
@@ -408,15 +414,16 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
               {expiryLabel ?? 'No expiry'}
             </Text>
             {/* PR-B T5 (§Q4): when redeemed, the bottom-row dark
-                pill is suppressed — the redeemed signal is now
-                carried by the hero top-right stamp + inline label
-                below the saving block. The locked PR #35 baseline
-                kept the bottom-row pill as the only redeemed cue;
+                "Redeem" CTA pill is suppressed — the redeemed
+                signal is carried by the hero top-right stamp +
+                "Already redeemed this cycle" inline label below
+                the saving block.  The locked PR #35 baseline
+                kept a bottom-row pill as the only redeemed cue;
                 the brief §5.5 redesign moves that signal to the
-                hero so it reads at list-scan distance. The bottom-
-                row meta text on the LEFT ("Redeemed this cycle")
-                stays — it backs up the new hero signal AND keeps
-                the existing voucher-card.test.tsx pin GREEN. */}
+                hero so it reads at list-scan distance.  The
+                bottom-row LEFT text always shows the expiry /
+                "No expiry" copy regardless of redeemed state
+                (T5.1 spec-fix). */}
             {isRedeemed ? null : (
               <View style={styles.redeemBtn}>
                 <Text style={[styles.redeemBtnText, { color: accent }]}>Redeem</Text>
