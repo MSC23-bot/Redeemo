@@ -63,12 +63,15 @@ type Props = {
 
 export function QRCodeBlock({ value, size, hero, blurred, onShow, testID }: Props) {
   const effectiveSize = hero ? Math.max(size, MIN_HERO_SIZE) : size
-  const logoSize = Math.round(effectiveSize * 0.18)
-  // White anchor square sits behind the SVG R — slightly bigger than
-  // the logo so brand-rose strokes have breathing room on cream and
-  // the QR modules are visually masked.  Matches the previous PNG
-  // logoBackgroundColor + logoMargin combination at ~1.4× the logo.
-  const logoAnchorSize = Math.round(logoSize * 1.4)
+  // PR-B T8r owner direction: logo bumped 18% → 20% of the QR
+  // diameter (slightly bigger).  At hero size 200pt, that's a
+  // 36 → 40pt R; anchor follows at 1.3× = 52pt (26% of QR), comfortably
+  // within H-level error-correction tolerance (~30% module recovery).
+  // The anchor multiplier tightened from 1.4 → 1.3 because the navy-
+  // on-white logo doesn't need as much breathing room as the previous
+  // multi-coloured version.
+  const logoSize = Math.round(effectiveSize * 0.20)
+  const logoAnchorSize = Math.round(logoSize * 1.3)
   const sizeStyle = { width: effectiveSize, height: effectiveSize }
 
   if (blurred) {
@@ -101,11 +104,19 @@ export function QRCodeBlock({ value, size, hero, blurred, onShow, testID }: Prop
         quietZone={4}
       />
       {/* Brand R overlay — white anchor square + canonical RedeemoLogo
-          SVG (brand-rose / brand-coral / maroon paths).  Sits absolute
-          in the centre of the QR; pointerEvents none so taps reach
-          the wrapper / blurred Pressable.  H-level error correction
-          tolerates ~30% module obscurity; this overlay covers ~25%
-          of the QR area and stays well within tolerance. */}
+          SVG.  Sits absolute in the centre of the QR; pointerEvents
+          none so taps reach the wrapper / blurred Pressable.
+          H-level error correction tolerates ~30% module obscurity;
+          this overlay covers ~25% of the QR area and stays well
+          within tolerance.
+
+          PR-B T8r (owner direction): the logo renders in the same
+          navy as the QR modules (`color.navy`) so the brand mark
+          reads as part of the QR's visual system rather than as a
+          separate brand stamp.  The default multi-coloured brand
+          mark (brand-rose / brand-coral / maroon) stays in place
+          on every other surface (auth, voucher hero, success popup,
+          Show-to-Staff identity zone). */}
       <View
         pointerEvents="none"
         testID="qrcode-redeemo-overlay"
@@ -119,7 +130,7 @@ export function QRCodeBlock({ value, size, hero, blurred, onShow, testID }: Prop
           },
         ]}
       >
-        <RedeemoLogo size={logoSize} />
+        <RedeemoLogo size={logoSize} color={color.navy} />
       </View>
     </View>
   )

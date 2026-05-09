@@ -715,15 +715,16 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   // Identity zone — horizontal Redeemo lockup, top-left (PR-B T8g
-  // revision).  36pt R + heading.md wordmark side-by-side.  10pt
-  // gap keeps the R and wordmark feeling like one cohesive mark
-  // without crowding.
+  // revision).  36pt R + heading.md wordmark side-by-side.
+  // PR-B T8r owner direction: gap tightened 10 → 6 so the R + wordmark
+  // read as ONE cohesive lockup rather than icon + label with air
+  // between them.
   identityZone: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing[5],
     paddingBottom: spacing[3],
-    gap: 10,
+    gap: 6,
   },
   identityWordmark: {
     color: color.onBrand,
