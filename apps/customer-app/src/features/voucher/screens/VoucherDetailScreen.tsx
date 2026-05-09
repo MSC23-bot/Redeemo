@@ -1503,11 +1503,19 @@ export function VoucherDetailScreen() {
             // so the user lands on the QR/code surface cleanly when
             // ShowToStaff dismisses (auto-dismiss after validated, or
             // Done press).
+            //
+            // `branchName` is `string | null` (display branch may not
+            // resolve in races / cold-open paths); the `setShowToStaff`
+            // state shape and the `<ShowToStaff>` prop both require
+            // `string`. Coerce the null case to '' here at the
+            // assignment boundary — same fallback as the persisted-
+            // card path at displayRedemption.branchName ?? '' above.
+            // Closes deferred-followups §AG9 (post-PR-#49).
             setSuccessPopup(null)
             setShowToStaff({
               code:       successPopup.redemptionCode,
               redeemedAt: successPopup.redeemedAt,
-              branchName,
+              branchName: branchName ?? '',
             })
           }}
           onRateReview={() => {
