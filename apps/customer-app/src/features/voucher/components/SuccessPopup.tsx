@@ -317,9 +317,14 @@ export function SuccessPopup({
                   style={[styles.checkRing, checkStyle]}
                   testID="success-check-ring"
                 >
-                  <Check size={14} color={color.onBrand} strokeWidth={3} />
+                  {/* PR-B T8o: glyph 14 → 18pt to ride proportionally
+                      with the bumped ring (22 → 30). */}
+                  <Check size={18} color={color.onBrand} strokeWidth={3} />
                 </Animated.View>
-                <SparkleRing visible={visible} />
+                {/* PR-B T8o: SparkleRing 56 → 64 keeps the halo
+                    breathing-room at ~17pt on each side of the
+                    bumped ring. */}
+                <SparkleRing visible={visible} size={64} />
               </View>
               <Text
                 variant="display.sm"
@@ -615,21 +620,24 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   // PR-B T2 §3.2 (LOCKED 2026-05-09) — the check-ring slot.
-  // Sized to the SparkleRing diameter (36pt) so the absolute halo
-  // sits centred on the 22pt check ring inside.  alignItems +
-  // justifyContent center the check ring within its slot.  The
-  // outer wrapper takes the flex-row child position the bare
-  // check ring used to occupy, so the row layout is unchanged.
+  // PR-B T8o (owner-direction polish 2026-05-10): bumped 36 → 44
+  // to host the larger 30pt check ring with the same centring.
+  // The SparkleRing halo (now 64pt at peak) still overflows the
+  // slot into the surrounding hero band by design — it's an
+  // expressive halo, not contained chrome.
   checkSlot: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // PR-B T8o: ring bumped 22 → 30 per owner direction "increase the
+  // size of the green tick icon".  Border-radius stays half of the
+  // diameter to keep the disc circular.
   checkRing: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: color.savingsGreen,
     alignItems: 'center',
     justifyContent: 'center',

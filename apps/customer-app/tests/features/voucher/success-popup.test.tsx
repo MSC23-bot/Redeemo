@@ -515,4 +515,23 @@ describe('SuccessPopup — PR-B T8n visual contract (impeccable + interface-desi
     const style = flat(chipText)
     expect(style.fontWeight).not.toBe('800')
   })
+
+  it('PR-B T8o: hero check ring enlarged 22 → 30pt with proportionally bumped slot (36 → 44) per owner direction', () => {
+    // Owner direction (T8o, 2026-05-10): "increase the size of the
+    // green tick icon in the hero section of success pop up".
+    // Implementation: ring 22 → 30, slot 36 → 44, glyph 14 → 18,
+    // SparkleRing 56 → 64 (proportional halo).  Pin the ring +
+    // slot dimensions so a future regression that softens the bump
+    // fails this assertion.
+    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
+    const ring = getByTestId('success-check-ring')
+    const ringStyle = flat(ring)
+    expect(ringStyle.width).toBe(30)
+    expect(ringStyle.height).toBe(30)
+    expect(ringStyle.borderRadius).toBe(15)  // half-diameter keeps it circular
+    expect(ringStyle.backgroundColor).toBe('#16A34A')   // savingsGreen
+    // Negative pin: previous 22pt dimensions MUST NOT resurface.
+    expect(ringStyle.width).not.toBe(22)
+    expect(ringStyle.borderRadius).not.toBe(11)
+  })
 })
