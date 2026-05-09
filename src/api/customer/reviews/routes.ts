@@ -20,6 +20,11 @@ const paginationQuery = z.object({
 const reviewBody = z.object({
   rating:  z.number().int().min(1).max(5),
   comment: z.string().max(500).optional(),
+  // PR-C 2026-05-09 (LOCKED §0.3): optional link to the redemption
+  // that triggered this review.  When present, upsertBranchReview
+  // validates the linkage (ownership / branch / merchant context)
+  // before persisting.  Absence is fine — review is non-verified.
+  redemptionId: z.string().min(1).optional(),
 })
 
 const reportBody = z.object({
