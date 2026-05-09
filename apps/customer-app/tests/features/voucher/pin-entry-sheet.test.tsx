@@ -271,7 +271,9 @@ describe('PinEntrySheet — PIN_RATE_LIMIT_EXCEEDED lockout', () => {
       />,
     )
     const submit = getByTestId('pin-submit')
-    expect(submit.props.accessibilityState).toEqual({ disabled: true })
+    // accessibilityState now includes `busy` (PR-A A3): `false` while
+    // locked because lockout is not the loading state.
+    expect(submit.props.accessibilityState).toEqual({ disabled: true, busy: false })
     fireEvent.press(submit)
     expect(onSubmit).not.toHaveBeenCalled()
   })

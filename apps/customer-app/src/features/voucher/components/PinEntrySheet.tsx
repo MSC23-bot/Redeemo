@@ -16,8 +16,9 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Lock, Tag } from 'lucide-react-native'
+import { Lock } from 'lucide-react-native'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
+import { PulsingDot } from '@/design-system/motion/PulsingDot'
 import { Text } from '@/design-system/Text'
 import { color, opacity, radius, spacing } from '@/design-system/tokens'
 import { errorHaptic, lightHaptic } from '@/design-system/haptics'
@@ -395,14 +396,25 @@ export function PinEntrySheet({
           </View>
         ) : null}
 
-        {/* Submit */}
+        {/* Submit — D3 idle copy "Confirm"; D4 loading state swaps to a
+            small pulsing dot + "Confirming…".  Lightweight by design
+            (Owner-clarification 2 / shape brief §6) — the spinner's
+            job is to confirm the app is working, not to ceremoniously
+            stage the redemption.
+            Defense-in-depth on repeat-submit:
+              1. accessibilityState.disabled + Pressable disabled (existing)
+              2. submittedRef guard in handleChange / handleManualSubmit
+              3. pointerEvents="none" while loading (NEW) — even if
+                 disabled fails on a specific RN version, taps don't
+                 reach the handler. */}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Redeem voucher"
-          accessibilityState={{ disabled: submitDisabled }}
+          accessibilityLabel={isLoading ? 'Confirming PIN' : 'Confirm PIN'}
+          accessibilityState={{ disabled: submitDisabled, busy: isLoading }}
           testID="pin-submit"
           disabled={submitDisabled}
           onPress={handleManualSubmit}
+          pointerEvents={isLoading ? 'none' : 'auto'}
           style={({ pressed }) => [
             styles.submit,
             submitDisabled && styles.submitDisabled,
@@ -415,10 +427,22 @@ export function PinEntrySheet({
             end={{ x: 1, y: 0 }}
             style={StyleSheet.absoluteFillObject}
           />
-          <Tag size={18} color={color.onBrand} strokeWidth={2.4} />
-          <Text variant="label.md" style={styles.submitText}>
-            Redeem Voucher
-          </Text>
+          {isLoading ? (
+            <>
+              <PulsingDot
+                color={color.onBrand}
+                size={6}
+                testID="pin-submit-pulsing-dot"
+              />
+              <Text variant="body.md" style={styles.submitText}>
+                Confirming…
+              </Text>
+            </>
+          ) : (
+            <Text variant="body.md" style={styles.submitText}>
+              Confirm
+            </Text>
+          )}
         </Pressable>
       </View>
     </BottomSheet>
@@ -588,11 +612,15 @@ const styles = StyleSheet.create({
     flex: 1,
     color: color.text.primary,
   },
+  // Submit button — body.md (16) drives via variant.  Min-height 56
+  // gives a comfortable tap target at the bumped text size; gap 8
+  // sits between PulsingDot (when loading) and "Confirming…" label.
   submit: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing[2],
+    minHeight: 56,
     paddingVertical: spacing[4],
     borderRadius: radius.lg,
     overflow: 'hidden',
@@ -607,9 +635,11 @@ const styles = StyleSheet.create({
   submitPressed: {
     transform: [{ scale: 0.97 }],
   },
+  // body.md (16 / 24) variant drives.  No fontSize override.
+  // SemiBold weight via fontWeight: '700' (Lato-Regular variant
+  // base is 400, lifted here for action-button presence).
   submitText: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
     color: color.onBrand,
   },
   // ── Lockout card ──
