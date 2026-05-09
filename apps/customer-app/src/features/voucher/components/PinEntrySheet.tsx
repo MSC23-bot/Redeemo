@@ -640,13 +640,14 @@ const styles = StyleSheet.create({
   backendErrorBody: {
     color: '#92400E',
   },
-  // Disclaimer banner — icon-left layout (2026-05-09 final form).
-  // Lock icon top-left aligned with the first line of copy; Text
-  // takes the remaining card width via flex: 1 and wraps naturally.
+  // Disclaimer banner — icon-left, vertically centred (2026-05-09).
+  // Lock icon centred against the full text height (~2 lines) so
+  // the icon visually balances the two-line copy block.  Text takes
+  // the remaining card width via flex: 1 and wraps naturally.
   // Single Text holds both sentences so "cycle." never orphans.
   disclaimer: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: spacing[2],
     backgroundColor: color.cream,
     borderColor: 'rgba(226, 12, 4, 0.12)',
