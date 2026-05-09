@@ -17,6 +17,7 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   expiryDate: null,
   terms: 'T&Cs apply',
   imageUrl: null,
+  isRedeemedThisCycle: false,
   ...overrides,
 })
 

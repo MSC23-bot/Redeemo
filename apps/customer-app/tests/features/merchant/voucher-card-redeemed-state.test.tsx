@@ -33,6 +33,11 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   expiryDate: null,
   terms: 'T&Cs apply',
   imageUrl: null,
+  // PR-B T8a: factory always sets the new payload field.  These
+  // tests drive the redeemed-state visual variant via the
+  // `isRedeemed` PROP on VoucherCard directly (not via the payload
+  // flag), so this default is just for type-safety completeness.
+  isRedeemedThisCycle: false,
   ...overrides,
 })
 

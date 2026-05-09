@@ -71,6 +71,13 @@ const merchantVoucherSchema = z.object({
   imageUrl:        z.string().nullable(),
   estimatedSaving: z.coerce.number(),                 // Prisma Decimal → number
   expiryDate:      z.string().nullable(),             // ISO
+  // PR-B T8a (§Q4 wiring): per-voucher redeemed-this-cycle flag.
+  // Drives the merchant-profile voucher card muted state (cream-
+  // tint overlay + REDEEMED stamp + "Already redeemed this cycle"
+  // inline label) shipped in PR-B T5.  False for guests / free
+  // users / paused subs.  `.optional().default(false)` for
+  // backward compat with cached responses from before T8a.
+  isRedeemedThisCycle: z.boolean().optional().default(false),
 })
 export type MerchantVoucher = z.infer<typeof merchantVoucherSchema>
 
