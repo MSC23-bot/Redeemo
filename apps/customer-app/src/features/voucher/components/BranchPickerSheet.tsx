@@ -124,12 +124,23 @@ export function BranchPickerSheet({
       accessibilityLabel="Choose redemption branch"
     >
       <View testID="voucher-branch-picker-sheet">
-        <Text variant="heading.sm" style={styles.title}>
+        {/* Hierarchy (2026-05-09 owner correction):
+              title             heading.md (18)  — largest
+              instruction       body.md   (16)   — primary, matches row name
+              supporting line   body.sm   (14)   — context
+              row name          body.md   (16)
+              row meta          body.sm   (14)
+            Instruction must NOT be smaller than the options the user
+            is being asked to pick (was body.sm 14 before — read odd
+            against body.md 16 row names). */}
+        <Text variant="heading.md" style={styles.title}>
           {titleText}
         </Text>
-        <Text variant="body.sm" style={styles.subtitle}>
-          Pick the branch you're at right now. The PIN you'll enter is
-          specific to that branch.
+        <Text variant="body.md" style={styles.subtitle}>
+          Pick the branch you're at right now.
+        </Text>
+        <Text variant="body.sm" style={styles.subtitleSecondary}>
+          The PIN you'll enter is specific to that branch.
         </Text>
 
         <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
@@ -155,28 +166,28 @@ export function BranchPickerSheet({
               >
                 <View style={styles.iconWrap}>
                   <MapPin
-                    size={16}
+                    size={18}
                     color={isPreview ? color.brandRose : color.text.tertiary}
                     strokeWidth={2.4}
                   />
                 </View>
                 <View style={styles.rowText}>
-                  <Text variant="label.md" style={styles.rowName}>
+                  <Text variant="body.md" style={styles.rowName}>
                     {b.name}
                   </Text>
                   <View style={styles.metaRow}>
                     {b.city ? (
-                      <Text variant="label.md" style={styles.rowMeta}>
+                      <Text variant="body.sm" style={styles.rowMeta}>
                         {b.city}
                       </Text>
                     ) : null}
                     {b.city && distance ? (
-                      <Text variant="label.md" style={styles.rowMetaDot}>
+                      <Text variant="body.sm" style={styles.rowMetaDot}>
                         ·
                       </Text>
                     ) : null}
                     {distance ? (
-                      <Text variant="label.md" style={styles.rowMeta}>
+                      <Text variant="body.sm" style={styles.rowMeta}>
                         {distance}
                       </Text>
                     ) : null}
@@ -212,7 +223,7 @@ export function BranchPickerSheet({
             style={StyleSheet.absoluteFillObject}
           />
           <Tag size={18} color={color.onBrand} strokeWidth={2.4} />
-          <Text variant="label.md" style={styles.confirmText}>
+          <Text variant="body.md" style={styles.confirmText}>
             {confirmText}
           </Text>
         </Pressable>
@@ -222,16 +233,24 @@ export function BranchPickerSheet({
 }
 
 const styles = StyleSheet.create({
+  // heading.md (18 / 24) variant drives.  fontSize override removed
+  // 2026-05-09 (cross-surface consistency with PinEntrySheet).
   title: {
-    fontSize: 18,
     fontWeight: '800',
     color: color.text.primary,
     textAlign: 'center',
   },
+  // Instruction (body.md 16) — primary; matches the branch row name
+  // weight so the user reads "what to do" + "options" at the same
+  // hierarchy step.
   subtitle: {
     marginTop: spacing[2],
-    fontSize: 12,
-    lineHeight: 18,
+    color: color.text.primary,
+    textAlign: 'center',
+  },
+  // Supporting context (body.sm 14) — secondary tone.
+  subtitleSecondary: {
+    marginTop: 2,
     color: color.text.secondary,
     textAlign: 'center',
     marginBottom: spacing[4],
@@ -268,8 +287,9 @@ const styles = StyleSheet.create({
   rowText: {
     flex: 1,
   },
+  // body.md (16 / 24) drives — branch name is the primary identifier
+  // in each row and now reads with the weight it deserves.
   rowName: {
-    fontSize: 13,
     fontWeight: '700',
     color: color.text.primary,
   },
@@ -278,12 +298,11 @@ const styles = StyleSheet.create({
     gap: spacing[1],
     marginTop: 2,
   },
+  // body.sm (14 / 21) drives — supporting context.
   rowMeta: {
-    fontSize: 11,
     color: color.text.secondary,
   },
   rowMetaDot: {
-    fontSize: 11,
     color: color.text.tertiary,
   },
   checkWrap: {
@@ -292,11 +311,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Confirm button — minHeight 56 for tap-target comfort at the
+  // bumped body.md text size, matching PinEntrySheet's submit.
   confirm: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing[2],
+    minHeight: 56,
     paddingVertical: spacing[4],
     borderRadius: radius.lg,
     overflow: 'hidden',
@@ -312,8 +334,8 @@ const styles = StyleSheet.create({
   confirmPressed: {
     transform: [{ scale: 0.97 }],
   },
+  // body.md (16 / 24) drives.  fontSize override removed.
   confirmText: {
-    fontSize: 15,
     fontWeight: '800',
     color: color.onBrand,
   },

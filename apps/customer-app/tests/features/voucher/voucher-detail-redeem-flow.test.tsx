@@ -1690,7 +1690,7 @@ describe('ShowToStaff → RedemptionDetailsCard validated propagation (PR #49 re
     expect(getByTestId('redemption-details-card')).toBeTruthy()
     expect(queryByTestId('redemption-details-validated-pill')).toBeNull()
 
-    // User taps "Show to Staff" on the persisted card → ShowToStaff
+    // User taps "View voucher code" on the persisted card → ShowToStaff
     // mounts. We need the latest props (the mock captures every render's
     // props via mock.calls).
     fireEvent.press(getByTestId('redemption-details-show-to-staff'))

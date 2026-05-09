@@ -26,11 +26,25 @@ type Props = {
   merchantName: string
   estimatedSaving: number
   /**
-   * "Show to Staff" — live in M3 (Task 17). Caller (VoucherDetailScreen)
-   * mounts the full-screen ShowToStaff modal with the persisted
-   * code/redeemedAt/branch. Optional only because the standalone
-   * test fixtures don't always supply it; the card always renders
-   * the button.
+   * "Open staff view" CTA (D24 §14 LOCKED 2026-05-09).  Caller
+   * (VoucherDetailScreen) mounts the full-screen ShowToStaff modal
+   * with the persisted code/redeemedAt/branch.
+   *
+   * CTA history:
+   *   • M3 shipped: "Show to Staff"
+   *   • PR-A §0.10 first rename: "View voucher code"
+   *   • PR-A §14 D24 final rename: "Open staff view"
+   *
+   * Why the second rename: the persisted card already DISPLAYS the
+   * redemption code during the 2-hour handoff window, so "View
+   * voucher code" read as redundant/conflicting from the card.
+   * "Open staff view" describes what the CTA opens (the dedicated
+   * live handoff surface) without repeating the already-visible
+   * code.  SuccessPopup keeps "View voucher code" because the
+   * popup shows no code.
+   *
+   * Optional only because the standalone test fixtures don't always
+   * supply it; the card always renders the button.
    */
   onShowToStaff?: () => void
   /**
@@ -75,7 +89,7 @@ function formatTimeLine(iso: string): string {
 
 /**
  * Formats the 2-hour-after-redemption expiry as a "<day> <Month>, HH:mm"
- * line for the in-window helper copy ("Available to show staff until 9 May, 00:55.").
+ * line for the in-window helper copy ("Your voucher code is available until 9 May, 00:55.").
  *
  * Display timezone — device-local (matches `formatDateLine`/
  * `formatTimeLine` on the same card so the user sees ONE consistent
@@ -331,7 +345,7 @@ export function RedemptionDetailsCard({
         <>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Show redemption code to staff"
+            accessibilityLabel="Open staff view"
             testID="redemption-details-show-to-staff"
             onPress={() => onShowToStaff?.()}
             style={({ pressed }) => [styles.showToStaffCta, pressed && styles.showToStaffCtaPressed]}
@@ -344,7 +358,7 @@ export function RedemptionDetailsCard({
             />
             <Eye size={18} color="#FFFFFF" strokeWidth={2.4} />
             <Text variant="label.md" style={styles.showToStaffText}>
-              Show to Staff
+              Open staff view
             </Text>
           </Pressable>
 
@@ -367,8 +381,8 @@ export function RedemptionDetailsCard({
                 testID="redemption-details-availability-helper"
               >
                 {expiryLine
-                  ? `Available to show staff until ${expiryLine}.`
-                  : 'You can show this code to staff for 2 hours after redeeming.'}
+                  ? `Your voucher code is available until ${expiryLine}.`
+                  : 'Your voucher code is available for 2 hours after redeeming.'}
               </Text>
             )
           })()}

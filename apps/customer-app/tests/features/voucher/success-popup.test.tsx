@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, fireEvent, render } from '@testing-library/react-native'
+import { fireEvent, render } from '@testing-library/react-native'
 
 jest.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: any) => children ?? null,
@@ -7,25 +7,33 @@ jest.mock('expo-linear-gradient', () => ({
 jest.mock('@/design-system/haptics', () => ({
   lightHaptic: jest.fn(),
 }))
-jest.mock('expo-screen-capture', () => ({
-  preventScreenCaptureAsync: jest.fn().mockResolvedValue(undefined),
-  allowScreenCaptureAsync:   jest.fn().mockResolvedValue(undefined),
-}))
 
-import * as ScreenCapture from 'expo-screen-capture'
 import { SuccessPopup } from '@/features/voucher/components/SuccessPopup'
 
+// PR-A revised scope (locked 2026-05-09 §0.9 + §0.10 + §0.11):
+// SuccessPopup is no longer a sensitive code surface.  It removed:
+//   • the redemption code box
+//   • the live ticking timestamp
+//   • the anti-fraud disclosure copy
+//   • the Rate & Review CTA (returns in PR-C with verified-review)
+//   • useScreenCaptureProtection (popup is no longer sensitive)
+// And renamed:
+//   • "Redeemed" eyebrow → "Voucher redeemed successfully" title (D16)
+//   • Primary CTA "Show to Staff" → "View voucher code" (D11)
 function defaults(overrides: Partial<React.ComponentProps<typeof SuccessPopup>> = {}) {
   return {
     visible: true,
-    redemptionCode: 'A7K2P9X4',
     redeemedAt: '2026-05-06T14:32:00Z',
+    estimatedSaving: 6.99,
     voucherTitle: 'Free Filter Coffee with Any Thali',
-    voucherType: 'FREEBIE' as const,
     merchantName: 'Covelum Restaurant',
+    // D23 §14 (LOCKED 2026-05-09): merchantLogoUrl required prop.
+    // Default null exercises the text-only fallback so existing
+    // assertions on voucher title + merchant name still hold.  Logo-
+    // render assertions live in the new D23 test cases below.
+    merchantLogoUrl: null,
     branchName: 'Brightlingsea',
     onShowToStaff: jest.fn(),
-    onRateReview: jest.fn(),
     onDone: jest.fn(),
     ...overrides,
   } satisfies React.ComponentProps<typeof SuccessPopup>
@@ -44,10 +52,18 @@ describe('SuccessPopup — render + content', () => {
     expect(getByTestId('success-check-ring')).toBeTruthy()
   })
 
-  it('formats the redemption code as 4+4 with a single space', () => {
+  it('shows the "Voucher redeemed successfully" title (D16 LOCKED 2026-05-09)', () => {
+    const { getByTestId, getByText } = render(<SuccessPopup {...defaults()} />)
+    expect(getByTestId('success-title')).toBeTruthy()
+    expect(getByText('Voucher redeemed successfully')).toBeTruthy()
+  })
+
+  it('title allows up to 2 lines under Dynamic Type (D18 §14 — numberOfLines={2})', () => {
+    // Review-fix pass 2026-05-09: title was numberOfLines={1} which
+    // could truncate under Dynamic Type at heading.md (18) bumped
+    // size.  Cap at 2 — wraps safely instead of truncating.
     const { getByTestId } = render(<SuccessPopup {...defaults()} />)
-    const code = getByTestId('success-code')
-    expect(code.props.children).toBe('A7K2 P9X4')
+    expect(getByTestId('success-title').props.numberOfLines).toBe(2)
   })
 
   it('shows the voucher title + merchant name in the strip', () => {
@@ -56,23 +72,8 @@ describe('SuccessPopup — render + content', () => {
     expect(getByText('Covelum Restaurant')).toBeTruthy()
   })
 
-  it('uses the per-voucher-type label (FREEBIE → "Freebie")', () => {
-    const { getByText } = render(<SuccessPopup {...defaults({ voucherType: 'FREEBIE' })} />)
-    // The label is "Freebie"; CSS upper-cases at render time but the
-    // rendered string is the original-case label.
-    expect(getByText('Freebie')).toBeTruthy()
-  })
-
-  it('uses BOGO label for BOGO vouchers', () => {
-    const { getByText } = render(<SuccessPopup {...defaults({ voucherType: 'BOGO' })} />)
-    expect(getByText('BOGO')).toBeTruthy()
-  })
-
   it('shows the static "Redeemed on" line from `redeemedAt` (receipt detail)', () => {
     const { getByTestId, getByText } = render(<SuccessPopup {...defaults()} />)
-    // Format: "06 May 2026, 14:32" (en-GB, Europe/London, no seconds).
-    // The static value is permanent record; the live ticker is the
-    // anti-screenshot signal — separate concerns.
     expect(getByTestId('success-redeemed-at')).toBeTruthy()
     expect(getByText('Redeemed on')).toBeTruthy()
     // The formatter outputs "06 May 2026, 14:32" — match the date
@@ -87,12 +88,17 @@ describe('SuccessPopup — render + content', () => {
     expect(getByText('Brightlingsea')).toBeTruthy()
   })
 
+  it('shows the D28 CTA helper line above the primary CTA (LOCKED 2026-05-09 §14.7)', () => {
+    const { getByTestId, getByText } = render(<SuccessPopup {...defaults()} />)
+    expect(getByTestId('success-cta-helper')).toBeTruthy()
+    expect(
+      getByText('Tap below to show your code to staff and apply this offer to your bill.'),
+    ).toBeTruthy()
+  })
+
   it('falls back to a hyphen (NOT an em dash) when branch name is null', () => {
-    // Updated 2026-05-09 from `/impeccable improve` design pass:
-    // PRODUCT.md locks "no em dashes in UI text or seed copy"
-    // (locked 2026-05-02). The previous fallback used U+2014 EM DASH;
-    // replaced with a regular ASCII hyphen-minus as the missing-data
-    // indicator. Negative pin against a future revert to em dash.
+    // PRODUCT.md locks "no em dashes in UI text or seed copy" (locked
+    // 2026-05-02). Negative pin against a future revert to em dash.
     const { getByText, queryByText } = render(
       <SuccessPopup {...defaults({ branchName: null })} />,
     )
@@ -101,19 +107,13 @@ describe('SuccessPopup — render + content', () => {
   })
 })
 
-describe('SuccessPopup — three CTAs', () => {
-  it('Show to Staff fires onShowToStaff', () => {
+describe('SuccessPopup — CTAs', () => {
+  it('"View voucher code" fires onShowToStaff (D11 LOCKED 2026-05-09)', () => {
     const onShowToStaff = jest.fn()
-    const { getByTestId } = render(<SuccessPopup {...defaults({ onShowToStaff })} />)
+    const { getByTestId, getByText } = render(<SuccessPopup {...defaults({ onShowToStaff })} />)
+    expect(getByText('View voucher code')).toBeTruthy()
     fireEvent.press(getByTestId('success-show-to-staff'))
     expect(onShowToStaff).toHaveBeenCalledTimes(1)
-  })
-
-  it('Rate & Review fires onRateReview', () => {
-    const onRateReview = jest.fn()
-    const { getByTestId } = render(<SuccessPopup {...defaults({ onRateReview })} />)
-    fireEvent.press(getByTestId('success-rate-review'))
-    expect(onRateReview).toHaveBeenCalledTimes(1)
   })
 
   it('Done fires onDone', () => {
@@ -125,15 +125,55 @@ describe('SuccessPopup — three CTAs', () => {
 
   it('CTAs do not fire each other (independent handlers)', () => {
     const onShowToStaff = jest.fn()
-    const onRateReview = jest.fn()
     const onDone = jest.fn()
     const { getByTestId } = render(
-      <SuccessPopup {...defaults({ onShowToStaff, onRateReview, onDone })} />,
+      <SuccessPopup {...defaults({ onShowToStaff, onDone })} />,
     )
     fireEvent.press(getByTestId('success-show-to-staff'))
     expect(onShowToStaff).toHaveBeenCalledTimes(1)
-    expect(onRateReview).not.toHaveBeenCalled()
     expect(onDone).not.toHaveBeenCalled()
+  })
+
+  it('CTA accessibilityLabel reads "View voucher code"', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
+    expect(getByTestId('success-show-to-staff').props.accessibilityLabel).toBe('View voucher code')
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────
+// D23 §14 (LOCKED 2026-05-09) — merchant logo on the voucher
+// context strip.  Mirrors PIN sheet D5 verbatim (48×48, radius.md,
+// brand-rose 8% alpha ring, surface.tint background, null/error
+// → text-only fallback).
+// ──────────────────────────────────────────────────────────────────
+
+describe('SuccessPopup — D23 merchant logo', () => {
+  it('renders the merchant logo when merchantLogoUrl is provided', () => {
+    const { getByTestId } = render(
+      <SuccessPopup
+        {...defaults({ merchantLogoUrl: 'https://example.test/covelum.png' })}
+      />,
+    )
+    expect(getByTestId('success-merchant-logo')).toBeTruthy()
+  })
+
+  it('does NOT render the logo when merchantLogoUrl is null (text-only fallback)', () => {
+    const { queryByTestId } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByTestId('success-merchant-logo')).toBeNull()
+  })
+
+  it('logo accessibilityLabel includes the merchant name', () => {
+    const { getByTestId } = render(
+      <SuccessPopup
+        {...defaults({
+          merchantName: 'Covelum Restaurant',
+          merchantLogoUrl: 'https://example.test/covelum.png',
+        })}
+      />,
+    )
+    expect(getByTestId('success-merchant-logo').props.accessibilityLabel).toBe(
+      'Covelum Restaurant logo',
+    )
   })
 })
 
@@ -141,154 +181,107 @@ describe('SuccessPopup — focus-loss persistence (parent-controlled)', () => {
   it('stays mounted across rerender with same visible=true (no internal hide on focus)', () => {
     const { getByTestId, rerender } = render(<SuccessPopup {...defaults()} />)
     expect(getByTestId('success-popup')).toBeTruthy()
-    // Simulate a parent rerender (e.g. focus event from useFocusEffect).
     rerender(<SuccessPopup {...defaults()} />)
     expect(getByTestId('success-popup')).toBeTruthy()
   })
 })
 
-// ── Anti-fraud: live timestamp + staff-verify copy (owner-locked 2026-05-08) ──
-//
-// Locked product rule: Show-to-Staff has anti-screenshot trust signals
-// (animated border, pulsing LIVE dot, ticking en-GB London clock,
-// validated chip). The SuccessPopup ALSO shows the redemption code,
-// so without parity signals a screenshot of the popup looks identical
-// to a real redemption. Add a live timestamp (1s tick, in the same
-// proof area as the code) + staff-verify copy. Cross-ref deferred-
-// followups §S2; this is the anti-fraud baseline, NOT the broader
-// success-screen design polish (confetti/saving/animation/Rate&Review
-// CTA — those remain deferred).
+// ──────────────────────────────────────────────────────────────────
+// PR-A revised scope — negative pins (LOCKED 2026-05-09 §0.9 + §13).
+// SuccessPopup is no longer a sensitive code surface.  These pins
+// guard against any future regression that re-introduces the code,
+// live timestamp, anti-fraud disclosure, or Rate & Review CTA on
+// this surface.
+// ──────────────────────────────────────────────────────────────────
 
-describe('SuccessPopup — anti-fraud parity with Show-to-Staff', () => {
-  beforeEach(() => {
-    jest.useFakeTimers()
-  })
-  afterEach(() => {
-    jest.useRealTimers()
+describe('SuccessPopup — negative pins (revised PR-A scope)', () => {
+  it('does NOT render the redemption code (§0.9 — code lives on ShowToStaff + RedemptionDetailsCard only)', () => {
+    const { queryByTestId } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByTestId('success-code')).toBeNull()
+    expect(queryByTestId('success-proof-area')).toBeNull()
   })
 
-  it('renders the redeemed date/time from `redeemedAt` (receipt-style detail)', () => {
-    const { getByText } = render(<SuccessPopup {...defaults()} />)
-    expect(getByText('Redeemed on')).toBeTruthy()
-    expect(getByText(/06 May 2026, \d{2}:\d{2}/)).toBeTruthy()
+  it('does NOT render the live ticking timestamp (§0.9 — only existed alongside the code)', () => {
+    const { queryByTestId } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByTestId('success-live-timestamp')).toBeNull()
   })
 
-  it('renders a live ticking timestamp inside the proof area (next to the redemption code)', () => {
-    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
-    const liveLine = getByTestId('success-live-timestamp')
-    expect(liveLine).toBeTruthy()
-    // Format: "Live: 08 May 2026 · 14:24:38" (date · time with seconds).
-    const text = textOf(liveLine)
-    expect(text).toMatch(/Live: \d{2} \w{3} \d{4} · \d{2}:\d{2}:\d{2}/)
+  it('does NOT render the anti-fraud disclosure copy (§0.9 — no code on this surface)', () => {
+    const { queryByTestId, queryByText } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByTestId('success-staff-verify-copy')).toBeNull()
+    expect(queryByText(/Staff scan or type/i)).toBeNull()
   })
 
-  it('updates the live timestamp after 1 second', () => {
-    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
-    const before = textOf(getByTestId('success-live-timestamp'))
-    // act() flushes the state-setter from inside setInterval — without
-    // it, the rendered text doesn't update before our next read.
-    act(() => {
-      jest.advanceTimersByTime(1100)
-    })
-    const after = textOf(getByTestId('success-live-timestamp'))
-    expect(after).not.toBe(before)
+  it('does NOT render the Rate & Review CTA (D12 — returns in PR-C with verified-review backend)', () => {
+    const { queryByTestId, queryByText } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByTestId('success-rate-review')).toBeNull()
+    expect(queryByText('Rate & Review')).toBeNull()
   })
 
-  it('keeps the live timestamp ticking under reduced motion (it is a trust signal, not decorative motion)', () => {
-    // Reduced motion only disables decorative animations. The live
-    // timestamp is the screenshot-detection signal — it must keep
-    // updating regardless. The component does not consult any
-    // reduce-motion store, so this test is a pin against accidentally
-    // wiring reduced motion into the timestamp lifecycle in future.
-    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
-    const before = textOf(getByTestId('success-live-timestamp'))
-    act(() => {
-      jest.advanceTimersByTime(1100)
-    })
-    const after = textOf(getByTestId('success-live-timestamp'))
-    expect(after).not.toBe(before)
+  it('does NOT render the old "Show to Staff" CTA copy (renamed to "View voucher code", D11)', () => {
+    const { queryByText } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByText('Show to Staff')).toBeNull()
   })
 
-  it('replaces "show this to staff" copy with explicit staff-verify guidance', () => {
-    const { getByTestId, queryByText } = render(<SuccessPopup {...defaults()} />)
-    const subtitle = getByTestId('success-staff-verify-copy')
-    expect(textOf(subtitle)).toMatch(/Show to Staff/i)
-    // Negative pin — the old "claim your discount" framing must not
-    // appear anywhere on the popup.
-    expect(queryByText(/claim your discount/i)).toBeNull()
+  it('does NOT render the old "Redeemed" eyebrow (replaced by full "Voucher redeemed successfully" title, D16)', () => {
+    const { queryByText } = render(<SuccessPopup {...defaults()} />)
+    // Defensive: the standalone uppercase eyebrow "REDEEMED" / "Redeemed"
+    // is gone.  The phrase "redeemed" still appears within the title
+    // ("Voucher redeemed successfully") — that's expected.
+    expect(queryByText('REDEEMED')).toBeNull()
+    expect(queryByText('Redeemed')).toBeNull()
   })
 
-  it('renders the redemption code AND the live timestamp inside the same proof area (visually adjacent)', () => {
-    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
-    // Both are findable + present — proof area always renders both
-    // together because they're siblings in the same View. A screenshot
-    // cannot capture the code without also capturing the ticking time.
-    expect(getByTestId('success-proof-area')).toBeTruthy()
-    expect(getByTestId('success-code')).toBeTruthy()
-    expect(getByTestId('success-live-timestamp')).toBeTruthy()
-  })
-})
-
-/** Extract a single text string from a React Native rendered node by
- *  recursively flattening `props.children` arrays. Avoids the circular-
- *  reference trap of `JSON.stringify(node.props)` (Fiber nodes carry
- *  back-references). */
-function textOf(node: any): string {
-  if (node == null) return ''
-  if (typeof node === 'string') return node
-  if (typeof node === 'number') return String(node)
-  if (Array.isArray(node)) return node.map(textOf).join('')
-  if (node.props && node.props.children !== undefined) return textOf(node.props.children)
-  return ''
-}
-
-// ── Screen-capture protection (PR #49 final wave, 2026-05-08) ─────────
-//
-// SuccessPopup shares the cross-platform prevent/allow lifecycle with
-// ShowToStaff via the `useScreenCaptureProtection` hook. Android
-// FLAG_SECURE blocks both screenshots and recordings; iOS 11+ overlays
-// a blurred snapshot during active recording / mirroring. The popup
-// intentionally does NOT install the iOS post-fact screenshot listener
-// (no banner, no telemetry) — that surface area stays Show-to-Staff-
-// specific. Locked at deferred-followups §AB / §AE.
-
-describe('SuccessPopup — screen-capture protection', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-  })
-
-  it('calls preventScreenCaptureAsync when visible=true on mount', () => {
-    render(<SuccessPopup {...defaults({ visible: true })} />)
-    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
-    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
-  })
-
-  it('does NOT call prevention when visible=false', () => {
-    render(<SuccessPopup {...defaults({ visible: false })} />)
-    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
-    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
-  })
-
-  it('calls allowScreenCaptureAsync on unmount (cleanup releases prevention)', () => {
-    const { unmount } = render(<SuccessPopup {...defaults({ visible: true })} />)
-    expect(ScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled()
-    unmount()
-    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
-  })
-
-  it('toggles prevent/allow when `visible` flips false → true → false', () => {
-    const { rerender } = render(<SuccessPopup {...defaults({ visible: false })} />)
-    expect(ScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled()
-    rerender(<SuccessPopup {...defaults({ visible: true })} />)
-    expect(ScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledTimes(1)
-    rerender(<SuccessPopup {...defaults({ visible: false })} />)
-    expect(ScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1)
-  })
-
-  it('renders normally even if preventScreenCaptureAsync rejects (best-effort, fail-safe contract)', () => {
-    ;(ScreenCapture.preventScreenCaptureAsync as jest.Mock).mockRejectedValueOnce(new Error('unsupported'))
+  it('does NOT install useScreenCaptureProtection (§0.9 + D15 — popup is no longer a sensitive surface)', () => {
+    // expo-screen-capture is intentionally NOT mocked at the top of
+    // this file (was removed alongside the hook).  If the hook were
+    // re-introduced, the import would fail at module load time
+    // because the package is not stubbed in this test's jest.mock
+    // setup.  The render below succeeding is a structural guard.
     expect(() => {
       render(<SuccessPopup {...defaults({ visible: true })} />)
     }).not.toThrow()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────
+// PR-A A4 saving callout (LOCKED 2026-05-09).  Shape brief §7.
+// ──────────────────────────────────────────────────────────────────
+
+describe('SuccessPopup — A4 saving callout', () => {
+  it('renders the saving callout when estimatedSaving > 0', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: 6.99 })} />)
+    expect(getByTestId('success-saving-callout')).toBeTruthy()
+  })
+
+  it('renders the saving amount as £X.XX with toFixed(2)', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: 6.99 })} />)
+    expect(getByTestId('success-saving-amount').props.children.join('')).toBe('£6.99')
+  })
+
+  it('handles whole-pound savings (£12.00) without trimming the trailing zero', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: 12 })} />)
+    expect(getByTestId('success-saving-amount').props.children.join('')).toBe('£12.00')
+  })
+
+  it('handles 4-digit savings without breaking layout', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: 1234.56 })} />)
+    expect(getByTestId('success-saving-amount').props.children.join('')).toBe('£1234.56')
+  })
+
+  it('renders the "You saved" label in savingsGreen', () => {
+    const { getByText } = render(<SuccessPopup {...defaults()} />)
+    expect(getByText('You saved')).toBeTruthy()
+  })
+
+  it('SUPPRESSED when estimatedSaving === 0 (D9 locked)', () => {
+    const { queryByTestId, queryByText } = render(<SuccessPopup {...defaults({ estimatedSaving: 0 })} />)
+    expect(queryByTestId('success-saving-callout')).toBeNull()
+    expect(queryByText('You saved')).toBeNull()
+  })
+
+  it("SUPPRESSED when estimatedSaving < 0 (defensive)", () => {
+    const { queryByTestId } = render(<SuccessPopup {...defaults({ estimatedSaving: -5 })} />)
+    expect(queryByTestId('success-saving-callout')).toBeNull()
   })
 })
