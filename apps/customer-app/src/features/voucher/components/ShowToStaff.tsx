@@ -21,7 +21,8 @@ import { QRCodeBlock } from './QRCodeBlock'
 import { formatRedemptionCode } from '../utils/formatRedemptionCode'
 import {
   formatShowToStaffLive,
-  formatShowToStaffRedeemed,
+  formatShowToStaffRedeemedDate,
+  formatShowToStaffRedeemedTime,
 } from '../utils/showToStaffFormatters'
 import { voucherTypeLabel } from '../utils/voucherTheme'
 import { useRedemptionPolling } from '../hooks/useRedemptionPolling'
@@ -34,7 +35,44 @@ import type { VoucherType } from '@/lib/api/redemption'
 
 /**
  * Show-to-Staff full-screen surface — brand-correct navy trust surface
- * (PR-B T8f, device-QA fix round 2 locked 2026-05-09).
+ * (PR-B T8g, device-QA fix round 3 locked 2026-05-09).
+ *
+ * **T8g shifts from T8f.**
+ *
+ *   1. **"Verified Voucher" eyebrow REMOVED.**  Owner direction explicit
+ *      — the voucher is NOT verified until a merchant scans the QR.
+ *      Pre-scan copy reading "Verified Voucher" was misleading.  The
+ *      validated state still flips to a "Verified by staff" pill on
+ *      the validated transition; that's the only "verified" claim the
+ *      surface ever makes.
+ *   2. **Horizontal Redeemo lockup, top-left, slightly smaller.**
+ *      Identity zone stays in a row (R + wordmark side-by-side) but
+ *      the R drops from 44pt → 36pt and the wordmark from heading.lg
+ *      → heading.md.  An interim revision routed through a centered
+ *      vertical lockup (64pt R + heading.lg wordmark stacked); owner
+ *      direction reverted to horizontal "and make sure the layout of
+ *      the full page is adjusted accordingly".  Smaller logo + row
+ *      layout buys back vertical breathing room across the rest of
+ *      the surface.
+ *   3. **Split + detailed redeemed receipt rows.**  The single combined
+ *      "Redeemed: 08 May 2026, 14:24" line now renders as two distinct
+ *      rows: "Date · 08 May 2026" + "Time · 14:24:38" (seconds added so
+ *      staff can corroborate against the live ticking clock and the
+ *      merchant-side validation timestamp).
+ *   4. **Brand-rose gradient Done button.**  Replaces the outlined
+ *      white-on-navy Done pill with the locked brand red→coral
+ *      gradient (mirrors `RedeemCTA` — `[color.brandRose, color.brandCoral]`
+ *      left-to-right).  Same Pressable + onPress contract; gradient
+ *      paints inside the rounded pill via expo-linear-gradient.
+ *   5. **LIVE badge centered inside the QR card.**  Was top-right,
+ *      now sits centered above the QR as a "transmission active"
+ *      indicator.  Reads as part of the live-trust signal hierarchy
+ *      instead of a corner ornament.
+ *   6. **Code prominence chip.**  The 4+4 redemption code text now
+ *      lives inside a pale brand-rose tinted chip with a thin border
+ *      so the navy code reads as a distinct, scannable block separate
+ *      from the QR above.  Owner direction: "the voucher code is
+ *      also very prominent ... it needs to stand out from the QR".
  *
  * **T8f shift from T8c.**  T8c shipped a navy-gradient surface using a
  * fabricated 2-stop gradient `['#010C35', '#1F2A55']`.  Owner correction:
@@ -285,7 +323,8 @@ export function ShowToStaff({
   const isValidated = poll.phase === 'validated'
   const showCustomerRow = customerName.length > 0
   const formattedCode = formatRedemptionCode(redemptionCode)
-  const redeemedDisplay = formatShowToStaffRedeemed(new Date(redeemedAt))
+  const redeemedDate = formatShowToStaffRedeemedDate(new Date(redeemedAt))
+  const redeemedTime = formatShowToStaffRedeemedTime(new Date(redeemedAt))
 
   // Identity-zone padding honours the device safe-area top so the
   // navy bg absorbs the notch / Dynamic Island clearance.
@@ -326,18 +365,21 @@ export function ShowToStaff({
           pointerEvents="none"
         />
 
-        {/* Identity zone — bigger Redeemo logo (44pt) + wordmark
-            (heading.lg).  T8f bump from T8c's 28pt for owner
-            "Redeemo icon and logo needs to be bigger".  The X close
-            icon was REMOVED per owner direction; dismissal is now
-            the bottom Done button. */}
+        {/* Identity zone — horizontal Redeemo lockup, top-left
+            (PR-B T8g revision).  R icon + "Redeemo" wordmark side-
+            by-side, slightly smaller than the previous 44pt row +
+            the brief vertical 64pt experiment.  36pt R reads as
+            present without dominating the surface; the heading.md
+            wordmark sits next to it.  The X close icon stays
+            REMOVED per T8f owner direction; the bottom Done button
+            is the single dismissal affordance. */}
         <View
           style={[styles.identityZone, { paddingTop: identityZonePaddingTop }]}
           testID="show-to-staff-identity-zone"
         >
-          <RedeemoLogo size={44} />
+          <RedeemoLogo size={36} />
           <Text
-            variant="heading.lg"
+            variant="heading.md"
             style={styles.identityWordmark}
             testID="show-to-staff-redeemo-wordmark"
           >
@@ -353,17 +395,11 @@ export function ShowToStaff({
           onPress={resetTimer}
           accessibilityRole="none"
         >
-          {/* Eyebrow — "VERIFIED VOUCHER" in brand-rose.  Reads
-              against the navy bg with strong contrast. */}
-          <View style={styles.eyebrowBlock}>
-            <Text
-              variant="label.eyebrow"
-              style={styles.eyebrowText}
-              testID="show-to-staff-eyebrow"
-            >
-              Verified Voucher
-            </Text>
-          </View>
+          {/* PR-B T8g — the "Verified Voucher" eyebrow is intentionally
+              GONE.  Pre-scan the voucher is NOT verified; the only
+              verified claim the surface ever makes is the savings-green
+              "Verified by staff" pill that flips on the validated
+              transition (see `validatedRow` below). */}
 
           {/* Voucher info — title (white) + description (white@85%,
               max 2 lines for the no-scroll fit). */}
@@ -490,15 +526,24 @@ export function ShowToStaff({
                 />
               </View>
 
-              {/* Code value (4+4) — preserved verbatim. */}
-              <Text
-                variant="display.md"
-                align="center"
-                style={styles.codeValue}
-                testID="show-to-staff-code"
-              >
-                {formattedCode}
-              </Text>
+              {/* Code value (4+4) — PR-B T8g: wrapped in a pale brand-
+                  rose tinted chip with a thin brand-rose border so the
+                  navy-on-white code reads as a distinct, scannable
+                  element.  Without the chip the code blended visually
+                  against the QR (both dark blocks on the white inner
+                  card).  Owner direction: "the voucher code is also
+                  very prominent ... it needs to stand out from the QR
+                  code". */}
+              <View style={styles.codeChip} testID="show-to-staff-code-chip">
+                <Text
+                  variant="display.md"
+                  align="center"
+                  style={styles.codeValue}
+                  testID="show-to-staff-code"
+                >
+                  {formattedCode}
+                </Text>
+              </View>
 
               {/* Live clock — bumped prominence per T8f owner
                   direction.  Bigger size (heading.sm 16pt vs T8c's
@@ -512,19 +557,41 @@ export function ShowToStaff({
             </View>
           </LinearGradient>
 
-          {/* Footer info zone — redeemed timestamp + customer row
-              (when present).  Moved OUTSIDE the QR card per T8f. */}
-          <View style={styles.footerInfo}>
-            <View style={styles.redeemedRow} testID="show-to-staff-redeemed-row">
+          {/* Footer info zone — receipt detail rows (PR-B T8g).
+              Split the previous combined "Redeemed: <date>, <time>"
+              line into two distinct rows: Date + Time.  Time row
+              includes seconds so staff can corroborate against the
+              live ticking clock in the QR card and the merchant-side
+              validation timestamp. The wrapping `redeemedRow`
+              container preserves the testID the broader anti-fraud
+              suite pins (`show-to-staff-redeemed-row`). */}
+          <View style={styles.footerInfo} testID="show-to-staff-redeemed-row">
+            <View style={styles.detailRow} testID="show-to-staff-redeemed-date-row">
               <Text variant="label.lg" style={styles.redeemedLabel}>
-                Redeemed
+                Date
               </Text>
-              <Text variant="label.lg" style={styles.redeemedValue}>
-                {redeemedDisplay}
+              <Text
+                variant="label.lg"
+                style={styles.redeemedValue}
+                testID="show-to-staff-redeemed-date-value"
+              >
+                {redeemedDate}
+              </Text>
+            </View>
+            <View style={styles.detailRow} testID="show-to-staff-redeemed-time-row">
+              <Text variant="label.lg" style={styles.redeemedLabel}>
+                Time
+              </Text>
+              <Text
+                variant="label.lg"
+                style={styles.redeemedValue}
+                testID="show-to-staff-redeemed-time-value"
+              >
+                {redeemedTime}
               </Text>
             </View>
             {showCustomerRow ? (
-              <View style={styles.customerRow} testID="show-to-staff-customer-row">
+              <View style={styles.detailRow} testID="show-to-staff-customer-row">
                 <Text variant="label.lg" style={styles.redeemedLabel}>
                   Customer
                 </Text>
@@ -576,12 +643,15 @@ export function ShowToStaff({
               tap-surface column. */}
           <View style={{ flex: 1 }} />
 
-          {/* Done button — T8f single dismissal affordance per owner
-              direction.  Replaces the X close icon top-right that
-              shipped on T8c.  Full-width pill + white-on-navy
-              outlined treatment to read as primary in the navy
-              context.  Modal.onRequestClose continues to wire
-              hardware back to the same handler. */}
+          {/* Done button — PR-B T8g: brand-rose gradient pill mirrors
+              `RedeemCTA` (`[color.brandRose, color.brandCoral]` left-
+              to-right).  Replaces T8f's outlined white-on-navy
+              treatment per owner direction "use our branding red
+              gradient button for the done button".  Same Pressable +
+              onPress contract — gradient paints inside the rounded
+              pill via expo-linear-gradient with `overflow: 'hidden'`.
+              Modal.onRequestClose still wires hardware back to the
+              same handler. */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Done"
@@ -592,6 +662,12 @@ export function ShowToStaff({
               pressed && styles.doneButtonPressed,
             ]}
           >
+            <LinearGradient
+              colors={[color.brandRose, color.brandCoral]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFillObject}
+            />
             <Text variant="body.md" style={styles.doneButtonText}>
               Done
             </Text>
@@ -614,14 +690,16 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  // Identity zone — bigger Redeemo branding (T8f).  44pt logo +
-  // heading.lg wordmark + 12pt gap.
+  // Identity zone — horizontal Redeemo lockup, top-left (PR-B T8g
+  // revision).  36pt R + heading.md wordmark side-by-side.  10pt
+  // gap keeps the R and wordmark feeling like one cohesive mark
+  // without crowding.
   identityZone: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing[5],
     paddingBottom: spacing[3],
-    gap: spacing[3],
+    gap: 10,
   },
   identityWordmark: {
     color: color.onBrand,
@@ -634,15 +712,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing[2],
     alignItems: 'stretch',
   },
-  eyebrowBlock: {
-    alignItems: 'flex-start',
-    paddingTop: spacing[2],
-  },
-  eyebrowText: {
-    color: color.brandRose,
-  },
   voucherInfoBlock: {
-    paddingTop: spacing[1],
+    paddingTop: spacing[3],
     gap: 4,
   },
   voucherTitle: {
@@ -724,10 +795,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing[3],
   },
+  // LIVE badge row — PR-B T8g revision: centered within the QR card
+  // (was top-right).  Sits visually as a "transmission active"
+  // indicator above the QR rather than a corner badge.
   liveBadgeRow: {
     width: '100%',
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
   },
   liveBadge: {
     flexDirection: 'row',
@@ -743,6 +817,20 @@ const styles = StyleSheet.create({
   },
   qrWrapper: {
     alignItems: 'center',
+  },
+  // Code chip — PR-B T8g.  Pale brand-rose tint + thin brand-rose
+  // border so the navy code reads as a distinct, scannable block
+  // separate from the QR above.  Stretches across the inner card
+  // for a clean rectangular receipt-detail feel.
+  codeChip: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingVertical: spacing[2] + 2,
+    paddingHorizontal: spacing[3],
+    borderRadius: 14,
+    backgroundColor: 'rgba(226, 12, 4, 0.06)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(226, 12, 4, 0.28)',
   },
   codeValue: {
     color: color.navy,
@@ -768,20 +856,16 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   // Footer info — sits BELOW the QR card (T8f content discipline).
+  // PR-B T8g: split the previous combined "Redeemed: <date>, <time>"
+  // into Date + Time rows.  `detailRow` is the shared style.
   footerInfo: {
     paddingTop: spacing[3],
-    gap: spacing[1],
+    gap: spacing[1] + 2,
   },
-  redeemedRow: {
+  detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-  },
-  customerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    paddingTop: spacing[1],
   },
   redeemedLabel: {
     color: 'rgba(255,255,255,0.70)',
@@ -789,6 +873,7 @@ const styles = StyleSheet.create({
   redeemedValue: {
     color: color.onBrand,
     fontFamily: 'Lato-SemiBold',
+    fontVariant: ['tabular-nums'],
   },
   validatedRow: {
     flexDirection: 'row',
@@ -821,27 +906,30 @@ const styles = StyleSheet.create({
     color: color.onBrand,
     textAlign: 'center',
   },
-  // Done button — T8f bottom-of-surface dismissal pill.  Outlined
-  // white-on-navy treatment so it reads as primary in the navy
-  // context without competing with the brand-rose code-card border.
+  // Done button — PR-B T8g: brand-rose gradient pill mirrors RedeemCTA.
+  // `overflow: 'hidden'` clips the absolutely-positioned LinearGradient
+  // to the rounded shape.  Brand-rose shadow gives the lifted-pill
+  // feel against the navy bg.
   doneButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing[3] + 2,
     borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.85)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
     marginTop: spacing[3],
+    shadowColor: color.brandRose,
+    shadowOpacity: 0.32,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
   },
   doneButtonPressed: {
-    opacity: 0.8,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    opacity: 0.92,
     transform: [{ scale: 0.98 }],
   },
   doneButtonText: {
-    color: color.onBrand,
+    color: '#FFFFFF',
     fontFamily: 'Lato-Bold',
     letterSpacing: 0.3,
   },

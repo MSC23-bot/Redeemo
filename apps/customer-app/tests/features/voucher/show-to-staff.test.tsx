@@ -253,20 +253,26 @@ describe('ShowToStaff — Done button + customer info row', () => {
     expect(getByText('John D.')).toBeTruthy()
   })
 
-  it('renders the voucher-type label + Redeemed timestamp always (PR-B T8f — Voucher Type chip moved ABOVE the QR card; Redeemed label moved BELOW the QR card)', () => {
+  it('renders the voucher-type label + split Date/Time receipt rows (PR-B T8g — replaced the single "Redeemed" line with two rows so staff can scan date and time independently)', () => {
     // PR-B T8f — QR card content discipline: only LIVE + QR + code
     // + live clock live INSIDE the animated brand-rose border.  The
     // voucher-type chip moved to the upper info zone (above the QR
-    // card) and the Redeemed timestamp moved to the footer info zone
-    // (below the QR card).  Underlying behaviour preserved (both
-    // signals always visible); their layout placement changed.
+    // card) and the receipt-detail rows moved to the footer info zone
+    // (below the QR card).
+    //
+    // PR-B T8g — the previous combined "Redeemed: <date>, <time>" line
+    // is split into two rows: Date + Time (with seconds).  Pin both
+    // labels so a regression that re-merges them fails this assertion.
     const { getByText, getAllByText, getByTestId } = render(<ShowToStaff {...baseProps} />)
     // Voucher-type chip — outside the QR card now.
     expect(getByTestId('show-to-staff-type-chip')).toBeTruthy()
     expect(getAllByText(/Buy one, get one free/i).length).toBeGreaterThanOrEqual(1)
-    // Redeemed row — outside the QR card now.
+    // Receipt-detail rows — outside the QR card.
     expect(getByTestId('show-to-staff-redeemed-row')).toBeTruthy()
-    expect(getByText(/^Redeemed$/)).toBeTruthy()
+    expect(getByTestId('show-to-staff-redeemed-date-row')).toBeTruthy()
+    expect(getByTestId('show-to-staff-redeemed-time-row')).toBeTruthy()
+    expect(getByText(/^Date$/)).toBeTruthy()
+    expect(getByText(/^Time$/)).toBeTruthy()
   })
 })
 

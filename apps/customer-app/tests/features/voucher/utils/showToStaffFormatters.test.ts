@@ -1,6 +1,8 @@
 import {
   formatShowToStaffLive,
   formatShowToStaffRedeemed,
+  formatShowToStaffRedeemedDate,
+  formatShowToStaffRedeemedTime,
 } from '@/features/voucher/utils/showToStaffFormatters'
 
 // Hermes-robust pure-function tests — locked 2026-05-09 from
@@ -121,6 +123,54 @@ describe('absolute-math invariance — same UTC instant across timezones', () =>
   it('UTC → 19:55 same day (baseline)', () => {
     expect(formatShowToStaffLive(new Date(REDEEMED), 'UTC'))
       .toBe('08 May 2026 · 19:55:00')
+  })
+})
+
+describe('formatShowToStaffRedeemedDate — date-only half (PR-B T8g split)', () => {
+  it('renders "DD Mmm YYYY" — no time part', () => {
+    const d = new Date('2026-05-08T13:24:38Z')
+    expect(formatShowToStaffRedeemedDate(d, 'Europe/London')).toBe('08 May 2026')
+  })
+
+  it('uses default Europe/London timezone when none passed', () => {
+    const d = new Date('2026-05-08T13:24:38Z')
+    expect(formatShowToStaffRedeemedDate(d)).toBe(formatShowToStaffRedeemedDate(d, 'Europe/London'))
+  })
+
+  it('returns "" on malformed input (graceful degradation)', () => {
+    expect(formatShowToStaffRedeemedDate(new Date('not-a-date'))).toBe('')
+  })
+
+  it('honours TZ rollover at midnight (BST instant rolls into the next day)', () => {
+    // 23:00 UTC on 8 May = 00:00 BST on 9 May.
+    const d = new Date('2026-05-08T23:00:00Z')
+    expect(formatShowToStaffRedeemedDate(d, 'Europe/London')).toBe('09 May 2026')
+  })
+})
+
+describe('formatShowToStaffRedeemedTime — time-only half WITH seconds (PR-B T8g split)', () => {
+  it('renders "HH:MM:SS" — seconds preserved (staff trust signal)', () => {
+    const d = new Date('2026-05-08T13:24:38Z')
+    expect(formatShowToStaffRedeemedTime(d, 'Europe/London')).toBe('14:24:38')
+  })
+
+  it('zero-pads single-digit hour, minute, second', () => {
+    const d = new Date('2026-05-09T02:04:05Z')  // 03:04:05 BST
+    expect(formatShowToStaffRedeemedTime(d, 'Europe/London')).toBe('03:04:05')
+  })
+
+  it('uses default Europe/London timezone when none passed', () => {
+    const d = new Date('2026-05-08T13:24:38Z')
+    expect(formatShowToStaffRedeemedTime(d)).toBe(formatShowToStaffRedeemedTime(d, 'Europe/London'))
+  })
+
+  it('returns "" on malformed input (graceful degradation)', () => {
+    expect(formatShowToStaffRedeemedTime(new Date('not-a-date'))).toBe('')
+  })
+
+  it('handles midnight (V8 "24" hour quirk normalised → "00")', () => {
+    const d = new Date('2026-05-08T23:00:00Z')  // 00:00 BST 9 May
+    expect(formatShowToStaffRedeemedTime(d, 'Europe/London')).toBe('00:00:00')
   })
 })
 
