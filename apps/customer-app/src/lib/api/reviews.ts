@@ -93,13 +93,23 @@ export const reviewsApi = {
    * derives from the row's `redemptionId !== null` per PR-C §0.3 Path A).
    *
    * `redemptionId` (PR-C T6, LOCKED 2026-05-09): optional link to the
-   * redemption that triggered this review.  When supplied, the backend
-   * validates the §0.3 5-condition rule (ownership / branch / merchant
-   * context match) before persisting; failures throw 400 with codes
-   * `REDEMPTION_NOT_FOUND` / `REDEMPTION_BRANCH_MISMATCH` /
-   * `REDEMPTION_MERCHANT_MISMATCH`.  Absence is fine — review persists
-   * non-verified.  Most-recent-submit-wins: passing no redemptionId on
-   * an UPDATE clears any prior linkage (per service contract).
+   * redemption that triggered this review.  Three backend derivation
+   * paths (§0.3 + §0.3.1):
+   *   • Path A (explicit): when supplied, the backend validates the
+   *     5-condition rule (ownership / branch / merchant / current-cycle
+   *     window) before persisting.  Failures throw 400 with codes
+   *     `REDEMPTION_NOT_FOUND` (incl. stale/cross-cycle) /
+   *     `REDEMPTION_BRANCH_MISMATCH` / `REDEMPTION_MERCHANT_MISMATCH`.
+   *   • Path B (auto-link): when omitted AND the user has no existing
+   *     review at this branch, the backend tries to find the
+   *     most-recent eligible redemption in the user's current cycle
+   *     window.  None → review persists unverified, no error.  Direct
+   *     merchant-profile reviews can therefore become verified
+   *     automatically when the user has a current-cycle redemption.
+   *   • Path C (preserve): when omitted AND an existing review at this
+   *     branch already has redemptionId set, the existing linkage is
+   *     preserved.  Editing a verified review without re-supplying
+   *     redemptionId no longer silently strips the verified flag.
    */
   async createReview(
     branchId: string,

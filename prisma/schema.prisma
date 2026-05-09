@@ -1035,12 +1035,30 @@ model Review {
   id           String   @id @default(uuid())
   userId       String
   branchId     String
-  // PR-C 2026-05-09: links a review to the redemption that triggered
-  // it.  Nullable because:
+  // PR-C 2026-05-09 (LOCKED §0.3 + §0.3.1): links a review to the
+  // redemption that triggered (or that auto-linked to) it.  Three
+  // backend derivation paths in upsertBranchReview:
+  //   Path A (explicit): caller supplies redemptionId; the backend
+  //     validates ownership + branch + merchant + current-cycle
+  //     window before persisting.
+  //   Path B (auto-link): caller omits redemptionId AND no existing
+  //     review at this branch.  The backend looks up the most-recent
+  //     eligible redemption in the user's current cycle window and
+  //     attaches it.  This means direct merchant-profile reviews can
+  //     also become verified when the user has a current-cycle
+  //     redemption — the column is NOT exclusive to redemption-flow
+  //     submissions.
+  //   Path C (preserve): caller omits redemptionId AND an existing
+  //     review at this branch already has redemptionId set.  The
+  //     existing linkage is preserved.
+  //
+  // Nullable because:
   //   • Pre-PR-C reviews stay non-verified retrospectively (no
   //     backfill).
-  //   • Reviews submitted from the merchant profile (not from a
-  //     redemption flow) intentionally lack a redemptionId.
+  //   • Path B finding no eligible redemption persists null.
+  //   • Reviews submitted before the user redeemed at the branch
+  //     (or outside any active cycle) persist null.
+  //
   // @unique because a redemption can only be linked to AT MOST one
   // review (a redemption row models a single redemption event, and
   // only one review can claim it as verification).  Postgres allows

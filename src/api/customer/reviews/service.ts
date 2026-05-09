@@ -166,6 +166,28 @@ export async function listBranchReviews(
   return { reviews: formatted, total }
 }
 
+// PR-C T15 + Codex review F1 (LOCKED 2026-05-09 §0.3.1) — fetch
+// the calling user's current subscription cycle window, or null
+// when no subscription exists.  Shared by BOTH Path A (strict
+// validation of an explicit redemptionId) AND Path B (auto-link
+// most-recent eligible).  Both paths must apply the same cycle-
+// window constraint — the locked verified-review rule says a
+// review is verified iff it links to a redemption "within the
+// current customer cycle" regardless of whether the customer
+// supplied the id explicitly or the backend inferred it.
+async function getUserCycleWindowOrNull(
+  prisma: PrismaClient,
+  userId: string,
+  now: Date,
+): Promise<{ cycleStart: Date; cycleEnd: Date } | null> {
+  const sub = await prisma.subscription.findUnique({
+    where:  { userId },
+    select: { cycleAnchorDate: true },
+  })
+  if (!sub) return null
+  return getCurrentCycleWindow(sub.cycleAnchorDate, now)
+}
+
 // PR-C T15 (LOCKED 2026-05-09 §0.3.1) — auto-link helper for Path B.
 // Returns the most-recent eligible redemption id for (user, branch,
 // branch's merchant) inside the user's current cycle window, or null
@@ -188,18 +210,14 @@ async function autoLinkRedemption(
   branchMerchantId: string,
   now: Date,
 ): Promise<string | null> {
-  const sub = await prisma.subscription.findUnique({
-    where:  { userId },
-    select: { cycleAnchorDate: true },
-  })
-  if (!sub) return null
-  const { cycleStart, cycleEnd } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
+  const cycleWindow = await getUserCycleWindowOrNull(prisma, userId, now)
+  if (!cycleWindow) return null
   const redemption = await prisma.voucherRedemption.findFirst({
     where: {
       userId,
       branchId,
       voucher:    { merchantId: branchMerchantId },
-      redeemedAt: { gte: cycleStart, lt: cycleEnd },
+      redeemedAt: { gte: cycleWindow.cycleStart, lt: cycleWindow.cycleEnd },
     },
     orderBy: { redeemedAt: 'desc' },
     select:  { id: true },
@@ -248,8 +266,30 @@ export async function upsertBranchReview(
   if (!branch) throw new AppError('BRANCH_NOT_FOUND')
 
   if (data.redemptionId) {
+    // PR-C Codex review F1 (LOCKED 2026-05-09 §0.3.1): apply the
+    // SAME current-cycle constraint as Path B's auto-link.  The
+    // locked rule is "a review is verified iff it links to a real
+    // redemption by the same customer, at the same branch, for
+    // the same merchant, within the current customer cycle" —
+    // owner-supplied redemptionId is no exception.  Without this
+    // check, a customer could explicitly re-claim a stale (previous
+    // cycle) redemption on a fresh review and bypass the cycle
+    // boundary that Path B already enforces.
+    //
+    // Error code: a stale/cross-cycle redemption surfaces as
+    // REDEMPTION_NOT_FOUND (NOT a distinct cycle-mismatch code).
+    // Same rationale as the wrong-user case above: don't leak
+    // "the redemption exists but is too old".  Customers reaching
+    // Path A always come from a fresh redemption flow whose id
+    // is by construction in the current cycle, so this code path
+    // is purely defensive against malicious/manual API calls.
+    const cycleWindow = await getUserCycleWindowOrNull(prisma, userId, new Date())
+    if (!cycleWindow) throw new AppError('REDEMPTION_NOT_FOUND')
     const redemption = await prisma.voucherRedemption.findFirst({
-      where:  { id: data.redemptionId, userId },
+      where: {
+        id: data.redemptionId, userId,
+        redeemedAt: { gte: cycleWindow.cycleStart, lt: cycleWindow.cycleEnd },
+      },
       select: {
         id:       true,
         branchId: true,

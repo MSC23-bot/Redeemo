@@ -355,6 +355,16 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         branchName={editing?.branchName ?? currentBranchName}
         initialRating={editing?.rating ?? myReview?.rating ?? 0}
         initialComment={editing?.comment ?? myReview?.comment ?? ''}
+        // PR-C T15 follow-up (Codex review F2 — locked 2026-05-09):
+        // forward `fromRedemptionId` here too so the verified banner
+        // surfaces on branches that ALREADY have reviews.  The empty-
+        // state render path above mirrors this prop already; without
+        // this line, a SuccessPopup → Rate & Review user landing on
+        // a populated branch would see the sheet open but the banner
+        // would be missing — UX promise broken even though the
+        // backend would still verify via redemptionWriteTarget on
+        // submit (handleWriteSubmit reads from the same state).
+        fromRedemptionId={redemptionWriteTarget?.redemptionId ?? null}
       />
     </View>
   )
