@@ -143,13 +143,15 @@ beforeEach(() => {
 })
 
 describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
-  it('renders the cream identity-zone header at the top of the surface', () => {
-    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
-    // The cream band: Redeemo wordmark + close button, branded as the
-    // identity zone of the document.
+  it('renders the identity-zone header at the top of the surface (PR-B T8f — bigger Redeemo logo + wordmark; X close icon removed in favour of bottom Done button)', () => {
+    const { getByTestId, queryByTestId } = render(<ShowToStaff {...baseProps} />)
+    // PR-B T8f — the identity zone now holds ONLY the bigger Redeemo
+    // logo + wordmark.  The X close icon was removed per owner
+    // direction; the bottom Done button is the single dismissal
+    // affordance.
     expect(getByTestId('show-to-staff-identity-zone')).toBeTruthy()
     expect(getByTestId('show-to-staff-redeemo-wordmark')).toBeTruthy()
-    expect(getByTestId('show-to-staff-close')).toBeTruthy()
+    expect(queryByTestId('show-to-staff-close')).toBeNull()
   })
 
   it('renders the "Verified Voucher" eyebrow above the voucher title', () => {
@@ -285,22 +287,22 @@ describe('ShowToStaff — vertical receipt layout (PR-B T1)', () => {
     expect(getByText('Redeemo')).toBeTruthy()
   })
 
-  it('safe-area top inset is honoured for the cream identity zone', () => {
+  it('safe-area top inset is honoured for the identity zone (PR-B T8f — paddingTop = insets.top + 12; was +16 in T8c)', () => {
     const { getByTestId } = render(<ShowToStaff {...baseProps} />)
     const zone = getByTestId('show-to-staff-identity-zone')
-    // useSafeAreaInsets mock → top: 47. Brief §5.1: paddingTop = top + 16.
+    // useSafeAreaInsets mock → top: 47. PR-B T8f: paddingTop = top + 12.
     const flat = Array.isArray(zone.props.style)
       ? Object.assign({}, ...zone.props.style)
       : zone.props.style
-    expect(flat.paddingTop).toBe(47 + 16)
+    expect(flat.paddingTop).toBe(47 + 12)
   })
 
-  it('close button in the identity zone fires onDone', () => {
+  it('Done button at the bottom fires onDone (PR-B T8f — replaces the X close icon top-right)', () => {
     const onDone = jest.fn()
     const { getByTestId } = render(
       <ShowToStaff {...baseProps} onDone={onDone} />,
     )
-    fireEvent.press(getByTestId('show-to-staff-close'))
+    fireEvent.press(getByTestId('show-to-staff-done'))
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
@@ -368,31 +370,24 @@ describe('ShowToStaff — anti-fraud + live signals (PR-B T1 regression pins)', 
   })
 })
 
-describe('ShowToStaff — navy-gradient compact trust surface (PR-B T8c device-QA fix)', () => {
-  it('renders ONLY the X close icon top-right as the dismissal affordance — NO bottom Done button (PR-A §C lock)', () => {
+describe('ShowToStaff — brand-correct navy trust surface (PR-B T8f device-QA fix round 2)', () => {
+  it('renders ONLY the bottom Done button as the dismissal affordance — NO X close icon (T8f owner direction)', () => {
     const { queryByLabelText, getByLabelText } = render(<ShowToStaff {...baseProps} />)
-    // Single dismissal — Close icon top-right per PR-A §C.
-    expect(getByLabelText('Close')).toBeTruthy()
-    // The previously-rendered bottom Done button is gone in T8c —
-    // device QA found it clipped on iPhone SE 1st gen because the
-    // T1 cream layout pushed it offscreen at default Dynamic Type.
-    // The X icon is now the only dismissal route.
-    expect(queryByLabelText('Done')).toBeNull()
+    // T8f reverts the T8c X-icon dismissal to the original Done
+    // button per owner direction.  Single dismissal — Done pill at
+    // the bottom of the surface; X close icon entirely removed.
+    expect(getByLabelText('Done')).toBeTruthy()
+    expect(queryByLabelText('Close')).toBeNull()
   })
 
   it('does NOT render the dropped "Verified through Redeemo" footer copy', () => {
     const { queryByText } = render(<ShowToStaff {...baseProps} />)
-    // T8c drops the footer copy entirely; the prominent header logo
-    // + wordmark carries the Redeemo identity role instead. This pin
-    // protects against an accidental partial revert.
+    // T8c+T8f drop the footer copy entirely; the prominent header
+    // logo + wordmark carries the Redeemo identity role instead.
     expect(queryByText('Verified through Redeemo')).toBeNull()
   })
 
-  it('merchant logo + initials circle compressed from 48×48 (T1) to 36×36 (T8c) for the no-scroll fit', () => {
-    // T8c compresses the merchant identity row to fit 375×667 at
-    // default Dynamic Type without scroll. The merchant logo + initials
-    // circle drop from 48 → 36 pt. Pinning the structural size keeps
-    // the no-scroll fit guarantee load-bearing.
+  it('merchant logo + initials circle stay at 36×36 (T8f preserves T8c compression for the no-scroll fit)', () => {
     const { getByTestId } = render(<ShowToStaff {...baseProps} />)
     const initialsCircle = getByTestId('show-to-staff-merchant-initials')
     const flat = Array.isArray(initialsCircle.props.style)
@@ -402,10 +397,38 @@ describe('ShowToStaff — navy-gradient compact trust surface (PR-B T8c device-Q
     expect(flat.height).toBe(36)
   })
 
-  it('voucher title is single-line ellipsis (PR-B T8c — was unconstrained in T1; compressed for no-scroll fit)', () => {
+  it('voucher title is single-line ellipsis (PR-B T8c+T8f — compressed for no-scroll fit)', () => {
     const { getByTestId } = render(<ShowToStaff {...baseProps} />)
     const title = getByTestId('show-to-staff-voucher-title')
     expect(title.props.numberOfLines).toBe(1)
     expect(title.props.ellipsizeMode).toBe('tail')
+  })
+
+  it('voucher-type chip is rendered OUTSIDE the QR card (PR-B T8f content discipline)', () => {
+    // T8f locks QR card content discipline: only LIVE + QR + code
+    // + live clock live INSIDE the animated brand-rose border.  The
+    // voucher-type chip moves to a dedicated row ABOVE the merchant
+    // block.  Pin the chip's testID exists so a future regression
+    // that re-folds it back into the QR card fails this assertion.
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    expect(getByTestId('show-to-staff-type-chip')).toBeTruthy()
+  })
+
+  it('redeemed timestamp row is rendered OUTSIDE the QR card (PR-B T8f content discipline)', () => {
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    expect(getByTestId('show-to-staff-redeemed-row')).toBeTruthy()
+  })
+
+  it('live clock has prominent treatment — heading.sm 16pt + bold + white-on-navy (PR-B T8f genuineness signal)', () => {
+    // T8f bumps the live clock from a 14pt label.lg navy glyph to a
+    // 16pt heading.sm bold white-on-navy chip.  Pin the testID +
+    // assert the colour reads as full white.
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    const clock = getByTestId('show-to-staff-live-clock')
+    expect(clock).toBeTruthy()
+    const flat = Array.isArray(clock.props.style)
+      ? Object.assign({}, ...clock.props.style)
+      : clock.props.style
+    expect(flat.color).toBe('#FFFFFF')
   })
 })
