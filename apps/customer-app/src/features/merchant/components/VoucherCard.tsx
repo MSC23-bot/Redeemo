@@ -335,18 +335,18 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
         {/* 1px white-tinted lip at the very top edge — glassy. */}
         <View style={styles.topHighlight} pointerEvents="none" />
 
-        {/* PR-B T8i refinement: the redeemed-state stamp moves from
-            the top-right corner to a CENTERED overlay across the card
-            hero, "Voucher Redeemed" copy, slightly bigger.  Owner
-            direction: "it does not need to be top right corner.  It
-            could be in the center, slightly bigger".  The wrap is
-            absolute-positioned to fill the hero region and centers the
-            stamp horizontally + vertically.  The stamp itself remains
-            pointerEvents='none' so taps pass through to the card
-            press surface beneath. */}
+        {/* PR-B T8k (interaction-design pass): the redeemed-state stamp
+            is a diagonal Mustica Pro overprint with a refined entrance
+            motion, replacing the T8i centered cream pill with hairline
+            accents.  The wrap stays a centered overlay so the rotated
+            text balances over the card; the stamp component owns its
+            own typography + rotation + entrance timing internally.
+            Owner direction (T8k): "improve overall design, premium,
+            user can tell active vs redeemed at a glance — you may
+            change how the stamp is shown". */}
         {isRedeemed ? (
           <View style={styles.heroStampWrap} pointerEvents="none">
-            <VoucherCardRedeemedStamp size={52} />
+            <VoucherCardRedeemedStamp />
           </View>
         ) : null}
 

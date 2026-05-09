@@ -242,19 +242,19 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
     expect(getAllByTestId('voucher-card-already-redeemed-label').length).toBe(1)
   })
 
-  it('stamp is level (no tilt) under the PR-B T8i refined treatment', () => {
-    // PR-B T8i — owner direction: the merchant-profile voucher card
-    // stamp moves to a refined hairline-accent + cream-gradient
-    // design.  The previous rubber-stamp variant tilted -5°; the
-    // refined variant is LEVEL (no rotate transform).  Pin the
-    // contract so a future revert to the rubber-stamp aesthetic
+  it('stamp tilts -10° under the PR-B T8k diagonal-overprint treatment', () => {
+    // PR-B T8k (interaction-design pass) — owner direction: the
+    // merchant-profile voucher card stamp moves from the T8i
+    // centered cream pill (level, no tilt) to a diagonal Mustica
+    // Pro overprint (-10° rotation, no backdrop, no border).  The
+    // diagonal cancellation overprint reads as the universal
+    // "this voucher has been processed" signal, mirroring how
+    // banks mark cancelled cheques and museums mark archival
+    // documents.  Pin the rotation so a future regression that
+    // reverts to either:
+    //   • the level T8i hairline-accent treatment, OR
+    //   • the rubber-stamp -5° tilt (original §Q4 baseline)
     // fails this assertion.
-    //
-    // The stamp component still renders as a static View — no
-    // useSharedValue, no withTiming, no entrance animation per
-    // brief §6 (instant recognition on a list card; the larger
-    // Voucher Detail seal handles entrance motion at the primary
-    // surface).
     const { getByTestId } = render(
       <VoucherCard
         voucher={mk()}
@@ -268,17 +268,18 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
     const style = Array.isArray(stamp.props.style)
       ? Object.assign({}, ...stamp.props.style.filter(Boolean))
       : stamp.props.style ?? {}
-    // Level — no rotate transform applied to the stamp container.
-    // (Any future regression that re-introduces a tilt at the card
-    // level fails this pin; the larger Voucher Detail rubber-stamp
-    // seal continues to tilt INDEPENDENTLY of this card surface.)
-    if (style.transform) {
-      const flatTransforms = (style.transform as Array<Record<string, unknown>>).reduce(
-        (acc, t) => ({ ...acc, ...t }),
-        {} as Record<string, unknown>,
-      )
-      expect(flatTransforms.rotate).toBeUndefined()
-    }
+    // -10° rotate must be present on the stamp container's
+    // transform array (entry alongside the animated `scale`).
+    expect(style.transform).toBeDefined()
+    const flatTransforms = (style.transform as Array<Record<string, unknown>>).reduce(
+      (acc, t) => ({ ...acc, ...t }),
+      {} as Record<string, unknown>,
+    )
+    expect(flatTransforms.rotate).toBe('-10deg')
+    // Negative pin: the previous T8i level (no rotate) and the
+    // even earlier rubber-stamp -5° must NOT resurface.
+    expect(flatTransforms.rotate).not.toBe('-5deg')
+    expect(flatTransforms.rotate).not.toBe('0deg')
   })
 
   it('redeemed card title + description do NOT carry an opacity dim (PR-B T5.1 spec-fix)', () => {
@@ -314,13 +315,25 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
     expect(descStyle?.opacity).toBeUndefined()
   })
 
-  describe('PR-B T8i — refined card stamp treatment', () => {
-    it('REDEEMED text uses the refined treatment: full opacity (not the 0.55 ink-pressure alpha) and wide letter-spacing', () => {
-      // T8i owner direction: the merchant-profile voucher card stamp
-      // moves to a refined hairline-accent + cream-gradient design.
-      // The previous rubber-stamp ink-pressure variant rendered the
-      // text at opacity 0.55 (mimicking faded ink); the refined
-      // variant renders it at FULL opacity with wide letter-spacing.
+  describe('PR-B T8k — diagonal Mustica overprint treatment (interaction-design pass)', () => {
+    it('"Voucher Redeemed" text renders as a Mustica Pro overprint at brand-rose alpha 0.32 with wide tracking', () => {
+      // T8k owner direction: the merchant-profile voucher card stamp
+      // moves from the T8i centered cream pill (Lato eyebrow at
+      // letterSpacing 1.8 + cream→pale-rose gradient backdrop +
+      // 1.5px brand-rose border) to a diagonal Mustica Pro
+      // overprint with NO backdrop, NO border, NO shadow.  The
+      // editorial cancellation overprint pattern reads as
+      // "processed/cancelled" rather than "stickered onto".
+      //
+      // Visual contract:
+      //   • brand-rose `#E20C04` at α 0.32  → "rgba(226, 12, 4, 0.32)"
+      //   • letterSpacing: 5 (was 1.8 from eyebrow variant)
+      //   • Mustica Pro family via display.sm variant
+      //   • textTransform: uppercase
+      //
+      // Pin the load-bearing values so any regression to either the
+      // T8i hairline-pill or the rubber-stamp ink-pressure variant
+      // fails this assertion.
       const { getByText } = render(
         <VoucherCard
           voucher={mk()}
@@ -334,23 +347,58 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       const style = Array.isArray(text.props.style)
         ? Object.assign({}, ...text.props.style.filter(Boolean))
         : text.props.style ?? {}
+      // brand-rose at α 0.32 is the load-bearing cancellation colour
+      expect(style.color).toBe('rgba(226, 12, 4, 0.32)')
+      // Wide editorial letter-spacing — 5pt, well above both the
+      // rubber-stamp baseline 1.6 and the T8i hairline-pill 1.8.
+      expect(style.letterSpacing).toBe(5)
       // T8h-and-prior rubber-stamp opacity (0.55 ink-pressure) is
-      // explicitly NOT present on the refined variant.
+      // explicitly NOT present.
       expect(style.opacity).not.toBe(0.55)
-      // Letter-spacing is wider than the rubber-stamp baseline of
-      // 1.6.  Note: the design-system `label.eyebrow` variant wins
-      // the merge over a local `letterSpacing` override at 2.4 and
-      // resolves to 1.8 — still wider than the rubber-stamp value
-      // and reads as the editorial / premium signature on device.
-      // The contract here is the negative pin: 1.6 (rubber-stamp
-      // signature) MUST NOT resurface, AND any positive value at
-      // least matches the eyebrow baseline.
-      expect(typeof style.letterSpacing).toBe('number')
-      expect(style.letterSpacing).not.toBe(1.6)
-      expect(style.letterSpacing as number).toBeGreaterThan(1.6)
-      // No textShadow ink-bleed on the refined variant — that was
-      // the rubber-stamp ink-pressure cue.
-      expect(style.textShadowColor).toBeUndefined()
+      // Mustica Pro Semibold via the display.sm variant — DESIGN.md
+      // Mustica-for-Display Rule.  The variant fontFamily appears
+      // in the merged style array.
+      expect(style.fontFamily).toBe('MusticaPro-SemiBold')
+    })
+
+    it('stamp has NO backdrop / NO border / NO shadow (premium overprint, restraint per DESIGN.md Flat-By-Default Rule)', () => {
+      // The previous T8i hairline-pill carried a 1.5px brand-rose
+      // border + cream→pale-rose gradient backdrop + soft brand-rose
+      // shadow.  The T8k overprint has NONE of these — the rotated
+      // type IS the entire visual.  Pin negative regression so a
+      // future revert that re-introduces any of them fails here.
+      const { getByTestId, queryByTestId } = render(
+        <VoucherCard
+          voucher={mk()}
+          isRedeemed={true}
+          isFavourited={false}
+          onPress={() => {}}
+          onToggleFavourite={() => {}}
+        />,
+      )
+      const stamp = getByTestId('voucher-card-redeemed-stamp')
+      const style = Array.isArray(stamp.props.style)
+        ? Object.assign({}, ...stamp.props.style.filter(Boolean))
+        : stamp.props.style ?? {}
+      // Border / backdrop / shadow contract: ALL absent on the
+      // overprint container.
+      expect(style.borderWidth).toBeUndefined()
+      expect(style.borderColor).toBeUndefined()
+      expect(style.backgroundColor).toBeUndefined()
+      expect(style.shadowOpacity).toBeUndefined()
+      expect(style.shadowRadius).toBeUndefined()
+      // Cream gradient backdrop from T8i — the LinearGradient was a
+      // child of the stamp container.  We assert no gradient stub
+      // is mounted INSIDE the stamp by walking children.  The card
+      // itself still uses LinearGradient for the type gradient
+      // (parent of the stamp).
+      const stampChildren = stamp.children ?? []
+      const hasInnerGradient = stampChildren.some?.((c: any) =>
+        typeof c === 'object' && c?.type?.displayName === 'LinearGradient',
+      )
+      expect(hasInnerGradient).toBeFalsy()
+      // Sanity: the stamp container itself still renders.
+      expect(queryByTestId('voucher-card-redeemed-stamp')).toBeTruthy()
     })
 
     it('stamp wrap is a centered overlay (PR-B T8i — owner direction "it does not need to be top right corner. It could be in the center")', () => {
