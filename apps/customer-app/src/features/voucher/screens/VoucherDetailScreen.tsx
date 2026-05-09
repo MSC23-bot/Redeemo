@@ -1489,6 +1489,7 @@ export function VoucherDetailScreen() {
         visible={pinSheetVisible}
         merchantName={voucher?.merchant.businessName ?? ''}
         branchName={branchName}
+        merchantLogoUrl={voucher?.merchant.logoUrl ?? null}
         isLoading={redeem.isPending}
         error={redeem.error}
         onSubmit={handlePinSubmit}

@@ -31,6 +31,11 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof PinEntryShe
     onSubmit: jest.fn(),
     merchantName: 'Pizza Palace',
     branchName: 'High Street',
+    // 2026-05-09 (PR-A A1): merchantLogoUrl required prop. Default
+    // null exercises the text-only fallback so existing assertions on
+    // merchant/branch lines still hold.  Logo-render assertions live
+    // in the new test cases added by commit 5.
+    merchantLogoUrl: null,
     isLoading: false,
     error: null,
     ...overrides,

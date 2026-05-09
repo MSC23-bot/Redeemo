@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AppState,
   type AppStateStatus,
+  Image,
   Pressable,
   StyleSheet,
   TextInput,
@@ -15,7 +16,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
-import { AlertTriangle, Lock, Tag } from 'lucide-react-native'
+import { Lock, Tag } from 'lucide-react-native'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { Text } from '@/design-system/Text'
 import { color, opacity, radius, spacing } from '@/design-system/tokens'
@@ -32,6 +33,12 @@ type Props = {
   onSubmit: (pin: string) => void
   merchantName: string
   branchName: string | null
+  /**
+   * Merchant logo URL from `voucher.merchant.logoUrl`. Null falls back
+   * to a text-only header. Added 2026-05-09 polish pass (PR-A A1).
+   * Image-load errors also collapse to the text-only header.
+   */
+  merchantLogoUrl: string | null
   /** From useRedeem.isPending — disables submit + clears between attempts. */
   isLoading: boolean
   /** Latest typed RedemptionError or NULL_BRANCH; null when idle. */
@@ -61,12 +68,15 @@ export function PinEntrySheet({
   onSubmit,
   merchantName,
   branchName,
+  merchantLogoUrl,
   isLoading,
   error,
 }: Props) {
   const [digits, setDigits] = useState('')
   const inputRef = useRef<TextInput>(null)
   const submittedRef = useRef(false)
+  const [logoError, setLogoError] = useState(false)
+  const showLogo = merchantLogoUrl !== null && !logoError
 
   // Lockout countdown — driven only when error is PIN_RATE_LIMIT_EXCEEDED.
   // Re-keying the hook (via component remount of the lockout-only branch)
@@ -229,25 +239,45 @@ export function PinEntrySheet({
       accessibilityLabel="Enter Branch PIN"
     >
       <View testID="pin-entry-sheet">
-        {/* Merchant + branch line — anchors what the user is redeeming */}
+        {/* Merchant + branch line — anchors what the user is redeeming.
+            48×48 logo above merchantLine when available; collapses to
+            text-only on null URL or image-load error (graceful fallback,
+            preserves vertical rhythm). */}
         <View style={styles.headerRow}>
-          <Text variant="label.md" style={styles.merchantLine}>
+          {showLogo ? (
+            <Image
+              testID="pin-merchant-logo"
+              accessibilityLabel={`${merchantName} logo`}
+              source={{ uri: merchantLogoUrl ?? undefined }}
+              style={styles.merchantLogo}
+              onError={() => setLogoError(true)}
+            />
+          ) : null}
+          <Text variant="body.md" style={styles.merchantLine}>
             {merchantName}
           </Text>
           {branchName ? (
-            <Text variant="label.md" style={styles.branchLine}>
+            <Text variant="body.sm" style={styles.branchLine}>
               {branchName}
             </Text>
           ) : null}
         </View>
 
         {/* Title */}
-        <Text variant="heading.sm" style={styles.title}>
+        <Text variant="heading.md" style={styles.title}>
           Enter Branch PIN
         </Text>
-        <Text variant="body.sm" style={styles.subtitle}>
-          Ask staff at {merchantName} for the 4-digit PIN to confirm
-          this redemption.
+        {/* Subtitle — locked copy 2026-05-09 (PR-A shape brief §5.1).
+            Two-line treatment: instruction + mechanic.  Plain-spoken,
+            grounded in PRODUCT.md ## Tone (trust-first, precise about
+            redemption mechanics).  See docs/design-briefs/2026-05-09-
+            pin-sheet-success-popup-polish-shape-brief.md §5.1 for
+            rationale + rejected alternatives. */}
+        <Text variant="body.md" style={styles.subtitle}>
+          Ask staff at {merchantName} for their 4-digit PIN.
+        </Text>
+        <Text variant="body.md" style={styles.subtitleSecondary}>
+          When you confirm it, we'll create the code staff can check.
         </Text>
 
         {/* Locked-out card replaces the PIN input */}
@@ -350,13 +380,17 @@ export function PinEntrySheet({
           </View>
         ) : null}
 
-        {/* Disclaimer */}
+        {/* Disclaimer — locked copy 2026-05-09 (PR-A shape brief §5.2).
+            Cream-tinted card with brand-rose 12% ring + Lock icon.
+            Replaces the prior amber AlertTriangle treatment, which
+            owner flagged as alarmist.  Sentence 1 states the
+            consequence precisely; sentence 2 is a calm gate.  No
+            "cannot be undone" / "permanently" / em dashes. */}
         {!isLocked ? (
           <View style={styles.disclaimer}>
-            <AlertTriangle size={14} color="#D97706" strokeWidth={2.4} />
-            <Text variant="label.md" style={styles.disclaimerText}>
-              Entering the correct PIN immediately redeems this voucher.
-              It will not be available again until your next monthly cycle.
+            <Lock size={18} color={color.brandRose} strokeWidth={2.4} />
+            <Text variant="body.md" style={styles.disclaimerText}>
+              Confirming the correct PIN redeems this voucher for this cycle. Continue when you're ready to use it.
             </Text>
           </View>
         ) : null}
@@ -392,44 +426,77 @@ export function PinEntrySheet({
 }
 
 const styles = StyleSheet.create({
+  // Header rhythm bumped 2026-05-09 (PR-A shape brief §8.1) to match
+  // the type-scale increases on merchantLine + title + subtitle.
   headerRow: {
-    paddingBottom: spacing[3],
+    alignItems: 'center',
+    paddingBottom: spacing[4],
     borderBottomWidth: 1,
     borderBottomColor: color.border.subtle,
-    marginBottom: spacing[4],
+    marginBottom: spacing[5],
   },
+  // 48×48 merchant logo (D5 locked).  1px brand-rose ring at 8% alpha
+  // anchors the merchant identity without competing with the title.
+  // Collapses to text-only header on null URL or image-load error.
+  merchantLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 12, 4, 0.08)',
+    backgroundColor: color.surface.tint,
+    marginBottom: spacing[3],
+  },
+  // body.md (16) + SemiBold weight via fontWeight: '700'.  Variant
+  // sets fontSize+lineHeight; weight stays as a style override because
+  // body.md is Lato-Regular and we want a stronger merchant identity.
   merchantLine: {
-    fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
     color: color.text.primary,
+    textAlign: 'center',
   },
+  // body.sm (14) — secondary supporting context.  No fontSize override
+  // (let the variant drive); spacing.[1] (4) breaks it from merchantLine.
   branchLine: {
-    marginTop: 2,
-    fontSize: 11,
+    marginTop: spacing[1],
     color: color.text.secondary,
+    textAlign: 'center',
   },
+  // heading.md variant (18 / 24) drives.  No fontSize override.
   title: {
-    fontSize: 18,
     fontWeight: '800',
     color: color.text.primary,
     textAlign: 'center',
   },
+  // body.md (16 / 24) variant drives.  Two-line subtitle: line 1
+  // (instruction) uses primary text; line 2 (mechanic) uses secondary
+  // for hierarchy.  Density-with-scale per §0.8 — generous bottom
+  // margin before the PIN boxes.
   subtitle: {
-    marginTop: spacing[2],
-    fontSize: 12,
-    lineHeight: 18,
+    marginTop: spacing[3],
+    color: color.text.primary,
+    textAlign: 'center',
+  },
+  subtitleSecondary: {
+    marginTop: spacing[1],
     color: color.text.secondary,
     textAlign: 'center',
   },
+  // Density-with-scale per D6 + §0.8: gap bumped from spacing[3] (12)
+  // to 14 so 56×64 boxes have comfortable separation.  Vertical
+  // breathing space scales with the bumped header above.
   pinRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: spacing[3],
-    marginVertical: spacing[5],
+    gap: 14,
+    marginTop: spacing[5],
+    marginBottom: spacing[5],
   },
+  // 56×64 PIN boxes (D6 locked).  Comfortable 44pt+ tap target with
+  // 26pt digit weight already proven readable in M2.
   pinBox: {
-    width: 54,
-    height: 60,
+    width: 56,
+    height: 64,
     borderRadius: radius.lg,
     borderWidth: 2,
     borderColor: '#E8E2DC',
@@ -498,22 +565,28 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: '#92400E',
   },
+  // Disclaimer banner — cream-tinted card with brand-rose 12% ring +
+  // Lock icon (D2 locked, replaces prior amber/AlertTriangle treatment).
+  // Padding bumped to spacing[4] (16) per §8.1 density-with-scale to
+  // accommodate body.md text.
   disclaimer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: spacing[2],
-    backgroundColor: '#FFF7ED',
-    borderColor: '#FED7AA',
+    gap: spacing[3],
+    backgroundColor: color.cream,
+    borderColor: 'rgba(226, 12, 4, 0.12)',
     borderWidth: 1,
     borderRadius: radius.md,
-    padding: spacing[3],
-    marginBottom: spacing[4],
+    paddingVertical: spacing[4],
+    paddingHorizontal: spacing[4],
+    marginBottom: spacing[5],
   },
+  // body.md (16 / 24) drives.  No fontSize override — variant supplies
+  // both size and lineHeight so the disclaimer wraps cleanly across
+  // 3 lines on iPhone SE width.
   disclaimerText: {
     flex: 1,
-    fontSize: 10,
-    lineHeight: 14,
-    color: '#92400E',
+    color: color.text.primary,
   },
   submit: {
     flexDirection: 'row',
