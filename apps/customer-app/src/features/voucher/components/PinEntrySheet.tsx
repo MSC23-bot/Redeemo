@@ -241,27 +241,34 @@ export function PinEntrySheet({
     >
       <View testID="pin-entry-sheet">
         {/* Merchant + branch line — anchors what the user is redeeming.
-            48×48 logo above merchantLine when available; collapses to
-            text-only on null URL or image-load error (graceful fallback,
-            preserves vertical rhythm). */}
+            Horizontal layout (2026-05-09 density refinement): 48×48
+            logo on the left + stacked merchant name/branch on the
+            right.  Reduces vertical height at the top of the sheet
+            so it doesn't crowd the screen. Collapses to text-only
+            (still horizontally centered) on null URL or image-load
+            error. */}
         <View style={styles.headerRow}>
-          {showLogo ? (
-            <Image
-              testID="pin-merchant-logo"
-              accessibilityLabel={`${merchantName} logo`}
-              source={{ uri: merchantLogoUrl ?? undefined }}
-              style={styles.merchantLogo}
-              onError={() => setLogoError(true)}
-            />
-          ) : null}
-          <Text variant="body.md" style={styles.merchantLine}>
-            {merchantName}
-          </Text>
-          {branchName ? (
-            <Text variant="body.sm" style={styles.branchLine}>
-              {branchName}
-            </Text>
-          ) : null}
+          <View style={styles.headerInner}>
+            {showLogo ? (
+              <Image
+                testID="pin-merchant-logo"
+                accessibilityLabel={`${merchantName} logo`}
+                source={{ uri: merchantLogoUrl ?? undefined }}
+                style={styles.merchantLogo}
+                onError={() => setLogoError(true)}
+              />
+            ) : null}
+            <View style={styles.headerText}>
+              <Text variant="body.md" style={styles.merchantLine}>
+                {merchantName}
+              </Text>
+              {branchName ? (
+                <Text variant="body.sm" style={styles.branchLine}>
+                  {branchName}
+                </Text>
+              ) : null}
+            </View>
+          </View>
         </View>
 
         {/* Title */}
@@ -383,14 +390,13 @@ export function PinEntrySheet({
 
         {/* Disclaimer — locked copy 2026-05-09 (PR-A shape brief §5.2).
             Cream-tinted card with brand-rose 12% ring + Lock icon.
-            Replaces the prior amber AlertTriangle treatment, which
-            owner flagged as alarmist.  Sentence 1 states the
-            consequence precisely; sentence 2 is a calm gate.  No
-            "cannot be undone" / "permanently" / em dashes. */}
+            Density refinement 2026-05-09: text bumped DOWN to body.sm
+            so the disclaimer reads as tertiary (still clear) under the
+            primary PIN-entry instruction; padding reduced one step. */}
         {!isLocked ? (
           <View style={styles.disclaimer}>
-            <Lock size={18} color={color.brandRose} strokeWidth={2.4} />
-            <Text variant="body.md" style={styles.disclaimerText}>
+            <Lock size={16} color={color.brandRose} strokeWidth={2.4} />
+            <Text variant="body.sm" style={styles.disclaimerText}>
               Confirming the correct PIN redeems this voucher for this cycle. Continue when you're ready to use it.
             </Text>
           </View>
@@ -450,18 +456,31 @@ export function PinEntrySheet({
 }
 
 const styles = StyleSheet.create({
-  // Header rhythm bumped 2026-05-09 (PR-A shape brief §8.1) to match
-  // the type-scale increases on merchantLine + title + subtitle.
+  // Header rhythm — 2026-05-09 horizontal-layout + density refinement.
+  // Padding/margin reduced one step from the initial PR-A bump so the
+  // sheet starts a little lower and doesn't crowd the screen top.
   headerRow: {
-    alignItems: 'center',
-    paddingBottom: spacing[4],
+    paddingBottom: spacing[3],
     borderBottomWidth: 1,
     borderBottomColor: color.border.subtle,
-    marginBottom: spacing[5],
+    marginBottom: spacing[4],
+  },
+  // Horizontal block — logo (left) + merchant text (right), centered
+  // as a unit on the row.  Switched from vertical stack 2026-05-09.
+  headerInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: spacing[3],
+  },
+  headerText: {
+    flexDirection: 'column',
+    flexShrink: 1,
   },
   // 48×48 merchant logo (D5 locked).  1px brand-rose ring at 8% alpha
   // anchors the merchant identity without competing with the title.
-  // Collapses to text-only header on null URL or image-load error.
+  // marginBottom removed (no longer below merchantLine in horizontal
+  // layout).
   merchantLogo: {
     width: 48,
     height: 48,
@@ -469,22 +488,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(226, 12, 4, 0.08)',
     backgroundColor: color.surface.tint,
-    marginBottom: spacing[3],
   },
-  // body.md (16) + SemiBold weight via fontWeight: '700'.  Variant
-  // sets fontSize+lineHeight; weight stays as a style override because
-  // body.md is Lato-Regular and we want a stronger merchant identity.
+  // body.md (16) + SemiBold weight.  Left-aligned in the horizontal
+  // header layout (the {logo + text} unit is centered together).
   merchantLine: {
     fontWeight: '700',
     color: color.text.primary,
-    textAlign: 'center',
   },
-  // body.sm (14) — secondary supporting context.  No fontSize override
-  // (let the variant drive); spacing.[1] (4) breaks it from merchantLine.
+  // body.sm (14) — secondary supporting context.
   branchLine: {
-    marginTop: spacing[1],
+    marginTop: 2,
     color: color.text.secondary,
-    textAlign: 'center',
   },
   // heading.md variant (18 / 24) drives.  No fontSize override.
   title: {
@@ -493,11 +507,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   // body.md (16 / 24) variant drives.  Two-line subtitle: line 1
-  // (instruction) uses primary text; line 2 (mechanic) uses secondary
-  // for hierarchy.  Density-with-scale per §0.8 — generous bottom
-  // margin before the PIN boxes.
+  // (instruction) uses primary text; line 2 (mechanic) uses secondary.
+  // Density refinement 2026-05-09 — top margin tightened.
   subtitle: {
-    marginTop: spacing[3],
+    marginTop: spacing[2],
     color: color.text.primary,
     textAlign: 'center',
   },
@@ -506,15 +519,14 @@ const styles = StyleSheet.create({
     color: color.text.secondary,
     textAlign: 'center',
   },
-  // Density-with-scale per D6 + §0.8: gap bumped from spacing[3] (12)
-  // to 14 so 56×64 boxes have comfortable separation.  Vertical
-  // breathing space scales with the bumped header above.
+  // PIN boxes — gap 14 keeps 56×64 boxes visually separated.  Vertical
+  // breathing space tightened 2026-05-09 to compress overall sheet.
   pinRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 14,
-    marginTop: spacing[5],
-    marginBottom: spacing[5],
+    marginTop: spacing[4],
+    marginBottom: spacing[4],
   },
   // 56×64 PIN boxes (D6 locked).  Comfortable 44pt+ tap target with
   // 26pt digit weight already proven readable in M2.
@@ -590,24 +602,24 @@ const styles = StyleSheet.create({
     color: '#92400E',
   },
   // Disclaimer banner — cream-tinted card with brand-rose 12% ring +
-  // Lock icon (D2 locked, replaces prior amber/AlertTriangle treatment).
-  // Padding bumped to spacing[4] (16) per §8.1 density-with-scale to
-  // accommodate body.md text.
+  // Lock icon.  Density refinement 2026-05-09: text bumped DOWN to
+  // body.sm (14) so the disclaimer reads as tertiary hierarchy under
+  // the primary subtitle (body.md 16); padding tightened one step.
+  // Still readable, still warm; no longer competes with the main
+  // instruction.
   disclaimer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: spacing[3],
+    gap: spacing[2],
     backgroundColor: color.cream,
     borderColor: 'rgba(226, 12, 4, 0.12)',
     borderWidth: 1,
     borderRadius: radius.md,
-    paddingVertical: spacing[4],
-    paddingHorizontal: spacing[4],
-    marginBottom: spacing[5],
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[3],
+    marginBottom: spacing[4],
   },
-  // body.md (16 / 24) drives.  No fontSize override — variant supplies
-  // both size and lineHeight so the disclaimer wraps cleanly across
-  // 3 lines on iPhone SE width.
+  // body.sm (14 / 21) drives.  No fontSize override.
   disclaimerText: {
     flex: 1,
     color: color.text.primary,
