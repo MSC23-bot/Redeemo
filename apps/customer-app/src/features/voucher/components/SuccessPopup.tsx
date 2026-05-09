@@ -167,8 +167,16 @@ export function SuccessPopup({
   // ease-out-quart (in the hook) lands the value cleanly.
   // Reduced-motion path: hook returns target immediately on first
   // render (data, not decoration).
+  //
+  // The `useCountUp` invocation lives inside `<AnimatedSavingAmount>`
+  // (defined below), NOT at the top of `SuccessPopup`.  Each
+  // setInterval tick (~60/s for 600-1000ms = 37-60 ticks) calls
+  // setValue on the hook.  Hoisting it here would re-render the
+  // whole popup tree (gradient, merchant logo, info rows, CTAs)
+  // per tick.  Wrapping the count-up'd Text in a leaf component
+  // localises the re-render to the saving-amount glyph only.
+  // PR-B T2.1 code-quality fix (locked 2026-05-09).
   const countUpDurationMs = Math.min(1000, Math.max(600, estimatedSaving * 100))
-  const animatedSaving = useCountUp(estimatedSaving, countUpDurationMs)
 
   useEffect(() => {
     if (visible) {
@@ -347,13 +355,10 @@ export function SuccessPopup({
                 >
                   You saved
                 </Text>
-                <Text
-                  variant="heading.lg"
-                  style={styles.savingAmount}
-                  testID="success-saving-amount"
-                >
-                  £{animatedSaving.toFixed(2)}
-                </Text>
+                <AnimatedSavingAmount
+                  target={estimatedSaving}
+                  durationMs={countUpDurationMs}
+                />
               </View>
             ) : null}
 
@@ -453,6 +458,24 @@ export function SuccessPopup({
         </Animated.View>
       </View>
     </Modal>
+  )
+}
+
+// Leaf wrapper for the saving-amount Text.  The `useCountUp` hook
+// re-renders this leaf ~37-60 times during the 600-1000ms count-up
+// animation; isolating it keeps the popup's own tree (accent
+// gradient, merchant logo Image, info rows, CTAs) at one render.
+// PR-B T2.1 code-quality fix.
+function AnimatedSavingAmount({ target, durationMs }: { target: number; durationMs: number }) {
+  const value = useCountUp(target, durationMs)
+  return (
+    <Text
+      variant="heading.lg"
+      style={styles.savingAmount}
+      testID="success-saving-amount"
+    >
+      £{value.toFixed(2)}
+    </Text>
   )
 }
 
