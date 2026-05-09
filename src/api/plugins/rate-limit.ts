@@ -15,6 +15,16 @@ const TIERS = {
   // tokens at scale, not to throttle real users. Locked 2026-05-08,
   // deferred-followups §AC8 / §AD4.
   refresh:        { prod: { max: 30, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
+  // Redemption polling tier — protects GET /api/v1/redemption/me/:code,
+  // the Show-to-Staff polling endpoint hit every 5 seconds for up to a
+  // 15-minute budget per open ShowToStaff session. Legitimate cadence
+  // is ~12 req/min; 30/min in prod is 2.5× the legitimate rate so
+  // retries / jitter / brief reconnects don't false-positive. Keyed
+  // per CUSTOMER (req.user.sub via the route's keyGenerator override
+  // — see redemption/routes.ts) so shared-Wi-Fi / NAT environments
+  // don't collectively punish multiple customers. Locked 2026-05-09,
+  // deferred-followups §AG1 (post-PR-#49 pre-public-launch hardening).
+  redemptionPolling: { prod: { max: 30, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
 } as const
 
 const GLOBAL = { prod: { max: 100, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } }

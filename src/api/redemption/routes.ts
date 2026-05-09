@@ -12,6 +12,7 @@ import {
 } from './service'
 import { RedisKey } from '../shared/redis-keys'
 import { AppError } from '../shared/errors'
+import { routeRateLimit } from '../plugins/rate-limit'
 
 const prefix = '/api/v1'
 
@@ -59,7 +60,30 @@ export async function customerRedemptionRoutes(app: FastifyInstance) {
   // validation transitions. Slim payload by design — see service.
   // Customer JWT is enforced by the redemption plugin's scoped
   // `app.authenticateCustomer` preHandler (plugin.ts:8).
-  app.get(`${prefix}/redemption/me/:code`, async (req: FastifyRequest, reply) => {
+  //
+  // Per-customer rate limit (locked 2026-05-09 from deferred-followups
+  // §AG1 — post-PR-#49 pre-public-launch hardening). Polling cadence
+  // is 5 s × up to 15 min = ~180 hits/session = ~12 req/min legitimate;
+  // 30/min/customer in prod (100/min in dev) is 2.5× that and
+  // accommodates retries / jitter without false-positives. The
+  // `keyGenerator` override keys on `req.user.sub` (auth has populated
+  // this by the time this handler runs — `authenticateCustomer`
+  // preHandler installed in plugin.ts:8). Falls back to `req.ip` if
+  // `req.user` is missing for any reason (defensive — should never
+  // happen on this auth-gated route, but the global limit at IP level
+  // is the right secondary). Other redemption routes
+  // (POST /redemption/:code/screenshot-flag, /redemption/my,
+  // /redemption/my/:id, POST /redemption) are NOT covered by this
+  // tier — each has different traffic shape and is left under the
+  // global IP-based default.
+  app.get(`${prefix}/redemption/me/:code`, {
+    config: {
+      rateLimit: {
+        ...routeRateLimit('redemptionPolling'),
+        keyGenerator: (req: FastifyRequest) => req.user?.sub ?? req.ip,
+      },
+    },
+  }, async (req: FastifyRequest, reply) => {
     const { code } = (req.params as { code: string })
 
     const result = await getMyRedemptionByCode(app.prisma, req.user.sub, code)

@@ -16,6 +16,10 @@ import { lightHaptic, successHaptic } from '@/design-system/haptics'
 import { PulsingDot } from '@/design-system/motion/PulsingDot'
 import { QRCodeBlock } from './QRCodeBlock'
 import { formatRedemptionCode } from '../utils/formatRedemptionCode'
+import {
+  formatShowToStaffLive,
+  formatShowToStaffRedeemed,
+} from '../utils/showToStaffFormatters'
 import { voucherTypeLabel } from '../utils/voucherTheme'
 import { useRedemptionPolling } from '../hooks/useRedemptionPolling'
 import { useBrightnessBoost } from '../hooks/useBrightnessBoost'
@@ -119,32 +123,15 @@ type Props = {
   onValidated?: () => void
 }
 
-// Hoisted to module scope so the formatters are constructed once at
-// module-load time, not on every render. Locale + timezone are
-// constant; numeric parts only (Hermes-CLDR-robust per project
-// convention — see reference_london_clock_helper memory + CLAUDE.md).
-const LIVE_CLOCK_FORMATTER = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/London',
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-})
-
-// Same options minus seconds — used for the Redeemed info-row in the
-// glassmorphic card (only-once-per-render but still cheaper to share).
-const REDEEMED_AT_FORMATTER = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/London',
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-})
+// Date/time formatting moved to `utils/showToStaffFormatters` —
+// `formatShowToStaffLive` (e.g. "08 May 2026 · 14:24:38") and
+// `formatShowToStaffRedeemed` (e.g. "08 May 2026, 14:24") are pure
+// helpers with the Hermes-robust formatToParts numeric pattern
+// (locked 2026-05-09 from deferred-followups §AG2). The previous
+// `Intl.DateTimeFormat('en-GB', { month: 'short', ... }).format()`
+// + `.split(', ')` pattern was the same Hermes/CLDR fragility class
+// as the wave-3 `formatExpiryLine` bug — silently rendered the
+// wrong values on stripped-CLDR Hermes builds.
 
 function LiveClock({ active }: { active: boolean }) {
   const [now, setNow] = useState(() => new Date())
@@ -154,13 +141,7 @@ function LiveClock({ active }: { active: boolean }) {
     return () => clearInterval(id)
   }, [active])
 
-  // en-GB short month is reliably available; date format yields
-  // e.g. "08 May 2026, 14:24:38" — split into date · time for the
-  // locked v6 visual.
-  const parts = LIVE_CLOCK_FORMATTER.format(now).split(', ')
-  const date = parts[0] ?? ''
-  const time = parts[1] ?? ''
-  const display = date && time ? `${date} · ${time}` : LIVE_CLOCK_FORMATTER.format(now)
+  const display = formatShowToStaffLive(now)
 
   return (
     <View style={styles.liveDatetimeRow}>
@@ -292,9 +273,9 @@ export function ShowToStaff({
   const isValidated = poll.phase === 'validated'
   const showCustomerRow = customerName.length > 0
   const formattedCode = formatRedemptionCode(redemptionCode)
-  // ISO `redeemedAt` → "08 May 2026, 14:24" en-GB / Europe/London
-  // (formatter hoisted to module scope above).
-  const redeemedDisplay = REDEEMED_AT_FORMATTER.format(new Date(redeemedAt))
+  // ISO `redeemedAt` → "08 May 2026, 14:24" en-GB / Europe/London via
+  // the Hermes-robust helper (see utils/showToStaffFormatters).
+  const redeemedDisplay = formatShowToStaffRedeemed(new Date(redeemedAt))
 
   return (
     <Modal
