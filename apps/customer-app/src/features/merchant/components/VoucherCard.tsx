@@ -237,7 +237,22 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
     // so each card drops a soft tint matching its own deep
     // accent (green card → green-tinted shadow, purple →
     // violet, red → red, etc.). Subtle, premium, complementary.
-    <Animated.View style={[cardAnimatedStyle, styles.cardShadow, { shadowColor: accent }]}>
+    <Animated.View
+      style={[
+        cardAnimatedStyle,
+        styles.cardShadow,
+        { shadowColor: accent },
+        // PR-B T8j (impeccable redeemed-state pass): redeemed cards
+        // drop the type-tinted lift entirely so they sit flat against
+        // the page while active siblings stay raised.  This is the
+        // load-bearing list-scan signal: at a glance "this card sits,
+        // those float" tells the user the redeemed state without
+        // parsing the centered seal.  Honours DESIGN.md "Flat-By-
+        // Default Rule" and the No-Status-Navy / One-Voice rules
+        // (we recede; we do not invent new colour cues).
+        isRedeemed && styles.cardShadowFlat,
+      ]}
+    >
       <Pressable
         onPress={handlePress}
         onPressIn={handlePressIn}
@@ -303,11 +318,17 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
             bleed off the right edge so the R reads as a designed
             graphic of the voucher rather than a dropped-in icon.
             Still the OFFICIAL Iconic Version 3 paths in <SvgXml>,
-            white fills, wrapper opacity 0.12 → faint clean white
+            white fills, wrapper opacity 0.14 → faint clean white
             silhouette regardless of voucher gradient. The notches
             render LAST so the coupon silhouette stays intact even
-            where the R bleeds toward the right edge. */}
-        <View style={styles.watermarkWrap} pointerEvents="none">
+            where the R bleeds toward the right edge.
+            PR-B T8j: opacity drops further (0.14 → 0.06) when
+            redeemed so the card body reads as muted documentation
+            rather than active brand signal. */}
+        <View
+          style={[styles.watermarkWrap, isRedeemed && styles.watermarkWrapMuted]}
+          pointerEvents="none"
+        >
           <SvgXml xml={REDEEMO_R_SVG} width="100%" height="100%" />
         </View>
 
@@ -486,15 +507,29 @@ const styles = StyleSheet.create({
   // inline label) carry the contrast at full opacity.  The 0.6
   // dim is removed.
 
-  // PR-B T5 (§Q4): cream-tint overlay that mutes the per-type
-  // gradient to ~70% saturation.  Soft warm-cream rgba is
-  // consistent with the muted-surface pattern used elsewhere
-  // (MerchantProfileScreen / VoucherDetailScreen).  This overlay
-  // alone now carries the gradient saturation drop — content
-  // (title, description, stamp, inline label) stays full opacity.
+  // PR-B T5 (§Q4) → PR-B T8j (impeccable pass): cream-tint overlay
+  // that mutes the per-type gradient.  T8j bumps the alpha 0.30 →
+  // 0.55 and shifts the cream toward the brand hue family
+  // (rgba(255, 246, 238, …)) so the type colour reads as a quiet
+  // memory instead of a fully saturated active gradient.  The
+  // bumped wash is paired with the dropped card shadow to give
+  // the redeemed state a visible weight drop on list scan.
+  // Content (title, description, stamp, inline label) stays full
+  // opacity per T5.1 lock — we recede the chrome, never the copy.
   redeemedGradientOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(245, 240, 235, 0.3)',
+    backgroundColor: 'rgba(255, 246, 238, 0.55)',
+  },
+  // PR-B T8j: card-shadow override applied when isRedeemed.
+  // Drops the type-tinted lift entirely so redeemed cards sit
+  // flat against the page while active siblings stay raised
+  // with the per-type accent shadow.  This is the load-bearing
+  // list-scan signal — see DESIGN.md "Flat-By-Default Rule".
+  cardShadowFlat: {
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
 
   // PR-B T8i refinement: hero stamp wrap — absolutely positioned to
@@ -601,6 +636,12 @@ const styles = StyleSheet.create({
     width: 130,
     height: 130,
     opacity: 0.14,
+  },
+  // PR-B T8j: redeemed-state watermark muting — drops the brand R
+  // silhouette to ~half its active intensity so the card reads as
+  // quiet documentation rather than active brand surface.
+  watermarkWrapMuted: {
+    opacity: 0.06,
   },
 
   topHighlight: {

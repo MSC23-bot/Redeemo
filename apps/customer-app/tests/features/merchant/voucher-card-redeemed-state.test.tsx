@@ -132,7 +132,11 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
     const style = Array.isArray(overlay.props.style)
       ? Object.assign({}, ...overlay.props.style)
       : overlay.props.style
-    expect(style.backgroundColor).toMatch(/^rgba\(245,\s*240,\s*235/)
+    // PR-B T8j (impeccable pass): wash colour shifted from
+    // rgba(245, 240, 235, 0.30) → rgba(255, 246, 238, 0.55).  The
+    // newer cream sits in the brand hue family + the alpha bump
+    // gives a more decisive desaturation.
+    expect(style.backgroundColor).toMatch(/^rgba\(255,\s*246,\s*238/)
 
     // Regression: overlay absent on the active state.
     rerender(
@@ -395,6 +399,82 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         n = n.parent
       }
       expect(foundCenteredOverlay).toBe(true)
+    })
+
+    it('redeemed cards drop the type-tinted card shadow so they sit flat (PR-B T8j impeccable pass — active cards lift, redeemed cards recede)', () => {
+      // The visual-weight differentiation between active and
+      // redeemed cards on a list is the load-bearing list-scan
+      // signal: at a glance "this card sits, those float" tells
+      // the user the redeemed state without parsing the centered
+      // seal.  Pin: redeemed cards have shadowOpacity 0 +
+      // elevation 0; non-redeemed cards keep the §38-bumped
+      // shadow (opacity 0.38, elevation 14).
+      const { rerender, UNSAFE_getAllByProps } = render(
+        <VoucherCard
+          voucher={mk()}
+          isRedeemed={false}
+          isFavourited={false}
+          onPress={() => {}}
+          onToggleFavourite={() => {}}
+        />,
+      )
+      // Active card: the flat-shadow style is NOT applied; the §38
+      // shadow values (opacity 0.38, elevation 14) come through.
+      const flat = (style: unknown): Record<string, unknown> => {
+        if (!style) return {}
+        if (Array.isArray(style)) {
+          return Object.assign({}, ...style.flat(Infinity).filter(Boolean))
+        }
+        return style as Record<string, unknown>
+      }
+      // Find the outer Animated.View carrying the cardShadow style.
+      // We pin via the shadowOpacity value rather than testID
+      // because the Animated.View doesn't expose one — and
+      // shadowOpacity is the load-bearing differentiator.
+      const findOuter = () =>
+        UNSAFE_getAllByProps({ accessibilityRole: 'button' })
+          .map((p: any) => p.parent)
+          .find(Boolean)
+      const activeOuter = findOuter()
+      const activeStyle = flat(activeOuter?.props?.style)
+      expect(activeStyle.shadowOpacity).toBe(0.38)
+      expect(activeStyle.elevation).toBe(14)
+      // Now flip to redeemed and re-pin.
+      rerender(
+        <VoucherCard
+          voucher={mk()}
+          isRedeemed={true}
+          isFavourited={false}
+          onPress={() => {}}
+          onToggleFavourite={() => {}}
+        />,
+      )
+      const redeemedOuter = findOuter()
+      const redeemedStyle = flat(redeemedOuter?.props?.style)
+      expect(redeemedStyle.shadowOpacity).toBe(0)
+      expect(redeemedStyle.elevation).toBe(0)
+    })
+
+    it('redeemed-state cream-tint overlay uses the warmer T8j wash — rgba(255, 246, 238, 0.55) — so the type gradient reads as muted-not-erased', () => {
+      // Pin the wash colour + opacity precisely.  Owner direction
+      // for the impeccable pass: bump 0.3 → 0.55 with a brand-hue
+      // warm cream (255, 246, 238) so the gradient recedes
+      // visibly without the card going fully greyscale.  Anti-
+      // reference (brief §3.5): "greyscale-everything fade".
+      const { getByTestId } = render(
+        <VoucherCard
+          voucher={mk()}
+          isRedeemed={true}
+          isFavourited={false}
+          onPress={() => {}}
+          onToggleFavourite={() => {}}
+        />,
+      )
+      const overlay = getByTestId('voucher-card-redeemed-overlay')
+      const flat = Array.isArray(overlay.props.style)
+        ? Object.assign({}, ...overlay.props.style.filter(Boolean))
+        : overlay.props.style
+      expect(flat.backgroundColor).toBe('rgba(255, 246, 238, 0.55)')
     })
 
     it('non-redeemed cards remain visually unchanged (no stamp testID, no Voucher Redeemed text, no inline label)', () => {
