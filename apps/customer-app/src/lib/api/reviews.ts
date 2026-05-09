@@ -89,13 +89,28 @@ export const reviewsApi = {
 
   /**
    * POST /api/v1/customer/branches/:branchId/reviews — create or update.
-   * Auth required. Returns the formatted review.
+   * Auth required.  Returns the formatted review (server's `isVerified`
+   * derives from the row's `redemptionId !== null` per PR-C §0.3 Path A).
+   *
+   * `redemptionId` (PR-C T6, LOCKED 2026-05-09): optional link to the
+   * redemption that triggered this review.  When supplied, the backend
+   * validates the §0.3 5-condition rule (ownership / branch / merchant
+   * context match) before persisting; failures throw 400 with codes
+   * `REDEMPTION_NOT_FOUND` / `REDEMPTION_BRANCH_MISMATCH` /
+   * `REDEMPTION_MERCHANT_MISMATCH`.  Absence is fine — review persists
+   * non-verified.  Most-recent-submit-wins: passing no redemptionId on
+   * an UPDATE clears any prior linkage (per service contract).
    */
-  async createReview(branchId: string, data: { rating: number; comment?: string }): Promise<Review> {
-    // Backend Zod schema rejects `comment: undefined` with exactOptionalPropertyTypes;
-    // omit the key entirely when caller didn't provide one.
-    const body: { rating: number; comment?: string } = { rating: data.rating }
-    if (data.comment !== undefined) body.comment = data.comment
+  async createReview(
+    branchId: string,
+    data: { rating: number; comment?: string; redemptionId?: string },
+  ): Promise<Review> {
+    // Backend Zod schema rejects `comment: undefined` (and `redemptionId:
+    // undefined`) with exactOptionalPropertyTypes; omit each key
+    // entirely when caller didn't provide one.
+    const body: { rating: number; comment?: string; redemptionId?: string } = { rating: data.rating }
+    if (data.comment      !== undefined) body.comment      = data.comment
+    if (data.redemptionId !== undefined) body.redemptionId = data.redemptionId
     const res = await api.post<unknown>(`/api/v1/customer/branches/${encodeURIComponent(branchId)}/reviews`, body)
     return reviewSchema.parse(res)
   },
