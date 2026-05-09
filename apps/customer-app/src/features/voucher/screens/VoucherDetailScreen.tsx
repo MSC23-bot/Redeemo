@@ -1503,6 +1503,7 @@ export function VoucherDetailScreen() {
           visible
           redemptionCode={successPopup.redemptionCode}
           redeemedAt={successPopup.redeemedAt}
+          estimatedSaving={successPopup.estimatedSaving}
           voucherTitle={voucher.title}
           voucherType={voucher.type}
           merchantName={voucher.merchant.businessName}

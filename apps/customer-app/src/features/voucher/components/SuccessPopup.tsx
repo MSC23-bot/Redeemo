@@ -21,6 +21,17 @@ type Props = {
   /** The successful RedeemResponse from useRedeem. null when popup hidden. */
   redemptionCode: string
   redeemedAt: string  // ISO string
+  /**
+   * RedeemResponse.estimatedSaving — already on the wire (see
+   * apps/customer-app/src/lib/api/redemption.ts:43).  Renders the
+   * "You saved £X.XX" callout between the voucher context strip and
+   * the code hero.  Suppressed when value <= 0 (graceful no-op for
+   * REUSABLE / £0 vouchers).  Hardcoded GBP formatting per the
+   * shape brief (D10) — locale-aware deferred to a future i18n
+   * workstream because Hermes-CLDR currency formatting is fragile
+   * (cross-ref deferred-followups §AG2).
+   */
+  estimatedSaving: number
   voucherTitle: string
   voucherType: VoucherType
   merchantName: string
@@ -139,6 +150,7 @@ export function SuccessPopup({
   visible,
   redemptionCode,
   redeemedAt,
+  estimatedSaving,
   voucherTitle,
   voucherType,
   merchantName,
@@ -273,13 +285,40 @@ export function SuccessPopup({
                 card-on-card block in the previous design; flattened
                 here so the code hero below dominates). */}
             <View style={styles.context}>
-              <Text variant="label.md" style={styles.contextTitle} numberOfLines={2}>
+              <Text variant="heading.sm" style={styles.contextTitle} numberOfLines={2}>
                 {voucherTitle}
               </Text>
-              <Text variant="label.md" style={styles.contextMerchant} numberOfLines={1}>
+              <Text variant="body.sm" style={styles.contextMerchant} numberOfLines={1}>
                 {merchantName}
               </Text>
             </View>
+
+            {/* Saving callout — A4 (PR-A shape brief §7).  Renders only
+                when estimatedSaving > 0; hidden gracefully for REUSABLE
+                or £0 vouchers (D9 locked).  Sits between the context
+                strip and the code hero so the saving registers as
+                confirmed value, NOT as the moment of the popup (the
+                code is the visual hero, anti-fraud trust requirement
+                from M3).  Tabular-nums alignment so amounts stay
+                visually stable as they grow. */}
+            {estimatedSaving > 0 ? (
+              <View style={styles.savingCallout} testID="success-saving-callout">
+                <Text
+                  variant="label.lg"
+                  style={styles.savingLabel}
+                  accessibilityLabel={`You saved £${estimatedSaving.toFixed(2)}`}
+                >
+                  You saved
+                </Text>
+                <Text
+                  variant="heading.md"
+                  style={styles.savingAmount}
+                  testID="success-saving-amount"
+                >
+                  £{estimatedSaving.toFixed(2)}
+                </Text>
+              </View>
+            ) : null}
 
             {/* Code hero — anti-fraud trust area. Type-coloured border
                 ring + 8% tint background lifts this above the receipt
@@ -308,7 +347,7 @@ export function SuccessPopup({
                 {formattedCode}
               </Text>
               <Text
-                variant="label.md"
+                variant="body.sm"
                 style={styles.liveLine}
                 testID="success-live-timestamp"
                 accessibilityLabel={`Live time: ${formatLiveLine(now)}`}
@@ -364,7 +403,7 @@ export function SuccessPopup({
               ]}
             >
               <Eye size={18} color={color.onBrand} strokeWidth={2.4} />
-              <Text variant="label.md" style={styles.primaryCtaText}>
+              <Text variant="body.md" style={styles.primaryCtaText}>
                 Show to Staff
               </Text>
             </Pressable>
@@ -508,17 +547,46 @@ const styles = StyleSheet.create({
   context: {
     gap: 2,
   },
+  // heading.sm (16 / 22) variant drives.  fontSize override removed
+  // 2026-05-09 (PR-A §3.3 readability bump).
   contextTitle: {
-    fontSize: 15,
-    lineHeight: 20,
     fontWeight: '700',
     color: color.text.primary,
     letterSpacing: -0.2,
   },
+  // body.sm (14 / 21) variant drives.  fontSize override removed.
   contextMerchant: {
-    fontSize: 12,
     color: color.text.secondary,
     fontWeight: '500',
+  },
+  // ── Saving callout (A4) ──
+  // Sits between the context strip and the code hero.  Savings-green
+  // tint (8% alpha) + 14% alpha border ring keeps definition subtle
+  // so the code hero stays dominant.  Tabular-nums alignment for
+  // amount stability.  Suppressed when estimatedSaving <= 0 (D9).
+  savingCallout: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    gap: spacing[2],
+    backgroundColor: 'rgba(22, 163, 74, 0.08)',
+    borderColor: 'rgba(22, 163, 74, 0.14)',
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+  },
+  // label.lg (14 / 18, ls 0.2) variant drives — small primary label.
+  savingLabel: {
+    color: color.savingsGreen,
+    fontWeight: '500',
+  },
+  // heading.md (18 / 24) variant drives — readable, weighty without
+  // dominating the 30pt code hero below.
+  savingAmount: {
+    color: color.savingsGreen,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   // ── Code hero ──
   // The visual hero of the popup. Type-coloured border ring + 8%
@@ -550,9 +618,13 @@ const styles = StyleSheet.create({
     // without overlapping; tightens the visual block.
     marginTop: -2,
   },
+  // body.sm (14 / 21) variant drives.  fontSize override removed
+  // 2026-05-09 (PR-A §3.3): live timestamp is the screenshot-detection
+  // trust signal — staff verify the second-counter is moving.  At 11pt
+  // it was too tight against the 30pt code; at 14pt it reads
+  // comfortably without competing.
   liveLine: {
     marginTop: spacing[2],
-    fontSize: 11,
     color: color.text.tertiary,
     letterSpacing: 0.3,
     fontVariant: ['tabular-nums'],
@@ -610,8 +682,9 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
   },
+  // body.md (16 / 24) variant drives.  fontSize override removed
+  // 2026-05-09 (PR-A §3.3 readability bump for primary action).
   primaryCtaText: {
-    fontSize: 14,
     fontWeight: '800',
     color: color.onBrand,
     letterSpacing: 0.2,

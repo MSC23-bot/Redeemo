@@ -20,6 +20,11 @@ function defaults(overrides: Partial<React.ComponentProps<typeof SuccessPopup>> 
     visible: true,
     redemptionCode: 'A7K2P9X4',
     redeemedAt: '2026-05-06T14:32:00Z',
+    // 2026-05-09 (PR-A A4): estimatedSaving required prop. Default
+    // 6.99 mirrors the canonical Redeemo monthly subscription price
+    // and exercises the saving-callout render path; tests that need
+    // the £0 suppression behaviour pass `estimatedSaving: 0` overrides.
+    estimatedSaving: 6.99,
     voucherTitle: 'Free Filter Coffee with Any Thali',
     voucherType: 'FREEBIE' as const,
     merchantName: 'Covelum Restaurant',
