@@ -3,7 +3,13 @@ import * as ScreenCapture from 'expo-screen-capture'
 
 /**
  * Cross-platform screen-capture prevention for surfaces that display
- * the redemption code (currently `<ShowToStaff>` and `<SuccessPopup>`).
+ * the redemption code (currently `<ShowToStaff>` and
+ * `<VoucherDetailScreen>` while the persisted RedemptionDetailsCard
+ * is showing the code during the 2-hour presentation window).
+ * `<SuccessPopup>` was a consumer until 2026-05-09 — removed when
+ * the popup stopped rendering the code (locked plan §0.9 / brief
+ * §13.1 / D15).
+ *
  * Calls `expo-screen-capture.preventScreenCaptureAsync()` while
  * `active === true`; clears it on `active === false` or unmount.
  *
@@ -35,8 +41,8 @@ import * as ScreenCapture from 'expo-screen-capture'
  * post-fact iOS screenshot detection (banner + telemetry) call
  * `useScreenshotGuard` alongside this hook. Locked 2026-05-08
  * (PR #49 final wave) — owner-directed split to share the
- * prevention baseline cleanly between Show-to-Staff and SuccessPopup
- * without duplicating native call logic.
+ * prevention baseline cleanly across code surfaces without
+ * duplicating native call logic.
  */
 export function useScreenCaptureProtection(active: boolean): void {
   useEffect(() => {

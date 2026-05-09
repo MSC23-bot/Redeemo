@@ -75,9 +75,19 @@ describe('RedemptionDetailsCard', () => {
     expect(onShowToStaff).toHaveBeenCalledTimes(1)
   })
 
-  it('Show-to-Staff button accessibility label drops the next-milestone suffix', () => {
-    const { getByLabelText } = render(<RedemptionDetailsCard {...defaults()} />)
-    expect(getByLabelText('Show redemption code to staff')).toBeTruthy()
+  it('CTA label and accessibilityLabel both read "Open staff view" (D24 §14 LOCKED 2026-05-09)', () => {
+    // CTA renamed mid-PR-A from "View voucher code" → "Open staff view".
+    // Why: the persisted card already displays the redemption code
+    // during the 2-hour handoff window, so "View voucher code" read
+    // as redundant/conflicting from the card.  "Open staff view"
+    // describes what the CTA opens (the dedicated live handoff
+    // surface) without repeating the already-visible code.
+    const { getByLabelText, getByText, queryByText } = render(<RedemptionDetailsCard {...defaults()} />)
+    expect(getByLabelText('Open staff view')).toBeTruthy()
+    expect(getByText('Open staff view')).toBeTruthy()
+    // Negative pin against either prior label leaking back in.
+    expect(queryByText('View voucher code')).toBeNull()
+    expect(queryByText('Show to Staff')).toBeNull()
   })
 
   it('does not render the validated pill by default', () => {

@@ -28,6 +28,11 @@ function defaults(overrides: Partial<React.ComponentProps<typeof SuccessPopup>> 
     voucherTitle: 'Free Filter Coffee with Any Thali',
     voucherType: 'FREEBIE' as const,
     merchantName: 'Covelum Restaurant',
+    // D23 §14 (LOCKED 2026-05-09): merchantLogoUrl required prop.
+    // Default null exercises the text-only fallback so existing
+    // assertions on voucher title + merchant name still hold.  Logo-
+    // render assertions live in the new D23 test cases below.
+    merchantLogoUrl: null,
     branchName: 'Brightlingsea',
     onShowToStaff: jest.fn(),
     onDone: jest.fn(),
@@ -52,6 +57,14 @@ describe('SuccessPopup — render + content', () => {
     const { getByTestId, getByText } = render(<SuccessPopup {...defaults()} />)
     expect(getByTestId('success-title')).toBeTruthy()
     expect(getByText('Voucher redeemed successfully')).toBeTruthy()
+  })
+
+  it('title allows up to 2 lines under Dynamic Type (D18 §14 — numberOfLines={2})', () => {
+    // Review-fix pass 2026-05-09: title was numberOfLines={1} which
+    // could truncate under Dynamic Type at heading.md (18) bumped
+    // size.  Cap at 2 — wraps safely instead of truncating.
+    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
+    expect(getByTestId('success-title').props.numberOfLines).toBe(2)
   })
 
   it('shows the voucher title + merchant name in the strip', () => {
@@ -117,6 +130,43 @@ describe('SuccessPopup — CTAs', () => {
   it('CTA accessibilityLabel reads "View voucher code"', () => {
     const { getByTestId } = render(<SuccessPopup {...defaults()} />)
     expect(getByTestId('success-show-to-staff').props.accessibilityLabel).toBe('View voucher code')
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────
+// D23 §14 (LOCKED 2026-05-09) — merchant logo on the voucher
+// context strip.  Mirrors PIN sheet D5 verbatim (48×48, radius.md,
+// brand-rose 8% alpha ring, surface.tint background, null/error
+// → text-only fallback).
+// ──────────────────────────────────────────────────────────────────
+
+describe('SuccessPopup — D23 merchant logo', () => {
+  it('renders the merchant logo when merchantLogoUrl is provided', () => {
+    const { getByTestId } = render(
+      <SuccessPopup
+        {...defaults({ merchantLogoUrl: 'https://example.test/covelum.png' })}
+      />,
+    )
+    expect(getByTestId('success-merchant-logo')).toBeTruthy()
+  })
+
+  it('does NOT render the logo when merchantLogoUrl is null (text-only fallback)', () => {
+    const { queryByTestId } = render(<SuccessPopup {...defaults()} />)
+    expect(queryByTestId('success-merchant-logo')).toBeNull()
+  })
+
+  it('logo accessibilityLabel includes the merchant name', () => {
+    const { getByTestId } = render(
+      <SuccessPopup
+        {...defaults({
+          merchantName: 'Covelum Restaurant',
+          merchantLogoUrl: 'https://example.test/covelum.png',
+        })}
+      />,
+    )
+    expect(getByTestId('success-merchant-logo').props.accessibilityLabel).toBe(
+      'Covelum Restaurant logo',
+    )
   })
 })
 

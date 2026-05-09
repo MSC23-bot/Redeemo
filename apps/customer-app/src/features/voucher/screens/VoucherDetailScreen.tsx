@@ -1506,6 +1506,7 @@ export function VoucherDetailScreen() {
           voucherTitle={voucher.title}
           voucherType={voucher.type}
           merchantName={voucher.merchant.businessName}
+          merchantLogoUrl={voucher.merchant.logoUrl ?? null}
           branchName={branchName}
           onShowToStaff={() => {
             // Primary CTA — "View voucher code" (D11 / §0.10).  Opens

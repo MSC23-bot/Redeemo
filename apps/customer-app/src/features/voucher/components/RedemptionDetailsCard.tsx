@@ -26,9 +26,23 @@ type Props = {
   merchantName: string
   estimatedSaving: number
   /**
-   * "View voucher code" CTA (renamed 2026-05-09 from "Show to Staff"
-   * per §0.10).  Caller (VoucherDetailScreen) mounts the full-screen
-   * ShowToStaff modal with the persisted code/redeemedAt/branch.
+   * "Open staff view" CTA (D24 §14 LOCKED 2026-05-09).  Caller
+   * (VoucherDetailScreen) mounts the full-screen ShowToStaff modal
+   * with the persisted code/redeemedAt/branch.
+   *
+   * CTA history:
+   *   • M3 shipped: "Show to Staff"
+   *   • PR-A §0.10 first rename: "View voucher code"
+   *   • PR-A §14 D24 final rename: "Open staff view"
+   *
+   * Why the second rename: the persisted card already DISPLAYS the
+   * redemption code during the 2-hour handoff window, so "View
+   * voucher code" read as redundant/conflicting from the card.
+   * "Open staff view" describes what the CTA opens (the dedicated
+   * live handoff surface) without repeating the already-visible
+   * code.  SuccessPopup keeps "View voucher code" because the
+   * popup shows no code.
+   *
    * Optional only because the standalone test fixtures don't always
    * supply it; the card always renders the button.
    */
@@ -331,7 +345,7 @@ export function RedemptionDetailsCard({
         <>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Show redemption code to staff"
+            accessibilityLabel="Open staff view"
             testID="redemption-details-show-to-staff"
             onPress={() => onShowToStaff?.()}
             style={({ pressed }) => [styles.showToStaffCta, pressed && styles.showToStaffCtaPressed]}
@@ -344,7 +358,7 @@ export function RedemptionDetailsCard({
             />
             <Eye size={18} color="#FFFFFF" strokeWidth={2.4} />
             <Text variant="label.md" style={styles.showToStaffText}>
-              View voucher code
+              Open staff view
             </Text>
           </Pressable>
 
