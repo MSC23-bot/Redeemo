@@ -53,12 +53,43 @@ jest.mock('expo-linear-gradient', () => {
   }
 })
 
+// react-native-safe-area-context — PR-B T1 mounts the surface under
+// useSafeAreaInsets() so the cream identity-zone band absorbs the
+// notch / Dynamic Island clearance.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
+}))
+
+// react-native-svg — RedeemoLogo wordmark in the cream identity zone
+// uses Svg + Path. Stub as plain Views so the surface renders in jest.
+jest.mock('react-native-svg', () => {
+  const React = require('react')
+  const { View } = require('react-native')
+  return {
+    __esModule: true,
+    default: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement(View, null, children),
+    Svg: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement(View, null, children),
+    Path: () => null,
+    Circle: () => null,
+    Rect: () => null,
+    Line: () => null,
+    Polyline: () => null,
+  }
+})
+
 const baseProps = {
   visible: true,
   redemptionCode: 'A7K2P9X4',
   voucherTitle: 'Buy 1 Get 1 Free on All Pizzas',
   voucherType: 'BOGO' as const,
+  // PR-B T1 — vertical-receipt props. Description renders a 3-line
+  // ellipsis block beneath the title; merchantLogoUrl=null exercises
+  // the initials-fallback rendering path.
+  voucherDescription: 'Order any 12-inch pizza and get a second one free. Dine-in only, valid Monday to Thursday.',
   merchantName: 'Pizza Palace',
+  merchantLogoUrl: null as string | null,
   branchName: 'High Street',
   customerName: '',                     // M3 lock — see Task 16 + §U1.
   redeemedAt: '2026-05-08T10:00:00Z',
@@ -95,12 +126,19 @@ beforeEach(() => {
 })
 
 describe('ShowToStaff — render', () => {
-  it('renders the formatted 4+4 code, voucher type strip, merchant·branch line, and Done button', () => {
-    const { getByText, getAllByText, getByLabelText } = render(<ShowToStaff {...baseProps} />)
+  it('renders the formatted 4+4 code, voucher-type label, merchant + branch identity, and Done button', () => {
+    // PR-B T1 — vertical-receipt restructure splits the merchant +
+    // branch into two stacked Text nodes (heading.sm + label.lg).
+    // The single-line `merchantName · branchName` of the M3 baseline
+    // was a presentation detail of the brand-red gradient register
+    // and is intentionally retired by the brief §3.1 register shift.
+    const { getByText, getAllByText, getByLabelText, getByTestId } = render(<ShowToStaff {...baseProps} />)
     expect(getByText('A7K2 P9X4')).toBeTruthy()
-    // voucher-type label appears twice: in the type strip + the info card row.
+    // voucher-type label appears in the info card row.
     expect(getAllByText(/Buy one, get one free/i).length).toBeGreaterThanOrEqual(1)
-    expect(getByText(/Pizza Palace · High Street/)).toBeTruthy()
+    expect(getByTestId('show-to-staff-merchant-name')).toBeTruthy()
+    expect(getByText('Pizza Palace')).toBeTruthy()
+    expect(getByText('High Street')).toBeTruthy()
     expect(getByLabelText('Done')).toBeTruthy()
   })
 

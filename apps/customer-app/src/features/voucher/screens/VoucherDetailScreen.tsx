@@ -325,10 +325,16 @@ export function VoucherDetailScreen() {
   const [lastRedemption, setLastRedemption] = useState<RedeemResponse | null>(null)
   // M3 — Show-to-Staff full-screen modal target. Non-null while
   // visible. Drives the Modal mount at the bottom of the JSX.
+  // PR-B T1 — `voucherDescription` + `merchantLogoUrl` captured at
+  // open-time so the vertical-receipt surface has the full identity
+  // payload without re-reading the voucher query (which can race with
+  // a branch-switch refetch). Both fields are nullable upstream.
   const [showToStaff, setShowToStaff] = useState<{
-    code:       string
-    redeemedAt: string
-    branchName: string
+    code:               string
+    redeemedAt:         string
+    branchName:         string
+    voucherDescription: string | null
+    merchantLogoUrl:    string | null
   } | null>(null)
   // M3 — validated-this-session override. Set by ShowToStaff's
   // onValidated callback when polling reaches `phase: 'validated'`.
@@ -1320,9 +1326,15 @@ export function VoucherDetailScreen() {
                     // flow. Locked 2026-05-09, PR #49 wave 8.
                     if (blockShowToStaffMount) return
                     setShowToStaff({
-                      code:       displayRedemption.code,
-                      redeemedAt: displayRedemption.redeemedAt,
-                      branchName: displayRedemption.branchName ?? '',
+                      code:               displayRedemption.code,
+                      redeemedAt:         displayRedemption.redeemedAt,
+                      branchName:         displayRedemption.branchName ?? '',
+                      // PR-B T1 — capture identity payload at open-time
+                      // so the vertical-receipt surface always has it,
+                      // even if the voucher query races with a branch
+                      // switch.
+                      voucherDescription: voucher.description,
+                      merchantLogoUrl:    voucher.merchant.logoUrl ?? null,
                     })
                   }}
                 />
@@ -1609,9 +1621,13 @@ export function VoucherDetailScreen() {
             // Closes deferred-followups §AG9 (post-PR-#49).
             setSuccessPopup(null)
             setShowToStaff({
-              code:       successPopup.redemptionCode,
-              redeemedAt: successPopup.redeemedAt,
-              branchName: branchName ?? '',
+              code:               successPopup.redemptionCode,
+              redeemedAt:         successPopup.redeemedAt,
+              branchName:         branchName ?? '',
+              // PR-B T1 — capture identity payload at open-time so the
+              // vertical-receipt surface always has it.
+              voucherDescription: voucher.description,
+              merchantLogoUrl:    voucher.merchant.logoUrl ?? null,
             })
           }}
           onDone={() => setSuccessPopup(null)}
@@ -1664,7 +1680,12 @@ export function VoucherDetailScreen() {
           redemptionCode={showToStaff.code}
           voucherTitle={voucher.title}
           voucherType={voucher.type}
+          // PR-B T1 — vertical-receipt payload. Both fields captured
+          // at open-time in `showToStaff` state so the surface stays
+          // stable across in-flight voucher refetches.
+          voucherDescription={showToStaff.voucherDescription}
           merchantName={voucher.merchant.businessName}
+          merchantLogoUrl={showToStaff.merchantLogoUrl}
           branchName={showToStaff.branchName}
           customerName=""
           redeemedAt={showToStaff.redeemedAt}
