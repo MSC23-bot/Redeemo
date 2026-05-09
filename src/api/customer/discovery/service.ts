@@ -698,25 +698,25 @@ export async function getCustomerMerchant(
   // `userId_branchId` index still serves the lookup.
   let myReview: ReturnType<typeof formatReview> | null = null
   if (userId && selectedBranchRaw) {
-    const [row, verifiedRow] = await Promise.all([
-      prisma.review.findFirst({
-        where: { userId, branchId: selectedBranchRaw.id, isHidden: false },
-        select: {
-          id: true, branchId: true, userId: true, rating: true, comment: true,
-          createdAt: true, updatedAt: true,
-          branch: { select: { name: true } },
-          user:   { select: { firstName: true, lastName: true } },
-          _count: { select: { helpfuls: true } },
-        },
-      }),
-      prisma.voucherRedemption.findFirst({
-        where: { userId, branchId: selectedBranchRaw.id, isValidated: true },
-        select: { id: true },
-      }),
-    ])
+    // PR-C 2026-05-09 (Path A): formatReview now derives isVerified
+    // from the row's redemptionId column directly.  Dropped the
+    // parallel voucherRedemption.findFirst lookup that previously
+    // backed the old reviewer-level isVerified (which required
+    // isValidated).  Added redemptionId to the select so the
+    // derivation works.
+    const row = await prisma.review.findFirst({
+      where: { userId, branchId: selectedBranchRaw.id, isHidden: false },
+      select: {
+        id: true, branchId: true, userId: true, rating: true, comment: true,
+        redemptionId: true,
+        createdAt: true, updatedAt: true,
+        branch: { select: { name: true } },
+        user:   { select: { firstName: true, lastName: true } },
+        _count: { select: { helpfuls: true } },
+      },
+    })
     if (row) {
       myReview = formatReview(row, {
-        isVerified: verifiedRow !== null,
         requestingUserId: userId,
         reviewUserId: userId,
         userMarkedHelpful: false,

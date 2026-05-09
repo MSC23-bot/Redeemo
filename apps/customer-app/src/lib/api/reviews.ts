@@ -89,13 +89,38 @@ export const reviewsApi = {
 
   /**
    * POST /api/v1/customer/branches/:branchId/reviews — create or update.
-   * Auth required. Returns the formatted review.
+   * Auth required.  Returns the formatted review (server's `isVerified`
+   * derives from the row's `redemptionId !== null` per PR-C §0.3 Path A).
+   *
+   * `redemptionId` (PR-C T6, LOCKED 2026-05-09): optional link to the
+   * redemption that triggered this review.  Three backend derivation
+   * paths (§0.3 + §0.3.1):
+   *   • Path A (explicit): when supplied, the backend validates the
+   *     5-condition rule (ownership / branch / merchant / current-cycle
+   *     window) before persisting.  Failures throw 400 with codes
+   *     `REDEMPTION_NOT_FOUND` (incl. stale/cross-cycle) /
+   *     `REDEMPTION_BRANCH_MISMATCH` / `REDEMPTION_MERCHANT_MISMATCH`.
+   *   • Path B (auto-link): when omitted AND the user has no existing
+   *     review at this branch, the backend tries to find the
+   *     most-recent eligible redemption in the user's current cycle
+   *     window.  None → review persists unverified, no error.  Direct
+   *     merchant-profile reviews can therefore become verified
+   *     automatically when the user has a current-cycle redemption.
+   *   • Path C (preserve): when omitted AND an existing review at this
+   *     branch already has redemptionId set, the existing linkage is
+   *     preserved.  Editing a verified review without re-supplying
+   *     redemptionId no longer silently strips the verified flag.
    */
-  async createReview(branchId: string, data: { rating: number; comment?: string }): Promise<Review> {
-    // Backend Zod schema rejects `comment: undefined` with exactOptionalPropertyTypes;
-    // omit the key entirely when caller didn't provide one.
-    const body: { rating: number; comment?: string } = { rating: data.rating }
-    if (data.comment !== undefined) body.comment = data.comment
+  async createReview(
+    branchId: string,
+    data: { rating: number; comment?: string; redemptionId?: string },
+  ): Promise<Review> {
+    // Backend Zod schema rejects `comment: undefined` (and `redemptionId:
+    // undefined`) with exactOptionalPropertyTypes; omit each key
+    // entirely when caller didn't provide one.
+    const body: { rating: number; comment?: string; redemptionId?: string } = { rating: data.rating }
+    if (data.comment      !== undefined) body.comment      = data.comment
+    if (data.redemptionId !== undefined) body.redemptionId = data.redemptionId
     const res = await api.post<unknown>(`/api/v1/customer/branches/${encodeURIComponent(branchId)}/reviews`, body)
     return reviewSchema.parse(res)
   },

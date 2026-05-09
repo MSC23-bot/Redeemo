@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma, ReviewReportReason } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
+import { getCurrentCycleWindow } from '../../subscription/cycle'
 
 export function buildDisplayName(firstName: string | null, lastName: string | null): string {
   if (!firstName) return 'Anonymous'
@@ -7,17 +8,14 @@ export function buildDisplayName(firstName: string | null, lastName: string | nu
   return `${firstName} ${lastName.charAt(0)}.`
 }
 
-async function batchGetVerifiedSet(
-  prisma: PrismaClient,
-  pairs: Array<{ userId: string; branchId: string }>,
-): Promise<Set<string>> {
-  if (pairs.length === 0) return new Set()
-  const redemptions = await prisma.voucherRedemption.findMany({
-    where: { OR: pairs.map(p => ({ userId: p.userId, branchId: p.branchId, isValidated: true })) },
-    select: { userId: true, branchId: true },
-  })
-  return new Set(redemptions.map(r => `${r.userId}:${r.branchId}`))
-}
+// PR-C 2026-05-09 (Path A): the previous `batchGetVerifiedSet` helper
+// derived `isVerified` from "user has any validated redemption at this
+// branch" — a reviewer-level trust signal that REQUIRED isValidated.
+// Replaced by row-level `Review.redemptionId !== null` derivation
+// inside `formatReview`.  Locked rule §0.3: a review is verified iff
+// its redemptionId column points to a real redemption owned by the
+// user, at the same branch, for the same merchant.  Staff validation
+// is NOT required.
 
 // Which of the given reviewIds has the user marked as helpful? Returns a Set
 // of reviewId for O(1) lookup. Empty when the user is unauthenticated or the
@@ -38,6 +36,7 @@ async function batchGetUserHelpfulSet(
 export function formatReview(
   review: {
     id: string; branchId: string
+    redemptionId: string | null
     branch: { name: string }
     user: { firstName: string | null; lastName: string | null }
     rating: number; comment: string | null
@@ -45,7 +44,6 @@ export function formatReview(
     _count?: { helpfuls: number }
   },
   opts: {
-    isVerified: boolean
     requestingUserId: string | null
     reviewUserId: string
     userMarkedHelpful: boolean
@@ -58,7 +56,12 @@ export function formatReview(
     displayName:        buildDisplayName(review.user.firstName, review.user.lastName),
     rating:             review.rating,
     comment:            review.comment,
-    isVerified:         opts.isVerified,
+    // PR-C §0.3 (Path A): row-level verified-review derivation.
+    // True iff the review row is linked to a specific redemption
+    // (validated server-side at create/update time per the
+    // 5-condition rule).  Replaces the old reviewer-level
+    // batchGetVerifiedSet which required isValidated.
+    isVerified:         review.redemptionId !== null,
     isOwnReview:        opts.requestingUserId !== null && opts.requestingUserId === opts.reviewUserId,
     createdAt:          review.createdAt.toISOString(),
     updatedAt:          review.updatedAt.toISOString(),
@@ -69,6 +72,10 @@ export function formatReview(
 
 const REVIEW_SELECT = {
   id: true, branchId: true, userId: true, rating: true, comment: true,
+  // PR-C 2026-05-09 (Path A): drives row-level isVerified derivation
+  // inside formatReview.  Null when the review wasn't submitted from
+  // the redemption flow (= isVerified === false).
+  redemptionId: true,
   createdAt: true, updatedAt: true,
   branch: { select: { name: true } },
   user:   { select: { firstName: true, lastName: true } },
@@ -99,14 +106,12 @@ export async function listMerchantReviews(
     prisma.review.count({ where }),
   ])
 
-  const [verifiedSet, helpfulSet] = await Promise.all([
-    batchGetVerifiedSet(prisma, reviews.map(r => ({ userId: r.userId, branchId: r.branchId }))),
-    batchGetUserHelpfulSet(prisma, params.requestingUserId, reviews.map(r => r.id)),
-  ])
+  const helpfulSet = await batchGetUserHelpfulSet(
+    prisma, params.requestingUserId, reviews.map(r => r.id),
+  )
 
   const formatted = reviews.map(r =>
     formatReview(r, {
-      isVerified:        verifiedSet.has(`${r.userId}:${r.branchId}`),
       requestingUserId:  params.requestingUserId,
       reviewUserId:      r.userId,
       userMarkedHelpful: helpfulSet.has(r.id),
@@ -141,14 +146,12 @@ export async function listBranchReviews(
     prisma.review.count({ where }),
   ])
 
-  const [verifiedSet, helpfulSet] = await Promise.all([
-    batchGetVerifiedSet(prisma, reviews.map(r => ({ userId: r.userId, branchId: r.branchId }))),
-    batchGetUserHelpfulSet(prisma, params.requestingUserId, reviews.map(r => r.id)),
-  ])
+  const helpfulSet = await batchGetUserHelpfulSet(
+    prisma, params.requestingUserId, reviews.map(r => r.id),
+  )
 
   const formatted = reviews.map(r =>
     formatReview(r, {
-      isVerified:        verifiedSet.has(`${r.userId}:${r.branchId}`),
       requestingUserId:  params.requestingUserId,
       reviewUserId:      r.userId,
       userMarkedHelpful: helpfulSet.has(r.id),
@@ -163,13 +166,144 @@ export async function listBranchReviews(
   return { reviews: formatted, total }
 }
 
+// PR-C T15 + Codex review F1 (LOCKED 2026-05-09 §0.3.1) — fetch
+// the calling user's current subscription cycle window, or null
+// when no subscription exists.  Shared by BOTH Path A (strict
+// validation of an explicit redemptionId) AND Path B (auto-link
+// most-recent eligible).  Both paths must apply the same cycle-
+// window constraint — the locked verified-review rule says a
+// review is verified iff it links to a redemption "within the
+// current customer cycle" regardless of whether the customer
+// supplied the id explicitly or the backend inferred it.
+async function getUserCycleWindowOrNull(
+  prisma: PrismaClient,
+  userId: string,
+  now: Date,
+): Promise<{ cycleStart: Date; cycleEnd: Date } | null> {
+  const sub = await prisma.subscription.findUnique({
+    where:  { userId },
+    select: { cycleAnchorDate: true },
+  })
+  if (!sub) return null
+  return getCurrentCycleWindow(sub.cycleAnchorDate, now)
+}
+
+// PR-C T15 (LOCKED 2026-05-09 §0.3.1) — auto-link helper for Path B.
+// Returns the most-recent eligible redemption id for (user, branch,
+// branch's merchant) inside the user's current cycle window, or null
+// if none qualifies.  The 4-condition rule:
+//   1. redemption.userId    === userId
+//   2. redemption.branchId  === branchId
+//   3. redemption.voucher.merchantId === branch.merchantId
+//   4. redemption.redeemedAt ∈ [cycleStart, cycleEnd) for the user's
+//      current subscription cycle window
+// isValidated is intentionally NOT checked (staff validation is not
+// required for verified-review per §0.3).
+//
+// No Subscription record → return null.  We can't compute a cycle
+// window without an anchor date, and the auto-link is best-effort
+// (a missing subscription should NOT block the review write).
+async function autoLinkRedemption(
+  prisma: PrismaClient,
+  userId: string,
+  branchId: string,
+  branchMerchantId: string,
+  now: Date,
+): Promise<string | null> {
+  const cycleWindow = await getUserCycleWindowOrNull(prisma, userId, now)
+  if (!cycleWindow) return null
+  const redemption = await prisma.voucherRedemption.findFirst({
+    where: {
+      userId,
+      branchId,
+      voucher:    { merchantId: branchMerchantId },
+      redeemedAt: { gte: cycleWindow.cycleStart, lt: cycleWindow.cycleEnd },
+    },
+    orderBy: { redeemedAt: 'desc' },
+    select:  { id: true },
+  })
+  return redemption?.id ?? null
+}
+
 export async function upsertBranchReview(
   prisma: PrismaClient,
   branchId: string,
   userId: string,
-  data: { rating: number; comment?: string },
+  data: { rating: number; comment?: string; redemptionId?: string },
 ) {
-  // Three paths inside one transaction so the read-then-write is consistent
+  // PR-C 2026-05-09 (locked §0.3 + §0.3.1): three derivation paths
+  // for the resulting Review.redemptionId:
+  //
+  //   Path A — strict (caller passed data.redemptionId): validate
+  //     the 5-condition rule BEFORE the upsert so a failed
+  //     validation never persists a row.  Conditions:
+  //       1. review has a non-null redemptionId — caller passed it
+  //       2. redemption belongs to the calling user
+  //          (findFirst's userId scope handles this — null result
+  //           is reported as REDEMPTION_NOT_FOUND to avoid leaking
+  //           that the redemption exists for a different user)
+  //       3. redemption.branchId === target branchId
+  //          (REDEMPTION_BRANCH_MISMATCH otherwise)
+  //       4. redemption.voucher.merchantId === branch.merchantId
+  //          (REDEMPTION_MERCHANT_MISMATCH otherwise)
+  //       5. redemption was successfully created — its existence
+  //          in VoucherRedemption covers it
+  //     isValidated is intentionally NOT checked.
+  //
+  //   Path B — auto-link (no explicit redemptionId AND no existing
+  //     linkage): try to find the most-recent eligible redemption
+  //     in the user's current cycle window via autoLinkRedemption.
+  //     None → write with redemptionId=null (unverified), no error.
+  //
+  //   Path C — preserve (no explicit redemptionId AND existing
+  //     review row already has redemptionId set): keep the existing
+  //     linkage.  Editing a verified review without re-supplying
+  //     redemptionId must NOT silently strip the verified flag.
+  const branch = await prisma.branch.findFirst({
+    where:  { id: branchId, isActive: true },
+    select: { id: true, merchantId: true },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+
+  if (data.redemptionId) {
+    // PR-C Codex review F1 (LOCKED 2026-05-09 §0.3.1): apply the
+    // SAME current-cycle constraint as Path B's auto-link.  The
+    // locked rule is "a review is verified iff it links to a real
+    // redemption by the same customer, at the same branch, for
+    // the same merchant, within the current customer cycle" —
+    // owner-supplied redemptionId is no exception.  Without this
+    // check, a customer could explicitly re-claim a stale (previous
+    // cycle) redemption on a fresh review and bypass the cycle
+    // boundary that Path B already enforces.
+    //
+    // Error code: a stale/cross-cycle redemption surfaces as
+    // REDEMPTION_NOT_FOUND (NOT a distinct cycle-mismatch code).
+    // Same rationale as the wrong-user case above: don't leak
+    // "the redemption exists but is too old".  Customers reaching
+    // Path A always come from a fresh redemption flow whose id
+    // is by construction in the current cycle, so this code path
+    // is purely defensive against malicious/manual API calls.
+    const cycleWindow = await getUserCycleWindowOrNull(prisma, userId, new Date())
+    if (!cycleWindow) throw new AppError('REDEMPTION_NOT_FOUND')
+    const redemption = await prisma.voucherRedemption.findFirst({
+      where: {
+        id: data.redemptionId, userId,
+        redeemedAt: { gte: cycleWindow.cycleStart, lt: cycleWindow.cycleEnd },
+      },
+      select: {
+        id:       true,
+        branchId: true,
+        voucher:  { select: { merchantId: true } },
+      },
+    })
+    if (!redemption) throw new AppError('REDEMPTION_NOT_FOUND')
+    if (redemption.branchId !== branchId) throw new AppError('REDEMPTION_BRANCH_MISMATCH')
+    if (redemption.voucher.merchantId !== branch.merchantId) {
+      throw new AppError('REDEMPTION_MERCHANT_MISMATCH')
+    }
+  }
+
+  // Three transactional sub-paths so the read-then-write is consistent
   // (no race between findUnique and update):
   //
   //   1. Initial create — no existing row → upsert's `create` branch runs
@@ -178,21 +312,21 @@ export async function upsertBranchReview(
   //
   //   2. Edit of a CURRENTLY VISIBLE review (existing row, isHidden=false)
   //      → upsert's `update` branch runs. createdAt, helpfuls, reports
-  //      preserved. `updatedAt` auto-updates via @updatedAt. This is the
-  //      vanilla "edit my review" flow.
+  //      preserved. `updatedAt` auto-updates via @updatedAt.
   //
   //   3. Revive of a SOFT-DELETED review (existing row, isHidden=true) →
-  //      MUST clear stale state. Without this branch, the revived row
+  //      MUST clear stale state.  Without this branch, the revived row
   //      inherits old `helpfuls` rows + reports from the previous content,
   //      so a brand-new review by the user shows up with "3 people found
   //      this helpful" inherited from a deleted review (caught in
-  //      2026-05-04 on-device QA). Resets:
+  //      2026-05-04 on-device QA).  Resets:
   //        - delete all `ReviewHelpful` rows for this reviewId
   //        - delete all `ReviewReport`  rows for this reviewId
-  //        - explicit `createdAt: new Date()` so any future analytics that
-  //          read createdAt sees this as a fresh review (UI already uses
-  //          updatedAt for timeAgo so this is belt-and-braces)
+  //        - explicit `createdAt: new Date()` so any future analytics
+  //          that read createdAt sees this as a fresh review
   //        - `isHidden: false` to surface the row again
+  //      Path C still applies on revive: if existing.redemptionId is
+  //      set and the caller didn't pass redemptionId, preserve it.
   //
   // The @@unique([userId, branchId]) constraint forces us to reuse the
   // same `Review.id` across delete→re-write cycles (we can't insert a
@@ -201,8 +335,23 @@ export async function upsertBranchReview(
   const review = await prisma.$transaction(async (tx) => {
     const existing = await tx.review.findUnique({
       where:  { userId_branchId: { userId, branchId } },
-      select: { id: true, isHidden: true },
+      select: { id: true, isHidden: true, redemptionId: true },
     })
+
+    // Resolve the effective redemptionId per the three derivation paths.
+    let resolvedRedemptionId: string | null
+    if (data.redemptionId) {
+      // Path A — explicit (already validated above).
+      resolvedRedemptionId = data.redemptionId
+    } else if (existing && existing.redemptionId) {
+      // Path C — preserve existing linkage.  Skip auto-link entirely.
+      resolvedRedemptionId = existing.redemptionId
+    } else {
+      // Path B — auto-link.  Best-effort; null result = unverified.
+      resolvedRedemptionId = await autoLinkRedemption(
+        prisma, userId, branchId, branch.merchantId, new Date(),
+      )
+    }
 
     if (existing && existing.isHidden) {
       await tx.reviewHelpful.deleteMany({ where: { reviewId: existing.id } })
@@ -210,10 +359,11 @@ export async function upsertBranchReview(
       return tx.review.update({
         where:  { id: existing.id },
         data:   {
-          rating:    data.rating,
-          comment:   data.comment ?? null,
-          isHidden:  false,
-          createdAt: new Date(),
+          rating:       data.rating,
+          comment:      data.comment ?? null,
+          redemptionId: resolvedRedemptionId,
+          isHidden:     false,
+          createdAt:    new Date(),
         },
         select: REVIEW_SELECT,
       })
@@ -221,18 +371,24 @@ export async function upsertBranchReview(
 
     return tx.review.upsert({
       where:  { userId_branchId: { userId, branchId } },
-      create: { userId, branchId, rating: data.rating, comment: data.comment ?? null },
-      update: { rating: data.rating, comment: data.comment ?? null, isHidden: false },
+      create: {
+        userId, branchId,
+        rating:       data.rating,
+        comment:      data.comment ?? null,
+        redemptionId: resolvedRedemptionId,
+      },
+      update: {
+        rating:       data.rating,
+        comment:      data.comment ?? null,
+        redemptionId: resolvedRedemptionId,
+        isHidden:     false,
+      },
       select: REVIEW_SELECT,
     })
   }) as ReviewRow
 
-  const [verifiedSet, helpfulSet] = await Promise.all([
-    batchGetVerifiedSet(prisma, [{ userId, branchId }]),
-    batchGetUserHelpfulSet(prisma, userId, [review.id]),
-  ])
+  const helpfulSet = await batchGetUserHelpfulSet(prisma, userId, [review.id])
   return formatReview(review, {
-    isVerified:        verifiedSet.has(`${userId}:${branchId}`),
     requestingUserId:  userId,
     reviewUserId:      userId,
     userMarkedHelpful: helpfulSet.has(review.id),

@@ -355,8 +355,363 @@ describe('Voucher Detail M2 — happy-path end-to-end', () => {
     expect(queryByTestId('pin-entry-sheet')).toBeNull()
 
     // Tap Done → popup closes.
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+  })
+
+  // PR-C T13 (LOCKED 2026-05-09 §0.3.1) — Rate & Review CTA on
+  // SuccessPopup routes to the merchant profile reviews tab with
+  // the verified-review URL contract:
+  //   /merchant/<merchantId>?branch=<branchId>&tab=reviews
+  //     &openWriteReview=1&fromRedemption=<redemptionId>
+  // Hide rule: parent (VoucherDetailScreen) only passes
+  // `onRateReview` when `successPopup.branchId` is reliable.  The
+  // RedeemResponse schema pins branchId as a non-empty string so in
+  // practice the CTA is always rendered after a successful redeem;
+  // the empty-string defensive guard tests the hide path.
+  describe('Rate & Review CTA (PR-C T13)', () => {
+    it('renders the Rate & Review CTA on SuccessPopup when branchId is reliable', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+      expect(getByTestId('success-rate-review')).toBeTruthy()
+    })
+
+    it('pressing Rate & Review routes to merchant reviews tab with openWriteReview=1, branch=<branchId>, fromRedemption=<redemptionId>', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+
+      fireEvent.press(getByTestId('success-rate-review'))
+
+      // Popup closes (state cleared) and router.push fires with the
+      // verified-review URL contract.  Pinning the full params shape
+      // catches any future regression that drops a key or routes to
+      // a different tab.
+      await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+      expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({
+        pathname: '/(app)/merchant/[id]',
+        params:   expect.objectContaining({
+          id:              'm1',
+          branch:          'b1',  // from successResponse.branchId
+          tab:             'reviews',
+          openWriteReview: '1',
+          fromRedemption:  'r1',  // from successResponse.id
+        }),
+      }))
+    })
+
+    it('hides the Rate & Review CTA when successResponse.branchId is empty (defensive)', async () => {
+      // RedeemResponse.branchId is z.string() — currently always
+      // non-empty in practice — but the hide rule must hold against
+      // a malformed/empty value rather than route into a malformed
+      // URL.  Stub the response with empty branchId and confirm the
+      // CTA stays hidden.
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue({
+        ...successResponse,
+        branchId: '',
+      })
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+
+      // Popup mounts but the secondary row carries only Done.
+      expect(queryByTestId('success-rate-review')).toBeNull()
+      expect(getByTestId('success-close')).toBeTruthy()
+    })
+
+    it('Close icon still works independently when Rate & Review is rendered alongside it', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+      expect(getByTestId('success-rate-review')).toBeTruthy()
+
+      // Done dismisses without firing router.push.
+      fireEvent.press(getByTestId('success-close'))
+      await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('View voucher code still routes to ShowToStaff when Rate & Review is rendered alongside it', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+      expect(getByTestId('success-rate-review')).toBeTruthy()
+
+      // Show-to-Staff path should still mount the surface and close
+      // the popup.  Rate & Review must not have fired.
+      fireEvent.press(getByTestId('success-show-to-staff'))
+      await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
+      await waitFor(() => expect(getByTestId('show-to-staff-mounted')).toBeTruthy())
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+  })
+
+  // PR-C T16 (LOCKED 2026-05-09 owner direction) — Voucher Detail
+  // redeemed-state Review prompt.  Second entry point into the
+  // verified-review flow; complements SuccessPopup's CTA above.
+  // Mounts immediately after RedemptionDetailsCard when stateKey
+  // === 'redeemed-this-cycle' AND we have a real branchId.
+  describe('Review prompt on redeemed Voucher Detail (PR-C T16)', () => {
+    it('renders ReviewPromptCard after redemption (in-memory lastRedemption)', async () => {
+      // Just-redeemed path: drive the full happy flow so
+      // `lastRedemption` (in-memory RedeemResponse) is set.  The
+      // prompt card mounts because stateKey transitions to
+      // 'redeemed-this-cycle' once SuccessPopup fires.
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      // After redeem, the screen flips into redeemed-this-cycle via
+      // the in-memory lastRedemption AND the next refetch lands the
+      // persisted block.  We update mockVoucherData to mirror that.
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+
+      // Dismiss the popup → user is on Voucher Detail in the
+      // redeemed-this-cycle state with `lastRedemption` set in memory.
+      // The screen still has `voucher.isRedeemedThisCycle === false`
+      // from the cached query so we flip the mock + force re-render
+      // by simulating Done press, which clears successPopup and
+      // re-renders.  However, the underlying voucher data still has
+      // isRedeemedThisCycle: false here, so the review prompt won't
+      // show under the load-bearing §Q6 invariant gate.  Flip the
+      // voucher mock to `isRedeemedThisCycle: true` to mirror the
+      // real refetch outcome.
+      mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
+      fireEvent.press(getByTestId('success-close'))
+
+      // Prompt card surfaces under the redeemed-state stack.
+      await waitFor(() => expect(getByTestId('voucher-detail-review-prompt')).toBeTruthy())
+      expect(getByTestId('voucher-detail-review-prompt-cta')).toBeTruthy()
+    })
+
+    it('renders ReviewPromptCard on cold-open redeemed return visit (persisted lastRedemption fallback)', () => {
+      // Cold-open path: NO in-memory lastRedemption.  The screen
+      // mounts directly into redeemed-this-cycle via the persisted
+      // `voucher.lastRedemption` block.  No redemption id is
+      // exposed in this payload — backend Path B auto-link handles
+      // verification on submit.
+      mockParams = { id: 'v1', branch: 'b1' }
+      mockVoucherData = baseVoucher({
+        isRedeemedThisCycle: true,
+        lastRedemption: {
+          code:        'A7K2P9X4',
+          redeemedAt:  '2026-05-08T14:00:00Z',
+          branch:      { id: 'b1', name: 'Brightlingsea' },
+          isValidated: false,
+          validatedAt: null,
+        },
+      })
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+
+      const { getByTestId } = wrap(<VoucherDetailScreen />)
+      expect(getByTestId('voucher-detail-review-prompt')).toBeTruthy()
+    })
+
+    it('hides ReviewPromptCard when voucher is NOT redeemed this cycle', () => {
+      // Non-redeemed state: prompt is gated out by the stateKey check.
+      mockParams = { id: 'v1', branch: 'b1' }
+      mockVoucherData = baseVoucher({ isRedeemedThisCycle: false })
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+
+      const { queryByTestId } = wrap(<VoucherDetailScreen />)
+      expect(queryByTestId('voucher-detail-review-prompt')).toBeNull()
+    })
+
+    it('hides ReviewPromptCard when no branchId is available (no in-memory + no persisted)', () => {
+      // Defensive: stateKey says redeemed but neither source carries
+      // branch attribution.  Without a real branchId the prompt
+      // refuses to render rather than route into a malformed URL.
+      mockParams = { id: 'v1', branch: 'b1' }
+      mockVoucherData = baseVoucher({
+        isRedeemedThisCycle: true,
+        // No persisted block + no in-memory lastRedemption (cold open
+        // before the redeem mutation lands) → reviewPromptContext is
+        // null.
+      })
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+
+      const { queryByTestId } = wrap(<VoucherDetailScreen />)
+      expect(queryByTestId('voucher-detail-review-prompt')).toBeNull()
+    })
+
+    it('press routes with fromRedemption when in-memory redemptionId is available', async () => {
+      mockParams = { id: 'v1', branch: 'b1' }
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+      ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(successResponse)
+
+      const { getByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('redeem-cta-active'))
+      await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+      await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
+
+      // Flip persisted state + dismiss popup so the prompt renders.
+      mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
+      fireEvent.press(getByTestId('success-close'))
+      await waitFor(() => expect(getByTestId('voucher-detail-review-prompt')).toBeTruthy())
+
+      // Clear push state from any prior interaction (popup pressed
+      // Done — onDone doesn't push, but defensive).
+      mockPush.mockClear()
+      fireEvent.press(getByTestId('voucher-detail-review-prompt-cta'))
+
+      expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({
+        pathname: '/(app)/merchant/[id]',
+        params:   expect.objectContaining({
+          id:              'm1',
+          branch:          'b1',  // from successResponse.branchId
+          tab:             'reviews',
+          openWriteReview: '1',
+          fromRedemption:  'r1',  // from successResponse.id
+        }),
+      }))
+    })
+
+    it('press routes WITHOUT fromRedemption on cold-open return visit (persisted-only — backend Path B verifies)', () => {
+      // Persisted shape exposes branch.id but NOT redemption id.
+      // The press handler omits `fromRedemption` from the URL;
+      // backend Path B auto-link verifies on submit via the user's
+      // current-cycle redemption at this branch.
+      mockParams = { id: 'v1', branch: 'b1' }
+      mockVoucherData = baseVoucher({
+        isRedeemedThisCycle: true,
+        lastRedemption: {
+          code:        'A7K2P9X4',
+          redeemedAt:  '2026-05-08T14:00:00Z',
+          branch:      { id: 'b1', name: 'Brightlingsea' },
+          isValidated: false,
+          validatedAt: null,
+        },
+      })
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+
+      const { getByTestId } = wrap(<VoucherDetailScreen />)
+      fireEvent.press(getByTestId('voucher-detail-review-prompt-cta'))
+
+      const call = mockPush.mock.calls[0][0]
+      expect(call.pathname).toBe('/(app)/merchant/[id]')
+      expect(call.params).toEqual(expect.objectContaining({
+        id:              'm1',
+        branch:          'b1',
+        tab:             'reviews',
+        openWriteReview: '1',
+      }))
+      // Critical: fromRedemption is OMITTED on the persisted-only
+      // path (no leak of a stale id, and backend Path B handles
+      // verification).
+      expect(call.params.fromRedemption).toBeUndefined()
+    })
+
+    it('staff-handoff actions still work independently from the review prompt', async () => {
+      // Persisted return visit: Show-to-Staff button (on
+      // RedemptionDetailsCard) and Review prompt are both visible.
+      // Pressing Show-to-Staff routes to the ShowToStaff modal and
+      // does NOT fire router.push.  Pressing Review prompt fires
+      // router.push and does NOT mount ShowToStaff.
+      mockParams = { id: 'v1', branch: 'b1' }
+      mockVoucherData = baseVoucher({
+        isRedeemedThisCycle: true,
+        // Within 2-hour presentation window from `now` so the staff
+        // handoff button is rendered (not collapsed).
+        lastRedemption: {
+          code:        'A7K2P9X4',
+          redeemedAt:  new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+          branch:      { id: 'b1', name: 'Brightlingsea' },
+          isValidated: false,
+          validatedAt: null,
+        },
+      })
+      ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+        selectedBranchId: 'b1',
+        branches: [makeBranch('b1', 'Brightlingsea')],
+      })
+
+      const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+
+      // Both surfaces present.
+      expect(getByTestId('voucher-detail-review-prompt')).toBeTruthy()
+
+      // Press Show-to-Staff (RedemptionDetailsCard CTA) — the testID
+      // for the live button on the persisted-card path is
+      // 'redemption-details-show-to-staff'.
+      fireEvent.press(getByTestId('redemption-details-show-to-staff'))
+      expect(getByTestId('show-to-staff-mounted')).toBeTruthy()
+      expect(mockPush).not.toHaveBeenCalled()
+
+      // The Review prompt is still mounted alongside ShowToStaff
+      // and its press still routes via router.push.
+      expect(queryByTestId('voucher-detail-review-prompt')).toBeTruthy()
+      fireEvent.press(getByTestId('voucher-detail-review-prompt-cta'))
+      expect(mockPush).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('single-branch: CTA → PIN sheet directly (no picker)', async () => {
@@ -491,7 +846,7 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     // lastRedemption in memory, we flip the mock to redeemed and let
     // the popup close.
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
 
     // After Done, screen is still mounted with lastRedemption in state.
@@ -551,7 +906,7 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
 
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
 
@@ -647,7 +1002,7 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     await waitFor(() => expect(getByTestId('success-popup')).toBeTruthy())
 
     mockVoucherData = baseVoucher({ isRedeemedThisCycle: true })
-    fireEvent.press(getByTestId('success-done'))
+    fireEvent.press(getByTestId('success-close'))
     await waitFor(() => expect(queryByTestId('success-popup')).toBeNull())
     await waitFor(() => expect(getByTestId('redemption-details-card')).toBeTruthy())
 

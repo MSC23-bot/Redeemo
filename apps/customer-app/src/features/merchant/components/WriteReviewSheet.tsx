@@ -10,11 +10,20 @@ import { lightHaptic } from '@/design-system/haptics'
 type Props = {
   visible: boolean
   onDismiss: () => void
-  onSubmit: (data: { rating: number; comment?: string }) => void
+  onSubmit: (data: { rating: number; comment?: string; redemptionId?: string }) => void
   isLoading: boolean
   initialRating?: number
   initialComment?: string
   branchName: string
+  /**
+   * PR-C T8 (LOCKED 2026-05-09 §0.3): when the sheet is opened from a
+   * voucher redemption flow, this prop carries the redemption id.
+   * The sheet renders a "Verified review" banner and forwards the id
+   * in the onSubmit payload so the backend can link the review row
+   * (drives row-level `isVerified` per Path A).  Null/undefined →
+   * regular review path, no banner.
+   */
+  fromRedemptionId?: string | null
 }
 
 // Round 3 §A4: migrated onto the shared `<BottomSheet>` primitive.
@@ -22,7 +31,7 @@ type Props = {
 // KeyboardAvoidingView wrapper is no longer needed.
 export function WriteReviewSheet({
   visible, onDismiss, onSubmit, isLoading,
-  initialRating = 0, initialComment = '', branchName,
+  initialRating = 0, initialComment = '', branchName, fromRedemptionId,
 }: Props) {
   const [rating, setRating] = useState(initialRating)
   const [comment, setComment] = useState(initialComment)
@@ -37,16 +46,35 @@ export function WriteReviewSheet({
   const handleSubmit = useCallback(() => {
     if (rating === 0) return
     lightHaptic()
-    // exactOptionalPropertyTypes: omit `comment` if empty rather than passing undefined.
+    // exactOptionalPropertyTypes: omit each optional key rather than
+    // passing undefined.  Same pattern as useCreateReview (T7).
     const trimmed = comment.trim()
-    if (trimmed) onSubmit({ rating, comment: trimmed })
-    else         onSubmit({ rating })
-  }, [rating, comment, onSubmit])
+    const payload: { rating: number; comment?: string; redemptionId?: string } = { rating }
+    if (trimmed)               payload.comment      = trimmed
+    if (fromRedemptionId != null) payload.redemptionId = fromRedemptionId
+    onSubmit(payload)
+  }, [rating, comment, fromRedemptionId, onSubmit])
+
+  // PR-C T16 device-QA fix (LOCKED 2026-05-09 §AI Option A) — when
+  // the user already has a review for this branch (signalled by a
+  // non-zero initialRating OR a non-empty initialComment from the
+  // parent's `myReview` pre-fill), reframe the sheet as an UPDATE
+  // surface rather than a fresh-write surface.  The current schema
+  // enforces one review per (userId, branchId) via @@unique, so
+  // editing the existing row is the only path; the copy must
+  // reflect that truthfully instead of pretending this is a new
+  // review.  Multi-review / one-per-redemption stays deferred under
+  // memory §AI as Tier 3 review-system v2 work.
+  const hasExistingReview = initialRating > 0 || initialComment.trim().length > 0
+  const titleCopy        = hasExistingReview ? 'Update your review' : 'Write a review'
+  const submitIdleCopy   = hasExistingReview ? 'Update review'      : 'Submit review'
+  const submitLoadingCopy = hasExistingReview ? 'Updating…'         : 'Submitting…'
+  const a11yLabel        = hasExistingReview ? 'Update your review' : 'Write a review'
 
   return (
-    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Write a review">
+    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel={a11yLabel}>
       <View style={styles.headerRow}>
-        <Text variant="heading.lg" style={styles.title}>Write a Review</Text>
+        <Text variant="heading.lg" style={styles.title} testID="write-review-title">{titleCopy}</Text>
         <Pressable onPress={onDismiss} style={styles.closeBtn} accessibilityLabel="Close">
           <X size={20} color="#9CA3AF" />
         </Pressable>
@@ -55,6 +83,23 @@ export function WriteReviewSheet({
       <Text variant="label.md" color="tertiary" meta style={styles.subtitle}>
         {branchName}
       </Text>
+
+      {/* Verified-review banner — T8 §0.3 LOCKED 2026-05-09.
+          Renders when the sheet is opened from a voucher redemption
+          flow.  Two-line treatment per locked owner copy: noun-phrase
+          heading + present-tense supporting line that names the
+          mechanic precisely (linked to redemption AT THIS BRANCH —
+          tells the customer this badge is branch-specific). */}
+      {fromRedemptionId != null ? (
+        <View style={styles.verifiedBanner} testID="write-review-verified-banner">
+          <Text variant="label.lg" style={styles.verifiedBannerHeading}>
+            Verified review
+          </Text>
+          <Text variant="body.sm" style={styles.verifiedBannerBody}>
+            Linked to your voucher redemption at this branch.
+          </Text>
+        </View>
+      ) : null}
 
       {/* Star rating */}
       <View style={styles.starsRow}>
@@ -97,8 +142,8 @@ export function WriteReviewSheet({
           end={{ x: 1, y: 1 }}
           style={styles.submitGradient}
         >
-          <Text variant="label.lg" style={styles.submitText}>
-            {isLoading ? 'Submitting...' : 'Submit Review'}
+          <Text variant="label.lg" style={styles.submitText} testID="write-review-submit-text">
+            {isLoading ? submitLoadingCopy : submitIdleCopy}
           </Text>
         </LinearGradient>
       </Pressable>
@@ -130,6 +175,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     marginBottom: 20,
+  },
+  // PR-C T8 §0.3 LOCKED 2026-05-09 — verified-review banner.
+  // savings-green tint (8% alpha bg, 14% alpha border) — same
+  // semantic colour family as ReviewCard's verified badge (T9).
+  verifiedBanner: {
+    backgroundColor: 'rgba(22, 163, 74, 0.08)',
+    borderColor: 'rgba(22, 163, 74, 0.14)',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  verifiedBannerHeading: {
+    color: color.savingsGreen,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  verifiedBannerBody: {
+    color: color.savingsGreen,
   },
   starsRow: {
     flexDirection: 'row',

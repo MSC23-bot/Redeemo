@@ -28,9 +28,25 @@ type Props = {
   // merchant.reviewCount.
   currentBranchCount: number
   allBranchesCount:   number
+  // PR-C T10 (LOCKED 2026-05-09 §0.3): when the user lands on the
+  // Reviews tab from a redemption-flow URL (SuccessPopup → URL params →
+  // MerchantProfileScreen → here), this prop describes which branch's
+  // review form to auto-open AND the redemptionId to attach.  The
+  // sheet opens on mount; the redemptionId flows through onSubmit →
+  // useCreateReview → reviewsApi → backend, where the §0.3 5-condition
+  // rule is validated.  Null/undefined → no auto-open, normal review flow.
+  initialOpenWriteFor?: { branchId: string; redemptionId?: string } | null
+  // PR-C T16 device-QA fix (LOCKED 2026-05-09): fired AFTER the
+  // auto-open useEffect has consumed `initialOpenWriteFor` and
+  // opened the sheet.  Lets the parent defer URL scrub until the
+  // sheet is actually open — closes the production race where the
+  // scrub stripped openWriteReview/fromRedemption before
+  // ReviewsTab even mounted, leaving the auto-open with a null
+  // prop.  No-op when omitted.
+  onAutoOpenConsumed?: () => void
 }
 
-export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch, currentBranchCount, allBranchesCount }: Props) {
+export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch, currentBranchCount, allBranchesCount, initialOpenWriteFor, onAutoOpenConsumed }: Props) {
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
 
@@ -64,6 +80,14 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
 
   const [sort, setSort] = useState<SortOption>('recent')
   const [showWriteSheet, setShowWriteSheet] = useState(false)
+  // PR-C T10 §0.3: when the URL says "open Write Review for this
+  // branch with this redemption id", we land here and the redemption
+  // id needs to follow through to handleWriteSubmit → createReview →
+  // backend.  Stored alongside `editing` (which only fires for
+  // per-card edits) — these two states are mutually exclusive.
+  const [redemptionWriteTarget, setRedemptionWriteTarget] = useState<
+    { branchId: string; redemptionId: string | null } | null
+  >(null)
 
   // Per-card edit target. When set, the WriteReviewSheet pre-fills from this
   // record AND the submit hits this record's branchId — NOT the chip-selected
@@ -94,7 +118,31 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
   const closeSheet = () => {
     setShowWriteSheet(false)
     setEditing(null)
+    setRedemptionWriteTarget(null)
   }
+
+  // PR-C T10 §0.3: react to the URL-driven initialOpenWriteFor prop.
+  // Fires on mount AND on prop-identity changes.  Doesn't auto-close
+  // the sheet when the prop later goes null — that'd cancel the
+  // user's interaction mid-flow.  The sheet closes via Done /
+  // submit / dismiss; the redemptionWriteTarget then clears via
+  // closeSheet.  MerchantProfileScreen scrubs the URL params after
+  // the sheet opens so back-nav doesn't re-trigger this effect.
+  useEffect(() => {
+    if (!initialOpenWriteFor) return
+    setEditing(null)
+    setRedemptionWriteTarget({
+      branchId:     initialOpenWriteFor.branchId,
+      redemptionId: initialOpenWriteFor.redemptionId ?? null,
+    })
+    setShowWriteSheet(true)
+    // Signal consumption AFTER the sheet has been requested open.
+    // The parent uses this to defer URL scrub until now — without
+    // it, the scrub races ahead and strips openWriteReview/
+    // fromRedemption before this effect ever runs (PR-C T16
+    // device-QA fix, locked 2026-05-09).
+    onAutoOpenConsumed?.()
+  }, [initialOpenWriteFor, onAutoOpenConsumed])
 
   // Reset sort on toggle flip (spec §4.5; brainstorm Q5: "Pagination + sort:
   // reset on toggle flip"). Pagination state isn't in this component yet —
@@ -126,14 +174,35 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
     return 0
   })
 
-  const handleWriteSubmit = useCallback(async (data: { rating: number; comment?: string }) => {
-    // editing.branchId wins when present (per-card edit from any view); else
-    // the chip-selected branch is the target (new review or edit-current).
-    const targetBranchId = editing?.branchId ?? currentBranchId
-    await createReview.mutateAsync({ branchId: targetBranchId, ...data })
+  const handleWriteSubmit = useCallback(async (
+    data: { rating: number; comment?: string; redemptionId?: string },
+  ) => {
+    // Branch-target precedence:
+    //   1. per-card edit target (PR #33 fix-up #3)
+    //   2. URL-driven redemption write target (PR-C T10)
+    //   3. chip-selected branch (default)
+    // redemptionId precedence (PR-C T10):
+    //   - data.redemptionId wins (passed through from WriteReviewSheet's
+    //     fromRedemptionId prop)
+    //   - fall back to redemptionWriteTarget.redemptionId so callers that
+    //     don't surface fromRedemptionId still attach the linkage
+    const targetBranchId =
+      editing?.branchId ?? redemptionWriteTarget?.branchId ?? currentBranchId
+    const redemptionId =
+      data.redemptionId ?? redemptionWriteTarget?.redemptionId ?? undefined
+
+    const payload: { branchId: string; rating: number; comment?: string; redemptionId?: string } = {
+      branchId: targetBranchId,
+      rating:   data.rating,
+    }
+    if (data.comment   !== undefined) payload.comment      = data.comment
+    if (redemptionId   !== undefined && redemptionId !== null) payload.redemptionId = redemptionId
+
+    await createReview.mutateAsync(payload)
     setShowWriteSheet(false)
     setEditing(null)
-  }, [editing, currentBranchId, createReview])
+    setRedemptionWriteTarget(null)
+  }, [editing, redemptionWriteTarget, currentBranchId, createReview])
 
   const handleDelete = useCallback((branchId: string, reviewId: string) => {
     // Native two-button confirm before destructive action — review delete is
@@ -258,6 +327,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
           branchName={editing?.branchName ?? currentBranchName}
           initialRating={editing?.rating ?? myReview?.rating ?? 0}
           initialComment={editing?.comment ?? myReview?.comment ?? ''}
+          fromRedemptionId={redemptionWriteTarget?.redemptionId ?? null}
         />
       </View>
     )
@@ -299,6 +369,16 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         branchName={editing?.branchName ?? currentBranchName}
         initialRating={editing?.rating ?? myReview?.rating ?? 0}
         initialComment={editing?.comment ?? myReview?.comment ?? ''}
+        // PR-C T15 follow-up (Codex review F2 — locked 2026-05-09):
+        // forward `fromRedemptionId` here too so the verified banner
+        // surfaces on branches that ALREADY have reviews.  The empty-
+        // state render path above mirrors this prop already; without
+        // this line, a SuccessPopup → Rate & Review user landing on
+        // a populated branch would see the sheet open but the banner
+        // would be missing — UX promise broken even though the
+        // backend would still verify via redemptionWriteTarget on
+        // submit (handleWriteSubmit reads from the same state).
+        fromRedemptionId={redemptionWriteTarget?.redemptionId ?? null}
       />
     </View>
   )

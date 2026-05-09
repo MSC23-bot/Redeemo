@@ -36,6 +36,7 @@ import { BranchPickerSheet, type PickerBranch } from '../components/BranchPicker
 import { PinEntrySheet } from '../components/PinEntrySheet'
 import { SuccessPopup } from '../components/SuccessPopup'
 import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
+import { ReviewPromptCard } from '../components/ReviewPromptCard'
 import { RedeemedSeal } from '../components/RedeemedSeal'
 import { ShowToStaff } from '../components/ShowToStaff'
 import { useRedeem, type UseRedeemError } from '../hooks/useRedeem'
@@ -621,6 +622,74 @@ export function VoucherDetailScreen() {
   const showRedeemedSeal = isRedeemed
   const blockShowToStaffMount =
     isRedeemed && (!isPresentationActive || isRedemptionValidated)
+
+  // ── Review prompt entry point (PR-C T16, locked 2026-05-09) ─────────
+  //
+  // Voucher Detail's redeemed state needs a second entry point into the
+  // verified-review flow.  SuccessPopup carries it for the just-redeemed
+  // moment, but once the popup is dismissed (Done / swipe-back / app
+  // backgrounded) the user has no obvious path to leave a verified
+  // review for the redeemed branch on subsequent visits during the
+  // active cycle.  ReviewPromptCard (mounted below, immediately after
+  // RedemptionDetailsCard) closes that gap.
+  //
+  // Two source priorities for the redemption attribution, mirroring
+  // `displayRedemption` derivation in the JSX:
+  //   1. PRIMARY (just-redeemed): in-memory `lastRedemption` is a
+  //      RedeemResponse — carries the redemption `id`, so we route
+  //      with `fromRedemption=<id>` (Path A backend validation).
+  //      The user lands on WriteReviewSheet with the verified-review
+  //      banner already showing (banner depends on the URL param).
+  //   2. FALLBACK (return visit): persisted `voucher.lastRedemption`
+  //      payload exposes `branch.id` but NOT the redemption `id`
+  //      (the persisted shape only carries `code` + branch + dates,
+  //      see `voucherDetailLastRedemptionSchema` — see deferred-
+  //      followup if/when we want banner upfront on this path too).
+  //      We route with `branch` only, no `fromRedemption`; backend
+  //      Path B auto-link verifies on submit via the user's current-
+  //      cycle redemption at this branch.  No banner upfront — the
+  //      verified badge appears AFTER the user submits.
+  //
+  // Visibility gate: redeemed-this-cycle AND we have a real branchId.
+  // Hide rule mirrors SuccessPopup's CTA — never route into a malformed
+  // URL (no fall-back to branchName, locked).  Always-show during
+  // redeemed cycle per option 1 (we don't know `myReview` from
+  // `useCustomerVoucher`; smarter "edit/hide-after-reviewed" is
+  // deferred to a follow-up).
+  const reviewPromptContext = useMemo<
+    { branchId: string; redemptionId: string | null } | null
+  >(() => {
+    if (stateKey !== 'redeemed-this-cycle') return null
+    if (lastRedemption && lastRedemption.branchId) {
+      return { branchId: lastRedemption.branchId, redemptionId: lastRedemption.id }
+    }
+    if (voucher?.lastRedemption?.branch.id) {
+      return { branchId: voucher.lastRedemption.branch.id, redemptionId: null }
+    }
+    return null
+  }, [stateKey, lastRedemption, voucher?.lastRedemption])
+
+  const handleReviewPromptPress = useCallback(() => {
+    if (!reviewPromptContext) return
+    if (!voucher) return
+    // Build the params shape with the literal `id` field required by
+    // expo-router's typed route, then conditionally spread the
+    // optional redemption id.  Conditional spread (vs assigning
+    // undefined) keeps the typed-route tagged-union happy under
+    // exactOptionalPropertyTypes.
+    router.push({
+      pathname: '/(app)/merchant/[id]',
+      params: {
+        id:              voucher.merchant.id,
+        branch:          reviewPromptContext.branchId,
+        tab:             'reviews',
+        openWriteReview: '1',
+        ...(reviewPromptContext.redemptionId
+          ? { fromRedemption: reviewPromptContext.redemptionId }
+          : {}),
+      },
+    })
+  }, [reviewPromptContext, voucher, router])
 
   // ── Screen-capture protection on Voucher Detail ─────────────────────
   //
@@ -1225,6 +1294,7 @@ export function VoucherDetailScreen() {
               isValidated: baseDisplay.isValidated || (validatedSession === baseDisplay.code),
             }
             return (
+              <>
               <View style={styles.redeemedDetailsInStack}>
                 <RedemptionDetailsCard
                   redemptionCode={displayRedemption.code}
@@ -1257,6 +1327,23 @@ export function VoucherDetailScreen() {
                   }}
                 />
               </View>
+              {/* Review prompt — second entry point into the
+                  verified-review flow (PR-C T16, locked 2026-05-09).
+                  Mounts immediately after RedemptionDetailsCard in
+                  the redeemed-this-cycle state.  Visibility is
+                  load-bearing on `reviewPromptContext` (computed
+                  above): non-null only when we have a real branchId
+                  for the URL.  Routing prefers the in-memory
+                  `lastRedemption.id` (Path A backend validation +
+                  banner upfront on the sheet) and falls back to
+                  branch-only when only the persisted shape is
+                  available (Path B auto-link verifies on submit). */}
+              {reviewPromptContext ? (
+                <View style={styles.reviewPromptInStack}>
+                  <ReviewPromptCard onPress={handleReviewPromptPress} />
+                </View>
+              ) : null}
+              </>
             )
           })()}
 
@@ -1528,6 +1615,43 @@ export function VoucherDetailScreen() {
             })
           }}
           onDone={() => setSuccessPopup(null)}
+          // PR-C T13 (LOCKED 2026-05-09 §0.3.1): Rate & Review CTA
+          // routes to the merchant profile reviews tab with the
+          // verified-review URL contract:
+          //   /merchant/<merchantId>?branch=<branchId>&tab=reviews
+          //     &openWriteReview=1&fromRedemption=<redemptionId>
+          // MerchantProfileScreen reads these params, forces
+          // activeTab='reviews', forwards `initialOpenWriteFor` to
+          // ReviewsTab (which auto-opens WriteReviewSheet), then
+          // scrubs `openWriteReview` + `fromRedemption` via
+          // router.replace so back-nav doesn't re-trigger the flow.
+          //
+          // Hide rule (§0.3.1 owner-locked): only render the CTA
+          // when we have a reliable branchId.  `successPopup.branchId`
+          // comes straight from the redemption response (RedeemResponse
+          // schema pins it as a non-empty string), so when the popup
+          // mounts, this prop is always present.  The defensive
+          // truthiness guard below covers the (currently impossible
+          // but defensive) empty-string case — empty branchId ⇒ no
+          // prop ⇒ CTA hidden, NOT a malformed URL.  We do NOT fall
+          // back to `branchName` (locked).
+          {...(successPopup.branchId
+            ? {
+                onRateReview: () => {
+                  setSuccessPopup(null)
+                  router.push({
+                    pathname: '/(app)/merchant/[id]',
+                    params: {
+                      id:              voucher.merchant.id,
+                      branch:          successPopup.branchId,
+                      tab:             'reviews',
+                      openWriteReview: '1',
+                      fromRedemption:  successPopup.id,
+                    },
+                  })
+                },
+              }
+            : {})}
         />
       ) : null}
       {/* ShowToStaff full-screen Modal (M3 Task 16). Mounts only
@@ -1704,6 +1828,14 @@ const styles = StyleSheet.create({
   // marginTop here, no marginBottom. The next card (CycleRulesCard)
   // brings its own marginTop:16 for the gap.
   redeemedDetailsInStack: {
+    marginTop: 16,
+    marginHorizontal: 22,
+  },
+  // Review prompt sits 16pt below RedemptionDetailsCard with the same
+  // horizontal margin so the two redeemed-state cards read as a
+  // coherent vertical stack (staff-handoff card → secondary review
+  // prompt → cycle rules below).  PR-C T16, locked 2026-05-09.
+  reviewPromptInStack: {
     marginTop: 16,
     marginHorizontal: 22,
   },

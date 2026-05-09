@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Check, Eye } from 'lucide-react-native'
+import { Check, Eye, Star, X } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color, radius, spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
@@ -46,7 +46,32 @@ type Props = {
   onShowToStaff: () => void
   /** "Done" — caller closes the popup; voucher detail re-renders state-3. */
   onDone: () => void
+  /**
+   * Secondary CTA — "Rate & Review" (PR-C T12 §0.3.1, locked
+   * 2026-05-09).  When provided, renders a flat outlined pill in
+   * the secondary row alongside Done.  Tapping closes the popup
+   * and routes to the merchant profile reviews tab with the
+   * verified-review URL contract (handled by the parent).
+   *
+   * Hide rule: caller must omit this prop when no reliable
+   * branchId is available — the URL needs a branchId and we MUST
+   * NOT fall back to branchName.  Omitting → the secondary row
+   * carries only the Done dismiss action.
+   */
+  onRateReview?: () => void
 }
+
+// Secondary navy gradient — mirrors the navy gradient used by the
+// merchant-profile ActionRow Contact button (locked PR direction
+// 2026-05-09 §B).  PR-C T16 wave 3: visual-consistency change for
+// the Rate & Review CTA — Star + label on a filled navy gradient
+// instead of the previous brand-rose outlined pill.  Reads as
+// clearly secondary to the brand-gradient primary "View voucher
+// code" CTA above (saturated brand-rose vs cooler navy) while the
+// gradient fill confirms it's actionable, not disabled.  Matched
+// verbatim by the Voucher Detail "Share your experience" prompt
+// (`ReviewPromptCard`) so both entry points share one identity.
+const NAVY_GRADIENT = ['#010C35', '#1F2A55'] as const
 
 // en-GB / Europe/London formatter for the "Redeemed on" receipt row.
 // Hermes-CLDR-robust pattern — see `reference_london_clock_helper.md`
@@ -123,6 +148,7 @@ export function SuccessPopup({
   branchName,
   onShowToStaff,
   onDone,
+  onRateReview,
 }: Props) {
   const scale = useSharedValue(0.8)
   const ty = useSharedValue(30)
@@ -189,11 +215,32 @@ export function SuccessPopup({
           testID="success-popup"
         >
           {/* Type-pastel accent row — gradient signals voucher type;
-              animated check ring + title carry the success message.
-              Type chip + "Redeemed" eyebrow removed (D16) — the title
-              now reads as a clear success statement instead of a small
-              uppercase eyebrow.  Title aria-hidden because the modal's
-              accessibilityLabel already announces the same string. */}
+              animated check ring + title carry the success message;
+              top-right X close icon shares the row as a flex child
+              (no overlap; layout flow handles spacing).  Type chip +
+              "Redeemed" eyebrow removed (D16) — the title now reads
+              as a clear success statement instead of a small
+              uppercase eyebrow.  Title aria-hidden because the
+              modal's accessibilityLabel already announces the same
+              string.
+
+              Close affordance (PR-C T16 device-QA fix wave 2 —
+              LOCKED 2026-05-09 owner direction §C).  Inline flex
+              child of the accent row instead of an absolute overlay
+              — the previous absolute placement collided with the
+              title under Dynamic Type / on narrower devices.  The
+              row's `gap` + the title's `flex: 1` reserve the X's
+              space cleanly:
+                  [ ✓ ring ]   [ Title (flex 1)              ]   [ X ]
+              Visually quiet (semi-transparent cream-tint disc, 32pt
+              circular tap with 12pt hitSlop = effective 56pt) so
+              the user-facing hierarchy stays:
+                  Primary:    "View voucher code"
+                  Secondary:  Rate & Review
+                  Dismissal:  X (top-right)
+              Modal.onRequestClose still wires hardware back; tapping
+              the X delegates to the same `onDone` handler so all
+              dismiss paths share one entry. */}
           <View style={styles.accentRow}>
             <LinearGradient
               colors={accentGradient}
@@ -215,6 +262,19 @@ export function SuccessPopup({
             >
               Voucher redeemed successfully
             </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              testID="success-close"
+              onPress={() => { lightHaptic(); onDone() }}
+              style={({ pressed }) => [
+                styles.closeIcon,
+                pressed && styles.closeIconPressed,
+              ]}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <X size={18} color={color.text.tertiary} strokeWidth={2.4} />
+            </Pressable>
           </View>
 
           {/* Body — voucher context + saving + receipt + CTAs */}
@@ -330,25 +390,41 @@ export function SuccessPopup({
               </Text>
             </Pressable>
 
-            {/* Secondary row — Done is the only tertiary action in
-                PR-A.  Rate & Review hidden until PR-C lands the
-                verified-review backend (D12 / §0.2). */}
-            <View style={styles.secondaryRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Done"
-                testID="success-done"
-                onPress={() => { lightHaptic(); onDone() }}
-                style={({ pressed }) => [
-                  styles.tertiaryAction,
-                  pressed && styles.tertiaryPressed,
-                ]}
-              >
-                <Text variant="label.md" style={styles.tertiaryDoneText}>
-                  Done
-                </Text>
-              </Pressable>
-            </View>
+            {/* Secondary row — Rate & Review pill, centred.  Done was
+                removed (PR-C T16 device-QA fix — locked 2026-05-09
+                owner direction §C): it was reading as a peer to Rate
+                & Review even though it's mere dismissal.  The X close
+                icon at the top-right of the popup now carries the
+                dismiss affordance with much lower visual weight, and
+                `Modal.onRequestClose` keeps hardware back wired.  The
+                row is suppressed entirely when the parent doesn't
+                provide `onRateReview` (no reliable branchId) — at
+                that point the only path forward IS the primary CTA. */}
+            {onRateReview ? (
+              <View style={styles.secondaryRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Rate and Review"
+                  testID="success-rate-review"
+                  onPress={() => { lightHaptic(); onRateReview() }}
+                  style={({ pressed }) => [
+                    styles.rateReviewPill,
+                    pressed && styles.ctaPressed,
+                  ]}
+                >
+                  <LinearGradient
+                    colors={NAVY_GRADIENT}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                  <Star size={16} color={color.onBrand} strokeWidth={2.4} />
+                  <Text variant="body.md" style={styles.rateReviewText}>
+                    Rate & Review
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         </Animated.View>
       </View>
@@ -592,36 +668,72 @@ const styles = StyleSheet.create({
     color: color.onBrand,
     letterSpacing: 0.2,
   },
-  // ── Tertiary action row ──
-  // Flat dismiss text only.  Rate & Review removed for PR-A —
-  // returns in PR-C with verified-review backend (D12).  The row
-  // structure is preserved (centred, no separator) so PR-C can
-  // restore the second action without restructuring.
-  // D22 (LOCKED 2026-05-09 §14): paddingTop 2 → 12 so Done sits in
-  // its own implied region and the popup ends with calm pacing,
-  // not a primary→Done cram.
+  // ── Secondary action row ──
+  // Centres the Rate & Review pill below the primary CTA.  The
+  // body's `gap: spacing[4]` already provides 16pt above; an
+  // additional small `paddingTop` adds breathing space without
+  // doubling up.  PR-C T16 device-QA fix wave 2 (locked 2026-05-09):
+  // tightened from `paddingTop: spacing[3]` (12) since Done is now
+  // gone — the row needs less weight than when it carried two
+  // actions side-by-side.
   secondaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing[3],
-    paddingTop: spacing[3],
+    paddingTop: spacing[1],
   },
-  tertiaryAction: {
+  // ── Rate & Review pill (PR-C T12 §0.3.1, refined T16 wave 3) ──
+  // Filled navy gradient — secondary register against the brand-
+  // gradient primary CTA above.  PR-C T16 device-QA fix wave 3
+  // (LOCKED 2026-05-09 owner direction §B visual consistency):
+  // switched from the brand-rose OUTLINED pill to a filled NAVY
+  // gradient.  Mirrors the Contact button on the merchant-profile
+  // ActionRow so both surfaces share one secondary-action identity.
+  // Tap target: paddingVertical 12 + body.md lineHeight 24 = 48pt
+  // total (clears HIG 44pt with margin).  paddingHorizontal 22 +
+  // 10pt gap give comfortable breathing room around Star + label.
+  // Gradient + softer navy shadow read clearly tappable (NOT
+  // disabled) while staying visually subordinate to the warm brand-
+  // gradient primary above.
+  //
+  // overflow:hidden so the LinearGradient (which fills via
+  // StyleSheet.absoluteFillObject) stays inside the rounded corners.
+  rateReviewPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: spacing[2],
-    paddingHorizontal: spacing[3],
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    shadowColor: color.navy,
+    shadowOpacity: 0.20,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
-  tertiaryPressed: {
-    opacity: 0.85,
-  },
-  tertiaryDoneText: {
-    fontSize: 12,
+  rateReviewText: {
+    color: color.onBrand,
     fontWeight: '700',
-    color: color.text.secondary,
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
+  },
+  // Top-right close icon — inline flex child of the accent row.
+  // Visually quiet (semi-transparent cream-tint disc) so it never
+  // competes with the primary CTA below.  Sits at the END of the
+  // row via `gap` + `flex: 1` on the title, with no absolute
+  // positioning to avoid the title overlap that surfaced in device
+  // QA wave 2.  PR-C T16 device-QA fix wave 2, locked 2026-05-09.
+  closeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.55)',
+  },
+  closeIconPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.96 }],
   },
   ctaPressed: {
     opacity: 0.85,

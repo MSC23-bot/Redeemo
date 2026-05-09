@@ -4,9 +4,24 @@ import { reviewsApi } from '@/lib/api/reviews'
 export function useCreateReview(merchantId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ branchId, rating, comment }: { branchId: string; rating: number; comment?: string }) =>
-      // exactOptionalPropertyTypes: omit `comment` rather than passing undefined.
-      reviewsApi.createReview(branchId, comment !== undefined ? { rating, comment } : { rating }),
+    mutationFn: ({ branchId, rating, comment, redemptionId }: {
+      branchId: string
+      rating: number
+      comment?: string
+      // PR-C T7 (LOCKED 2026-05-09 §0.3): optional link to the
+      // redemption that triggered this review.  WriteReviewSheet
+      // forwards it when opened from the redemption flow.  Backend
+      // validates the §0.3 5-condition rule before persisting; on
+      // success the returned review carries isVerified=true.
+      redemptionId?: string
+    }) => {
+      // exactOptionalPropertyTypes: omit each optional key rather
+      // than passing undefined down to the request body.
+      const body: { rating: number; comment?: string; redemptionId?: string } = { rating }
+      if (comment      !== undefined) body.comment      = comment
+      if (redemptionId !== undefined) body.redemptionId = redemptionId
+      return reviewsApi.createReview(branchId, body)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['merchantReviews', merchantId] })
       queryClient.invalidateQueries({ queryKey: ['reviewSummary', merchantId] })

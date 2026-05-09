@@ -33,6 +33,7 @@ import { HoursPreviewSheet } from '../components/HoursPreviewSheet'
 import { SuspendedBranchBanner } from '../components/SuspendedBranchBanner'
 import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
 import { useFavourite } from '@/hooks/useFavourite'
+import { deriveInitialOpenWriteFor } from '../utils/initialOpenWriteFor'
 import { useUserLocation } from '@/hooks/useLocation'
 import { MerchantHeadline } from '../components/MerchantHeadline'
 import { BranchContextBand } from '../components/BranchContextBand'
@@ -152,7 +153,33 @@ export function MerchantProfileScreen({ id }: Props) {
     isFavourited: merchant?.isFavourited ?? false,
   })
 
-  const [activeTab,           setActiveTab]           = useState<TabId>('vouchers')
+  // URL params read FIRST so the activeTab initialiser below can
+  // honour `?tab=reviews` on cold-mount.  Hoisted here from its
+  // original position lower in the body (PR-C T16 device-QA fix,
+  // locked 2026-05-09): without this, `activeTab` defaulted to
+  // `'vouchers'` and a post-mount effect later flipped it to
+  // `'reviews'` — visible Vouchers-flash + ReviewsTab missed its
+  // first chance to consume `initialOpenWriteFor`.
+  const screenParams = useLocalSearchParams<{
+    branch?: string
+    tab?: string
+    branchChanged?: string
+    // PR-C T11 §0.3 LOCKED 2026-05-09: SuccessPopup's Rate & Review
+    // CTA (T13) writes these on the route URL so the Reviews tab
+    // auto-opens the WriteReviewSheet for the redeemed branch with
+    // the verified-redemption linkage.  Scrubbed below after the
+    // auto-open fires so back-nav doesn't re-trigger.
+    openWriteReview?: string
+    fromRedemption?:  string
+  }>()
+
+  // Initial tab honours the URL.  Lazy initialiser eliminates the
+  // Vouchers→Reviews flash and ensures `<ReviewsTab>` is mounted on
+  // the SAME render as the non-null `initialOpenWriteFor` — so its
+  // auto-open effect fires before the parent scrubs the URL.
+  const [activeTab,           setActiveTab]           = useState<TabId>(() =>
+    screenParams.tab === 'reviews' ? 'reviews' : 'vouchers',
+  )
   const [showContact,         setShowContact]         = useState(false)
   const [showDirs,            setShowDirs]            = useState(false)
   const [bannerDismissed,     setBannerDismissed]     = useState(false)
@@ -223,7 +250,104 @@ export function MerchantProfileScreen({ id }: Props) {
   // Skipped if the chip-picker / Other-Locations toast is already
   // pending — that path will run its own toast and the URL param is
   // a separate trigger.
-  const screenParams = useLocalSearchParams<{ branch?: string; tab?: string; branchChanged?: string }>()
+  // (`screenParams` hoisted above, near the activeTab initialiser.)
+  // PR-C T11 §0.3 LOCKED 2026-05-09 — URL-driven Reviews-tab auto-open.
+  //
+  // Flow:
+  //   SuccessPopup Rate & Review CTA (T13) → router.push to this
+  //   route with ?tab=reviews&openWriteReview=1&fromRedemption=<id>
+  //   → here we read those params, force activeTab='reviews',
+  //   compute initialOpenWriteFor for ReviewsTab, scrub the
+  //   transient params from the URL.
+  //
+  // The scrub is critical: without it, swiping back from a
+  // descendant screen (or React Query refetch causing a re-render)
+  // re-triggers the auto-open useEffect inside ReviewsTab.  Mirrors
+  // the branchChanged=1 scrub pattern below.
+  const initialOpenWriteFor = useMemo(
+    () => deriveInitialOpenWriteFor(screenParams),
+    [screenParams.branch, screenParams.openWriteReview, screenParams.fromRedemption],
+  )
+
+  // Force the active tab to 'reviews' whenever a Rate & Review
+  // attribution is requested via the URL.  Driven by
+  // `initialOpenWriteFor` (a useMemo over `branch` + `openWriteReview`
+  // + `fromRedemption`) so the effect re-fires every time the
+  // attribution identity changes — INCLUDING the repeat-in-session
+  // case where the URL `tab` was already `reviews` from the first
+  // round but the user manually flipped to Vouchers in between.
+  //
+  // PR-C T16 device-QA wave 2 fix (LOCKED 2026-05-09): the previous
+  // URL-transition detection only fired on `tab` value transitions,
+  // which missed the repeat case (URL `tab` stays 'reviews' after
+  // the first scrub; second nav re-adds openWriteReview=1 but the
+  // tab value is unchanged).  The right semantic is "every fresh
+  // attribution requests Reviews" — `initialOpenWriteFor` flipping
+  // null → non-null is exactly that signal.
+  useEffect(() => {
+    if (initialOpenWriteFor) {
+      setActiveTab('reviews')
+    }
+  }, [initialOpenWriteFor])
+
+  // Belt-and-braces: also honour a URL `tab=reviews` that arrives
+  // WITHOUT an openWriteReview attribution (e.g. a tab-only deep
+  // link).  Tracks the last-seen URL tab via a ref and forces only
+  // on transitions TO 'reviews' so user TabBar taps still take
+  // precedence (TabBar taps don't change the URL).
+  const lastUrlTabRef = useRef<string | undefined>(screenParams.tab)
+  useEffect(() => {
+    const cur = screenParams.tab
+    if (cur !== lastUrlTabRef.current) {
+      if (cur === 'reviews') setActiveTab('reviews')
+      lastUrlTabRef.current = cur
+    }
+  }, [screenParams.tab])
+
+  // Scrub openWriteReview + fromRedemption from the URL — but ONLY
+  // after `<ReviewsTab>` has consumed `initialOpenWriteFor` and
+  // signalled via `onAutoOpenConsumed` (callback wired below).
+  // Without this gate, the scrub fires on the same render that the
+  // URL params arrive, before `<ReviewsTab>` mounts (ReviewsTab is
+  // gated on `activeTab === 'reviews' && merchant !== null`); by the
+  // time it does mount, useMemo has recomputed `initialOpenWriteFor`
+  // → null and the auto-open effect early-returns.  PR-C T16 device-
+  // QA fix, locked 2026-05-09.
+  //
+  // Keeps `branch` and `tab` so the page doesn't re-mount or
+  // re-position; only strips the one-shot flags.
+  const [autoOpenConsumed, setAutoOpenConsumed] = useState(false)
+  const [openWriteScrubbed, setOpenWriteScrubbed] = useState(false)
+
+  // Reset both flags when `initialOpenWriteFor` flips identity (re-
+  // navigation with a new redemption attribution).  Without this,
+  // the second Rate & Review trigger would skip both the consume
+  // signal and the scrub.
+  useEffect(() => {
+    setAutoOpenConsumed(false)
+    setOpenWriteScrubbed(false)
+  }, [initialOpenWriteFor?.branchId, initialOpenWriteFor?.redemptionId])
+
+  const handleAutoOpenConsumed = useCallback(() => {
+    setAutoOpenConsumed(true)
+  }, [])
+
+  useEffect(() => {
+    if (openWriteScrubbed) return
+    if (!autoOpenConsumed) return
+    if (!initialOpenWriteFor) return
+    if (!merchantId) return
+    setOpenWriteScrubbed(true)
+    const enc = encodeURIComponent
+    const tab = typeof screenParams.tab === 'string' ? screenParams.tab : 'reviews'
+    const branchPart = initialOpenWriteFor.branchId
+      ? `?branch=${enc(initialOpenWriteFor.branchId)}&tab=${enc(tab)}`
+      : `?tab=${enc(tab)}`
+    router.replace(
+      `/(app)/merchant/${enc(merchantId)}${branchPart}` as never,
+    )
+  }, [autoOpenConsumed, initialOpenWriteFor, openWriteScrubbed, merchantId, screenParams.tab])
+
   const branchChangedParam = screenParams.branchChanged
   useEffect(() => {
     if (branchChangedToastFired) return
@@ -710,6 +834,8 @@ export function MerchantProfileScreen({ id }: Props) {
               isMultiBranch={isMultiBranch}
               currentBranchCount={sb.reviewCount}
               allBranchesCount={merchant.reviewCount}
+              initialOpenWriteFor={initialOpenWriteFor}
+              onAutoOpenConsumed={handleAutoOpenConsumed}
             />
           )}
         </Animated.View>

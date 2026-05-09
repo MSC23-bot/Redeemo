@@ -79,9 +79,15 @@ export function ReviewCard({ review, showBranchLabel, onHelpful, onEdit, onDelet
           <View style={styles.nameRow}>
             <Text variant="label.lg" style={styles.name}>{review.displayName}</Text>
             {review.isVerified && (
-              <View style={styles.verifiedBadge}>
+              <View
+                style={styles.verifiedBadge}
+                testID="review-card-verified-badge"
+                accessibilityLabel="Verified redemption"
+              >
                 <CheckCircle size={12} color="#15803D" />
-                <Text variant="label.md" style={styles.verifiedText}>Verified</Text>
+                <Text variant="label.md" style={styles.verifiedText}>
+                  Verified redemption
+                </Text>
               </View>
             )}
           </View>

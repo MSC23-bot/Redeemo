@@ -138,6 +138,40 @@ describe('reviewsApi.getMerchantReviews', () => {
   })
 })
 
+describe('reviewsApi.createReview — PR-C T6 redemptionId pass-through', () => {
+  beforeEach(() => { (api.post as jest.Mock | undefined)?.mockReset?.() })
+  beforeAll(() => { jest.spyOn(api, 'post') })
+
+  it('omits redemptionId from the body when caller did not provide one', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce(review)
+    await reviewsApi.createReview('b1', { rating: 4, comment: 'Good' })
+    const [, body] = (api.post as jest.Mock).mock.calls[0]!
+    expect(body).toEqual({ rating: 4, comment: 'Good' })
+    expect(body).not.toHaveProperty('redemptionId')
+  })
+
+  it('forwards redemptionId in the body when supplied', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce(review)
+    await reviewsApi.createReview('b1', { rating: 5, comment: 'Verified', redemptionId: 'red-1' })
+    const [, body] = (api.post as jest.Mock).mock.calls[0]!
+    expect(body).toMatchObject({ rating: 5, comment: 'Verified', redemptionId: 'red-1' })
+  })
+
+  it('forwards redemptionId without comment when caller omits comment', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce(review)
+    await reviewsApi.createReview('b1', { rating: 5, redemptionId: 'red-1' })
+    const [, body] = (api.post as jest.Mock).mock.calls[0]!
+    expect(body).toEqual({ rating: 5, redemptionId: 'red-1' })
+    expect(body).not.toHaveProperty('comment')
+  })
+
+  it('parses the response (isVerified is part of the schema already; reflected on returned object)', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ...review, isVerified: true })
+    const r = await reviewsApi.createReview('b1', { rating: 5, redemptionId: 'red-1' })
+    expect(r.isVerified).toBe(true)
+  })
+})
+
 describe('reviewsApi.getReviewSummary', () => {
   beforeEach(() => { (api.get as jest.Mock).mockReset() })
 
