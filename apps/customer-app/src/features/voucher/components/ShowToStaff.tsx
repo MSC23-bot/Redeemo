@@ -546,14 +546,21 @@ export function ShowToStaff({
               {/* Code value (4+4) — PR-B T8g: wrapped in a pale brand-
                   rose tinted chip with a thin brand-rose border so the
                   navy-on-white code reads as a distinct, scannable
-                  element.  Without the chip the code blended visually
-                  against the QR (both dark blocks on the white inner
-                  card).  Owner direction: "the voucher code is also
-                  very prominent ... it needs to stand out from the QR
-                  code". */}
+                  element.
+
+                  PR-B T8p (impeccable pass): variant moves from
+                  `display.md` (Mustica Pro 26pt) → `mono.redemption`
+                  (Lato Bold 28pt + 4pt tracking) per DESIGN.md
+                  "Mono Redemption Rule": *"the redemption code surface
+                  only.  The wide tracking is the trust signal — it is
+                  unambiguously 'show this to staff'.  Never reuse this
+                  variant for any other purpose."*  This is the
+                  documented spec for THIS surface; the previous
+                  display.md drift was a typography leak from the
+                  display tier into a special-purpose variant. */}
               <View style={styles.codeChip} testID="show-to-staff-code-chip">
                 <Text
-                  variant="display.md"
+                  variant="mono.redemption"
                   align="center"
                   style={styles.codeValue}
                   testID="show-to-staff-code"
@@ -764,9 +771,12 @@ const styles = StyleSheet.create({
     borderColor: color.brandRose + 'B3', // ~70% alpha
     backgroundColor: 'rgba(226, 12, 4, 0.10)',
   },
+  // PR-B T8p: dropped fontWeight: '800' override (Lato Semibold
+  // doesn't synthesize cleanly to 800 on iOS; the label.eyebrow
+  // variant — which this chip uses — carries the right weight via
+  // its 600 SemiBold cut natively).
   typeChipText: {
     color: color.onBrand,
-    fontWeight: '800',
     letterSpacing: 1.2,
   },
   merchantBlock: {
@@ -814,8 +824,15 @@ const styles = StyleSheet.create({
     padding: 3,
     marginTop: spacing[1],
   },
+  // PR-B T8p: '#FFFFFF' → color.surface.raised token (which IS
+  // #FFFFFF in DESIGN.md, but the named token tells future readers
+  // what the role is — "the QR-card inner surface is the same
+  // surface family as a raised card").  borderRadius 20 stays
+  // hardcoded — this is the bespoke "nest inside the 22pt
+  // codeCardBorder with 3pt padding" calculation, not a system
+  // value (radius.xl 22 - 3 + adjustment = ~20).
   codeCardInner: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: color.surface.raised,
     borderRadius: 20,
     paddingVertical: spacing[4],
     paddingHorizontal: spacing[4],
@@ -830,13 +847,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
   },
+  // PR-B T8p: borderRadius 20 → radius.pill.  The 20pt was
+  // pill-ish-but-not-quite for a small badge; radius.pill (9999)
+  // makes it a true pill, the correct shape per DESIGN.md (pill
+  // is reserved for chip and badge; this is a badge).
   liveBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 4,
     paddingHorizontal: spacing[3],
-    borderRadius: 20,
+    borderRadius: radius.pill,
     backgroundColor: 'rgba(226,12,4,0.08)',
   },
   liveText: {
@@ -849,19 +870,27 @@ const styles = StyleSheet.create({
   // border so the navy code reads as a distinct, scannable block
   // separate from the QR above.  Stretches across the inner card
   // for a clean rectangular receipt-detail feel.
+  // PR-B T8p: borderRadius hardcoded 14 → radius.md (12).  Token
+  // alignment with the cross-CTA radius.md system; visual
+  // difference is 2pt, imperceptible.
   codeChip: {
     alignSelf: 'stretch',
     alignItems: 'center',
     paddingVertical: spacing[2] + 2,
     paddingHorizontal: spacing[3],
-    borderRadius: 14,
+    borderRadius: radius.md,
     backgroundColor: 'rgba(226, 12, 4, 0.06)',
     borderWidth: 1.5,
     borderColor: 'rgba(226, 12, 4, 0.28)',
   },
+  // PR-B T8p: the `mono.redemption` variant carries fontFamily +
+  // fontSize + letterSpacing 4pt natively per DESIGN.md spec.  Local
+  // overrides drop to navy ink + tabular-nums (the variant doesn't
+  // set fontVariant, and the surface needs navy on the white inner
+  // card).  Previous local letterSpacing: 5 dropped — the variant's
+  // 4pt is the documented trust-signal value.
   codeValue: {
     color: color.navy,
-    letterSpacing: 5,
     fontVariant: ['tabular-nums'],
   },
   // Live-clock chip — navy bg + bold heading.sm white text so the
@@ -877,8 +906,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  // PR-B T8p: '#FFFFFF' → color.onBrand token per DESIGN.md
+  // "Don't use #000 or #FFF directly for text".
   liveClockText: {
-    color: '#FFFFFF',
+    color: color.onBrand,
     fontFamily: 'Lato-Bold',
     fontVariant: ['tabular-nums'],
   },
@@ -912,8 +943,9 @@ const styles = StyleSheet.create({
     backgroundColor: color.savingsGreen,
     marginTop: spacing[3],
   },
+  // PR-B T8p: '#FFFFFF' → color.onBrand token.
   validatedText: {
-    color: '#FFFFFF',
+    color: color.onBrand,
     marginLeft: 8,
   },
   warningHint: {
@@ -937,16 +969,25 @@ const styles = StyleSheet.create({
   // `overflow: 'hidden'` clips the absolutely-positioned LinearGradient
   // to the rounded shape.  Brand-rose shadow gives the lifted-pill
   // feel against the navy bg.
+  //
+  // PR-B T8p (impeccable pass) aligned to DESIGN.md:
+  //   • borderRadius radius.lg (16) → radius.md (12) per
+  //     "Buttons Shape: rounded-md (12px) on every variant".
+  //     Cross-CTA consistency with PinSheet T8m, BranchPicker T8l,
+  //     and SuccessPopup T8n.
+  //   • shadowOpacity 0.32 → 0.20 per "Glow-is-the-CTA Rule"
+  //     (calmer brand glow; the redemption pulse should be the
+  //     brand-rose glow on this surface, not the dismiss CTA).
   doneButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing[3] + 2,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     overflow: 'hidden',
     marginTop: spacing[3],
     shadowColor: color.brandRose,
-    shadowOpacity: 0.32,
+    shadowOpacity: 0.20,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
     elevation: 5,
@@ -955,8 +996,12 @@ const styles = StyleSheet.create({
     opacity: 0.92,
     transform: [{ scale: 0.98 }],
   },
+  // PR-B T8p: '#FFFFFF' → color.onBrand token per DESIGN.md
+  // "Don't use #000 or #FFF directly for text — text always routes
+  // through `text.primary` (navy) or `text.inverse`."  onBrand is
+  // the design-system alias for the white-on-brand token.
   doneButtonText: {
-    color: '#FFFFFF',
+    color: color.onBrand,
     fontFamily: 'Lato-Bold',
     letterSpacing: 0.3,
   },

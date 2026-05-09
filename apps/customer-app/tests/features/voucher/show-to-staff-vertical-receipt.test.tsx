@@ -512,3 +512,97 @@ describe('ShowToStaff — PR-B T8g (device-QA fix round 3)', () => {
     expect(gradients.length).toBeGreaterThanOrEqual(1)
   })
 })
+
+describe('ShowToStaff — PR-B T8p visual contract (impeccable pass)', () => {
+  // The impeccable pass on this surface aligns six concerns to
+  // PRODUCT.md + DESIGN.md while preserving every owner-locked
+  // anti-fraud, motion, and copy decision from M3 → T8h:
+  //
+  //   1. Redemption code variant moves display.md (Mustica Pro 26pt)
+  //      → mono.redemption (Lato Bold 28pt + 4pt tracking) per
+  //      DESIGN.md "Mono Redemption Rule": this variant is reserved
+  //      for the redemption code surface only.
+  //   2. Type chip text drops the spurious fontWeight: '800' override
+  //      (Lato Semibold synthesis problem on iOS).
+  //   3. Done button borderRadius radius.lg (16) → radius.md (12)
+  //      per DESIGN.md "Buttons Shape: rounded-md on every variant".
+  //   4. Done button shadowOpacity 0.32 → 0.20 per DESIGN.md
+  //      "Glow-is-the-CTA Rule" (calmer brand glow).
+  //   5. Code chip borderRadius hardcoded 14 → radius.md (12).
+  //   6. LIVE badge borderRadius hardcoded 20 → radius.pill (true pill,
+  //      reserved for chip and badge per DESIGN.md).
+
+  function flat(node: any): Record<string, any> {
+    const s = node?.props?.style
+    if (!s) return {}
+    if (Array.isArray(s)) return Object.assign({}, ...s.flat(Infinity).filter(Boolean))
+    return s
+  }
+
+  it('redemption code uses mono.redemption variant (Lato-Bold 28pt) per DESIGN.md "Mono Redemption Rule"', () => {
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    const code = getByTestId('show-to-staff-code')
+    const style = flat(code)
+    // mono.redemption variant: Lato-Bold, 28pt, 4pt letter-spacing,
+    // 34pt line-height.  The Text component layers the variant style
+    // BEFORE the local style, so variant values come through the
+    // flatten unless the local style overrides them.
+    expect(style.fontFamily).toBe('Lato-Bold')
+    expect(style.fontSize).toBe(28)
+    expect(style.lineHeight).toBe(34)
+    // Tracking: T8p drops the previous local letterSpacing 5 override;
+    // the variant's documented 4pt now drives.  The trust signal is
+    // the wide tracking — DESIGN.md explicitly calls this out as the
+    // "show this to staff" affordance.
+    expect(style.letterSpacing).toBe(4)
+    // Negative pin: previous display.md (Mustica Pro 26pt) MUST NOT
+    // resurface.
+    expect(style.fontFamily).not.toBe('MusticaPro-SemiBold')
+    expect(style.fontSize).not.toBe(26)
+  })
+
+  it('type chip text drops the spurious fontWeight: "800" override (Lato Semibold synthesis problem)', () => {
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    const chip = getByTestId('show-to-staff-type-chip')
+    // The chip wraps the Text node; walk to find it.
+    const textNodes: any[] = chip.findAllByType?.('Text') ?? []
+    // Reanimated/View hierarchy in jest may surface text differently;
+    // fall back to checking by walking children for any Text-like node
+    // with letterSpacing 1.2 (the chip's signature spacing).
+    const matched = textNodes.length > 0 ? textNodes : [chip]
+    let foundChipText = false
+    for (const node of matched) {
+      const style = flat(node)
+      if (style.letterSpacing === 1.2) {
+        // Found the chip text node.
+        foundChipText = true
+        expect(style.fontWeight).not.toBe('800')
+      }
+    }
+    expect(foundChipText).toBe(true)
+  })
+
+  it('Done button uses borderRadius 12 (radius.md) per DESIGN.md "Buttons Shape" rule', () => {
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    const done = getByTestId('show-to-staff-done')
+    const style = flat(done)
+    expect(style.borderRadius).toBe(12)
+    expect(style.borderRadius).not.toBe(16)
+  })
+
+  it('Done button shadow softened to 0.20 (was 0.32) per Glow-is-the-CTA Rule', () => {
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    const done = getByTestId('show-to-staff-done')
+    const style = flat(done)
+    expect(style.shadowOpacity).toBe(0.20)
+    expect(style.shadowOpacity).not.toBe(0.32)
+  })
+
+  it('code chip uses borderRadius 12 (radius.md) — token aligned (was hardcoded 14)', () => {
+    const { getByTestId } = render(<ShowToStaff {...baseProps} />)
+    const codeChip = getByTestId('show-to-staff-code-chip')
+    const style = flat(codeChip)
+    expect(style.borderRadius).toBe(12)
+    expect(style.borderRadius).not.toBe(14)
+  })
+})
