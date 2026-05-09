@@ -109,6 +109,66 @@ describe('QRCodeBlock', () => {
       ]),
     )
   })
+
+  describe('PR-B T8q — brand-coloured Redeemo R overlay (replaces invisible white PNG)', () => {
+    // Owner direction: "the Redeemo logo in the center of the QR
+    // code is white, we can't see it.  Make sure it goes well with
+    // the QR code."
+    //
+    // The previous `redeemo-r-mark.png` asset was a near-white R on
+    // transparent — invisible against the QR's white background and
+    // the white `logoBackgroundColor` mask.  T8q replaces that with
+    // an absolute-positioned overlay that hosts the canonical
+    // <RedeemoLogo> SVG component (brand-rose + brand-coral paths)
+    // on a white anchor square.  The QR's built-in `logo` /
+    // `logoSize` / `logoBackgroundColor` props are dropped — the
+    // overlay handles the masking visually instead.
+
+    it('renders the brand <RedeemoLogo> overlay in the centre of the QR (testID present, non-blurred state only)', () => {
+      const { getByTestId } = render(
+        <QRCodeBlock value="A7K2P9X4" size={200} testID="qr" />,
+      )
+      // The brand-rose/coral overlay sits as an absolute child of
+      // the QR wrapper and pins via testID="qrcode-redeemo-overlay".
+      expect(getByTestId('qrcode-redeemo-overlay')).toBeTruthy()
+    })
+
+    it('overlay is hidden in the blurred state (anti-fraud — neither the QR nor the brand mark surfaces under blur)', () => {
+      const { queryByTestId } = render(
+        <QRCodeBlock value="A7K2P9X4" size={200} testID="qr" blurred />,
+      )
+      // Critical anti-fraud: blurred branch renders ONLY the BlurView,
+      // not the QR + overlay subtree.  A screenshot under blur
+      // captures neither the code nor the brand mark.
+      expect(queryByTestId('qrcode-redeemo-overlay')).toBeNull()
+      expect(queryByTestId('qrcode-svg-stub')).toBeNull()
+    })
+
+    it('overlay anchor square is centred + sized at ~25% of the QR (within the H-level 30% error-correction tolerance)', () => {
+      const qrSize = 200
+      const { getByTestId } = render(
+        <QRCodeBlock value="A7K2P9X4" size={qrSize} testID="qr" />,
+      )
+      const overlay = getByTestId('qrcode-redeemo-overlay')
+      const styleArr = Array.isArray(overlay.props.style)
+        ? overlay.props.style.flat(Infinity).filter(Boolean)
+        : [overlay.props.style]
+      const flat = Object.assign({}, ...styleArr)
+      // Anchor size = round(round(0.18 × 200) × 1.4) = round(36 × 1.4) = 50.
+      const expectedLogoSize = Math.round(qrSize * 0.18)
+      const expectedAnchorSize = Math.round(expectedLogoSize * 1.4)
+      expect(flat.width).toBe(expectedAnchorSize)
+      expect(flat.height).toBe(expectedAnchorSize)
+      // Centred — top + left = (qrSize - anchor) / 2.
+      const expectedOffset = (qrSize - expectedAnchorSize) / 2
+      expect(flat.top).toBe(expectedOffset)
+      expect(flat.left).toBe(expectedOffset)
+      // White anchor square — masks the QR modules behind so the
+      // brand mark sits on a clean canvas.
+      expect(flat.backgroundColor).toBe('#FFFFFF')
+      expect(flat.position).toBe('absolute')
+    })
+  })
 })
 
 describe('codeAccessibilityLabel', () => {
