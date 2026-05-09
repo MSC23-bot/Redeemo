@@ -483,3 +483,41 @@ describe('PinEntrySheet — A3 loading state (2026-05-09)', () => {
     expect(getByTestId('pin-submit').props.pointerEvents).toBe('none')
   })
 })
+
+describe('PinEntrySheet — keypad re-focus after wrong PIN (2026-05-09 device QA)', () => {
+  // The visible PIN boxes are <View>s with no native touch handling,
+  // and the hidden TextInput is 1×1pt so it is unreachable directly.
+  // Without an explicit Pressable wrapper + auto-refocus on INVALID_
+  // PIN, the user lost the keypad after a wrong attempt and could not
+  // bring it back.  Caught on-device QA 2026-05-09.
+  it('renders the tap-to-refocus Pressable around the PIN row', () => {
+    const { getByTestId } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(getByTestId('pin-row-pressable')).toBeTruthy()
+  })
+
+  it('tap-to-refocus Pressable does NOT render when locked out (lockout card replaces the row)', () => {
+    const { queryByTestId, getByTestId } = render(
+      <PinEntrySheet
+        {...defaultProps({
+          error: { code: 'PIN_RATE_LIMIT_EXCEEDED', message: 'x', statusCode: 429, retryAfter: 540 } as any,
+        })}
+      />,
+    )
+    expect(queryByTestId('pin-row-pressable')).toBeNull()
+    expect(getByTestId('pin-lockout-card')).toBeTruthy()
+  })
+
+  it('pressing the tap-to-refocus surface does not throw', () => {
+    const { getByTestId } = render(<PinEntrySheet {...defaultProps()} />)
+    expect(() => {
+      fireEvent.press(getByTestId('pin-row-pressable'))
+    }).not.toThrow()
+  })
+
+  it('Pressable accessibilityRole and label are wired for screen readers', () => {
+    const { getByTestId } = render(<PinEntrySheet {...defaultProps()} />)
+    const pressable = getByTestId('pin-row-pressable')
+    expect(pressable.props.accessibilityRole).toBe('button')
+    expect(pressable.props.accessibilityLabel).toBe('Enter PIN')
+  })
+})

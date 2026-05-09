@@ -163,21 +163,30 @@ export function PinEntrySheet({
   }))
 
   useEffect(() => {
-    if (error?.code === 'INVALID_PIN') {
-      errorHaptic()
-      shake.value = withSequence(
-        withTiming(6, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
-        withTiming(-6, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
-        withTiming(3, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
-        withTiming(-3, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
-        withTiming(0, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
-      )
-      // Clear digits AFTER the shake is in flight so the user sees their
-      // wrong digits briefly. submittedRef released so a fresh 4th digit
-      // can re-fire onSubmit.
-      setDigits('')
-      submittedRef.current = false
-    }
+    if (error?.code !== 'INVALID_PIN') return
+    errorHaptic()
+    shake.value = withSequence(
+      withTiming(6, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
+      withTiming(-6, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
+      withTiming(3, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
+      withTiming(-3, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
+      withTiming(0, { duration: 50, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }),
+    )
+    // Clear digits AFTER the shake is in flight so the user sees their
+    // wrong digits briefly. submittedRef released so a fresh 4th digit
+    // can re-fire onSubmit.
+    setDigits('')
+    submittedRef.current = false
+    // Re-open the keypad after a wrong PIN.  Without this the
+    // keyboard dismisses on the digit-clear (RN behaviour when a
+    // controlled input's value goes empty) and the user has no
+    // obvious way to bring it back — the visible PIN boxes are
+    // <View>s, not pressables.  setTimeout matches the visibility-
+    // effect pattern below; the focus call is also defended by the
+    // tap-to-refocus Pressable around pinRow.  On-device QA
+    // 2026-05-09.
+    const t = setTimeout(() => inputRef.current?.focus(), 100)
+    return () => clearTimeout(t)
   }, [error, shake])
 
   // ── Reset on visibility change + AppState background ─────────────────
@@ -313,6 +322,20 @@ export function PinEntrySheet({
             </Text>
           </View>
         ) : (
+          // Tap-to-refocus Pressable.  The visible PIN boxes are <View>s
+          // (no native touch handling); the hidden TextInput is 1×1pt
+          // and unreachable.  Wrapping in Pressable gives the user a
+          // tap surface to bring the keypad back if focus ever drops
+          // (e.g. system keyboard-dismiss gesture, OS interruption,
+          // or — historically — after a wrong PIN clear before the
+          // INVALID_PIN auto-refocus shipped 2026-05-09).
+          <Pressable
+            testID="pin-row-pressable"
+            accessibilityRole="button"
+            accessibilityLabel="Enter PIN"
+            accessibilityHint="Opens the keypad to enter the 4-digit branch PIN"
+            onPress={() => inputRef.current?.focus()}
+          >
           <Animated.View style={[styles.pinRow, shakeStyle]}>
             {Array.from({ length: PIN_LENGTH }).map((_, i) => {
               const filled = i < digits.length
@@ -356,6 +379,7 @@ export function PinEntrySheet({
               editable={!isLoading && !isLocked}
             />
           </Animated.View>
+          </Pressable>
         )}
 
         {/* Inline error bar — only when INVALID_PIN, not while locked.
