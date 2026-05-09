@@ -27,6 +27,42 @@ These come from [the PR-A plan](2026-05-09-customer-redemption-polish-pass.md) a
 
 Rate & Review CTA cannot ship visible until the verified-review backend lands, so reviews submitted via that CTA never lose `redemptionId` attribution. PR-A explicitly hid the CTA via D12; PR-C reintroduces it.
 
+### Path A — REPLACE existing reviewer-level `isVerified` semantics (LOCKED 2026-05-09 from owner Path A choice)
+
+**Material discovery during T2 prep.** The reviews service already exposes `isVerified` in the API response, but the existing implementation has DIFFERENT semantics from the locked §0.3 rules:
+
+- **Existing (`batchGetVerifiedSet` at `service.ts:10–20`):** "Has this user EVER validated a redemption at this branch?" — reviewer-level trust, bound to `(userId, branchId)`, REQUIRES `isValidated: true`.
+- **PR-C §0.3:** "Is THIS review row linked to a specific redemption?" — review-level linkage, bound to `Review.redemptionId`, does NOT require `isValidated`.
+
+Owner picked Path A: **fully replace** the existing semantics. Rationale: the badge should mean "this review came from a real redemption flow" (a per-review trust signal), not "this reviewer has been here before" (a per-reviewer trust signal). The badge becomes stricter and more trustworthy.
+
+Implementation consequences:
+
+1. Drop the `batchGetVerifiedSet` helper.
+2. Add `redemptionId: true` to `REVIEW_SELECT`.
+3. Derive `isVerified: review.redemptionId !== null` directly inside `formatReview` (single source of truth — no `opts.isVerified` plumbing).
+4. Remove `isVerified` from the `formatReview` opts type.
+5. Update existing tests that asserted the old "has validated past redemption → isVerified=true" behaviour.
+6. Pre-PR-C reviews retain their original API shape but now report `isVerified: false` (because `redemptionId IS NULL`). Owner accepted this trade-off as part of Path A.
+
+**No backfill of existing reviews.** Pre-PR-C reviews stay at `isVerified: false`. The badge becomes a forward-going signal of "linked to a specific redemption flow"; backfill would muddy that contract by attaching `redemptionId` to reviews that never went through the new flow.
+
+### Review-system v2 — DEFERRED (Tier 3 brainstorm-first)
+
+Owner direction 2026-05-09: the current review architecture (one per user-branch via `@@unique([userId, branchId])`, no abuse controls beyond `ReviewReport`/`isReported`) is a **placeholder**. PR-C does NOT touch it.
+
+Future v2 needs to address:
+- Multiple reviews per user-branch.
+- Spam prevention.
+- Foul-language / moderation tooling.
+- Review rate limits.
+- Merchant/branch abuse monitoring.
+- Anti-flooding rules (one user can't flood a merchant or branch).
+
+Tier 3 brainstorm-first when customer base + review volume warrant the investment. Recorded in [memory: project_deferred_followups_index.md §AI](../../../../.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_deferred_followups_index.md).
+
+PR-C is intentionally narrow: link a review to its triggering redemption, mark verified, validate linkage. Nothing else about the review system changes.
+
 ### §0.3 — Verified-review semantics (LOCKED)
 
 `review.isVerified === true` IFF all five conditions hold:
@@ -411,11 +447,14 @@ git commit -m "feat(review): accept redemptionId in upsert request body (PR-C T4
 
 ---
 
-### Task 5 — Backend `isVerified` flag in list responses
+### Task 5 — Backend `isVerified` flag in list responses (EXPANDED for Path A)
 
 **Files:**
-- Modify: `src/api/customer/reviews/service.ts` (`listMerchantReviews`, `listBranchReviews`)
+- Modify: `src/api/customer/reviews/service.ts` — DROP `batchGetVerifiedSet` helper; add `redemptionId` to `REVIEW_SELECT`; derive `isVerified` directly in `formatReview`; remove `opts.isVerified` from `formatReview` signature; remove the `verifiedSet` lookup from `listMerchantReviews`, `listBranchReviews`, AND `upsertBranchReview`.
 - Create: `tests/api/customer/reviews/listMerchantReviews-isVerified.test.ts`
+- Update: any existing tests that asserted the old reviewer-level `isVerified` behaviour (assert Path A row-level instead).
+
+**Path A net effect:** removes ~10 lines (the `batchGetVerifiedSet` function) and ~3 promise.all sites; adds ~1 line (`isVerified: review.redemptionId !== null`) inside `formatReview`. Single source of truth.
 
 - [ ] **Step 1: Write failing test for `isVerified` flag in list response**
 
@@ -995,6 +1034,7 @@ EOF
 - Email / push notification when a verified review is submitted — Phase 6.
 - Backfilling historical reviews with redemptionId — out of scope. Pre-PR-C reviews stay non-verified.
 - Changing the `isVerified` derivation rule mid-flight (e.g. requiring `isValidated`) — locked at §0.3.
+- **Review system v2 — multi-review + abuse controls.** Owner direction 2026-05-09: current `@@unique([userId, branchId])` one-per-user-branch upsert + soft-delete/revive is a **placeholder**. v2 needs multiple reviews per user-branch, spam prevention, foul-language moderation, rate limits, anti-flooding rules, merchant/branch abuse monitoring, and a moderation queue. PR-C explicitly does NOT redesign the review architecture — only links a review to its triggering redemption via `Review.redemptionId`. Tier 3 brainstorm-first when customer volume warrants. Recorded in [memory deferred-followups §AI](../../../../.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_deferred_followups_index.md).
 - Show-to-Staff polish — PR-B.
 - Confetti on SuccessPopup — PR-B.
 - Voucher Detail redeemed-state polish — PR-B.
