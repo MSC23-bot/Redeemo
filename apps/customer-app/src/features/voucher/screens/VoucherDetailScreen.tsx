@@ -1548,21 +1548,23 @@ export function VoucherDetailScreen() {
           // but defensive) empty-string case — empty branchId ⇒ no
           // prop ⇒ CTA hidden, NOT a malformed URL.  We do NOT fall
           // back to `branchName` (locked).
-          onRateReview={successPopup.branchId
-            ? () => {
-                setSuccessPopup(null)
-                router.push({
-                  pathname: '/(app)/merchant/[id]',
-                  params: {
-                    id:              voucher.merchant.id,
-                    branch:          successPopup.branchId,
-                    tab:             'reviews',
-                    openWriteReview: '1',
-                    fromRedemption:  successPopup.id,
-                  },
-                })
+          {...(successPopup.branchId
+            ? {
+                onRateReview: () => {
+                  setSuccessPopup(null)
+                  router.push({
+                    pathname: '/(app)/merchant/[id]',
+                    params: {
+                      id:              voucher.merchant.id,
+                      branch:          successPopup.branchId,
+                      tab:             'reviews',
+                      openWriteReview: '1',
+                      fromRedemption:  successPopup.id,
+                    },
+                  })
+                },
               }
-            : undefined}
+            : {})}
         />
       ) : null}
       {/* ShowToStaff full-screen Modal (M3 Task 16). Mounts only
