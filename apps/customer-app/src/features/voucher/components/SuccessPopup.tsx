@@ -209,7 +209,7 @@ export function SuccessPopup({
             </Animated.View>
             <Text
               variant="heading.md"
-              style={[styles.accentTitle, { color: typeColor }]}
+              style={styles.accentTitle}
               numberOfLines={2}
               testID="success-title"
             >
@@ -381,18 +381,20 @@ const styles = StyleSheet.create({
     elevation: 18,
   },
   // ── Type-pastel accent row ──
-  // Replaces the previous brand-rose/coral gradient header. Voucher-
-  // type pastel gradient gives the popup its identity colour.
-  // D19 (LOCKED 2026-05-09 §14): paddingVertical 12 → 16 and minHeight
-  // 44 → 52 give the bumped heading.md (18) title vertical room and
-  // accommodate the numberOfLines={2} wrap under Dynamic Type.
+  // Voucher-type pastel gradient gives the popup its identity colour.
+  // D26 §14 (LOCKED 2026-05-09 owner direction): paddingVertical
+  // 16 → 24 and minHeight 52 → 72 lift the row from a thin accent
+  // strip into a hero band — owner: "appropriately positioned and
+  // laid out", section bigger.  Text scale unchanged (still
+  // heading.md 18); the hero feel comes from extra vertical
+  // breathing space around content.
   accentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[4],
-    minHeight: 52,
+    paddingVertical: spacing[6],
+    minHeight: 72,
   },
   checkRing: {
     width: 22,
@@ -407,9 +409,17 @@ const styles = StyleSheet.create({
   // hierarchy).  flex: 1 claims the row width remaining after the
   // check ring.  numberOfLines={2} on the Text — title wraps to
   // two lines under Dynamic Type rather than truncating.
+  // D25 §14 (LOCKED 2026-05-09 owner direction): title color is
+  // neutral navy (color.text.primary) — NOT the voucher type
+  // colour.  The gradient already carries type identity; the
+  // green check ring carries the success signal; the title text
+  // is the moment statement and should read consistently across
+  // every voucher type.  PRODUCT.md tone: trust-first, grounded
+  // navy reads as official / clear-text on every pastel gradient.
   accentTitle: {
     flex: 1,
     fontWeight: '700',
+    color: color.text.primary,
   },
   // ── Body ──
   // D22 (LOCKED 2026-05-09 §14): gap 12 → 16; paddingTop 12 → 16.

@@ -710,4 +710,11 @@ Owner-flagged in the same approval message:
 
 Confetti, Rate & Review CTA, decorative imagery, ShowToStaff layout/branding/voucher-description polish, Voucher Detail redeemed-state polish, full visual pass — all explicitly STAY in PR-B.
 
-**§14 LOCKED 2026-05-09 by owner approval; binds the implementation commit on `feature/voucher-pin-success-polish`.**
+### 14.6 — Post-implementation refinements (D25 + D26, LOCKED 2026-05-09 from owner on-device QA after §14 first-pass)
+
+| # | Decision | Locked value |
+|---|----------|--------------|
+| D25 | Title colour | `typeColor` → **`color.text.primary`** (neutral navy). The title carries the success moment and should read consistently across every voucher type. The gradient already carries voucher identity; the green check ring already carries the success signal; the title text is the moment statement — colour belongs to the gradient + check, not the words. PRODUCT.md tone: trust-first, grounded navy reads as official / clear-text on every pastel gradient. |
+| D26 | Accent row height | `paddingVertical` 16 → **24** (`spacing[6]`); `minHeight` 52 → **72**. Lifts the row from a thin accent strip into a hero band per owner: *"that section at the top could be a little bit bigger… in terms of height. and appropriately positioned and laid out."* Text scale unchanged (still heading.md 18); the hero feel comes from extra vertical breathing space around content, not from scaling the text. |
+
+**§14 still LOCKED. D25 + D26 are post-implementation refinements within §14 scope.**
