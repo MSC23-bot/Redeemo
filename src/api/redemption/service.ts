@@ -6,6 +6,11 @@ import { decrypt } from '../shared/encryption'
 import { writeAuditLog } from '../shared/audit'
 import { RedisKey } from '../shared/redis-keys'
 import { getCurrentCycleWindow } from '../subscription/cycle'
+import {
+  getCurrentWindowOccurrence,
+  getNextWindowOccurrence,
+  type AvailabilityWindow,
+} from '../shared/voucherAvailability'
 
 // Redemption code alphabet (locked 2026-05-07 from device QA).
 //
@@ -60,7 +65,14 @@ export async function createRedemption(
   // 1. Voucher must exist + ACTIVE + APPROVED + merchant ACTIVE
   const voucher = await prisma.voucher.findUnique({
     where: { id: data.voucherId },
-    include: { merchant: { select: { id: true, status: true } } },
+    include: {
+      merchant: { select: { id: true, status: true } },
+      // M4a-6: load availability windows for TIME_LIMITED guard branches
+      // (Guard 3 + Guard 7 split). Empty for non-TIME_LIMITED vouchers.
+      availabilityWindows: {
+        select: { dayOfWeek: true, openTime: true, closeTime: true },
+      },
+    },
   })
   if (
     !voucher ||
@@ -78,6 +90,29 @@ export async function createRedemption(
   //    expired voucher even if the customer-app UI is bypassed.
   if (voucher.expiryDate && voucher.expiryDate.getTime() <= now.getTime()) {
     throw new AppError('VOUCHER_NOT_FOUND')
+  }
+
+  // M4a-6 Guard 3 (NEW): TIME_LIMITED availability-window check.
+  //
+  // Fires AFTER expiry collapse (a dead voucher is dead regardless of
+  // window state) and BEFORE branch / subscription / cycle / PIN
+  // (those are per-user; window is per-voucher). Skipped entirely for
+  // non-TIME_LIMITED vouchers (availabilityWindows is empty).
+  //
+  // PIN-oracle defense extends here: an attacker probing PINs against
+  // a TIME_LIMITED voucher outside its window must not be able to
+  // distinguish "wrong PIN" from "right PIN, but window closed".
+  if (voucher.type === 'TIME_LIMITED') {
+    const windows: AvailabilityWindow[] = voucher.availabilityWindows.map((w) => ({
+      dayOfWeek: w.dayOfWeek, openTime: w.openTime, closeTime: w.closeTime,
+    }))
+    const currentWindowOcc = getCurrentWindowOccurrence(windows, now)
+    if (!currentWindowOcc) {
+      const nextWindowOcc = getNextWindowOccurrence(windows, now)
+      throw new AppError('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW', {
+        nextWindowAt: nextWindowOcc?.startsAt.toISOString() ?? null,
+      })
+    }
   }
 
   // 3. Branch exists + isActive — server-side eligibility. A branch the
@@ -119,17 +154,53 @@ export async function createRedemption(
   //    Uses cycleAnchorDate as the single source of truth for monthly
   //    cycle windows. Independent of billing interval (monthly/annual)
   //    and payment source (Stripe, Apple IAP, Google Play, admin-grant).
+  // **`cycleStart` MUST stay declared at function-body scope** (see
+  // M4a-6 §AC lock). Both the non-TIME_LIMITED guard branch below
+  // AND the non-TIME_LIMITED upsert in the atomic-claim transaction
+  // (further down) read it from this scope. Moving it inside the
+  // `else` branch would scope it out of the transaction and break
+  // the upsert.
   const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
 
-  const cycleState = await prisma.userVoucherCycleState.findUnique({
-    where: { userId_voucherId: { userId, voucherId: data.voucherId } },
-  })
+  // M4a-6 Guard 7 (modified): voucher-type-aware redemption check.
+  //
+  // TIME_LIMITED bypasses UserVoucherCycleState entirely — the
+  // VoucherRedemption.redeemedAt timestamp inside the current window-
+  // occurrence is the source of truth. Non-TIME_LIMITED uses the
+  // existing per-cycle UserVoucherCycleState lock (unchanged).
+  if (voucher.type === 'TIME_LIMITED') {
+    const windows: AvailabilityWindow[] = voucher.availabilityWindows.map((w) => ({
+      dayOfWeek: w.dayOfWeek, openTime: w.openTime, closeTime: w.closeTime,
+    }))
+    // Non-null per Guard 3 above — if we got here, the current
+    // window-occurrence exists.
+    const currentWindowOcc = getCurrentWindowOccurrence(windows, now)!
 
-  // If stored cycleStartDate is from a previous cycle, this is a fresh cycle — allow.
-  // If stored cycleStartDate matches the current cycle and already redeemed — block.
-  const isCurrentCycle = cycleState != null && cycleState.cycleStartDate >= cycleStart
-  if (isCurrentCycle && cycleState.isRedeemedInCurrentCycle) {
-    throw new AppError('ALREADY_REDEEMED')
+    const existing = await prisma.voucherRedemption.findFirst({
+      where: {
+        userId,
+        voucherId: data.voucherId,
+        redeemedAt: { gte: currentWindowOcc.startsAt, lt: currentWindowOcc.endsAt },
+      },
+      select: { id: true },
+    })
+    if (existing) {
+      const nextWindowOcc = getNextWindowOccurrence(windows, now)
+      throw new AppError('ALREADY_REDEEMED_THIS_WINDOW', {
+        nextWindowAt: nextWindowOcc?.startsAt.toISOString() ?? null,
+      })
+    }
+  } else {
+    const cycleState = await prisma.userVoucherCycleState.findUnique({
+      where: { userId_voucherId: { userId, voucherId: data.voucherId } },
+    })
+
+    // If stored cycleStartDate is from a previous cycle, this is a fresh cycle — allow.
+    // If stored cycleStartDate matches the current cycle and already redeemed — block.
+    const isCurrentCycle = cycleState != null && cycleState.cycleStartDate >= cycleStart
+    if (isCurrentCycle && cycleState.isRedeemedInCurrentCycle) {
+      throw new AppError('ALREADY_REDEEMED')
+    }
   }
 
   // 8. Branch PIN configured (no leak — eligibility already passed)
@@ -238,48 +309,68 @@ export async function createRedemption(
   }
 
   let redemption
-  try {
-    // First transaction: try claim via updateMany; if no row, try create.
-    // The whole tx (cycle-state claim + redemption write) is one atomic
-    // unit. On P2002 the tx rolls back; we catch OUTSIDE.
+  if (voucher.type === 'TIME_LIMITED') {
+    // M4a-6: TIME_LIMITED redemptions are NOT cycle-anchored — the
+    // VoucherRedemption.redeemedAt timestamp + window-occurrence is
+    // the source of truth (Guard 7 branch above). Insert ONLY the
+    // VoucherRedemption row; never touch UserVoucherCycleState.
+    //
+    // Race window: two concurrent TIME_LIMITED redemptions for the
+    // same (userId, voucherId) inside the same window-occurrence
+    // could both pass Guard 7 (which reads without a row lock). The
+    // second insert would write a duplicate row. This is acceptable
+    // for M4a (small fraction of vouchers, no schema-level unique
+    // constraint to enforce in the same way as cycle state). M4b
+    // can add `@@unique([userId, voucherId, redeemedAt])` or a
+    // window-keyed claim if production data shows abuse. Logged as
+    // a known M4a deferred-followup.
     redemption = await prisma.$transaction(async (tx) => {
-      const updated = await tx.userVoucherCycleState.updateMany({
-        where: claimWhere,
-        data:  claimData,
-      })
-      if (updated.count !== 1) {
-        // No reclaimable row — try create. P2002 here aborts this tx;
-        // do NOT continue querying inside it.
-        await tx.userVoucherCycleState.create({
-          data: {
-            userId,
-            voucherId: data.voucherId,
-            cycleStartDate:           cycleStart,
-            isRedeemedInCurrentCycle: true,
-            lastRedeemedAt:           now,
-          },
+      return tx.voucherRedemption.create({ data: redemptionData })
+    })
+  } else {
+    try {
+      // First transaction: try claim via updateMany; if no row, try create.
+      // The whole tx (cycle-state claim + redemption write) is one atomic
+      // unit. On P2002 the tx rolls back; we catch OUTSIDE.
+      redemption = await prisma.$transaction(async (tx) => {
+        const updated = await tx.userVoucherCycleState.updateMany({
+          where: claimWhere,
+          data:  claimData,
         })
-      }
-      return tx.voucherRedemption.create({ data: redemptionData })
-    })
-  } catch (err: any) {
-    if (err?.code !== 'P2002') throw err
-    // Concurrent winner created the cycle-state row between our updateMany
-    // and our create. First transaction has rolled back — its writes are
-    // gone. Retry in a FRESH transaction with conditional updateMany only
-    // (no create — the row exists now).
-    redemption = await prisma.$transaction(async (tx) => {
-      const retried = await tx.userVoucherCycleState.updateMany({
-        where: claimWhere,
-        data:  claimData,
+        if (updated.count !== 1) {
+          // No reclaimable row — try create. P2002 here aborts this tx;
+          // do NOT continue querying inside it.
+          await tx.userVoucherCycleState.create({
+            data: {
+              userId,
+              voucherId: data.voucherId,
+              cycleStartDate:           cycleStart,
+              isRedeemedInCurrentCycle: true,
+              lastRedeemedAt:           now,
+            },
+          })
+        }
+        return tx.voucherRedemption.create({ data: redemptionData })
       })
-      if (retried.count !== 1) {
-        // Concurrent winner's row is NOT reclaimable (current cycle,
-        // already redeemed). Race lost.
-        throw new AppError('ALREADY_REDEEMED')
-      }
-      return tx.voucherRedemption.create({ data: redemptionData })
-    })
+    } catch (err: any) {
+      if (err?.code !== 'P2002') throw err
+      // Concurrent winner created the cycle-state row between our updateMany
+      // and our create. First transaction has rolled back — its writes are
+      // gone. Retry in a FRESH transaction with conditional updateMany only
+      // (no create — the row exists now).
+      redemption = await prisma.$transaction(async (tx) => {
+        const retried = await tx.userVoucherCycleState.updateMany({
+          where: claimWhere,
+          data:  claimData,
+        })
+        if (retried.count !== 1) {
+          // Concurrent winner's row is NOT reclaimable (current cycle,
+          // already redeemed). Race lost.
+          throw new AppError('ALREADY_REDEEMED')
+        }
+        return tx.voucherRedemption.create({ data: redemptionData })
+      })
+    }
   }
 
   // 9. Reset fail counter on success
