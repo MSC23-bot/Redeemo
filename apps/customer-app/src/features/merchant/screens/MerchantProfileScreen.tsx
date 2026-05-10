@@ -621,10 +621,22 @@ export function MerchantProfileScreen({ id }: Props) {
   const isMultiBranch = merchant.branches.length > 1
   const showBanner = merchant.selectedBranchFallbackReason === 'candidate-inactive' && !bannerDismissed
 
-  // Per-voucher state placeholders. cefaf45 documented these as TODO until
-  // the merchant detail endpoint surfaces redeemed/favourited per voucher.
-  // Out of scope for M2 — the Voucher Detail rebaseline will resolve.
-  const redeemedVoucherIds   = new Set<string>()
+  // PR-B T8a (§Q4 wiring): per-voucher redeemed-this-cycle Set.
+  // Backend now exposes `isRedeemedThisCycle: boolean` on each voucher
+  // in the merchant profile payload (mirrors the single-voucher logic
+  // in `getCustomerVoucher`).  Build a Set so VouchersTab can flip
+  // each card to its muted §Q4 variant in O(1) lookups.  Empty Set
+  // for guests, free users, paused subs, or pre-T8a cached responses
+  // (the schema's `.default(false)` handles missing fields).
+  const redeemedVoucherIds = new Set<string>(
+    (merchant?.vouchers ?? [])
+      .filter(v => v.isRedeemedThisCycle)
+      .map(v => v.id),
+  )
+  // Per-voucher favourites placeholder.  cefaf45 documented this as
+  // TODO until the merchant detail endpoint surfaces favourited per
+  // voucher.  Out of scope for PR-B; the favouritedVoucherIds Set
+  // stays empty (existing behaviour preserved).
   const favouritedVoucherIds = new Set<string>()
 
   const handleWebsite = () => {

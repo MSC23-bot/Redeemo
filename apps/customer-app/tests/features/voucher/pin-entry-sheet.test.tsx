@@ -524,3 +524,104 @@ describe('PinEntrySheet — keypad re-focus after wrong PIN (2026-05-09 device Q
     expect(pressable.props.accessibilityLabel).toBe('Enter PIN')
   })
 })
+
+describe('PinEntrySheet — PR-B T8m visual contract (impeccable pass)', () => {
+  // The impeccable pass on this sheet aligns five concerns to
+  // PRODUCT.md + DESIGN.md:
+  //   1. Title is Mustica Pro Semibold display.sm 22pt (was heading.md
+  //      Lato Semibold 18 + fontWeight 800).  Mustica-for-Display Rule.
+  //   2. PIN boxes use surface.tint bg + border.subtle border + 1.5px
+  //      border weight + radius.md (12).  Cream-for-Identity Rule
+  //      drove the bg swap; the border + radius come from token
+  //      alignment.
+  //   3. Disclaimer card bg color.cream → color.surface.tint per
+  //      Cream-for-Identity Rule.
+  //   4. Submit borderRadius radius.md (12) (was lg/16) per DESIGN.md
+  //      "Buttons Shape: rounded-md on every variant"; shadow softened
+  //      to 0.20 / 18 (was 0.30 / 24) per Glow-is-the-CTA Rule.
+  //   5. Spurious fontWeight: '800' overrides on Lato Semibold variants
+  //      removed (the override doesn't synthesize cleanly on iOS Lato).
+
+  function flat(node: any): Record<string, any> {
+    const s = node?.props?.style
+    if (!s) return {}
+    if (Array.isArray(s)) return Object.assign({}, ...s.flat(Infinity).filter(Boolean))
+    return s
+  }
+
+  it('title uses Mustica Pro Semibold display.sm 22pt with -0.3 tight tracking (Mustica-for-Display Rule)', () => {
+    const { getByText } = render(<PinEntrySheet {...defaultProps()} />)
+    const title = getByText('Enter Branch PIN')
+    const style = flat(title)
+    expect(style.fontFamily).toBe('MusticaPro-SemiBold')
+    expect(style.fontSize).toBe(22)
+    expect(style.letterSpacing).toBe(-0.3)
+    // Negative pin: the previous `fontWeight: '800'` override on the
+    // Lato Semibold variant MUST NOT resurface (doesn't synthesize
+    // cleanly on iOS).
+    expect(style.fontWeight).not.toBe('800')
+  })
+
+  it('PIN boxes use surface.tint warm cream (NOT identity-zone cream) + token border + 1.5px weight + radius.md', () => {
+    const { getByTestId } = render(<PinEntrySheet {...defaultProps()} />)
+    // pin-box-0 is in `active` state when no digits are entered
+    // (`i === digits.length === 0`); active state intentionally
+    // overrides the idle bg to surface.raised white.  Pin the IDLE
+    // contract on pin-box-1 (or any unfilled, non-active box).
+    const idleBox = getByTestId('pin-box-1')
+    const style = flat(idleBox)
+    // surface-tint = '#FEF6F5'.  The previous identity-cream
+    // `#FFF9F5` MUST NOT resurface (Cream-for-Identity Rule).
+    expect(style.backgroundColor).toBe('#FEF6F5')
+    expect(style.backgroundColor).not.toBe('#FFF9F5')
+    // Border weight + radius: the previous 2px / radius.lg (16) MUST
+    // NOT resurface; the impeccable contract is 1.5px / radius.md (12).
+    expect(style.borderWidth).toBe(1.5)
+    expect(style.borderWidth).not.toBe(2)
+    expect(style.borderRadius).toBe(12)
+    expect(style.borderRadius).not.toBe(16)
+    // Border colour comes from a token (not the previous hardcoded
+    // `#E8E2DC`).  We pin negatively here — any non-token value
+    // would be a regression.
+    expect(style.borderColor).not.toBe('#E8E2DC')
+  })
+
+  it('disclaimer banner bg uses surface.tint (NOT identity-zone cream) per Cream-for-Identity Rule', () => {
+    const { getByText } = render(<PinEntrySheet {...defaultProps()} />)
+    // The disclaimer card carries the locked D2 copy.  Walk up from
+    // the text to the wrapping View whose style holds backgroundColor.
+    const disclaimerText = getByText(/Confirming the correct PIN redeems this voucher/)
+    let n: any = disclaimerText
+    let foundSurfaceTint = false
+    let foundIdentityCream = false
+    while (n) {
+      const s = flat(n)
+      if (s.backgroundColor === '#FEF6F5') foundSurfaceTint = true
+      if (s.backgroundColor === '#FFF9F5') foundIdentityCream = true
+      n = n.parent
+    }
+    expect(foundSurfaceTint).toBe(true)
+    // Negative pin: the previous identity-cream MUST NOT resurface
+    // as the disclaimer bg.
+    expect(foundIdentityCream).toBe(false)
+  })
+
+  it('submit CTA uses borderRadius 12 (radius.md) per DESIGN.md button-primary-lg spec', () => {
+    const { getByTestId } = render(<PinEntrySheet {...defaultProps()} />)
+    const cta = getByTestId('pin-submit')
+    const style = flat(cta)
+    expect(style.borderRadius).toBe(12)
+    expect(style.borderRadius).not.toBe(16)
+  })
+
+  it('submit CTA shadow softened to 0.20 / 18 (was 0.30 / 24) per Glow-is-the-CTA Rule', () => {
+    const { getByTestId } = render(<PinEntrySheet {...defaultProps()} />)
+    const cta = getByTestId('pin-submit')
+    const style = flat(cta)
+    expect(style.shadowOpacity).toBe(0.20)
+    expect(style.shadowRadius).toBe(18)
+    // Negative pins: the louder previous values MUST NOT resurface.
+    expect(style.shadowOpacity).not.toBe(0.30)
+    expect(style.shadowRadius).not.toBe(24)
+  })
+})

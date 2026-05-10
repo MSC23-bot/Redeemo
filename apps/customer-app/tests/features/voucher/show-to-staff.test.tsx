@@ -53,12 +53,43 @@ jest.mock('expo-linear-gradient', () => {
   }
 })
 
+// react-native-safe-area-context — PR-B T1 mounts the surface under
+// useSafeAreaInsets() so the cream identity-zone band absorbs the
+// notch / Dynamic Island clearance.
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
+}))
+
+// react-native-svg — RedeemoLogo wordmark in the cream identity zone
+// uses Svg + Path. Stub as plain Views so the surface renders in jest.
+jest.mock('react-native-svg', () => {
+  const React = require('react')
+  const { View } = require('react-native')
+  return {
+    __esModule: true,
+    default: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement(View, null, children),
+    Svg: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement(View, null, children),
+    Path: () => null,
+    Circle: () => null,
+    Rect: () => null,
+    Line: () => null,
+    Polyline: () => null,
+  }
+})
+
 const baseProps = {
   visible: true,
   redemptionCode: 'A7K2P9X4',
   voucherTitle: 'Buy 1 Get 1 Free on All Pizzas',
   voucherType: 'BOGO' as const,
+  // PR-B T1 — vertical-receipt props. Description renders a 3-line
+  // ellipsis block beneath the title; merchantLogoUrl=null exercises
+  // the initials-fallback rendering path.
+  voucherDescription: 'Order any 12-inch pizza and get a second one free. Dine-in only, valid Monday to Thursday.',
   merchantName: 'Pizza Palace',
+  merchantLogoUrl: null as string | null,
   branchName: 'High Street',
   customerName: '',                     // M3 lock — see Task 16 + §U1.
   redeemedAt: '2026-05-08T10:00:00Z',
@@ -95,12 +126,24 @@ beforeEach(() => {
 })
 
 describe('ShowToStaff — render', () => {
-  it('renders the formatted 4+4 code, voucher type strip, merchant·branch line, and Done button', () => {
-    const { getByText, getAllByText, getByLabelText } = render(<ShowToStaff {...baseProps} />)
+  it('renders the formatted 4+4 code, voucher-type label, merchant + branch identity, and Done button', () => {
+    // PR-B T1 — vertical-receipt restructure splits the merchant +
+    // branch into two stacked Text nodes (heading.sm + label.lg).
+    // The single-line `merchantName · branchName` of the M3 baseline
+    // was a presentation detail of the brand-red gradient register
+    // and is intentionally retired by the brief §3.1 register shift.
+    //
+    // PR-B T8f — the X close icon top-right is gone; a full-width
+    // "Done" pill at the bottom of the surface is the locked single
+    // dismissal affordance.  Both Done press + hardware back call
+    // the same onDone handler.
+    const { getByText, getAllByText, getByLabelText, getByTestId } = render(<ShowToStaff {...baseProps} />)
     expect(getByText('A7K2 P9X4')).toBeTruthy()
-    // voucher-type label appears twice: in the type strip + the info card row.
+    // voucher-type label still rendered (now in the chip ABOVE the QR card per T8f).
     expect(getAllByText(/Buy one, get one free/i).length).toBeGreaterThanOrEqual(1)
-    expect(getByText(/Pizza Palace · High Street/)).toBeTruthy()
+    expect(getByTestId('show-to-staff-merchant-name')).toBeTruthy()
+    expect(getByText('Pizza Palace')).toBeTruthy()
+    expect(getByText('High Street')).toBeTruthy()
     expect(getByLabelText('Done')).toBeTruthy()
   })
 
@@ -192,7 +235,7 @@ describe('ShowToStaff — validated transition', () => {
 })
 
 describe('ShowToStaff — Done button + customer info row', () => {
-  it('Done button calls onDone', () => {
+  it('Done button calls onDone (PR-B T8f — bottom full-width pill is the locked single dismissal affordance; X close icon removed per owner direction)', () => {
     const onDone = jest.fn()
     const { getByLabelText } = render(<ShowToStaff {...baseProps} onDone={onDone} />)
     fireEvent.press(getByLabelText('Done'))
@@ -210,10 +253,26 @@ describe('ShowToStaff — Done button + customer info row', () => {
     expect(getByText('John D.')).toBeTruthy()
   })
 
-  it('renders the Voucher Type and Redeemed info rows always', () => {
-    const { getByText } = render(<ShowToStaff {...baseProps} />)
-    expect(getByText(/Voucher Type/i)).toBeTruthy()
-    expect(getByText(/Redeemed/i)).toBeTruthy()
+  it('renders the voucher-type label + split Date/Time receipt rows (PR-B T8g — replaced the single "Redeemed" line with two rows so staff can scan date and time independently)', () => {
+    // PR-B T8f — QR card content discipline: only LIVE + QR + code
+    // + live clock live INSIDE the animated brand-rose border.  The
+    // voucher-type chip moved to the upper info zone (above the QR
+    // card) and the receipt-detail rows moved to the footer info zone
+    // (below the QR card).
+    //
+    // PR-B T8g — the previous combined "Redeemed: <date>, <time>" line
+    // is split into two rows: Date + Time (with seconds).  Pin both
+    // labels so a regression that re-merges them fails this assertion.
+    const { getByText, getAllByText, getByTestId } = render(<ShowToStaff {...baseProps} />)
+    // Voucher-type chip — outside the QR card now.
+    expect(getByTestId('show-to-staff-type-chip')).toBeTruthy()
+    expect(getAllByText(/Buy one, get one free/i).length).toBeGreaterThanOrEqual(1)
+    // Receipt-detail rows — outside the QR card.
+    expect(getByTestId('show-to-staff-redeemed-row')).toBeTruthy()
+    expect(getByTestId('show-to-staff-redeemed-date-row')).toBeTruthy()
+    expect(getByTestId('show-to-staff-redeemed-time-row')).toBeTruthy()
+    expect(getByText(/^Date Redeemed$/)).toBeTruthy()
+    expect(getByText(/^Time Redeemed$/)).toBeTruthy()
   })
 })
 

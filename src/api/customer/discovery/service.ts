@@ -753,11 +753,55 @@ export async function getCustomerMerchant(
     myReview,
   } : null
 
+  // PR-B T8a (§Q4 wiring): compute the per-voucher redeemed-this-
+  // cycle set for the calling user.  Mirrors `getCustomerVoucher`'s
+  // single-voucher logic (line ~898) but batched: ONE
+  // userVoucherCycleState query for all of this merchant's vouchers
+  // at once.  Drives the merchant-profile voucher card §Q4 muted
+  // state (REDEEMED stamp + 'Already redeemed this cycle' label)
+  // shipped in PR-B T5.
+  //
+  // Same eligibility contract as `getCustomerVoucher`:
+  //   - User must be authed (null userId → all vouchers active).
+  //   - Subscription must be ACTIVE/TRIALLING (no sub → all active).
+  //   - cycleState.isRedeemedInCurrentCycle === true.
+  //   - cycleState.cycleStartDate >= current cycle window's start
+  //     (catches stale cycle rows after a cycle rollover or a
+  //     cycleAnchorDate reset).
+  let redeemedVoucherIdSet = new Set<string>()
+  if (userId && merchant.vouchers.length > 0) {
+    const subscription = await prisma.subscription.findUnique({
+      where:  { userId },
+      select: { status: true, cycleAnchorDate: true },
+    })
+    if (
+      subscription
+      && (subscription.status === 'ACTIVE' || subscription.status === 'TRIALLING')
+    ) {
+      const window = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
+      const cycleStates = await prisma.userVoucherCycleState.findMany({
+        where: {
+          userId,
+          voucherId: { in: merchant.vouchers.map((v: any) => v.id) },
+          isRedeemedInCurrentCycle: true,
+          cycleStartDate: { gte: window.cycleStart },
+        },
+        select: { voucherId: true },
+      })
+      redeemedVoucherIdSet = new Set(cycleStates.map(s => s.voucherId))
+    }
+  }
+
   return {
     ...merchant,
     vouchers: merchant.vouchers.map((v: any) => ({
       ...v,
       estimatedSaving: Number(v.estimatedSaving),
+      // PR-B T8a (§Q4): per-voucher redeemed-this-cycle flag drives
+      // the merchant-profile voucher card muted state.  False for
+      // guests, free users, paused subs, or vouchers not redeemed
+      // in the user's current cycle.
+      isRedeemedThisCycle: redeemedVoucherIdSet.has(v.id),
     })),
     about:       merchant.description,
     subcategory: subcategory ? { id: subcategory.id, name: subcategory.name } : null,

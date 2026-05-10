@@ -94,9 +94,36 @@ describe('useRedeem — branch-attribution contract', () => {
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher', 'v1'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['savings'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteVouchers'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['my-redemptions'] })
+  })
+
+  it('invalidates merchantProfile on redeem success so the Voucher tab card updates immediately (PR-B T8h fix — without this, the card showed stale "redeem" affordance until staleTime: 60s expired)', async () => {
+    // Owner-reported device QA: redeeming a voucher then navigating
+    // back to Merchant Profile showed the card in pre-redeem state for
+    // ~minutes until pull-to-refresh forced a refetch.  Root cause:
+    // useRedeem only invalidated ['voucher', voucherId] / savings /
+    // favouriteVouchers / my-redemptions — not ['merchantProfile'].
+    // Wide invalidation by intent: at most 1-2 merchant profiles are
+    // cached at any time.  This pin guards against a future regression
+    // that drops the wide invalidation.
+    ;(redemptionApi.redeem as jest.Mock).mockResolvedValue(makeRedeemResponse())
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    const { result } = renderHook(
+      () => useRedeem({ voucherId: 'v1', getBranchId: () => 'b1' }),
+      { wrapper: withQuery(qc) },
+    )
+
+    await act(async () => {
+      await result.current.mutateAsync({ pin: '1234' })
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
   })
 
   it('does NOT invalidate caches on error', async () => {

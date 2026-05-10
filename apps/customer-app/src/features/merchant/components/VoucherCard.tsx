@@ -15,6 +15,7 @@ import { lightHaptic } from '@/design-system/haptics'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
+import { VoucherCardRedeemedStamp } from './VoucherCardRedeemedStamp'
 
 // Round 5 §32: dial colour back up. The owner shared a §22-era
 // screenshot as the colour reference and wanted the energy
@@ -35,9 +36,12 @@ import type { MerchantVoucher } from '@/lib/api/merchant'
 //   2. Active vs redeemed contrast preserved. The owner
 //      flagged that washed-out cards confuse "redeemable"
 //      with "redeemed". Active state is now visibly more
-//      vivid; cardRedeemed style still drops opacity to 0.6
-//      so the redeemed state reads clearly washed by
-//      comparison.
+//      vivid.  PR-B T5 (§Q4) added the redeemed variant
+//      with three independent muted-state cues (cream-tint
+//      gradient overlay + REDEEMED hero stamp + 'Already
+//      redeemed this cycle' inline label below the saving
+//      block); content (title, description, type chip) stays
+//      at full opacity per brief §3.5.
 //
 //   3. Decorative blobs DIAGONALLY spread across the card.
 //      §32 had three blobs all clustered on the LEFT (top,
@@ -128,7 +132,18 @@ const WHITE_TEXT = '#FFFCFA'
 
 type Props = {
   voucher: MerchantVoucher
-  isRedeemed: boolean
+  /**
+   * Redeemed-this-cycle marker. When true, the card renders the
+   * redeemed-state visual variant (PR-B T5, closes deferred-followup
+   * §Q4): muted hero gradient overlay + REDEEMED stamp top-right of
+   * the hero + "Already redeemed this cycle" inline label below the
+   * saving block. Bottom-row CTA is suppressed.
+   *
+   * Accepts undefined → treated as false; the variant is opt-in so
+   * the card defaults to the active-state design baseline (locked
+   * PR #35) when callers haven't plumbed the flag yet.
+   */
+  isRedeemed?: boolean
   isFavourited: boolean
   onPress: () => void
   onToggleFavourite: () => void
@@ -160,7 +175,7 @@ const REDEEMO_R_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080
   <polygon fill="#FFFFFF" points="487.2 818.12 244.4 994.7 245.05 681.39 487.2 818.12"/>
 </svg>`
 
-export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onToggleFavourite }: Props) {
+export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress, onToggleFavourite }: Props) {
   const motionScale = useMotionScale()
   const typeKey   = voucher.type as VoucherType
   const gradient  = TYPE_GRADIENTS[typeKey] ?? TYPE_GRADIENTS.DISCOUNT_FIXED
@@ -222,14 +237,29 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
     // so each card drops a soft tint matching its own deep
     // accent (green card → green-tinted shadow, purple →
     // violet, red → red, etc.). Subtle, premium, complementary.
-    <Animated.View style={[cardAnimatedStyle, styles.cardShadow, { shadowColor: accent }]}>
+    <Animated.View
+      style={[
+        cardAnimatedStyle,
+        styles.cardShadow,
+        { shadowColor: accent },
+        // PR-B T8j (impeccable redeemed-state pass): redeemed cards
+        // drop the type-tinted lift entirely so they sit flat against
+        // the page while active siblings stay raised.  This is the
+        // load-bearing list-scan signal: at a glance "this card sits,
+        // those float" tells the user the redeemed state without
+        // parsing the centered seal.  Honours DESIGN.md "Flat-By-
+        // Default Rule" and the No-Status-Navy / One-Voice rules
+        // (we recede; we do not invent new colour cues).
+        isRedeemed && styles.cardShadowFlat,
+      ]}
+    >
       <Pressable
         onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
-        style={[styles.card, isRedeemed && styles.cardRedeemed]}
+        style={styles.card}
       >
         {/* Per-type 3-stop gradient — deep accent holds from 30%
             so white text reads across the whole card. */}
@@ -240,6 +270,27 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFillObject}
         />
+
+        {/* PR-B T5 (§Q4): when redeemed, soft cream-tint overlay on
+            top of the gradient mutes the per-type colour without
+            washing it out — reads as ~70% saturation per brief
+            §3.5. The cream tint matches the page-bg cream
+            (#FFF9F5 → #F5F0EB family) used elsewhere in the app
+            (cf. MerchantProfileScreen / VoucherDetailScreen muted-
+            surface pattern). pointerEvents='none' so the underlying
+            Pressable still receives taps.  The overlay alone now
+            carries the gradient-saturation drop — content (title,
+            description, type chip, stamp, inline label) sits ABOVE
+            the overlay and renders at full opacity per the brief
+            §3.5 contract (T5.1 spec-fix removed the previous
+            card-wide 0.6 opacity dim). */}
+        {isRedeemed ? (
+          <View
+            style={styles.redeemedGradientOverlay}
+            pointerEvents="none"
+            testID="voucher-card-redeemed-overlay"
+          />
+        ) : null}
 
         {/* Top-half gloss — faint white reflection 0→30%. */}
         <LinearGradient
@@ -267,16 +318,37 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             bleed off the right edge so the R reads as a designed
             graphic of the voucher rather than a dropped-in icon.
             Still the OFFICIAL Iconic Version 3 paths in <SvgXml>,
-            white fills, wrapper opacity 0.12 → faint clean white
+            white fills, wrapper opacity 0.14 → faint clean white
             silhouette regardless of voucher gradient. The notches
             render LAST so the coupon silhouette stays intact even
-            where the R bleeds toward the right edge. */}
-        <View style={styles.watermarkWrap} pointerEvents="none">
+            where the R bleeds toward the right edge.
+            PR-B T8j: opacity drops further (0.14 → 0.06) when
+            redeemed so the card body reads as muted documentation
+            rather than active brand signal. */}
+        <View
+          style={[styles.watermarkWrap, isRedeemed && styles.watermarkWrapMuted]}
+          pointerEvents="none"
+        >
           <SvgXml xml={REDEEMO_R_SVG} width="100%" height="100%" />
         </View>
 
         {/* 1px white-tinted lip at the very top edge — glassy. */}
         <View style={styles.topHighlight} pointerEvents="none" />
+
+        {/* PR-B T8k (interaction-design pass): the redeemed-state stamp
+            is a diagonal Mustica Pro overprint with a refined entrance
+            motion, replacing the T8i centered cream pill with hairline
+            accents.  The wrap stays a centered overlay so the rotated
+            text balances over the card; the stamp component owns its
+            own typography + rotation + entrance timing internally.
+            Owner direction (T8k): "improve overall design, premium,
+            user can tell active vs redeemed at a glance — you may
+            change how the stamp is shown". */}
+        {isRedeemed ? (
+          <View style={styles.heroStampWrap} pointerEvents="none">
+            <VoucherCardRedeemedStamp />
+          </View>
+        ) : null}
 
         <View style={styles.content}>
           {/* Row 1: type chip (left) + heart (right). */}
@@ -312,6 +384,27 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
             <Text style={styles.heroLabel}>Save up to</Text>
             <Text style={styles.heroAmount}>{formatPounds(voucher.estimatedSaving)}</Text>
           </View>
+          {/* PR-B T5 (§Q4): "Already redeemed this cycle" inline
+              label, rendered immediately below the saving block
+              (heroBlock) per plan §Step 3.  Uses label.md / 12pt 500
+              ls 0.4 from the design-system Text variant.  The
+              `meta` flag enables `color="tertiary"` on body/heading
+              variants — kept on label.md (no-op) for forward-
+              compatibility if the variant changes.  This is the
+              ONLY redeemed-cycle copy on the card — the bottom-row
+              meta text always shows the expiry / "No expiry" copy
+              regardless of redeemed state (T5.1 spec-fix removed
+              the duplicate "Redeemed this cycle" bottom-row text
+              that previously co-existed with this label). */}
+          {isRedeemed ? (
+            <Text
+              variant="label.md"
+              style={styles.alreadyRedeemedLabel}
+              testID="voucher-card-already-redeemed-label"
+            >
+              Already redeemed this cycle
+            </Text>
+          ) : null}
           <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
             {voucher.title}
           </Text>
@@ -338,13 +431,20 @@ export function VoucherCard({ voucher, isRedeemed, isFavourited, onPress, onTogg
               restored. */}
           <View style={styles.bottomRow}>
             <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="tail">
-              {isRedeemed ? 'Redeemed this cycle' : (expiryLabel ?? 'No expiry')}
+              {expiryLabel ?? 'No expiry'}
             </Text>
-            {isRedeemed ? (
-              <View style={styles.redeemedStamp}>
-                <Text style={styles.redeemedStampText}>REDEEMED</Text>
-              </View>
-            ) : (
+            {/* PR-B T5 (§Q4): when redeemed, the bottom-row dark
+                "Redeem" CTA pill is suppressed — the redeemed
+                signal is carried by the hero top-right stamp +
+                "Already redeemed this cycle" inline label below
+                the saving block.  The locked PR #35 baseline
+                kept a bottom-row pill as the only redeemed cue;
+                the brief §5.5 redesign moves that signal to the
+                hero so it reads at list-scan distance.  The
+                bottom-row LEFT text always shows the expiry /
+                "No expiry" copy regardless of redeemed state
+                (T5.1 spec-fix). */}
+            {isRedeemed ? null : (
               <View style={styles.redeemBtn}>
                 <Text style={[styles.redeemBtnText, { color: accent }]}>Redeem</Text>
                 <ArrowRight size={13} color={accent} strokeWidth={2.8} />
@@ -396,8 +496,79 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
   },
-  cardRedeemed: {
-    opacity: 0.6,
+  // PR-B T5.1 spec-fix (locked 2026-05-09): the previous PR #35
+  // baseline used `cardRedeemed: { opacity: 0.6 }` to dim the entire
+  // redeemed card.  Brief §3.5 explicitly says "Title + description
+  // stay full opacity (still legible)" — and brief §3.5's anti-
+  // reference calls out greyscale-everything fades as the failure
+  // mode that "loses the type identity that makes the card
+  // recognisable."  PR-B's three new contrast cues (cream-tint
+  // overlay below + REDEEMED stamp + 'Already redeemed this cycle'
+  // inline label) carry the contrast at full opacity.  The 0.6
+  // dim is removed.
+
+  // PR-B T5 (§Q4) → PR-B T8j (impeccable pass): cream-tint overlay
+  // that mutes the per-type gradient.  T8j bumps the alpha 0.30 →
+  // 0.55 and shifts the cream toward the brand hue family
+  // (rgba(255, 246, 238, …)) so the type colour reads as a quiet
+  // memory instead of a fully saturated active gradient.  The
+  // bumped wash is paired with the dropped card shadow to give
+  // the redeemed state a visible weight drop on list scan.
+  // Content (title, description, stamp, inline label) stays full
+  // opacity per T5.1 lock — we recede the chrome, never the copy.
+  redeemedGradientOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 246, 238, 0.55)',
+  },
+  // PR-B T8j: card-shadow override applied when isRedeemed.
+  // Drops the type-tinted lift entirely so redeemed cards sit
+  // flat against the page while active siblings stay raised
+  // with the per-type accent shadow.  This is the load-bearing
+  // list-scan signal — see DESIGN.md "Flat-By-Default Rule".
+  cardShadowFlat: {
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
+  },
+
+  // PR-B T8i refinement: hero stamp wrap — absolutely positioned to
+  // fill the card hero so the stamp itself centers horizontally +
+  // vertically.  Owner direction (T8i): "it does not need to be top
+  // right corner.  It could be in the center, slightly bigger".
+  // The previous top-right layout (top:8, right:46) is replaced by
+  // a full-card overlay with center alignment so the stamp reads as
+  // the dominant focal point of a redeemed voucher.  The heart at
+  // top-right stays visible because the stamp is `pointerEvents:
+  // none` and its centered position doesn't occlude the heart at
+  // top:8 right:8.  zIndex 2 keeps it above the watermark /
+  // topRow chip layer.
+  heroStampWrap: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+
+  // PR-B T5 (§Q4): "Already redeemed this cycle" inline label,
+  // rendered immediately below the heroBlock (saving block).
+  // label.md (12pt 500 ls 0.4) is the plan-pinned variant; the
+  // tinted off-white reads as a calm secondary signal against
+  // the muted hero gradient. Sits in the same horizontal slot
+  // as the eyebrow/£value above it (alignSelf: flex-start +
+  // marginTop 4) so the visual rhythm of the saving block
+  // extends naturally into the redeemed message.
+  alreadyRedeemedLabel: {
+    color: 'rgba(255,252,250,0.85)',
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    textShadowColor: 'rgba(0,0,0,0.18)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 
   // §35 decorative blobs — distributed across the card, not
@@ -465,6 +636,12 @@ const styles = StyleSheet.create({
     width: 130,
     height: 130,
     opacity: 0.14,
+  },
+  // PR-B T8j: redeemed-state watermark muting — drops the brand R
+  // silhouette to ~half its active intensity so the card reads as
+  // quiet documentation rather than active brand surface.
+  watermarkWrapMuted: {
+    opacity: 0.06,
   },
 
   topHighlight: {
@@ -660,19 +837,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.2,
-  },
-
-  redeemedStamp: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.30)',
-  },
-  redeemedStampText: {
-    color: '#FFF',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.2,
   },
 
   notch: {

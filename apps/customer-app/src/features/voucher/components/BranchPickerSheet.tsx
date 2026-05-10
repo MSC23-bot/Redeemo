@@ -124,16 +124,19 @@ export function BranchPickerSheet({
       accessibilityLabel="Choose redemption branch"
     >
       <View testID="voucher-branch-picker-sheet">
-        {/* Hierarchy (2026-05-09 owner correction):
-              title             heading.md (18)  — largest
-              instruction       body.md   (16)   — primary, matches row name
-              supporting line   body.sm   (14)   — context
-              row name          body.md   (16)
-              row meta          body.sm   (14)
-            Instruction must NOT be smaller than the options the user
-            is being asked to pick (was body.sm 14 before — read odd
-            against body.md 16 row names). */}
-        <Text variant="heading.md" style={styles.title}>
+        {/* Hierarchy (PR-B T8l, impeccable pass):
+              title           display.sm 22pt Mustica Pro — gateway-
+                              moment editorial weight per DESIGN.md
+                              "Mustica-for-Display Rule".
+              lead subtitle   body.md 16pt navy — primary instruction
+              helper subtitle body.sm 14pt secondary navy — context
+              row name        heading.sm 16pt Lato-Semibold — option label
+              row meta        body.sm 14pt secondary — context
+            Title moves Lato heading.md → Mustica display.sm because
+            this sheet is the gateway between "browsing" and
+            "redeeming"; the user is about to enter a PIN.  The
+            display tier matches the surface importance. */}
+        <Text variant="display.sm" style={styles.title}>
           {titleText}
         </Text>
         <Text variant="body.md" style={styles.subtitle}>
@@ -144,9 +147,10 @@ export function BranchPickerSheet({
         </Text>
 
         <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-          {branches.map((b) => {
+          {branches.map((b, idx) => {
             const isPreview = b.id === previewId
             const distance = formatDistance(b.distanceMetres)
+            const isLast = idx === branches.length - 1
             return (
               <Pressable
                 key={b.id}
@@ -160,19 +164,18 @@ export function BranchPickerSheet({
                 }}
                 style={({ pressed }) => [
                   styles.row,
+                  !isLast && styles.rowDivider,
                   isPreview && styles.rowSelected,
                   pressed && !isPreview && styles.rowPressed,
                 ]}
               >
-                <View style={styles.iconWrap}>
-                  <MapPin
-                    size={18}
-                    color={isPreview ? color.brandRose : color.text.tertiary}
-                    strokeWidth={2.4}
-                  />
-                </View>
+                <MapPin
+                  size={20}
+                  color={isPreview ? color.brandRose : color.text.tertiary}
+                  strokeWidth={2.2}
+                />
                 <View style={styles.rowText}>
-                  <Text variant="body.md" style={styles.rowName}>
+                  <Text variant="heading.sm" style={styles.rowName}>
                     {b.name}
                   </Text>
                   <View style={styles.metaRow}>
@@ -194,9 +197,7 @@ export function BranchPickerSheet({
                   </View>
                 </View>
                 {isPreview ? (
-                  <View style={styles.checkWrap}>
-                    <Check size={16} color={color.brandRose} strokeWidth={3} />
-                  </View>
+                  <Check size={18} color={color.brandRose} strokeWidth={2.6} />
                 ) : null}
               </Pressable>
             )
@@ -223,7 +224,7 @@ export function BranchPickerSheet({
             style={StyleSheet.absoluteFillObject}
           />
           <Tag size={18} color={color.onBrand} strokeWidth={2.4} />
-          <Text variant="body.md" style={styles.confirmText}>
+          <Text variant="heading.sm" style={styles.confirmText}>
             {confirmText}
           </Text>
         </Pressable>
@@ -233,64 +234,80 @@ export function BranchPickerSheet({
 }
 
 const styles = StyleSheet.create({
-  // heading.md (18 / 24) variant drives.  fontSize override removed
-  // 2026-05-09 (cross-surface consistency with PinEntrySheet).
+  // PR-B T8l (impeccable pass): title bumped from heading.md (Lato
+  // Semibold 18) → display.sm (Mustica Pro Semibold 22) per
+  // DESIGN.md "Mustica-for-Display Rule".  Tight letter-spacing
+  // (-0.3) gives the title the editorial weight a high-stakes-
+  // action gateway deserves.  Variant default fontFamily +
+  // fontSize + lineHeight come through; we only override colour,
+  // alignment, and tracking.
   title: {
-    fontWeight: '800',
     color: color.text.primary,
     textAlign: 'center',
+    letterSpacing: -0.3,
   },
-  // Instruction (body.md 16) — primary; matches the branch row name
-  // weight so the user reads "what to do" + "options" at the same
-  // hierarchy step.
+  // Lead instruction (body.md 16, primary navy) — matches row name
+  // weight so "what to do" + "options" sit at the same hierarchy
+  // step on the user's eye.
   subtitle: {
     marginTop: spacing[2],
     color: color.text.primary,
     textAlign: 'center',
   },
-  // Supporting context (body.sm 14) — secondary tone.
+  // Helper context (body.sm 14, secondary navy) — quieter tone,
+  // marginBottom drives the rhythm break before the list.
   subtitleSecondary: {
     marginTop: 2,
     color: color.text.secondary,
     textAlign: 'center',
-    marginBottom: spacing[4],
+    marginBottom: spacing[5],
   },
   list: {
     maxHeight: 320,
   },
+  // PR-B T8l: drop per-row card chrome (no border, no raised bg, no
+  // bottom margin) and use hairline dividers between rows instead.
+  // DESIGN.md "No-Card-On-Card Rule" — rows inside a sheet that's
+  // already a card-like surface are nested cards; the impeccable
+  // refactor is to use a single list with hairlines + selected bg
+  // tint as the affordance.  Padding bumped to 14pt vertical so the
+  // taller heading.sm row name + meta row breathe.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
-    padding: spacing[3],
+    paddingVertical: 14,
+    paddingHorizontal: spacing[3],
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.border.subtle,
-    backgroundColor: color.surface.raised,
-    marginBottom: spacing[2],
   },
+  // Hairline divider between consecutive rows (skipped on the last
+  // row).  StyleSheet.hairlineWidth resolves to ≈0.5pt on iOS and
+  // 1px on Android — the right "barely there" weight for premium
+  // list separation per DESIGN.md "Flat-By-Default Rule".
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.border.subtle,
+  },
+  // Selected row uses surface-tint warm cream `#FEF6F5` (NOT
+  // `color.cream` which is the identity-zone framing per DESIGN.md
+  // "Cream-for-Identity Rule").  surface-tint is the quieter cream
+  // adjacent reserved for state moments.  No border — the bg tint
+  // + the brand-rose pin icon + the trailing Check carry the
+  // selection cue.
   rowSelected: {
-    borderColor: color.brandRose,
-    backgroundColor: color.cream,
+    backgroundColor: color.surface.tint,
   },
   rowPressed: {
-    opacity: 0.85,
-  },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.md,
-    backgroundColor: color.surface.subtle,
-    alignItems: 'center',
-    justifyContent: 'center',
+    opacity: 0.75,
   },
   rowText: {
     flex: 1,
   },
-  // body.md (16 / 24) drives — branch name is the primary identifier
-  // in each row and now reads with the weight it deserves.
+  // PR-B T8l: row name moves body.md → heading.sm (Lato Semibold
+  // 16) so the option lifts as "I am the option you pick" against
+  // the secondary meta line below.  Cross-surface parity with the
+  // PinEntrySheet primary-action labelling.
   rowName: {
-    fontWeight: '700',
     color: color.text.primary,
   },
   metaRow: {
@@ -298,21 +315,22 @@ const styles = StyleSheet.create({
     gap: spacing[1],
     marginTop: 2,
   },
-  // body.sm (14 / 21) drives — supporting context.
   rowMeta: {
     color: color.text.secondary,
   },
   rowMetaDot: {
     color: color.text.tertiary,
   },
-  checkWrap: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Confirm button — minHeight 56 for tap-target comfort at the
-  // bumped body.md text size, matching PinEntrySheet's submit.
+  // PR-B T8l (impeccable pass): confirm CTA aligned to DESIGN.md
+  // `button-primary-lg`:
+  //   • borderRadius radius.md (12) — DESIGN.md "Buttons Shape:
+  //     rounded-md (12px) on every variant".  Was radius.lg (16).
+  //   • shadowOpacity 0.30 → 0.20, shadowRadius 24 → 18 — calmer
+  //     brand glow per DESIGN.md "Glow-is-the-CTA Rule" (the glow
+  //     is a brand pulse, not a marketing flare).
+  //   • paddingHorizontal 24 explicit per the spec.
+  //   • Label moves body.md → heading.sm (Lato Semibold 16) per
+  //     button-primary-lg.
   confirm: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -320,12 +338,13 @@ const styles = StyleSheet.create({
     gap: spacing[2],
     minHeight: 56,
     paddingVertical: spacing[4],
-    borderRadius: radius.lg,
+    paddingHorizontal: 24,
+    borderRadius: radius.md,
     overflow: 'hidden',
-    marginTop: spacing[3],
+    marginTop: spacing[4],
     shadowColor: color.brandRose,
-    shadowOpacity: 0.3,
-    shadowRadius: 24,
+    shadowOpacity: 0.20,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
   },
   confirmDisabled: {
@@ -334,9 +353,7 @@ const styles = StyleSheet.create({
   confirmPressed: {
     transform: [{ scale: 0.97 }],
   },
-  // body.md (16 / 24) drives.  fontSize override removed.
   confirmText: {
-    fontWeight: '800',
     color: color.onBrand,
   },
 })

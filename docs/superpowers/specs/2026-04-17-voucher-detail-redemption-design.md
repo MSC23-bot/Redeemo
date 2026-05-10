@@ -964,3 +964,71 @@ New toggles in Account → Notification Preferences:
 | Animations | Use `transform`/`opacity` only (GPU-accelerated). Respect `prefers-reduced-motion` — disable confetti, shake, pulse animations |
 | Screen reader | Success popup: announce "Voucher redeemed successfully" on appear. Lockout: announce remaining time. Error: announce "Incorrect PIN, X attempts remaining" |
 | Focus management | After wrong PIN: focus returns to first PIN box. After lockout clears: focus returns to first PIN box |
+
+---
+
+## Section 13: PR-B Visual Design Pass — As-Shipped Notes (locked at PR head `545882a`)
+
+PR-B is a frontend-only visual + interaction-design pass on top of M3. No backend contract changes (one additive: `MerchantVoucher.isRedeemedThisCycle` flag wired through `getCustomerMerchant`). This section captures the as-shipped visual contract on the surfaces this spec covers; the full per-surface trail lives in the PR-B brief at [§A As Shipped](../../design-briefs/2026-05-09-pr-b-customer-redemption-visual-design-brief.md).
+
+### §13.1. ShowToStaff (§7.7 update)
+
+The full-screen `<ShowToStaff>` modal contract from §7.7 is preserved verbatim — anti-fraud surfaces (`useScreenCaptureProtection`, `useScreenshotGuard`, `useBrightnessBoost`, `useAutoHideTimer`, `useRedemptionPolling`), 2-hour presentation window, validated transition + 2s auto-dismiss, AppState backgrounding contract, all behavioural contracts unchanged. PR-B layers visual + interaction-design refinements on top:
+
+- **Hero zone:** solid brand navy `#010C35` base + brand-rose 25/10/0 glow overlay (only one navy is brand-locked per PRODUCT.md).
+- **Identity lockup:** horizontal R icon + "Redeemo" wordmark top-left, 6pt gap.
+- **Eyebrow:** "Present to Staff" in brand-rose all-caps `label.eyebrow` (replaces the earlier "Verified Voucher" copy — the voucher isn't verified until staff scans the QR).
+- **QR card content discipline:** only LIVE pulsing dot + QR + 4+4 code chip + live ticking clock live INSIDE the animated brand-rose code-card border. Voucher-type chip moved ABOVE QR card; redeemed timestamp moved BELOW.
+- **Code typography:** `mono.redemption` variant (Lato Bold 28pt + 4pt letter-spacing) per DESIGN.md "Mono Redemption Rule" — this variant is reserved for the redemption code surface only.
+- **Receipt rows below QR card:** split into "Date Redeemed" + "Time Redeemed" rows (with seconds).
+- **Done button:** brand-rose gradient pill at the bottom (replaces X close icon top-right; single dismissal affordance; Modal.onRequestClose continues to wire hardware back).
+- **QR overlay logo:** canonical `<RedeemoLogo>` SVG component recoloured **navy** (matches QR modules), at 20% of QR diameter, white anchor square at 1.3× the logo. Replaces the previous near-white PNG asset that was invisible against the white QR background.
+
+### §13.2. SuccessPopup (§7.6 update)
+
+The §7.6 SuccessPopup contract is preserved verbatim, with these visual refinements:
+
+- **Hero:** solid brand navy + brand-rose glow overlay.
+- **Title:** "Voucher redeemed successfully" at `display.sm` Mustica Pro Semibold 22pt + −0.3 tracking per DESIGN.md "Mustica-for-Display Rule".
+- **Saving callout signature:** "You saved" + £X.XX count-up at `display.md` Mustica Pro Semibold 26pt + −0.5 tracking per DESIGN.md "saving is the data; data is the hero". This is the popup's signature.
+- **Green check ring:** 30pt diameter inside a 44pt slot, 18pt glyph, SparkleRing halo at 64pt.
+- **Primary CTA:** brand red→coral gradient `View voucher code`, radius `radius.md` (12), shadow `0.20 / 14` per DESIGN.md "Glow-is-the-CTA Rule".
+- **Rate & Review pill:** skeleton-red treatment — outlined brand-rose, transparent fill, brand-rose Star + label.
+- **Voucher-type chip in second hero row:** outlined brand-rose 70% pill against the navy hero so customers see WHAT they redeemed at the success moment.
+- **Anti-fraud surface unchanged from M3:** the popup is intentionally NOT a sensitive code surface (locked at PR-A §0.9). The redemption code lives on `<ShowToStaff>` + persisted `<RedemptionDetailsCard>`.
+
+### §13.3. Voucher Detail hero — RedeemedSeal preserved (§8.10.1 update)
+
+The owner-approved rubber-stamp `RedeemedSeal` design from §8.10.1 (tilt -8°, ink-fade band, ink-mid band, cream speckles, ink-pressure textShadow, stamp-impact entrance with overshoot) is **preserved verbatim**. A T8h "premium hairline" redesign was applied to the wrong surface and reverted at T8i; the refined hairline-accent treatment moved to the Merchant Profile voucher card stamp (§13.4) where it was always intended.
+
+`CouponHeader` receives a new `dimmed` prop for redeemed-state visual recession, applied SELECTIVELY to gradient + content + saveBadge — the nav row (back / share / favourite) stays full opacity per owner direction "navigation buttons are washed out".
+
+### §13.4. Merchant Profile Voucher tab — redeemed card treatment (closes deferred §Q4)
+
+PR-B closes the long-standing §Q4 deferral. Final shipped state on `<VoucherCard>` when `isRedeemed` is true:
+
+- **Stamp text + position:** "Voucher Redeemed" two words, **centered overlay across the card hero** (was top-right corner in earlier briefs — collided with the heart icon at narrower widths).
+- **Visual treatment:** diagonal Mustica Pro Semibold 22pt cancellation overprint at -10° rotation, brand-rose @ α 0.32, letter-spacing 5pt, NO backdrop / NO border / NO shadow.
+- **Entry motion:** scale 1.18→1.0 + opacity 0→1, 320ms ease-out-quart, reduced-motion safe.
+- **Card body recession:** cream wash overlay `rgba(255, 246, 238, 0.55)` + flat shadow (drops the type-tinted lift) + brand-R watermark muted 0.14→0.06. DESIGN.md "Flat-By-Default Rule": active cards lift, redeemed cards sit.
+- **Title + description full opacity:** preserved per anti-reference against "greyscale-everything fade".
+- **VoucherContextLabel:** count drops by `redeemedVoucherIds.size` so "3 offers available" → "2 offers available" the moment a voucher is redeemed; "All offers redeemed this cycle" copy when count = 0 + totalCount > 0.
+- **Backend:** `MerchantVoucher.isRedeemedThisCycle: boolean` flag returned from `getCustomerMerchant` — additive payload field, no contract change.
+- **Cache invalidation:** `useRedeem.onSuccess` invalidates `['merchantProfile']` so the Voucher tab card flips immediately on return from the redemption flow.
+
+### §13.5. Behavioural contract preservation
+
+All M3 behavioural contracts unchanged:
+
+- All anti-fraud surfaces and presentation-window contract (§7.7 / §8.10.2 / §8.10.4) preserved verbatim.
+- All testIDs preserved.
+- All copy preserved (eyebrow, subtitles, lockout copy, disclaimer D2, etc.).
+- `useReducedMotion` paths preserved.
+- AppState backgrounding contract preserved.
+
+### §13.6. Test totals at PR head `545882a`
+
+- Customer-app jest full suite: **1309/1310 ✅** (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts` — documented existing-state, not introduced by PR-B).
+- Voucher + merchant scope: **941/941 ✅** across 77 suites.
+- Backend vitest: **553/553 ✅** across 60 files.
+- `tsc --noEmit` (customer-app): clean.

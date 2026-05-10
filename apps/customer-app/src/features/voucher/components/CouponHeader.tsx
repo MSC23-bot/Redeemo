@@ -57,6 +57,20 @@ type Props = {
    * Optional — defaults to false (NavRow tappable).
    */
   collapsedActive?: boolean
+  /**
+   * PR-B T8h fix — selective hero dim for the redeemed-this-cycle
+   * state. When TRUE, applies opacity 0.55 to the gradient backdrop +
+   * type badge + title + description + save badge so the voucher
+   * reads as visibly "stamped redeemed". The nav row (back / share /
+   * favourite) is INTENTIONALLY excluded from the dim so action
+   * controls stay full opacity and tappable-looking.
+   *
+   * Replaces the previous wrapping `<View style={heroDimmed}>` in
+   * VoucherDetailScreen which dimmed the entire CouponHeader subtree
+   * including the nav buttons (owner-reported device QA: "navigation
+   * buttons are washed out").
+   */
+  dimmed?: boolean
 }
 
 const typeIcon = (type: VoucherType) => {
@@ -108,6 +122,7 @@ export function CouponHeader({
   fadeStart,
   fadeEnd,
   collapsedActive = false,
+  dimmed = false,
 }: Props) {
   const gradient  = voucherGradient(type)
   const typeLabel = voucherTypeLabel(type)
@@ -115,6 +130,17 @@ export function CouponHeader({
   const reducedMotion = useReducedMotion()
 
   const paddingTop = insetTop + NAV_ROOM
+
+  // PR-B T8h fix — selective hero dim for the redeemed-this-cycle
+  // state.  When `dimmed` is true, opacity 0.55 applies to the
+  // gradient backdrop + content + saveBadge ONLY.  The navRow NEVER
+  // receives the dim so the back / share / favourite controls stay
+  // full opacity and tappable-looking (owner-locked at T8h: "navigation
+  // buttons are washed out").  The flat-opacity treatment is the
+  // approved Voucher Detail hero behaviour — the more elaborate
+  // "premium washed-out gradient" experiment from T8h was reverted
+  // at T8i because it was applied to the wrong surface.
+  const dimStyle = dimmed ? styles.dimmed : null
 
   // Hero NavRow opacity — interpolated INVERSELY to CollapsedHeader
   // (which fades IN across the same range). When scrollY/fadeStart/
@@ -139,26 +165,29 @@ export function CouponHeader({
 
   return (
     <View style={[styles.root, { paddingTop }]} testID="coupon-header">
-      {/* Base type gradient */}
+      {/* Base type gradient — dimmed when the voucher is stamped
+          redeemed (PR-B T8h fix). */}
       <LinearGradient
         colors={gradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
+        style={[StyleSheet.absoluteFillObject, dimStyle]}
+        testID="coupon-header-gradient"
       />
-      {/* Vertical vignette — slight darken at top + bottom for depth */}
+      {/* Vertical vignette — slight darken at top + bottom for depth.
+          Also dimmed alongside the base gradient. */}
       <LinearGradient
         colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.30)']}
         locations={[0, 0.4, 1]}
-        style={StyleSheet.absoluteFillObject}
+        style={[StyleSheet.absoluteFillObject, dimStyle]}
         pointerEvents="none"
       />
-      {/* Highlight wash (approximated radial via diagonal) */}
+      {/* Highlight wash (approximated radial via diagonal). */}
       <LinearGradient
         colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0)']}
         start={{ x: 0.2, y: 0.85 }}
         end={{ x: 0.85, y: 0.2 }}
-        style={StyleSheet.absoluteFillObject}
+        style={[StyleSheet.absoluteFillObject, dimStyle]}
         pointerEvents="none"
       />
 
@@ -196,7 +225,7 @@ export function CouponHeader({
         </View>
       </Animated.View>
 
-      <View style={styles.content}>
+      <View style={[styles.content, dimStyle]} testID="coupon-header-content">
         <View style={styles.typeBadge}>
           <Icon size={15} color={WHITE_92} strokeWidth={2} />
           <Text variant="label.md" style={styles.typeBadgeText} numberOfLines={1} ellipsizeMode="tail">
@@ -220,9 +249,11 @@ export function CouponHeader({
           Round-7 stress-test: `adjustsFontSizeToFit` on the amount
           allows large values like £100, £250, £1,000 to shrink to
           fit without overflowing the circle. minimumFontScale=0.55
-          keeps it readable down to ~11pt at smallest. */}
+          keeps it readable down to ~11pt at smallest.  PR-B T8h:
+          dimmed alongside the rest of the voucher visual layer. */}
       <View
-        style={[styles.saveBadge, { top: insetTop + NAV_ROOM - 8 }]}
+        style={[styles.saveBadge, { top: insetTop + NAV_ROOM - 8 }, dimStyle]}
+        testID="coupon-header-save-badge"
         accessible
         accessibilityLabel={`Save ${formatPounds(estimatedSaving)}`}
       >
@@ -282,6 +313,12 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
     paddingHorizontal: 22,
     overflow: 'hidden',
+  },
+  // PR-B T8h fix — selective dim applied to gradient + content +
+  // saveBadge ONLY (never to navRow).  See CouponHeader's `dimmed`
+  // prop comment for the rationale.
+  dimmed: {
+    opacity: 0.55,
   },
   // ── NavRow inside hero ────────────────────────────────────────────
   navRow: {

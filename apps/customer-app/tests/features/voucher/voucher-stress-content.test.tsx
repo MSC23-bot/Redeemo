@@ -128,6 +128,88 @@ describe('CouponHeader — save badge adapts to large amounts', () => {
   })
 })
 
+describe('CouponHeader — dimmed prop applies to visual layer ONLY, never the nav buttons (PR-B T8h)', () => {
+  // Owner-reported device QA: when the redeemed seal renders, the
+  // back / share / favourite buttons in the hero NavRow read as
+  // washed-out because the previous `<View style={heroDimmed}>`
+  // wrapper applied opacity 0.55 to the entire CouponHeader subtree.
+  // T8h moves the dim INTO CouponHeader as a `dimmed` prop applied
+  // selectively to gradient + content + saveBadge.  These pins guard
+  // the contract: action controls stay full opacity, voucher visuals
+  // get the stamp-effect dim.
+
+  const baseProps = {
+    type: 'BOGO' as const,
+    title: 'Test voucher',
+    description: 'Test description',
+    estimatedSaving: 8.99,
+    insetTop: 59,
+    onBack:  jest.fn(),
+    onShare: jest.fn(),
+    onFav:   jest.fn(),
+    isFavourited: false,
+  }
+
+  function flat(node: any): Record<string, any> {
+    const s = node?.props?.style
+    if (!s) return {}
+    if (Array.isArray(s)) return Object.assign({}, ...s.flat(Infinity).filter(Boolean))
+    return s
+  }
+
+  it('default (dimmed omitted) — gradient, content, and save badge are NOT dimmed', () => {
+    const { getByTestId } = render(<CouponHeader {...baseProps} />)
+    expect(flat(getByTestId('coupon-header-gradient')).opacity).toBeUndefined()
+    expect(flat(getByTestId('coupon-header-content')).opacity).toBeUndefined()
+    expect(flat(getByTestId('coupon-header-save-badge')).opacity).toBeUndefined()
+  })
+
+  it('dimmed=true — gradient + content + saveBadge get opacity 0.55 (T8i revert: the approved Voucher Detail hero treatment is the flat-opacity dim, NOT the cream gradient wash overlay that briefly shipped at T8h)', () => {
+    const { getByTestId } = render(<CouponHeader {...baseProps} dimmed />)
+    expect(flat(getByTestId('coupon-header-gradient')).opacity).toBe(0.55)
+    expect(flat(getByTestId('coupon-header-content')).opacity).toBe(0.55)
+    expect(flat(getByTestId('coupon-header-save-badge')).opacity).toBe(0.55)
+  })
+
+  it('dimmed=true — back / share / favourite nav buttons keep full opacity (NEVER washed out alongside the visual layer)', () => {
+    const { getByLabelText } = render(<CouponHeader {...baseProps} dimmed />)
+    // Walk up from each nav button to its nearest opacity-bearing
+    // ancestor (any wrapping View styled with opacity).  The contract
+    // is: NO ancestor in the navRow path ever carries opacity 0.55.
+    const buttons = [
+      getByLabelText('Go back'),
+      getByLabelText('Share voucher'),
+      getByLabelText('Add to favourites'),
+    ]
+    for (const btn of buttons) {
+      let n: any = btn
+      while (n) {
+        const s = flat(n)
+        // The only opacity allowed in the nav button's ancestry is the
+        // pressed-state 0.85 (only present mid-tap; not in baseline
+        // render) or the navAnimStyle scroll fade (1 at scrollY=0).
+        // 0.55 is the dim's signature value — must NEVER appear here.
+        expect(s.opacity).not.toBe(0.55)
+        n = n.parent
+      }
+    }
+  })
+
+  it('dimmed=true — favourite button keeps full opacity when isFavourited toggles', () => {
+    const { getByLabelText } = render(<CouponHeader {...baseProps} dimmed isFavourited />)
+    let n: any = getByLabelText('Remove from favourites')
+    while (n) {
+      expect(flat(n).opacity).not.toBe(0.55)
+      n = n.parent
+    }
+  })
+
+  it('dimmed=true — does NOT mount the cream gradient wash overlay (T8i revert pin: the wash overlay was an experiment from T8h applied to the wrong surface; the approved Voucher Detail hero behaviour is the flat-opacity dim ONLY)', () => {
+    const { queryByTestId } = render(<CouponHeader {...baseProps} dimmed />)
+    expect(queryByTestId('coupon-header-wash-overlay')).toBeNull()
+  })
+})
+
 // ── CollapsedHeader stress tests ───────────────────────────────────
 
 describe('CollapsedHeader — long content doesn\'t break layout', () => {

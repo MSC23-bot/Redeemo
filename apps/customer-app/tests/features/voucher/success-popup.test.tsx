@@ -8,6 +8,18 @@ jest.mock('@/design-system/haptics', () => ({
   lightHaptic: jest.fn(),
 }))
 
+// PR-B T2 (LOCKED 2026-05-09 §3.2) — useCountUp animates the saving
+// amount from 0 → target on entrance.  Under the global tests/setup.ts
+// reanimated mock, `useReducedMotion()` returns false, which would
+// leave the saving amount at £0.00 on the synchronous render path
+// these existing assertions (£6.99 / £12.00 / £1234.56) check.
+// Stub useCountUp to a pass-through so the synchronous assertions
+// continue to read the final value.  The animated/reduced-motion
+// paths are exercised in `success-popup-celebration.test.tsx`.
+jest.mock('@/features/voucher/utils/useCountUp', () => ({
+  useCountUp: (target: number) => target,
+}))
+
 import { SuccessPopup } from '@/features/voucher/components/SuccessPopup'
 
 // PR-A revised scope (locked 2026-05-09 §0.9 + §0.10 + §0.11):
@@ -26,6 +38,7 @@ function defaults(overrides: Partial<React.ComponentProps<typeof SuccessPopup>> 
     redeemedAt: '2026-05-06T14:32:00Z',
     estimatedSaving: 6.99,
     voucherTitle: 'Free Filter Coffee with Any Thali',
+    voucherType: 'FREEBIE' as const,
     merchantName: 'Covelum Restaurant',
     // D23 §14 (LOCKED 2026-05-09): merchantLogoUrl required prop.
     // Default null exercises the text-only fallback so existing
@@ -405,5 +418,120 @@ describe('SuccessPopup — Rate & Review CTA (PR-C T12 §0.3.1)', () => {
     fireEvent.press(getByTestId('success-show-to-staff'))
     expect(onShowToStaff).toHaveBeenCalledTimes(1)
     expect(onRateReview).not.toHaveBeenCalled()
+  })
+})
+
+describe('SuccessPopup — PR-B T8n visual contract (impeccable + interface-design + interaction-design pass)', () => {
+  // The composite skill pass aligns to PRODUCT.md + DESIGN.md while
+  // preserving every owner-locked decision from PR-A → T8e (hero
+  // architecture, copy, motion, button wiring).
+  //
+  // Six contracts pinned:
+  //   1. Title moves heading.md (Lato Semibold 18) → display.sm
+  //      (Mustica Pro Semibold 22 + -0.3 tracking).  DESIGN.md
+  //      "Mustica-for-Display Rule".
+  //   2. Saving amount moves heading.lg (Lato Semibold 20) →
+  //      display.md (Mustica Pro Semibold 26 + -0.5 tracking).
+  //      Per DESIGN.md "Do put the savings amount in display.md or
+  //      larger in Mustica Pro on every voucher card" — this is the
+  //      signature moment.
+  //   3. Primary CTA borderRadius radius.lg (16) → radius.md (12)
+  //      per DESIGN.md "Buttons Shape: rounded-md (12px) on every
+  //      variant".
+  //   4. Primary CTA shadow opacity 0.30 → 0.20 per DESIGN.md
+  //      "Glow-is-the-CTA Rule".
+  //   5. Rate & Review pill borderRadius 16 → 12 for cross-CTA
+  //      consistency with primary.
+  //   6. Spurious fontWeight: '800' overrides on Lato Semibold
+  //      variants (`accentTitle`, `typeChipText`, `primaryCtaText`)
+  //      removed — they don't synthesize cleanly on iOS Lato.
+
+  function flat(node: any): Record<string, any> {
+    const s = node?.props?.style
+    if (!s) return {}
+    if (Array.isArray(s)) return Object.assign({}, ...s.flat(Infinity).filter(Boolean))
+    return s
+  }
+
+  it('title uses Mustica Pro Semibold display.sm 22pt with -0.3 tight tracking (Mustica-for-Display Rule)', () => {
+    const { getByText } = render(<SuccessPopup {...defaults()} />)
+    const title = getByText('Voucher redeemed successfully')
+    const style = flat(title)
+    expect(style.fontFamily).toBe('MusticaPro-SemiBold')
+    expect(style.fontSize).toBe(22)
+    expect(style.letterSpacing).toBe(-0.3)
+    // Negative pin: previous fontWeight: '700' override on Lato
+    // Semibold MUST NOT resurface.
+    expect(style.fontWeight).not.toBe('700')
+  })
+
+  it('saving amount uses Mustica Pro Semibold display.md 26pt with -0.5 tracking (signature elevation per DESIGN.md "saving is the data")', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
+    const amount = getByTestId('success-saving-amount')
+    const style = flat(amount)
+    expect(style.fontFamily).toBe('MusticaPro-SemiBold')
+    expect(style.fontSize).toBe(26)
+    expect(style.letterSpacing).toBe(-0.5)
+    expect(style.color).toBe('#16A34A')   // savingsGreen
+    // Tabular numerals preserved so the count-up doesn't shift.
+    expect(style.fontVariant).toContain('tabular-nums')
+    // Negative pin: previous fontWeight: '700' override MUST NOT
+    // resurface (Mustica Semibold variant carries weight natively).
+    expect(style.fontWeight).not.toBe('700')
+    // Negative pin: previous heading.lg fontSize 20 MUST NOT resurface.
+    expect(style.fontSize).not.toBe(20)
+  })
+
+  it('primary CTA uses borderRadius 12 (radius.md) per DESIGN.md button-primary-lg spec', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
+    const cta = getByTestId('success-show-to-staff')
+    const style = flat(cta)
+    expect(style.borderRadius).toBe(12)
+    expect(style.borderRadius).not.toBe(16)
+  })
+
+  it('primary CTA shadow softened to opacity 0.20 (was 0.30) per Glow-is-the-CTA Rule', () => {
+    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
+    const cta = getByTestId('success-show-to-staff')
+    const style = flat(cta)
+    expect(style.shadowOpacity).toBe(0.20)
+    expect(style.shadowOpacity).not.toBe(0.30)
+  })
+
+  it('Rate & Review pill borderRadius matches the primary CTA at radius.md (12) for cross-CTA consistency', () => {
+    const onRateReview = jest.fn()
+    const { getByTestId } = render(<SuccessPopup {...defaults({ onRateReview })} />)
+    const pill = getByTestId('success-rate-review')
+    const style = flat(pill)
+    expect(style.borderRadius).toBe(12)
+    expect(style.borderRadius).not.toBe(16)
+  })
+
+  it('voucher type chip text drops the spurious fontWeight: 800 override (Lato Semibold synthesis problem on iOS)', () => {
+    const { getByText } = render(<SuccessPopup {...defaults()} />)
+    // The chip uppercases the type label; default props use voucher
+    // type FREEBIE → rendered as "FREEBIE".
+    const chipText = getByText('FREEBIE')
+    const style = flat(chipText)
+    expect(style.fontWeight).not.toBe('800')
+  })
+
+  it('PR-B T8o: hero check ring enlarged 22 → 30pt with proportionally bumped slot (36 → 44) per owner direction', () => {
+    // Owner direction (T8o, 2026-05-10): "increase the size of the
+    // green tick icon in the hero section of success pop up".
+    // Implementation: ring 22 → 30, slot 36 → 44, glyph 14 → 18,
+    // SparkleRing 56 → 64 (proportional halo).  Pin the ring +
+    // slot dimensions so a future regression that softens the bump
+    // fails this assertion.
+    const { getByTestId } = render(<SuccessPopup {...defaults()} />)
+    const ring = getByTestId('success-check-ring')
+    const ringStyle = flat(ring)
+    expect(ringStyle.width).toBe(30)
+    expect(ringStyle.height).toBe(30)
+    expect(ringStyle.borderRadius).toBe(15)  // half-diameter keeps it circular
+    expect(ringStyle.backgroundColor).toBe('#16A34A')   // savingsGreen
+    // Negative pin: previous 22pt dimensions MUST NOT resurface.
+    expect(ringStyle.width).not.toBe(22)
+    expect(ringStyle.borderRadius).not.toBe(11)
   })
 })

@@ -325,10 +325,16 @@ export function VoucherDetailScreen() {
   const [lastRedemption, setLastRedemption] = useState<RedeemResponse | null>(null)
   // M3 — Show-to-Staff full-screen modal target. Non-null while
   // visible. Drives the Modal mount at the bottom of the JSX.
+  // PR-B T1 — `voucherDescription` + `merchantLogoUrl` captured at
+  // open-time so the vertical-receipt surface has the full identity
+  // payload without re-reading the voucher query (which can race with
+  // a branch-switch refetch). Both fields are nullable upstream.
   const [showToStaff, setShowToStaff] = useState<{
-    code:       string
-    redeemedAt: string
-    branchName: string
+    code:               string
+    redeemedAt:         string
+    branchName:         string
+    voucherDescription: string | null
+    merchantLogoUrl:    string | null
   } | null>(null)
   // M3 — validated-this-session override. Set by ShowToStaff's
   // onValidated callback when polling reaches `phase: 'validated'`.
@@ -1193,7 +1199,12 @@ export function VoucherDetailScreen() {
           <Animated.View style={heroAnchorStyle}>
             {/* Hero treatment when redeemed (locked 2026-05-09 from
                 PR #49 device QA wave 4 — owner direction):
-                  • Dimmed hero (opacity 0.55) — already in place.
+                  • Dimmed hero (opacity 0.55) — applied SELECTIVELY
+                    to the voucher visual layer (gradient + content +
+                    saveBadge) via the CouponHeader `dimmed` prop.
+                    The nav row (back / share / favourite) stays at
+                    full opacity per PR-B T8h owner direction
+                    "navigation buttons are washed out".
                   • RedeemedSeal moved ONTO the hero as an absolute
                     overlay, like a physical stamp on the voucher
                     itself, instead of sitting as a standalone block
@@ -1206,23 +1217,22 @@ export function VoucherDetailScreen() {
                 Defers full washed-out coupon visual + polished SVG
                 stamp to §Q1. */}
             <View style={styles.heroSealWrap}>
-              <View style={showRedeemedSeal ? styles.heroDimmed : null}>
-                <CouponHeader
-                  type={voucher.type}
-                  title={voucher.title}
-                  description={voucher.description}
-                  estimatedSaving={voucher.estimatedSaving}
-                  insetTop={insets.top}
-                  onBack={handleBack}
-                  onShare={handleShare}
-                  onFav={handleFav}
-                  isFavourited={voucher.isFavourited}
-                  scrollY={scrollY}
-                  fadeStart={FADE_START}
-                  fadeEnd={FADE_END}
-                  collapsedActive={collapsedActive}
-                />
-              </View>
+              <CouponHeader
+                type={voucher.type}
+                title={voucher.title}
+                description={voucher.description}
+                estimatedSaving={voucher.estimatedSaving}
+                insetTop={insets.top}
+                onBack={handleBack}
+                onShare={handleShare}
+                onFav={handleFav}
+                isFavourited={voucher.isFavourited}
+                scrollY={scrollY}
+                fadeStart={FADE_START}
+                fadeEnd={FADE_END}
+                collapsedActive={collapsedActive}
+                dimmed={showRedeemedSeal}
+              />
               {showRedeemedSeal ? (
                 <View
                   style={[styles.heroSealOverlay, { top: insets.top + 96 }]}
@@ -1320,9 +1330,15 @@ export function VoucherDetailScreen() {
                     // flow. Locked 2026-05-09, PR #49 wave 8.
                     if (blockShowToStaffMount) return
                     setShowToStaff({
-                      code:       displayRedemption.code,
-                      redeemedAt: displayRedemption.redeemedAt,
-                      branchName: displayRedemption.branchName ?? '',
+                      code:               displayRedemption.code,
+                      redeemedAt:         displayRedemption.redeemedAt,
+                      branchName:         displayRedemption.branchName ?? '',
+                      // PR-B T1 — capture identity payload at open-time
+                      // so the vertical-receipt surface always has it,
+                      // even if the voucher query races with a branch
+                      // switch.
+                      voucherDescription: voucher.description,
+                      merchantLogoUrl:    voucher.merchant.logoUrl ?? null,
                     })
                   }}
                 />
@@ -1590,6 +1606,7 @@ export function VoucherDetailScreen() {
           visible
           redeemedAt={successPopup.redeemedAt}
           estimatedSaving={successPopup.estimatedSaving}
+          voucherType={voucher.type}
           voucherTitle={voucher.title}
           merchantName={voucher.merchant.businessName}
           merchantLogoUrl={voucher.merchant.logoUrl ?? null}
@@ -1609,9 +1626,13 @@ export function VoucherDetailScreen() {
             // Closes deferred-followups §AG9 (post-PR-#49).
             setSuccessPopup(null)
             setShowToStaff({
-              code:       successPopup.redemptionCode,
-              redeemedAt: successPopup.redeemedAt,
-              branchName: branchName ?? '',
+              code:               successPopup.redemptionCode,
+              redeemedAt:         successPopup.redeemedAt,
+              branchName:         branchName ?? '',
+              // PR-B T1 — capture identity payload at open-time so the
+              // vertical-receipt surface always has it.
+              voucherDescription: voucher.description,
+              merchantLogoUrl:    voucher.merchant.logoUrl ?? null,
             })
           }}
           onDone={() => setSuccessPopup(null)}
@@ -1664,7 +1685,20 @@ export function VoucherDetailScreen() {
           redemptionCode={showToStaff.code}
           voucherTitle={voucher.title}
           voucherType={voucher.type}
+          // PR-B T1 — vertical-receipt payload.  Captured in
+          // `showToStaff` state alongside the existing `branchName`
+          // snapshot for visual consistency on the receipt: branch
+          // attribution can flip mid-modal via the URL param +
+          // `displayBranch` resolver, and once we're snapshotting one
+          // identity field we keep the description + logo on the
+          // same snapshot rhythm.  `voucherTitle` / `voucherType` /
+          // `merchantName` continue to read from the live `voucher`
+          // query — voucher-level identity is stable mid-session by
+          // contract (voucher id doesn't change while the modal is
+          // open).
+          voucherDescription={showToStaff.voucherDescription}
           merchantName={voucher.merchant.businessName}
+          merchantLogoUrl={showToStaff.merchantLogoUrl}
           branchName={showToStaff.branchName}
           customerName=""
           redeemedAt={showToStaff.redeemedAt}
@@ -1850,12 +1884,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // Hero dimming — applied when the redeemed seal is surfaced
-  // (post-2h handoff window OR validated). Just a static opacity;
-  // full washed-out coupon visual treatment is deferred to §Q1.
-  heroDimmed: {
-    opacity: 0.55,
-  },
+  // (Hero dimming was previously a wrapping `<View style={heroDimmed}>`
+  // around the entire CouponHeader subtree — that washed out the back /
+  // share / favourite nav buttons too.  PR-B T8h moves the dim INTO
+  // CouponHeader as a `dimmed` prop applied selectively to the gradient
+  // + content + saveBadge.  The wrapper + style here are intentionally
+  // gone.)
+
   // Hero-seal overlay positioning (locked 2026-05-09, PR #49 device
   // QA wave 4). The seal mounts as an absolute overlay anchored to
   // the hero so it sits ON TOP of the dimmed banner — like a

@@ -4,31 +4,43 @@ import { BlurView } from 'expo-blur'
 import QRCode from 'react-native-qrcode-svg'
 import { color, radius } from '@/design-system/tokens'
 import { codeAccessibilityLabel } from '../utils/formatRedemptionCode'
+import { RedeemoLogo } from '@/features/auth/components/RedeemoLogo'
 
 /**
  * Show-to-Staff QR code block (M3 Task 9).
  *
  * Renders the 8-character redemption code as a QR with a Redeemo "R"
- * mark overlay. Adapted from the `feature/customer-app` reference
- * implementation, fitted to current main:
- *   - 8-char code format (A7K2P9X4) with the spoken-friendly
- *     accessibility label from `codeAccessibilityLabel`.
- *   - `redeemo-r-mark.png` asset (matches the v6 mockup's "R" centre).
- *   - Project tokens (`color.navy`, `radius.md`).
+ * mark overlay.
+ *
+ * **PR-B T8q (impeccable pass) logo-overlay fix:** the previous
+ * `redeemo-r-mark.png` asset was a near-white R on transparent — it
+ * disappeared against the white QR background.  Owner direction:
+ * "the Redeemo logo in the center of the QR code is white, we can't
+ * see it.  Make sure it goes well with the QR code."
+ *
+ * Replaced the PNG `logo` prop with an absolute-positioned overlay
+ * that hosts:
+ *   1. A white "anchor" square (the QR-error-correction mask) that
+ *      visually erases the modules underneath so the brand mark
+ *      sits on a clean canvas.
+ *   2. The canonical `<RedeemoLogo>` SVG component — brand-rose
+ *      `#E20C04` + brand-coral `#E84A00` paths.  Same brand mark
+ *      already used on Show-to-Staff identity zone, auth chrome,
+ *      etc.  No new asset to manage.
+ *
+ * QR scannability: H-level error correction (30% module recovery)
+ * tolerates the centre mask.  Logo size is 18% of the QR diameter,
+ * well within the recovery budget.
  *
  * QR payload contract (locked at M3 plan-time, decision D5): the QR
  * carries the OPAQUE 8-char code only — no URL, no scheme. Generic
- * scanners read it as plain text. Self-validation is impossible
- * because the customer-side `me/:code` endpoint is read-only and the
- * staff `verify` route requires merchant/branch auth — see
- * `src/api/redemption/routes.ts` + plan §Security model.
+ * scanners read it as plain text.
  *
  * Anti-fraud `blurred` state: when `true`, the QR component is NOT
  * rendered. The wrapper shows only a BlurView overlay over a white
  * placeholder. A screenshot taken while blurred captures the blur,
  * NOT the underlying code. The blurred state is a Pressable so the
- * caller can wire `onShow` for tap-to-show recovery (ShowToStaff
- * Task 15 sets `blurred=false` on press).
+ * caller can wire `onShow` for tap-to-show recovery.
  */
 
 const MIN_HERO_SIZE = 200
@@ -51,7 +63,15 @@ type Props = {
 
 export function QRCodeBlock({ value, size, hero, blurred, onShow, testID }: Props) {
   const effectiveSize = hero ? Math.max(size, MIN_HERO_SIZE) : size
-  const logoSize = Math.round(effectiveSize * 0.18)
+  // PR-B T8r owner direction: logo bumped 18% → 20% of the QR
+  // diameter (slightly bigger).  At hero size 200pt, that's a
+  // 36 → 40pt R; anchor follows at 1.3× = 52pt (26% of QR), comfortably
+  // within H-level error-correction tolerance (~30% module recovery).
+  // The anchor multiplier tightened from 1.4 → 1.3 because the navy-
+  // on-white logo doesn't need as much breathing room as the previous
+  // multi-coloured version.
+  const logoSize = Math.round(effectiveSize * 0.20)
+  const logoAnchorSize = Math.round(logoSize * 1.3)
   const sizeStyle = { width: effectiveSize, height: effectiveSize }
 
   if (blurred) {
@@ -81,13 +101,37 @@ export function QRCodeBlock({ value, size, hero, blurred, onShow, testID }: Prop
         color={color.navy}
         backgroundColor="#FFFFFF"
         ecl="H"
-        logo={require('../../../../assets/redeemo-r-mark.png')}
-        logoSize={logoSize}
-        logoBackgroundColor="#FFFFFF"
-        logoMargin={2}
-        logoBorderRadius={4}
         quietZone={4}
       />
+      {/* Brand R overlay — white anchor square + canonical RedeemoLogo
+          SVG.  Sits absolute in the centre of the QR; pointerEvents
+          none so taps reach the wrapper / blurred Pressable.
+          H-level error correction tolerates ~30% module obscurity;
+          this overlay covers ~25% of the QR area and stays well
+          within tolerance.
+
+          PR-B T8r (owner direction): the logo renders in the same
+          navy as the QR modules (`color.navy`) so the brand mark
+          reads as part of the QR's visual system rather than as a
+          separate brand stamp.  The default multi-coloured brand
+          mark (brand-rose / brand-coral / maroon) stays in place
+          on every other surface (auth, voucher hero, success popup,
+          Show-to-Staff identity zone). */}
+      <View
+        pointerEvents="none"
+        testID="qrcode-redeemo-overlay"
+        style={[
+          styles.logoAnchor,
+          {
+            top: (effectiveSize - logoAnchorSize) / 2,
+            left: (effectiveSize - logoAnchorSize) / 2,
+            width: logoAnchorSize,
+            height: logoAnchorSize,
+          },
+        ]}
+      >
+        <RedeemoLogo size={logoSize} color={color.navy} />
+      </View>
     </View>
   )
 }
@@ -99,5 +143,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  // PR-B T8q: white anchor square hosting the brand SVG.  Lives as
+  // an absolute child of the QR wrapper so the QR modules render
+  // beneath; the white square visually masks them in the centre.
+  logoAnchor: {
+    position: 'absolute',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 })

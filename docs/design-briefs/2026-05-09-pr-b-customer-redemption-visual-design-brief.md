@@ -544,3 +544,95 @@ This brief does NOT mutate any code until owner approves. After approval:
 - [ ] Device QA checklist (§10) — adopted as the merge gate
 
 Once approved, the implementation plan ([2026-05-09-pr-b-customer-redemption-visual-design-pass.md](../superpowers/plans/2026-05-09-pr-b-customer-redemption-visual-design-pass.md)) drives the work task-by-task with TDD where applicable.
+
+---
+
+## §A. As Shipped (T8 device-QA + impeccable rounds, locked at PR head `545882a`)
+
+The implementation diverged from the initial brief in several owner-direction-driven ways during the 12-round T8 device-QA + impeccable-pass cycle. This addendum captures the final shipped contract per surface; the body sections above are preserved as the original brief intent.
+
+### A.1. Merchant-profile voucher card redeemed-state (was §3.5 single-word "REDEEMED" stamp)
+
+**Final shipped state** (T5 → T8i → T8j → T8k):
+
+- Stamp text: **"Voucher Redeemed"** two words (was "REDEEMED" single word at brief §3.5).
+- Position: **centered overlay across the card hero** (was top-right corner at brief §3.5; the absolute placement collided with the heart icon at narrower widths and read as "sticker affixed to product" rather than "voucher used").
+- Visual treatment: **diagonal Mustica Pro Semibold 22pt cancellation overprint at -10° rotation, brand-rose @ α 0.32, letter-spacing 5pt, NO backdrop / NO border / NO shadow** (was rubber-stamp small variant per brief §3.5; the rubber-stamp aesthetic at small scale read as "cheap" per owner T8h direction).
+- Entry motion: scale 1.18→1.0 + opacity 0→1, 320ms ease-out-quart, reduced-motion safe.
+- Card body recession: cream wash overlay 0.55 alpha + flat shadow + brand-R watermark muted 0.14→0.06 — DESIGN.md "Flat-By-Default Rule" (active cards lift, redeemed cards sit).
+- "Already redeemed this cycle" inline label below saving block: **preserved verbatim from the brief.**
+- Title + description full opacity: **preserved verbatim per brief §3.5 anti-reference.**
+- VoucherContextLabel: count drops by `redeemedVoucherIds.size`, "All offers redeemed this cycle" copy when count = 0 + totalCount > 0 (T8h).
+
+**Closes:** deferred-followups §Q4 fully.
+
+### A.2. Show-to-Staff (was §3.1 cream Apple-Wallet pass / vertical receipt)
+
+**Final shipped state** (T8c → T8f → T8g → T8h → T8p → T8r):
+
+- Register: **solid brand navy `#010C35` base + brand-rose 25/10/0 glow overlay** (was cream Apple-Wallet-pass identity zone at brief §3.1; T8c shifted to navy trust surface for brand correctness — the brief's cream register was rejected as "nothing to do with our branding" mid-implementation).
+- Identity zone: **horizontal Redeemo lockup top-left** (R icon + "Redeemo" wordmark, 6pt gap) — owner T8r direction tightened from 10pt to 6pt for cohesive lockup.
+- Eyebrow: **"Present to Staff"** in brand-rose all-caps `label.eyebrow` (T8h) — replaces misleading "Verified Voucher" copy (the voucher isn't verified until staff scans the QR).
+- Content discipline: only LIVE pulsing dot + QR + 4+4 code chip + live ticking clock live INSIDE the animated brand-rose code-card border. Voucher-type chip moved ABOVE QR card; redeemed timestamp moved BELOW.
+- Code chip (T8g): pale brand-rose tinted chip wrapping the 4+4 code so it reads as a distinct scannable block separate from the QR.
+- Code typography (T8p): Lato Bold 28pt + 4pt letter-spacing per DESIGN.md "Mono Redemption Rule" (was `display.md` Mustica Pro 26pt + ls 5; the variant is reserved for the redemption code surface only).
+- Receipt rows below QR card: split into **"Date Redeemed"** + **"Time Redeemed"** rows (with seconds) — was single combined row at brief.
+- Done button (T8g): **brand-rose gradient pill at the bottom**, replacing X close icon top-right (single dismissal affordance; Modal.onRequestClose continues to wire hardware back).
+- QR overlay logo (T8q + T8r): canonical `<RedeemoLogo>` SVG component recoloured **navy** (matches QR modules), bumped 18%→20% of QR diameter, white anchor square at 1.3× the logo for a clean centre — replaces the previous near-white PNG asset that was invisible against the white QR background.
+
+**All anti-fraud surfaces preserved verbatim:** `useScreenCaptureProtection`, `useScreenshotGuard`, `useBrightnessBoost`, `useAutoHideTimer`, `useRedemptionPolling`, 2-hour presentation window, validated transition + 2s auto-dismiss, AppState backgrounding contract.
+
+### A.3. SuccessPopup (was §3.2 subtle celebration motion)
+
+**Final shipped state** (T8b → T8e → T8n → T8o):
+
+- Hero: **solid brand navy + brand-rose 25/10/0 glow overlay** (T8e brand-correctness fix replaces the fabricated 2-stop navy gradient that violated the brand lock — only one navy is brand-locked).
+- Title: **"Voucher redeemed successfully"** at `display.sm` Mustica Pro Semibold 22pt + −0.3 tracking (was `heading.md` Lato Semibold 18 + fontWeight 800 override; T8n moves to display tier per Mustica-for-Display Rule for the celebration moment).
+- Voucher-type chip in second hero row (T8e): outlined brand-rose 70% pill against the navy hero (was no chip at brief; owner direction added the type chip so customers see WHAT they redeemed at the success moment).
+- Saving callout signature: **"You saved" + £X.XX count-up at `display.md` Mustica Pro Semibold 26pt + −0.5 tracking** (T8n elevation per DESIGN.md "saving is the data; data is the hero"). The savings-green count-up is the popup's signature.
+- Green check ring (T8o owner direction): **30pt diameter inside a 44pt slot, 18pt glyph, SparkleRing halo at 64pt** (was 22pt / 36pt / 14pt / 56pt — owner asked for "increase the size of the green tick icon").
+- Primary CTA: brand red→coral gradient `View voucher code`, radius `radius.md` (12), shadow `0.20 / 14` per Glow-is-the-CTA Rule.
+- Rate & Review pill (T8e): **skeleton-red treatment** — outlined brand-rose, transparent fill, brand-rose Star icon + label (was filled navy gradient at PR-C T16 → owner direction "skeleton red button with the typography in red, and the icon as well, without having a solid color inside").
+- X close icon top-right of hero (PR-C T16 device-QA fix wave 2).
+- **Code rendering, anti-fraud disclosure, `useScreenCaptureProtection` ALL REMOVED** mid-PR-A (locked at §0.9). The popup is no longer a sensitive code surface — code lives on `<ShowToStaff>` + persisted `<RedemptionDetailsCard>`. The brief §3.2 confetti remained deferred (folded into §S2 future polish pass).
+
+### A.4. Voucher Detail hero seal — REVERTED to pre-`8802084` (T8i)
+
+A T8h "premium hairline" redesign was applied to the wrong surface (the Voucher Detail hero `RedeemedSeal`). Owner direction at T8i: restore the original rubber-stamp design exactly as approved pre-`8802084`. The refined hairline-accent treatment moved to the Merchant Profile voucher card stamp (§A.1) where it was always intended.
+
+**Final shipped Voucher Detail hero:** owner-approved rubber-stamp `RedeemedSeal` design — tilt -8°, ink-fade band, ink-mid band, cream speckles, ink-pressure textShadow, stamp-impact entrance with overshoot. **Preserved verbatim** from the M3 baseline.
+
+`CouponHeader` still receives a `dimmed` prop for the redeemed-state visual recession, but applied SELECTIVELY to gradient + content + saveBadge ONLY — the nav row (back / share / favourite) stays full opacity per owner T8h direction. T8h additionally added merchant-profile cache invalidation in `useRedeem.onSuccess` so the Voucher tab card flips to redeemed state immediately on return.
+
+### A.5. PinEntrySheet (was §5.4 audit-only)
+
+Initial brief was audit-only. T8m impeccable pass closed token-alignment gaps without touching any owner-iterated decision (subtitle two-line treatment, disclaimer D2 copy, sentence-per-line lockout discipline all preserved verbatim):
+
+- Title: `heading.md` + 800 override → `display.sm` Mustica Pro 22pt + −0.3 tracking.
+- PIN boxes idle bg: `color.cream` → `color.surface.tint` (Cream-for-Identity Rule); border weight 2→1.5px; radius `lg`→`md`; idle border hardcoded → `color.border.subtle` token.
+- Disclaimer card bg: `color.cream` → `color.surface.tint`.
+- Backend error banner: hardcoded amber `#92400E` → `color.warning` token.
+- Lockout body: hardcoded amber → `color.text.secondary` (was inconsistent with the danger-red title and timer).
+- Submit: radius `lg`→`md`, shadow `0.30 / 24` → `0.20 / 18`, label `body.md` + 800 override → `heading.sm`.
+- Header bottom border: 1px → `StyleSheet.hairlineWidth`.
+
+### A.6. Voucher BranchPickerSheet (NEW scope add — was not in the original brief)
+
+T8l impeccable pass on the voucher-redemption branch picker (the sheet that opens when the user is about to redeem):
+
+- Title: `heading.md` + 800 override → `display.sm` Mustica Pro 22pt + −0.3 tracking (gateway moment between branch confirmation and redemption — Mustica-for-Display Rule).
+- Branch rows: per-row bordered cards → list with hairline `StyleSheet.hairlineWidth` dividers (No-Card-On-Card Rule — rows inside a sheet are nested cards).
+- MapPin icon: 32×32 grey-square wrapper → inline 20pt icon (drops the SaaS-y wrapper).
+- Selected row bg: `color.cream` → `color.surface.tint` per Cream-for-Identity Rule (cream is identity-zone framing; surface.tint is the quieter cream-adjacent reserved for state).
+- Confirm CTA: radius `lg`→`md`, shadow `0.30 / 24` → `0.20 / 18`, label `body.md`→`heading.sm`.
+
+### A.7. Test totals at merge (`545882a`)
+
+- Customer-app jest full suite: **1309/1310 ✅** (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts` — documented existing-state, not introduced by PR-B).
+- Voucher + merchant scope: **941/941 ✅** across 77 suites.
+- Backend vitest: **553/553 ✅** across 60 files.
+- `tsc --noEmit` (customer-app): clean.
+
+### A.8. Closed deferrals
+
+- **§Q4 — Merchant Profile redeemed-card treatment** — closed via T5 + T8a (backend `isRedeemedThisCycle` flag) + T8j (card-body recession) + T8k (diagonal Mustica overprint stamp).

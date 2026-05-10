@@ -128,3 +128,27 @@ export function formatShowToStaffRedeemed(d: Date, timeZone: string = DEFAULT_TZ
   if (!p) return ''
   return `${pad2(p.day)} ${MONTH_SHORT_EN[p.month - 1]} ${p.year}, ${pad2(p.hour)}:${pad2(p.minute)}`
 }
+
+/**
+ * Date-only half of the receipt detail row on Show-to-Staff (PR-B T8g):
+ * "08 May 2026". Splits the previous combined `formatShowToStaffRedeemed`
+ * line into a dedicated Date row so staff can scan the redemption date
+ * independent of the time. Pairs with `formatShowToStaffRedeemedTime`.
+ */
+export function formatShowToStaffRedeemedDate(d: Date, timeZone: string = DEFAULT_TZ): string {
+  const p = getParts(d, timeZone)
+  if (!p) return ''
+  return `${pad2(p.day)} ${MONTH_SHORT_EN[p.month - 1]} ${p.year}`
+}
+
+/**
+ * Time-only half of the receipt detail row on Show-to-Staff (PR-B T8g):
+ * "14:24:38". Includes seconds — staff use this to corroborate against
+ * the live ticking clock in the QR card and the merchant-side
+ * validation timestamp (precise to the second on backend).
+ */
+export function formatShowToStaffRedeemedTime(d: Date, timeZone: string = DEFAULT_TZ): string {
+  const p = getParts(d, timeZone)
+  if (!p) return ''
+  return `${pad2(p.hour)}:${pad2(p.minute)}:${pad2(p.second)}`
+}
