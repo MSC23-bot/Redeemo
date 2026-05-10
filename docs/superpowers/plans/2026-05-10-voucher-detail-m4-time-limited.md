@@ -12,16 +12,17 @@
 
 ## 0. Sequencing recommendation — docs-only PR FIRST
 
-Local main is currently **3 doc-only commits** ahead of `origin/main`:
+Local main is currently **4 doc-only commits** ahead of `origin/main`:
 - `a8a9117` — initial M4 spec
-- `c6ff5a4` — five review amendments
+- `c6ff5a4` — five spec amendments
 - `db4cadd` — TIME_LIMITED M4 implementation plan (this document)
+- `99ce632` — five plan amendments (this commit)
 
-**Recommendation: ship one docs-only PR carrying all 3 commits BEFORE M4a starts.** Same precedent as PR #62.
+**Recommendation: ship one docs-only PR carrying all 4 commits BEFORE M4a starts.** Same precedent as PR #62.
 
-Expected PR scope: **3 commits, 2 files**
+Expected PR scope: **4 commits, 2 files**
 - `docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md` (created by `a8a9117`, modified by `c6ff5a4`)
-- `docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md` (created by `db4cadd`)
+- `docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md` (created by `db4cadd`, modified by `99ce632`)
 
 Reasons:
 1. The spec is the contract M4a/M4b/M4c refer to. Having it AND the plan on `origin/main` lets each PR description cite both by SHA, not by "see my local main."
@@ -109,12 +110,13 @@ The plan itself does NOT bundle the spec/plan commits; they ride in their own PR
 ```bash
 git log --oneline origin/main..HEAD
 ```
-Expected: 3 lines —
+Expected: 4 lines —
+- `99ce632 docs(plan): TIME_LIMITED M4 — five owner-review amendments`
 - `db4cadd docs(plan): TIME_LIMITED M4 implementation plan (3-PR sequence)`
 - `c6ff5a4 docs(spec): TIME_LIMITED M4 — five review amendments`
 - `a8a9117 docs(spec): TIME_LIMITED M4 design spec — locked at brainstorm 2026-05-10`
 
-If origin already has all 3 (e.g. someone else merged them), skip to 0.0.4.
+If origin already has all 4 (e.g. someone else merged them), skip to 0.0.4.
 
 - [ ] **Step 0.0.2 — Open the docs-only PR.**
 
@@ -124,11 +126,12 @@ git push -u origin docs/m4-time-limited-spec-and-plan
 gh pr create --title "docs(spec,plan): TIME_LIMITED M4 — locked spec + implementation plan" --body "$(cat <<'EOF'
 ## Summary
 
-Three doc-only commits landing the locked TIME_LIMITED M4 design spec AND the implementation plan on origin/main ahead of M4a/M4b/M4c implementation:
+Four doc-only commits landing the locked TIME_LIMITED M4 design spec AND the implementation plan on origin/main ahead of M4a/M4b/M4c implementation:
 
 - a8a9117 — initial M4 spec
-- c6ff5a4 — five owner-review amendments
+- c6ff5a4 — five spec amendments (owner review)
 - db4cadd — TIME_LIMITED M4 implementation plan (3-PR sequence)
+- 99ce632 — five plan amendments (owner review)
 
 No code changes. The spec is the contract M4a/M4b/M4c will implement against; the plan is the execution roadmap with full TDD discipline.
 
@@ -157,8 +160,8 @@ gh api "repos/MSC23-bot/Redeemo/compare/main...${HEAD_SHA}" --jq '{ahead_by, tot
 Expected (verbatim):
 ```json
 {
-  "ahead_by": 3,
-  "total_commits": 3,
+  "ahead_by": 4,
+  "total_commits": 4,
   "files_changed": 2,
   "files": [
     "docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md",
