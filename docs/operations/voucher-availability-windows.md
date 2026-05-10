@@ -68,6 +68,20 @@ Index: `(voucherId)`.
 
 Note: `nextWindowAt` is FLAT on `error`, NOT nested under `error.details`. Customer-app reads it via the `details` spread in `ApiClientError` (see `apps/customer-app/src/lib/api.ts` lines 181-199) and the `RedemptionErrorSchema` discriminated union in `apps/customer-app/src/lib/api/redemption.ts`.
 
+#### Schedule string is derived CLIENT-SIDE, not on the wire
+
+The error payload returns ONLY `nextWindowAt`. **The schedule string ("Mon-Fri, 11am-3pm", "Tuesdays, 6-10pm" etc.) is NOT on the wire** — it is derived client-side by the customer-app's `scheduleString` formatter from `voucher.availabilityWindows`, which is already on every customer payload.
+
+This is an intentional deviation from spec §3.9's original `{ nextWindowAt, schedule }` framing. Reasons:
+
+- Single source of truth: `availabilityWindows` is the canonical schedule data; deriving the string client-side avoids duplicating the formatter implementation (day-name compaction + 12-hour conversion + `"24:00"` sentinel merging) on the server.
+- The customer-app needs the formatter anyway for `<TimeLimitedDetailsCard>` "Available during" rendering — making it the natural canonical source.
+- The error envelope stays minimal — no per-locale schedule pre-formatting needed if the platform ever expands internationally.
+
+**Implication for M4b:** the graceful boundary-race recovery copy ("This window just closed. Try again next window: Tue 11am") composes the day/time string client-side from the voucher's `availabilityWindows` + the `nextWindowAt` instant from the error payload. No backend payload change is needed.
+
+Tracked as **deferred-followup §AJ3** in `~/.claude/projects/.../memory/project_deferred_followups_index.md`.
+
 ## Customer payload
 
 Both `GET /api/v1/customer/vouchers/:id` and the voucher rows in `GET /api/v1/customer/merchants/:id` carry the same TIME_LIMITED fields:

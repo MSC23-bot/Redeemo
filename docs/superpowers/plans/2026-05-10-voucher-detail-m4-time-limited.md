@@ -6021,3 +6021,50 @@ Plan complete and saved to `docs/superpowers/plans/2026-05-10-voucher-detail-m4-
 **Pre-flight:** before either option begins, complete Task 0 (Pre-flight) — ship the docs-only spec PR (`a8a9117` + `c6ff5a4`) to align local main with origin, then cut the M4a feature branch from updated main.
 
 **Which approach do you prefer?**
+
+
+---
+
+# M4a — As shipped (PR #64, 2026-05-11)
+
+Captured at PR #64 merge time per the PR-C convention. The 3-PR sequence is unchanged; M4a shipped 11 commits across 30 files with these deltas from the original plan:
+
+## Deviations from the plan (locked at code-review time)
+
+1. **`schedule` field dropped from `VOUCHER_OUTSIDE_AVAILABILITY_WINDOW` payload** (M4a-6). Plan/spec originally listed `{ nextWindowAt, schedule }`; shipped wire payload contains only `nextWindowAt`. Schedule string is derived client-side by M4b's `scheduleString` formatter from `availabilityWindows` (which is already on every customer payload). Single source of truth, avoids duplicating the formatter server-side. Documented in `docs/operations/voucher-availability-windows.md` "Schedule string is derived CLIENT-SIDE, not on the wire" and tracked as §AJ3 in deferred-followups.
+
+2. **Mocked-Prisma redemption tests over real-DB Fastify-inject** (M4a-6 + M4a-6.1). Plan called for `app.inject()` route-layer integration tests with real `prisma.subscription.create` setup. Subagent used mocked Prisma asserting on `AppError.toJSON()` directly — faster, deterministic, matches the existing `createRedemption.error-payloads.test.ts` convention. Pins the AppError shape unambiguously; does NOT pin Postgres-actually-fires-P2002 under concurrent writes. Tracked as §AJ1 for a real-DB concurrent-write test at PR-2 hardening or next redemption-flow touch.
+
+3. **Service-layer regex defence-in-depth** (M4a-7). Subagent added `OPEN_TIME_REGEX` / `CLOSE_TIME_REGEX` guards inside `validateAvailabilityWindows()` in addition to the Zod-layer route schema. Direct service callers (tests, future internal helpers) get the same validation. Reasonable defence-in-depth.
+
+4. **`RedemptionErrorSchema` discriminatedUnion over a switch-based mapper** (M4a-8). Codebase pattern uses Zod discriminatedUnion + `toRedemptionError` rather than a `mapRedemptionError(body)` switch. Subagent extended the union with two new members — semantically identical, idiomatic for the codebase, defensive negative-pin against nested `error.details.nextWindowAt` shape preserved.
+
+5. **Non-interactive Prisma migration workaround documented** (M4a-6.1). `npx prisma migrate dev` fails in non-interactive shells (subagent execution). Workaround: `prisma migrate diff --script` + manual migration dir + `prisma migrate deploy`. Documented in the ops doc so future subagents inherit the pattern.
+
+6. **Plan-prose drifts fixed at Gate C wrap** (M4a-9):
+   - M4a-3 task header "13 cases" → "12 cases" (code block has 12 `it()` blocks; prose typo).
+   - M4a-6 test code: import `'../shared/encryption'` (not `'../shared/crypto'`), `customerRedemptionRoutes` (not `redemptionRoutes`), 5th `baseCtx` arg added to all 10 `createRedemption()` call sites.
+   - Plan + spec nested `error.details.nextWindowAt` references replaced with flat `error.nextWindowAt` throughout.
+
+7. **`_ForTests` → production-safe schema rename** (M4a-9.1). Owner-flagged pre-PR cleanup: `_availabilityWindowSchemaForTests` / `_windowOccurrenceSchemaForTests` were misleading because the shared sub-schemas are real production code, not test-only. Renamed to `availabilityWindowSchema` / `windowOccurrenceSchema`. Top-level `_voucherDetailSchemaForTests` / `_merchantVoucherSchemaForTests` kept as correct test-only seams.
+
+## Test totals at PR #64 head (b2497ee)
+
+- Backend full sweep: **616/616** ✅ zero flakes
+- Customer-app full sweep: **1327/1328** ✅ (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts` per `project_current_state.md`, unchanged)
+- Net new tests: 103 (85 backend + 18 customer-app)
+- TSC: zero new errors on M4 surface
+- Prisma migrations: 31 total (was 29; +2 additive — `add_voucher_availability_window`, `voucher_redemption_window_unique`)
+
+## Deferred-followups captured at PR-#64-review time
+
+See `~/.claude/projects/.../memory/project_deferred_followups_index.md` §AJ:
+
+- **AJ1** — Real-DB concurrent-write test for `windowStartsAt` unique-index race protection. Pick up at PR-2 hardening or next redemption-flow touch.
+- **AJ2** — Fresh redemption-code retry loop for rare `redemptionCode` P2002 collisions. Pick up next time redemption flow is touched.
+- **AJ3** — Spec deviation: `schedule` payload field derived client-side, not on the wire. ✅ Documented (this addendum + ops doc).
+- **AJ4** — Optional perf: gate `availabilityWindows` Prisma include to TIME_LIMITED vouchers if profiling shows it matters.
+
+## M4b kickoff
+
+After PR #64 merges + local main fast-forwards, M4b cuts `feature/voucher-m4b-customer-app-voucher-detail` and begins customer-app Voucher Detail un-stub + 5 new state-machine branches + countdown system v2 + §AH copy reconciliation per the plan's M4b section.
