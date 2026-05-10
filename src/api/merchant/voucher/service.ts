@@ -12,6 +12,115 @@ function generateVoucherCode(prefix: string): string {
   return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`
 }
 
+// ─── M4a-7: TIME_LIMITED availability-window validation ─────────────────────
+//
+// Enforces spec §3.2 rules 1-4 + 7 + type-attachment (D2 lock):
+//   1. Each row = one window-occurrence (split-day allowed).
+//   2. Half-open ranges accept back-to-back non-overlap (rule encoded via
+//      `<` strict inequality on overlap check).
+//   3. "24:00" sentinel allowed ONLY as closeTime, NEVER as openTime; no
+//      cross-midnight in single row (closeTime > openTime enforced).
+//   4. No overlapping windows for same (voucherId, dayOfWeek).
+//   7. submitVoucher rejects TIME_LIMITED with zero windows (enforced in
+//      submitVoucher, not here).
+//
+// Branch-hours overlap (rule 5) NOT enforced in v1.
+// Wall-clock Europe/London semantics (rule 6) is convention, not enforced.
+
+type AvailabilityWindowInput = {
+  dayOfWeek: number
+  openTime:  string
+  closeTime: string
+}
+
+// Mirror parseTimeString from shared/voucherAvailability.ts but with the
+// "24:00" sentinel accepted (validation-layer only — the runtime
+// window-occurrence math uses its own parser keyed to UTC anchors).
+function parseTimeStringToMinutes(s: string): number {
+  if (s === '24:00') return 1440
+  const [hh, mm] = s.split(':').map(n => parseInt(n, 10))
+  return hh * 60 + mm
+}
+
+// Service-layer format validation. The Zod schemas in routes.ts catch
+// malformed strings at the HTTP boundary; this defense-in-depth check
+// covers direct service-call paths (tests, batch jobs, future internal
+// callers).
+const OPEN_TIME_REGEX  = /^([01]\d|2[0-3]):[0-5]\d$/
+const CLOSE_TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$|^24:00$/
+
+function validateAvailabilityWindows(
+  type: string,
+  windows: AvailabilityWindowInput[] | undefined,
+): void {
+  if (!windows || windows.length === 0) return // empty is valid at create time (draft)
+
+  // Type-attachment rule (D2 lock): windows are TIME_LIMITED only.
+  if (type !== 'TIME_LIMITED') {
+    throw new AppError('INVALID_AVAILABILITY_WINDOWS', {
+      reason: 'availabilityWindows are only valid on TIME_LIMITED vouchers',
+    })
+  }
+
+  // Per-row validation
+  for (let i = 0; i < windows.length; i++) {
+    const w = windows[i]
+
+    // Format validation (defense-in-depth — Zod also catches this at the HTTP
+    // boundary, but service-layer callers may bypass routes.ts).
+    if (!OPEN_TIME_REGEX.test(w.openTime)) {
+      throw new AppError('INVALID_AVAILABILITY_WINDOWS', {
+        reason: `windows[${i}].openTime must be HH:mm in [00:00, 23:59] (got "${w.openTime}")`,
+      })
+    }
+    if (!CLOSE_TIME_REGEX.test(w.closeTime)) {
+      throw new AppError('INVALID_AVAILABILITY_WINDOWS', {
+        reason: `windows[${i}].closeTime must be HH:mm in [00:01, 23:59] OR "24:00" (got "${w.closeTime}")`,
+      })
+    }
+
+    // Reject "24:00" as openTime (regex-allowed only in closeTime).
+    if (w.openTime === '24:00') {
+      throw new AppError('INVALID_AVAILABILITY_WINDOWS', {
+        reason: `windows[${i}].openTime cannot be "24:00"`,
+      })
+    }
+
+    // closeTime > openTime arithmetic check (cross-midnight rejected).
+    const openMin  = parseTimeStringToMinutes(w.openTime)
+    const closeMin = parseTimeStringToMinutes(w.closeTime)
+    if (closeMin <= openMin) {
+      throw new AppError('INVALID_AVAILABILITY_WINDOWS', {
+        reason: `windows[${i}].closeTime must be after openTime`,
+      })
+    }
+  }
+
+  // Overlap check: for each (voucherId, dayOfWeek) group, sort by openTime
+  // and verify no later openTime is < previous closeTime. Strict `<` so
+  // back-to-back boundary touches (e.g. 11-15 + 15-18) are valid.
+  const byDay = new Map<number, Array<{ open: number; close: number; idx: number }>>()
+  windows.forEach((w, idx) => {
+    const arr = byDay.get(w.dayOfWeek) ?? []
+    arr.push({
+      open: parseTimeStringToMinutes(w.openTime),
+      close: parseTimeStringToMinutes(w.closeTime),
+      idx,
+    })
+    byDay.set(w.dayOfWeek, arr)
+  })
+  for (const [day, rows] of byDay) {
+    rows.sort((a, b) => a.open - b.open)
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i].open < rows[i - 1].close) {
+        throw new AppError('INVALID_AVAILABILITY_WINDOWS', {
+          reason: `windows[${rows[i].idx}] overlaps with windows[${rows[i - 1].idx}] on dayOfWeek=${day}`,
+        })
+      }
+    }
+  }
+}
+
 // ─── Custom Vouchers ────────────────────────────────────────────────────────
 
 export async function listVouchers(prisma: PrismaClient, adminId: string) {
@@ -46,11 +155,17 @@ export async function createVoucher(
     terms?: string
     imageUrl?: string
     expiryDate?: string
+    availabilityWindows?: AvailabilityWindowInput[]
   },
   ctx: { ipAddress: string; userAgent: string }
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // M4a-7: validate windows BEFORE the Prisma create. Type-attachment +
+  // per-row format + per-day overlap checks all run synchronously.
+  validateAvailabilityWindows(data.type, data.availabilityWindows)
+
   const code = generateVoucherCode('RCV')
+  const hasWindows = !!data.availabilityWindows && data.availabilityWindows.length > 0
   const voucher = await prisma.voucher.create({
     data: {
       merchantId,
@@ -66,7 +181,11 @@ export async function createVoucher(
       expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
       status: 'DRAFT',
       approvalStatus: 'PENDING',
+      ...(hasWindows
+        ? { availabilityWindows: { create: data.availabilityWindows } }
+        : {}),
     },
+    include: { availabilityWindows: true },
   })
   writeAuditLog(prisma, {
     entityId: merchantId,
@@ -89,6 +208,7 @@ export async function updateVoucher(
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: false },
+    include: { availabilityWindows: true },
   })
   if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
   if (!EDITABLE_STATUSES.includes(voucher.status as any)) {
@@ -110,9 +230,44 @@ export async function updateVoucher(
   }
   if (data.expiryDate) safe.expiryDate = new Date(data.expiryDate as string)
 
+  // M4a-7: resolve effective type (post-merge) and effective windows.
+  // Type-change rule: TIME_LIMITED → other type rejected when windows still attached.
+  // Window-replacement rule: if `availabilityWindows` is supplied, replace
+  // existing rows wholesale (deleteMany + create).
+  const effectiveType =
+    typeof data.type === 'string'
+      ? data.type
+      : (voucher.type as unknown as string)
+
+  const windowsSupplied = 'availabilityWindows' in data
+  const newWindows = windowsSupplied
+    ? (data.availabilityWindows as AvailabilityWindowInput[] | undefined)
+    : undefined
+
+  const existingWindowCount = (voucher.availabilityWindows ?? []).length
+
+  if (windowsSupplied) {
+    // Validate the new set against the effective type.
+    validateAvailabilityWindows(effectiveType, newWindows)
+  } else if (effectiveType !== 'TIME_LIMITED' && existingWindowCount > 0) {
+    // Type change away from TIME_LIMITED while windows still attached → reject.
+    throw new AppError('INVALID_AVAILABILITY_WINDOWS', {
+      reason: 'Cannot change voucher type away from TIME_LIMITED while availability windows are attached. Clear windows first.',
+    })
+  }
+
+  const updateData: Record<string, unknown> = { ...safe }
+  if (windowsSupplied) {
+    updateData.availabilityWindows = {
+      deleteMany: {},
+      ...(newWindows && newWindows.length > 0 ? { create: newWindows } : {}),
+    }
+  }
+
   const updated = await prisma.voucher.update({
     where: { id: voucherId },
-    data: safe,
+    data: updateData as any,
+    include: { availabilityWindows: true },
   })
   writeAuditLog(prisma, {
     entityId: merchantId,
@@ -134,10 +289,20 @@ export async function submitVoucher(
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: false },
+    include: { availabilityWindows: true },
   })
   if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
   if (!SUBMITTABLE_STATUSES.includes(voucher.status as any)) {
     throw new AppError('VOUCHER_NOT_SUBMITTABLE')
+  }
+
+  // M4a-7 Rule 7: TIME_LIMITED vouchers MUST have at least one availability
+  // window before they can be submitted for approval / published.
+  if (
+    voucher.type === 'TIME_LIMITED' &&
+    (voucher.availabilityWindows ?? []).length === 0
+  ) {
+    throw new AppError('TIME_LIMITED_REQUIRES_WINDOW')
   }
 
   const updated = await prisma.voucher.update({
