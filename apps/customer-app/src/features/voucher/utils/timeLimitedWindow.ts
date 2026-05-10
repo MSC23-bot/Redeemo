@@ -51,7 +51,12 @@ export function parseTimeString(s: string): number {
   if (!TIME_REGEX.test(s)) {
     throw new Error(`parseTimeString: invalid time format "${s}"`)
   }
-  const [hh, mm] = s.split(':').map(n => parseInt(n, 10))
+  // TIME_REGEX guarantees the 2-part shape, but TS's noUncheckedIndexedAccess
+  // widens split() results to (string | undefined)[]. Default to '0' for the
+  // narrowing — would never actually fire after the regex check.
+  const parts = s.split(':')
+  const hh = parseInt(parts[0] ?? '0', 10)
+  const mm = parseInt(parts[1] ?? '0', 10)
   return hh * 60 + mm
 }
 
@@ -121,7 +126,7 @@ export function getNextWindowOccurrence(
   candidates.sort((a, b) =>
     a.dayOffset !== b.dayOffset ? a.dayOffset - b.dayOffset : a.openMin - b.openMin,
   )
-  const c = candidates[0]
+  const c = candidates[0]!  // guarded by length check above
   return {
     startsAt: londonDateAtMinute(now, c.dayOffset, c.openMin),
     endsAt:   londonDateAtMinute(now, c.dayOffset, c.closeMin),
@@ -168,7 +173,7 @@ export function getMostRecentlyClosedWindowOccurrence(
   candidates.sort((a, b) =>
     a.dayOffset !== b.dayOffset ? a.dayOffset - b.dayOffset : b.closeMin - a.closeMin,
   )
-  const c = candidates[0]
+  const c = candidates[0]!  // guarded by length check above
   return {
     startsAt: londonDateAtMinute(now, -c.dayOffset, c.openMin),
     endsAt:   londonDateAtMinute(now, -c.dayOffset, c.closeMin),
@@ -213,7 +218,7 @@ function londonDateAtMinute(now: Date, dayOffset: number, minute: number): Date 
   let offsetMinutes = 0
   if (m && m[1]) {
     const sign = m[1] === '+' ? 1 : -1
-    offsetMinutes = sign * (parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0))
+    offsetMinutes = sign * (parseInt(m[2] ?? '0', 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0))
   }
 
   // utcMidnight is "00:00 UTC on day D"; we want "00:00 LONDON on day D"

@@ -26,7 +26,12 @@ const DAYS_FULL  = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Fri
 function format12h(time: string): string {
   // "11:00" → "11am", "12:00" → "12pm", "15:00" → "3pm", "24:00" → "12am" (next day)
   if (time === '24:00') return '12am'
-  const [hh, mm] = time.split(':').map(n => parseInt(n, 10))
+  // Inputs are validated upstream (M4a-7 regex), so split-and-parse always yields
+  // two valid integers. Local intermediates are typed as `number` to satisfy
+  // `noUncheckedIndexedAccess`.
+  const parts = time.split(':')
+  const hh = parseInt(parts[0] ?? '0', 10)
+  const mm = parseInt(parts[1] ?? '0', 10)
   const period = hh < 12 ? 'am' : 'pm'
   const h12 = hh === 0 ? 12 : hh <= 12 ? hh : hh - 12
   if (mm === 0) return `${h12}${period}`
@@ -41,14 +46,16 @@ type Group = {
 
 function compactDayList(days: number[]): string {
   // Sort, detect contiguous range. Preserves Sun=0 wraparound for Sat-Sun.
+  // All values are 0-6 (validated upstream in Zod); array indexing with
+  // non-null-assert satisfies TS's noUncheckedIndexedAccess.
   const sorted = [...days].sort((a, b) => a - b)
-  if (sorted.length === 1) return `${DAYS_FULL[sorted[0]]}s`  // plural "Tuesdays"
+  if (sorted.length === 1) return `${DAYS_FULL[sorted[0]!]}s`  // plural "Tuesdays"
 
   // Check contiguous (allow wrap: e.g. [6, 0] = Sat-Sun if 0 follows 6 in cycle).
-  const isContiguous = sorted.every((d, i) => i === 0 || d === sorted[i - 1] + 1)
+  const isContiguous = sorted.every((d, i) => i === 0 || d === sorted[i - 1]! + 1)
   const isWeekendWrap = sorted.length === 2 && sorted[0] === 0 && sorted[1] === 6  // [Sun, Sat]
   if (isContiguous) {
-    return `${DAYS_SHORT[sorted[0]]}-${DAYS_SHORT[sorted[sorted.length - 1]]}`
+    return `${DAYS_SHORT[sorted[0]!]}-${DAYS_SHORT[sorted[sorted.length - 1]!]}`
   }
   if (isWeekendWrap) {
     return 'Sat-Sun'
@@ -70,7 +77,7 @@ export function formatScheduleString(windows: AvailabilityWindow[]): string {
 
   for (let i = 0; i < windows.length; i++) {
     if (consumed.has(i)) continue
-    const w = windows[i]
+    const w = windows[i]!  // bounded by loop guard
     if (w.closeTime === '24:00') {
       const nextDay = (w.dayOfWeek + 1) % 7
       const partnerIdx = windows.findIndex(
@@ -82,7 +89,7 @@ export function formatScheduleString(windows: AvailabilityWindow[]): string {
           dayOfWeek: w.dayOfWeek,
           openTime:  w.openTime,
           closeTime: w.closeTime,  // keep "24:00" as sentinel
-          crossMidnightCloseDisplay: format12h(windows[partnerIdx].closeTime),
+          crossMidnightCloseDisplay: format12h(windows[partnerIdx]!.closeTime),
         })
         consumed.add(i)
         continue
@@ -117,9 +124,9 @@ export function formatScheduleString(windows: AvailabilityWindow[]): string {
     const openDisplay = format12h(g.openTime)
     let renderedOpen = openDisplay
     if (isSingleRange && !partnerCloseDisplay) {
-      const openHour = parseInt(g.openTime.split(':')[0], 10)
+      const openHour = parseInt(g.openTime.split(':')[0] ?? '0', 10)
       const openPeriod = openHour < 12 ? 'am' : 'pm'
-      const closeHour = parseInt(g.closeTime.split(':')[0], 10)
+      const closeHour = parseInt(g.closeTime.split(':')[0] ?? '0', 10)
       const closePeriod = closeHour < 12 || closeHour === 24 ? 'am' : 'pm'
       if (openPeriod === closePeriod && openHour !== 12 && /(am|pm)$/.test(openDisplay)) {
         renderedOpen = openDisplay.replace(/(am|pm)$/, '')
@@ -132,9 +139,9 @@ export function formatScheduleString(windows: AvailabilityWindow[]): string {
   // dayPart and join inner times with "and" instead.
   // (Mondays 11am-3pm + Mondays 6pm-10pm → "Mondays, 11am-3pm and 6pm-10pm")
   if (groupStrings.length > 1) {
-    const firstDayPart = groupStrings[0].split(', ')[0]
+    const firstDayPart = groupStrings[0]!.split(', ')[0]!
     if (groupStrings.every(s => s.startsWith(firstDayPart + ','))) {
-      const timePart = groupStrings.map(s => s.split(', ')[1]).join(' and ')
+      const timePart = groupStrings.map(s => s.split(', ')[1]!).join(' and ')
       return `${firstDayPart}, ${timePart}`
     }
   }

@@ -71,7 +71,9 @@ export function formatDayName(date: Date): string {
   const month = get('month')
   const day   = get('day')
   const dayOfWeek = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
-  return DAYS_FULL[dayOfWeek]
+  // dayOfWeek is 0-6 (Date.getUTCDay) — always in range; non-null-assert
+  // because TS's `noUncheckedIndexedAccess` widens array access to T | undefined.
+  return DAYS_FULL[dayOfWeek]!
 }
 
 export type CountdownInput = {
