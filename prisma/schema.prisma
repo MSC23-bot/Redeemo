@@ -838,12 +838,29 @@ model Voucher {
   cycleStates     UserVoucherCycleState[]
   favouritedBy    FavouriteVoucher[]
   rmvTemplate     RmvTemplate?       @relation(fields: [rmvTemplateId], references: [id])
+  availabilityWindows VoucherAvailabilityWindow[]
 
   @@index([merchantId])
   @@index([status])
   @@index([approvalStatus])
   @@index([code])
   @@index([isRmv])
+}
+
+// TIME_LIMITED voucher availability windows (M4 — recurring weekly only).
+// Each row = one window-occurrence per week. Cross-midnight uses the
+// special closeTime sentinel "24:00" (next-day midnight boundary);
+// see docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md §3.2.
+model VoucherAvailabilityWindow {
+  id        String  @id @default(uuid())
+  voucherId String
+  dayOfWeek Int     // 0=Sun, 1=Mon, ..., 6=Sat (matches BranchOpeningHours)
+  openTime  String  // "HH:mm" wall-clock, Europe/London ("00:00"-"23:59")
+  closeTime String  // "HH:mm" wall-clock, Europe/London ("00:01"-"23:59" OR "24:00" sentinel)
+
+  voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  @@index([voucherId])
 }
 
 // ─────────────────────────────────────────
@@ -863,6 +880,15 @@ model VoucherRedemption {
   estimatedSaving  Decimal          @db.Decimal(10, 2)
   redeemedAt       DateTime         @default(now())
 
+  // M4a-6.1: window-occurrence claim column for TIME_LIMITED race protection.
+  // Set to the current window-occurrence's startsAt at redemption time for
+  // TIME_LIMITED vouchers; null for all other voucher types. Combined with
+  // @@unique([userId, voucherId, windowStartsAt]) below, this enforces
+  // "one redemption per (user, voucher, window-occurrence)" at the DB
+  // level — Postgres NULLs are distinct in unique indexes so non-TIME_LIMITED
+  // rows don't conflict.
+  windowStartsAt   DateTime?
+
   user             User         @relation(fields: [userId], references: [id])
   voucher          Voucher      @relation(fields: [voucherId], references: [id])
   branch           Branch       @relation(fields: [branchId], references: [id])
@@ -878,6 +904,10 @@ model VoucherRedemption {
   @@index([redeemedAt])
   @@index([userId, voucherId])
   @@index([redemptionCode])
+  // M4a-6.1: window-occurrence claim — DB-level guarantee that no two
+  // TIME_LIMITED redemptions can land in the same (user, voucher,
+  // window-occurrence). NULLs distinct so non-TIME_LIMITED unaffected.
+  @@unique([userId, voucherId, windowStartsAt])
 }
 
 // ─────────────────────────────────────────

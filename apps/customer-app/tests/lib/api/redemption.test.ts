@@ -89,6 +89,80 @@ describe('redemption API schemas', () => {
     })
     expect(r.estimatedSaving).toBe(4.5)
   })
+
+  // ── M4a-8: TIME_LIMITED error codes ───────────────────────────────────────
+  //
+  // FLAT shape lock (spec §3.6.4 + AppError.toJSON()): the backend serialises
+  // typed-error details directly on `error.<key>`, not nested under
+  // `error.details.<key>`. Mirrors INVALID_PIN.remainingAttempts and
+  // PIN_RATE_LIMIT_EXCEEDED.retryAfter.
+  //
+  // Wire shape:
+  //   { error: { code: '…', message, statusCode, nextWindowAt: '…' | null } }
+
+  it('RedemptionErrorSchema parses VOUCHER_OUTSIDE_AVAILABILITY_WINDOW with flat nextWindowAt (ISO)', () => {
+    const e = RedemptionErrorSchema.parse({
+      code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+      message: 'Not available right now.',
+      statusCode: 400,
+      nextWindowAt: '2026-05-12T10:00:00.000Z',   // FLAT — not under .details
+    })
+    expect(e.code).toBe('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW')
+    if (e.code === 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW') {
+      expect(e.nextWindowAt).toBe('2026-05-12T10:00:00.000Z')
+    }
+  })
+
+  it('RedemptionErrorSchema parses VOUCHER_OUTSIDE_AVAILABILITY_WINDOW with nextWindowAt: null (degenerate no-windows case)', () => {
+    const e = RedemptionErrorSchema.parse({
+      code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+      message: 'Not available right now.',
+      statusCode: 400,
+      nextWindowAt: null,
+    })
+    if (e.code === 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW') {
+      expect(e.nextWindowAt).toBeNull()
+    }
+  })
+
+  it('RedemptionErrorSchema parses ALREADY_REDEEMED_THIS_WINDOW with flat nextWindowAt', () => {
+    const e = RedemptionErrorSchema.parse({
+      code: 'ALREADY_REDEEMED_THIS_WINDOW',
+      message: 'You already used this offer for this window.',
+      statusCode: 400,
+      nextWindowAt: '2026-05-12T10:00:00.000Z',
+    })
+    expect(e.code).toBe('ALREADY_REDEEMED_THIS_WINDOW')
+    if (e.code === 'ALREADY_REDEEMED_THIS_WINDOW') {
+      expect(e.nextWindowAt).toBe('2026-05-12T10:00:00.000Z')
+    }
+  })
+
+  it('RedemptionErrorSchema parses ALREADY_REDEEMED_THIS_WINDOW with nextWindowAt: null', () => {
+    const e = RedemptionErrorSchema.parse({
+      code: 'ALREADY_REDEEMED_THIS_WINDOW',
+      message: 'You already used this offer for this window.',
+      statusCode: 400,
+      nextWindowAt: null,
+    })
+    if (e.code === 'ALREADY_REDEEMED_THIS_WINDOW') {
+      expect(e.nextWindowAt).toBeNull()
+    }
+  })
+
+  it('RedemptionErrorSchema rejects new codes without nextWindowAt key', () => {
+    // nextWindowAt is required (nullable but not optional) for the two new
+    // codes — backend always emits it (computed from availability windows).
+    // Defensive pin against a backend drift that drops the field entirely.
+    expect(() => RedemptionErrorSchema.parse({
+      code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+      message: 'x', statusCode: 400,
+    })).toThrow()
+    expect(() => RedemptionErrorSchema.parse({
+      code: 'ALREADY_REDEEMED_THIS_WINDOW',
+      message: 'x', statusCode: 400,
+    })).toThrow()
+  })
 })
 
 describe('redemptionApi.redeem — typed-error mapping', () => {
@@ -195,5 +269,101 @@ describe('redemptionApi.redeem — typed-error mapping', () => {
       redemptionApi.redeem({ voucherId: 'v1', branchId: 'b1', pin: 'abcd' })
     ).rejects.toThrow()
     expect(fetchCalled).toBe(false)
+  })
+
+  // ── M4a-8: end-to-end typed-error mapping for TIME_LIMITED codes ──────────
+  //
+  // The wire shape is flat: `body.error.nextWindowAt` directly. The api.ts
+  // envelope-unwrap strips standard fields (code/message/statusCode/field)
+  // and stuffs everything else into `ApiClientError.details`, then
+  // toRedemptionError reconstructs `{ code, message, statusCode, ...details }`
+  // and parses through RedemptionErrorSchema. End result: the typed error
+  // exposes nextWindowAt at the top level, not under details.
+
+  it('on VOUCHER_OUTSIDE_AVAILABILITY_WINDOW throws a typed RedemptionError carrying flat nextWindowAt', async () => {
+    global.fetch = jest.fn(async () => mockResponse({
+      error: {
+        code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+        message: 'Not available right now.',
+        statusCode: 400,
+        nextWindowAt: '2026-05-12T10:00:00.000Z',   // FLAT — not under .details
+      },
+    }, 400)) as unknown as typeof fetch
+
+    try {
+      await redemptionApi.redeem({ voucherId: 'v1', branchId: 'b1', pin: '1234' })
+      throw new Error('expected throw')
+    } catch (err: any) {
+      expect(err).not.toBeInstanceOf(ApiClientError)
+      expect(err.code).toBe('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW')
+      expect(err.nextWindowAt).toBe('2026-05-12T10:00:00.000Z')
+    }
+  })
+
+  it('on ALREADY_REDEEMED_THIS_WINDOW throws a typed RedemptionError carrying flat nextWindowAt', async () => {
+    global.fetch = jest.fn(async () => mockResponse({
+      error: {
+        code: 'ALREADY_REDEEMED_THIS_WINDOW',
+        message: 'You already used this offer for this window.',
+        statusCode: 400,
+        nextWindowAt: '2026-05-12T10:00:00.000Z',
+      },
+    }, 400)) as unknown as typeof fetch
+
+    try {
+      await redemptionApi.redeem({ voucherId: 'v1', branchId: 'b1', pin: '1234' })
+      throw new Error('expected throw')
+    } catch (err: any) {
+      expect(err.code).toBe('ALREADY_REDEEMED_THIS_WINDOW')
+      expect(err.nextWindowAt).toBe('2026-05-12T10:00:00.000Z')
+    }
+  })
+
+  it('on VOUCHER_OUTSIDE_AVAILABILITY_WINDOW with nextWindowAt: null (degenerate no-windows) — typed error carries null', async () => {
+    global.fetch = jest.fn(async () => mockResponse({
+      error: {
+        code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+        message: 'Not available right now.',
+        statusCode: 400,
+        nextWindowAt: null,
+      },
+    }, 400)) as unknown as typeof fetch
+
+    try {
+      await redemptionApi.redeem({ voucherId: 'v1', branchId: 'b1', pin: '1234' })
+      throw new Error('expected throw')
+    } catch (err: any) {
+      expect(err.code).toBe('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW')
+      expect(err.nextWindowAt).toBeNull()
+    }
+  })
+
+  it('defensive — nested error.details.nextWindowAt shape is NOT silently mapped through (spec §3.6.4 locks flat)', async () => {
+    // If a future backend regression emits the WRONG shape
+    // (`error.details.nextWindowAt` instead of `error.nextWindowAt`),
+    // the typed-error parser must NOT silently mint a typed error with
+    // nextWindowAt undefined — because RedemptionErrorSchema requires
+    // nextWindowAt to be present (string | null). The mapper falls
+    // through to "unknown code path" semantics and the original
+    // ApiClientError is re-thrown.
+    global.fetch = jest.fn(async () => mockResponse({
+      error: {
+        code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+        message: '…',
+        statusCode: 400,
+        details: { nextWindowAt: '2026-05-12T10:00:00.000Z' },   // WRONG shape — nested
+      },
+    }, 400)) as unknown as typeof fetch
+
+    try {
+      await redemptionApi.redeem({ voucherId: 'v1', branchId: 'b1', pin: '1234' })
+      throw new Error('expected throw')
+    } catch (err: any) {
+      // Schema parse fails → fall through; the ApiClientError is re-thrown.
+      expect(err).toBeInstanceOf(ApiClientError)
+      expect(err.code).toBe('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW')
+      // The flat nextWindowAt is NOT picked up from the nested details
+      // shape — confirms the schema does not accept the wrong wire shape.
+    }
   })
 })

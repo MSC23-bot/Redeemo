@@ -30,7 +30,14 @@ vi.mock('../../../generated/prisma/client', () => {
     subscription            = { findUnique: vi.fn() }
     userVoucherCycleState   = { findUnique: vi.fn() }
     favouriteVoucher        = { findUnique: vi.fn() }
-    voucherRedemption       = { findFirst: vi.fn() }
+    // M4a-5 — added groupBy used by batchLastRedemptionsByVoucher for
+    // TIME_LIMITED redeemedWindow derivation. These tests cover the
+    // §P2 lastRedemption path (findFirst-driven); groupBy defaults to
+    // [] so the BOGO-typed rows always land on redeemedWindow:null.
+    voucherRedemption       = {
+      findFirst: vi.fn(),
+      groupBy:   vi.fn().mockResolvedValue([]),
+    }
     constructor(_opts?: any) {}
   }
   return {
@@ -66,6 +73,10 @@ const baseVoucherRow = {
     logoUrl: null,
     status: 'ACTIVE',
   },
+  // M4a-4: getCustomerVoucher now selects availabilityWindows for the
+  // TIME_LIMITED payload. Non-TIME_LIMITED rows in these tests always
+  // see [] (no windows defined).
+  availabilityWindows: [],
 }
 
 function makePrisma() {

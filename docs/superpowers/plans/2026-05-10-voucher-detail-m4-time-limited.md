@@ -768,7 +768,7 @@ function londonDateAtMidnight(now: Date, dayOffset: number): Date {
 ```bash
 npx vitest run tests/api/shared/voucherAvailability.test.ts 2>&1 | tail -5
 ```
-Expected: PASS (13/13).
+Expected: PASS (12/12).
 
 - [ ] **Step 5: Commit.**
 
@@ -1464,7 +1464,7 @@ import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import Redis from 'ioredis'
 import { createRedemption } from '../../../src/api/redemption/service'
-import { encrypt } from '../../../src/api/shared/crypto'
+import { encrypt } from '../../../src/api/shared/encryption'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma  = new PrismaClient({ adapter })
@@ -1484,6 +1484,9 @@ const BRANCH_PIN = '1234'
 // window for the "accepts redemption" test, OUTSIDE for the explicitly-
 // reconfigured "outside window" test.
 const TEST_NOW = new Date('2026-05-11T12:00:00.000Z')
+
+// Audit-trail metadata for createRedemption() — 5th positional arg.
+const baseCtx = { ipAddress: '127.0.0.1', userAgent: 'test' }
 
 beforeAll(async () => {
   const m = await prisma.merchant.create({
@@ -1576,7 +1579,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     await expect(
       createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
     ).rejects.toMatchObject({
       code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
     })
@@ -1588,7 +1591,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     try {
       await createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
       throw new Error('expected rejection')
     } catch (err: any) {
       expect(err.code).toBe('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW')
@@ -1600,7 +1603,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     // TEST_NOW from beforeEach is already inside the window — no reset needed.
     const redemption = await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
     expect(redemption.redemptionCode).toMatch(/^[A-Z0-9]{8}$/)
   })
 
@@ -1608,23 +1611,23 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     // TEST_NOW = Mon 13:00 BST inside the lunch window.
     await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
 
     await expect(
       createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
     ).rejects.toMatchObject({ code: 'ALREADY_REDEEMED_THIS_WINDOW' })
   })
 
   it('ALREADY_REDEEMED_THIS_WINDOW includes nextWindowAt (= next-occurrence Tue 11:00 BST)', async () => {
     await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
     try {
       await createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
       throw new Error('expected rejection')
     } catch (err: any) {
       expect(err.code).toBe('ALREADY_REDEEMED_THIS_WINDOW')
@@ -1635,7 +1638,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
   it('TIME_LIMITED redemption does NOT touch UserVoucherCycleState', async () => {
     await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
 
     const cycleState = await prisma.userVoucherCycleState.findFirst({
       where: { userId, voucherId: tlVoucherId },
@@ -1646,7 +1649,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
   it('non-TIME_LIMITED voucher: cycle-state upsert path unchanged', async () => {
     await createRedemption(prisma, redis, userId, {
       voucherId: regularVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
     const cycleState = await prisma.userVoucherCycleState.findFirst({
       where: { userId, voucherId: regularVoucherId },
     })
@@ -1663,7 +1666,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     await expect(
       createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
     ).rejects.toMatchObject({ code: 'VOUCHER_NOT_FOUND' })
 
     // Restore for subsequent tests
@@ -1839,7 +1842,7 @@ Add to `tests/api/redemption/timeLimited.test.ts`:
 
 ```typescript
 import Fastify from 'fastify'
-import { redemptionRoutes } from '../../../src/api/redemption/routes'
+import { customerRedemptionRoutes } from '../../../src/api/redemption/routes'
 
 describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)', () => {
   // Build a minimal Fastify app that includes the redemption routes + auth
@@ -1851,12 +1854,12 @@ describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)',
     app.decorate('redis', redis)
     // Inject a fake JWT preHandler that sets req.user.sub = userId
     app.addHook('preHandler', async (req: any) => { req.user = { sub: userId } })
-    await app.register(redemptionRoutes)
+    await app.register(customerRedemptionRoutes)
     await app.ready()
   })
   afterAll(async () => { await app.close() })
 
-  it('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW returns 400 with nextWindowAt in body.error.details', async () => {
+  it('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW returns 400 with nextWindowAt on body.error (flat)', async () => {
     vi.setSystemTime(new Date('2026-05-16T12:00:00.000Z')) // Sat 13:00 BST — outside
 
     const res = await app.inject({
@@ -1870,12 +1873,12 @@ describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)',
     expect(body).toMatchObject({
       error: {
         code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
-        details: { nextWindowAt: '2026-05-18T10:00:00.000Z' },
+        nextWindowAt: '2026-05-18T10:00:00.000Z',
       },
     })
   })
 
-  it('ALREADY_REDEEMED_THIS_WINDOW returns 400 with nextWindowAt in body.error.details', async () => {
+  it('ALREADY_REDEEMED_THIS_WINDOW returns 400 with nextWindowAt on body.error (flat)', async () => {
     // TEST_NOW = Mon 13:00 BST inside window. First redeem succeeds.
     await app.inject({
       method: 'POST', url: '/api/v1/redemption',
@@ -1891,7 +1894,7 @@ describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)',
     expect(res.json()).toMatchObject({
       error: {
         code: 'ALREADY_REDEEMED_THIS_WINDOW',
-        details: { nextWindowAt: '2026-05-12T10:00:00.000Z' },
+        nextWindowAt: '2026-05-12T10:00:00.000Z',
       },
     })
   })
@@ -1908,9 +1911,9 @@ grep -n "AppError\|setErrorHandler\|error.details" src/api/server.ts src/api/sha
 
 If `error.details` is NOT serialized in the existing handler, the M4a-6 implementation must extend it. Concretely: in `src/api/shared/errors.ts` (or wherever `setErrorHandler` is registered), confirm the response shape is `{ error: { code, details } }` not just `{ error: { code } }`.
 
-If the handler today only serializes `code`, extend it now (M4a-6 step) to include `details`. This is critical — without it, the customer-app's `mapRedemptionError` reads `body.error.details.nextWindowAt` and gets `undefined`, breaking the whole copy chain.
+If the handler today only serializes `code`, extend it now (M4a-6 step) to include `details`. This is critical — without it, the customer-app's `mapRedemptionError` reads `body.error.nextWindowAt` (FLAT — `AppError.toJSON()` spreads `this.details` into the error envelope) and gets `undefined`, breaking the whole copy chain.
 
-Pin the serialization shape with a 1-line assertion in the route test above (already covered: `expect(body).toMatchObject(...)` checks `details.nextWindowAt`).
+Pin the serialization shape with a 1-line assertion in the route test above (already covered: `expect(body).toMatchObject(...)` checks the flat `error.nextWindowAt`).
 
 - [ ] **Step 7: Run test to verify it passes.**
 
@@ -2443,7 +2446,7 @@ describe('redemption error mapping — TIME_LIMITED (M4a-8)', () => {
     const err = mapRedemptionError({
       error: {
         code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
-        details: { nextWindowAt: '2026-05-12T10:00:00Z' },
+        nextWindowAt: '2026-05-12T10:00:00Z',
       },
     })
     expect(err).not.toBeNull()
@@ -2455,7 +2458,7 @@ describe('redemption error mapping — TIME_LIMITED (M4a-8)', () => {
     const err = mapRedemptionError({
       error: {
         code: 'ALREADY_REDEEMED_THIS_WINDOW',
-        details: { nextWindowAt: '2026-05-12T10:00:00Z' },
+        nextWindowAt: '2026-05-12T10:00:00Z',
       },
     })
     expect(err).not.toBeNull()
@@ -2467,7 +2470,7 @@ describe('redemption error mapping — TIME_LIMITED (M4a-8)', () => {
     const err = mapRedemptionError({
       error: {
         code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
-        details: { nextWindowAt: null },
+        nextWindowAt: null,
       },
     })
     expect(err!.nextWindowAt).toBeNull()
@@ -2579,15 +2582,17 @@ export type RedemptionError =
     > }
 
 export function mapRedemptionError(body: unknown): RedemptionError | null {
-  // Existing logic preserved. Add cases for the new codes:
-  const code = (body as any)?.error?.code
-  const details = (body as any)?.error?.details ?? {}
+  // Existing logic preserved. Add cases for the new codes.
+  // Flat-shape contract per AppError.toJSON() — `nextWindowAt` is on
+  // `error` directly, NOT nested under `error.details`.
+  const error = (body as any)?.error ?? {}
+  const code  = error.code
   switch (code) {
     // ... existing cases ...
     case 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW':
-      return { code, nextWindowAt: details.nextWindowAt ?? null }
+      return { code, nextWindowAt: error.nextWindowAt ?? null }
     case 'ALREADY_REDEEMED_THIS_WINDOW':
-      return { code, nextWindowAt: details.nextWindowAt ?? null }
+      return { code, nextWindowAt: error.nextWindowAt ?? null }
     // ... fallthrough ...
   }
   return null
@@ -6016,3 +6021,50 @@ Plan complete and saved to `docs/superpowers/plans/2026-05-10-voucher-detail-m4-
 **Pre-flight:** before either option begins, complete Task 0 (Pre-flight) — ship the docs-only spec PR (`a8a9117` + `c6ff5a4`) to align local main with origin, then cut the M4a feature branch from updated main.
 
 **Which approach do you prefer?**
+
+
+---
+
+# M4a — As shipped (PR #64, 2026-05-11)
+
+Captured at PR #64 merge time per the PR-C convention. The 3-PR sequence is unchanged; M4a shipped 11 commits across 30 files with these deltas from the original plan:
+
+## Deviations from the plan (locked at code-review time)
+
+1. **`schedule` field dropped from `VOUCHER_OUTSIDE_AVAILABILITY_WINDOW` payload** (M4a-6). Plan/spec originally listed `{ nextWindowAt, schedule }`; shipped wire payload contains only `nextWindowAt`. Schedule string is derived client-side by M4b's `scheduleString` formatter from `availabilityWindows` (which is already on every customer payload). Single source of truth, avoids duplicating the formatter server-side. Documented in `docs/operations/voucher-availability-windows.md` "Schedule string is derived CLIENT-SIDE, not on the wire" and tracked as §AJ3 in deferred-followups.
+
+2. **Mocked-Prisma redemption tests over real-DB Fastify-inject** (M4a-6 + M4a-6.1). Plan called for `app.inject()` route-layer integration tests with real `prisma.subscription.create` setup. Subagent used mocked Prisma asserting on `AppError.toJSON()` directly — faster, deterministic, matches the existing `createRedemption.error-payloads.test.ts` convention. Pins the AppError shape unambiguously; does NOT pin Postgres-actually-fires-P2002 under concurrent writes. Tracked as §AJ1 for a real-DB concurrent-write test at PR-2 hardening or next redemption-flow touch.
+
+3. **Service-layer regex defence-in-depth** (M4a-7). Subagent added `OPEN_TIME_REGEX` / `CLOSE_TIME_REGEX` guards inside `validateAvailabilityWindows()` in addition to the Zod-layer route schema. Direct service callers (tests, future internal helpers) get the same validation. Reasonable defence-in-depth.
+
+4. **`RedemptionErrorSchema` discriminatedUnion over a switch-based mapper** (M4a-8). Codebase pattern uses Zod discriminatedUnion + `toRedemptionError` rather than a `mapRedemptionError(body)` switch. Subagent extended the union with two new members — semantically identical, idiomatic for the codebase, defensive negative-pin against nested `error.details.nextWindowAt` shape preserved.
+
+5. **Non-interactive Prisma migration workaround documented** (M4a-6.1). `npx prisma migrate dev` fails in non-interactive shells (subagent execution). Workaround: `prisma migrate diff --script` + manual migration dir + `prisma migrate deploy`. Documented in the ops doc so future subagents inherit the pattern.
+
+6. **Plan-prose drifts fixed at Gate C wrap** (M4a-9):
+   - M4a-3 task header "13 cases" → "12 cases" (code block has 12 `it()` blocks; prose typo).
+   - M4a-6 test code: import `'../shared/encryption'` (not `'../shared/crypto'`), `customerRedemptionRoutes` (not `redemptionRoutes`), 5th `baseCtx` arg added to all 10 `createRedemption()` call sites.
+   - Plan + spec nested `error.details.nextWindowAt` references replaced with flat `error.nextWindowAt` throughout.
+
+7. **`_ForTests` → production-safe schema rename** (M4a-9.1). Owner-flagged pre-PR cleanup: `_availabilityWindowSchemaForTests` / `_windowOccurrenceSchemaForTests` were misleading because the shared sub-schemas are real production code, not test-only. Renamed to `availabilityWindowSchema` / `windowOccurrenceSchema`. Top-level `_voucherDetailSchemaForTests` / `_merchantVoucherSchemaForTests` kept as correct test-only seams.
+
+## Test totals at PR #64 head (b2497ee)
+
+- Backend full sweep: **616/616** ✅ zero flakes
+- Customer-app full sweep: **1327/1328** ✅ (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts` per `project_current_state.md`, unchanged)
+- Net new tests: 103 (85 backend + 18 customer-app)
+- TSC: zero new errors on M4 surface
+- Prisma migrations: 31 total (was 29; +2 additive — `add_voucher_availability_window`, `voucher_redemption_window_unique`)
+
+## Deferred-followups captured at PR-#64-review time
+
+See `~/.claude/projects/.../memory/project_deferred_followups_index.md` §AJ:
+
+- **AJ1** — Real-DB concurrent-write test for `windowStartsAt` unique-index race protection. Pick up at PR-2 hardening or next redemption-flow touch.
+- **AJ2** — Fresh redemption-code retry loop for rare `redemptionCode` P2002 collisions. Pick up next time redemption flow is touched.
+- **AJ3** — Spec deviation: `schedule` payload field derived client-side, not on the wire. ✅ Documented (this addendum + ops doc).
+- **AJ4** — Optional perf: gate `availabilityWindows` Prisma include to TIME_LIMITED vouchers if profiling shows it matters.
+
+## M4b kickoff
+
+After PR #64 merges + local main fast-forwards, M4b cuts `feature/voucher-m4b-customer-app-voucher-detail` and begins customer-app Voucher Detail un-stub + 5 new state-machine branches + countdown system v2 + §AH copy reconciliation per the plan's M4b section.

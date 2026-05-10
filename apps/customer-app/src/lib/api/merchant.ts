@@ -1,6 +1,14 @@
 import { z } from 'zod'
 import { api } from '../api'
 import { reviewSchema } from './reviews'
+// M4a-8 — shared TIME_LIMITED sub-schemas. Reuse from voucher.ts so
+// the merchant-profile voucher row and the voucher-detail row can't
+// drift in shape. voucher.ts has no merchant.ts import, so this is
+// a one-way dep — no cycle.
+import {
+  availabilityWindowSchema,
+  windowOccurrenceSchema,
+} from './voucher'
 
 // Shape served by `GET /api/v1/customer/merchants/:id`. Generated server-side
 // in `src/api/customer/discovery/service.ts:getCustomerMerchant`. Field
@@ -78,8 +86,19 @@ const merchantVoucherSchema = z.object({
   // users / paused subs.  `.optional().default(false)` for
   // backward compat with cached responses from before T8a.
   isRedeemedThisCycle: z.boolean().optional().default(false),
+  // M4a-8 — TIME_LIMITED fields. Same shape as voucherDetailSchema; the
+  // two share the sub-schemas via the imports at the top of this file.
+  // All optional+nullable for forward-compat with pre-M4 cached responses.
+  availabilityWindows: z.array(availabilityWindowSchema).optional().default([]),
+  currentWindow:       windowOccurrenceSchema.nullable().optional().default(null),
+  nextWindow:          windowOccurrenceSchema.nullable().optional().default(null),
+  redeemedWindow:      windowOccurrenceSchema.nullable().optional().default(null),
 })
 export type MerchantVoucher = z.infer<typeof merchantVoucherSchema>
+// Exposed for testing only — same pattern as _voucherDetailSchemaForTests
+// in voucher.ts. The merchant-profile voucher row is part of the public
+// contract and must be testable against directly.
+export const _merchantVoucherSchemaForTests = merchantVoucherSchema
 
 const branchTileSchema = z.object({
   id:           z.string(),

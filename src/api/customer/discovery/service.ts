@@ -2,6 +2,7 @@ import {
   PrismaClient, MerchantStatus, VoucherStatus, ApprovalStatus, CampaignStatus,
   MerchantSuggestedTagStatus,
   type Prisma,
+  type VoucherType,
 } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { haversineMetres } from '../../shared/haversine'
@@ -18,6 +19,12 @@ import {
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 import { resolveSelectedBranch } from './branch-resolver'
 import { buildDisplayName, formatReview } from '../reviews/service'
+import {
+  getCurrentWindowOccurrence,
+  getNextWindowOccurrence,
+  getMostRecentlyClosedWindowOccurrence,
+  type AvailabilityWindow,
+} from '../../shared/voucherAvailability'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -39,6 +46,93 @@ async function resolveLocationContext(
     if (user?.city) return { city: user.city, lat: null, lng: null, source: 'profile' }
   }
   return { city: null, lat: null, lng: null, source: 'none' }
+}
+
+/**
+ * Build a (voucherId → most-recent redeemedAt) map for the given user
+ * across all voucher IDs in one DB round-trip. Used by both
+ * getCustomerVoucher (1-key map) and getCustomerMerchant (N-key map)
+ * so the per-voucher TIME_LIMITED payload derivation runs without a
+ * per-voucher findFirst.
+ */
+async function batchLastRedemptionsByVoucher(
+  prisma: PrismaClient,
+  userId: string,
+  voucherIds: string[],
+): Promise<Map<string, Date>> {
+  if (voucherIds.length === 0) return new Map()
+
+  const rows = await prisma.voucherRedemption.groupBy({
+    by: ['voucherId'],
+    where: { userId, voucherId: { in: voucherIds } },
+    _max: { redeemedAt: true },
+  })
+
+  const map = new Map<string, Date>()
+  for (const r of rows) {
+    if (r._max.redeemedAt) map.set(r.voucherId, r._max.redeemedAt)
+  }
+  return map
+}
+
+/**
+ * Compute TIME_LIMITED payload fields for a single voucher row IN-MEMORY.
+ * PURE FUNCTION — no DB I/O. Shared by getCustomerVoucher (single) and
+ * getCustomerMerchant (list).
+ */
+function computeTimeLimitedPayload(input: {
+  type: VoucherType
+  rawWindows: Array<{ dayOfWeek: number; openTime: string; closeTime: string }>
+  lastRedeemedAt: Date | null
+  now: Date
+}): {
+  availabilityWindows: AvailabilityWindow[]
+  currentWindow:  { startsAt: string; endsAt: string } | null
+  nextWindow:     { startsAt: string; endsAt: string } | null
+  redeemedWindow: { startsAt: string; endsAt: string } | null
+} {
+  const { type, rawWindows, lastRedeemedAt, now } = input
+  const isTimeLimited = type === 'TIME_LIMITED'
+  const windows: AvailabilityWindow[] = isTimeLimited ? rawWindows : []
+  const currentWindowOcc = isTimeLimited ? getCurrentWindowOccurrence(windows, now) : null
+  const nextWindowOcc    = isTimeLimited ? getNextWindowOccurrence(windows, now) : null
+
+  let redeemedWindow: { startsAt: string; endsAt: string } | null = null
+  if (isTimeLimited && lastRedeemedAt) {
+    if (
+      currentWindowOcc &&
+      lastRedeemedAt >= currentWindowOcc.startsAt &&
+      lastRedeemedAt <  currentWindowOcc.endsAt
+    ) {
+      redeemedWindow = {
+        startsAt: currentWindowOcc.startsAt.toISOString(),
+        endsAt:   currentWindowOcc.endsAt.toISOString(),
+      }
+    } else if (!currentWindowOcc) {
+      const prevOcc = getMostRecentlyClosedWindowOccurrence(windows, now)
+      if (
+        prevOcc &&
+        lastRedeemedAt >= prevOcc.startsAt &&
+        lastRedeemedAt <  prevOcc.endsAt
+      ) {
+        redeemedWindow = {
+          startsAt: prevOcc.startsAt.toISOString(),
+          endsAt:   prevOcc.endsAt.toISOString(),
+        }
+      }
+    }
+  }
+
+  return {
+    availabilityWindows: windows,
+    currentWindow: currentWindowOcc
+      ? { startsAt: currentWindowOcc.startsAt.toISOString(), endsAt: currentWindowOcc.endsAt.toISOString() }
+      : null,
+    nextWindow: nextWindowOcc
+      ? { startsAt: nextWindowOcc.startsAt.toISOString(), endsAt: nextWindowOcc.endsAt.toISOString() }
+      : null,
+    redeemedWindow,
+  }
 }
 
 const MERCHANT_TILE_SELECT = {
@@ -538,6 +632,12 @@ export async function getCustomerMerchant(
         select: {
           id: true, title: true, type: true, description: true,
           terms: true, imageUrl: true, estimatedSaving: true, expiryDate: true,
+          // M4a-5: TIME_LIMITED window state for per-card display.
+          // Non-TIME_LIMITED rows get [] / null via computeTimeLimitedPayload.
+          availabilityWindows: {
+            select: { dayOfWeek: true, openTime: true, closeTime: true },
+            orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
+          },
         },
         orderBy: { createdAt: 'desc' },
       },
@@ -792,17 +892,47 @@ export async function getCustomerMerchant(
     }
   }
 
-  return {
-    ...merchant,
-    vouchers: merchant.vouchers.map((v: any) => ({
+  // M4a-5: Batched (voucherId → most-recent redeemedAt) lookup for the
+  // TIME_LIMITED redeemedWindow derivation.  ONE Prisma groupBy for the
+  // whole voucher list — locked "no N+1" contract.  Returns an empty
+  // map for guests / merchants with no vouchers; helper handles those
+  // cleanly so non-TIME_LIMITED rows still get [] / null.
+  const voucherIds = merchant.vouchers.map((v: any) => v.id)
+  const lastRedemptionMap = userId
+    ? await batchLastRedemptionsByVoucher(prisma, userId, voucherIds)
+    : new Map<string, Date>()
+  const nowForWindows = new Date()
+  const enrichedVouchers = merchant.vouchers.map((v: any) => {
+    const tlPayload = computeTimeLimitedPayload({
+      type: v.type,
+      rawWindows: (v.availabilityWindows ?? []).map((w: any) => ({
+        dayOfWeek: w.dayOfWeek,
+        openTime:  w.openTime,
+        closeTime: w.closeTime,
+      })),
+      lastRedeemedAt: lastRedemptionMap.get(v.id) ?? null,
+      now: nowForWindows,
+    })
+    return {
       ...v,
       estimatedSaving: Number(v.estimatedSaving),
       // PR-B T8a (§Q4): per-voucher redeemed-this-cycle flag drives
       // the merchant-profile voucher card muted state.  False for
       // guests, free users, paused subs, or vouchers not redeemed
-      // in the user's current cycle.
-      isRedeemedThisCycle: redeemedVoucherIdSet.has(v.id),
-    })),
+      // in the user's current cycle.  TIME_LIMITED vouchers stay
+      // false here (window-scoped state instead — see redeemedWindow).
+      isRedeemedThisCycle: v.type === 'TIME_LIMITED' ? false : redeemedVoucherIdSet.has(v.id),
+      // M4a-5: TIME_LIMITED state ([] / null for non-TIME_LIMITED).
+      availabilityWindows: tlPayload.availabilityWindows,
+      currentWindow:       tlPayload.currentWindow,
+      nextWindow:          tlPayload.nextWindow,
+      redeemedWindow:      tlPayload.redeemedWindow,
+    }
+  })
+
+  return {
+    ...merchant,
+    vouchers: enrichedVouchers,
     about:       merchant.description,
     subcategory: subcategory ? { id: subcategory.id, name: subcategory.name } : null,
     descriptor,
@@ -901,6 +1031,11 @@ export async function getCustomerVoucher(
         select: {
           id: true, businessName: true, tradingName: true, logoUrl: true, status: true,
         },
+      },
+      // NEW (M4a-4):
+      availabilityWindows: {
+        select: { dayOfWeek: true, openTime: true, closeTime: true },
+        orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
       },
     },
   })
@@ -1009,13 +1144,41 @@ export async function getCustomerVoucher(
     }
   }
 
+  // M4a-5: Refactored from M4a-4's inline findFirst to the batched
+  // helper.  For getCustomerVoucher this is a 1-key map (degrades
+  // trivially to 1 query); shared with getCustomerMerchant (N-key map)
+  // to keep the locked "no N+1" contract for both endpoints.  The pure
+  // computeTimeLimitedPayload helper handles the in-memory derivation
+  // for both call sites.
+  const lastRedemptionMap = userId
+    ? await batchLastRedemptionsByVoucher(prisma, userId, [voucherId])
+    : new Map<string, Date>()
+
+  const tlPayload = computeTimeLimitedPayload({
+    type: voucher.type,
+    rawWindows: voucher.availabilityWindows.map(w => ({
+      dayOfWeek: w.dayOfWeek,
+      openTime:  w.openTime,
+      closeTime: w.closeTime,
+    })),
+    lastRedeemedAt: lastRedemptionMap.get(voucherId) ?? null,
+    now: new Date(),
+  })
+
+  const isTimeLimited = voucher.type === 'TIME_LIMITED'
+
   return {
     ...voucher,
     estimatedSaving: Number(voucher.estimatedSaving),
-    isRedeemedThisCycle,
+    isRedeemedThisCycle: isTimeLimited ? false : isRedeemedThisCycle,
     isFavourited,
-    availableAgainAt,
+    availableAgainAt: isTimeLimited ? null : availableAgainAt,
     lastRedemption,
+    // NEW M4a-4 (refactored to pure helper in M4a-5):
+    availabilityWindows: tlPayload.availabilityWindows,
+    currentWindow:       tlPayload.currentWindow,
+    nextWindow:          tlPayload.nextWindow,
+    redeemedWindow:      tlPayload.redeemedWindow,
   }
 }
 

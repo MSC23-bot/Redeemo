@@ -90,10 +90,21 @@ export type ScreenshotFlagResponse = z.infer<typeof ScreenshotFlagResponseSchema
 
 // ── Error response (discriminated union by `code`) ───────────────────────
 
-// Mirrors the backend's 8 customer-facing error codes from
-// src/api/shared/errors.ts. INVALID_PIN and PIN_RATE_LIMIT_EXCEEDED carry
-// per-error details payload (per PR #43 Tasks A3/A4); other codes have
-// only the standard envelope.
+// Mirrors the backend's customer-facing error codes from
+// src/api/shared/errors.ts. INVALID_PIN + PIN_RATE_LIMIT_EXCEEDED carry
+// per-error details payload (PR #43 Tasks A3/A4); M4a-8 adds two TIME_LIMITED
+// codes that each carry `nextWindowAt` (nullable ISO timestamp — null only
+// in the degenerate no-windows case). The other codes have only the
+// standard envelope.
+//
+// 🔒 FLAT shape lock (spec §3.6.4 + AppError.toJSON()):
+//   { error: { code, message, statusCode, nextWindowAt: '…' | null } }
+//   NOT
+//   { error: { code, message, statusCode, details: { nextWindowAt: '…' } } }
+//
+// Existing INVALID_PIN.remainingAttempts and PIN_RATE_LIMIT_EXCEEDED.retryAfter
+// read flat off `error` for the same reason — backend AppError.toJSON()
+// spreads `this.details` FLAT into the error envelope.
 export const RedemptionErrorSchema = z.discriminatedUnion('code', [
   z.object({
     code: z.literal('INVALID_PIN'),
@@ -141,6 +152,22 @@ export const RedemptionErrorSchema = z.discriminatedUnion('code', [
     code: z.literal('PIN_NOT_CONFIGURED'),
     message: z.string(),
     statusCode: z.literal(400),
+  }),
+  // M4a-8 TIME_LIMITED codes. nextWindowAt is nullable — null only when
+  // the voucher has no upcoming availability windows (degenerate case
+  // surfaced in spec §3.6.4). UI surfaces fall back to a generic
+  // "currently unavailable" copy in that case.
+  z.object({
+    code: z.literal('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW'),
+    message: z.string(),
+    statusCode: z.literal(400),
+    nextWindowAt: z.string().nullable(),
+  }),
+  z.object({
+    code: z.literal('ALREADY_REDEEMED_THIS_WINDOW'),
+    message: z.string(),
+    statusCode: z.literal(400),
+    nextWindowAt: z.string().nullable(),
   }),
 ])
 export type RedemptionError = z.infer<typeof RedemptionErrorSchema>

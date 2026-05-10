@@ -42,6 +42,28 @@ const voucherDetailMerchantSchema = z.object({
   status:       z.string(),
 })
 
+// ── M4a-8 TIME_LIMITED sub-schemas ──────────────────────────────────────────
+//
+// Production-safe exports (NOT `_...ForTests`) because these are shared
+// with merchantVoucherSchema in `./merchant.ts` as real production code,
+// so the merchant-profile voucher row and the voucher-detail row can't
+// drift on TIME_LIMITED shape.
+//
+// availabilityWindowSchema — recurring weekly slot, persisted as
+//   { dayOfWeek: 0..6, openTime: "HH:mm", closeTime: "HH:mm" }.
+// windowOccurrenceSchema — a concrete absolute-time slot,
+//   { startsAt: ISO, endsAt: ISO }.
+export const availabilityWindowSchema = z.object({
+  dayOfWeek: z.number().int().min(0).max(6),
+  openTime:  z.string(),
+  closeTime: z.string(),
+})
+
+export const windowOccurrenceSchema = z.object({
+  startsAt: z.string(),   // ISO
+  endsAt:   z.string(),   // ISO
+})
+
 // `z.coerce.number()` for any Decimal field — same lesson as PR #39's
 // subscription priceGbp fix. Prisma's `Decimal` type serialises as a
 // JSON STRING; `z.number()` would silently reject and the client would
@@ -95,6 +117,18 @@ const voucherDetailSchema = z.object({
   // / rolled-over / not-redeemed), or the inner shape (current-cycle
   // redeemed state).
   lastRedemption:      voucherDetailLastRedemptionSchema.nullable().optional(),
+
+  // M4a-8 — TIME_LIMITED fields. All optional+nullable for forward-compat
+  // with cached responses from before M4 ships. Backend computes per spec
+  // §3.6.1/§3.6.2: availabilityWindows from the merchant-managed recurring
+  // schedule; currentWindow + nextWindow + redeemedWindow as absolute-time
+  // occurrences derived from those windows + the user's per-window
+  // redemption state (spec §3.6.4 — entitlement is per-window, NOT
+  // per-cycle, so TIME_LIMITED vouchers ship with `availableAgainAt: null`).
+  availabilityWindows: z.array(availabilityWindowSchema).optional().default([]),
+  currentWindow:       windowOccurrenceSchema.nullable().optional().default(null),
+  nextWindow:          windowOccurrenceSchema.nullable().optional().default(null),
+  redeemedWindow:      windowOccurrenceSchema.nullable().optional().default(null),
 })
 
 export type VoucherType   = z.infer<typeof voucherTypeSchema>
@@ -118,3 +152,11 @@ export const voucherApi = {
 // Exposed for testing only — schema is the contract this client guarantees
 // to consumers, so test against the schema directly.
 export const _voucherDetailSchemaForTests = voucherDetailSchema
+
+// M4a-8 — shared TIME_LIMITED sub-schema types. The schemas themselves
+// are exported as production-safe names at their declaration sites above
+// (availabilityWindowSchema, windowOccurrenceSchema). merchantVoucherSchema
+// in `./merchant.ts` imports them directly so the two voucher rows can't
+// drift on TIME_LIMITED shape.
+export type VoucherAvailabilityWindow = z.infer<typeof availabilityWindowSchema>
+export type WindowOccurrence          = z.infer<typeof windowOccurrenceSchema>

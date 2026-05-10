@@ -72,6 +72,32 @@ export const ERROR_DEFINITIONS = {
   SUBSCRIPTION_REQUIRED:           { statusCode: 403, message: 'An active subscription is required to redeem vouchers.' },
   BRANCH_MERCHANT_MISMATCH:        { statusCode: 400, message: 'This branch does not belong to the voucher\'s merchant.' },
   ALREADY_REDEEMED:                { statusCode: 409, message: 'You have already redeemed this voucher in the current cycle.' },
+  // M4a-6 (TIME_LIMITED): voucher.type === 'TIME_LIMITED' AND no
+  // current window-occurrence is open at server-side `now`. The
+  // response payload includes `nextWindowAt` (ISO | null) so the
+  // customer-app can render "Available again <date>" without a
+  // separate round-trip. See spec §3.8.
+  VOUCHER_OUTSIDE_AVAILABILITY_WINDOW: { statusCode: 400, message: 'This voucher is not available right now.' },
+  // M4a-6 (TIME_LIMITED): user already redeemed this voucher inside
+  // the CURRENT window-occurrence. TIME_LIMITED bypasses the per-cycle
+  // UserVoucherCycleState lock — the truth is the redeemedAt timestamp
+  // on the existing VoucherRedemption row falling within the active
+  // window-occurrence. Payload includes `nextWindowAt` for next-occurrence
+  // copy. Distinct from ALREADY_REDEEMED (per-cycle, non-TIME_LIMITED).
+  ALREADY_REDEEMED_THIS_WINDOW:    { statusCode: 400, message: "You've already used this offer for the current window." },
+  // M4a-7 (TIME_LIMITED CRUD): availabilityWindows payload failed
+  // validation. Reasons surface via `details.reason` and include:
+  //   - non-TIME_LIMITED voucher with windows attached (D2 type-attachment lock)
+  //   - "24:00" used as openTime (only valid as closeTime sentinel)
+  //   - closeTime <= openTime (cross-midnight rejected in single row)
+  //   - overlapping windows for same (voucherId, dayOfWeek)
+  //   - type change away from TIME_LIMITED while windows still attached
+  INVALID_AVAILABILITY_WINDOWS:    { statusCode: 400, message: 'Voucher availability windows are invalid.' },
+  // M4a-7 (TIME_LIMITED CRUD): submitVoucher / publish path requires at
+  // least one availabilityWindow row for a TIME_LIMITED voucher. DRAFT
+  // create with zero windows is permitted; the gate is enforced at
+  // submission/publication only.
+  TIME_LIMITED_REQUIRES_WINDOW:    { statusCode: 400, message: 'TIME_LIMITED vouchers require at least one availability window before publishing.' },
   REDEMPTION_NOT_FOUND:            { statusCode: 404, message: 'Redemption code not found.' },
   ALREADY_VALIDATED:               { statusCode: 409, message: 'This redemption has already been validated.' },
   MERCHANT_MISMATCH:               { statusCode: 403, message: 'This redemption code does not belong to your merchant.' },

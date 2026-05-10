@@ -24,6 +24,12 @@ const VoucherTypeEnum = z.enum([
   'REUSABLE',
 ])
 
+const availabilityWindowSchema = z.object({
+  dayOfWeek: z.number().int().min(0).max(6),
+  openTime:  z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'openTime must be HH:mm in [00:00, 23:59]'),
+  closeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, 'closeTime must be HH:mm in [00:01, 23:59] OR "24:00"'),
+})
+
 const createVoucherSchema = z.object({
   type: VoucherTypeEnum,
   title: z.string().min(1).max(200),
@@ -32,7 +38,13 @@ const createVoucherSchema = z.object({
   terms: z.string().max(2000).optional(),
   imageUrl: z.string().url().optional(),
   expiryDate: z.string().datetime().optional(),
+  // M4a-7: TIME_LIMITED availability windows (validated at service layer for
+  // 24:00-sentinel-openTime / closeTime<=openTime / per-day overlap /
+  // type-attachment per spec §3.2).
+  availabilityWindows: z.array(availabilityWindowSchema).optional(),
 })
+
+const updateVoucherSchema = createVoucherSchema.partial()
 
 export async function voucherRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/vouchers'
@@ -57,7 +69,7 @@ export async function voucherRoutes(app: FastifyInstance) {
 
   app.patch(`${prefix}/:id`, async (req: FastifyRequest, reply) => {
     const { id } = z.object({ id: z.string() }).parse(req.params)
-    const body = z.record(z.string(), z.unknown()).parse(req.body)
+    const body = updateVoucherSchema.parse(req.body)
     return reply.send(
       await updateVoucher(app.prisma, req.user.sub, id, body, {
         ipAddress: req.ip,
