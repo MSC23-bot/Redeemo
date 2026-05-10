@@ -162,6 +162,14 @@ export async function createRedemption(
   // the upsert.
   const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
 
+  // M4a-6.1: window-occurrence claim for TIME_LIMITED race protection.
+  // Hoisted to function scope so the atomic-claim block (further down)
+  // can persist it onto VoucherRedemption.windowStartsAt. Stays null for
+  // non-TIME_LIMITED vouchers — see schema comment on
+  // VoucherRedemption.windowStartsAt for why nulls are safe under the
+  // @@unique([userId, voucherId, windowStartsAt]) constraint.
+  let timeLimitedWindowStartsAt: Date | null = null
+
   // M4a-6 Guard 7 (modified): voucher-type-aware redemption check.
   //
   // TIME_LIMITED bypasses UserVoucherCycleState entirely — the
@@ -175,6 +183,7 @@ export async function createRedemption(
     // Non-null per Guard 3 above — if we got here, the current
     // window-occurrence exists.
     const currentWindowOcc = getCurrentWindowOccurrence(windows, now)!
+    timeLimitedWindowStartsAt = currentWindowOcc.startsAt   // M4a-6.1
 
     const existing = await prisma.voucherRedemption.findFirst({
       where: {
@@ -306,6 +315,7 @@ export async function createRedemption(
     estimatedSaving: voucher.estimatedSaving,
     isValidated:     false,
     redeemedAt:      now,
+    windowStartsAt:  timeLimitedWindowStartsAt,   // M4a-6.1: null for non-TL, set for TL
   }
 
   let redemption
@@ -315,18 +325,36 @@ export async function createRedemption(
     // the source of truth (Guard 7 branch above). Insert ONLY the
     // VoucherRedemption row; never touch UserVoucherCycleState.
     //
-    // Race window: two concurrent TIME_LIMITED redemptions for the
-    // same (userId, voucherId) inside the same window-occurrence
-    // could both pass Guard 7 (which reads without a row lock). The
-    // second insert would write a duplicate row. This is acceptable
-    // for M4a (small fraction of vouchers, no schema-level unique
-    // constraint to enforce in the same way as cycle state). M4b
-    // can add `@@unique([userId, voucherId, redeemedAt])` or a
-    // window-keyed claim if production data shows abuse. Logged as
-    // a known M4a deferred-followup.
-    redemption = await prisma.$transaction(async (tx) => {
-      return tx.voucherRedemption.create({ data: redemptionData })
-    })
+    // M4a-6.1: race protection via @@unique([userId, voucherId, windowStartsAt]).
+    // Two concurrent TIME_LIMITED redemptions for the same (user, voucher,
+    // window-occurrence) cannot both succeed at the DB layer — P2002 fires
+    // on the second insert. Translate to ALREADY_REDEEMED_THIS_WINDOW so
+    // the customer-app surfaces graceful "you already used this offer for
+    // this window" copy — same shape as the regular Guard 7 rejection.
+    // Symmetric with the existing non-TIME_LIMITED P2002 cross-transaction
+    // retry pattern (PR #43), so the test/debug mental model is uniform.
+    try {
+      redemption = await prisma.$transaction(async (tx) => {
+        return tx.voucherRedemption.create({ data: redemptionData })
+      })
+    } catch (err: any) {
+      if (
+        err?.code === 'P2002' &&
+        Array.isArray(err.meta?.target) &&
+        (err.meta.target as string[]).includes('windowStartsAt')
+      ) {
+        // Concurrent winner inserted first. Compute nextWindowAt for the
+        // graceful copy.
+        const windows: AvailabilityWindow[] = voucher.availabilityWindows.map((w) => ({
+          dayOfWeek: w.dayOfWeek, openTime: w.openTime, closeTime: w.closeTime,
+        }))
+        const nextWindowOcc = getNextWindowOccurrence(windows, now)
+        throw new AppError('ALREADY_REDEEMED_THIS_WINDOW', {
+          nextWindowAt: nextWindowOcc?.startsAt.toISOString() ?? null,
+        })
+      }
+      throw err
+    }
   } else {
     try {
       // First transaction: try claim via updateMany; if no row, try create.

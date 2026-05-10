@@ -880,6 +880,15 @@ model VoucherRedemption {
   estimatedSaving  Decimal          @db.Decimal(10, 2)
   redeemedAt       DateTime         @default(now())
 
+  // M4a-6.1: window-occurrence claim column for TIME_LIMITED race protection.
+  // Set to the current window-occurrence's startsAt at redemption time for
+  // TIME_LIMITED vouchers; null for all other voucher types. Combined with
+  // @@unique([userId, voucherId, windowStartsAt]) below, this enforces
+  // "one redemption per (user, voucher, window-occurrence)" at the DB
+  // level — Postgres NULLs are distinct in unique indexes so non-TIME_LIMITED
+  // rows don't conflict.
+  windowStartsAt   DateTime?
+
   user             User         @relation(fields: [userId], references: [id])
   voucher          Voucher      @relation(fields: [voucherId], references: [id])
   branch           Branch       @relation(fields: [branchId], references: [id])
@@ -895,6 +904,10 @@ model VoucherRedemption {
   @@index([redeemedAt])
   @@index([userId, voucherId])
   @@index([redemptionCode])
+  // M4a-6.1: window-occurrence claim — DB-level guarantee that no two
+  // TIME_LIMITED redemptions can land in the same (user, voucher,
+  // window-occurrence). NULLs distinct so non-TIME_LIMITED unaffected.
+  @@unique([userId, voucherId, windowStartsAt])
 }
 
 // ─────────────────────────────────────────

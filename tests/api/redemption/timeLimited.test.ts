@@ -327,6 +327,119 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
   })
 })
 
+describe('createRedemption — M4a-6.1 concurrent-redemption race protection', () => {
+  // M4a-6.1: intra-window race closed by @@unique([userId, voucherId, windowStartsAt])
+  // on VoucherRedemption. Pins:
+  //   1. P2002 from the unique index → translated to ALREADY_REDEEMED_THIS_WINDOW
+  //      with nextWindowAt payload (symmetric with the regular Guard 7 rejection).
+  //   2. windowStartsAt = currentWindow.startsAt is persisted on the redemption row
+  //      for TIME_LIMITED vouchers.
+  //   3. windowStartsAt is null on the redemption row for non-TIME_LIMITED vouchers.
+  //   4. Unrelated P2002 (different target — e.g. redemptionCode collision)
+  //      propagates unchanged so it isn't misclassified as a window race.
+
+  it('translates P2002 on @@unique([userId, voucherId, windowStartsAt]) to ALREADY_REDEEMED_THIS_WINDOW with nextWindowAt', async () => {
+    // Build a TIME_LIMITED Prisma mock whose tx.voucherRedemption.create
+    // throws a P2002 with the windowStartsAt unique-index target —
+    // simulating a concurrent winner inserting first.
+    const prisma = mockTimeLimitedPrisma()
+    // Override $transaction to throw a Prisma P2002 from inside the tx.
+    prisma.$transaction = vi.fn(async (fn: any) => {
+      const tx = {
+        userVoucherCycleState: {
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          create:     vi.fn().mockResolvedValue({}),
+          upsert:     vi.fn().mockResolvedValue({}),
+        },
+        voucherRedemption: {
+          create: vi.fn().mockRejectedValue({
+            code: 'P2002',
+            meta: { target: ['userId', 'voucherId', 'windowStartsAt'] },
+          }),
+        },
+      }
+      return fn(tx)
+    })
+    const redis = mockRedis()
+
+    try {
+      await createRedemption(prisma, redis, 'user-1',
+        { voucherId: 'v1', branchId: 'b1', pin: REAL_PIN }, baseCtx)
+      throw new Error('expected rejection')
+    } catch (err: any) {
+      expect(err.code).toBe('ALREADY_REDEEMED_THIS_WINDOW')
+      // Mon 2026-05-11 13:00 BST → next occurrence Tue 2026-05-12 11:00 BST = 10:00 UTC.
+      expect(err.details).toEqual({ nextWindowAt: '2026-05-12T10:00:00.000Z' })
+    }
+  })
+
+  it('persists windowStartsAt = currentWindow.startsAt on the redemption row for TIME_LIMITED', async () => {
+    const prisma = mockTimeLimitedPrisma()
+    const redis  = mockRedis()
+
+    await createRedemption(prisma, redis, 'user-1',
+      { voucherId: 'v1', branchId: 'b1', pin: REAL_PIN }, baseCtx)
+
+    // The shared $transaction shim stashes the tx.voucherRedemption.create
+    // call args into prismaTxSpies.voucherRedemptionCreateCalls.
+    expect(prismaTxSpies.voucherRedemptionCreateCalls.length).toBe(1)
+    const callArgs = prismaTxSpies.voucherRedemptionCreateCalls[0][0]
+    // Mon 2026-05-11 13:00 BST (TEST_INSIDE) → today's window opens at
+    // Mon 11:00 BST = 10:00 UTC.
+    expect(callArgs.data.windowStartsAt).toBeInstanceOf(Date)
+    expect((callArgs.data.windowStartsAt as Date).toISOString())
+      .toBe('2026-05-11T10:00:00.000Z')
+  })
+
+  it('persists windowStartsAt = null on the redemption row for non-TIME_LIMITED', async () => {
+    const prisma = mockNonTimeLimitedPrisma()
+    const redis  = mockRedis()
+
+    await createRedemption(prisma, redis, 'user-1',
+      { voucherId: 'v2', branchId: 'b1', pin: REAL_PIN }, baseCtx)
+
+    expect(nonTLTxSpies.redemptionCreate).toHaveBeenCalledTimes(1)
+    const callArgs = nonTLTxSpies.redemptionCreate.mock.calls[0][0]
+    expect(callArgs.data.windowStartsAt).toBeNull()
+  })
+
+  it('unrelated P2002 (e.g. redemptionCode collision) propagates unchanged — NOT translated to ALREADY_REDEEMED_THIS_WINDOW', async () => {
+    // An attacker who somehow trips a different unique constraint must
+    // NOT receive the window-race translation. The catch is target-
+    // specific: only `target` arrays that include `windowStartsAt`
+    // map to ALREADY_REDEEMED_THIS_WINDOW.
+    const prisma = mockTimeLimitedPrisma()
+    prisma.$transaction = vi.fn(async (fn: any) => {
+      const tx = {
+        userVoucherCycleState: {
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          create:     vi.fn().mockResolvedValue({}),
+          upsert:     vi.fn().mockResolvedValue({}),
+        },
+        voucherRedemption: {
+          create: vi.fn().mockRejectedValue({
+            code: 'P2002',
+            meta: { target: ['redemptionCode'] },
+          }),
+        },
+      }
+      return fn(tx)
+    })
+    const redis = mockRedis()
+
+    try {
+      await createRedemption(prisma, redis, 'user-1',
+        { voucherId: 'v1', branchId: 'b1', pin: REAL_PIN }, baseCtx)
+      throw new Error('expected rejection')
+    } catch (err: any) {
+      // The unrelated P2002 must propagate raw — its code stays 'P2002',
+      // it is NOT an AppError, and `.details` is undefined.
+      expect(err.code).toBe('P2002')
+      expect(err.meta?.target).toEqual(['redemptionCode'])
+    }
+  })
+})
+
 describe('TIME_LIMITED typed errors propagate end-to-end through the HTTP route layer (M4a-6 §AC)', () => {
   // Pins the HTTP response body shape via `AppError.toJSON()` — the
   // global handler in src/api/app.ts sends
