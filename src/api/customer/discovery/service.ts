@@ -18,6 +18,12 @@ import {
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 import { resolveSelectedBranch } from './branch-resolver'
 import { buildDisplayName, formatReview } from '../reviews/service'
+import {
+  getCurrentWindowOccurrence,
+  getNextWindowOccurrence,
+  getMostRecentlyClosedWindowOccurrence,
+  type AvailabilityWindow,
+} from '../../shared/voucherAvailability'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -902,6 +908,11 @@ export async function getCustomerVoucher(
           id: true, businessName: true, tradingName: true, logoUrl: true, status: true,
         },
       },
+      // NEW (M4a-4):
+      availabilityWindows: {
+        select: { dayOfWeek: true, openTime: true, closeTime: true },
+        orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
+      },
     },
   })
 
@@ -1009,13 +1020,78 @@ export async function getCustomerVoucher(
     }
   }
 
+  // M4a-4: TIME_LIMITED-specific window state. Non-TIME_LIMITED vouchers
+  // get [] / null for these fields (no state machine impact).
+  const isTimeLimited = voucher.type === 'TIME_LIMITED'
+  const windows: AvailabilityWindow[] = isTimeLimited
+    ? voucher.availabilityWindows.map(w => ({
+        dayOfWeek: w.dayOfWeek,
+        openTime:  w.openTime,
+        closeTime: w.closeTime,
+      }))
+    : []
+
+  const now = new Date()
+  const currentWindowOcc = isTimeLimited ? getCurrentWindowOccurrence(windows, now) : null
+  const nextWindowOcc    = isTimeLimited ? getNextWindowOccurrence(windows, now) : null
+
+  // redeemedWindow: { startsAt, endsAt } | null per spec §3.6.1.
+  // Non-null iff TIME_LIMITED AND a VoucherRedemption exists for (userId,
+  // voucherId) within an anchoring window-occurrence whose redeemed-state
+  // surface should still render.
+  let redeemedWindow: { startsAt: string; endsAt: string } | null = null
+  if (isTimeLimited && userId) {
+    const lastRedemptionRow = await prisma.voucherRedemption.findFirst({
+      where: { userId, voucherId },
+      orderBy: { redeemedAt: 'desc' },
+      select: { redeemedAt: true },
+    })
+
+    if (lastRedemptionRow) {
+      if (
+        currentWindowOcc &&
+        lastRedemptionRow.redeemedAt >= currentWindowOcc.startsAt &&
+        lastRedemptionRow.redeemedAt <  currentWindowOcc.endsAt
+      ) {
+        // Case (a): redemption is inside the current open window.
+        redeemedWindow = {
+          startsAt: currentWindowOcc.startsAt.toISOString(),
+          endsAt:   currentWindowOcc.endsAt.toISOString(),
+        }
+      } else if (!currentWindowOcc) {
+        // Case (b): between windows. Was the last redemption inside the most-
+        // recently-closed occurrence?
+        const prevWindowOcc = getMostRecentlyClosedWindowOccurrence(windows, now)
+        if (
+          prevWindowOcc &&
+          lastRedemptionRow.redeemedAt >= prevWindowOcc.startsAt &&
+          lastRedemptionRow.redeemedAt <  prevWindowOcc.endsAt
+        ) {
+          redeemedWindow = {
+            startsAt: prevWindowOcc.startsAt.toISOString(),
+            endsAt:   prevWindowOcc.endsAt.toISOString(),
+          }
+        }
+      }
+    }
+  }
+
   return {
     ...voucher,
     estimatedSaving: Number(voucher.estimatedSaving),
-    isRedeemedThisCycle,
+    isRedeemedThisCycle: isTimeLimited ? false : isRedeemedThisCycle,
     isFavourited,
-    availableAgainAt,
+    availableAgainAt: isTimeLimited ? null : availableAgainAt,
     lastRedemption,
+    // NEW M4a-4:
+    availabilityWindows: windows,
+    currentWindow: currentWindowOcc
+      ? { startsAt: currentWindowOcc.startsAt.toISOString(), endsAt: currentWindowOcc.endsAt.toISOString() }
+      : null,
+    nextWindow: nextWindowOcc
+      ? { startsAt: nextWindowOcc.startsAt.toISOString(), endsAt: nextWindowOcc.endsAt.toISOString() }
+      : null,
+    redeemedWindow,
   }
 }
 
