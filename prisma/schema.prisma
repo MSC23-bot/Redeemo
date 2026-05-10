@@ -838,12 +838,29 @@ model Voucher {
   cycleStates     UserVoucherCycleState[]
   favouritedBy    FavouriteVoucher[]
   rmvTemplate     RmvTemplate?       @relation(fields: [rmvTemplateId], references: [id])
+  availabilityWindows VoucherAvailabilityWindow[]
 
   @@index([merchantId])
   @@index([status])
   @@index([approvalStatus])
   @@index([code])
   @@index([isRmv])
+}
+
+// TIME_LIMITED voucher availability windows (M4 — recurring weekly only).
+// Each row = one window-occurrence per week. Cross-midnight uses the
+// special closeTime sentinel "24:00" (next-day midnight boundary);
+// see docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md §3.2.
+model VoucherAvailabilityWindow {
+  id        String  @id @default(uuid())
+  voucherId String
+  dayOfWeek Int     // 0=Sun, 1=Mon, ..., 6=Sat (matches BranchOpeningHours)
+  openTime  String  // "HH:mm" wall-clock, Europe/London ("00:00"-"23:59")
+  closeTime String  // "HH:mm" wall-clock, Europe/London ("00:01"-"23:59" OR "24:00" sentinel)
+
+  voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  @@index([voucherId])
 }
 
 // ─────────────────────────────────────────
