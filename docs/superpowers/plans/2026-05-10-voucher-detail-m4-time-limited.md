@@ -12,24 +12,29 @@
 
 ## 0. Sequencing recommendation — docs-only PR FIRST
 
-Local main is currently 2 doc-only commits ahead of `origin/main`:
+Local main is currently **3 doc-only commits** ahead of `origin/main`:
 - `a8a9117` — initial M4 spec
 - `c6ff5a4` — five review amendments
+- `db4cadd` — TIME_LIMITED M4 implementation plan (this document)
 
-**Recommendation: ship a tiny docs-only PR for these two commits BEFORE M4a starts.** Same precedent as PR #62.
+**Recommendation: ship one docs-only PR carrying all 3 commits BEFORE M4a starts.** Same precedent as PR #62.
+
+Expected PR scope: **3 commits, 2 files**
+- `docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md` (created by `a8a9117`, modified by `c6ff5a4`)
+- `docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md` (created by `db4cadd`)
 
 Reasons:
-1. The spec is the contract M4a refers to. Having it on `origin/main` lets M4a's PR description cite it by SHA, not by "see my local main."
+1. The spec is the contract M4a/M4b/M4c refer to. Having it AND the plan on `origin/main` lets each PR description cite both by SHA, not by "see my local main."
 2. The project's git hook blocks `git push origin main` — a PR is the only safe path.
-3. M4a will be a large code+tests PR. Bundling the spec into it adds review noise that's already been reviewed and approved separately.
-4. PR #62 worked smoothly with this shape (commit on main → push as standalone PR → merge → resume).
+3. M4a will be a large code+tests PR. Bundling spec + plan into it adds review noise that's already been reviewed and approved separately.
+4. PR #62 worked smoothly with this shape (commits on main → push as standalone PR → merge → resume).
 
 **Concrete sequence:**
-- **Task 0a** (this plan) — open + merge the docs-only spec PR before starting M4a.
-- **Task 0b** — fast-forward local main from `origin/main` after the docs-only PR merges.
+- **Task 0** below — open + merge the docs-only spec+plan PR before starting M4a.
+- After the PR merges — fast-forward local main from `origin/main`.
 - Then proceed to M4a.
 
-The plan itself does NOT bundle the spec commits; they ride in their own PR. M4a opens against the post-merge `origin/main`.
+The plan itself does NOT bundle the spec/plan commits; they ride in their own PR. M4a opens against the post-merge `origin/main`.
 
 ---
 
@@ -99,54 +104,95 @@ The plan itself does NOT bundle the spec commits; they ride in their own PR. M4a
 
 **Before starting M4a:**
 
-- [ ] **Step 0.0.1 — Confirm spec is on `origin/main`.**
-
-Run: `git log --oneline origin/main..HEAD -- docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md`
-Expected: empty (spec is on origin) OR shows `a8a9117 c6ff5a4` (spec only on local main → ship docs-only PR first per §0).
-
-- [ ] **Step 0.0.2 — If spec is local-only, open the docs-only PR.**
+- [ ] **Step 0.0.1 — Confirm what's local-only vs on `origin/main`.**
 
 ```bash
-git checkout -b docs/m4-time-limited-spec
-git push -u origin docs/m4-time-limited-spec
-gh pr create --title "docs(spec): TIME_LIMITED M4 — locked design + amendments" --body "$(cat <<'EOF'
+git log --oneline origin/main..HEAD
+```
+Expected: 3 lines —
+- `db4cadd docs(plan): TIME_LIMITED M4 implementation plan (3-PR sequence)`
+- `c6ff5a4 docs(spec): TIME_LIMITED M4 — five review amendments`
+- `a8a9117 docs(spec): TIME_LIMITED M4 design spec — locked at brainstorm 2026-05-10`
+
+If origin already has all 3 (e.g. someone else merged them), skip to 0.0.4.
+
+- [ ] **Step 0.0.2 — Open the docs-only PR.**
+
+```bash
+git checkout -b docs/m4-time-limited-spec-and-plan
+git push -u origin docs/m4-time-limited-spec-and-plan
+gh pr create --title "docs(spec,plan): TIME_LIMITED M4 — locked spec + implementation plan" --body "$(cat <<'EOF'
 ## Summary
 
-Two doc-only commits landing the locked TIME_LIMITED M4 design spec on origin/main ahead of M4a implementation:
+Three doc-only commits landing the locked TIME_LIMITED M4 design spec AND the implementation plan on origin/main ahead of M4a/M4b/M4c implementation:
 
 - a8a9117 — initial M4 spec
 - c6ff5a4 — five owner-review amendments
+- db4cadd — TIME_LIMITED M4 implementation plan (3-PR sequence)
 
-No code changes. The spec is the contract M4a/M4b/M4c will implement against.
+No code changes. The spec is the contract M4a/M4b/M4c will implement against; the plan is the execution roadmap with full TDD discipline.
 
 ## Files changed
 
 - docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md (new)
+- docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md (new)
+
+## Test plan
+
+- [x] No code changes — N/A
+- [ ] Reviewer to spot-check spec / plan internal consistency (TIME_LIMITED state machine, §AH copy, sequencing)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
 
-Verify scope: `gh api "repos/MSC23-bot/Redeemo/compare/main...docs/m4-time-limited-spec" --jq '{ahead_by, total_commits, files_changed: (.files | length)}'` — expect 2 commits, 1 file.
+- [ ] **Step 0.0.3 — Verify scope BEFORE merge.**
 
-- [ ] **Step 0.0.3 — After merge, fast-forward local main + delete branch.**
+```bash
+HEAD_SHA=$(gh pr view --json headRefOid --jq .headRefOid)
+gh api "repos/MSC23-bot/Redeemo/compare/main...${HEAD_SHA}" --jq '{ahead_by, total_commits, files_changed: (.files | length), files: [.files[].filename]}'
+```
+
+Expected (verbatim):
+```json
+{
+  "ahead_by": 3,
+  "total_commits": 3,
+  "files_changed": 2,
+  "files": [
+    "docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md",
+    "docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md"
+  ]
+}
+```
+
+If scope differs (e.g. unrelated files leaked in), fix before merging.
+
+- [ ] **Step 0.0.4 — SHA-bound merge after owner approval.**
+
+```bash
+HEAD_SHA=$(gh pr view --json headRefOid --jq .headRefOid)
+REDEEMO_PR_SCOPE_VERIFIED=${HEAD_SHA} gh pr merge --merge
+```
+
+- [ ] **Step 0.0.5 — Fast-forward local main + delete branch.**
 
 ```bash
 git checkout main
 git pull --ff-only origin main
-git branch -D docs/m4-time-limited-spec
+git branch -D docs/m4-time-limited-spec-and-plan
 ```
 
-Verify: `git rev-parse HEAD == origin/main` (local and origin aligned).
+Verify: `git rev-parse HEAD` matches `git rev-parse origin/main`.
 
-- [ ] **Step 0.0.4 — Cut M4a feature branch from updated main.**
+- [ ] **Step 0.0.6 — Cut M4a feature branch from updated main.**
 
 ```bash
 git checkout -b feature/voucher-m4a-time-limited-backend
 ```
 
-- [ ] **Step 0.0.5 — Sanity-check the working environment.**
+- [ ] **Step 0.0.7 — Sanity-check the working environment.**
 
 ```bash
 npx prisma migrate status
@@ -828,6 +874,21 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
+// All tests in this file use vi.useFakeTimers + vi.setSystemTime so window-
+// state assertions are deterministic across CI runs and developer clocks.
+// Pin `now` to a Monday 13:00 BST inside the lunch window:
+//   2026-05-11 13:00 BST = 2026-05-11 12:00 UTC
+const TEST_NOW = new Date('2026-05-11T12:00:00.000Z')
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  vi.setSystemTime(TEST_NOW)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('getCustomerVoucher — TIME_LIMITED payload extensions (M4a-4)', () => {
   it('TIME_LIMITED voucher returns availabilityWindows array', async () => {
     const v = await getCustomerVoucher(prisma, timeLimitedVoucherId, userId)
@@ -839,17 +900,18 @@ describe('getCustomerVoucher — TIME_LIMITED payload extensions (M4a-4)', () =>
     })
   })
 
-  it('TIME_LIMITED voucher returns currentWindow / nextWindow as ISO-instant pairs or null', async () => {
+  it('TIME_LIMITED voucher at TEST_NOW=Mon 13:00 BST returns deterministic currentWindow / nextWindow', async () => {
     const v = await getCustomerVoucher(prisma, timeLimitedVoucherId, userId)
-    expect(v).toHaveProperty('currentWindow')
-    expect(v).toHaveProperty('nextWindow')
-    if (v.currentWindow !== null) {
-      expect(v.currentWindow).toMatchObject({
-        startsAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
-        endsAt:   expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
-      })
-    }
-    expect(v.nextWindow).not.toBeNull() // 5 windows means at least one is upcoming
+    // Mon-Fri 11:00-15:00 BST → currentWindow is Mon 11:00-15:00 BST = 10:00-14:00 UTC.
+    expect(v.currentWindow).toEqual({
+      startsAt: '2026-05-11T10:00:00.000Z',
+      endsAt:   '2026-05-11T14:00:00.000Z',
+    })
+    // nextWindow is Tue 11:00-15:00 BST = Tue 10:00-14:00 UTC.
+    expect(v.nextWindow).toEqual({
+      startsAt: '2026-05-12T10:00:00.000Z',
+      endsAt:   '2026-05-12T14:00:00.000Z',
+    })
   })
 
   it('TIME_LIMITED voucher returns redeemedWindow as { startsAt, endsAt } | null shape (NOT boolean)', async () => {
@@ -1139,6 +1201,47 @@ describe('getCustomerMerchant — TIME_LIMITED voucher rows (M4a-5)', () => {
     const sizeBytes = JSON.stringify(merchant).length
     expect(sizeBytes).toBeLessThan(50_000) // 2-voucher fixture, plenty of headroom
   })
+
+  it('NOT N+1 — merchant-profile fetch issues exactly ONE redemption query (groupBy) regardless of voucher count', async () => {
+    // Create 8 additional TIME_LIMITED vouchers so the merchant has 9 TL + 1 regular = 10 total.
+    const extraIds: string[] = []
+    for (let i = 0; i < 8; i++) {
+      const v = await prisma.voucher.create({
+        data: {
+          merchantId, code: `M4A5-N-${i}-${Date.now()}`, title: `M4a-5 batch ${i}`,
+          type: 'TIME_LIMITED', estimatedSaving: 5, status: 'ACTIVE', approvalStatus: 'APPROVED',
+          availabilityWindows: { create: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }] },
+        },
+      })
+      extraIds.push(v.id)
+    }
+
+    // Hook the Prisma query log to count VoucherRedemption queries during the
+    // single getCustomerMerchant call.
+    let voucherRedemptionQueryCount = 0
+    const handler = (e: { query: string }) => {
+      // Match both 'voucherRedemption' (Prisma 5+ formatted) and lowercase
+      // table name variants.
+      if (/from\s+"VoucherRedemption"|"public"\."VoucherRedemption"/i.test(e.query)) {
+        voucherRedemptionQueryCount++
+      }
+    }
+    prisma.$on('query' as any, handler)
+
+    try {
+      await getCustomerMerchant(prisma, merchantId, userId, {})
+    } finally {
+      // Detach handler — Prisma doesn't expose a $off API; rely on test isolation.
+    }
+
+    // Locked contract: ONE groupBy redemption query for the entire voucher list.
+    // Per-voucher findFirst (N+1) would push this to 9+. Regression guard.
+    expect(voucherRedemptionQueryCount).toBe(1)
+
+    // Cleanup
+    await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucherId: { in: extraIds } } })
+    await prisma.voucher.deleteMany({ where: { id: { in: extraIds } } })
+  })
 })
 ```
 
@@ -1153,60 +1256,85 @@ Expected: FAIL — fields not on voucher rows.
 
 In `src/api/customer/discovery/service.ts`, find `getCustomerMerchant`. Locate the Prisma `select` for the `vouchers` field on the merchant query and extend it the same way as M4a-4 Step 3 part (a). Then in the post-query mapping for each voucher row, apply the same derivation as M4a-4 Step 3 part (b) — extracted into a shared helper:
 
-a) **Extract the per-voucher derivation into a reusable function** at the top of `discovery/service.ts`:
+a) **Performance constraint (locked):** the per-voucher `findFirst` query for last-redemption is the N+1 risk for `getCustomerMerchant`. Batch it: one `findMany` for all (userId, voucherIds) keyed by voucherId. The pure-function window-occurrence math then runs in-memory per voucher.
+
+Add to the top of `discovery/service.ts`:
 
 ```typescript
 /**
- * Compute TIME_LIMITED payload fields for a single voucher row.
+ * Build a (voucherId → most-recent redeemedAt) map for the given user
+ * across all voucher IDs in one DB round-trip. Used by both
+ * getCustomerVoucher (1-key map) and getCustomerMerchant (N-key map)
+ * so the per-voucher TIME_LIMITED payload derivation runs without a
+ * per-voucher findFirst.
+ */
+async function batchLastRedemptionsByVoucher(
+  prisma: PrismaClient,
+  userId: string,
+  voucherIds: string[],
+): Promise<Map<string, Date>> {
+  if (voucherIds.length === 0) return new Map()
+
+  // Single Prisma query: groupBy voucherId with MAX(redeemedAt). Index-friendly:
+  // existing @@index([userId, voucherId]) covers this lookup.
+  const rows = await prisma.voucherRedemption.groupBy({
+    by: ['voucherId'],
+    where: { userId, voucherId: { in: voucherIds } },
+    _max: { redeemedAt: true },
+  })
+
+  const map = new Map<string, Date>()
+  for (const r of rows) {
+    if (r._max.redeemedAt) map.set(r.voucherId, r._max.redeemedAt)
+  }
+  return map
+}
+
+/**
+ * Compute TIME_LIMITED payload fields for a single voucher row IN-MEMORY
+ * given a pre-fetched lastRedeemedAt (or null). PURE FUNCTION — no DB I/O.
+ *
  * Shared by getCustomerVoucher (single-voucher) and getCustomerMerchant
  * (voucher-list). Returns the four payload extension fields.
  */
-async function computeTimeLimitedPayload(
-  prisma: PrismaClient,
-  userId: string | null,
-  voucherId: string,
-  type: VoucherType,
-  rawWindows: Array<{ dayOfWeek: number; openTime: string; closeTime: string }>,
-  now: Date,
-): Promise<{
+function computeTimeLimitedPayload(input: {
+  type: VoucherType
+  rawWindows: Array<{ dayOfWeek: number; openTime: string; closeTime: string }>
+  lastRedeemedAt: Date | null
+  now: Date
+}): {
   availabilityWindows: AvailabilityWindow[]
   currentWindow:  { startsAt: string; endsAt: string } | null
   nextWindow:     { startsAt: string; endsAt: string } | null
   redeemedWindow: { startsAt: string; endsAt: string } | null
-}> {
+} {
+  const { type, rawWindows, lastRedeemedAt, now } = input
   const isTimeLimited = type === 'TIME_LIMITED'
   const windows: AvailabilityWindow[] = isTimeLimited ? rawWindows : []
   const currentWindowOcc = isTimeLimited ? getCurrentWindowOccurrence(windows, now) : null
   const nextWindowOcc    = isTimeLimited ? getNextWindowOccurrence(windows, now) : null
 
   let redeemedWindow: { startsAt: string; endsAt: string } | null = null
-  if (isTimeLimited && userId) {
-    const lastRow = await prisma.voucherRedemption.findFirst({
-      where: { userId, voucherId },
-      orderBy: { redeemedAt: 'desc' },
-      select: { redeemedAt: true },
-    })
-    if (lastRow) {
+  if (isTimeLimited && lastRedeemedAt) {
+    if (
+      currentWindowOcc &&
+      lastRedeemedAt >= currentWindowOcc.startsAt &&
+      lastRedeemedAt <  currentWindowOcc.endsAt
+    ) {
+      redeemedWindow = {
+        startsAt: currentWindowOcc.startsAt.toISOString(),
+        endsAt:   currentWindowOcc.endsAt.toISOString(),
+      }
+    } else if (!currentWindowOcc) {
+      const prevOcc = getMostRecentlyClosedWindowOccurrence(windows, now)
       if (
-        currentWindowOcc &&
-        lastRow.redeemedAt >= currentWindowOcc.startsAt &&
-        lastRow.redeemedAt <  currentWindowOcc.endsAt
+        prevOcc &&
+        lastRedeemedAt >= prevOcc.startsAt &&
+        lastRedeemedAt <  prevOcc.endsAt
       ) {
         redeemedWindow = {
-          startsAt: currentWindowOcc.startsAt.toISOString(),
-          endsAt:   currentWindowOcc.endsAt.toISOString(),
-        }
-      } else if (!currentWindowOcc) {
-        const prevOcc = getMostRecentlyClosedWindowOccurrence(windows, now)
-        if (
-          prevOcc &&
-          lastRow.redeemedAt >= prevOcc.startsAt &&
-          lastRow.redeemedAt <  prevOcc.endsAt
-        ) {
-          redeemedWindow = {
-            startsAt: prevOcc.startsAt.toISOString(),
-            endsAt:   prevOcc.endsAt.toISOString(),
-          }
+          startsAt: prevOcc.startsAt.toISOString(),
+          endsAt:   prevOcc.endsAt.toISOString(),
         }
       }
     }
@@ -1225,23 +1353,59 @@ async function computeTimeLimitedPayload(
 }
 ```
 
-b) **Refactor M4a-4 to call this helper** in `getCustomerVoucher`, replacing the inline derivation.
-
-c) **Call the helper for each voucher in `getCustomerMerchant`**. The merchant query already selects vouchers; extend that select to include `availabilityWindows` (same select shape), then map each row:
+b) **Refactor M4a-4 to use the batched lookup** even for single-voucher case (1-key map degrades trivially — 1 groupBy query):
 
 ```typescript
+// In getCustomerVoucher, after the voucher.findUnique:
+const lastRedemptionMap = userId
+  ? await batchLastRedemptionsByVoucher(prisma, userId, [voucherId])
+  : new Map<string, Date>()
+
+const tlPayload = computeTimeLimitedPayload({
+  type: voucher.type,
+  rawWindows: voucher.availabilityWindows.map(w => ({
+    dayOfWeek: w.dayOfWeek, openTime: w.openTime, closeTime: w.closeTime,
+  })),
+  lastRedeemedAt: lastRedemptionMap.get(voucherId) ?? null,
+  now: new Date(),
+})
+
+return { ...rest, ...tlPayload, /* etc */ }
+```
+
+c) **Call the helper for each voucher in `getCustomerMerchant`** with a SINGLE batch lookup before the map:
+
+```typescript
+// In getCustomerMerchant, after fetching merchant.vouchers:
+const voucherIds = merchant.vouchers.map(v => v.id)
+const lastRedemptionMap = userId
+  ? await batchLastRedemptionsByVoucher(prisma, userId, voucherIds)
+  : new Map<string, Date>()
+
 const now = new Date()
-const enrichedVouchers = await Promise.all(
-  merchant.vouchers.map(async v => ({
+const enrichedVouchers = merchant.vouchers.map(v => {
+  const tlPayload = computeTimeLimitedPayload({
+    type: v.type,
+    rawWindows: (v.availabilityWindows ?? []).map(w => ({
+      dayOfWeek: w.dayOfWeek, openTime: w.openTime, closeTime: w.closeTime,
+    })),
+    lastRedeemedAt: lastRedemptionMap.get(v.id) ?? null,
+    now,
+  })
+  return {
     ...v,
     estimatedSaving: Number(v.estimatedSaving),
     isRedeemedThisCycle: v.type === 'TIME_LIMITED' ? false : v.isRedeemedThisCycle,
-    ...(await computeTimeLimitedPayload(
-      prisma, userId, v.id, v.type, v.availabilityWindows ?? [], now,
-    )),
-  })),
-)
+    ...tlPayload,
+  }
+})
 ```
+
+**Query-count contract:** for a merchant with N vouchers, `getCustomerMerchant` adds exactly **2 extra queries** vs current behaviour:
+1. `findMany` extension on the `vouchers.availabilityWindows` select (one round-trip; included in the merchant query plan).
+2. `groupBy` on `VoucherRedemption` for the batch last-redemption lookup.
+
+NOT N+1. Add a regression test in `tests/api/customer/discovery.timeLimitedMerchant.test.ts` to assert the query count via Prisma's `$on('query', ...)` event hook (or via a query-count fixture) — see test additions below.
 
 - [ ] **Step 4: Run test to verify it passes.**
 
@@ -1315,40 +1479,101 @@ let tlVoucherId: string
 let regularVoucherId: string
 const BRANCH_PIN = '1234'
 
-beforeAll(async () => {
-  // Create merchant, branch (with encrypted PIN), user (with phone verified
-  // + active subscription), TIME_LIMITED voucher with windows that cover NOW,
-  // and a regular FREEBIE voucher.
-  //
-  // The TIME_LIMITED windows MUST be configured such that `now` falls inside
-  // one of them — derive from a fixed test instant or set windows covering
-  // every day 00:00-24:00 for the test merchant.
+// All tests in this file use vi.useFakeTimers + vi.setSystemTime so window-
+// state behaviour is deterministic. TEST_NOW is pinned to a Monday 13:00
+// BST instant (= Mon 12:00 UTC). The TIME_LIMITED voucher's seed windows
+// are configured Mon-Fri 11:00-15:00 BST so TEST_NOW is INSIDE the open
+// window for the "accepts redemption" test, OUTSIDE for the explicitly-
+// reconfigured "outside window" test.
+const TEST_NOW = new Date('2026-05-11T12:00:00.000Z')
 
-  // ... (full fixture setup; mirror tests/api/redemption/redemption.test.ts pattern)
+beforeAll(async () => {
+  const m = await prisma.merchant.create({
+    data: { businessName: 'TEST §M4a-6', status: 'ACTIVE' },
+  })
+  merchantId = m.id
+
+  const b = await prisma.branch.create({
+    data: {
+      merchantId, name: 'TEST §M4a-6 branch', addressLine1: 'X',
+      city: 'X', postcode: 'X1 1XX', country: 'United Kingdom', isMainBranch: true,
+      redemptionPin: encrypt(BRANCH_PIN),
+    },
+  })
+  branchId = b.id
+
+  const u = await prisma.user.create({
+    data: {
+      email: `m4a6-${Date.now()}@example.com`, passwordHash: 'p',
+      firstName: 'T', lastName: 'M4a6', phoneVerified: true,
+    },
+  })
+  userId = u.id
+
+  // Active subscription anchored 6 months ago so cycle window contains TEST_NOW.
+  await prisma.subscription.create({
+    data: {
+      userId, status: 'ACTIVE',
+      cycleAnchorDate: new Date('2025-11-11T00:00:00.000Z'),
+      currentPeriodStart: new Date('2026-05-11T00:00:00.000Z'),
+      currentPeriodEnd:   new Date('2026-06-11T00:00:00.000Z'),
+    },
+  })
+
+  // TIME_LIMITED voucher with Mon-Fri 11:00-15:00 windows.
+  const tl = await prisma.voucher.create({
+    data: {
+      merchantId, code: `M4A6-TL-${Date.now()}`, title: 'M4a-6 TL',
+      type: 'TIME_LIMITED', estimatedSaving: 8.5, status: 'ACTIVE', approvalStatus: 'APPROVED',
+      availabilityWindows: {
+        create: [1, 2, 3, 4, 5].map(d => ({ dayOfWeek: d, openTime: '11:00', closeTime: '15:00' })),
+      },
+    },
+  })
+  tlVoucherId = tl.id
+
+  const reg = await prisma.voucher.create({
+    data: {
+      merchantId, code: `M4A6-REG-${Date.now()}`, title: 'M4a-6 regular',
+      type: 'FREEBIE', estimatedSaving: 5, status: 'ACTIVE', approvalStatus: 'APPROVED',
+    },
+  })
+  regularVoucherId = reg.id
 })
 
 afterAll(async () => {
-  // Clean up redemptions, voucher windows, vouchers, subscription, branch, user, merchant
+  await prisma.voucherRedemption.deleteMany({ where: { userId } })
+  await prisma.userVoucherCycleState.deleteMany({ where: { userId } })
+  await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucherId: tlVoucherId } })
+  await prisma.voucher.deleteMany({ where: { id: { in: [tlVoucherId, regularVoucherId] } } })
+  await prisma.subscription.deleteMany({ where: { userId } })
+  await prisma.branch.delete({ where: { id: branchId } })
+  await prisma.user.delete({ where: { id: userId } })
+  await prisma.merchant.delete({ where: { id: merchantId } })
   await redis.quit()
   await prisma.$disconnect()
 })
 
 beforeEach(async () => {
+  // Pin time deterministically. Each test may override via vi.setSystemTime
+  // if it needs a different instant.
+  vi.useFakeTimers()
+  vi.setSystemTime(TEST_NOW)
+
   // Wipe redemptions + cycle state between tests so each test starts clean.
   await prisma.voucherRedemption.deleteMany({ where: { userId } })
   await prisma.userVoucherCycleState.deleteMany({ where: { userId } })
   await redis.del(`pin:fail:${userId}:${branchId}`)
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
-  it('rejects redemption with VOUCHER_OUTSIDE_AVAILABILITY_WINDOW when no window is open', async () => {
-    // Configure tlVoucherId with windows that exclude `now` (e.g. only Mondays
-    // when today is Saturday). Re-fetch the voucher with windows updated.
-    await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucherId: tlVoucherId } })
-    const futureDay = (new Date().getDay() + 3) % 7
-    await prisma.voucherAvailabilityWindow.create({
-      data: { voucherId: tlVoucherId, dayOfWeek: futureDay, openTime: '11:00', closeTime: '15:00' },
-    })
+  it('rejects redemption with VOUCHER_OUTSIDE_AVAILABILITY_WINDOW when TEST_NOW is outside any window', async () => {
+    // Override TEST_NOW to a Saturday — outside the Mon-Fri lunch windows.
+    vi.setSystemTime(new Date('2026-05-16T12:00:00.000Z')) // Sat 13:00 BST
 
     await expect(
       createRedemption(prisma, redis, userId, {
@@ -1359,12 +1584,8 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     })
   })
 
-  it('includes nextWindowAt payload in the rejection error', async () => {
-    await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucherId: tlVoucherId } })
-    const futureDay = (new Date().getDay() + 3) % 7
-    await prisma.voucherAvailabilityWindow.create({
-      data: { voucherId: tlVoucherId, dayOfWeek: futureDay, openTime: '11:00', closeTime: '15:00' },
-    })
+  it('includes nextWindowAt payload (= next Monday 11:00 BST = 10:00 UTC) in the rejection error', async () => {
+    vi.setSystemTime(new Date('2026-05-16T12:00:00.000Z')) // Sat 13:00 BST
 
     try {
       await createRedemption(prisma, redis, userId, {
@@ -1373,19 +1594,12 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
       throw new Error('expected rejection')
     } catch (err: any) {
       expect(err.code).toBe('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW')
-      expect(err.details).toHaveProperty('nextWindowAt')
-      expect(err.details.nextWindowAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+      expect(err.details.nextWindowAt).toBe('2026-05-18T10:00:00.000Z')
     }
   })
 
-  it('accepts redemption when TIME_LIMITED voucher has a currently-open window', async () => {
-    // Configure with always-open windows for today.
-    await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucherId: tlVoucherId } })
-    const today = new Date().getDay()
-    await prisma.voucherAvailabilityWindow.create({
-      data: { voucherId: tlVoucherId, dayOfWeek: today, openTime: '00:00', closeTime: '24:00' },
-    })
-
+  it('accepts redemption at TEST_NOW=Mon 13:00 BST (inside the Mon-Fri 11-15 window)', async () => {
+    // TEST_NOW from beforeEach is already inside the window — no reset needed.
     const redemption = await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
     })
@@ -1393,12 +1607,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
   })
 
   it('rejects second redemption inside the same window-occurrence with ALREADY_REDEEMED_THIS_WINDOW', async () => {
-    await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucherId: tlVoucherId } })
-    const today = new Date().getDay()
-    await prisma.voucherAvailabilityWindow.create({
-      data: { voucherId: tlVoucherId, dayOfWeek: today, openTime: '00:00', closeTime: '24:00' },
-    })
-
+    // TEST_NOW = Mon 13:00 BST inside the lunch window.
     await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
     })
@@ -1410,13 +1619,22 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     ).rejects.toMatchObject({ code: 'ALREADY_REDEEMED_THIS_WINDOW' })
   })
 
-  it('TIME_LIMITED redemption does NOT touch UserVoucherCycleState', async () => {
-    await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucherId: tlVoucherId } })
-    const today = new Date().getDay()
-    await prisma.voucherAvailabilityWindow.create({
-      data: { voucherId: tlVoucherId, dayOfWeek: today, openTime: '00:00', closeTime: '24:00' },
+  it('ALREADY_REDEEMED_THIS_WINDOW includes nextWindowAt (= next-occurrence Tue 11:00 BST)', async () => {
+    await createRedemption(prisma, redis, userId, {
+      voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
     })
+    try {
+      await createRedemption(prisma, redis, userId, {
+        voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
+      })
+      throw new Error('expected rejection')
+    } catch (err: any) {
+      expect(err.code).toBe('ALREADY_REDEEMED_THIS_WINDOW')
+      expect(err.details.nextWindowAt).toBe('2026-05-12T10:00:00.000Z')
+    }
+  })
 
+  it('TIME_LIMITED redemption does NOT touch UserVoucherCycleState', async () => {
     await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
     })
@@ -1610,21 +1828,102 @@ const claim = await prisma.$transaction(async tx => {
 })
 ```
 
-- [ ] **Step 5: Run test to verify it passes.**
+- [ ] **Step 5: Add a route-layer test asserting the HTTP response shape.**
+
+The `nextWindowAt` payload must propagate end-to-end: `AppError` (service) → JSON body (route) → `mapRedemptionError` (customer-app) → graceful copy (UI). This test pins the service → route boundary; M4a-8 + M4b-9 pin the rest of the chain.
+
+Add to `tests/api/redemption/timeLimited.test.ts`:
+
+```typescript
+import Fastify from 'fastify'
+import { redemptionRoutes } from '../../../src/api/redemption/routes'
+
+describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)', () => {
+  // Build a minimal Fastify app that includes the redemption routes + auth
+  // bypass (mirror the pattern used by existing redemption.test.ts).
+  let app: any
+  beforeAll(async () => {
+    app = Fastify()
+    app.decorate('prisma', prisma)
+    app.decorate('redis', redis)
+    // Inject a fake JWT preHandler that sets req.user.sub = userId
+    app.addHook('preHandler', async (req: any) => { req.user = { sub: userId } })
+    await app.register(redemptionRoutes)
+    await app.ready()
+  })
+  afterAll(async () => { await app.close() })
+
+  it('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW returns 400 with nextWindowAt in body.error.details', async () => {
+    vi.setSystemTime(new Date('2026-05-16T12:00:00.000Z')) // Sat 13:00 BST — outside
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/redemption',
+      payload: { voucherId: tlVoucherId, branchId, pin: BRANCH_PIN },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const body = res.json()
+    expect(body).toMatchObject({
+      error: {
+        code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+        details: { nextWindowAt: '2026-05-18T10:00:00.000Z' },
+      },
+    })
+  })
+
+  it('ALREADY_REDEEMED_THIS_WINDOW returns 400 with nextWindowAt in body.error.details', async () => {
+    // TEST_NOW = Mon 13:00 BST inside window. First redeem succeeds.
+    await app.inject({
+      method: 'POST', url: '/api/v1/redemption',
+      payload: { voucherId: tlVoucherId, branchId, pin: BRANCH_PIN },
+    })
+    // Second redeem inside the same occurrence rejects with the typed error.
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/redemption',
+      payload: { voucherId: tlVoucherId, branchId, pin: BRANCH_PIN },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({
+      error: {
+        code: 'ALREADY_REDEEMED_THIS_WINDOW',
+        details: { nextWindowAt: '2026-05-12T10:00:00.000Z' },
+      },
+    })
+  })
+})
+```
+
+- [ ] **Step 6: Verify the existing AppError → JSON serialization preserves `details`.**
+
+The route-layer test (Step 5) only passes if the existing `AppError` handler propagates `error.details` into the response body. Confirm by reading the existing handler:
+
+```bash
+grep -n "AppError\|setErrorHandler\|error.details" src/api/server.ts src/api/shared/errors.ts | head -20
+```
+
+If `error.details` is NOT serialized in the existing handler, the M4a-6 implementation must extend it. Concretely: in `src/api/shared/errors.ts` (or wherever `setErrorHandler` is registered), confirm the response shape is `{ error: { code, details } }` not just `{ error: { code } }`.
+
+If the handler today only serializes `code`, extend it now (M4a-6 step) to include `details`. This is critical — without it, the customer-app's `mapRedemptionError` reads `body.error.details.nextWindowAt` and gets `undefined`, breaking the whole copy chain.
+
+Pin the serialization shape with a 1-line assertion in the route test above (already covered: `expect(body).toMatchObject(...)` checks `details.nextWindowAt`).
+
+- [ ] **Step 7: Run test to verify it passes.**
 
 ```bash
 npx vitest run tests/api/redemption/timeLimited.test.ts 2>&1 | tail -8
 ```
-Expected: PASS (7/7).
+Expected: PASS (9/9 — 7 service-layer + 2 route-layer).
 
-- [ ] **Step 6: Run the existing redemption test suite to confirm no regression.**
+- [ ] **Step 8: Run the existing redemption test suite to confirm no regression.**
 
 ```bash
 npx vitest run tests/api/redemption/ 2>&1 | tail -8
 ```
 Expected: all existing tests still pass (non-TIME_LIMITED redemption flow unchanged).
 
-- [ ] **Step 7: Commit.**
+- [ ] **Step 9: Commit.**
 
 ```bash
 git add src/api/redemption/service.ts src/api/shared/errors.ts \
@@ -3233,13 +3532,175 @@ export function parseTimeString(s: string): number {
   return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
 }
 
-// (Implementations of getCurrentWindowOccurrence + getNextWindowOccurrence
-// mirror the backend `voucherAvailability.ts` patterns from M4a-3. They use
-// `getLondonClock` to derive London-local day + minute, then scan the
-// windows array. See M4a-3 for the full algorithm — copy verbatim with
-// `getLondonClock` import swapped to the customer-app path.)
+/**
+ * Find the open window-occurrence at `now`, or null.
+ * Half-open semantics: minute-of-day is in [openMin, closeMin).
+ * `closeTime: "24:00"` parses to 1440 (end-of-day). Mirrors backend
+ * `src/api/shared/voucherAvailability.ts::getCurrentWindowOccurrence`.
+ */
+export function getCurrentWindowOccurrence(
+  windows: AvailabilityWindow[],
+  now: Date,
+): WindowOccurrence | null {
+  if (windows.length === 0) return null
+  const { dayOfWeek, minutes } = getLondonClock(now)
 
-// ... (full implementations — see M4a-3 Step 3 for the pattern) ...
+  for (const w of windows) {
+    if (w.dayOfWeek !== dayOfWeek) continue
+    const openMin  = parseTimeString(w.openTime)
+    const closeMin = parseTimeString(w.closeTime)
+    if (minutes >= openMin && minutes < closeMin) {
+      return {
+        startsAt: londonDateAtMinute(now, 0, openMin),
+        endsAt:   londonDateAtMinute(now, 0, closeMin),
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Find the next window-occurrence to OPEN from `now`, scanning forward
+ * up to 7 days.
+ *
+ * Algorithm:
+ *   1. For each dayOffset 0..7 (today through next-week-same-day):
+ *        targetDow = (nowDay + dayOffset) % 7
+ *        For each w in windows where w.dayOfWeek === targetDow:
+ *          openMin = parseTimeString(w.openTime)
+ *          closeMin = parseTimeString(w.closeTime)
+ *          IF dayOffset === 0 AND openMin <= nowMinutes → skip
+ *            (today's window has already opened — we want the NEXT one)
+ *          ELSE → candidate
+ *   2. Sort candidates by (dayOffset asc, openMin asc).
+ *   3. Take earliest; convert (dayOffset, openMin, closeMin) into UTC Dates
+ *      via `londonDateAtMinute`.
+ *   4. If no candidate → return null (degenerate no-windows case; should
+ *      not happen for properly-configured TIME_LIMITED vouchers).
+ */
+export function getNextWindowOccurrence(
+  windows: AvailabilityWindow[],
+  now: Date,
+): WindowOccurrence | null {
+  if (windows.length === 0) return null
+  const { dayOfWeek: nowDay, minutes: nowMin } = getLondonClock(now)
+
+  type Candidate = { dayOffset: number; openMin: number; closeMin: number }
+  const candidates: Candidate[] = []
+
+  for (let offset = 0; offset <= 7; offset++) {
+    const targetDow = (nowDay + offset) % 7
+    for (const w of windows) {
+      if (w.dayOfWeek !== targetDow) continue
+      const openMin  = parseTimeString(w.openTime)
+      const closeMin = parseTimeString(w.closeTime)
+      if (offset === 0 && openMin <= nowMin) continue
+      candidates.push({ dayOffset: offset, openMin, closeMin })
+    }
+  }
+  if (candidates.length === 0) return null
+
+  candidates.sort((a, b) =>
+    a.dayOffset !== b.dayOffset ? a.dayOffset - b.dayOffset : a.openMin - b.openMin,
+  )
+  const c = candidates[0]
+  return {
+    startsAt: londonDateAtMinute(now, c.dayOffset, c.openMin),
+    endsAt:   londonDateAtMinute(now, c.dayOffset, c.closeMin),
+  }
+}
+
+/**
+ * Find the most-recently-CLOSED window-occurrence ending strictly before
+ * `now`, scanning backward up to 7 days. Used by `getWindowState` to
+ * detect the "between windows but redeemed-state still surfaces" case
+ * (mirrors the backend payload's `redeemedWindow` derivation).
+ *
+ * Algorithm: symmetric inverse of `getNextWindowOccurrence` —
+ *   For each dayOffset 0..7:
+ *     targetDow = (nowDay - dayOffset + 7) % 7
+ *     For each w in windows where w.dayOfWeek === targetDow:
+ *       closeMin = parseTimeString(w.closeTime)
+ *       IF dayOffset === 0 AND closeMin > nowMinutes → skip
+ *         (window hasn't closed yet today)
+ *       ELSE → candidate (closed today/earlier)
+ *   Sort by (dayOffset asc, closeMin desc); take the most recent close.
+ */
+export function getMostRecentlyClosedWindowOccurrence(
+  windows: AvailabilityWindow[],
+  now: Date,
+): WindowOccurrence | null {
+  if (windows.length === 0) return null
+  const { dayOfWeek: nowDay, minutes: nowMin } = getLondonClock(now)
+
+  type Candidate = { dayOffset: number; openMin: number; closeMin: number }
+  const candidates: Candidate[] = []
+
+  for (let offset = 0; offset <= 7; offset++) {
+    const targetDow = (nowDay - offset + 7) % 7
+    for (const w of windows) {
+      if (w.dayOfWeek !== targetDow) continue
+      const openMin  = parseTimeString(w.openTime)
+      const closeMin = parseTimeString(w.closeTime)
+      if (offset === 0 && closeMin > nowMin) continue
+      candidates.push({ dayOffset: offset, openMin, closeMin })
+    }
+  }
+  if (candidates.length === 0) return null
+
+  candidates.sort((a, b) =>
+    a.dayOffset !== b.dayOffset ? a.dayOffset - b.dayOffset : b.closeMin - a.closeMin,
+  )
+  const c = candidates[0]
+  return {
+    startsAt: londonDateAtMinute(now, -c.dayOffset, c.openMin),
+    endsAt:   londonDateAtMinute(now, -c.dayOffset, c.closeMin),
+  }
+}
+
+/**
+ * Compute the absolute UTC instant for "London-local minute M on the
+ * day that is `dayOffset` days from today's London-local date."
+ *
+ * BST/GMT-correct: builds a UTC date from the London-local year/month/day,
+ * then re-applies the London → UTC offset for that specific calendar day.
+ * `dayOffset` may be negative (used by `getMostRecentlyClosedWindowOccurrence`).
+ */
+function londonDateAtMinute(now: Date, dayOffset: number, minute: number): Date {
+  const ymdParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: 'numeric', day: 'numeric',
+  }).formatToParts(now)
+  const get = (t: Intl.DateTimeFormatPartTypes): number => {
+    const p = ymdParts.find(x => x.type === t)
+    if (!p) throw new Error(`londonDateAtMinute: missing ${t}`)
+    return parseInt(p.value, 10)
+  }
+  const year  = get('year')
+  const month = get('month')
+  const day   = get('day')
+
+  // UTC midnight for the target London-local date.
+  const utcMidnight = new Date(Date.UTC(year, month - 1, day + dayOffset, 0, 0, 0))
+
+  // Read the London offset for THAT date via shortOffset, handling BST/GMT.
+  const offsetParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/London',
+    timeZoneName: 'shortOffset',
+    year: 'numeric',
+  }).formatToParts(utcMidnight)
+  const tzName = offsetParts.find(p => p.type === 'timeZoneName')?.value ?? 'GMT'
+  const m = tzName.match(/^GMT(?:([+-])(\d{1,2})(?::(\d{2}))?)?$/)
+  let offsetMinutes = 0
+  if (m && m[1]) {
+    const sign = m[1] === '+' ? 1 : -1
+    offsetMinutes = sign * (parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0))
+  }
+
+  // utcMidnight is "00:00 UTC on day D"; we want "00:00 LONDON on day D"
+  // which is `offsetMinutes` BEFORE that. Then add the wall-clock minute.
+  return new Date(utcMidnight.getTime() - offsetMinutes * 60_000 + minute * 60_000)
+}
 
 export type GetWindowStateInput = {
   availabilityWindows: AvailabilityWindow[]
@@ -3289,8 +3750,6 @@ export function getWindowState(
   return nowDay === nextDay ? 'unavailable-today' : 'unavailable-future-day'
 }
 ```
-
-(Copy the full `getCurrentWindowOccurrence` + `getNextWindowOccurrence` + supporting `londonDateAtMidnight` helper implementations from M4a-3 Step 3, adjusting imports as needed for the customer-app side.)
 
 - [ ] **Step 4: Run test to verify it passes.**
 
