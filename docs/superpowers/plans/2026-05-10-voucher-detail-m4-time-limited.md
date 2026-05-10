@@ -12,17 +12,16 @@
 
 ## 0. Sequencing recommendation — docs-only PR FIRST
 
-Local main is currently **4 doc-only commits** ahead of `origin/main`:
-- `a8a9117` — initial M4 spec
-- `c6ff5a4` — five spec amendments
-- `db4cadd` — TIME_LIMITED M4 implementation plan (this document)
-- `99ce632` — five plan amendments (this commit)
+Local main is several doc-only commits ahead of `origin/main`. The exact commit list is whatever shows up in `git log origin/main..HEAD` at PR-open time — see Step 0.0.1 below.
 
-**Recommendation: ship one docs-only PR carrying all 4 commits BEFORE M4a starts.** Same precedent as PR #62.
+**Recommendation: ship one docs-only PR carrying all of those local doc-only commits BEFORE M4a starts.** Same precedent as PR #62.
 
-Expected PR scope: **4 commits, 2 files**
-- `docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md` (created by `a8a9117`, modified by `c6ff5a4`)
-- `docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md` (created by `db4cadd`, modified by `99ce632`)
+**Expected PR scope: 2 files, ≥4 commits.** The exact commit count drifts by 1 each time we amend the plan in response to review (this is expected and not a problem); the live-compare in Step 0.0.3 is the authoritative scope check at the moment the PR is opened. The 2 files MUST be exactly:
+
+- `docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md`
+- `docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md`
+
+If anything else appears in the live-compare diff, fix it before merging.
 
 Reasons:
 1. The spec is the contract M4a/M4b/M4c refer to. Having it AND the plan on `origin/main` lets each PR description cite both by SHA, not by "see my local main."
@@ -110,13 +109,16 @@ The plan itself does NOT bundle the spec/plan commits; they ride in their own PR
 ```bash
 git log --oneline origin/main..HEAD
 ```
-Expected: 4 lines —
-- `99ce632 docs(plan): TIME_LIMITED M4 — five owner-review amendments`
-- `db4cadd docs(plan): TIME_LIMITED M4 implementation plan (3-PR sequence)`
-- `c6ff5a4 docs(spec): TIME_LIMITED M4 — five review amendments`
-- `a8a9117 docs(spec): TIME_LIMITED M4 design spec — locked at brainstorm 2026-05-10`
 
-If origin already has all 4 (e.g. someone else merged them), skip to 0.0.4.
+Expected: **a sequence of doc-only commits**, each touching ONLY:
+- `docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md` and/or
+- `docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md`
+
+The commits will start with `a8a9117` (initial spec), include `c6ff5a4` (spec amendments), `db4cadd` (initial plan), and any additional plan-amendment commits made in response to owner review. The exact count depends on how many review rounds happened.
+
+Sanity check: `git log origin/main..HEAD --name-only --pretty=format:` should output nothing but the two filenames above. If a third file appears, stop — something unrelated has crept in and must be reverted before opening the docs PR.
+
+If origin already has all of them (e.g. someone else merged them), skip to 0.0.4.
 
 - [ ] **Step 0.0.2 — Open the docs-only PR.**
 
@@ -126,12 +128,7 @@ git push -u origin docs/m4-time-limited-spec-and-plan
 gh pr create --title "docs(spec,plan): TIME_LIMITED M4 — locked spec + implementation plan" --body "$(cat <<'EOF'
 ## Summary
 
-Four doc-only commits landing the locked TIME_LIMITED M4 design spec AND the implementation plan on origin/main ahead of M4a/M4b/M4c implementation:
-
-- a8a9117 — initial M4 spec
-- c6ff5a4 — five spec amendments (owner review)
-- db4cadd — TIME_LIMITED M4 implementation plan (3-PR sequence)
-- 99ce632 — five plan amendments (owner review)
+Doc-only PR landing the locked TIME_LIMITED M4 design spec AND the implementation plan on origin/main ahead of M4a/M4b/M4c implementation. Includes all spec + plan commits made during owner review.
 
 No code changes. The spec is the contract M4a/M4b/M4c will implement against; the plan is the execution roadmap with full TDD discipline.
 
@@ -157,20 +154,18 @@ HEAD_SHA=$(gh pr view --json headRefOid --jq .headRefOid)
 gh api "repos/MSC23-bot/Redeemo/compare/main...${HEAD_SHA}" --jq '{ahead_by, total_commits, files_changed: (.files | length), files: [.files[].filename]}'
 ```
 
-Expected (verbatim):
-```json
-{
-  "ahead_by": 4,
-  "total_commits": 4,
-  "files_changed": 2,
-  "files": [
+Expected:
+- `ahead_by` and `total_commits` match each other (= the count of commits in `git log origin/main..HEAD` from Step 0.0.1).
+- `files_changed: 2` — exactly the two files listed in §0.
+- `files` (sorted) MUST be exactly:
+  ```json
+  [
     "docs/superpowers/plans/2026-05-10-voucher-detail-m4-time-limited.md",
     "docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md"
   ]
-}
-```
+  ```
 
-If scope differs (e.g. unrelated files leaked in), fix before merging.
+If `files_changed` is anything other than 2, OR if the file list contains anything else, STOP — something unrelated has leaked in. Fix before merging.
 
 - [ ] **Step 0.0.4 — SHA-bound merge after owner approval.**
 
