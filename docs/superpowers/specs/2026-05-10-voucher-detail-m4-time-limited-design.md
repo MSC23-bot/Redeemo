@@ -68,7 +68,7 @@ NOT in M4 v1 scope. Captured here for Phase 4. To be added to deferred-followups
 | **D1** | Schema = recurring weekly windows only. `VoucherAvailabilityWindow` table mirrors `BranchOpeningHours`. NO `availableFrom` / one-shot column on `Voucher`. Forward-compat: `maxRedemptionsPerWindow` is an additive migration. | §3.1 + §3.2 |
 | **D2** | TIME_LIMITED stays a distinct voucher type for v1. Availability windows attach only to TIME_LIMITED vouchers via merchant CRUD validation. The 8-type enum is unchanged. | §3.3 |
 | **D3** | Wall-clock `"HH:mm"` strings, interpreted as Europe/London server-side. Mirrors `BranchOpeningHours`. UK-only. International expansion (Phase 6) gets a coordinated timezone migration. | §3.4 |
-| **D4** | Expired-precedes-redeemed across ALL voucher types. If `voucher.expiryDate < now`, the expired surface wins regardless of redemption history. Customers recover past redemption codes via Profile → Redemption History (§Q5). | §5.1 (state precedence) |
+| **D4** | Expired-precedes-redeemed across ALL voucher types. If `voucher.expiryDate < now`, the expired surface wins regardless of redemption history. Eventual recovery path: Profile → Redemption History (§Q5). **Note: §Q5 is a deferred Tier 2 surface and is NOT a M4 v1 prerequisite — see §8.1 for the known-limitation framing.** | §5.1 (state precedence) |
 | **D5** | Merchant CRUD API extension supports `availabilityWindows` on create/update. NO stopgap admin UI. NO Phase 4 portal in v1. | §3.6 |
 | **D6** | Calmer-than-spec merchant-profile voucher cards: pill + pulse-dot only, no full-card glow. Sort order: active TIME_LIMITED → non-TIME_LIMITED active → outside-window TIME_LIMITED → redeemed-this-cycle → (expired hidden). | §6 |
 | **D7** | NO Discovery / Home / Map TIME_LIMITED-specific treatment in v1. Type colour gradient + label only, via existing tokens. Discovery rebaseline (post-Plan-4) revisits. | §8 |
@@ -109,7 +109,7 @@ These rules are enforced at merchant CRUD layer (request validation), not at the
 
 1. **Each row = one active window occurrence.** Split-day windows (e.g. Monday 11-3 + Monday 6-10pm) are valid as TWO rows; the customer can redeem once in each occurrence. Same calendar day, different occurrences.
 2. **Half-open time ranges:** `[openTime, closeTime)`. Exactly `11:00` is active; exactly `15:00` is no longer active. Avoids boundary ambiguity.
-3. **No cross-midnight in a single row.** A late-night window like Friday 22:00 → Saturday 02:00 must be split into two rows: `(dayOfWeek: 5, "22:00", "23:59")` AND `(dayOfWeek: 6, "00:00", "02:00")`. Validation rejects `closeTime <= openTime` for any single row. Note: `"23:59"` is the explicit end-of-day; the schema does not support `"24:00"`.
+3. **No cross-midnight in a single row; use `"24:00"` for end-of-day close.** A late-night window like Friday 22:00 → Saturday 02:00 is split into two rows: `(dayOfWeek: 5, "22:00", "24:00")` AND `(dayOfWeek: 6, "00:00", "02:00")`. The literal string `"24:00"` is accepted ONLY as a `closeTime` value and means "end of this calendar day" (i.e. minute 1440). It is NEVER valid as an `openTime`. This eliminates the one-minute gap between `"23:59"` and the next day's `"00:00"` that the half-open-range semantic would otherwise create. Validation regex: `openTime` matches `/^([01]\d|2[0-3]):[0-5]\d$/` (00:00 through 23:59); `closeTime` matches `/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/` (00:01 through 23:59 OR the special 24:00 sentinel). The validation rule "closeTime > openTime" still holds when both are converted to minutes (`"24:00"` = 1440). Backend window-state math treats `"24:00"` as the next-day midnight boundary, which is the same instant as `"00:00"` of the following row — boundary continuous, no gap, no overlap.
 4. **No overlapping windows for the same `(voucherId, dayOfWeek)`.** Monday 11:00-15:00 and Monday 14:00-18:00 must be rejected — overlap means a single timestamp could belong to two occurrences and accidentally allow extra redemptions. Split-day with non-overlapping windows is allowed (lunch 11-3 + dinner 6-10 is fine; 11-3 + 14-6 is invalid).
 5. **Window ⊆ branch opening hours is NOT enforced in v1.** Merchant can configure a 2am window even if the branch is closed at 2am. Trust merchants for v1; Phase 4 portal will add validation when there's a UI to surface the warning.
 6. **Wall-clock semantics for DST/BST.** "11am" means "whatever the local clock says." During spring-forward, "01:30" doesn't exist; during fall-back, "01:30" exists twice. Acceptable for UK-only v1; users rarely redeem at 1:30am.
@@ -149,38 +149,92 @@ For redemption-guard purposes, the **current window-occurrence** at time `now` i
 
 Window-occurrence boundaries are derived deterministically from current time + window definitions. They are NOT stored per-voucher — derivable on demand.
 
-### 3.6 Customer payload extension (`getCustomerVoucher`)
+### 3.6 Customer payload extensions
 
-`GET /api/v1/customer/vouchers/:id` response gains these fields:
+Two endpoints carry voucher data that the customer-app needs for TIME_LIMITED state rendering:
+
+- **`GET /api/v1/customer/vouchers/:id`** — `getCustomerVoucher`, single-voucher detail, drives Voucher Detail (M4b).
+- **`GET /api/v1/customer/merchants/:id`** — `getCustomerMerchant`, includes a voucher list, drives Merchant Profile voucher cards (M4c).
+
+Both gain the same TIME_LIMITED fields. M4c reads the same shape from the merchant-profile payload so cards don't need a second round-trip per voucher.
+
+#### 3.6.1 New fields (both endpoints, on every voucher row)
 
 ```typescript
-// existing fields preserved
+// New fields on the voucher row payload
 availabilityWindows: Array<{
   dayOfWeek: number       // 0-6
   openTime: string        // "HH:mm"
-  closeTime: string       // "HH:mm"
-}>                        // [] for non-TIME_LIMITED
+  closeTime: string       // "HH:mm" or "24:00" (sentinel; see §3.2 rule 3)
+}>                        // [] for non-TIME_LIMITED; non-empty for ACTIVE TIME_LIMITED (rule 7)
+
 currentWindow: {
   startsAt: string        // ISO instant in UTC
   endsAt:   string        // ISO instant in UTC
-} | null                  // non-null only when TIME_LIMITED AND a window is currently open
+} | null                  // non-null ONLY when TIME_LIMITED AND a window is currently open
+
 nextWindow: {
-  startsAt: string        // ISO instant in UTC; the next window-occurrence to open
+  startsAt: string        // ISO instant in UTC — the NEXT window-occurrence to open
   endsAt:   string        // ISO instant in UTC
-} | null                  // null only when no windows are configured (degenerate case)
-redeemedThisWindow: boolean   // true iff TIME_LIMITED AND a VoucherRedemption exists for
-                              // (userId, voucherId) within currentWindow's [startsAt, endsAt)
-                              // (or, if currentWindow is null, within most-recently-closed window)
+} | null                  // null only when no windows are configured (degenerate state)
+
+redeemedWindow: {
+  startsAt: string        // ISO instant in UTC — start of the window-occurrence the redemption anchors to
+  endsAt:   string        // ISO instant in UTC — end of that occurrence
+} | null
+// Non-null ONLY when (TIME_LIMITED AND a VoucherRedemption for (userId, voucherId) anchors to a
+// window-occurrence whose redeemed-state surface should still render).
+//
+// Specifically, this is non-null iff EITHER:
+//   (a) currentWindow !== null AND a redemption exists with redeemedAt in [currentWindow.startsAt,
+//       currentWindow.endsAt); in which case redeemedWindow === currentWindow.
+//   (b) currentWindow === null AND a redemption exists with redeemedAt in the most-recently-closed
+//       window-occurrence, AND now < nextWindow.startsAt (so the redeemed-state surface persists
+//       until the next window opens, which would reset the eligibility).
+//
+// Customer-app reads `redeemedWindow !== null` as the load-bearing flag for rendering the hero
+// seal + RedemptionDetailsCard in the time-limited-redeemed-window state. The explicit window
+// boundaries on the field make the "which window does this redemption anchor to?" question
+// answerable without re-deriving from `lastRedemption.redeemedAt` + window definitions client-side.
 ```
 
-`isRedeemedThisCycle` (existing field) for TIME_LIMITED vouchers becomes meaningless — substitute `redeemedThisWindow` for state-machine purposes. Backend MAY return either `isRedeemedThisCycle: false` (always for TIME_LIMITED) OR continue to populate it from cycle-state (will always be false because TIME_LIMITED bypasses cycle-state — see §3.8). Customer-app must NOT branch on `isRedeemedThisCycle` for TIME_LIMITED vouchers — branch on `redeemedThisWindow` instead.
+The legacy boolean `redeemedThisWindow` from earlier drafts is **rejected** — it collapsed two semantically distinct cases ("currently inside an open window with redemption" vs "between windows but redeemed-state still surfaces") into one ambiguous boolean. `redeemedWindow: { startsAt, endsAt } | null` is the locked shape.
+
+#### 3.6.2 `isRedeemedThisCycle` for TIME_LIMITED
+
+`isRedeemedThisCycle` (existing field, used by non-TIME_LIMITED state machine) is **always `false` for TIME_LIMITED vouchers**, by construction:
+
+- Backend redemption guard for TIME_LIMITED bypasses `UserVoucherCycleState` entirely (§3.8) — no cycle-state row is ever written for a TIME_LIMITED redemption.
+- `getCustomerVoucher` + `getCustomerMerchant` derive `isRedeemedThisCycle` from cycle-state; absence of the row = `false`.
+
+Customer-app **MUST NOT** branch on `isRedeemedThisCycle` for TIME_LIMITED. Branch on `redeemedWindow !== null` instead. The state-machine in §5.1 enforces this via voucher-type branching.
+
+#### 3.6.3 `lastRedemption` for TIME_LIMITED
 
 `lastRedemption` (existing M3 field, persisted return-visit RedemptionDetailsCard) — for TIME_LIMITED:
 - Returns the **most recent** `VoucherRedemption` for this user+voucher, regardless of which window-occurrence.
-- The 2-hour presentation window helper still derives from `redeemedAt`.
-- If the most-recent redemption is older than 2 hours AND we're outside that window-occurrence, the persisted card surface collapses per existing M3 §AE5 behaviour.
+- The 2-hour presentation window helper still derives from `lastRedemption.redeemedAt + 2h`.
+- If the most-recent redemption is older than 2 hours AND outside its anchoring window-occurrence (i.e. `redeemedWindow === null`), the persisted card surface collapses per existing M3 §AE5 behaviour.
+- `redeemedWindow !== null` is the load-bearing flag for "render the seal + RedemptionDetailsCard." `lastRedemption !== null` is necessary for the card to have any data to show, but on its own is NOT sufficient — `redeemedWindow !== null` AND `lastRedemption !== null` must both hold (by construction they move together for TIME_LIMITED).
 
-`availableAgainAt` (existing field, used by §AH copy) — for TIME_LIMITED becomes the next-window-open ISO timestamp instead of the cycle end. Customer-app's existing seal/CycleRulesCard copy that reads `availableAgainAt` continues to work; only the copy template changes (see §5.4).
+#### 3.6.4 `availableAgainAt` for TIME_LIMITED — explicitly NULL (no semantic overload)
+
+`availableAgainAt` (existing field, cycle-renewal ISO timestamp for non-TIME_LIMITED) is **always `null` for TIME_LIMITED vouchers**, by lock.
+
+Earlier drafts proposed overloading the field to mean "next window-occurrence open" for TIME_LIMITED. This is rejected — `availableAgainAt` is consumed by existing customer-app code paths (seal subtitle, CycleRulesCard, etc.) that treat it as cycle-renewal semantics. Overloading would silently break those code paths when the voucher type is TIME_LIMITED.
+
+For TIME_LIMITED, customer-app reads **`nextWindow.startsAt`** to drive the "Available again in Xh Ym" copy in the seal subtitle + blue banner under RedemptionDetailsCard. The TIME_LIMITED-specific copy templates (§5.4) explicitly reference `nextWindow.startsAt`, never `availableAgainAt`.
+
+Component-level lock: `<CycleRulesCard>` early-returns when `availableAgainAt === null`, so it correctly hides itself for TIME_LIMITED vouchers without any type branching at the call site. The new `<TimeLimitedDetailsCard>` (§4) takes its place for TIME_LIMITED, reading from `availabilityWindows` + `currentWindow` + `nextWindow`.
+
+#### 3.6.5 Merchant Profile payload size
+
+Adding the four TIME_LIMITED fields to every voucher row in `getCustomerMerchant` increases payload size proportional to merchant voucher count. For a merchant with 10 TIME_LIMITED vouchers each having 5 windows, the additional payload per voucher is roughly:
+- `availabilityWindows`: ~5 × 60 bytes = ~300 bytes
+- `currentWindow` / `nextWindow` / `redeemedWindow`: 3 × ~100 bytes = ~300 bytes
+- Total extra per voucher: ~600 bytes
+
+For 10 such vouchers, ~6 KB extra. Acceptable. Non-TIME_LIMITED vouchers carry `availabilityWindows: []` + `currentWindow: null` + `nextWindow: null` + `redeemedWindow: null` (~40 bytes overhead per voucher). If payload size becomes a concern at scale, M4 + Phase 4 can introduce a derived `cardState` discriminator that compresses the per-row payload. Not v1 scope.
 
 ### 3.7 Customer-app derived helpers (no new module — extend existing)
 
@@ -265,7 +319,7 @@ Schedule string formatting (locked):
 - Split-day same hours → not possible per schema rule 1; split-day means different hours.
 - Split-day different hours → "Mon-Fri, 11am-3pm and 6pm-10pm" (note the "and").
 - Multiple disjoint day ranges → "Mon-Fri, 11am-3pm and Sat-Sun, 12pm-4pm".
-- Cross-midnight (split into two rows per §3.2 rule 3) → display as one logical range: "Fridays, 10pm-2am". The schedule formatter detects the `closeTime: 23:59` + adjacent `dayOfWeek+1, openTime: 00:00` pattern and merges them. (Implementation hint at writing-plans time.)
+- Cross-midnight (split into two rows per §3.2 rule 3) → display as one logical range: "Fridays, 10pm-2am". The schedule formatter detects the `closeTime: "24:00"` + adjacent `dayOfWeek+1, openTime: "00:00"` pattern and merges them. (Implementation hint at writing-plans time.)
 
 ---
 
@@ -280,12 +334,12 @@ The 12-state machine in `VoucherDetailScreen.tsx` extends with two new TIME_LIMI
 2. error                      — voucherQuery.isError || !voucher || branchErrored
 3. expired                    — voucher.expiryDate < now             ← UNIVERSAL, expired-first
 4. redeemed-this-cycle        — !TIME_LIMITED && voucher.isRedeemedThisCycle
-   redeemed-this-window       — TIME_LIMITED && voucher.redeemedThisWindow
+   redeemed-this-window       — TIME_LIMITED && voucher.redeemedWindow !== null
 5. free-user                  — !isSubscribed                        ← R2 lock: free user inside active window sees subscribe gate
-6. time-limited-urgent        — TIME_LIMITED && currentWindow open && remaining < 60min
-   time-limited-active        — TIME_LIMITED && currentWindow open && remaining ≥ 60min
-   time-limited-unavailable-today  — TIME_LIMITED && currentWindow null && nextWindow opens today
-   time-limited-unavailable-future — TIME_LIMITED && currentWindow null && nextWindow opens tomorrow+
+6. time-limited-urgent        — TIME_LIMITED && currentWindow !== null && minutesUntil(currentWindow.endsAt) < 60
+   time-limited-active        — TIME_LIMITED && currentWindow !== null && minutesUntil(currentWindow.endsAt) ≥ 60
+   time-limited-unavailable-today  — TIME_LIMITED && currentWindow === null && nextWindow.startsAt is today (Europe/London)
+   time-limited-unavailable-future — TIME_LIMITED && currentWindow === null && nextWindow.startsAt is tomorrow+
 7. can-redeem                 — default (non-TIME_LIMITED, subscribed, not expired/redeemed)
 ```
 
@@ -365,12 +419,12 @@ Test IDs for regression pins:
 
 The locked §AH convention ("Renews on" for cycle / "Offer ends" for merchant expiry, never blended) gains a third concept for TIME_LIMITED only:
 
-- **"Available again \<date+time\>"** = next window-occurrence open. Used on:
+- **"Available again \<date+time\>"** = next window-occurrence open. **Source: `voucher.nextWindow.startsAt`** (NOT `voucher.availableAgainAt`, which is `null` for TIME_LIMITED per §3.6.4). Used on:
   - Hero seal subtitle (replaces "Renews on" for TIME_LIMITED).
   - Calm blue banner under `<RedemptionDetailsCard>` in redeemed state.
-- **"Renews on"** is NEVER used for TIME_LIMITED. (For non-TIME_LIMITED, §AH remains as-is.)
+- **"Renews on"** is NEVER used for TIME_LIMITED. Component-level lock: `<CycleRulesCard>` early-returns when `availableAgainAt === null`, so it correctly hides itself for TIME_LIMITED. The new `<TimeLimitedDetailsCard>` (§4) takes its place. (For non-TIME_LIMITED, §AH remains as-is and reads from `availableAgainAt`.)
 - **"Offer ends"** for TIME_LIMITED only when `voucher.expiryDate` is set AND not yet expired. Sits as small-print line under "Available during" schedule in the TIME_LIMITED-specific details block (§4). Format: "Offer ends DD MMMM YYYY".
-- §AH §1748 final-cycle case (`expiryDate < availableAgainAt`) — for TIME_LIMITED this case manifests as "voucher's hard expiry is before the next window-occurrence." UI: surface BOTH "Available again Tuesday 12pm" AND "Offer ends Wed 14 May" with the offer-ends line in a slightly heavier visual weight ("This is your last window").
+- §AH §1748 final-cycle case (`expiryDate < cycleEnd`) — for TIME_LIMITED this case manifests as "voucher's hard expiry is before the next window-occurrence start" (`expiryDate < nextWindow.startsAt`). UI: surface BOTH "Available again Tuesday 12pm" AND "Offer ends Wed 14 May" with the offer-ends line in a slightly heavier visual weight ("This is your last window").
 
 #### Free-user state inside an active TIME_LIMITED window (R2 lock)
 
@@ -479,7 +533,26 @@ Edge case introduced by TIME_LIMITED: the 2h handoff helper line ("Available to 
 | One-shot `availableFrom` campaign-window field | Not needed | Merchant uses `expiryDate` (existing) for end; if "starts later" surfaces as a real need, separate workstream |
 | REUSABLE multi-redemption (M5) | Tier 3 brainstorm-first per §T1 | Different product (cooldown-based); intentionally separate v1 |
 | Per-branch / per-voucher timezone | Phase 6 international | UK-only v1 |
-| Profile → Redemption History TIME_LIMITED rendering | §Q5 Tier 2 standalone surface | Each TIME_LIMITED redemption is a discrete event in History (locked); UI design when §Q5 picks up |
+| Profile → Redemption History TIME_LIMITED rendering | §Q5 Tier 2 standalone surface | Each TIME_LIMITED redemption is a discrete event in History (locked); UI design when §Q5 picks up. See §8.1 below for known-limitation framing — M4 does NOT depend on §Q5. |
+
+### 8.1 Known limitation — expired-while-redeemed code recovery
+
+D4 locks "expired-precedes-redeemed" across all voucher types: if `voucher.expiryDate < now`, the expired surface wins on Voucher Detail regardless of redemption history. The eventual recovery path for past redemption codes is Profile → Redemption History (§Q5).
+
+**§Q5 is a deferred Tier 2 surface and IS NOT shipped in M4.** Until §Q5 ships, the following edge case is a known limitation:
+
+- A customer who redeemed a TIME_LIMITED (or any) voucher and whose redemption is still within the 2-hour Show-to-Staff handoff window when the voucher's `expiryDate` passes will lose the in-app code surface on Voucher Detail at the expiry instant. The Show-to-Staff modal cannot be re-opened from Voucher Detail because the screen now renders the expired state.
+- If the staff has not yet validated by the expiry instant, the customer's code is functionally orphaned from the customer-app UI until §Q5 ships.
+- Database state is preserved (the `VoucherRedemption` row persists indefinitely); only the UI surface is unavailable.
+
+**Mitigation in M4:** none. This is an explicit accepted limitation, NOT a bug. Two factors keep the practical impact low for v1:
+
+1. Today's seed/production data has `expiryDate: null` on virtually all vouchers — the case cannot manifest at any meaningful frequency until Phase 4 Merchant Portal lets merchants set non-null expiry dates.
+2. The 2-hour handoff window is narrow; an expiry that lands inside it is an unusual edge case (a merchant would have to set expiry to an exact mid-handoff timestamp).
+
+**Phase 4 / §Q5 priority:** when Merchant Portal voucher CRUD ships expiry editing, §Q5 (Profile → Redemption History) MUST ship before or in the same release. Without §Q5, the limitation above starts to manifest in real customer scenarios. Captured as a sequencing dependency in `project_deferred_followups_index.md` §Q5 + §R4 cross-reference at memory-update time (§11).
+
+**Customer-app implementation lock:** the spec does NOT instruct any code to point users at §Q5 ("see your history" copy, in-app navigation hints to a non-existent surface) until §Q5 ships. M4's expired-state surface (§5.2 row 6) is self-contained: red badge + "Offer Ended · This voucher expired on DD MMMM YYYY" copy, no recovery affordance.
 
 ---
 
@@ -488,13 +561,24 @@ Edge case introduced by TIME_LIMITED: the 2h handoff helper line ("Available to 
 ### 9.1 Backend tests (M4a)
 
 - Schema migration applies + reverses cleanly.
-- CRUD validation rules 1-7 each have a positive + negative test (12 total assertions).
-- Window-occurrence helper function: 8+ pure-function tests including BST/GMT boundary, midnight boundary, half-open ranges, multi-window same day, no-windows.
-- Redemption guard `VOUCHER_OUTSIDE_AVAILABILITY_WINDOW`: 4 cases (current window open vs closed, with/without nextWindow).
-- Redemption guard `ALREADY_REDEEMED_THIS_WINDOW`: 4 cases (same window-occurrence, prior window-occurrence, fresh window after rollover, future-day window).
-- Redemption guard order: order tested explicitly via fixture sequence.
-- Atomic claim: TIME_LIMITED does not touch `UserVoucherCycleState` (negative pin).
-- Customer payload: `availabilityWindows` / `currentWindow` / `nextWindow` / `redeemedThisWindow` shape + values across 6 voucher fixtures (active, urgent boundary, outside-today, outside-future, redeemed, expired).
+- CRUD validation rules 1-7 each have a positive + negative test (12+ assertions). Includes:
+  - Cross-midnight `"24:00"` accepted as `closeTime`, REJECTED as `openTime`.
+  - `closeTime` parsing: `"24:00"` → minute 1440; arithmetic comparison `closeTime > openTime` works correctly.
+  - Cross-midnight integration: Friday `(5, "22:00", "24:00")` + Saturday `(6, "00:00", "02:00")` — confirm a redemption at 23:59:30 falls inside Friday's window AND a redemption at 00:00:30 falls inside Saturday's window. No gap at 23:59 → 00:00.
+  - Rule 4 (no overlapping windows for `(voucherId, dayOfWeek)`): 5+ adjacency cases including back-to-back non-overlap (`11:00-15:00` + `15:00-18:00` accepted — boundary touching is not overlap per half-open semantics).
+  - Rule 7 (at least one window to publish/activate): submit/publish a TIME_LIMITED voucher with zero windows → `TIME_LIMITED_REQUIRES_WINDOW`.
+- Window-occurrence helper function: 10+ pure-function tests including BST/GMT boundary, midnight boundary, half-open ranges, multi-window same day, no-windows, cross-midnight transition (23:59:59.999 → 00:00:00.000 with `"24:00"` adjacent `"00:00"`).
+- Redemption guard `VOUCHER_OUTSIDE_AVAILABILITY_WINDOW`: 4 cases (current window open vs closed, with/without nextWindow). Payload shape verified.
+- Redemption guard `ALREADY_REDEEMED_THIS_WINDOW`: 4 cases (same window-occurrence, prior window-occurrence, fresh window after rollover, future-day window). Payload shape verified.
+- Redemption guard order: order tested explicitly via fixture sequence — voucher status → expiry → availability window → branch → subscription → cycle/window-redemption guard → PIN → claim.
+- Atomic claim: TIME_LIMITED does not touch `UserVoucherCycleState` (negative pin — assert no row created post-redemption for TIME_LIMITED).
+- `getCustomerVoucher` payload: `availabilityWindows` / `currentWindow` / `nextWindow` / `redeemedWindow` shape + values across 6 voucher fixtures (active, urgent boundary, outside-today, outside-future, redeemed, expired). Explicit assertions:
+  - `redeemedWindow` is `{ startsAt, endsAt }` shape OR `null` (NOT a boolean).
+  - `redeemedWindow === currentWindow` when redemption is inside the open window.
+  - `redeemedWindow === previousWindowOccurrence` when between windows AND redeemed in the just-closed occurrence.
+  - `availableAgainAt === null` for TIME_LIMITED (NOT overloaded).
+  - `isRedeemedThisCycle === false` for TIME_LIMITED (always — cycle-state row is never written).
+- `getCustomerMerchant` (merchant-profile endpoint) — voucher rows in the returned payload INCLUDE the same TIME_LIMITED fields (`availabilityWindows`, `currentWindow`, `nextWindow`, `redeemedWindow`). Shape tests + payload-size sanity check on a merchant with 10+ TIME_LIMITED vouchers.
 
 ### 9.2 Customer-app tests (M4b)
 
@@ -512,6 +596,8 @@ Edge case introduced by TIME_LIMITED: the 2h handoff helper line ("Available to 
 - Sort order test: fixture with one of each state, ordered output matches §6.3.
 - 75% opacity for outside-window cards (NOT 50% — distinction from redeemed).
 - Expired hidden by default.
+- **Data source pin:** `<VoucherCard>` reads TIME_LIMITED state fields (`availabilityWindows`, `currentWindow`, `nextWindow`, `redeemedWindow`) directly from the `getCustomerMerchant` payload row — NO additional round-trip to `getCustomerVoucher` per card.
+- Schedule string formatter pure-function tests: 10+ scenarios including cross-midnight merge (Friday `"22:00-24:00"` + Saturday `"00:00-02:00"` → "Fridays, 10pm-2am" display).
 
 ### 9.4 Device-QA scenarios
 
@@ -530,16 +616,17 @@ Locked at brainstorm time:
 
 ### M4a: Backend + schema + API contract
 - Prisma migration adding `VoucherAvailabilityWindow` table.
-- Backend `getCustomerVoucher` payload extensions per §3.6.
+- Backend `getCustomerVoucher` payload extensions per §3.6 (single-voucher detail endpoint, drives M4b Voucher Detail).
+- Backend `getCustomerMerchant` payload extensions per §3.6 — every voucher row in the merchant-profile response gains `availabilityWindows`, `currentWindow`, `nextWindow`, `redeemedWindow`. Drives M4c voucher cards. Same shape as `getCustomerVoucher` so the customer-app can use one Zod schema for both call sites.
 - Backend redemption guard order per §3.8 with new typed errors.
 - Backend window-occurrence helper functions (`src/api/shared/londonClock.ts` extension or new module).
-- Merchant CRUD API extension per §3.10 with validation rules per §3.2.
-- Customer-app voucher schema (`apps/customer-app/src/lib/api/voucher.ts`) extended; redemption error types extended.
+- Merchant CRUD API extension per §3.10 with validation rules per §3.2 (including cross-midnight `"24:00"` sentinel parsing).
+- Customer-app voucher schema (`apps/customer-app/src/lib/api/voucher.ts` + merchant-profile schema in `lib/api/merchant.ts` or equivalent) extended; redemption error types extended.
 - Seed admin script: `prisma/seed-time-limited-fixtures.ts` populating Covelum/Kovalam demo windows.
 - Operations doc: append section to `docs/operations/redis-namespaces.md` (or new `docs/operations/voucher-availability-windows.md`) — API contract reference for future Phase 4 portal.
-- Backend tests per §9.1.
+- Backend tests per §9.1 (includes merchant-profile payload extension tests + cross-midnight integration test).
 
-**Gate:** PR-1 review must verify the redemption-guard order + typed-error payload shapes before merge.
+**Gate:** PR-1 review must verify the redemption-guard order + typed-error payload shapes + cross-midnight `"24:00"` sentinel behaviour + merchant-profile payload extension before merge.
 
 ### M4b: Customer-app un-stub + Voucher Detail Screens 1a/1b/1c + §AH copy
 - `useTimeLimited` real implementation: window-occurrence math + per-minute + per-hour boundary timers + AppState resume + Hermes-robust formatters.
@@ -572,7 +659,7 @@ To be appended to `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/m
 - §AH — extend with TIME_LIMITED-specific "Available again" rule per §5.4 of this spec.
 - §T extension — add Phase 4 anti-abuse policy note: "merchants may overuse TIME_LIMITED; Phase 4 portal may need ratio cap or admin review."
 - §G extension — add Phase 6 push-notification "voucher window now open" pointer.
-- §Q5 extension — add note: "TIME_LIMITED redemptions appear as discrete history rows, one per window-occurrence redemption."
+- §Q5 extension — add TWO notes: (a) "TIME_LIMITED redemptions appear as discrete history rows, one per window-occurrence redemption." (b) **Sequencing dependency:** when Phase 4 Merchant Portal voucher CRUD ships expiry editing (allowing non-null `expiryDate` on TIME_LIMITED vouchers), §Q5 (Profile → Redemption History) MUST ship before or in the same release. Without §Q5, the known limitation in §8.1 (expired-while-redeemed code orphaning) starts manifesting in real customer scenarios. Memory entry should cross-reference §R4 (Phase 4) for this dependency.
 
 `MEMORY.md` index entry to update: §O1 transition, plus a new entry pointing at this spec.
 
