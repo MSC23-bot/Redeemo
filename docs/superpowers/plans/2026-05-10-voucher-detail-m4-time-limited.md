@@ -768,7 +768,7 @@ function londonDateAtMidnight(now: Date, dayOffset: number): Date {
 ```bash
 npx vitest run tests/api/shared/voucherAvailability.test.ts 2>&1 | tail -5
 ```
-Expected: PASS (13/13).
+Expected: PASS (12/12).
 
 - [ ] **Step 5: Commit.**
 
@@ -1464,7 +1464,7 @@ import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import Redis from 'ioredis'
 import { createRedemption } from '../../../src/api/redemption/service'
-import { encrypt } from '../../../src/api/shared/crypto'
+import { encrypt } from '../../../src/api/shared/encryption'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma  = new PrismaClient({ adapter })
@@ -1484,6 +1484,9 @@ const BRANCH_PIN = '1234'
 // window for the "accepts redemption" test, OUTSIDE for the explicitly-
 // reconfigured "outside window" test.
 const TEST_NOW = new Date('2026-05-11T12:00:00.000Z')
+
+// Audit-trail metadata for createRedemption() — 5th positional arg.
+const baseCtx = { ipAddress: '127.0.0.1', userAgent: 'test' }
 
 beforeAll(async () => {
   const m = await prisma.merchant.create({
@@ -1576,7 +1579,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     await expect(
       createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
     ).rejects.toMatchObject({
       code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
     })
@@ -1588,7 +1591,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     try {
       await createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
       throw new Error('expected rejection')
     } catch (err: any) {
       expect(err.code).toBe('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW')
@@ -1600,7 +1603,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     // TEST_NOW from beforeEach is already inside the window — no reset needed.
     const redemption = await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
     expect(redemption.redemptionCode).toMatch(/^[A-Z0-9]{8}$/)
   })
 
@@ -1608,23 +1611,23 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     // TEST_NOW = Mon 13:00 BST inside the lunch window.
     await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
 
     await expect(
       createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
     ).rejects.toMatchObject({ code: 'ALREADY_REDEEMED_THIS_WINDOW' })
   })
 
   it('ALREADY_REDEEMED_THIS_WINDOW includes nextWindowAt (= next-occurrence Tue 11:00 BST)', async () => {
     await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
     try {
       await createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
       throw new Error('expected rejection')
     } catch (err: any) {
       expect(err.code).toBe('ALREADY_REDEEMED_THIS_WINDOW')
@@ -1635,7 +1638,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
   it('TIME_LIMITED redemption does NOT touch UserVoucherCycleState', async () => {
     await createRedemption(prisma, redis, userId, {
       voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
 
     const cycleState = await prisma.userVoucherCycleState.findFirst({
       where: { userId, voucherId: tlVoucherId },
@@ -1646,7 +1649,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
   it('non-TIME_LIMITED voucher: cycle-state upsert path unchanged', async () => {
     await createRedemption(prisma, redis, userId, {
       voucherId: regularVoucherId, branchId, pin: BRANCH_PIN,
-    })
+    }, baseCtx)
     const cycleState = await prisma.userVoucherCycleState.findFirst({
       where: { userId, voucherId: regularVoucherId },
     })
@@ -1663,7 +1666,7 @@ describe('createRedemption — TIME_LIMITED guard order (M4a-6)', () => {
     await expect(
       createRedemption(prisma, redis, userId, {
         voucherId: tlVoucherId, branchId, pin: BRANCH_PIN,
-      })
+      }, baseCtx)
     ).rejects.toMatchObject({ code: 'VOUCHER_NOT_FOUND' })
 
     // Restore for subsequent tests
@@ -1839,7 +1842,7 @@ Add to `tests/api/redemption/timeLimited.test.ts`:
 
 ```typescript
 import Fastify from 'fastify'
-import { redemptionRoutes } from '../../../src/api/redemption/routes'
+import { customerRedemptionRoutes } from '../../../src/api/redemption/routes'
 
 describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)', () => {
   // Build a minimal Fastify app that includes the redemption routes + auth
@@ -1851,12 +1854,12 @@ describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)',
     app.decorate('redis', redis)
     // Inject a fake JWT preHandler that sets req.user.sub = userId
     app.addHook('preHandler', async (req: any) => { req.user = { sub: userId } })
-    await app.register(redemptionRoutes)
+    await app.register(customerRedemptionRoutes)
     await app.ready()
   })
   afterAll(async () => { await app.close() })
 
-  it('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW returns 400 with nextWindowAt in body.error.details', async () => {
+  it('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW returns 400 with nextWindowAt on body.error (flat)', async () => {
     vi.setSystemTime(new Date('2026-05-16T12:00:00.000Z')) // Sat 13:00 BST — outside
 
     const res = await app.inject({
@@ -1870,12 +1873,12 @@ describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)',
     expect(body).toMatchObject({
       error: {
         code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
-        details: { nextWindowAt: '2026-05-18T10:00:00.000Z' },
+        nextWindowAt: '2026-05-18T10:00:00.000Z',
       },
     })
   })
 
-  it('ALREADY_REDEEMED_THIS_WINDOW returns 400 with nextWindowAt in body.error.details', async () => {
+  it('ALREADY_REDEEMED_THIS_WINDOW returns 400 with nextWindowAt on body.error (flat)', async () => {
     // TEST_NOW = Mon 13:00 BST inside window. First redeem succeeds.
     await app.inject({
       method: 'POST', url: '/api/v1/redemption',
@@ -1891,7 +1894,7 @@ describe('TIME_LIMITED typed errors propagate through HTTP route layer (M4a-6)',
     expect(res.json()).toMatchObject({
       error: {
         code: 'ALREADY_REDEEMED_THIS_WINDOW',
-        details: { nextWindowAt: '2026-05-12T10:00:00.000Z' },
+        nextWindowAt: '2026-05-12T10:00:00.000Z',
       },
     })
   })
@@ -1908,9 +1911,9 @@ grep -n "AppError\|setErrorHandler\|error.details" src/api/server.ts src/api/sha
 
 If `error.details` is NOT serialized in the existing handler, the M4a-6 implementation must extend it. Concretely: in `src/api/shared/errors.ts` (or wherever `setErrorHandler` is registered), confirm the response shape is `{ error: { code, details } }` not just `{ error: { code } }`.
 
-If the handler today only serializes `code`, extend it now (M4a-6 step) to include `details`. This is critical — without it, the customer-app's `mapRedemptionError` reads `body.error.details.nextWindowAt` and gets `undefined`, breaking the whole copy chain.
+If the handler today only serializes `code`, extend it now (M4a-6 step) to include `details`. This is critical — without it, the customer-app's `mapRedemptionError` reads `body.error.nextWindowAt` (FLAT — `AppError.toJSON()` spreads `this.details` into the error envelope) and gets `undefined`, breaking the whole copy chain.
 
-Pin the serialization shape with a 1-line assertion in the route test above (already covered: `expect(body).toMatchObject(...)` checks `details.nextWindowAt`).
+Pin the serialization shape with a 1-line assertion in the route test above (already covered: `expect(body).toMatchObject(...)` checks the flat `error.nextWindowAt`).
 
 - [ ] **Step 7: Run test to verify it passes.**
 
@@ -2443,7 +2446,7 @@ describe('redemption error mapping — TIME_LIMITED (M4a-8)', () => {
     const err = mapRedemptionError({
       error: {
         code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
-        details: { nextWindowAt: '2026-05-12T10:00:00Z' },
+        nextWindowAt: '2026-05-12T10:00:00Z',
       },
     })
     expect(err).not.toBeNull()
@@ -2455,7 +2458,7 @@ describe('redemption error mapping — TIME_LIMITED (M4a-8)', () => {
     const err = mapRedemptionError({
       error: {
         code: 'ALREADY_REDEEMED_THIS_WINDOW',
-        details: { nextWindowAt: '2026-05-12T10:00:00Z' },
+        nextWindowAt: '2026-05-12T10:00:00Z',
       },
     })
     expect(err).not.toBeNull()
@@ -2467,7 +2470,7 @@ describe('redemption error mapping — TIME_LIMITED (M4a-8)', () => {
     const err = mapRedemptionError({
       error: {
         code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
-        details: { nextWindowAt: null },
+        nextWindowAt: null,
       },
     })
     expect(err!.nextWindowAt).toBeNull()
@@ -2579,15 +2582,17 @@ export type RedemptionError =
     > }
 
 export function mapRedemptionError(body: unknown): RedemptionError | null {
-  // Existing logic preserved. Add cases for the new codes:
-  const code = (body as any)?.error?.code
-  const details = (body as any)?.error?.details ?? {}
+  // Existing logic preserved. Add cases for the new codes.
+  // Flat-shape contract per AppError.toJSON() — `nextWindowAt` is on
+  // `error` directly, NOT nested under `error.details`.
+  const error = (body as any)?.error ?? {}
+  const code  = error.code
   switch (code) {
     // ... existing cases ...
     case 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW':
-      return { code, nextWindowAt: details.nextWindowAt ?? null }
+      return { code, nextWindowAt: error.nextWindowAt ?? null }
     case 'ALREADY_REDEEMED_THIS_WINDOW':
-      return { code, nextWindowAt: details.nextWindowAt ?? null }
+      return { code, nextWindowAt: error.nextWindowAt ?? null }
     // ... fallthrough ...
   }
   return null
