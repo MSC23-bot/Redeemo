@@ -173,7 +173,28 @@ Owner-decision matrix for "what must ship before public traffic" vs "what can de
 
 Five focused PRs over ~1.5 weeks of execution time. Each PR ships independently; later PRs depend on earlier.
 
-### PR-1: Redis ownership doc + §AG3 platform CHECK + §AG8 release-build verification
+### PR-1: Redis ownership doc + §AG3 platform CHECK + §AG8 release-build verification ✅ SHIPPED 2026-05-10 (PR #61, merge `0c328d1`)
+
+**As-shipped status:** Closed. Final commit `61c217c`, merge `0c328d1`. 6 files changed, +741 / -1.
+
+**Code changes (as shipped):**
+- `prisma/migrations/20260510033746_redemption_screenshot_event_platform_check/migration.sql` — `ALTER TABLE "RedemptionScreenshotEvent" ADD CONSTRAINT "RedemptionScreenshotEvent_platform_check" CHECK ("platform" IN ('ios', 'android'));`
+- `prisma/schema.prisma` — comment-only diff annotating the column with the migration name + Prisma 7's lack of inline `@@check` syntax.
+
+**Docs (as shipped):**
+- `docs/operations/redis-namespaces.md` — per-namespace TTL / owner / on-Redis-flush table for all 13 namespaces in `src/api/shared/redis-keys.ts`. Flags `RedisKey.emailChange` and `RedisKey.rateLimitPwdReset` as defined-but-unused. Cross-references §W (this plan's parent checklist) and §AC6/§AC7 (single-mobile-session contract).
+- `docs/operations/release-build-verification.md` — §AG8 verification log entry. Permanent home for future `__DEV__`-strip spot-checks.
+
+**§AG8 verification result (as shipped):**
+- Method: `npx expo export --platform ios --output-dir /tmp/redeemo-prod-export`, then `strings <bundle>.hbc | grep -F -e '[api.refresh] body shape' -e '[api.refresh] response status'`.
+- Result: zero matches in the production Hermes bytecode bundle. Sanity-checked via 10,466 string literals extracted; known production strings (`/api/v1/customer/auth/delete-account`, `PinEntrySheet`, `Save up to`) DO appear, so the absence is meaningful, not a tooling miss.
+- Conclusion: Metro constant-folded `__DEV__` to `false` and the entire diagnostic block was dead-code-eliminated.
+
+**Tests (as shipped):**
+- `tests/prisma/redemption-screenshot-event-platform-check.test.ts` — 6/6 real-DB integration test pass in 10.7s. Modeled on `tests/prisma/merchant-highlight-cap.test.ts`. Cases: accepts ios/android; rejects 'web', uppercase 'IOS' (case-sensitive), '', 'unknown', 'windows', 'linux'.
+- Full backend sweep at PR-1 head: 559/559 passing on main post-merge.
+
+**Original plan framing preserved below for historical record.**
 
 **Theme:** Foundational hygiene. Smallest PR; purely documentation + one schema migration + one release-build inspection.
 
