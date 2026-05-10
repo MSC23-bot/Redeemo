@@ -893,7 +893,12 @@ model RedemptionScreenshotEvent {
   id           String            @id @default(uuid())
   userId       String
   redemptionId String
-  platform     String            // 'ios' | 'android'
+  // 'ios' | 'android' — also enforced at the DB layer via the
+  // CHECK constraint `RedemptionScreenshotEvent_platform_check`
+  // (migration `20260510033746_redemption_screenshot_event_platform_check`).
+  // Prisma 7 has no inline `@@check` syntax; the migration is the
+  // source of truth.  Closes deferred-followups §AG3.
+  platform     String
   occurredAt   DateTime          @default(now())
 
   user         User              @relation(fields: [userId],       references: [id])
