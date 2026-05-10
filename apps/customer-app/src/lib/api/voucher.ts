@@ -44,20 +44,22 @@ const voucherDetailMerchantSchema = z.object({
 
 // ── M4a-8 TIME_LIMITED sub-schemas ──────────────────────────────────────────
 //
-// Shared with merchantVoucherSchema so the merchant-profile voucher row and
-// the voucher-detail row can't drift on TIME_LIMITED shape.
+// Production-safe exports (NOT `_...ForTests`) because these are shared
+// with merchantVoucherSchema in `./merchant.ts` as real production code,
+// so the merchant-profile voucher row and the voucher-detail row can't
+// drift on TIME_LIMITED shape.
 //
-// availabilityWindow — recurring weekly slot, persisted as
+// availabilityWindowSchema — recurring weekly slot, persisted as
 //   { dayOfWeek: 0..6, openTime: "HH:mm", closeTime: "HH:mm" }.
-// windowOccurrence — a concrete absolute-time slot,
+// windowOccurrenceSchema — a concrete absolute-time slot,
 //   { startsAt: ISO, endsAt: ISO }.
-const availabilityWindowSchema = z.object({
+export const availabilityWindowSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6),
   openTime:  z.string(),
   closeTime: z.string(),
 })
 
-const windowOccurrenceSchema = z.object({
+export const windowOccurrenceSchema = z.object({
   startsAt: z.string(),   // ISO
   endsAt:   z.string(),   // ISO
 })
@@ -151,10 +153,10 @@ export const voucherApi = {
 // to consumers, so test against the schema directly.
 export const _voucherDetailSchemaForTests = voucherDetailSchema
 
-// M4a-8 — shared TIME_LIMITED sub-schemas. Exported so merchantVoucherSchema
-// (apps/customer-app/src/lib/api/merchant.ts) can reuse them without
-// duplicating shape — the two voucher rows MUST stay aligned.
-export const _availabilityWindowSchemaForTests = availabilityWindowSchema
-export const _windowOccurrenceSchemaForTests   = windowOccurrenceSchema
+// M4a-8 — shared TIME_LIMITED sub-schema types. The schemas themselves
+// are exported as production-safe names at their declaration sites above
+// (availabilityWindowSchema, windowOccurrenceSchema). merchantVoucherSchema
+// in `./merchant.ts` imports them directly so the two voucher rows can't
+// drift on TIME_LIMITED shape.
 export type VoucherAvailabilityWindow = z.infer<typeof availabilityWindowSchema>
 export type WindowOccurrence          = z.infer<typeof windowOccurrenceSchema>

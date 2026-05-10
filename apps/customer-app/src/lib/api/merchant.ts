@@ -6,8 +6,8 @@ import { reviewSchema } from './reviews'
 // drift in shape. voucher.ts has no merchant.ts import, so this is
 // a one-way dep — no cycle.
 import {
-  _availabilityWindowSchemaForTests as availabilityWindowSchema,
-  _windowOccurrenceSchemaForTests   as windowOccurrenceSchema,
+  availabilityWindowSchema,
+  windowOccurrenceSchema,
 } from './voucher'
 
 // Shape served by `GET /api/v1/customer/merchants/:id`. Generated server-side
