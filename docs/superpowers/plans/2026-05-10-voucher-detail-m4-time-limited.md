@@ -1756,9 +1756,14 @@ if (voucher.type === 'TIME_LIMITED') {
 }
 ```
 
-After Guard 6 (phone-verified check), REPLACE Guard 7 (cycle check) with a voucher-type-aware branch:
+**Important — `cycleStart` scope:** the existing service already declares `cycleStart` at the function body scope (around line 122 of `src/api/redemption/service.ts` today, immediately after the subscription guard fetches `sub`). That declaration MUST stay where it is — both the non-TIME_LIMITED guard branch below AND the non-TIME_LIMITED upsert in the atomic-claim transaction reference it. Do NOT move the declaration inside the `else` branch (it would scope `cycleStart` out of the transaction and break the upsert).
+
+After Guard 6 (phone-verified check), REPLACE Guard 7 (cycle check) with a voucher-type-aware branch. The pre-existing `const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)` line stays at function body scope, BEFORE this branch:
 
 ```typescript
+// EXISTING (unchanged, around line 122 — shown for context only):
+const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
+
 // M4a-6 Guard 7 (modified): cycle check for non-TIME_LIMITED;
 //                            window-occurrence redemption check for TIME_LIMITED.
 if (voucher.type === 'TIME_LIMITED') {
@@ -1784,8 +1789,8 @@ if (voucher.type === 'TIME_LIMITED') {
     })
   }
 } else {
-  // EXISTING non-TIME_LIMITED cycle check (preserve verbatim from current code).
-  const { cycleStart } = getCurrentCycleWindow(sub.cycleAnchorDate, now)
+  // EXISTING non-TIME_LIMITED cycle check (preserve verbatim from current code,
+  // EXCEPT do NOT redeclare `cycleStart` here — it's at outer scope).
   const cycleState = await prisma.userVoucherCycleState.findUnique({
     where: { userId_voucherId: { userId, voucherId: data.voucherId } },
   })
