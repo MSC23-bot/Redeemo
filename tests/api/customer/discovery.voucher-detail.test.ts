@@ -36,7 +36,13 @@ vi.mock('../../../generated/prisma/client', () => {
     // the cycle gate is open. These existing tests pre-date M3 and
     // don't care about lastRedemption; default findFirst → null so
     // the gate-open paths return lastRedemption:null without crashing.
-    voucherRedemption       = { findFirst: vi.fn().mockResolvedValue(null) }
+    // M4a-5 — also added groupBy used by batchLastRedemptionsByVoucher
+    // for TIME_LIMITED redeemedWindow derivation. Default → [] keeps
+    // non-TIME_LIMITED rows landing on redeemedWindow:null.
+    voucherRedemption       = {
+      findFirst: vi.fn().mockResolvedValue(null),
+      groupBy:   vi.fn().mockResolvedValue([]),
+    }
     constructor(_opts?: any) {}
   }
   return {
@@ -72,6 +78,10 @@ const baseVoucherRow = {
     logoUrl: null,
     status: 'ACTIVE',
   },
+  // M4a-4: getCustomerVoucher now selects availabilityWindows for the
+  // TIME_LIMITED payload. Non-TIME_LIMITED rows in these tests always
+  // see [] (no windows defined).
+  availabilityWindows: [],
 }
 
 function makePrisma() {
