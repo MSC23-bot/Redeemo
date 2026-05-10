@@ -18,6 +18,11 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   terms: 'T&Cs apply',
   imageUrl: null,
   isRedeemedThisCycle: false,
+  // M4a-8 TIME_LIMITED fields — defaults for non-TIME_LIMITED vouchers.
+  availabilityWindows: [],
+  currentWindow: null,
+  nextWindow: null,
+  redeemedWindow: null,
   ...overrides,
 })
 

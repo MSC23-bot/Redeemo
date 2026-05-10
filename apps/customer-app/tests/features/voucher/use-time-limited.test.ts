@@ -19,6 +19,12 @@ const baseVoucher = (overrides: Partial<VoucherDetail> = {}): VoucherDetail => (
   isRedeemedThisCycle: false,
   isFavourited: false,
   availableAgainAt: null,
+  // M4a-8 TIME_LIMITED fields — defaults for non-TIME_LIMITED vouchers /
+  // M1 stub. When M4b ships the hook will read these directly.
+  availabilityWindows: [],
+  currentWindow: null,
+  nextWindow: null,
+  redeemedWindow: null,
   ...overrides,
 })
 

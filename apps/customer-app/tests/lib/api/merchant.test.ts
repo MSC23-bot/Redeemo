@@ -1,5 +1,5 @@
 import { api } from '@/lib/api'
-import { merchantApi } from '@/lib/api/merchant'
+import { merchantApi, _merchantVoucherSchemaForTests as voucherSchema } from '@/lib/api/merchant'
 
 jest.spyOn(api, 'get')
 
@@ -276,5 +276,86 @@ describe('merchantApi.getProfile', () => {
       selectedBranchFallbackReason: 'used-candidate',
     })
     await expect(merchantApi.getProfile('m1')).rejects.toThrow()
+  })
+})
+
+// ── M4a-8: merchantVoucherSchema TIME_LIMITED fields ────────────────────────
+//
+// Merchant-profile voucher row mirrors voucherDetailSchema's TIME_LIMITED
+// shape (same four sub-schemas, same forward-compat semantics). Sub-schemas
+// are imported from voucher.ts so the two schemas can't drift.
+describe('merchantVoucherSchema — TIME_LIMITED fields (M4a-8)', () => {
+  const baseVoucher = {
+    id:                  'v1',
+    title:               'Lunch deal',
+    type:                'TIME_LIMITED',
+    description:         null,
+    terms:               null,
+    imageUrl:            null,
+    estimatedSaving:     5,
+    expiryDate:          null,
+    isRedeemedThisCycle: false,
+  }
+
+  it('parses availabilityWindows array', () => {
+    const result = voucherSchema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [
+        { dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' },
+      ],
+      currentWindow: null,
+      nextWindow: null,
+      redeemedWindow: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.availabilityWindows).toHaveLength(1)
+      expect(result.data.availabilityWindows[0]!.openTime).toBe('11:00')
+    }
+  })
+
+  it('parses currentWindow / nextWindow as { startsAt, endsAt } | null', () => {
+    const result = voucherSchema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T14:00:00Z' },
+      nextWindow: { startsAt: '2026-05-12T10:00:00Z', endsAt: '2026-05-12T14:00:00Z' },
+      redeemedWindow: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.currentWindow?.startsAt).toBe('2026-05-11T10:00:00Z')
+      expect(result.data.nextWindow?.endsAt).toBe('2026-05-12T14:00:00Z')
+    }
+  })
+
+  it('parses redeemedWindow as { startsAt, endsAt } | null (NOT a boolean)', () => {
+    const result = voucherSchema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [],
+      currentWindow: null,
+      nextWindow: null,
+      redeemedWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T14:00:00Z' },
+    })
+    expect(result.success).toBe(true)
+
+    const rejected = voucherSchema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [],
+      currentWindow: null, nextWindow: null,
+      redeemedWindow: true,
+    })
+    expect(rejected.success).toBe(false)
+  })
+
+  it('all new TIME_LIMITED fields are optional with safe defaults (forward-compat for cached responses)', () => {
+    const result = voucherSchema.safeParse(baseVoucher)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.availabilityWindows).toEqual([])
+      expect(result.data.currentWindow).toBeNull()
+      expect(result.data.nextWindow).toBeNull()
+      expect(result.data.redeemedWindow).toBeNull()
+    }
   })
 })

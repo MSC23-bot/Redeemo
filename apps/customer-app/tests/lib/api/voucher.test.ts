@@ -182,3 +182,111 @@ describe('voucher detail schema — lastRedemption (M3 §P2 persisted return-vis
     expect(result.success).toBe(false)
   })
 })
+
+// ── M4a-8: TIME_LIMITED schema fields ───────────────────────────────────────
+//
+// The backend voucher-detail payload for a TIME_LIMITED voucher carries
+// four extra fields shaped per spec §3.6.1/§3.6.2/§3.6.4:
+//
+//   availabilityWindows: { dayOfWeek, openTime, closeTime }[]
+//   currentWindow:       { startsAt, endsAt } | null      (ISO timestamps)
+//   nextWindow:          { startsAt, endsAt } | null      (ISO timestamps)
+//   redeemedWindow:      { startsAt, endsAt } | null      (NOT a boolean)
+//
+// All four are `.optional()` for forward-compat with cached responses
+// from before M4 ships. `availableAgainAt: null` is the locked TIME_LIMITED
+// shape because the cycle-rollover concept doesn't apply — entitlement is
+// per-window, not per-cycle (spec §3.6.4).
+describe('voucherDetailSchema — TIME_LIMITED fields (M4a-8)', () => {
+  const baseVoucher = {
+    id: 'v1', title: 'Test', type: 'TIME_LIMITED',
+    description: null, terms: null, imageUrl: null,
+    estimatedSaving: 5, expiryDate: null, code: null,
+    status: 'ACTIVE', approvalStatus: 'APPROVED',
+    merchant: { id: 'm1', businessName: 'X', tradingName: null, logoUrl: null, status: 'ACTIVE' },
+    isRedeemedThisCycle: false, isFavourited: false,
+    availableAgainAt: null, lastRedemption: null,
+  }
+
+  it('parses availabilityWindows array', () => {
+    const result = schema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [
+        { dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' },
+      ],
+      currentWindow: null,
+      nextWindow: null,
+      redeemedWindow: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.availabilityWindows).toHaveLength(1)
+      expect(result.data.availabilityWindows[0]!.dayOfWeek).toBe(1)
+      expect(result.data.availabilityWindows[0]!.openTime).toBe('11:00')
+      expect(result.data.availabilityWindows[0]!.closeTime).toBe('15:00')
+    }
+  })
+
+  it('parses currentWindow / nextWindow as { startsAt, endsAt } | null', () => {
+    const result = schema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T14:00:00Z' },
+      nextWindow: { startsAt: '2026-05-12T10:00:00Z', endsAt: '2026-05-12T14:00:00Z' },
+      redeemedWindow: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.currentWindow?.startsAt).toBe('2026-05-11T10:00:00Z')
+      expect(result.data.currentWindow?.endsAt).toBe('2026-05-11T14:00:00Z')
+      expect(result.data.nextWindow?.startsAt).toBe('2026-05-12T10:00:00Z')
+    }
+  })
+
+  it('parses redeemedWindow as { startsAt, endsAt } | null (NOT a boolean)', () => {
+    const result = schema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [],
+      currentWindow: null,
+      nextWindow: null,
+      redeemedWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T14:00:00Z' },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.redeemedWindow?.startsAt).toBe('2026-05-11T10:00:00Z')
+    }
+
+    // Negative pin: a boolean must be rejected.
+    const rejected = schema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [],
+      currentWindow: null, nextWindow: null,
+      redeemedWindow: true,
+    })
+    expect(rejected.success).toBe(false)
+  })
+
+  it('all new TIME_LIMITED fields are optional with safe defaults (forward-compat for cached responses)', () => {
+    // Old cached payload without the new fields should still parse.
+    const result = schema.safeParse(baseVoucher)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      // Defaults: availabilityWindows → [], windows → null
+      expect(result.data.availabilityWindows).toEqual([])
+      expect(result.data.currentWindow).toBeNull()
+      expect(result.data.nextWindow).toBeNull()
+      expect(result.data.redeemedWindow).toBeNull()
+    }
+  })
+
+  it('availableAgainAt: null is accepted for TIME_LIMITED (locked in spec §3.6.4)', () => {
+    const result = schema.safeParse({
+      ...baseVoucher,
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: null, nextWindow: null, redeemedWindow: null,
+      availableAgainAt: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.availableAgainAt).toBeNull()
+  })
+})

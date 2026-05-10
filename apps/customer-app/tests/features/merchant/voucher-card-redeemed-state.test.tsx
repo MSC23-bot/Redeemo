@@ -38,6 +38,11 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   // `isRedeemed` PROP on VoucherCard directly (not via the payload
   // flag), so this default is just for type-safety completeness.
   isRedeemedThisCycle: false,
+  // M4a-8 TIME_LIMITED fields — defaults for non-TIME_LIMITED vouchers.
+  availabilityWindows: [],
+  currentWindow: null,
+  nextWindow: null,
+  redeemedWindow: null,
   ...overrides,
 })
 
