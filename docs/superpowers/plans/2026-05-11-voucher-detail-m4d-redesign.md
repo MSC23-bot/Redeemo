@@ -49,7 +49,7 @@
 
 ---
 
-## As-shipped record — Phase 0 + Phase A + Phase B + Phase C + Phase D + Phase E + Phase F (Gate O reached 2026-05-11)
+## As-shipped record — Phase 0 + Phase A + Phase B + Phase C + Phase D + Phase E + Phase F + Phase G + Phase H (Gate P reached 2026-05-11)
 
 Plan-text below was drafted at plan-amendment time. Actual implementation discovered path conventions, fixture-helper names, and formatter-API decisions that differ from the plan-verbatim. The next agent picking up Phase D should treat THIS section as the authoritative reference for what's already on the branch.
 
@@ -144,7 +144,34 @@ Future component tests that set `accessibilityElementsHidden` on the same elemen
 - Title unchanged: `voucherTypeExplainerTitle('TIME_LIMITED')` still returns `"What is a time-limited voucher?"`.
 - Regression-pin tests cover BOGO / FREEBIE / REUSABLE bodies to catch accidental side-edits — all green.
 
-### Shipped commit list (Phase 0 + A + B + C + D + E + F, branch tip 0ac5b46)
+### Phase G / H — execution notes (locked 2026-05-11 at Gate P)
+
+**Phase G (commit `733501f`)** — combined wire-new + delete-old in a single commit per owner direction ("do not leave duplicate TIME_LIMITED timing surfaces on screen"). The original plan split G.1 (wire) and G.2 (delete) across two commits; the tightening produces a single coherent commit.
+
+Three deviations surfaced during execution:
+
+1. **Modified a 3rd file** (`tests/features/voucher/voucher-detail-redeem-flow.test.tsx`) — a stale `getByText('Available during')` assertion in the M4b-9 free-user-TL test pinned content that lived in the deleted `<TimeLimitedDetailsCard>`. Retargeted to the new `coupon-body-availability` testID, preserving the M4b-9 free-user suppression intent.
+
+2. **Dropped `'expired'` from heroStatusState derivation** — the `WindowState` union doesn't include `'expired'` (M2 D4 expired-precedence is a screen-level check that returns before TL derivation). The plan's `!== 'expired'` guard was a TS impossibility (TS2367). Comment in the derivation block explains the reason; only `!== 'no-windows'` remains.
+
+3. **Defensive guard on `formatScheduleString`** — non-TL voucher fixtures pass `availabilityWindows: undefined`, which the helper didn't tolerate (`windows.length` crash). Added a type-aware guard so the call only fires for TL vouchers with the array present; non-TL passes `null` to `<CouponBodyCard>` (which CouponBodyCard already handles via its TL gate).
+
+**Phase H (commits `2f61410` + `334faed` + `739f693`)** — three deletion commits, one per stop-gap component. Each ran the 3-grep pre-deletion checklist (imports / testID-symbol references / mocks-snapshots). Pattern of grep results across all 3 deletions:
+
+- **(a) imports:** ZERO source-code imports remained (Phase G already cleaned them up).
+- **(b) testID/symbol:** 6–8 hits each, all non-blocking — comments in surrounding source files + screen-level absence-pin string constants (`queryByTestId('vd-frosted-countdown')).toBeNull()` and equivalents). Absence-pin strings survive deletion because querying an absent testID returns null, which is the contract.
+- **(c) mocks/snapshots:** ZERO matches across all three (no `__mocks__` or `__snapshots__` dirs in customer-app).
+
+Test count progression: Phase G `858 / 858` → H.1 `852 / 852` → H.2 `847 / 847` → H.3 `841 / 841`. Each H.x deletion removes the deleted test file's tests from the suite (6 / 5 / 6 tests respectively). Suite count drops from 41 → 38 across Phase H.
+
+**Residual cleanup deferred:** 3 stale doc-comment references to the deleted components still exist:
+- `src/features/voucher/utils/scheduleString.ts:16` — comment mentioning `<TimeLimitedDetailsCard>` historically.
+- `src/features/voucher/hooks/useTimeLimited.ts:296` — comment mentioning `<FrostedCountdown>` historically.
+- `tests/features/voucher/voucher-detail-redeem-flow.test.tsx:2614` — comment mentioning `<TimeLimitedDetailsCard>` historically.
+
+All 3 are doc-comment references inside otherwise-fine code, not imports or JSX usage. Cleanup is a one-line edit per file but doesn't block; can fold into a post-M4d sweep or pick up alongside the dead-on-arrival formatter cleanup (formatPrimaryWhen / formatUrgentCountdown / formatClosingCountdown / formatOpeningCountdown / formatAvailableAgainCountdown).
+
+### Shipped commit list (Phase 0 + A + B + C + D + E + F + G + H, branch tip 739f693)
 
 | SHA | Phase | What |
 |---|---|---|
@@ -166,15 +193,71 @@ Future component tests that set `accessibilityElementsHidden` on the same elemen
 | `7df7982` | D.1 | `<CouponBodyCard>` TL sections (4 new) + `<CouponTopCard>` banner image 180→240pt + 9 tests. |
 | `c7007a1` | E.1 | `<HowItWorks>` "Check the Window" step for TL users + new helper + 5 tests. |
 | `0ac5b46` | F.1 | TIME_LIMITED explainer copy rewrite (3 sentences, 35 words) + 9 regression tests. |
+| `1d0fddb` | docs | Plan as-shipped record extension (Phase D/E/F). |
+| `733501f` | G | Wire HeroStatusBlock into hero via CouponHeader.statusBlock + thread description/scheduleString/expiryDate to CouponBodyCard + delete 3 M4b mount sites + screen-level mount-order pins (3 TL states). Combined G.1 + G.2 per owner "no duplicate timing surfaces" rule. |
+| `2f61410` | H.1 | Deleted FrostedCountdown.tsx + frosted-countdown.test.tsx (pre-deletion 3-grep clean). |
+| `334faed` | H.2 | Deleted TimeLimitedBanner.tsx + time-limited-banner.test.tsx (pre-deletion 3-grep clean). |
+| `739f693` | H.3 | Deleted TimeLimitedDetailsCard.tsx + time-limited-details-card.test.tsx (pre-deletion 3-grep clean). |
 
-### Test totals at Gate O (branch tip 0ac5b46)
+### Test totals at Gate P (branch tip 739f693)
 
-- Full voucher suite: **859 / 859 ✅** across 41 suites.
+- Full voucher suite: **841 / 841 ✅** across 38 suites (~11s).
 - `tsc --noEmit`: clean.
 - ESLint: not yet re-run; will run at Gate Q before push.
-- New tests added in Phase D + E + F: 23 (9 + 5 + 9).
+- Test count progression: Gate O `859/41` → Phase G `858/41` (net 0 from G test edits) → H.1 `852/40` (–6 tests, –1 suite) → H.2 `847/39` (–5 tests, –1 suite) → H.3 `841/38` (–6 tests, –1 suite). Each H.x removes only the deleted test file's tests.
 
-### Forward-looking — Phase G + H should know
+### Before / after mount order (TIME_LIMITED voucher)
+
+**Before (M4b layout, pre-Phase-G):**
+
+```
+<CouponHeader>                ← description visible for ALL types
+                              ← no statusBlock prop
+<PerforationLine outer>
+<CouponTopCard>               ← banner image at 180pt OR 6pt accent line
+<PerforationLine inner>
+<CouponBodyCard>              ← Terms + Fair Use only (no TL sections)
+<FrostedCountdown>            ← OUT-OF-COUPON countdown card (TL only)
+<TimeLimitedBanner>           ← OUT-OF-COUPON blue/amber alert (TL only)
+<TimeLimitedDetailsCard>      ← OUT-OF-COUPON schedule + next-available (TL only)
+<MerchantRow>
+<VoucherTypeExplainerCard>
+<HowItWorks>                  ← 5 steps, type-agnostic
+```
+
+**After (M4d, branch tip 739f693):**
+
+```
+<CouponHeader>
+  ├── (TL) <HeroStatusBlock>  ← INSIDE hero, replacing description slot
+  │       eyebrow + duration primary + clock supporting + progress bar +
+  │       a11y live-region (per amended D3/D10/D4)
+  └── (non-TL) description    ← in hero as before
+<PerforationLine outer>
+<CouponTopCard>               ← banner image at 240pt OR 6pt accent line (global per D5)
+<PerforationLine inner>
+<CouponBodyCard>
+  ├── (TL) Availability        ← schedule string ("Mon-Fri, 11am-3pm")
+  ├── (TL) Usage rule          ← "Redeem once per active window."
+  ├── (TL) Description         ← merchant-authored, moved from hero per D6(C)
+  ├── Terms                    ← existing
+  ├── Fair Use Policy          ← existing
+  └── (TL + expiryDate) Offer ends  ← "<day> <month> <year>"
+<CycleRulesCard>              ← non-TL only (TL branch removed)
+<MerchantRow>
+<VoucherTypeExplainerCard>    ← new TIME_LIMITED body (37→35-word locked rewrite)
+<HowItWorks>                  ← TL: 6 steps with "Check the Window" at index 1;
+                              ← non-TL: 5 steps (unchanged)
+```
+
+**Deleted entirely:**
+- `<FrostedCountdown>` — absorbed into `<HeroStatusBlock>`.
+- `<TimeLimitedBanner>` — state messaging absorbed into `<HeroStatusBlock>`'s eyebrow + supporting line.
+- `<TimeLimitedDetailsCard>` — fields absorbed into `<CouponBodyCard>` TL sections.
+
+**Non-TL voucher types:** visually unchanged (per D6(C) scope fence). Only the banner image height bump (180→240pt) affects non-TL — that's a CouponTopCard-level visual change, not a structural re-layout.
+
+### Forward-looking — Phase I (Gate Q) and beyond
 
 - **`<HeroStatusBlock>`** is mounted by `<CouponHeader>` via the `statusBlock?: React.ReactNode` prop. Phase G wires `statusBlock={<HeroStatusBlock ... />}` from VoucherDetailScreen, but ONLY for `voucher.type === 'TIME_LIMITED'`. The hook's additive return shape from A.3 + A.6 provides everything `<HeroStatusBlock>` needs: `currentWindow.startsAt/endsAt`, `nextWindow.startsAt/endsAt`, `msToClose`, `msToOpen`. Plus `now = new Date()` captured at parent render time so the per-second tick re-renders update the visible countdown.
 - **Do NOT pass `scheduleString`** to `<HeroStatusBlock>` (the prop was dropped in B.1 — supporting line is clock+day context, not the schedule string).
