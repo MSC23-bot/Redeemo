@@ -1508,7 +1508,10 @@ export function VoucherDetailScreen() {
             ONE visual treatment (stamped voucher) rather than two
             redundant indicators. */}
 
-        {voucher.type === 'TIME_LIMITED' && !isRedeemed && timeLimited.windowState !== 'no-windows' ? (
+        {/* M4b-9: FrostedCountdown + TimeLimitedBanner are suppressed for free users —
+            no urgency theatre for someone who can't redeem. TimeLimitedDetailsCard stays
+            mounted unconditionally because schedule + usage rule are informational. */}
+        {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
           <View style={styles.tlBanner}>
             <TimeLimitedBanner
               windowState={timeLimited.windowState}
@@ -1526,8 +1529,11 @@ export function VoucherDetailScreen() {
             messaging). Uses real-time `new Date()` — the underlying
             useTimeLimited hook already drives a 60s tick, so re-renders
             propagate naturally; the countdown helper formats from the
-            current clock at render time. */}
-        {voucher.type === 'TIME_LIMITED' && !isRedeemed && timeLimited.windowState !== 'no-windows' ? (
+            current clock at render time. M4b-9: also gated on
+            isSubscribed — free users don't see urgency countdowns for
+            offers they can't redeem; the subscription gate is primary
+            in that state. */}
+        {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
           <View style={styles.frostedCountdownWrap}>
             <FrostedCountdown
               windowState={timeLimited.windowState}
