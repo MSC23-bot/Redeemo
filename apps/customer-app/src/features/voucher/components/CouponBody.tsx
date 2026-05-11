@@ -35,10 +35,55 @@ type CouponBodyCardProps = {
   /**
    * Voucher terms — backend stores this as a single string; we split
    * into bullet items for display via splitTermsIntoBullets().
-   * Description is intentionally NOT shown here — it lives in the
-   * coupon header so it's the first thing users see (per v4 mockup).
+   * For non-TL voucher types description lives in the coupon header
+   * (per v4 mockup); for TIME_LIMITED it moves into this card via the
+   * `description` prop below (M4d spec D6(C)).
    */
   terms: string | null
+  /**
+   * M4d additive — TIME_LIMITED only (D6(C) scope fence).
+   * Description moves out of the hero and into the coupon body for
+   * TL vouchers; passing it on other types is a no-op.
+   */
+  description?: string | null
+  /**
+   * M4d additive — TIME_LIMITED only.
+   * Human-readable availability window (e.g. "Mon-Fri, 11am-3pm").
+   */
+  scheduleString?: string | null
+  /**
+   * M4d additive — TIME_LIMITED only.
+   * ISO expiry; renders the "Offer ends" section when present.
+   */
+  expiryDate?: string | null
+}
+
+/**
+ * M4d — Hermes-robust expiry formatter.
+ *
+ * Mirrors `RedemptionDetailsCard.formatExpiryLine`: numeric parts via
+ * Intl.DateTimeFormat.formatToParts + hardcoded English month array.
+ * AVOID `weekday: 'short' | 'long'` and locale-string formatters
+ * (CLDR-strip risk on Hermes — see memory: reference_london_clock_helper.md).
+ */
+function formatExpiryDate(iso: string): string {
+  const date = new Date(iso)
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December'] as const
+  const FORMATTER = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: 'numeric', day: 'numeric',
+  })
+  const parts = FORMATTER.formatToParts(date)
+  const get = (t: Intl.DateTimeFormatPartTypes): number => {
+    const p = parts.find(x => x.type === t)
+    if (!p) throw new Error(`formatExpiryDate: missing ${t}`)
+    return parseInt(p.value, 10)
+  }
+  const year = get('year')
+  const month = get('month')
+  const day = get('day')
+  return `${day} ${MONTHS[month - 1]} ${year}`
 }
 
 const NAVY        = '#010C35'
@@ -69,7 +114,7 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch, terms
   return (
     <View style={styles.topCard} testID="coupon-top-card">
       {imageUrl ? (
-        <View style={styles.banner}>
+        <View style={styles.banner} testID="coupon-top-banner-image">
           <Image source={{ uri: imageUrl }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
         </View>
       ) : (
@@ -77,7 +122,13 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch, terms
         // identity carries through to the body, but at 6pt it reads
         // as an accent line rather than a content area. Saves ~150pt
         // of vertical real estate vs the round-12 placeholder.
-        <View style={[styles.bannerAccentLine, { backgroundColor: light }]} pointerEvents="none" />
+        // PRODUCT.md anti-fabrication rule: never paint a placeholder
+        // banner image — the accent-line fallback is the honest UI.
+        <View
+          testID="coupon-top-accent-line"
+          style={[styles.bannerAccentLine, { backgroundColor: light }]}
+          pointerEvents="none"
+        />
       )}
 
       <View style={styles.infoBlock}>
@@ -114,14 +165,56 @@ export function CouponTopCard({ type, imageUrl, expiryDate, isMultiBranch, terms
  * (per v4 mockup screen 1). Showing it twice on the same screen was
  * a Round-1 visual regression.
  */
-export function CouponBodyCard({ type, terms }: CouponBodyCardProps) {
+export function CouponBodyCard({
+  type,
+  terms,
+  description,
+  scheduleString,
+  expiryDate,
+}: CouponBodyCardProps) {
   const termsList    = splitTermsIntoBullets(terms)
   const fairUseLines = fairUseLinesForVoucherType(type)
+  const isTL = type === 'TIME_LIMITED'
 
   return (
     <View style={styles.bodyCard} testID="coupon-body">
+      {/* M4d (D6(C)) — TIME_LIMITED-only sections rendered BEFORE the
+          existing Terms section. Non-TL voucher types are unchanged in
+          M4d; the universal description-in-coupon-body move is the
+          §AN1 follow-up post-M4d. */}
+      {isTL ? (
+        <>
+          {scheduleString ? (
+            <View
+              testID="coupon-body-availability"
+              accessibilityLabel={`Available during ${scheduleString}`}
+              style={styles.tlSection}
+            >
+              <Text variant="label.eyebrow" style={styles.tlSectionLabel}>AVAILABILITY</Text>
+              <Text variant="body.md" style={styles.tlSectionBody}>{scheduleString}</Text>
+            </View>
+          ) : null}
+
+          <View
+            testID="coupon-body-usage-rule"
+            accessibilityLabel="Redeem once per active window"
+            style={styles.tlSection}
+          >
+            <Text variant="label.eyebrow" style={styles.tlSectionLabel}>USAGE RULE</Text>
+            <Text variant="body.md" style={styles.tlSectionBody}>Redeem once per active window.</Text>
+          </View>
+
+          {description ? (
+            <View testID="coupon-body-description" style={styles.tlSection}>
+              <Text variant="label.eyebrow" style={styles.tlSectionLabel}>ABOUT THIS OFFER</Text>
+              <Text variant="body.md" style={styles.tlSectionBody}>{description}</Text>
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
       {termsList.length > 0 ? (
-        <View style={styles.section}>
+        <View testID="coupon-body-terms" style={styles.section}>
           <View style={styles.sectionHeading}>
             <FileText size={17} color={ROSE} strokeWidth={2} />
             <Text variant="label.md" style={styles.sectionTitle}>Terms &amp; Conditions</Text>
@@ -143,7 +236,7 @@ export function CouponBodyCard({ type, terms }: CouponBodyCardProps) {
           containing `styles.fairUse` cream-tinted card surface is the
           deliberate exception to impeccable's nested-card law (see
           memory: feedback_voucher_detail_fair_use_card.md). */}
-      <View style={styles.fairUse}>
+      <View testID="coupon-body-fair-use" style={styles.fairUse}>
         <View style={styles.sectionHeading}>
           <Shield size={16} color={ROSE} strokeWidth={2} />
           <Text variant="label.md" style={styles.sectionTitle}>{FAIR_USE_TITLE}</Text>
@@ -155,6 +248,16 @@ export function CouponBodyCard({ type, terms }: CouponBodyCardProps) {
           </View>
         ))}
       </View>
+
+      {/* M4d (D6(C)) — Offer ends section sits AFTER Fair Use, TL +
+          non-null expiryDate only. Hermes-robust en-GB formatter via
+          formatExpiryDate above. */}
+      {isTL && expiryDate ? (
+        <View testID="coupon-body-offer-ends" style={styles.tlSection}>
+          <Text variant="label.eyebrow" style={styles.tlSectionLabel}>OFFER ENDS</Text>
+          <Text variant="body.md" style={styles.tlSectionBody}>{formatExpiryDate(expiryDate)}</Text>
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -188,7 +291,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   banner: {
-    height: 180,
+    // M4d (D5): bumped from 180 → 240 to give the banner image more
+    // presence on TL vouchers — they have urgency + countdown above
+    // and need the visual weight to compete. Applies to all types
+    // (non-TL keeps its existing card structure but benefits from
+    // the larger image when imageUrl is present).
+    height: 240,
     backgroundColor: '#1a1a2e',
     overflow: 'hidden',
   },
@@ -301,5 +409,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: TEXT_2ND,
+  },
+
+  // ── M4d (D6(C)) TL-only sections ───────────────────────────────────
+  tlSection: {
+    marginTop: 16,
+  },
+  tlSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  tlSectionBody: {
+    fontSize: 14,
+    color: '#1F2937',
+    lineHeight: 21,
   },
 })
