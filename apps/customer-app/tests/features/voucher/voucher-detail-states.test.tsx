@@ -294,6 +294,34 @@ describe('VoucherDetailScreen — state machine', () => {
 // ── TIME_LIMITED state machine (M4b-8) ───────────────────────────────
 
 describe('VoucherDetailScreen — TIME_LIMITED state machine (M4b-8)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    // Tuesday 2026-05-12 10:00 UTC = 11:00 BST. Deterministic anchor for
+    // the TIME_LIMITED suite so the state-machine derivation is stable
+    // regardless of run time.
+    //
+    // Why this exact instant:
+    //   • Sits well clear of the 21:30 London brittleness boundary that
+    //     made futureISO(180) flip from unavailable-today to
+    //     unavailable-future-day (crosses midnight London past ~21:30).
+    //   • availabilityWindows fixtures pin to dayOfWeek: 1 (Monday)
+    //     11:00-15:00. Anchoring on Tuesday means there is NO current
+    //     window re-derivable from availabilityWindows[] alone — the
+    //     state-machine flows to the nextWindow path which is what the
+    //     unavailable-today / unavailable-future-day tests exercise.
+    //   • futureISO(180) = same Tuesday 14:00 BST → same London day →
+    //     unavailable-today.
+    //   • futureISO(2 * 24 * 60) = Thursday 11:00 BST → different London
+    //     day → unavailable-future-day.
+    //
+    // Locked: spec D1 (2026-05-11-voucher-detail-m4d-redesign-design.md §6 D1).
+    jest.setSystemTime(new Date('2026-05-12T10:00:00Z'))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
   // Helpers — relative ISO timestamps using Date.now() so tests are
   // deterministic regardless of wall clock.
   function futureISO(minutes: number): string {
