@@ -228,7 +228,7 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
       return {
         eyebrow:    'Available now',
         primary:    formatDuration(msToClose),
-        supporting: formatSupportingClock(currentWindowEndsAt, now, 'Ends'),
+        supporting: formatSupportingClock(currentWindowEndsAt, now, 'Window ends'),
       }
     }
     case 'urgent': {
@@ -236,7 +236,7 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
       return {
         eyebrow:    'Closing soon',
         primary:    formatDuration(msToClose),
-        supporting: formatSupportingClock(currentWindowEndsAt, now, 'Ends'),
+        supporting: formatSupportingClock(currentWindowEndsAt, now, 'Window ends'),
       }
     }
     case 'unavailable-today': {
@@ -245,7 +245,7 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
       return {
         eyebrow,
         primary:    formatDuration(msToOpen),
-        supporting: formatSupportingClock(nextWindowStartsAt, now, 'Opens'),
+        supporting: formatSupportingClock(nextWindowStartsAt, now, 'Available from'),
       }
     }
     case 'unavailable-future-day': {
@@ -256,7 +256,7 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
       return {
         eyebrow,
         primary:    formatDuration(msToOpen),
-        supporting: formatSupportingClock(nextWindowStartsAt, now, 'Opens'),
+        supporting: formatSupportingClock(nextWindowStartsAt, now, 'Available from'),
       }
     }
     case 'redeemed-this-window': {
@@ -265,7 +265,7 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
       return {
         eyebrow,
         primary:    formatDuration(msToOpen),
-        supporting: formatSupportingClock(nextWindowStartsAt, now, 'Opens'),
+        supporting: formatSupportingClock(nextWindowStartsAt, now, 'Available again from'),
       }
     }
     case 'no-windows':
@@ -288,8 +288,9 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
 function eyebrowDayLabel(boundary: Date, now: Date): string {
   // Piggyback on the supporting-line bucketing: if it ends with " tomorrow"
   // the boundary is the next London day; otherwise it's 2+ days out and the
-  // weekday name is the right label.
-  const supporting = formatSupportingClock(boundary, now, 'Opens')
+  // weekday name is the right label. Pass any valid verb — the suffix
+  // " tomorrow" is the load-bearing signal, not the verb prefix.
+  const supporting = formatSupportingClock(boundary, now, 'Available from')
   if (supporting.endsWith(' tomorrow')) return 'tomorrow'
   return formatDayName(boundary)
 }
