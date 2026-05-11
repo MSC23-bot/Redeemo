@@ -124,4 +124,95 @@ describe('useTimeLimited — real implementation (M4b-4)', () => {
     expect(result.current.isTimeLimited).toBe(false)
     expect(result.current.windowState).toBe('no-windows')
   })
+
+  // ── Unmount-cleanup pins (Gate F review, 2026-05-11) ────────────────
+  // The hook subscribes to a module-level AppState fan-out and schedules
+  // a boundary `setTimeout` + per-minute `setInterval`. These tests pin
+  // that none of those leak after unmount:
+  //   1. last-hook unmount releases the module-level AppState subscription;
+  //   2. pending boundary timer cannot call setState after unmount
+  //      (would trigger React's "setState on unmounted component" warning).
+
+  it('last hook to unmount releases the module-level AppState subscription', () => {
+    // Stub AppState.addEventListener to return a capturable subscription
+    // object — lets us assert .remove() fires on last unmount. The module-
+    // level fan-out lazily registers the underlying AppState listener
+    // (on first subscriber) and releases it when the listener Set drains.
+    //
+    // Call-count assertions here are deliberately behaviour-only — RTL's
+    // renderHook can double-invoke effects (mount → cleanup → re-mount
+    // cycle under StrictMode-style setups), which churns add/remove pairs
+    // during the mount cycle itself. The contract under test is the
+    // POST-unmount behaviour: after the last hook unmounts, the active
+    // subscription must have its remove() called.
+    const removeSpy = jest.fn()
+    const addSpy = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockReturnValue({ remove: removeSpy } as unknown as { remove: () => void })
+
+    jest.setSystemTime(new Date('2026-05-11T11:00:00Z'))
+    const voucher = baseVoucher({
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: {
+        startsAt: '2026-05-11T10:00:00.000Z',
+        endsAt:   '2026-05-11T14:00:00.000Z',
+      },
+    })
+
+    const a = renderHook(() => useTimeLimited(voucher))
+    const b = renderHook(() => useTimeLimited(voucher))
+
+    // At least one underlying AppState 'change' subscription was registered.
+    expect(addSpy.mock.calls.filter(c => c[0] === 'change').length).toBeGreaterThan(0)
+
+    // Clear the remove-spy history so we only count the post-unmount
+    // cleanup, not any setup-cycle churn from RTL effect double-invoke.
+    removeSpy.mockClear()
+
+    // Unmount one — the OTHER hook still has a live listener in the
+    // module-level Set, so the underlying subscription must stay alive
+    // (no remove() during this transition).
+    a.unmount()
+    expect(removeSpy).not.toHaveBeenCalled()
+
+    // Unmount the last — set drains to 0 → underlying subscription is
+    // released. The fan-out's "nullify on last-unsubscribe" path runs.
+    b.unmount()
+    expect(removeSpy).toHaveBeenCalled()
+
+    addSpy.mockRestore()
+  })
+
+  it('pending boundary timer does not call setState after unmount (no React warning)', () => {
+    jest.setSystemTime(new Date('2026-05-11T11:00:00Z'))
+    const voucher = baseVoucher({
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: {
+        startsAt: '2026-05-11T10:00:00.000Z',
+        endsAt:   '2026-05-11T14:00:00.000Z',
+      },
+    })
+    const { result, unmount } = renderHook(() => useTimeLimited(voucher))
+    expect(result.current.windowState).toBe('active')
+
+    // Capture console.error to detect React's "setState on unmounted
+    // component" warning. Without proper cleanup in the boundary-timer
+    // effect's return function, advancing fake timers past the urgency-
+    // crossing would fire `recompute()` → `setComputed(...)` → React
+    // warns. With cleanup, the timer is cleared during unmount and no
+    // recompute fires.
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    unmount()
+
+    // Advance well past the boundary timer's would-be fire window.
+    act(() => { jest.advanceTimersByTime(4 * 60 * 60_000) })
+
+    const setStateWarnings = errSpy.mock.calls.filter(args =>
+      args.some(a => typeof a === 'string' && /unmounted/i.test(a)),
+    )
+    expect(setStateWarnings).toEqual([])
+
+    errSpy.mockRestore()
+  })
 })

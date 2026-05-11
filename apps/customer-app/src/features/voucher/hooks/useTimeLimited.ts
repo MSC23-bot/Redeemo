@@ -185,6 +185,20 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
   // Boundary setTimeout: arm for whichever fires FIRST — the urgency
   // threshold (60 min before close, only in 'active' state) OR the
   // exposed boundary (close or next-window-open).
+  //
+  // Each named fire instant is offset by +1 ms PAST the underlying boundary
+  // so the recompute observes `Date.now() > instant`:
+  //   • boundaryFireAtMs — fires 1 ms after the exposed boundary; aligns with
+  //     the M4b-2 helper's half-open `[open, close)` semantics so the close
+  //     instant itself is observed as "outside".
+  //   • urgencyFireAtMs — fires 1 ms after the 60-min-remaining threshold;
+  //     the helper uses strict `<` (so exactly-60-min stays 'active') AND
+  //     `computeState` here uses `<=` (so exactly-60-min flips to 'urgent').
+  //     The +1 ensures BOTH observe `remaining < URGENT_THRESHOLD_MS`.
+  //
+  // Each variable is derived independently — no value-equality juggling
+  // between them — which is what the prior version got slightly fragile.
+  // Gate F review pass, 2026-05-11.
   const boundaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const nextBoundaryAtMs = computed.nextBoundaryAt ? computed.nextBoundaryAt.getTime() : 0
   const stateKey = computed.windowState
@@ -196,22 +210,16 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
     if (!isTimeLimited || !nextBoundaryAtMs) return
 
     const nowMs = Date.now()
-    let fireAtMs = nextBoundaryAtMs
+    const boundaryFireAtMs = nextBoundaryAtMs + 1
+    const urgencyFireAtMs  = stateKey === 'active'
+      ? nextBoundaryAtMs - URGENT_THRESHOLD_MS + 1
+      : null
 
-    // In 'active', the urgency-crossing fires earlier than close — pick
-    // the earlier instant so state flips active→urgent at the threshold.
-    // Fire 1ms PAST the threshold so the helper's strict `<` AND the
-    // hook's `<=` override both observe "remaining < URGENT_THRESHOLD".
-    if (stateKey === 'active') {
-      const urgentAtMs = nextBoundaryAtMs - URGENT_THRESHOLD_MS + 1
-      if (urgentAtMs > nowMs && urgentAtMs < fireAtMs) {
-        fireAtMs = urgentAtMs
-      }
+    // Pick the earliest in-future fire instant.
+    let fireAtMs = boundaryFireAtMs
+    if (urgencyFireAtMs !== null && urgencyFireAtMs > nowMs && urgencyFireAtMs < fireAtMs) {
+      fireAtMs = urgencyFireAtMs
     }
-
-    // Fire 1ms past the boundary so when timer triggers, `now >= boundary`
-    // (half-open semantics: [open, close) — close itself flips to out).
-    if (fireAtMs === nextBoundaryAtMs) fireAtMs += 1
 
     const delay = Math.max(0, fireAtMs - nowMs)
     boundaryTimerRef.current = setTimeout(() => {
@@ -229,6 +237,18 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
 
   // Per-minute tick while in any time-limited state so consumer countdowns
   // update. Skip the interval entirely outside time-limited states.
+  //
+  // ⚠️ DO NOT short-circuit the `recompute → setComputed` call on
+  // state-object equality. The 60s setState IS the per-minute tick
+  // generator for the consumer: `<FrostedCountdown>` is a dumb formatter
+  // that reads `now: new Date()` captured at PARENT render time. The only
+  // mechanism that re-renders the parent (and therefore re-captures `now`
+  // for the countdown display) is this hook's setState. Adding an
+  // identity-equality guard here would correctly skip "no state change"
+  // but would also freeze the displayed countdown — "Ends in 2h 14m"
+  // would never tick down to "Ends in 2h 13m" while in steady state.
+  // The intentional re-render IS the contract. Gate F review pass,
+  // 2026-05-11 — pushback documented.
   const intervalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const wantsInterval =
     isTimeLimited &&
