@@ -26,9 +26,7 @@ import { PerforationLine } from '../components/PerforationLine'
 import { MerchantRow } from '../components/MerchantRow'
 import { HowItWorks } from '../components/HowItWorks'
 import { RedeemCTA } from '../components/RedeemCTA'
-import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
-import { TimeLimitedDetailsCard } from '../components/TimeLimitedDetailsCard'
-import { FrostedCountdown } from '../components/FrostedCountdown'
+import { HeroStatusBlock, type HeroStatusBlockState } from '../components/HeroStatusBlock'
 import { formatScheduleString } from '../utils/scheduleString'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
@@ -676,6 +674,49 @@ export function VoucherDetailScreen() {
   const blockShowToStaffMount =
     isRedeemed && (!isPresentationActive || isRedemptionValidated)
 
+  // ── M4d Phase G — HeroStatusBlock element ───────────────────────────
+  //
+  // Replaces the M4b post-coupon stack (FrostedCountdown + TimeLimitedBanner)
+  // and the standalone TimeLimitedDetailsCard mount sites. The block lives
+  // INSIDE <CouponHeader> via the new `statusBlock` prop (per spec D6(C) +
+  // Phase C.1 contract), occupying the description slot for TL vouchers.
+  //
+  // State derivation:
+  //   • isRedeemed  → 'redeemed-this-window' (TIME_LIMITED-equivalent of
+  //                   redeemed-this-cycle — useTimeLimited doesn't return
+  //                   this state itself; it's a screen-level merge).
+  //   • otherwise   → timeLimited.windowState ('active' | 'urgent' |
+  //                   'unavailable-today' | 'unavailable-future-day' |
+  //                   'no-windows'). The `WindowState` union does NOT
+  //                   include 'expired' — the screen-level 'expired'
+  //                   stateKey precedes redemption/time-limited derivation
+  //                   (D4 lock), so this code path doesn't run when the
+  //                   voucher is expired.
+  //
+  // 'no-windows' produces null (HeroStatusBlock returns null for that
+  // state anyway; skipping construction avoids a useless tree).
+  //
+  // For non-TL vouchers the variable stays null and <CouponHeader> falls
+  // through to its original description-copy rendering path.
+  let heroStatusBlock: React.ReactNode = null
+  if (voucher && voucher.type === 'TIME_LIMITED') {
+    const heroStatusState: HeroStatusBlockState =
+      isRedeemed ? 'redeemed-this-window' : timeLimited.windowState
+    if (heroStatusState !== 'no-windows') {
+      heroStatusBlock = (
+        <HeroStatusBlock
+          windowState={heroStatusState}
+          now={new Date()}
+          currentWindowStartsAt={timeLimited.currentWindow?.startsAt ?? null}
+          currentWindowEndsAt={timeLimited.currentWindow?.endsAt ?? null}
+          nextWindowStartsAt={timeLimited.nextWindow?.startsAt ?? null}
+          msToClose={timeLimited.msToClose}
+          msToOpen={timeLimited.msToOpen}
+        />
+      )
+    }
+  }
+
   // ── Review prompt entry point (PR-C T16, locked 2026-05-09) ─────────
   //
   // Voucher Detail's redeemed state needs a second entry point into the
@@ -1289,7 +1330,21 @@ export function VoucherDetailScreen() {
                     voucher text slightly, as long as the text is
                     still somewhat readable."
                 Defers full washed-out coupon visual + polished SVG
-                stamp to §Q1. */}
+                stamp to §Q1.
+
+                M4d Phase G — HeroStatusBlock wiring:
+                For TIME_LIMITED vouchers the description slot inside
+                <CouponHeader> is replaced (per spec D6(C) + C.1
+                contract) by the <HeroStatusBlock> element derived in
+                the screen body above (`heroStatusBlock`). `now: new
+                Date()` is captured at parent render so the visible
+                tick advances alongside useTimeLimited's internal 60s
+                / sub-1h second tick — each setState in the hook
+                re-renders this screen, re-evaluating `new Date()` and
+                the derived ms-to-close / ms-to-open inputs. For non-TL
+                voucher types `heroStatusBlock` is null and
+                <CouponHeader> renders the original description copy
+                unchanged. */}
             <View style={styles.heroSealWrap}>
               <CouponHeader
                 type={voucher.type}
@@ -1306,6 +1361,7 @@ export function VoucherDetailScreen() {
                 fadeEnd={FADE_END}
                 collapsedActive={collapsedActive}
                 dimmed={showRedeemedSeal}
+                statusBlock={heroStatusBlock}
               />
               {showRedeemedSeal ? (
                 <View
@@ -1444,35 +1500,21 @@ export function VoucherDetailScreen() {
             )
           })()}
 
-          {/* CycleRulesCard / TimeLimitedDetailsCard — REDEEMED-STATE
-              position (locked 2026-05-08 from device QA, M4b-8
-              extension). Sits inside the coupon stack between
-              RedemptionDetailsCard and the coupon body card.
-              Once redeemed, the most-asked-question copy varies by
-              voucher type:
-                • cycle voucher → CycleRulesCard ("Renews on …")
-                • TIME_LIMITED  → TimeLimitedDetailsCard (schedule
-                                  + "Next available" copy)
-              Both mount sites (in-stack here, out-of-stack below)
-              are mutually exclusive via `stateKey` so the card never
-              renders twice. */}
-          {isRedeemedState ? (
+          {/* CycleRulesCard — REDEEMED-STATE in-stack position (locked
+              2026-05-08 from device QA). Sits inside the coupon stack
+              between RedemptionDetailsCard and the coupon body card.
+              Cycle vouchers only — "Renews on …" copy. TIME_LIMITED
+              redeemed-state is carried by the <HeroStatusBlock>
+              'redeemed-this-window' message inside the hero + the
+              coupon body's TL sections (M4d Phase G — replaces the
+              TimeLimitedDetailsCard mount that previously lived here). */}
+          {isRedeemedState && voucher.type !== 'TIME_LIMITED' ? (
             <View style={styles.redeemedCycleInStack}>
-              {voucher.type === 'TIME_LIMITED' ? (
-                <TimeLimitedDetailsCard
-                  scheduleString={formatScheduleString(voucher.availabilityWindows)}
-                  expiryDate={voucher.expiryDate}
-                  windowState={timeLimited.windowState}
-                  currentWindowEndsAt={voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null}
-                  nextWindowStartsAt={voucher.nextWindow ? new Date(voucher.nextWindow.startsAt) : null}
-                />
-              ) : (
-                <CycleRulesCard
-                  isMultiBranch={isMultiBranch}
-                  availableAgainAt={voucher.availableAgainAt}
-                  isRedeemed
-                />
-              )}
+              <CycleRulesCard
+                isMultiBranch={isMultiBranch}
+                availableAgainAt={voucher.availableAgainAt}
+                isRedeemed
+              />
             </View>
           ) : null}
 
@@ -1492,7 +1534,17 @@ export function VoucherDetailScreen() {
             </View>
 
             <View style={styles.couponBottomRound}>
-              <CouponBodyCard type={voucher.type} terms={voucher.terms} />
+              <CouponBodyCard
+                type={voucher.type}
+                terms={voucher.terms}
+                description={voucher.description}
+                scheduleString={
+                  voucher.type === 'TIME_LIMITED' && voucher.availabilityWindows
+                    ? formatScheduleString(voucher.availabilityWindows)
+                    : null
+                }
+                expiryDate={voucher.expiryDate}
+              />
             </View>
           </View>
         </View>
@@ -1508,44 +1560,21 @@ export function VoucherDetailScreen() {
             ONE visual treatment (stamped voucher) rather than two
             redundant indicators. */}
 
-        {/* TIME_LIMITED post-coupon stack — fixed visual order (locked
-            2026-05-11 from Gate F owner review):
-              1. coupon body (above)
-              2. FrostedCountdown   ← richer hero/secondary countdown FIRST
-              3. TimeLimitedBanner  ← explanatory banner SECOND
-              4. TimeLimitedDetailsCard + MerchantRow etc. (below)
-            M4b-9: both surfaces are suppressed for free users (no urgency
-            theatre for someone who can't redeem) AND in redeemed state
-            (the seal + persisted RedemptionDetailsCard carry the post-
-            redemption messaging). TimeLimitedDetailsCard stays mounted
-            unconditionally because schedule + usage rule are informational
-            for free users too. Regression pin: voucher-detail-states.test.tsx
-            'renders FrostedCountdown BEFORE TimeLimitedBanner'. */}
-        {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
-          <View style={styles.frostedCountdownWrap}>
-            <FrostedCountdown
-              windowState={timeLimited.windowState}
-              now={new Date()}
-              boundaryAt={
-                (timeLimited.windowState === 'active' || timeLimited.windowState === 'urgent')
-                  ? (voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null)
-                  : (voucher.nextWindow    ? new Date(voucher.nextWindow.startsAt)  : null)
-              }
-              scheduleString={formatScheduleString(voucher.availabilityWindows)}
-            />
-          </View>
-        ) : null}
+        {/* M4d Phase G (2026-05-11) — FrostedCountdown +
+            TimeLimitedBanner mount sites REMOVED. Their job (live
+            countdown + window-state message for TL vouchers) is now
+            carried by <HeroStatusBlock> inside <CouponHeader>, and
+            the schedule / description / "Offer ends" sections moved
+            into <CouponBodyCard> (Phase D.1). The redeemed-state
+            TimeLimitedDetailsCard mount-site was likewise removed
+            from the in-stack and out-of-stack positions; the
+            HeroStatusBlock 'redeemed-this-window' state + the coupon
+            body TL sections cover the same surface area without a
+            third nested card.
 
-        {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
-          <View style={styles.tlBanner}>
-            <TimeLimitedBanner
-              windowState={timeLimited.windowState}
-              scheduleString={formatScheduleString(voucher.availabilityWindows)}
-              currentWindowEndsAt={voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null}
-              nextWindowStartsAt={voucher.nextWindow ? new Date(voucher.nextWindow.startsAt) : null}
-            />
-          </View>
-        ) : null}
+            Owner direction: "Do not leave duplicate TIME_LIMITED
+            timing surfaces on screen." Single hero surface, single
+            coupon body, no separate banner/countdown/details cards. */}
 
         {/* MerchantRow mode + branch values per state (locked 2026-05-07
             from device QA):
@@ -1568,36 +1597,21 @@ export function VoucherDetailScreen() {
                                              persisted sources are
                                              null (defensive).
         */}
-        {/* CycleRulesCard / TimeLimitedDetailsCard — NON-REDEEMED-STATE
-            position (locked 2026-05-08 from device QA, M4b-8
-            extension). Sits between the coupon body card and
-            MerchantRow so the rule + dates are visible BEFORE the
-            user hits the redeem CTA.
-              • cycle voucher → CycleRulesCard (early-returns if
-                                availableAgainAt is null, so free
-                                users / guests show nothing).
-              • TIME_LIMITED  → TimeLimitedDetailsCard with the
-                                schedule + window-state-aware copy.
-            Both redeemed-state mount-sites are inside the coupon
-            stack (above). Mutually exclusive via `isRedeemedState`. */}
-        {!isRedeemedState ? (
-          voucher.type === 'TIME_LIMITED' && timeLimited.windowState !== 'no-windows' ? (
-            <View style={styles.tlDetailsCardWrap}>
-              <TimeLimitedDetailsCard
-                scheduleString={formatScheduleString(voucher.availabilityWindows)}
-                expiryDate={voucher.expiryDate}
-                windowState={timeLimited.windowState}
-                currentWindowEndsAt={voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null}
-                nextWindowStartsAt={voucher.nextWindow ? new Date(voucher.nextWindow.startsAt) : null}
-              />
-            </View>
-          ) : (
-            <CycleRulesCard
-              isMultiBranch={isMultiBranch}
-              availableAgainAt={voucher.availableAgainAt}
-              isRedeemed={false}
-            />
-          )
+        {/* CycleRulesCard — NON-REDEEMED-STATE position (locked
+            2026-05-08 from device QA). Cycle vouchers only — the
+            rule + "Renews on" date are visible BEFORE the user hits
+            the redeem CTA. Early-returns if availableAgainAt is null,
+            so free users / guests render nothing. TIME_LIMITED has
+            no equivalent CTA-adjacent card — the schedule + "Offer
+            ends" line moved into the coupon body (Phase D.1), and the
+            live countdown / window-state messaging lives in the hero's
+            HeroStatusBlock (Phase G). */}
+        {!isRedeemedState && voucher.type !== 'TIME_LIMITED' ? (
+          <CycleRulesCard
+            isMultiBranch={isMultiBranch}
+            availableAgainAt={voucher.availableAgainAt}
+            isRedeemed={false}
+          />
         ) : null}
 
         <MerchantRow
@@ -2010,23 +2024,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0,0,0,0.04)',
   },
 
-  // ── Time-limited banner spacing ─────────────────────────────────────
-  tlBanner: {
-    marginTop: 14,
-    marginHorizontal: 22,
-  },
-  // FrostedCountdown wrapper — same horizontal margin as the banner.
-  // The component itself owns marginTop:14 internally, matching the
-  // banner's rhythm.
-  frostedCountdownWrap: {
-    marginHorizontal: 22,
-  },
-  // TimeLimitedDetailsCard wrapper (M4b-8). Card has its own
-  // marginTop:14 internally; only the horizontal inset is needed
-  // to align with CycleRulesCard / sibling cards on the page.
-  tlDetailsCardWrap: {
-    marginHorizontal: 22,
-  },
+  // (M4d Phase G — 2026-05-11) Removed unused style entries
+  // `tlBanner`, `frostedCountdownWrap`, `tlDetailsCardWrap`. They
+  // wrapped the M4b post-coupon mount sites (TimeLimitedBanner,
+  // FrostedCountdown, TimeLimitedDetailsCard) which Phase G
+  // consolidated into <HeroStatusBlock> inside <CouponHeader> + the
+  // TL sections inside <CouponBodyCard>.  `redeemedCycleInStack` is
+  // preserved — still used by the non-TL redeemed-state CycleRulesCard
+  // branch below.
 
   // RedemptionDetailsCard wrapper — INSIDE the coupon stack between
   // hero+perforation and coupon body. Locked 2026-05-08 spacing
