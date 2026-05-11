@@ -53,6 +53,9 @@ export type HeroStatusBlockProps = {
 }
 
 const ONE_HOUR_MS = 3_600_000
+const FIFTEEN_MIN_MS = 15 * 60_000
+const SIXTY_MIN_MS = 60 * 60_000
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60_000
 
 export function HeroStatusBlock(props: HeroStatusBlockProps) {
   const { windowState } = props
@@ -61,6 +64,8 @@ export function HeroStatusBlock(props: HeroStatusBlockProps) {
 
   const content = deriveContent(props)
   if (!content) return null  // defensive — null required inputs for an otherwise renderable state
+
+  const bar = deriveProgressBar(props)
 
   return (
     <View testID="hero-status-block" style={styles.root}>
@@ -73,8 +78,58 @@ export function HeroStatusBlock(props: HeroStatusBlockProps) {
       <Text testID="hero-status-supporting" variant="body.sm" style={styles.supporting}>
         {content.supporting}
       </Text>
+      {bar ? (
+        <View testID="hero-status-progress-bar" style={styles.barTrack}>
+          <View
+            testID="hero-status-progress-bar-fill"
+            style={{
+              height: '100%',
+              borderRadius: 2,
+              width: `${bar.widthPct}%`,
+              backgroundColor: bar.color,
+            }}
+          />
+        </View>
+      ) : null}
     </View>
   )
+}
+
+type BarSpec = { widthPct: number; color: string } | null
+
+function deriveProgressBar(props: HeroStatusBlockProps): BarSpec {
+  const { windowState, currentWindowStartsAt, currentWindowEndsAt, msToClose, msToOpen } = props
+
+  // Hidden states.
+  if (
+    windowState === 'no-windows' ||
+    windowState === 'expired' ||
+    windowState === 'redeemed-this-window'
+  ) {
+    return null
+  }
+
+  // Closing direction (active / urgent) — bar empties left→right.
+  if (windowState === 'active' || windowState === 'urgent') {
+    if (!currentWindowStartsAt || !currentWindowEndsAt || msToClose === null) return null
+    const totalMs = currentWindowEndsAt.getTime() - currentWindowStartsAt.getTime()
+    if (totalMs <= 0) return null
+    const widthPct = Math.max(0, Math.min(100, Math.round((msToClose / totalMs) * 100)))
+    // Colour bands by msToClose (NOT by widthPct):
+    //   > 60min → green (active)
+    //   ≤ 60min, > 15min → amber (urgent)
+    //   ≤ 15min → coral (urgent terminal)
+    let color = '#34D399'  // green
+    if (msToClose <= FIFTEEN_MIN_MS) color = '#FB7185'         // coral
+    else if (msToClose <= SIXTY_MIN_MS) color = '#FBBF24'     // amber
+    return { widthPct, color }
+  }
+
+  // Opening direction (unavailable-*) — bar fills left→right.
+  // Width = 1 - (msToOpen / 24h), capped at [0, 100].
+  if (msToOpen === null || msToOpen <= 0) return null
+  const fillPct = Math.max(0, Math.min(100, Math.round((1 - msToOpen / TWENTY_FOUR_HOURS_MS) * 100)))
+  return { widthPct: fillPct, color: 'rgba(255,255,255,0.65)' }
 }
 
 type Content = { eyebrow: string; primary: string; supporting: string }
@@ -184,5 +239,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     marginTop: 6,
+  },
+  barTrack: {
+    marginTop: 10,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    overflow: 'hidden',
   },
 })

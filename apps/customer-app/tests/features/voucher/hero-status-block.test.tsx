@@ -316,3 +316,213 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
     })
   })
 })
+
+describe('HeroStatusBlock — progress bar (spec D4)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  const NOW = new Date('2026-05-11T12:00:00Z')
+
+  // ── CLOSING DIRECTION — bar EMPTIES, colour by urgency ────
+  it('active state: bar EMPTIES, width % = msToClose / totalWindowMs, green at >60min', () => {
+    // Window 10:00 → 15:00 UTC (5-hour window). Now = 12:00 UTC. msToClose = 3h = 75% remaining.
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="active"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T10:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T15:00:00Z')}
+        nextWindowStartsAt={null}
+        msToClose={3 * 3_600_000}
+        msToOpen={null}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ width: '60%', backgroundColor: '#34D399' }),
+    )
+  })
+
+  it('urgent state >15min: amber', () => {
+    // Window 11:00 → 12:30 UTC. Now = 12:00 UTC. msToClose = 30min. Total = 90min. → 33% remaining.
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T11:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T12:30:00Z')}
+        nextWindowStartsAt={null}
+        msToClose={30 * 60_000}
+        msToOpen={null}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ backgroundColor: '#FBBF24' }),
+    )
+  })
+
+  it('urgent state ≤15min: coral', () => {
+    // Window 11:00 → 12:10 UTC. msToClose = 10min. Total = 70min. → ~14% remaining.
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T11:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T12:10:00Z')}
+        nextWindowStartsAt={null}
+        msToClose={10 * 60_000}
+        msToOpen={null}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ backgroundColor: '#FB7185' }),
+    )
+  })
+
+  it('urgent state exactly 15min: coral (inclusive boundary)', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T11:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T12:15:00Z')}
+        nextWindowStartsAt={null}
+        msToClose={15 * 60_000}
+        msToOpen={null}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ backgroundColor: '#FB7185' }),
+    )
+  })
+
+  // ── OPENING DIRECTION — bar FILLS, neutral colour ─────────
+  it('unavailable-today: bar FILLS left→right, width % = 1 - msToOpen/24h', () => {
+    // msToOpen = 4 hours. 4/24 = 16.67%. fill width = 1 - 16.67% = 83.33%.
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="unavailable-today"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T16:00:00Z')}
+        msToClose={null}
+        msToOpen={4 * 3_600_000}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ width: '83%', backgroundColor: 'rgba(255,255,255,0.65)' }),
+    )
+  })
+
+  it('unavailable-future-day (tomorrow) under 1h to open: bar FILLS, near full', () => {
+    // msToOpen = 30 min. 30/(24*60) ≈ 2%. fill width ≈ 98%.
+    const lateMonday = new Date('2026-05-11T22:45:00Z')
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="unavailable-future-day"
+        now={lateMonday}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T23:15:00Z')}
+        msToClose={null}
+        msToOpen={30 * 60_000}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ width: '98%', backgroundColor: 'rgba(255,255,255,0.65)' }),
+    )
+  })
+
+  it('unavailable-future-day multi-day: bar FILLS capped at 0% when msToOpen exceeds 24h', () => {
+    // msToOpen = 2 days = 48h. 48/24 = 2. fill width = 1 - 2 = -100% → capped at 0%.
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="unavailable-future-day"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-13T12:00:00Z')}
+        msToClose={null}
+        msToOpen={2 * 24 * 3_600_000}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ width: '0%' }),
+    )
+  })
+
+  // ── HIDDEN STATES — bar NOT rendered ──────────────────────
+  it('redeemed-this-window: progress bar HIDDEN', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="redeemed-this-window"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T16:00:00Z')}
+        msToClose={null}
+        msToOpen={4 * 3_600_000}
+      />,
+    )
+    expect(queryByTestId('hero-status-progress-bar-fill')).toBeNull()
+    expect(queryByTestId('hero-status-progress-bar')).toBeNull()
+  })
+
+  it('expired: progress bar HIDDEN (component itself returns null)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="expired"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={null}
+        msToClose={null}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-progress-bar-fill')).toBeNull()
+  })
+
+  it('no-windows: progress bar HIDDEN (component itself returns null)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="no-windows"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={null}
+        msToClose={null}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-progress-bar-fill')).toBeNull()
+  })
+
+  // ── DEFENSIVE — closing without window bounds renders no bar ──
+  it('active state with missing currentWindowStartsAt: bar HIDDEN (defensive)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="active"
+        now={NOW}
+        currentWindowStartsAt={null}                                // defensive null
+        currentWindowEndsAt={new Date('2026-05-11T15:00:00Z')}
+        nextWindowStartsAt={null}
+        msToClose={3 * 3_600_000}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-progress-bar-fill')).toBeNull()
+  })
+})
