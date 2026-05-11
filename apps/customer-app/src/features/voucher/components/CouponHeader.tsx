@@ -71,6 +71,16 @@ type Props = {
    * buttons are washed out").
    */
   dimmed?: boolean
+  /**
+   * M4d hero-mounted status block — TIME_LIMITED only. When `type ===
+   * 'TIME_LIMITED'` AND this prop is provided, the description slot is
+   * replaced by statusBlock. For non-TL voucher types this prop is
+   * ignored (description renders unchanged). When type IS TIME_LIMITED
+   * but statusBlock is null/undefined (e.g. transient Phase G-not-yet-
+   * wired state), the description slot is suppressed entirely — no
+   * fallback to description copy. Spec D6(C) lock + Phase B/C wiring.
+   */
+  statusBlock?: React.ReactNode
 }
 
 const typeIcon = (type: VoucherType) => {
@@ -123,6 +133,7 @@ export function CouponHeader({
   fadeEnd,
   collapsedActive = false,
   dimmed = false,
+  statusBlock,
 }: Props) {
   const gradient  = voucherGradient(type)
   const typeLabel = voucherTypeLabel(type)
@@ -237,7 +248,13 @@ export function CouponHeader({
           {title}
         </Text>
 
-        {description ? (
+        {type === 'TIME_LIMITED' ? (
+          // Spec D6(C) lock — TL voucher description moves to <HeroStatusBlock>.
+          // When statusBlock is provided (Phase G wired), render it in this
+          // slot. When not provided (transient pre-Phase-G state), suppress
+          // entirely — do NOT fall back to description copy.
+          statusBlock ?? null
+        ) : description ? (
           <Text variant="body.sm" style={styles.description} numberOfLines={3} ellipsizeMode="tail">
             {description}
           </Text>
