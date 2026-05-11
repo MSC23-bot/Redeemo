@@ -29,6 +29,7 @@ import {
   effectiveCooldownSeconds,
   computeAvailableAgainAt,
 } from '../../redemption/reusable'
+import { PRESENTATION_WINDOW_MS } from '../../redemption/presentation-window'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -1070,6 +1071,14 @@ export async function getCustomerVoucher(
   // PR #48 owner review (Fix 1) — see plan §M3a Task 5.
   let cycleStart: Date | null = null
   let cycleEnd:   Date | null = null
+  // Hoisted ACTIVE/TRIALLING flag so the REUSABLE branch below can mirror
+  // the cycle-branch subscription gating without re-querying. Spec §6.1
+  // requires REUSABLE lastRedemption gating to match the cycle branch's
+  // subscription requirement exactly (D14 + spec §6.5 — cooldown info is
+  // data-only and surfaces regardless of subscription, but the persisted
+  // redemption surface is subscription-gated like every other voucher
+  // type).
+  let hasActiveSubscription = false
   // M3 §P2 — persisted return-visit RedemptionDetailsCard. Non-null
   // ONLY when (1) ACTIVE/TRIALLING sub, (2) isRedeemedThisCycle is
   // true, and (3) a VoucherRedemption row exists in [cycleStart,
@@ -1113,6 +1122,7 @@ export async function getCustomerVoucher(
       subscription
       && (subscription.status === 'ACTIVE' || subscription.status === 'TRIALLING')
     ) {
+      hasActiveSubscription = true
       // Compute the cycle window ONCE; hoist into outer-scope vars so
       // the lastRedemption query below can reuse the exact same range.
       const window = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
@@ -1190,16 +1200,19 @@ export async function getCustomerVoucher(
   //     the cycle-state gate entirely; the cycle-window vars
   //     (cycleStart / cycleEnd / cycleState) are never consulted for
   //     this branch.
-  //   - lastRedemption stays under the M3 2h presentation-window gate
-  //     (D14). REUSABLE bypasses the cycle-gate that today populates
-  //     `lastRedemption`, so the field stays null at the payload
-  //     level. The just-redeemed RedemptionDetailsCard is driven by
-  //     the in-memory mutation response (`useRedeem.onSuccess` carries
-  //     the fresh row). Persisted return-visit lastRedemption for
-  //     REUSABLE is a future task (Q5 §P2 follow-up) — intentional
-  //     v1 carve-out captured in spec §6.1.
+  //   - lastRedemption: REUSABLE-specific 2h presentation-window-only
+  //     gate (M3 §AE), independent of cycle state and independent of
+  //     the cooldown clock. Spec §6.1 + §6.3 + §7.1 state 4. The
+  //     presentation window expires at redeemedAt + PRESENTATION_WINDOW_MS,
+  //     regardless of cooldown clock position. This is the REUSABLE
+  //     distinguisher — state 4 ("cooldown elapsed, presentation still
+  //     alive") gets BOTH an active Redeem CTA AND a persisted
+  //     RedemptionDetailsCard. Cycle vouchers + TIME_LIMITED keep
+  //     their existing cycle-gated lastRedemption above; ONLY REUSABLE
+  //     uses this presentation-window-only gate.
   let reusableEffectiveCooldownSeconds: number | null = null
   let reusableAvailableAgainAt: string | null = null
+  let reusableLastRedemption: typeof lastRedemption = null
   if (isReusable) {
     reusableEffectiveCooldownSeconds = effectiveCooldownSeconds(voucher)
     if (userId) {
@@ -1211,6 +1224,38 @@ export async function getCustomerVoucher(
       const computed = computeAvailableAgainAt(latest?.redeemedAt ?? null, voucher)
       if (computed && computed.getTime() > Date.now()) {
         reusableAvailableAgainAt = computed.toISOString()
+      }
+    }
+
+    // REUSABLE persisted-return-visit lastRedemption — fires only on the
+    // 2h presentation window from redeemedAt, gated on the same
+    // ACTIVE/TRIALLING subscription state as the cycle branch above
+    // (spec §6.1 + §6.5). Independent of cooldown duration: a 30-min
+    // cooldown that elapsed 5 min ago still has 1h55m of presentation
+    // window remaining → lastRedemption stays populated. Conversely a
+    // 4h cooldown with redeemedAt 3h ago has expired the presentation
+    // window (>2h) → lastRedemption returns null even though
+    // availableAgainAt is still populated. This is the two-clocks
+    // independence lock (§6.3).
+    if (userId && hasActiveSubscription) {
+      const presentationStart = new Date(Date.now() - PRESENTATION_WINDOW_MS)
+      const row = await prisma.voucherRedemption.findFirst({
+        where: {
+          userId,
+          voucherId,
+          redeemedAt: { gte: presentationStart },
+        },
+        orderBy: { redeemedAt: 'desc' },
+        include: { branch: { select: { id: true, name: true } } },
+      })
+      if (row) {
+        reusableLastRedemption = {
+          code:        row.redemptionCode,
+          redeemedAt:  row.redeemedAt.toISOString(),
+          branch:      row.branch,
+          isValidated: row.isValidated,
+          validatedAt: row.validatedAt ? row.validatedAt.toISOString() : null,
+        }
       }
     }
   }
@@ -1227,11 +1272,12 @@ export async function getCustomerVoucher(
     availableAgainAt: isReusable
       ? reusableAvailableAgainAt
       : (isTimeLimited ? null : availableAgainAt),
-    // M3 contract: lastRedemption is cycle-gated; REUSABLE bypasses
-    // that gate, so the payload value stays null for REUSABLE (D14 —
-    // independence from cooldown clock; just-redeemed UI uses the
-    // mutation-response payload instead).
-    lastRedemption: isReusable ? null : lastRedemption,
+    // M3 contract: lastRedemption is cycle-gated for cycle vouchers +
+    // TIME_LIMITED, and 2h-presentation-window-gated for REUSABLE
+    // (spec §6.1 + §6.3 + §7.1 state 4 — D14 independence from cooldown
+    // clock). Same field shape across both branches; the customer-app's
+    // Zod schema is type-agnostic.
+    lastRedemption: isReusable ? reusableLastRedemption : lastRedemption,
     // NEW M4a-4 (refactored to pure helper in M4a-5):
     availabilityWindows: tlPayload.availabilityWindows,
     currentWindow:       tlPayload.currentWindow,

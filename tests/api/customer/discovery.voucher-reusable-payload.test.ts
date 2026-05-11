@@ -5,9 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 //
 // Spec: docs/superpowers/specs/2026-05-12-reusable-voucher-design.md
 //   §6.1 — payload deltas (effectiveCooldownSeconds, availableAgainAt,
-//          isRedeemedThisCycle: false always, lastRedemption unchanged)
+//          isRedeemedThisCycle: false always, lastRedemption gated on
+//          the 2h presentation window only)
 //   §6.3 — two-clock independence lock between presentation window (2h)
 //          and cooldown window
+//   §7.1 — state 4: cooldown elapsed + presentation alive distinguisher
+//          (active Redeem CTA + persisted RedemptionDetailsCard)
 //   §7.4 — D44 expiry-before-available-again is computed on the FRONTEND
 //          from existing payload fields; no new backend metadata.
 //
@@ -116,6 +119,54 @@ function makePrisma() {
   const prisma = new PrismaClient({} as any) as any
   prisma.favouriteVoucher.findUnique.mockResolvedValue(null)
   return prisma
+}
+
+// Two REUSABLE-branch findFirst calls fire when a recent redemption
+// exists:
+//   (a) cooldown-clock: where { userId, voucherId } (no redeemedAt
+//       filter), ordered desc — returns { redeemedAt } for the helper.
+//   (b) presentation-window: where { userId, voucherId, redeemedAt:
+//       { gte: PRESENTATION_START } }, ordered desc — needs the full
+//       row shape (redemptionCode, branch, isValidated, validatedAt).
+// Pass `redeemedAt`; this helper assigns each call the right shape.
+function mockReusableRedemption(
+  prisma: any,
+  redeemedAt: Date,
+  opts: {
+    code?: string
+    branch?: { id: string; name: string }
+    isValidated?: boolean
+    validatedAt?: Date | null
+  } = {},
+) {
+  const fullRow = {
+    redeemedAt,
+    redemptionCode: opts.code ?? 'TESTCODE',
+    branch: opts.branch ?? { id: 'b-1', name: 'Main Branch' },
+    isValidated: opts.isValidated ?? false,
+    validatedAt: opts.validatedAt ?? null,
+  }
+  prisma.voucherRedemption.findFirst.mockImplementation((args: any) => {
+    const where = args?.where ?? {}
+    // Cycle-gated branch: has `redeemedAt: { gte, lt }`. Returns null —
+    // REUSABLE bypasses this branch (isRedeemedThisCycle stays false).
+    if (where.redeemedAt && 'lt' in where.redeemedAt) {
+      return Promise.resolve(null)
+    }
+    // Presentation-window branch: only `redeemedAt: { gte }` (no `lt`).
+    // Returns the full row when the redemption is inside the 2h window.
+    if (where.redeemedAt && 'gte' in where.redeemedAt && !('lt' in where.redeemedAt)) {
+      const since = where.redeemedAt.gte instanceof Date
+        ? where.redeemedAt.gte.getTime()
+        : new Date(where.redeemedAt.gte).getTime()
+      if (redeemedAt.getTime() >= since) {
+        return Promise.resolve(fullRow)
+      }
+      return Promise.resolve(null)
+    }
+    // Cooldown-clock branch: no `redeemedAt` filter at all.
+    return Promise.resolve({ redeemedAt })
+  })
 }
 
 // Active subscription with anchor on 2026-05-05; current cycle is
@@ -295,49 +346,59 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   // ── lastRedemption — 2h presentation window only (D14, §6.3) ─────────
   //
-  // The locked invariant: lastRedemption gating is the M3 contract,
-  // unchanged for REUSABLE. The block is populated ONLY when the
-  // cycle-window gate is open (cycle vouchers) — REUSABLE skips that
-  // gate entirely (D13 → isRedeemedThisCycle stays false), so the
-  // existing cycle-gated lastRedemption branch DOESN'T fire for
-  // REUSABLE. M3's RedemptionDetailsCard for REUSABLE is rendered from
-  // the redemption-mutation response (in-memory lastRedemption) — see
-  // spec §6.2. The persisted return-visit `lastRedemption` block for
-  // REUSABLE is part of a future task (Q5 §P2 follow-up) and
-  // intentionally null in v1.
+  // The locked invariant: REUSABLE has its OWN lastRedemption fetch
+  // gated on the 2h presentation window from redeemedAt — independent
+  // of cycle state and independent of the cooldown clock (spec §6.1 +
+  // §6.3 + §7.1 state 4). REUSABLE does NOT participate in the
+  // cycle-state gate (D13 → isRedeemedThisCycle stays false), so the
+  // existing cycle-gated lastRedemption branch never fires for
+  // REUSABLE; the REUSABLE-specific presentation-window branch carries
+  // persisted return-visit data instead.
   //
-  // These tests pin "stays null and DOES NOT fire the cycle-gated
-  // findFirst" — same scenarios listed by the owner so the two-clock
-  // independence semantics are encoded.
+  // Four-state truth table (spec §6.3):
+  //   state 2: redeemedAt <2h ago, cooldown active   → lastRedemption present, availableAgainAt present
+  //   state 3: redeemedAt >2h ago, cooldown active   → lastRedemption null,    availableAgainAt present
+  //   state 4: redeemedAt <2h ago, cooldown elapsed  → lastRedemption present, availableAgainAt null
+  //   late:    redeemedAt >2h ago, cooldown elapsed  → lastRedemption null,    availableAgainAt null
 
-  it('§6.3 — presentation window alive AND cooldown active: REUSABLE response keeps lastRedemption null (cycle-gate skipped)', async () => {
+  it('§6.3 state 2 — presentation alive AND cooldown active: lastRedemption populated + availableAgainAt set', async () => {
     const prisma = makePrisma()
     prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     // Redemption 30min ago, 4h cooldown → presentation alive (<2h) +
-    // cooldown active.
+    // cooldown active. lastRedemption populates (M3 §AE window),
+    // availableAgainAt populates (cooldown clock).
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 30 * 60 * 1000)
-    prisma.voucherRedemption.findFirst.mockResolvedValue({ redeemedAt: lastRedeemedAt })
+    mockReusableRedemption(prisma, lastRedeemedAt, {
+      code: 'REUSAB01',
+      branch: { id: 'b-cafe', name: 'Cafe Loop · Camden' },
+      isValidated: false,
+      validatedAt: null,
+    })
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
 
     expect(result.availableAgainAt).toBe(
       new Date(lastRedeemedAt.getTime() + 14400 * 1000).toISOString(),
     )
-    // REUSABLE bypasses the cycle-state gate, so the cycle-gated
-    // lastRedemption findFirst NEVER fires; the field stays null.
-    // Frontend's just-redeemed RedemptionDetailsCard is driven by the
-    // in-memory mutation response, not by this payload field.
-    expect(result.lastRedemption).toBeNull()
+    expect(result.lastRedemption).toEqual({
+      code:        'REUSAB01',
+      redeemedAt:  lastRedeemedAt.toISOString(),
+      branch:      { id: 'b-cafe', name: 'Cafe Loop · Camden' },
+      isValidated: false,
+      validatedAt: null,
+    })
   })
 
-  it('§6.3 — presentation expired AND cooldown active: lastRedemption stays null, availableAgainAt still set', async () => {
+  it('§6.3 state 3 — presentation EXPIRED AND cooldown active: lastRedemption null, availableAgainAt still set', async () => {
     const prisma = makePrisma()
     prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
-    // Redemption 3h ago, 4h cooldown → presentation expired + still in cooldown.
+    // Redemption 3h ago, 4h cooldown → presentation expired (>2h) +
+    // cooldown still active. lastRedemption null (2h window closed);
+    // availableAgainAt still set (cooldown not elapsed).
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 3 * 60 * 60 * 1000)
-    prisma.voucherRedemption.findFirst.mockResolvedValue({ redeemedAt: lastRedeemedAt })
+    mockReusableRedemption(prisma, lastRedeemedAt)
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
 
@@ -347,21 +408,47 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     )
   })
 
-  it('§6.3 state 4 — cooldown ELAPSED + presentation alive: availableAgainAt = null, REUSABLE distinguisher', async () => {
+  it('§6.3 state 4 — cooldown ELAPSED + presentation ALIVE: lastRedemption populated, availableAgainAt = null (REUSABLE distinguisher)', async () => {
     // This is the genuine REUSABLE state-4 case from spec §6.3 / §7.1.
     // Last redemption 35min ago, 30min cooldown → cooldown elapsed
     // 5min ago, but the presentation window is still alive (<2h).
     // Customer-app routes off (lastRedemption present AND
     // availableAgainAt = null) to show ACTIVE Redeem CTA + persisted
-    // card together. Payload: availableAgainAt must be null
-    // (cooldown done), and lastRedemption is null at the payload
-    // level (cycle-gate bypassed); the in-memory mutation response
-    // carries the just-redeemed lastRedemption for the live session.
+    // card together — both must come through the payload (not just
+    // the in-memory mutation response, since this state is reachable
+    // on cold-open without a fresh redemption mutation).
     const prisma = makePrisma()
     prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 1800 }))
     mockActiveSubscription(prisma)
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 35 * 60 * 1000)
-    prisma.voucherRedemption.findFirst.mockResolvedValue({ redeemedAt: lastRedeemedAt })
+    mockReusableRedemption(prisma, lastRedeemedAt, {
+      code: 'STATE4CD',
+      branch: { id: 'b-2', name: 'State 4 Branch' },
+    })
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+
+    expect(result.availableAgainAt).toBeNull()
+    expect(result.lastRedemption).toEqual({
+      code:        'STATE4CD',
+      redeemedAt:  lastRedeemedAt.toISOString(),
+      branch:      { id: 'b-2', name: 'State 4 Branch' },
+      isValidated: false,
+      validatedAt: null,
+    })
+    expect(result.isRedeemedThisCycle).toBe(false)
+  })
+
+  it('§6.3 state late — cooldown ELAPSED AND presentation EXPIRED: both null', async () => {
+    // Long after redemption: both clocks have elapsed.
+    // 4h-ago redemption with a 30min cooldown → cooldown done 3.5h ago,
+    // presentation window expired 2h ago. Payload returns both null —
+    // this is the steady-state "fully reset" REUSABLE configuration.
+    const prisma = makePrisma()
+    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 1800 }))
+    mockActiveSubscription(prisma)
+    const lastRedeemedAt = new Date(TEST_NOW.getTime() - 4 * 60 * 60 * 1000)
+    mockReusableRedemption(prisma, lastRedeemedAt)
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
 
