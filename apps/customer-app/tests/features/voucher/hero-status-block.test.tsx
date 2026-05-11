@@ -1,6 +1,24 @@
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render, configure } from '@testing-library/react-native'
 import { HeroStatusBlock } from '@/features/voucher/components/HeroStatusBlock'
+
+// B.3 introduces accessibilityElementsHidden + importantForAccessibility=
+// 'no-hide-descendants' on the hero-status-primary Text when the per-second
+// tick is firing (countdown <1h). RNTL v13 filters such elements out of
+// getByTestId / queryByTestId by default, which would break the pre-existing
+// B.1 / B.2 text-rendering + progress-bar assertions that read text content
+// off the primary testID for those same under-1h states. Opting into
+// `defaultIncludeHiddenElements: true` for this file keeps both the existing
+// assertions and the new a11y pins working without altering B.1 / B.2 test
+// bodies. (RNTL config is process-scoped — bracketed in beforeAll/afterAll
+// so it doesn't leak to other test files in the run.)
+const RNTL_CONFIG_PREV = { defaultIncludeHiddenElements: false as boolean }
+beforeAll(() => {
+  configure({ defaultIncludeHiddenElements: true })
+})
+afterAll(() => {
+  configure({ defaultIncludeHiddenElements: RNTL_CONFIG_PREV.defaultIncludeHiddenElements })
+})
 
 describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
   beforeEach(() => {
@@ -524,5 +542,335 @@ describe('HeroStatusBlock — progress bar (spec D4)', () => {
       />,
     )
     expect(queryByTestId('hero-status-progress-bar-fill')).toBeNull()
+  })
+})
+
+describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  const NOW = new Date('2026-05-11T12:00:00Z')
+
+  // ── PRIMARY HIDDEN FROM A11Y TREE WHEN UNDER-1H TICK ACTIVE ────
+
+  it('urgent <1m: primary Text hidden from a11y tree', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T10:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T12:00:47Z')}
+        nextWindowStartsAt={null}
+        msToClose={47_000}
+        msToOpen={null}
+      />,
+    )
+    const primary = getByTestId('hero-status-primary')
+    expect(primary.props.accessibilityElementsHidden).toBe(true)
+    expect(primary.props.importantForAccessibility).toBe('no-hide-descendants')
+  })
+
+  it('urgent <1h ≥1m: primary Text hidden from a11y tree (per-second tick band)', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T10:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T12:42:15Z')}
+        nextWindowStartsAt={null}
+        msToClose={42 * 60_000 + 15_000}
+        msToOpen={null}
+      />,
+    )
+    const primary = getByTestId('hero-status-primary')
+    expect(primary.props.accessibilityElementsHidden).toBe(true)
+    expect(primary.props.importantForAccessibility).toBe('no-hide-descendants')
+  })
+
+  it('active ≥1h: primary Text VISIBLE to a11y tree (no per-second tick)', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="active"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T10:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T16:30:00Z')}
+        nextWindowStartsAt={null}
+        msToClose={4 * 3_600_000 + 30 * 60_000}
+        msToOpen={null}
+      />,
+    )
+    const primary = getByTestId('hero-status-primary')
+    expect(primary.props.accessibilityElementsHidden).not.toBe(true)
+    expect(primary.props.importantForAccessibility).not.toBe('no-hide-descendants')
+  })
+
+  it('unavailable-today <1h to open: primary Text hidden from a11y tree', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="unavailable-today"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:42:15Z')}
+        msToClose={null}
+        msToOpen={42 * 60_000 + 15_000}
+      />,
+    )
+    const primary = getByTestId('hero-status-primary')
+    expect(primary.props.accessibilityElementsHidden).toBe(true)
+  })
+
+  it('redeemed-this-window <1h to next: primary Text hidden from a11y tree', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="redeemed-this-window"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:42:15Z')}
+        msToClose={null}
+        msToOpen={42 * 60_000 + 15_000}
+      />,
+    )
+    const primary = getByTestId('hero-status-primary')
+    expect(primary.props.accessibilityElementsHidden).toBe(true)
+  })
+
+  // ── STABLE COARSE LABELS ON POLITE LIVE REGION ────────────────
+
+  it('urgent <1m: live-region label is "Closes in under a minute"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T10:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T12:00:47Z')}
+        nextWindowStartsAt={null}
+        msToClose={47_000}
+        msToOpen={null}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLiveRegion).toBe('polite')
+    expect(region.props.accessibilityLabel).toBe('Closes in under a minute')
+  })
+
+  it('urgent <1h ≥1m: live-region label is "Closes in about 42 minutes"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T10:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T12:42:15Z')}
+        nextWindowStartsAt={null}
+        msToClose={42 * 60_000 + 15_000}
+        msToOpen={null}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLabel).toBe('Closes in about 42 minutes')
+  })
+
+  it('active ≥1h: live-region label is the eyebrow "Voucher available now"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="active"
+        now={NOW}
+        currentWindowStartsAt={new Date('2026-05-11T10:00:00Z')}
+        currentWindowEndsAt={new Date('2026-05-11T16:30:00Z')}
+        nextWindowStartsAt={null}
+        msToClose={4 * 3_600_000 + 30 * 60_000}
+        msToOpen={null}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    // Eyebrow-as-label fallback. Active eyebrow is "Available now"; for a11y
+    // we prefix "Voucher " for clarity. The amended D10 spec gives this exact
+    // string.
+    expect(region.props.accessibilityLabel).toBe('Voucher available now')
+  })
+
+  it('unavailable-today <1m: live-region label is "Opens in under a minute"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="unavailable-today"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:00:47Z')}
+        msToClose={null}
+        msToOpen={47_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLabel).toBe('Opens in under a minute')
+  })
+
+  it('unavailable-today <1h ≥1m: live-region label is "Opens in about 42 minutes"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="unavailable-today"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:42:15Z')}
+        msToClose={null}
+        msToOpen={42 * 60_000 + 15_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLabel).toBe('Opens in about 42 minutes')
+  })
+
+  it('unavailable-today ≥1h: live-region label is the eyebrow "Opens today"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="unavailable-today"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T16:00:00Z')}
+        msToClose={null}
+        msToOpen={4 * 3_600_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLabel).toBe('Opens today')
+  })
+
+  it('unavailable-future-day ≥1 day (Saturday): live-region label is "Opens Saturday"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="unavailable-future-day"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-16T12:00:00Z')}
+        msToClose={null}
+        msToOpen={5 * 24 * 3_600_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLabel).toBe('Opens Saturday')
+  })
+
+  it('redeemed-this-window <1m: live-region label is "Available again in under a minute"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="redeemed-this-window"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:00:47Z')}
+        msToClose={null}
+        msToOpen={47_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLabel).toBe('Available again in under a minute')
+  })
+
+  it('redeemed-this-window ≥1h: live-region label is the eyebrow "Available again"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="redeemed-this-window"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-12T12:00:00Z')}
+        msToClose={null}
+        msToOpen={24 * 3_600_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLabel).toBe('Available again')
+  })
+
+  // ── STABILITY: label DOES NOT change across per-second ticks ──
+
+  it('urgent <1m: live-region label is STABLE across multiple per-second updates', () => {
+    const baseStart = new Date('2026-05-11T10:00:00Z')
+    const renderProps = (msToClose: number) => ({
+      windowState: 'urgent' as const,
+      now: NOW,
+      currentWindowStartsAt: baseStart,
+      currentWindowEndsAt: new Date(NOW.getTime() + msToClose),
+      nextWindowStartsAt: null,
+      msToClose,
+      msToOpen: null,
+    })
+    const { getByTestId, rerender } = render(<HeroStatusBlock {...renderProps(47_000)} />)
+    const initialLabel = getByTestId('hero-status-live-region').props.accessibilityLabel
+    expect(initialLabel).toBe('Closes in under a minute')
+    rerender(<HeroStatusBlock {...renderProps(46_000)} />)
+    expect(getByTestId('hero-status-live-region').props.accessibilityLabel).toBe(initialLabel)
+    rerender(<HeroStatusBlock {...renderProps(30_000)} />)
+    expect(getByTestId('hero-status-live-region').props.accessibilityLabel).toBe(initialLabel)
+    rerender(<HeroStatusBlock {...renderProps(1_000)} />)
+    expect(getByTestId('hero-status-live-region').props.accessibilityLabel).toBe(initialLabel)
+  })
+
+  it('urgent <1h ≥1m: live-region label is STABLE across same-minute per-second updates', () => {
+    // Within the same minute bucket (42m 15s → 42m 14s → 42m 1s), Math.round(ms/60_000)
+    // gives a single-minute rounding shift between "42 minutes" and "41 minutes" at
+    // around the 41:30 mark. Test that updates WITHIN the same rounded-minute don't
+    // change the label.
+    const baseStart = new Date('2026-05-11T10:00:00Z')
+    const renderProps = (msToClose: number) => ({
+      windowState: 'urgent' as const,
+      now: NOW,
+      currentWindowStartsAt: baseStart,
+      currentWindowEndsAt: new Date(NOW.getTime() + msToClose),
+      nextWindowStartsAt: null,
+      msToClose,
+      msToOpen: null,
+    })
+    // 42m 15s → Math.round(2535000/60000) = 42 minutes.
+    const { getByTestId, rerender } = render(<HeroStatusBlock {...renderProps(42 * 60_000 + 15_000)} />)
+    const labelA = getByTestId('hero-status-live-region').props.accessibilityLabel
+    expect(labelA).toBe('Closes in about 42 minutes')
+    // 42m 10s → Math.round(2530000/60000) = 42 minutes.
+    rerender(<HeroStatusBlock {...renderProps(42 * 60_000 + 10_000)} />)
+    expect(getByTestId('hero-status-live-region').props.accessibilityLabel).toBe(labelA)
+    // 42m 1s → Math.round(2521000/60000) = 42 minutes.
+    rerender(<HeroStatusBlock {...renderProps(42 * 60_000 + 1_000)} />)
+    expect(getByTestId('hero-status-live-region').props.accessibilityLabel).toBe(labelA)
+  })
+
+  // ── HIDDEN STATES: no live-region rendered ────────────────────
+
+  it('no-windows: live-region NOT rendered (component is null)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="no-windows"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={null}
+        msToClose={null}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-live-region')).toBeNull()
+  })
+
+  it('expired: live-region NOT rendered (component is null)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="expired"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={null}
+        msToClose={null}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-live-region')).toBeNull()
   })
 })

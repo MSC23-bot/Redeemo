@@ -6,6 +6,9 @@ import {
   formatDuration,
   formatSupportingClock,
   formatDayName,
+  formatClosingA11y,
+  formatOpeningA11y,
+  formatAvailableAgainA11y,
 } from '@/features/voucher/utils/countdownFormat'
 
 /**
@@ -66,13 +69,21 @@ export function HeroStatusBlock(props: HeroStatusBlockProps) {
   if (!content) return null  // defensive — null required inputs for an otherwise renderable state
 
   const bar = deriveProgressBar(props)
+  const underOneHourTick = isUnderOneHourTick(props)
+  const liveLabel = deriveLiveRegionLabel(props, content)
 
   return (
     <View testID="hero-status-block" style={styles.root}>
       <Text testID="hero-status-eyebrow" variant="label.eyebrow" style={styles.eyebrow}>
         {content.eyebrow}
       </Text>
-      <Text testID="hero-status-primary" variant="display.sm" style={styles.primary}>
+      <Text
+        testID="hero-status-primary"
+        variant="display.sm"
+        style={styles.primary}
+        accessibilityElementsHidden={underOneHourTick || undefined}
+        importantForAccessibility={underOneHourTick ? 'no-hide-descendants' : undefined}
+      >
         {content.primary}
       </Text>
       <Text testID="hero-status-supporting" variant="body.sm" style={styles.supporting}>
@@ -91,8 +102,82 @@ export function HeroStatusBlock(props: HeroStatusBlockProps) {
           />
         </View>
       ) : null}
+      {liveLabel !== null ? (
+        <View
+          testID="hero-status-live-region"
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={liveLabel}
+          style={styles.liveRegionHidden}
+        />
+      ) : null}
     </View>
   )
+}
+
+/**
+ * Per spec D10 amendment: the visible per-second tick fires whenever
+ * either countdown is under one hour. Mirror that gate to decide when
+ * the primary Text should be hidden from the a11y tree (live region
+ * carries the coarse stable announcement instead).
+ */
+function isUnderOneHourTick(props: HeroStatusBlockProps): boolean {
+  const { msToClose, msToOpen } = props
+  return (
+    (msToClose !== null && msToClose > 0 && msToClose < ONE_HOUR_MS) ||
+    (msToOpen !== null && msToOpen > 0 && msToOpen < ONE_HOUR_MS)
+  )
+}
+
+/**
+ * Stable coarse a11y label for the polite live region per spec D10
+ * amendment 2026-05-11.
+ *
+ *   • <1m   → "<verb> in under a minute"
+ *   • <1h ≥1m → "<verb> in about N minutes"  (N rounded)
+ *   • ≥1h   → eyebrow text as label
+ *
+ * For ≥1h active the eyebrow is "Available now" → label "Voucher
+ * available now". For ≥1h opening / available-again the eyebrow is
+ * already the natural announcement ("Opens today" / "Opens tomorrow" /
+ * "Opens <Weekday>" / "Available again") so it's used verbatim.
+ *
+ * Returns null when no label should be announced (hidden states,
+ * defensive null inputs).
+ */
+function deriveLiveRegionLabel(props: HeroStatusBlockProps, content: Content): string | null {
+  const { windowState, msToClose, msToOpen } = props
+
+  if (windowState === 'no-windows' || windowState === 'expired') return null
+
+  // Closing direction (active / urgent).
+  if (windowState === 'active' || windowState === 'urgent') {
+    if (msToClose === null) return null
+    const coarse = formatClosingA11y(msToClose)
+    if (coarse !== null) return coarse
+    // ≥1h band: eyebrow-as-label, prefixed with "Voucher " for clarity.
+    return `Voucher ${content.eyebrow.toLowerCase()}`
+  }
+
+  // Opening direction (unavailable-today / unavailable-future-day).
+  if (windowState === 'unavailable-today' || windowState === 'unavailable-future-day') {
+    if (msToOpen === null) return null
+    const coarse = formatOpeningA11y(msToOpen)
+    if (coarse !== null) return coarse
+    // ≥1h band: use the eyebrow directly ("Opens today" / "Opens tomorrow" /
+    // "Opens <Weekday>").
+    return content.eyebrow
+  }
+
+  // Available-again direction (redeemed-this-window).
+  if (windowState === 'redeemed-this-window') {
+    if (msToOpen === null) return null
+    const coarse = formatAvailableAgainA11y(msToOpen)
+    if (coarse !== null) return coarse
+    // ≥1h band: eyebrow is "Available again".
+    return content.eyebrow
+  }
+
+  return null
 }
 
 type BarSpec = { widthPct: number; color: string } | null
@@ -246,5 +331,12 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.18)',
     overflow: 'hidden',
+  },
+  liveRegionHidden: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    overflow: 'hidden',
+    opacity: 0,
   },
 })
