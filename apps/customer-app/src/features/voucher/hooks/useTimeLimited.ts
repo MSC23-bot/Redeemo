@@ -338,12 +338,17 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
   // the entire urgent state (which can last up to 60 minutes). Cleared on
   // state change, unmount, and AppState background. Locked: spec D10.
   const secondTickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // M4d amendment 2026-05-11 — widened gate per spec D10. Tick per-second
+  // whenever displayed countdown < 1 hour, in EITHER direction:
+  //   • msToClose under 1h (closing — active/urgent states above 60s)
+  //   • msToOpen  under 1h (opening / available-again — unavailable-*
+  //                          and redeemed-this-window states)
+  // Merchant cards (M4c) untouched — they consume nothing from this gate.
   const wantsSecondTick =
-    isTimeLimited &&
-    stateKey === 'urgent' &&
-    computed.msToClose !== null &&
-    computed.msToClose <= 60_000 &&
-    computed.msToClose > 0
+    isTimeLimited && (
+      (computed.msToClose !== null && computed.msToClose > 0 && computed.msToClose < 3_600_000) ||
+      (computed.msToOpen  !== null && computed.msToOpen  > 0 && computed.msToOpen  < 3_600_000)
+    )
 
   useEffect(() => {
     if (secondTickTimerRef.current) {

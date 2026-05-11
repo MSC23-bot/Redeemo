@@ -266,23 +266,32 @@ describe('useTimeLimited — real implementation (M4b-4)', () => {
       expect(result.current.msToClose).toBe(43_000)
     })
 
-    it('does NOT install the 1s tick when urgent but msToClose > 60_000', () => {
-      // urgent state but 5 minutes remain → minute granularity only.
+    it('does NOT install the 1s tick when msToClose is over 1 hour', () => {
+      // Negative pin at the new upper-bound boundary (spec D10 amendment
+      // 2026-05-11). Original fixture used 5 minutes because the old gate
+      // was `<= 60_000`; under the amended gate `< 3_600_000`, 5 minutes
+      // is correctly inside the per-second band. Updated to 90 minutes
+      // (well above the 1h gate) so the negative-pin intent — "outside
+      // the under-1h band, no 1s tick" — survives the amendment.
+      //
+      // At 90min remaining the state machine returns 'active' (M4c
+      // URGENT_THRESHOLD_MS is ≤60min); the per-minute 60s tick still
+      // drives renders, but the 1s tick MUST NOT install.
       jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
       const voucher = baseVoucher({
-        availabilityWindows: [{ dayOfWeek: 1, openTime: '10:00', closeTime: '12:05' }],
-        currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T12:05:00Z' },
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '10:00', closeTime: '13:30' }],
+        currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T13:30:00Z' },
         nextWindow: null,
       })
       const { result } = renderHook(() => useTimeLimited(voucher))
-      expect(result.current.windowState).toBe('urgent')
-      expect(result.current.msToClose).toBe(5 * 60_000)
+      expect(result.current.windowState).toBe('active')
+      expect(result.current.msToClose).toBe(90 * 60_000)
 
       // Advance 1s — should NOT trigger a recompute (interval not installed).
       act(() => { jest.advanceTimersByTime(1_000) })
       // Without a 1s tick, msToClose stays at the snapshot from initial render.
       // The 60s minute tick will eventually update it, but not at +1s.
-      expect(result.current.msToClose).toBe(5 * 60_000)
+      expect(result.current.msToClose).toBe(90 * 60_000)
     })
 
     it('clears the 1s tick when state transitions out of urgent (e.g., window closes → unavailable-today)', () => {
@@ -326,6 +335,64 @@ describe('useTimeLimited — real implementation (M4b-4)', () => {
       // After unmount, advancing time should not crash + not log warnings
       // about state updates on unmounted components.
       expect(() => { jest.advanceTimersByTime(5_000) }).not.toThrow()
+    })
+  })
+
+  describe('useTimeLimited — M4d wider 1s tick under-1h both directions (Task A.6)', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+    })
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('installs 1s tick when urgent + msToClose 30 minutes (under 1h but above 60s — A.4 would have missed this)', () => {
+      const voucher = baseVoucher({
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+        currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T12:30:00Z' },
+        nextWindow: null,
+      })
+      const { result } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.windowState).toBe('urgent')
+      expect(result.current.msToClose).toBe(30 * 60_000)
+
+      act(() => { jest.advanceTimersByTime(1_000) })
+      expect(result.current.msToClose).toBe(30 * 60_000 - 1_000)
+
+      act(() => { jest.advanceTimersByTime(1_000) })
+      expect(result.current.msToClose).toBe(30 * 60_000 - 2_000)
+    })
+
+    it('installs 1s tick when unavailable-today + msToOpen 30 minutes (opening direction)', () => {
+      const voucher = baseVoucher({
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '15:00', closeTime: '18:00' }],
+        currentWindow: null,
+        nextWindow: { startsAt: '2026-05-11T12:30:00Z', endsAt: '2026-05-11T15:00:00Z' },  // 30 min from now
+      })
+      const { result } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.windowState).toBe('unavailable-today')
+      expect(result.current.msToOpen).toBe(30 * 60_000)
+
+      act(() => { jest.advanceTimersByTime(1_000) })
+      expect(result.current.msToOpen).toBe(30 * 60_000 - 1_000)
+
+      act(() => { jest.advanceTimersByTime(1_000) })
+      expect(result.current.msToOpen).toBe(30 * 60_000 - 2_000)
+    })
+
+    it('does NOT install 1s tick when msToOpen is over 1 hour', () => {
+      const voucher = baseVoucher({
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '17:00', closeTime: '19:00' }],
+        currentWindow: null,
+        nextWindow: { startsAt: '2026-05-11T14:00:00Z', endsAt: '2026-05-11T16:00:00Z' },  // 2h from now
+      })
+      const { result } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.windowState).toBe('unavailable-today')
+      expect(result.current.msToOpen).toBe(2 * 3_600_000)
+
+      act(() => { jest.advanceTimersByTime(1_000) })
+      expect(result.current.msToOpen).toBe(2 * 3_600_000)  // unchanged — no 1s tick
     })
   })
 
