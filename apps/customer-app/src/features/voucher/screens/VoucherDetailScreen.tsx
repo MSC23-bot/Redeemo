@@ -1643,7 +1643,7 @@ export function VoucherDetailScreen() {
             step. See productCopy.ts for the exact copy.
             Round 15 hid this for free users; round 16 owner direction
             restored it with a free-user-specific 7-step list. */}
-        <HowItWorks isSubscribed={isSubscribed} onExpand={handleCardExpand} />
+        <HowItWorks isSubscribed={isSubscribed} voucherType={voucher.type} onExpand={handleCardExpand} />
 
         {/* Spacer above the sticky CTA. Round-7 trim: insets.bottom
             + 30 (= 64 on iPhone Pro Max). Step 4's bottom edge
