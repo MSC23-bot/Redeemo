@@ -13,8 +13,7 @@
  *   Fri 22-24 + Sat 0-2 → "Fridays, 10pm-2am"  (cross-midnight detected)
  *
  * Used by:
- *   - <TimeLimitedDetailsCard> "Available during" row (M4b-6)
- *   - countdownFormat supporting line (passes the result as `schedule`)
+ *   - <CouponBodyCard> "Availability" TL-only section (M4d D.1)
  *   - PIN sheet boundary-race recovery copy (M4b-9)
  */
 
