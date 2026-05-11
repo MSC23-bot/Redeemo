@@ -296,6 +296,14 @@ function eyebrowDayLabel(boundary: Date, now: Date): string {
 
 const styles = StyleSheet.create({
   root: {
+    // Stretch to fill the parent View's cross-axis (horizontal) width.
+    // Without this, the View sizes to its intrinsic content (eyebrow +
+    // primary + supporting text + padding), which leaves the right edge
+    // well short of the parent's available width. The parent CouponHeader
+    // `content` View already reserves `paddingRight: 126pt` for the save
+    // badge, so stretching here fills the title/description column without
+    // overlapping the badge. On-device QA fix, 2026-05-11.
+    alignSelf: 'stretch',
     marginTop: 16,
     paddingVertical: 14,
     paddingHorizontal: 14,
