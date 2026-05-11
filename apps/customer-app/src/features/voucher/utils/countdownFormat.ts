@@ -103,6 +103,51 @@ export function formatDayName(date: Date): string {
   return DAYS_FULL[dayOfWeek]!
 }
 
+/**
+ * Renders the M4d hero-status-block primary line:
+ *   "Today at <H>am/pm"
+ *   "Tomorrow at <H>am/pm"
+ *   "<Weekday> at <H>am/pm"  (2+ days out, full weekday name)
+ *
+ * Locked: spec D3 canonical primary format. Hermes-robust — uses
+ * formatToParts numeric extraction + the hardcoded DAYS_FULL array;
+ * avoids weekday: 'long'/'short' and toLocaleTimeString. London-local
+ * for the day-comparison (matches the rest of the voucher-detail surface).
+ */
+export function formatPrimaryWhen(boundary: Date, now: Date): string {
+  const clock = formatClockHour12(boundary)
+  const boundaryYmd = ymdFor(boundary)
+  const nowYmd = ymdFor(now)
+  if (sameYmd(boundaryYmd, nowYmd)) return `Today at ${clock}`
+  const tomorrowYmd = addOneDay(nowYmd)
+  if (sameYmd(boundaryYmd, tomorrowYmd)) return `Tomorrow at ${clock}`
+  return `${formatDayName(boundary)} at ${clock}`
+}
+
+type Ymd = { year: number; month: number; day: number }
+
+function ymdFor(date: Date): Ymd {
+  const parts = YMD_FORMATTER.formatToParts(date)
+  const get = (t: Intl.DateTimeFormatPartTypes): number => {
+    const p = parts.find(x => x.type === t)
+    if (!p) throw new Error(`ymdFor: missing ${t}`)
+    return parseInt(p.value, 10)
+  }
+  return { year: get('year'), month: get('month'), day: get('day') }
+}
+
+function sameYmd(a: Ymd, b: Ymd): boolean {
+  return a.year === b.year && a.month === b.month && a.day === b.day
+}
+
+function addOneDay(ymd: Ymd): Ymd {
+  // Use Date.UTC arithmetic — no DST exposure since we operate on
+  // London-local calendar coordinates already extracted via YMD_FORMATTER.
+  const t = new Date(Date.UTC(ymd.year, ymd.month - 1, ymd.day))
+  t.setUTCDate(t.getUTCDate() + 1)
+  return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() }
+}
+
 export type CountdownInput = {
   state: CountdownState
   now: Date

@@ -4,6 +4,7 @@ import {
   formatClockHour12,
   formatDayName,
   formatPrimaryCountdown,
+  formatPrimaryWhen,
   formatSupportingCountdown,
 } from '@/features/voucher/utils/countdownFormat'
 
@@ -188,5 +189,57 @@ describe('formatClockHour12', () => {
     // 2026-05-13 20:30 UTC = 21:30 BST London. Tests the minute != 0
     // path that produces "H:MMam/pm" with zero-padded minutes.
     expect(formatClockHour12(new Date('2026-05-13T20:30:00Z'))).toBe('9:30pm')
+  })
+})
+
+// ── formatPrimaryWhen — M4d hero-status-block canonical primary line ────
+//
+// Spec D3 canonical primary format: "<When> at <H>am/pm" where <When> is
+// "Today" / "Tomorrow" / full weekday name. Combines London-local day
+// comparison with the existing formatClockHour12 helper.
+
+describe('formatPrimaryWhen', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))  // Monday 13:00 BST
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('renders "Today at 5pm" when boundary is later today (London local)', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Mon 13:00 BST
+    const boundary = new Date('2026-05-11T16:00:00Z')            // Mon 17:00 BST = 5pm
+    expect(formatPrimaryWhen(boundary, now)).toBe('Today at 5pm')
+  })
+
+  it('renders "Today at 5:30pm" when boundary has minutes', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-11T16:30:00Z')            // Mon 17:30 BST = 5:30pm
+    expect(formatPrimaryWhen(boundary, now)).toBe('Today at 5:30pm')
+  })
+
+  it('renders "Tomorrow at 11am" when boundary is on the next London day', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Mon 13:00 BST
+    const boundary = new Date('2026-05-12T10:00:00Z')            // Tue 11:00 BST
+    expect(formatPrimaryWhen(boundary, now)).toBe('Tomorrow at 11am')
+  })
+
+  it('renders "Saturday at 11am" when boundary is 5 days out', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Monday
+    const boundary = new Date('2026-05-16T10:00:00Z')            // Saturday 11:00 BST
+    expect(formatPrimaryWhen(boundary, now)).toBe('Saturday at 11am')
+  })
+
+  it('renders "Wednesday at 12pm" using 12-hour noon convention', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Monday
+    const boundary = new Date('2026-05-13T11:00:00Z')            // Wednesday 12:00 BST
+    expect(formatPrimaryWhen(boundary, now)).toBe('Wednesday at 12pm')
+  })
+
+  it('renders "Friday at 12am" using 12-hour midnight convention', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Monday
+    const boundary = new Date('2026-05-14T23:00:00Z')            // Friday 00:00 BST (next day)
+    expect(formatPrimaryWhen(boundary, now)).toBe('Friday at 12am')
   })
 })
