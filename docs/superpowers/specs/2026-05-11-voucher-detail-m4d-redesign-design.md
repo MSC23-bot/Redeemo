@@ -152,7 +152,13 @@ afterEach(() => {
 
 12:00 UTC sits well clear of the 21:30 London brittleness boundary AND clear of any potential next-day-rollover edge with `futureISO(180)` / `futureISO(1440)`.
 
-**Locked: Option (A).** Phase 0 must harden §AM1 with suite-level `jest.setSystemTime('2026-05-11T12:00:00Z')` BEFORE any new M4d UI work.
+**Locked: Option (A).** Phase 0 must harden §AM1 with suite-level `jest.setSystemTime(...)` BEFORE any new M4d UI work.
+
+**As-shipped amendment (2026-05-11, post-Phase 0 commit `f78991a`):**
+
+- The Phase 0 `voucher-detail-states.test.tsx` fixture ships with anchor `'2026-05-12T10:00:00Z'` (Tuesday 11:00 BST), **not** the originally-locked Monday anchor.
+- **Reason:** the existing TL state-machine test fixture uses `availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }]` (Monday 11:00–15:00 London). At the Monday `2026-05-11T12:00:00Z` anchor (13:00 BST), the state-machine derives `active` from the recurring window via the `currentWindow: null` re-derivation path. That breaks both brittle tests deterministically because they expect `unavailable-today` / `unavailable-future-day`. The Tuesday anchor sits OUTSIDE any recurring window, so the state-machine flows to the `nextWindow` path the unavailable-* tests exercise. Math: `futureISO(180)` = same-Tuesday 14:00 BST → `unavailable-today` ✓; `futureISO(2880)` = Thursday 11:00 BST → `unavailable-future-day` ✓.
+- **Scope of this amendment:** the Tuesday anchor is the locked Phase 0 fixture value. Phase A and Phase B tests **may still use the originally-locked Monday anchor `'2026-05-11T12:00:00Z'`** wherever they pass explicit `currentWindow` / `nextWindow` Date props directly (which is everywhere in the Phase A/B plan) — those fixtures do not depend on recurring `availabilityWindows`, so day-of-week is irrelevant for them. The Monday anchor stays in the plan-verbatim Phase A/B test code.
 
 ---
 
