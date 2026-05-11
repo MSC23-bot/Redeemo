@@ -57,6 +57,33 @@ export function formatClockTime(date: Date): string {
   return `${hh}:${mm}`
 }
 
+/**
+ * 12-hour clock-hour formatter. Returns "5pm" / "12am" / "12pm" for whole
+ * hours, and "9:30pm" / "5:45am" for minute-bearing instants.
+ *
+ * Used by the M4c merchant-card state pill for "Opens 5pm today" / "Tomorrow
+ * 12pm" / "Available now · ends 3pm today" copy (locked Gate J 2026-05-11).
+ * Hermes-robust: extracts hour + minute via `formatToParts` numeric (NOT
+ * `toLocaleTimeString`) — see `reference_london_clock_helper.md` for the
+ * AVOID rules. Reuses the module-level `HHMM_FORMATTER` (Europe/London,
+ * 24h-internal) to share the same offset-extraction behaviour as
+ * `formatClockTime` above.
+ */
+export function formatClockHour12(date: Date): string {
+  const parts = HHMM_FORMATTER.formatToParts(date)
+  const get = (t: Intl.DateTimeFormatPartTypes): string => {
+    const p = parts.find(x => x.type === t)
+    return p ? p.value : '00'
+  }
+  let hour = parseInt(get('hour'), 10)
+  if (hour === 24) hour = 0  // V8 quirk normalisation
+  const minute = parseInt(get('minute'), 10)
+  const period = hour < 12 ? 'am' : 'pm'
+  const h12 = hour === 0 ? 12 : hour <= 12 ? hour : hour - 12
+  if (minute === 0) return `${h12}${period}`
+  return `${h12}:${String(minute).padStart(2, '0')}${period}`
+}
+
 export function formatDayName(date: Date): string {
   // Compute London-local day-of-week from formatToParts numeric ymd, then
   // index into the hardcoded English array. Avoids weekday: 'long'/'short'

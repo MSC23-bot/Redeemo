@@ -1,6 +1,7 @@
 import {
   formatDurationCompact,
   formatClockTime,
+  formatClockHour12,
   formatDayName,
   formatPrimaryCountdown,
   formatSupportingCountdown,
@@ -156,5 +157,36 @@ describe('formatSupportingCountdown', () => {
       schedule: 'Mon-Fri, 11am-3pm',
     })
     expect(result).toBe('Mon-Fri, 11am-3pm')
+  })
+})
+
+// ── formatClockHour12 — M4c 12-hour clock-hour formatter ───────────────
+//
+// Used by the M4c merchant-card state pill for "Opens 5pm today" / "Tomorrow
+// 12pm" / "Available now · ends 3pm today" copy. Pins the four boundary
+// cases the pill exercises: noon/midnight edges + minute-zero/non-zero
+// matrix. Without these, the minute-bearing branch ("9:30pm") only had
+// end-to-end coverage via the pill tests — no direct unit pin.
+
+describe('formatClockHour12', () => {
+  it('12am: midnight London = "12am" (hour=0 → 12am edge case)', () => {
+    // 2026-01-21 00:00 UTC = 00:00 GMT London (winter, no offset).
+    expect(formatClockHour12(new Date('2026-01-21T00:00:00Z'))).toBe('12am')
+  })
+
+  it('12pm: noon London = "12pm" (hour=12 → 12pm edge case)', () => {
+    // 2026-01-21 12:00 UTC = 12:00 GMT London.
+    expect(formatClockHour12(new Date('2026-01-21T12:00:00Z'))).toBe('12pm')
+  })
+
+  it('5pm: 17:00 London = "5pm" (BST summer date)', () => {
+    // 2026-05-13 16:00 UTC = 17:00 BST London (DST in effect).
+    expect(formatClockHour12(new Date('2026-05-13T16:00:00Z'))).toBe('5pm')
+  })
+
+  it('9:30pm: 21:30 London = "9:30pm" (minute-bearing branch)', () => {
+    // 2026-05-13 20:30 UTC = 21:30 BST London. Tests the minute != 0
+    // path that produces "H:MMam/pm" with zero-padded minutes.
+    expect(formatClockHour12(new Date('2026-05-13T20:30:00Z'))).toBe('9:30pm')
   })
 })

@@ -24,6 +24,12 @@ import type { MerchantVoucher } from '@/lib/api/merchant'
  */
 
 type Bucket = 1 | 2 | 3 | 4 | 5  // sort priority (lower = earlier)
+
+// OWNER LOCKED Gate H 2026-05-11: TIME_LIMITED urgency threshold is 60 minutes
+// product-wide (Voucher Detail `useTimeLimited` + Merchant Profile sort + pill).
+// Supersedes spec §6.2's older <30 min wording. Sort bucket boundary MUST match
+// the pill component's urgency classification — otherwise a card in bucket 1
+// (sort-urgent) would render an "Active" pill (visible UX contradiction).
 const URGENT_THRESHOLD_MS = 60 * 60_000
 
 function bucketFor(v: MerchantVoucher, now: Date): Bucket | null {

@@ -39,6 +39,7 @@ import { MerchantHeadline } from '../components/MerchantHeadline'
 import { BranchContextBand } from '../components/BranchContextBand'
 import { BranchSwitchToast } from '../components/BranchSwitchToast'
 import { branchShortName } from '../utils/branchShortName'
+import { sortMerchantVouchers } from '../utils/voucherCardSort'
 
 function buildBranchLine(branch: { city: string | null; name: string }): string | null {
   // Pass 1 fallback: city when available, else strip-prefix the branch name.
@@ -566,6 +567,25 @@ export function MerchantProfileScreen({ id }: Props) {
     )
   }, [selectedBranchId, motionScale, screenOpacity])
 
+  // ─── M4c voucher list sort (must be hoisted above the loading/error
+  // early returns to honour Rules-of-Hooks; the hook is called on every
+  // render regardless of merchant state) ────────────────────────────────
+  //
+  // `sortMerchantVouchers` per spec §6.3 — five-bucket order with expired
+  // filtered out (D4 lock); TIME_LIMITED active/urgent at the top, then
+  // non-TL active, then TIME_LIMITED outside-window, then redeemed.
+  // VouchersTab consumes the SORTED list directly — its previous internal
+  // redeemed-pushed-last sort is removed in this commit.
+  //
+  // Re-sorts on payload change. Bucket position can drift if the user
+  // leaves the screen open while a window crosses a boundary — refetches
+  // (focus, pull-to-refresh) re-sort. The pill's own stale-payload guard
+  // handles in-screen drift independently.
+  const sortedVouchers = useMemo(
+    () => sortMerchantVouchers(merchant?.vouchers ?? [], new Date()),
+    [merchant?.vouchers],
+  )
+
   // ─── Loading / error early returns ──────────────────────────────────────────
   if (!id) {
     return (
@@ -622,15 +642,19 @@ export function MerchantProfileScreen({ id }: Props) {
   const showBanner = merchant.selectedBranchFallbackReason === 'candidate-inactive' && !bannerDismissed
 
   // PR-B T8a (§Q4 wiring): per-voucher redeemed-this-cycle Set.
-  // Backend now exposes `isRedeemedThisCycle: boolean` on each voucher
-  // in the merchant profile payload (mirrors the single-voucher logic
-  // in `getCustomerVoucher`).  Build a Set so VouchersTab can flip
-  // each card to its muted §Q4 variant in O(1) lookups.  Empty Set
-  // for guests, free users, paused subs, or pre-T8a cached responses
-  // (the schema's `.default(false)` handles missing fields).
+  // M4c: redeemed Set covers BOTH non-TIME_LIMITED (isRedeemedThisCycle)
+  // AND TIME_LIMITED (redeemedWindow !== null). TIME_LIMITED entitlement
+  // is per-window not per-cycle, so the M4a backend contract sets
+  // `isRedeemedThisCycle: false` for all TIME_LIMITED rows. Without this
+  // type-aware Set construction, TL redeemed-window cards would NOT pass
+  // `isRedeemed={true}` to <VoucherCard> and the PR-B redeemed overprint
+  // wouldn't fire — leaving redeemed TL cards visually identical to
+  // active ones. Pinned by the redeemed-TL test in voucher-card.test.tsx.
   const redeemedVoucherIds = new Set<string>(
-    (merchant?.vouchers ?? [])
-      .filter(v => v.isRedeemedThisCycle)
+    sortedVouchers
+      .filter(v => (v.type === 'TIME_LIMITED'
+        ? v.redeemedWindow !== null
+        : v.isRedeemedThisCycle))
       .map(v => v.id),
   )
   // Per-voucher favourites placeholder.  cefaf45 documented this as
@@ -787,7 +811,7 @@ export function MerchantProfileScreen({ id }: Props) {
         >
           {activeTab === 'vouchers' && (
             <VouchersTab
-              vouchers={merchant.vouchers}
+              vouchers={sortedVouchers}
               redeemedVoucherIds={redeemedVoucherIds}
               favouritedVoucherIds={favouritedVoucherIds}
               onVoucherPress={handleVoucherPress}

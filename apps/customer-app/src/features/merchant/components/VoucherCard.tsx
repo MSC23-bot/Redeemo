@@ -16,6 +16,7 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 import { VoucherCardRedeemedStamp } from './VoucherCardRedeemedStamp'
+import { VoucherCardStatePill } from './VoucherCardStatePill'
 
 // Round 5 §32: dial colour back up. The owner shared a §22-era
 // screenshot as the colour reference and wanted the energy
@@ -147,6 +148,13 @@ type Props = {
   isFavourited: boolean
   onPress: () => void
   onToggleFavourite: () => void
+  /**
+   * Reference instant used by the TIME_LIMITED state pill (M4c Gate J)
+   * for bucketing active/urgent/outside-window copy and the stale-payload
+   * guard. Defaults to `new Date()` at render time. Tests pass a fixed
+   * instant for determinism. Non-TIME_LIMITED cards ignore this prop.
+   */
+  now?: Date
 }
 
 const PRESS_IN_MS  = 100
@@ -175,7 +183,35 @@ const REDEEMO_R_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080
   <polygon fill="#FFFFFF" points="487.2 818.12 244.4 994.7 245.05 681.39 487.2 818.12"/>
 </svg>`
 
-export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress, onToggleFavourite }: Props) {
+export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress, onToggleFavourite, now }: Props) {
+  // M4c Gate J: TIME_LIMITED outside-window cards drop to 75% opacity
+  // (locked spec §6.1 / §6.3 — distinct from the redeemed-state cream-
+  // tint overlay). Active/urgent/redeemed cards stay at full opacity.
+  // Stale-payload guard: a `currentWindow` whose `endsAt` has passed is
+  // treated as outside-window for the opacity tier too.
+  const referenceNow = now ?? new Date()
+  const isOutsideWindowTL = voucher.type === 'TIME_LIMITED'
+    && !isRedeemed
+    && voucher.redeemedWindow === null
+    && (
+      voucher.currentWindow === null
+      || new Date(voucher.currentWindow.endsAt).getTime() <= referenceNow.getTime()
+    )
+
+  // M4c Gate J revised twice + Gate K Minor #1 fix (2026-05-11):
+  // TL cards that surface a state pill (active / urgent / outside-window —
+  // anything where the pill component actually renders content) use the
+  // STACKED topRow layout (chip-left, pill+heart-stacked-right). Mirrors
+  // the pill component's EXACT render rule — including the stale-payload
+  // guard. A `currentWindow` whose `endsAt` has passed is treated as no
+  // live window; if `nextWindow` is also null, the card falls through to
+  // PR-B row layout (no empty stacked column with just the heart).
+  const hasLiveCurrentWindow = voucher.currentWindow !== null
+    && new Date(voucher.currentWindow.endsAt).getTime() > referenceNow.getTime()
+  const hasTLPill = voucher.type === 'TIME_LIMITED'
+    && !isRedeemed
+    && voucher.redeemedWindow === null
+    && (hasLiveCurrentWindow || voucher.nextWindow !== null)
   const motionScale = useMotionScale()
   const typeKey   = voucher.type as VoucherType
   const gradient  = TYPE_GRADIENTS[typeKey] ?? TYPE_GRADIENTS.DISCOUNT_FIXED
@@ -238,6 +274,7 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
     // accent (green card → green-tinted shadow, purple →
     // violet, red → red, etc.). Subtle, premium, complementary.
     <Animated.View
+      testID="merchant-voucher-card"
       style={[
         cardAnimatedStyle,
         styles.cardShadow,
@@ -251,6 +288,12 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
         // Default Rule" and the No-Status-Navy / One-Voice rules
         // (we recede; we do not invent new colour cues).
         isRedeemed && styles.cardShadowFlat,
+        // M4c Gate J: TIME_LIMITED outside-window cards drop to 75%
+        // opacity. Distinct tier from redeemed cards' cream-tint
+        // overlay (PR-B), signalling "exists but not actionable right
+        // now" per spec §6.1 / §6.3 ("Outside-window cards remain
+        // visible (NOT hidden)").
+        isOutsideWindowTL && styles.cardOutsideWindow,
       ]}
     >
       <Pressable
@@ -345,34 +388,82 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
             user can tell active vs redeemed at a glance — you may
             change how the stamp is shown". */}
         {isRedeemed ? (
-          <View style={styles.heroStampWrap} pointerEvents="none">
+          // testID 'voucher-redeemed-overprint' is the M4c spec alias
+          // for the redeemed-stamp overlay surface (spec §6.4). The
+          // existing `<VoucherCardRedeemedStamp>` retains its own
+          // `voucher-card-redeemed-stamp` testID for the glyph-level
+          // pin in `voucher-card-redeemed-state.test.tsx`; this wrap-
+          // level testID is the merchant-card-level handle the M4c
+          // pill tests assert against to verify the PR-B redeemed
+          // treatment is preserved on redeemed-this-window cards.
+          <View
+            style={styles.heroStampWrap}
+            pointerEvents="none"
+            testID="voucher-redeemed-overprint"
+          >
             <VoucherCardRedeemedStamp />
           </View>
         ) : null}
 
         <View style={styles.content}>
-          {/* Row 1: type chip (left) + heart (right). */}
+          {/* M4c Gate J (revised twice after device QA 2026-05-11):
+              topRow has TWO layouts based on whether the TIME_LIMITED
+              state pill is present.
+                • TL with pill (active/urgent/outside-window) → STACKED:
+                    [chip — left]   ⋮   [pill — full right row]
+                                        [heart — right-aligned below]
+                  The pill gets the full right-side row to itself so the
+                  longer copy ("AVAILABLE NOW · Ends 3pm today") fits
+                  without ellipsizing on narrow screens (iPhone SE).
+                  Heart sits below the pill, right-aligned, still in
+                  the topRow's right region. Card minHeight grows by
+                  ~28pt for these cards.
+                • non-TL, redeemed-TL, degenerate-TL → PR-B ROW:
+                    [chip — left]                   [heart — right]
+                  Heart stays in its PR-B locked top-right position.
+                  Card minHeight unchanged at 144pt. */}
           <View style={styles.topRow}>
             <View style={styles.typeChip}>
               <Text style={styles.typeChipText} numberOfLines={1}>
                 {typeLabel}
               </Text>
             </View>
-            <Animated.View style={heartAnimatedStyle}>
-              <Pressable
-                onPress={handleFav}
-                style={styles.favBtn}
-                accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-                hitSlop={10}
-              >
-                <Heart
-                  size={18}
-                  color={isFavourited ? '#FFFFFF' : 'rgba(255,255,255,0.75)'}
-                  fill={isFavourited ? '#FFF' : 'none'}
-                  strokeWidth={2.2}
-                />
-              </Pressable>
-            </Animated.View>
+            {hasTLPill ? (
+              <View style={styles.topRightStack}>
+                <VoucherCardStatePill voucher={voucher} now={referenceNow} />
+                <Animated.View style={[heartAnimatedStyle, styles.stackedHeartWrap]}>
+                  <Pressable
+                    onPress={handleFav}
+                    style={styles.favBtn}
+                    accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
+                    hitSlop={10}
+                  >
+                    <Heart
+                      size={18}
+                      color={isFavourited ? '#FFFFFF' : 'rgba(255,255,255,0.75)'}
+                      fill={isFavourited ? '#FFF' : 'none'}
+                      strokeWidth={2.2}
+                    />
+                  </Pressable>
+                </Animated.View>
+              </View>
+            ) : (
+              <Animated.View style={heartAnimatedStyle}>
+                <Pressable
+                  onPress={handleFav}
+                  style={styles.favBtn}
+                  accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
+                  hitSlop={10}
+                >
+                  <Heart
+                    size={18}
+                    color={isFavourited ? '#FFFFFF' : 'rgba(255,255,255,0.75)'}
+                    fill={isFavourited ? '#FFF' : 'none'}
+                    strokeWidth={2.2}
+                  />
+                </Pressable>
+              </Animated.View>
+            )}
           </View>
 
           {/* Round 6 follow-up: title back below the hero, left-
@@ -434,16 +525,13 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
               {expiryLabel ?? 'No expiry'}
             </Text>
             {/* PR-B T5 (§Q4): when redeemed, the bottom-row dark
-                "Redeem" CTA pill is suppressed — the redeemed
-                signal is carried by the hero top-right stamp +
-                "Already redeemed this cycle" inline label below
-                the saving block.  The locked PR #35 baseline
-                kept a bottom-row pill as the only redeemed cue;
-                the brief §5.5 redesign moves that signal to the
-                hero so it reads at list-scan distance.  The
-                bottom-row LEFT text always shows the expiry /
-                "No expiry" copy regardless of redeemed state
-                (T5.1 spec-fix). */}
+                "Redeem" CTA pill is suppressed — the redeemed signal
+                is carried by the hero overprint + "Already redeemed
+                this cycle" inline label below the saving block.
+                Bottom-row LEFT text always shows the expiry / "No
+                expiry" copy regardless of redeemed state. Heart lives
+                in the topRow right group (Gate J revised) — bottomRow
+                returns to its PR-B layout: expiry-left, Redeem-right. */}
             {isRedeemed ? null : (
               <View style={styles.redeemBtn}>
                 <Text style={[styles.redeemBtnText, { color: accent }]}>Redeem</Text>
@@ -530,6 +618,16 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     shadowOffset: { width: 0, height: 0 },
     elevation: 0,
+  },
+
+  // M4c Gate J: TIME_LIMITED outside-window opacity (locked spec §6.1).
+  // 75% opacity is the deliberately-distinct tier from the redeemed-state
+  // cream-tint overlay above — the user must be able to read "exists but
+  // not actionable right now" vs "you've already used this" at a glance.
+  // Applied to the card-shadow wrapper (outer Animated.View) so the per-
+  // type tinted shadow softens proportionally with the card.
+  cardOutsideWindow: {
+    opacity: 0.75,
   },
 
   // PR-B T8i refinement: hero stamp wrap — absolutely positioned to
@@ -691,7 +789,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(1,12,53,0.42)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
-    flexShrink: 1,
+    // M4c Gate J (revised): chip never shrinks. For TL pill cards, the
+    // pill+heart stack on the right takes its own column at maxWidth 75%
+    // of the row. For non-TL / redeemed-TL, only the heart sits on the
+    // right. Either way the chip keeps its intrinsic width so the voucher
+    // type label remains fully readable on every screen.
+    flexShrink: 0,
     alignSelf: 'flex-start',
   },
   typeChipText: {
@@ -805,6 +908,35 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 2,
     gap: 12,
+  },
+  // M4c Gate J (revised TWICE after device QA): the row layout
+  // (`[pill][heart]` on a single line) caused pill text to ellipsize
+  // on iPhone SE for the longest active copy ("AVAILABLE NOW · Ends
+  // 3pm today"). Owner directed heart-under-pill stack for TL pill
+  // cards to give the pill the full right-side row width.
+  //
+  // topRightStack — column layout for TL active/urgent/outside-window
+  // cards. Pill renders on its own row (full visible copy guaranteed
+  // up to maxWidth). Heart sits below, right-aligned via alignItems.
+  // Internal gap 6pt — calm visual separation.
+  topRightStack: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 6,
+    flexShrink: 1,
+    // Cap the stack at 75% of the row width — pill is the load-bearing
+    // copy on iPhone SE (~270pt available; pill needs ~210pt at 11pt
+    // text). Chip on the left has plenty of room for "Time limited"
+    // (~80pt). The 8pt internal gap below the pill + 24pt heart slot
+    // keep the column visually balanced inside the topRow.
+    maxWidth: '75%',
+  },
+  // Heart wrapper inside the stacked layout. No additional positioning
+  // — `topRightStack.alignItems: 'flex-end'` already right-aligns it.
+  // Wrapper exists so the `heartAnimatedStyle` (Reanimated transform)
+  // doesn't conflict with the parent's flex alignment.
+  stackedHeartWrap: {
+    // No extra styling — the parent column owns alignment.
   },
   // §39: metaText weight 600 → 500 so the expiry recedes
   // behind the Redeem CTA in the bottom row hierarchy.
