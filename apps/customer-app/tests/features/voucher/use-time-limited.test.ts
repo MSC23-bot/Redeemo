@@ -183,6 +183,62 @@ describe('useTimeLimited — real implementation (M4b-4)', () => {
     addSpy.mockRestore()
   })
 
+  // ── M4d additive return shape (Task A.3) ────────────────────────────
+  // Purely additive: currentWindow + nextWindow + msToClose + msToOpen
+  // are exposed alongside the existing 3 fields. Feeds the M4d
+  // HeroStatusBlock progress bar (% completed) and the final-60s seconds
+  // tick. No new interval/timer logic — that's A.4.
+
+  describe('M4d additive return shape (Task A.3)', () => {
+    it('exposes currentWindow + msToClose when in active state', () => {
+      jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+      const voucher = baseVoucher({
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '10:00', closeTime: '15:00' }],
+        currentWindow: {
+          startsAt: '2026-05-11T10:00:00.000Z',
+          endsAt:   '2026-05-11T15:00:00.000Z',
+        },
+        nextWindow: null,
+      })
+      const { result } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.currentWindow).toEqual({
+        startsAt: new Date('2026-05-11T10:00:00.000Z'),
+        endsAt:   new Date('2026-05-11T15:00:00.000Z'),
+      })
+      expect(result.current.msToClose).toBe(3 * 60 * 60_000)  // 3h = 10_800_000
+      expect(result.current.nextWindow).toBeNull()
+      expect(result.current.msToOpen).toBeNull()
+    })
+
+    it('exposes nextWindow + msToOpen when in unavailable-today state', () => {
+      jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+      const voucher = baseVoucher({
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '17:00', closeTime: '19:00' }],
+        currentWindow: null,
+        nextWindow: {
+          startsAt: '2026-05-11T17:00:00.000Z',
+          endsAt:   '2026-05-11T19:00:00.000Z',
+        },
+      })
+      const { result } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.currentWindow).toBeNull()
+      expect(result.current.msToClose).toBeNull()
+      expect(result.current.nextWindow).toEqual({
+        startsAt: new Date('2026-05-11T17:00:00.000Z'),
+        endsAt:   new Date('2026-05-11T19:00:00.000Z'),
+      })
+      expect(result.current.msToOpen).toBe(5 * 60 * 60_000)  // 5h = 18_000_000
+    })
+
+    it('returns all four fields null when not TIME_LIMITED', () => {
+      const { result } = renderHook(() => useTimeLimited(baseVoucher({ type: 'BOGO' })))
+      expect(result.current.currentWindow).toBeNull()
+      expect(result.current.nextWindow).toBeNull()
+      expect(result.current.msToClose).toBeNull()
+      expect(result.current.msToOpen).toBeNull()
+    })
+  })
+
   it('pending boundary timer does not call setState after unmount (no React warning)', () => {
     jest.setSystemTime(new Date('2026-05-11T11:00:00Z'))
     const voucher = baseVoucher({
