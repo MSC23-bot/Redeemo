@@ -637,6 +637,11 @@ export async function getCustomerMerchant(
         select: {
           id: true, title: true, type: true, description: true,
           terms: true, imageUrl: true, estimatedSaving: true, expiryDate: true,
+          // M5 Task 6: REUSABLE per-card reusableState derivation reads
+          // raw cooldownSeconds via computeAvailableAgainAt(). D19 lock —
+          // raw cooldownSeconds is stripped from the response before
+          // emission (mirrors getCustomerVoucher's destructure pattern).
+          cooldownSeconds: true,
           // M4a-5: TIME_LIMITED window state for per-card display.
           // Non-TIME_LIMITED rows get [] / null via computeTimeLimitedPayload.
           availabilityWindows: {
@@ -908,6 +913,7 @@ export async function getCustomerMerchant(
     : new Map<string, Date>()
   const nowForWindows = new Date()
   const enrichedVouchers = merchant.vouchers.map((v: any) => {
+    const lastRedeemedAt = lastRedemptionMap.get(v.id) ?? null
     const tlPayload = computeTimeLimitedPayload({
       type: v.type,
       rawWindows: (v.availabilityWindows ?? []).map((w: any) => ({
@@ -915,23 +921,55 @@ export async function getCustomerMerchant(
         openTime:  w.openTime,
         closeTime: w.closeTime,
       })),
-      lastRedeemedAt: lastRedemptionMap.get(v.id) ?? null,
+      lastRedeemedAt,
       now: nowForWindows,
     })
+
+    // M5 Task 6 (spec §6.4, D17): per-card reusableState for REUSABLE
+    // rows. Reuses the SAME batched lastRedemptionMap (one groupBy for
+    // the whole voucher list — the M4a-5 N+1 contract locked in
+    // discovery.timeLimitedMerchant.test.ts). Convention §7.1 — surface
+    // only FUTURE availableAgainAt instants so the client uses
+    // truthiness checks without time math.
+    let reusableState: { availableAgainAt: string | null } | null = null
+    if (v.type === 'REUSABLE') {
+      const computed = computeAvailableAgainAt(lastRedeemedAt, v)
+      reusableState = {
+        availableAgainAt:
+          computed && computed.getTime() > nowForWindows.getTime()
+            ? computed.toISOString()
+            : null,
+      }
+    }
+
+    // D19 — raw cooldownSeconds is NEVER exposed on the customer card
+    // payload. Destructure it out before spreading the remaining
+    // voucher fields. Mirrors getCustomerVoucher's pattern.
+    const { cooldownSeconds: _serverOnlyCooldownSeconds, ...voucherForResponse } = v
+
     return {
-      ...v,
+      ...voucherForResponse,
       estimatedSaving: Number(v.estimatedSaving),
       // PR-B T8a (§Q4): per-voucher redeemed-this-cycle flag drives
       // the merchant-profile voucher card muted state.  False for
       // guests, free users, paused subs, or vouchers not redeemed
-      // in the user's current cycle.  TIME_LIMITED vouchers stay
-      // false here (window-scoped state instead — see redeemedWindow).
-      isRedeemedThisCycle: v.type === 'TIME_LIMITED' ? false : redeemedVoucherIdSet.has(v.id),
+      // in the user's current cycle.  TIME_LIMITED + REUSABLE
+      // vouchers stay false here (TIME_LIMITED uses window-scoped
+      // redeemedWindow instead; REUSABLE has no terminal redeemed
+      // state per D13 / D18). Hard-override mirrors getCustomerVoucher
+      // line 1270.
+      isRedeemedThisCycle:
+        v.type === 'TIME_LIMITED' || v.type === 'REUSABLE'
+          ? false
+          : redeemedVoucherIdSet.has(v.id),
       // M4a-5: TIME_LIMITED state ([] / null for non-TIME_LIMITED).
       availabilityWindows: tlPayload.availabilityWindows,
       currentWindow:       tlPayload.currentWindow,
       nextWindow:          tlPayload.nextWindow,
       redeemedWindow:      tlPayload.redeemedWindow,
+      // M5 Task 6 (spec §6.4): per-card REUSABLE state ({} / null for
+      // non-REUSABLE). Drives the merchant-card pill state in Task 11.
+      reusableState,
     }
   })
 
