@@ -43,7 +43,7 @@ export type HeroStatusBlockProps = {
   windowState: HeroStatusBlockState
   /** Captured at parent render time so tests are deterministic. */
   now: Date
-  /** Required for active/urgent + progress bar's emptying denominator (B.2). */
+  /** Required for active/urgent + progress bar's elapsed-time numerator (B.2). */
   currentWindowStartsAt: Date | null
   /** Required for active/urgent supporting line + progress bar (B.2). */
   currentWindowEndsAt: Date | null
@@ -195,12 +195,18 @@ function deriveProgressBar(props: HeroStatusBlockProps): BarSpec {
     return null
   }
 
-  // Closing direction (active / urgent) — bar empties left→right.
+  // Closing direction (active / urgent) — bar FILLS left→right toward
+  // the window's end. Progress = elapsed / total, so "Ending soon"
+  // reads as a near-full bar, not a near-empty one (QA fix 2026-05-11:
+  // the previous remaining/total numerator made a 32m-of-3h window
+  // render at ~18% fill, visually contradicting the "Ending soon"
+  // eyebrow). Colour bands (below) carry the urgency signal.
   if (windowState === 'active' || windowState === 'urgent') {
     if (!currentWindowStartsAt || !currentWindowEndsAt || msToClose === null) return null
     const totalMs = currentWindowEndsAt.getTime() - currentWindowStartsAt.getTime()
     if (totalMs <= 0) return null
-    const widthPct = Math.max(0, Math.min(100, Math.round((msToClose / totalMs) * 100)))
+    const elapsedMs = totalMs - msToClose
+    const widthPct = Math.max(0, Math.min(100, Math.round((elapsedMs / totalMs) * 100)))
     // Colour bands by msToClose (NOT by widthPct):
     //   > 60min → green (active)
     //   ≤ 60min, > 15min → amber (urgent)
