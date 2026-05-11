@@ -24,6 +24,7 @@ import { color, opacity, radius, spacing } from '@/design-system/tokens'
 import { errorHaptic, lightHaptic } from '@/design-system/haptics'
 import { useRedemptionLockout } from '../hooks/useRedemptionLockout'
 import type { UseRedeemError } from '../hooks/useRedeem'
+import { formatClockTime, formatDayName } from '../utils/countdownFormat'
 
 const PIN_LENGTH = 4
 
@@ -150,6 +151,33 @@ export function PinEntrySheet({
           body:
             "This voucher isn't available for redemption right now — it may have expired or been removed by the merchant.",
         }
+      // M4b-9 — TIME_LIMITED boundary-race recovery. The window closed
+      // (or was already used) between the time the user opened the
+      // sheet and the time they submitted. nextWindowAt is read FLAT
+      // off `error` per the AppError.toJSON() shape (NOT
+      // `error.details.nextWindowAt`). Day/time are derived client-side
+      // via the M4b-1 Hermes-robust helpers. Sheet stays open; copy is
+      // calm — no "Hurry!" / "Last chance!" urgency theatre.
+      case 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW': {
+        const next = error.nextWindowAt ? new Date(error.nextWindowAt) : null
+        const nextHint = next
+          ? ` Try again next window: ${formatDayName(next)} at ${formatClockTime(next)}.`
+          : ''
+        return {
+          title: 'This window just closed',
+          body: `The offer's redemption window ended moments ago.${nextHint}`,
+        }
+      }
+      case 'ALREADY_REDEEMED_THIS_WINDOW': {
+        const next = error.nextWindowAt ? new Date(error.nextWindowAt) : null
+        const nextHint = next
+          ? ` Available again ${formatDayName(next)} at ${formatClockTime(next)}.`
+          : ''
+        return {
+          title: "You've already used this offer for this window",
+          body: `One redemption per window.${nextHint}`,
+        }
+      }
       default:
         return null
     }

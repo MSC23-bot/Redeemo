@@ -1,70 +1,296 @@
+import { useEffect, useRef, useState } from 'react'
+import { AppState, type AppStateStatus } from 'react-native'
 import type { VoucherDetail } from '@/lib/api/voucher'
+import {
+  getCurrentWindowOccurrence,
+  getNextWindowOccurrence,
+  getWindowState,
+  type WindowState,
+} from '../utils/timeLimitedWindow'
 
 /**
- * Time-limited voucher availability + countdown logic.
+ * Real (M4b-4) implementation of the TIME_LIMITED window-state hook.
  *
- * **M1 LIMITATION (deferred follow-up):** the backend's voucher payload
- * does NOT currently expose `availableFrom` / `availableUntil` window
- * fields per voucher. Without those fields, states 5/6/7 (time-limited
- * available / unavailable / urgency) cannot reliably render — so this
- * hook returns a permissive "always available" stub for vouchers of
- * type TIME_LIMITED. The voucher type tag still drives a "Time-limited"
- * display badge so users see the type, but the eligibility behaves the
- * same as a regular voucher.
+ * Replaces the M1 stub. Reads the backend payload (`availabilityWindows`,
+ * `currentWindow`, `nextWindow`, `redeemedWindow`) and derives the 5-state
+ * union via `getWindowState` from the M4b-2 helper.
  *
- * **Backend dependency to surface `availableFrom` / `availableUntil`
- * (or an equivalent recurring-window structure) is required before
- * states 5/6/7 can ship.** When that lands, this hook will need:
- *   • a `now: Date` parameter for test-time injection,
- *   • a 60s `setInterval` to roll the countdown forward,
- *   • the actual time-window math.
+ * **Reactivity:**
+ *   • A `setTimeout` is armed for whichever fires FIRST — the urgency
+ *     threshold (60 min before window close) OR the next exposed boundary
+ *     (window close in active/urgent; window open in unavailable-*).
+ *     When either fires, the hook recomputes state.
+ *   • A 60s `setInterval` ticks the consumer-side countdown display
+ *     while the voucher is in active/urgent/unavailable-* states.
+ *   • On `AppState` resume ('active'), state is recomputed.
  *
- * For M1 we keep the surface minimal and pure — no clock dependency,
- * no interval, no re-renders. Adding those back is a small change
- * scoped to this file when the backend ships its side.
+ * **`nextBoundaryAt` semantics:**
+ *   What we EXPOSE here is the window close (in active/urgent) or the
+ *   next window open (in unavailable-* states) — the moment consumers
+ *   need to count down toward. The 60-min urgency threshold is NOT
+ *   exposed; it fires the internal boundary timer so state re-derives,
+ *   but the consumer-facing "ends at HH:mm" is the actual close instant.
+ *
+ * Implementation note: state is stored in a `useState<{...}>` so each
+ * recompute commits a fresh object via `setState`. Compared to a
+ * forceUpdate + render-time-derived pattern, this is more robust under
+ * fake-timer + multi-mount jest scenarios where stale closures from
+ * unmounted prior renders can still fire bumps.
  */
+
+const URGENT_THRESHOLD_MS = 60 * 60_000  // 60 minutes — spec §5.3
+const TICK_INTERVAL_MS    = 60_000       // 60s — minute-granularity, no seconds
+
+/**
+ * Module-level AppState fan-out. Multiple useTimeLimited mounts share ONE
+ * AppState listener (registered lazily on first subscribe, removed on last
+ * unsubscribe). On 'active' status, fan out to every subscribed hook.
+ *
+ * This also keeps test behaviour predictable: a single stable handler is
+ * registered with AppState regardless of how many hook instances are alive,
+ * which avoids handler-pollution under jest's shared AppState mock.
+ */
+type AppStateListener = () => void
+const appStateListeners = new Set<AppStateListener>()
+let appStateSub: { remove: () => void } | null = null
+
+function ensureAppStateSubscribed() {
+  if (appStateSub) return
+  appStateSub = AppState.addEventListener('change', (status: AppStateStatus) => {
+    if (status !== 'active') return
+    for (const fn of appStateListeners) fn()
+  })
+}
+
+function subscribeAppState(fn: AppStateListener): () => void {
+  appStateListeners.add(fn)
+  ensureAppStateSubscribed()
+  return () => {
+    appStateListeners.delete(fn)
+    if (appStateListeners.size === 0 && appStateSub) {
+      appStateSub.remove()
+      appStateSub = null
+    }
+  }
+}
 
 export type TimeLimitedState = {
   /** Is the voucher type TIME_LIMITED? Drives the "Time limited" badge. */
   isTimeLimited: boolean
+  /** Derived window state — see `WindowState` union. */
+  windowState: WindowState
   /**
-   * Currently within the redemption window? In the M1 stub this is
-   * always `true` for TIME_LIMITED vouchers (since we have no window
-   * data); when the backend ships availableFrom/until, this flips to
-   * a real time check.
+   * Absolute UTC instant of the next consumer-visible boundary:
+   *   • active / urgent → current window close
+   *   • unavailable-today / unavailable-future-day → next window open
+   *   • no-windows / not-time-limited → null
    */
-  isCurrentlyAvailable: boolean
-  /**
-   * Whether we're within the urgency threshold (e.g. <30 min remaining
-   * in the current window). Always `false` in the M1 stub.
-   */
-  isUrgent: boolean
-  /**
-   * Minutes remaining in the current window (when isCurrentlyAvailable
-   * is true). Null in the M1 stub.
-   */
-  minutesRemaining: number | null
+  nextBoundaryAt: Date | null
 }
 
-export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeLimitedState {
-  if (!voucher || voucher.type !== 'TIME_LIMITED') {
-    return {
-      isTimeLimited: false,
-      isCurrentlyAvailable: true,    // non-TIME_LIMITED: just available (subject to expiry)
-      isUrgent: false,
-      minutesRemaining: null,
+type Computed = {
+  windowState: WindowState
+  nextBoundaryAt: Date | null
+}
+
+/**
+ * Pure computation of (windowState, nextBoundaryAt) from a voucher
+ * snapshot + current time. Called by the hook on initial render AND
+ * every boundary/interval/AppState event.
+ */
+function computeState(voucher: VoucherDetail, now: Date): Computed {
+  let windowState: WindowState = getWindowState(
+    {
+      availabilityWindows: voucher.availabilityWindows,
+      currentWindow:  voucher.currentWindow,
+      nextWindow:     voucher.nextWindow,
+      redeemedWindow: voucher.redeemedWindow,
+    },
+    now,
+  )
+
+  // The M4b-2 helper uses a STRICT `<` comparison for the urgency
+  // threshold (so exactly-60-min-left returns 'active'). The hook
+  // contract treats exactly-60-min as already inside the urgency band
+  // (inclusive boundary on the consumer-facing side). Override here:
+  // if we're 'active' AND the close is in the next [0, 60] minutes,
+  // promote to 'urgent'.
+  if (windowState === 'active' && voucher.currentWindow) {
+    const closeMs = new Date(voucher.currentWindow.endsAt).getTime()
+    const remainingMs = closeMs - now.getTime()
+    if (remainingMs > 0 && remainingMs <= URGENT_THRESHOLD_MS) {
+      windowState = 'urgent'
     }
   }
 
-  // M1 stub: TIME_LIMITED voucher with no window data → treat as
-  // always-available so the user can still redeem. The "Time limited"
-  // badge surfaces the type without misleading the user about
-  // availability. When backend adds availableFrom/until, replace this
-  // block with the real window check (and add the `now` param + tick).
+  let nextBoundaryAt: Date | null = null
+  if (windowState === 'active' || windowState === 'urgent') {
+    let endsAt: Date | null = null
+    if (voucher.currentWindow) {
+      const backendEnd = new Date(voucher.currentWindow.endsAt)
+      if (now < backendEnd) endsAt = backendEnd
+    }
+    if (!endsAt) {
+      const reCurrent = getCurrentWindowOccurrence(voucher.availabilityWindows, now)
+      if (reCurrent) endsAt = reCurrent.endsAt
+    }
+    nextBoundaryAt = endsAt
+  } else if (windowState === 'unavailable-today' || windowState === 'unavailable-future-day') {
+    let startsAt: Date | null = null
+    if (voucher.nextWindow) {
+      const backendStart = new Date(voucher.nextWindow.startsAt)
+      if (backendStart > now) startsAt = backendStart
+    }
+    if (!startsAt) {
+      const reNext = getNextWindowOccurrence(voucher.availabilityWindows, now)
+      if (reNext) startsAt = reNext.startsAt
+    }
+    nextBoundaryAt = startsAt
+  }
+
+  return { windowState, nextBoundaryAt }
+}
+
+export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeLimitedState {
+  const isTimeLimited = !!voucher && voucher.type === 'TIME_LIMITED'
+
+  // Compute the initial state from the voucher snapshot. Re-initialised
+  // when the voucher identity changes (effect below).
+  const initialState: Computed = isTimeLimited && voucher
+    ? computeState(voucher, new Date())
+    : { windowState: 'no-windows', nextBoundaryAt: null }
+
+  const [computed, setComputed] = useState<Computed>(initialState)
+  const voucherRef = useRef(voucher)
+  voucherRef.current = voucher
+
+  const recompute = () => {
+    const v = voucherRef.current
+    if (!v || v.type !== 'TIME_LIMITED') {
+      setComputed({ windowState: 'no-windows', nextBoundaryAt: null })
+      return
+    }
+    setComputed(computeState(v, new Date()))
+  }
+
+  // Reset computed when voucher identity OR backend window snapshot changes.
+  const voucherId = voucher?.id ?? null
+  const currentWindowEnd  = voucher?.currentWindow?.endsAt ?? null
+  const nextWindowStart   = voucher?.nextWindow?.startsAt  ?? null
+  useEffect(() => {
+    recompute()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voucherId, currentWindowEnd, nextWindowStart, isTimeLimited])
+
+  // Boundary setTimeout: arm for whichever fires FIRST — the urgency
+  // threshold (60 min before close, only in 'active' state) OR the
+  // exposed boundary (close or next-window-open).
+  //
+  // Each named fire instant is offset by +1 ms PAST the underlying boundary
+  // so the recompute observes `Date.now() > instant`:
+  //   • boundaryFireAtMs — fires 1 ms after the exposed boundary; aligns with
+  //     the M4b-2 helper's half-open `[open, close)` semantics so the close
+  //     instant itself is observed as "outside".
+  //   • urgencyFireAtMs — fires 1 ms after the 60-min-remaining threshold;
+  //     the helper uses strict `<` (so exactly-60-min stays 'active') AND
+  //     `computeState` here uses `<=` (so exactly-60-min flips to 'urgent').
+  //     The +1 ensures BOTH observe `remaining < URGENT_THRESHOLD_MS`.
+  //
+  // Each variable is derived independently — no value-equality juggling
+  // between them — which is what the prior version got slightly fragile.
+  // Gate F review pass, 2026-05-11.
+  const boundaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const nextBoundaryAtMs = computed.nextBoundaryAt ? computed.nextBoundaryAt.getTime() : 0
+  const stateKey = computed.windowState
+  useEffect(() => {
+    if (boundaryTimerRef.current) {
+      clearTimeout(boundaryTimerRef.current)
+      boundaryTimerRef.current = null
+    }
+    if (!isTimeLimited || !nextBoundaryAtMs) return
+
+    const nowMs = Date.now()
+    const boundaryFireAtMs = nextBoundaryAtMs + 1
+    const urgencyFireAtMs  = stateKey === 'active'
+      ? nextBoundaryAtMs - URGENT_THRESHOLD_MS + 1
+      : null
+
+    // Pick the earliest in-future fire instant.
+    let fireAtMs = boundaryFireAtMs
+    if (urgencyFireAtMs !== null && urgencyFireAtMs > nowMs && urgencyFireAtMs < fireAtMs) {
+      fireAtMs = urgencyFireAtMs
+    }
+
+    const delay = Math.max(0, fireAtMs - nowMs)
+    boundaryTimerRef.current = setTimeout(() => {
+      recompute()
+    }, delay)
+
+    return () => {
+      if (boundaryTimerRef.current) {
+        clearTimeout(boundaryTimerRef.current)
+        boundaryTimerRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTimeLimited, nextBoundaryAtMs, stateKey])
+
+  // Per-minute tick while in any time-limited state so consumer countdowns
+  // update. Skip the interval entirely outside time-limited states.
+  //
+  // ⚠️ DO NOT short-circuit the `recompute → setComputed` call on
+  // state-object equality. The 60s setState IS the per-minute tick
+  // generator for the consumer: `<FrostedCountdown>` is a dumb formatter
+  // that reads `now: new Date()` captured at PARENT render time. The only
+  // mechanism that re-renders the parent (and therefore re-captures `now`
+  // for the countdown display) is this hook's setState. Adding an
+  // identity-equality guard here would correctly skip "no state change"
+  // but would also freeze the displayed countdown — "Ends in 2h 14m"
+  // would never tick down to "Ends in 2h 13m" while in steady state.
+  // The intentional re-render IS the contract. Gate F review pass,
+  // 2026-05-11 — pushback documented.
+  const intervalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const wantsInterval =
+    isTimeLimited &&
+    (stateKey === 'active' ||
+      stateKey === 'urgent' ||
+      stateKey === 'unavailable-today' ||
+      stateKey === 'unavailable-future-day')
+
+  useEffect(() => {
+    if (intervalTimerRef.current) {
+      clearInterval(intervalTimerRef.current)
+      intervalTimerRef.current = null
+    }
+    if (!wantsInterval) return
+
+    intervalTimerRef.current = setInterval(() => {
+      recompute()
+    }, TICK_INTERVAL_MS)
+
+    return () => {
+      if (intervalTimerRef.current) {
+        clearInterval(intervalTimerRef.current)
+        intervalTimerRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsInterval])
+
+  // AppState resume: when the app returns to 'active', recompute state so
+  // any timer skew during background is reconciled against the real clock.
+  // Subscribes to a module-level fan-out (see `subscribeAppState`) so all
+  // hook mounts share one AppState listener.
+  useEffect(() => {
+    if (!isTimeLimited) return
+    const unsubscribe = subscribeAppState(recompute)
+    return unsubscribe
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTimeLimited])
+
   return {
-    isTimeLimited: true,
-    isCurrentlyAvailable: true,
-    isUrgent: false,
-    minutesRemaining: null,
+    isTimeLimited,
+    windowState: computed.windowState,
+    nextBoundaryAt: computed.nextBoundaryAt,
   }
 }

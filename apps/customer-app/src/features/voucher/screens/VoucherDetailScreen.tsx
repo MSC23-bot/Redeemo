@@ -27,6 +27,9 @@ import { MerchantRow } from '../components/MerchantRow'
 import { HowItWorks } from '../components/HowItWorks'
 import { RedeemCTA } from '../components/RedeemCTA'
 import { TimeLimitedBanner } from '../components/TimeLimitedBanner'
+import { TimeLimitedDetailsCard } from '../components/TimeLimitedDetailsCard'
+import { FrostedCountdown } from '../components/FrostedCountdown'
+import { formatScheduleString } from '../utils/scheduleString'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
 import { VoucherTypeExplainerCard } from '../components/VoucherTypeExplainerCard'
@@ -87,15 +90,23 @@ import { CTA_LABELS } from '../constants/productCopy'
  *   • Vouchers are MERCHANT-LEVEL; redemption is BRANCH-LEVEL.
  */
 
+// M4b-8 state-key union. The previous `time-limited-available` and
+// `time-limited-unavailable` keys are GONE. The new five-way split
+// covers the real TIME_LIMITED state machine driven by
+// `useTimeLimited` (M4b-4) + the redeemedWindow → redeemed-this-window
+// branch (TIME_LIMITED-specific replacement for redeemed-this-cycle
+// per spec §5.1, locked D4 — expired precedes redeemed for ALL types).
 type VoucherStateKey =
   | 'loading'
   | 'error'
   | 'free-user'
   | 'expired'
   | 'redeemed-this-cycle'
-  | 'time-limited-unavailable'
+  | 'redeemed-this-window'                  // NEW M4b-8 (TIME_LIMITED only)
+  | 'time-limited-active'                   // RENAMED from -available
   | 'time-limited-urgent'
-  | 'time-limited-available'
+  | 'time-limited-unavailable-today'        // NEW M4b-8
+  | 'time-limited-unavailable-future-day'   // NEW M4b-8
   | 'can-redeem'
 
 const PAGE_BG = '#F5F0EB'      // v4 cream-stone page background
@@ -574,7 +585,23 @@ export function VoucherDetailScreen() {
     }
   })
 
-  // ── 12-state derivation ────────────────────────────────────────────
+  // ── State derivation (M4b-8) ────────────────────────────────────────
+  //
+  // State precedence (locked per spec §5.1, do NOT reopen):
+  //   loading / error → expired → redeemed (cycle/window) → free-user
+  //                  → TIME_LIMITED states → can-redeem
+  //
+  // Two redeemed branches by voucher type:
+  //   • TIME_LIMITED → `voucher.redeemedWindow` (per-window entitlement)
+  //                     → state `redeemed-this-window`
+  //   • all others    → `voucher.isRedeemedThisCycle` (cycle entitlement)
+  //                     → state `redeemed-this-cycle`
+  //
+  // D4 lock — expired-first across ALL voucher types. A TIME_LIMITED
+  // voucher that has been redeemed in its current window AND whose
+  // merchant has set a hard expiryDate that has passed still surfaces
+  // as `expired` (the hard expiry overrides the redeemed signal because
+  // the offer is no longer redeemable in any future window either).
   const stateKey: VoucherStateKey = useMemo(() => {
     if (voucherQuery.isLoading || isSubLoading) return 'loading'
     if (voucherQuery.isError || !voucher) return 'error'
@@ -585,18 +612,28 @@ export function VoucherDetailScreen() {
       if (exp.getTime() <= Date.now()) return 'expired'
     }
 
-    if (voucher.isRedeemedThisCycle) return 'redeemed-this-cycle'
+    // Redeemed branches by voucher type (M4b-8).
+    const isTimeLimited = voucher.type === 'TIME_LIMITED'
+    if (isTimeLimited) {
+      if (voucher.redeemedWindow !== null) return 'redeemed-this-window'
+    } else {
+      if (voucher.isRedeemedThisCycle) return 'redeemed-this-cycle'
+    }
 
     if (!isSubscribed) return 'free-user'
 
-    if (timeLimited.isTimeLimited) {
-      if (!timeLimited.isCurrentlyAvailable) return 'time-limited-unavailable'
-      if (timeLimited.isUrgent) return 'time-limited-urgent'
-      return 'time-limited-available'
+    if (isTimeLimited) {
+      switch (timeLimited.windowState) {
+        case 'active':                 return 'time-limited-active'
+        case 'urgent':                 return 'time-limited-urgent'
+        case 'unavailable-today':      return 'time-limited-unavailable-today'
+        case 'unavailable-future-day': return 'time-limited-unavailable-future-day'
+        case 'no-windows':             return 'can-redeem'  // degenerate fallback
+      }
     }
 
     return 'can-redeem'
-  }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited, branchErrored])
+  }, [voucherQuery.isLoading, voucherQuery.isError, voucher, isSubLoading, isSubscribed, timeLimited.windowState, branchErrored])
 
   // ── Redeemed-state visual treatment ─────────────────────────────────
   //
@@ -624,7 +661,17 @@ export function VoucherDetailScreen() {
   //     hidden (out-of-window OR validated). During the in-window
   //     state the user CAN legitimately tap the "View voucher code"
   //     CTA from the card; this guard must NOT fire then.
-  const isRedeemed = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt
+  // `isRedeemedState` covers BOTH redeemed-this-cycle (cycle vouchers)
+  // AND redeemed-this-window (TIME_LIMITED). Most JSX checks that
+  // previously read `stateKey === 'redeemed-this-cycle'` for the
+  // "show redeemed-state UI" purpose should now flow through this
+  // constant so both voucher types render the same redeemed surfaces.
+  // The few remaining `stateKey === 'redeemed-this-cycle'`-only checks
+  // are intentional — they're specifically about cycle-based behaviour
+  // (e.g. CycleRulesCard copy that only makes sense for cycle vouchers).
+  const isRedeemedState =
+    stateKey === 'redeemed-this-cycle' || stateKey === 'redeemed-this-window'
+  const isRedeemed = isRedeemedState && !!redemptionRedeemedAt
   const showRedeemedSeal = isRedeemed
   const blockShowToStaffMount =
     isRedeemed && (!isPresentationActive || isRedemptionValidated)
@@ -665,7 +712,9 @@ export function VoucherDetailScreen() {
   const reviewPromptContext = useMemo<
     { branchId: string; redemptionId: string | null } | null
   >(() => {
-    if (stateKey !== 'redeemed-this-cycle') return null
+    // M4b-8: redeemed-this-window (TIME_LIMITED) also surfaces the
+    // review prompt — same redeemed-state semantics as cycle.
+    if (!isRedeemedState) return null
     if (lastRedemption && lastRedemption.branchId) {
       return { branchId: lastRedemption.branchId, redemptionId: lastRedemption.id }
     }
@@ -673,7 +722,7 @@ export function VoucherDetailScreen() {
       return { branchId: voucher.lastRedemption.branch.id, redemptionId: null }
     }
     return null
-  }, [stateKey, lastRedemption, voucher?.lastRedemption])
+  }, [isRedeemedState, lastRedemption, voucher?.lastRedemption])
 
   const handleReviewPromptPress = useCallback(() => {
     if (!reviewPromptContext) return
@@ -722,8 +771,11 @@ export function VoucherDetailScreen() {
   // iOS 11+: system overlays a blurred snapshot during active recording
   //   / mirroring. iOS screenshots cannot be PREVENTED by Apple's
   //   SDK — see `useScreenshotGuard` below for the post-fact path.
+  // M4b-8: redeemed-this-window (TIME_LIMITED) also surfaces the code
+  // via the persisted RedemptionDetailsCard, so screen-capture
+  // protection must apply equally to both redeemed states.
   const codeVisibleOnVoucherDetail =
-    stateKey === 'redeemed-this-cycle'
+    isRedeemedState
     && !!redemptionRedeemedAt
     && isPresentationActive
     && !isRedemptionValidated
@@ -889,7 +941,9 @@ export function VoucherDetailScreen() {
   // affordance via `disableChangeBranch` — this handler guard is
   // defence in depth.
   const handleChangeBranch = useCallback(() => {
-    if (stateKey === 'redeemed-this-cycle') return
+    // M4b-8: both redeemed states (cycle + window) hard-block branch
+    // change — same fraud-protection / wasted-taps rationale.
+    if (isRedeemedState) return
     if (!isSubscribed) {
       router.push(buildSubscriptionUrl('monthly') as never)
       return
@@ -899,7 +953,7 @@ export function VoucherDetailScreen() {
     // changing what branch the voucher detail page is talking about.
     setPickerIntent('change')
     setPickerVisible(true)
-  }, [stateKey, isSubscribed, router, buildSubscriptionUrl])
+  }, [isRedeemedState, isSubscribed, router, buildSubscriptionUrl])
 
   const handleMerchantTap = useCallback(() => {
     if (voucher && merchant) {
@@ -937,7 +991,9 @@ export function VoucherDetailScreen() {
   // ensures we still don't open PIN entry → backend ALREADY_REDEEMED
   // → confused user.
   const handlePickerConfirm = useCallback((branchId: string) => {
-    if (stateKey === 'redeemed-this-cycle') {
+    // M4b-8: both redeemed states (cycle + window) hard-block picker
+    // confirm — same defence-in-depth rationale as handleChangeBranch.
+    if (isRedeemedState) {
       setPickerVisible(false)
       return
     }
@@ -983,7 +1039,7 @@ export function VoucherDetailScreen() {
     }
     // 'change' intent: stop here. PIN sheet stays closed; user
     // remains on Voucher Detail with the new branch context.
-  }, [stateKey, isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt, pickerIntent, branchIdParam])
+  }, [isRedeemedState, isSubscribed, router, buildSubscriptionUrl, voucher, params.from, params.returnMerchantId, params.tab, suppressPrompt, pickerIntent, branchIdParam])
 
   // PIN submit → mutate → success | typed error.
   const handlePinSubmit = useCallback(async (pin: string) => {
@@ -1075,12 +1131,19 @@ export function VoucherDetailScreen() {
   }, [merchant, pickerConfirmedBranchId, branchIdParam, selectedBranch])
 
   // RedeemCTA derivation per state. Active states gate on `branchReady`.
+  //
+  // M4b-8 — the CTA `variant: 'disabled-window'` is a NEW shape returned
+  // here for the two time-limited-unavailable-* states. The existing
+  // `<RedeemCTA>` component doesn't render that variant; the JSX
+  // consumer below branches on `cta.variant === 'disabled-window'` and
+  // mounts a navy two-line inline view instead of the standard primary
+  // CTA. The `scheduleSubline` field flows through to that inline render.
   const cta = useMemo(() => {
     switch (stateKey) {
       case 'free-user':
         return { label: CTA_LABELS.redeemSubscribe, disabled: false, variant: 'subscribe' as const, testID: 'redeem-cta-subscribe' }
       case 'can-redeem':
-      case 'time-limited-available':
+      case 'time-limited-active':
       case 'time-limited-urgent':
         if (!branchReady) {
           // Branch unresolved — URL/picker target hasn't matched a
@@ -1097,15 +1160,27 @@ export function VoucherDetailScreen() {
         }
         return { label: CTA_LABELS.redeemActive, disabled: false, variant: 'primary' as const, testID: 'redeem-cta-active' }
       case 'redeemed-this-cycle':
+      case 'redeemed-this-window':
         return { label: CTA_LABELS.redeemed, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-redeemed' }
       case 'expired':
         return { label: CTA_LABELS.expired, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-expired' }
-      case 'time-limited-unavailable':
-        return { label: CTA_LABELS.unavailable, disabled: true, variant: 'primary' as const, testID: 'redeem-cta-unavailable' }
+      case 'time-limited-unavailable-today':
+      case 'time-limited-unavailable-future-day':
+        // Disabled navy two-line CTA. Uses a NEW variant string so the
+        // existing brand-red primary CTA can keep its current visual
+        // treatment for the standard disabled cases (expired /
+        // redeemed). The schedule is shown as the supporting line.
+        return {
+          label: 'Not Available Right Now',
+          disabled: true,
+          variant: 'disabled-window' as const,
+          testID: 'redeem-cta-unavailable-window',
+          scheduleSubline: formatScheduleString(voucher?.availabilityWindows ?? []),
+        }
       default:
         return null
     }
-  }, [stateKey, branchReady])
+  }, [stateKey, branchReady, voucher?.availabilityWindows])
 
   const handleCTA = useCallback(() => {
     if (stateKey === 'free-user') {
@@ -1123,7 +1198,7 @@ export function VoucherDetailScreen() {
     // handleChangeBranch.
     if (
       stateKey === 'can-redeem' ||
-      stateKey === 'time-limited-available' ||
+      stateKey === 'time-limited-active' ||
       stateKey === 'time-limited-urgent'
     ) {
       if (isMultiBranch) {
@@ -1134,9 +1209,8 @@ export function VoucherDetailScreen() {
       }
       return
     }
-    // Other states (redeemed-this-cycle, expired, time-limited-unavailable)
-    // — disabled CTA, no handler. RedeemCTA already early-returns on
-    // disabled, so this branch is defensive only.
+    // Other states (redeemed-this-cycle, redeemed-this-window, expired,
+    // time-limited-unavailable-*) — disabled CTAs, no handler.
   }, [stateKey, router, buildSubscriptionUrl, isMultiBranch])
 
   // ── Render ───────────────────────────────────────────────────────────
@@ -1239,7 +1313,11 @@ export function VoucherDetailScreen() {
                   pointerEvents="none"
                   testID="voucher-detail-hero-seal"
                 >
-                  <RedeemedSeal availableAgainAt={voucher.availableAgainAt ?? null} />
+                  <RedeemedSeal
+                    voucherType={voucher.type}
+                    availableAgainAt={voucher.availableAgainAt ?? null}
+                    nextWindowStartsAt={voucher.nextWindow?.startsAt ?? null}
+                  />
                 </View>
               ) : null}
             </View>
@@ -1269,7 +1347,10 @@ export function VoucherDetailScreen() {
               cycle). Both are merged into a single `displayRedemption`
               shape so the JSX stays readable. */}
           {(() => {
-            if (stateKey !== 'redeemed-this-cycle') return null
+            // M4b-8: redeemed-this-window (TIME_LIMITED) surfaces the
+            // RedemptionDetailsCard with the same in-memory PRIMARY +
+            // persisted FALLBACK source priority as redeemed-this-cycle.
+            if (!isRedeemedState) return null
             // Base shape from in-memory (PRIMARY) or persisted (FALLBACK).
             const baseDisplay = lastRedemption
               ? {
@@ -1363,23 +1444,35 @@ export function VoucherDetailScreen() {
             )
           })()}
 
-          {/* CycleRulesCard — REDEEMED-STATE position (locked
-              2026-05-08 from device QA). Sits inside the coupon
-              stack between RedemptionDetailsCard and the coupon body
-              card. Once redeemed, the renewal date is the most-asked
-              question; lifting the cycle card up the page surfaces
-              that answer next to the redemption details rather than
-              after the merchant row. The non-redeemed mount-site is
-              outside the coupon stack (below). The two mount sites
+          {/* CycleRulesCard / TimeLimitedDetailsCard — REDEEMED-STATE
+              position (locked 2026-05-08 from device QA, M4b-8
+              extension). Sits inside the coupon stack between
+              RedemptionDetailsCard and the coupon body card.
+              Once redeemed, the most-asked-question copy varies by
+              voucher type:
+                • cycle voucher → CycleRulesCard ("Renews on …")
+                • TIME_LIMITED  → TimeLimitedDetailsCard (schedule
+                                  + "Next available" copy)
+              Both mount sites (in-stack here, out-of-stack below)
               are mutually exclusive via `stateKey` so the card never
               renders twice. */}
-          {stateKey === 'redeemed-this-cycle' ? (
+          {isRedeemedState ? (
             <View style={styles.redeemedCycleInStack}>
-              <CycleRulesCard
-                isMultiBranch={isMultiBranch}
-                availableAgainAt={voucher.availableAgainAt}
-                isRedeemed
-              />
+              {voucher.type === 'TIME_LIMITED' ? (
+                <TimeLimitedDetailsCard
+                  scheduleString={formatScheduleString(voucher.availabilityWindows)}
+                  expiryDate={voucher.expiryDate}
+                  windowState={timeLimited.windowState}
+                  currentWindowEndsAt={voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null}
+                  nextWindowStartsAt={voucher.nextWindow ? new Date(voucher.nextWindow.startsAt) : null}
+                />
+              ) : (
+                <CycleRulesCard
+                  isMultiBranch={isMultiBranch}
+                  availableAgainAt={voucher.availableAgainAt}
+                  isRedeemed
+                />
+              )}
             </View>
           ) : null}
 
@@ -1415,12 +1508,41 @@ export function VoucherDetailScreen() {
             ONE visual treatment (stamped voucher) rather than two
             redundant indicators. */}
 
-        {timeLimited.isTimeLimited ? (
+        {/* TIME_LIMITED post-coupon stack — fixed visual order (locked
+            2026-05-11 from Gate F owner review):
+              1. coupon body (above)
+              2. FrostedCountdown   ← richer hero/secondary countdown FIRST
+              3. TimeLimitedBanner  ← explanatory banner SECOND
+              4. TimeLimitedDetailsCard + MerchantRow etc. (below)
+            M4b-9: both surfaces are suppressed for free users (no urgency
+            theatre for someone who can't redeem) AND in redeemed state
+            (the seal + persisted RedemptionDetailsCard carry the post-
+            redemption messaging). TimeLimitedDetailsCard stays mounted
+            unconditionally because schedule + usage rule are informational
+            for free users too. Regression pin: voucher-detail-states.test.tsx
+            'renders FrostedCountdown BEFORE TimeLimitedBanner'. */}
+        {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
+          <View style={styles.frostedCountdownWrap}>
+            <FrostedCountdown
+              windowState={timeLimited.windowState}
+              now={new Date()}
+              boundaryAt={
+                (timeLimited.windowState === 'active' || timeLimited.windowState === 'urgent')
+                  ? (voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null)
+                  : (voucher.nextWindow    ? new Date(voucher.nextWindow.startsAt)  : null)
+              }
+              scheduleString={formatScheduleString(voucher.availabilityWindows)}
+            />
+          </View>
+        ) : null}
+
+        {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
           <View style={styles.tlBanner}>
             <TimeLimitedBanner
-              isCurrentlyAvailable={timeLimited.isCurrentlyAvailable}
-              isUrgent={timeLimited.isUrgent}
-              minutesRemaining={timeLimited.minutesRemaining}
+              windowState={timeLimited.windowState}
+              scheduleString={formatScheduleString(voucher.availabilityWindows)}
+              currentWindowEndsAt={voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null}
+              nextWindowStartsAt={voucher.nextWindow ? new Date(voucher.nextWindow.startsAt) : null}
             />
           </View>
         ) : null}
@@ -1446,22 +1568,36 @@ export function VoucherDetailScreen() {
                                              persisted sources are
                                              null (defensive).
         */}
-        {/* CycleRulesCard — NON-REDEEMED-STATE position (locked
-            2026-05-08 from device QA). Sits between the coupon body
-            card and MerchantRow so the cycle rule + renewal date are
-            visible BEFORE the user hits the redeem CTA. The
-            redeemed-state mount-site is inside the coupon stack
-            (above). The two mount sites are mutually exclusive via
-            `stateKey`. The card itself early-returns when
-            availableAgainAt is null (free users / guests / non-active
-            subscriptions), so we pass through unconditionally and
-            let the card decide. */}
-        {stateKey !== 'redeemed-this-cycle' ? (
-          <CycleRulesCard
-            isMultiBranch={isMultiBranch}
-            availableAgainAt={voucher.availableAgainAt}
-            isRedeemed={false}
-          />
+        {/* CycleRulesCard / TimeLimitedDetailsCard — NON-REDEEMED-STATE
+            position (locked 2026-05-08 from device QA, M4b-8
+            extension). Sits between the coupon body card and
+            MerchantRow so the rule + dates are visible BEFORE the
+            user hits the redeem CTA.
+              • cycle voucher → CycleRulesCard (early-returns if
+                                availableAgainAt is null, so free
+                                users / guests show nothing).
+              • TIME_LIMITED  → TimeLimitedDetailsCard with the
+                                schedule + window-state-aware copy.
+            Both redeemed-state mount-sites are inside the coupon
+            stack (above). Mutually exclusive via `isRedeemedState`. */}
+        {!isRedeemedState ? (
+          voucher.type === 'TIME_LIMITED' && timeLimited.windowState !== 'no-windows' ? (
+            <View style={styles.tlDetailsCardWrap}>
+              <TimeLimitedDetailsCard
+                scheduleString={formatScheduleString(voucher.availabilityWindows)}
+                expiryDate={voucher.expiryDate}
+                windowState={timeLimited.windowState}
+                currentWindowEndsAt={voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null}
+                nextWindowStartsAt={voucher.nextWindow ? new Date(voucher.nextWindow.startsAt) : null}
+              />
+            </View>
+          ) : (
+            <CycleRulesCard
+              isMultiBranch={isMultiBranch}
+              availableAgainAt={voucher.availableAgainAt}
+              isRedeemed={false}
+            />
+          )
         ) : null}
 
         <MerchantRow
@@ -1469,20 +1605,20 @@ export function VoucherDetailScreen() {
           merchantLogoUrl={voucher.merchant.logoUrl}
           merchantDescriptor={merchantDescriptor}
           branchName={
-            stateKey === 'redeemed-this-cycle' && lastRedemptionBranch
+            isRedeemedState && lastRedemptionBranch
               ? lastRedemptionBranch.name
               : branchName
           }
           branchDistanceMeters={
-            stateKey === 'redeemed-this-cycle' && lastRedemptionBranch
+            isRedeemedState && lastRedemptionBranch
               ? lastRedemptionBranch.distance
               : branchDistance
           }
           isMultiBranch={isMultiBranch}
           onChangeBranch={handleChangeBranch}
-          disableChangeBranch={stateKey === 'redeemed-this-cycle'}
+          disableChangeBranch={isRedeemedState}
           mode={
-            stateKey === 'redeemed-this-cycle'
+            isRedeemedState
               ? (lastRedemptionBranch ? 'redeemed-known' : 'redeemed-unknown')
               : 'redeem'
           }
@@ -1542,13 +1678,37 @@ export function VoucherDetailScreen() {
 
       {cta ? (
         <View style={[styles.ctaWrap, { paddingBottom: insets.bottom + 16 }]}>
-          <RedeemCTA
-            label={cta.label}
-            disabled={cta.disabled}
-            variant={cta.variant}
-            onPress={handleCTA}
-            testID={cta.testID}
-          />
+          {cta.variant === 'disabled-window' ? (
+            // M4b-8: TIME_LIMITED unavailable-today / unavailable-future-day
+            // disabled-navy two-line CTA. The standard <RedeemCTA> only
+            // knows 'primary' | 'subscribe'; rendering the new variant
+            // here inline keeps the existing component focused on the
+            // two active CTA paths while giving the unavailable state
+            // its own visual register (navy not red, supports a
+            // schedule subline).
+            <View
+              style={styles.ctaDisabledNavy}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: true }}
+              accessibilityLabel={cta.label}
+              testID={cta.testID}
+            >
+              <Text variant="heading.sm" style={styles.ctaDisabledNavyTitle}>{cta.label}</Text>
+              {cta.scheduleSubline ? (
+                <Text variant="label.md" style={styles.ctaDisabledNavySub}>
+                  {cta.scheduleSubline}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <RedeemCTA
+              label={cta.label}
+              disabled={cta.disabled}
+              variant={cta.variant}
+              onPress={handleCTA}
+              testID={cta.testID}
+            />
+          )}
         </View>
       ) : null}
 
@@ -1855,6 +2015,18 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginHorizontal: 22,
   },
+  // FrostedCountdown wrapper — same horizontal margin as the banner.
+  // The component itself owns marginTop:14 internally, matching the
+  // banner's rhythm.
+  frostedCountdownWrap: {
+    marginHorizontal: 22,
+  },
+  // TimeLimitedDetailsCard wrapper (M4b-8). Card has its own
+  // marginTop:14 internally; only the horizontal inset is needed
+  // to align with CycleRulesCard / sibling cards on the page.
+  tlDetailsCardWrap: {
+    marginHorizontal: 22,
+  },
 
   // RedemptionDetailsCard wrapper — INSIDE the coupon stack between
   // hero+perforation and coupon body. Locked 2026-05-08 spacing
@@ -1940,6 +2112,30 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: -3 },
     elevation: 5,
+  },
+
+  // ── Disabled-window CTA (M4b-8) ─────────────────────────────────────
+  // Navy two-line static block used by the TIME_LIMITED
+  // unavailable-today / unavailable-future-day states. Not a Pressable —
+  // there's no action to take, the schedule subline tells the user
+  // when to come back. Sits inside the same ctaWrap as the standard
+  // <RedeemCTA>, so it inherits the wrap's safe-area padding and
+  // top-shadow rhythm.
+  ctaDisabledNavy: {
+    backgroundColor: '#0A1B3A',  // brand navy
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    marginHorizontal: 22,
+  },
+  ctaDisabledNavyTitle: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  ctaDisabledNavySub: {
+    color: 'rgba(255,255,255,0.78)',
+    marginTop: 2,
   },
 
   // ── Loading + error ─────────────────────────────────────────────────

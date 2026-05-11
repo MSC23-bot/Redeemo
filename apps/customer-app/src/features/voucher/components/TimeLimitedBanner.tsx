@@ -2,77 +2,108 @@ import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Clock } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
+import type { WindowState } from '@/features/voucher/utils/timeLimitedWindow'
+import { formatClockTime } from '@/features/voucher/utils/countdownFormat'
 
 type Props = {
-  isCurrentlyAvailable: boolean
-  isUrgent: boolean
-  minutesRemaining: number | null
+  windowState: WindowState
+  scheduleString: string
+  currentWindowEndsAt?: Date | null
+  nextWindowStartsAt?: Date | null
 }
 
 /**
- * Time-limited voucher banner. Sits beneath the coupon when voucher is
- * TIME_LIMITED type, surfaces availability + countdown info.
+ * Banner-below-coupon for TIME_LIMITED voucher state (M4b-5).
  *
- * **M1 LIMITATION:** the backend doesn't currently surface
- * availableFrom / availableUntil window data per voucher (see
- * useTimeLimited.ts module header). The banner renders a simple
- * "Time-limited voucher" notice. When backend ships the window
- * fields, this banner will switch to a real countdown / urgency /
- * unavailable variant per the original 3C.1c design.
+ * Spec §5.4 banner-below-coupon copy:
+ *  - active     → calm amber "Available Now" + per-window-rule body
+ *  - urgent     → coral "Window Closing Soon" + clock-time copy
+ *  - unavailable-* → calm blue "Not Currently Available" + schedule
+ *  - no-windows / expired / unknown → renders nothing
+ *
+ * PRODUCT.md anti-Groupon tone — NO "Hurry!" / "Last Chance!" copy.
+ * Urgency is signalled by colour + the "closing soon" framing only.
  */
 export function TimeLimitedBanner({
-  isCurrentlyAvailable, isUrgent, minutesRemaining,
+  windowState, scheduleString, currentWindowEndsAt, nextWindowStartsAt,
 }: Props) {
-  // Single-state banner for M1 (backend window data missing). When
-  // data lands, fork into 3 variants per states 5/6/7.
-  if (isCurrentlyAvailable && isUrgent && minutesRemaining != null) {
+  if (windowState === 'active') {
+    return (
+      <View style={[styles.root, styles.active]} testID="time-limited-banner-active">
+        <View style={[styles.iconBox, styles.iconActive]}>
+          <Clock size={14} color="#FFFFFF" />
+        </View>
+        <View style={styles.body}>
+          <Text variant="label.md" style={styles.titleActive}>Available Now</Text>
+          <Text variant="body.sm" style={styles.copyActive}>
+            Redeem within today's window. You can use this offer once each window.
+          </Text>
+        </View>
+      </View>
+    )
+  }
+
+  if (windowState === 'urgent') {
+    const endsAtCopy = currentWindowEndsAt ? ` ends at ${formatClockTime(currentWindowEndsAt)}` : ''
     return (
       <View style={[styles.root, styles.urgent]} testID="time-limited-banner-urgent">
-        <Clock size={14} color="#92400E" />
-        <Text variant="label.md" style={[styles.text, { color: '#92400E' }]}>
-          Hurry, {minutesRemaining} min left
-        </Text>
+        <View style={[styles.iconBox, styles.iconUrgent]}>
+          <Clock size={14} color="#FFFFFF" />
+        </View>
+        <View style={styles.body}>
+          <Text variant="label.md" style={styles.titleUrgent}>Window Closing Soon</Text>
+          <Text variant="body.sm" style={styles.copyUrgent}>
+            Today's window{endsAtCopy}. Other windows are still available.
+          </Text>
+        </View>
       </View>
     )
   }
-  if (!isCurrentlyAvailable) {
+
+  if (windowState === 'unavailable-today' || windowState === 'unavailable-future-day') {
     return (
       <View style={[styles.root, styles.unavailable]} testID="time-limited-banner-unavailable">
-        <Clock size={14} color="#7F1D1D" />
-        <Text variant="label.md" style={[styles.text, { color: '#7F1D1D' }]}>
-          Currently unavailable
-        </Text>
+        <View style={[styles.iconBox, styles.iconUnavail]}>
+          <Clock size={14} color="#FFFFFF" />
+        </View>
+        <View style={styles.body}>
+          <Text variant="label.md" style={styles.titleUnavail}>Not Currently Available</Text>
+          <Text variant="body.sm" style={styles.copyUnavail}>
+            This voucher can be redeemed {scheduleString}.
+          </Text>
+        </View>
       </View>
     )
   }
-  return (
-    <View style={[styles.root, styles.available]} testID="time-limited-banner-available">
-      <Clock size={14} color="#92400E" />
-      <Text variant="label.md" style={[styles.text, { color: '#92400E' }]}>
-        Time-limited voucher
-      </Text>
-    </View>
-  )
+
+  // 'no-windows' / unknown → render nothing (state machine should never reach this)
+  return null
 }
 
 const styles = StyleSheet.create({
   root: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    alignSelf: 'flex-start',
-    marginHorizontal: 16,
-    marginTop: 8,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    padding: 12, borderRadius: 10, marginTop: 14,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  available:   { backgroundColor: '#FEF3C7' },
-  urgent:      { backgroundColor: '#FED7AA' },
-  unavailable: { backgroundColor: '#FEE2E2' },
-  text: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.2,
+  iconBox: {
+    width: 28, height: 28, borderRadius: 6,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
+  body: { flex: 1 },
+
+  active:        { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' },
+  iconActive:    { backgroundColor: '#D97706' },
+  titleActive:   { color: '#92400E', fontWeight: '800' },
+  copyActive:    { color: '#92400E', marginTop: 2 },
+
+  urgent:        { backgroundColor: '#FED7AA', borderColor: '#FB923C' },
+  iconUrgent:    { backgroundColor: '#EA580C' },
+  titleUrgent:   { color: '#9A3412', fontWeight: '800' },
+  copyUrgent:    { color: '#9A3412', marginTop: 2 },
+
+  unavailable:   { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+  iconUnavail:   { backgroundColor: '#2563EB' },
+  titleUnavail:  { color: '#1E40AF', fontWeight: '800' },
+  copyUnavail:   { color: '#1E40AF', marginTop: 2 },
 })

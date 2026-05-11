@@ -246,11 +246,29 @@ describe('VoucherDetailScreen — state machine', () => {
     expect(getByTestId('redeem-cta-expired')).toBeTruthy()
   })
 
-  it('renders TIME_LIMITED variant with banner + active CTA (M1 stub: collapses to available)', () => {
-    mockVoucherData = { ...baseVoucher(), type: 'TIME_LIMITED' }
+  it('renders TIME_LIMITED variant with banner + active CTA (M4b-8: post-stub real state machine)', () => {
+    // Replaces the old M1-stub assertion (`time-limited-available`).
+    // M4b-8 renames the active state to `time-limited-active` and drives
+    // it from real `currentWindow` + `availabilityWindows` payload via
+    // the M4b-4 useTimeLimited hook. The minimal fixture below produces
+    // a window that is currently open with > 60min remaining → 'active'.
+    const futureISO = (minutes: number): string =>
+      new Date(Date.now() + minutes * 60_000).toISOString()
+    const pastISO = (minutes: number): string =>
+      new Date(Date.now() - minutes * 60_000).toISOString()
+    mockVoucherData = {
+      ...baseVoucher(),
+      type: 'TIME_LIMITED',
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: { startsAt: pastISO(30), endsAt: futureISO(120) },
+      nextWindow: { startsAt: futureISO(24 * 60), endsAt: futureISO(24 * 60 + 120) },
+      redeemedWindow: null,
+      isRedeemedThisCycle: false,
+      availableAgainAt: null,
+    }
     const { getByTestId } = wrap(<VoucherDetailScreen />)
-    expect(getByTestId('voucher-detail-state-time-limited-available')).toBeTruthy()
-    expect(getByTestId('time-limited-banner-available')).toBeTruthy()
+    expect(getByTestId('voucher-detail-state-time-limited-active')).toBeTruthy()
+    expect(getByTestId('time-limited-banner-active')).toBeTruthy()
     expect(getByTestId('redeem-cta-active')).toBeTruthy()
   })
 
@@ -270,6 +288,172 @@ describe('VoucherDetailScreen — state machine', () => {
     mockVoucherData = { ...baseVoucher(), isRedeemedThisCycle: true }
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     expect(getByTestId('voucher-detail-state-redeemed-this-cycle')).toBeTruthy()
+  })
+})
+
+// ── TIME_LIMITED state machine (M4b-8) ───────────────────────────────
+
+describe('VoucherDetailScreen — TIME_LIMITED state machine (M4b-8)', () => {
+  // Helpers — relative ISO timestamps using Date.now() so tests are
+  // deterministic regardless of wall clock.
+  function futureISO(minutes: number): string {
+    return new Date(Date.now() + minutes * 60_000).toISOString()
+  }
+  function pastISO(minutes: number): string {
+    return new Date(Date.now() - minutes * 60_000).toISOString()
+  }
+
+  // Base TIME_LIMITED voucher fixture — extends baseVoucher() with
+  // an active recurring window (Mon-Fri 11-15) and a "now is inside
+  // the current window" currentWindow block.
+  function tlVoucher(overrides: any = {}): any {
+    return {
+      ...baseVoucher(),
+      type: 'TIME_LIMITED' as const,
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: { startsAt: pastISO(30), endsAt: futureISO(120) },
+      nextWindow:    { startsAt: futureISO(24 * 60), endsAt: futureISO(24 * 60 + 120) },
+      redeemedWindow: null,
+      // M4a contract: TIME_LIMITED always returns isRedeemedThisCycle=false
+      isRedeemedThisCycle: false,
+      // M4a contract: TIME_LIMITED always returns availableAgainAt=null
+      availableAgainAt: null,
+      ...overrides,
+    }
+  }
+
+  it('time-limited-active state: 2h remaining → active state key + FrostedCountdown + amber TimeLimitedBanner', () => {
+    mockVoucherData = tlVoucher()
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-state-time-limited-active')).toBeTruthy()
+    expect(getByTestId('vd-frosted-countdown')).toBeTruthy()
+    expect(getByTestId('time-limited-banner-active')).toBeTruthy()
+    expect(getByTestId('redeem-cta-active')).toBeTruthy()
+  })
+
+  it('renders FrostedCountdown BEFORE TimeLimitedBanner in DOM order (visual-hierarchy lock)', () => {
+    // Locked 2026-05-11 from Gate F owner review: the richer countdown
+    // surface MUST render first; the explanatory banner follows. The two
+    // mount-blocks are adjacent in VoucherDetailScreen.tsx — if a future
+    // refactor swaps them this assertion fires. Implementation walks the
+    // serialised tree from the test renderer because testing-library
+    // doesn't expose a "before/after" matcher; sibling-order via the
+    // serialised JSON is bulletproof and dependency-free.
+    mockVoucherData = tlVoucher()
+    const { toJSON } = wrap(<VoucherDetailScreen />)
+    const tree = JSON.stringify(toJSON())
+    const frostedIdx = tree.indexOf('"vd-frosted-countdown"')
+    const bannerIdx  = tree.indexOf('"time-limited-banner-active"')
+    expect(frostedIdx).toBeGreaterThan(-1)
+    expect(bannerIdx).toBeGreaterThan(-1)
+    expect(frostedIdx).toBeLessThan(bannerIdx)
+  })
+
+  it('time-limited-urgent state: 30min remaining → urgent state key + urgent banner variant', () => {
+    mockVoucherData = tlVoucher({
+      currentWindow: { startsAt: pastISO(60), endsAt: futureISO(30) },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-state-time-limited-urgent')).toBeTruthy()
+    expect(getByTestId('time-limited-banner-urgent')).toBeTruthy()
+    expect(getByTestId('redeem-cta-active')).toBeTruthy()
+  })
+
+  it('time-limited-unavailable-today state: no current window, nextWindow later today → disabled-navy CTA + blue banner', () => {
+    mockVoucherData = tlVoucher({
+      currentWindow: null,
+      nextWindow: { startsAt: futureISO(180), endsAt: futureISO(180 + 60) },
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-state-time-limited-unavailable-today')).toBeTruthy()
+    expect(getByTestId('time-limited-banner-unavailable')).toBeTruthy()
+    expect(getByTestId('redeem-cta-unavailable-window')).toBeTruthy()
+    // No active redeem CTA + no frosted countdown for unavailable states
+    // (countdown still shows in the supporting "Starts at" form but the
+    // primary disabled CTA is the dominant message).
+    expect(queryByTestId('redeem-cta-active')).toBeNull()
+  })
+
+  it('time-limited-unavailable-future-day state: no current window, nextWindow > 24h → same disabled-navy CTA', () => {
+    mockVoucherData = tlVoucher({
+      currentWindow: null,
+      nextWindow: { startsAt: futureISO(2 * 24 * 60), endsAt: futureISO(2 * 24 * 60 + 240) },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-state-time-limited-unavailable-future-day')).toBeTruthy()
+    expect(getByTestId('redeem-cta-unavailable-window')).toBeTruthy()
+  })
+
+  it('redeemed-this-window state: TIME_LIMITED + redeemedWindow set → state key flips, hero seal renders', () => {
+    mockVoucherData = tlVoucher({
+      redeemedWindow: { startsAt: pastISO(60), endsAt: futureISO(120) },
+      lastRedemption: {
+        code: 'A7K2P9X4',
+        redeemedAt: pastISO(30),
+        branch: { id: 'CORRECT-SB', name: 'CorrectSB' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    // State key per spec §5.1: mirrors `redeemed-this-cycle` for cycle
+    // vouchers — `redeemed-this-window` for TIME_LIMITED. The hero seal
+    // surface is identical in both redeemed states; the subtitle source
+    // differs (see the "Available again in" / "Renews on" tests below).
+    expect(getByTestId('voucher-detail-state-redeemed-this-window')).toBeTruthy()
+    expect(getByTestId('voucher-detail-hero-seal')).toBeTruthy()
+  })
+
+  it('expired-precedes-redeemed-window (D4 lock): expired voucher + TIME_LIMITED + redeemedWindow set → expired wins', () => {
+    mockVoucherData = tlVoucher({
+      expiryDate: pastISO(10),
+      redeemedWindow: { startsAt: pastISO(120), endsAt: futureISO(60) },
+      lastRedemption: {
+        code: 'A7K2P9X4',
+        redeemedAt: pastISO(120),
+        branch: { id: 'CORRECT-SB', name: 'CorrectSB' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-state-expired')).toBeTruthy()
+    expect(queryByTestId('voucher-detail-state-redeemed-this-window')).toBeNull()
+    expect(queryByTestId('voucher-detail-hero-seal')).toBeNull()
+  })
+
+  it('RedeemedSeal subtitle reads "Available again in …" for TIME_LIMITED (sourced from nextWindow.startsAt)', () => {
+    mockVoucherData = tlVoucher({
+      redeemedWindow: { startsAt: pastISO(180), endsAt: pastISO(0) },
+      lastRedemption: {
+        code: 'A7K2P9X4',
+        redeemedAt: pastISO(60),
+        branch: { id: 'CORRECT-SB', name: 'CorrectSB' },
+        isValidated: false,
+        validatedAt: null,
+      },
+      currentWindow: null,
+      nextWindow: { startsAt: futureISO(18 * 60 + 24), endsAt: futureISO(18 * 60 + 24 + 240) },
+    })
+    const { getByText } = wrap(<VoucherDetailScreen />)
+    expect(getByText(/Available again in/)).toBeTruthy()
+  })
+
+  it('RedeemedSeal subtitle reads "Renews on …" for non-TIME_LIMITED (sourced from availableAgainAt) — unchanged', () => {
+    mockVoucherData = {
+      ...baseVoucher(),
+      isRedeemedThisCycle: true,
+      availableAgainAt: futureISO(28 * 24 * 60),
+      lastRedemption: {
+        code: 'B7K2P9X4',
+        redeemedAt: pastISO(60),
+        branch: { id: 'CORRECT-SB', name: 'CorrectSB' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    }
+    const { getByText } = wrap(<VoucherDetailScreen />)
+    expect(getByText(/Renews on/)).toBeTruthy()
   })
 })
 

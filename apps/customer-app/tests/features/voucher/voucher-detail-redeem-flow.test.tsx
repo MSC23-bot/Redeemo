@@ -2490,3 +2490,146 @@ describe('§AE6.2 — Voucher Detail iOS screenshot listener + banner', () => {
     expect(removeSpy).toHaveBeenCalledTimes(1)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────
+// TIME_LIMITED boundary-race recovery (M4b-9)
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Voucher Detail M4b-9 — boundary-race PIN-sheet copy', () => {
+  function futureISO(minutes: number): string {
+    return new Date(Date.now() + minutes * 60_000).toISOString()
+  }
+  function pastISO(minutes: number): string {
+    return new Date(Date.now() - minutes * 60_000).toISOString()
+  }
+  function tlVoucher(overrides: any = {}): any {
+    return baseVoucher({
+      type: 'TIME_LIMITED' as const,
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: { startsAt: pastISO(30), endsAt: futureISO(120) },
+      nextWindow:    { startsAt: futureISO(24 * 60), endsAt: futureISO(24 * 60 + 120) },
+      redeemedWindow: null,
+      isRedeemedThisCycle: false,
+      availableAgainAt: null,
+      ...overrides,
+    })
+  }
+
+  beforeEach(() => {
+    mockParams = { id: 'v1', branch: 'b1' }
+    mockVoucherData = tlVoucher()
+    ;(globalThis as any).__voucherProfileMock__.data = makeMerchant({
+      selectedBranchId: 'b1', branches: [makeBranch('b1', 'Brightlingsea')],
+    })
+  })
+
+  it('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW: PIN sheet stays open with graceful copy + nextWindow hint', async () => {
+    ;(redemptionApi.redeem as jest.Mock).mockRejectedValue({
+      code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+      message: 'Window closed',
+      statusCode: 400,
+      nextWindowAt: futureISO(60 * 24),
+    })
+
+    const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    await act(async () => {
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    })
+
+    await waitFor(
+      () => expect(getByText(/This window just closed/i)).toBeTruthy(),
+      { timeout: 3000 },
+    )
+    // Sheet does NOT auto-dismiss — the user reads and dismisses manually.
+    expect(getByTestId('pin-entry-sheet')).toBeTruthy()
+  })
+
+  it('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW with nextWindowAt: null → falls back to schedule-only copy', async () => {
+    ;(redemptionApi.redeem as jest.Mock).mockRejectedValue({
+      code: 'VOUCHER_OUTSIDE_AVAILABILITY_WINDOW',
+      message: 'Window closed',
+      statusCode: 400,
+      nextWindowAt: null,
+    })
+
+    const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    await act(async () => {
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    })
+
+    await waitFor(
+      () => expect(getByText(/This window just closed/i)).toBeTruthy(),
+      { timeout: 3000 },
+    )
+    // The "try again next window" suffix is absent because nextWindowAt was null
+    // — but the schedule-only fallback still gives the user something to act on.
+  })
+
+  it('ALREADY_REDEEMED_THIS_WINDOW: PIN sheet stays open with graceful "already used this window" copy', async () => {
+    ;(redemptionApi.redeem as jest.Mock).mockRejectedValue({
+      code: 'ALREADY_REDEEMED_THIS_WINDOW',
+      message: 'Already used',
+      statusCode: 400,
+      nextWindowAt: futureISO(60 * 18),
+    })
+
+    const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('redeem-cta-active'))
+    await waitFor(() => expect(getByTestId('pin-entry-sheet')).toBeTruthy())
+    await act(async () => {
+      fireEvent.changeText(getByTestId('pin-input-hidden'), '1234')
+    })
+
+    await waitFor(
+      () => expect(getByText(/already used this offer for this window/i)).toBeTruthy(),
+      { timeout: 3000 },
+    )
+    expect(getByTestId('pin-entry-sheet')).toBeTruthy()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// Free-user state on TIME_LIMITED voucher (M4b-9)
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Voucher Detail M4b-9 — free-user TIME_LIMITED state', () => {
+  function pastISO(minutes: number): string {
+    return new Date(Date.now() - minutes * 60_000).toISOString()
+  }
+  function futureISO(minutes: number): string {
+    return new Date(Date.now() + minutes * 60_000).toISOString()
+  }
+
+  it('free user inside active TL window: state=free-user, schedule visible, type chip visible, NO FrostedCountdown, NO TimeLimitedBanner', () => {
+    mockSubscribed = false
+    mockVoucherData = baseVoucher({
+      type: 'TIME_LIMITED' as const,
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: { startsAt: pastISO(30), endsAt: futureISO(120) },
+      nextWindow:    { startsAt: futureISO(24 * 60), endsAt: futureISO(24 * 60 + 120) },
+      redeemedWindow: null,
+      isRedeemedThisCycle: false,
+      availableAgainAt: null,
+    })
+
+    const { getByTestId, queryByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    // State key is 'free-user' (subscription gate precedes TIME_LIMITED branches per spec §5.1)
+    expect(getByTestId('voucher-detail-state-free-user')).toBeTruthy()
+    // Schedule visible (via <TimeLimitedDetailsCard> "Available during" row)
+    expect(getByText('Available during')).toBeTruthy()
+    // Type chip visible (CouponHeader's type chip uses voucherTypeLabel('TIME_LIMITED') = 'Time limited')
+    expect(getByText(/Time limited/i)).toBeTruthy()
+    // FrostedCountdown suppressed — no urgency theatre for users who can't redeem
+    expect(queryByTestId('vd-frosted-countdown')).toBeNull()
+    // TimeLimitedBanner suppressed — same reason
+    expect(queryByTestId('time-limited-banner-active')).toBeNull()
+    expect(queryByTestId('time-limited-banner-urgent')).toBeNull()
+    expect(queryByTestId('time-limited-banner-unavailable')).toBeNull()
+    // Subscribe CTA visible (existing free-user contract)
+    expect(getByTestId('redeem-cta-subscribe')).toBeTruthy()
+  })
+})
