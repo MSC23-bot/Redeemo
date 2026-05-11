@@ -19,18 +19,18 @@ import {
  * (Phase C wiring). Renders a frosted card over the voucher's
  * type-coloured gradient.
  *
- * State handling:
- *   • active           → eyebrow "Available now"   | primary closing duration   | supporting "Ends … today"
- *   • urgent           → eyebrow "Closing soon"    | primary closing duration   | supporting "Ends … today"
+ * State handling (TL wording amendment 2026-05-11 D1/D2/D3/D4):
+ *   • active           → eyebrow "Available now"        | primary closing duration   | supporting "Window ends … today"
+ *   • urgent           → eyebrow "Ending soon"          | primary closing duration   | supporting "Window ends … today"
  *   • unavailable-today
- *       ≥1h to open    → eyebrow "Opens today"     | primary opening duration   | supporting "Opens … today"
- *       <1h to open    → eyebrow "Opening soon"    | primary opening duration   | supporting "Opens … today"
+ *       ≥1h to open    → eyebrow "Available later today"| primary opening duration   | supporting "Available from … today"
+ *       <1h to open    → eyebrow "Available soon"       | primary opening duration   | supporting "Available from … today"
  *   • unavailable-future-day
- *       ≥1h to open    → eyebrow "Opens <Day>"     | primary opening duration   | supporting "<Day> …" or "Opens … tomorrow"
- *       <1h to open    → eyebrow "Opening soon"    | primary opening duration   | supporting "Opens … tomorrow"  (midnight-cross)
+ *       ≥1h to open    → eyebrow "Available <Day>"      | primary opening duration   | supporting "Available from <Day> …" or "Available from … tomorrow"
+ *       <1h to open    → eyebrow "Available soon"       | primary opening duration   | supporting "Available from … tomorrow"  (midnight-cross)
  *   • redeemed-this-window
- *       ≥1h to next    → eyebrow "Available again" | primary available-again    | supporting clock
- *       <1h to next    → eyebrow "Almost back"     | primary available-again    | supporting clock
+ *       ≥1h to next    → eyebrow "Available again"      | primary available-again    | supporting "Available again from … "
+ *       <1h to next    → eyebrow "Available soon"       | primary available-again    | supporting "Available again from … "
  *   • no-windows / expired → render null
  *
  * Progress bar lands in B.2; a11y live-region + reduced motion in B.3;
@@ -138,8 +138,9 @@ function isUnderOneHourTick(props: HeroStatusBlockProps): boolean {
  *
  * For ≥1h active the eyebrow is "Available now" → label "Voucher
  * available now". For ≥1h opening / available-again the eyebrow is
- * already the natural announcement ("Opens today" / "Opens tomorrow" /
- * "Opens <Weekday>" / "Available again") so it's used verbatim.
+ * already the natural announcement ("Available later today" /
+ * "Available tomorrow" / "Available <Weekday>" / "Available again") so
+ * it's used verbatim (TL wording amendment 2026-05-11).
  *
  * Returns null when no label should be announced (hidden states,
  * defensive null inputs).
@@ -163,8 +164,8 @@ function deriveLiveRegionLabel(props: HeroStatusBlockProps, content: Content): s
     if (msToOpen === null) return null
     const coarse = formatOpeningA11y(msToOpen)
     if (coarse !== null) return coarse
-    // ≥1h band: use the eyebrow directly ("Opens today" / "Opens tomorrow" /
-    // "Opens <Weekday>").
+    // ≥1h band: use the eyebrow directly ("Available later today" /
+    // "Available tomorrow" / "Available <Weekday>").
     return content.eyebrow
   }
 
@@ -234,14 +235,14 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
     case 'urgent': {
       if (currentWindowEndsAt === null || msToClose === null) return null
       return {
-        eyebrow:    'Closing soon',
+        eyebrow:    'Ending soon',
         primary:    formatDuration(msToClose),
         supporting: formatSupportingClock(currentWindowEndsAt, now, 'Window ends'),
       }
     }
     case 'unavailable-today': {
       if (nextWindowStartsAt === null || msToOpen === null) return null
-      const eyebrow = msToOpen < ONE_HOUR_MS ? 'Opening soon' : 'Opens today'
+      const eyebrow = msToOpen < ONE_HOUR_MS ? 'Available soon' : 'Available later today'
       return {
         eyebrow,
         primary:    formatDuration(msToOpen),
@@ -251,8 +252,8 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
     case 'unavailable-future-day': {
       if (nextWindowStartsAt === null || msToOpen === null) return null
       const eyebrow = msToOpen < ONE_HOUR_MS
-        ? 'Opening soon'
-        : `Opens ${eyebrowDayLabel(nextWindowStartsAt, now)}`
+        ? 'Available soon'
+        : `Available ${eyebrowDayLabel(nextWindowStartsAt, now)}`
       return {
         eyebrow,
         primary:    formatDuration(msToOpen),
@@ -261,7 +262,7 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
     }
     case 'redeemed-this-window': {
       if (nextWindowStartsAt === null || msToOpen === null) return null
-      const eyebrow = msToOpen < ONE_HOUR_MS ? 'Almost back' : 'Available again'
+      const eyebrow = msToOpen < ONE_HOUR_MS ? 'Available soon' : 'Available again'
       return {
         eyebrow,
         primary:    formatDuration(msToOpen),

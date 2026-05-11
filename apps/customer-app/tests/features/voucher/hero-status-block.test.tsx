@@ -62,7 +62,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={null}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Closing soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Ending soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('42m 15s')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Window ends 1:42pm today')
   })
@@ -81,7 +81,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={null}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Closing soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Ending soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('47s')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Window ends 1pm today')
   })
@@ -99,7 +99,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={4 * 3_600_000}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opens today')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available later today')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('4h 0m')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 5pm today')
   })
@@ -117,7 +117,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={42 * 60_000 + 15_000}                            // 42m 15s
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opening soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('42m 15s')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 1:42pm today')
   })
@@ -135,7 +135,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={47_000}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opening soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('47s')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 1pm today')
   })
@@ -153,7 +153,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={24 * 3_600_000}                                  // exactly 1 day
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opens tomorrow')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available tomorrow')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('1d 0h')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 1pm tomorrow')
   })
@@ -173,7 +173,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={13 * 3_600_000}                                  // 13 hours
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opens tomorrow')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available tomorrow')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('13h 0m')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 2am tomorrow')
   })
@@ -192,7 +192,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={5 * 24 * 3_600_000}                               // 5 days
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opens Saturday')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available Saturday')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('5d 0h')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from Saturday 1pm')
   })
@@ -213,7 +213,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={30 * 60_000}                                      // 30 minutes
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opening soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('30m 0s')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 12:15am tomorrow')
   })
@@ -249,7 +249,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={42 * 60_000 + 15_000}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Almost back')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('42m 15s')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 1:42pm today')
   })
@@ -267,7 +267,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={47_000}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Almost back')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('47s')
     expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 1pm today')
   })
@@ -326,7 +326,7 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
           msToOpen={targetUtc.getTime() - futureNow.getTime()}
         />,
       )
-      expect(getByTestId('hero-status-eyebrow')).toHaveTextContent(`Opens ${expectedDay}`)
+      expect(getByTestId('hero-status-eyebrow')).toHaveTextContent(`Available ${expectedDay}`)
       // Supporting line: "Available from <Weekday> <Hour><am/pm>" (TL wording
       // amendment 2026-05-11 D4 — verb prefix on future-day too). Regex
       // anchors on the weekday name within the prefixed phrase without
@@ -742,7 +742,7 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
       />,
     )
     const region = getByTestId('hero-status-live-region')
-    expect(region.props.accessibilityLabel).toBe('Opens today')
+    expect(region.props.accessibilityLabel).toBe('Available later today')
   })
 
   it('unavailable-future-day ≥1 day (Saturday): live-region label is "Opens Saturday"', () => {
@@ -758,7 +758,7 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
       />,
     )
     const region = getByTestId('hero-status-live-region')
-    expect(region.props.accessibilityLabel).toBe('Opens Saturday')
+    expect(region.props.accessibilityLabel).toBe('Available Saturday')
   })
 
   it('redeemed-this-window <1m: live-region label is "Available again in under a minute"', () => {

@@ -211,11 +211,11 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
 // No new row introduced.
 //
 // Copy (badge hierarchy): UPPERCASE state label · sentence-case detail.
-//   active   → "AVAILABLE NOW · Ends 3pm today"
-//   urgent   → "CLOSING SOON · 23m left"
-//   today    → "OPENS TODAY · 5pm"
-//   tomorrow → "OPENS TOMORROW · 12pm"
-//   future   → "OPENS WED · 12pm"
+//   active   → "AVAILABLE NOW · Until 3pm today"
+//   urgent   → "ENDING SOON · 23m left"
+//   today    → "AVAILABLE TODAY · From 5pm"
+//   tomorrow → "AVAILABLE TOMORROW · From 12pm"
+//   future   → "AVAILABLE WEDNESDAY · From 12pm"
 //
 // Pulse-dot animation reserved for active + urgent states only (D6 lock).
 // Redeemed-this-window TL cards: PR-B overprint preserved, no pill.
@@ -235,29 +235,29 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
 
   // ── State copy variants (badge hierarchy) ─────────────────────────
 
-  it('active TL (>60 min): "AVAILABLE NOW · Ends 3pm today" + green pulse-dot', () => {
+  it('active TL (>60 min): "AVAILABLE NOW · Until 3pm today" + green pulse-dot', () => {
     // now = 11:00 BST (10:00 UTC); endsAt = 3pm BST (14:00 UTC) = 4h remaining → active.
     const { getByTestId, getByText } = renderPill(
       { currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T14:00:00Z' } },
       new Date('2026-05-11T10:00:00Z'),
     )
     expect(getByTestId('merchant-card-pill-active')).toBeTruthy()
-    expect(getByText('AVAILABLE NOW · Ends 3pm today')).toBeTruthy()
+    expect(getByText('AVAILABLE NOW · Until 3pm today')).toBeTruthy()
     expect(getByTestId('merchant-card-pill-pulse-dot')).toBeTruthy()
   })
 
-  it('urgent TL (≤60 min): "CLOSING SOON · 23m left" + coral pulse-dot', () => {
+  it('urgent TL (≤60 min): "ENDING SOON · 23m left" + coral pulse-dot', () => {
     // now = 11:00 UTC; endsAt = 11:23 UTC = 23 min remaining → urgent.
     const { getByTestId, getByText } = renderPill(
       { currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T11:23:00Z' } },
       new Date('2026-05-11T11:00:00Z'),
     )
     expect(getByTestId('merchant-card-pill-urgent')).toBeTruthy()
-    expect(getByText('CLOSING SOON · 23m left')).toBeTruthy()
+    expect(getByText('ENDING SOON · 23m left')).toBeTruthy()
     expect(getByTestId('merchant-card-pill-pulse-dot')).toBeTruthy()
   })
 
-  it('outside-window today: "OPENS TODAY · 5pm" + no pulse-dot', () => {
+  it('outside-window today: "AVAILABLE TODAY · From 5pm" + no pulse-dot', () => {
     // now = 11:00 UTC = 12:00 BST. Next opens 16:00 UTC = 17:00 BST = "5pm".
     const { getByTestId, getByText, queryByTestId } = renderPill(
       {
@@ -267,11 +267,11 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       new Date('2026-05-11T11:00:00Z'),
     )
     expect(getByTestId('merchant-card-pill-unavailable-today')).toBeTruthy()
-    expect(getByText('OPENS TODAY · 5pm')).toBeTruthy()
+    expect(getByText('AVAILABLE TODAY · From 5pm')).toBeTruthy()
     expect(queryByTestId('merchant-card-pill-pulse-dot')).toBeNull()
   })
 
-  it('outside-window tomorrow: "OPENS TOMORROW · 12pm" + no pulse-dot', () => {
+  it('outside-window tomorrow: "AVAILABLE TOMORROW · From 12pm" + no pulse-dot', () => {
     // now = Mon 11:00 UTC = 12:00 BST. Next opens Tue 11:00 UTC = 12:00 BST.
     const { getByTestId, getByText, queryByTestId } = renderPill(
       {
@@ -281,11 +281,11 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       new Date('2026-05-11T11:00:00Z'),
     )
     expect(getByTestId('merchant-card-pill-unavailable-future-day')).toBeTruthy()
-    expect(getByText('OPENS TOMORROW · 12pm')).toBeTruthy()
+    expect(getByText('AVAILABLE TOMORROW · From 12pm')).toBeTruthy()
     expect(queryByTestId('merchant-card-pill-pulse-dot')).toBeNull()
   })
 
-  it('outside-window future-day: "OPENS WEDNESDAY · 12pm" (full uppercase day name + 12h)', () => {
+  it('outside-window future-day: "AVAILABLE WEDNESDAY · From 12pm" (full uppercase day name + 12h)', () => {
     // Owner-locked device QA round 3 2026-05-11: full day names beat
     // 3-letter abbreviations for user-friendliness. now = Mon 11:00 UTC;
     // next opens Wed 11:00 UTC → 12pm BST. Pill copy uses the full
@@ -298,7 +298,7 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       },
       new Date('2026-05-11T11:00:00Z'),
     )
-    expect(getByText('OPENS WEDNESDAY · 12pm')).toBeTruthy()
+    expect(getByText('AVAILABLE WEDNESDAY · From 12pm')).toBeTruthy()
   })
 
   it('outside-window future-day: works for all 7 weekday names (full spelling)', () => {
@@ -306,13 +306,13 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
     // `.slice(0, 3)` abbreviation. Test all 7 day names — each produces
     // its full uppercase form.
     const weekdayTests: Array<{ iso: string; expected: string }> = [
-      { iso: '2026-05-17T11:00:00Z', expected: 'OPENS SUNDAY · 12pm' },     // Sun
-      { iso: '2026-05-18T11:00:00Z', expected: 'OPENS MONDAY · 12pm' },     // Mon
-      { iso: '2026-05-19T11:00:00Z', expected: 'OPENS TUESDAY · 12pm' },    // Tue
-      { iso: '2026-05-20T11:00:00Z', expected: 'OPENS WEDNESDAY · 12pm' },  // Wed
-      { iso: '2026-05-21T11:00:00Z', expected: 'OPENS THURSDAY · 12pm' },   // Thu
-      { iso: '2026-05-22T11:00:00Z', expected: 'OPENS FRIDAY · 12pm' },     // Fri
-      { iso: '2026-05-23T11:00:00Z', expected: 'OPENS SATURDAY · 12pm' },   // Sat
+      { iso: '2026-05-17T11:00:00Z', expected: 'AVAILABLE SUNDAY · From 12pm' },     // Sun
+      { iso: '2026-05-18T11:00:00Z', expected: 'AVAILABLE MONDAY · From 12pm' },     // Mon
+      { iso: '2026-05-19T11:00:00Z', expected: 'AVAILABLE TUESDAY · From 12pm' },    // Tue
+      { iso: '2026-05-20T11:00:00Z', expected: 'AVAILABLE WEDNESDAY · From 12pm' },  // Wed
+      { iso: '2026-05-21T11:00:00Z', expected: 'AVAILABLE THURSDAY · From 12pm' },   // Thu
+      { iso: '2026-05-22T11:00:00Z', expected: 'AVAILABLE FRIDAY · From 12pm' },     // Fri
+      { iso: '2026-05-23T11:00:00Z', expected: 'AVAILABLE SATURDAY · From 12pm' },   // Sat
     ]
     // Reference instant is set to a day FAR enough back that all 7 target
     // days land as future-day (not today/tomorrow). 2026-05-14 Thursday
@@ -439,7 +439,7 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
     )
     const tree = JSON.stringify(toJSON())
     const chipIdx  = tree.indexOf('"Time limited"')
-    const pillIdx  = tree.indexOf('AVAILABLE NOW · Ends')
+    const pillIdx  = tree.indexOf('AVAILABLE NOW · Until')
     const heartIdx = tree.indexOf('Add to favourites')
     expect(chipIdx).toBeGreaterThan(-1)
     expect(pillIdx).toBeGreaterThan(-1)
@@ -516,7 +516,7 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       { currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T14:00:00Z' } },
       new Date('2026-05-11T11:00:00Z'),
     )
-    const pillText = getByText('AVAILABLE NOW · Ends 3pm today')
+    const pillText = getByText('AVAILABLE NOW · Until 3pm today')
     expect(pillText.props.numberOfLines).toBe(1)
     expect(pillText.props.ellipsizeMode).toBe('tail')
   })

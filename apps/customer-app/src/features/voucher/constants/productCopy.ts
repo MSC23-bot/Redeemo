@@ -244,7 +244,7 @@ export const HOW_IT_WORKS_STEPS_SUBSCRIBED: ReadonlyArray<{ label: string; desc:
  */
 export const CHECK_THE_WINDOW_STEP = {
   label: 'Check the Window',
-  desc: 'Make sure the current window is open before ordering. Time-limited offers can only be redeemed during the days and hours shown above.',
+  desc: 'Make sure the voucher is available before ordering. Time-limited offers can only be redeemed during the days and hours shown above.',
 } as const
 
 /**
