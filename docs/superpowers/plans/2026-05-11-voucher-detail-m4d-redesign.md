@@ -49,7 +49,7 @@
 
 ---
 
-## As-shipped record — Phase 0 + Phase A + Phase B + Phase C (Gate N reached 2026-05-11)
+## As-shipped record — Phase 0 + Phase A + Phase B + Phase C + Phase D + Phase E + Phase F (Gate O reached 2026-05-11)
 
 Plan-text below was drafted at plan-amendment time. Actual implementation discovered path conventions, fixture-helper names, and formatter-API decisions that differ from the plan-verbatim. The next agent picking up Phase D should treat THIS section as the authoritative reference for what's already on the branch.
 
@@ -126,7 +126,25 @@ The original plan listed `scheduleString: string` — **dropped** in B.1, becaus
 
 Future component tests that set `accessibilityElementsHidden` on the same element they assert against should mirror this pattern.
 
-### Shipped commit list (Phase 0 + A + B + C, branch tip 2aadc85)
+### Phase D / E / F — execution notes (locked 2026-05-11 at Gate O)
+
+**D.1 (commit `7df7982`)** — CouponBody TL sections + banner image bump.
+- Banner height 180 → 240pt is applied **globally** in `<CouponTopCard>` styles (not gated on TL type). Non-TL voucher types get the larger banner visually but no structural re-layout — banner image is a CouponTopCard-level concern, not type-specific. This matches the D5 lock ("keep in CouponTopCard, bump 180→240pt when imageUrl is present") which doesn't restrict the bump to TL.
+- TL section testIDs added: `coupon-body-availability`, `coupon-body-usage-rule`, `coupon-body-description`, `coupon-body-offer-ends`. Existing Terms + Fair Use sections gained `coupon-body-terms` and `coupon-body-fair-use` testIDs for DOM-order pinning.
+- New helper `formatExpiryDate(iso)` in `CouponBody.tsx` mirrors the Hermes-robust pattern used by `RedemptionDetailsCard.formatExpiryLine` (formatToParts numeric + hardcoded English month array).
+
+**E.1 (commit `c7007a1`)** — HowItWorks "Check the Window" step.
+- `<HowItWorks>` mount in `VoucherDetailScreen.tsx` (around line 1646) updated to pass `voucherType={voucher.type}`.
+- New helper `howItWorksSteps(isSubscribed, voucherType)` in productCopy.ts is the new source of truth. `HOW_IT_WORKS_STEPS_FREE` / `HOW_IT_WORKS_STEPS_SUBSCRIBED` remain exported but no longer consumed by HowItWorks (kept for backwards compat).
+- Test-fixture deviation: `how-it-works-steps` container has a decorative connector View as its first child, so `container.children.length === stepCount + 1`. Test helper `stepCountOf()` subtracts 1 to keep the assertion focused on step count. Pre-existing structure; not changed by E.1.
+
+**F.1 (commit `0ac5b46`)** — TIME_LIMITED explainer copy rewrite.
+- Locked body shipped verbatim per spec D8: "Time-limited vouchers can only be redeemed during specific days or hours set by the merchant. The current or next available window is shown above. Each window counts separately, so you can redeem once per window."
+- **Word count is 35, not 37** as the spec D8 text describes. Spec says "3 sentences, 37 words" — that was an approximation from the draft phase; the actual locked body parses to 35 whitespace-separated tokens. The body string is the source of truth; the count description in the spec is a small cosmetic imprecision (not amended — not load-bearing).
+- Title unchanged: `voucherTypeExplainerTitle('TIME_LIMITED')` still returns `"What is a time-limited voucher?"`.
+- Regression-pin tests cover BOGO / FREEBIE / REUSABLE bodies to catch accidental side-edits — all green.
+
+### Shipped commit list (Phase 0 + A + B + C + D + E + F, branch tip 0ac5b46)
 
 | SHA | Phase | What |
 |---|---|---|
@@ -144,20 +162,35 @@ Future component tests that set `accessibilityElementsHidden` on the same elemen
 | `49c8700` | B.2 | Progress bar mechanics (empties for closing, fills for opening, hidden for redeemed/expired/no-windows) + 11 tests. |
 | `b9b9564` | B.3 | A11y live-region (coarse stable labels) + primary-hidden-under-1h + RNTL config opt-in + 18 tests. |
 | `2aadc85` | C.1 | `<CouponHeader>` `statusBlock?: React.ReactNode` prop + TL-only description suppression + 6 tests. |
+| `0585ec2` | docs | Plan as-shipped record (Phase 0/A/B/C). |
+| `7df7982` | D.1 | `<CouponBodyCard>` TL sections (4 new) + `<CouponTopCard>` banner image 180→240pt + 9 tests. |
+| `c7007a1` | E.1 | `<HowItWorks>` "Check the Window" step for TL users + new helper + 5 tests. |
+| `0ac5b46` | F.1 | TIME_LIMITED explainer copy rewrite (3 sentences, 35 words) + 9 regression tests. |
 
-### Test totals at branch tip
+### Test totals at Gate O (branch tip 0ac5b46)
 
-- Full voucher suite: **836 / 836 ✅** across 39 suites.
+- Full voucher suite: **859 / 859 ✅** across 41 suites.
 - `tsc --noEmit`: clean.
 - ESLint: not yet re-run; will run at Gate Q before push.
+- New tests added in Phase D + E + F: 23 (9 + 5 + 9).
 
-### Forward-looking — Phase D should know
+### Forward-looking — Phase G + H should know
 
-- The amended D3 changes Phase D's **CouponBody Description section** placement is unchanged (still moves into the body for TL only). The D3 amendment didn't touch D6(C) lock.
-- The amended D3 may simplify Phase D's **Availability section** copy, since the hero block now carries the under-1h ticking context. The Availability section can stay as the static schedule string ("Mon-Fri, 11am-3pm") — no per-second ticking needed inside the coupon body.
-- Phase G wiring will pass `<HeroStatusBlock>` props from VoucherDetailScreen. The hook's additive return shape (A.3 + A.6) gives the screen everything it needs: `currentWindow.startsAt/endsAt`, `nextWindow.startsAt/endsAt`, `msToClose`, `msToOpen`. The screen passes these directly to `<HeroStatusBlock>` plus a captured `now = new Date()` at parent render time.
-- Phase G should NOT pass `scheduleString` to `<HeroStatusBlock>` (the prop was dropped in B.1).
-- Phase G must pass the `statusBlock` prop to `<CouponHeader>` only for `voucher.type === 'TIME_LIMITED'` — per C.1's defensive scope fence, non-TL types ignore the prop anyway.
+- **`<HeroStatusBlock>`** is mounted by `<CouponHeader>` via the `statusBlock?: React.ReactNode` prop. Phase G wires `statusBlock={<HeroStatusBlock ... />}` from VoucherDetailScreen, but ONLY for `voucher.type === 'TIME_LIMITED'`. The hook's additive return shape from A.3 + A.6 provides everything `<HeroStatusBlock>` needs: `currentWindow.startsAt/endsAt`, `nextWindow.startsAt/endsAt`, `msToClose`, `msToOpen`. Plus `now = new Date()` captured at parent render time so the per-second tick re-renders update the visible countdown.
+- **Do NOT pass `scheduleString`** to `<HeroStatusBlock>` (the prop was dropped in B.1 — supporting line is clock+day context, not the schedule string).
+- **`<CouponBodyCard>`** now expects `description`, `scheduleString`, and `expiryDate` props (all optional). Phase G should pass:
+  - `description={voucher.description}` — for TL voucher types, this routes into the new Description section. Non-TL types ignore it (description stays in the hero per D6(C) scope fence).
+  - `scheduleString={formatScheduleString(voucher.availabilityWindows)}` — routes into the Availability section.
+  - `expiryDate={voucher.expiryDate}` — routes into the Offer ends section when non-null.
+- **`<HowItWorks>`** now requires `voucherType` prop. The VoucherDetailScreen mount was already updated in E.1.
+- **Mount sites to delete in Phase G.2:**
+  - `<FrostedCountdown>` in VoucherDetailScreen (line ~1524 in original)
+  - `<TimeLimitedBanner>` in VoucherDetailScreen (line ~1539)
+  - `<TimeLimitedDetailsCard>` in VoucherDetailScreen (two mount sites — redeemed-state ~1462, non-redeemed-state ~1586)
+- **Files to delete in Phase H** (after mount sites removed):
+  - `FrostedCountdown.tsx` + `frosted-countdown.test.tsx`
+  - `TimeLimitedBanner.tsx` + `time-limited-banner.test.tsx`
+  - `TimeLimitedDetailsCard.tsx` + `time-limited-details-card.test.tsx`
 
 ---
 
