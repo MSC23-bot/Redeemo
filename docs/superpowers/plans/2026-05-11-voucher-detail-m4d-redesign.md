@@ -28,7 +28,7 @@
 - `apps/customer-app/tests/features/voucher/voucher-detail-states.test.tsx` — Phase 0: add suite-level `jest.useFakeTimers()` + `jest.setSystemTime`. Phase G: update mount-order assertions for new components (HeroStatusBlock present, FrostedCountdown/TimeLimitedBanner/TimeLimitedDetailsCard absent).
 - `apps/customer-app/src/features/voucher/hooks/useTimeLimited.ts` — additive return shape (`currentWindow`, `nextWindow`, `msToClose`, `msToOpen`); new 1s tick gated on `windowState === 'urgent' && msToClose <= 60000`.
 - `apps/customer-app/tests/features/voucher/use-time-limited.test.ts` — new pins for additive shape + 1s tick + tick-cleanup contract.
-- `apps/customer-app/src/features/voucher/utils/countdownFormat.ts` — add `formatUrgentCountdown(msToClose)` + `formatPrimaryWhen(boundary, now)`.
+- `apps/customer-app/src/features/voucher/utils/countdownFormat.ts` — add `formatPrimaryWhen(boundary, now)` (A.1) + `formatUrgentCountdown(msToClose)` (A.2, dead-on-arrival under amended D10) + the M4d-amended family (A.5): `formatDuration` + `formatClosingCountdown` + `formatOpeningCountdown` + `formatAvailableAgainCountdown` + `formatClosingA11y` + `formatOpeningA11y` + `formatAvailableAgainA11y`.
 - `apps/customer-app/tests/features/voucher/countdown-format.test.ts` — new pins for two new formatters.
 - `apps/customer-app/src/features/voucher/components/CouponHeader.tsx` — accept `statusBlock?: React.ReactNode` prop; mount below the title; suppress description rendering when `voucher.type === 'TIME_LIMITED'`.
 - `apps/customer-app/tests/features/voucher/coupon-header.test.tsx` — pin description-suppressed-for-TL + statusBlock-mounted contract.
@@ -46,6 +46,234 @@
 - `apps/customer-app/tests/features/voucher/time-limited-banner.test.tsx`
 - `apps/customer-app/src/features/voucher/components/TimeLimitedDetailsCard.tsx`
 - `apps/customer-app/tests/features/voucher/time-limited-details-card.test.tsx`
+
+---
+
+## As-shipped record — Phase 0 + Phase A + Phase B + Phase C + Phase D + Phase E + Phase F + Phase G + Phase H (Gate P reached 2026-05-11)
+
+Plan-text below was drafted at plan-amendment time. Actual implementation discovered path conventions, fixture-helper names, and formatter-API decisions that differ from the plan-verbatim. The next agent picking up Phase D should treat THIS section as the authoritative reference for what's already on the branch.
+
+### Test path conventions (mixed across the repo)
+
+| File | Actual path | Convention |
+|---|---|---|
+| voucher-detail-states fixture | `tests/features/voucher/voucher-detail-states.test.tsx` | kebab-flat |
+| useTimeLimited hook | `tests/features/voucher/use-time-limited.test.ts` | kebab-flat |
+| countdownFormat utils | `tests/features/voucher/utils/countdownFormat.test.ts` | **camelCase + nested `utils/`** |
+| HeroStatusBlock component | `tests/features/voucher/hero-status-block.test.tsx` | kebab-flat (matches `redeemed-seal.test.tsx` / `time-limited-banner.test.tsx` / `qr-code-block.test.tsx`) |
+| CouponHeader component | `tests/features/voucher/coupon-header.test.tsx` | kebab-flat |
+
+There is **no `components/` subdirectory** under `tests/features/voucher/`. Component tests sit at the flat root with kebab-case filenames. Utility tests sit under `utils/` with camelCase filenames. Hook tests sit at the flat root with kebab-case filenames. Phase D + E + F + G + H test files should follow whichever pattern matches their source category.
+
+### Fixture-helper names (actual)
+
+- `use-time-limited.test.ts` uses a single `baseVoucher(overrides)` helper at the top of the file. Defaults to `type: 'TIME_LIMITED'` with empty `availabilityWindows: []` and all window fields null. Non-TL is `baseVoucher({ type: 'BOGO' })`. **Do not** invent `makeTLVoucher` / `makeNonTLVoucher` helpers — the plan text above uses those names but they don't exist in the file.
+
+### Phase 0 — Tuesday anchor, not Monday
+
+The Phase 0 voucher-detail-states fixture uses `jest.setSystemTime(new Date('2026-05-12T10:00:00Z'))` (Tuesday 11:00 BST), NOT the originally-locked Monday anchor. Reason: the existing fixture has Monday `availabilityWindows`, which makes the Monday `2026-05-11T12:00:00Z` anchor derive `'active'` from the recurring window — incompatible with the unavailable-* brittle tests. Spec D1 carries the as-shipped amendment (commit `e8a740a`).
+
+Phase A test files (use-time-limited.test.ts, countdownFormat.test.ts) **DO** use the plan-locked Monday anchor `'2026-05-11T12:00:00Z'`, because their fixtures pass explicit `currentWindow`/`nextWindow` Date props — day-of-week doesn't matter for those.
+
+### Dead-on-arrival exports (cleanup deferred to post-M4d sweep)
+
+Five exports were shipped during Phase A but are now dead under the amended D3/D10:
+
+| Export | Shipped in | Why dead |
+|---|---|---|
+| `formatPrimaryWhen(boundary, now)` | A.1 (commit `52a26d3`) | Returns `"Today at 5pm"` form — the OLD primary line. Under amended D3, primary is bare duration, not clock-time. HeroStatusBlock doesn't consume this. |
+| `formatUrgentCountdown(msToClose)` | A.2 (commit `9238cc9`) | Original 60s-only seconds rule. Superseded by `formatDuration` + the under-1h band. HeroStatusBlock doesn't consume this. |
+| `formatClosingCountdown(ms)` | A.5 (commit `7dc14dc`) | Returns `"Closes in 42m 15s"` — but HeroStatusBlock's primary is bare duration (`"42m 15s"`), with the verb carried by the eyebrow + supporting line. Discovered at B.1 dispatch. |
+| `formatOpeningCountdown(ms)` | A.5 (commit `7dc14dc`) | Same reason as `formatClosingCountdown`. |
+| `formatAvailableAgainCountdown(ms)` | A.5 (commit `7dc14dc`) | Same reason. |
+
+`formatDuration(ms)` (the bare-duration formatter from A.5) IS consumed by HeroStatusBlock. The three a11y label helpers (`formatClosingA11y` / `formatOpeningA11y` / `formatAvailableAgainA11y`) are consumed by B.3's live-region.
+
+### `formatSupportingClock` — new helper added in B.1
+
+Not in the original plan. B.1 needed a Hermes-robust supporting-line formatter that produces:
+- Same London day → `"<Verb> <Hour><am/pm> today"`
+- Next London day → `"<Verb> <Hour><am/pm> tomorrow"`
+- 2+ days away → `"<Weekday> <Hour><am/pm>"` (no verb prefix)
+
+Lives in `countdownFormat.ts`. Consumes the existing `ymdFor` / `sameYmd` / `addOneDay` private helpers (added in A.1) + `formatClockHour12` + `formatDayName`.
+
+### `<HeroStatusBlock>` props (as-shipped)
+
+The component's prop type drifted from the plan-verbatim:
+
+```typescript
+export type HeroStatusBlockState = WindowState | 'redeemed-this-window' | 'expired'
+
+export type HeroStatusBlockProps = {
+  windowState: HeroStatusBlockState
+  now: Date
+  currentWindowStartsAt: Date | null
+  currentWindowEndsAt: Date | null
+  nextWindowStartsAt: Date | null
+  msToClose: number | null
+  msToOpen: number | null
+}
+```
+
+The original plan listed `scheduleString: string` — **dropped** in B.1, because under amended D3 the supporting line is clock-time context, not the schedule string. `scheduleString` is no longer a HeroStatusBlock concern. If Phase G/H consumers still pass it: ignore / remove.
+
+`'expired'` was added to the state union defensively — the state machine doesn't return it (expired-precedence is a screen-level check per M2 D4), but the component handles it as a no-render case for safety.
+
+### RNTL v13 default-hidden-elements config (B.3)
+
+`hero-status-block.test.tsx` opts INTO `defaultIncludeHiddenElements` via `configure()` in `beforeAll` / `afterAll`. Required because B.3's a11y rule sets `accessibilityElementsHidden={true}` + `importantForAccessibility="no-hide-descendants"` on the primary Text whenever the per-second tick is active (msToClose < 1h OR msToOpen < 1h). React Native Testing Library v13 hides such elements from `getByTestId` by default, which would break the B.1 + B.2 tests for under-1h states. The opt-in is process-scoped to this test file; `afterAll` restores the default.
+
+Future component tests that set `accessibilityElementsHidden` on the same element they assert against should mirror this pattern.
+
+### Phase D / E / F — execution notes (locked 2026-05-11 at Gate O)
+
+**D.1 (commit `7df7982`)** — CouponBody TL sections + banner image bump.
+- Banner height 180 → 240pt is applied **globally** in `<CouponTopCard>` styles (not gated on TL type). Non-TL voucher types get the larger banner visually but no structural re-layout — banner image is a CouponTopCard-level concern, not type-specific. This matches the D5 lock ("keep in CouponTopCard, bump 180→240pt when imageUrl is present") which doesn't restrict the bump to TL.
+- TL section testIDs added: `coupon-body-availability`, `coupon-body-usage-rule`, `coupon-body-description`, `coupon-body-offer-ends`. Existing Terms + Fair Use sections gained `coupon-body-terms` and `coupon-body-fair-use` testIDs for DOM-order pinning.
+- New helper `formatExpiryDate(iso)` in `CouponBody.tsx` mirrors the Hermes-robust pattern used by `RedemptionDetailsCard.formatExpiryLine` (formatToParts numeric + hardcoded English month array).
+
+**E.1 (commit `c7007a1`)** — HowItWorks "Check the Window" step.
+- `<HowItWorks>` mount in `VoucherDetailScreen.tsx` (around line 1646) updated to pass `voucherType={voucher.type}`.
+- New helper `howItWorksSteps(isSubscribed, voucherType)` in productCopy.ts is the new source of truth. `HOW_IT_WORKS_STEPS_FREE` / `HOW_IT_WORKS_STEPS_SUBSCRIBED` remain exported but no longer consumed by HowItWorks (kept for backwards compat).
+- Test-fixture deviation: `how-it-works-steps` container has a decorative connector View as its first child, so `container.children.length === stepCount + 1`. Test helper `stepCountOf()` subtracts 1 to keep the assertion focused on step count. Pre-existing structure; not changed by E.1.
+
+**F.1 (commit `0ac5b46`)** — TIME_LIMITED explainer copy rewrite.
+- Locked body shipped verbatim per spec D8: "Time-limited vouchers can only be redeemed during specific days or hours set by the merchant. The current or next available window is shown above. Each window counts separately, so you can redeem once per window."
+- **Word count is 35, not 37** as the spec D8 text describes. Spec says "3 sentences, 37 words" — that was an approximation from the draft phase; the actual locked body parses to 35 whitespace-separated tokens. The body string is the source of truth; the count description in the spec is a small cosmetic imprecision (not amended — not load-bearing).
+- Title unchanged: `voucherTypeExplainerTitle('TIME_LIMITED')` still returns `"What is a time-limited voucher?"`.
+- Regression-pin tests cover BOGO / FREEBIE / REUSABLE bodies to catch accidental side-edits — all green.
+
+### Phase G / H — execution notes (locked 2026-05-11 at Gate P)
+
+**Phase G (commit `733501f`)** — combined wire-new + delete-old in a single commit per owner direction ("do not leave duplicate TIME_LIMITED timing surfaces on screen"). The original plan split G.1 (wire) and G.2 (delete) across two commits; the tightening produces a single coherent commit.
+
+Three deviations surfaced during execution:
+
+1. **Modified a 3rd file** (`tests/features/voucher/voucher-detail-redeem-flow.test.tsx`) — a stale `getByText('Available during')` assertion in the M4b-9 free-user-TL test pinned content that lived in the deleted `<TimeLimitedDetailsCard>`. Retargeted to the new `coupon-body-availability` testID, preserving the M4b-9 free-user suppression intent.
+
+2. **Dropped `'expired'` from heroStatusState derivation** — the `WindowState` union doesn't include `'expired'` (M2 D4 expired-precedence is a screen-level check that returns before TL derivation). The plan's `!== 'expired'` guard was a TS impossibility (TS2367). Comment in the derivation block explains the reason; only `!== 'no-windows'` remains.
+
+3. **Defensive guard on `formatScheduleString`** — non-TL voucher fixtures pass `availabilityWindows: undefined`, which the helper didn't tolerate (`windows.length` crash). Added a type-aware guard so the call only fires for TL vouchers with the array present; non-TL passes `null` to `<CouponBodyCard>` (which CouponBodyCard already handles via its TL gate).
+
+**Phase H (commits `2f61410` + `334faed` + `739f693`)** — three deletion commits, one per stop-gap component. Each ran the 3-grep pre-deletion checklist (imports / testID-symbol references / mocks-snapshots). Pattern of grep results across all 3 deletions:
+
+- **(a) imports:** ZERO source-code imports remained (Phase G already cleaned them up).
+- **(b) testID/symbol:** 6–8 hits each, all non-blocking — comments in surrounding source files + screen-level absence-pin string constants (`queryByTestId('vd-frosted-countdown')).toBeNull()` and equivalents). Absence-pin strings survive deletion because querying an absent testID returns null, which is the contract.
+- **(c) mocks/snapshots:** ZERO matches across all three (no `__mocks__` or `__snapshots__` dirs in customer-app).
+
+Test count progression: Phase G `858 / 858` → H.1 `852 / 852` → H.2 `847 / 847` → H.3 `841 / 841`. Each H.x deletion removes the deleted test file's tests from the suite (6 / 5 / 6 tests respectively). Suite count drops from 41 → 38 across Phase H.
+
+**Residual cleanup deferred:** 3 stale doc-comment references to the deleted components still exist:
+- `src/features/voucher/utils/scheduleString.ts:16` — comment mentioning `<TimeLimitedDetailsCard>` historically.
+- `src/features/voucher/hooks/useTimeLimited.ts:296` — comment mentioning `<FrostedCountdown>` historically.
+- `tests/features/voucher/voucher-detail-redeem-flow.test.tsx:2614` — comment mentioning `<TimeLimitedDetailsCard>` historically.
+
+All 3 are doc-comment references inside otherwise-fine code, not imports or JSX usage. Cleanup is a one-line edit per file but doesn't block; can fold into a post-M4d sweep or pick up alongside the dead-on-arrival formatter cleanup (formatPrimaryWhen / formatUrgentCountdown / formatClosingCountdown / formatOpeningCountdown / formatAvailableAgainCountdown).
+
+### Shipped commit list (Phase 0 + A + B + C + D + E + F + G + H, branch tip 739f693)
+
+| SHA | Phase | What |
+|---|---|---|
+| `f78991a` | 0 | §AM1 fixture hardening (test-only). |
+| `e8a740a` | 0+ | D1 spec amendment — Phase 0 Tuesday anchor. |
+| `52a26d3` | A.1 | `formatPrimaryWhen` formatter (now dead-on-arrival). |
+| `9238cc9` | A.2 | `formatUrgentCountdown` (now dead under amended D10). |
+| `e4082f6` | A.3 | `useTimeLimited` additive return shape (4 new fields). |
+| `793bafd` | A.4 | 1s tick gated `urgent && msToClose ≤ 60_000` (now superseded by A.6). |
+| `594041f` | A+ | Spec amendment: D3 duration-first table + D10 per-second-under-1h-both-directions. |
+| `ab83a1d` | A+ | Plan amendment for A.5 + A.6 + Phase B amendment notice. |
+| `7dc14dc` | A.5 | Duration-first formatter family (7 new exports; 3 now dead). |
+| `4ac9310` | A.6 | Widened 1s tick gate to under-1h both directions + rebased A.4 negative pin to 90min. |
+| `b757922` | B.1 | `<HeroStatusBlock>` component + `formatSupportingClock` helper + state-rendering tests (16). |
+| `49c8700` | B.2 | Progress bar mechanics (empties for closing, fills for opening, hidden for redeemed/expired/no-windows) + 11 tests. |
+| `b9b9564` | B.3 | A11y live-region (coarse stable labels) + primary-hidden-under-1h + RNTL config opt-in + 18 tests. |
+| `2aadc85` | C.1 | `<CouponHeader>` `statusBlock?: React.ReactNode` prop + TL-only description suppression + 6 tests. |
+| `0585ec2` | docs | Plan as-shipped record (Phase 0/A/B/C). |
+| `7df7982` | D.1 | `<CouponBodyCard>` TL sections (4 new) + `<CouponTopCard>` banner image 180→240pt + 9 tests. |
+| `c7007a1` | E.1 | `<HowItWorks>` "Check the Window" step for TL users + new helper + 5 tests. |
+| `0ac5b46` | F.1 | TIME_LIMITED explainer copy rewrite (3 sentences, 35 words) + 9 regression tests. |
+| `1d0fddb` | docs | Plan as-shipped record extension (Phase D/E/F). |
+| `733501f` | G | Wire HeroStatusBlock into hero via CouponHeader.statusBlock + thread description/scheduleString/expiryDate to CouponBodyCard + delete 3 M4b mount sites + screen-level mount-order pins (3 TL states). Combined G.1 + G.2 per owner "no duplicate timing surfaces" rule. |
+| `2f61410` | H.1 | Deleted FrostedCountdown.tsx + frosted-countdown.test.tsx (pre-deletion 3-grep clean). |
+| `334faed` | H.2 | Deleted TimeLimitedBanner.tsx + time-limited-banner.test.tsx (pre-deletion 3-grep clean). |
+| `739f693` | H.3 | Deleted TimeLimitedDetailsCard.tsx + time-limited-details-card.test.tsx (pre-deletion 3-grep clean). |
+
+### Test totals at Gate P (branch tip 739f693)
+
+- Full voucher suite: **841 / 841 ✅** across 38 suites (~11s).
+- `tsc --noEmit`: clean.
+- ESLint: not yet re-run; will run at Gate Q before push.
+- Test count progression: Gate O `859/41` → Phase G `858/41` (net 0 from G test edits) → H.1 `852/40` (–6 tests, –1 suite) → H.2 `847/39` (–5 tests, –1 suite) → H.3 `841/38` (–6 tests, –1 suite). Each H.x removes only the deleted test file's tests.
+
+### Before / after mount order (TIME_LIMITED voucher)
+
+**Before (M4b layout, pre-Phase-G):**
+
+```
+<CouponHeader>                ← description visible for ALL types
+                              ← no statusBlock prop
+<PerforationLine outer>
+<CouponTopCard>               ← banner image at 180pt OR 6pt accent line
+<PerforationLine inner>
+<CouponBodyCard>              ← Terms + Fair Use only (no TL sections)
+<FrostedCountdown>            ← OUT-OF-COUPON countdown card (TL only)
+<TimeLimitedBanner>           ← OUT-OF-COUPON blue/amber alert (TL only)
+<TimeLimitedDetailsCard>      ← OUT-OF-COUPON schedule + next-available (TL only)
+<MerchantRow>
+<VoucherTypeExplainerCard>
+<HowItWorks>                  ← 5 steps, type-agnostic
+```
+
+**After (M4d, branch tip 739f693):**
+
+```
+<CouponHeader>
+  ├── (TL) <HeroStatusBlock>  ← INSIDE hero, replacing description slot
+  │       eyebrow + duration primary + clock supporting + progress bar +
+  │       a11y live-region (per amended D3/D10/D4)
+  └── (non-TL) description    ← in hero as before
+<PerforationLine outer>
+<CouponTopCard>               ← banner image at 240pt OR 6pt accent line (global per D5)
+<PerforationLine inner>
+<CouponBodyCard>
+  ├── (TL) Availability        ← schedule string ("Mon-Fri, 11am-3pm")
+  ├── (TL) Usage rule          ← "Redeem once per active window."
+  ├── (TL) Description         ← merchant-authored, moved from hero per D6(C)
+  ├── Terms                    ← existing
+  ├── Fair Use Policy          ← existing
+  └── (TL + expiryDate) Offer ends  ← "<day> <month> <year>"
+<CycleRulesCard>              ← non-TL only (TL branch removed)
+<MerchantRow>
+<VoucherTypeExplainerCard>    ← new TIME_LIMITED body (37→35-word locked rewrite)
+<HowItWorks>                  ← TL: 6 steps with "Check the Window" at index 1;
+                              ← non-TL: 5 steps (unchanged)
+```
+
+**Deleted entirely:**
+- `<FrostedCountdown>` — absorbed into `<HeroStatusBlock>`.
+- `<TimeLimitedBanner>` — state messaging absorbed into `<HeroStatusBlock>`'s eyebrow + supporting line.
+- `<TimeLimitedDetailsCard>` — fields absorbed into `<CouponBodyCard>` TL sections.
+
+**Non-TL voucher types:** visually unchanged (per D6(C) scope fence). Only the banner image height bump (180→240pt) affects non-TL — that's a CouponTopCard-level visual change, not a structural re-layout.
+
+### Forward-looking — Phase I (Gate Q) and beyond
+
+- **`<HeroStatusBlock>`** is mounted by `<CouponHeader>` via the `statusBlock?: React.ReactNode` prop. Phase G wires `statusBlock={<HeroStatusBlock ... />}` from VoucherDetailScreen, but ONLY for `voucher.type === 'TIME_LIMITED'`. The hook's additive return shape from A.3 + A.6 provides everything `<HeroStatusBlock>` needs: `currentWindow.startsAt/endsAt`, `nextWindow.startsAt/endsAt`, `msToClose`, `msToOpen`. Plus `now = new Date()` captured at parent render time so the per-second tick re-renders update the visible countdown.
+- **Do NOT pass `scheduleString`** to `<HeroStatusBlock>` (the prop was dropped in B.1 — supporting line is clock+day context, not the schedule string).
+- **`<CouponBodyCard>`** now expects `description`, `scheduleString`, and `expiryDate` props (all optional). Phase G should pass:
+  - `description={voucher.description}` — for TL voucher types, this routes into the new Description section. Non-TL types ignore it (description stays in the hero per D6(C) scope fence).
+  - `scheduleString={formatScheduleString(voucher.availabilityWindows)}` — routes into the Availability section.
+  - `expiryDate={voucher.expiryDate}` — routes into the Offer ends section when non-null.
+- **`<HowItWorks>`** now requires `voucherType` prop. The VoucherDetailScreen mount was already updated in E.1.
+- **Mount sites to delete in Phase G.2:**
+  - `<FrostedCountdown>` in VoucherDetailScreen (line ~1524 in original)
+  - `<TimeLimitedBanner>` in VoucherDetailScreen (line ~1539)
+  - `<TimeLimitedDetailsCard>` in VoucherDetailScreen (two mount sites — redeemed-state ~1462, non-redeemed-state ~1586)
+- **Files to delete in Phase H** (after mount sites removed):
+  - `FrostedCountdown.tsx` + `frosted-countdown.test.tsx`
+  - `TimeLimitedBanner.tsx` + `time-limited-banner.test.tsx`
+  - `TimeLimitedDetailsCard.tsx` + `time-limited-details-card.test.tsx`
 
 ---
 
@@ -755,13 +983,514 @@ EOF
 
 ---
 
+> **Amendment 2026-05-11 — duration-first precision rule supersedes A.2 + A.4.** Tasks A.2 and A.4 above shipped commits (`9238cc9` and `793bafd`) under the original "seconds only in final minute" lock. The owner's amendment to D3 + D10 (spec commit `594041f`) widens the precision rule:
+>
+> - Duration display: `"2d 4h"` / `"5h 12m"` / `"42m 15s"` / `"59s"` (4 tiers, minutes+seconds together under 1h).
+> - Tick cadence: per-second whenever displayed countdown < 1 hour, in BOTH directions (msToClose / msToOpen).
+> - A11y coarse stable labels extended (see spec D10 amendment).
+>
+> Tasks **A.5** and **A.6** below layer the corrected behaviour as new commits on top of A.2 + A.4. The old commits stay in history as honest record — no force-pushes, no amends.
+
+### Task A.5: Duration-first formatter family (supersedes A.2)
+
+Per spec D3 + D10 amendment: introduce a 4-tier `formatDuration` + three direction wrappers + three a11y label helpers. The old `formatUrgentCountdown` becomes equivalent to the new `formatClosingCountdown` under the new precision; rather than rename, leave `formatUrgentCountdown` exported but with its existing minute-only-above-60s behaviour and update all consumers to use `formatClosingCountdown` directly (zero consumers exist yet — A.2's export is dead-on-arrival to be cleaned up alongside §15 F1 post-M4d).
+
+**Files:**
+- Modify: `apps/customer-app/src/features/voucher/utils/countdownFormat.ts` — add 7 new exports.
+- Modify: `apps/customer-app/tests/features/voucher/utils/countdownFormat.test.ts` — add tests for the 7 new exports.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append after the existing `formatUrgentCountdown` describe block:
+
+```typescript
+import {
+  formatDuration,
+  formatClosingCountdown,
+  formatOpeningCountdown,
+  formatAvailableAgainCountdown,
+  formatClosingA11y,
+  formatOpeningA11y,
+  formatAvailableAgainA11y,
+} from '@/features/voucher/utils/countdownFormat'
+
+describe('formatDuration (M4d amended D3 precision)', () => {
+  // ── ≥ 1 day → "<d>d <h>h"
+  it('renders "2d 4h" for 2 days 4 hours', () => {
+    expect(formatDuration(2 * 86_400_000 + 4 * 3_600_000)).toBe('2d 4h')
+  })
+  it('renders "1d 0h" for exactly 1 day', () => {
+    expect(formatDuration(86_400_000)).toBe('1d 0h')
+  })
+  // ── < 1 day, ≥ 1 hour → "<h>h <m>m"
+  it('renders "5h 12m" for 5h 12m', () => {
+    expect(formatDuration(5 * 3_600_000 + 12 * 60_000)).toBe('5h 12m')
+  })
+  it('renders "1h 0m" for exactly 1 hour', () => {
+    expect(formatDuration(3_600_000)).toBe('1h 0m')
+  })
+  it('renders "23h 59m" just under 1 day', () => {
+    expect(formatDuration(23 * 3_600_000 + 59 * 60_000)).toBe('23h 59m')
+  })
+  // ── < 1 hour, ≥ 1 minute → "<m>m <s>s"
+  it('renders "42m 15s" for 42 minutes 15 seconds', () => {
+    expect(formatDuration(42 * 60_000 + 15_000)).toBe('42m 15s')
+  })
+  it('renders "1m 0s" for exactly 1 minute', () => {
+    expect(formatDuration(60_000)).toBe('1m 0s')
+  })
+  it('renders "59m 59s" just under 1 hour', () => {
+    expect(formatDuration(59 * 60_000 + 59_000)).toBe('59m 59s')
+  })
+  // ── < 1 minute, > 0 → "<s>s"
+  it('renders "59s" just under 1 minute', () => {
+    expect(formatDuration(59_000)).toBe('59s')
+  })
+  it('renders "1s" for 1 second', () => {
+    expect(formatDuration(1_000)).toBe('1s')
+  })
+  // ── ≤ 0 → "0s" (caller routes to "<verb> now")
+  it('renders "0s" for 0 ms', () => {
+    expect(formatDuration(0)).toBe('0s')
+  })
+  it('renders "0s" for negative ms', () => {
+    expect(formatDuration(-1000)).toBe('0s')
+  })
+})
+
+describe('formatClosingCountdown', () => {
+  it('returns "Closes in 42m 15s" for under-1h closing', () => {
+    expect(formatClosingCountdown(42 * 60_000 + 15_000)).toBe('Closes in 42m 15s')
+  })
+  it('returns "Closes in 1h 0m" for exactly 1 hour', () => {
+    expect(formatClosingCountdown(3_600_000)).toBe('Closes in 1h 0m')
+  })
+  it('returns "Closes in 47s" under 1 minute', () => {
+    expect(formatClosingCountdown(47_000)).toBe('Closes in 47s')
+  })
+  it('returns "Closes now" at 0 ms', () => {
+    expect(formatClosingCountdown(0)).toBe('Closes now')
+  })
+  it('returns "Closes now" for negative ms', () => {
+    expect(formatClosingCountdown(-500)).toBe('Closes now')
+  })
+})
+
+describe('formatOpeningCountdown', () => {
+  it('returns "Opens in 42m 15s"', () => {
+    expect(formatOpeningCountdown(42 * 60_000 + 15_000)).toBe('Opens in 42m 15s')
+  })
+  it('returns "Opens in 5h 12m"', () => {
+    expect(formatOpeningCountdown(5 * 3_600_000 + 12 * 60_000)).toBe('Opens in 5h 12m')
+  })
+  it('returns "Opens in 2d 4h" for multi-day countdown', () => {
+    expect(formatOpeningCountdown(2 * 86_400_000 + 4 * 3_600_000)).toBe('Opens in 2d 4h')
+  })
+  it('returns "Opens in 47s" under 1 minute', () => {
+    expect(formatOpeningCountdown(47_000)).toBe('Opens in 47s')
+  })
+  it('returns "Opens now" at 0 ms', () => {
+    expect(formatOpeningCountdown(0)).toBe('Opens now')
+  })
+})
+
+describe('formatAvailableAgainCountdown', () => {
+  it('returns "Available again in 42m 15s"', () => {
+    expect(formatAvailableAgainCountdown(42 * 60_000 + 15_000)).toBe('Available again in 42m 15s')
+  })
+  it('returns "Available again in 2d 4h" for multi-day', () => {
+    expect(formatAvailableAgainCountdown(2 * 86_400_000 + 4 * 3_600_000)).toBe('Available again in 2d 4h')
+  })
+  it('returns "Available now" at 0 ms', () => {
+    expect(formatAvailableAgainCountdown(0)).toBe('Available now')
+  })
+})
+
+describe('formatClosingA11y — coarse stable labels (spec D10 amendment)', () => {
+  it('returns "Closes in under a minute" when ms < 60_000 and > 0', () => {
+    expect(formatClosingA11y(47_000)).toBe('Closes in under a minute')
+    expect(formatClosingA11y(1_000)).toBe('Closes in under a minute')
+  })
+  it('returns "Closes in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
+    expect(formatClosingA11y(42 * 60_000 + 15_000)).toBe('Closes in about 42 minutes')
+    expect(formatClosingA11y(60_000)).toBe('Closes in about 1 minutes')  // single-form ok for now
+  })
+  it('returns null when ms ≥ 1 hour (caller uses eyebrow-as-label instead)', () => {
+    expect(formatClosingA11y(3_600_000)).toBeNull()
+    expect(formatClosingA11y(5 * 3_600_000)).toBeNull()
+  })
+  it('returns null at ≤ 0 ms', () => {
+    expect(formatClosingA11y(0)).toBeNull()
+    expect(formatClosingA11y(-100)).toBeNull()
+  })
+})
+
+describe('formatOpeningA11y', () => {
+  it('returns "Opens in under a minute" when ms < 60_000 and > 0', () => {
+    expect(formatOpeningA11y(47_000)).toBe('Opens in under a minute')
+  })
+  it('returns "Opens in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
+    expect(formatOpeningA11y(42 * 60_000 + 15_000)).toBe('Opens in about 42 minutes')
+  })
+  it('returns null when ms ≥ 1 hour', () => {
+    expect(formatOpeningA11y(3_600_000)).toBeNull()
+  })
+})
+
+describe('formatAvailableAgainA11y', () => {
+  it('returns "Available again in under a minute" under 1 minute', () => {
+    expect(formatAvailableAgainA11y(47_000)).toBe('Available again in under a minute')
+  })
+  it('returns "Available again in about N minutes" under 1 hour', () => {
+    expect(formatAvailableAgainA11y(42 * 60_000 + 15_000)).toBe('Available again in about 42 minutes')
+  })
+  it('returns null when ms ≥ 1 hour', () => {
+    expect(formatAvailableAgainA11y(3_600_000)).toBeNull()
+  })
+})
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+```bash
+cd apps/customer-app && npx jest tests/features/voucher/utils/countdownFormat.test.ts -t "M4d amended D3 precision\|formatClosingCountdown\|formatOpeningCountdown\|formatAvailableAgainCountdown\|A11y" --forceExit
+```
+
+Expected: FAIL — all 7 new exports missing.
+
+- [ ] **Step 3: Implement the 7 new exports**
+
+Add to `apps/customer-app/src/features/voucher/utils/countdownFormat.ts`, placed near the other M4d formatters (after `formatPrimaryWhen` and `formatUrgentCountdown` from A.1/A.2):
+
+```typescript
+/**
+ * M4d-amended duration formatter (spec D3 amendment 2026-05-11).
+ *
+ * 4-tier precision:
+ *   ≥ 1 day            → "2d 4h"
+ *   < 1 day, ≥ 1 hour  → "5h 12m"
+ *   < 1 hour, ≥ 1 min  → "42m 15s"
+ *   < 1 min, > 0       → "59s"
+ *   ≤ 0                → "0s"  (caller routes to "<verb> now")
+ *
+ * Used by the duration-first hero status block primary line. Replaces
+ * formatDurationCompact for the M4d hero — kept separate so the legacy
+ * compact formatter (still used by formatPrimaryCountdown /
+ * formatSupportingCountdown for the M4b FrostedCountdown / banner /
+ * details card) is untouched until those components are deleted in
+ * Phase H.
+ */
+export function formatDuration(ms: number): string {
+  if (ms <= 0) return '0s'
+
+  const totalSeconds = Math.ceil(ms / 1_000)
+  if (totalSeconds < 60) return `${totalSeconds}s`
+
+  const totalMinutes = Math.floor(ms / 60_000)
+  if (totalMinutes < 60) {
+    const seconds = Math.ceil((ms - totalMinutes * 60_000) / 1_000)
+    // Edge case: rounding-up seconds to 60 would render "Nm 60s" — bump minute, zero seconds.
+    if (seconds === 60) return `${totalMinutes + 1}m 0s`
+    return `${totalMinutes}m ${seconds}s`
+  }
+
+  const totalHours = Math.floor(ms / 3_600_000)
+  if (totalHours < 24) {
+    const minutes = Math.floor((ms - totalHours * 3_600_000) / 60_000)
+    return `${totalHours}h ${minutes}m`
+  }
+
+  const totalDays = Math.floor(ms / 86_400_000)
+  const hours = Math.floor((ms - totalDays * 86_400_000) / 3_600_000)
+  return `${totalDays}d ${hours}h`
+}
+
+/** "Closes in <duration>" / "Closes now" */
+export function formatClosingCountdown(ms: number): string {
+  if (ms <= 0) return 'Closes now'
+  return `Closes in ${formatDuration(ms)}`
+}
+
+/** "Opens in <duration>" / "Opens now" */
+export function formatOpeningCountdown(ms: number): string {
+  if (ms <= 0) return 'Opens now'
+  return `Opens in ${formatDuration(ms)}`
+}
+
+/** "Available again in <duration>" / "Available now" */
+export function formatAvailableAgainCountdown(ms: number): string {
+  if (ms <= 0) return 'Available now'
+  return `Available again in ${formatDuration(ms)}`
+}
+
+/**
+ * Stable a11y label for the closing direction's polite live region.
+ * Returns null for the ≥1h band — caller uses the eyebrow phrasing as
+ * the accessibility label instead. Per spec D10 amendment 2026-05-11.
+ */
+export function formatClosingA11y(ms: number): string | null {
+  if (ms <= 0) return null
+  if (ms < 60_000) return 'Closes in under a minute'
+  if (ms < 3_600_000) {
+    const minutes = Math.round(ms / 60_000)
+    return `Closes in about ${minutes} minutes`
+  }
+  return null
+}
+
+/** Stable a11y label for the opening direction. */
+export function formatOpeningA11y(ms: number): string | null {
+  if (ms <= 0) return null
+  if (ms < 60_000) return 'Opens in under a minute'
+  if (ms < 3_600_000) {
+    const minutes = Math.round(ms / 60_000)
+    return `Opens in about ${minutes} minutes`
+  }
+  return null
+}
+
+/** Stable a11y label for the available-again direction. */
+export function formatAvailableAgainA11y(ms: number): string | null {
+  if (ms <= 0) return null
+  if (ms < 60_000) return 'Available again in under a minute'
+  if (ms < 3_600_000) {
+    const minutes = Math.round(ms / 60_000)
+    return `Available again in about ${minutes} minutes`
+  }
+  return null
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+cd apps/customer-app && npx jest tests/features/voucher/utils/countdownFormat.test.ts --forceExit
+```
+
+Expected: all green — existing tests (including A.1's formatPrimaryWhen + A.2's formatUrgentCountdown) STILL PASS, the new ~36 tests PASS.
+
+- [ ] **Step 5: TypeScript check**
+
+```bash
+cd apps/customer-app && npx tsc --noEmit 2>&1 | grep countdownFormat | head -5
+```
+
+Expected: zero matches.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add apps/customer-app/src/features/voucher/utils/countdownFormat.ts apps/customer-app/tests/features/voucher/utils/countdownFormat.test.ts
+git commit -m "$(cat <<'EOF'
+feat(voucher): duration-first formatter family (M4d Task A.5, supersedes A.2)
+
+7 new exports per spec D3 + D10 amendment 2026-05-11:
+- formatDuration(ms) — 4-tier "2d 4h" / "5h 12m" / "42m 15s" / "59s"
+- formatClosingCountdown / formatOpeningCountdown / formatAvailableAgainCountdown
+- formatClosingA11y / formatOpeningA11y / formatAvailableAgainA11y (coarse stable labels for <1h band; null for ≥1h)
+
+A.2's formatUrgentCountdown stays exported (dead-on-arrival under new
+rule; cleanup deferred to a post-M4d sweep). HeroStatusBlock will
+consume the new functions starting in Phase B.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task A.6: Widen 1s tick gate to under-1h in both directions (supersedes A.4)
+
+Per spec D10 amendment: the 1-second `setInterval` runs whenever the displayed countdown is under 1 hour, regardless of direction. Current A.4 gate (`urgent && msToClose <= 60_000`) is too narrow — must widen to include msToClose < 3_600_000 OR msToOpen < 3_600_000.
+
+**Files:**
+- Modify: `apps/customer-app/src/features/voucher/hooks/useTimeLimited.ts` — replace the `wantsSecondTick` boolean.
+- Modify: `apps/customer-app/tests/features/voucher/use-time-limited.test.ts` — add 3 new tests for the wider gate; existing 4 A.4 tests stay green (the wider gate is a superset).
+
+- [ ] **Step 1: Write the failing tests**
+
+Append after the existing A.4 describe block (`useTimeLimited — M4d 1-second urgent-final-minute tick`):
+
+```typescript
+describe('useTimeLimited — M4d wider 1s tick under-1h both directions (Task A.6)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('installs 1s tick when urgent + msToClose 30 minutes (under 1h but above 60s — A.4 would have missed this)', () => {
+    const voucher = baseVoucher({
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
+      currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T12:30:00Z' },
+      nextWindow: null,
+    })
+    const { result } = renderHook(() => useTimeLimited(voucher))
+    expect(result.current.windowState).toBe('urgent')
+    expect(result.current.msToClose).toBe(30 * 60_000)
+
+    act(() => { jest.advanceTimersByTime(1_000) })
+    expect(result.current.msToClose).toBe(30 * 60_000 - 1_000)
+
+    act(() => { jest.advanceTimersByTime(1_000) })
+    expect(result.current.msToClose).toBe(30 * 60_000 - 2_000)
+  })
+
+  it('installs 1s tick when unavailable-today + msToOpen 30 minutes (opening direction)', () => {
+    const voucher = baseVoucher({
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '15:00', closeTime: '18:00' }],
+      currentWindow: null,
+      nextWindow: { startsAt: '2026-05-11T12:30:00Z', endsAt: '2026-05-11T15:00:00Z' },  // 30 min from now
+    })
+    const { result } = renderHook(() => useTimeLimited(voucher))
+    expect(result.current.windowState).toBe('unavailable-today')
+    expect(result.current.msToOpen).toBe(30 * 60_000)
+
+    act(() => { jest.advanceTimersByTime(1_000) })
+    expect(result.current.msToOpen).toBe(30 * 60_000 - 1_000)
+
+    act(() => { jest.advanceTimersByTime(1_000) })
+    expect(result.current.msToOpen).toBe(30 * 60_000 - 2_000)
+  })
+
+  it('does NOT install 1s tick when msToOpen is over 1 hour', () => {
+    const voucher = baseVoucher({
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '17:00', closeTime: '19:00' }],
+      currentWindow: null,
+      nextWindow: { startsAt: '2026-05-11T14:00:00Z', endsAt: '2026-05-11T16:00:00Z' },  // 2h from now
+    })
+    const { result } = renderHook(() => useTimeLimited(voucher))
+    expect(result.current.windowState).toBe('unavailable-today')
+    expect(result.current.msToOpen).toBe(2 * 3_600_000)
+
+    act(() => { jest.advanceTimersByTime(1_000) })
+    expect(result.current.msToOpen).toBe(2 * 3_600_000)  // unchanged — no 1s tick
+  })
+})
+```
+
+The existing A.4 tests (which test gates ≤60_000) MUST continue passing — they're a subset of the new gate. If any A.4 test fails after A.6's gate widens, that's a regression — STOP and report.
+
+- [ ] **Step 2: Run new tests to confirm fail (and verify existing A.4 tests still pass)**
+
+```bash
+cd apps/customer-app && npx jest tests/features/voucher/use-time-limited.test.ts --forceExit
+```
+
+Expected:
+- A.3 + A.4 tests: PASS (existing).
+- A.6 new tests: FAIL — `msToClose` stays at 30*60_000 across timer advances (the wider gate isn't installed yet, so the 1s tick doesn't fire above 60s).
+
+- [ ] **Step 3: Widen the `wantsSecondTick` gate in `useTimeLimited.ts`**
+
+Locate the existing `wantsSecondTick` boolean (added in A.4):
+
+```typescript
+const wantsSecondTick =
+  isTimeLimited &&
+  stateKey === 'urgent' &&
+  computed.msToClose !== null &&
+  computed.msToClose <= 60_000 &&
+  computed.msToClose > 0
+```
+
+Replace with the wider gate per spec D10 amendment:
+
+```typescript
+// M4d amendment 2026-05-11 — widened gate per spec D10. Tick per-second
+// whenever displayed countdown < 1 hour, in EITHER direction:
+//   • msToClose under 1h (closing — active/urgent states above 60s)
+//   • msToOpen  under 1h (opening / available-again — unavailable-*
+//                          and redeemed-this-window states)
+// Merchant cards (M4c) untouched — they consume nothing from this gate.
+const wantsSecondTick =
+  isTimeLimited && (
+    (computed.msToClose !== null && computed.msToClose > 0 && computed.msToClose < 3_600_000) ||
+    (computed.msToOpen  !== null && computed.msToOpen  > 0 && computed.msToOpen  < 3_600_000)
+  )
+```
+
+NOTE: do NOT touch the existing 60s `setInterval` (it continues to drive minute updates above 1h). The 1s `setInterval` and its `clearInterval` cleanup stay exactly as A.4 wrote them — only the GATE changes.
+
+- [ ] **Step 4: Run all useTimeLimited tests**
+
+```bash
+cd apps/customer-app && npx jest tests/features/voucher/use-time-limited.test.ts --forceExit
+```
+
+Expected: all green — A.3 (3) + A.4 (4) + A.6 (3) = at least 10 M4d-additive tests PASS, plus all pre-existing tests.
+
+- [ ] **Step 5: Run the broader voucher suite**
+
+```bash
+cd apps/customer-app && npx jest tests/features/voucher/ --forceExit 2>&1 | tail -6
+```
+
+Expected: all green.
+
+- [ ] **Step 6: TypeScript check**
+
+```bash
+cd apps/customer-app && npx tsc --noEmit 2>&1 | grep useTimeLimited | head -5
+```
+
+Expected: zero matches.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add apps/customer-app/src/features/voucher/hooks/useTimeLimited.ts apps/customer-app/tests/features/voucher/use-time-limited.test.ts
+git commit -m "$(cat <<'EOF'
+feat(voucher): widen useTimeLimited 1s tick to under-1h both directions (M4d Task A.6, supersedes A.4)
+
+Spec D10 amendment 2026-05-11. The 1s setInterval now runs whenever
+the displayed countdown is under 1 hour, in EITHER direction:
+  • msToClose < 3_600_000 (closing — active >60min above the M4c urgent
+                            threshold; urgent ≤60min)
+  • msToOpen  < 3_600_000 (opening — unavailable-today /
+                            unavailable-future-day; available-again —
+                            redeemed-this-window)
+
+Both > 0 to skip the boundary moment (state machine flips). Existing
+60s setInterval continues to drive minute updates above 1h. Merchant
+Profile voucher cards (M4c) are unaffected — they consume no per-second
+data from this hook.
+
+A.4 (commit 793bafd) stays in branch history as record; this commit is
+the corrective layer per the amendment.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ## Phase B — `<HeroStatusBlock>` component
 
-**Reduced-motion + accessibility rule (locked, owner direction 2026-05-11).** Three concrete sub-rules:
+> **Amendment 2026-05-11 — under D3 + D10 amendment, Phase B tests below must be REWRITTEN before the engineer starts B.1.** The plan-text below was drafted under the original "clock-time primary" lock. Under the amended D3 (duration-first primary, clock-time supporting) + amended D10 (per-second tick under 1h in both directions; coarse stable a11y labels per direction):
+>
+> - **B.1 state-rendering tests:** the expected `getByTestId('hero-status-primary')` strings change from `"Open until 5:30pm"` / `"Today at 5pm"` / etc. → `"3h 12m"` / `"Closes in 42m 15s"` / `"Opens in 42m 15s"` / etc. per the new D3 table. The expected `getByTestId('hero-status-supporting')` strings change from the static schedule string → `"Ends 5:30pm today"` / `"Opens 5pm today"` / `"Saturday 11am"` per the new supporting-line format.
+> - **B.2 progress bar tests:** unchanged conceptually — width math still uses `msToClose` / `msToOpen`. Colour bands still align with the M4c URGENT_THRESHOLD_MS (green >60min, amber ≤60min >15min, coral ≤15min). Eyebrow vs primary disambiguation moves up to the spec D3 table.
+> - **B.3 a11y tests:** "Closes in under a minute" is now ONE of several stable labels; tests must also pin "Closes in about N minutes" (60_000 ≤ ms < 3_600_000) and the eyebrow-as-label path (ms ≥ 3_600_000). Opening + available-again directions get their own stable-label test pins. The `accessibilityElementsHidden` gate widens from "urgent final minute" to "wantsSecondTick === true" (i.e. any direction under 1h).
+>
+> **The engineer executing B.1 / B.2 / B.3 MUST consult the amended D3 + D10 spec sections (commit `594041f`) and apply the new strings + test expectations.** The Phase B intro a11y bullets below are kept for posterity but the third bullet's "Closes in under a minute" is now the ≤1m subcase, not the universal urgent-final-minute label.
 
-1. **Countdown seconds may update visually.** The visible "Closes in 47s" / "Closes in 46s" text updates each second under both normal-motion and reduced-motion. It's informational content (a fact about time), not decorative motion. The progress bar in Task B.2 uses plain `style.width` re-renders driven by the parent's tick cadence (60s normal, 1s urgent-final-minute) — no animation library is introduced, so there is no tween to suppress under reduced motion. **If a future task adds a Reanimated / Animated tween for the bar**, it MUST be gated on `useReducedMotion()` to fall through to a static width.
-2. **`accessibilityLiveRegion` must NOT announce every second.** The seconds-display Text element is hidden from the accessibility tree (`accessibilityElementsHidden` iOS / `importantForAccessibility="no-hide-descendants"` Android) so VoiceOver / TalkBack do not re-read it every tick.
-3. **Final-minute VoiceOver copy is STABLE.** The polite live-region announces a fixed string while in urgent-final-minute, regardless of how many seconds remain: **"Closes in under a minute"**. The string MUST NOT change at 47s → 46s → 30s → 5s. It changes ONLY when the underlying `windowState` changes (e.g. `urgent` → `unavailable-today` after the window closes), at which point the new state's stable summary fires once.
+**Reduced-motion + accessibility rule (locked, owner direction 2026-05-11; amended D10 widens scope):** Four concrete sub-rules:
+
+1. **Countdown seconds may update visually.** The visible "42m 15s" / "47s" text updates each second under both normal-motion and reduced-motion (anywhere displayed countdown is < 1 hour). It's informational content (a fact about time), not decorative motion. The progress bar in Task B.2 uses plain `style.width` re-renders driven by the parent's tick cadence (60s above 1h, 1s under 1h) — no animation library is introduced, so there is no tween to suppress under reduced motion. **If a future task adds a Reanimated / Animated tween for the bar**, it MUST be gated on `useReducedMotion()` to fall through to a static width.
+2. **`accessibilityLiveRegion` must NOT announce every second.** The seconds-display Text element is hidden from the accessibility tree (`accessibilityElementsHidden` iOS / `importantForAccessibility="no-hide-descendants"` Android) **whenever `wantsSecondTick === true`** — i.e. whenever any direction's displayed countdown is < 1 hour.
+3. **Stable coarse live-region labels per direction (amended D10).** The polite live-region announces a STABLE string within each bucket, never per-second:
+   - Closing direction, < 1 minute → `"Closes in under a minute"`
+   - Closing direction, < 1 hour, ≥ 1 minute → `"Closes in about N minutes"` (N rounded)
+   - Closing direction, ≥ 1 hour → eyebrow phrasing as label (`"Voucher available now"`)
+   - Opening direction → mirror set: `"Opens in under a minute"` / `"Opens in about N minutes"` / eyebrow `"Opens today"` / `"Opens tomorrow"` / `"Opens <Weekday>"`
+   - Available-again direction → `"Available again in under a minute"` / `"Available again in about N minutes"` / eyebrow `"Available again"`
+   The string MUST NOT change at 47s → 46s → 30s → 5s, OR at 42m 15s → 42m 14s. It changes ONLY when the bucket flips (e.g. `< 1 hour` → `< 1 minute`, or window-close → state-machine flips to `unavailable-today`).
+4. **Helpers `formatClosingA11y` / `formatOpeningA11y` / `formatAvailableAgainA11y` provide these strings.** All three live in `countdownFormat.ts` post-A.5. Each returns `null` for the ≥1h band — caller falls through to using the eyebrow string as the label.
 
 ### Task B.1: Component scaffolding + 11 visible-state rows
 

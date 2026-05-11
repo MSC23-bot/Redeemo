@@ -71,6 +71,16 @@ type Props = {
    * buttons are washed out").
    */
   dimmed?: boolean
+  /**
+   * M4d hero-mounted status block — TIME_LIMITED only. When `type ===
+   * 'TIME_LIMITED'` AND this prop is provided, the description slot is
+   * replaced by statusBlock. For non-TL voucher types this prop is
+   * ignored (description renders unchanged). When type IS TIME_LIMITED
+   * but statusBlock is null/undefined (e.g. transient Phase G-not-yet-
+   * wired state), the description slot is suppressed entirely — no
+   * fallback to description copy. Spec D6(C) lock + Phase B/C wiring.
+   */
+  statusBlock?: React.ReactNode
 }
 
 const typeIcon = (type: VoucherType) => {
@@ -123,6 +133,7 @@ export function CouponHeader({
   fadeEnd,
   collapsedActive = false,
   dimmed = false,
+  statusBlock,
 }: Props) {
   const gradient  = voucherGradient(type)
   const typeLabel = voucherTypeLabel(type)
@@ -237,12 +248,32 @@ export function CouponHeader({
           {title}
         </Text>
 
-        {description ? (
+        {/* Description renders in-column for non-TL voucher types only.
+            TIME_LIMITED voucher hero renders the statusBlock (HeroStatusBlock)
+            OUTSIDE this content View — see the statusBlockSlot below — so it
+            can span the full hero content-box width without being constrained
+            by content's paddingRight (which reserves space for the save badge
+            in the title's column). Spec D6(C) lock + on-device QA fix
+            2026-05-11 ("statusBlock should be bigger but not overlap save badge"). */}
+        {type !== 'TIME_LIMITED' && description ? (
           <Text variant="body.sm" style={styles.description} numberOfLines={3} ellipsizeMode="tail">
             {description}
           </Text>
         ) : null}
       </View>
+
+      {/* TIME_LIMITED statusBlock slot — outside content so it spans the
+          full hero content-box width. Save badge is positioned absolute
+          at the top of the hero (above the typeBadge + title vertically),
+          so the statusBlock can extend horizontally under the save-badge
+          column without visual overlap — they're at different y ranges.
+          Dimmed alongside content + saveBadge when the voucher is
+          stamped redeemed (PR-B T8h parity). */}
+      {type === 'TIME_LIMITED' && statusBlock ? (
+        <View style={[styles.statusBlockSlot, dimStyle]} testID="coupon-header-status-block-slot">
+          {statusBlock}
+        </View>
+      ) : null}
 
       {/* Save badge — circular dashed top-right. Anchored just below
           the NavRow so it doesn't collide with the heart button.
@@ -368,6 +399,18 @@ const styles = StyleSheet.create({
     // with the badge. Combined with numberOfLines=3 + ellipsizeMode
     // tail, this ensures arbitrary backend titles never overlap.
     paddingRight: 126,
+  },
+  // ── TIME_LIMITED statusBlock slot ──────────────────────────────────
+  // Sibling of `content`; sits below typeBadge + title vertically.
+  // No paddingRight — statusBlock fills the full hero content-box width
+  // (root.paddingHorizontal: 22 takes care of left/right safe margins).
+  // Save badge is vertically above this slot (positioned absolute, top:
+  // insetTop + NAV_ROOM - 8), so the statusBlock extending horizontally
+  // under the save-badge column doesn't cause visual overlap. On-device
+  // QA fix, 2026-05-11.
+  statusBlockSlot: {
+    position: 'relative',
+    zIndex: 1,
   },
   typeBadge: {
     flexDirection: 'row',

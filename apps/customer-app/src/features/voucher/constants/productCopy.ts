@@ -160,7 +160,7 @@ export function voucherTypeExplainer(type: VoucherType): string {
     case 'PACKAGE_DEAL':
       return "A bundle or set-menu offer. The voucher details list exactly what's included and any conditions."
     case 'TIME_LIMITED':
-      return "This voucher is only redeemable during specific times or days. Check availability before ordering."
+      return 'Time-limited vouchers can only be redeemed during specific days or hours set by the merchant. The current or next available window is shown above. Each window counts separately, so you can redeem once per window.'
     case 'REUSABLE':
       // Honest about current backend semantics — REUSABLE is a
       // merchant intent flag (the offer persists across cycles), not
@@ -233,6 +233,52 @@ export const HOW_IT_WORKS_STEPS_SUBSCRIBED: ReadonlyArray<{ label: string; desc:
   },
   ...STEPS_2_TO_5,
 ]
+
+/**
+ * TIME_LIMITED-specific step inserted at position 1 (after Subscribe /
+ * Review the Voucher, before Tell Staff First) per spec D9 lock
+ * (M4d Phase E). The window-state surface above the steps shows the
+ * current day/hour windows; this step nudges the user to verify them
+ * before ordering so they don't queue up an order outside the active
+ * window.
+ */
+export const CHECK_THE_WINDOW_STEP = {
+  label: 'Check the Window',
+  desc: 'Make sure the current window is open before ordering. Time-limited offers can only be redeemed during the days and hours shown above.',
+} as const
+
+/**
+ * Returns the appropriate "How It Works" step list for the given
+ * subscription state + voucher type. For TIME_LIMITED vouchers,
+ * `CHECK_THE_WINDOW_STEP` is inserted at index 1 — between the first
+ * orientation step (Subscribe to Unlock / Review the Voucher) and the
+ * shared 4-step redemption flow.
+ *
+ * The first-step copy is duplicated from the
+ * `HOW_IT_WORKS_STEPS_FREE` / `HOW_IT_WORKS_STEPS_SUBSCRIBED`
+ * exports above so this helper is self-contained. Future cleanup can
+ * extract those into named constants without changing this helper's
+ * signature.
+ */
+export function howItWorksSteps(
+  isSubscribed: boolean,
+  voucherType: VoucherType,
+): ReadonlyArray<{ label: string; desc: string }> {
+  const baseFirst = isSubscribed
+    ? {
+        label: 'Review the Voucher',
+        desc: 'Check the offer, terms, fair-use policy, and selected branch before ordering.',
+      }
+    : {
+        label: 'Subscribe to Unlock',
+        desc: 'Choose a monthly or annual plan to unlock this voucher and all other eligible vouchers across Redeemo.',
+      }
+
+  if (voucherType === 'TIME_LIMITED') {
+    return [baseFirst, CHECK_THE_WINDOW_STEP, ...STEPS_2_TO_5]
+  }
+  return [baseFirst, ...STEPS_2_TO_5]
+}
 
 /** CTA labels (Title Case to match v4 mockup). */
 export const CTA_LABELS = {

@@ -4,7 +4,17 @@ import {
   formatClockHour12,
   formatDayName,
   formatPrimaryCountdown,
+  formatPrimaryWhen,
   formatSupportingCountdown,
+  formatUrgentCountdown,
+  formatDuration,
+  formatClosingCountdown,
+  formatOpeningCountdown,
+  formatAvailableAgainCountdown,
+  formatClosingA11y,
+  formatOpeningA11y,
+  formatAvailableAgainA11y,
+  formatSupportingClock,
 } from '@/features/voucher/utils/countdownFormat'
 
 describe('formatDurationCompact', () => {
@@ -188,5 +198,299 @@ describe('formatClockHour12', () => {
     // 2026-05-13 20:30 UTC = 21:30 BST London. Tests the minute != 0
     // path that produces "H:MMam/pm" with zero-padded minutes.
     expect(formatClockHour12(new Date('2026-05-13T20:30:00Z'))).toBe('9:30pm')
+  })
+})
+
+// ── formatPrimaryWhen — M4d hero-status-block canonical primary line ────
+//
+// Spec D3 canonical primary format: "<When> at <H>am/pm" where <When> is
+// "Today" / "Tomorrow" / full weekday name. Combines London-local day
+// comparison with the existing formatClockHour12 helper.
+
+describe('formatPrimaryWhen', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))  // Monday 13:00 BST
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('renders "Today at 5pm" when boundary is later today (London local)', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Mon 13:00 BST
+    const boundary = new Date('2026-05-11T16:00:00Z')            // Mon 17:00 BST = 5pm
+    expect(formatPrimaryWhen(boundary, now)).toBe('Today at 5pm')
+  })
+
+  it('renders "Today at 5:30pm" when boundary has minutes', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-11T16:30:00Z')            // Mon 17:30 BST = 5:30pm
+    expect(formatPrimaryWhen(boundary, now)).toBe('Today at 5:30pm')
+  })
+
+  it('renders "Tomorrow at 11am" when boundary is on the next London day', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Mon 13:00 BST
+    const boundary = new Date('2026-05-12T10:00:00Z')            // Tue 11:00 BST
+    expect(formatPrimaryWhen(boundary, now)).toBe('Tomorrow at 11am')
+  })
+
+  it('renders "Saturday at 11am" when boundary is 5 days out', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Monday
+    const boundary = new Date('2026-05-16T10:00:00Z')            // Saturday 11:00 BST
+    expect(formatPrimaryWhen(boundary, now)).toBe('Saturday at 11am')
+  })
+
+  it('renders "Wednesday at 12pm" using 12-hour noon convention', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Monday
+    const boundary = new Date('2026-05-13T11:00:00Z')            // Wednesday 12:00 BST
+    expect(formatPrimaryWhen(boundary, now)).toBe('Wednesday at 12pm')
+  })
+
+  it('renders "Friday at 12am" using 12-hour midnight convention', () => {
+    const now = new Date('2026-05-11T12:00:00Z')                 // Monday
+    const boundary = new Date('2026-05-14T23:00:00Z')            // Friday 00:00 BST (next day)
+    expect(formatPrimaryWhen(boundary, now)).toBe('Friday at 12am')
+  })
+})
+
+// ── formatUrgentCountdown — M4d hero-status-block urgent-state primary ──
+//
+// Spec D10 final-60-seconds-only rule: seconds appear ONLY when msToClose
+// ≤ 60_000. Above that, falls through to formatDurationCompact (minute
+// granularity). At or past zero, returns "Closes now" until parent state
+// flips outside the window.
+
+describe('formatUrgentCountdown', () => {
+  it('returns "Closes in 23m" when 23 minutes remain', () => {
+    expect(formatUrgentCountdown(23 * 60_000)).toBe('Closes in 23m')
+  })
+
+  it('returns "Closes in 1m" when 90 seconds remain (rounds down to whole minutes above the 60s threshold)', () => {
+    // Above 60s: minute granularity. 90s → 1 minute.
+    expect(formatUrgentCountdown(90_000)).toBe('Closes in 1m')
+  })
+
+  it('returns "Closes in 47s" when 47 seconds remain', () => {
+    expect(formatUrgentCountdown(47_000)).toBe('Closes in 47s')
+  })
+
+  it('returns "Closes in 60s" when exactly 60 seconds remain', () => {
+    // Boundary: 60s → still seconds-mode (inclusive on the consumer side).
+    expect(formatUrgentCountdown(60_000)).toBe('Closes in 60s')
+  })
+
+  it('returns "Closes in 1s" when 1 second remains', () => {
+    expect(formatUrgentCountdown(1_000)).toBe('Closes in 1s')
+  })
+
+  it('returns "Closes now" when msToClose is 0', () => {
+    expect(formatUrgentCountdown(0)).toBe('Closes now')
+  })
+
+  it('returns "Closes now" when msToClose is negative (boundary already passed)', () => {
+    expect(formatUrgentCountdown(-500)).toBe('Closes now')
+  })
+
+  it('returns "Closes in 1h 0m" when 60 minutes remain (above urgency band but consumer-facing edge)', () => {
+    // Formatter is total-agnostic — caller decides when to invoke. Test that
+    // duration math works at the urgency band's upper edge.
+    expect(formatUrgentCountdown(60 * 60_000)).toBe('Closes in 1h 0m')
+  })
+})
+
+describe('formatDuration (M4d amended D3 precision)', () => {
+  // ── ≥ 1 day → "<d>d <h>h"
+  it('renders "2d 4h" for 2 days 4 hours', () => {
+    expect(formatDuration(2 * 86_400_000 + 4 * 3_600_000)).toBe('2d 4h')
+  })
+  it('renders "1d 0h" for exactly 1 day', () => {
+    expect(formatDuration(86_400_000)).toBe('1d 0h')
+  })
+  // ── < 1 day, ≥ 1 hour → "<h>h <m>m"
+  it('renders "5h 12m" for 5h 12m', () => {
+    expect(formatDuration(5 * 3_600_000 + 12 * 60_000)).toBe('5h 12m')
+  })
+  it('renders "1h 0m" for exactly 1 hour', () => {
+    expect(formatDuration(3_600_000)).toBe('1h 0m')
+  })
+  it('renders "23h 59m" just under 1 day', () => {
+    expect(formatDuration(23 * 3_600_000 + 59 * 60_000)).toBe('23h 59m')
+  })
+  // ── < 1 hour, ≥ 1 minute → "<m>m <s>s"
+  it('renders "42m 15s" for 42 minutes 15 seconds', () => {
+    expect(formatDuration(42 * 60_000 + 15_000)).toBe('42m 15s')
+  })
+  it('renders "1m 0s" for exactly 1 minute', () => {
+    expect(formatDuration(60_000)).toBe('1m 0s')
+  })
+  it('renders "59m 59s" just under 1 hour', () => {
+    expect(formatDuration(59 * 60_000 + 59_000)).toBe('59m 59s')
+  })
+  // ── < 1 minute, > 0 → "<s>s"
+  it('renders "59s" just under 1 minute', () => {
+    expect(formatDuration(59_000)).toBe('59s')
+  })
+  it('renders "1s" for 1 second', () => {
+    expect(formatDuration(1_000)).toBe('1s')
+  })
+  // ── ≤ 0 → "0s" (caller routes to "<verb> now")
+  it('renders "0s" for 0 ms', () => {
+    expect(formatDuration(0)).toBe('0s')
+  })
+  it('renders "0s" for negative ms', () => {
+    expect(formatDuration(-1000)).toBe('0s')
+  })
+})
+
+describe('formatClosingCountdown', () => {
+  it('returns "Closes in 42m 15s" for under-1h closing', () => {
+    expect(formatClosingCountdown(42 * 60_000 + 15_000)).toBe('Closes in 42m 15s')
+  })
+  it('returns "Closes in 1h 0m" for exactly 1 hour', () => {
+    expect(formatClosingCountdown(3_600_000)).toBe('Closes in 1h 0m')
+  })
+  it('returns "Closes in 47s" under 1 minute', () => {
+    expect(formatClosingCountdown(47_000)).toBe('Closes in 47s')
+  })
+  it('returns "Closes now" at 0 ms', () => {
+    expect(formatClosingCountdown(0)).toBe('Closes now')
+  })
+  it('returns "Closes now" for negative ms', () => {
+    expect(formatClosingCountdown(-500)).toBe('Closes now')
+  })
+})
+
+describe('formatOpeningCountdown', () => {
+  it('returns "Opens in 42m 15s"', () => {
+    expect(formatOpeningCountdown(42 * 60_000 + 15_000)).toBe('Opens in 42m 15s')
+  })
+  it('returns "Opens in 5h 12m"', () => {
+    expect(formatOpeningCountdown(5 * 3_600_000 + 12 * 60_000)).toBe('Opens in 5h 12m')
+  })
+  it('returns "Opens in 2d 4h" for multi-day countdown', () => {
+    expect(formatOpeningCountdown(2 * 86_400_000 + 4 * 3_600_000)).toBe('Opens in 2d 4h')
+  })
+  it('returns "Opens in 47s" under 1 minute', () => {
+    expect(formatOpeningCountdown(47_000)).toBe('Opens in 47s')
+  })
+  it('returns "Opens now" at 0 ms', () => {
+    expect(formatOpeningCountdown(0)).toBe('Opens now')
+  })
+})
+
+describe('formatAvailableAgainCountdown', () => {
+  it('returns "Available again in 42m 15s"', () => {
+    expect(formatAvailableAgainCountdown(42 * 60_000 + 15_000)).toBe('Available again in 42m 15s')
+  })
+  it('returns "Available again in 2d 4h" for multi-day', () => {
+    expect(formatAvailableAgainCountdown(2 * 86_400_000 + 4 * 3_600_000)).toBe('Available again in 2d 4h')
+  })
+  it('returns "Available now" at 0 ms', () => {
+    expect(formatAvailableAgainCountdown(0)).toBe('Available now')
+  })
+})
+
+describe('formatClosingA11y — coarse stable labels (spec D10 amendment)', () => {
+  it('returns "Closes in under a minute" when ms < 60_000 and > 0', () => {
+    expect(formatClosingA11y(47_000)).toBe('Closes in under a minute')
+    expect(formatClosingA11y(1_000)).toBe('Closes in under a minute')
+  })
+  it('returns "Closes in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
+    expect(formatClosingA11y(42 * 60_000 + 15_000)).toBe('Closes in about 42 minutes')
+    expect(formatClosingA11y(60_000)).toBe('Closes in about 1 minutes')  // single-form ok for now
+  })
+  it('returns null when ms ≥ 1 hour (caller uses eyebrow-as-label instead)', () => {
+    expect(formatClosingA11y(3_600_000)).toBeNull()
+    expect(formatClosingA11y(5 * 3_600_000)).toBeNull()
+  })
+  it('returns null at ≤ 0 ms', () => {
+    expect(formatClosingA11y(0)).toBeNull()
+    expect(formatClosingA11y(-100)).toBeNull()
+  })
+})
+
+describe('formatOpeningA11y', () => {
+  it('returns "Opens in under a minute" when ms < 60_000 and > 0', () => {
+    expect(formatOpeningA11y(47_000)).toBe('Opens in under a minute')
+  })
+  it('returns "Opens in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
+    expect(formatOpeningA11y(42 * 60_000 + 15_000)).toBe('Opens in about 42 minutes')
+  })
+  it('returns null when ms ≥ 1 hour', () => {
+    expect(formatOpeningA11y(3_600_000)).toBeNull()
+  })
+})
+
+describe('formatAvailableAgainA11y', () => {
+  it('returns "Available again in under a minute" under 1 minute', () => {
+    expect(formatAvailableAgainA11y(47_000)).toBe('Available again in under a minute')
+  })
+  it('returns "Available again in about N minutes" under 1 hour', () => {
+    expect(formatAvailableAgainA11y(42 * 60_000 + 15_000)).toBe('Available again in about 42 minutes')
+  })
+  it('returns null when ms ≥ 1 hour', () => {
+    expect(formatAvailableAgainA11y(3_600_000)).toBeNull()
+  })
+})
+
+describe('formatSupportingClock (M4d amended D3)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))  // Monday 13:00 BST
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  // ── Same-day → "<Verb> <Hour><am/pm> today" ─────────────────
+  it('same-day "Ends": "Ends 5:30pm today"', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-11T16:30:00Z')  // 17:30 BST = 5:30pm
+    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Ends 5:30pm today')
+  })
+
+  it('same-day "Opens" whole hour: "Opens 5pm today"', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-11T16:00:00Z')  // 17:00 BST = 5pm
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 5pm today')
+  })
+
+  // ── Next-day → "<Verb> <Hour><am/pm> tomorrow" ──────────────
+  it('next-day "Opens": "Opens 12pm tomorrow"', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-12T11:00:00Z')  // Tue 12:00 BST = 12pm
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12pm tomorrow')
+  })
+
+  it('midnight-cross "Opens 12:15am tomorrow"', () => {
+    const now = new Date('2026-05-11T22:45:00Z')   // Mon 23:45 BST
+    const boundary = new Date('2026-05-11T23:15:00Z')  // Tue 00:15 BST = 12:15am
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12:15am tomorrow')
+  })
+
+  // ── Future-day (2+ days) → "<Weekday> <Hour><am/pm>" (no verb) ──
+  it('future-day: "Saturday 11am" (no verb prefix)', () => {
+    const now = new Date('2026-05-11T12:00:00Z')        // Monday
+    const boundary = new Date('2026-05-16T10:00:00Z')   // Saturday 11:00 BST = 11am
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Saturday 11am')
+  })
+
+  it('future-day "Wednesday 12pm" — ignores verb arg (caller eyebrow carries direction)', () => {
+    const now = new Date('2026-05-11T12:00:00Z')        // Monday
+    const boundary = new Date('2026-05-13T11:00:00Z')   // Wednesday 12:00 BST
+    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Wednesday 12pm')
+  })
+
+  // ── Midnight noon edge cases ────────────────────────────────
+  it('same-day noon: "Ends 12pm today"', () => {
+    const now = new Date('2026-05-11T08:00:00Z')        // Mon 09:00 BST
+    const boundary = new Date('2026-05-11T11:00:00Z')   // Mon 12:00 BST
+    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Ends 12pm today')
+  })
+
+  it('same-day midnight: "Opens 12am today" (rare — late-night now)', () => {
+    const now = new Date('2026-05-11T22:30:00Z')        // Mon 23:30 BST
+    const boundary = new Date('2026-05-11T23:00:00Z')   // Tue 00:00 BST — different London day → tomorrow not today
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12am tomorrow')
   })
 })

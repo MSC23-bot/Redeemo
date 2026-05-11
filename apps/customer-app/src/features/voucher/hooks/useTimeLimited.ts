@@ -86,11 +86,24 @@ export type TimeLimitedState = {
    *   • no-windows / not-time-limited → null
    */
   nextBoundaryAt: Date | null
+  // ── M4d additive fields ──────────────────────────────────────
+  /** Current window's startsAt + endsAt, or null when no window is open. */
+  currentWindow: { startsAt: Date; endsAt: Date } | null
+  /** Next window's startsAt + endsAt, or null when no upcoming window. */
+  nextWindow: { startsAt: Date; endsAt: Date } | null
+  /** ms remaining until currentWindow.endsAt; null when no currentWindow. */
+  msToClose: number | null
+  /** ms until nextWindow.startsAt; null when no nextWindow. */
+  msToOpen: number | null
 }
 
 type Computed = {
   windowState: WindowState
   nextBoundaryAt: Date | null
+  currentWindow: { startsAt: Date; endsAt: Date } | null
+  nextWindow:    { startsAt: Date; endsAt: Date } | null
+  msToClose: number | null
+  msToOpen:  number | null
 }
 
 /**
@@ -148,7 +161,33 @@ function computeState(voucher: VoucherDetail, now: Date): Computed {
     nextBoundaryAt = startsAt
   }
 
-  return { windowState, nextBoundaryAt }
+  const currentWindowObj = voucher.currentWindow
+    ? {
+        startsAt: new Date(voucher.currentWindow.startsAt),
+        endsAt:   new Date(voucher.currentWindow.endsAt),
+      }
+    : null
+  const nextWindowObj = voucher.nextWindow
+    ? {
+        startsAt: new Date(voucher.nextWindow.startsAt),
+        endsAt:   new Date(voucher.nextWindow.endsAt),
+      }
+    : null
+  const msToClose = currentWindowObj
+    ? currentWindowObj.endsAt.getTime() - now.getTime()
+    : null
+  const msToOpen = nextWindowObj
+    ? nextWindowObj.startsAt.getTime() - now.getTime()
+    : null
+
+  return {
+    windowState,
+    nextBoundaryAt,
+    currentWindow: currentWindowObj,
+    nextWindow: nextWindowObj,
+    msToClose,
+    msToOpen,
+  }
 }
 
 export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeLimitedState {
@@ -158,7 +197,14 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
   // when the voucher identity changes (effect below).
   const initialState: Computed = isTimeLimited && voucher
     ? computeState(voucher, new Date())
-    : { windowState: 'no-windows', nextBoundaryAt: null }
+    : {
+        windowState: 'no-windows',
+        nextBoundaryAt: null,
+        currentWindow: null,
+        nextWindow: null,
+        msToClose: null,
+        msToOpen: null,
+      }
 
   const [computed, setComputed] = useState<Computed>(initialState)
   const voucherRef = useRef(voucher)
@@ -167,7 +213,14 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
   const recompute = () => {
     const v = voucherRef.current
     if (!v || v.type !== 'TIME_LIMITED') {
-      setComputed({ windowState: 'no-windows', nextBoundaryAt: null })
+      setComputed({
+        windowState: 'no-windows',
+        nextBoundaryAt: null,
+        currentWindow: null,
+        nextWindow: null,
+        msToClose: null,
+        msToOpen: null,
+      })
       return
     }
     setComputed(computeState(v, new Date()))
@@ -277,6 +330,46 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantsInterval])
 
+  // M4d: per-second tick during the final 60 seconds of urgent state, so
+  // the consumer-facing "Closes in 47s" countdown updates each second.
+  // Outside that band, the 60s minute tick (above) is sufficient.
+  //
+  // Gated tightly so we don't burn battery / re-render every second across
+  // the entire urgent state (which can last up to 60 minutes). Cleared on
+  // state change, unmount, and AppState background. Locked: spec D10.
+  const secondTickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // M4d amendment 2026-05-11 — widened gate per spec D10. Tick per-second
+  // whenever displayed countdown < 1 hour, in EITHER direction:
+  //   • msToClose under 1h (closing — active/urgent states above 60s)
+  //   • msToOpen  under 1h (opening / available-again — unavailable-*
+  //                          and redeemed-this-window states)
+  // Merchant cards (M4c) untouched — they consume nothing from this gate.
+  const wantsSecondTick =
+    isTimeLimited && (
+      (computed.msToClose !== null && computed.msToClose > 0 && computed.msToClose < 3_600_000) ||
+      (computed.msToOpen  !== null && computed.msToOpen  > 0 && computed.msToOpen  < 3_600_000)
+    )
+
+  useEffect(() => {
+    if (secondTickTimerRef.current) {
+      clearInterval(secondTickTimerRef.current)
+      secondTickTimerRef.current = null
+    }
+    if (!wantsSecondTick) return
+
+    secondTickTimerRef.current = setInterval(() => {
+      recompute()
+    }, 1_000)
+
+    return () => {
+      if (secondTickTimerRef.current) {
+        clearInterval(secondTickTimerRef.current)
+        secondTickTimerRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsSecondTick])
+
   // AppState resume: when the app returns to 'active', recompute state so
   // any timer skew during background is reconciled against the real clock.
   // Subscribes to a module-level fan-out (see `subscribeAppState`) so all
@@ -292,5 +385,9 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
     isTimeLimited,
     windowState: computed.windowState,
     nextBoundaryAt: computed.nextBoundaryAt,
+    currentWindow: computed.currentWindow,
+    nextWindow:    computed.nextWindow,
+    msToClose:     computed.msToClose,
+    msToOpen:      computed.msToOpen,
   }
 }

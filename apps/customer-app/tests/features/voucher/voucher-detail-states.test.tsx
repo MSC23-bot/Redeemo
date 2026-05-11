@@ -246,12 +246,13 @@ describe('VoucherDetailScreen — state machine', () => {
     expect(getByTestId('redeem-cta-expired')).toBeTruthy()
   })
 
-  it('renders TIME_LIMITED variant with banner + active CTA (M4b-8: post-stub real state machine)', () => {
-    // Replaces the old M1-stub assertion (`time-limited-available`).
-    // M4b-8 renames the active state to `time-limited-active` and drives
-    // it from real `currentWindow` + `availabilityWindows` payload via
-    // the M4b-4 useTimeLimited hook. The minimal fixture below produces
-    // a window that is currently open with > 60min remaining → 'active'.
+  it('renders TIME_LIMITED variant with hero status block + active CTA (M4b-8 / M4d Phase G)', () => {
+    // M4b-8 introduced the real TIME_LIMITED state machine driven by
+    // `currentWindow` + `availabilityWindows` via useTimeLimited. M4d
+    // Phase G (2026-05-11) replaced the post-coupon TimeLimitedBanner
+    // mount with <HeroStatusBlock> inside <CouponHeader>. The minimal
+    // fixture below produces a window that is currently open with
+    // > 60min remaining → 'active'. Assertion now pins the new mount.
     const futureISO = (minutes: number): string =>
       new Date(Date.now() + minutes * 60_000).toISOString()
     const pastISO = (minutes: number): string =>
@@ -268,7 +269,7 @@ describe('VoucherDetailScreen — state machine', () => {
     }
     const { getByTestId } = wrap(<VoucherDetailScreen />)
     expect(getByTestId('voucher-detail-state-time-limited-active')).toBeTruthy()
-    expect(getByTestId('time-limited-banner-active')).toBeTruthy()
+    expect(getByTestId('hero-status-block')).toBeTruthy()
     expect(getByTestId('redeem-cta-active')).toBeTruthy()
   })
 
@@ -294,6 +295,34 @@ describe('VoucherDetailScreen — state machine', () => {
 // ── TIME_LIMITED state machine (M4b-8) ───────────────────────────────
 
 describe('VoucherDetailScreen — TIME_LIMITED state machine (M4b-8)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    // Tuesday 2026-05-12 10:00 UTC = 11:00 BST. Deterministic anchor for
+    // the TIME_LIMITED suite so the state-machine derivation is stable
+    // regardless of run time.
+    //
+    // Why this exact instant:
+    //   • Sits well clear of the 21:30 London brittleness boundary that
+    //     made futureISO(180) flip from unavailable-today to
+    //     unavailable-future-day (crosses midnight London past ~21:30).
+    //   • availabilityWindows fixtures pin to dayOfWeek: 1 (Monday)
+    //     11:00-15:00. Anchoring on Tuesday means there is NO current
+    //     window re-derivable from availabilityWindows[] alone — the
+    //     state-machine flows to the nextWindow path which is what the
+    //     unavailable-today / unavailable-future-day tests exercise.
+    //   • futureISO(180) = same Tuesday 14:00 BST → same London day →
+    //     unavailable-today.
+    //   • futureISO(2 * 24 * 60) = Thursday 11:00 BST → different London
+    //     day → unavailable-future-day.
+    //
+    // Locked: spec D1 (2026-05-11-voucher-detail-m4d-redesign-design.md §6 D1).
+    jest.setSystemTime(new Date('2026-05-12T10:00:00Z'))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
   // Helpers — relative ISO timestamps using Date.now() so tests are
   // deterministic regardless of wall clock.
   function futureISO(minutes: number): string {
@@ -322,56 +351,64 @@ describe('VoucherDetailScreen — TIME_LIMITED state machine (M4b-8)', () => {
     }
   }
 
-  it('time-limited-active state: 2h remaining → active state key + FrostedCountdown + amber TimeLimitedBanner', () => {
+  // ── Phase G mount-order pins (M4d, 2026-05-11) ────────────────────
+  //
+  // Owner direction: "Do not leave duplicate TIME_LIMITED timing
+  // surfaces on screen." Phase G replaced the three M4b post-coupon
+  // mount sites (FrostedCountdown + TimeLimitedBanner +
+  // TimeLimitedDetailsCard) with a single <HeroStatusBlock> inside
+  // <CouponHeader> + TL-specific sections inside <CouponBodyCard>.
+  // These pins enforce the contract: HeroStatusBlock present, all
+  // three M4b testIDs absent. Cross-fixture (active / urgent /
+  // unavailable-today) so any future refactor that resurrects a
+  // duplicated countdown trips the pin in every state.
+  const M4B_TESTIDS = [
+    'vd-frosted-countdown',         // FrostedCountdown root
+    'time-limited-banner-active',   // TimeLimitedBanner variant testIDs
+    'time-limited-banner-urgent',
+    'time-limited-banner-unavailable',
+    'time-limited-details-card',    // TimeLimitedDetailsCard root
+  ] as const
+
+  it('time-limited-active state: 2h remaining → active state key + HeroStatusBlock (M4d Phase G — M4b mounts absent)', () => {
     mockVoucherData = tlVoucher()
-    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
     expect(getByTestId('voucher-detail-state-time-limited-active')).toBeTruthy()
-    expect(getByTestId('vd-frosted-countdown')).toBeTruthy()
-    expect(getByTestId('time-limited-banner-active')).toBeTruthy()
+    expect(getByTestId('hero-status-block')).toBeTruthy()
     expect(getByTestId('redeem-cta-active')).toBeTruthy()
+    // M4d Phase G: the three M4b mount sites are GONE.
+    M4B_TESTIDS.forEach((id) => {
+      expect(queryByTestId(id)).toBeNull()
+    })
   })
 
-  it('renders FrostedCountdown BEFORE TimeLimitedBanner in DOM order (visual-hierarchy lock)', () => {
-    // Locked 2026-05-11 from Gate F owner review: the richer countdown
-    // surface MUST render first; the explanatory banner follows. The two
-    // mount-blocks are adjacent in VoucherDetailScreen.tsx — if a future
-    // refactor swaps them this assertion fires. Implementation walks the
-    // serialised tree from the test renderer because testing-library
-    // doesn't expose a "before/after" matcher; sibling-order via the
-    // serialised JSON is bulletproof and dependency-free.
-    mockVoucherData = tlVoucher()
-    const { toJSON } = wrap(<VoucherDetailScreen />)
-    const tree = JSON.stringify(toJSON())
-    const frostedIdx = tree.indexOf('"vd-frosted-countdown"')
-    const bannerIdx  = tree.indexOf('"time-limited-banner-active"')
-    expect(frostedIdx).toBeGreaterThan(-1)
-    expect(bannerIdx).toBeGreaterThan(-1)
-    expect(frostedIdx).toBeLessThan(bannerIdx)
-  })
-
-  it('time-limited-urgent state: 30min remaining → urgent state key + urgent banner variant', () => {
+  it('time-limited-urgent state: 30min remaining → urgent state key + HeroStatusBlock (M4d Phase G — M4b mounts absent)', () => {
     mockVoucherData = tlVoucher({
       currentWindow: { startsAt: pastISO(60), endsAt: futureISO(30) },
     })
-    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
     expect(getByTestId('voucher-detail-state-time-limited-urgent')).toBeTruthy()
-    expect(getByTestId('time-limited-banner-urgent')).toBeTruthy()
+    expect(getByTestId('hero-status-block')).toBeTruthy()
     expect(getByTestId('redeem-cta-active')).toBeTruthy()
+    M4B_TESTIDS.forEach((id) => {
+      expect(queryByTestId(id)).toBeNull()
+    })
   })
 
-  it('time-limited-unavailable-today state: no current window, nextWindow later today → disabled-navy CTA + blue banner', () => {
+  it('time-limited-unavailable-today state: no current window, nextWindow later today → HeroStatusBlock + disabled-navy CTA (M4d Phase G — M4b mounts absent)', () => {
     mockVoucherData = tlVoucher({
       currentWindow: null,
       nextWindow: { startsAt: futureISO(180), endsAt: futureISO(180 + 60) },
     })
     const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
     expect(getByTestId('voucher-detail-state-time-limited-unavailable-today')).toBeTruthy()
-    expect(getByTestId('time-limited-banner-unavailable')).toBeTruthy()
+    expect(getByTestId('hero-status-block')).toBeTruthy()
     expect(getByTestId('redeem-cta-unavailable-window')).toBeTruthy()
-    // No active redeem CTA + no frosted countdown for unavailable states
-    // (countdown still shows in the supporting "Starts at" form but the
-    // primary disabled CTA is the dominant message).
+    // No active redeem CTA — disabled-navy CTA is the dominant message.
     expect(queryByTestId('redeem-cta-active')).toBeNull()
+    M4B_TESTIDS.forEach((id) => {
+      expect(queryByTestId(id)).toBeNull()
+    })
   })
 
   it('time-limited-unavailable-future-day state: no current window, nextWindow > 24h → same disabled-navy CTA', () => {

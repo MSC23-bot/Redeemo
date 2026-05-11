@@ -5,10 +5,8 @@ import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
-import {
-  HOW_IT_WORKS_STEPS_FREE,
-  HOW_IT_WORKS_STEPS_SUBSCRIBED,
-} from '../constants/productCopy'
+import { howItWorksSteps } from '../constants/productCopy'
+import type { VoucherType } from '@/lib/api/voucher'
 
 const NAVY     = '#010C35'
 const TEXT_2ND = '#4B5563'
@@ -17,12 +15,20 @@ const BORDER   = '#E8E2DC'
 type Props = {
   /**
    * Subscription state. Determines:
-   *   - which step list renders (free 5-step vs subscribed 5-step)
+   *   - which first step renders (Subscribe to Unlock vs Review the
+   *     Voucher) via `howItWorksSteps()`
    *   - the default expanded state (free starts expanded; subscribed
    *     starts collapsed since they likely already know the flow).
    * Both states are tappable — the card affordance is consistent.
    */
   isSubscribed: boolean
+  /**
+   * Voucher type. For TIME_LIMITED, `howItWorksSteps()` inserts an
+   * additional "Check the Window" step at position 1 between the
+   * first orientation step and the shared redemption flow (spec D9
+   * lock, M4d Phase E).
+   */
+  voucherType: VoucherType
   /**
    * Fires when the user expands the card (collapse-to-expand
    * transition only). The parent uses this to scroll the card into
@@ -55,8 +61,8 @@ type Props = {
  * "process explanation" rather than competing with the voucher's
  * primary content (terms + fair use).
  */
-export function HowItWorks({ isSubscribed, onExpand }: Props) {
-  const steps = isSubscribed ? HOW_IT_WORKS_STEPS_SUBSCRIBED : HOW_IT_WORKS_STEPS_FREE
+export function HowItWorks({ isSubscribed, voucherType, onExpand }: Props) {
+  const steps = howItWorksSteps(isSubscribed, voucherType)
 
   // Free users start expanded; subscribed users start collapsed.
   const [expanded, setExpanded] = useState(!isSubscribed)

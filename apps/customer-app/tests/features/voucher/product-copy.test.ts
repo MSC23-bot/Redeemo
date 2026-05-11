@@ -6,6 +6,8 @@ import {
   deriveDineInPill,
   fairUseLinesForVoucherType,
   splitTermsIntoBullets,
+  voucherTypeExplainer,
+  voucherTypeExplainerTitle,
 } from '@/features/voucher/constants/productCopy'
 
 // Pin the deterministic product-copy helpers consumed by the
@@ -156,5 +158,65 @@ describe('productCopy — CTA + How It Works copy is Title Case (v4 parity)', ()
 
   it('FAIR_USE_TITLE is the v4-locked heading text', () => {
     expect(FAIR_USE_TITLE).toBe('Fair Use Policy')
+  })
+})
+
+describe('voucherTypeExplainer — M4d TIME_LIMITED rewrite (spec D8)', () => {
+  it('returns the locked 3-sentence body', () => {
+    expect(voucherTypeExplainer('TIME_LIMITED')).toBe(
+      'Time-limited vouchers can only be redeemed during specific days or hours set by the merchant. The current or next available window is shown above. Each window counts separately, so you can redeem once per window.',
+    )
+  })
+
+  it('title remains "What is a time-limited voucher?" (locked 2026-05-07)', () => {
+    expect(voucherTypeExplainerTitle('TIME_LIMITED')).toBe('What is a time-limited voucher?')
+  })
+
+  it('does NOT contain em dashes (project-wide rule)', () => {
+    const body = voucherTypeExplainer('TIME_LIMITED')
+    expect(body).not.toMatch(/—|–/)
+  })
+
+  it('does NOT contain editorialising / salesy phrases', () => {
+    const body = voucherTypeExplainer('TIME_LIMITED')
+    const lower = body.toLowerCase()
+    expect(lower).not.toMatch(/often during/i)
+    expect(lower).not.toMatch(/quieter periods/i)
+    expect(lower).not.toMatch(/hurry/i)
+    expect(lower).not.toMatch(/last chance/i)
+    expect(lower).not.toMatch(/limited time/i)
+  })
+
+  it('body is exactly 3 sentences (period-terminated)', () => {
+    const body = voucherTypeExplainer('TIME_LIMITED')
+    // Count sentence-ending periods.
+    const sentenceEndings = body.match(/\.\s|\.$/g) ?? []
+    expect(sentenceEndings).toHaveLength(3)
+  })
+
+  it('body is exactly 35 words (locked count for the D8 body)', () => {
+    // Note: the Task F.1 brief described the rewrite as "~37 words";
+    // the actual whitespace-split count of the locked D8 body string
+    // is 35. The body string is the owner-locked source of truth; the
+    // count assertion follows the body, not the brief's approximation.
+    const body = voucherTypeExplainer('TIME_LIMITED')
+    const wordCount = body.trim().split(/\s+/).length
+    expect(wordCount).toBe(35)
+  })
+})
+
+describe('voucherTypeExplainer — other types unchanged (regression pin)', () => {
+  // Pin a couple of other voucher types to catch accidental side-edits
+  // when the TIME_LIMITED case is rewritten in M4d Task F.1.
+  it('BOGO body is unchanged', () => {
+    expect(voucherTypeExplainer('BOGO')).toMatch(/^Buy one eligible item/)
+  })
+
+  it('FREEBIE body is unchanged', () => {
+    expect(voucherTypeExplainer('FREEBIE')).toMatch(/^Claim a free item/)
+  })
+
+  it('REUSABLE body is unchanged', () => {
+    expect(voucherTypeExplainer('REUSABLE')).toMatch(/^An ongoing offer/)
   })
 })

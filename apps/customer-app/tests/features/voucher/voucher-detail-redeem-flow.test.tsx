@@ -2604,7 +2604,14 @@ describe('Voucher Detail M4b-9 — free-user TIME_LIMITED state', () => {
     return new Date(Date.now() + minutes * 60_000).toISOString()
   }
 
-  it('free user inside active TL window: state=free-user, schedule visible, type chip visible, NO FrostedCountdown, NO TimeLimitedBanner', () => {
+  it('free user inside active TL window: state=free-user, schedule visible in coupon body, type chip visible, NO M4b mount sites (M4b-9 + M4d Phase G)', () => {
+    // M4b-9 contract: no urgency theatre for free users (they cannot
+    // redeem). M4d Phase G (2026-05-11) consolidated the M4b post-coupon
+    // surfaces into a single <HeroStatusBlock> inside <CouponHeader> +
+    // TL sections inside <CouponBodyCard>. For free users, the schedule
+    // is now sourced from <CouponBodyCard>'s AVAILABILITY section
+    // (testID 'coupon-body-availability') instead of the deleted
+    // <TimeLimitedDetailsCard> "Available during" row.
     mockSubscribed = false
     mockVoucherData = baseVoucher({
       type: 'TIME_LIMITED' as const,
@@ -2619,16 +2626,21 @@ describe('Voucher Detail M4b-9 — free-user TIME_LIMITED state', () => {
     const { getByTestId, queryByTestId, getByText } = wrap(<VoucherDetailScreen />)
     // State key is 'free-user' (subscription gate precedes TIME_LIMITED branches per spec §5.1)
     expect(getByTestId('voucher-detail-state-free-user')).toBeTruthy()
-    // Schedule visible (via <TimeLimitedDetailsCard> "Available during" row)
-    expect(getByText('Available during')).toBeTruthy()
+    // Schedule visible via <CouponBodyCard> AVAILABILITY section (M4d Phase G).
+    expect(getByTestId('coupon-body-availability')).toBeTruthy()
+    expect(getByText(/Mondays/)).toBeTruthy()
     // Type chip visible (CouponHeader's type chip uses voucherTypeLabel('TIME_LIMITED') = 'Time limited')
     expect(getByText(/Time limited/i)).toBeTruthy()
-    // FrostedCountdown suppressed — no urgency theatre for users who can't redeem
+    // M4d Phase G — all three M4b mount sites removed entirely (not
+    // just suppressed for free users). The deletion is unconditional;
+    // the M4b-9 free-user gate is now redundant but the suppressed-for-
+    // free-user assertion still holds because the mounts are gone for
+    // every state.
     expect(queryByTestId('vd-frosted-countdown')).toBeNull()
-    // TimeLimitedBanner suppressed — same reason
     expect(queryByTestId('time-limited-banner-active')).toBeNull()
     expect(queryByTestId('time-limited-banner-urgent')).toBeNull()
     expect(queryByTestId('time-limited-banner-unavailable')).toBeNull()
+    expect(queryByTestId('time-limited-details-card')).toBeNull()
     // Subscribe CTA visible (existing free-user contract)
     expect(getByTestId('redeem-cta-subscribe')).toBeTruthy()
   })
