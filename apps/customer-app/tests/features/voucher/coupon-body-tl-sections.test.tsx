@@ -30,6 +30,42 @@ describe('CouponBodyCard — TIME_LIMITED sections (spec §5 + D6(C))', () => {
     expect(getByText('Buy any pizza and get a free side salad.')).toBeTruthy()
   })
 
+  // ── Goal 2 guidance card (TL wording amendment 2026-05-11) ──────────
+
+  it('renders Redeem-before-window-ends guidance card for TL with locked title + body', () => {
+    const { getByTestId, getByText } = render(<CouponBodyCard {...TL_PROPS_BASE} />)
+    const guidance = getByTestId('coupon-body-redeem-guidance')
+    expect(guidance).toBeTruthy()
+    expect(getByText('Redeem before the window ends')).toBeTruthy()
+    expect(
+      getByText(
+        /Redeem this voucher before the availability window ends\. Once redeemed, your code stays available to show staff for up to 2 hours\./,
+      ),
+    ).toBeTruthy()
+  })
+
+  it('guidance card a11y label covers both title and body', () => {
+    const { getByTestId } = render(<CouponBodyCard {...TL_PROPS_BASE} />)
+    const guidance = getByTestId('coupon-body-redeem-guidance')
+    const a11y = guidance.props.accessibilityLabel || ''
+    expect(a11y).toContain('Redeem before the window ends')
+    expect(a11y).toContain('show staff for up to 2 hours')
+  })
+
+  it('guidance card renders unconditionally for TL — even with null description', () => {
+    const { getByTestId, queryByTestId } = render(
+      <CouponBodyCard {...TL_PROPS_BASE} description={null} />,
+    )
+    expect(getByTestId('coupon-body-redeem-guidance')).toBeTruthy()
+    // Description testID absent (null description), but guidance card stays.
+    expect(queryByTestId('coupon-body-description')).toBeNull()
+  })
+
+  it('guidance card does NOT render for non-TL voucher types (TL-only scope)', () => {
+    const { queryByTestId } = render(<CouponBodyCard {...TL_PROPS_BASE} type="BOGO" />)
+    expect(queryByTestId('coupon-body-redeem-guidance')).toBeNull()
+  })
+
   it('renders Offer ends section ONLY when expiryDate is non-null', () => {
     const withExpiry = render(<CouponBodyCard {...TL_PROPS_BASE} expiryDate="2026-12-31T00:00:00Z" />)
     expect(withExpiry.getByTestId('coupon-body-offer-ends')).toBeTruthy()
@@ -38,13 +74,14 @@ describe('CouponBodyCard — TIME_LIMITED sections (spec §5 + D6(C))', () => {
     expect(withoutExpiry.queryByTestId('coupon-body-offer-ends')).toBeNull()
   })
 
-  it('sections render in DOM order: Availability → Usage rule → Description → Terms → Fair Use → Offer ends', () => {
+  it('sections render in DOM order: Availability → Usage rule → Guidance → Description → Terms → Fair Use → Offer ends', () => {
     const { toJSON } = render(
       <CouponBodyCard {...TL_PROPS_BASE} expiryDate="2026-12-31T00:00:00Z" />,
     )
     const tree = JSON.stringify(toJSON())
     const idxAvailability = tree.indexOf('coupon-body-availability')
     const idxUsage        = tree.indexOf('coupon-body-usage-rule')
+    const idxGuidance     = tree.indexOf('coupon-body-redeem-guidance')
     const idxDescription  = tree.indexOf('coupon-body-description')
     const idxTerms        = tree.indexOf('coupon-body-terms')
     const idxFairUse      = tree.indexOf('coupon-body-fair-use')
@@ -52,7 +89,8 @@ describe('CouponBodyCard — TIME_LIMITED sections (spec §5 + D6(C))', () => {
 
     expect(idxAvailability).toBeGreaterThan(-1)
     expect(idxUsage).toBeGreaterThan(idxAvailability)
-    expect(idxDescription).toBeGreaterThan(idxUsage)
+    expect(idxGuidance).toBeGreaterThan(idxUsage)
+    expect(idxDescription).toBeGreaterThan(idxGuidance)
     expect(idxTerms).toBeGreaterThan(idxDescription)
     expect(idxFairUse).toBeGreaterThan(idxTerms)
     expect(idxOfferEnds).toBeGreaterThan(idxFairUse)
@@ -64,6 +102,7 @@ describe('CouponBodyCard — TIME_LIMITED sections (spec §5 + D6(C))', () => {
     )
     expect(queryByTestId('coupon-body-availability')).toBeNull()
     expect(queryByTestId('coupon-body-usage-rule')).toBeNull()
+    expect(queryByTestId('coupon-body-redeem-guidance')).toBeNull()
     expect(queryByTestId('coupon-body-offer-ends')).toBeNull()
     // Description is NOT moved for non-TL — stays in hero in M4d.
     expect(queryByTestId('coupon-body-description')).toBeNull()
