@@ -1,22 +1,22 @@
 /**
- * Countdown formatting for TIME_LIMITED voucher states (M4b-1).
- *
- * No seconds anywhere. Per-minute updates within hours; per-hour in days
- * territory (the consuming hook is responsible for the update cadence —
- * these helpers are pure formatters).
+ * Countdown formatting for TIME_LIMITED voucher states.
  *
  * Hermes-robust: hardcoded English day-name array; numeric extraction
  * via `formatToParts` for clock-time. AVOID `weekday: 'long'` and
  * `toLocaleTimeString`. See `reference_london_clock_helper.md`.
+ *
+ * Live consumers post-M4d cleanup (chore/voucher-m4d-cleanup PR):
+ *   • formatDuration            — HeroStatusBlock primary (M4d)
+ *   • formatDurationCompact     — VoucherCardStatePill (M4c merchant pill) +
+ *                                  RedeemedSeal subtitle
+ *   • formatSupportingClock     — HeroStatusBlock supporting line (M4d)
+ *   • formatClockTime           — supporting infrastructure
+ *   • formatClockHour12         — M4c merchant pill + supporting formatters
+ *   • formatDayName             — both directions, weekday rendering
+ *   • formatClosingA11y         — HeroStatusBlock a11y live-region
+ *   • formatOpeningA11y         — HeroStatusBlock a11y live-region
+ *   • formatAvailableAgainA11y  — HeroStatusBlock a11y live-region
  */
-
-export type CountdownState =
-  | 'active'
-  | 'urgent'
-  | 'unavailable-today'
-  | 'unavailable-future-day'
-  | 'redeemed-this-window'
-  | 'expired'
 
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const
 
@@ -104,47 +104,6 @@ export function formatDayName(date: Date): string {
 }
 
 /**
- * Renders the M4d hero-status-block primary line:
- *   "Today at <H>am/pm"
- *   "Tomorrow at <H>am/pm"
- *   "<Weekday> at <H>am/pm"  (2+ days out, full weekday name)
- *
- * Locked: spec D3 canonical primary format. Hermes-robust — uses
- * formatToParts numeric extraction + the hardcoded DAYS_FULL array;
- * avoids weekday: 'long'/'short' and toLocaleTimeString. London-local
- * for the day-comparison (matches the rest of the voucher-detail surface).
- */
-export function formatPrimaryWhen(boundary: Date, now: Date): string {
-  const clock = formatClockHour12(boundary)
-  const boundaryYmd = ymdFor(boundary)
-  const nowYmd = ymdFor(now)
-  if (sameYmd(boundaryYmd, nowYmd)) return `Today at ${clock}`
-  const tomorrowYmd = addOneDay(nowYmd)
-  if (sameYmd(boundaryYmd, tomorrowYmd)) return `Tomorrow at ${clock}`
-  return `${formatDayName(boundary)} at ${clock}`
-}
-
-/**
- * M4d hero-status-block urgent-state primary formatter.
- *
- * Returns the user-facing countdown string given the absolute ms-until-
- * window-close. Seconds appear ONLY in the final 60 seconds (msToClose
- * ≤ 60_000). Above that, falls through to minute-or-coarser granularity
- * via formatDurationCompact. At or past the boundary, returns "Closes
- * now" until the parent state flips to outside-window.
- *
- * Locked: spec D10 final-60-seconds-only rule.
- */
-export function formatUrgentCountdown(msToClose: number): string {
-  if (msToClose <= 0) return 'Closes now'
-  if (msToClose <= 60_000) {
-    const seconds = Math.ceil(msToClose / 1_000)
-    return `Closes in ${seconds}s`
-  }
-  return `Closes in ${formatDurationCompact(msToClose)}`
-}
-
-/**
  * M4d-amended duration formatter (spec D3 amendment 2026-05-11).
  *
  * 4-tier precision:
@@ -154,12 +113,10 @@ export function formatUrgentCountdown(msToClose: number): string {
  *   < 1 min, > 0       → "59s"
  *   ≤ 0                → "0s"  (caller routes to "<verb> now")
  *
- * Used by the duration-first hero status block primary line. Replaces
- * formatDurationCompact for the M4d hero — kept separate so the legacy
- * compact formatter (still used by formatPrimaryCountdown /
- * formatSupportingCountdown for the M4b FrostedCountdown / banner /
- * details card) is untouched until those components are deleted in
- * Phase H.
+ * Used by the duration-first hero status block primary line.
+ * `formatDurationCompact` (above) is the legacy minute-granularity
+ * formatter still consumed by VoucherCardStatePill (M4c merchant pill)
+ * and RedeemedSeal subtitle — kept live, do not merge with this.
  */
 export function formatDuration(ms: number): string {
   if (ms <= 0) return '0s'
@@ -184,24 +141,6 @@ export function formatDuration(ms: number): string {
   const totalDays = Math.floor(ms / 86_400_000)
   const hours = Math.floor((ms - totalDays * 86_400_000) / 3_600_000)
   return `${totalDays}d ${hours}h`
-}
-
-/** "Closes in <duration>" / "Closes now" */
-export function formatClosingCountdown(ms: number): string {
-  if (ms <= 0) return 'Closes now'
-  return `Closes in ${formatDuration(ms)}`
-}
-
-/** "Opens in <duration>" / "Opens now" */
-export function formatOpeningCountdown(ms: number): string {
-  if (ms <= 0) return 'Opens now'
-  return `Opens in ${formatDuration(ms)}`
-}
-
-/** "Available again in <duration>" / "Available now" */
-export function formatAvailableAgainCountdown(ms: number): string {
-  if (ms <= 0) return 'Available now'
-  return `Available again in ${formatDuration(ms)}`
 }
 
 /**
@@ -293,56 +232,4 @@ function addOneDay(ymd: Ymd): Ymd {
   const t = new Date(Date.UTC(ymd.year, ymd.month - 1, ymd.day))
   t.setUTCDate(t.getUTCDate() + 1)
   return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() }
-}
-
-export type CountdownInput = {
-  state: CountdownState
-  now: Date
-  boundaryAt: Date | null  // window-close for active/urgent; window-open for unavailable; nextWindow.startsAt for redeemed; null for expired
-}
-
-export function formatPrimaryCountdown(input: CountdownInput): string {
-  const { state, now, boundaryAt } = input
-  if (state === 'expired' || boundaryAt === null) return '—'
-  const deltaMs = boundaryAt.getTime() - now.getTime()
-  if (state === 'active') {
-    // Clock-time anchor — boundaryAt is the window CLOSE.
-    return formatClockTime(boundaryAt)
-  }
-  // urgent / unavailable-* / redeemed-this-window → duration
-  return formatDurationCompact(deltaMs)
-}
-
-export type CountdownSupportingInput = {
-  state: CountdownState
-  now: Date
-  boundaryAt: Date | null
-  schedule: string  // "Mon-Fri, 11am-3pm" etc. from scheduleString.ts (M4b-3)
-}
-
-export function formatSupportingCountdown(input: CountdownSupportingInput): string {
-  const { state, now, boundaryAt, schedule } = input
-  if (state === 'expired' || boundaryAt === null) return schedule
-
-  switch (state) {
-    case 'active': {
-      const dur = formatDurationCompact(boundaryAt.getTime() - now.getTime())
-      return `Ends in ${dur} · ${schedule}`
-    }
-    case 'urgent': {
-      return `Ends at ${formatClockTime(boundaryAt)} · ${schedule}`
-    }
-    case 'unavailable-today': {
-      return `Starts at ${formatClockTime(boundaryAt)} · ${schedule}`
-    }
-    case 'unavailable-future-day':
-    case 'redeemed-this-window': {
-      return `${formatDayName(boundaryAt)} ${formatClockTime(boundaryAt)} · ${schedule}`
-    }
-    default: {
-      const _exhaustive: never = state
-      void _exhaustive
-      return schedule
-    }
-  }
 }
