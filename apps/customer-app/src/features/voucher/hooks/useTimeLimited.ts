@@ -293,15 +293,14 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
   //
   // ⚠️ DO NOT short-circuit the `recompute → setComputed` call on
   // state-object equality. The 60s setState IS the per-minute tick
-  // generator for the consumer: `<FrostedCountdown>` is a dumb formatter
+  // generator for the consumer: `<HeroStatusBlock>` is a dumb formatter
   // that reads `now: new Date()` captured at PARENT render time. The only
   // mechanism that re-renders the parent (and therefore re-captures `now`
   // for the countdown display) is this hook's setState. Adding an
   // identity-equality guard here would correctly skip "no state change"
-  // but would also freeze the displayed countdown — "Ends in 2h 14m"
-  // would never tick down to "Ends in 2h 13m" while in steady state.
-  // The intentional re-render IS the contract. Gate F review pass,
-  // 2026-05-11 — pushback documented.
+  // but would also freeze the displayed countdown — "5h 12m" would never
+  // tick down to "5h 11m" while in steady state. The intentional re-render
+  // IS the contract. Gate F review pass, 2026-05-11 — pushback documented.
   const intervalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const wantsInterval =
     isTimeLimited &&

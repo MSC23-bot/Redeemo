@@ -2606,12 +2606,11 @@ describe('Voucher Detail M4b-9 — free-user TIME_LIMITED state', () => {
 
   it('free user inside active TL window: state=free-user, schedule visible in coupon body, type chip visible, NO M4b mount sites (M4b-9 + M4d Phase G)', () => {
     // M4b-9 contract: no urgency theatre for free users (they cannot
-    // redeem). M4d Phase G (2026-05-11) consolidated the M4b post-coupon
-    // surfaces into a single <HeroStatusBlock> inside <CouponHeader> +
-    // TL sections inside <CouponBodyCard>. For free users, the schedule
-    // is now sourced from <CouponBodyCard>'s AVAILABILITY section
-    // (testID 'coupon-body-availability') instead of the deleted
-    // <TimeLimitedDetailsCard> "Available during" row.
+    // redeem). M4d Phase G (2026-05-11) consolidated the post-coupon
+    // M4b stop-gap surfaces into a single <HeroStatusBlock> inside
+    // <CouponHeader> + TL sections inside <CouponBodyCard>. For free
+    // users, the schedule is sourced from <CouponBodyCard>'s
+    // AVAILABILITY section (testID 'coupon-body-availability').
     mockSubscribed = false
     mockVoucherData = baseVoucher({
       type: 'TIME_LIMITED' as const,
