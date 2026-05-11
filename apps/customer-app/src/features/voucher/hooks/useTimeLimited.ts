@@ -330,6 +330,41 @@ export function useTimeLimited(voucher: VoucherDetail | null | undefined): TimeL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantsInterval])
 
+  // M4d: per-second tick during the final 60 seconds of urgent state, so
+  // the consumer-facing "Closes in 47s" countdown updates each second.
+  // Outside that band, the 60s minute tick (above) is sufficient.
+  //
+  // Gated tightly so we don't burn battery / re-render every second across
+  // the entire urgent state (which can last up to 60 minutes). Cleared on
+  // state change, unmount, and AppState background. Locked: spec D10.
+  const secondTickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const wantsSecondTick =
+    isTimeLimited &&
+    stateKey === 'urgent' &&
+    computed.msToClose !== null &&
+    computed.msToClose <= 60_000 &&
+    computed.msToClose > 0
+
+  useEffect(() => {
+    if (secondTickTimerRef.current) {
+      clearInterval(secondTickTimerRef.current)
+      secondTickTimerRef.current = null
+    }
+    if (!wantsSecondTick) return
+
+    secondTickTimerRef.current = setInterval(() => {
+      recompute()
+    }, 1_000)
+
+    return () => {
+      if (secondTickTimerRef.current) {
+        clearInterval(secondTickTimerRef.current)
+        secondTickTimerRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsSecondTick])
+
   // AppState resume: when the app returns to 'active', recompute state so
   // any timer skew during background is reconciled against the real clock.
   // Subscribes to a module-level fan-out (see `subscribeAppState`) so all

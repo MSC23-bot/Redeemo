@@ -239,6 +239,96 @@ describe('useTimeLimited — real implementation (M4b-4)', () => {
     })
   })
 
+  // ── M4d 1-second urgent-final-minute tick (Task A.4) ────────────────
+  // Spec D10 — final-60-seconds-only seconds rule. The 1s tick is gated
+  // tightly so it does NOT fire across the full ~60-min urgent window
+  // (which would burn battery + re-render every second for an hour).
+  // Gated EXCLUSIVELY by: windowState === 'urgent' && msToClose ∈ (0, 60_000].
+  // Outside that band, the 60s minute tick is sufficient.
+
+  describe('useTimeLimited — M4d 1-second urgent-final-minute tick (Task A.4)', () => {
+    it('updates msToClose every 1 second when urgent + msToClose <= 60_000', () => {
+      // currentWindow closes 45 seconds from "now".
+      jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+      const voucher = baseVoucher({
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '10:00', closeTime: '12:01' }],
+        currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T12:00:45Z' },
+        nextWindow: null,
+      })
+      const { result } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.windowState).toBe('urgent')
+      expect(result.current.msToClose).toBe(45_000)
+
+      act(() => { jest.advanceTimersByTime(1_000) })
+      expect(result.current.msToClose).toBe(44_000)
+
+      act(() => { jest.advanceTimersByTime(1_000) })
+      expect(result.current.msToClose).toBe(43_000)
+    })
+
+    it('does NOT install the 1s tick when urgent but msToClose > 60_000', () => {
+      // urgent state but 5 minutes remain → minute granularity only.
+      jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+      const voucher = baseVoucher({
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '10:00', closeTime: '12:05' }],
+        currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T12:05:00Z' },
+        nextWindow: null,
+      })
+      const { result } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.windowState).toBe('urgent')
+      expect(result.current.msToClose).toBe(5 * 60_000)
+
+      // Advance 1s — should NOT trigger a recompute (interval not installed).
+      act(() => { jest.advanceTimersByTime(1_000) })
+      // Without a 1s tick, msToClose stays at the snapshot from initial render.
+      // The 60s minute tick will eventually update it, but not at +1s.
+      expect(result.current.msToClose).toBe(5 * 60_000)
+    })
+
+    it('clears the 1s tick when state transitions out of urgent (e.g., window closes → unavailable-today)', () => {
+      // currentWindow closes 5 seconds from now; nextWindow opens at 16:00.
+      jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+      const voucher = baseVoucher({
+        availabilityWindows: [
+          { dayOfWeek: 1, openTime: '10:00', closeTime: '12:01' },
+          { dayOfWeek: 1, openTime: '16:00', closeTime: '19:00' },
+        ],
+        currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T12:00:05Z' },
+        nextWindow:    { startsAt: '2026-05-11T16:00:00Z', endsAt: '2026-05-11T19:00:00Z' },
+      })
+      const { result } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.windowState).toBe('urgent')
+
+      // Advance past the boundary +1ms — state should flip to unavailable-today.
+      act(() => { jest.advanceTimersByTime(5_001) })
+      expect(result.current.windowState).toBe('unavailable-today')
+
+      // After transition, the 1s tick should be cleared. Advancing 1s does
+      // not re-fire the 1s recompute (msToOpen would only update via the
+      // 60s tick, which is a separate code path).
+      const msToOpenBefore = result.current.msToOpen
+      // Don't advance long enough to fire the 60s minute tick.
+      act(() => { jest.advanceTimersByTime(500) })
+      expect(result.current.msToOpen).toBe(msToOpenBefore)
+    })
+
+    it('clears the 1s tick on unmount', () => {
+      jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))
+      const voucher = baseVoucher({
+        availabilityWindows: [{ dayOfWeek: 1, openTime: '10:00', closeTime: '12:01' }],
+        currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T12:00:30Z' },
+        nextWindow: null,
+      })
+      const { result, unmount } = renderHook(() => useTimeLimited(voucher))
+      expect(result.current.windowState).toBe('urgent')
+
+      unmount()
+      // After unmount, advancing time should not crash + not log warnings
+      // about state updates on unmounted components.
+      expect(() => { jest.advanceTimersByTime(5_000) }).not.toThrow()
+    })
+  })
+
   it('pending boundary timer does not call setState after unmount (no React warning)', () => {
     jest.setSystemTime(new Date('2026-05-11T11:00:00Z'))
     const voucher = baseVoucher({
