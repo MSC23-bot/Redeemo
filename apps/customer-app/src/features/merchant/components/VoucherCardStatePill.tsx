@@ -1,0 +1,300 @@
+import React, { useEffect } from 'react'
+import { View, StyleSheet } from 'react-native'
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
+import { Text } from '@/design-system/Text'
+import type { MerchantVoucher } from '@/lib/api/merchant'
+import {
+  formatClockTime, formatClockHour12, formatDurationCompact, formatDayName,
+} from '@/features/voucher/utils/countdownFormat'
+
+/**
+ * Merchant-profile voucher-card state pill (M4c — Gate J locked 2026-05-11).
+ *
+ * Renders inside `<VoucherCard>`'s topRow on the RIGHT, replacing the
+ * favourite heart slot (heart relocates to the bottomRow). Height-neutral
+ * with non-TIME_LIMITED cards — pill height matches the existing type
+ * chip's ~22pt, so the card minHeight (144pt) is unchanged across all
+ * voucher types.
+ *
+ * State copy (owner-locked Gate J revised 2026-05-11 after device QA —
+ * badge-hierarchy: UPPERCASE state label · sentence-case detail):
+ *   active (>= 60 min)            → "AVAILABLE NOW · Ends 3pm today"   + green pulse-dot
+ *   urgent (< 60 min)             → "CLOSING SOON · 23m left"          + coral pulse-dot
+ *   outside-window today          → "OPENS TODAY · 5pm"                (static)
+ *   outside-window tomorrow       → "OPENS TOMORROW · 12pm"            (static)
+ *   outside-window future-day     → "OPENS FRI · 11am"                 (static)
+ *   redeemed-this-window          → renders NOTHING (PR-B overprint carries the state)
+ *   non-TIME_LIMITED              → renders NOTHING
+ *
+ * Pill layout sits inside <VoucherCard>'s `topRightGroup` to the LEFT
+ * of the heart. Pill text is `numberOfLines: 1, ellipsizeMode: 'tail'`
+ * — when topRow is tight, the tail truncates BEFORE the heart's
+ * position is displaced. Heart is `flexShrink: 0`; pill (and its parent
+ * group) is `flexShrink: 1`. Card minHeight 144pt unchanged.
+ *
+ * Urgent threshold (60 min) — OWNER LOCKED Gate H 2026-05-11:
+ *   TIME_LIMITED urgency threshold is 60 minutes across Voucher Detail
+ *   and Merchant Profile voucher cards. Supersedes spec §6.2's older
+ *   <30 min wording. Sort + pill MUST share the boundary or a 45-min-
+ *   remaining card lands in the urgent sort bucket with an "Active" pill.
+ *
+ * Stale-payload guard: if `currentWindow.endsAt` has already passed
+ * relative to `now`, the pill falls through to the outside-window path
+ * (same guard as M4c-1 `bucketFor`). Prevents stale "Available now" /
+ * "Closes in" pills on windows that closed while the user had the screen
+ * open.
+ *
+ * Animation discipline (D6 lock):
+ *   - Pulse-dot ONLY in active/urgent. Outside-window pills are calm grey,
+ *     no motion.
+ *   - Reanimated `withRepeat` opacity loop on the native thread (Gate J
+ *     migration from M4c-2's RN Animated.loop — closes §AL1 follow-up).
+ *   - `useReducedMotion` skips the pulse loop; dot renders static at full
+ *     opacity for accessibility users.
+ *   - NO full-card glow. NO scale animation. NO shimmer.
+ *
+ * Hermes-robust formatters only — reuses `formatClockTime` /
+ * `formatClockHour12` / `formatDurationCompact` / `formatDayName` from
+ * `countdownFormat.ts`. All four use the `formatToParts` numeric
+ * extraction pattern that avoids the `weekday: 'long'/'short'` +
+ * `toLocaleTimeString` fragility.
+ */
+
+const URGENT_THRESHOLD_MS = 60 * 60_000
+const ACTIVE_PULSE_MS = 2000   // calm 2s loop
+const URGENT_PULSE_MS = 1500   // slightly faster 1.5s loop, still not noisy
+
+const ACTIVE_DOT_COLOR = '#16A34A'  // semantic green
+const URGENT_DOT_COLOR = '#EA580C'  // urgency coral
+
+/**
+ * Year-month-day key for "is this date the same as 'today' relative to a
+ * reference instant" comparisons. Europe/London-local; matches the locale
+ * used everywhere else in the customer-app (`londonNow.ts` pattern).
+ */
+const YMD_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/London',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+})
+function ymd(d: Date): string {
+  return YMD_FORMATTER.format(d)  // "2026-05-11"
+}
+
+/**
+ * Contextual suffix appended to active/urgent copy that has a time:
+ *   - same London day as now  → "today"
+ *   - next London day         → "tomorrow"
+ *   - other day               → 3-letter day name ("Mon", "Tue", ...)
+ *
+ * Active/urgent windows that span >24h are rare but possible (e.g. a
+ * 22:00 → 23:00 next-day window) — the suffix handles them gracefully
+ * by surfacing the actual closing day.
+ */
+function dayContext(target: Date, now: Date): string {
+  const nowYmd      = ymd(now)
+  const targetYmd   = ymd(target)
+  const tomorrowYmd = ymd(new Date(now.getTime() + 24 * 60 * 60_000))
+  if (targetYmd === nowYmd)      return 'today'
+  if (targetYmd === tomorrowYmd) return 'tomorrow'
+  return formatDayName(target).slice(0, 3)  // "Fri" / "Tue" / etc.
+}
+
+type Props = {
+  voucher: MerchantVoucher
+  now: Date
+}
+
+export function VoucherCardStatePill({ voucher, now }: Props) {
+  // Renders nothing for non-TIME_LIMITED vouchers + redeemed-this-window
+  // (PR-B overprint owns the redeemed surface).
+  if (voucher.type !== 'TIME_LIMITED') return null
+  if (voucher.redeemedWindow !== null) return null
+
+  if (voucher.currentWindow) {
+    const endsAt = new Date(voucher.currentWindow.endsAt)
+    const remaining = endsAt.getTime() - now.getTime()
+
+    // Stale-payload guard: closed window must NOT surface a stale "Available
+    // now" / "Closes in" pill. Fall through to outside-window path so the
+    // user sees the next-available copy.
+    if (remaining > 0) {
+      const isUrgent = remaining < URGENT_THRESHOLD_MS
+      if (isUrgent) {
+        // "CLOSING SOON · 23m left" — uppercase state label + duration.
+        // formatDurationCompact returns "Xm" for <60 min (always urgent
+        // is <60 min by definition), so the detail is always single-
+        // segment "Nm left".
+        const copy = `CLOSING SOON · ${formatDurationCompact(remaining)} left`
+        return (
+          <Pill testID="merchant-card-pill-urgent" textStyle={styles.textUrgent} copy={copy}>
+            <PulseDot color={URGENT_DOT_COLOR} speedMs={URGENT_PULSE_MS} />
+          </Pill>
+        )
+      }
+      // "AVAILABLE NOW · Ends 3pm today" — uppercase state label +
+      // sentence-case detail with 12h clock-hour + day context. Title-
+      // case "Ends" reads as readable detail rather than another
+      // uppercase tier — visual hierarchy via casing contrast.
+      const copy = `AVAILABLE NOW · Ends ${formatClockHour12(endsAt)} ${dayContext(endsAt, now)}`
+      return (
+        <Pill testID="merchant-card-pill-active" textStyle={styles.textActive} copy={copy}>
+          <PulseDot color={ACTIVE_DOT_COLOR} speedMs={ACTIVE_PULSE_MS} />
+        </Pill>
+      )
+    }
+    // fall through — closed window, fall back to nextWindow path below.
+  }
+
+  if (voucher.nextWindow) {
+    const startsAt = new Date(voucher.nextWindow.startsAt)
+    const nowYmd      = ymd(now)
+    const nextYmd     = ymd(startsAt)
+    const tomorrowYmd = ymd(new Date(now.getTime() + 24 * 60 * 60_000))
+
+    let copy:   string
+    let testID: string
+    if (nextYmd === nowYmd) {
+      // "OPENS TODAY · 5pm" — uppercase state label + 12h clock-hour.
+      copy = `OPENS TODAY · ${formatClockHour12(startsAt)}`
+      testID = 'merchant-card-pill-unavailable-today'
+    } else if (nextYmd === tomorrowYmd) {
+      // "OPENS TOMORROW · 12pm" — uppercase state label + 12h clock-hour.
+      copy = `OPENS TOMORROW · ${formatClockHour12(startsAt)}`
+      testID = 'merchant-card-pill-unavailable-future-day'
+    } else {
+      // "OPENS SATURDAY · 11am" — FULL uppercase day name folded into
+      // the state label + sentence-case 12h clock-hour (owner-locked
+      // device QA round 3, 2026-05-11: user-friendly copy beats compact
+      // copy; "SAT" reads as a shortened abbreviation that requires
+      // mental expansion). The day is uppercased to keep the badge-
+      // hierarchy contrast (UPPERCASE state · detail) consistent with
+      // the today/tomorrow variants above. Stacked layout gives the
+      // pill 75% of the row width — longest variant "OPENS WEDNESDAY ·
+      // 12pm" is ~22 chars which fits comfortably on iPhone SE.
+      const day = formatDayName(startsAt).toUpperCase()
+      copy = `OPENS ${day} · ${formatClockHour12(startsAt)}`
+      testID = 'merchant-card-pill-unavailable-future-day'
+    }
+    return (
+      <Pill testID={testID} textStyle={styles.textUnavail} copy={copy} unavail>
+        {null}
+      </Pill>
+    )
+  }
+
+  // Degenerate: TIME_LIMITED voucher with no current AND no next window.
+  // Caller (M4c-1 sortMerchantVouchers) buckets this as outside-window so
+  // the card still renders, but the pill has nothing meaningful to say —
+  // render nothing rather than fabricate copy.
+  return null
+}
+
+// ── Internal sub-components ──────────────────────────────────────────
+
+type PillProps = {
+  testID: string
+  textStyle: { color: string; fontWeight: '700' }
+  copy: string
+  unavail?: boolean
+  children: React.ReactNode  // pulse-dot or null
+}
+
+function Pill({ testID, textStyle, copy, unavail, children }: PillProps) {
+  return (
+    <View style={[styles.pill, unavail && styles.pillUnavail]} testID={testID}>
+      {children}
+      <Text variant="label.md" style={[styles.text, textStyle]} numberOfLines={1} ellipsizeMode="tail">
+        {copy}
+      </Text>
+    </View>
+  )
+}
+
+/**
+ * Pulse-dot — Reanimated `withRepeat` opacity loop on the native thread.
+ *
+ * Loop runs entirely on the native UI thread (no JS-bridge crossings per
+ * frame). Respects `useReducedMotion` — when on, dot stays static at full
+ * opacity (no animation registered).
+ */
+function PulseDot({ color, speedMs }: { color: string; speedMs: number }) {
+  const reducedMotion = useReducedMotion()
+  const opacity = useSharedValue(1)
+
+  useEffect(() => {
+    if (reducedMotion) {
+      opacity.value = 1
+      return
+    }
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0.4, { duration: speedMs / 2, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1,   { duration: speedMs / 2, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      false,
+    )
+    return () => cancelAnimation(opacity)
+  }, [opacity, speedMs, reducedMotion])
+
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }))
+
+  return (
+    <Animated.View
+      testID="merchant-card-pill-pulse-dot"
+      style={[styles.dot, { backgroundColor: color }, animatedStyle]}
+    />
+  )
+}
+
+const styles = StyleSheet.create({
+  // Pill height-neutral with the type chip (~22pt). Sits in topRow on
+  // the RIGHT (heart relocated to bottomRow). 11pt text + 3pt vertical
+  // padding keeps the pill at ~20pt, comfortable inside topRow's flex
+  // row alignItems:'center' — no card-height growth.
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    // Pale white backdrop reads cleanly against any per-type gradient.
+    // Active/urgent get the higher-opacity backdrop (clearer state signal);
+    // outside-window stays slightly more translucent (calmer).
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    // Prevent pill from forcing topRow to wrap on narrow screens —
+    // flexShrink:1 lets the inner Text ellipsize gracefully if the chip
+    // + pill combined width exceeds the available row width.
+    flexShrink: 1,
+  },
+  pillUnavail: {
+    backgroundColor: 'rgba(255,255,255,0.85)',
+  },
+  // 11pt for fit on smaller screens (Gate J owner-locked) — matches
+  // PRODUCT.md chrome typography scale at the body-tier minimum.
+  text: {
+    fontSize: 11,
+    flexShrink: 1,
+  },
+  textActive:  { color: '#15803D', fontWeight: '700' },
+  textUrgent:  { color: '#9A3412', fontWeight: '700' },
+  textUnavail: { color: '#6B7280', fontWeight: '700' },
+
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    // Decorative — hidden from screen readers; pill text carries the
+    // full state announcement.
+  },
+})

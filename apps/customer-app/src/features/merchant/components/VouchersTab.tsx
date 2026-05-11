@@ -1,3 +1,23 @@
+/**
+ * VouchersTab — merchant-profile voucher list.
+ *
+ * ⚠️ CONTRACT (locked M4c, 2026-05-11): the `vouchers` prop MUST be
+ * pre-sorted by the caller. The single production caller today is
+ * `MerchantProfileScreen`, which applies the M4c `sortMerchantVouchers`
+ * utility via `useMemo` and passes the result here. The previous
+ * internal "redeemed pushed last" sort has been REMOVED — `vouchers` is
+ * now rendered in input order so the screen-level five-bucket sort
+ * (TIME_LIMITED urgent → active → non-TL active → outside-window →
+ * redeemed; expired filtered) flows through unchanged.
+ *
+ * If a new caller wires this tab without `sortMerchantVouchers`, the
+ * list will render in API order — likely wrong, but silent. Add the
+ * util at the call site OR re-introduce the internal sort if the new
+ * caller can't reasonably pre-sort.
+ *
+ * See: `src/features/merchant/utils/voucherCardSort.ts` for the util,
+ * spec §6.3 for the locked bucket order.
+ */
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import Animated, { FadeInDown } from 'react-native-reanimated'
@@ -33,11 +53,14 @@ export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds
     )
   }
 
-  const sorted = [...vouchers].sort((a, b) => {
-    const aRedeemed = redeemedVoucherIds.has(a.id) ? 1 : 0
-    const bRedeemed = redeemedVoucherIds.has(b.id) ? 1 : 0
-    return aRedeemed - bRedeemed
-  })
+  // M4c (locked 2026-05-11): the previous internal sort that pushed
+  // redeemed-this-cycle vouchers to the end of the list is REMOVED in
+  // favour of `sortMerchantVouchers`, applied one level up in
+  // `MerchantProfileScreen`. This tab is now a dumb consumer of the
+  // already-sorted list — TIME_LIMITED urgent at the top, then active,
+  // then non-TL active, then TL outside-window, then redeemed, expired
+  // filtered out entirely (spec §6.3).
+  const sorted = vouchers
 
   // PR-B T8h owner direction: when a voucher is redeemed this cycle,
   // the "{n} offers available" copy must reflect what's still
