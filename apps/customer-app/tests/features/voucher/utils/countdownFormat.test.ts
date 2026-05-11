@@ -14,6 +14,7 @@ import {
   formatClosingA11y,
   formatOpeningA11y,
   formatAvailableAgainA11y,
+  formatSupportingClock,
 } from '@/features/voucher/utils/countdownFormat'
 
 describe('formatDurationCompact', () => {
@@ -429,5 +430,67 @@ describe('formatAvailableAgainA11y', () => {
   })
   it('returns null when ms ≥ 1 hour', () => {
     expect(formatAvailableAgainA11y(3_600_000)).toBeNull()
+  })
+})
+
+describe('formatSupportingClock (M4d amended D3)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))  // Monday 13:00 BST
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  // ── Same-day → "<Verb> <Hour><am/pm> today" ─────────────────
+  it('same-day "Ends": "Ends 5:30pm today"', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-11T16:30:00Z')  // 17:30 BST = 5:30pm
+    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Ends 5:30pm today')
+  })
+
+  it('same-day "Opens" whole hour: "Opens 5pm today"', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-11T16:00:00Z')  // 17:00 BST = 5pm
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 5pm today')
+  })
+
+  // ── Next-day → "<Verb> <Hour><am/pm> tomorrow" ──────────────
+  it('next-day "Opens": "Opens 12pm tomorrow"', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-12T11:00:00Z')  // Tue 12:00 BST = 12pm
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12pm tomorrow')
+  })
+
+  it('midnight-cross "Opens 12:15am tomorrow"', () => {
+    const now = new Date('2026-05-11T22:45:00Z')   // Mon 23:45 BST
+    const boundary = new Date('2026-05-11T23:15:00Z')  // Tue 00:15 BST = 12:15am
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12:15am tomorrow')
+  })
+
+  // ── Future-day (2+ days) → "<Weekday> <Hour><am/pm>" (no verb) ──
+  it('future-day: "Saturday 11am" (no verb prefix)', () => {
+    const now = new Date('2026-05-11T12:00:00Z')        // Monday
+    const boundary = new Date('2026-05-16T10:00:00Z')   // Saturday 11:00 BST = 11am
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Saturday 11am')
+  })
+
+  it('future-day "Wednesday 12pm" — ignores verb arg (caller eyebrow carries direction)', () => {
+    const now = new Date('2026-05-11T12:00:00Z')        // Monday
+    const boundary = new Date('2026-05-13T11:00:00Z')   // Wednesday 12:00 BST
+    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Wednesday 12pm')
+  })
+
+  // ── Midnight noon edge cases ────────────────────────────────
+  it('same-day noon: "Ends 12pm today"', () => {
+    const now = new Date('2026-05-11T08:00:00Z')        // Mon 09:00 BST
+    const boundary = new Date('2026-05-11T11:00:00Z')   // Mon 12:00 BST
+    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Ends 12pm today')
+  })
+
+  it('same-day midnight: "Opens 12am today" (rare — late-night now)', () => {
+    const now = new Date('2026-05-11T22:30:00Z')        // Mon 23:30 BST
+    const boundary = new Date('2026-05-11T23:00:00Z')   // Tue 00:00 BST — different London day → tomorrow not today
+    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12am tomorrow')
   })
 })

@@ -241,6 +241,36 @@ export function formatAvailableAgainA11y(ms: number): string | null {
   return null
 }
 
+/**
+ * M4d hero-status-block supporting line formatter (spec D3 amendment 2026-05-11).
+ *
+ * Returns the clock+day context that accompanies the duration-first
+ * primary. Format depends on how far in the future the boundary is
+ * relative to London-local "now":
+ *   • Same London day  → "<verb> <Hour><am/pm> today"   e.g. "Ends 5:30pm today"
+ *   • Next London day  → "<verb> <Hour><am/pm> tomorrow" e.g. "Opens 12:15am tomorrow"
+ *   • 2+ days away     → "<Weekday> <Hour><am/pm>"       e.g. "Saturday 11am"
+ *
+ * The verb is only included for same-day / tomorrow. For 2+ days, the
+ * eyebrow already carries the direction ("Opens Saturday"), so the
+ * supporting line omits it (matches the spec D3 example).
+ *
+ * Hermes-robust via the ymdFor helper + formatClockHour12 + formatDayName.
+ */
+export function formatSupportingClock(
+  boundary: Date,
+  now: Date,
+  verb: 'Ends' | 'Opens',
+): string {
+  const clock = formatClockHour12(boundary)
+  const boundaryYmd = ymdFor(boundary)
+  const nowYmd = ymdFor(now)
+  if (sameYmd(boundaryYmd, nowYmd)) return `${verb} ${clock} today`
+  const tomorrowYmd = addOneDay(nowYmd)
+  if (sameYmd(boundaryYmd, tomorrowYmd)) return `${verb} ${clock} tomorrow`
+  return `${formatDayName(boundary)} ${clock}`
+}
+
 type Ymd = { year: number; month: number; day: number }
 
 function ymdFor(date: Date): Ymd {
