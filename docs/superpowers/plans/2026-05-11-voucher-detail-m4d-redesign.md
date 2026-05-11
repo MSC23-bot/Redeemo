@@ -49,6 +49,118 @@
 
 ---
 
+## As-shipped record — Phase 0 + Phase A + Phase B + Phase C (Gate N reached 2026-05-11)
+
+Plan-text below was drafted at plan-amendment time. Actual implementation discovered path conventions, fixture-helper names, and formatter-API decisions that differ from the plan-verbatim. The next agent picking up Phase D should treat THIS section as the authoritative reference for what's already on the branch.
+
+### Test path conventions (mixed across the repo)
+
+| File | Actual path | Convention |
+|---|---|---|
+| voucher-detail-states fixture | `tests/features/voucher/voucher-detail-states.test.tsx` | kebab-flat |
+| useTimeLimited hook | `tests/features/voucher/use-time-limited.test.ts` | kebab-flat |
+| countdownFormat utils | `tests/features/voucher/utils/countdownFormat.test.ts` | **camelCase + nested `utils/`** |
+| HeroStatusBlock component | `tests/features/voucher/hero-status-block.test.tsx` | kebab-flat (matches `redeemed-seal.test.tsx` / `time-limited-banner.test.tsx` / `qr-code-block.test.tsx`) |
+| CouponHeader component | `tests/features/voucher/coupon-header.test.tsx` | kebab-flat |
+
+There is **no `components/` subdirectory** under `tests/features/voucher/`. Component tests sit at the flat root with kebab-case filenames. Utility tests sit under `utils/` with camelCase filenames. Hook tests sit at the flat root with kebab-case filenames. Phase D + E + F + G + H test files should follow whichever pattern matches their source category.
+
+### Fixture-helper names (actual)
+
+- `use-time-limited.test.ts` uses a single `baseVoucher(overrides)` helper at the top of the file. Defaults to `type: 'TIME_LIMITED'` with empty `availabilityWindows: []` and all window fields null. Non-TL is `baseVoucher({ type: 'BOGO' })`. **Do not** invent `makeTLVoucher` / `makeNonTLVoucher` helpers — the plan text above uses those names but they don't exist in the file.
+
+### Phase 0 — Tuesday anchor, not Monday
+
+The Phase 0 voucher-detail-states fixture uses `jest.setSystemTime(new Date('2026-05-12T10:00:00Z'))` (Tuesday 11:00 BST), NOT the originally-locked Monday anchor. Reason: the existing fixture has Monday `availabilityWindows`, which makes the Monday `2026-05-11T12:00:00Z` anchor derive `'active'` from the recurring window — incompatible with the unavailable-* brittle tests. Spec D1 carries the as-shipped amendment (commit `e8a740a`).
+
+Phase A test files (use-time-limited.test.ts, countdownFormat.test.ts) **DO** use the plan-locked Monday anchor `'2026-05-11T12:00:00Z'`, because their fixtures pass explicit `currentWindow`/`nextWindow` Date props — day-of-week doesn't matter for those.
+
+### Dead-on-arrival exports (cleanup deferred to post-M4d sweep)
+
+Five exports were shipped during Phase A but are now dead under the amended D3/D10:
+
+| Export | Shipped in | Why dead |
+|---|---|---|
+| `formatPrimaryWhen(boundary, now)` | A.1 (commit `52a26d3`) | Returns `"Today at 5pm"` form — the OLD primary line. Under amended D3, primary is bare duration, not clock-time. HeroStatusBlock doesn't consume this. |
+| `formatUrgentCountdown(msToClose)` | A.2 (commit `9238cc9`) | Original 60s-only seconds rule. Superseded by `formatDuration` + the under-1h band. HeroStatusBlock doesn't consume this. |
+| `formatClosingCountdown(ms)` | A.5 (commit `7dc14dc`) | Returns `"Closes in 42m 15s"` — but HeroStatusBlock's primary is bare duration (`"42m 15s"`), with the verb carried by the eyebrow + supporting line. Discovered at B.1 dispatch. |
+| `formatOpeningCountdown(ms)` | A.5 (commit `7dc14dc`) | Same reason as `formatClosingCountdown`. |
+| `formatAvailableAgainCountdown(ms)` | A.5 (commit `7dc14dc`) | Same reason. |
+
+`formatDuration(ms)` (the bare-duration formatter from A.5) IS consumed by HeroStatusBlock. The three a11y label helpers (`formatClosingA11y` / `formatOpeningA11y` / `formatAvailableAgainA11y`) are consumed by B.3's live-region.
+
+### `formatSupportingClock` — new helper added in B.1
+
+Not in the original plan. B.1 needed a Hermes-robust supporting-line formatter that produces:
+- Same London day → `"<Verb> <Hour><am/pm> today"`
+- Next London day → `"<Verb> <Hour><am/pm> tomorrow"`
+- 2+ days away → `"<Weekday> <Hour><am/pm>"` (no verb prefix)
+
+Lives in `countdownFormat.ts`. Consumes the existing `ymdFor` / `sameYmd` / `addOneDay` private helpers (added in A.1) + `formatClockHour12` + `formatDayName`.
+
+### `<HeroStatusBlock>` props (as-shipped)
+
+The component's prop type drifted from the plan-verbatim:
+
+```typescript
+export type HeroStatusBlockState = WindowState | 'redeemed-this-window' | 'expired'
+
+export type HeroStatusBlockProps = {
+  windowState: HeroStatusBlockState
+  now: Date
+  currentWindowStartsAt: Date | null
+  currentWindowEndsAt: Date | null
+  nextWindowStartsAt: Date | null
+  msToClose: number | null
+  msToOpen: number | null
+}
+```
+
+The original plan listed `scheduleString: string` — **dropped** in B.1, because under amended D3 the supporting line is clock-time context, not the schedule string. `scheduleString` is no longer a HeroStatusBlock concern. If Phase G/H consumers still pass it: ignore / remove.
+
+`'expired'` was added to the state union defensively — the state machine doesn't return it (expired-precedence is a screen-level check per M2 D4), but the component handles it as a no-render case for safety.
+
+### RNTL v13 default-hidden-elements config (B.3)
+
+`hero-status-block.test.tsx` opts INTO `defaultIncludeHiddenElements` via `configure()` in `beforeAll` / `afterAll`. Required because B.3's a11y rule sets `accessibilityElementsHidden={true}` + `importantForAccessibility="no-hide-descendants"` on the primary Text whenever the per-second tick is active (msToClose < 1h OR msToOpen < 1h). React Native Testing Library v13 hides such elements from `getByTestId` by default, which would break the B.1 + B.2 tests for under-1h states. The opt-in is process-scoped to this test file; `afterAll` restores the default.
+
+Future component tests that set `accessibilityElementsHidden` on the same element they assert against should mirror this pattern.
+
+### Shipped commit list (Phase 0 + A + B + C, branch tip 2aadc85)
+
+| SHA | Phase | What |
+|---|---|---|
+| `f78991a` | 0 | §AM1 fixture hardening (test-only). |
+| `e8a740a` | 0+ | D1 spec amendment — Phase 0 Tuesday anchor. |
+| `52a26d3` | A.1 | `formatPrimaryWhen` formatter (now dead-on-arrival). |
+| `9238cc9` | A.2 | `formatUrgentCountdown` (now dead under amended D10). |
+| `e4082f6` | A.3 | `useTimeLimited` additive return shape (4 new fields). |
+| `793bafd` | A.4 | 1s tick gated `urgent && msToClose ≤ 60_000` (now superseded by A.6). |
+| `594041f` | A+ | Spec amendment: D3 duration-first table + D10 per-second-under-1h-both-directions. |
+| `ab83a1d` | A+ | Plan amendment for A.5 + A.6 + Phase B amendment notice. |
+| `7dc14dc` | A.5 | Duration-first formatter family (7 new exports; 3 now dead). |
+| `4ac9310` | A.6 | Widened 1s tick gate to under-1h both directions + rebased A.4 negative pin to 90min. |
+| `b757922` | B.1 | `<HeroStatusBlock>` component + `formatSupportingClock` helper + state-rendering tests (16). |
+| `49c8700` | B.2 | Progress bar mechanics (empties for closing, fills for opening, hidden for redeemed/expired/no-windows) + 11 tests. |
+| `b9b9564` | B.3 | A11y live-region (coarse stable labels) + primary-hidden-under-1h + RNTL config opt-in + 18 tests. |
+| `2aadc85` | C.1 | `<CouponHeader>` `statusBlock?: React.ReactNode` prop + TL-only description suppression + 6 tests. |
+
+### Test totals at branch tip
+
+- Full voucher suite: **836 / 836 ✅** across 39 suites.
+- `tsc --noEmit`: clean.
+- ESLint: not yet re-run; will run at Gate Q before push.
+
+### Forward-looking — Phase D should know
+
+- The amended D3 changes Phase D's **CouponBody Description section** placement is unchanged (still moves into the body for TL only). The D3 amendment didn't touch D6(C) lock.
+- The amended D3 may simplify Phase D's **Availability section** copy, since the hero block now carries the under-1h ticking context. The Availability section can stay as the static schedule string ("Mon-Fri, 11am-3pm") — no per-second ticking needed inside the coupon body.
+- Phase G wiring will pass `<HeroStatusBlock>` props from VoucherDetailScreen. The hook's additive return shape (A.3 + A.6) gives the screen everything it needs: `currentWindow.startsAt/endsAt`, `nextWindow.startsAt/endsAt`, `msToClose`, `msToOpen`. The screen passes these directly to `<HeroStatusBlock>` plus a captured `now = new Date()` at parent render time.
+- Phase G should NOT pass `scheduleString` to `<HeroStatusBlock>` (the prop was dropped in B.1).
+- Phase G must pass the `statusBlock` prop to `<CouponHeader>` only for `voucher.type === 'TIME_LIMITED'` — per C.1's defensive scope fence, non-TL types ignore the prop anyway.
+
+---
+
 ## Phase 0 — §AM1 fixture hardening (closes §AM1)
 
 Per D1 lock: suite-level `jest.useFakeTimers()` + `jest.setSystemTime('2026-05-11T12:00:00Z')` BEFORE any new M4d UI work.
