@@ -144,6 +144,103 @@ export function formatUrgentCountdown(msToClose: number): string {
   return `Closes in ${formatDurationCompact(msToClose)}`
 }
 
+/**
+ * M4d-amended duration formatter (spec D3 amendment 2026-05-11).
+ *
+ * 4-tier precision:
+ *   ≥ 1 day            → "2d 4h"
+ *   < 1 day, ≥ 1 hour  → "5h 12m"
+ *   < 1 hour, ≥ 1 min  → "42m 15s"
+ *   < 1 min, > 0       → "59s"
+ *   ≤ 0                → "0s"  (caller routes to "<verb> now")
+ *
+ * Used by the duration-first hero status block primary line. Replaces
+ * formatDurationCompact for the M4d hero — kept separate so the legacy
+ * compact formatter (still used by formatPrimaryCountdown /
+ * formatSupportingCountdown for the M4b FrostedCountdown / banner /
+ * details card) is untouched until those components are deleted in
+ * Phase H.
+ */
+export function formatDuration(ms: number): string {
+  if (ms <= 0) return '0s'
+
+  const totalSeconds = Math.ceil(ms / 1_000)
+  if (totalSeconds < 60) return `${totalSeconds}s`
+
+  const totalMinutes = Math.floor(ms / 60_000)
+  if (totalMinutes < 60) {
+    const seconds = Math.ceil((ms - totalMinutes * 60_000) / 1_000)
+    // Edge case: rounding-up seconds to 60 would render "Nm 60s" — bump minute, zero seconds.
+    if (seconds === 60) return `${totalMinutes + 1}m 0s`
+    return `${totalMinutes}m ${seconds}s`
+  }
+
+  const totalHours = Math.floor(ms / 3_600_000)
+  if (totalHours < 24) {
+    const minutes = Math.floor((ms - totalHours * 3_600_000) / 60_000)
+    return `${totalHours}h ${minutes}m`
+  }
+
+  const totalDays = Math.floor(ms / 86_400_000)
+  const hours = Math.floor((ms - totalDays * 86_400_000) / 3_600_000)
+  return `${totalDays}d ${hours}h`
+}
+
+/** "Closes in <duration>" / "Closes now" */
+export function formatClosingCountdown(ms: number): string {
+  if (ms <= 0) return 'Closes now'
+  return `Closes in ${formatDuration(ms)}`
+}
+
+/** "Opens in <duration>" / "Opens now" */
+export function formatOpeningCountdown(ms: number): string {
+  if (ms <= 0) return 'Opens now'
+  return `Opens in ${formatDuration(ms)}`
+}
+
+/** "Available again in <duration>" / "Available now" */
+export function formatAvailableAgainCountdown(ms: number): string {
+  if (ms <= 0) return 'Available now'
+  return `Available again in ${formatDuration(ms)}`
+}
+
+/**
+ * Stable a11y label for the closing direction's polite live region.
+ * Returns null for the ≥1h band — caller uses the eyebrow phrasing as
+ * the accessibility label instead. Per spec D10 amendment 2026-05-11.
+ */
+export function formatClosingA11y(ms: number): string | null {
+  if (ms <= 0) return null
+  if (ms < 60_000) return 'Closes in under a minute'
+  if (ms < 3_600_000) {
+    const minutes = Math.round(ms / 60_000)
+    return `Closes in about ${minutes} minutes`
+  }
+  return null
+}
+
+/** Stable a11y label for the opening direction. */
+export function formatOpeningA11y(ms: number): string | null {
+  if (ms <= 0) return null
+  if (ms < 60_000) return 'Opens in under a minute'
+  if (ms < 3_600_000) {
+    const minutes = Math.round(ms / 60_000)
+    return `Opens in about ${minutes} minutes`
+  }
+  return null
+}
+
+/** Stable a11y label for the available-again direction. */
+export function formatAvailableAgainA11y(ms: number): string | null {
+  if (ms <= 0) return null
+  if (ms < 60_000) return 'Available again in under a minute'
+  if (ms < 3_600_000) {
+    const minutes = Math.round(ms / 60_000)
+    return `Available again in about ${minutes} minutes`
+  }
+  return null
+}
+
 type Ymd = { year: number; month: number; day: number }
 
 function ymdFor(date: Date): Ymd {

@@ -7,6 +7,13 @@ import {
   formatPrimaryWhen,
   formatSupportingCountdown,
   formatUrgentCountdown,
+  formatDuration,
+  formatClosingCountdown,
+  formatOpeningCountdown,
+  formatAvailableAgainCountdown,
+  formatClosingA11y,
+  formatOpeningA11y,
+  formatAvailableAgainA11y,
 } from '@/features/voucher/utils/countdownFormat'
 
 describe('formatDurationCompact', () => {
@@ -287,5 +294,140 @@ describe('formatUrgentCountdown', () => {
     // Formatter is total-agnostic — caller decides when to invoke. Test that
     // duration math works at the urgency band's upper edge.
     expect(formatUrgentCountdown(60 * 60_000)).toBe('Closes in 1h 0m')
+  })
+})
+
+describe('formatDuration (M4d amended D3 precision)', () => {
+  // ── ≥ 1 day → "<d>d <h>h"
+  it('renders "2d 4h" for 2 days 4 hours', () => {
+    expect(formatDuration(2 * 86_400_000 + 4 * 3_600_000)).toBe('2d 4h')
+  })
+  it('renders "1d 0h" for exactly 1 day', () => {
+    expect(formatDuration(86_400_000)).toBe('1d 0h')
+  })
+  // ── < 1 day, ≥ 1 hour → "<h>h <m>m"
+  it('renders "5h 12m" for 5h 12m', () => {
+    expect(formatDuration(5 * 3_600_000 + 12 * 60_000)).toBe('5h 12m')
+  })
+  it('renders "1h 0m" for exactly 1 hour', () => {
+    expect(formatDuration(3_600_000)).toBe('1h 0m')
+  })
+  it('renders "23h 59m" just under 1 day', () => {
+    expect(formatDuration(23 * 3_600_000 + 59 * 60_000)).toBe('23h 59m')
+  })
+  // ── < 1 hour, ≥ 1 minute → "<m>m <s>s"
+  it('renders "42m 15s" for 42 minutes 15 seconds', () => {
+    expect(formatDuration(42 * 60_000 + 15_000)).toBe('42m 15s')
+  })
+  it('renders "1m 0s" for exactly 1 minute', () => {
+    expect(formatDuration(60_000)).toBe('1m 0s')
+  })
+  it('renders "59m 59s" just under 1 hour', () => {
+    expect(formatDuration(59 * 60_000 + 59_000)).toBe('59m 59s')
+  })
+  // ── < 1 minute, > 0 → "<s>s"
+  it('renders "59s" just under 1 minute', () => {
+    expect(formatDuration(59_000)).toBe('59s')
+  })
+  it('renders "1s" for 1 second', () => {
+    expect(formatDuration(1_000)).toBe('1s')
+  })
+  // ── ≤ 0 → "0s" (caller routes to "<verb> now")
+  it('renders "0s" for 0 ms', () => {
+    expect(formatDuration(0)).toBe('0s')
+  })
+  it('renders "0s" for negative ms', () => {
+    expect(formatDuration(-1000)).toBe('0s')
+  })
+})
+
+describe('formatClosingCountdown', () => {
+  it('returns "Closes in 42m 15s" for under-1h closing', () => {
+    expect(formatClosingCountdown(42 * 60_000 + 15_000)).toBe('Closes in 42m 15s')
+  })
+  it('returns "Closes in 1h 0m" for exactly 1 hour', () => {
+    expect(formatClosingCountdown(3_600_000)).toBe('Closes in 1h 0m')
+  })
+  it('returns "Closes in 47s" under 1 minute', () => {
+    expect(formatClosingCountdown(47_000)).toBe('Closes in 47s')
+  })
+  it('returns "Closes now" at 0 ms', () => {
+    expect(formatClosingCountdown(0)).toBe('Closes now')
+  })
+  it('returns "Closes now" for negative ms', () => {
+    expect(formatClosingCountdown(-500)).toBe('Closes now')
+  })
+})
+
+describe('formatOpeningCountdown', () => {
+  it('returns "Opens in 42m 15s"', () => {
+    expect(formatOpeningCountdown(42 * 60_000 + 15_000)).toBe('Opens in 42m 15s')
+  })
+  it('returns "Opens in 5h 12m"', () => {
+    expect(formatOpeningCountdown(5 * 3_600_000 + 12 * 60_000)).toBe('Opens in 5h 12m')
+  })
+  it('returns "Opens in 2d 4h" for multi-day countdown', () => {
+    expect(formatOpeningCountdown(2 * 86_400_000 + 4 * 3_600_000)).toBe('Opens in 2d 4h')
+  })
+  it('returns "Opens in 47s" under 1 minute', () => {
+    expect(formatOpeningCountdown(47_000)).toBe('Opens in 47s')
+  })
+  it('returns "Opens now" at 0 ms', () => {
+    expect(formatOpeningCountdown(0)).toBe('Opens now')
+  })
+})
+
+describe('formatAvailableAgainCountdown', () => {
+  it('returns "Available again in 42m 15s"', () => {
+    expect(formatAvailableAgainCountdown(42 * 60_000 + 15_000)).toBe('Available again in 42m 15s')
+  })
+  it('returns "Available again in 2d 4h" for multi-day', () => {
+    expect(formatAvailableAgainCountdown(2 * 86_400_000 + 4 * 3_600_000)).toBe('Available again in 2d 4h')
+  })
+  it('returns "Available now" at 0 ms', () => {
+    expect(formatAvailableAgainCountdown(0)).toBe('Available now')
+  })
+})
+
+describe('formatClosingA11y — coarse stable labels (spec D10 amendment)', () => {
+  it('returns "Closes in under a minute" when ms < 60_000 and > 0', () => {
+    expect(formatClosingA11y(47_000)).toBe('Closes in under a minute')
+    expect(formatClosingA11y(1_000)).toBe('Closes in under a minute')
+  })
+  it('returns "Closes in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
+    expect(formatClosingA11y(42 * 60_000 + 15_000)).toBe('Closes in about 42 minutes')
+    expect(formatClosingA11y(60_000)).toBe('Closes in about 1 minutes')  // single-form ok for now
+  })
+  it('returns null when ms ≥ 1 hour (caller uses eyebrow-as-label instead)', () => {
+    expect(formatClosingA11y(3_600_000)).toBeNull()
+    expect(formatClosingA11y(5 * 3_600_000)).toBeNull()
+  })
+  it('returns null at ≤ 0 ms', () => {
+    expect(formatClosingA11y(0)).toBeNull()
+    expect(formatClosingA11y(-100)).toBeNull()
+  })
+})
+
+describe('formatOpeningA11y', () => {
+  it('returns "Opens in under a minute" when ms < 60_000 and > 0', () => {
+    expect(formatOpeningA11y(47_000)).toBe('Opens in under a minute')
+  })
+  it('returns "Opens in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
+    expect(formatOpeningA11y(42 * 60_000 + 15_000)).toBe('Opens in about 42 minutes')
+  })
+  it('returns null when ms ≥ 1 hour', () => {
+    expect(formatOpeningA11y(3_600_000)).toBeNull()
+  })
+})
+
+describe('formatAvailableAgainA11y', () => {
+  it('returns "Available again in under a minute" under 1 minute', () => {
+    expect(formatAvailableAgainA11y(47_000)).toBe('Available again in under a minute')
+  })
+  it('returns "Available again in about N minutes" under 1 hour', () => {
+    expect(formatAvailableAgainA11y(42 * 60_000 + 15_000)).toBe('Available again in about 42 minutes')
+  })
+  it('returns null when ms ≥ 1 hour', () => {
+    expect(formatAvailableAgainA11y(3_600_000)).toBeNull()
   })
 })
