@@ -10,16 +10,37 @@ import Animated, {
 } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
+import { formatDurationCompact } from '../utils/countdownFormat'
+import type { VoucherType } from '@/lib/api/voucher'
 
 type Props = {
   /**
+   * Voucher type. M4b-8: drives subtitle source selection.
+   *   • TIME_LIMITED → derive "Available again in 18h 24m" from
+   *                    `nextWindowStartsAt`. Per-window entitlement
+   *                    doesn't have a calendar renewal date — it has
+   *                    a next-window opening instant.
+   *   • all other types → derive "Renews on 9 June 2026" from
+   *                       `availableAgainAt` (cycle renewal date).
+   * Optional: when omitted, falls back to the non-TIME_LIMITED branch
+   * (preserves existing call-sites + the redeemed-seal unit tests
+   * that render the component without a voucher context).
+   */
+  voucherType?: VoucherType
+  /**
    * ISO string for the cycle renewal date — voucher.availableAgainAt.
-   * Optional: when null/undefined, the seal still renders ("Voucher
-   * Redeemed") but the renewal subline is suppressed. The seal is
-   * cycle-aware on the happy path; on partial-payload edge cases it
-   * degrades gracefully rather than crashing.
+   * Used by non-TIME_LIMITED vouchers. TIME_LIMITED voucher payloads
+   * always carry null here (entitlement is per-window, not per-cycle).
+   * Optional: when null/undefined AND voucherType is non-TIME_LIMITED,
+   * the seal renders without a subtitle (partial-payload tolerance).
    */
   availableAgainAt?: string | null
+  /**
+   * ISO string for the next-window opening — voucher.nextWindow.startsAt.
+   * Used by TIME_LIMITED vouchers. Non-TIME_LIMITED voucher payloads
+   * always carry null here.
+   */
+  nextWindowStartsAt?: string | null
 }
 
 /**
@@ -86,14 +107,36 @@ const INITIAL_ROTATION    = -2
 const REST_ROTATION       = -8
 const IMPACT_SCALE        = 1.06
 
-export function RedeemedSeal({ availableAgainAt }: Props) {
-  const renewalLabel = availableAgainAt
-    ? new Date(availableAgainAt).toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      })
-    : null
+export function RedeemedSeal({ voucherType, availableAgainAt, nextWindowStartsAt }: Props) {
+  // M4b-8: subtitle source branches on voucher type.
+  //   • TIME_LIMITED → "Available again in <duration>" from
+  //                    nextWindowStartsAt. Per-window entitlement
+  //                    means there's no calendar renewal date; the
+  //                    next-window opening is what the user actually
+  //                    needs to know.
+  //   • all others   → "Renews on <date>" from availableAgainAt
+  //                    (the cycle renewal — UNCHANGED M3 contract).
+  // The non-TIME_LIMITED `toLocaleDateString('en-GB', { day, month: 'long',
+  // year })` is the existing pattern and is NOT in the Hermes fragility
+  // list — see reference_london_clock_helper.md. The fragile patterns
+  // are `weekday: 'long'/'short'` (avoided) and `toLocaleTimeString`
+  // (avoided). The month-name-via-en-GB-locale pattern is the
+  // documented-safe approach used across the customer-app surface.
+  let subtitleText: string | null = null
+  if (voucherType === 'TIME_LIMITED' && nextWindowStartsAt) {
+    const next = new Date(nextWindowStartsAt)
+    const durationMs = next.getTime() - Date.now()
+    if (durationMs > 0) {
+      subtitleText = `Available again in ${formatDurationCompact(durationMs)}`
+    }
+  } else if (availableAgainAt) {
+    const renewalLabel = new Date(availableAgainAt).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+    subtitleText = `Renews on ${renewalLabel}`
+  }
 
   const reducedMotion = useReducedMotion()
   const ty       = useSharedValue(reducedMotion ? 0 : INITIAL_TRANSLATE_Y)
@@ -203,14 +246,18 @@ export function RedeemedSeal({ availableAgainAt }: Props) {
           <View style={[styles.inkSpeckle, { top: 11, left: '40%', width: 5, height: 6 }]} pointerEvents="none" />
           <View style={[styles.inkSpeckle, { top: 19, left: '50%', width: 4, height: 4 }]} pointerEvents="none" />
         </View>
-        {renewalLabel ? (
+        {subtitleText ? (
           // Subtitle wrapper — same distress overlay treatment as
           // the title, scaled down for the 13pt subtitle. Wave 11
           // (locked 2026-05-09 from owner QA: "apply the same style
           // … on the renews on 6 June 2026 renewal date as well").
+          // M4b-8: subtitle text source now branches on voucher type
+          // ("Renews on …" for cycle vouchers, "Available again in …"
+          // for TIME_LIMITED). Distress overlay treatment is identical
+          // in both cases — the rubber-stamp DNA is preserved.
           <View style={styles.subtitleWrap}>
             <Text variant="label.md" style={styles.subtitle}>
-              Renews on {renewalLabel}
+              {subtitleText}
             </Text>
             {/* Subtitle distress — wave 12 (locked 2026-05-09 from
                 owner QA): removed all 3 speckles per direction; kept
