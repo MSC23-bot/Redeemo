@@ -140,7 +140,15 @@ describe('formatClosingA11y — coarse stable labels (spec D10 amendment)', () =
   })
   it('returns "Closes in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
     expect(formatClosingA11y(42 * 60_000 + 15_000)).toBe('Closes in about 42 minutes')
-    expect(formatClosingA11y(60_000)).toBe('Closes in about 1 minutes')  // single-form ok for now
+  })
+  it('returns singular "Closes in about 1 minute" at exactly 60_000 ms (AO1)', () => {
+    expect(formatClosingA11y(60_000)).toBe('Closes in about 1 minute')
+  })
+  it('returns singular "Closes in about 1 minute" when Math.round rounds to 1', () => {
+    expect(formatClosingA11y(89_999)).toBe('Closes in about 1 minute')   // rounds to 1 (1.499...)
+  })
+  it('returns plural "Closes in about 2 minutes" when Math.round rounds to 2', () => {
+    expect(formatClosingA11y(90_000)).toBe('Closes in about 2 minutes')  // rounds to 2 (1.5 → 2)
   })
   it('returns null when ms ≥ 1 hour (caller uses eyebrow-as-label instead)', () => {
     expect(formatClosingA11y(3_600_000)).toBeNull()
@@ -159,6 +167,9 @@ describe('formatOpeningA11y', () => {
   it('returns "Opens in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
     expect(formatOpeningA11y(42 * 60_000 + 15_000)).toBe('Opens in about 42 minutes')
   })
+  it('returns singular "Opens in about 1 minute" at exactly 60_000 ms (AO1)', () => {
+    expect(formatOpeningA11y(60_000)).toBe('Opens in about 1 minute')
+  })
   it('returns null when ms ≥ 1 hour', () => {
     expect(formatOpeningA11y(3_600_000)).toBeNull()
   })
@@ -170,6 +181,9 @@ describe('formatAvailableAgainA11y', () => {
   })
   it('returns "Available again in about N minutes" under 1 hour', () => {
     expect(formatAvailableAgainA11y(42 * 60_000 + 15_000)).toBe('Available again in about 42 minutes')
+  })
+  it('returns singular "Available again in about 1 minute" at exactly 60_000 ms (AO1)', () => {
+    expect(formatAvailableAgainA11y(60_000)).toBe('Available again in about 1 minute')
   })
   it('returns null when ms ≥ 1 hour', () => {
     expect(formatAvailableAgainA11y(3_600_000)).toBeNull()

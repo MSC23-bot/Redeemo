@@ -153,7 +153,7 @@ export function formatClosingA11y(ms: number): string | null {
   if (ms < 60_000) return 'Closes in under a minute'
   if (ms < 3_600_000) {
     const minutes = Math.round(ms / 60_000)
-    return `Closes in about ${minutes} minutes`
+    return `Closes in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
   }
   return null
 }
@@ -164,7 +164,7 @@ export function formatOpeningA11y(ms: number): string | null {
   if (ms < 60_000) return 'Opens in under a minute'
   if (ms < 3_600_000) {
     const minutes = Math.round(ms / 60_000)
-    return `Opens in about ${minutes} minutes`
+    return `Opens in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
   }
   return null
 }
@@ -175,7 +175,7 @@ export function formatAvailableAgainA11y(ms: number): string | null {
   if (ms < 60_000) return 'Available again in under a minute'
   if (ms < 3_600_000) {
     const minutes = Math.round(ms / 60_000)
-    return `Available again in about ${minutes} minutes`
+    return `Available again in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
   }
   return null
 }
