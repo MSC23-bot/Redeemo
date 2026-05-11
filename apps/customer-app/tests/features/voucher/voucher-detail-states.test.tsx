@@ -331,6 +331,24 @@ describe('VoucherDetailScreen — TIME_LIMITED state machine (M4b-8)', () => {
     expect(getByTestId('redeem-cta-active')).toBeTruthy()
   })
 
+  it('renders FrostedCountdown BEFORE TimeLimitedBanner in DOM order (visual-hierarchy lock)', () => {
+    // Locked 2026-05-11 from Gate F owner review: the richer countdown
+    // surface MUST render first; the explanatory banner follows. The two
+    // mount-blocks are adjacent in VoucherDetailScreen.tsx — if a future
+    // refactor swaps them this assertion fires. Implementation walks the
+    // serialised tree from the test renderer because testing-library
+    // doesn't expose a "before/after" matcher; sibling-order via the
+    // serialised JSON is bulletproof and dependency-free.
+    mockVoucherData = tlVoucher()
+    const { toJSON } = wrap(<VoucherDetailScreen />)
+    const tree = JSON.stringify(toJSON())
+    const frostedIdx = tree.indexOf('"vd-frosted-countdown"')
+    const bannerIdx  = tree.indexOf('"time-limited-banner-active"')
+    expect(frostedIdx).toBeGreaterThan(-1)
+    expect(bannerIdx).toBeGreaterThan(-1)
+    expect(frostedIdx).toBeLessThan(bannerIdx)
+  })
+
   it('time-limited-urgent state: 30min remaining → urgent state key + urgent banner variant', () => {
     mockVoucherData = tlVoucher({
       currentWindow: { startsAt: pastISO(60), endsAt: futureISO(30) },

@@ -1508,31 +1508,19 @@ export function VoucherDetailScreen() {
             ONE visual treatment (stamped voucher) rather than two
             redundant indicators. */}
 
-        {/* M4b-9: FrostedCountdown + TimeLimitedBanner are suppressed for free users —
-            no urgency theatre for someone who can't redeem. TimeLimitedDetailsCard stays
-            mounted unconditionally because schedule + usage rule are informational. */}
-        {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
-          <View style={styles.tlBanner}>
-            <TimeLimitedBanner
-              windowState={timeLimited.windowState}
-              scheduleString={formatScheduleString(voucher.availabilityWindows)}
-              currentWindowEndsAt={voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null}
-              nextWindowStartsAt={voucher.nextWindow ? new Date(voucher.nextWindow.startsAt) : null}
-            />
-          </View>
-        ) : null}
-
-        {/* FrostedCountdown — TIME_LIMITED hero/secondary countdown
-            (M4b-8). Mounts AFTER the coupon body, BEFORE the
-            TimeLimitedBanner. Hidden in redeemed state (the seal + the
-            persisted RedemptionDetailsCard carry the post-redemption
-            messaging). Uses real-time `new Date()` — the underlying
-            useTimeLimited hook already drives a 60s tick, so re-renders
-            propagate naturally; the countdown helper formats from the
-            current clock at render time. M4b-9: also gated on
-            isSubscribed — free users don't see urgency countdowns for
-            offers they can't redeem; the subscription gate is primary
-            in that state. */}
+        {/* TIME_LIMITED post-coupon stack — fixed visual order (locked
+            2026-05-11 from Gate F owner review):
+              1. coupon body (above)
+              2. FrostedCountdown   ← richer hero/secondary countdown FIRST
+              3. TimeLimitedBanner  ← explanatory banner SECOND
+              4. TimeLimitedDetailsCard + MerchantRow etc. (below)
+            M4b-9: both surfaces are suppressed for free users (no urgency
+            theatre for someone who can't redeem) AND in redeemed state
+            (the seal + persisted RedemptionDetailsCard carry the post-
+            redemption messaging). TimeLimitedDetailsCard stays mounted
+            unconditionally because schedule + usage rule are informational
+            for free users too. Regression pin: voucher-detail-states.test.tsx
+            'renders FrostedCountdown BEFORE TimeLimitedBanner'. */}
         {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
           <View style={styles.frostedCountdownWrap}>
             <FrostedCountdown
@@ -1544,6 +1532,17 @@ export function VoucherDetailScreen() {
                   : (voucher.nextWindow    ? new Date(voucher.nextWindow.startsAt)  : null)
               }
               scheduleString={formatScheduleString(voucher.availabilityWindows)}
+            />
+          </View>
+        ) : null}
+
+        {voucher.type === 'TIME_LIMITED' && !isRedeemed && isSubscribed && timeLimited.windowState !== 'no-windows' ? (
+          <View style={styles.tlBanner}>
+            <TimeLimitedBanner
+              windowState={timeLimited.windowState}
+              scheduleString={formatScheduleString(voucher.availabilityWindows)}
+              currentWindowEndsAt={voucher.currentWindow ? new Date(voucher.currentWindow.endsAt) : null}
+              nextWindowStartsAt={voucher.nextWindow ? new Date(voucher.nextWindow.startsAt) : null}
             />
           </View>
         ) : null}
