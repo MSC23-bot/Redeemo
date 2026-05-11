@@ -150,6 +150,8 @@ Voucher type is creation-time locked. Merchant portal in Phase 4 must disallow m
 
 ### 5.2 Atomic claim — post-PIN match, inside `prisma.$transaction`
 
+> **Implementation note (spec amendment 2026-05-12):** the lock-call signature shown below is the design contract. Implementation **MUST verify** the exact runtime signature against Postgres: `pg_advisory_xact_lock` accepts `(bigint)` or `(int, int)`, and `hashtext` returns `int4`. If `hashtext(text)` resolves to `int4` cleanly in our Neon Postgres install, the two-int form below works as written. If the cast is ambiguous in any way, the implementation should adjust to a valid two-int expression (e.g. explicit `::int` casts) while preserving the invariants: lock keyed per `(userId, voucherId)`, transaction-scoped only. The §5.5 real-DB integration test is the proof point for whichever lock expression is chosen.
+
 ```ts
 await prisma.$transaction(async (tx) => {
   if (voucher.type === 'REUSABLE') {
@@ -221,6 +223,8 @@ The plan **MUST** include an explicit real-DB integration test for the advisory 
 - This exercises real Postgres `pg_advisory_xact_lock`, not a Prisma mock.
 
 Mocked tests are still useful for branch/error shape, but they cannot prove the lock semantics.
+
+**Test responsibility (spec amendment 2026-05-12):** this integration test is the **canonical proof** that the chosen lock expression actually serialises two concurrent transactions for the same `(userId, voucherId)`. The exact lock call (single-bigint vs two-int form, `hashtext` vs explicit cast, etc.) is an implementation detail — but whichever form ships **must pass this test**. If the test exposes that the originally-specced two-int form is malformed against the live DB, implementation adjusts the lock expression and re-runs the test; the spec design contract (per-`(userId, voucherId)`, transaction-scoped) is what's load-bearing, not the literal SQL signature.
 
 ---
 
@@ -326,6 +330,8 @@ If `expiryDate` exists AND `availableAgainAt > expiryDate`:
   - `availableAgainAt > expiryDate` case, AND
   - UI does NOT show "Available again in …" countdown, AND
   - UI DOES show the expiry-before-available-again message.
+
+**Payload ownership (spec amendment 2026-05-12):** the comparison `availableAgainAt > expiryDate` is **frontend-computed at render time** from the two payload fields already on `getCustomerVoucher`: `voucher.expiryDate` (existing) and the REUSABLE-specific `availableAgainAt` (added per §6.1). **No new backend metadata is required in v1.** The typed error `REUSABLE_COOLDOWN_ACTIVE { availableAgainAt }` (§5.3) stays unchanged — it carries only the available-again instant, not any expiry-relationship flag. If implementation discovers a gap (e.g. server needs to denormalise the comparison for performance or consistency reasons), surface it as a spec amendment at plan-review time; do not invent backend fields silently.
 
 ---
 
