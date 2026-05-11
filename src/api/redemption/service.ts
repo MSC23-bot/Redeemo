@@ -360,7 +360,64 @@ export async function createRedemption(
   }
 
   let redemption
-  if (voucher.type === 'TIME_LIMITED') {
+  if (voucher.type === 'REUSABLE') {
+    // M5 v1 (REUSABLE) — atomic claim with Postgres advisory lock.
+    //
+    // Spec §5.2 + §5.5 amendment 2026-05-12: lock per (userId, voucherId)
+    // is the design contract; the exact SQL signature is implementation-
+    // flexible. The real-DB integration test in
+    // `tests/api/redemption/advisory-lock-race.integration.test.ts` is
+    // the canonical proof point.
+    //
+    // Why the lock: Guard 8a (pre-PIN, spec §5.1) is a non-authoritative
+    // UX optimisation — a concurrent transaction can insert a winner
+    // between Guard 8a passing and our transaction starting. The lock
+    // serialises concurrent claims for the same (userId, voucherId)
+    // pair and the re-read under the lock is the authoritative gate.
+    //
+    // Two-int form `pg_advisory_xact_lock(int, int)` keeps unrelated
+    // (userId, voucherId) pairs parallel (different hash keyspace) so
+    // the lock does not contend across users or unrelated vouchers.
+    // `hashtext(text)` returns int4 — the signature resolves cleanly.
+    // The lock is transaction-scoped: Postgres auto-releases it on
+    // COMMIT or ROLLBACK; no manual unlock needed (and a manual unlock
+    // call would be either a no-op or a bug — see the mocked test pin).
+    //
+    // REUSABLE explicitly bypasses UserVoucherCycleState (D11) — its
+    // truth is `lastRedeemedAt + effectiveCooldownMs`. Insert only the
+    // VoucherRedemption row with windowStartsAt=null (Postgres distinct-
+    // NULL semantics keep @@unique([userId, voucherId, windowStartsAt])
+    // non-conflicting across REUSABLE redemptions for the same user +
+    // voucher).
+    redemption = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${userId}), hashtext(${data.voucherId}))
+      `
+
+      // Authoritative cooldown re-check UNDER the lock.
+      const latest = await tx.voucherRedemption.findFirst({
+        where:   { userId, voucherId: data.voucherId },
+        orderBy: { redeemedAt: 'desc' },
+        select:  { redeemedAt: true },
+      })
+      if (latest && now.getTime() < latest.redeemedAt.getTime() + effectiveCooldownMs!) {
+        throw new AppError('REUSABLE_COOLDOWN_ACTIVE', {
+          availableAgainAt: new Date(
+            latest.redeemedAt.getTime() + effectiveCooldownMs!,
+          ).toISOString(),
+        })
+      }
+
+      // Insert. windowStartsAt stays null — REUSABLE has no window concept,
+      // and Postgres distinct-NULL keeps the existing TL-protecting unique
+      // constraint non-conflicting.
+      return tx.voucherRedemption.create({ data: {
+        ...redemptionData,
+        windowStartsAt: null,
+      }})
+      // No UserVoucherCycleState write — REUSABLE bypasses it (D11).
+    })
+  } else if (voucher.type === 'TIME_LIMITED') {
     // M4a-6: TIME_LIMITED redemptions are NOT cycle-anchored — the
     // VoucherRedemption.redeemedAt timestamp + window-occurrence is
     // the source of truth (Guard 7 branch above). Insert ONLY the
