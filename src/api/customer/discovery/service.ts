@@ -25,6 +25,10 @@ import {
   getMostRecentlyClosedWindowOccurrence,
   type AvailabilityWindow,
 } from '../../shared/voucherAvailability'
+import {
+  effectiveCooldownSeconds,
+  computeAvailableAgainAt,
+} from '../../redemption/reusable'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -1027,6 +1031,10 @@ export async function getCustomerVoucher(
       id: true, title: true, type: true, description: true,
       terms: true, imageUrl: true, estimatedSaving: true,
       expiryDate: true, code: true, status: true, approvalStatus: true,
+      // M5 REUSABLE — selected for server-side cooldown math; NEVER
+      // included in the response payload (D19). Destructured out
+      // before the response spread below.
+      cooldownSeconds: true,
       merchant: {
         select: {
           id: true, businessName: true, tradingName: true, logoUrl: true, status: true,
@@ -1166,19 +1174,71 @@ export async function getCustomerVoucher(
   })
 
   const isTimeLimited = voucher.type === 'TIME_LIMITED'
+  const isReusable    = voucher.type === 'REUSABLE'
+
+  // ─── M5 REUSABLE deltas (spec §6.1, §6.3, D13-D16, D19) ────────────
+  //
+  // For REUSABLE, the customer payload carries:
+  //   - effectiveCooldownSeconds (server-clamped via the reusable
+  //     helper; data-only — surfaces regardless of subscription state
+  //     per §6.5).
+  //   - availableAgainAt = ISO of lastRedeemedAt + effectiveCooldownMs,
+  //     OR null when no prior redemption OR cooldown elapsed (Q5
+  //     convention: surface only future instants so the client can use
+  //     truthiness checks).
+  //   - isRedeemedThisCycle = false ALWAYS (D13). REUSABLE bypasses
+  //     the cycle-state gate entirely; the cycle-window vars
+  //     (cycleStart / cycleEnd / cycleState) are never consulted for
+  //     this branch.
+  //   - lastRedemption stays under the M3 2h presentation-window gate
+  //     (D14). REUSABLE bypasses the cycle-gate that today populates
+  //     `lastRedemption`, so the field stays null at the payload
+  //     level. The just-redeemed RedemptionDetailsCard is driven by
+  //     the in-memory mutation response (`useRedeem.onSuccess` carries
+  //     the fresh row). Persisted return-visit lastRedemption for
+  //     REUSABLE is a future task (Q5 §P2 follow-up) — intentional
+  //     v1 carve-out captured in spec §6.1.
+  let reusableEffectiveCooldownSeconds: number | null = null
+  let reusableAvailableAgainAt: string | null = null
+  if (isReusable) {
+    reusableEffectiveCooldownSeconds = effectiveCooldownSeconds(voucher)
+    if (userId) {
+      const latest = await prisma.voucherRedemption.findFirst({
+        where:   { userId, voucherId },
+        orderBy: { redeemedAt: 'desc' },
+        select:  { redeemedAt: true },
+      })
+      const computed = computeAvailableAgainAt(latest?.redeemedAt ?? null, voucher)
+      if (computed && computed.getTime() > Date.now()) {
+        reusableAvailableAgainAt = computed.toISOString()
+      }
+    }
+  }
+
+  // D19 — raw cooldownSeconds is NEVER exposed on the customer payload.
+  // Destructure it out before spreading the remaining voucher fields.
+  const { cooldownSeconds: _serverOnlyCooldownSeconds, ...voucherForResponse } = voucher
 
   return {
-    ...voucher,
+    ...voucherForResponse,
     estimatedSaving: Number(voucher.estimatedSaving),
-    isRedeemedThisCycle: isTimeLimited ? false : isRedeemedThisCycle,
+    isRedeemedThisCycle: (isTimeLimited || isReusable) ? false : isRedeemedThisCycle,
     isFavourited,
-    availableAgainAt: isTimeLimited ? null : availableAgainAt,
-    lastRedemption,
+    availableAgainAt: isReusable
+      ? reusableAvailableAgainAt
+      : (isTimeLimited ? null : availableAgainAt),
+    // M3 contract: lastRedemption is cycle-gated; REUSABLE bypasses
+    // that gate, so the payload value stays null for REUSABLE (D14 —
+    // independence from cooldown clock; just-redeemed UI uses the
+    // mutation-response payload instead).
+    lastRedemption: isReusable ? null : lastRedemption,
     // NEW M4a-4 (refactored to pure helper in M4a-5):
     availabilityWindows: tlPayload.availabilityWindows,
     currentWindow:       tlPayload.currentWindow,
     nextWindow:          tlPayload.nextWindow,
     redeemedWindow:      tlPayload.redeemedWindow,
+    // NEW M5 REUSABLE: server-clamped cooldown; null for non-REUSABLE.
+    effectiveCooldownSeconds: reusableEffectiveCooldownSeconds,
   }
 }
 
