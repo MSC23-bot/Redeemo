@@ -189,29 +189,55 @@ afterEach(() => {
 
 ### D3 — Countdown precision per state
 
-| State | Eyebrow | Primary | Supporting |
+**Locked: duration-first primary, clock-time supporting (amended 2026-05-11).** The hero status block's PRIMARY line is the duration countdown ("3h 12m" / "42m 15s" / etc.). The SUPPORTING line carries clock + day context ("Ends 5:30pm today" / "Opens 12:15am tomorrow" / "Saturday 11am"). The original table (commit `b6975f6`) used clock-time as the primary — that's SUPERSEDED by this amendment. The owner principle: M4d's direction is the countdown is prominent in the hero; clock-time is context, not the headline.
+
+**State-by-state table (replaces the original):**
+
+| State | Eyebrow | Primary (duration) | Supporting (clock context) |
 |---|---|---|---|
-| active (>60min remaining) | "Available now" | "Open until 5:30pm" | "Mon-Fri, 11am-3pm" |
-| urgent (≤60min, >1min remaining) | "Closing soon" | "Closes in 23m" | "Mon-Fri, 11am-3pm" |
-| urgent final minute (≤60s) | "Closing soon" | "Closes in 47s" | "Mon-Fri, 11am-3pm" |
-| unavailable-today (opens later today) | "Opens today" | "Opens at 5pm" | "Mon-Fri, 11am-3pm" |
-| unavailable-future-day (tomorrow) | "Opens tomorrow" | "Opens at 11am" | "Mon-Fri, 11am-3pm" |
-| unavailable-future-day (other) | "Opens Saturday" | "Opens at 11am" | "Mon-Fri, 11am-3pm" |
+| active (msToClose ≥ 1h) | "Available now" | "3h 12m" / "1h 0m" (or "Nd Hh" for multi-day) | "Ends 5:30pm today" |
+| urgent (msToClose < 1h, ≥ 1m) | "Closing soon" | "42m 15s" | "Ends 5:30pm today" |
+| urgent final minute (msToClose < 1m, > 0) | "Closing soon" | "47s" | "Ends 5:30pm today" |
+| unavailable-today (msToOpen ≥ 1h) | "Opens today" | "4h 12m" / "1h 0m" | "Opens 5pm today" |
+| unavailable-today (msToOpen < 1h, ≥ 1m) | "Opening soon" | "42m 15s" | "Opens 5pm today" |
+| unavailable-today (msToOpen < 1m, > 0) | "Opening soon" | "47s" | "Opens 5pm today" |
+| unavailable-future-day (msToOpen ≥ 1 day) | "Opens tomorrow" / "Opens Saturday" | "2d 4h" / "1d 0h" | "Tomorrow 11am" / "Saturday 11am" |
+| unavailable-future-day (msToOpen 1h–<1d) | "Opens tomorrow" / "Opens Saturday" | "5h 12m" / "1h 0m" | "Opens 12pm tomorrow" / "Saturday 11am" |
+| unavailable-future-day (msToOpen < 1h, midnight-cross) | "Opening soon" | "30m 0s" / "47s" | "Opens 12:15am tomorrow" |
+| redeemed-this-window (msToOpen ≥ 1 day) | "Available again" | "2d 4h" / "1d 0h" | "Tomorrow 11am" / "Saturday 11am" |
+| redeemed-this-window (msToOpen 1h–<1d) | "Available again" | "5h 12m" / "1h 0m" | "Opens 5pm today" / "Opens 12pm tomorrow" |
+| redeemed-this-window (msToOpen < 1h, ≥ 1m) | "Almost back" | "42m 15s" | "Opens 5pm today" / etc. |
+| redeemed-this-window (msToOpen < 1m, > 0) | "Almost back" | "47s" | "Opens 5pm today" / etc. |
 | no-windows (no schedule) | hidden | hidden | hidden |
 | expired | hidden | hidden | hidden |
-| redeemed-this-window (later today) | "Available again" | "Today at 5pm" | "Mon-Fri, 11am-3pm" |
-| redeemed-this-window (tomorrow) | "Available again" | "Tomorrow at 11am" | "Mon-Fri, 11am-3pm" |
-| redeemed-this-window (other day) | "Available again" | "Saturday at 11am" | "Mon-Fri, 11am-3pm" |
 
-**Tomorrow rule:** if the next window opens on the calendar day immediately after `now` (London local), use "tomorrow"; if 2+ days away, use the full weekday name. Same rule applies to both "Opens" eyebrow and "Available again" eyebrow.
+**Locked precision rule (duration format):**
+- ≥ 1 day → `"<d>d <h>h"` e.g. `"2d 4h"`, `"1d 0h"`
+- < 1 day, ≥ 1 hour → `"<h>h <m>m"` e.g. `"5h 12m"`, `"1h 0m"`
+- < 1 hour, ≥ 1 minute → `"<m>m <s>s"` e.g. `"42m 15s"`, `"1m 0s"`
+- < 1 minute, > 0 → `"<s>s"` e.g. `"59s"`, `"1s"`
+- ≤ 0 → caller routes to "Closes now" / "Opens now" / equivalent (state machine flips immediately)
 
-**Time format:** 12-hour with am/pm throughout. `formatClockHour12` already exists. "5pm" not "5:00pm" when minutes are zero; "5:30pm" when not.
+**Locked tick cadence:**
+- Per-MINUTE while the displayed primary countdown is ≥ 1 hour (the existing `useTimeLimited` 60s `setInterval` covers this).
+- Per-SECOND while the displayed primary countdown is < 1 hour, so `"42m 15s"` and `"47s"` stay accurate.
+- Applies symmetrically across all three directions: closing (msToClose), opening (msToOpen via unavailable-* states), available-again (msToOpen via redeemed-this-window state).
+- **Merchant Profile voucher cards (M4c) remain unchanged — no per-second ticking on merchant cards.**
 
-**Canonical primary format:** `<When> at <Hour><am/pm>` where `<When>` is one of "Today" / "Tomorrow" / full weekday name. Always use clock-time, never relative duration ("in 2h 30m"). Relative duration is reserved for the hero seal subtitle ("Available again in 2h 30m" per §AH M4b-12), not for the hero status block — keeping the two surfaces visually distinct.
+**Eyebrow rule:**
+- ≥ 1 hour primary: calm state phrasing ("Available now" / "Opens today" / "Opens tomorrow" / "Opens Saturday" / "Available again").
+- < 1 hour primary: urgency/imminence phrasing ("Closing soon" / "Opening soon" / "Almost back").
 
-**Recommendation: as above.** Calm copy when calm; precise when precise; seconds only in the final minute (the moment that demands them).
+**Supporting line format:**
+- Same-day target (today): `"<Verb> <Hour><am/pm> today"` e.g. `"Ends 5:30pm today"`, `"Opens 5pm today"`.
+- Next-day target (tomorrow): `"<Verb> <Hour><am/pm> tomorrow"` e.g. `"Opens 12:15am tomorrow"`.
+- Future-day target (2+ days): `"<Weekday> <Hour><am/pm>"` e.g. `"Saturday 11am"` — no verb prefix; the eyebrow already carries the direction ("Opens Saturday").
 
-**Locked: table approved.** Use AM/PM throughout; contextual today / tomorrow / full weekday wording per the table. Seconds appear only in the final-minute urgent row — never in any other state. See D10 for the seconds-implementation contract.
+**Time format:** 12-hour with am/pm throughout. `formatClockHour12` already exists. `"5pm"` not `"5:00pm"` when minutes are zero; `"5:30pm"` when not. Boundary cases: `12pm` for noon, `12am` for midnight.
+
+**Tomorrow rule:** if the next window opens on the calendar day immediately after `now` (London local), use "tomorrow"; if 2+ days away, use the full weekday name (`formatDayName` helper, already Hermes-robust via `DAYS_FULL` array).
+
+**Amendment note on A.1 / A.2:** `formatPrimaryWhen` (shipped in A.1, commit `52a26d3`) returns `"Today at 5pm"` / `"Tomorrow at 11am"` / `"Saturday at 11am"` — the OLD canonical-primary form. Under the new rule, this exact form is no longer used in the hero. The function remains exported (dead code post-A.5) — cleanup deferred. `formatUrgentCountdown` (shipped in A.2, commit `9238cc9`) uses the old "seconds only in final 60s" rule — superseded by A.5's `formatClosingCountdown`. Both old A.2 + A.4 commits remain in branch history; A.5 + A.6 layer the new behaviour on top.
 
 ---
 
@@ -352,28 +378,50 @@ TL free users: subscribe-step at position 0, then check-window at position 1, th
 
 ---
 
-### D10 — Seconds in final minute
+### D10 — Tick cadence + accessibility (amended 2026-05-11 — supersedes the original "seconds only in final minute" lock)
 
-**Recommendation:** seconds ONLY in the final 60 seconds of urgent state. "Closes in 47s". Earlier than that, minute granularity is plenty (matches M4b countdown locked rule "no seconds, per-minute when within hours").
+**Locked tick cadence:**
 
-**Implementation:**
-- `useTimeLimited` adds `msToClose: number | null` and `msToOpen: number | null` to its return shape.
-- A SECOND `setInterval` ticks at 1s, but ONLY runs when `windowState === 'urgent' && msToClose <= 60_000`. Cleared in any other state.
-- New formatter `formatUrgentCountdown(msToClose)` returns:
-  - >60s remaining → "Closes in 23m" (uses existing minute math)
-  - ≤60s, >0s → "Closes in 47s"
-  - ≤0s → "Closes now" (renders briefly until the boundary `setTimeout` flips state to outside-window)
+The 1-second `setInterval` runs in `useTimeLimited` while the **displayed primary countdown is under 1 hour** — regardless of whether the countdown is closing, opening, or available-again. Gate:
 
-**Reduced-motion:** seconds tick is informational (the time-of-day "47s left" is a fact), not decorative motion. KEEP it active under `useReducedMotion()` (same reasoning as the live timestamp on Show-to-Staff).
+```typescript
+wantsSecondTick = isTimeLimited && (
+  (msToClose !== null && msToClose < 3_600_000 && msToClose > 0) ||
+  (msToOpen  !== null && msToOpen  < 3_600_000 && msToOpen  > 0)
+)
+```
 
-**Locked: final 60 seconds only.** Approved with two reinforced sub-rules:
+Above 1 hour, the existing 60-second `setInterval` is sufficient — minute granularity for `"3h 12m"` / `"5h 12m"` / `"2d 4h"` displays.
 
-1. **Keep under reduced motion.** The seconds-tick text is informational, not animation. `useReducedMotion()` does NOT suppress it. (`useReducedMotion()` DOES suppress the progress bar tween — see D4.)
-2. **No accessibility live-region spam.** The seconds tick MUST NOT fire a per-second screen-reader announcement. Concrete contract:
-   - The seconds-display sub-element renders with `accessibilityElementsHidden={true}` (iOS) / `importantForAccessibility="no-hide-descendants"` (Android) — the visual text updates but the assistive-tech tree is unchanged each second.
-   - The parent `<HeroStatusBlock>` announces ONCE on state transitions (e.g., `urgent` → `urgent-final-minute`, or `active` → `urgent`) via a single `accessibilityLiveRegion="polite"` change to a stable summary string ("Closing soon. About one minute left."). No per-second updates to that string.
-   - State transitions out of `urgent-final-minute` (window close → state flips to `unavailable-today` / `unavailable-future-day`) re-announce the new summary once.
-   - Test pin in `hero-status-block.test.tsx`: assert seconds-display has the hidden-from-a11y prop AND the live-region summary string is stable across multiple 1s ticks in the same urgent-final-minute window.
+**Why both directions matter:** the amendment widens the per-second tick from M4c's URGENT_THRESHOLD_MS (≤60min closing) to ANY under-1-hour countdown in EITHER direction. A voucher opening in 42m 15s gets a per-second tick the same as one closing in 42m 15s. Merchant Profile voucher cards (M4c) are unaffected — they keep their existing static / per-minute behaviour, no per-second ticking.
+
+**Reduced motion:**
+
+The under-1-hour seconds-tick text is informational, not decorative motion. `useReducedMotion()` does NOT suppress it. (`useReducedMotion()` DOES suppress the progress bar tween — see D4.)
+
+**Accessibility — no per-second VoiceOver / TalkBack spam:**
+
+Visual updates per second; assistive-tech announcements stay STABLE. Three concrete rules:
+
+1. **Hide the per-second-updating Text from assistive tech.** The primary-line Text element renders with `accessibilityElementsHidden={true}` (iOS) / `importantForAccessibility="no-hide-descendants"` (Android) **whenever the per-second tick is active** (i.e. `wantsSecondTick === true`).
+
+2. **Use coarse stable labels for the `accessibilityLiveRegion`.** The hero status block emits a STABLE label on a polite live region. The label changes only on state-bucket transitions, NEVER per-second.
+
+   Stable labels by direction + remaining time:
+
+   | Direction | < 1 minute | < 1 hour, ≥ 1 minute | ≥ 1 hour |
+   |---|---|---|---|
+   | Closing (active / urgent) | "Closes in under a minute" | "Closes in about `<N>` minutes" (N = `Math.round(ms/60_000)`) | Eyebrow phrasing as label: "Voucher available now" |
+   | Opening (unavailable-* with msToOpen) | "Opens in under a minute" | "Opens in about `<N>` minutes" | Eyebrow phrasing as label: "Opens today" / "Opens tomorrow" / "Opens `<Weekday>`" |
+   | Available again (redeemed-this-window with msToOpen) | "Available again in under a minute" | "Available again in about `<N>` minutes" | Eyebrow phrasing as label: "Available again" |
+
+3. **Test pin in `hero-status-block.test.tsx`:** assert the primary-line Text has the hidden-from-a11y prop when `wantsSecondTick === true` AND the live-region label is stable across multiple per-second visual updates within the same state bucket. The label changes ONLY when the bucket flips (e.g. `< 1 hour` → `< 1 minute`, or window-close → state machine flips to `unavailable-today`).
+
+**What this supersedes from the original D10:**
+
+- ❌ "seconds only in the final 60 seconds of urgent" → ✅ seconds in the whole under-1-hour band (closing OR opening OR available-again)
+- ❌ `formatUrgentCountdown` minute-only above 60s → ✅ `"<m>m <s>s"` whole under-1-hour band (e.g. `"42m 15s"`), see A.5 task in plan
+- ❌ stable label `"Closes in under a minute"` only → ✅ stable label set extends to "Closes/Opens/Available-again in about N minutes" + "<verb> in under a minute" + ≥1h eyebrow-as-label
 
 ---
 
@@ -495,14 +543,14 @@ Recommendation: (a). The visual language is well-anchored by existing FrostedCou
 |---|---|---|
 | D1 | §AM1 fixture hardening | (A) suite-level `jest.setSystemTime('2026-05-11T12:00:00Z')` in `beforeEach`, BEFORE any new M4d UI work |
 | D2 | Hero countdown placement | (A) `<HeroStatusBlock>` embedded inside `<CouponHeader>` below the title |
-| D3 | Countdown precision per state | Table approved; AM/PM throughout; contextual today/tomorrow/full weekday wording; seconds only in final minute |
+| D3 | Countdown precision per state | **Amended 2026-05-11** — duration-first primary, clock-time supporting. Locked precision: ≥1d→"2d 4h", <1d≥1h→"5h 12m", <1h≥1m→"42m 15s", <1m→"59s". Eyebrow phrasing imminence-aware (`Closing soon` / `Opening soon` / `Almost back` under-1h). Supersedes the original "clock-time primary" table |
 | D4 | Progress bar mechanics | Approved; eyebrow words ("Closing" vs "Opens") disambiguate bar direction; no literal label on the bar itself |
 | D5 | Banner image | Keep in `<CouponTopCard>`, bump 180→240pt when present; no fake banner when absent |
 | D6 | Description placement | (C) TL-only in M4d; universal placement filed as Tier 1 follow-up (§15) |
 | D7 | Three-component delete | Approved; deletions land in same commits as replacements (no stranded delete-first commit) |
 | D8 | Explainer copy | Tightened from draft (51→37 words; removed editorialising clause); approved |
 | D9 | HowItWorks +1 step | "Check the Window" at position 1 for TL users; approved |
-| D10 | Seconds in final minute | Approved; informational text (kept under reduced motion); NO per-second a11y live-region announcement |
+| D10 | Tick cadence + accessibility | **Amended 2026-05-11** — per-second tick when displayed countdown <1h (closing OR opening OR available-again); merchant cards unaffected. Coarse stable a11y labels: "<verb> in under a minute" / "<verb> in about N minutes" / eyebrow-as-label ≥1h. Supersedes the original "seconds only in final minute" lock |
 | §11 | Visual companion | (a) Proceed to implementation with on-device QA loop |
 
 ---
