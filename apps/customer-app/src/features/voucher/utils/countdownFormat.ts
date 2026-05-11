@@ -124,6 +124,26 @@ export function formatPrimaryWhen(boundary: Date, now: Date): string {
   return `${formatDayName(boundary)} at ${clock}`
 }
 
+/**
+ * M4d hero-status-block urgent-state primary formatter.
+ *
+ * Returns the user-facing countdown string given the absolute ms-until-
+ * window-close. Seconds appear ONLY in the final 60 seconds (msToClose
+ * ≤ 60_000). Above that, falls through to minute-or-coarser granularity
+ * via formatDurationCompact. At or past the boundary, returns "Closes
+ * now" until the parent state flips to outside-window.
+ *
+ * Locked: spec D10 final-60-seconds-only rule.
+ */
+export function formatUrgentCountdown(msToClose: number): string {
+  if (msToClose <= 0) return 'Closes now'
+  if (msToClose <= 60_000) {
+    const seconds = Math.ceil(msToClose / 1_000)
+    return `Closes in ${seconds}s`
+  }
+  return `Closes in ${formatDurationCompact(msToClose)}`
+}
+
 type Ymd = { year: number; month: number; day: number }
 
 function ymdFor(date: Date): Ymd {

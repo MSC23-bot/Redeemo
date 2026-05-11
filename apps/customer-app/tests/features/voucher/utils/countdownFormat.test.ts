@@ -6,6 +6,7 @@ import {
   formatPrimaryCountdown,
   formatPrimaryWhen,
   formatSupportingCountdown,
+  formatUrgentCountdown,
 } from '@/features/voucher/utils/countdownFormat'
 
 describe('formatDurationCompact', () => {
@@ -241,5 +242,50 @@ describe('formatPrimaryWhen', () => {
     const now = new Date('2026-05-11T12:00:00Z')                 // Monday
     const boundary = new Date('2026-05-14T23:00:00Z')            // Friday 00:00 BST (next day)
     expect(formatPrimaryWhen(boundary, now)).toBe('Friday at 12am')
+  })
+})
+
+// ── formatUrgentCountdown — M4d hero-status-block urgent-state primary ──
+//
+// Spec D10 final-60-seconds-only rule: seconds appear ONLY when msToClose
+// ≤ 60_000. Above that, falls through to formatDurationCompact (minute
+// granularity). At or past zero, returns "Closes now" until parent state
+// flips outside the window.
+
+describe('formatUrgentCountdown', () => {
+  it('returns "Closes in 23m" when 23 minutes remain', () => {
+    expect(formatUrgentCountdown(23 * 60_000)).toBe('Closes in 23m')
+  })
+
+  it('returns "Closes in 1m" when 90 seconds remain (rounds down to whole minutes above the 60s threshold)', () => {
+    // Above 60s: minute granularity. 90s → 1 minute.
+    expect(formatUrgentCountdown(90_000)).toBe('Closes in 1m')
+  })
+
+  it('returns "Closes in 47s" when 47 seconds remain', () => {
+    expect(formatUrgentCountdown(47_000)).toBe('Closes in 47s')
+  })
+
+  it('returns "Closes in 60s" when exactly 60 seconds remain', () => {
+    // Boundary: 60s → still seconds-mode (inclusive on the consumer side).
+    expect(formatUrgentCountdown(60_000)).toBe('Closes in 60s')
+  })
+
+  it('returns "Closes in 1s" when 1 second remains', () => {
+    expect(formatUrgentCountdown(1_000)).toBe('Closes in 1s')
+  })
+
+  it('returns "Closes now" when msToClose is 0', () => {
+    expect(formatUrgentCountdown(0)).toBe('Closes now')
+  })
+
+  it('returns "Closes now" when msToClose is negative (boundary already passed)', () => {
+    expect(formatUrgentCountdown(-500)).toBe('Closes now')
+  })
+
+  it('returns "Closes in 1h 0m" when 60 minutes remain (above urgency band but consumer-facing edge)', () => {
+    // Formatter is total-agnostic — caller decides when to invoke. Test that
+    // duration math works at the urgency band's upper edge.
+    expect(formatUrgentCountdown(60 * 60_000)).toBe('Closes in 1h 0m')
   })
 })
