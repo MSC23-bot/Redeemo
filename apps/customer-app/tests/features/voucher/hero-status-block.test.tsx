@@ -46,11 +46,11 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
     )
     expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available now')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('4h 30m')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Ends 5:30pm today')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Window ends 5:30pm today')
   })
 
   // ── URGENT state (msToClose <1h, ≥1m) ──────────────────────
-  it('urgent <1h: "Closing soon" + "42m 15s" + "Ends 1:42pm today"', () => {
+  it('urgent <1h: "Ending soon" + "42m 15s" + "Window ends 1:42pm today"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="urgent"
@@ -62,13 +62,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={null}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Closing soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Ending soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('42m 15s')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Ends 1:42pm today')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Window ends 1:42pm today')
   })
 
   // ── URGENT FINAL MINUTE (msToClose <1m, >0) ────────────────
-  it('urgent <1m: "Closing soon" + "47s" + "Ends 1pm today"', () => {
+  it('urgent <1m: "Ending soon" + "47s" + "Window ends 1pm today"', () => {
     // boundary 2026-05-11T12:00:47Z = 13:00:47 BST → minute=0 → "1pm" (formatClockHour12 omits ":00")
     const { getByTestId } = render(
       <HeroStatusBlock
@@ -81,13 +81,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={null}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Closing soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Ending soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('47s')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Ends 1pm today')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Window ends 1pm today')
   })
 
   // ── UNAVAILABLE-TODAY (msToOpen ≥ 1h) ──────────────────────
-  it('unavailable-today ≥1h: "Opens today" + "4h 0m" + "Opens 5pm today"', () => {
+  it('unavailable-today ≥1h: "Available later today" + "4h 0m" + "Available from 5pm today"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="unavailable-today"
@@ -99,13 +99,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={4 * 3_600_000}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opens today')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available later today')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('4h 0m')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 5pm today')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 5pm today')
   })
 
   // ── UNAVAILABLE-TODAY (msToOpen <1h, ≥1m) ──────────────────
-  it('unavailable-today <1h: "Opening soon" + "42m 15s" + "Opens 1:42pm today"', () => {
+  it('unavailable-today <1h: "Available soon" + "42m 15s" + "Available from 1:42pm today"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="unavailable-today"
@@ -117,13 +117,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={42 * 60_000 + 15_000}                            // 42m 15s
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opening soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('42m 15s')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 1:42pm today')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 1:42pm today')
   })
 
   // ── UNAVAILABLE-TODAY (msToOpen <1m, >0) ───────────────────
-  it('unavailable-today <1m: "Opening soon" + "47s" + "Opens 1pm today"', () => {
+  it('unavailable-today <1m: "Available soon" + "47s" + "Available from 1pm today"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="unavailable-today"
@@ -135,13 +135,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={47_000}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opening soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('47s')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 1pm today')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 1pm today')
   })
 
   // ── UNAVAILABLE-FUTURE-DAY (tomorrow, ≥1 day) ──────────────
-  it('unavailable-future-day tomorrow ≥1d: "Opens tomorrow" + "1d 0h" + "Opens 1pm tomorrow"', () => {
+  it('unavailable-future-day tomorrow ≥1d: "Available tomorrow" + "1d 0h" + "Available from 1pm tomorrow"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="unavailable-future-day"
@@ -153,13 +153,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={24 * 3_600_000}                                  // exactly 1 day
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opens tomorrow')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available tomorrow')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('1d 0h')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 1pm tomorrow')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 1pm tomorrow')
   })
 
   // ── UNAVAILABLE-FUTURE-DAY (tomorrow, 1h–<1d) ──────────────
-  it('unavailable-future-day tomorrow 13h ahead: "Opens tomorrow" + "13h 0m" + "Opens 2am tomorrow"', () => {
+  it('unavailable-future-day tomorrow 13h ahead: "Available tomorrow" + "13h 0m" + "Available from 2am tomorrow"', () => {
     // now = Mon 12:00 UTC = Mon 13:00 BST. boundary = Tue 01:00 UTC = Tue 02:00 BST = 2am.
     // London-tomorrow. msToOpen ≈ 13h.
     const { getByTestId } = render(
@@ -173,13 +173,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={13 * 3_600_000}                                  // 13 hours
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opens tomorrow')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available tomorrow')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('13h 0m')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 2am tomorrow')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 2am tomorrow')
   })
 
   // ── UNAVAILABLE-FUTURE-DAY (Saturday, multi-day) ───────────
-  it('unavailable-future-day Saturday: "Opens Saturday" + "5d 0h" + "Saturday 1pm"', () => {
+  it('unavailable-future-day Saturday: "Available Saturday" + "5d 0h" + "Available from Saturday 1pm"', () => {
     // boundary = Saturday 12:00 UTC = Saturday 13:00 BST = 1pm; 5 days from now.
     const { getByTestId } = render(
       <HeroStatusBlock
@@ -192,15 +192,15 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={5 * 24 * 3_600_000}                               // 5 days
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opens Saturday')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available Saturday')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('5d 0h')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Saturday 1pm')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from Saturday 1pm')
   })
 
   // ── MIDNIGHT-CROSS (unavailable-future-day but <1h to open) ──
-  it('unavailable-future-day midnight-cross <1h: "Opening soon" + "30m 0s" + "Opens 12:15am tomorrow"', () => {
+  it('unavailable-future-day midnight-cross <1h: "Available soon" + "30m 0s" + "Available from 12:15am tomorrow"', () => {
     // now = Mon 22:45 UTC = Mon 23:45 BST. boundary = Mon 23:15 UTC = Tue 00:15 BST = 12:15am.
-    // msToOpen = 30 minutes; <1h → urgency phrasing "Opening soon".
+    // msToOpen = 30 minutes; <1h → urgency phrasing "Available soon".
     const lateMonday = new Date('2026-05-11T22:45:00Z')
     const { getByTestId } = render(
       <HeroStatusBlock
@@ -213,13 +213,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={30 * 60_000}                                      // 30 minutes
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Opening soon')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('30m 0s')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 12:15am tomorrow')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available from 12:15am tomorrow')
   })
 
   // ── REDEEMED-THIS-WINDOW (≥ 1 day) ─────────────────────────
-  it('redeemed-this-window ≥1d: "Available again" + "1d 0h" + "Opens 1pm tomorrow"', () => {
+  it('redeemed-this-window ≥1d: "Available again" + "1d 0h" + "Available again from 1pm tomorrow"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="redeemed-this-window"
@@ -233,11 +233,11 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
     )
     expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available again')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('1d 0h')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 1pm tomorrow')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 1pm tomorrow')
   })
 
   // ── REDEEMED-THIS-WINDOW (<1h) ─────────────────────────────
-  it('redeemed-this-window <1h: "Almost back" + "42m 15s" + "Opens 1:42pm today"', () => {
+  it('redeemed-this-window <1h: "Available soon" + "42m 15s" + "Available again from 1:42pm today"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="redeemed-this-window"
@@ -249,13 +249,13 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={42 * 60_000 + 15_000}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Almost back')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('42m 15s')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 1:42pm today')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 1:42pm today')
   })
 
   // ── REDEEMED-THIS-WINDOW (<1m) ─────────────────────────────
-  it('redeemed-this-window <1m: "Almost back" + "47s" + "Opens 1pm today"', () => {
+  it('redeemed-this-window <1m: "Available soon" + "47s" + "Available again from 1pm today"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="redeemed-this-window"
@@ -267,9 +267,9 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
         msToOpen={47_000}
       />,
     )
-    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Almost back')
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available soon')
     expect(getByTestId('hero-status-primary')).toHaveTextContent('47s')
-    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Opens 1pm today')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 1pm today')
   })
 
   // ── HIDDEN STATES ───────────────────────────────────────────
@@ -326,10 +326,12 @@ describe('HeroStatusBlock — state rendering (M4d amended D3)', () => {
           msToOpen={targetUtc.getTime() - futureNow.getTime()}
         />,
       )
-      expect(getByTestId('hero-status-eyebrow')).toHaveTextContent(`Opens ${expectedDay}`)
-      // Supporting line: "<Weekday> <Hour><am/pm>" — assert via regex to
-      // anchor on the weekday name without coupling to the clock-time format.
-      expect(getByTestId('hero-status-supporting')).toHaveTextContent(new RegExp(`^${expectedDay} `))
+      expect(getByTestId('hero-status-eyebrow')).toHaveTextContent(`Available ${expectedDay}`)
+      // Supporting line: "Available from <Weekday> <Hour><am/pm>" (TL wording
+      // amendment 2026-05-11 D4 — verb prefix on future-day too). Regex
+      // anchors on the weekday name within the prefixed phrase without
+      // coupling to the clock-time format.
+      expect(getByTestId('hero-status-supporting')).toHaveTextContent(new RegExp(`^Available from ${expectedDay} `))
       unmount()
     })
   })
@@ -346,9 +348,15 @@ describe('HeroStatusBlock — progress bar (spec D4)', () => {
 
   const NOW = new Date('2026-05-11T12:00:00Z')
 
-  // ── CLOSING DIRECTION — bar EMPTIES, colour by urgency ────
-  it('active state: bar EMPTIES, width % = msToClose / totalWindowMs, green at >60min', () => {
-    // Window 10:00 → 15:00 UTC (5-hour window). Now = 12:00 UTC. msToClose = 3h = 75% remaining.
+  // ── CLOSING DIRECTION — bar FILLS toward window end, colour by urgency ────
+  //
+  // QA fix 2026-05-11: width semantics flipped from remaining/total to
+  // elapsed/total so "Ending soon" reads as a near-full bar. Colour
+  // bands keep their urgency mapping (msToClose-driven, not widthPct).
+
+  it('active state: bar FILLS, width % = elapsed / totalWindowMs, green at >60min', () => {
+    // Window 10:00 → 15:00 UTC (5-hour window). Now = 12:00 UTC.
+    // elapsed = 2h, total = 5h → 40% filled. msToClose = 3h > 60min → green.
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="active"
@@ -362,12 +370,13 @@ describe('HeroStatusBlock — progress bar (spec D4)', () => {
     )
     const fill = getByTestId('hero-status-progress-bar-fill')
     expect(fill.props.style).toEqual(
-      expect.objectContaining({ width: '60%', backgroundColor: '#34D399' }),
+      expect.objectContaining({ width: '40%', backgroundColor: '#34D399' }),
     )
   })
 
-  it('urgent state >15min: amber', () => {
-    // Window 11:00 → 12:30 UTC. Now = 12:00 UTC. msToClose = 30min. Total = 90min. → 33% remaining.
+  it('urgent state >15min: amber, bar mostly full', () => {
+    // Window 11:00 → 12:30 UTC. Now = 12:00 UTC. msToClose = 30min.
+    // Total = 90min, elapsed = 60min → 67% filled. msToClose ≤ 60min, > 15min → amber.
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="urgent"
@@ -381,12 +390,12 @@ describe('HeroStatusBlock — progress bar (spec D4)', () => {
     )
     const fill = getByTestId('hero-status-progress-bar-fill')
     expect(fill.props.style).toEqual(
-      expect.objectContaining({ backgroundColor: '#FBBF24' }),
+      expect.objectContaining({ width: '67%', backgroundColor: '#FBBF24' }),
     )
   })
 
-  it('urgent state ≤15min: coral', () => {
-    // Window 11:00 → 12:10 UTC. msToClose = 10min. Total = 70min. → ~14% remaining.
+  it('urgent state ≤15min: coral, bar near full', () => {
+    // Window 11:00 → 12:10 UTC. msToClose = 10min. Total = 70min, elapsed = 60min → 86% filled.
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="urgent"
@@ -400,7 +409,7 @@ describe('HeroStatusBlock — progress bar (spec D4)', () => {
     )
     const fill = getByTestId('hero-status-progress-bar-fill')
     expect(fill.props.style).toEqual(
-      expect.objectContaining({ backgroundColor: '#FB7185' }),
+      expect.objectContaining({ width: '86%', backgroundColor: '#FB7185' }),
     )
   })
 
@@ -420,6 +429,80 @@ describe('HeroStatusBlock — progress bar (spec D4)', () => {
     expect(fill.props.style).toEqual(
       expect.objectContaining({ backgroundColor: '#FB7185' }),
     )
+  })
+
+  // ── QA-driven fill-direction pins (2026-05-11) ────────────────────
+  // The screenshot bug: 32m38s remaining in a ~3h window rendered at
+  // ~18% fill — visually contradicting the "Ending soon" eyebrow. These
+  // pins lock the fill direction so a future regression to the old
+  // remaining/total numerator would fail loudly.
+
+  it('active window just started: low fill (~2%)', () => {
+    // 4h window, 5min elapsed → 2% filled, green.
+    const startsAt = new Date('2026-05-11T11:55:00Z')
+    const endsAt   = new Date('2026-05-11T15:55:00Z')
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="active"
+        now={NOW}                                          // 12:00 UTC
+        currentWindowStartsAt={startsAt}
+        currentWindowEndsAt={endsAt}
+        nextWindowStartsAt={null}
+        msToClose={endsAt.getTime() - NOW.getTime()}        // 3h 55m
+        msToOpen={null}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ width: '2%', backgroundColor: '#34D399' }),
+    )
+  })
+
+  it('active window halfway through: ~50% fill', () => {
+    // 4h window, 2h elapsed → 50% filled. msToClose = 2h > 60min → green.
+    const startsAt = new Date('2026-05-11T10:00:00Z')
+    const endsAt   = new Date('2026-05-11T14:00:00Z')
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="active"
+        now={NOW}                                          // 12:00 UTC
+        currentWindowStartsAt={startsAt}
+        currentWindowEndsAt={endsAt}
+        nextWindowStartsAt={null}
+        msToClose={endsAt.getTime() - NOW.getTime()}        // 2h
+        msToOpen={null}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    expect(fill.props.style).toEqual(
+      expect.objectContaining({ width: '50%', backgroundColor: '#34D399' }),
+    )
+  })
+
+  it('ending soon — QA screenshot scenario: 32m left in ~3h window → >80% fill', () => {
+    // Window 09:30 → 12:30 UTC (3 hours). Now = 12:00 UTC + 38s = 11:59:22 UTC for
+    // the "32m 38s remaining" headline. elapsed = 2h 27m 22s; total = 3h →
+    // ~82% filled. Colour band: msToClose ≈ 32min 38s ≤ 60min, > 15min → amber.
+    const startsAt = new Date('2026-05-11T09:30:00Z')
+    const endsAt   = new Date('2026-05-11T12:30:00Z')
+    // Use the "32m 38s remaining" instant directly: 12:30 minus 32m 38s = 11:57:22 UTC.
+    const now      = new Date('2026-05-11T11:57:22Z')
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={now}
+        currentWindowStartsAt={startsAt}
+        currentWindowEndsAt={endsAt}
+        nextWindowStartsAt={null}
+        msToClose={endsAt.getTime() - now.getTime()}        // 32m 38s
+        msToOpen={null}
+      />,
+    )
+    const fill = getByTestId('hero-status-progress-bar-fill')
+    const style = fill.props.style as { width: string; backgroundColor: string }
+    const widthNum = parseInt(style.width.replace('%', ''), 10)
+    expect(widthNum).toBeGreaterThanOrEqual(80)
+    expect(style.backgroundColor).toBe('#FBBF24')           // amber band (32m ≤ 60min, >15min)
   })
 
   // ── OPENING DIRECTION — bar FILLS, neutral colour ─────────
@@ -643,7 +726,7 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
 
   // ── STABLE COARSE LABELS ON POLITE LIVE REGION ────────────────
 
-  it('urgent <1m: live-region label is "Closes in under a minute"', () => {
+  it('urgent <1m: live-region label is "Ending in under a minute"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="urgent"
@@ -657,10 +740,10 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
     )
     const region = getByTestId('hero-status-live-region')
     expect(region.props.accessibilityLiveRegion).toBe('polite')
-    expect(region.props.accessibilityLabel).toBe('Closes in under a minute')
+    expect(region.props.accessibilityLabel).toBe('Ending in under a minute')
   })
 
-  it('urgent <1h ≥1m: live-region label is "Closes in about 42 minutes"', () => {
+  it('urgent <1h ≥1m: live-region label is "Ending in about 42 minutes"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="urgent"
@@ -673,7 +756,7 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
       />,
     )
     const region = getByTestId('hero-status-live-region')
-    expect(region.props.accessibilityLabel).toBe('Closes in about 42 minutes')
+    expect(region.props.accessibilityLabel).toBe('Ending in about 42 minutes')
   })
 
   it('active ≥1h: live-region label is the eyebrow "Voucher available now"', () => {
@@ -695,7 +778,7 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
     expect(region.props.accessibilityLabel).toBe('Voucher available now')
   })
 
-  it('unavailable-today <1m: live-region label is "Opens in under a minute"', () => {
+  it('unavailable-today <1m: live-region label is "Available in under a minute"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="unavailable-today"
@@ -708,10 +791,10 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
       />,
     )
     const region = getByTestId('hero-status-live-region')
-    expect(region.props.accessibilityLabel).toBe('Opens in under a minute')
+    expect(region.props.accessibilityLabel).toBe('Available in under a minute')
   })
 
-  it('unavailable-today <1h ≥1m: live-region label is "Opens in about 42 minutes"', () => {
+  it('unavailable-today <1h ≥1m: live-region label is "Available in about 42 minutes"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="unavailable-today"
@@ -724,10 +807,10 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
       />,
     )
     const region = getByTestId('hero-status-live-region')
-    expect(region.props.accessibilityLabel).toBe('Opens in about 42 minutes')
+    expect(region.props.accessibilityLabel).toBe('Available in about 42 minutes')
   })
 
-  it('unavailable-today ≥1h: live-region label is the eyebrow "Opens today"', () => {
+  it('unavailable-today ≥1h: live-region label is the eyebrow "Available later today"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="unavailable-today"
@@ -740,10 +823,10 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
       />,
     )
     const region = getByTestId('hero-status-live-region')
-    expect(region.props.accessibilityLabel).toBe('Opens today')
+    expect(region.props.accessibilityLabel).toBe('Available later today')
   })
 
-  it('unavailable-future-day ≥1 day (Saturday): live-region label is "Opens Saturday"', () => {
+  it('unavailable-future-day ≥1 day (Saturday): live-region label is "Available Saturday"', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="unavailable-future-day"
@@ -756,7 +839,7 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
       />,
     )
     const region = getByTestId('hero-status-live-region')
-    expect(region.props.accessibilityLabel).toBe('Opens Saturday')
+    expect(region.props.accessibilityLabel).toBe('Available Saturday')
   })
 
   it('redeemed-this-window <1m: live-region label is "Available again in under a minute"', () => {
@@ -806,7 +889,7 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
     })
     const { getByTestId, rerender } = render(<HeroStatusBlock {...renderProps(47_000)} />)
     const initialLabel = getByTestId('hero-status-live-region').props.accessibilityLabel
-    expect(initialLabel).toBe('Closes in under a minute')
+    expect(initialLabel).toBe('Ending in under a minute')
     rerender(<HeroStatusBlock {...renderProps(46_000)} />)
     expect(getByTestId('hero-status-live-region').props.accessibilityLabel).toBe(initialLabel)
     rerender(<HeroStatusBlock {...renderProps(30_000)} />)
@@ -833,7 +916,7 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
     // 42m 15s → Math.round(2535000/60000) = 42 minutes.
     const { getByTestId, rerender } = render(<HeroStatusBlock {...renderProps(42 * 60_000 + 15_000)} />)
     const labelA = getByTestId('hero-status-live-region').props.accessibilityLabel
-    expect(labelA).toBe('Closes in about 42 minutes')
+    expect(labelA).toBe('Ending in about 42 minutes')
     // 42m 10s → Math.round(2530000/60000) = 42 minutes.
     rerender(<HeroStatusBlock {...renderProps(42 * 60_000 + 10_000)} />)
     expect(getByTestId('hero-status-live-region').props.accessibilityLabel).toBe(labelA)

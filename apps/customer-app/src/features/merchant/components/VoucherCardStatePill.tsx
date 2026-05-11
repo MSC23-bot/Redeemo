@@ -129,22 +129,26 @@ export function VoucherCardStatePill({ voucher, now }: Props) {
     if (remaining > 0) {
       const isUrgent = remaining < URGENT_THRESHOLD_MS
       if (isUrgent) {
-        // "CLOSING SOON · 23m left" — uppercase state label + duration.
-        // formatDurationCompact returns "Xm" for <60 min (always urgent
-        // is <60 min by definition), so the detail is always single-
-        // segment "Nm left".
-        const copy = `CLOSING SOON · ${formatDurationCompact(remaining)} left`
+        // "ENDING SOON · 23m left" — uppercase state label + duration.
+        // TL wording amendment 2026-05-11: "CLOSING SOON" → "ENDING SOON"
+        // to avoid confusion with merchant business hours ("closing" reads
+        // as restaurant closing). formatDurationCompact returns "Xm" for
+        // <60 min (always urgent is <60 min by definition), so the detail
+        // is always single-segment "Nm left".
+        const copy = `ENDING SOON · ${formatDurationCompact(remaining)} left`
         return (
           <Pill testID="merchant-card-pill-urgent" textStyle={styles.textUrgent} copy={copy}>
             <PulseDot color={URGENT_DOT_COLOR} speedMs={URGENT_PULSE_MS} />
           </Pill>
         )
       }
-      // "AVAILABLE NOW · Ends 3pm today" — uppercase state label +
-      // sentence-case detail with 12h clock-hour + day context. Title-
-      // case "Ends" reads as readable detail rather than another
-      // uppercase tier — visual hierarchy via casing contrast.
-      const copy = `AVAILABLE NOW · Ends ${formatClockHour12(endsAt)} ${dayContext(endsAt, now)}`
+      // "AVAILABLE NOW · Until 3pm today" — uppercase state label +
+      // sentence-case detail with 12h clock-hour + day context. TL wording
+      // amendment 2026-05-11: "Ends" → "Until" to match the customer-
+      // facing window framing without reading as alarmist. Visual
+      // hierarchy via UPPERCASE state · sentence-case detail contrast
+      // stays intact.
+      const copy = `AVAILABLE NOW · Until ${formatClockHour12(endsAt)} ${dayContext(endsAt, now)}`
       return (
         <Pill testID="merchant-card-pill-active" textStyle={styles.textActive} copy={copy}>
           <PulseDot color={ACTIVE_DOT_COLOR} speedMs={ACTIVE_PULSE_MS} />
@@ -163,25 +167,29 @@ export function VoucherCardStatePill({ voucher, now }: Props) {
     let copy:   string
     let testID: string
     if (nextYmd === nowYmd) {
-      // "OPENS TODAY · 5pm" — uppercase state label + 12h clock-hour.
-      copy = `OPENS TODAY · ${formatClockHour12(startsAt)}`
+      // "AVAILABLE TODAY · From 5pm" — TL wording amendment 2026-05-11:
+      // uppercase state label + sentence-case "From X" detail. Replaces
+      // "OPENS TODAY · 5pm" to avoid confusion with merchant business
+      // hours ("opens" reads as restaurant opening).
+      copy = `AVAILABLE TODAY · From ${formatClockHour12(startsAt)}`
       testID = 'merchant-card-pill-unavailable-today'
     } else if (nextYmd === tomorrowYmd) {
-      // "OPENS TOMORROW · 12pm" — uppercase state label + 12h clock-hour.
-      copy = `OPENS TOMORROW · ${formatClockHour12(startsAt)}`
+      // "AVAILABLE TOMORROW · From 12pm" — same TL wording amendment.
+      copy = `AVAILABLE TOMORROW · From ${formatClockHour12(startsAt)}`
       testID = 'merchant-card-pill-unavailable-future-day'
     } else {
-      // "OPENS SATURDAY · 11am" — FULL uppercase day name folded into
-      // the state label + sentence-case 12h clock-hour (owner-locked
-      // device QA round 3, 2026-05-11: user-friendly copy beats compact
-      // copy; "SAT" reads as a shortened abbreviation that requires
-      // mental expansion). The day is uppercased to keep the badge-
-      // hierarchy contrast (UPPERCASE state · detail) consistent with
-      // the today/tomorrow variants above. Stacked layout gives the
-      // pill 75% of the row width — longest variant "OPENS WEDNESDAY ·
-      // 12pm" is ~22 chars which fits comfortably on iPhone SE.
+      // "AVAILABLE SATURDAY · From 11am" — FULL uppercase day name folded
+      // into the state label + sentence-case "From X" detail (TL wording
+      // amendment 2026-05-11 — was "OPENS SATURDAY · 11am"). User-
+      // friendly copy beats compact copy; "SAT" reads as a shortened
+      // abbreviation that requires mental expansion (owner-locked device
+      // QA round 3, 2026-05-11). The day is uppercased to keep the
+      // badge-hierarchy contrast (UPPERCASE state · sentence-case
+      // detail) consistent with today/tomorrow. Stacked layout gives
+      // the pill 75% of the row width — longest variant "AVAILABLE
+      // WEDNESDAY · From 12pm" is ~30 chars which fits on iPhone SE.
       const day = formatDayName(startsAt).toUpperCase()
-      copy = `OPENS ${day} · ${formatClockHour12(startsAt)}`
+      copy = `AVAILABLE ${day} · From ${formatClockHour12(startsAt)}`
       testID = 'merchant-card-pill-unavailable-future-day'
     }
     return (

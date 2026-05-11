@@ -60,7 +60,7 @@ describe('HowItWorks — step count by subscription + voucher type (M4d D9)', ()
     )
     fireEvent.press(getByTestId('how-it-works-toggle'))
     expect(
-      getByText(/Make sure the current window is open before ordering/),
+      getByText(/Make sure the voucher is available before ordering/),
     ).toBeTruthy()
     expect(
       getByText(

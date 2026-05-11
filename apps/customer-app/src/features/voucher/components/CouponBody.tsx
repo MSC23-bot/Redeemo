@@ -204,6 +204,28 @@ export function CouponBodyCard({
             <Text variant="body.md" style={styles.tlSectionBody}>Redeem once per active window.</Text>
           </View>
 
+          {/* TL wording amendment 2026-05-11 — Goal 2 guidance card.
+              Pale amber inner surface + 1px hairline border + brand-rose
+              Info glyph. Sits between Usage rule and Description so the
+              user reads the rule, then sees the time-bounded handoff
+              window guidance, then the merchant's description. Card
+              renders unconditionally for TL (independent of description
+              presence) — the guidance is foundational to understanding
+              TL behaviour. */}
+          <View
+            testID="coupon-body-redeem-guidance"
+            accessibilityLabel="Redeem before the window ends. Redeem this voucher before the availability window ends. Once redeemed, your code stays available to show staff for up to 2 hours."
+            style={styles.tlGuidance}
+          >
+            <View style={styles.tlGuidanceHeading}>
+              <Info size={16} color={ROSE} strokeWidth={2} />
+              <Text variant="label.md" style={styles.tlGuidanceTitle}>Redeem before the window ends</Text>
+            </View>
+            <Text variant="body.sm" style={styles.tlGuidanceBody}>
+              Redeem this voucher before the availability window ends. Once redeemed, your code stays available to show staff for up to 2 hours.
+            </Text>
+          </View>
+
           {description ? (
             <View testID="coupon-body-description" style={styles.tlSection}>
               <Text variant="label.eyebrow" style={styles.tlSectionLabel}>ABOUT THIS OFFER</Text>
@@ -427,5 +449,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1F2937',
     lineHeight: 21,
+  },
+
+  // ── TL guidance card (Goal 2, TL wording amendment 2026-05-11) ─────
+  // Pale amber inner surface distinct from the cream body bg (#FDFBF8)
+  // and the cream Fair Use sub-card (#FCF0E5) — amber-warm tint signals
+  // "advisory / heads-up" without screaming. Hairline border 1px in
+  // amber-tinted alpha so it reads as a single intentional surface, not
+  // a stacked sub-card.
+  tlGuidance: {
+    marginTop: 16,
+    backgroundColor: '#FEF7E6',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 6, 0.18)',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  tlGuidanceHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  tlGuidanceTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: NAVY,
+  },
+  tlGuidanceBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: TEXT_2ND,
   },
 })

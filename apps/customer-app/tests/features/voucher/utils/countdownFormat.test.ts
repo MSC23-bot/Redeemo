@@ -133,22 +133,22 @@ describe('formatDuration (M4d amended D3 precision)', () => {
   })
 })
 
-describe('formatClosingA11y — coarse stable labels (spec D10 amendment)', () => {
-  it('returns "Closes in under a minute" when ms < 60_000 and > 0', () => {
-    expect(formatClosingA11y(47_000)).toBe('Closes in under a minute')
-    expect(formatClosingA11y(1_000)).toBe('Closes in under a minute')
+describe('formatClosingA11y — coarse stable labels (TL wording amendment 2026-05-11 D5)', () => {
+  it('returns "Ending in under a minute" when ms < 60_000 and > 0', () => {
+    expect(formatClosingA11y(47_000)).toBe('Ending in under a minute')
+    expect(formatClosingA11y(1_000)).toBe('Ending in under a minute')
   })
-  it('returns "Closes in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
-    expect(formatClosingA11y(42 * 60_000 + 15_000)).toBe('Closes in about 42 minutes')
+  it('returns "Ending in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
+    expect(formatClosingA11y(42 * 60_000 + 15_000)).toBe('Ending in about 42 minutes')
   })
-  it('returns singular "Closes in about 1 minute" at exactly 60_000 ms (AO1)', () => {
-    expect(formatClosingA11y(60_000)).toBe('Closes in about 1 minute')
+  it('returns singular "Ending in about 1 minute" at exactly 60_000 ms', () => {
+    expect(formatClosingA11y(60_000)).toBe('Ending in about 1 minute')
   })
-  it('returns singular "Closes in about 1 minute" when Math.round rounds to 1', () => {
-    expect(formatClosingA11y(89_999)).toBe('Closes in about 1 minute')   // rounds to 1 (1.499...)
+  it('returns singular "Ending in about 1 minute" when Math.round rounds to 1', () => {
+    expect(formatClosingA11y(89_999)).toBe('Ending in about 1 minute')   // rounds to 1 (1.499...)
   })
-  it('returns plural "Closes in about 2 minutes" when Math.round rounds to 2', () => {
-    expect(formatClosingA11y(90_000)).toBe('Closes in about 2 minutes')  // rounds to 2 (1.5 → 2)
+  it('returns plural "Ending in about 2 minutes" when Math.round rounds to 2', () => {
+    expect(formatClosingA11y(90_000)).toBe('Ending in about 2 minutes')  // rounds to 2 (1.5 → 2)
   })
   it('returns null when ms ≥ 1 hour (caller uses eyebrow-as-label instead)', () => {
     expect(formatClosingA11y(3_600_000)).toBeNull()
@@ -161,14 +161,14 @@ describe('formatClosingA11y — coarse stable labels (spec D10 amendment)', () =
 })
 
 describe('formatOpeningA11y', () => {
-  it('returns "Opens in under a minute" when ms < 60_000 and > 0', () => {
-    expect(formatOpeningA11y(47_000)).toBe('Opens in under a minute')
+  it('returns "Available in under a minute" when ms < 60_000 and > 0', () => {
+    expect(formatOpeningA11y(47_000)).toBe('Available in under a minute')
   })
-  it('returns "Opens in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
-    expect(formatOpeningA11y(42 * 60_000 + 15_000)).toBe('Opens in about 42 minutes')
+  it('returns "Available in about N minutes" when 60_000 ≤ ms < 3_600_000', () => {
+    expect(formatOpeningA11y(42 * 60_000 + 15_000)).toBe('Available in about 42 minutes')
   })
-  it('returns singular "Opens in about 1 minute" at exactly 60_000 ms (AO1)', () => {
-    expect(formatOpeningA11y(60_000)).toBe('Opens in about 1 minute')
+  it('returns singular "Available in about 1 minute" at exactly 60_000 ms', () => {
+    expect(formatOpeningA11y(60_000)).toBe('Available in about 1 minute')
   })
   it('returns null when ms ≥ 1 hour', () => {
     expect(formatOpeningA11y(3_600_000)).toBeNull()
@@ -190,7 +190,7 @@ describe('formatAvailableAgainA11y', () => {
   })
 })
 
-describe('formatSupportingClock (M4d amended D3)', () => {
+describe('formatSupportingClock (TL wording amendment 2026-05-11 D3/D4)', () => {
   beforeEach(() => {
     jest.useFakeTimers()
     jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))  // Monday 13:00 BST
@@ -200,54 +200,72 @@ describe('formatSupportingClock (M4d amended D3)', () => {
   })
 
   // ── Same-day → "<Verb> <Hour><am/pm> today" ─────────────────
-  it('same-day "Ends": "Ends 5:30pm today"', () => {
+  it('same-day "Window ends": "Window ends 5:30pm today"', () => {
     const now = new Date('2026-05-11T12:00:00Z')
     const boundary = new Date('2026-05-11T16:30:00Z')  // 17:30 BST = 5:30pm
-    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Ends 5:30pm today')
+    expect(formatSupportingClock(boundary, now, 'Window ends')).toBe('Window ends 5:30pm today')
   })
 
-  it('same-day "Opens" whole hour: "Opens 5pm today"', () => {
+  it('same-day "Available from" whole hour: "Available from 5pm today"', () => {
     const now = new Date('2026-05-11T12:00:00Z')
     const boundary = new Date('2026-05-11T16:00:00Z')  // 17:00 BST = 5pm
-    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 5pm today')
+    expect(formatSupportingClock(boundary, now, 'Available from')).toBe('Available from 5pm today')
+  })
+
+  it('same-day "Available again from": "Available again from 5pm today"', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-11T16:00:00Z')  // 17:00 BST = 5pm
+    expect(formatSupportingClock(boundary, now, 'Available again from')).toBe('Available again from 5pm today')
   })
 
   // ── Next-day → "<Verb> <Hour><am/pm> tomorrow" ──────────────
-  it('next-day "Opens": "Opens 12pm tomorrow"', () => {
+  it('next-day "Available from": "Available from 12pm tomorrow"', () => {
     const now = new Date('2026-05-11T12:00:00Z')
     const boundary = new Date('2026-05-12T11:00:00Z')  // Tue 12:00 BST = 12pm
-    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12pm tomorrow')
+    expect(formatSupportingClock(boundary, now, 'Available from')).toBe('Available from 12pm tomorrow')
   })
 
-  it('midnight-cross "Opens 12:15am tomorrow"', () => {
+  it('next-day "Available again from": "Available again from 1pm tomorrow"', () => {
+    const now = new Date('2026-05-11T12:00:00Z')
+    const boundary = new Date('2026-05-12T12:00:00Z')  // Tue 13:00 BST = 1pm
+    expect(formatSupportingClock(boundary, now, 'Available again from')).toBe('Available again from 1pm tomorrow')
+  })
+
+  it('midnight-cross "Available from 12:15am tomorrow"', () => {
     const now = new Date('2026-05-11T22:45:00Z')   // Mon 23:45 BST
     const boundary = new Date('2026-05-11T23:15:00Z')  // Tue 00:15 BST = 12:15am
-    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12:15am tomorrow')
+    expect(formatSupportingClock(boundary, now, 'Available from')).toBe('Available from 12:15am tomorrow')
   })
 
-  // ── Future-day (2+ days) → "<Weekday> <Hour><am/pm>" (no verb) ──
-  it('future-day: "Saturday 11am" (no verb prefix)', () => {
+  // ── Future-day (2+ days) → "<Verb> <Weekday> <Hour><am/pm>" (verb prefix NOW INCLUDED per D4) ──
+  it('future-day "Available from": "Available from Saturday 11am"', () => {
     const now = new Date('2026-05-11T12:00:00Z')        // Monday
     const boundary = new Date('2026-05-16T10:00:00Z')   // Saturday 11:00 BST = 11am
-    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Saturday 11am')
+    expect(formatSupportingClock(boundary, now, 'Available from')).toBe('Available from Saturday 11am')
   })
 
-  it('future-day "Wednesday 12pm" — ignores verb arg (caller eyebrow carries direction)', () => {
+  it('future-day "Available again from": "Available again from Tuesday 12pm" (per owner D3 example)', () => {
+    const now = new Date('2026-05-11T12:00:00Z')        // Monday
+    const boundary = new Date('2026-05-19T11:00:00Z')   // Tuesday-week+1 12:00 BST = 12pm (8 days out)
+    expect(formatSupportingClock(boundary, now, 'Available again from')).toBe('Available again from Tuesday 12pm')
+  })
+
+  it('future-day "Window ends": "Window ends Wednesday 12pm" (rare — multi-day active window edge case)', () => {
     const now = new Date('2026-05-11T12:00:00Z')        // Monday
     const boundary = new Date('2026-05-13T11:00:00Z')   // Wednesday 12:00 BST
-    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Wednesday 12pm')
+    expect(formatSupportingClock(boundary, now, 'Window ends')).toBe('Window ends Wednesday 12pm')
   })
 
   // ── Midnight noon edge cases ────────────────────────────────
-  it('same-day noon: "Ends 12pm today"', () => {
+  it('same-day noon: "Window ends 12pm today"', () => {
     const now = new Date('2026-05-11T08:00:00Z')        // Mon 09:00 BST
     const boundary = new Date('2026-05-11T11:00:00Z')   // Mon 12:00 BST
-    expect(formatSupportingClock(boundary, now, 'Ends')).toBe('Ends 12pm today')
+    expect(formatSupportingClock(boundary, now, 'Window ends')).toBe('Window ends 12pm today')
   })
 
-  it('same-day midnight: "Opens 12am today" (rare — late-night now)', () => {
+  it('cross-midnight: "Available from 12am tomorrow" (rare — late-night now, boundary just after midnight)', () => {
     const now = new Date('2026-05-11T22:30:00Z')        // Mon 23:30 BST
     const boundary = new Date('2026-05-11T23:00:00Z')   // Tue 00:00 BST — different London day → tomorrow not today
-    expect(formatSupportingClock(boundary, now, 'Opens')).toBe('Opens 12am tomorrow')
+    expect(formatSupportingClock(boundary, now, 'Available from')).toBe('Available from 12am tomorrow')
   })
 })

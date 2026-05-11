@@ -146,25 +146,27 @@ export function formatDuration(ms: number): string {
 /**
  * Stable a11y label for the closing direction's polite live region.
  * Returns null for the ≥1h band — caller uses the eyebrow phrasing as
- * the accessibility label instead. Per spec D10 amendment 2026-05-11.
+ * the accessibility label instead. Per spec D10 amendment 2026-05-11
+ * + TIME_LIMITED wording amendment 2026-05-11 (D5: "Ending in" verb,
+ * no "Window" prefix).
  */
 export function formatClosingA11y(ms: number): string | null {
   if (ms <= 0) return null
-  if (ms < 60_000) return 'Closes in under a minute'
+  if (ms < 60_000) return 'Ending in under a minute'
   if (ms < 3_600_000) {
     const minutes = Math.round(ms / 60_000)
-    return `Closes in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+    return `Ending in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
   }
   return null
 }
 
-/** Stable a11y label for the opening direction. */
+/** Stable a11y label for the opening direction (TL wording D5: "Available in" verb). */
 export function formatOpeningA11y(ms: number): string | null {
   if (ms <= 0) return null
-  if (ms < 60_000) return 'Opens in under a minute'
+  if (ms < 60_000) return 'Available in under a minute'
   if (ms < 3_600_000) {
     const minutes = Math.round(ms / 60_000)
-    return `Opens in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+    return `Available in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
   }
   return null
 }
@@ -181,25 +183,34 @@ export function formatAvailableAgainA11y(ms: number): string | null {
 }
 
 /**
- * M4d hero-status-block supporting line formatter (spec D3 amendment 2026-05-11).
+ * M4d hero-status-block supporting line formatter (spec D3 amendment 2026-05-11
+ * + TIME_LIMITED wording amendment 2026-05-11 D3/D4: "Window ends" /
+ * "Available from" / "Available again from" verbs, with verb prefix on
+ * future-day too).
  *
  * Returns the clock+day context that accompanies the duration-first
  * primary. Format depends on how far in the future the boundary is
  * relative to London-local "now":
- *   • Same London day  → "<verb> <Hour><am/pm> today"   e.g. "Ends 5:30pm today"
- *   • Next London day  → "<verb> <Hour><am/pm> tomorrow" e.g. "Opens 12:15am tomorrow"
- *   • 2+ days away     → "<Weekday> <Hour><am/pm>"       e.g. "Saturday 11am"
+ *   • Same London day  → "<verb> <Hour><am/pm> today"
+ *       e.g. "Window ends 5:30pm today"
+ *   • Next London day  → "<verb> <Hour><am/pm> tomorrow"
+ *       e.g. "Available from 12:15am tomorrow"
+ *   • 2+ days away     → "<verb> <Weekday> <Hour><am/pm>"
+ *       e.g. "Available from Saturday 1pm"
  *
- * The verb is only included for same-day / tomorrow. For 2+ days, the
- * eyebrow already carries the direction ("Opens Saturday"), so the
- * supporting line omits it (matches the spec D3 example).
+ * The verb is included consistently across all three bucket cases so the
+ * supporting line is self-contained regardless of what the eyebrow above
+ * is reading. Pre-amendment behaviour omitted the verb on the 2+ days
+ * branch because the eyebrow ("Opens Saturday") carried the direction;
+ * with the new "Available <Day>" eyebrow that contextual carry is
+ * weaker, so the supporting line takes the verb explicitly.
  *
  * Hermes-robust via the ymdFor helper + formatClockHour12 + formatDayName.
  */
 export function formatSupportingClock(
   boundary: Date,
   now: Date,
-  verb: 'Ends' | 'Opens',
+  verb: 'Window ends' | 'Available from' | 'Available again from',
 ): string {
   const clock = formatClockHour12(boundary)
   const boundaryYmd = ymdFor(boundary)
@@ -207,7 +218,7 @@ export function formatSupportingClock(
   if (sameYmd(boundaryYmd, nowYmd)) return `${verb} ${clock} today`
   const tomorrowYmd = addOneDay(nowYmd)
   if (sameYmd(boundaryYmd, tomorrowYmd)) return `${verb} ${clock} tomorrow`
-  return `${formatDayName(boundary)} ${clock}`
+  return `${verb} ${formatDayName(boundary)} ${clock}`
 }
 
 type Ymd = { year: number; month: number; day: number }
