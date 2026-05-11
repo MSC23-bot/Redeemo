@@ -160,7 +160,7 @@ export function voucherTypeExplainer(type: VoucherType): string {
     case 'PACKAGE_DEAL':
       return "A bundle or set-menu offer. The voucher details list exactly what's included and any conditions."
     case 'TIME_LIMITED':
-      return "This voucher is only redeemable during specific times or days. Check availability before ordering."
+      return 'Time-limited vouchers can only be redeemed during specific days or hours set by the merchant. The current or next available window is shown above. Each window counts separately, so you can redeem once per window.'
     case 'REUSABLE':
       // Honest about current backend semantics — REUSABLE is a
       // merchant intent flag (the offer persists across cycles), not
