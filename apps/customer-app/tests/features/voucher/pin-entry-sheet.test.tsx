@@ -525,6 +525,155 @@ describe('PinEntrySheet — keypad re-focus after wrong PIN (2026-05-09 device Q
   })
 })
 
+// ──────────────────────────────────────────────────────────────────
+// M5 Task 12 — REUSABLE_COOLDOWN_ACTIVE inline error rendering.
+// Spec §4.4, §5.3, §9 (D41).  Sentence-form copy:
+//   <1h band : "This voucher is available again in N minutes"
+//   ≥1h band : "This voucher is available again at <Hpm> today/tomorrow/<Day>"
+// Pill abbreviation uses "From" (intentional surface asymmetry); PIN-
+// sheet sentence form uses "at".  Weekday capitalisation: capitalised
+// proper-noun form ("at 12pm Wednesday") — mirrors formatDayName's
+// "Wednesday" output and the surrounding sentence form.
+// ──────────────────────────────────────────────────────────────────
+
+describe('PinEntrySheet — REUSABLE_COOLDOWN_ACTIVE inline error (M5 Task 12, D41)', () => {
+  // Pin "now" to a deterministic instant.  All availableAgainAt times in
+  // these tests are computed relative to this baseline.
+  // 2026-05-12 15:00:00 Europe/London (BST = UTC+1) → UTC 14:00:00Z.
+  const FIXED_NOW = new Date('2026-05-12T14:00:00.000Z')
+
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(FIXED_NOW)
+  })
+  afterEach(() => { jest.useRealTimers() })
+
+  function reusableCooldownError(availableAgainAtIso: string) {
+    return {
+      code: 'REUSABLE_COOLDOWN_ACTIVE',
+      message: 'Cooldown active',
+      statusCode: 400,
+      availableAgainAt: availableAgainAtIso,
+    } as any
+  }
+
+  // ── <1h band ─────────────────────────────────────────────────────────
+  it('<1h band — 32 minutes out: "This voucher is available again in 32 minutes"', () => {
+    // 32 minutes after FIXED_NOW = 15:32 London.
+    const t = new Date(FIXED_NOW.getTime() + 32 * 60_000)
+    const { getByText } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(getByText('This voucher is available again in 32 minutes')).toBeTruthy()
+  })
+
+  it('<1h band — 1 minute out: SINGULAR "in 1 minute" (not "1 minutes")', () => {
+    const t = new Date(FIXED_NOW.getTime() + 60_000)
+    const { getByText, queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(getByText('This voucher is available again in 1 minute')).toBeTruthy()
+    expect(queryByText('This voucher is available again in 1 minutes')).toBeNull()
+  })
+
+  // ── ≥1h band — same London day ───────────────────────────────────────
+  it('≥1h band — 5pm today: "This voucher is available again at 5pm today"', () => {
+    // 2026-05-12 16:00:00 UTC = 17:00 London (BST) → "5pm today".
+    const t = new Date('2026-05-12T16:00:00.000Z')
+    const { getByText } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(getByText('This voucher is available again at 5pm today')).toBeTruthy()
+  })
+
+  // ── ≥1h band — next London day ───────────────────────────────────────
+  it('≥1h band — 11am tomorrow: "This voucher is available again at 11am tomorrow"', () => {
+    // 2026-05-13 10:00:00 UTC = 11:00 London (BST) → "11am tomorrow".
+    const t = new Date('2026-05-13T10:00:00.000Z')
+    const { getByText } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(getByText('This voucher is available again at 11am tomorrow')).toBeTruthy()
+  })
+
+  // ── ≥1h band — 2+ London days out: full proper-noun weekday ──────────
+  it('≥1h band — 12pm Wednesday: full capitalised weekday name', () => {
+    // FIXED_NOW = 2026-05-12 (Tuesday).  Wednesday 12pm London (BST) =
+    // 2026-05-13 11:00:00 UTC.  But 13 May 11:00 UTC = 12pm BST on the
+    // same date — that's TOMORROW, not "Wednesday".  Use 2026-05-20
+    // (Wednesday next week) instead: 2026-05-20 11:00 UTC = 12pm BST.
+    const t = new Date('2026-05-20T11:00:00.000Z')
+    const { getByText } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(getByText('This voucher is available again at 12pm Wednesday')).toBeTruthy()
+  })
+
+  // ── Negative pins — surface asymmetry locked at spec §9 footnote ─────
+  it('NEVER uses "From" in the sentence form (asymmetry vs merchant card pill)', () => {
+    const t = new Date(FIXED_NOW.getTime() + 32 * 60_000)
+    const { queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(queryByText(/From \d/)).toBeNull()
+  })
+
+  it('NEVER uses internal "cooldown" terminology (spec §9 lock)', () => {
+    const t = new Date(FIXED_NOW.getTime() + 32 * 60_000)
+    const { queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(queryByText(/cooldown/i)).toBeNull()
+  })
+
+  it('NEVER uses the word "wait" (spec §9 voice rule)', () => {
+    const t = new Date(FIXED_NOW.getTime() + 32 * 60_000)
+    const { queryByText } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(queryByText(/wait/i)).toBeNull()
+  })
+
+  // ── Container / rendering structure ──────────────────────────────────
+  it('renders inside the backend-error banner container (NOT the INVALID_PIN bar)', () => {
+    const t = new Date(FIXED_NOW.getTime() + 32 * 60_000)
+    const { getByTestId, queryByTestId } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(getByTestId('pin-backend-error-banner')).toBeTruthy()
+    // INVALID_PIN bar must NOT show — the user's PIN wasn't wrong.
+    expect(queryByTestId('pin-error-bar')).toBeNull()
+  })
+
+  it('does NOT block sheet rendering when error fires (sheet stays open per §5.3 contract)', () => {
+    const t = new Date(FIXED_NOW.getTime() + 32 * 60_000)
+    const { getByTestId } = render(
+      <PinEntrySheet
+        {...defaultProps({ error: reusableCooldownError(t.toISOString()) })}
+      />,
+    )
+    expect(getByTestId('pin-entry-sheet')).toBeTruthy()
+  })
+})
+
 describe('PinEntrySheet — PR-B T8m visual contract (impeccable pass)', () => {
   // The impeccable pass on this sheet aligns five concerns to
   // PRODUCT.md + DESIGN.md:
