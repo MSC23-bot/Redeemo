@@ -334,6 +334,8 @@ type TestMerchantVoucherSpec = {
   description: string
   terms: string
   estimatedSaving: number
+  /** REUSABLE-only. Server floor 1800. Undefined for non-REUSABLE per DB CHECK constraint. */
+  cooldownSeconds?: number
 }
 
 type TestMerchantSpec = {
@@ -600,13 +602,22 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
         estimatedSaving: 6.50,
       },
       {
+        // Canonical seeded REUSABLE QA/dev fixture (2026-05-12).
+        // Originally seeded as FREEBIE; converted to REUSABLE during the
+        // M5 (REUSABLE v1) device-QA cycle and kept post-merge as the
+        // sole seeded REUSABLE voucher in the dev DB. `cooldownSeconds`
+        // is set to the server floor (1800s = 30 min) for fast QA
+        // cycling between states (state 1 / state 2 / state 4 / D44).
+        // Terms stripped of "Once per cycle." which was misleading
+        // copy for a REUSABLE voucher.
         code: 'COV-RCV-001',
         isMandatory: false,
-        type: 'FREEBIE',
+        type: 'REUSABLE',
         title: 'Free Filter Coffee with Any Thali',
         description: 'Order any thali plate and get a complimentary South Indian filter coffee.',
-        terms: 'In-house only. Cannot be combined with other offers. Once per cycle.',
+        terms: 'In-house only. Cannot be combined with other offers.',
         estimatedSaving: 2.50,
+        cooldownSeconds: 1800,
       },
     ],
     branch: {
@@ -915,6 +926,11 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
             description:     v.description,
             terms:           v.terms,
             estimatedSaving: v.estimatedSaving,
+            // REUSABLE-only field — undefined for other types per the
+            // DB CHECK constraint `Voucher_cooldownSeconds_reusable_only_check`.
+            // Spec types pass `cooldownSeconds: 1800` (or similar ≥1800)
+            // for REUSABLE entries; omitted for all others.
+            cooldownSeconds: v.cooldownSeconds,
             status:          'ACTIVE',
             approvalStatus:  'APPROVED',
             approvedAt:      new Date(),
