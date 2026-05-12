@@ -272,11 +272,134 @@ describe('merchant voucher service — cooldownSeconds persistence (M5 Task 12.5
     expect('cooldownSeconds' in updateCall.data).toBe(false)
   })
 
-  // ── Case 5: PATCH non-REUSABLE rejects non-null cooldownSeconds (Zod
-  // ingress) — defence-in-depth pin on the spy. The Zod refine for
-  // updates is in routes.ts; this test re-confirms the service is never
-  // reached.
-  it('PATCH BOGO with non-null cooldownSeconds is rejected by Zod, never reaches service', async () => {
+  // ── PR #72 pre-merge review (Finding 2, 2026-05-12) — PATCH
+  //    cooldownSeconds alone should succeed for existing REUSABLE.
+  //
+  // Before the fix, the Zod updateVoucherSchema refine rejected non-null
+  // cooldownSeconds when `type` was omitted. So merchants couldn't
+  // PATCH `{ cooldownSeconds: 7200 }` on its own — they had to also
+  // re-send `type: 'REUSABLE'` in the payload. Awkward for future
+  // merchant UI flows that just want to tweak the cooldown on an
+  // existing REUSABLE voucher.
+  //
+  // After the fix:
+  //   • Zod cross-field refine on `updateVoucherSchema` removed.
+  //   • Service-layer (updateVoucher) check against `effectiveType` =
+  //     `data.type ?? existing.type` enforces the rule with DB context.
+  //   • Field-level Zod (floor 1800, integer, nullable) preserved.
+  //
+  // Cases:
+  //   F2-A. PATCH { cooldownSeconds: 7200 } alone on existing REUSABLE → 200, persists 7200.
+  //   F2-B. PATCH { cooldownSeconds: null } alone on existing REUSABLE → 200, persists null.
+  //   F2-C. PATCH { cooldownSeconds: 7200 } alone on existing non-REUSABLE → 400 COOLDOWN_REUSABLE_ONLY.
+  //   F2-D. PATCH { type: 'BOGO', cooldownSeconds: 7200 } (explicit non-REUSABLE) → still 400.
+  //
+  // Existing Case 5 (renamed) carries D; A/B/C are new.
+
+  it('F2-A: PATCH { cooldownSeconds: 7200 } alone on existing REUSABLE → 200, persists 7200', async () => {
+    // Existing voucher is REUSABLE (default mockVoucher.type === 'REUSABLE').
+    app.prisma.voucher.findFirst = vi
+      .fn()
+      .mockResolvedValue({ ...mockVoucher, type: 'REUSABLE', cooldownSeconds: 1800 })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/merchant/vouchers/v1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { cooldownSeconds: 7200 },                       // type OMITTED
+    })
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.voucher.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'v1' },
+        data: expect.objectContaining({
+          cooldownSeconds: 7200,
+        }),
+      })
+    )
+  })
+
+  it('F2-B: PATCH { cooldownSeconds: null } alone on existing REUSABLE → 200, persists null', async () => {
+    app.prisma.voucher.findFirst = vi
+      .fn()
+      .mockResolvedValue({ ...mockVoucher, type: 'REUSABLE', cooldownSeconds: 1800 })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/merchant/vouchers/v1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { cooldownSeconds: null },                       // type OMITTED
+    })
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.voucher.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'v1' },
+        data: expect.objectContaining({
+          cooldownSeconds: null,
+        }),
+      })
+    )
+  })
+
+  it('F2-C: PATCH { cooldownSeconds: 7200 } alone on existing non-REUSABLE → 400 COOLDOWN_REUSABLE_ONLY', async () => {
+    // Existing voucher is BOGO; PATCH omits type. Service resolves
+    // effectiveType from the existing row and rejects.
+    app.prisma.voucher.findFirst = vi
+      .fn()
+      .mockResolvedValue({ ...mockVoucher, type: 'BOGO', cooldownSeconds: null })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/merchant/vouchers/v1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { cooldownSeconds: 7200 },                       // type OMITTED
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('COOLDOWN_REUSABLE_ONLY')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  it('F2-D (existing behaviour preserved): PATCH { type: BOGO, cooldownSeconds: 7200 } → still 400', async () => {
+    // Existing voucher is REUSABLE; PATCH explicitly changes type to BOGO
+    // alongside a non-null cooldownSeconds. effectiveType = 'BOGO' (from
+    // data.type override) → rejected.
+    app.prisma.voucher.findFirst = vi
+      .fn()
+      .mockResolvedValue({ ...mockVoucher, type: 'REUSABLE', cooldownSeconds: 1800 })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/merchant/vouchers/v1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { type: 'BOGO', cooldownSeconds: 7200 },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('COOLDOWN_REUSABLE_ONLY')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  it('F2-E (defence-in-depth): PATCH { cooldownSeconds: 1799 } alone on existing REUSABLE → still 400 VALIDATION_ERROR (floor preserved)', async () => {
+    // The field-level Zod (floor 1800) MUST still run on PATCH even
+    // with the cross-field refine removed.
+    app.prisma.voucher.findFirst = vi
+      .fn()
+      .mockResolvedValue({ ...mockVoucher, type: 'REUSABLE', cooldownSeconds: 1800 })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/merchant/vouchers/v1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { cooldownSeconds: 1799 },                       // below floor
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  // ── Case 5: PATCH non-REUSABLE rejects non-null cooldownSeconds.
+  // PR #72 pre-merge review fix (Finding 2, 2026-05-12): the cross-field
+  // "non-null cooldownSeconds requires REUSABLE type" check moved from
+  // Zod (updateVoucherSchema refine, dropped) to the service layer
+  // (updateVoucher). Behaviour is preserved (400, rejection,
+  // `prisma.voucher.update` NEVER called) but the error code is now
+  // COOLDOWN_REUSABLE_ONLY instead of VALIDATION_ERROR. The defence-
+  // in-depth contract still holds: bad input never reaches Prisma.
+  it('PATCH BOGO with non-null cooldownSeconds is rejected by service, never reaches Prisma update', async () => {
     app.prisma.voucher.findFirst = vi
       .fn()
       .mockResolvedValue({ ...mockVoucher, type: 'BOGO', cooldownSeconds: null })
@@ -287,7 +410,7 @@ describe('merchant voucher service — cooldownSeconds persistence (M5 Task 12.5
       payload: { type: 'BOGO', cooldownSeconds: 3600 },
     })
     expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    expect(JSON.parse(res.body).error.code).toBe('COOLDOWN_REUSABLE_ONLY')
     expect(app.prisma.voucher.update).not.toHaveBeenCalled()
   })
 })

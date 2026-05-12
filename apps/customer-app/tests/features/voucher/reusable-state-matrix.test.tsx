@@ -616,3 +616,103 @@ describe('VoucherDetailScreen — REUSABLE hero seal absence (D25)', () => {
     expect(queryByTestId('voucher-detail-hero-seal')).toBeNull()
   })
 })
+
+// ── PR #72 pre-merge review (Finding 1, 2026-05-12) — REUSABLE cooldown
+//    must NOT preempt free-user / expired stateKey precedence ─────────
+//
+// Bug shipped on Gate E branch: the REUSABLE cooldown CTA override and
+// hero override both ran BEFORE the `switch (stateKey)` block, so:
+//   - free user + cooldown saw "Available again in X" CTA instead of
+//     "Subscribe to Redeem"
+//   - expired + cooldown saw the cooldown CTA instead of "Expired"
+//   - hero showed the cooldown countdown for free users (hero override
+//     previously only excluded `'expired'`)
+//
+// Fix: gate BOTH overrides on `stateKey === 'can-redeem'` so the
+// cooldown surface is additive within the "user can act" state and the
+// state-machine precedence (expired > redeemed > free-user > can-redeem)
+// is respected.
+
+describe('VoucherDetailScreen — REUSABLE cooldown precedence (Finding 1)', () => {
+  it('free user + REUSABLE in cooldown → subscribe CTA, NO cooldown CTA', () => {
+    mockSubscribed = false
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(3 * 60 + 30), // 3h 30m cooldown
+      lastRedemption: null,
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // State-machine resolves to 'free-user' (free-user precedes
+    // cooldown-derived behaviour for REUSABLE).
+    expect(getByTestId('voucher-detail-state-free-user')).toBeTruthy()
+    // Subscribe CTA visible.
+    expect(getByTestId('redeem-cta-subscribe')).toBeTruthy()
+    // Cooldown CTA absent.
+    expect(queryByTestId('redeem-cta-reusable-cooldown')).toBeNull()
+  })
+
+  it('expired REUSABLE voucher in cooldown → expired CTA, NO cooldown CTA', () => {
+    mockVoucherData = reusableVoucher({
+      expiryDate: minuteOffsetISO(-60),                  // expired 1h ago
+      availableAgainAt: minuteOffsetISO(3 * 60 + 30),    // would otherwise be in cooldown
+      lastRedemption: null,
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // State-machine resolves to 'expired' (expired precedes everything).
+    expect(getByTestId('voucher-detail-state-expired')).toBeTruthy()
+    // Expired CTA visible.
+    expect(getByTestId('redeem-cta-expired')).toBeTruthy()
+    // Cooldown CTA absent.
+    expect(queryByTestId('redeem-cta-reusable-cooldown')).toBeNull()
+  })
+
+  it('subscribed + non-expired + REUSABLE in cooldown → cooldown CTA visible (regression guard for normal case)', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(3 * 60 + 30),
+      lastRedemption: {
+        code: 'ABCD1234',
+        redeemedAt: minuteOffsetISO(-30),
+        branch: { id: 'b1', name: 'Main branch' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+
+    // Subscribed + active voucher + cooldown → cooldown override fires.
+    expect(getByTestId('voucher-detail-state-can-redeem')).toBeTruthy()
+    expect(getByTestId('redeem-cta-reusable-cooldown')).toBeTruthy()
+  })
+
+  it('hero: free user + REUSABLE in cooldown → hero shows free-user/subscribe treatment, NOT cooldown countdown', () => {
+    mockSubscribed = false
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(3 * 60 + 30),
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // HeroStatusBlock-related testIDs are absent — the REUSABLE hero
+    // override is gated out for free-user state, falling through to the
+    // CouponHeader default (no eyebrow / no countdown / no alive ring).
+    expect(queryByTestId('hero-status-eyebrow')).toBeNull()
+    expect(queryByTestId('hero-status-block')).toBeNull()
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+
+  it('hero: expired REUSABLE in cooldown → hero shows expired state, NOT cooldown countdown', () => {
+    mockVoucherData = reusableVoucher({
+      expiryDate: minuteOffsetISO(-60),
+      availableAgainAt: minuteOffsetISO(3 * 60 + 30),
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // HeroStatusBlock is skipped for expired (preserved from the
+    // existing Gate E Issue 4 polish) — no cooldown countdown leaks.
+    expect(queryByTestId('hero-status-eyebrow')).toBeNull()
+    expect(queryByTestId('hero-status-block')).toBeNull()
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+})

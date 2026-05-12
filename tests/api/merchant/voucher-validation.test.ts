@@ -200,6 +200,16 @@ describe('merchant voucher routes — cooldownSeconds Zod validation (M5 Task 12
   })
 
   it('PATCH REJECTS non-null cooldownSeconds on a BOGO update', async () => {
+    // PR #72 pre-merge review fix (Finding 2, 2026-05-12): the
+    // cross-field "non-null cooldownSeconds requires REUSABLE type" rule
+    // moved from Zod (updateVoucherSchema refine) to the service layer
+    // (updateVoucher). Status code is still 400, but the error code is
+    // now COOLDOWN_REUSABLE_ONLY instead of VALIDATION_ERROR — the
+    // failure is functionally identical, surfaced from the service tier
+    // after Zod accepts the partial-field shape. `findFirst` returns a
+    // REUSABLE existing voucher by default; the PATCH explicitly sends
+    // `type: 'BOGO'`, so `effectiveType === 'BOGO'` and the service
+    // rejects.
     const res = await app.inject({
       method: 'PATCH',
       url: '/api/v1/merchant/vouchers/v1',
@@ -207,7 +217,7 @@ describe('merchant voucher routes — cooldownSeconds Zod validation (M5 Task 12
       payload: { type: 'BOGO', cooldownSeconds: 3600 },
     })
     expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    expect(JSON.parse(res.body).error.code).toBe('COOLDOWN_REUSABLE_ONLY')
     expect(app.prisma.voucher.update).not.toHaveBeenCalled()
   })
 
@@ -219,5 +229,38 @@ describe('merchant voucher routes — cooldownSeconds Zod validation (M5 Task 12
       payload: { type: 'REUSABLE', cooldownSeconds: 1800 },
     })
     expect(res.statusCode).toBe(200)
+  })
+
+  // ── PR #72 pre-merge review fix (Finding 2, 2026-05-12): PATCH
+  //    cooldownSeconds alone now passes Zod validation on an existing
+  //    REUSABLE voucher. The cross-field refine on updateVoucherSchema
+  //    was relaxed; the service-layer check (against effectiveType =
+  //    data.type ?? existing.type) carries the cross-field rule.
+  it('PATCH ACCEPTS cooldownSeconds alone on existing REUSABLE (type omitted)', async () => {
+    // Default mockVoucher.findFirst returns a REUSABLE row, so the
+    // service-layer check resolves effectiveType to REUSABLE and the
+    // PATCH succeeds without an explicit type field in the payload.
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/merchant/vouchers/v1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { cooldownSeconds: 7200 },                        // type OMITTED
+    })
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('PATCH STILL REJECTS cooldownSeconds < 1800 (floor preserved) even when type is omitted', async () => {
+    // Field-level Zod validation (min 1800, integer) must still run on
+    // partial updates — only the cross-field type check moved to the
+    // service layer.
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/merchant/vouchers/v1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { cooldownSeconds: 1799 },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
   })
 })

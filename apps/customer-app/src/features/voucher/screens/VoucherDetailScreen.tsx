@@ -765,7 +765,19 @@ export function VoucherDetailScreen() {
     // now" + alive ring. We skip the hero block entirely for expired
     // REUSABLE — the expired CTA (`redeem-cta-expired`) carries the
     // dead-voucher signal.
-    if (stateKey !== 'expired') {
+    //
+    // PR #72 pre-merge review fix (Finding 1, 2026-05-12): the hero
+    // override must ONLY fire for the "user can act" stateKey
+    // (`'can-redeem'`). Otherwise a free user with a REUSABLE voucher
+    // in cooldown sees the cooldown countdown hero instead of the
+    // subscribe-gated treatment, and an expired REUSABLE in cooldown
+    // shows the cooldown countdown instead of the expired state.
+    // The state-machine precedence (line 620 stateKey derivation) is
+    // load-bearing: expired > redeemed > free-user > everything else.
+    // Gating the hero override on `stateKey === 'can-redeem'` makes
+    // the REUSABLE cooldown UI additive within that case rather than
+    // preempting other states.
+    if (stateKey === 'can-redeem') {
       heroStatusBlock = (
         <HeroStatusBlock
           windowState={reusable.windowState}
@@ -1263,7 +1275,21 @@ export function VoucherDetailScreen() {
     // surfaces separately as a supporting note (see JSX below); the
     // CTA itself just needs to be visibly disabled without an
     // impossible countdown.
-    if (isReusable && reusable.windowState === 'reusable-cooldown') {
+    //
+    // PR #72 pre-merge review fix (Finding 1, 2026-05-12): gated on
+    // `stateKey === 'can-redeem'` so the cooldown override is additive
+    // ONLY within the "user can act" state. Without this gate, the
+    // override preempts free-user and expired states for REUSABLE
+    // vouchers, masking the locked precedence rule:
+    //   expired > redeemed > free-user > can-redeem.
+    // The state-machine in `stateKey` derivation (line ~620) already
+    // computes this precedence correctly — this override must respect
+    // it rather than bypass it.
+    if (
+      stateKey === 'can-redeem' &&
+      isReusable &&
+      reusable.windowState === 'reusable-cooldown'
+    ) {
       const ctaLabel = reusable.cooldownExtendsPastExpiry
         ? CTA_LABELS.unavailable
         : `Available again in ${formatDuration(reusable.msToOpen ?? 0)}`

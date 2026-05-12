@@ -254,6 +254,28 @@ export async function updateVoucher(
       ? data.type
       : (voucher.type as unknown as string)
 
+  // PR #72 pre-merge review fix (Finding 2, 2026-05-12) — service-layer
+  // cross-field cooldownSeconds validation. Zod's updateVoucherSchema
+  // (routes.ts) no longer carries the cross-field refine because it
+  // can't see the existing voucher's type on a partial PATCH. The check
+  // runs here against `effectiveType` (merged type post-PATCH): a
+  // non-null cooldownSeconds may only be set when the resulting type is
+  // REUSABLE. Catches both:
+  //   • PATCH { cooldownSeconds: 7200 } on a non-REUSABLE existing voucher
+  //   • PATCH { type: 'BOGO', cooldownSeconds: 7200 } (explicit non-REUSABLE)
+  // Allows the previously-blocked-but-valid case:
+  //   • PATCH { cooldownSeconds: 7200 } on an existing REUSABLE voucher
+  // null is always permitted regardless of effectiveType (the column
+  // stays nullable; null is the default for non-REUSABLE types).
+  if (
+    'cooldownSeconds' in safe &&
+    safe.cooldownSeconds !== null &&
+    safe.cooldownSeconds !== undefined &&
+    effectiveType !== 'REUSABLE'
+  ) {
+    throw new AppError('COOLDOWN_REUSABLE_ONLY')
+  }
+
   const windowsSupplied = 'availabilityWindows' in data
   const newWindows = windowsSupplied
     ? (data.availabilityWindows as AvailabilityWindowInput[] | undefined)

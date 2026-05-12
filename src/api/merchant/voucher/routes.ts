@@ -72,25 +72,30 @@ const createVoucherSchema = z
   .object(baseVoucherFields)
   .refine(cooldownTypeRefine, cooldownTypeRefineMessage)
 
-// PATCH allows partial bodies but must still enforce the type/cooldown
-// coherence rule against whatever fields the merchant *did* supply.
-// `.partial()` is applied to the base object (NOT the refined wrapper)
-// then re-refined so the same cross-field check holds on partial updates.
+// PATCH allows partial bodies. Field-level Zod validation (floor 1800s,
+// integer, nullable) still applies via the base shape. The cross-field
+// "non-null cooldownSeconds requires REUSABLE type" rule moved to the
+// service layer (PR #72 pre-merge review fix Finding 2, 2026-05-12) —
+// Zod cannot cleanly enforce that on a partial PATCH because the
+// EXISTING voucher's type isn't in the Zod input. Without DB context,
+// a refine that rejects "non-null cooldownSeconds when type is omitted"
+// also rejected the valid case `PATCH { cooldownSeconds: 7200 }` on an
+// existing REUSABLE voucher — forcing merchants to also send
+// `type: 'REUSABLE'` in the payload. The service-layer check (in
+// `updateVoucher`) reads the existing voucher and resolves
+// effectiveType = data.type ?? existing.type, then rejects the
+// incoherent combination with COOLDOWN_REUSABLE_ONLY (400).
+//
+// The three-layer validation contract is preserved:
+//   1. Zod (this file)        — field-level (floor 1800, integer, nullable).
+//                              On create the cross-field refine still
+//                              runs (createVoucherSchema above).
+//   2. Service layer          — cross-field check on PATCH against
+//                              existing voucher type.
+//   3. Runtime clamp + DB CHECK — Tasks 2 and 1 defence-in-depth.
 const updateVoucherSchema = z
   .object(baseVoucherFields)
   .partial()
-  .refine(
-    // On partial updates `type` may be omitted; if it's missing, we only
-    // reject when cooldownSeconds is explicitly present and non-null
-    // (the service-side type check will catch the residual coherence
-    // case once `effectiveType` is resolved). When `type` IS present,
-    // apply the same refine as create.
-    (data) =>
-      data.type === undefined
-        ? data.cooldownSeconds == null
-        : data.type === 'REUSABLE' || data.cooldownSeconds == null,
-    cooldownTypeRefineMessage,
-  )
 
 export async function voucherRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/vouchers'
