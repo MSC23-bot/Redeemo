@@ -353,7 +353,7 @@ type TestMerchantSpec = {
   // BranchAmenity rows for the merchant's single main branch (branch-level, not merchant-level)
   amenities: string[]
   // Optional vouchers — older specs predate this field and skip voucher seeding;
-  // newer non-London QA fixtures include the 2 mandatory + N custom set.
+  // newer UK regional QA fixtures include the 2 mandatory + N custom set.
   vouchers?: TestMerchantVoucherSpec[]
   branch: {
     id: string
@@ -682,7 +682,7 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       email: 'hello@mykerala.test',
     },
   },
-  // Karaara — Huddersfield (Plan 4 precursor: non-London, non-South-East fixture).
+  // Karaara — Huddersfield (Plan 4 locality-model fixture: Huddersfield / West Yorkshire).
   // Chai and Indian street kitchen. Category: Cafe & Coffee (chai-led counter-service
   // model). Descriptor resolves to "Indian Cafe" — closest available fit; taxonomy
   // gaps (Chai, Indian Street Food, Snacks, Casual Dining, Mocktails) noted for
@@ -968,7 +968,7 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
     await linkBranchAmenities(spec.branch.id, spec.amenities)
 
     // Optional vouchers — older specs predate this field. New specs (e.g. the
-    // non-London QA fixtures) include 2 mandatory + N custom; codes are
+    // UK regional QA fixtures) include 2 mandatory + N custom; codes are
     // namespaced per merchant since voucher.code is globally unique.
     if (spec.vouchers && spec.vouchers.length > 0) {
       for (const v of spec.vouchers) {
