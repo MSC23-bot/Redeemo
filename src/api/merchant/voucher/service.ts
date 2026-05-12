@@ -156,6 +156,13 @@ export async function createVoucher(
     imageUrl?: string
     expiryDate?: string
     availabilityWindows?: AvailabilityWindowInput[]
+    // M5 Task 12.5 — REUSABLE cooldown propagation. Zod has already
+    // enforced type/range/REUSABLE-scope at API ingress (routes.ts) and
+    // the DB has matching CHECK constraints (Task 1); we just persist
+    // the validated value here. `null` and `undefined` both map to a
+    // null column (`undefined` = Prisma "do nothing" against a nullable
+    // column with no default).
+    cooldownSeconds?: number | null
   },
   ctx: { ipAddress: string; userAgent: string }
 ) {
@@ -181,6 +188,9 @@ export async function createVoucher(
       expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
       status: 'DRAFT',
       approvalStatus: 'PENDING',
+      // M5 Task 12.5 — propagate validated cooldown. Zod refine (Task
+      // 12) guarantees: REUSABLE → null OR >= 1800; non-REUSABLE → null.
+      cooldownSeconds: data.cooldownSeconds ?? null,
       ...(hasWindows
         ? { availabilityWindows: { create: data.availabilityWindows } }
         : {}),
@@ -223,6 +233,11 @@ export async function updateVoucher(
     'estimatedSaving',
     'expiryDate',
     'type',
+    // M5 Task 12.5 — REUSABLE cooldown updatable on DRAFT vouchers. Zod
+    // partial-refine (Task 12, routes.ts) already enforced the type
+    // coherence rule + the 1800-floor before this code runs. The DB
+    // CHECK constraint (Task 1) is the final safety net.
+    'cooldownSeconds',
   ]
   const safe: Record<string, unknown> = {}
   for (const key of allowedFields) {
