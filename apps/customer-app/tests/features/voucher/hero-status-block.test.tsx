@@ -1167,9 +1167,15 @@ describe('HeroStatusBlock — REUSABLE states (M5)', () => {
     expect(queryByTestId('hero-status-live-region')).toBeNull()
   })
 
-  // ── M5 Gate E polish (Issue 4) — REUSABLE-available alive ring ──────
+  // ── M5 Gate E polish (Issue 4, follow-up 2026-05-12 Direction C) ──────
+  //
+  // REUSABLE-available carries TWO coordinated alive signals:
+  //   (a) Cream breathing border ring (warm rgba(255,248,235,X)).
+  //   (b) Inline green PulsingDot prefixed to the eyebrow text.
+  // Both are gated on `windowState === 'reusable-available'` and on no
+  // other state — cooldown stays calm; TL active/urgent are unaffected.
 
-  it('reusable-available: renders alive-ring (green breathing border)', () => {
+  it('reusable-available: renders alive-ring (cream breathing border) AND inline green PulsingDot', () => {
     const { getByTestId } = render(
       <HeroStatusBlock
         windowState="reusable-available"
@@ -1186,9 +1192,12 @@ describe('HeroStatusBlock — REUSABLE states (M5)', () => {
     // Ring is non-interactive (pointerEvents='none') so it can never
     // intercept taps over the hero content underneath.
     expect(ring.props.pointerEvents).toBe('none')
+    // Inline trust-signal PulsingDot mounts next to the eyebrow.
+    const dot = getByTestId('hero-status-eyebrow-pulsing-dot')
+    expect(dot).toBeTruthy()
   })
 
-  it('reusable-cooldown: alive ring NOT rendered (cooldown stays calm)', () => {
+  it('reusable-cooldown: alive ring AND eyebrow PulsingDot NOT rendered (cooldown stays calm)', () => {
     const { queryByTestId } = render(
       <HeroStatusBlock
         windowState="reusable-cooldown"
@@ -1201,9 +1210,10 @@ describe('HeroStatusBlock — REUSABLE states (M5)', () => {
       />,
     )
     expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+    expect(queryByTestId('hero-status-eyebrow-pulsing-dot')).toBeNull()
   })
 
-  it('TL active: alive ring NOT rendered (only REUSABLE-available earns the alive treatment)', () => {
+  it('TL active: alive ring AND eyebrow PulsingDot NOT rendered (only REUSABLE-available earns the alive treatment)', () => {
     const { queryByTestId } = render(
       <HeroStatusBlock
         windowState="active"
@@ -1216,9 +1226,10 @@ describe('HeroStatusBlock — REUSABLE states (M5)', () => {
       />,
     )
     expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+    expect(queryByTestId('hero-status-eyebrow-pulsing-dot')).toBeNull()
   })
 
-  it('TL urgent: alive ring NOT rendered (urgency stays in eyebrow/colour, not alive treatment)', () => {
+  it('TL urgent: alive ring AND eyebrow PulsingDot NOT rendered (urgency stays in eyebrow/colour)', () => {
     const { queryByTestId } = render(
       <HeroStatusBlock
         windowState="urgent"
@@ -1231,9 +1242,10 @@ describe('HeroStatusBlock — REUSABLE states (M5)', () => {
       />,
     )
     expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+    expect(queryByTestId('hero-status-eyebrow-pulsing-dot')).toBeNull()
   })
 
-  it('redeemed-this-window (TL): alive ring NOT rendered', () => {
+  it('redeemed-this-window (TL): alive ring AND eyebrow PulsingDot NOT rendered', () => {
     const { queryByTestId } = render(
       <HeroStatusBlock
         windowState="redeemed-this-window"
@@ -1246,13 +1258,15 @@ describe('HeroStatusBlock — REUSABLE states (M5)', () => {
       />,
     )
     expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+    expect(queryByTestId('hero-status-eyebrow-pulsing-dot')).toBeNull()
   })
 
   it('alive ring renders under reduced motion (mocked useMotionScale=0) — static visible state', () => {
     // Reduce-motion path: useMotionScale returns 0 inside AliveRing's
     // effect; the breathing animation is short-circuited and opacity
     // is snapped to a visible static value. The ring still mounts so
-    // the green identity treatment is preserved.
+    // the cream identity treatment is preserved. PulsingDot handles
+    // reduce-motion internally (mirrors this pattern).
     const motionScale = require('@/design-system/useMotionScale')
     const spy = jest.spyOn(motionScale, 'useMotionScale').mockReturnValue(0)
     try {
@@ -1268,6 +1282,9 @@ describe('HeroStatusBlock — REUSABLE states (M5)', () => {
         />,
       )
       expect(getByTestId('hero-status-block-alive-ring')).toBeTruthy()
+      // PulsingDot still mounts; its internal short-circuit halts
+      // animation but the element is still rendered for visual identity.
+      expect(getByTestId('hero-status-eyebrow-pulsing-dot')).toBeTruthy()
     } finally {
       spy.mockRestore()
     }

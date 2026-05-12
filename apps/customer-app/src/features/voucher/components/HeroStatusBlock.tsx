@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { useMotionScale } from '@/design-system/useMotionScale'
+import { PulsingDot } from '@/design-system/motion/PulsingDot'
 import type { WindowState } from '@/features/voucher/utils/timeLimitedWindow'
 import {
   formatDuration,
@@ -80,22 +81,39 @@ export function HeroStatusBlock(props: HeroStatusBlockProps) {
   const underOneHourTick = isUnderOneHourTick(props)
   const liveLabel = deriveLiveRegionLabel(props, content)
 
-  // M5 Gate E polish (Issue 4) — REUSABLE-available alive treatment.
-  // Only the reusable-available state earns the "alive" visual register;
-  // cooldown stays calm/neutral, TL active is unaffected. The ring is
-  // an absolutely-positioned breathing border that sits behind the
-  // existing white-frosted root content so the eyebrow + future content
-  // continue to read clearly. Reduce-motion → static green ring (no
-  // breathing animation) via useMotionScale (existing pattern from
-  // PulsingDot).
+  // M5 Gate E polish (Issue 4 + 2026-05-12 follow-up) — REUSABLE-available
+  // hybrid alive treatment per owner Direction C.
+  //
+  // Two coordinated signals on REUSABLE-AVAILABLE only:
+  //   (a) Warm-cream breathing border ring around the hero card. Cream
+  //       reads against ANY voucher gradient (the previous green ring
+  //       was camouflaged on REUSABLE's mint-teal background).
+  //   (b) Small green <PulsingDot> rendered INLINE with the eyebrow as
+  //       a localised trust-signal point, mirroring the M3 ShowToStaff
+  //       LIVE-dot pattern.
+  //
+  // Cooldown stays calm/neutral; TL active/urgent are unaffected — they
+  // already carry urgency in their eyebrow + progress bar colour bands.
+  // Reduce-motion → static visible ring + PulsingDot internally snaps
+  // to its own static state via useMotionScale.
   const isAlive = windowState === 'reusable-available'
 
   return (
     <View testID="hero-status-block" style={styles.root}>
       {isAlive ? <AliveRing /> : null}
-      <Text testID="hero-status-eyebrow" variant="label.eyebrow" style={styles.eyebrow}>
-        {content.eyebrow}
-      </Text>
+      <View style={styles.eyebrowRow}>
+        {isAlive ? (
+          <PulsingDot
+            testID="hero-status-eyebrow-pulsing-dot"
+            color="#34D399"
+            size={7}
+            style={styles.eyebrowDot}
+          />
+        ) : null}
+        <Text testID="hero-status-eyebrow" variant="label.eyebrow" style={styles.eyebrow}>
+          {content.eyebrow}
+        </Text>
+      </View>
       {/* primary + supporting are suppressed (not rendered) when the
           deriveContent branch returns empty strings — currently only the
           REUSABLE-AVAILABLE state (M5 Task 8). */}
@@ -374,37 +392,42 @@ function eyebrowDayLabel(boundary: Date, now: Date): string {
 /**
  * M5 Gate E polish — REUSABLE-available "alive" treatment.
  *
- * Breathing green border ring that pulses over a 2.4s cycle. Sits
- * inside <View style={styles.root}> as an absolute overlay so it
+ * Breathing warm-cream border ring that pulses over a 2.4s cycle.
+ * Sits inside <View style={styles.root}> as an absolute overlay so it
  * doesn't interfere with the eyebrow / primary / supporting / progress
- * bar layout. Color is the brand success-green (#34D399 — same token
- * used by the active-state progress bar and the M3 ShowToStaff
- * pulsing-dot trust signal).
+ * bar layout. Colour is the brand cream tone expressed in rgba so the
+ * opacity oscillation works directly on the border colour (no
+ * compositing tricks). Cream reads against ANY voucher gradient,
+ * which the previous green ring (#34D399) didn't — REUSABLE's
+ * mint-teal hero camouflaged the green ring almost completely.
+ *
+ * Opacity range 0.55 ↔ 0.92 over a 2.4s ease-in-out cycle. Bottom-out
+ * is bumped above 0.5 (vs the previous 0.45 green) so the cream
+ * hairline stays clearly visible at every point in the breath cycle.
  *
  * Reduce-motion: when `useMotionScale()` returns 0 we render a
- * STATIC green ring (no opacity oscillation, full 0.85 opacity). The
- * static treatment still surfaces the green identity but stops
- * motion entirely per A11y contract (mirrors PulsingDot pattern).
+ * STATIC cream ring at opacity 0.78 — clearly visible mid-range; no
+ * oscillation. Mirrors PulsingDot pattern.
  *
  * react-native-reanimated is mocked at the test-setup level
  * (tests/setup.ts) so withRepeat/withTiming are no-ops in jest; the
  * ring still mounts, surfacing the testID hooks the suite checks.
  */
 function AliveRing() {
-  const opacity = useSharedValue(1)
+  const opacity = useSharedValue(0.92)
   const motion  = useMotionScale()
 
   useEffect(() => {
     if (motion <= 0) {
       // Reduce-motion: snap to static visible opacity.
-      opacity.value = 0.85
+      opacity.value = 0.78
       return
     }
-    // 2.4s cycle, ease-in-out — slow, calm breathing rather than a
-    // gimmicky pulse. Bottom-out at 0.45 so the ring never disappears
-    // entirely (continuous trust signal).
+    // 2.4s cycle, ease-in-out — slow, calm breathing. Bottom-out at
+    // 0.55 so the cream hairline stays clearly visible throughout the
+    // breath (continuous trust signal).
     opacity.value = withRepeat(
-      withTiming(0.45, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+      withTiming(0.55, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
       -1,
       true,
     )
@@ -446,12 +469,15 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  // M5 Gate E polish (Issue 4) — REUSABLE-available alive ring.
-  // Slightly inset from the root's outer edge so the green hairline
-  // reads as a deliberate inner accent (not a competing border).
-  // Border radius shaved 1pt vs root (11 vs 12) to compensate for the
-  // 1pt inset on all sides. `pointerEvents='none'` on the wrapper so
-  // taps pass through to root content.
+  // M5 Gate E polish (Issue 4, follow-up 2026-05-12) — REUSABLE-available
+  // alive ring. Slightly inset from the root's outer edge so the cream
+  // hairline reads as a deliberate inner accent (not a competing
+  // border). Border radius shaved 1pt vs root (11 vs 12) to compensate
+  // for the 1pt inset on all sides. `pointerEvents='none'` on the
+  // wrapper so taps pass through to root content. Cream tone (warm
+  // off-white) contrasts on ANY voucher hero gradient including
+  // REUSABLE's mint-teal — the previous #34D399 green was effectively
+  // invisible against that background.
   aliveRing: {
     position: 'absolute',
     top: 1,
@@ -460,7 +486,21 @@ const styles = StyleSheet.create({
     bottom: 1,
     borderWidth: 2,
     borderRadius: 11,
-    borderColor: '#34D399',
+    borderColor: 'rgba(255, 248, 235, 1)',
+  },
+  // Eyebrow row hosts the inline trust-signal PulsingDot (REUSABLE-
+  // available only) plus the eyebrow Text. Gap pulls the dot tight to
+  // the eyebrow so they read as a single bonded element.
+  eyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  eyebrowDot: {
+    // Vertical alignment tuning — sit visually centered on the
+    // eyebrow's uppercase x-height. PulsingDot ships as a small
+    // circle; alignItems: 'center' on the row handles cross-axis.
+    marginTop: 0,
   },
   eyebrow: {
     color: 'rgba(255,255,255,0.78)',

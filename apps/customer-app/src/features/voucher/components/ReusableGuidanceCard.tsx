@@ -4,10 +4,21 @@ import { Info } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 
 /**
- * ReusableGuidanceCard — explains the two-clock independence (2h
- * presentation window vs cooldown) for REUSABLE vouchers. Sits
- * between USAGE RULE and ABOUT THIS OFFER on Voucher Detail, parallel
+ * ReusableGuidanceCard — truthful explainer for what the Voucher
+ * Detail surface actually shows about REUSABLE codes. Sits between
+ * USAGE RULE and ABOUT THIS OFFER on Voucher Detail, parallel
  * placement to the PR #70 TL guidance card.
+ *
+ * Copy contract (Gate E follow-up 2026-05-12, Option B):
+ *   • Title: "Your latest code is shown here"
+ *   • Body:  "After you redeem, your latest code is available to show
+ *            staff for up to 2 hours. Redeeming again creates a new
+ *            code and replaces the one shown here."
+ *
+ * Previous copy ("Your code stays available") was technically untrue
+ * from the user's perspective — Voucher Detail surfaces only the
+ * LATEST redemption code; redeeming again replaces the prior code in
+ * the UI. The new copy is honest about THIS behaviour.
  *
  * Surface treatment matches the TL guidance card in
  * <CouponBody> (`tlGuidance` style block) exactly — pale amber inner
@@ -24,7 +35,7 @@ const ROSE     = '#E20C04'
 
 export function ReusableGuidanceCard() {
   const a11yLabel =
-    'Your code stays available. After you redeem, your code stays available to show staff for up to 2 hours. This voucher becomes available again after the time shown above.'
+    'Your latest code is shown here. After you redeem, your latest code is available to show staff for up to 2 hours. Redeeming again creates a new code and replaces the one shown here.'
 
   return (
     <View
@@ -34,10 +45,10 @@ export function ReusableGuidanceCard() {
     >
       <View style={styles.heading}>
         <Info size={16} color={ROSE} strokeWidth={2} />
-        <Text variant="label.md" style={styles.title}>Your code stays available</Text>
+        <Text variant="label.md" style={styles.title}>Your latest code is shown here</Text>
       </View>
       <Text variant="body.sm" style={styles.body}>
-        After you redeem, your code stays available to show staff for up to 2 hours. This voucher becomes available again after the time shown above.
+        After you redeem, your latest code is available to show staff for up to 2 hours. Redeeming again creates a new code and replaces the one shown here.
       </Text>
     </View>
   )
