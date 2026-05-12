@@ -200,13 +200,30 @@ All models live in `prisma/schema.prisma`. Key relationships:
 - Plan: `docs/superpowers/plans/2026-04-15-customer-app-foundations-auth.md` (original Phase 3C.1a baseline)
 - Rebaseline plan (2026-05-01): `docs/superpowers/plans/2026-05-01-auth-onboarding-rebaseline.md` — Tier 2 with M1 + M2 amendments; full traceability of each salvaged file from cefaf45.
 
-### Phase 3C.1b — Customer App Home + Discovery + Map (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
-- Home feed: featured merchants, trending merchants, nearby merchants
-- Map tab: interactive map with merchant pins, bottom sheet merchant cards
-- Search: full-text search with filters, categories, recent searches
-- Category browsing: category grid, filtered merchant list
-- All using customer discovery backend APIs
-- Plan: `docs/superpowers/plans/2026-04-16-home-discovery-map.md`
+### ✅ Phase 3C.1b — Customer App Home + Discovery + Map (LIVE on main via Plan 1 + Plan 1.5 + PR-B Milestones 2/3/4 + Map rebaseline)
+
+The original Phase 3C.1b implementation on `feature/customer-app` (reference-only branch) was rebaselined onto `main` across the following tracks. Each surface ships independently against the current backend contract.
+
+**Backend foundations (shipped on main):**
+- **Plan 1 — Category taxonomy foundation** (PR #15, integration commit `504d140`, 2026-04-28). Schema + seed (11 top-level categories + 89 subcategories + 262 tags: 32 CUISINE / ~165 SPECIALTY / 18 HIGHLIGHT / ~35 DETAIL) + service layer + Discovery API extensions. Spec: `docs/superpowers/specs/2026-04-28-category-taxonomy-design.md`. Plan: `docs/superpowers/plans/2026-04-28-category-taxonomy-foundation.md`. Migration `20260428124838_category_taxonomy` + companion `20260428163710_category_name_parentid_unique`.
+- **Plan 1.5 — Supply-aware correction** (commits `76eeb5e`, `8dfce29`, `0d3d1f8`, `f7ee8dc`; migration `20260429000000_supply_aware_correction`). Replaced the original §4.5 "hide chips below threshold" rule with rank-not-hide via `Category.intentType` (LOCAL / DESTINATION / MIXED) + rank-then-enrich pipeline in `src/api/lib/ranking.ts`. Adds tier counts (`nearbyCount`, `cityCount`, `distantCount`) + `emptyStateReason` to discovery meta. Also shipped `CategoryAmenity` join table + `prisma/seed-data/categoryAmenities.ts` (amenity eligibility). **Plan 1.5 absorbed what memory had framed as a separate "Plan 1.6" supply-aware revision — both shipped together; there is no separate Plan 1.6 doc.** Spec: `docs/superpowers/specs/2026-04-29-supply-aware-correction-design.md`. Plan: `docs/superpowers/plans/2026-04-29-supply-aware-correction.md`.
+- **Backend in-area route** (`d017aaf`) — `GET /api/v1/customer/discovery/in-area` for Map bbox queries. Shipped via `feature/discovery-in-area-route` (merged).
+
+**Customer-app surface rebaselines (shipped on main):**
+- **PR-B Milestone 2 — Home tab end-to-end** (`ac12a0d`) at `app/(app)/index.tsx` + `src/features/home/`.
+- **PR-B Milestone 3 — Search end-to-end** + reusable scope/empty-state primitives (`f29de8a`) at `app/(app)/search.tsx` + `src/features/search/`.
+- **PR-B Milestone 4 — Category surface** (AllCategories + CategoryResults + FilterSheet) (`6896d4d`) at `app/(app)/categories.tsx` + `app/(app)/category/[id].tsx`.
+- **PR #19 review fixes** (`f8b227c`): SearchResultItem fake Open badge, empty-state flash, categoryId race, FilterSheet parent-toggle.
+- **Map surface** at `app/(app)/map.tsx` + `src/features/map/{components,hooks,screens}` — shipped via `feature/customer-app-discovery-map` (merged).
+- **Discovery rebaseline planning record** at `docs/superpowers/plans/2026-04-30-customer-app-pr4-remediation.md` (merged via `docs/discovery-surface-rebaseline-plan`).
+
+**Plan 4 readiness:** Plan 1 + Plan 1.5 + Plan 2 (this surface track) are all SHIPPED. The next location-modelling workstream is **Plan 4 — Location Model UK Enrichment** (brainstorm-first per memory `project_discovery_sequencing_plan4.md`). Only remaining precursor before brainstorm is a Tier 0/1 non-London seed fixture PR. **Plan 3 (PC3 interests → real `Category` migration) stays deferred** per `project_pc3_interests_category_migration.md` — owner direction is "leave until things are more stable"; it should sequence after Plan 4 (Plan 4 may also affect User schema, and a single migration cycle is preferable).
+
+**Locked interim contracts (do NOT touch until Plan 4 is specified):**
+- `branch.city`-based CITY-tier classification is foundationally inadequate for non-major-city UK localities (Brightlingsea ↔ Colchester ↔ Essex) — keep as locked interim model.
+- 4 customer-app code hooks flagged for Plan 4 work: `AllCategoriesScreen` `merchantCount` field; `PC2AddressScreen` civil-parish lookup via postcodes.io; `branchShortName` dedup utility; `MerchantProfileScreen` branch-name dedup. Leave flagged.
+
+Original baseline plan reference: `docs/superpowers/plans/2026-04-17-customer-app-home-discovery-map.md` (Phase 3C.1b initial implementation on `feature/customer-app`; superseded by the rebaseline track above).
 
 ### ✅ Phase 3C.1c (M1) — Voucher Detail view-only rebaseline (LIVE on origin/main 2026-05-06, merge `b93ef9c`)
 
@@ -590,17 +607,13 @@ On the project owner's local clone there is a stash labelled `discovery: drop me
 ### 🔲 Next planned work
 
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
-2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Surfaces still pending after the Merchant Profile track (PR #35), Voucher Detail M1 (PR #40), Voucher Detail M2 (PRs #43-#46), and Voucher Detail M3 (branch `feature/voucher-m3-show-to-staff`, awaiting merge):
-   - Phase 3C.1b — Home / Discovery / Map
+2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Tracks already shipped: Merchant Profile (PR #35), Voucher Detail M1 (PR #40), M2 (PRs #43-#46), M3 (PR #49), M4 TIME_LIMITED M4a/M4b/M4c/M4d (PRs #64/#65/#66/#68), M5 REUSABLE (PR #72), and **Home / Discovery / Search / Categories / Map (Phase 3C.1b — see the LIVE section above)**. Surfaces still pending:
    - Phase 3C.1f — Savings tab
    - Phase 3C.1g — Favourites screen
    - Phase 3C.1h — Profile tab (full surface; minimal shell shipped via PR #27)
-   - **Voucher Detail M4** — TIME_LIMITED availability windows (Tier 2 plan-first; light schema brainstorm). See deferred-followups §O1.
-   - **Voucher Detail M5** — REUSABLE multi-redemption (Tier 3 brainstorm-first). See deferred-followups §T1.
-   - **Redeemed-state design pass** (Tier 2) — bundles §Q1-Q3 + §Q5 (washed-out coupon hero, REDEEMED stamp on coupon body, dimmed merchant card on Voucher Detail, Settings → Redemption History past-cycle browsing) + §S1-S3 (PIN sheet + success popup + Show-to-Staff design polish). Note: §Q4 (merchant-profile voucher-card treatment) is now ✅ closed via PR-B (head `545882a`, awaiting merge), and §S1-S3 are partially closed by PR-B's impeccable passes (T8m PIN sheet, T8n SuccessPopup, T8p Show-to-Staff). Remaining §Q1-Q3 + §Q5 + the §S1-S3 polish-not-yet-shipped items are the residual scope of this pass.
+   - **Redeemed-state design pass** (Tier 2) — bundles §Q1-Q3 + §Q5 (washed-out coupon hero, REDEEMED stamp on coupon body, dimmed merchant card on Voucher Detail, Settings → Redemption History past-cycle browsing) + §S1-S3 (PIN sheet + success popup + Show-to-Staff design polish). §Q4 (merchant-profile voucher-card treatment) ✅ closed via PR #60 (PR-B, merge `ed01be9`). §S1-S3 partially closed by PR-B's impeccable passes (T8m PIN sheet, T8n SuccessPopup, T8p Show-to-Staff). Remaining §Q1-Q3 + §Q5 + the §S1-S3 polish-not-yet-shipped items are the residual scope of this pass.
    - **Customer name on Show-to-Staff** (§U1) — Tier 1 follow-up, picked up after merchant-portal validation surfaces lock so both sides design together.
-   Several worktrees are already cut for these (`customer-app-discovery-map`, `customer-app-discovery-search`, etc.). Cross-check each against current `main` before resuming — main has moved significantly since they were created.
-3. **Plan 4 — location model** (Tier 3, brainstorm-first per `project_discovery_sequencing_plan4.md`). Foundational for discovery experience; queued once the post-Plan-1 Home/Discovery QA sequencing wraps.
+3. **Plan 4 — Location Model UK Enrichment** (Tier 3, brainstorm-first per `project_discovery_sequencing_plan4.md`). Plan 1 + Plan 1.5 + Plan 2 (Home/Search/Categories/Map) all SHIPPED — see Phase 3C.1b above. Only remaining precursor is a small Tier 0/1 non-London seed fixture PR; once that lands the brainstorm starts. Decisions to lock during brainstorm: gazetteer scope (OS Open Names full vs subset), onboarding UX (postcode + map-confirm), CITY-tier ladder thresholds, card display format, migration approach (nullable then required), user-profile parity, postcodes.io vs PAF, optional Tag.label search bundling. Plan 3 (PC3 interests → `Category` migration) stays deferred per `project_pc3_interests_category_migration.md` and should sequence after Plan 4.
 4. **Open follow-ups** — see `project_merchant_profile_ux_refinement_complete.md` for the merchant-profile open list (tap-target A11y, seed enrichment, `closesAt` device-local removal, discovery card ratings via `contextBranchId`).
 5. **Phase 4** — Merchant Portal + Mobile App (queued). See deferred-followups §R4 for the locked architecture (branch-restricted access, per-user capabilities, automated monthly statements). Locked production-resilience standing checklist (memory §W) applies — high-traffic flows + third-party deps need explicit consideration.
 
