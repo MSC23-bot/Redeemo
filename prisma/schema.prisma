@@ -821,6 +821,8 @@ model Voucher {
   imageUrl        String?
   estimatedSaving Decimal        @db.Decimal(10, 2)
   expiryDate      DateTime?
+  cooldownSeconds Int?           // REUSABLE only; null = platform default (4h);
+                                 // server-clamped to floor 1800s at redemption time.
   status          VoucherStatus  @default(DRAFT)
   approvalStatus  ApprovalStatus @default(PENDING)
   approvalComment String?

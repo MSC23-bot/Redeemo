@@ -129,6 +129,21 @@ const voucherDetailSchema = z.object({
   currentWindow:       windowOccurrenceSchema.nullable().optional().default(null),
   nextWindow:          windowOccurrenceSchema.nullable().optional().default(null),
   redeemedWindow:      windowOccurrenceSchema.nullable().optional().default(null),
+
+  // M5 REUSABLE — server-clamped cooldown for the REUSABLE voucher type
+  // (spec §6.1, §6.3, D19). Backend always emits this field on the
+  // wire post-M5: a number of seconds for REUSABLE rows, null otherwise.
+  //
+  // `.nullable().optional().default(null)` matches the M4a-8 forward-compat
+  // pattern — pre-M5 cached responses lack the field entirely; we default
+  // to null so existing React Query caches don't silently null out
+  // vouchers after the backend rolls out.
+  //
+  // The raw `cooldownSeconds` admin-input field is NEVER exposed on this
+  // payload (D19) — backend destructures it out before serialisation.
+  // `availableAgainAt` (above) carries REUSABLE-specific semantics: ISO
+  // during cooldown, null once elapsed (D16 future-only convention per §7.1).
+  effectiveCooldownSeconds: z.number().nullable().optional().default(null),
 })
 
 export type VoucherType   = z.infer<typeof voucherTypeSchema>

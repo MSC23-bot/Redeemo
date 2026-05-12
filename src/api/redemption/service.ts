@@ -11,6 +11,7 @@ import {
   getNextWindowOccurrence,
   type AvailabilityWindow,
 } from '../shared/voucherAvailability'
+import { effectiveCooldownSeconds } from './reusable'
 
 // Redemption code alphabet (locked 2026-05-07 from device QA).
 //
@@ -170,11 +171,23 @@ export async function createRedemption(
   // @@unique([userId, voucherId, windowStartsAt]) constraint.
   let timeLimitedWindowStartsAt: Date | null = null
 
+  // M5 v1 (REUSABLE): effective cooldown hoisted to function scope (D12).
+  // Computed once for REUSABLE vouchers; consumed by Guard 8a below AND
+  // by the atomic-claim transaction's advisory-lock re-check (Task 4).
+  // Left `undefined` for non-REUSABLE vouchers — its presence is a
+  // type-branch invariant, not a free-form flag.
+  let effectiveCooldownMs: number | undefined = undefined
+  if (voucher.type === 'REUSABLE') {
+    effectiveCooldownMs = effectiveCooldownSeconds(voucher) * 1000
+  }
+
   // M4a-6 Guard 7 (modified): voucher-type-aware redemption check.
   //
   // TIME_LIMITED bypasses UserVoucherCycleState entirely — the
   // VoucherRedemption.redeemedAt timestamp inside the current window-
-  // occurrence is the source of truth. Non-TIME_LIMITED uses the
+  // occurrence is the source of truth. REUSABLE also bypasses
+  // UserVoucherCycleState — its truth is `lastRedeemedAt +
+  // effectiveCooldownMs`. Cycle vouchers (default branch) use the
   // existing per-cycle UserVoucherCycleState lock (unchanged).
   if (voucher.type === 'TIME_LIMITED') {
     const windows: AvailabilityWindow[] = voucher.availabilityWindows.map((w) => ({
@@ -197,6 +210,34 @@ export async function createRedemption(
       const nextWindowOcc = getNextWindowOccurrence(windows, now)
       throw new AppError('ALREADY_REDEEMED_THIS_WINDOW', {
         nextWindowAt: nextWindowOcc?.startsAt.toISOString() ?? null,
+      })
+    }
+  } else if (voucher.type === 'REUSABLE') {
+    // M5 v1 Guard 8a — pre-PIN fast-fail cooldown check.
+    //
+    // Reads the user's most-recent redemption for this voucher. If that
+    // redemption sits inside the effective cooldown window (`lastRedeemedAt
+    // + effectiveCooldownMs > now`), fast-fail with REUSABLE_COOLDOWN_ACTIVE
+    // and surface `availableAgainAt` for the customer-app's inline copy.
+    //
+    // This is a UX optimisation — the authoritative re-check happens under
+    // the advisory lock inside the atomic-claim transaction (Task 4 / spec
+    // §5.2). The pre-PIN fast-fail also closes a (minor) PIN-probing oracle
+    // by rejecting in-cooldown users without exposing PIN-compare timing.
+    //
+    // REUSABLE explicitly bypasses UserVoucherCycleState — its truth is the
+    // VoucherRedemption.redeemedAt timestamp + effectiveCooldownMs. No
+    // cycle-state read; no cycle-state write later either (see spec §5.2).
+    const latest = await prisma.voucherRedemption.findFirst({
+      where:   { userId, voucherId: data.voucherId },
+      orderBy: { redeemedAt: 'desc' },
+      select:  { redeemedAt: true },
+    })
+    if (latest && now.getTime() < latest.redeemedAt.getTime() + effectiveCooldownMs!) {
+      throw new AppError('REUSABLE_COOLDOWN_ACTIVE', {
+        availableAgainAt: new Date(
+          latest.redeemedAt.getTime() + effectiveCooldownMs!,
+        ).toISOString(),
       })
     }
   } else {
@@ -319,7 +360,64 @@ export async function createRedemption(
   }
 
   let redemption
-  if (voucher.type === 'TIME_LIMITED') {
+  if (voucher.type === 'REUSABLE') {
+    // M5 v1 (REUSABLE) — atomic claim with Postgres advisory lock.
+    //
+    // Spec §5.2 + §5.5 amendment 2026-05-12: lock per (userId, voucherId)
+    // is the design contract; the exact SQL signature is implementation-
+    // flexible. The real-DB integration test in
+    // `tests/api/redemption/advisory-lock-race.integration.test.ts` is
+    // the canonical proof point.
+    //
+    // Why the lock: Guard 8a (pre-PIN, spec §5.1) is a non-authoritative
+    // UX optimisation — a concurrent transaction can insert a winner
+    // between Guard 8a passing and our transaction starting. The lock
+    // serialises concurrent claims for the same (userId, voucherId)
+    // pair and the re-read under the lock is the authoritative gate.
+    //
+    // Two-int form `pg_advisory_xact_lock(int, int)` keeps unrelated
+    // (userId, voucherId) pairs parallel (different hash keyspace) so
+    // the lock does not contend across users or unrelated vouchers.
+    // `hashtext(text)` returns int4 — the signature resolves cleanly.
+    // The lock is transaction-scoped: Postgres auto-releases it on
+    // COMMIT or ROLLBACK; no manual unlock needed (and a manual unlock
+    // call would be either a no-op or a bug — see the mocked test pin).
+    //
+    // REUSABLE explicitly bypasses UserVoucherCycleState (D11) — its
+    // truth is `lastRedeemedAt + effectiveCooldownMs`. Insert only the
+    // VoucherRedemption row with windowStartsAt=null (Postgres distinct-
+    // NULL semantics keep @@unique([userId, voucherId, windowStartsAt])
+    // non-conflicting across REUSABLE redemptions for the same user +
+    // voucher).
+    redemption = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${userId}), hashtext(${data.voucherId}))
+      `
+
+      // Authoritative cooldown re-check UNDER the lock.
+      const latest = await tx.voucherRedemption.findFirst({
+        where:   { userId, voucherId: data.voucherId },
+        orderBy: { redeemedAt: 'desc' },
+        select:  { redeemedAt: true },
+      })
+      if (latest && now.getTime() < latest.redeemedAt.getTime() + effectiveCooldownMs!) {
+        throw new AppError('REUSABLE_COOLDOWN_ACTIVE', {
+          availableAgainAt: new Date(
+            latest.redeemedAt.getTime() + effectiveCooldownMs!,
+          ).toISOString(),
+        })
+      }
+
+      // Insert. windowStartsAt stays null — REUSABLE has no window concept,
+      // and Postgres distinct-NULL keeps the existing TL-protecting unique
+      // constraint non-conflicting.
+      return tx.voucherRedemption.create({ data: {
+        ...redemptionData,
+        windowStartsAt: null,
+      }})
+      // No UserVoucherCycleState write — REUSABLE bypasses it (D11).
+    })
+  } else if (voucher.type === 'TIME_LIMITED') {
     // M4a-6: TIME_LIMITED redemptions are NOT cycle-anchored — the
     // VoucherRedemption.redeemedAt timestamp + window-occurrence is
     // the source of truth (Guard 7 branch above). Insert ONLY the

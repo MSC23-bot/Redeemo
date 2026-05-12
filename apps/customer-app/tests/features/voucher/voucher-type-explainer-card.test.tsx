@@ -74,14 +74,23 @@ describe('VoucherTypeExplainerCard', () => {
     expect(text.length).toBeGreaterThan(20)
   })
 
-  it('REUSABLE explainer does NOT imply unlimited reuse — references "once per cycle"', () => {
-    // REUSABLE is currently label-only in the backend; cycle lockout
-    // still applies. The explainer must not contradict that. This
-    // test catches an accidental copy edit that would tell customers
-    // they can redeem REUSABLE vouchers any number of times.
+  it('REUSABLE explainer is the locked M5 v1 copy — atomic flip with backend (D36)', () => {
+    // M5 Task 10 (locked 2026-05-12): REUSABLE is now a real type-aware
+    // redemption path (effectiveCooldownSeconds + per-redemption
+    // availableAgainAt). The pre-M5 "once per cycle" wording is gone.
+    // This test pins the locked copy + the banned-phrases list from
+    // spec §9 (no "unlimited" / "wait" / "cooldown" in customer copy).
     const text = voucherTypeExplainer('REUSABLE')
-    expect(text).toMatch(/once per cycle/i)
-    expect(text).not.toMatch(/unlimited|any number of times|multiple times|reuse anytime/i)
+    expect(text).toBe(
+      'An ongoing offer that becomes available again after each redemption. The exact timing depends on the offer, usually a few hours.',
+    )
+    // Banned phrases from spec §9.
+    expect(text).not.toMatch(/unlimited|any number of times|reuse anytime/i)
+    expect(text).not.toMatch(/\bwait\b/i)
+    expect(text).not.toMatch(/cooldown/i)
+    // Pre-M5 copy markers must be gone (catches an accidental revert).
+    expect(text).not.toMatch(/once per cycle/i)
+    expect(text).not.toMatch(/returns again next cycle/i)
   })
 
   it('every type explainer mentions either the offer details, terms, or what qualifies — driving customers to merchant content', () => {

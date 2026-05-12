@@ -169,8 +169,31 @@ export const RedemptionErrorSchema = z.discriminatedUnion('code', [
     statusCode: z.literal(400),
     nextWindowAt: z.string().nullable(),
   }),
+  // M5 REUSABLE — fired by the pre-PIN guard when a REUSABLE voucher is
+  // still inside its cooldown window (spec §5.3, §6.1). Backend computes
+  // `availableAgainAt` from `lastRedeemedAt + effectiveCooldownMs`; it is
+  // ALWAYS a non-null ISO string for this code (the guard only throws
+  // when there IS a prior redemption inside the cooldown, so there's no
+  // degenerate null case as with the TIME_LIMITED codes above).
+  // FLAT shape — same lock as the other typed-context codes.
+  z.object({
+    code: z.literal('REUSABLE_COOLDOWN_ACTIVE'),
+    message: z.string(),
+    statusCode: z.literal(400),
+    availableAgainAt: z.string(),
+  }),
 ])
 export type RedemptionError = z.infer<typeof RedemptionErrorSchema>
+
+// ── Typed-context exports ────────────────────────────────────────────────
+//
+// Per-code error context types, exported for component consumers that
+// only need the inner payload shape (e.g. an inline "Available again at
+// <T>" banner). The mirror for ALREADY_REDEEMED_THIS_WINDOW / VOUCHER_
+// OUTSIDE_AVAILABILITY_WINDOW would carry `{ nextWindowAt: string | null }`;
+// REUSABLE_COOLDOWN_ACTIVE differs in that `availableAgainAt` is
+// non-nullable (see comment on the schema branch above).
+export type ReusableCooldownActiveContext = { availableAgainAt: string }
 
 // ── Helper: convert ApiClientError → typed RedemptionError ──────────────
 //

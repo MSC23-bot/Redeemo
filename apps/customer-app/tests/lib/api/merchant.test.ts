@@ -359,3 +359,84 @@ describe('merchantVoucherSchema — TIME_LIMITED fields (M4a-8)', () => {
     }
   })
 })
+
+// ── M5 REUSABLE: merchantVoucherSchema reusableState ────────────────────────
+//
+// Backend (Task 6, `src/api/customer/discovery/service.ts:getCustomerMerchant`)
+// adds a per-card `reusableState` block on each voucher row:
+//
+//   reusableState: { availableAgainAt: string | null } | null
+//
+// Shape lock (spec §6.4, D17):
+//   • REUSABLE row     → reusableState = { availableAgainAt: ISO | null }
+//                        — inner null means cooldown elapsed (D16 future-only).
+//   • non-REUSABLE row → reusableState = null (or absent, for forward-compat).
+//
+// `.nullable().optional()` so a row from a cached pre-M5 response — which
+// has no reusableState at all — still parses cleanly.
+describe('merchantVoucherSchema — REUSABLE reusableState (M5)', () => {
+  const baseReusableVoucher = {
+    id:                  'v2',
+    title:               'Free filter coffee refill',
+    type:                'REUSABLE',
+    description:         null,
+    terms:               null,
+    imageUrl:            null,
+    estimatedSaving:     2.5,
+    expiryDate:          null,
+    isRedeemedThisCycle: false,
+  }
+
+  it('parses reusableState with ISO availableAgainAt for REUSABLE (cooldown active)', () => {
+    const result = voucherSchema.safeParse({
+      ...baseReusableVoucher,
+      reusableState: { availableAgainAt: '2026-05-12T16:00:00Z' },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.reusableState?.availableAgainAt).toBe('2026-05-12T16:00:00Z')
+    }
+  })
+
+  it('parses reusableState with availableAgainAt: null for REUSABLE (cooldown elapsed / no prior redemption)', () => {
+    const result = voucherSchema.safeParse({
+      ...baseReusableVoucher,
+      reusableState: { availableAgainAt: null },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.reusableState).not.toBeNull()
+      expect(result.data.reusableState?.availableAgainAt).toBeNull()
+    }
+  })
+
+  it('parses reusableState: null for non-REUSABLE rows', () => {
+    const result = voucherSchema.safeParse({
+      id: 'v1', title: 'BOGO', type: 'BOGO',
+      description: null, terms: null, imageUrl: null,
+      estimatedSaving: 4.5, expiryDate: null,
+      isRedeemedThisCycle: false,
+      reusableState: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.reusableState).toBeNull()
+  })
+
+  it('reusableState is optional — pre-M5 cached responses parse cleanly without the field', () => {
+    const result = voucherSchema.safeParse({
+      id: 'v1', title: 'BOGO', type: 'BOGO',
+      description: null, terms: null, imageUrl: null,
+      estimatedSaving: 4.5, expiryDate: null,
+      isRedeemedThisCycle: false,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects reusableState with a missing availableAgainAt key (defensive — shape lock)', () => {
+    const result = voucherSchema.safeParse({
+      ...baseReusableVoucher,
+      reusableState: {},   // missing availableAgainAt
+    })
+    expect(result.success).toBe(false)
+  })
+})

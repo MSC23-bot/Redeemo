@@ -109,14 +109,15 @@ export function fairUseLinesForVoucherType(type: VoucherType): readonly string[]
  * SPEND_AND_SAVE, DISCOUNT_FIXED, DISCOUNT_PERCENT, PACKAGE_DEAL,
  * TIME_LIMITED, REUSABLE.
  *
- * **REUSABLE wording — important.** REUSABLE is currently
- * label-only in the backend; it does NOT bypass the
- * once-per-cycle rule (see `src/api/redemption/service.ts` cycle
- * lockout — no type-aware branch, ALREADY_REDEEMED fires for
- * REUSABLE the same as any other type). The explainer must NOT
- * imply unlimited reuse. Today's accurate description: an offer
- * that the merchant runs continuously, returning next cycle,
- * still subject to one-per-cycle.
+ * **REUSABLE wording — atomic with backend (M5 Task 10, locked
+ * 2026-05-12).** REUSABLE is now a real type-aware redemption path
+ * (effectiveCooldownSeconds + per-redemption availableAgainAt) — the
+ * pre-M5 "merchant intent flag, still once per cycle" wording is gone.
+ * The explainer body below describes the new behaviour honestly: an
+ * ongoing offer that becomes available again after each redemption,
+ * with the exact timing depending on the offer (and usually a few
+ * hours). Per spec §9 banned-phrases lock, the word "wait" is avoided
+ * in customer copy — the body uses "time" / "timing" instead.
  */
 /**
  * Per-type explainer title (locked 2026-05-08 from device QA). The
@@ -162,10 +163,13 @@ export function voucherTypeExplainer(type: VoucherType): string {
     case 'TIME_LIMITED':
       return 'Time-limited vouchers can only be redeemed during specific days or hours set by the merchant. The current or next available window is shown above. Each window counts separately, so you can redeem once per window.'
     case 'REUSABLE':
-      // Honest about current backend semantics — REUSABLE is a
-      // merchant intent flag (the offer persists across cycles), not
-      // a per-cycle bypass. One redemption per cycle still applies.
-      return "An ongoing offer the merchant runs continuously. Like all vouchers, you can redeem this once per cycle, then it returns again next cycle."
+      // M5 Task 10 (locked 2026-05-12 — REUSABLE v1 ships, spec D36 +
+      // §9). Atomic flip with the backend: REUSABLE is now a real
+      // type-aware redemption path (effectiveCooldownSeconds + per-
+      // redemption availableAgainAt). The pre-M5 "once per cycle"
+      // wording is gone. NO use of the word "wait" per spec §9 banned
+      // phrases.
+      return 'An ongoing offer that becomes available again after each redemption. The exact timing depends on the offer, usually a few hours.'
     default: {
       // Exhaustiveness guard — if a new VoucherType is added to the
       // enum without updating this switch, TS will error here. At
@@ -248,11 +252,28 @@ export const CHECK_THE_WINDOW_STEP = {
 } as const
 
 /**
+ * REUSABLE-specific step inserted at position 1 (parallel placement to
+ * `CHECK_THE_WINDOW_STEP` for TIME_LIMITED) per M5 Task 10 / spec §9
+ * copy ledger. Surfaces the cadence concept inline in the redemption
+ * flow so the user understands they'll see this voucher again after a
+ * short delay — without surfacing the internal "cooldown" term.
+ */
+export const USE_IT_AGAIN_STEP = {
+  label: 'Use it again',
+  desc: 'After you redeem this voucher, it becomes available again after a short time. The exact timing depends on the offer.',
+} as const
+
+/**
  * Returns the appropriate "How It Works" step list for the given
- * subscription state + voucher type. For TIME_LIMITED vouchers,
- * `CHECK_THE_WINDOW_STEP` is inserted at index 1 — between the first
- * orientation step (Subscribe to Unlock / Review the Voucher) and the
- * shared 4-step redemption flow.
+ * subscription state + voucher type. Voucher-type-aware insertion at
+ * position 1 (between the first orientation step and the shared 4-step
+ * redemption flow):
+ *   • TIME_LIMITED → `CHECK_THE_WINDOW_STEP`
+ *   • REUSABLE     → `USE_IT_AGAIN_STEP`  (M5 Task 10)
+ *   • all others   → no extra step
+ *
+ * The two type-aware steps are mutually exclusive — a voucher cannot
+ * be both TIME_LIMITED and REUSABLE.
  *
  * The first-step copy is duplicated from the
  * `HOW_IT_WORKS_STEPS_FREE` / `HOW_IT_WORKS_STEPS_SUBSCRIBED`
@@ -276,6 +297,9 @@ export function howItWorksSteps(
 
   if (voucherType === 'TIME_LIMITED') {
     return [baseFirst, CHECK_THE_WINDOW_STEP, ...STEPS_2_TO_5]
+  }
+  if (voucherType === 'REUSABLE') {
+    return [baseFirst, USE_IT_AGAIN_STEP, ...STEPS_2_TO_5]
   }
   return [baseFirst, ...STEPS_2_TO_5]
 }

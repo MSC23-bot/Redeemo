@@ -24,9 +24,36 @@ import { color, opacity, radius, spacing } from '@/design-system/tokens'
 import { errorHaptic, lightHaptic } from '@/design-system/haptics'
 import { useRedemptionLockout } from '../hooks/useRedemptionLockout'
 import type { UseRedeemError } from '../hooks/useRedeem'
-import { formatClockTime, formatDayName } from '../utils/countdownFormat'
+import {
+  formatClockHour12,
+  formatClockTime,
+  formatDayName,
+} from '../utils/countdownFormat'
 
 const PIN_LENGTH = 4
+
+// M5 Task 12 — Hermes-robust same-London-day comparator used by the
+// REUSABLE_COOLDOWN_ACTIVE inline error rendering.  Compares the
+// Europe/London calendar date of two instants via numeric `formatToParts`
+// extraction (NOT `Intl.DateTimeFormat({ weekday })` — see
+// `reference_london_clock_helper.md` for the AVOID rules).
+const LONDON_YMD_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/London',
+  year: 'numeric', month: 'numeric', day: 'numeric',
+})
+
+function londonYmd(date: Date): string {
+  const parts = LONDON_YMD_FORMATTER.formatToParts(date)
+  const get = (t: Intl.DateTimeFormatPartTypes): string => {
+    const p = parts.find(x => x.type === t)
+    return p ? p.value : ''
+  }
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
+function sameLondonDay(a: Date, b: Date): boolean {
+  return londonYmd(a) === londonYmd(b)
+}
 
 type Props = {
   visible: boolean
@@ -176,6 +203,53 @@ export function PinEntrySheet({
         return {
           title: "You've already used this offer for this window",
           body: `One redemption per window.${nextHint}`,
+        }
+      }
+      // M5 Task 12 — REUSABLE cooldown active (spec §4.4, §5.3, §9 D41).
+      // Backend fires this from Guard 8a when the cooldown window is
+      // still open.  Two copy bands:
+      //   <1h   : "This voucher is available again in N minutes"
+      //           (singular "1 minute" / plural "N minutes")
+      //   ≥1h   : "This voucher is available again at <Hpm> today" /
+      //           " tomorrow" / "<Weekday>"
+      //
+      // The pill abbreviation uses "From" + uppercase weekday; the PIN
+      // sheet sentence form uses "at" + lowercase today/tomorrow + a
+      // capitalised proper-noun weekday — locked surface asymmetry per
+      // spec §9 footnote.  availableAgainAt is read FLAT off `error`
+      // (NOT `error.context` / `error.details`) — matches the
+      // AppError.toJSON() shape used by the other typed-context codes
+      // above (INVALID_PIN.remainingAttempts, VOUCHER_OUTSIDE_…
+      // .nextWindowAt).
+      case 'REUSABLE_COOLDOWN_ACTIVE': {
+        const availableAgainAt = new Date(error.availableAgainAt)
+        const nowMs = Date.now()
+        const msToAvailable = availableAgainAt.getTime() - nowMs
+        let body: string
+        if (msToAvailable < 60 * 60_000) {
+          // <1h band — clamp floor at 1 so a near-boundary fire never
+          // produces "in 0 minutes" / negative copy.
+          const minutes = Math.max(1, Math.ceil(msToAvailable / 60_000))
+          body = `This voucher is available again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+        } else {
+          // ≥1h band — clock-hour + day context.  Same-London-day uses
+          // "today", next-London-day uses "tomorrow", anything else
+          // uses the full capitalised weekday name from formatDayName
+          // (Hermes-robust, hardcoded English array).
+          const clock = formatClockHour12(availableAgainAt)
+          const nowDate = new Date(nowMs)
+          const tomorrow = new Date(nowMs + 24 * 60 * 60_000)
+          const dayLabel =
+            sameLondonDay(availableAgainAt, nowDate)
+              ? 'today'
+              : sameLondonDay(availableAgainAt, tomorrow)
+                ? 'tomorrow'
+                : formatDayName(availableAgainAt)
+          body = `This voucher is available again at ${clock} ${dayLabel}`
+        }
+        return {
+          title: 'Available again soon',
+          body,
         }
       }
       default:

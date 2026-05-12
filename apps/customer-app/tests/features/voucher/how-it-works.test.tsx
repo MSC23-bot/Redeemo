@@ -68,4 +68,45 @@ describe('HowItWorks — step count by subscription + voucher type (M4d D9)', ()
       ),
     ).toBeTruthy()
   })
+
+  // M5 Task 10 — REUSABLE-specific HowItWorks step.
+  it('subscribed + REUSABLE: 6 steps with "Use it again" at index 1', () => {
+    const { getByTestId, getByText } = render(
+      <HowItWorks isSubscribed={true} voucherType="REUSABLE" />,
+    )
+    fireEvent.press(getByTestId('how-it-works-toggle'))
+    expect(stepCountOf(getByTestId('how-it-works-steps'))).toBe(6)
+    expect(getByText('Use it again')).toBeTruthy()
+  })
+
+  it('free + REUSABLE: 6 steps with Subscribe → Use it again → standard 4', () => {
+    const { getByTestId, getByText } = render(
+      <HowItWorks isSubscribed={false} voucherType="REUSABLE" />,
+    )
+    expect(stepCountOf(getByTestId('how-it-works-steps'))).toBe(6)
+    expect(getByText('Subscribe to Unlock')).toBeTruthy()
+    expect(getByText('Use it again')).toBeTruthy()
+  })
+
+  it('REUSABLE subscribed: "Use it again" step body contains the locked copy', () => {
+    const { getByTestId, getByText } = render(
+      <HowItWorks isSubscribed={true} voucherType="REUSABLE" />,
+    )
+    fireEvent.press(getByTestId('how-it-works-toggle'))
+    expect(
+      getByText(
+        /After you redeem this voucher, it becomes available again after a short time/,
+      ),
+    ).toBeTruthy()
+    expect(getByText(/The exact timing depends on the offer/)).toBeTruthy()
+  })
+
+  it('REUSABLE + TL are mutually exclusive — REUSABLE shows "Use it again" NOT "Check the Window"', () => {
+    const { getByTestId, getByText, queryByText } = render(
+      <HowItWorks isSubscribed={true} voucherType="REUSABLE" />,
+    )
+    fireEvent.press(getByTestId('how-it-works-toggle'))
+    expect(getByText('Use it again')).toBeTruthy()
+    expect(queryByText('Check the Window')).toBeNull()
+  })
 })

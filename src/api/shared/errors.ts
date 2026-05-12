@@ -85,6 +85,28 @@ export const ERROR_DEFINITIONS = {
   // window-occurrence. Payload includes `nextWindowAt` for next-occurrence
   // copy. Distinct from ALREADY_REDEEMED (per-cycle, non-TIME_LIMITED).
   ALREADY_REDEEMED_THIS_WINDOW:    { statusCode: 400, message: "You've already used this offer for the current window." },
+  // M5 v1 (REUSABLE): user redeemed this REUSABLE voucher and is still
+  // inside the effective cooldown window. Fast-fails at pre-PIN Guard 8a
+  // and is re-checked authoritatively under an advisory lock inside the
+  // atomic-claim transaction. REUSABLE bypasses both the per-cycle
+  // UserVoucherCycleState lock AND the TIME_LIMITED window-occurrence
+  // gate — its truth is `lastRedemption.redeemedAt + effectiveCooldownMs`.
+  // Payload carries `availableAgainAt` (ISO; = lastRedeemedAt +
+  // effectiveCooldownMs) so the customer-app can render countdown copy
+  // ("This voucher is available again in N minutes") without an extra
+  // round-trip. See spec §5.1 / §5.3.
+  REUSABLE_COOLDOWN_ACTIVE:        { statusCode: 400, message: 'This voucher is on cooldown. Please try again later.' },
+  // PR #72 pre-merge review fix (Finding 2, 2026-05-12): service-layer
+  // cross-field validation for PATCH cooldownSeconds. The Zod refine on
+  // updateVoucherSchema can't cleanly enforce the "non-null cooldownSeconds
+  // requires REUSABLE type" rule on partial updates — the existing
+  // voucher's type isn't in the Zod input. The check moved to the service
+  // layer (updateVoucher) which fetches the existing voucher and resolves
+  // effectiveType. This code surfaces when a merchant tries to PATCH a
+  // non-null cooldownSeconds onto a non-REUSABLE existing voucher (either
+  // by omitting `type` and relying on the existing type, or by including
+  // a non-REUSABLE type in the same payload).
+  COOLDOWN_REUSABLE_ONLY:          { statusCode: 400, message: 'cooldownSeconds may only be set on REUSABLE vouchers.' },
   // M4a-7 (TIME_LIMITED CRUD): availabilityWindows payload failed
   // validation. Reasons surface via `details.reason` and include:
   //   - non-TIME_LIMITED voucher with windows attached (D2 type-attachment lock)

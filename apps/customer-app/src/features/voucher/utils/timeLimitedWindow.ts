@@ -35,6 +35,11 @@ export type WindowState =
   | 'unavailable-today'
   | 'unavailable-future-day'
   | 'no-windows'
+  // REUSABLE voucher type (M5 — Task 8). Cooldown-based reusable surface:
+  // `reusable-available` = no active cooldown, voucher redeemable;
+  // `reusable-cooldown`  = cooldown active, primary = countdown to availableAgainAt.
+  | 'reusable-available'
+  | 'reusable-cooldown'
 
 const URGENT_THRESHOLD_MS = 60 * 60_000  // 60 minutes — spec §5.3
 

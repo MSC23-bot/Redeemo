@@ -163,6 +163,60 @@ describe('redemption API schemas', () => {
       message: 'x', statusCode: 400,
     })).toThrow()
   })
+
+  // ── M5: REUSABLE_COOLDOWN_ACTIVE error code ────────────────────────────────
+  //
+  // Backend (Task 5, `src/api/redemption/service.ts`) throws on the pre-PIN
+  // guard when a REUSABLE voucher is still inside its cooldown window.
+  // Payload is FLAT (same lock as the M4a-8 ...AVAILABILITY_WINDOW codes
+  // and INVALID_PIN / PIN_RATE_LIMIT_EXCEEDED):
+  //
+  //   { error: { code: 'REUSABLE_COOLDOWN_ACTIVE', message, statusCode: 400,
+  //              availableAgainAt: ISO } }
+  //
+  // availableAgainAt is REQUIRED + non-nullable for this code — backend only
+  // throws when there IS a prior redemption inside the cooldown, so the
+  // future instant is always defined (no degenerate null case unlike the
+  // TIME_LIMITED codes).
+
+  it('RedemptionErrorSchema parses REUSABLE_COOLDOWN_ACTIVE with flat availableAgainAt (ISO)', () => {
+    const e = RedemptionErrorSchema.parse({
+      code: 'REUSABLE_COOLDOWN_ACTIVE',
+      message: 'This voucher is on cooldown. Please try again later.',
+      statusCode: 400,
+      availableAgainAt: '2026-05-12T16:00:00.000Z',
+    })
+    expect(e.code).toBe('REUSABLE_COOLDOWN_ACTIVE')
+    if (e.code === 'REUSABLE_COOLDOWN_ACTIVE') {
+      expect(e.availableAgainAt).toBe('2026-05-12T16:00:00.000Z')
+    }
+  })
+
+  it('RedemptionErrorSchema rejects REUSABLE_COOLDOWN_ACTIVE without availableAgainAt key', () => {
+    // Defensive pin against a backend drift that drops the field. Unlike
+    // the TIME_LIMITED codes, REUSABLE_COOLDOWN_ACTIVE has no degenerate
+    // null case — the schema rejects both absence and null.
+    expect(() => RedemptionErrorSchema.parse({
+      code: 'REUSABLE_COOLDOWN_ACTIVE',
+      message: 'x', statusCode: 400,
+    })).toThrow()
+    expect(() => RedemptionErrorSchema.parse({
+      code: 'REUSABLE_COOLDOWN_ACTIVE',
+      message: 'x', statusCode: 400, availableAgainAt: null,
+    })).toThrow()
+  })
+
+  it('ReusableCooldownActiveContext type carries { availableAgainAt: string }', () => {
+    // Type-level pin: compile-time check via a const-typed value. If the
+    // exported type ever drifts (e.g. becomes nullable, or renames the
+    // field), tsc will fail this file.  We do a runtime no-op assertion
+    // so jest also reports a green test.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const ctx: import('@/lib/api/redemption').ReusableCooldownActiveContext = {
+      availableAgainAt: '2026-05-12T16:00:00.000Z',
+    }
+    expect(ctx.availableAgainAt).toBe('2026-05-12T16:00:00.000Z')
+  })
 })
 
 describe('redemptionApi.redeem — typed-error mapping', () => {
@@ -335,6 +389,28 @@ describe('redemptionApi.redeem — typed-error mapping', () => {
     } catch (err: any) {
       expect(err.code).toBe('VOUCHER_OUTSIDE_AVAILABILITY_WINDOW')
       expect(err.nextWindowAt).toBeNull()
+    }
+  })
+
+  // ── M5: REUSABLE_COOLDOWN_ACTIVE end-to-end typed-error mapping ───────────
+
+  it('on REUSABLE_COOLDOWN_ACTIVE throws a typed RedemptionError carrying flat availableAgainAt', async () => {
+    global.fetch = jest.fn(async () => mockResponse({
+      error: {
+        code: 'REUSABLE_COOLDOWN_ACTIVE',
+        message: 'This voucher is on cooldown. Please try again later.',
+        statusCode: 400,
+        availableAgainAt: '2026-05-12T16:00:00.000Z',
+      },
+    }, 400)) as unknown as typeof fetch
+
+    try {
+      await redemptionApi.redeem({ voucherId: 'v1', branchId: 'b1', pin: '1234' })
+      throw new Error('expected throw')
+    } catch (err: any) {
+      expect(err).not.toBeInstanceOf(ApiClientError)
+      expect(err.code).toBe('REUSABLE_COOLDOWN_ACTIVE')
+      expect(err.availableAgainAt).toBe('2026-05-12T16:00:00.000Z')
     }
   })
 

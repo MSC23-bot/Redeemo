@@ -25,6 +25,11 @@ import {
   getMostRecentlyClosedWindowOccurrence,
   type AvailabilityWindow,
 } from '../../shared/voucherAvailability'
+import {
+  effectiveCooldownSeconds,
+  computeAvailableAgainAt,
+} from '../../redemption/reusable'
+import { PRESENTATION_WINDOW_MS } from '../../redemption/presentation-window'
 
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
@@ -632,6 +637,11 @@ export async function getCustomerMerchant(
         select: {
           id: true, title: true, type: true, description: true,
           terms: true, imageUrl: true, estimatedSaving: true, expiryDate: true,
+          // M5 Task 6: REUSABLE per-card reusableState derivation reads
+          // raw cooldownSeconds via computeAvailableAgainAt(). D19 lock —
+          // raw cooldownSeconds is stripped from the response before
+          // emission (mirrors getCustomerVoucher's destructure pattern).
+          cooldownSeconds: true,
           // M4a-5: TIME_LIMITED window state for per-card display.
           // Non-TIME_LIMITED rows get [] / null via computeTimeLimitedPayload.
           availabilityWindows: {
@@ -903,6 +913,7 @@ export async function getCustomerMerchant(
     : new Map<string, Date>()
   const nowForWindows = new Date()
   const enrichedVouchers = merchant.vouchers.map((v: any) => {
+    const lastRedeemedAt = lastRedemptionMap.get(v.id) ?? null
     const tlPayload = computeTimeLimitedPayload({
       type: v.type,
       rawWindows: (v.availabilityWindows ?? []).map((w: any) => ({
@@ -910,23 +921,55 @@ export async function getCustomerMerchant(
         openTime:  w.openTime,
         closeTime: w.closeTime,
       })),
-      lastRedeemedAt: lastRedemptionMap.get(v.id) ?? null,
+      lastRedeemedAt,
       now: nowForWindows,
     })
+
+    // M5 Task 6 (spec §6.4, D17): per-card reusableState for REUSABLE
+    // rows. Reuses the SAME batched lastRedemptionMap (one groupBy for
+    // the whole voucher list — the M4a-5 N+1 contract locked in
+    // discovery.timeLimitedMerchant.test.ts). Convention §7.1 — surface
+    // only FUTURE availableAgainAt instants so the client uses
+    // truthiness checks without time math.
+    let reusableState: { availableAgainAt: string | null } | null = null
+    if (v.type === 'REUSABLE') {
+      const computed = computeAvailableAgainAt(lastRedeemedAt, v)
+      reusableState = {
+        availableAgainAt:
+          computed && computed.getTime() > nowForWindows.getTime()
+            ? computed.toISOString()
+            : null,
+      }
+    }
+
+    // D19 — raw cooldownSeconds is NEVER exposed on the customer card
+    // payload. Destructure it out before spreading the remaining
+    // voucher fields. Mirrors getCustomerVoucher's pattern.
+    const { cooldownSeconds: _serverOnlyCooldownSeconds, ...voucherForResponse } = v
+
     return {
-      ...v,
+      ...voucherForResponse,
       estimatedSaving: Number(v.estimatedSaving),
       // PR-B T8a (§Q4): per-voucher redeemed-this-cycle flag drives
       // the merchant-profile voucher card muted state.  False for
       // guests, free users, paused subs, or vouchers not redeemed
-      // in the user's current cycle.  TIME_LIMITED vouchers stay
-      // false here (window-scoped state instead — see redeemedWindow).
-      isRedeemedThisCycle: v.type === 'TIME_LIMITED' ? false : redeemedVoucherIdSet.has(v.id),
+      // in the user's current cycle.  TIME_LIMITED + REUSABLE
+      // vouchers stay false here (TIME_LIMITED uses window-scoped
+      // redeemedWindow instead; REUSABLE has no terminal redeemed
+      // state per D13 / D18). Hard-override mirrors getCustomerVoucher
+      // line 1270.
+      isRedeemedThisCycle:
+        v.type === 'TIME_LIMITED' || v.type === 'REUSABLE'
+          ? false
+          : redeemedVoucherIdSet.has(v.id),
       // M4a-5: TIME_LIMITED state ([] / null for non-TIME_LIMITED).
       availabilityWindows: tlPayload.availabilityWindows,
       currentWindow:       tlPayload.currentWindow,
       nextWindow:          tlPayload.nextWindow,
       redeemedWindow:      tlPayload.redeemedWindow,
+      // M5 Task 6 (spec §6.4): per-card REUSABLE state ({} / null for
+      // non-REUSABLE). Drives the merchant-card pill state in Task 11.
+      reusableState,
     }
   })
 
@@ -1027,6 +1070,10 @@ export async function getCustomerVoucher(
       id: true, title: true, type: true, description: true,
       terms: true, imageUrl: true, estimatedSaving: true,
       expiryDate: true, code: true, status: true, approvalStatus: true,
+      // M5 REUSABLE — selected for server-side cooldown math; NEVER
+      // included in the response payload (D19). Destructured out
+      // before the response spread below.
+      cooldownSeconds: true,
       merchant: {
         select: {
           id: true, businessName: true, tradingName: true, logoUrl: true, status: true,
@@ -1062,6 +1109,14 @@ export async function getCustomerVoucher(
   // PR #48 owner review (Fix 1) — see plan §M3a Task 5.
   let cycleStart: Date | null = null
   let cycleEnd:   Date | null = null
+  // Hoisted ACTIVE/TRIALLING flag so the REUSABLE branch below can mirror
+  // the cycle-branch subscription gating without re-querying. Spec §6.1
+  // requires REUSABLE lastRedemption gating to match the cycle branch's
+  // subscription requirement exactly (D14 + spec §6.5 — cooldown info is
+  // data-only and surfaces regardless of subscription, but the persisted
+  // redemption surface is subscription-gated like every other voucher
+  // type).
+  let hasActiveSubscription = false
   // M3 §P2 — persisted return-visit RedemptionDetailsCard. Non-null
   // ONLY when (1) ACTIVE/TRIALLING sub, (2) isRedeemedThisCycle is
   // true, and (3) a VoucherRedemption row exists in [cycleStart,
@@ -1105,6 +1160,7 @@ export async function getCustomerVoucher(
       subscription
       && (subscription.status === 'ACTIVE' || subscription.status === 'TRIALLING')
     ) {
+      hasActiveSubscription = true
       // Compute the cycle window ONCE; hoist into outer-scope vars so
       // the lastRedemption query below can reuse the exact same range.
       const window = getCurrentCycleWindow(subscription.cycleAnchorDate, new Date())
@@ -1166,19 +1222,106 @@ export async function getCustomerVoucher(
   })
 
   const isTimeLimited = voucher.type === 'TIME_LIMITED'
+  const isReusable    = voucher.type === 'REUSABLE'
+
+  // ─── M5 REUSABLE deltas (spec §6.1, §6.3, D13-D16, D19) ────────────
+  //
+  // For REUSABLE, the customer payload carries:
+  //   - effectiveCooldownSeconds (server-clamped via the reusable
+  //     helper; data-only — surfaces regardless of subscription state
+  //     per §6.5).
+  //   - availableAgainAt = ISO of lastRedeemedAt + effectiveCooldownMs,
+  //     OR null when no prior redemption OR cooldown elapsed (Q5
+  //     convention: surface only future instants so the client can use
+  //     truthiness checks).
+  //   - isRedeemedThisCycle = false ALWAYS (D13). REUSABLE bypasses
+  //     the cycle-state gate entirely; the cycle-window vars
+  //     (cycleStart / cycleEnd / cycleState) are never consulted for
+  //     this branch.
+  //   - lastRedemption: REUSABLE-specific 2h presentation-window-only
+  //     gate (M3 §AE), independent of cycle state and independent of
+  //     the cooldown clock. Spec §6.1 + §6.3 + §7.1 state 4. The
+  //     presentation window expires at redeemedAt + PRESENTATION_WINDOW_MS,
+  //     regardless of cooldown clock position. This is the REUSABLE
+  //     distinguisher — state 4 ("cooldown elapsed, presentation still
+  //     alive") gets BOTH an active Redeem CTA AND a persisted
+  //     RedemptionDetailsCard. Cycle vouchers + TIME_LIMITED keep
+  //     their existing cycle-gated lastRedemption above; ONLY REUSABLE
+  //     uses this presentation-window-only gate.
+  let reusableEffectiveCooldownSeconds: number | null = null
+  let reusableAvailableAgainAt: string | null = null
+  let reusableLastRedemption: typeof lastRedemption = null
+  if (isReusable) {
+    reusableEffectiveCooldownSeconds = effectiveCooldownSeconds(voucher)
+    // PR #72 review polish — drop redundant findFirst.
+    // lastRedemptionMap was already populated above via
+    // batchLastRedemptionsByVoucher for ALL voucher types (it's an empty
+    // Map for guests/unauthenticated users, so .get() returns undefined →
+    // ?? null normalises). Behavior is identical to the prior findFirst.
+    const lastRedeemedAt = lastRedemptionMap.get(voucherId) ?? null
+    const computed = computeAvailableAgainAt(lastRedeemedAt, voucher)
+    if (computed && computed.getTime() > Date.now()) {
+      reusableAvailableAgainAt = computed.toISOString()
+    }
+
+    // REUSABLE persisted-return-visit lastRedemption — fires only on the
+    // 2h presentation window from redeemedAt, gated on the same
+    // ACTIVE/TRIALLING subscription state as the cycle branch above
+    // (spec §6.1 + §6.5). Independent of cooldown duration: a 30-min
+    // cooldown that elapsed 5 min ago still has 1h55m of presentation
+    // window remaining → lastRedemption stays populated. Conversely a
+    // 4h cooldown with redeemedAt 3h ago has expired the presentation
+    // window (>2h) → lastRedemption returns null even though
+    // availableAgainAt is still populated. This is the two-clocks
+    // independence lock (§6.3).
+    if (userId && hasActiveSubscription) {
+      const presentationStart = new Date(Date.now() - PRESENTATION_WINDOW_MS)
+      const row = await prisma.voucherRedemption.findFirst({
+        where: {
+          userId,
+          voucherId,
+          redeemedAt: { gte: presentationStart },
+        },
+        orderBy: { redeemedAt: 'desc' },
+        include: { branch: { select: { id: true, name: true } } },
+      })
+      if (row) {
+        reusableLastRedemption = {
+          code:        row.redemptionCode,
+          redeemedAt:  row.redeemedAt.toISOString(),
+          branch:      row.branch,
+          isValidated: row.isValidated,
+          validatedAt: row.validatedAt ? row.validatedAt.toISOString() : null,
+        }
+      }
+    }
+  }
+
+  // D19 — raw cooldownSeconds is NEVER exposed on the customer payload.
+  // Destructure it out before spreading the remaining voucher fields.
+  const { cooldownSeconds: _serverOnlyCooldownSeconds, ...voucherForResponse } = voucher
 
   return {
-    ...voucher,
+    ...voucherForResponse,
     estimatedSaving: Number(voucher.estimatedSaving),
-    isRedeemedThisCycle: isTimeLimited ? false : isRedeemedThisCycle,
+    isRedeemedThisCycle: (isTimeLimited || isReusable) ? false : isRedeemedThisCycle,
     isFavourited,
-    availableAgainAt: isTimeLimited ? null : availableAgainAt,
-    lastRedemption,
+    availableAgainAt: isReusable
+      ? reusableAvailableAgainAt
+      : (isTimeLimited ? null : availableAgainAt),
+    // M3 contract: lastRedemption is cycle-gated for cycle vouchers +
+    // TIME_LIMITED, and 2h-presentation-window-gated for REUSABLE
+    // (spec §6.1 + §6.3 + §7.1 state 4 — D14 independence from cooldown
+    // clock). Same field shape across both branches; the customer-app's
+    // Zod schema is type-agnostic.
+    lastRedemption: isReusable ? reusableLastRedemption : lastRedemption,
     // NEW M4a-4 (refactored to pure helper in M4a-5):
     availabilityWindows: tlPayload.availabilityWindows,
     currentWindow:       tlPayload.currentWindow,
     nextWindow:          tlPayload.nextWindow,
     redeemedWindow:      tlPayload.redeemedWindow,
+    // NEW M5 REUSABLE: server-clamped cooldown; null for non-REUSABLE.
+    effectiveCooldownSeconds: reusableEffectiveCooldownSeconds,
   }
 }
 

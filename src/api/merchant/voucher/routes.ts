@@ -30,7 +30,16 @@ const availabilityWindowSchema = z.object({
   closeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, 'closeTime must be HH:mm in [00:01, 23:59] OR "24:00"'),
 })
 
-const createVoucherSchema = z.object({
+// M5 Task 12 — REUSABLE cooldownSeconds Zod ingress (spec §4.4):
+//
+//   Three-layer validation:
+//     1. Zod (this file)        — outermost; REUSABLE-only + floor 1800.
+//     2. Runtime clamp          — `effectiveCooldownSeconds()` at read.
+//     3. DB CHECK constraints   — Task 1 defence-in-depth at persistence.
+//
+//   This Zod is the outermost shell — bad input gets a clean 400 +
+//   VALIDATION_ERROR without reaching the service or runtime clamp.
+const baseVoucherFields = {
   type: VoucherTypeEnum,
   title: z.string().min(1).max(200),
   estimatedSaving: z.number().positive(),
@@ -42,9 +51,51 @@ const createVoucherSchema = z.object({
   // 24:00-sentinel-openTime / closeTime<=openTime / per-day overlap /
   // type-attachment per spec §3.2).
   availabilityWindows: z.array(availabilityWindowSchema).optional(),
-})
+  // M5 — REUSABLE cooldown. Floor 1800s (30min) enforced at the schema
+  // level; the cross-field refine() below rejects non-null values on
+  // non-REUSABLE types.
+  cooldownSeconds: z.number().int().min(1800).nullable().optional(),
+} as const
 
-const updateVoucherSchema = createVoucherSchema.partial()
+// Cross-field refine — only REUSABLE may carry a non-null cooldownSeconds.
+// `data.cooldownSeconds == null` catches both `null` AND `undefined`
+// (omitted) so non-REUSABLE vouchers that don't set the field stay valid.
+const cooldownTypeRefine = (data: { type: string; cooldownSeconds?: number | null }) =>
+  data.type === 'REUSABLE' || data.cooldownSeconds == null
+
+const cooldownTypeRefineMessage = {
+  message: 'cooldownSeconds may only be set on REUSABLE vouchers',
+  path: ['cooldownSeconds'] as PropertyKey[],
+}
+
+const createVoucherSchema = z
+  .object(baseVoucherFields)
+  .refine(cooldownTypeRefine, cooldownTypeRefineMessage)
+
+// PATCH allows partial bodies. Field-level Zod validation (floor 1800s,
+// integer, nullable) still applies via the base shape. The cross-field
+// "non-null cooldownSeconds requires REUSABLE type" rule moved to the
+// service layer (PR #72 pre-merge review fix Finding 2, 2026-05-12) —
+// Zod cannot cleanly enforce that on a partial PATCH because the
+// EXISTING voucher's type isn't in the Zod input. Without DB context,
+// a refine that rejects "non-null cooldownSeconds when type is omitted"
+// also rejected the valid case `PATCH { cooldownSeconds: 7200 }` on an
+// existing REUSABLE voucher — forcing merchants to also send
+// `type: 'REUSABLE'` in the payload. The service-layer check (in
+// `updateVoucher`) reads the existing voucher and resolves
+// effectiveType = data.type ?? existing.type, then rejects the
+// incoherent combination with COOLDOWN_REUSABLE_ONLY (400).
+//
+// The three-layer validation contract is preserved:
+//   1. Zod (this file)        — field-level (floor 1800, integer, nullable).
+//                              On create the cross-field refine still
+//                              runs (createVoucherSchema above).
+//   2. Service layer          — cross-field check on PATCH against
+//                              existing voucher type.
+//   3. Runtime clamp + DB CHECK — Tasks 2 and 1 defence-in-depth.
+const updateVoucherSchema = z
+  .object(baseVoucherFields)
+  .partial()
 
 export async function voucherRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/vouchers'
