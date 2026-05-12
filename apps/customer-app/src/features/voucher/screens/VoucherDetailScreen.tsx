@@ -756,17 +756,27 @@ export function VoucherDetailScreen() {
     // available again") is rendered as an EXTRA Text node below the
     // hero block at render time (see JSX below). The hero block itself
     // intentionally still mounts so the eyebrow is preserved.
-    heroStatusBlock = (
-      <HeroStatusBlock
-        windowState={reusable.windowState}
-        now={new Date()}
-        currentWindowStartsAt={null}
-        currentWindowEndsAt={null}
-        nextWindowStartsAt={reusable.nextWindowStartsAt}
-        msToClose={null}
-        msToOpen={reusable.cooldownExtendsPastExpiry ? null : reusable.msToOpen}
-      />
-    )
+    //
+    // M5 Gate E polish (Issue 4) — defensive skip for REUSABLE
+    // expired: `useReusable` returns windowState='reusable-available'
+    // when availableAgainAt is null, regardless of expiryDate, so for
+    // an expired REUSABLE the hero would otherwise read "Available
+    // now" + alive ring. We skip the hero block entirely for expired
+    // REUSABLE — the expired CTA (`redeem-cta-expired`) carries the
+    // dead-voucher signal.
+    if (stateKey !== 'expired') {
+      heroStatusBlock = (
+        <HeroStatusBlock
+          windowState={reusable.windowState}
+          now={new Date()}
+          currentWindowStartsAt={null}
+          currentWindowEndsAt={null}
+          nextWindowStartsAt={reusable.nextWindowStartsAt}
+          msToClose={null}
+          msToOpen={reusable.cooldownExtendsPastExpiry ? null : reusable.msToOpen}
+        />
+      )
+    }
   }
 
   // ── Review prompt entry point (PR-C T16, locked 2026-05-09) ─────────
@@ -1613,6 +1623,22 @@ export function VoucherDetailScreen() {
                   <ReviewPromptCard onPress={handleReviewPromptPress} />
                 </View>
               ) : null}
+              {/* M5 Gate E polish (Issue 1, 2026-05-12) — REUSABLE
+                  state 2 / state 4 spacer between RedemptionDetailsCard
+                  and the coupon stack. Cycle redeemed-state gets its
+                  16pt gap from <CycleRulesCard>'s wrapping
+                  redeemedCycleInStack (marginBottom:16) below. REUSABLE
+                  never reaches isRedeemedState (D13) — CycleRulesCard
+                  doesn't render, and there's no review prompt — so
+                  without this spacer the RedemptionDetailsCard sits
+                  glued to the coupon top card. testID exists so
+                  REUSABLE-state-matrix tests can pin the gap directly. */}
+              {isReusable ? (
+                <View
+                  testID="reusable-card-coupon-spacer"
+                  style={styles.reusableCardCouponSpacer}
+                />
+              ) : null}
               </>
             )
           })()}
@@ -2205,6 +2231,14 @@ const styles = StyleSheet.create({
   // marginBottom:16 here to keep the 16pt gap consistent.
   redeemedCycleInStack: {
     marginBottom: 16,
+  },
+  // M5 Gate E polish (Issue 1) — REUSABLE state 2 / 4 spacer.
+  // Mirrors `redeemedCycleInStack.marginBottom:16` for the REUSABLE
+  // case where neither CycleRulesCard nor ReviewPromptCard render,
+  // so the RedemptionDetailsCard would otherwise sit glued to the
+  // coupon top card.
+  reusableCardCouponSpacer: {
+    height: 16,
   },
 
   // M5 Task 10 D44 — REUSABLE expiry-before-cooldown supporting note.

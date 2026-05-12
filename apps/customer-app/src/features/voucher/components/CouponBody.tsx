@@ -42,9 +42,14 @@ type CouponBodyCardProps = {
    */
   terms: string | null
   /**
-   * M4d additive — TIME_LIMITED only (D6(C) scope fence).
+   * M4d additive — TIME_LIMITED + REUSABLE (D6(C) scope fence, extended
+   * 2026-05-12 Gate E for REUSABLE per spec §7.3).
+   *
    * Description moves out of the hero and into the coupon body for
-   * TL vouchers; passing it on other types is a no-op.
+   * TIME_LIMITED AND REUSABLE vouchers (CouponHeader already suppresses
+   * the in-column description for both types). Passing this prop on
+   * other types is a no-op — description renders in <CouponHeader>
+   * for BOGO / DISCOUNT / FREEBIE / PACKAGE / SPEND_AND_SAVE.
    */
   description?: string | null
   /**
@@ -180,16 +185,42 @@ export function CouponBodyCard({
 
   return (
     <View style={styles.bodyCard} testID="coupon-body">
-      {/* M5 Task 10 (D24, spec §7.3) — REUSABLE guidance card. Parallel
-          placement to the PR #70 TL guidance card below: both are
-          type-specific advisory cards rendered BEFORE the Terms
-          section, both share the same pale-amber surface treatment.
-          REUSABLE doesn't carry the AVAILABILITY / USAGE RULE / ABOUT
-          THIS OFFER sections (those are TL-only — the REUSABLE
-          description still lives in the hero, and the cadence cadence
-          is surfaced by <ReusableRulesCard> outside this component),
-          so the guidance card stands alone here. */}
-      {isReusable ? <ReusableGuidanceCard /> : null}
+      {/* M5 Task 10 (D24) → M5 Gate E polish (Issue 3, 2026-05-12) —
+          REUSABLE coupon-body block. Brought to parity with the TL
+          body's content richness so the REUSABLE body doesn't feel
+          sparse next to TL:
+            • USAGE RULE     — type-aware advisory copy. No "wait" /
+                               "cooldown" wording (Q8 D42/D43 lock).
+            • Guidance card  — existing pale-amber two-clock card.
+            • ABOUT THIS OFFER — description moved from hero to body
+                               (D6(C) pattern, mirrors TL — spec §7.3).
+            • Bottom spacer  — 16pt gap above Terms heading. Matches
+                               the spacing rhythm under the TL block;
+                               keeps Terms from feeling glued to the
+                               last REUSABLE section. */}
+      {isReusable ? (
+        <>
+          <View
+            testID="coupon-body-usage-rule"
+            accessibilityLabel="This voucher becomes available again after each use"
+            style={styles.tlSection}
+          >
+            <Text variant="label.eyebrow" style={styles.tlSectionLabel}>USAGE RULE</Text>
+            <Text variant="body.md" style={styles.tlSectionBody}>This voucher becomes available again after each use.</Text>
+          </View>
+
+          <ReusableGuidanceCard />
+
+          {description ? (
+            <View testID="coupon-body-description" style={styles.tlSection}>
+              <Text variant="label.eyebrow" style={styles.tlSectionLabel}>ABOUT THIS OFFER</Text>
+              <Text variant="body.md" style={styles.tlSectionBody}>{description}</Text>
+            </View>
+          ) : null}
+
+          <View testID="coupon-body-reusable-bottom-spacer" style={styles.reusableBottomSpacer} />
+        </>
+      ) : null}
 
       {/* M4d (D6(C)) — TIME_LIMITED-only sections rendered BEFORE the
           existing Terms section. Non-TL voucher types are unchanged in
@@ -494,5 +525,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: TEXT_2ND,
+  },
+
+  // M5 Gate E polish (Issue 2) — REUSABLE bottom spacer.
+  // Sits AFTER the trailing REUSABLE section (description, or guidance
+  // card when description is null) and BEFORE the Terms section. The
+  // `section` style at the Terms heading has no marginTop, so without
+  // this spacer the Terms heading reads as glued to the previous
+  // REUSABLE content. 16pt matches the marginTop:16 cadence used by
+  // tlSection / TL guidance / ReusableGuidanceCard.
+  reusableBottomSpacer: {
+    height: 16,
   },
 })

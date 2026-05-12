@@ -1,6 +1,8 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { View, StyleSheet } from 'react-native'
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
+import { useMotionScale } from '@/design-system/useMotionScale'
 import type { WindowState } from '@/features/voucher/utils/timeLimitedWindow'
 import {
   formatDuration,
@@ -78,8 +80,19 @@ export function HeroStatusBlock(props: HeroStatusBlockProps) {
   const underOneHourTick = isUnderOneHourTick(props)
   const liveLabel = deriveLiveRegionLabel(props, content)
 
+  // M5 Gate E polish (Issue 4) — REUSABLE-available alive treatment.
+  // Only the reusable-available state earns the "alive" visual register;
+  // cooldown stays calm/neutral, TL active is unaffected. The ring is
+  // an absolutely-positioned breathing border that sits behind the
+  // existing white-frosted root content so the eyebrow + future content
+  // continue to read clearly. Reduce-motion → static green ring (no
+  // breathing animation) via useMotionScale (existing pattern from
+  // PulsingDot).
+  const isAlive = windowState === 'reusable-available'
+
   return (
     <View testID="hero-status-block" style={styles.root}>
+      {isAlive ? <AliveRing /> : null}
       <Text testID="hero-status-eyebrow" variant="label.eyebrow" style={styles.eyebrow}>
         {content.eyebrow}
       </Text>
@@ -358,6 +371,58 @@ function eyebrowDayLabel(boundary: Date, now: Date): string {
   return formatDayName(boundary)
 }
 
+/**
+ * M5 Gate E polish — REUSABLE-available "alive" treatment.
+ *
+ * Breathing green border ring that pulses over a 2.4s cycle. Sits
+ * inside <View style={styles.root}> as an absolute overlay so it
+ * doesn't interfere with the eyebrow / primary / supporting / progress
+ * bar layout. Color is the brand success-green (#34D399 — same token
+ * used by the active-state progress bar and the M3 ShowToStaff
+ * pulsing-dot trust signal).
+ *
+ * Reduce-motion: when `useMotionScale()` returns 0 we render a
+ * STATIC green ring (no opacity oscillation, full 0.85 opacity). The
+ * static treatment still surfaces the green identity but stops
+ * motion entirely per A11y contract (mirrors PulsingDot pattern).
+ *
+ * react-native-reanimated is mocked at the test-setup level
+ * (tests/setup.ts) so withRepeat/withTiming are no-ops in jest; the
+ * ring still mounts, surfacing the testID hooks the suite checks.
+ */
+function AliveRing() {
+  const opacity = useSharedValue(1)
+  const motion  = useMotionScale()
+
+  useEffect(() => {
+    if (motion <= 0) {
+      // Reduce-motion: snap to static visible opacity.
+      opacity.value = 0.85
+      return
+    }
+    // 2.4s cycle, ease-in-out — slow, calm breathing rather than a
+    // gimmicky pulse. Bottom-out at 0.45 so the ring never disappears
+    // entirely (continuous trust signal).
+    opacity.value = withRepeat(
+      withTiming(0.45, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    )
+  }, [opacity, motion])
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }))
+
+  return (
+    <Animated.View
+      testID="hero-status-block-alive-ring"
+      pointerEvents="none"
+      style={[styles.aliveRing, animatedStyle]}
+    />
+  )
+}
+
 const styles = StyleSheet.create({
   root: {
     // Stretch to fill the parent slot's cross-axis (horizontal) width.
@@ -376,6 +441,26 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.24)',
     borderWidth: 1,
     borderRadius: 12,
+    // Required so the absolutely-positioned <AliveRing /> child
+    // anchors to this container.
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  // M5 Gate E polish (Issue 4) — REUSABLE-available alive ring.
+  // Slightly inset from the root's outer edge so the green hairline
+  // reads as a deliberate inner accent (not a competing border).
+  // Border radius shaved 1pt vs root (11 vs 12) to compensate for the
+  // 1pt inset on all sides. `pointerEvents='none'` on the wrapper so
+  // taps pass through to root content.
+  aliveRing: {
+    position: 'absolute',
+    top: 1,
+    left: 1,
+    right: 1,
+    bottom: 1,
+    borderWidth: 2,
+    borderRadius: 11,
+    borderColor: '#34D399',
   },
   eyebrow: {
     color: 'rgba(255,255,255,0.78)',

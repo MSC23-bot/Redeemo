@@ -325,6 +325,183 @@ describe('VoucherDetailScreen — REUSABLE D44 expiry-before-cooldown (spec §7.
   })
 })
 
+// ── M5 Gate E polish (Issue 1) — RedemptionDetailsCard → coupon spacer ─
+
+describe('VoucherDetailScreen — REUSABLE Gate E polish Issue 1: card → coupon spacer', () => {
+  it('state 2: renders 16pt spacer between RedemptionDetailsCard and coupon stack', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(3 * 60),
+      lastRedemption: {
+        code: 'ABCD1234',
+        redeemedAt: minuteOffsetISO(-30),
+        branch: { id: 'b1', name: 'Main branch' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const spacer = getByTestId('reusable-card-coupon-spacer')
+    expect(spacer).toBeTruthy()
+    // Flatten style to confirm 16pt height.
+    const styles = Array.isArray(spacer.props.style) ? spacer.props.style : [spacer.props.style]
+    const flat = Object.assign({}, ...styles)
+    expect(flat.height).toBe(16)
+  })
+
+  it('state 4: spacer mounts when OLD redemption + active CTA simultaneous (REUSABLE distinguisher)', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: null,
+      lastRedemption: {
+        code: 'PREV1234',
+        redeemedAt: minuteOffsetISO(-35),
+        branch: { id: 'b1', name: 'Main branch' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('reusable-card-coupon-spacer')).toBeTruthy()
+  })
+
+  it('state 1 (no redemption): RedemptionDetailsCard not rendered → spacer not rendered either', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+    expect(queryByTestId('reusable-card-coupon-spacer')).toBeNull()
+  })
+
+  it('state 3 (presentation expired): no RedemptionDetailsCard → no spacer (D26)', () => {
+    // 3h ago redemption — backend gates lastRedemption to null past 2h
+    // presentation window; fixture mirrors that.
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(60),
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('redemption-details-card')).toBeNull()
+    expect(queryByTestId('reusable-card-coupon-spacer')).toBeNull()
+  })
+})
+
+// ── M5 Gate E polish (Issue 4) — alive ring on REUSABLE-available hero ─
+
+describe('VoucherDetailScreen — REUSABLE Gate E polish Issue 4: alive hero treatment', () => {
+  it('state 1 (reusable-available): renders alive ring on HeroStatusBlock', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('hero-status-block-alive-ring')).toBeTruthy()
+  })
+
+  it('state 2 (reusable-cooldown): NO alive ring (cooldown stays calm)', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(3 * 60),
+      lastRedemption: {
+        code: 'ABCD1234',
+        redeemedAt: minuteOffsetISO(-30),
+        branch: { id: 'b1', name: 'Main branch' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { queryByTestId, getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('hero-status-block')).toBeTruthy()  // hero still renders
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+
+  it('state 3 (cooldown active, presentation expired): NO alive ring', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(60),
+      lastRedemption: null,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+
+  it('state 4 (cooldown elapsed, OLD code visible): alive ring DOES render (CTA is active)', () => {
+    // State 4 maps to reusable-available windowState because cooldown
+    // is elapsed → the voucher is redeemable now. Alive treatment is
+    // bound to windowState === 'reusable-available'.
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: null,
+      lastRedemption: {
+        code: 'PREV1234',
+        redeemedAt: minuteOffsetISO(-35),
+        branch: { id: 'b1', name: 'Main branch' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('hero-status-block-alive-ring')).toBeTruthy()
+  })
+
+  it('state 5 (expired voucher): NO alive ring — hero block returns null on expired', () => {
+    mockVoucherData = reusableVoucher({
+      expiryDate: minuteOffsetISO(-60),
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+})
+
+// ── M5 Gate E polish (Issue 3) — REUSABLE coupon body content parity ──
+
+describe('VoucherDetailScreen — REUSABLE Gate E polish Issue 3: body content parity with TL', () => {
+  it('renders USAGE RULE block with "available again after each use" copy (no "wait" or "cooldown")', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('coupon-body-usage-rule')).toBeTruthy()
+    expect(getByText('This voucher becomes available again after each use.')).toBeTruthy()
+  })
+
+  it('USAGE RULE copy avoids the locked-out words "wait" and "cooldown"', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const usage = getByTestId('coupon-body-usage-rule')
+    const a11y = String(usage.props.accessibilityLabel || '')
+    expect(a11y.toLowerCase()).not.toContain('wait')
+    expect(a11y.toLowerCase()).not.toContain('cooldown')
+  })
+
+  it('renders ABOUT THIS OFFER block carrying voucher.description (moved from hero per spec §7.3)', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { getByTestId, getByText } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('coupon-body-description')).toBeTruthy()
+    // Description from the fixture: 'Free coffee every visit.'
+    expect(getByText('Free coffee every visit.')).toBeTruthy()
+  })
+
+  it('REUSABLE description is NOT duplicated inside the hero (CouponHeader suppression)', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { getAllByText } = wrap(<VoucherDetailScreen />)
+    // The description string appears exactly once in the rendered tree
+    // (inside the coupon body); CouponHeader's `type !== 'REUSABLE'` gate
+    // suppresses the in-column description for REUSABLE.
+    const matches = getAllByText('Free coffee every visit.')
+    expect(matches.length).toBe(1)
+  })
+
+  it('renders ReusableGuidanceCard (two-clock advisory) sandwiched between USAGE RULE and ABOUT THIS OFFER', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-reusable-guidance')).toBeTruthy()
+  })
+
+  it('REUSABLE coupon body bottom spacer (Issue 2) mounts before the Terms section', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('coupon-body-reusable-bottom-spacer')).toBeTruthy()
+  })
+
+  it('does NOT render TL-only sections (no AVAILABILITY pre-section, no TL guidance, no OFFER ENDS)', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(queryByTestId('coupon-body-availability')).toBeNull()
+    expect(queryByTestId('coupon-body-redeem-guidance')).toBeNull()
+    expect(queryByTestId('coupon-body-offer-ends')).toBeNull()
+  })
+})
+
 // ── D25: REUSABLE never renders the hero seal at any state ────────────
 
 describe('VoucherDetailScreen — REUSABLE hero seal absence (D25)', () => {

@@ -118,6 +118,93 @@ describe('CouponBodyCard — TIME_LIMITED sections (spec §5 + D6(C))', () => {
   })
 })
 
+// ── M5 Gate E polish (Issue 2 + Issue 3) — REUSABLE body content ──────
+
+describe('CouponBodyCard — REUSABLE sections (Gate E polish, spec §7.3)', () => {
+  const REUSABLE_PROPS = {
+    type: 'REUSABLE' as const,
+    terms: 'In-house only. Limit one per visit.',
+    description: 'Free coffee every visit.',
+    scheduleString: null,
+    expiryDate: null as string | null,
+  }
+
+  it('renders USAGE RULE block with locked copy (no "wait" or "cooldown")', () => {
+    const { getByTestId, getByText } = render(<CouponBodyCard {...REUSABLE_PROPS} />)
+    const usage = getByTestId('coupon-body-usage-rule')
+    expect(usage).toBeTruthy()
+    expect(getByText('This voucher becomes available again after each use.')).toBeTruthy()
+    const a11y = String(usage.props.accessibilityLabel || '')
+    expect(a11y.toLowerCase()).not.toContain('wait')
+    expect(a11y.toLowerCase()).not.toContain('cooldown')
+  })
+
+  it('renders ReusableGuidanceCard (two-clock advisory)', () => {
+    const { getByTestId } = render(<CouponBodyCard {...REUSABLE_PROPS} />)
+    expect(getByTestId('voucher-detail-reusable-guidance')).toBeTruthy()
+  })
+
+  it('renders ABOUT THIS OFFER block with description (moved from hero per spec §7.3)', () => {
+    const { getByTestId, getByText } = render(<CouponBodyCard {...REUSABLE_PROPS} />)
+    expect(getByTestId('coupon-body-description')).toBeTruthy()
+    expect(getByText('Free coffee every visit.')).toBeTruthy()
+  })
+
+  it('omits ABOUT THIS OFFER block when description is null (no empty section)', () => {
+    const { queryByTestId } = render(<CouponBodyCard {...REUSABLE_PROPS} description={null} />)
+    expect(queryByTestId('coupon-body-description')).toBeNull()
+    // Guidance card stays even without description.
+    expect(queryByTestId('voucher-detail-reusable-guidance')).toBeTruthy()
+  })
+
+  it('renders 16pt bottom spacer (Issue 2) before Terms section', () => {
+    const { getByTestId } = render(<CouponBodyCard {...REUSABLE_PROPS} />)
+    const spacer = getByTestId('coupon-body-reusable-bottom-spacer')
+    expect(spacer).toBeTruthy()
+    const styles = Array.isArray(spacer.props.style) ? spacer.props.style : [spacer.props.style]
+    const flat = Object.assign({}, ...styles)
+    expect(flat.height).toBe(16)
+  })
+
+  it('does NOT render TL-only sections for REUSABLE (no AVAILABILITY, no TL guidance, no OFFER ENDS)', () => {
+    const { queryByTestId } = render(<CouponBodyCard {...REUSABLE_PROPS} />)
+    expect(queryByTestId('coupon-body-availability')).toBeNull()
+    expect(queryByTestId('coupon-body-redeem-guidance')).toBeNull()
+    expect(queryByTestId('coupon-body-offer-ends')).toBeNull()
+  })
+
+  it('REUSABLE sections render in DOM order: USAGE RULE → Guidance → ABOUT THIS OFFER → Spacer → Terms → Fair Use', () => {
+    const { toJSON } = render(<CouponBodyCard {...REUSABLE_PROPS} />)
+    const tree = JSON.stringify(toJSON())
+    const idxUsage     = tree.indexOf('coupon-body-usage-rule')
+    const idxGuidance  = tree.indexOf('voucher-detail-reusable-guidance')
+    const idxDesc      = tree.indexOf('coupon-body-description')
+    const idxSpacer    = tree.indexOf('coupon-body-reusable-bottom-spacer')
+    const idxTerms     = tree.indexOf('coupon-body-terms')
+    const idxFairUse   = tree.indexOf('coupon-body-fair-use')
+
+    expect(idxUsage).toBeGreaterThan(-1)
+    expect(idxGuidance).toBeGreaterThan(idxUsage)
+    expect(idxDesc).toBeGreaterThan(idxGuidance)
+    expect(idxSpacer).toBeGreaterThan(idxDesc)
+    expect(idxTerms).toBeGreaterThan(idxSpacer)
+    expect(idxFairUse).toBeGreaterThan(idxTerms)
+  })
+
+  it('non-REUSABLE / non-TL voucher types (BOGO) do NOT render the REUSABLE block (scope fence)', () => {
+    const { queryByTestId } = render(
+      <CouponBodyCard {...REUSABLE_PROPS} type="BOGO" />,
+    )
+    expect(queryByTestId('coupon-body-usage-rule')).toBeNull()
+    expect(queryByTestId('voucher-detail-reusable-guidance')).toBeNull()
+    expect(queryByTestId('coupon-body-description')).toBeNull()
+    expect(queryByTestId('coupon-body-reusable-bottom-spacer')).toBeNull()
+    // Terms + Fair Use still render unchanged.
+    expect(queryByTestId('coupon-body-terms')).toBeTruthy()
+    expect(queryByTestId('coupon-body-fair-use')).toBeTruthy()
+  })
+})
+
 describe('CouponTopCard — banner image height (spec D5)', () => {
   it('renders banner image at 240pt when imageUrl is present', () => {
     const { getByTestId } = render(

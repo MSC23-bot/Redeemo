@@ -1166,4 +1166,110 @@ describe('HeroStatusBlock — REUSABLE states (M5)', () => {
     )
     expect(queryByTestId('hero-status-live-region')).toBeNull()
   })
+
+  // ── M5 Gate E polish (Issue 4) — REUSABLE-available alive ring ──────
+
+  it('reusable-available: renders alive-ring (green breathing border)', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-available"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={null}
+        msToClose={null}
+        msToOpen={null}
+      />,
+    )
+    const ring = getByTestId('hero-status-block-alive-ring')
+    expect(ring).toBeTruthy()
+    // Ring is non-interactive (pointerEvents='none') so it can never
+    // intercept taps over the hero content underneath.
+    expect(ring.props.pointerEvents).toBe('none')
+  })
+
+  it('reusable-cooldown: alive ring NOT rendered (cooldown stays calm)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date(NOW.getTime() + 2 * 3_600_000)}
+        msToClose={null}
+        msToOpen={2 * 3_600_000}
+      />,
+    )
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+
+  it('TL active: alive ring NOT rendered (only REUSABLE-available earns the alive treatment)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="active"
+        now={NOW}
+        currentWindowStartsAt={new Date(NOW.getTime() - 30 * 60_000)}
+        currentWindowEndsAt={new Date(NOW.getTime() + 90 * 60_000)}
+        nextWindowStartsAt={null}
+        msToClose={90 * 60_000}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+
+  it('TL urgent: alive ring NOT rendered (urgency stays in eyebrow/colour, not alive treatment)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="urgent"
+        now={NOW}
+        currentWindowStartsAt={new Date(NOW.getTime() - 30 * 60_000)}
+        currentWindowEndsAt={new Date(NOW.getTime() + 10 * 60_000)}
+        nextWindowStartsAt={null}
+        msToClose={10 * 60_000}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+
+  it('redeemed-this-window (TL): alive ring NOT rendered', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="redeemed-this-window"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date(NOW.getTime() + 4 * 3_600_000)}
+        msToClose={null}
+        msToOpen={4 * 3_600_000}
+      />,
+    )
+    expect(queryByTestId('hero-status-block-alive-ring')).toBeNull()
+  })
+
+  it('alive ring renders under reduced motion (mocked useMotionScale=0) — static visible state', () => {
+    // Reduce-motion path: useMotionScale returns 0 inside AliveRing's
+    // effect; the breathing animation is short-circuited and opacity
+    // is snapped to a visible static value. The ring still mounts so
+    // the green identity treatment is preserved.
+    const motionScale = require('@/design-system/useMotionScale')
+    const spy = jest.spyOn(motionScale, 'useMotionScale').mockReturnValue(0)
+    try {
+      const { getByTestId } = render(
+        <HeroStatusBlock
+          windowState="reusable-available"
+          now={NOW}
+          currentWindowStartsAt={null}
+          currentWindowEndsAt={null}
+          nextWindowStartsAt={null}
+          msToClose={null}
+          msToOpen={null}
+        />,
+      )
+      expect(getByTestId('hero-status-block-alive-ring')).toBeTruthy()
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
