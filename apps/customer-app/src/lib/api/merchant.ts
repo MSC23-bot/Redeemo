@@ -93,6 +93,21 @@ const merchantVoucherSchema = z.object({
   currentWindow:       windowOccurrenceSchema.nullable().optional().default(null),
   nextWindow:          windowOccurrenceSchema.nullable().optional().default(null),
   redeemedWindow:      windowOccurrenceSchema.nullable().optional().default(null),
+
+  // M5 REUSABLE — per-card reusable state (spec §6.4, D17). Drives the
+  // merchant-card pill state in Task 11 (M5 frontend).
+  //
+  // Shape lock:
+  //   • REUSABLE row     → reusableState = { availableAgainAt: ISO | null }
+  //                        — inner null means cooldown elapsed (D16 future-
+  //                        only convention).
+  //   • non-REUSABLE row → reusableState = null.
+  //
+  // `.nullable().optional()` — pre-M5 cached responses lack the field
+  // entirely; we accept absence as equivalent to `null` (non-REUSABLE).
+  reusableState: z.object({ availableAgainAt: z.string().nullable() })
+    .nullable()
+    .optional(),
 })
 export type MerchantVoucher = z.infer<typeof merchantVoucherSchema>
 // Exposed for testing only — same pattern as _voucherDetailSchemaForTests

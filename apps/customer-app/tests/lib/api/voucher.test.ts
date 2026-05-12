@@ -290,3 +290,93 @@ describe('voucherDetailSchema — TIME_LIMITED fields (M4a-8)', () => {
     if (result.success) expect(result.data.availableAgainAt).toBeNull()
   })
 })
+
+// ── M5 REUSABLE: voucherDetailSchema fields ─────────────────────────────────
+//
+// Backend (Task 5, `src/api/customer/discovery/service.ts:getCustomerVoucher`)
+// adds two REUSABLE-relevant top-level fields:
+//
+//   effectiveCooldownSeconds: number | null   // server-clamped; null for non-REUSABLE
+//   availableAgainAt:         string | null   // ISO; semantics differ by type
+//
+// Field shape lock (spec §6.1, §6.3, D13-D16, D19):
+//   • REUSABLE                  → effectiveCooldownSeconds is a number;
+//                                 availableAgainAt is ISO during cooldown
+//                                 OR null once elapsed (D16 future-only
+//                                 convention per §7.1).
+//   • non-REUSABLE              → effectiveCooldownSeconds is null.
+//   • TIME_LIMITED              → availableAgainAt is null (entitlement is
+//                                 per-window, not per-cycle — §3.6.4).
+//   • Cycle vouchers (BOGO,…)   → availableAgainAt is ISO (cycle-end).
+//
+// effectiveCooldownSeconds is `.optional().default(null)` for forward-compat
+// with cached responses from before M5 ships (mirrors the M4a-8 pattern for
+// availabilityWindows / currentWindow / nextWindow / redeemedWindow).
+describe('voucherDetailSchema — REUSABLE fields (M5)', () => {
+  const baseReusableVoucher = {
+    id: 'v1', title: 'Reusable Coffee', type: 'REUSABLE',
+    description: null, terms: null, imageUrl: null,
+    estimatedSaving: 2.5, expiryDate: null, code: null,
+    status: 'ACTIVE', approvalStatus: 'APPROVED',
+    merchant: { id: 'm1', businessName: 'X', tradingName: null, logoUrl: null, status: 'ACTIVE' },
+    isRedeemedThisCycle: false, isFavourited: false,
+    availableAgainAt: null, lastRedemption: null,
+  }
+
+  it('parses effectiveCooldownSeconds as a number for REUSABLE', () => {
+    const result = schema.safeParse({
+      ...baseReusableVoucher,
+      effectiveCooldownSeconds: 14400,   // 4h
+      availableAgainAt: '2026-05-12T16:00:00Z',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.effectiveCooldownSeconds).toBe(14400)
+      expect(result.data.availableAgainAt).toBe('2026-05-12T16:00:00Z')
+    }
+  })
+
+  it('parses effectiveCooldownSeconds as null for non-REUSABLE', () => {
+    const result = schema.safeParse({
+      ...validVoucherResponse,
+      effectiveCooldownSeconds: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.effectiveCooldownSeconds).toBeNull()
+  })
+
+  it('parses availableAgainAt as null for REUSABLE once cooldown has elapsed (D16 future-only convention)', () => {
+    // §7.1 / D16: backend surfaces availableAgainAt ONLY when the
+    // computed instant is in the future. Once cooldown elapses (or no
+    // prior redemption), it returns null — so the client can use a
+    // truthiness check without doing time math.
+    const result = schema.safeParse({
+      ...baseReusableVoucher,
+      effectiveCooldownSeconds: 14400,
+      availableAgainAt: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.availableAgainAt).toBeNull()
+  })
+
+  it('effectiveCooldownSeconds is optional with safe default null (forward-compat for cached responses)', () => {
+    // Mirrors the M4a-8 pattern: pre-M5 cached responses lack the field
+    // entirely. Schema must still parse and default to null so existing
+    // React Query caches don't silently null out vouchers post-update.
+    const result = schema.safeParse(validVoucherResponse)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.effectiveCooldownSeconds).toBeNull()
+  })
+
+  it('REUSABLE accepts ISO availableAgainAt with effectiveCooldownSeconds + null lastRedemption (state 3 — cooldown elapsed)', () => {
+    // Sanity end-to-end: REUSABLE voucher mid-cooldown with no
+    // presentation-window-gated lastRedemption (e.g. >2h past redeemedAt).
+    const result = schema.safeParse({
+      ...baseReusableVoucher,
+      effectiveCooldownSeconds: 1800,    // 30 min
+      availableAgainAt: '2026-05-12T12:30:00Z',
+      lastRedemption: null,
+    })
+    expect(result.success).toBe(true)
+  })
+})

@@ -15,6 +15,7 @@ const baseVoucher = (overrides: Partial<VoucherDetail> = {}): VoucherDetail => (
   currentWindow: null,
   nextWindow: null,
   redeemedWindow: null,
+  effectiveCooldownSeconds: null,
   ...overrides,
 })
 
