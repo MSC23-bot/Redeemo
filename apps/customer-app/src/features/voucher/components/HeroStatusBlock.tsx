@@ -12,14 +12,16 @@ import {
 } from '@/features/voucher/utils/countdownFormat'
 
 /**
- * M4d hero-mounted status block for TIME_LIMITED vouchers.
+ * M4d hero-mounted status block for TIME_LIMITED vouchers, extended in
+ * M5 Task 8 to cover REUSABLE cooldown states.
  *
  * Per spec D3 amendment 2026-05-11: duration-first primary,
  * clock-time supporting. Mounts inside <CouponHeader> below the title
  * (Phase C wiring). Renders a frosted card over the voucher's
  * type-coloured gradient.
  *
- * State handling (TL wording amendment 2026-05-11 D1/D2/D3/D4):
+ * State handling (TL wording amendment 2026-05-11 D1/D2/D3/D4 +
+ * REUSABLE amendment 2026-05-12 D21/D38):
  *   • active           → eyebrow "Available now"        | primary closing duration   | supporting "Window ends … today"
  *   • urgent           → eyebrow "Ending soon"          | primary closing duration   | supporting "Window ends … today"
  *   • unavailable-today
@@ -31,10 +33,14 @@ import {
  *   • redeemed-this-window
  *       ≥1h to next    → eyebrow "Available again"      | primary available-again    | supporting "Available again from … "
  *       <1h to next    → eyebrow "Available soon"       | primary available-again    | supporting "Available again from … "
+ *   • reusable-available → eyebrow "Available now"      | primary suppressed         | supporting suppressed                  (M5 Task 8)
+ *   • reusable-cooldown  → eyebrow "Available again"    | primary cooldown duration  | supporting "Available again from … "   (M5 Task 8)
  *   • no-windows / expired → render null
  *
- * Progress bar lands in B.2; a11y live-region + reduced motion in B.3;
- * CouponHeader integration in C.1.
+ * Progress bar is suppressed for REUSABLE states (no meaningful
+ * denominator — spec D21). A11y live-region for REUSABLE cooldown uses
+ * formatAvailableAgainA11y for <1h bands; ≥1h band uses the eyebrow
+ * "Available again" verbatim (D38 — NO "Voucher " prefix).
  */
 
 export type HeroStatusBlockState = WindowState | 'redeemed-this-window' | 'expired'
@@ -77,18 +83,25 @@ export function HeroStatusBlock(props: HeroStatusBlockProps) {
       <Text testID="hero-status-eyebrow" variant="label.eyebrow" style={styles.eyebrow}>
         {content.eyebrow}
       </Text>
-      <Text
-        testID="hero-status-primary"
-        variant="display.sm"
-        style={styles.primary}
-        accessibilityElementsHidden={underOneHourTick || undefined}
-        importantForAccessibility={underOneHourTick ? 'no-hide-descendants' : undefined}
-      >
-        {content.primary}
-      </Text>
-      <Text testID="hero-status-supporting" variant="body.sm" style={styles.supporting}>
-        {content.supporting}
-      </Text>
+      {/* primary + supporting are suppressed (not rendered) when the
+          deriveContent branch returns empty strings — currently only the
+          REUSABLE-AVAILABLE state (M5 Task 8). */}
+      {content.primary !== '' ? (
+        <Text
+          testID="hero-status-primary"
+          variant="display.sm"
+          style={styles.primary}
+          accessibilityElementsHidden={underOneHourTick || undefined}
+          importantForAccessibility={underOneHourTick ? 'no-hide-descendants' : undefined}
+        >
+          {content.primary}
+        </Text>
+      ) : null}
+      {content.supporting !== '' ? (
+        <Text testID="hero-status-supporting" variant="body.sm" style={styles.supporting}>
+          {content.supporting}
+        </Text>
+      ) : null}
       {bar ? (
         <View testID="hero-status-progress-bar" style={styles.barTrack}>
           <View
@@ -178,6 +191,23 @@ function deriveLiveRegionLabel(props: HeroStatusBlockProps, content: Content): s
     return content.eyebrow
   }
 
+  // REUSABLE cooldown (M5 Task 8): mirror the available-again live-region
+  // logic. ≥1h band uses the eyebrow "Available again" verbatim, with NO
+  // "Voucher " prefix per D38.
+  if (windowState === 'reusable-cooldown') {
+    if (msToOpen === null) return null
+    const coarse = formatAvailableAgainA11y(msToOpen)
+    if (coarse !== null) return coarse
+    return content.eyebrow  // "Available again"
+  }
+
+  // REUSABLE-AVAILABLE (M5 Task 8): primary + supporting are suppressed,
+  // so there is nothing meaningful to announce. The eyebrow itself is
+  // surfaced visually; no polite live region is rendered.
+  if (windowState === 'reusable-available') {
+    return null
+  }
+
   return null
 }
 
@@ -185,6 +215,12 @@ type BarSpec = { widthPct: number; color: string } | null
 
 function deriveProgressBar(props: HeroStatusBlockProps): BarSpec {
   const { windowState, currentWindowStartsAt, currentWindowEndsAt, msToClose, msToOpen } = props
+
+  // REUSABLE states have no meaningful denominator — spec D21. Suppress
+  // the progress bar before any other derivation.
+  if (windowState === 'reusable-available' || windowState === 'reusable-cooldown') {
+    return null
+  }
 
   // Hidden states.
   if (
@@ -271,6 +307,26 @@ function deriveContent(props: HeroStatusBlockProps): Content | null {
       const eyebrow = msToOpen < ONE_HOUR_MS ? 'Available soon' : 'Available again'
       return {
         eyebrow,
+        primary:    formatDuration(msToOpen),
+        supporting: formatSupportingClock(nextWindowStartsAt, now, 'Available again from'),
+      }
+    }
+    case 'reusable-available': {
+      // REUSABLE-AVAILABLE (M5 Task 8): eyebrow-only. Primary + supporting
+      // intentionally suppressed — the voucher is redeemable now and the
+      // sticky Redeem CTA carries the action; the hero just confirms
+      // availability without a countdown line.
+      return { eyebrow: 'Available now', primary: '', supporting: '' }
+    }
+    case 'reusable-cooldown': {
+      // REUSABLE-COOLDOWN (M5 Task 8): primary = countdown to
+      // availableAgainAt via formatDuration; supporting = "Available
+      // again from <T> today/tomorrow/<Day>" via formatSupportingClock.
+      // No "<1h → Available soon" branch — the REUSABLE eyebrow stays
+      // "Available again" across the entire cooldown band.
+      if (msToOpen === null || nextWindowStartsAt === null) return null
+      return {
+        eyebrow:    'Available again',
         primary:    formatDuration(msToOpen),
         supporting: formatSupportingClock(nextWindowStartsAt, now, 'Available again from'),
       }

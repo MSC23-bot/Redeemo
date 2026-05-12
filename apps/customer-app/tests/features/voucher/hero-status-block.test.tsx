@@ -957,3 +957,213 @@ describe('HeroStatusBlock — accessibility (spec D10 amendment)', () => {
     expect(queryByTestId('hero-status-live-region')).toBeNull()
   })
 })
+
+describe('HeroStatusBlock — REUSABLE states (M5)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-05-11T12:00:00Z'))  // Monday 13:00 BST
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  const NOW = new Date('2026-05-11T12:00:00Z')  // Monday 13:00 BST anchor (matches TL suite)
+
+  // ── REUSABLE-AVAILABLE ─────────────────────────────────────
+  it('reusable-available: eyebrow "Available now", primary + supporting suppressed', () => {
+    const { getByTestId, queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-available"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={null}
+        msToClose={null}
+        msToOpen={null}
+      />,
+    )
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available now')
+    expect(queryByTestId('hero-status-primary')).toBeNull()    // suppressed
+    expect(queryByTestId('hero-status-supporting')).toBeNull() // suppressed
+  })
+
+  // ── REUSABLE-COOLDOWN ≥ 1h ─────────────────────────────────
+  it('reusable-cooldown ≥1h: eyebrow "Available again", primary countdown, supporting "Available again from <T> today"', () => {
+    // NOW = 12:00 UTC = 13:00 BST. Boundary = NOW + 3h 30m = 15:30 UTC = 16:30 BST = "4:30pm".
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date(NOW.getTime() + 3 * 3_600_000 + 30 * 60_000)}
+        msToClose={null}
+        msToOpen={3 * 3_600_000 + 30 * 60_000}
+      />,
+    )
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available again')
+    expect(getByTestId('hero-status-primary')).toHaveTextContent('3h 30m')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 4:30pm today')
+  })
+
+  // ── REUSABLE-COOLDOWN <1h ≥1m ──────────────────────────────
+  it('reusable-cooldown <1h ≥1m: eyebrow "Available again", primary "42m 15s", supporting "Available again from 1:42pm today"', () => {
+    // Boundary 2026-05-11T12:42:15Z = 13:42:15 BST → "1:42pm".
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:42:15Z')}
+        msToClose={null}
+        msToOpen={42 * 60_000 + 15_000}
+      />,
+    )
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available again')
+    expect(getByTestId('hero-status-primary')).toHaveTextContent('42m 15s')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 1:42pm today')
+  })
+
+  // ── REUSABLE-COOLDOWN <1m ──────────────────────────────────
+  it('reusable-cooldown <1m: eyebrow "Available again", primary "47s"', () => {
+    // Boundary 2026-05-11T12:00:47Z = 13:00:47 BST → minute=0 → "1pm".
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:00:47Z')}
+        msToClose={null}
+        msToOpen={47_000}
+      />,
+    )
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available again')
+    expect(getByTestId('hero-status-primary')).toHaveTextContent('47s')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 1pm today')
+  })
+
+  // ── REUSABLE-COOLDOWN crosses midnight (London) ────────────
+  it('reusable-cooldown crosses midnight: supporting "Available again from <T> tomorrow"', () => {
+    // now = Mon 22:45 UTC = Mon 23:45 BST. boundary = Tue 01:00 UTC = Tue 02:00 BST = "2am tomorrow".
+    const lateMonday = new Date('2026-05-11T22:45:00Z')
+    const boundary = new Date('2026-05-12T01:00:00Z')
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={lateMonday}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={boundary}
+        msToClose={null}
+        msToOpen={boundary.getTime() - lateMonday.getTime()}  // 2h 15m
+      />,
+    )
+    expect(getByTestId('hero-status-eyebrow')).toHaveTextContent('Available again')
+    expect(getByTestId('hero-status-supporting')).toHaveTextContent('Available again from 2am tomorrow')
+  })
+
+  // ── PROGRESS BAR HIDDEN — REUSABLE-COOLDOWN ────────────────
+  it('reusable-cooldown: progress bar HIDDEN (no denominator)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date(NOW.getTime() + 2 * 3_600_000)}
+        msToClose={null}
+        msToOpen={2 * 3_600_000}
+      />,
+    )
+    expect(queryByTestId('hero-status-progress-bar')).toBeNull()
+    expect(queryByTestId('hero-status-progress-bar-fill')).toBeNull()
+  })
+
+  // ── PROGRESS BAR HIDDEN — REUSABLE-AVAILABLE ──────────────
+  it('reusable-available: progress bar HIDDEN', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-available"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={null}
+        msToClose={null}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-progress-bar')).toBeNull()
+    expect(queryByTestId('hero-status-progress-bar-fill')).toBeNull()
+  })
+
+  // ── A11Y LIVE REGION — REUSABLE-COOLDOWN <1m ──────────────
+  it('a11y live-region — reusable-cooldown <1m: "Available again in under a minute"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:00:47Z')}
+        msToClose={null}
+        msToOpen={47_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLiveRegion).toBe('polite')
+    expect(region.props.accessibilityLabel).toBe('Available again in under a minute')
+  })
+
+  // ── A11Y LIVE REGION — REUSABLE-COOLDOWN <1h ≥1m ──────────
+  it('a11y live-region — reusable-cooldown <1h ≥1m: "Available again in about N minutes"', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date('2026-05-11T12:42:15Z')}
+        msToClose={null}
+        msToOpen={42 * 60_000 + 15_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    expect(region.props.accessibilityLabel).toBe('Available again in about 42 minutes')
+  })
+
+  // ── A11Y LIVE REGION — REUSABLE-COOLDOWN ≥1h (D38) ────────
+  it('a11y live-region — reusable-cooldown ≥1h: eyebrow-as-label "Available again" (no "Voucher " prefix per D38)', () => {
+    const { getByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-cooldown"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={new Date(NOW.getTime() + 3 * 3_600_000 + 30 * 60_000)}
+        msToClose={null}
+        msToOpen={3 * 3_600_000 + 30 * 60_000}
+      />,
+    )
+    const region = getByTestId('hero-status-live-region')
+    // D38: verbatim eyebrow, NO "Voucher " prefix.
+    expect(region.props.accessibilityLabel).toBe('Available again')
+  })
+
+  // ── A11Y LIVE REGION — REUSABLE-AVAILABLE: NOT RENDERED ───
+  it('reusable-available: live-region NOT rendered (primary suppressed → nothing to announce)', () => {
+    const { queryByTestId } = render(
+      <HeroStatusBlock
+        windowState="reusable-available"
+        now={NOW}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={null}
+        msToClose={null}
+        msToOpen={null}
+      />,
+    )
+    expect(queryByTestId('hero-status-live-region')).toBeNull()
+  })
+})
