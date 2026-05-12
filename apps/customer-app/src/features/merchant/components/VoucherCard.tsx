@@ -189,6 +189,11 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
   // tint overlay). Active/urgent/redeemed cards stay at full opacity.
   // Stale-payload guard: a `currentWindow` whose `endsAt` has passed is
   // treated as outside-window for the opacity tier too.
+  //
+  // M5 REUSABLE (locked 2026-05-12 spec §8.1): cooldown state shares the
+  // same 75% opacity tier — "exists but not actionable right now" reads
+  // identically whether the gate is a TL window or a REUSABLE cooldown.
+  // Available state stays at full opacity (100%) like TL active.
   const referenceNow = now ?? new Date()
   const isOutsideWindowTL = voucher.type === 'TIME_LIMITED'
     && !isRedeemed
@@ -197,6 +202,15 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
       voucher.currentWindow === null
       || new Date(voucher.currentWindow.endsAt).getTime() <= referenceNow.getTime()
     )
+  // REUSABLE cooldown: availableAgainAt is a non-null ISO string AND in the
+  // future relative to `now`. A past availableAgainAt (or null) means
+  // "available now" → no opacity drop (matches the pill's stale-payload
+  // fallthrough in VoucherCardStatePill).
+  const isReusableCooldown = voucher.type === 'REUSABLE'
+    && !isRedeemed
+    && voucher.reusableState != null
+    && voucher.reusableState.availableAgainAt != null
+    && new Date(voucher.reusableState.availableAgainAt).getTime() > referenceNow.getTime()
 
   // M4c Gate J revised twice + Gate K Minor #1 fix (2026-05-11):
   // TL cards that surface a state pill (active / urgent / outside-window —
@@ -206,12 +220,20 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
   // guard. A `currentWindow` whose `endsAt` has passed is treated as no
   // live window; if `nextWindow` is also null, the card falls through to
   // PR-B row layout (no empty stacked column with just the heart).
+  //
+  // M5 REUSABLE: every REUSABLE card surfaces a pill (available or cooldown),
+  // so the stacked layout fires whenever isRedeemed is false. Redeemed REUSABLE
+  // cards (cycle quota merchant-wide per voucher per spec §3) follow the
+  // existing isRedeemedThisCycle-driven PR-B overprint path and keep the row
+  // layout — same shape as non-TL redeemed.
   const hasLiveCurrentWindow = voucher.currentWindow !== null
     && new Date(voucher.currentWindow.endsAt).getTime() > referenceNow.getTime()
   const hasTLPill = voucher.type === 'TIME_LIMITED'
     && !isRedeemed
     && voucher.redeemedWindow === null
     && (hasLiveCurrentWindow || voucher.nextWindow !== null)
+  const hasReusablePill = voucher.type === 'REUSABLE' && !isRedeemed
+  const hasStatePill = hasTLPill || hasReusablePill
   const motionScale = useMotionScale()
   const typeKey   = voucher.type as VoucherType
   const gradient  = TYPE_GRADIENTS[typeKey] ?? TYPE_GRADIENTS.DISCOUNT_FIXED
@@ -293,7 +315,10 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
         // overlay (PR-B), signalling "exists but not actionable right
         // now" per spec §6.1 / §6.3 ("Outside-window cards remain
         // visible (NOT hidden)").
-        isOutsideWindowTL && styles.cardOutsideWindow,
+        // M5 REUSABLE (spec §8.1): cooldown state shares the same 75%
+        // tier — both gates communicate the same "wait, then redeem"
+        // affordance.
+        (isOutsideWindowTL || isReusableCooldown) && styles.cardOutsideWindow,
       ]}
     >
       <Pressable
@@ -428,7 +453,7 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
                 {typeLabel}
               </Text>
             </View>
-            {hasTLPill ? (
+            {hasStatePill ? (
               <View style={styles.topRightStack}>
                 <VoucherCardStatePill voucher={voucher} now={referenceNow} />
                 <Animated.View style={[heartAnimatedStyle, styles.stackedHeartWrap]}>

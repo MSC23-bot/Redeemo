@@ -17,23 +17,39 @@ import {
 } from '@/features/voucher/utils/countdownFormat'
 
 /**
- * Merchant-profile voucher-card state pill (M4c — Gate J locked 2026-05-11).
+ * Merchant-profile voucher-card state pill (M4c — Gate J locked 2026-05-11
+ * + M5 REUSABLE branch locked 2026-05-12).
  *
  * Renders inside `<VoucherCard>`'s topRow on the RIGHT, replacing the
  * favourite heart slot (heart relocates to the bottomRow). Height-neutral
- * with non-TIME_LIMITED cards — pill height matches the existing type
- * chip's ~22pt, so the card minHeight (144pt) is unchanged across all
- * voucher types.
+ * with non-TIME_LIMITED non-REUSABLE cards — pill height matches the
+ * existing type chip's ~22pt, so the card minHeight (144pt) is unchanged
+ * across all voucher types.
  *
- * State copy (owner-locked Gate J revised 2026-05-11 after device QA —
- * badge-hierarchy: UPPERCASE state label · sentence-case detail):
- *   active (>= 60 min)            → "AVAILABLE NOW · Ends 3pm today"   + green pulse-dot
- *   urgent (< 60 min)             → "CLOSING SOON · 23m left"          + coral pulse-dot
- *   outside-window today          → "OPENS TODAY · 5pm"                (static)
- *   outside-window tomorrow       → "OPENS TOMORROW · 12pm"            (static)
- *   outside-window future-day     → "OPENS FRI · 11am"                 (static)
+ * TIME_LIMITED state copy (owner-locked Gate J revised 2026-05-11 after
+ * device QA — badge-hierarchy: UPPERCASE state label · sentence-case detail):
+ *   active (>= 60 min)            → "AVAILABLE NOW · Until 3pm today"   + green pulse-dot
+ *   urgent (< 60 min)             → "ENDING SOON · 23m left"            + coral pulse-dot
+ *   outside-window today          → "AVAILABLE TODAY · From 5pm"        (static)
+ *   outside-window tomorrow       → "AVAILABLE TOMORROW · From 12pm"    (static)
+ *   outside-window future-day     → "AVAILABLE WEDNESDAY · From 11am"   (static)
  *   redeemed-this-window          → renders NOTHING (PR-B overprint carries the state)
- *   non-TIME_LIMITED              → renders NOTHING
+ *
+ * REUSABLE state copy (spec §8.1 + D28-D35 locked 2026-05-12):
+ *   available (availableAgainAt null or in the past) → "AVAILABLE NOW"          + green pulse-dot
+ *   cooldown (≤ 60 min)                              → "AVAILABLE AGAIN · 23m left"        (static)
+ *   cooldown (> 60 min, today)                       → "AVAILABLE AGAIN · From 4pm today"  (static)
+ *   cooldown (> 60 min, tomorrow)                    → "AVAILABLE AGAIN · From 11am tomorrow"  (static)
+ *   cooldown (> 60 min, future-day)                  → "AVAILABLE AGAIN · From 12pm WEDNESDAY"  (static)
+ *
+ * REUSABLE rules (D31 / D34 / D35 lock):
+ *   - NO urgency colour band at any state — nothing bad happens at cooldown expiry.
+ *   - NO sub-headline ("Every 4 hours") on the merchant card; cadence visibility
+ *     lives on Voucher Detail.
+ *   - NO rubber-stamp overprint — the overprint stays exclusive to cycle vouchers.
+ *
+ * Other voucher types (BOGO / DISCOUNT / FREEBIE / SPEND_AND_SAVE / PACKAGE_DEAL)
+ * render NOTHING — the pill component is opt-in per type.
  *
  * Pill layout sits inside <VoucherCard>'s `topRightGroup` to the LEFT
  * of the heart. Pill text is `numberOfLines: 1, ellipsizeMode: 'tail'`
@@ -47,15 +63,23 @@ import {
  *   <30 min wording. Sort + pill MUST share the boundary or a 45-min-
  *   remaining card lands in the urgent sort bucket with an "Active" pill.
  *
- * Stale-payload guard: if `currentWindow.endsAt` has already passed
- * relative to `now`, the pill falls through to the outside-window path
- * (same guard as M4c-1 `bucketFor`). Prevents stale "Available now" /
- * "Closes in" pills on windows that closed while the user had the screen
- * open.
+ *   For REUSABLE, the ≤60 min / >60 min split is the copy-format boundary
+ *   (countdown form vs clock-hour form) — NOT a sort-bucket boundary, since
+ *   REUSABLE has no urgency colour band (D31).
  *
- * Animation discipline (D6 lock):
- *   - Pulse-dot ONLY in active/urgent. Outside-window pills are calm grey,
- *     no motion.
+ * Stale-payload guard:
+ *   - TL: if `currentWindow.endsAt` has already passed relative to `now`,
+ *     the pill falls through to the outside-window path (same guard as
+ *     M4c-1 `bucketFor`). Prevents stale "Available now" pills.
+ *   - REUSABLE: if `reusableState.availableAgainAt` is already in the past
+ *     relative to `now`, the pill renders "AVAILABLE NOW" — same defensive
+ *     fallthrough so a stale payload doesn't surface a phantom "0m left".
+ *
+ * Animation discipline (D6 / D31 lock):
+ *   - TL: Pulse-dot ONLY in active/urgent. Outside-window pills are calm
+ *     grey, no motion.
+ *   - REUSABLE: Pulse-dot ONLY on the available state (same green as TL
+ *     active). Cooldown pills are static — no pulse (D31).
  *   - Reanimated `withRepeat` opacity loop on the native thread (Gate J
  *     migration from M4c-2's RN Animated.loop — closes §AL1 follow-up).
  *   - `useReducedMotion` skips the pulse loop; dot renders static at full
@@ -70,6 +94,11 @@ import {
  */
 
 const URGENT_THRESHOLD_MS = 60 * 60_000
+// REUSABLE copy-format boundary — ≤60 min uses countdown form ("23m left");
+// >60 min uses clock-hour form ("From 4pm today"). Not a sort-bucket boundary
+// (REUSABLE has no urgency colour band, D31). Defined as a separate constant
+// so a future tweak to one doesn't accidentally drag the other along.
+const REUSABLE_CLOCK_FORM_THRESHOLD_MS = 60 * 60_000
 const ACTIVE_PULSE_MS = 2000   // calm 2s loop
 const URGENT_PULSE_MS = 1500   // slightly faster 1.5s loop, still not noisy
 
@@ -114,8 +143,78 @@ type Props = {
 }
 
 export function VoucherCardStatePill({ voucher, now }: Props) {
-  // Renders nothing for non-TIME_LIMITED vouchers + redeemed-this-window
-  // (PR-B overprint owns the redeemed surface).
+  // M5 REUSABLE branch (spec §8.1, D28-D35 — locked 2026-05-12).
+  if (voucher.type === 'REUSABLE') {
+    const availableAgainRaw = voucher.reusableState?.availableAgainAt
+    const availableAgainAt  = availableAgainRaw ? new Date(availableAgainRaw) : null
+
+    // State 1 — Available now. Triggers when:
+    //   • reusableState is omitted / null entirely (pre-M5 cached payload OR
+    //     non-cooldown state from backend)
+    //   • availableAgainAt is null (D16 future-only convention — null means
+    //     cooldown elapsed)
+    //   • availableAgainAt is already in the past relative to `now` (stale-
+    //     payload guard — prevents phantom "0m left" cooldown pills).
+    if (!availableAgainAt || availableAgainAt.getTime() <= now.getTime()) {
+      return (
+        <Pill
+          testID="merchant-card-pill-reusable-available"
+          textStyle={styles.textActive}
+          copy="AVAILABLE NOW"
+        >
+          {/* Green pulse-dot — same colour as TL active state per spec §8.1. */}
+          <PulseDot color={ACTIVE_DOT_COLOR} speedMs={ACTIVE_PULSE_MS} />
+        </Pill>
+      )
+    }
+
+    // State 2 / 3 — Cooldown. Single testID covers BOTH sub-thresholds; the
+    // copy distinguishes ≤60 vs >60 min (mirrors TL's `unavailable-today` /
+    // `unavailable-future-day` testID pattern — D32).
+    const msUntilAvailable = availableAgainAt.getTime() - now.getTime()
+    let copy: string
+    if (msUntilAvailable <= REUSABLE_CLOCK_FORM_THRESHOLD_MS) {
+      // ≤60 min: countdown form "AVAILABLE AGAIN · 23m left".
+      // `formatDurationCompact` returns "Xm" for <60 min and "Xh Ym" for ≥60 min;
+      // we cap entry to ≤60 min here so the displayed form is always "Nm" at the
+      // exact 60-min boundary "60m" — by design ("23m left" pattern).
+      copy = `AVAILABLE AGAIN · ${formatDurationCompact(msUntilAvailable)} left`
+    } else {
+      // >60 min: clock-hour form "AVAILABLE AGAIN · From <Hour> today / tomorrow / <WEEKDAY>".
+      // Mirrors TL's outside-window day-context branching — same-London-day uses
+      // "today", next-London-day uses "tomorrow", anything else uses the full
+      // uppercase weekday name (locked spec §9 ledger + M4c device-QA round 3
+      // lock: full day names beat 3-letter abbreviations for user-friendliness).
+      const nowYmd      = ymd(now)
+      const targetYmd   = ymd(availableAgainAt)
+      const tomorrowYmd = ymd(new Date(now.getTime() + 24 * 60 * 60_000))
+      let dayLabel: string
+      if (targetYmd === nowYmd) {
+        dayLabel = 'today'
+      } else if (targetYmd === tomorrowYmd) {
+        dayLabel = 'tomorrow'
+      } else {
+        // Full uppercase weekday name (matches TL's `AVAILABLE WEDNESDAY` form).
+        dayLabel = formatDayName(availableAgainAt).toUpperCase()
+      }
+      copy = `AVAILABLE AGAIN · From ${formatClockHour12(availableAgainAt)} ${dayLabel}`
+    }
+
+    return (
+      <Pill
+        testID="merchant-card-pill-reusable-cooldown"
+        textStyle={styles.textUnavail}
+        copy={copy}
+        unavail
+      >
+        {/* D31: no pulse on cooldown — nothing bad happens at cooldown expiry. */}
+        {null}
+      </Pill>
+    )
+  }
+
+  // Renders nothing for non-TIME_LIMITED non-REUSABLE vouchers + redeemed-
+  // this-window TL (PR-B overprint owns the redeemed surface).
   if (voucher.type !== 'TIME_LIMITED') return null
   if (voucher.redeemedWindow !== null) return null
 
