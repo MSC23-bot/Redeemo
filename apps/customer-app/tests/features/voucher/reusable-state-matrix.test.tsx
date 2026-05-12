@@ -323,6 +323,58 @@ describe('VoucherDetailScreen — REUSABLE D44 expiry-before-cooldown (spec §7.
     // The D44 supporting line is NOT rendered.
     expect(queryByText(/Offer ends before/)).toBeNull()
   })
+
+  // PR #72 review polish (2026-05-12) — D44 supporting note is gated on
+  // `stateKey === 'can-redeem'`, mirroring the cooldown CTA + hero
+  // overrides already shipped in commit 0d9146d. Free-user / expired
+  // state-machine precedence preempts the note even when
+  // `cooldownExtendsPastExpiry === true`.
+  it('D44 — free user + cooldownExtendsPastExpiry: supporting note NOT rendered (subscribe CTA preempts)', () => {
+    mockSubscribed = false
+    const expiryDate       = minuteOffsetISO(60)               // expires in 1h
+    const availableAgainAt = minuteOffsetISO(4 * 60)           // 4h from now — past expiry
+    mockVoucherData = reusableVoucher({
+      availableAgainAt,
+      expiryDate,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // State-machine resolves to 'free-user' (precedes can-redeem).
+    expect(queryByTestId('voucher-detail-state-free-user')).toBeTruthy()
+    // D44 supporting note suppressed under the new gate.
+    expect(queryByTestId('voucher-detail-expiry-before-available-again')).toBeNull()
+  })
+
+  it('D44 — expired voucher + cooldownExtendsPastExpiry: supporting note NOT rendered (expired CTA preempts)', () => {
+    const expiryDate       = minuteOffsetISO(-60)              // expired 1h ago
+    const availableAgainAt = minuteOffsetISO(4 * 60)           // would otherwise be past expiry
+    mockVoucherData = reusableVoucher({
+      availableAgainAt,
+      expiryDate,
+    })
+    const { queryByTestId } = wrap(<VoucherDetailScreen />)
+
+    // State-machine resolves to 'expired' (precedes everything).
+    expect(queryByTestId('voucher-detail-state-expired')).toBeTruthy()
+    // D44 supporting note suppressed under the new gate.
+    expect(queryByTestId('voucher-detail-expiry-before-available-again')).toBeNull()
+  })
+
+  it('D44 — subscribed + non-expired + cooldownExtendsPastExpiry: supporting note IS rendered (regression guard)', () => {
+    // Existing can-redeem positive case explicitly re-pinned under the
+    // new gate so a future refactor that drops the can-redeem
+    // requirement fails clearly here as well.
+    const expiryDate       = minuteOffsetISO(60)
+    const availableAgainAt = minuteOffsetISO(4 * 60)
+    mockVoucherData = reusableVoucher({
+      availableAgainAt,
+      expiryDate,
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+
+    expect(getByTestId('voucher-detail-state-can-redeem')).toBeTruthy()
+    expect(getByTestId('voucher-detail-expiry-before-available-again')).toBeTruthy()
+  })
 })
 
 // ── M5 Gate E polish (Issue 1) — RedemptionDetailsCard → coupon spacer ─

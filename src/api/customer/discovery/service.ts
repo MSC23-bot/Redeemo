@@ -1253,16 +1253,15 @@ export async function getCustomerVoucher(
   let reusableLastRedemption: typeof lastRedemption = null
   if (isReusable) {
     reusableEffectiveCooldownSeconds = effectiveCooldownSeconds(voucher)
-    if (userId) {
-      const latest = await prisma.voucherRedemption.findFirst({
-        where:   { userId, voucherId },
-        orderBy: { redeemedAt: 'desc' },
-        select:  { redeemedAt: true },
-      })
-      const computed = computeAvailableAgainAt(latest?.redeemedAt ?? null, voucher)
-      if (computed && computed.getTime() > Date.now()) {
-        reusableAvailableAgainAt = computed.toISOString()
-      }
+    // PR #72 review polish — drop redundant findFirst.
+    // lastRedemptionMap was already populated above via
+    // batchLastRedemptionsByVoucher for ALL voucher types (it's an empty
+    // Map for guests/unauthenticated users, so .get() returns undefined →
+    // ?? null normalises). Behavior is identical to the prior findFirst.
+    const lastRedeemedAt = lastRedemptionMap.get(voucherId) ?? null
+    const computed = computeAvailableAgainAt(lastRedeemedAt, voucher)
+    if (computed && computed.getTime() > Date.now()) {
+      reusableAvailableAgainAt = computed.toISOString()
     }
 
     // REUSABLE persisted-return-visit lastRedemption — fires only on the

@@ -1822,7 +1822,7 @@ export function VoucherDetailScreen() {
             HeroStatusBlock in the REUSABLE branch above; the explicit
             CTA copy is overridden in the cta useMemo to drop the
             countdown. */}
-        {isReusable && reusable.cooldownExtendsPastExpiry ? (
+        {stateKey === 'can-redeem' && isReusable && reusable.cooldownExtendsPastExpiry ? (
           <Text
             testID="voucher-detail-expiry-before-available-again"
             variant="body.sm"

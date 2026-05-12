@@ -121,14 +121,17 @@ function makePrisma() {
   return prisma
 }
 
-// Two REUSABLE-branch findFirst calls fire when a recent redemption
-// exists:
-//   (a) cooldown-clock: where { userId, voucherId } (no redeemedAt
-//       filter), ordered desc — returns { redeemedAt } for the helper.
+// REUSABLE-branch query layout after the PR #72 review polish:
+//   (a) cooldown-clock: SOURCED FROM `lastRedemptionMap` (populated via
+//       `batchLastRedemptionsByVoucher`, which runs `groupBy`). No
+//       redundant `findFirst` fires for cooldown computation anymore —
+//       see the dedicated regression test below.
 //   (b) presentation-window: where { userId, voucherId, redeemedAt:
-//       { gte: PRESENTATION_START } }, ordered desc — needs the full
-//       row shape (redemptionCode, branch, isValidated, validatedAt).
-// Pass `redeemedAt`; this helper assigns each call the right shape.
+//       { gte: PRESENTATION_START } }, ordered desc, full row shape
+//       (redemptionCode, branch, isValidated, validatedAt) — still a
+//       `findFirst` (full row data the groupBy doesn't carry).
+// This helper mocks BOTH the groupBy (cooldown source) AND the
+// presentation-window findFirst (return-visit source) consistently.
 function mockReusableRedemption(
   prisma: any,
   redeemedAt: Date,
@@ -137,6 +140,7 @@ function mockReusableRedemption(
     branch?: { id: string; name: string }
     isValidated?: boolean
     validatedAt?: Date | null
+    voucherId?: string
   } = {},
 ) {
   const fullRow = {
@@ -146,6 +150,11 @@ function mockReusableRedemption(
     isValidated: opts.isValidated ?? false,
     validatedAt: opts.validatedAt ?? null,
   }
+  // groupBy drives the cooldown clock (lastRedemptionMap).
+  prisma.voucherRedemption.groupBy.mockResolvedValue([
+    { voucherId: opts.voucherId ?? VOUCHER_ID, _max: { redeemedAt } },
+  ])
+  // findFirst handles the cycle-gated + presentation-window branches.
   prisma.voucherRedemption.findFirst.mockImplementation((args: any) => {
     const where = args?.where ?? {}
     // Cycle-gated branch: has `redeemedAt: { gte, lt }`. Returns null —
@@ -164,8 +173,9 @@ function mockReusableRedemption(
       }
       return Promise.resolve(null)
     }
-    // Cooldown-clock branch: no `redeemedAt` filter at all.
-    return Promise.resolve({ redeemedAt })
+    // Any other shape — no longer expected for the REUSABLE cooldown
+    // branch after PR #72 review polish (now sourced from groupBy).
+    return Promise.resolve(null)
   })
 }
 
@@ -266,10 +276,11 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     const prisma = makePrisma()
     prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
-    // Last redemption 1h ago — still inside cooldown.
-    prisma.voucherRedemption.findFirst.mockResolvedValue({
-      redeemedAt: new Date(TEST_NOW.getTime() - 60 * 60 * 1000),
-    })
+    // Last redemption 1h ago — still inside cooldown. Sourced via
+    // groupBy (PR #72 review polish — lastRedemptionMap), not findFirst.
+    prisma.voucherRedemption.groupBy.mockResolvedValue([
+      { voucherId: VOUCHER_ID, _max: { redeemedAt: new Date(TEST_NOW.getTime() - 60 * 60 * 1000) } },
+    ])
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
 
@@ -317,8 +328,12 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     // Redemption 1h ago, 4h cooldown → availableAgainAt 3h from now.
+    // Sourced via groupBy (PR #72 review polish — lastRedemptionMap),
+    // not findFirst.
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 60 * 60 * 1000)
-    prisma.voucherRedemption.findFirst.mockResolvedValue({ redeemedAt: lastRedeemedAt })
+    prisma.voucherRedemption.groupBy.mockResolvedValue([
+      { voucherId: VOUCHER_ID, _max: { redeemedAt: lastRedeemedAt } },
+    ])
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
 
@@ -334,10 +349,12 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     const prisma = makePrisma()
     prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
-    // Redemption 5h ago, 4h cooldown → cooldown expired 1h ago.
-    prisma.voucherRedemption.findFirst.mockResolvedValue({
-      redeemedAt: new Date(TEST_NOW.getTime() - 5 * 60 * 60 * 1000),
-    })
+    // Redemption 5h ago, 4h cooldown → cooldown expired 1h ago. Sourced
+    // via groupBy (PR #72 review polish — lastRedemptionMap), not
+    // findFirst.
+    prisma.voucherRedemption.groupBy.mockResolvedValue([
+      { voucherId: VOUCHER_ID, _max: { redeemedAt: new Date(TEST_NOW.getTime() - 5 * 60 * 60 * 1000) } },
+    ])
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
 
@@ -458,29 +475,60 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
   })
 
   // ── REUSABLE doesn't touch the cycle-state gate ─────────────────────
+  //
+  // PR #72 review polish (2026-05-12): the REUSABLE cooldown clock is
+  // sourced from `lastRedemptionMap` (populated by
+  // `batchLastRedemptionsByVoucher` → `prisma.voucherRedemption.groupBy`),
+  // NOT from a separate `findFirst` call. The earlier implementation
+  // fired BOTH a `findFirst` for cooldown computation AND a separate
+  // `findFirst` for the 2h presentation-window full-row fetch — the
+  // first was redundant since the same lastRedeemedAt data is already
+  // batched into `lastRedemptionMap` (which is then reused by the
+  // TIME_LIMITED helper anyway).
 
-  it('REUSABLE branch fires a (userId, voucherId) findFirst keyed for availableAgainAt only', async () => {
+  it('PR #72 polish — cooldown clock sources from lastRedemptionMap (groupBy), no redundant findFirst', async () => {
+    // Setup the "in cooldown" scenario via groupBy (the new source).
+    // Redemption 1h ago, 4h cooldown → availableAgainAt 3h from now.
     const prisma = makePrisma()
     prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
-    prisma.voucherRedemption.findFirst.mockResolvedValue({
-      redeemedAt: new Date(TEST_NOW.getTime() - 60 * 60 * 1000),
-    })
+    const lastRedeemedAt = new Date(TEST_NOW.getTime() - 60 * 60 * 1000)
+    prisma.voucherRedemption.groupBy.mockResolvedValue([
+      { voucherId: VOUCHER_ID, _max: { redeemedAt: lastRedeemedAt } },
+    ])
+    // findFirst still returns the full row for the presentation-window
+    // branch (redeemedAt within the 2h gate trips the cycle-gated check
+    // shape filter inside mockReusableRedemption — but for this test
+    // we mock it directly for clarity).
+    prisma.voucherRedemption.findFirst.mockResolvedValue(null)
 
-    await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
 
-    // The REUSABLE branch queries the latest (userId, voucherId)
-    // redemption regardless of cycle window — no `redeemedAt: { gte,
-    // lt }` clause (which is what the cycle-gated lastRedemption
-    // branch uses).
+    // Cooldown clock was computed correctly from the groupBy source.
+    const expected = new Date(lastRedeemedAt.getTime() + 14400 * 1000).toISOString()
+    expect(result.availableAgainAt).toBe(expected)
+
+    // The batched groupBy fired exactly once (single-key map for the
+    // single-voucher getCustomerVoucher path).
+    expect(prisma.voucherRedemption.groupBy).toHaveBeenCalledTimes(1)
+
+    // Critical regression pin: findFirst is called AT MOST ONCE for the
+    // REUSABLE path — the presentation-window full-row fetch. The
+    // redundant cooldown-clock findFirst is GONE. (Two calls would
+    // signal the regression has been reintroduced.)
+    expect(prisma.voucherRedemption.findFirst.mock.calls.length).toBeLessThanOrEqual(1)
+
+    // No findFirst call should have a bare `where: { userId, voucherId }`
+    // shape (no redeemedAt filter) — that was the redundant cooldown-clock
+    // query shape that the polish removed.
     const calls = prisma.voucherRedemption.findFirst.mock.calls
-    const reusableCall = calls.find((c: any[]) => {
+    const bareCooldownCall = calls.find((c: any[]) => {
       const where = c[0]?.where ?? {}
       return where.userId === USER_ID
         && where.voucherId === VOUCHER_ID
         && where.redeemedAt === undefined
     })
-    expect(reusableCall).toBeDefined()
+    expect(bareCooldownCall).toBeUndefined()
   })
 
   // ── Subscription-gate behaviour (§6.5) — cooldown info data-only ─────
