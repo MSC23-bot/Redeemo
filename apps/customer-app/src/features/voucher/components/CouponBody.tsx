@@ -5,6 +5,7 @@ import { Check, Clock, FileText, Home, Info, Shield, Tag } from 'lucide-react-na
 import { Text } from '@/design-system/Text'
 import type { VoucherType } from '@/lib/api/voucher'
 import { voucherGradient } from '../utils/voucherTheme'
+import { ReusableGuidanceCard } from './ReusableGuidanceCard'
 import {
   FAIR_USE_TITLE,
   deriveDineInPill,
@@ -175,9 +176,21 @@ export function CouponBodyCard({
   const termsList    = splitTermsIntoBullets(terms)
   const fairUseLines = fairUseLinesForVoucherType(type)
   const isTL = type === 'TIME_LIMITED'
+  const isReusable = type === 'REUSABLE'
 
   return (
     <View style={styles.bodyCard} testID="coupon-body">
+      {/* M5 Task 10 (D24, spec §7.3) — REUSABLE guidance card. Parallel
+          placement to the PR #70 TL guidance card below: both are
+          type-specific advisory cards rendered BEFORE the Terms
+          section, both share the same pale-amber surface treatment.
+          REUSABLE doesn't carry the AVAILABILITY / USAGE RULE / ABOUT
+          THIS OFFER sections (those are TL-only — the REUSABLE
+          description still lives in the hero, and the cadence cadence
+          is surfaced by <ReusableRulesCard> outside this component),
+          so the guidance card stands alone here. */}
+      {isReusable ? <ReusableGuidanceCard /> : null}
+
       {/* M4d (D6(C)) — TIME_LIMITED-only sections rendered BEFORE the
           existing Terms section. Non-TL voucher types are unchanged in
           M4d; the universal description-in-coupon-body move is the

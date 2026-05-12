@@ -20,6 +20,7 @@ import { useUserLocation } from '@/hooks/useLocation'
 import { useMerchantProfile } from '@/features/merchant/hooks/useMerchantProfile'
 import { useCustomerVoucher } from '../hooks/useCustomerVoucher'
 import { useTimeLimited } from '../hooks/useTimeLimited'
+import { useReusable } from '../hooks/useReusable'
 import { CouponHeader } from '../components/CouponHeader'
 import { CouponTopCard, CouponBodyCard } from '../components/CouponBody'
 import { PerforationLine } from '../components/PerforationLine'
@@ -28,10 +29,12 @@ import { HowItWorks } from '../components/HowItWorks'
 import { RedeemCTA } from '../components/RedeemCTA'
 import { HeroStatusBlock, type HeroStatusBlockState } from '../components/HeroStatusBlock'
 import { formatScheduleString } from '../utils/scheduleString'
+import { formatDuration } from '../utils/countdownFormat'
 import { CollapsedHeader } from '../components/CollapsedHeader'
 import { SubscriptionPromptModal } from '../components/SubscriptionPromptModal'
 import { VoucherTypeExplainerCard } from '../components/VoucherTypeExplainerCard'
 import { CycleRulesCard } from '../components/CycleRulesCard'
+import { ReusableRulesCard } from '../components/ReusableRulesCard'
 // M2 Section B — redemption flow components + hook
 import { BranchPickerSheet, type PickerBranch } from '../components/BranchPickerSheet'
 import { PinEntrySheet } from '../components/PinEntrySheet'
@@ -200,6 +203,19 @@ export function VoucherDetailScreen() {
   const merchant = merchantQuery.data ?? null
 
   const timeLimited = useTimeLimited(voucher)
+  // M5 Task 10 — REUSABLE state derivation. Hook ticks per second only
+  // while the voucher is in cooldown; available state is steady (no
+  // interval armed). The hook always runs (never inside a conditional)
+  // — gate consumption on `voucher.type === 'REUSABLE'` below. Inputs
+  // are nullable: `availableAgainAt` is null for non-REUSABLE rows,
+  // `expiryDate` is null for non-expiring offers. Both null → hook
+  // returns `reusable-available` with `cooldownExtendsPastExpiry:
+  // false`, which non-REUSABLE branches simply ignore.
+  const reusable = useReusable(
+    voucher?.availableAgainAt ?? null,
+    voucher?.expiryDate ?? null,
+  )
+  const isReusable = voucher?.type === 'REUSABLE'
 
   // Branch context for the redemption attribution UX.
   //
@@ -669,6 +685,15 @@ export function VoucherDetailScreen() {
   // (e.g. CycleRulesCard copy that only makes sense for cycle vouchers).
   const isRedeemedState =
     stateKey === 'redeemed-this-cycle' || stateKey === 'redeemed-this-window'
+  // M5 Task 10 / D25 — REUSABLE never reaches a redeemed-state stateKey:
+  // `isRedeemedThisCycle` is always false (backend D13), and
+  // `redeemedWindow` is TIME_LIMITED-only. So `isRedeemedState` is
+  // always false for REUSABLE → `showRedeemedSeal` is always false →
+  // the hero <RedeemedSeal> overlay is never rendered for REUSABLE.
+  // This is intentional and matches spec §7.3 ("Hero overprint
+  // (<RedeemedSeal>) — Not used for REUSABLE"). The state-matrix test
+  // pins absence of `voucher-detail-hero-seal` for REUSABLE in all
+  // states.
   const isRedeemed = isRedeemedState && !!redemptionRedeemedAt
   const showRedeemedSeal = isRedeemed
   const blockShowToStaffMount =
@@ -696,8 +721,9 @@ export function VoucherDetailScreen() {
   // 'no-windows' produces null (HeroStatusBlock returns null for that
   // state anyway; skipping construction avoids a useless tree).
   //
-  // For non-TL vouchers the variable stays null and <CouponHeader> falls
-  // through to its original description-copy rendering path.
+  // For non-TL / non-REUSABLE vouchers the variable stays null and
+  // <CouponHeader> falls through to its original description-copy
+  // rendering path.
   let heroStatusBlock: React.ReactNode = null
   if (voucher && voucher.type === 'TIME_LIMITED') {
     const heroStatusState: HeroStatusBlockState =
@@ -715,6 +741,32 @@ export function VoucherDetailScreen() {
         />
       )
     }
+  } else if (voucher && isReusable) {
+    // M5 Task 10 — REUSABLE hero status block. Two states:
+    //   • reusable-available  → eyebrow "Available now" (primary +
+    //                            supporting suppressed by HeroStatusBlock).
+    //   • reusable-cooldown   → eyebrow "Available again" / primary
+    //                            countdown / supporting "Available
+    //                            again from … today / tomorrow / <day>".
+    //
+    // D44 expiry-before-cooldown (spec §7.4): when
+    // `reusable.cooldownExtendsPastExpiry` is true, the standard
+    // "Available again in …" countdown is suppressed and the
+    // replacement supporting line ("Offer ends before it becomes
+    // available again") is rendered as an EXTRA Text node below the
+    // hero block at render time (see JSX below). The hero block itself
+    // intentionally still mounts so the eyebrow is preserved.
+    heroStatusBlock = (
+      <HeroStatusBlock
+        windowState={reusable.windowState}
+        now={new Date()}
+        currentWindowStartsAt={null}
+        currentWindowEndsAt={null}
+        nextWindowStartsAt={reusable.nextWindowStartsAt}
+        msToClose={null}
+        msToOpen={reusable.cooldownExtendsPastExpiry ? null : reusable.msToOpen}
+      />
+    )
   }
 
   // ── Review prompt entry point (PR-C T16, locked 2026-05-09) ─────────
@@ -815,8 +867,16 @@ export function VoucherDetailScreen() {
   // M4b-8: redeemed-this-window (TIME_LIMITED) also surfaces the code
   // via the persisted RedemptionDetailsCard, so screen-capture
   // protection must apply equally to both redeemed states.
+  // M5 Task 10: REUSABLE States 2 + 4 also surface the code via the
+  // persisted RedemptionDetailsCard (driven entirely by lastRedemption
+  // presence, since REUSABLE never reaches an isRedeemedState
+  // stateKey — D13). The OR-branch keeps the locked rule "ANY surface
+  // displaying the code has screen-capture protection active"
+  // applicable. `isPresentationActive` already gates on the 2h window
+  // via `redemptionRedeemedAt`, so REUSABLE State 3 (presentation
+  // expired) naturally drops out here.
   const codeVisibleOnVoucherDetail =
-    isRedeemedState
+    (isRedeemedState || (isReusable && !!redemptionRedeemedAt))
     && !!redemptionRedeemedAt
     && isPresentationActive
     && !isRedemptionValidated
@@ -1180,6 +1240,30 @@ export function VoucherDetailScreen() {
   // mounts a navy two-line inline view instead of the standard primary
   // CTA. The `scheduleSubline` field flows through to that inline render.
   const cta = useMemo(() => {
+    // M5 Task 10 (spec §7.1 state matrix + Q8 D39 disabled-CTA copy).
+    // REUSABLE in cooldown overrides the state-machine branch below.
+    // The state-machine sees stateKey === 'can-redeem' (REUSABLE
+    // bypasses the cycle-state gate via D13 → isRedeemedThisCycle is
+    // always false), but the cooldown clock requires a disabled CTA
+    // with the countdown copy. D44: when cooldown extends past expiry,
+    // suppress the countdown copy and use the locked
+    // "Available again soon" generic fallback — the
+    // "Offer ends before it becomes available again" replacement copy
+    // surfaces separately as a supporting note (see JSX below); the
+    // CTA itself just needs to be visibly disabled without an
+    // impossible countdown.
+    if (isReusable && reusable.windowState === 'reusable-cooldown') {
+      const ctaLabel = reusable.cooldownExtendsPastExpiry
+        ? CTA_LABELS.unavailable
+        : `Available again in ${formatDuration(reusable.msToOpen ?? 0)}`
+      return {
+        label:    ctaLabel,
+        disabled: true,
+        variant:  'primary' as const,
+        testID:   'redeem-cta-reusable-cooldown',
+      }
+    }
+
     switch (stateKey) {
       case 'free-user':
         return { label: CTA_LABELS.redeemSubscribe, disabled: false, variant: 'subscribe' as const, testID: 'redeem-cta-subscribe' }
@@ -1221,7 +1305,15 @@ export function VoucherDetailScreen() {
       default:
         return null
     }
-  }, [stateKey, branchReady, voucher?.availabilityWindows])
+  }, [
+    stateKey,
+    branchReady,
+    voucher?.availabilityWindows,
+    isReusable,
+    reusable.windowState,
+    reusable.msToOpen,
+    reusable.cooldownExtendsPastExpiry,
+  ])
 
   const handleCTA = useCallback(() => {
     if (stateKey === 'free-user') {
@@ -1406,7 +1498,32 @@ export function VoucherDetailScreen() {
             // M4b-8: redeemed-this-window (TIME_LIMITED) surfaces the
             // RedemptionDetailsCard with the same in-memory PRIMARY +
             // persisted FALLBACK source priority as redeemed-this-cycle.
-            if (!isRedeemedState) return null
+            //
+            // M5 Task 10 — REUSABLE state 2 + state 4 (spec §7.1):
+            //   • State 2: presentation window active + cooldown active
+            //              → BOTH lastRedemption (in-memory or persisted)
+            //                AND disabled CTA — card mounts here.
+            //   • State 3: presentation window expired + cooldown active
+            //              → backend returns lastRedemption=null
+            //                (2h presentation gate on the payload, spec
+            //                 §6.1 + D26 amendment), so `baseDisplay`
+            //                resolves to null below and this branch
+            //                returns null naturally. No invented card.
+            //   • State 4: presentation window active + cooldown elapsed
+            //              → lastRedemption (OLD code) populated AND
+            //                Redeem CTA active. Both surfaces visible
+            //                simultaneously — the REUSABLE distinguisher.
+            //
+            // For REUSABLE we bypass the `isRedeemedState` gate
+            // (`stateKey === 'redeemed-this-cycle' || 'redeemed-this-window'`)
+            // because REUSABLE NEVER reaches a redeemed-state stateKey
+            // (D13: `isRedeemedThisCycle` is always false for REUSABLE;
+            // redeemedWindow only applies to TIME_LIMITED). Visibility
+            // is driven entirely by lastRedemption presence, which the
+            // backend already gates correctly via the 2h presentation
+            // window.
+            if (!isRedeemedState && !isReusable) return null
+            if (isReusable && !lastRedemption && !voucher.lastRedemption) return null
             // Base shape from in-memory (PRIMARY) or persisted (FALLBACK).
             const baseDisplay = lastRedemption
               ? {
@@ -1605,13 +1722,42 @@ export function VoucherDetailScreen() {
             no equivalent CTA-adjacent card — the schedule + "Offer
             ends" line moved into the coupon body (Phase D.1), and the
             live countdown / window-state messaging lives in the hero's
-            HeroStatusBlock (Phase G). */}
-        {!isRedeemedState && voucher.type !== 'TIME_LIMITED' ? (
+            HeroStatusBlock (Phase G).
+
+            M5 Task 10 — REUSABLE swaps CycleRulesCard for
+            ReusableRulesCard (spec §7.3). Renders unconditionally for
+            REUSABLE (the card is "what does REUSABLE mean" copy +
+            cadence — applicable in every REUSABLE state). The
+            in-flight cooldown countdown is carried by
+            HeroStatusBlock, not here. */}
+        {!isRedeemedState && voucher.type !== 'TIME_LIMITED' && !isReusable ? (
           <CycleRulesCard
             isMultiBranch={isMultiBranch}
             availableAgainAt={voucher.availableAgainAt}
             isRedeemed={false}
           />
+        ) : null}
+        {isReusable && voucher.effectiveCooldownSeconds !== null ? (
+          <ReusableRulesCard effectiveCooldownSeconds={voucher.effectiveCooldownSeconds} />
+        ) : null}
+        {/* D44 (spec §7.4 amendment 2026-05-12) — expiry-before-cooldown
+            supporting note. Renders only when REUSABLE AND the
+            availableAgainAt instant is past the expiryDate. Replaces
+            the "Available again in …" countdown copy that would
+            otherwise mislead. Frontend-computed via useReusable — no
+            new backend metadata. The standard hero countdown is
+            already suppressed by passing `msToOpen: null` to the
+            HeroStatusBlock in the REUSABLE branch above; the explicit
+            CTA copy is overridden in the cta useMemo to drop the
+            countdown. */}
+        {isReusable && reusable.cooldownExtendsPastExpiry ? (
+          <Text
+            testID="voucher-detail-expiry-before-available-again"
+            variant="body.sm"
+            style={styles.reusableExpirySupporting}
+          >
+            Offer ends before it becomes available again
+          </Text>
         ) : null}
 
         <MerchantRow
@@ -2059,6 +2205,19 @@ const styles = StyleSheet.create({
   // marginBottom:16 here to keep the 16pt gap consistent.
   redeemedCycleInStack: {
     marginBottom: 16,
+  },
+
+  // M5 Task 10 D44 — REUSABLE expiry-before-cooldown supporting note.
+  // Sits below the ReusableRulesCard / CycleRulesCard slot when the
+  // cooldown window extends past the offer's expiry. Plain Text, not a
+  // card, so it reads as advisory rather than a third nested surface.
+  // Matches the existing horizontal margin used elsewhere (22).
+  reusableExpirySupporting: {
+    marginTop: 12,
+    marginBottom: 4,
+    marginHorizontal: 22,
+    color: '#92400E',  // muted amber — consistent with the TL guidance card's advisory register
+    textAlign: 'center',
   },
 
   // (Hero dimming was previously a wrapping `<View style={heroDimmed}>`

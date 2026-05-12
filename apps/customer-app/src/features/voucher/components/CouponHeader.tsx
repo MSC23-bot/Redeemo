@@ -248,28 +248,33 @@ export function CouponHeader({
           {title}
         </Text>
 
-        {/* Description renders in-column for non-TL voucher types only.
-            TIME_LIMITED voucher hero renders the statusBlock (HeroStatusBlock)
-            OUTSIDE this content View — see the statusBlockSlot below — so it
-            can span the full hero content-box width without being constrained
-            by content's paddingRight (which reserves space for the save badge
-            in the title's column). Spec D6(C) lock + on-device QA fix
-            2026-05-11 ("statusBlock should be bigger but not overlap save badge"). */}
-        {type !== 'TIME_LIMITED' && description ? (
+        {/* Description renders in-column for non-TL / non-REUSABLE voucher
+            types only. TIME_LIMITED + REUSABLE voucher heroes render the
+            statusBlock (HeroStatusBlock) OUTSIDE this content View — see
+            the statusBlockSlot below — so it can span the full hero
+            content-box width without being constrained by content's
+            paddingRight (which reserves space for the save badge in the
+            title's column). Spec D6(C) lock + on-device QA fix
+            2026-05-11. M5 Task 10: REUSABLE follows the same pattern —
+            the eyebrow/countdown in HeroStatusBlock takes the description
+            slot's vertical position. */}
+        {type !== 'TIME_LIMITED' && type !== 'REUSABLE' && description ? (
           <Text variant="body.sm" style={styles.description} numberOfLines={3} ellipsizeMode="tail">
             {description}
           </Text>
         ) : null}
       </View>
 
-      {/* TIME_LIMITED statusBlock slot — outside content so it spans the
-          full hero content-box width. Save badge is positioned absolute
-          at the top of the hero (above the typeBadge + title vertically),
-          so the statusBlock can extend horizontally under the save-badge
-          column without visual overlap — they're at different y ranges.
-          Dimmed alongside content + saveBadge when the voucher is
-          stamped redeemed (PR-B T8h parity). */}
-      {type === 'TIME_LIMITED' && statusBlock ? (
+      {/* TIME_LIMITED + REUSABLE statusBlock slot — outside content so it
+          spans the full hero content-box width. Save badge is positioned
+          absolute at the top of the hero (above the typeBadge + title
+          vertically), so the statusBlock can extend horizontally under
+          the save-badge column without visual overlap — they're at
+          different y ranges. Dimmed alongside content + saveBadge when
+          the voucher is stamped redeemed (PR-B T8h parity). M5 Task 10:
+          REUSABLE uses the same slot for its reusable-available /
+          reusable-cooldown HeroStatusBlock variants. */}
+      {(type === 'TIME_LIMITED' || type === 'REUSABLE') && statusBlock ? (
         <View style={[styles.statusBlockSlot, dimStyle]} testID="coupon-header-status-block-slot">
           {statusBlock}
         </View>
