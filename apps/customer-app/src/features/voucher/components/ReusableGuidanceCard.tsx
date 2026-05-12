@@ -4,27 +4,35 @@ import { Info } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
 
 /**
- * ReusableGuidanceCard — truthful explainer for what the Voucher
- * Detail surface actually shows about REUSABLE codes. Sits between
- * USAGE RULE and ABOUT THIS OFFER on Voucher Detail, parallel
- * placement to the PR #70 TL guidance card.
+ * ReusableGuidanceCard — PRE-REDEMPTION explainer of the REUSABLE
+ * model. Sits between USAGE RULE and ABOUT THIS OFFER inside the
+ * Voucher Detail coupon body, parallel placement to the PR #70 TL
+ * guidance card.
  *
- * Copy contract (Gate E follow-up 2026-05-12, Option B):
- *   • Title: "Your latest code is shown here"
- *   • Body:  "After you redeem, your latest code is available to show
- *            staff for up to 2 hours. Redeeming again creates a new
- *            code and replaces the one shown here."
+ * Copy contract (contextual placement fix 2026-05-12):
+ *   • Title: "Use it again after each redemption"
+ *   • Body:  "Redeem this voucher when you're ready to use it. After
+ *            each redemption, it becomes available again after the
+ *            offer's reusable time."
  *
- * Previous copy ("Your code stays available") was technically untrue
- * from the user's perspective — Voucher Detail surfaces only the
- * LATEST redemption code; redeeming again replaces the prior code in
- * the UI. The new copy is honest about THIS behaviour.
+ * Why pre-redemption framing: this card lives in the body of the
+ * voucher BEFORE the user has redeemed. The earlier copy ("Your
+ * latest code is shown here …") described the post-redemption code
+ * lifecycle and now lives on a separate <ReusableLatestCodeCard>
+ * mounted next to <RedemptionDetailsCard>.
  *
- * Surface treatment matches the TL guidance card in
- * <CouponBody> (`tlGuidance` style block) exactly — pale amber inner
- * card (#FEF7E6), 1px hairline border (rgba(217,119,6,0.18)), and a
- * brand-rose 16pt Info glyph. Mirroring the TL card keeps both
- * advisory surfaces visually consistent across voucher types.
+ * "The offer's reusable time" is intentionally vague to avoid
+ * conflicting with the <ReusableRulesCard> above the coupon (which
+ * says "Available again every 30 minutes") and the USAGE RULE block
+ * directly above this card ("This voucher becomes available again
+ * after each use.").
+ *
+ * Surface treatment unchanged — pale amber inner card (#FEF7E6),
+ * 1px hairline border (rgba(217,119,6,0.18)), brand-rose 16pt Info
+ * glyph. Mirrors the TL guidance card visually so both advisory
+ * surfaces read as the same class.
+ *
+ * Q8 D42 / D43 lock — no "cooldown" or "wait" in customer copy.
  *
  * Spec §7.3, §9 copy ledger, D24.
  */
@@ -35,7 +43,7 @@ const ROSE     = '#E20C04'
 
 export function ReusableGuidanceCard() {
   const a11yLabel =
-    'Your latest code is shown here. After you redeem, your latest code is available to show staff for up to 2 hours. Redeeming again creates a new code and replaces the one shown here.'
+    "Use it again after each redemption. Redeem this voucher when you're ready to use it. After each redemption, it becomes available again after the offer's reusable time."
 
   return (
     <View
@@ -45,10 +53,10 @@ export function ReusableGuidanceCard() {
     >
       <View style={styles.heading}>
         <Info size={16} color={ROSE} strokeWidth={2} />
-        <Text variant="label.md" style={styles.title}>Your latest code is shown here</Text>
+        <Text variant="label.md" style={styles.title}>Use it again after each redemption</Text>
       </View>
       <Text variant="body.sm" style={styles.body}>
-        After you redeem, your latest code is available to show staff for up to 2 hours. Redeeming again creates a new code and replaces the one shown here.
+        Redeem this voucher when you&rsquo;re ready to use it. After each redemption, it becomes available again after the offer&rsquo;s reusable time.
       </Text>
     </View>
   )

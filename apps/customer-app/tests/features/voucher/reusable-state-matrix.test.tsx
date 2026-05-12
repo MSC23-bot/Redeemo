@@ -502,6 +502,87 @@ describe('VoucherDetailScreen — REUSABLE Gate E polish Issue 3: body content p
   })
 })
 
+// ── Contextual placement (2026-05-12): pre-redemption guidance vs
+//    post-redemption latest-code cards by state ───────────────────────
+
+describe('VoucherDetailScreen — REUSABLE pre-redemption vs post-redemption advisory cards', () => {
+  it('state 1 (no redemption): pre-redemption guidance renders; latest-code does NOT', () => {
+    mockVoucherData = reusableVoucher({ availableAgainAt: null, lastRedemption: null })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-reusable-guidance')).toBeTruthy()
+    expect(queryByTestId('voucher-detail-reusable-latest-code')).toBeNull()
+  })
+
+  it('state 2 (recently redeemed, in cooldown): BOTH cards render', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(3 * 60),
+      lastRedemption: {
+        code: 'ABCD1234',
+        redeemedAt: minuteOffsetISO(-30),
+        branch: { id: 'b1', name: 'Main branch' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-reusable-guidance')).toBeTruthy()
+    expect(getByTestId('voucher-detail-reusable-latest-code')).toBeTruthy()
+  })
+
+  it('state 3 (presentation expired, lastRedemption=null): pre-redemption guidance renders; latest-code does NOT', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(60),
+      lastRedemption: null,
+    })
+    const { getByTestId, queryByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-reusable-guidance')).toBeTruthy()
+    expect(queryByTestId('voucher-detail-reusable-latest-code')).toBeNull()
+  })
+
+  it('state 4 (cooldown elapsed, presentation alive): BOTH cards render', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: null,
+      lastRedemption: {
+        code: 'PREV1234',
+        redeemedAt: minuteOffsetISO(-35),
+        branch: { id: 'b1', name: 'Main branch' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    expect(getByTestId('voucher-detail-reusable-guidance')).toBeTruthy()
+    expect(getByTestId('voucher-detail-reusable-latest-code')).toBeTruthy()
+  })
+
+  // Position pin: <ReusableLatestCodeCard> sits AFTER the
+  // RedemptionDetailsCard in the rendered tree (sibling-after mount).
+  it('state 2: latest-code card mounts AFTER RedemptionDetailsCard in the tree', () => {
+    mockVoucherData = reusableVoucher({
+      availableAgainAt: minuteOffsetISO(3 * 60),
+      lastRedemption: {
+        code: 'ABCD1234',
+        redeemedAt: minuteOffsetISO(-30),
+        branch: { id: 'b1', name: 'Main branch' },
+        isValidated: false,
+        validatedAt: null,
+      },
+    })
+    const { getByTestId, toJSON } = wrap(<VoucherDetailScreen />)
+    const details = getByTestId('redemption-details-card')
+    const latest = getByTestId('voucher-detail-reusable-latest-code')
+    expect(details).toBeTruthy()
+    expect(latest).toBeTruthy()
+    // Rough order check: the testID string for latest-code appears
+    // AFTER the details-card testID string in the serialised tree.
+    const json = JSON.stringify(toJSON() ?? '')
+    const detailsIdx = json.indexOf('"redemption-details-card"')
+    const latestIdx  = json.indexOf('"voucher-detail-reusable-latest-code"')
+    expect(detailsIdx).toBeGreaterThanOrEqual(0)
+    expect(latestIdx).toBeGreaterThan(detailsIdx)
+  })
+})
+
 // ── D25: REUSABLE never renders the hero seal at any state ────────────
 
 describe('VoucherDetailScreen — REUSABLE hero seal absence (D25)', () => {

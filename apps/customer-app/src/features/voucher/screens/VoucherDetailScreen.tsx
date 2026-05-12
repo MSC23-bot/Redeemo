@@ -40,6 +40,7 @@ import { BranchPickerSheet, type PickerBranch } from '../components/BranchPicker
 import { PinEntrySheet } from '../components/PinEntrySheet'
 import { SuccessPopup } from '../components/SuccessPopup'
 import { RedemptionDetailsCard } from '../components/RedemptionDetailsCard'
+import { ReusableLatestCodeCard } from '../components/ReusableLatestCodeCard'
 import { ReviewPromptCard } from '../components/ReviewPromptCard'
 import { RedeemedSeal } from '../components/RedeemedSeal'
 import { ShowToStaff } from '../components/ShowToStaff'
@@ -1607,6 +1608,25 @@ export function VoucherDetailScreen() {
                   }}
                 />
               </View>
+              {/* ReusableLatestCodeCard — POST-REDEMPTION explainer of
+                  the code currently shown above. REUSABLE-only. The
+                  parent IIFE has already established that
+                  lastRedemption (in-memory) OR voucher.lastRedemption
+                  (persisted) is present when isReusable reaches this
+                  branch (see the `if (isReusable && !lastRedemption &&
+                  !voucher.lastRedemption) return null` guard above),
+                  so gating on `isReusable` here is sufficient. We also
+                  re-assert the lastRedemption presence defensively to
+                  document the contract at the mount site. The card
+                  intentionally NEVER renders for cycle vouchers
+                  (TIME_LIMITED + cycle states keep the existing
+                  CycleRulesCard + review prompt rhythm). Locked
+                  2026-05-12. */}
+              {isReusable && (lastRedemption != null || voucher.lastRedemption != null) ? (
+                <View style={styles.reusableLatestCodeInStack}>
+                  <ReusableLatestCodeCard />
+                </View>
+              ) : null}
               {/* Review prompt — second entry point into the
                   verified-review flow (PR-C T16, locked 2026-05-09).
                   Mounts immediately after RedemptionDetailsCard in
@@ -2212,6 +2232,14 @@ const styles = StyleSheet.create({
   // brings its own marginTop:16 for the gap.
   redeemedDetailsInStack: {
     marginTop: 16,
+    marginHorizontal: 22,
+  },
+  // ReusableLatestCodeCard wrapper — mirrors `redeemedDetailsInStack`
+  // horizontal margin so the post-redemption advisory aligns with
+  // RedemptionDetailsCard above. marginTop:16 is supplied by the
+  // card's own style (matches ReusableGuidanceCard's card style),
+  // so we only need the horizontal margin here.
+  reusableLatestCodeInStack: {
     marginHorizontal: 22,
   },
   // Review prompt sits 16pt below RedemptionDetailsCard with the same
