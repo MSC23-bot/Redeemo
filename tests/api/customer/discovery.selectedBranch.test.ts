@@ -3,13 +3,22 @@
 // Pattern mirrors discovery.merchant.test.ts.
 
 import 'dotenv/config'
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { getCustomerMerchant } from '../../../src/api/customer/discovery/service'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
+
+// Warm the Neon serverless connection before the first heavy-write test.
+// This file creates fresh merchants per test (unlike sibling files that read
+// pre-seeded data via beforeAll findFirst, which incidentally warms the pool).
+// Without this, the first test races a cold compute under maxWorkers parallelism
+// and hits the 5000ms default test timeout.
+beforeAll(async () => {
+  await prisma.$queryRaw`SELECT 1`
+}, 15000)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixtures
