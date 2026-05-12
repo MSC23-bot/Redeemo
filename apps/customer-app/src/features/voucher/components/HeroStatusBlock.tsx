@@ -1,8 +1,7 @@
-import React, { useEffect } from 'react'
-import { View, StyleSheet } from 'react-native'
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
+import React from 'react'
+import { View, StyleSheet, Platform } from 'react-native'
+import { BlurView } from 'expo-blur'
 import { Text } from '@/design-system/Text'
-import { useMotionScale } from '@/design-system/useMotionScale'
 import { PulsingDot } from '@/design-system/motion/PulsingDot'
 import type { WindowState } from '@/features/voucher/utils/timeLimitedWindow'
 import {
@@ -81,26 +80,34 @@ export function HeroStatusBlock(props: HeroStatusBlockProps) {
   const underOneHourTick = isUnderOneHourTick(props)
   const liveLabel = deriveLiveRegionLabel(props, content)
 
-  // M5 Gate E polish (Issue 4 + 2026-05-12 follow-up) — REUSABLE-available
-  // hybrid alive treatment per owner Direction C.
+  // M5 Gate E follow-up (2026-05-12 Direction D, REVISED post-device-QA) —
+  // REUSABLE-available hero treatment.
   //
-  // Two coordinated signals on REUSABLE-AVAILABLE only:
-  //   (a) Warm-cream breathing border ring around the hero card. Cream
-  //       reads against ANY voucher gradient (the previous green ring
-  //       was camouflaged on REUSABLE's mint-teal background).
-  //   (b) Small green <PulsingDot> rendered INLINE with the eyebrow as
-  //       a localised trust-signal point, mirroring the M3 ShowToStaff
-  //       LIVE-dot pattern.
+  // The cream breathing border (Direction C) read as subtle on device.
+  // Owner direction (Direction D): turn the hero status CARD itself into
+  // a navy frosted-glass surface for the alive state, using Redeemo's
+  // secondary navy (`color.navy = #010C35`). Navy sits opposite the
+  // REUSABLE mint-teal gradient (#84DCC2 → #198375) on the hue wheel,
+  // so the card now reads as a distinct surface against the green hero
+  // — contrast comes from the tinted glass background, NOT from a ring.
   //
-  // Cooldown stays calm/neutral; TL active/urgent are unaffected — they
-  // already carry urgency in their eyebrow + progress bar colour bands.
-  // Reduce-motion → static visible ring + PulsingDot internally snaps
-  // to its own static state via useMotionScale.
+  // The previous <AliveRing /> name + testID `hero-status-block-alive-ring`
+  // is retained for backward compatibility, but its semantics are
+  // repurposed: it now mounts a navy-tinted BlurView overlay (iOS) /
+  // navy-tinted View fallback (Android) that sits behind the eyebrow /
+  // primary / supporting / bar content, painting the navy-glass surface.
+  // `pointerEvents='none'` preserved so taps pass through. No animation
+  // — static premium glass treatment. PulsingDot continues to carry the
+  // motion-based "alive" signal inline next to the eyebrow.
+  //
+  // Cooldown stays calm/neutral (white-frosted, no navy treatment); TL
+  // active/urgent are unaffected — they already carry urgency in their
+  // eyebrow + progress bar colour bands.
   const isAlive = windowState === 'reusable-available'
 
   return (
-    <View testID="hero-status-block" style={styles.root}>
-      {isAlive ? <AliveRing /> : null}
+    <View testID="hero-status-block" style={[styles.root, isAlive && styles.rootAlive]}>
+      {isAlive ? <NavyGlassOverlay /> : null}
       <View style={styles.eyebrowRow}>
         {isAlive ? (
           <PulsingDot
@@ -390,59 +397,55 @@ function eyebrowDayLabel(boundary: Date, now: Date): string {
 }
 
 /**
- * M5 Gate E polish — REUSABLE-available "alive" treatment.
+ * M5 Gate E follow-up (Direction D 2026-05-12) — REUSABLE-available
+ * navy frosted-glass overlay.
  *
- * Breathing warm-cream border ring that pulses over a 2.4s cycle.
- * Sits inside <View style={styles.root}> as an absolute overlay so it
- * doesn't interfere with the eyebrow / primary / supporting / progress
- * bar layout. Colour is the brand cream tone expressed in rgba so the
- * opacity oscillation works directly on the border colour (no
- * compositing tricks). Cream reads against ANY voucher gradient,
- * which the previous green ring (#34D399) didn't — REUSABLE's
- * mint-teal hero camouflaged the green ring almost completely.
+ * Painted as an absolute fill INSIDE `<View style={styles.root}>` so
+ * it sits behind the eyebrow / primary / supporting / progress-bar
+ * content (z-order: glass overlay below, content above — achieved by
+ * mounting the overlay before content children).
  *
- * Opacity range 0.55 ↔ 0.92 over a 2.4s ease-in-out cycle. Bottom-out
- * is bumped above 0.5 (vs the previous 0.45 green) so the cream
- * hairline stays clearly visible at every point in the breath cycle.
+ * Construction:
+ *   • iOS — `<BlurView intensity={28} tint="dark" />` provides the
+ *     true frosted-glass effect, sampling and blurring the underlying
+ *     voucher gradient. A navy-tinted overlay (`color.navy` at α 0.42)
+ *     sits on top of the BlurView to push the hue from neutral-dark
+ *     toward Redeemo navy specifically.
+ *   • Android — BlurView is unreliable on RN/Expo Android (matches the
+ *     established CouponHeader nav-button pattern), so we fall back to
+ *     a single navy-tinted View at α 0.55 to approximate the same
+ *     visual register without true blur.
  *
- * Reduce-motion: when `useMotionScale()` returns 0 we render a
- * STATIC cream ring at opacity 0.78 — clearly visible mid-range; no
- * oscillation. Mirrors PulsingDot pattern.
+ * Both paths add a subtle white inner-highlight hairline (α 0.18) to
+ * give the card edge definition — a tell-tale glass affordance. Static
+ * treatment; no animation. The "alive" motion signal is carried solely
+ * by the inline <PulsingDot /> next to the eyebrow.
  *
- * react-native-reanimated is mocked at the test-setup level
- * (tests/setup.ts) so withRepeat/withTiming are no-ops in jest; the
- * ring still mounts, surfacing the testID hooks the suite checks.
+ * The testID `hero-status-block-alive-ring` is preserved from the
+ * previous cream-ring implementation so existing state-matrix tests
+ * (REUSABLE-available renders / cooldown / TL / reduced-motion) keep
+ * working — the surface semantics changed, but the gating contract
+ * (REUSABLE-available only) is identical.
  */
-function AliveRing() {
-  const opacity = useSharedValue(0.92)
-  const motion  = useMotionScale()
-
-  useEffect(() => {
-    if (motion <= 0) {
-      // Reduce-motion: snap to static visible opacity.
-      opacity.value = 0.78
-      return
-    }
-    // 2.4s cycle, ease-in-out — slow, calm breathing. Bottom-out at
-    // 0.55 so the cream hairline stays clearly visible throughout the
-    // breath (continuous trust signal).
-    opacity.value = withRepeat(
-      withTiming(0.55, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true,
-    )
-  }, [opacity, motion])
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-  }))
-
+function NavyGlassOverlay() {
   return (
-    <Animated.View
+    <View
       testID="hero-status-block-alive-ring"
       pointerEvents="none"
-      style={[styles.aliveRing, animatedStyle]}
-    />
+      style={styles.glassOverlay}
+    >
+      {Platform.OS === 'android' ? (
+        <View style={[StyleSheet.absoluteFillObject, styles.glassFallbackAndroid]} />
+      ) : (
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFillObject} />
+      )}
+      {/* Navy hue layer — pushes the frosted surface toward Redeemo
+          navy. iOS BlurView alone reads as a generic dark-glass; this
+          tinted layer makes it brand-specific. */}
+      <View style={[StyleSheet.absoluteFillObject, styles.glassNavyTint]} />
+      {/* Subtle white inner hairline — premium glass-edge affordance. */}
+      <View style={[StyleSheet.absoluteFillObject, styles.glassInnerHighlight]} />
+    </View>
   )
 }
 
@@ -469,24 +472,49 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  // M5 Gate E polish (Issue 4, follow-up 2026-05-12) — REUSABLE-available
-  // alive ring. Slightly inset from the root's outer edge so the cream
-  // hairline reads as a deliberate inner accent (not a competing
-  // border). Border radius shaved 1pt vs root (11 vs 12) to compensate
-  // for the 1pt inset on all sides. `pointerEvents='none'` on the
-  // wrapper so taps pass through to root content. Cream tone (warm
-  // off-white) contrasts on ANY voucher hero gradient including
-  // REUSABLE's mint-teal — the previous #34D399 green was effectively
-  // invisible against that background.
-  aliveRing: {
+  // M5 Gate E follow-up (Direction D 2026-05-12) — when REUSABLE is
+  // available, the hero status CARD itself becomes navy frosted glass.
+  // We zero out the original white-tinted root background + border
+  // (those were the white-frosted treatment) so the <NavyGlassOverlay />
+  // child paints the surface end-to-end without any leftover white
+  // wash bleeding through the corners.
+  rootAlive: {
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
+  },
+  // M5 Gate E follow-up — navy frosted-glass overlay. Absolute fill of
+  // the root card, mounted before the content children so the glass
+  // sits BEHIND the eyebrow/primary/supporting/bar. Border radius
+  // matches the root (12) so corner clipping aligns. `overflow:
+  // 'hidden'` so the layered children stay within the rounded corners.
+  glassOverlay: {
     position: 'absolute',
-    top: 1,
-    left: 1,
-    right: 1,
-    bottom: 1,
-    borderWidth: 2,
-    borderRadius: 11,
-    borderColor: 'rgba(255, 248, 235, 1)',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  // iOS BlurView is unreliable on Android (matches the established
+  // CouponHeader nav-button pattern). Fallback: opaque-enough navy
+  // tint at α 0.55 so the same brand surface lands on Android without
+  // requiring real blur. iOS uses a lower α (0.42) on top of the
+  // genuine BlurView for a true frosted look.
+  glassFallbackAndroid: {
+    backgroundColor: 'rgba(1, 12, 53, 0.55)',  // color.navy = #010C35 @ 0.55
+  },
+  glassNavyTint: {
+    backgroundColor: 'rgba(1, 12, 53, 0.42)',  // color.navy = #010C35 @ 0.42
+  },
+  // Subtle white inner hairline — premium glass-edge affordance, also
+  // visually separates the glass card from the green REUSABLE
+  // gradient behind. Border colour reads as a delicate highlight on
+  // navy, not a competing structural border.
+  glassInnerHighlight: {
+    borderWidth: 1,
+    borderRadius: 12,
+    borderColor: 'rgba(255,255,255,0.18)',
   },
   // Eyebrow row hosts the inline trust-signal PulsingDot (REUSABLE-
   // available only) plus the eyebrow Text. Gap pulls the dot tight to
