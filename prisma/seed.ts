@@ -682,6 +682,64 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       email: 'hello@mykerala.test',
     },
   },
+  // Karaara — Huddersfield (Plan 4 precursor: non-London, non-South-East fixture).
+  // Chai and Indian street kitchen. Category: Cafe & Coffee (chai-led counter-service
+  // model). Descriptor resolves to "Indian Cafe" — closest available fit; taxonomy
+  // gaps (Chai, Indian Street Food, Snacks, Casual Dining, Mocktails) noted for
+  // future taxonomy-extension work.
+  {
+    id: 'tax-merchant-karaara-001',
+    businessName: 'Karaara',
+    tradingName: 'Karaara',
+    description: 'Chai and Indian street kitchen in Huddersfield — handcrafted chai, small plates, and bold flavours in a casual counter-service setting.',
+    parentCategoryName: 'Food & Drink',
+    subcategoryName: 'Cafe & Coffee',
+    primaryDescriptorTag: { label: 'Indian', type: 'CUISINE' },
+    tags: [
+      { label: 'Indian',              type: 'CUISINE'    },
+      { label: 'Halal',               type: 'HIGHLIGHT'  },
+      { label: 'Vegetarian-Friendly', type: 'HIGHLIGHT'  },
+      { label: 'Independent',         type: 'HIGHLIGHT'  },
+      { label: 'Takeaway Available',  type: 'DETAIL'     },
+    ],
+    highlights: [
+      { label: 'Halal',               sortOrder: 0 },
+      { label: 'Vegetarian-Friendly', sortOrder: 1 },
+      { label: 'Independent',         sortOrder: 2 },
+    ],
+    amenities: ['Wi-Fi', 'Walk-Ins Welcome'],
+    vouchers: [
+      {
+        code: 'KAR-RMV-001',
+        isMandatory: true,
+        type: 'BOGO',
+        title: 'Buy One Chai, Get One Free',
+        description: 'Buy any handcrafted chai and get a second chai of equal or lesser value free.',
+        terms: 'In-house only. Cannot be combined with other offers. Once per cycle.',
+        estimatedSaving: 3.00,
+      },
+      {
+        code: 'KAR-RMV-002',
+        isMandatory: true,
+        type: 'FREEBIE',
+        title: 'Free Samosa with Any Chai',
+        description: 'Order any chai and get a complimentary samosa.',
+        terms: 'In-house only. Cannot be combined with other offers. Once per cycle.',
+        estimatedSaving: 2.00,
+      },
+    ],
+    branch: {
+      id:           'tax-branch-karaara-001',
+      name:         'Karaara — Huddersfield',
+      addressLine1: '11 Cross Church Street',
+      city:         'Huddersfield',
+      postcode:     'HD1 2PY',
+      latitude:     53.6463,
+      longitude:    -1.7809,
+      phone:        '+441484500900',
+      email:        'hello@karaara.test',
+    },
+  },
 ]
 
 /**
