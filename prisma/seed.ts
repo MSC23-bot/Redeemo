@@ -12,6 +12,7 @@ import {
 import { REDUNDANT_HIGHLIGHTS } from './seed-data/redundantHighlights'
 import { AMENITIES } from './seed-data/amenities'
 import { CATEGORY_AMENITIES } from './seed-data/categoryAmenities'
+import { ONSPD_LOCALITIES } from './seed-data/onspd-localities'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
@@ -1272,6 +1273,43 @@ async function seedCategoryAmenities(): Promise<void> {
   console.log(`Seeded ${rows.length} CategoryAmenity rules`)
 }
 
+async function seedLocalities(): Promise<void> {
+  let inserted = 0
+  let skipped = 0
+  for (const loc of ONSPD_LOCALITIES) {
+    const result = await prisma.locality.upsert({
+      where: { slug: loc.slug },
+      create: {
+        name: loc.name,
+        slug: loc.slug,
+        postTown: loc.postTown,
+        ladDistrict: loc.ladDistrict,
+        adminCounty: loc.adminCounty,
+        region: loc.region,
+        country: loc.country,
+        centerLat: loc.centerLat,
+        centerLng: loc.centerLng,
+        populationTier: loc.populationTier,
+      },
+      update: {
+        // Update everything except marketId/needsReview (those are managed by other scripts)
+        name: loc.name,
+        postTown: loc.postTown,
+        ladDistrict: loc.ladDistrict,
+        adminCounty: loc.adminCounty,
+        region: loc.region,
+        country: loc.country,
+        centerLat: loc.centerLat,
+        centerLng: loc.centerLng,
+        populationTier: loc.populationTier,
+      },
+    })
+    if (result.createdAt.getTime() === result.updatedAt.getTime()) inserted++
+    else skipped++
+  }
+  console.log(`Seeded localities: ${inserted} new, ${skipped} existing`)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1330,6 +1368,9 @@ async function main() {
   await seedRedundantHighlights()
   await seedAmenities()
   await seedCategoryAmenities()
+
+  // ── Localities (UK gazetteer, ONSPD-derived; required before Branch/User writes can resolve postcodes) ──
+  await seedLocalities()
 
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')

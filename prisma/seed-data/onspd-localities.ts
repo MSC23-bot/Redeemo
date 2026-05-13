@@ -9448,7 +9448,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Holt (Dorset)",
-    "slug": "holt-dorset",
+    "slug": "holt-dorset-dorset",
     "postTown": null,
     "ladDistrict": "Dorset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -14560,7 +14560,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "(unknown LAD)",
-    "slug": "unknown-lad-unknown-lad",
+    "slug": "unknown-lad-unknown-lad-northern-ireland",
     "postTown": null,
     "ladDistrict": "(unknown LAD)",
     "adminCounty": null,
@@ -16276,7 +16276,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bolton (Westmorland and Furness)",
-    "slug": "bolton-westmorland-and-furness",
+    "slug": "bolton-westmorland-and-furness-westmorland-and-furness",
     "postTown": null,
     "ladDistrict": "Westmorland and Furness",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -18520,7 +18520,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Langley",
-    "slug": "langley-uttlesford",
+    "slug": "langley-uttlesford-england",
     "postTown": null,
     "ladDistrict": "Uttlesford",
     "adminCounty": "Essex",
@@ -18568,7 +18568,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Linton",
-    "slug": "linton-south-cambridgeshire",
+    "slug": "linton-south-cambridgeshire-england",
     "postTown": null,
     "ladDistrict": "South Cambridgeshire",
     "adminCounty": "Cambridgeshire",
@@ -18988,7 +18988,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newton",
-    "slug": "newton-south-cambridgeshire",
+    "slug": "newton-south-cambridgeshire-england",
     "postTown": null,
     "ladDistrict": "South Cambridgeshire",
     "adminCounty": "Cambridgeshire",
@@ -19048,7 +19048,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Kingston",
-    "slug": "kingston-south-cambridgeshire",
+    "slug": "kingston-south-cambridgeshire-england",
     "postTown": null,
     "ladDistrict": "South Cambridgeshire",
     "adminCounty": "Cambridgeshire",
@@ -19732,7 +19732,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Sutton (East Cambridgeshire)",
-    "slug": "sutton-east-cambridgeshire",
+    "slug": "sutton-east-cambridgeshire-east-cambridgeshire",
     "postTown": null,
     "ladDistrict": "East Cambridgeshire",
     "adminCounty": "Cambridgeshire",
@@ -20908,7 +20908,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Marshfield",
-    "slug": "marshfield-newport",
+    "slug": "marshfield-newport-wales",
     "postTown": null,
     "ladDistrict": "Newport",
     "adminCounty": "(pseudo) Wales",
@@ -22084,7 +22084,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Nelson (Caerphilly)",
-    "slug": "nelson-caerphilly",
+    "slug": "nelson-caerphilly-caerphilly",
     "postTown": null,
     "ladDistrict": "Caerphilly",
     "adminCounty": "(pseudo) Wales",
@@ -27928,7 +27928,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newton",
-    "slug": "newton-babergh",
+    "slug": "newton-babergh-england",
     "postTown": null,
     "ladDistrict": "Babergh",
     "adminCounty": "Suffolk",
@@ -29404,7 +29404,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Fordham",
-    "slug": "fordham-colchester",
+    "slug": "fordham-colchester-england",
     "postTown": null,
     "ladDistrict": "Colchester",
     "adminCounty": "Essex",
@@ -31792,7 +31792,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Ash (Dover)",
-    "slug": "ash-dover",
+    "slug": "ash-dover-dover",
     "postTown": null,
     "ladDistrict": "Dover",
     "adminCounty": "Kent",
@@ -32008,7 +32008,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Kingston (Canterbury)",
-    "slug": "kingston-canterbury",
+    "slug": "kingston-canterbury-canterbury",
     "postTown": null,
     "ladDistrict": "Canterbury",
     "adminCounty": "Kent",
@@ -32656,7 +32656,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Carlton",
-    "slug": "carlton-hinckley-and-bosworth",
+    "slug": "carlton-hinckley-and-bosworth-england",
     "postTown": null,
     "ladDistrict": "Hinckley and Bosworth",
     "adminCounty": "Leicestershire",
@@ -38260,7 +38260,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Linton",
-    "slug": "linton-south-derbyshire",
+    "slug": "linton-south-derbyshire-england",
     "postTown": null,
     "ladDistrict": "South Derbyshire",
     "adminCounty": "Derbyshire",
@@ -38404,7 +38404,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Stretton",
-    "slug": "stretton-east-staffordshire",
+    "slug": "stretton-east-staffordshire-england",
     "postTown": null,
     "ladDistrict": "East Staffordshire",
     "adminCounty": "Staffordshire",
@@ -39304,7 +39304,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Middleton",
-    "slug": "middleton-derbyshire-dales",
+    "slug": "middleton-derbyshire-dales-england",
     "postTown": null,
     "ladDistrict": "Derbyshire Dales",
     "adminCounty": "Derbyshire",
@@ -39976,7 +39976,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Stretton (North East Derbyshire)",
-    "slug": "stretton-north-east-derbyshire",
+    "slug": "stretton-north-east-derbyshire-north-east-derbyshire",
     "postTown": null,
     "ladDistrict": "North East Derbyshire",
     "adminCounty": "Derbyshire",
@@ -40924,7 +40924,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Willington",
-    "slug": "willington-south-derbyshire",
+    "slug": "willington-south-derbyshire-england",
     "postTown": null,
     "ladDistrict": "South Derbyshire",
     "adminCounty": "Derbyshire",
@@ -41008,7 +41008,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hatton",
-    "slug": "hatton-south-derbyshire",
+    "slug": "hatton-south-derbyshire-england",
     "postTown": null,
     "ladDistrict": "South Derbyshire",
     "adminCounty": "Derbyshire",
@@ -43372,7 +43372,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Barton (North Yorkshire)",
-    "slug": "barton-north-yorkshire",
+    "slug": "barton-north-yorkshire-north-yorkshire",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -44584,7 +44584,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Chilton",
-    "slug": "chilton-county-durham",
+    "slug": "chilton-county-durham-england",
     "postTown": null,
     "ladDistrict": "County Durham",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -47104,7 +47104,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Whitley",
-    "slug": "whitley-north-yorkshire",
+    "slug": "whitley-north-yorkshire-england",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -47488,7 +47488,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Carlton",
-    "slug": "carlton-north-yorkshire",
+    "slug": "carlton-north-yorkshire-england",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -48112,7 +48112,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Broughton",
-    "slug": "broughton-north-lincolnshire",
+    "slug": "broughton-north-lincolnshire-england",
     "postTown": null,
     "ladDistrict": "North Lincolnshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -48352,7 +48352,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Scotton",
-    "slug": "scotton-west-lindsey",
+    "slug": "scotton-west-lindsey-england",
     "postTown": null,
     "ladDistrict": "West Lindsey",
     "adminCounty": "Lincolnshire",
@@ -48448,7 +48448,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Marton",
-    "slug": "marton-west-lindsey",
+    "slug": "marton-west-lindsey-england",
     "postTown": null,
     "ladDistrict": "West Lindsey",
     "adminCounty": "Lincolnshire",
@@ -49756,7 +49756,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wootton (North Lincolnshire)",
-    "slug": "wootton-north-lincolnshire",
+    "slug": "wootton-north-lincolnshire-north-lincolnshire",
     "postTown": null,
     "ladDistrict": "North Lincolnshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -56356,7 +56356,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Seaton",
-    "slug": "seaton-east-devon",
+    "slug": "seaton-east-devon-england",
     "postTown": null,
     "ladDistrict": "East Devon",
     "adminCounty": "Devon",
@@ -57256,7 +57256,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bampton (Mid Devon)",
-    "slug": "bampton-mid-devon",
+    "slug": "bampton-mid-devon-mid-devon",
     "postTown": null,
     "ladDistrict": "Mid Devon",
     "adminCounty": "Devon",
@@ -62320,7 +62320,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Coleford",
-    "slug": "coleford-forest-of-dean",
+    "slug": "coleford-forest-of-dean-england",
     "postTown": null,
     "ladDistrict": "Forest of Dean",
     "adminCounty": "Gloucestershire",
@@ -63928,7 +63928,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Swindon (Cheltenham)",
-    "slug": "swindon-cheltenham",
+    "slug": "swindon-cheltenham-cheltenham",
     "postTown": null,
     "ladDistrict": "Cheltenham",
     "adminCounty": "Gloucestershire",
@@ -63976,7 +63976,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Southam",
-    "slug": "southam-tewkesbury",
+    "slug": "southam-tewkesbury-england",
     "postTown": null,
     "ladDistrict": "Tewkesbury",
     "adminCounty": "Gloucestershire",
@@ -64840,7 +64840,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Mickleton",
-    "slug": "mickleton-cotswold",
+    "slug": "mickleton-cotswold-england",
     "postTown": null,
     "ladDistrict": "Cotswold",
     "adminCounty": "Gloucestershire",
@@ -65056,7 +65056,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Horsley (Stroud)",
-    "slug": "horsley-stroud",
+    "slug": "horsley-stroud-stroud",
     "postTown": null,
     "ladDistrict": "Stroud",
     "adminCounty": "Gloucestershire",
@@ -65572,7 +65572,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Langford",
-    "slug": "langford-west-oxfordshire",
+    "slug": "langford-west-oxfordshire-england",
     "postTown": null,
     "ladDistrict": "West Oxfordshire",
     "adminCounty": "Oxfordshire",
@@ -66496,7 +66496,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bentley",
-    "slug": "bentley-east-hampshire",
+    "slug": "bentley-east-hampshire-england",
     "postTown": null,
     "ladDistrict": "East Hampshire",
     "adminCounty": "Hampshire",
@@ -67000,7 +67000,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Ripley",
-    "slug": "ripley-guildford",
+    "slug": "ripley-guildford-england",
     "postTown": null,
     "ladDistrict": "Guildford",
     "adminCounty": "Surrey",
@@ -68680,7 +68680,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Shalford",
-    "slug": "shalford-guildford",
+    "slug": "shalford-guildford-england",
     "postTown": null,
     "ladDistrict": "Guildford",
     "adminCounty": "Surrey",
@@ -68788,7 +68788,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Sandhurst",
-    "slug": "sandhurst-bracknell-forest",
+    "slug": "sandhurst-bracknell-forest-england",
     "postTown": null,
     "ladDistrict": "Bracknell Forest",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -72112,7 +72112,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Haddenham",
-    "slug": "haddenham-buckinghamshire",
+    "slug": "haddenham-buckinghamshire-england",
     "postTown": null,
     "ladDistrict": "Buckinghamshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -72820,7 +72820,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Whitchurch",
-    "slug": "whitchurch-buckinghamshire",
+    "slug": "whitchurch-buckinghamshire-england",
     "postTown": null,
     "ladDistrict": "Buckinghamshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -73408,7 +73408,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Coleshill (Buckinghamshire)",
-    "slug": "coleshill-buckinghamshire",
+    "slug": "coleshill-buckinghamshire-buckinghamshire",
     "postTown": null,
     "ladDistrict": "Buckinghamshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -76912,7 +76912,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Preston",
-    "slug": "preston-east-riding-of-yorkshire",
+    "slug": "preston-east-riding-of-yorkshire-england",
     "postTown": null,
     "ladDistrict": "East Riding of Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -76924,7 +76924,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Easington",
-    "slug": "easington-east-riding-of-yorkshire",
+    "slug": "easington-east-riding-of-yorkshire-england",
     "postTown": null,
     "ladDistrict": "East Riding of Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -77164,7 +77164,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newport (East Riding of Yorkshire)",
-    "slug": "newport-east-riding-of-yorkshire",
+    "slug": "newport-east-riding-of-yorkshire-east-riding-of-yorkshire",
     "postTown": null,
     "ladDistrict": "East Riding of Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -78424,7 +78424,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Alderton (East Suffolk)",
-    "slug": "alderton-east-suffolk",
+    "slug": "alderton-east-suffolk-east-suffolk",
     "postTown": null,
     "ladDistrict": "East Suffolk",
     "adminCounty": "Suffolk",
@@ -78484,7 +78484,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Tunstall (East Suffolk)",
-    "slug": "tunstall-east-suffolk",
+    "slug": "tunstall-east-suffolk-east-suffolk",
     "postTown": null,
     "ladDistrict": "East Suffolk",
     "adminCounty": "Suffolk",
@@ -79516,7 +79516,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bacton",
-    "slug": "bacton-mid-suffolk",
+    "slug": "bacton-mid-suffolk-england",
     "postTown": null,
     "ladDistrict": "Mid Suffolk",
     "adminCounty": "Suffolk",
@@ -80128,7 +80128,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Middleton",
-    "slug": "middleton-east-suffolk",
+    "slug": "middleton-east-suffolk-england",
     "postTown": null,
     "ladDistrict": "East Suffolk",
     "adminCounty": "Suffolk",
@@ -81268,7 +81268,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hopton",
-    "slug": "hopton-west-suffolk",
+    "slug": "hopton-west-suffolk-england",
     "postTown": null,
     "ladDistrict": "West Suffolk",
     "adminCounty": "Suffolk",
@@ -81400,7 +81400,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Roydon (South Norfolk)",
-    "slug": "roydon-south-norfolk",
+    "slug": "roydon-south-norfolk-south-norfolk",
     "postTown": null,
     "ladDistrict": "South Norfolk",
     "adminCounty": "Norfolk",
@@ -82576,7 +82576,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Barrow (West Suffolk)",
-    "slug": "barrow-west-suffolk",
+    "slug": "barrow-west-suffolk-west-suffolk",
     "postTown": null,
     "ladDistrict": "West Suffolk",
     "adminCounty": "Suffolk",
@@ -83116,7 +83116,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Stanton",
-    "slug": "stanton-west-suffolk",
+    "slug": "stanton-west-suffolk-england",
     "postTown": null,
     "ladDistrict": "West Suffolk",
     "adminCounty": "Suffolk",
@@ -83260,7 +83260,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Norton",
-    "slug": "norton-mid-suffolk",
+    "slug": "norton-mid-suffolk-england",
     "postTown": null,
     "ladDistrict": "Mid Suffolk",
     "adminCounty": "Suffolk",
@@ -84124,7 +84124,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bentley (Babergh)",
-    "slug": "bentley-babergh",
+    "slug": "bentley-babergh-babergh",
     "postTown": null,
     "ladDistrict": "Babergh",
     "adminCounty": "Suffolk",
@@ -84184,7 +84184,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Holbrook",
-    "slug": "holbrook-babergh",
+    "slug": "holbrook-babergh-england",
     "postTown": null,
     "ladDistrict": "Babergh",
     "adminCounty": "Suffolk",
@@ -84820,7 +84820,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Headley",
-    "slug": "headley-mole-valley",
+    "slug": "headley-mole-valley-england",
     "postTown": null,
     "ladDistrict": "Mole Valley",
     "adminCounty": "Surrey",
@@ -86860,7 +86860,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bootle (Cumberland)",
-    "slug": "bootle-cumberland",
+    "slug": "bootle-cumberland-cumberland",
     "postTown": null,
     "ladDistrict": "Cumberland",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -87424,7 +87424,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Middleton",
-    "slug": "middleton-lancaster",
+    "slug": "middleton-lancaster-england",
     "postTown": null,
     "ladDistrict": "Lancaster",
     "adminCounty": "Lancashire",
@@ -87964,7 +87964,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Stainton",
-    "slug": "stainton-westmorland-and-furness",
+    "slug": "stainton-westmorland-and-furness-england",
     "postTown": null,
     "ladDistrict": "Westmorland and Furness",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -89560,7 +89560,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Belton",
-    "slug": "belton-north-west-leicestershire",
+    "slug": "belton-north-west-leicestershire-england",
     "postTown": null,
     "ladDistrict": "North West Leicestershire",
     "adminCounty": "Leicestershire",
@@ -90208,7 +90208,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Langham",
-    "slug": "langham-rutland",
+    "slug": "langham-rutland-england",
     "postTown": null,
     "ladDistrict": "Rutland",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -90556,7 +90556,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Manton",
-    "slug": "manton-rutland",
+    "slug": "manton-rutland-england",
     "postTown": null,
     "ladDistrict": "Rutland",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -90832,7 +90832,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Foxton",
-    "slug": "foxton-harborough",
+    "slug": "foxton-harborough-england",
     "postTown": null,
     "ladDistrict": "Harborough",
     "adminCounty": "Leicestershire",
@@ -91084,7 +91084,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Great Easton",
-    "slug": "great-easton-harborough",
+    "slug": "great-easton-harborough-england",
     "postTown": null,
     "ladDistrict": "Harborough",
     "adminCounty": "Leicestershire",
@@ -93172,7 +93172,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Thurlaston (Blaby)",
-    "slug": "thurlaston-blaby",
+    "slug": "thurlaston-blaby-blaby",
     "postTown": null,
     "ladDistrict": "Blaby",
     "adminCounty": "Leicestershire",
@@ -93520,7 +93520,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Overton",
-    "slug": "overton-wrexham",
+    "slug": "overton-wrexham-wales",
     "postTown": null,
     "ladDistrict": "Wrexham",
     "adminCounty": "(pseudo) Wales",
@@ -93676,7 +93676,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Holt",
-    "slug": "holt-wrexham",
+    "slug": "holt-wrexham-wales",
     "postTown": null,
     "ladDistrict": "Wrexham",
     "adminCounty": "(pseudo) Wales",
@@ -97012,7 +97012,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Ingham",
-    "slug": "ingham-west-lindsey",
+    "slug": "ingham-west-lindsey-england",
     "postTown": null,
     "ladDistrict": "West Lindsey",
     "adminCounty": "Lincolnshire",
@@ -98284,7 +98284,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Alford",
-    "slug": "alford-east-lindsey",
+    "slug": "alford-east-lindsey-england",
     "postTown": null,
     "ladDistrict": "East Lindsey",
     "adminCounty": "Lincolnshire",
@@ -98392,7 +98392,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Welton (West Lindsey)",
-    "slug": "welton-west-lindsey",
+    "slug": "welton-west-lindsey-west-lindsey",
     "postTown": null,
     "ladDistrict": "West Lindsey",
     "adminCounty": "Lincolnshire",
@@ -99304,7 +99304,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Waddington (North Kesteven)",
-    "slug": "waddington-north-kesteven",
+    "slug": "waddington-north-kesteven-north-kesteven",
     "postTown": null,
     "ladDistrict": "North Kesteven",
     "adminCounty": "Lincolnshire",
@@ -100828,7 +100828,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Otley",
-    "slug": "otley-leeds",
+    "slug": "otley-leeds-england",
     "postTown": null,
     "ladDistrict": "Leeds",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -101836,7 +101836,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Morley",
-    "slug": "morley-leeds",
+    "slug": "morley-leeds-england",
     "postTown": null,
     "ladDistrict": "Leeds",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -102196,7 +102196,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Toddington",
-    "slug": "toddington-central-bedfordshire",
+    "slug": "toddington-central-bedfordshire-england",
     "postTown": null,
     "ladDistrict": "Central Bedfordshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -102400,7 +102400,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wing",
-    "slug": "wing-buckinghamshire",
+    "slug": "wing-buckinghamshire-england",
     "postTown": null,
     "ladDistrict": "Buckinghamshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -104308,7 +104308,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Leeds",
-    "slug": "leeds-maidstone",
+    "slug": "leeds-maidstone-england",
     "postTown": null,
     "ladDistrict": "Maidstone",
     "adminCounty": "Kent",
@@ -104488,7 +104488,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Langley (Maidstone)",
-    "slug": "langley-maidstone",
+    "slug": "langley-maidstone-maidstone",
     "postTown": null,
     "ladDistrict": "Maidstone",
     "adminCounty": "Kent",
@@ -104860,7 +104860,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Higham",
-    "slug": "higham-gravesham",
+    "slug": "higham-gravesham-england",
     "postTown": null,
     "ladDistrict": "Gravesham",
     "adminCounty": "Kent",
@@ -106660,7 +106660,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Clapham",
-    "slug": "clapham-bedford",
+    "slug": "clapham-bedford-england",
     "postTown": null,
     "ladDistrict": "Bedford",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -106900,7 +106900,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Oakley (Bedford)",
-    "slug": "oakley-bedford",
+    "slug": "oakley-bedford-bedford",
     "postTown": null,
     "ladDistrict": "Bedford",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -107032,7 +107032,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wootton",
-    "slug": "wootton-bedford",
+    "slug": "wootton-bedford-england",
     "postTown": null,
     "ladDistrict": "Bedford",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -107440,7 +107440,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Willington (Bedford)",
-    "slug": "willington-bedford",
+    "slug": "willington-bedford-bedford",
     "postTown": null,
     "ladDistrict": "Bedford",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -108928,7 +108928,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Horsley (Northumberland)",
-    "slug": "horsley-northumberland",
+    "slug": "horsley-northumberland-northumberland",
     "postTown": null,
     "ladDistrict": "Northumberland",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -109540,7 +109540,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Blyth (Northumberland)",
-    "slug": "blyth-northumberland",
+    "slug": "blyth-northumberland-northumberland",
     "postTown": null,
     "ladDistrict": "Northumberland",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -110872,7 +110872,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Felton (Northumberland)",
-    "slug": "felton-northumberland",
+    "slug": "felton-northumberland-northumberland",
     "postTown": null,
     "ladDistrict": "Northumberland",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -112132,7 +112132,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newton",
-    "slug": "newton-rushcliffe",
+    "slug": "newton-rushcliffe-england",
     "postTown": null,
     "ladDistrict": "Rushcliffe",
     "adminCounty": "Nottinghamshire",
@@ -113128,7 +113128,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Gamston (Rushcliffe)",
-    "slug": "gamston-rushcliffe",
+    "slug": "gamston-rushcliffe-rushcliffe",
     "postTown": null,
     "ladDistrict": "Rushcliffe",
     "adminCounty": "Nottinghamshire",
@@ -113464,7 +113464,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wellow",
-    "slug": "wellow-newark-and-sherwood",
+    "slug": "wellow-newark-and-sherwood-england",
     "postTown": null,
     "ladDistrict": "Newark and Sherwood",
     "adminCounty": "Nottinghamshire",
@@ -113740,7 +113740,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Kirton (Newark and Sherwood)",
-    "slug": "kirton-newark-and-sherwood",
+    "slug": "kirton-newark-and-sherwood-newark-and-sherwood",
     "postTown": null,
     "ladDistrict": "Newark and Sherwood",
     "adminCounty": "Nottinghamshire",
@@ -113776,7 +113776,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Rufford (Newark and Sherwood)",
-    "slug": "rufford-newark-and-sherwood",
+    "slug": "rufford-newark-and-sherwood-newark-and-sherwood",
     "postTown": null,
     "ladDistrict": "Newark and Sherwood",
     "adminCounty": "Nottinghamshire",
@@ -113860,7 +113860,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Upton",
-    "slug": "upton-newark-and-sherwood",
+    "slug": "upton-newark-and-sherwood-england",
     "postTown": null,
     "ladDistrict": "Newark and Sherwood",
     "adminCounty": "Nottinghamshire",
@@ -114280,7 +114280,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Collingham",
-    "slug": "collingham-newark-and-sherwood",
+    "slug": "collingham-newark-and-sherwood-england",
     "postTown": null,
     "ladDistrict": "Newark and Sherwood",
     "adminCounty": "Nottinghamshire",
@@ -114424,7 +114424,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Farndon (Newark and Sherwood)",
-    "slug": "farndon-newark-and-sherwood",
+    "slug": "farndon-newark-and-sherwood-newark-and-sherwood",
     "postTown": null,
     "ladDistrict": "Newark and Sherwood",
     "adminCounty": "Nottinghamshire",
@@ -114592,7 +114592,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Denton",
-    "slug": "denton-south-kesteven",
+    "slug": "denton-south-kesteven-england",
     "postTown": null,
     "ladDistrict": "South Kesteven",
     "adminCounty": "Lincolnshire",
@@ -115384,7 +115384,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Easton (South Kesteven)",
-    "slug": "easton-south-kesteven",
+    "slug": "easton-south-kesteven-south-kesteven",
     "postTown": null,
     "ladDistrict": "South Kesteven",
     "adminCounty": "Lincolnshire",
@@ -115876,7 +115876,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Welton",
-    "slug": "welton-west-northamptonshire",
+    "slug": "welton-west-northamptonshire-england",
     "postTown": null,
     "ladDistrict": "West Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -115924,7 +115924,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newnham (West Northamptonshire)",
-    "slug": "newnham-west-northamptonshire",
+    "slug": "newnham-west-northamptonshire-west-northamptonshire",
     "postTown": null,
     "ladDistrict": "West Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -116656,7 +116656,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Westbury",
-    "slug": "westbury-buckinghamshire",
+    "slug": "westbury-buckinghamshire-england",
     "postTown": null,
     "ladDistrict": "Buckinghamshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -116692,7 +116692,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Croughton",
-    "slug": "croughton-west-northamptonshire",
+    "slug": "croughton-west-northamptonshire-england",
     "postTown": null,
     "ladDistrict": "West Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -116980,7 +116980,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Broughton",
-    "slug": "broughton-north-northamptonshire",
+    "slug": "broughton-north-northamptonshire-england",
     "postTown": null,
     "ladDistrict": "North Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -117244,7 +117244,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Rothwell (North Northamptonshire)",
-    "slug": "rothwell-north-northamptonshire",
+    "slug": "rothwell-north-northamptonshire-north-northamptonshire",
     "postTown": null,
     "ladDistrict": "North Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -117340,7 +117340,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Gretton",
-    "slug": "gretton-north-northamptonshire",
+    "slug": "gretton-north-northamptonshire-england",
     "postTown": null,
     "ladDistrict": "North Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -117556,7 +117556,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Moulton (West Northamptonshire)",
-    "slug": "moulton-west-northamptonshire",
+    "slug": "moulton-west-northamptonshire-west-northamptonshire",
     "postTown": null,
     "ladDistrict": "West Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -118420,7 +118420,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Denton (West Northamptonshire)",
-    "slug": "denton-west-northamptonshire",
+    "slug": "denton-west-northamptonshire-west-northamptonshire",
     "postTown": null,
     "ladDistrict": "West Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -118444,7 +118444,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Grendon (North Northamptonshire)",
-    "slug": "grendon-north-northamptonshire",
+    "slug": "grendon-north-northamptonshire-north-northamptonshire",
     "postTown": null,
     "ladDistrict": "North Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -118456,7 +118456,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Ashton (West Northamptonshire)",
-    "slug": "ashton-west-northamptonshire",
+    "slug": "ashton-west-northamptonshire-west-northamptonshire",
     "postTown": null,
     "ladDistrict": "West Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -120580,7 +120580,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Reepham",
-    "slug": "reepham-broadland",
+    "slug": "reepham-broadland-england",
     "postTown": null,
     "ladDistrict": "Broadland",
     "adminCounty": "Norfolk",
@@ -121180,7 +121180,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hickling (North Norfolk)",
-    "slug": "hickling-north-norfolk",
+    "slug": "hickling-north-norfolk-north-norfolk",
     "postTown": null,
     "ladDistrict": "North Norfolk",
     "adminCounty": "Norfolk",
@@ -121420,7 +121420,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Walcott",
-    "slug": "walcott-north-norfolk",
+    "slug": "walcott-north-norfolk-england",
     "postTown": null,
     "ladDistrict": "North Norfolk",
     "adminCounty": "Norfolk",
@@ -121468,7 +121468,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bacton",
-    "slug": "bacton-north-norfolk",
+    "slug": "bacton-north-norfolk-england",
     "postTown": null,
     "ladDistrict": "North Norfolk",
     "adminCounty": "Norfolk",
@@ -121744,7 +121744,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Sutton",
-    "slug": "sutton-north-norfolk",
+    "slug": "sutton-north-norfolk-england",
     "postTown": null,
     "ladDistrict": "North Norfolk",
     "adminCounty": "Norfolk",
@@ -123136,7 +123136,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wymondham",
-    "slug": "wymondham-south-norfolk",
+    "slug": "wymondham-south-norfolk-england",
     "postTown": null,
     "ladDistrict": "South Norfolk",
     "adminCounty": "Norfolk",
@@ -124324,7 +124324,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Holt",
-    "slug": "holt-north-norfolk",
+    "slug": "holt-north-norfolk-england",
     "postTown": null,
     "ladDistrict": "North Norfolk",
     "adminCounty": "Norfolk",
@@ -124432,7 +124432,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Langham",
-    "slug": "langham-north-norfolk",
+    "slug": "langham-north-norfolk-england",
     "postTown": null,
     "ladDistrict": "North Norfolk",
     "adminCounty": "Norfolk",
@@ -125056,7 +125056,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bradwell",
-    "slug": "bradwell-great-yarmouth",
+    "slug": "bradwell-great-yarmouth-england",
     "postTown": null,
     "ladDistrict": "Great Yarmouth",
     "adminCounty": "Norfolk",
@@ -126244,7 +126244,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Barford",
-    "slug": "barford-south-norfolk",
+    "slug": "barford-south-norfolk-england",
     "postTown": null,
     "ladDistrict": "South Norfolk",
     "adminCounty": "Norfolk",
@@ -127192,7 +127192,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wootton",
-    "slug": "wootton-vale-of-white-horse",
+    "slug": "wootton-vale-of-white-horse-england",
     "postTown": null,
     "ladDistrict": "Vale of White Horse",
     "adminCounty": "Oxfordshire",
@@ -127432,7 +127432,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Dorchester",
-    "slug": "dorchester-south-oxfordshire",
+    "slug": "dorchester-south-oxfordshire-england",
     "postTown": null,
     "ladDistrict": "South Oxfordshire",
     "adminCounty": "Oxfordshire",
@@ -127576,7 +127576,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Chilton",
-    "slug": "chilton-vale-of-white-horse",
+    "slug": "chilton-vale-of-white-horse-england",
     "postTown": null,
     "ladDistrict": "Vale of White Horse",
     "adminCounty": "Oxfordshire",
@@ -127660,7 +127660,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Upton (Vale of White Horse)",
-    "slug": "upton-vale-of-white-horse",
+    "slug": "upton-vale-of-white-horse-vale-of-white-horse",
     "postTown": null,
     "ladDistrict": "Vale of White Horse",
     "adminCounty": "Oxfordshire",
@@ -127708,7 +127708,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Grove",
-    "slug": "grove-vale-of-white-horse",
+    "slug": "grove-vale-of-white-horse-england",
     "postTown": null,
     "ladDistrict": "Vale of White Horse",
     "adminCounty": "Oxfordshire",
@@ -128380,7 +128380,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Drayton (Vale of White Horse)",
-    "slug": "drayton-vale-of-white-horse",
+    "slug": "drayton-vale-of-white-horse-vale-of-white-horse",
     "postTown": null,
     "ladDistrict": "Vale of White Horse",
     "adminCounty": "Oxfordshire",
@@ -128824,7 +128824,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Mollington (Cherwell)",
-    "slug": "mollington-cherwell",
+    "slug": "mollington-cherwell-cherwell",
     "postTown": null,
     "ladDistrict": "Cherwell",
     "adminCounty": "Oxfordshire",
@@ -129136,7 +129136,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bampton",
-    "slug": "bampton-west-oxfordshire",
+    "slug": "bampton-west-oxfordshire-england",
     "postTown": null,
     "ladDistrict": "West Oxfordshire",
     "adminCounty": "Oxfordshire",
@@ -129484,7 +129484,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wootton",
-    "slug": "wootton-west-oxfordshire",
+    "slug": "wootton-west-oxfordshire-england",
     "postTown": null,
     "ladDistrict": "West Oxfordshire",
     "adminCounty": "Oxfordshire",
@@ -130888,7 +130888,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Islip",
-    "slug": "islip-cherwell",
+    "slug": "islip-cherwell-england",
     "postTown": null,
     "ladDistrict": "Cherwell",
     "adminCounty": "Oxfordshire",
@@ -131152,7 +131152,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Churchill (West Oxfordshire)",
-    "slug": "churchill-west-oxfordshire",
+    "slug": "churchill-west-oxfordshire-west-oxfordshire",
     "postTown": null,
     "ladDistrict": "West Oxfordshire",
     "adminCounty": "Oxfordshire",
@@ -131908,7 +131908,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Weston (South Holland)",
-    "slug": "weston-south-holland",
+    "slug": "weston-south-holland-south-holland",
     "postTown": null,
     "ladDistrict": "South Holland",
     "adminCounty": "Lincolnshire",
@@ -132604,7 +132604,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Christchurch (Fenland)",
-    "slug": "christchurch-fenland",
+    "slug": "christchurch-fenland-fenland",
     "postTown": null,
     "ladDistrict": "Fenland",
     "adminCounty": "Cambridgeshire",
@@ -132700,7 +132700,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "St. Neots",
-    "slug": "st-neots-huntingdonshire",
+    "slug": "st-neots-huntingdonshire-england",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -133012,7 +133012,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Kirton",
-    "slug": "kirton-boston",
+    "slug": "kirton-boston-england",
     "postTown": null,
     "ladDistrict": "Boston",
     "adminCounty": "Lincolnshire",
@@ -133960,7 +133960,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bury",
-    "slug": "bury-huntingdonshire",
+    "slug": "bury-huntingdonshire-england",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -134236,7 +134236,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wistow (Huntingdonshire)",
-    "slug": "wistow-huntingdonshire",
+    "slug": "wistow-huntingdonshire-huntingdonshire",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -134416,7 +134416,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Somersham",
-    "slug": "somersham-huntingdonshire",
+    "slug": "somersham-huntingdonshire-england",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -134512,7 +134512,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Brampton (Huntingdonshire)",
-    "slug": "brampton-huntingdonshire",
+    "slug": "brampton-huntingdonshire-huntingdonshire",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -134752,7 +134752,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hilton",
-    "slug": "hilton-huntingdonshire",
+    "slug": "hilton-huntingdonshire-england",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -135352,7 +135352,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Gayton",
-    "slug": "gayton-king-s-lynn-and-west-norfolk",
+    "slug": "gayton-king-s-lynn-and-west-norfolk-england",
     "postTown": null,
     "ladDistrict": "King's Lynn and West Norfolk",
     "adminCounty": "Norfolk",
@@ -135412,7 +135412,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Roydon (King's Lynn and West Norfolk)",
-    "slug": "roydon-king-s-lynn-and-west-norfolk",
+    "slug": "roydon-king-s-lynn-and-west-norfolk-king-s-lynn-and-west-norfolk",
     "postTown": null,
     "ladDistrict": "King's Lynn and West Norfolk",
     "adminCounty": "Norfolk",
@@ -135460,7 +135460,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Middleton (King's Lynn and West Norfolk)",
-    "slug": "middleton-king-s-lynn-and-west-norfolk",
+    "slug": "middleton-king-s-lynn-and-west-norfolk-king-s-lynn-and-west-norfolk",
     "postTown": null,
     "ladDistrict": "King's Lynn and West Norfolk",
     "adminCounty": "Norfolk",
@@ -135748,7 +135748,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Watlington",
-    "slug": "watlington-king-s-lynn-and-west-norfolk",
+    "slug": "watlington-king-s-lynn-and-west-norfolk-england",
     "postTown": null,
     "ladDistrict": "King's Lynn and West Norfolk",
     "adminCounty": "Norfolk",
@@ -135952,7 +135952,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Boughton",
-    "slug": "boughton-king-s-lynn-and-west-norfolk",
+    "slug": "boughton-king-s-lynn-and-west-norfolk-england",
     "postTown": null,
     "ladDistrict": "King's Lynn and West Norfolk",
     "adminCounty": "Norfolk",
@@ -136156,7 +136156,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Ringstead (King's Lynn and West Norfolk)",
-    "slug": "ringstead-king-s-lynn-and-west-norfolk",
+    "slug": "ringstead-king-s-lynn-and-west-norfolk-king-s-lynn-and-west-norfolk",
     "postTown": null,
     "ladDistrict": "King's Lynn and West Norfolk",
     "adminCounty": "Norfolk",
@@ -136396,7 +136396,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Eye (Peterborough)",
-    "slug": "eye-peterborough",
+    "slug": "eye-peterborough-peterborough",
     "postTown": null,
     "ladDistrict": "Peterborough",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -136444,7 +136444,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newborough (Peterborough)",
-    "slug": "newborough-peterborough",
+    "slug": "newborough-peterborough-peterborough",
     "postTown": null,
     "ladDistrict": "Peterborough",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -136672,7 +136672,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Holme (Huntingdonshire)",
-    "slug": "holme-huntingdonshire",
+    "slug": "holme-huntingdonshire-huntingdonshire",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -136756,7 +136756,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Yaxley",
-    "slug": "yaxley-huntingdonshire",
+    "slug": "yaxley-huntingdonshire-england",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -137068,7 +137068,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Elton (Huntingdonshire)",
-    "slug": "elton-huntingdonshire",
+    "slug": "elton-huntingdonshire-huntingdonshire",
     "postTown": null,
     "ladDistrict": "Huntingdonshire",
     "adminCounty": "Cambridgeshire",
@@ -137152,7 +137152,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Warmington",
-    "slug": "warmington-north-northamptonshire",
+    "slug": "warmington-north-northamptonshire-england",
     "postTown": null,
     "ladDistrict": "North Northamptonshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -137236,7 +137236,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Ufford (Peterborough)",
-    "slug": "ufford-peterborough",
+    "slug": "ufford-peterborough-peterborough",
     "postTown": null,
     "ladDistrict": "Peterborough",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -140800,7 +140800,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "West Dean",
-    "slug": "west-dean-chichester",
+    "slug": "west-dean-chichester-england",
     "postTown": null,
     "ladDistrict": "Chichester",
     "adminCounty": "West Sussex",
@@ -141580,7 +141580,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Fishbourne",
-    "slug": "fishbourne-isle-of-wight",
+    "slug": "fishbourne-isle-of-wight-england",
     "postTown": null,
     "ladDistrict": "Isle of Wight",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -141988,7 +141988,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hambledon",
-    "slug": "hambledon-winchester",
+    "slug": "hambledon-winchester-england",
     "postTown": null,
     "ladDistrict": "Winchester",
     "adminCounty": "Hampshire",
@@ -142060,7 +142060,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Clanfield",
-    "slug": "clanfield-east-hampshire",
+    "slug": "clanfield-east-hampshire-england",
     "postTown": null,
     "ladDistrict": "East Hampshire",
     "adminCounty": "Hampshire",
@@ -142156,7 +142156,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Preston",
-    "slug": "preston-preston",
+    "slug": "preston-preston-england",
     "postTown": null,
     "ladDistrict": "Preston",
     "adminCounty": "Lancashire",
@@ -142264,7 +142264,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Broughton (Preston)",
-    "slug": "broughton-preston",
+    "slug": "broughton-preston-preston",
     "postTown": null,
     "ladDistrict": "Preston",
     "adminCounty": "Lancashire",
@@ -142816,7 +142816,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Barton (Preston)",
-    "slug": "barton-preston",
+    "slug": "barton-preston-preston",
     "postTown": null,
     "ladDistrict": "Preston",
     "adminCounty": "Lancashire",
@@ -143116,7 +143116,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hutton",
-    "slug": "hutton-south-ribble",
+    "slug": "hutton-south-ribble-england",
     "postTown": null,
     "ladDistrict": "South Ribble",
     "adminCounty": "Lancashire",
@@ -143764,7 +143764,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Twyford",
-    "slug": "twyford-wokingham",
+    "slug": "twyford-wokingham-england",
     "postTown": null,
     "ladDistrict": "Wokingham",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -144544,7 +144544,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Compton",
-    "slug": "compton-west-berkshire",
+    "slug": "compton-west-berkshire-england",
     "postTown": null,
     "ladDistrict": "West Berkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -144568,7 +144568,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Boxford (West Berkshire)",
-    "slug": "boxford-west-berkshire",
+    "slug": "boxford-west-berkshire-west-berkshire",
     "postTown": null,
     "ladDistrict": "West Berkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -144664,7 +144664,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Oakley (Basingstoke and Deane)",
-    "slug": "oakley-basingstoke-and-deane",
+    "slug": "oakley-basingstoke-and-deane-basingstoke-and-deane",
     "postTown": null,
     "ladDistrict": "Basingstoke and Deane",
     "adminCounty": "Hampshire",
@@ -144976,7 +144976,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Overton",
-    "slug": "overton-basingstoke-and-deane",
+    "slug": "overton-basingstoke-and-deane-england",
     "postTown": null,
     "ladDistrict": "Basingstoke and Deane",
     "adminCounty": "Hampshire",
@@ -145324,7 +145324,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newnham (Basingstoke and Deane)",
-    "slug": "newnham-basingstoke-and-deane",
+    "slug": "newnham-basingstoke-and-deane-basingstoke-and-deane",
     "postTown": null,
     "ladDistrict": "Basingstoke and Deane",
     "adminCounty": "Hampshire",
@@ -145384,7 +145384,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Whitchurch (Basingstoke and Deane)",
-    "slug": "whitchurch-basingstoke-and-deane",
+    "slug": "whitchurch-basingstoke-and-deane-basingstoke-and-deane",
     "postTown": null,
     "ladDistrict": "Basingstoke and Deane",
     "adminCounty": "Hampshire",
@@ -145480,7 +145480,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Long Sutton (Hart)",
-    "slug": "long-sutton-hart",
+    "slug": "long-sutton-hart-hart",
     "postTown": null,
     "ladDistrict": "Hart",
     "adminCounty": "Hampshire",
@@ -146272,7 +146272,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bradfield (West Berkshire)",
-    "slug": "bradfield-west-berkshire",
+    "slug": "bradfield-west-berkshire-west-berkshire",
     "postTown": null,
     "ladDistrict": "West Berkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -146560,7 +146560,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Streatley",
-    "slug": "streatley-west-berkshire",
+    "slug": "streatley-west-berkshire-england",
     "postTown": null,
     "ladDistrict": "West Berkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -146992,7 +146992,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Crawley",
-    "slug": "crawley-crawley",
+    "slug": "crawley-crawley-england",
     "postTown": null,
     "ladDistrict": "Crawley",
     "adminCounty": "West Sussex",
@@ -148060,7 +148060,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Leigh",
-    "slug": "leigh-mole-valley",
+    "slug": "leigh-mole-valley-england",
     "postTown": null,
     "ladDistrict": "Mole Valley",
     "adminCounty": "Surrey",
@@ -148180,7 +148180,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bury",
-    "slug": "bury-chichester",
+    "slug": "bury-chichester-england",
     "postTown": null,
     "ladDistrict": "Chichester",
     "adminCounty": "West Sussex",
@@ -148216,7 +148216,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Sutton",
-    "slug": "sutton-chichester",
+    "slug": "sutton-chichester-england",
     "postTown": null,
     "ladDistrict": "Chichester",
     "adminCounty": "West Sussex",
@@ -148300,7 +148300,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Ashington",
-    "slug": "ashington-horsham",
+    "slug": "ashington-horsham-england",
     "postTown": null,
     "ladDistrict": "Horsham",
     "adminCounty": "West Sussex",
@@ -148360,7 +148360,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Buckland (Mole Valley)",
-    "slug": "buckland-mole-valley",
+    "slug": "buckland-mole-valley-mole-valley",
     "postTown": null,
     "ladDistrict": "Mole Valley",
     "adminCounty": "Surrey",
@@ -148648,7 +148648,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Horley",
-    "slug": "horley-reigate-and-banstead",
+    "slug": "horley-reigate-and-banstead-england",
     "postTown": null,
     "ladDistrict": "Reigate and Banstead",
     "adminCounty": "Surrey",
@@ -149956,7 +149956,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Castleton (High Peak)",
-    "slug": "castleton-high-peak",
+    "slug": "castleton-high-peak-high-peak",
     "postTown": null,
     "ladDistrict": "High Peak",
     "adminCounty": "Derbyshire",
@@ -150100,7 +150100,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hope",
-    "slug": "hope-high-peak",
+    "slug": "hope-high-peak-england",
     "postTown": null,
     "ladDistrict": "High Peak",
     "adminCounty": "Derbyshire",
@@ -150652,7 +150652,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Staveley (Chesterfield)",
-    "slug": "staveley-chesterfield",
+    "slug": "staveley-chesterfield-chesterfield",
     "postTown": null,
     "ladDistrict": "Chesterfield",
     "adminCounty": "Derbyshire",
@@ -151000,7 +151000,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wentworth (Rotherham)",
-    "slug": "wentworth-rotherham",
+    "slug": "wentworth-rotherham-rotherham",
     "postTown": null,
     "ladDistrict": "Rotherham",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -151216,7 +151216,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Stainton (Doncaster)",
-    "slug": "stainton-doncaster",
+    "slug": "stainton-doncaster-doncaster",
     "postTown": null,
     "ladDistrict": "Doncaster",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -151336,7 +151336,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Great Houghton (Barnsley)",
-    "slug": "great-houghton-barnsley",
+    "slug": "great-houghton-barnsley-barnsley",
     "postTown": null,
     "ladDistrict": "Barnsley",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -151720,7 +151720,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Whitwell (Bolsover)",
-    "slug": "whitwell-bolsover",
+    "slug": "whitwell-bolsover-bolsover",
     "postTown": null,
     "ladDistrict": "Bolsover",
     "adminCounty": "Derbyshire",
@@ -154348,7 +154348,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newport",
-    "slug": "newport-pembrokeshire",
+    "slug": "newport-pembrokeshire-wales",
     "postTown": null,
     "ladDistrict": "Pembrokeshire",
     "adminCounty": "(pseudo) Wales",
@@ -154696,7 +154696,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Llanarth (Ceredigion)",
-    "slug": "llanarth-ceredigion",
+    "slug": "llanarth-ceredigion-ceredigion",
     "postTown": null,
     "ladDistrict": "Ceredigion",
     "adminCounty": "(pseudo) Wales",
@@ -157720,7 +157720,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Clifton",
-    "slug": "clifton-central-bedfordshire",
+    "slug": "clifton-central-bedfordshire-england",
     "postTown": null,
     "ladDistrict": "Central Bedfordshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -157840,7 +157840,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Langford",
-    "slug": "langford-central-bedfordshire",
+    "slug": "langford-central-bedfordshire-england",
     "postTown": null,
     "ladDistrict": "Central Bedfordshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -157996,7 +157996,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Aston (East Hertfordshire)",
-    "slug": "aston-east-hertfordshire",
+    "slug": "aston-east-hertfordshire-east-hertfordshire",
     "postTown": null,
     "ladDistrict": "East Hertfordshire",
     "adminCounty": "Hertfordshire",
@@ -158104,7 +158104,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Weston (North Hertfordshire)",
-    "slug": "weston-north-hertfordshire",
+    "slug": "weston-north-hertfordshire-north-hertfordshire",
     "postTown": null,
     "ladDistrict": "North Hertfordshire",
     "adminCounty": "Hertfordshire",
@@ -158164,7 +158164,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Preston",
-    "slug": "preston-north-hertfordshire",
+    "slug": "preston-north-hertfordshire-england",
     "postTown": null,
     "ladDistrict": "North Hertfordshire",
     "adminCounty": "Hertfordshire",
@@ -158320,7 +158320,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Holwell",
-    "slug": "holwell-north-hertfordshire",
+    "slug": "holwell-north-hertfordshire-england",
     "postTown": null,
     "ladDistrict": "North Hertfordshire",
     "adminCounty": "Hertfordshire",
@@ -159076,7 +159076,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Prestbury",
-    "slug": "prestbury-cheshire-east",
+    "slug": "prestbury-cheshire-east-england",
     "postTown": null,
     "ladDistrict": "Cheshire East",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -159184,7 +159184,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Adlington (Cheshire East)",
-    "slug": "adlington-cheshire-east",
+    "slug": "adlington-cheshire-east-cheshire-east",
     "postTown": null,
     "ladDistrict": "Cheshire East",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -160660,7 +160660,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Horton (Windsor and Maidenhead)",
-    "slug": "horton-windsor-and-maidenhead",
+    "slug": "horton-windsor-and-maidenhead-windsor-and-maidenhead",
     "postTown": null,
     "ladDistrict": "Windsor and Maidenhead",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -162232,7 +162232,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Chippenham",
-    "slug": "chippenham-wiltshire",
+    "slug": "chippenham-wiltshire-england",
     "postTown": null,
     "ladDistrict": "Wiltshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -162484,7 +162484,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bromham (Wiltshire)",
-    "slug": "bromham-wiltshire",
+    "slug": "bromham-wiltshire-wiltshire",
     "postTown": null,
     "ladDistrict": "Wiltshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -163216,7 +163216,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bourton",
-    "slug": "bourton-vale-of-white-horse",
+    "slug": "bourton-vale-of-white-horse-england",
     "postTown": null,
     "ladDistrict": "Vale of White Horse",
     "adminCounty": "Oxfordshire",
@@ -163324,7 +163324,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bishopstone (Swindon)",
-    "slug": "bishopstone-swindon",
+    "slug": "bishopstone-swindon-swindon",
     "postTown": null,
     "ladDistrict": "Swindon",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -163360,7 +163360,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Uffington",
-    "slug": "uffington-vale-of-white-horse",
+    "slug": "uffington-vale-of-white-horse-england",
     "postTown": null,
     "ladDistrict": "Vale of White Horse",
     "adminCounty": "Oxfordshire",
@@ -163456,7 +163456,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Buckland (Vale of White Horse)",
-    "slug": "buckland-vale-of-white-horse",
+    "slug": "buckland-vale-of-white-horse-vale-of-white-horse",
     "postTown": null,
     "ladDistrict": "Vale of White Horse",
     "adminCounty": "Oxfordshire",
@@ -163924,7 +163924,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Woodborough (Wiltshire)",
-    "slug": "woodborough-wiltshire",
+    "slug": "woodborough-wiltshire-wiltshire",
     "postTown": null,
     "ladDistrict": "Wiltshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -164296,7 +164296,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Houghton",
-    "slug": "houghton-test-valley",
+    "slug": "houghton-test-valley-england",
     "postTown": null,
     "ladDistrict": "Test Valley",
     "adminCounty": "Hampshire",
@@ -164392,7 +164392,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Broughton",
-    "slug": "broughton-test-valley",
+    "slug": "broughton-test-valley-england",
     "postTown": null,
     "ladDistrict": "Test Valley",
     "adminCounty": "Hampshire",
@@ -164512,7 +164512,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Twyford (Winchester)",
-    "slug": "twyford-winchester",
+    "slug": "twyford-winchester-winchester",
     "postTown": null,
     "ladDistrict": "Winchester",
     "adminCounty": "Hampshire",
@@ -164608,7 +164608,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Crawley",
-    "slug": "crawley-winchester",
+    "slug": "crawley-winchester-england",
     "postTown": null,
     "ladDistrict": "Winchester",
     "adminCounty": "Hampshire",
@@ -164716,7 +164716,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Sparsholt",
-    "slug": "sparsholt-winchester",
+    "slug": "sparsholt-winchester-england",
     "postTown": null,
     "ladDistrict": "Winchester",
     "adminCounty": "Hampshire",
@@ -165148,7 +165148,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "West End",
-    "slug": "west-end-eastleigh",
+    "slug": "west-end-eastleigh-england",
     "postTown": null,
     "ladDistrict": "Eastleigh",
     "adminCounty": "Hampshire",
@@ -166288,7 +166288,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Charlton",
-    "slug": "charlton-test-valley",
+    "slug": "charlton-test-valley-england",
     "postTown": null,
     "ladDistrict": "Test Valley",
     "adminCounty": "Hampshire",
@@ -166540,7 +166540,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Ludgershall",
-    "slug": "ludgershall-wiltshire",
+    "slug": "ludgershall-wiltshire-england",
     "postTown": null,
     "ladDistrict": "Wiltshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -167896,7 +167896,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Godshill (New Forest)",
-    "slug": "godshill-new-forest",
+    "slug": "godshill-new-forest-new-forest",
     "postTown": null,
     "ladDistrict": "New Forest",
     "adminCounty": "Hampshire",
@@ -167920,7 +167920,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hyde (New Forest)",
-    "slug": "hyde-new-forest",
+    "slug": "hyde-new-forest-new-forest",
     "postTown": null,
     "ladDistrict": "New Forest",
     "adminCounty": "Hampshire",
@@ -167944,7 +167944,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Martin (New Forest)",
-    "slug": "martin-new-forest",
+    "slug": "martin-new-forest-new-forest",
     "postTown": null,
     "ladDistrict": "New Forest",
     "adminCounty": "Hampshire",
@@ -168124,7 +168124,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Gillingham",
-    "slug": "gillingham-dorset",
+    "slug": "gillingham-dorset-england",
     "postTown": null,
     "ladDistrict": "Dorset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -168208,7 +168208,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bourton",
-    "slug": "bourton-dorset",
+    "slug": "bourton-dorset-england",
     "postTown": null,
     "ladDistrict": "Dorset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -168340,7 +168340,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Murton",
-    "slug": "murton-county-durham",
+    "slug": "murton-county-durham-england",
     "postTown": null,
     "ladDistrict": "County Durham",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -168928,7 +168928,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Cheadle",
-    "slug": "cheadle-staffordshire-moorlands",
+    "slug": "cheadle-staffordshire-moorlands-england",
     "postTown": null,
     "ladDistrict": "Staffordshire Moorlands",
     "adminCounty": "Staffordshire",
@@ -169060,7 +169060,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Kingsley (Staffordshire Moorlands)",
-    "slug": "kingsley-staffordshire-moorlands",
+    "slug": "kingsley-staffordshire-moorlands-staffordshire-moorlands",
     "postTown": null,
     "ladDistrict": "Staffordshire Moorlands",
     "adminCounty": "Staffordshire",
@@ -169144,7 +169144,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Alton (Staffordshire Moorlands)",
-    "slug": "alton-staffordshire-moorlands",
+    "slug": "alton-staffordshire-moorlands-staffordshire-moorlands",
     "postTown": null,
     "ladDistrict": "Staffordshire Moorlands",
     "adminCounty": "Staffordshire",
@@ -169540,7 +169540,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Kingstone (East Staffordshire)",
-    "slug": "kingstone-east-staffordshire",
+    "slug": "kingstone-east-staffordshire-east-staffordshire",
     "postTown": null,
     "ladDistrict": "East Staffordshire",
     "adminCounty": "Staffordshire",
@@ -169660,7 +169660,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Stone",
-    "slug": "stone-stafford",
+    "slug": "stone-stafford-england",
     "postTown": null,
     "ladDistrict": "Stafford",
     "adminCounty": "Staffordshire",
@@ -169948,7 +169948,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Weston",
-    "slug": "weston-stafford",
+    "slug": "weston-stafford-england",
     "postTown": null,
     "ladDistrict": "Stafford",
     "adminCounty": "Staffordshire",
@@ -170068,7 +170068,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bradley",
-    "slug": "bradley-stafford",
+    "slug": "bradley-stafford-england",
     "postTown": null,
     "ladDistrict": "Stafford",
     "adminCounty": "Staffordshire",
@@ -171940,7 +171940,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Whittington (Shropshire)",
-    "slug": "whittington-shropshire",
+    "slug": "whittington-shropshire-shropshire",
     "postTown": null,
     "ladDistrict": "Shropshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -172768,7 +172768,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "(unknown LAD)",
-    "slug": "unknown-lad-unknown-lad",
+    "slug": "unknown-lad-unknown-lad-wales",
     "postTown": null,
     "ladDistrict": "(unknown LAD)",
     "adminCounty": null,
@@ -174268,7 +174268,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Westbury (Shropshire)",
-    "slug": "westbury-shropshire",
+    "slug": "westbury-shropshire-shropshire",
     "postTown": null,
     "ladDistrict": "Shropshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -174568,7 +174568,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Bucknell",
-    "slug": "bucknell-shropshire",
+    "slug": "bucknell-shropshire-england",
     "postTown": null,
     "ladDistrict": "Shropshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -175192,7 +175192,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Long Sutton",
-    "slug": "long-sutton-somerset",
+    "slug": "long-sutton-somerset-england",
     "postTown": null,
     "ladDistrict": "Somerset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -175264,7 +175264,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Drayton",
-    "slug": "drayton-somerset",
+    "slug": "drayton-somerset-england",
     "postTown": null,
     "ladDistrict": "Somerset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -175672,7 +175672,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Misterton",
-    "slug": "misterton-somerset",
+    "slug": "misterton-somerset-england",
     "postTown": null,
     "ladDistrict": "Somerset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -175756,7 +175756,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Barrington",
-    "slug": "barrington-somerset",
+    "slug": "barrington-somerset-england",
     "postTown": null,
     "ladDistrict": "Somerset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -176284,7 +176284,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wellington",
-    "slug": "wellington-somerset",
+    "slug": "wellington-somerset-england",
     "postTown": null,
     "ladDistrict": "Somerset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -177724,7 +177724,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Cossington",
-    "slug": "cossington-somerset",
+    "slug": "cossington-somerset-england",
     "postTown": null,
     "ladDistrict": "Somerset",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -178372,7 +178372,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Newport",
-    "slug": "newport-telford-and-wrekin",
+    "slug": "newport-telford-and-wrekin-england",
     "postTown": null,
     "ladDistrict": "Telford and Wrekin",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -179080,7 +179080,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Leigh (Sevenoaks)",
-    "slug": "leigh-sevenoaks",
+    "slug": "leigh-sevenoaks-sevenoaks",
     "postTown": null,
     "ladDistrict": "Sevenoaks",
     "adminCounty": "Kent",
@@ -179272,7 +179272,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Marden (Maidstone)",
-    "slug": "marden-maidstone",
+    "slug": "marden-maidstone-maidstone",
     "postTown": null,
     "ladDistrict": "Maidstone",
     "adminCounty": "Kent",
@@ -179464,7 +179464,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Halstead (Sevenoaks)",
-    "slug": "halstead-sevenoaks",
+    "slug": "halstead-sevenoaks-sevenoaks",
     "postTown": null,
     "ladDistrict": "Sevenoaks",
     "adminCounty": "Kent",
@@ -179944,7 +179944,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Sandhurst",
-    "slug": "sandhurst-tunbridge-wells",
+    "slug": "sandhurst-tunbridge-wells-england",
     "postTown": null,
     "ladDistrict": "Tunbridge Wells",
     "adminCounty": "Kent",
@@ -181792,7 +181792,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Westfield (Rother)",
-    "slug": "westfield-rother",
+    "slug": "westfield-rother-rother",
     "postTown": null,
     "ladDistrict": "Rother",
     "adminCounty": "East Sussex",
@@ -182968,7 +182968,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Slapton (South Hams)",
-    "slug": "slapton-south-hams",
+    "slug": "slapton-south-hams-south-hams",
     "postTown": null,
     "ladDistrict": "South Hams",
     "adminCounty": "Devon",
@@ -184564,7 +184564,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "St. Ives",
-    "slug": "st-ives-cornwall",
+    "slug": "st-ives-cornwall-england",
     "postTown": null,
     "ladDistrict": "Cornwall",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -185656,7 +185656,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hilton (Stockton-on-Tees)",
-    "slug": "hilton-stockton-on-tees",
+    "slug": "hilton-stockton-on-tees-stockton-on-tees",
     "postTown": null,
     "ladDistrict": "Stockton-on-Tees",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -185968,7 +185968,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Carlton",
-    "slug": "carlton-stockton-on-tees",
+    "slug": "carlton-stockton-on-tees-england",
     "postTown": null,
     "ladDistrict": "Stockton-on-Tees",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -186148,7 +186148,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Greatham (Hartlepool)",
-    "slug": "greatham-hartlepool",
+    "slug": "greatham-hartlepool-hartlepool",
     "postTown": null,
     "ladDistrict": "Hartlepool",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -188164,7 +188164,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Mere",
-    "slug": "mere-cheshire-east",
+    "slug": "mere-cheshire-east-england",
     "postTown": null,
     "ladDistrict": "Cheshire East",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -188464,7 +188464,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Croft (Warrington)",
-    "slug": "croft-warrington",
+    "slug": "croft-warrington-warrington",
     "postTown": null,
     "ladDistrict": "Warrington",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -188776,7 +188776,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Kingsley (Cheshire West and Chester)",
-    "slug": "kingsley-cheshire-west-and-chester",
+    "slug": "kingsley-cheshire-west-and-chester-cheshire-west-and-chester",
     "postTown": null,
     "ladDistrict": "Cheshire West and Chester",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -188932,7 +188932,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Watford",
-    "slug": "watford-watford",
+    "slug": "watford-watford-england",
     "postTown": null,
     "ladDistrict": "Watford",
     "adminCounty": "Hertfordshire",
@@ -189280,7 +189280,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Walton (Wakefield)",
-    "slug": "walton-wakefield",
+    "slug": "walton-wakefield-wakefield",
     "postTown": null,
     "ladDistrict": "Wakefield",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -189664,7 +189664,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Carlton (Leeds)",
-    "slug": "carlton-leeds",
+    "slug": "carlton-leeds-leeds",
     "postTown": null,
     "ladDistrict": "Leeds",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -189952,7 +189952,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Featherstone",
-    "slug": "featherstone-wakefield",
+    "slug": "featherstone-wakefield-england",
     "postTown": null,
     "ladDistrict": "Wakefield",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -190588,7 +190588,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Eckington",
-    "slug": "eckington-wychavon",
+    "slug": "eckington-wychavon-england",
     "postTown": null,
     "ladDistrict": "Wychavon",
     "adminCounty": "Worcestershire",
@@ -190840,7 +190840,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wick",
-    "slug": "wick-wychavon",
+    "slug": "wick-wychavon-england",
     "postTown": null,
     "ladDistrict": "Wychavon",
     "adminCounty": "Worcestershire",
@@ -191212,7 +191212,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Stanton",
-    "slug": "stanton-tewkesbury",
+    "slug": "stanton-tewkesbury-england",
     "postTown": null,
     "ladDistrict": "Tewkesbury",
     "adminCounty": "Gloucestershire",
@@ -191968,7 +191968,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Whittington (Wychavon)",
-    "slug": "whittington-wychavon",
+    "slug": "whittington-wychavon-wychavon",
     "postTown": null,
     "ladDistrict": "Wychavon",
     "adminCounty": "Worcestershire",
@@ -192328,7 +192328,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Holt (Malvern Hills)",
-    "slug": "holt-malvern-hills",
+    "slug": "holt-malvern-hills-malvern-hills",
     "postTown": null,
     "ladDistrict": "Malvern Hills",
     "adminCounty": "Worcestershire",
@@ -192712,7 +192712,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Tibberton (Wychavon)",
-    "slug": "tibberton-wychavon",
+    "slug": "tibberton-wychavon-wychavon",
     "postTown": null,
     "ladDistrict": "Wychavon",
     "adminCounty": "Worcestershire",
@@ -192976,7 +192976,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Huntington (South Staffordshire)",
-    "slug": "huntington-south-staffordshire",
+    "slug": "huntington-south-staffordshire-south-staffordshire",
     "postTown": null,
     "ladDistrict": "South Staffordshire",
     "adminCounty": "Staffordshire",
@@ -193132,7 +193132,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Whittington (Lichfield)",
-    "slug": "whittington-lichfield",
+    "slug": "whittington-lichfield-lichfield",
     "postTown": null,
     "ladDistrict": "Lichfield",
     "adminCounty": "Staffordshire",
@@ -193228,7 +193228,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Colton",
-    "slug": "colton-lichfield",
+    "slug": "colton-lichfield-england",
     "postTown": null,
     "ladDistrict": "Lichfield",
     "adminCounty": "Staffordshire",
@@ -193564,7 +193564,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Featherstone",
-    "slug": "featherstone-south-staffordshire",
+    "slug": "featherstone-south-staffordshire-england",
     "postTown": null,
     "ladDistrict": "South Staffordshire",
     "adminCounty": "Staffordshire",
@@ -195352,7 +195352,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Middleton (North Yorkshire)",
-    "slug": "middleton-north-yorkshire",
+    "slug": "middleton-north-yorkshire-north-yorkshire",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -195412,7 +195412,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Murton",
-    "slug": "murton-york",
+    "slug": "murton-york-england",
     "postTown": null,
     "ladDistrict": "York",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -196108,7 +196108,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Langtoft",
-    "slug": "langtoft-east-riding-of-yorkshire",
+    "slug": "langtoft-east-riding-of-yorkshire-england",
     "postTown": null,
     "ladDistrict": "East Riding of Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -196504,7 +196504,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Long Marston (North Yorkshire)",
-    "slug": "long-marston-north-yorkshire",
+    "slug": "long-marston-north-yorkshire-north-yorkshire",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -196744,7 +196744,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Shipton",
-    "slug": "shipton-north-yorkshire",
+    "slug": "shipton-north-yorkshire-england",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -196816,7 +196816,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Skelton",
-    "slug": "skelton-york",
+    "slug": "skelton-york-england",
     "postTown": null,
     "ladDistrict": "York",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -196900,7 +196900,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wigginton",
-    "slug": "wigginton-york",
+    "slug": "wigginton-york-england",
     "postTown": null,
     "ladDistrict": "York",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -197020,7 +197020,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Huntington",
-    "slug": "huntington-york",
+    "slug": "huntington-york-england",
     "postTown": null,
     "ladDistrict": "York",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -197272,7 +197272,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hayton",
-    "slug": "hayton-east-riding-of-yorkshire",
+    "slug": "hayton-east-riding-of-yorkshire-england",
     "postTown": null,
     "ladDistrict": "East Riding of Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -197428,7 +197428,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Melbourne",
-    "slug": "melbourne-east-riding-of-yorkshire",
+    "slug": "melbourne-east-riding-of-yorkshire-england",
     "postTown": null,
     "ladDistrict": "East Riding of Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -197920,7 +197920,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Tollerton",
-    "slug": "tollerton-north-yorkshire",
+    "slug": "tollerton-north-yorkshire-england",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -199264,7 +199264,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Wistow",
-    "slug": "wistow-north-yorkshire",
+    "slug": "wistow-north-yorkshire-england",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -199300,7 +199300,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Osgodby (North Yorkshire)",
-    "slug": "osgodby-north-yorkshire",
+    "slug": "osgodby-north-yorkshire-north-yorkshire",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
@@ -199504,7 +199504,7 @@ export const ONSPD_LOCALITIES = [
   },
   {
     "name": "Hambleton (North Yorkshire)",
-    "slug": "hambleton-north-yorkshire",
+    "slug": "hambleton-north-yorkshire-north-yorkshire",
     "postTown": null,
     "ladDistrict": "North Yorkshire",
     "adminCounty": "(pseudo) England (UA/MD/LB)",
