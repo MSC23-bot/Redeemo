@@ -98,34 +98,47 @@ enum AdminRole {
 // ─────────────────────────────────────────
 
 model User {
-  id                   String     @id @default(uuid())
-  email                String     @unique
-  phone                String?    @unique
-  phoneCountryCode     String?
-  passwordHash         String?
-  firstName            String?
-  lastName             String?
-  dateOfBirth          DateTime?
-  gender               String?
-  addressLine1         String?
-  addressLine2         String?
-  city                 String?
-  postcode             String?
-  profileImageUrl      String?
-  status               UserStatus @default(ACTIVE)
-  newsletterConsent    Boolean    @default(false)
-  tcConsentVersion     String?
-  tcConsentAt          DateTime?
-  tutorialSeen         Boolean    @default(false)
-  createdAt            DateTime   @default(now())
-  updatedAt            DateTime   @updatedAt
-  deletedAt            DateTime?
-  emailVerified        Boolean    @default(false)
-  phoneVerified        Boolean    @default(false)
-  marketingConsentAt   DateTime?
-  stripeCustomerId     String?    @unique  // set on first setup-intent call, reused on subsequent calls
-  onboardingCompletedAt     DateTime?
-  subscriptionPromptSeenAt  DateTime?
+  id                       String     @id @default(uuid())
+  email                    String     @unique
+  phone                    String?    @unique
+  phoneCountryCode         String?
+  passwordHash             String?
+  firstName                String?
+  lastName                 String?
+  dateOfBirth              DateTime?
+  gender                   String?
+  addressLine1             String?
+  addressLine2             String?
+  city                     String?
+  postcode                 String?
+  profileImageUrl          String?
+  status                   UserStatus @default(ACTIVE)
+  newsletterConsent        Boolean    @default(false)
+  tcConsentVersion         String?
+  tcConsentAt              DateTime?
+  tutorialSeen             Boolean    @default(false)
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+  deletedAt                DateTime?
+  emailVerified            Boolean    @default(false)
+  phoneVerified            Boolean    @default(false)
+  marketingConsentAt       DateTime?
+  stripeCustomerId         String?    @unique // set on first setup-intent call, reused on subsequent calls
+  onboardingCompletedAt    DateTime?
+  subscriptionPromptSeenAt DateTime?
+
+  // Plan 4a location snapshot — see spec §3.4
+  latitude           Decimal?  @db.Decimal(10, 8)
+  longitude          Decimal?  @db.Decimal(11, 8)
+  localityId         String?
+  postTown           String?
+  ladDistrict        String?
+  adminCounty        String?
+  region             String?
+  country            String? // "England" | "Scotland" | "Wales" | "Northern Ireland"
+  locationResolvedAt DateTime?
+
+  locality Locality? @relation("UserLocality", fields: [localityId], references: [id])
 
   ssoProviders               UserSsoProvider[]
   interests                  UserInterest[]
@@ -144,6 +157,7 @@ model User {
   @@index([email])
   @@index([phone])
   @@index([status])
+  @@index([localityId])
 }
 
 model UserSsoProvider {
@@ -153,7 +167,7 @@ model UserSsoProvider {
   providerUid String
   createdAt   DateTime @default(now())
 
-  user        User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@unique([provider, providerUid])
   @@index([userId])
@@ -164,23 +178,23 @@ model UserSsoProvider {
 // ─────────────────────────────────────────
 
 model MerchantAdmin {
-  id               String     @id @default(uuid())
-  merchantId       String     @unique
-  email            String     @unique
-  phone            String?
-  phoneCountryCode String?
-  passwordHash     String?
-  firstName        String
-  lastName         String
-  jobTitle         String?
-  status           UserStatus @default(ACTIVE)
-  lastLoginAt      DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  otpVerifiedAt    DateTime?
-  mustChangePassword Boolean  @default(false)
+  id                 String     @id @default(uuid())
+  merchantId         String     @unique
+  email              String     @unique
+  phone              String?
+  phoneCountryCode   String?
+  passwordHash       String?
+  firstName          String
+  lastName           String
+  jobTitle           String?
+  status             UserStatus @default(ACTIVE)
+  lastLoginAt        DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  otpVerifiedAt      DateTime?
+  mustChangePassword Boolean    @default(false)
 
-  merchant         Merchant   @relation(fields: [merchantId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
 
   @@index([email])
 }
@@ -190,23 +204,23 @@ model MerchantAdmin {
 // ─────────────────────────────────────────
 
 model BranchUser {
-  id               String     @id @default(uuid())
-  branchId         String
-  email            String     @unique
-  phone            String?
-  phoneCountryCode String?
-  passwordHash     String
-  firstName        String
-  lastName         String
-  jobTitle         String?
-  status           UserStatus @default(ACTIVE)
-  lastLoginAt      DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  mustChangePassword Boolean  @default(false)
+  id                 String     @id @default(uuid())
+  branchId           String
+  email              String     @unique
+  phone              String?
+  phoneCountryCode   String?
+  passwordHash       String
+  firstName          String
+  lastName           String
+  jobTitle           String?
+  status             UserStatus @default(ACTIVE)
+  lastLoginAt        DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  mustChangePassword Boolean    @default(false)
 
-  branch           Branch     @relation(fields: [branchId], references: [id])
-  validations      VoucherRedemption[]
+  branch      Branch              @relation(fields: [branchId], references: [id])
+  validations VoucherRedemption[]
 
   @@index([email])
   @@index([branchId])
@@ -219,10 +233,10 @@ model BranchUser {
 model UserSession {
   id            String    @id @default(cuid())
   entityId      String
-  entityType    String    // 'customer' | 'merchant' | 'branch' | 'admin'
+  entityType    String // 'customer' | 'merchant' | 'branch' | 'admin'
   sessionId     String    @unique
   deviceId      String
-  deviceType    String    // 'ios' | 'android' | 'web'
+  deviceType    String // 'ios' | 'android' | 'web'
   deviceName    String?
   ipAddress     String
   userAgent     String
@@ -242,7 +256,7 @@ model UserSession {
 model AuditLog {
   id         String   @id @default(cuid())
   entityId   String
-  entityType String   // 'customer' | 'merchant' | 'branch' | 'admin'
+  entityType String // 'customer' | 'merchant' | 'branch' | 'admin'
   event      String
   ipAddress  String
   userAgent  String
@@ -272,7 +286,7 @@ model AdminUser {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  approvals    AdminApproval[]
+  approvals AdminApproval[]
 
   @@index([email])
 }
@@ -325,26 +339,26 @@ enum SignatureMethod {
 // ─────────────────────────────────────────
 
 model Merchant {
-  id                   String             @id @default(uuid())
-  businessName         String
-  tradingName          String?
-  companyNumber        String?
-  vatNumber            String?
-  status               MerchantStatus     @default(REGISTERED)
-  verificationStatus   VerificationStatus @default(NOT_SUBMITTED)
-  contractStatus       ContractStatus     @default(NOT_SIGNED)
-  contractStartDate    DateTime?
-  contractEndDate      DateTime?
-  websiteUrl           String?
-  logoUrl              String?
-  bannerUrl            String?
-  description          String?
-  primaryCategoryId    String?
+  id                     String             @id @default(uuid())
+  businessName           String
+  tradingName            String?
+  companyNumber          String?
+  vatNumber              String?
+  status                 MerchantStatus     @default(REGISTERED)
+  verificationStatus     VerificationStatus @default(NOT_SUBMITTED)
+  contractStatus         ContractStatus     @default(NOT_SIGNED)
+  contractStartDate      DateTime?
+  contractEndDate        DateTime?
+  websiteUrl             String?
+  logoUrl                String?
+  bannerUrl              String?
+  description            String?
+  primaryCategoryId      String?
   primaryDescriptorTagId String?
-  onboardingStep       OnboardingStep     @default(REGISTERED)
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  deletedAt            DateTime?
+  onboardingStep         OnboardingStep     @default(REGISTERED)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  deletedAt              DateTime?
 
   admin                MerchantAdmin?
   branches             Branch[]
@@ -356,8 +370,8 @@ model Merchant {
   favouritedBy         FavouriteMerchant[]
   campaignMerchants    CampaignMerchant[]
   featuredListings     FeaturedMerchant[]
-  primaryCategory      Category?            @relation("MerchantPrimaryCategory", fields: [primaryCategoryId], references: [id])
-  primaryDescriptorTag Tag?                 @relation("MerchantPrimaryDescriptorTag", fields: [primaryDescriptorTagId], references: [id])
+  primaryCategory      Category?              @relation("MerchantPrimaryCategory", fields: [primaryCategoryId], references: [id])
+  primaryDescriptorTag Tag?                   @relation("MerchantPrimaryDescriptorTag", fields: [primaryDescriptorTagId], references: [id])
   tags                 MerchantTag[]
   highlights           MerchantHighlight[]
   pendingEdits         MerchantPendingEdit[]
@@ -382,7 +396,7 @@ model MerchantPendingEdit {
   createdAt       DateTime          @default(now())
   reviewedAt      DateTime?
 
-  merchant        Merchant          @relation(fields: [merchantId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
 
   @@index([merchantId, status])
 }
@@ -392,41 +406,61 @@ model MerchantPendingEdit {
 // ─────────────────────────────────────────
 
 model Branch {
-  id               String   @id @default(uuid())
-  merchantId       String
-  name             String
-  isMainBranch     Boolean  @default(false)
-  addressLine1     String
-  addressLine2     String?
-  city             String
-  postcode         String
-  country          String   @default("GB")
-  latitude         Decimal? @db.Decimal(10, 8)
-  longitude        Decimal? @db.Decimal(11, 8)
-  phone            String?
-  email            String?
-  websiteUrl       String?
-  logoUrl          String?
-  bannerUrl        String?
-  about            String?
-  priceListUrl     String?
-  redemptionPin     String?   // AES-256-GCM encrypted 4-digit PIN; null until merchant sets it
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id            String   @id @default(uuid())
+  merchantId    String
+  name          String
+  isMainBranch  Boolean  @default(false)
+  addressLine1  String
+  addressLine2  String?
+  city          String
+  postcode      String
+  country       String   @default("GB")
+  latitude      Decimal? @db.Decimal(10, 8)
+  longitude     Decimal? @db.Decimal(11, 8)
+  phone         String?
+  email         String?
+  websiteUrl    String?
+  logoUrl       String?
+  bannerUrl     String?
+  about         String?
+  priceListUrl  String?
+  redemptionPin String? // AES-256-GCM encrypted 4-digit PIN; null until merchant sets it
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  merchant         Merchant             @relation(fields: [merchantId], references: [id])
-  openingHours     BranchOpeningHours[]
-  photos           BranchPhoto[]
-  users            BranchUser[]
-  amenities        BranchAmenity[]
-  redemptions      VoucherRedemption[]
-  reviews          Review[]
-  pendingEdits     BranchPendingEdit[]
+  // Plan 4a location snapshot — see spec §3.5.
+  // NOTE: `locationCountry` is the resolved NATION (England/Scotland/Wales/NI).
+  // It is INTENTIONALLY distinct from the existing `country` column (which is the
+  // address country, e.g. "GB"). Both fields coexist for one deprecation cycle.
+  localityId         String?
+  localityName       String?
+  postTown           String?
+  ladDistrict        String?
+  adminCounty        String?
+  region             String?
+  locationCountry    String?
+  locationResolvedAt DateTime?
+  locationConfidence LocationConfidence @default(POSTCODE_CENTROID)
+
+  locality Locality? @relation("BranchLocality", fields: [localityId], references: [id])
+
+  // Opposite relation for Plan 4b Campaign.branchAnchor — see Step 8 below
+  anchoredCampaigns Campaign[] @relation("CampaignBranchAnchor")
+
+  merchant     Merchant             @relation(fields: [merchantId], references: [id])
+  openingHours BranchOpeningHours[]
+  photos       BranchPhoto[]
+  users        BranchUser[]
+  amenities    BranchAmenity[]
+  redemptions  VoucherRedemption[]
+  reviews      Review[]
+  pendingEdits BranchPendingEdit[]
 
   @@index([merchantId])
   @@index([latitude, longitude])
   @@index([isActive])
+  @@index([localityId])
 }
 
 model BranchOpeningHours {
@@ -437,7 +471,7 @@ model BranchOpeningHours {
   closeTime String?
   isClosed  Boolean @default(false)
 
-  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@unique([branchId, dayOfWeek])
 }
@@ -449,7 +483,7 @@ model BranchPhoto {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
 
-  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
 }
@@ -470,8 +504,8 @@ model BranchPendingEdit {
   createdAt       DateTime          @default(now())
   reviewedAt      DateTime?
 
-  branch          Branch            @relation(fields: [branchId], references: [id])
-  merchant        Merchant          @relation(fields: [merchantId], references: [id])
+  branch   Branch   @relation(fields: [branchId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
 
   @@index([branchId, status])
   @@index([merchantId, status])
@@ -488,7 +522,7 @@ model MerchantDocument {
   fileUrl      String
   uploadedAt   DateTime     @default(now())
 
-  merchant     Merchant     @relation(fields: [merchantId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
 
   @@index([merchantId])
 }
@@ -502,7 +536,7 @@ model MerchantContract {
   signatureMethod   SignatureMethod
   zohoSignRequestId String?
 
-  merchant          Merchant        @relation(fields: [merchantId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
 }
 
 // ─────────────────────────────────────────
@@ -518,12 +552,12 @@ enum MerchantSuggestedTagStatus {
 }
 
 model MerchantSuggestedTag {
-  id         String                       @id @default(uuid())
+  id         String                     @id @default(uuid())
   merchantId String
   tag        String
-  status     MerchantSuggestedTagStatus   @default(PENDING)
+  status     MerchantSuggestedTagStatus @default(PENDING)
 
-  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
   @@unique([merchantId, tag])
   @@index([tag])
@@ -547,30 +581,30 @@ enum TagCreatedBy {
 }
 
 model Tag {
-  id                  String         @id @default(uuid())
+  id                  String       @id @default(uuid())
   label               String
   type                TagType
-  descriptorEligible  Boolean        @default(false)
-  isActive            Boolean        @default(true)
-  createdBy           TagCreatedBy   @default(SYSTEM)
-  createdAt           DateTime       @default(now())
-  merchantCountByCity Json           @default("{}")    // { cityId: count }
+  descriptorEligible  Boolean      @default(false)
+  isActive            Boolean      @default(true)
+  createdBy           TagCreatedBy @default(SYSTEM)
+  createdAt           DateTime     @default(now())
+  merchantCountByCity Json         @default("{}") // { cityId: count }
 
-  subcategoryLinks    SubcategoryTag[]
-  merchantLinks       MerchantTag[]
-  merchantHighlights  MerchantHighlight[]
-  redundantFor        RedundantHighlight[]
-  primaryFor          Merchant[]     @relation("MerchantPrimaryDescriptorTag")
+  subcategoryLinks   SubcategoryTag[]
+  merchantLinks      MerchantTag[]
+  merchantHighlights MerchantHighlight[]
+  redundantFor       RedundantHighlight[]
+  primaryFor         Merchant[]           @relation("MerchantPrimaryDescriptorTag")
 
   @@unique([label, type])
   @@index([type, isActive])
 }
 
 model SubcategoryTag {
-  id                String   @id @default(uuid())
+  id                String  @id @default(uuid())
   subcategoryId     String
   tagId             String
-  isPrimaryEligible Boolean  @default(false)
+  isPrimaryEligible Boolean @default(false)
 
   subcategory Category @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
   tag         Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
@@ -627,43 +661,48 @@ enum CategoryDescriptorState {
 }
 
 model Category {
-  id              String     @id @default(uuid())
-  name            String
-  iconUrl         String?
-  illustrationUrl String?
-  parentId        String?
-  sortOrder       Int        @default(0)
-  isActive        Boolean    @default(true)
-  pinColour       String?    // hex colour for map pin e.g. "#FF5733"
-  pinIcon         String?    // icon key from agreed icon set e.g. "fork-knife"
-  descriptorState              CategoryDescriptorState?  // subcategories only
-  descriptorSuffix             String?                    // override; defaults to category name
-  intentType                   CategoryIntentType?
-  merchantCountByCity          Json    @default("{}")     // { cityId: count }
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id                    String                   @id @default(uuid())
+  name                  String
+  iconUrl               String?
+  illustrationUrl       String?
+  parentId              String?
+  sortOrder             Int                      @default(0)
+  isActive              Boolean                  @default(true)
+  pinColour             String? // hex colour for map pin e.g. "#FF5733"
+  pinIcon               String? // icon key from agreed icon set e.g. "fork-knife"
+  descriptorState       CategoryDescriptorState? // subcategories only
+  descriptorSuffix      String? // override; defaults to category name
+  intentType            CategoryIntentType?
+  merchantCountByCity   Json                     @default("{}") // { cityId: count }
+  // Required + Prisma default for migration safety. Seed-time intentType mapping
+  // overwrites the default with the intent-appropriate profile.
+  ladderProfile         LadderProfile            @default(MIXED_NORMAL)
+  // Subcategory-level override (parentId != null rows only). Null = inherit from parent Category.
+  ladderProfileOverride LadderProfile?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
 
-  parent           Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children         Category[]    @relation("CategoryHierarchy")
-  merchants        MerchantCategory[]
-  primaryMerchants Merchant[]    @relation("MerchantPrimaryCategory")
-  rmvTemplates     RmvTemplate[] @relation("CategoryRmvTemplates")
-  tagLinks         SubcategoryTag[]
+  parent              Category?            @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children            Category[]           @relation("CategoryHierarchy")
+  merchants           MerchantCategory[]
+  primaryMerchants    Merchant[]           @relation("MerchantPrimaryCategory")
+  rmvTemplates        RmvTemplate[]        @relation("CategoryRmvTemplates")
+  tagLinks            SubcategoryTag[]
   redundantHighlights RedundantHighlight[] @relation("CategoryRedundantHighlights")
-  amenityRules     CategoryAmenity[]
+  amenityRules        CategoryAmenity[]
 
   @@unique([name, parentId], name: "name_parentId", map: "Category_name_parentId_key")
   @@index([parentId])
 }
 
 model MerchantCategory {
-  id         String   @id @default(uuid())
+  id         String  @id @default(uuid())
   merchantId String
   categoryId String
-  isPrimary  Boolean  @default(false)
+  isPrimary  Boolean @default(false)
 
-  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  category   Category @relation(fields: [categoryId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id])
 
   @@unique([merchantId, categoryId])
   @@index([categoryId])
@@ -685,8 +724,8 @@ model RmvTemplate {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  category      Category    @relation("CategoryRmvTemplates", fields: [categoryId], references: [id])
-  vouchers      Voucher[]
+  category Category  @relation("CategoryRmvTemplates", fields: [categoryId], references: [id])
+  vouchers Voucher[]
 
   @@unique([categoryId, title])
   @@index([categoryId, isActive])
@@ -707,23 +746,23 @@ model Amenity {
 }
 
 model BranchAmenity {
-  id        String  @id @default(uuid())
+  id        String @id @default(uuid())
   branchId  String
   amenityId String
 
-  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  amenity   Amenity @relation(fields: [amenityId], references: [id], onDelete: Restrict)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  amenity Amenity @relation(fields: [amenityId], references: [id], onDelete: Restrict)
 
   @@unique([branchId, amenityId])
 }
 
 model CategoryAmenity {
-  id         String   @id @default(uuid())
+  id         String @id @default(uuid())
   categoryId String
   amenityId  String
 
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  amenity    Amenity  @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  amenity  Amenity  @relation(fields: [amenityId], references: [id], onDelete: Cascade)
 
   @@unique([categoryId, amenityId])
 }
@@ -733,20 +772,20 @@ model CategoryAmenity {
 // ─────────────────────────────────────────
 
 model Interest {
-  id       String   @id @default(uuid())
-  name     String   @unique
-  isActive Boolean  @default(true)
+  id       String  @id @default(uuid())
+  name     String  @unique
+  isActive Boolean @default(true)
 
-  users    UserInterest[]
+  users UserInterest[]
 }
 
 model UserInterest {
-  id         String   @id @default(uuid())
+  id         String @id @default(uuid())
   userId     String
   interestId String
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  interest   Interest @relation(fields: [interestId], references: [id])
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interest Interest @relation(fields: [interestId], references: [id])
 
   @@unique([userId, interestId])
 }
@@ -821,8 +860,8 @@ model Voucher {
   imageUrl        String?
   estimatedSaving Decimal        @db.Decimal(10, 2)
   expiryDate      DateTime?
-  cooldownSeconds Int?           // REUSABLE only; null = platform default (4h);
-                                 // server-clamped to floor 1800s at redemption time.
+  cooldownSeconds Int? // REUSABLE only; null = platform default (4h);
+  // server-clamped to floor 1800s at redemption time.
   status          VoucherStatus  @default(DRAFT)
   approvalStatus  ApprovalStatus @default(PENDING)
   approvalComment String?
@@ -835,11 +874,11 @@ model Voucher {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  merchant        Merchant           @relation(fields: [merchantId], references: [id])
-  redemptions     VoucherRedemption[]
-  cycleStates     UserVoucherCycleState[]
-  favouritedBy    FavouriteVoucher[]
-  rmvTemplate     RmvTemplate?       @relation(fields: [rmvTemplateId], references: [id])
+  merchant            Merchant                    @relation(fields: [merchantId], references: [id])
+  redemptions         VoucherRedemption[]
+  cycleStates         UserVoucherCycleState[]
+  favouritedBy        FavouriteVoucher[]
+  rmvTemplate         RmvTemplate?                @relation(fields: [rmvTemplateId], references: [id])
   availabilityWindows VoucherAvailabilityWindow[]
 
   @@index([merchantId])
@@ -854,13 +893,13 @@ model Voucher {
 // special closeTime sentinel "24:00" (next-day midnight boundary);
 // see docs/superpowers/specs/2026-05-10-voucher-detail-m4-time-limited-design.md §3.2.
 model VoucherAvailabilityWindow {
-  id        String  @id @default(uuid())
+  id        String @id @default(uuid())
   voucherId String
-  dayOfWeek Int     // 0=Sun, 1=Mon, ..., 6=Sat (matches BranchOpeningHours)
-  openTime  String  // "HH:mm" wall-clock, Europe/London ("00:00"-"23:59")
-  closeTime String  // "HH:mm" wall-clock, Europe/London ("00:01"-"23:59" OR "24:00" sentinel)
+  dayOfWeek Int // 0=Sun, 1=Mon, ..., 6=Sat (matches BranchOpeningHours)
+  openTime  String // "HH:mm" wall-clock, Europe/London ("00:00"-"23:59")
+  closeTime String // "HH:mm" wall-clock, Europe/London ("00:01"-"23:59" OR "24:00" sentinel)
 
-  voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
 
   @@index([voucherId])
 }
@@ -870,17 +909,17 @@ model VoucherAvailabilityWindow {
 // ─────────────────────────────────────────
 
 model VoucherRedemption {
-  id               String           @id @default(uuid())
+  id               String            @id @default(uuid())
   userId           String
   voucherId        String
   branchId         String
-  redemptionCode   String           @unique
+  redemptionCode   String            @unique
   validatedById    String?
   validationMethod ValidationMethod?
-  isValidated      Boolean          @default(false)
+  isValidated      Boolean           @default(false)
   validatedAt      DateTime?
-  estimatedSaving  Decimal          @db.Decimal(10, 2)
-  redeemedAt       DateTime         @default(now())
+  estimatedSaving  Decimal           @db.Decimal(10, 2)
+  redeemedAt       DateTime          @default(now())
 
   // M4a-6.1: window-occurrence claim column for TIME_LIMITED race protection.
   // Set to the current window-occurrence's startsAt at redemption time for
@@ -889,27 +928,27 @@ model VoucherRedemption {
   // "one redemption per (user, voucher, window-occurrence)" at the DB
   // level — Postgres NULLs are distinct in unique indexes so non-TIME_LIMITED
   // rows don't conflict.
-  windowStartsAt   DateTime?
+  windowStartsAt DateTime?
 
-  user             User         @relation(fields: [userId], references: [id])
-  voucher          Voucher      @relation(fields: [voucherId], references: [id])
-  branch           Branch       @relation(fields: [branchId], references: [id])
-  validatedBy      BranchUser?  @relation(fields: [validatedById], references: [id])
+  user             User                        @relation(fields: [userId], references: [id])
+  voucher          Voucher                     @relation(fields: [voucherId], references: [id])
+  branch           Branch                      @relation(fields: [branchId], references: [id])
+  validatedBy      BranchUser?                 @relation(fields: [validatedById], references: [id])
   screenshotEvents RedemptionScreenshotEvent[]
   // PR-C 2026-05-09: at most one verified review per redemption
   // (Review.redemptionId is @unique).  Back-relation; not a column.
   review           Review?
 
+  // M4a-6.1: window-occurrence claim — DB-level guarantee that no two
+  // TIME_LIMITED redemptions can land in the same (user, voucher,
+  // window-occurrence). NULLs distinct so non-TIME_LIMITED unaffected.
+  @@unique([userId, voucherId, windowStartsAt])
   @@index([userId])
   @@index([voucherId])
   @@index([branchId])
   @@index([redeemedAt])
   @@index([userId, voucherId])
   @@index([redemptionCode])
-  // M4a-6.1: window-occurrence claim — DB-level guarantee that no two
-  // TIME_LIMITED redemptions can land in the same (user, voucher,
-  // window-occurrence). NULLs distinct so non-TIME_LIMITED unaffected.
-  @@unique([userId, voucherId, windowStartsAt])
 }
 
 // ─────────────────────────────────────────
@@ -922,7 +961,7 @@ model VoucherRedemption {
 // ─────────────────────────────────────────
 
 model RedemptionScreenshotEvent {
-  id           String            @id @default(uuid())
+  id           String   @id @default(uuid())
   userId       String
   redemptionId String
   // 'ios' | 'android' — also enforced at the DB layer via the
@@ -931,10 +970,10 @@ model RedemptionScreenshotEvent {
   // Prisma 7 has no inline `@@check` syntax; the migration is the
   // source of truth.  Closes deferred-followups §AG3.
   platform     String
-  occurredAt   DateTime          @default(now())
+  occurredAt   DateTime @default(now())
 
-  user         User              @relation(fields: [userId],       references: [id])
-  redemption   VoucherRedemption @relation(fields: [redemptionId], references: [id])
+  user       User              @relation(fields: [userId], references: [id])
+  redemption VoucherRedemption @relation(fields: [redemptionId], references: [id])
 
   @@index([redemptionId, occurredAt])
   @@index([userId])
@@ -954,8 +993,8 @@ model UserVoucherCycleState {
   isRedeemedInCurrentCycle Boolean   @default(false)
   lastRedeemedAt           DateTime?
 
-  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  voucher                  Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
 
   @@unique([userId, voucherId])
   @@index([userId])
@@ -1000,7 +1039,7 @@ model SubscriptionPlan {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  subscriptions   Subscription[]
+  subscriptions Subscription[]
 }
 
 // ─────────────────────────────────────────
@@ -1031,11 +1070,11 @@ model Subscription {
   // Subscription record is created with a fresh cycleAnchorDate. If
   // reactivation logic is added later (updating the existing record instead
   // of creating a new one), it MUST explicitly reset cycleAnchorDate.
-  cycleAnchorDate      DateTime
+  cycleAnchorDate DateTime
 
-  user                 User             @relation(fields: [userId], references: [id])
-  plan                 SubscriptionPlan @relation(fields: [planId], references: [id])
-  promoCode            PromoCode?       @relation(fields: [promoCodeId], references: [id])
+  user      User             @relation(fields: [userId], references: [id])
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id])
+  promoCode PromoCode?       @relation(fields: [promoCodeId], references: [id])
 
   @@index([stripeSubscriptionId])
   @@index([stripeCustomerId])
@@ -1048,18 +1087,18 @@ model Subscription {
 // ─────────────────────────────────────────
 
 model PromoCode {
-  id            String       @id @default(uuid())
-  code          String       @unique
-  discountType  DiscountType
-  discountValue Decimal      @db.Decimal(10, 2)
-  maxUses       Int?
-  usesCount     Int          @default(0)
-  expiresAt     DateTime?
+  id             String       @id @default(uuid())
+  code           String       @unique
+  discountType   DiscountType
+  discountValue  Decimal      @db.Decimal(10, 2)
+  maxUses        Int?
+  usesCount      Int          @default(0)
+  expiresAt      DateTime?
   isActive       Boolean      @default(true)
   stripeCouponId String?
   createdAt      DateTime     @default(now())
 
-  subscriptions  Subscription[]
+  subscriptions Subscription[]
 
   @@index([code])
 }
@@ -1114,11 +1153,11 @@ model Review {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user         User                @relation(fields: [userId], references: [id])
-  branch       Branch              @relation(fields: [branchId], references: [id])
-  redemption   VoucherRedemption?  @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
-  reports      ReviewReport[]
-  helpfuls     ReviewHelpful[]
+  user       User               @relation(fields: [userId], references: [id])
+  branch     Branch             @relation(fields: [branchId], references: [id])
+  redemption VoucherRedemption? @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
+  reports    ReviewReport[]
+  helpfuls   ReviewHelpful[]
 
   @@unique([userId, branchId])
   @@index([branchId])
@@ -1133,8 +1172,8 @@ model ReviewReport {
   comment          String?
   createdAt        DateTime           @default(now())
 
-  review           Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-  reporter         User   @relation(fields: [reportedByUserId], references: [id])
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  reporter User   @relation(fields: [reportedByUserId], references: [id])
 
   @@unique([reviewId, reportedByUserId])
 }
@@ -1169,8 +1208,8 @@ model FavouriteMerchant {
   merchantId String
   createdAt  DateTime @default(now())
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
   @@unique([userId, merchantId])
   @@index([userId])
@@ -1182,8 +1221,8 @@ model FavouriteVoucher {
   voucherId String
   createdAt DateTime @default(now())
 
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
 
   @@unique([userId, voucherId])
   @@index([userId])
@@ -1223,7 +1262,21 @@ model Campaign {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  merchants       CampaignMerchant[]
+  // Plan 4b deferred contract — Plan 4a does NOT read these fields.
+  // Schema-only; default-safe; future Plan 4b service implementation consumes them.
+  targetLocalityIds  String[] @default([])
+  branchAnchorId     String?
+  radiusMiles        Decimal? @db.Decimal(5, 2)
+  targetLadDistricts String[] @default([])
+  targetCounties     String[] @default([])
+  targetRegions      String[] @default([])
+  targetCountries    String[] @default([])
+  isNational         Boolean  @default(false)
+  priority           Int      @default(0)
+
+  branchAnchor Branch? @relation("CampaignBranchAnchor", fields: [branchAnchorId], references: [id])
+
+  merchants CampaignMerchant[]
 }
 
 model CampaignMerchant {
@@ -1239,8 +1292,8 @@ model CampaignMerchant {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
-  campaign              Campaign @relation(fields: [campaignId], references: [id])
-  merchant              Merchant @relation(fields: [merchantId], references: [id])
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
 
   @@unique([campaignId, merchantId])
   @@index([campaignId])
@@ -1266,7 +1319,7 @@ model FeaturedMerchant {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
-  merchant              Merchant @relation(fields: [merchantId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
 
   @@index([merchantId])
   @@index([isActive])
@@ -1335,7 +1388,7 @@ model AdminApproval {
   submittedAt   DateTime       @default(now())
   actionedAt    DateTime?
 
-  adminUser     AdminUser?     @relation(fields: [adminUserId], references: [id])
+  adminUser AdminUser? @relation(fields: [adminUserId], references: [id])
 
   @@index([type])
   @@index([status])
@@ -1360,7 +1413,7 @@ model Notification {
   readAt        DateTime?
   sentAt        DateTime                  @default(now())
 
-  user          User? @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([recipientType])
@@ -1384,7 +1437,7 @@ model CommunicationLog {
   sentAt        DateTime             @default(now())
   userId        String?
 
-  user          User? @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 
   @@index([recipientId])
   @@index([channel])
@@ -1409,8 +1462,122 @@ model CmsContent {
 // ─────────────────────────────────────────
 
 model StripeWebhookEvent {
-  id             String   @id @default(uuid())
-  stripeEventId  String   @unique
-  type           String
-  processedAt    DateTime @default(now())
+  id            String   @id @default(uuid())
+  stripeEventId String   @unique
+  type          String
+  processedAt   DateTime @default(now())
+}
+
+// ─────────────────────────────────────────
+// ENUMS (Plan 4 — Location Model)
+// ─────────────────────────────────────────
+
+enum PopulationTier {
+  UNKNOWN
+  HAMLET
+  VILLAGE
+  SMALL_TOWN
+  TOWN
+  LARGE_TOWN
+  CITY
+  METRO_CORE
+}
+
+enum MarketStatus {
+  ACTIVE
+  PAUSED
+}
+
+enum LocationConfidence {
+  MANUALLY_CONFIRMED
+  ADDRESS_GEOCODED
+  POSTCODE_CENTROID
+  NEEDS_REVIEW
+}
+
+enum LadderProfile {
+  LOCAL_TIGHT
+  LOCAL_NORMAL
+  MIXED_NORMAL
+  DESTINATION_LOCAL
+  DESTINATION_WIDE
+}
+
+// ─────────────────────────────────────────
+// LOCALITY (Plan 4 — named place / settlement)
+// ─────────────────────────────────────────
+
+model Locality {
+  id             String         @id @default(uuid())
+  name           String
+  slug           String         @unique
+  postTown       String?
+  ladDistrict    String
+  adminCounty    String?
+  region         String?
+  country        String
+  centerLat      Decimal        @db.Decimal(10, 8)
+  centerLng      Decimal        @db.Decimal(11, 8)
+  populationTier PopulationTier @default(UNKNOWN)
+  marketId       String?
+  needsReview    Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  market                 Market?                 @relation("LocalityMarket", fields: [marketId], references: [id])
+  marketAnchorOf         Market?                 @relation("MarketAnchor")
+  outgoingCatchmentEdges LocalityCatchmentEdge[] @relation("CatchmentSource")
+  incomingCatchmentEdges LocalityCatchmentEdge[] @relation("CatchmentTarget")
+  branches               Branch[]                @relation("BranchLocality")
+  users                  User[]                  @relation("UserLocality")
+
+  @@index([marketId])
+  @@index([populationTier])
+  @@index([country])
+  @@index([centerLat, centerLng])
+}
+
+// ─────────────────────────────────────────
+// LOCALITY CATCHMENT EDGE (Plan 4 — directed catchment graph)
+// ─────────────────────────────────────────
+
+model LocalityCatchmentEdge {
+  id               String   @id @default(uuid())
+  sourceLocalityId String
+  targetLocalityId String
+  rank             Int      @default(1)
+  isCurated        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  source Locality @relation("CatchmentSource", fields: [sourceLocalityId], references: [id], onDelete: Cascade)
+  target Locality @relation("CatchmentTarget", fields: [targetLocalityId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceLocalityId, targetLocalityId])
+  @@index([targetLocalityId])
+}
+
+// ─────────────────────────────────────────
+// MARKET (Plan 4 — geographic trading area)
+// ─────────────────────────────────────────
+
+model Market {
+  id                  String       @id @default(uuid())
+  name                String
+  slug                String       @unique
+  status              MarketStatus @default(PAUSED)
+  anchorLocalityId    String       @unique
+  ladDistrict         String?
+  adminCounty         String?
+  region              String?
+  country             String
+  targetMerchantCount Int?
+  launchedAt          DateTime?
+  notes               String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  anchorLocality     Locality   @relation("MarketAnchor", fields: [anchorLocalityId], references: [id])
+  includedLocalities Locality[] @relation("LocalityMarket")
+
+  @@index([status])
 }
