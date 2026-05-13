@@ -37,6 +37,75 @@ const tagIdByLabelAndType = new Map<string, string>()     // `${label}:${type}` 
 const amenityIdByName = new Map<string, string>()
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Plan 4 M1.16 — owner-curated branch → Locality mapping
+//
+// Every seeded branch is MANUALLY_CONFIRMED against its real-world postcode.
+// The map drives buildBranchLocationSnapshot() below; the helper is called at
+// every branch upsert site so the snapshot fields (localityId + admin-hierarchy
+// mirror columns) stay current on every seed run.
+//
+// To add a new seeded branch:
+//   1. Add the branch.upsert call site with `...locationSnapshot` in both
+//      create AND update payloads.
+//   2. Add a row to BRANCH_LOCALITY_MAP below mapping branchId → locality slug.
+//   3. The buildBranchLocationSnapshot() helper will throw at seed time if
+//      either lookup fails, so missing entries fail fast.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BRANCH_LOCALITY_MAP: Readonly<Record<string, string>> = {
+  // 8 taxonomy-test merchants:
+  'tax-branch-cafe-001':       'hoxton-east-shoreditch',  // London EC2A 3BJ (Hackney ward)
+  'tax-branch-pilates-001':    'clapham-town',            // London SW4 7TR (Lambeth ward)
+  'tax-branch-foodhall-001':   'borough-bankside',        // London SE1 9AA (Southwark ward)
+  'tax-branch-aesthetics-001': 'marylebone',              // London W1U 4PB (Westminster ward)
+  'tax-branch-vet-001':        'hackney-central',         // London E8 4RP  (Hackney ward)
+  'tax-branch-covelum-001':    'brightlingsea',           // Brightlingsea CO7 0AY
+  'tax-branch-mykerala-001':   'ipswich',                 // Ipswich IP4 1HJ
+  'tax-branch-karaara-001':    'huddersfield',            // Huddersfield HD1 2PY (Plan 4a anchor)
+  // Multi-branch fixture (Covelum 2nd branch):
+  'tax-branch-covelum-002':    'colchester',              // Colchester CO1 1JN
+  // Dev fixture:
+  'dev-branch-001':            'aldersgate',              // London EC1A 1BB (City of London ward)
+}
+
+type BranchLocationSnapshot = {
+  locationConfidence: 'MANUALLY_CONFIRMED'
+  localityId: string
+  localityName: string
+  postTown: string | null
+  ladDistrict: string | null
+  adminCounty: string | null
+  region: string | null
+  locationCountry: string  // Plan 4a nation snapshot ("England" etc.); distinct from legacy Branch.country (ISO-2)
+  locationResolvedAt: Date
+}
+
+async function buildBranchLocationSnapshot(branchId: string): Promise<BranchLocationSnapshot> {
+  const slug = BRANCH_LOCALITY_MAP[branchId]
+  if (!slug) {
+    throw new Error(`buildBranchLocationSnapshot: no Locality mapping for branchId="${branchId}". Add to BRANCH_LOCALITY_MAP.`)
+  }
+  const loc = await prisma.locality.findUnique({
+    where: { slug },
+    select: { id: true, name: true, postTown: true, ladDistrict: true, adminCounty: true, region: true, country: true },
+  })
+  if (!loc) {
+    throw new Error(`buildBranchLocationSnapshot: Locality slug "${slug}" (for branch "${branchId}") not found. Did seedLocalities() run?`)
+  }
+  return {
+    locationConfidence: 'MANUALLY_CONFIRMED',
+    localityId: loc.id,
+    localityName: loc.name,
+    postTown: loc.postTown,
+    ladDistrict: loc.ladDistrict,
+    adminCounty: loc.adminCounty,
+    region: loc.region,
+    locationCountry: loc.country,
+    locationResolvedAt: new Date(),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Taxonomy seeding
 //
 // Phase order (called from main() in this sequence):
@@ -925,9 +994,12 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
     })
 
     // Branch (with encrypted PIN, idempotent on stable id).
+    // M1.16: branch location snapshot is refreshed on every seed run so
+    // system-owned admin-hierarchy mirror columns stay current.
+    const locationSnapshot = await buildBranchLocationSnapshot(spec.branch.id)
     await prisma.branch.upsert({
       where: { id: spec.branch.id },
-      update: {},
+      update: { ...locationSnapshot },
       create: {
         id: spec.branch.id,
         merchantId: spec.id,
@@ -943,6 +1015,7 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
         email: spec.branch.email ?? null,
         redemptionPin: encrypt('1234'),
         isActive: true,
+        ...locationSnapshot,
       },
     })
 
@@ -1080,9 +1153,10 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
   // ── 4. Second branch — Colchester (multi-branch fixture) ──
   // Unblocks BranchesTab QA + the chip + picker (intentionally
   // hidden on single-branch merchants per the branch-aware spec).
+  const covelum2ndLocationSnapshot = await buildBranchLocationSnapshot(COVELUM_2ND_BRANCH_ID)
   await prisma.branch.upsert({
     where:  { id: COVELUM_2ND_BRANCH_ID },
-    update: {},
+    update: { ...covelum2ndLocationSnapshot },
     create: {
       id:           COVELUM_2ND_BRANCH_ID,
       merchantId:   COVELUM_MERCHANT_ID,
@@ -1098,6 +1172,7 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
       email:        'colchester@covelum.test',
       redemptionPin: encrypt('1234'),
       isActive:     true,
+      ...covelum2ndLocationSnapshot,
     },
   })
   // Slightly different schedule for variety so the two branches don't
@@ -1543,9 +1618,10 @@ async function main() {
   })
 
   // ── Dev branch ──
+  const devBranchLocationSnapshot = await buildBranchLocationSnapshot('dev-branch-001')
   const branch = await prisma.branch.upsert({
     where: { id: 'dev-branch-001' },
-    update: {},
+    update: { ...devBranchLocationSnapshot },
     create: {
       id: 'dev-branch-001',
       merchantId: merchant.id,
@@ -1561,6 +1637,7 @@ async function main() {
       email: 'london@thecoffeehouse.com',
       redemptionPin: encrypt('1234'),
       isActive: true,
+      ...devBranchLocationSnapshot,
     },
   })
 
