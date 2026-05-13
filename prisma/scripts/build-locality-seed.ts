@@ -46,18 +46,21 @@ const ONSPD_PATH = path.join(__dirname, '.local/ONSPD_FEB_2026_UK.csv')
 const BUA_PATH = path.join(__dirname, '.local/ons-bua-2021.csv')
 const OUTPUT_PATH = path.join(__dirname, '..', 'seed-data/onspd-localities.ts')
 
+// ONSPD column map — Feb 2026 release uses the entity-year-suffix naming convention
+// (`<entity><yy>cd`). Older releases used flat names (`ctry`, `oslaua`, etc.). Update
+// this map when ONS publishes a future release that changes the year suffixes.
 const ONSPD_COLS = {
   postcode:                      'pcds',
   latitude:                      'lat',
   longitude:                     'long',
-  countryCode:                   'ctry',
-  ladCode:                       'oslaua',
-  adminCountyCode:               'oscty',
-  regionCode:                    'rgn',
-  parishCode:                    'parish',
-  adminWardCode:                 'osward',
-  parliamentaryConstituencyCode: 'pcon',
-  buaCode:                       'bua11',
+  countryCode:                   'ctry25cd',
+  ladCode:                       'lad25cd',
+  adminCountyCode:               'cty25cd',
+  regionCode:                    'rgn25cd',
+  parishCode:                    'parncp25cd',
+  adminWardCode:                 'wd25cd',
+  parliamentaryConstituencyCode: 'pcon24cd',
+  buaCode:                       'bua24cd',
   terminationDate:               'doterm',
 } as const
 
@@ -89,12 +92,15 @@ type LocalitySeedRow = {
   populationTier: 'UNKNOWN' | 'HAMLET' | 'VILLAGE' | 'SMALL_TOWN' | 'TOWN' | 'LARGE_TOWN' | 'CITY' | 'METRO_CORE'
 }
 
-function countryFromOnsCode(code: string): LocalitySeedRow['country'] {
+function countryFromOnsCode(code: string): LocalitySeedRow['country'] | null {
   switch (code) {
     case 'E92000001': return 'England'
     case 'S92000003': return 'Scotland'
     case 'W92000004': return 'Wales'
     case 'N92000002': return 'Northern Ireland'
+    // Crown Dependencies — explicitly out of scope per spec §1.3 (UK only):
+    case 'L93000001': return null  // Channel Islands (Jersey + Guernsey + Sark)
+    case 'M83000003': return null  // Isle of Man
     default: throw new Error(`Unknown ONS country code: ${code}`)
   }
 }
@@ -114,6 +120,43 @@ function isUnparishedPlaceholder(parish: string | null): boolean {
   return parish === null || /unparished area$/i.test(parish)
 }
 
+/**
+ * If the constituency name is a CITY-PIECE fragment of this postcode's own LAD, returns
+ * the cleaned LAD core (Glasgow / Belfast / Cardiff). Otherwise returns null.
+ *
+ * Examples (fragment → cleaned LAD core):
+ *   - "Glasgow North East"           in LAD "Glasgow City"        → "Glasgow"
+ *   - "Glasgow South West"           in LAD "Glasgow City"        → "Glasgow"
+ *   - "Belfast East"                 in LAD "Belfast"             → "Belfast"
+ *   - "Belfast South and Mid Down"   in LAD "Belfast"             → "Belfast"
+ *   - "Cardiff North"                in LAD "Cardiff"             → "Cardiff"
+ *   - "Manchester Central"           in LAD "Manchester"          → "Manchester"
+ *   - "Edinburgh North and Leith"    in LAD "City of Edinburgh"   → "Edinburgh"
+ *
+ * Counter-examples (not a fragment → returns null):
+ *   - "Huddersfield"                 in LAD "Kirklees"             — different first word
+ *   - "Belfast East"                 in LAD "Ards and North Down"  — wrong LGD (geographically not Belfast)
+ *   - "Vale of Glamorgan"            in LAD "Vale of Glamorgan"    — identical, no fragment
+ *
+ * The LAD-aware check (vs a global "is this constituency from some Belfast-ish LAD" check)
+ * keeps cross-LGD overlap honest: a postcode in Ards LGD whose constituency is "Belfast
+ * East" is geographically NOT in Belfast, so we don't claim it for the Belfast Locality.
+ * It becomes its own "Belfast East" Locality scoped to Ards LGD.
+ */
+function fragmentToLadCore(constituencyName: string, ladName: string): string | null {
+  const ladCore = ladName
+    .replace(/^City of /i, '')
+    .replace(/ City$/i, '')
+    .trim()
+  if (!ladCore) return null
+  const lcCon = constituencyName.toLowerCase().trim()
+  const lcCore = ladCore.toLowerCase()
+  if (lcCon === lcCore) return null                    // identical name — prefer constituency
+  if (lcCon.startsWith(lcCore + ' ')) return ladCore   // "<core> <suffix>" → fragment
+  if (lcCon.startsWith(lcCore + ',')) return ladCore   // "<core>, <suffix>" → fragment
+  return null
+}
+
 function pickLocalityName(
   r: OnspdRow,
   bua: BuaRow | null,
@@ -129,8 +172,13 @@ function pickLocalityName(
   if (!isLondon && bua?.buaName) return bua.buaName
   if (resolved.parishName && !isUnparishedPlaceholder(resolved.parishName)) return resolved.parishName
   if (isLondon && resolved.adminWardName) return resolved.adminWardName
-  if (resolved.parliamentaryConstituencyName) return resolved.parliamentaryConstituencyName
-  if (resolved.adminWardName) return resolved.adminWardName
+  // Non-London non-BUA non-parish: if the constituency is a fragment of this postcode's
+  // own LAD, use the cleaned LAD core (Glasgow / Belfast / Cardiff) — single sensible name.
+  if (resolved.parliamentaryConstituencyName) {
+    const cityCore = fragmentToLadCore(resolved.parliamentaryConstituencyName, resolved.ladName)
+    if (cityCore) return cityCore
+    return resolved.parliamentaryConstituencyName
+  }
   return resolved.ladName
 }
 
@@ -140,15 +188,54 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, '')
 }
 
+/**
+ * BUA strategy for Feb 2026 ONSPD release (`bua24cd` column):
+ *
+ * ONSPD `bua24cd` codes match the BUA24 Documents lookup file shipped alongside ONSPD
+ * (e.g. "BUA Built Up Area names and codes EW as at 04_24.csv"). That file gives us
+ * NAMES for BUA24 codes — but no populations.
+ *
+ * The owner-provided `ons-bua-2021.csv` has POPULATIONS for BUA21 — but the BUA21 codes
+ * don't match BUA24 codes (ONS reissued codes in the 2024 revision). We get populations
+ * by EXACT-NAME matching the BUA24 name against the BUA21 name set.
+ *
+ * Names that align across the 2021→2024 revision get a population (and thus a real
+ * populationTier). Names that don't (newly defined, renamed, or split BUAs) get
+ * populationTier: UNKNOWN, which maps to RURAL (fail-generous per spec §3.7).
+ *
+ * Returns the BUA24 code → { buaName, population (or null) } map for the streaming join.
+ */
 async function loadBuaIndex(): Promise<Map<string, BuaRow>> {
-  const index = new Map<string, BuaRow>()
-  const parser = createReadStream(BUA_PATH).pipe(csvParse({ columns: true, trim: true }))
-  for await (const row of parser) {
-    const code = row['BUA21CD'] ?? row['BUA11CD'] ?? row['bua_code']
+  // Step 1: load BUA24 code → name from the Documents file.
+  const buaNamesPath = await findLookupFile('BUA ')
+  const codeToName = new Map<string, string>()
+  const namesParser = createReadStream(buaNamesPath).pipe(csvParse({ columns: true, trim: true, bom: true }))
+  for await (const row of namesParser) {
+    const codeKey = Object.keys(row).find(k => /^BUA\d+CD$/.test(k))
+    const nameKey = Object.keys(row).find(k => /^BUA\d+NM$/.test(k))
+    if (!codeKey || !nameKey) continue
+    if (row[codeKey] && row[nameKey]) codeToName.set(row[codeKey], row[nameKey])
+  }
+
+  // Step 2: load name → population from BUA21 CSV.
+  const nameToPop = new Map<string, number>()
+  const popParser = createReadStream(BUA_PATH).pipe(csvParse({ columns: true, trim: true, bom: true }))
+  for await (const row of popParser) {
     const name = row['BUA21NM'] ?? row['BUA11NM'] ?? row['bua_name']
     const pop = parseInt(row['POPULATION'] ?? row['population_estimate'] ?? '0', 10) || null
-    if (code && name) index.set(code, { buaCode: code, buaName: name, population: pop })
+    if (name && pop !== null) nameToPop.set(name, pop)
   }
+
+  // Step 3: combine — BUA24 code → BuaRow with population from name-match (or null).
+  const index = new Map<string, BuaRow>()
+  let withPop = 0
+  let withoutPop = 0
+  for (const [code, name] of codeToName.entries()) {
+    const population = nameToPop.get(name) ?? null
+    if (population === null) withoutPop++; else withPop++
+    index.set(code, { buaCode: code, buaName: name, population })
+  }
+  console.log(`  BUA24 codes loaded: ${index.size} (BUA21 population matched: ${withPop}, unmatched: ${withoutPop})`)
   return index
 }
 
@@ -158,7 +245,7 @@ async function loadCodeNameLookup(
   nameKeyPattern: RegExp,
 ): Promise<CodeNameLookup> {
   const map: CodeNameLookup = new Map()
-  const parser = createReadStream(filePath).pipe(csvParse({ columns: true, trim: true }))
+  const parser = createReadStream(filePath).pipe(csvParse({ columns: true, trim: true, bom: true }))
   for await (const row of parser) {
     const codeKey = Object.keys(row).find(k => codeKeyPattern.test(k))
     const nameKey = Object.keys(row).find(k => nameKeyPattern.test(k))
@@ -179,25 +266,27 @@ async function findLookupFile(pattern: string): Promise<string> {
 async function main() {
   console.log('Loading lookup files...')
   const buaIndex = await loadBuaIndex()
-  console.log(`  BUAs: ${buaIndex.size}`)
 
+  // Lookup file-name prefixes match the Feb 2026 ONSPD release Documents/ folder.
+  // Column-header regexes accept any 2-digit year suffix (so the script survives
+  // future quarterly boundary-set revisions without code change).
   const ladLookup = await loadCodeNameLookup(
-    await findLookupFile('LA_UA names and codes'),       /^LAD\d+CD$/, /^LAD\d+NM$/,
+    await findLookupFile('LAD '),     /^LAD\d+CD$/,    /^LAD\d+NM$/,
   )
   const countyLookup = await loadCodeNameLookup(
-    await findLookupFile('CTY names and codes'),         /^CTY\d+CD$/, /^CTY\d+NM$/,
+    await findLookupFile('CTY '),     /^CTY\d+CD$/,    /^CTY\d+NM$/,
   )
   const regionLookup = await loadCodeNameLookup(
-    await findLookupFile('RGN names and codes'),         /^RGN\d+CD$/, /^RGN\d+NM$/,
+    await findLookupFile('RGN '),     /^RGN\d+CD$/,    /^RGN\d+NM$/,
   )
   const parishLookup = await loadCodeNameLookup(
-    await findLookupFile('Parish_NCP names and codes'),  /^PAR\d+CD$/, /^PAR\d+NM$/,
+    await findLookupFile('PARNCP '),  /^PARNCP\d+CD$/, /^PARNCP\d+NM$/,
   )
   const wardLookup = await loadCodeNameLookup(
-    await findLookupFile('Ward names and codes'),        /^WD\d+CD$/,  /^WD\d+NM$/,
+    await findLookupFile('WD '),      /^WD\d+CD$/,     /^WD\d+NM$/,
   )
   const pconLookup = await loadCodeNameLookup(
-    await findLookupFile('Westminster Parliamentary'),   /^PCON\d+CD$/, /^PCON\d+NM$/,
+    await findLookupFile('PCON '),    /^PCON\d+CD$/,   /^PCON\d+NM$/,
   )
   console.log(`  LADs: ${ladLookup.size}, Counties: ${countyLookup.size}, Regions: ${regionLookup.size}`)
   console.log(`  Parishes: ${parishLookup.size}, Wards: ${wardLookup.size}, Constituencies: ${pconLookup.size}`)
@@ -217,7 +306,7 @@ async function main() {
   }
   const groups = new Map<string, GroupResolved>()
 
-  const parser = createReadStream(ONSPD_PATH).pipe(csvParse({ columns: true, trim: true }))
+  const parser = createReadStream(ONSPD_PATH).pipe(csvParse({ columns: true, trim: true, bom: true }))
   let rowCount = 0
   for await (const raw of parser) {
     rowCount++
@@ -250,6 +339,7 @@ async function main() {
       ? (pconLookup.get(onspd.parliamentaryConstituencyCode) ?? null) : null
 
     const country = countryFromOnsCode(onspd.countryCode)
+    if (country === null) continue  // skip Crown Dependencies (Channel Islands / Isle of Man)
     const bua = onspd.buaCode ? buaIndex.get(onspd.buaCode) ?? null : null
 
     const resolved = {
@@ -266,10 +356,13 @@ async function main() {
 
   const localities: LocalitySeedRow[] = []
   const seenSlugs = new Map<string, number>()
+  let localitiesWithBuaName = 0
+  let localitiesWithBuaPopulation = 0
 
   for (const { rows, bua, resolved } of groups.values()) {
     const first = rows[0]
     const country = countryFromOnsCode(first.countryCode)
+    if (country === null) continue  // type-narrowing — Crown Dependencies were already filtered upstream
     const name = pickLocalityName(first, bua, resolved)
     const ladDistrict = resolved.ladName
 
@@ -282,6 +375,9 @@ async function main() {
     const centerLng = rows.reduce((s, r) => s + r.longitude, 0) / rows.length
     const populationTier = populationTierFromBua(bua?.population ?? null)
 
+    if (bua?.buaName) localitiesWithBuaName++
+    if (bua?.population) localitiesWithBuaPopulation++
+
     localities.push({
       name, slug,
       postTown: null,
@@ -293,6 +389,27 @@ async function main() {
       populationTier,
     })
   }
+
+  const tierOrder: LocalitySeedRow['populationTier'][] = [
+    'METRO_CORE', 'CITY', 'LARGE_TOWN', 'TOWN', 'SMALL_TOWN', 'VILLAGE', 'HAMLET', 'UNKNOWN',
+  ]
+  const tierCounts: Record<string, number> = Object.fromEntries(tierOrder.map(t => [t, 0]))
+  for (const l of localities) tierCounts[l.populationTier]++
+
+  console.log('')
+  console.log('=== Locality-level BUA match ===')
+  console.log(`  Localities total: ${localities.length}`)
+  console.log(`  Localities with BUA name (BUA24 hit):       ${localitiesWithBuaName}`)
+  console.log(`  Localities with BUA population (real tier): ${localitiesWithBuaPopulation}`)
+  console.log(`  Localities without BUA population (UNKNOWN): ${localities.length - localitiesWithBuaPopulation}`)
+  console.log('')
+  console.log('=== populationTier distribution ===')
+  for (const tier of tierOrder) {
+    const n = tierCounts[tier]
+    const pct = ((n / localities.length) * 100).toFixed(1).padStart(5)
+    console.log(`  ${tier.padEnd(11)} ${String(n).padStart(6)}  ${pct}%`)
+  }
+  console.log('')
 
   const banner = `// AUTO-GENERATED by prisma/scripts/build-locality-seed.ts.\n// Do not edit by hand. Re-run the generator on ONSPD refresh.\n\n`
   const body = `export const ONSPD_LOCALITIES = ${JSON.stringify(localities, null, 2)} as const\n`

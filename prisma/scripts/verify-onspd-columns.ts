@@ -8,22 +8,33 @@ import { parse as csvParse } from 'csv-parse'
 import { glob } from 'glob'
 import path from 'node:path'
 
+// ONSPD column names for the Feb 2026 release — ONS revised the bulk-CSV header
+// naming convention from the older flat names (`ctry`, `oslaua`, `oscty`, `rgn`,
+// `parish`, `osward`, `pcon`, `bua11`) to the entity-year-suffix pattern used in
+// every other ONS lookup file (`<entity><yy>cd`). The bare names (`pcds`, `lat`,
+// `long`, `doterm`) stayed stable.
 const REQUIRED_ONSPD_COLS = [
-  'pcds', 'lat', 'long', 'ctry', 'oslaua', 'oscty', 'rgn',
-  'parish', 'osward', 'pcon', 'doterm', 'bua11',
+  'pcds', 'lat', 'long',
+  'ctry25cd', 'lad25cd', 'cty25cd', 'rgn25cd',
+  'parncp25cd', 'wd25cd', 'pcon24cd',
+  'doterm',
+  'bua24cd',
 ]
 
+// File-name prefixes match the Documents/ folder shipped in the Feb 2026 ONSPD release.
+// Column-header regexes accept any 2-digit year suffix so the script survives quarterly
+// boundary-set revisions (e.g. LAD24CD/LAD25CD both match `^LAD\d+CD$`).
 const REQUIRED_LOOKUPS = [
-  { pattern: 'LA_UA names and codes',           codeRe: /^LAD\d+CD$/,  nameRe: /^LAD\d+NM$/ },
-  { pattern: 'CTY names and codes',             codeRe: /^CTY\d+CD$/,  nameRe: /^CTY\d+NM$/ },
-  { pattern: 'RGN names and codes',             codeRe: /^RGN\d+CD$/,  nameRe: /^RGN\d+NM$/ },
-  { pattern: 'Parish_NCP names and codes',      codeRe: /^PAR\d+CD$/,  nameRe: /^PAR\d+NM$/ },
-  { pattern: 'Ward names and codes',            codeRe: /^WD\d+CD$/,   nameRe: /^WD\d+NM$/  },
-  { pattern: 'Westminster Parliamentary',       codeRe: /^PCON\d+CD$/, nameRe: /^PCON\d+NM$/ },
+  { pattern: 'LAD ',     codeRe: /^LAD\d+CD$/,    nameRe: /^LAD\d+NM$/    },
+  { pattern: 'CTY ',     codeRe: /^CTY\d+CD$/,    nameRe: /^CTY\d+NM$/    },
+  { pattern: 'RGN ',     codeRe: /^RGN\d+CD$/,    nameRe: /^RGN\d+NM$/    },
+  { pattern: 'PARNCP ',  codeRe: /^PARNCP\d+CD$/, nameRe: /^PARNCP\d+NM$/ },
+  { pattern: 'WD ',      codeRe: /^WD\d+CD$/,     nameRe: /^WD\d+NM$/     },
+  { pattern: 'PCON ',    codeRe: /^PCON\d+CD$/,   nameRe: /^PCON\d+NM$/   },
 ]
 
 async function readHeader(filePath: string): Promise<string[]> {
-  const parser = createReadStream(filePath).pipe(csvParse({ to_line: 1, trim: true }))
+  const parser = createReadStream(filePath).pipe(csvParse({ to_line: 1, trim: true, bom: true }))
   for await (const row of parser) return row as string[]
   return []
 }
