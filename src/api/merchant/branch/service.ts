@@ -3,6 +3,44 @@ import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
 import { resolveAdminMerchant } from '../shared'
 import { encrypt, decrypt } from '../../shared/encryption'
+import { resolvePostcode } from '../../lib/postcodeResolver'
+import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
+
+/**
+ * Plan 4 M1.21 — resolve a postcode via postcodes.io + find-or-create the
+ * matching Locality. Returns the Branch location-snapshot fields ready to
+ * spread into a Branch.create payload OR to merge into a
+ * BranchPendingEdit.proposedChanges block for later admin apply.
+ *
+ * Throws AppError on resolver failure (POSTCODE_NOT_FOUND or
+ * GAZETTEER_UNAVAILABLE — both defined in ERROR_DEFINITIONS, both surface as
+ * their declared statusCode via the global error handler).
+ *
+ * locationConfidence is always 'POSTCODE_CENTROID' on resolve-on-write — a
+ * postcode change re-anchors the branch pin to the postcode-area centroid.
+ * Admin pin-drop / Phase 4 Merchant Portal geocoder upgrades to
+ * MANUALLY_CONFIRMED via a separate path (out of scope for Plan 4a M1).
+ */
+async function resolveBranchLocationFields(prisma: PrismaClient, postcode: string) {
+  const resolved = await resolvePostcode(postcode)
+  if (!resolved.ok) {
+    throw new AppError(resolved.error)
+  }
+  const locality = await findOrCreateLocality(prisma, resolved.snapshot)
+  return {
+    latitude:           resolved.snapshot.latitude,
+    longitude:          resolved.snapshot.longitude,
+    localityId:         locality.id,
+    localityName:       locality.name,
+    postTown:           resolved.snapshot.postTown ?? locality.postTown,
+    ladDistrict:        resolved.snapshot.ladDistrict,
+    adminCounty:        resolved.snapshot.adminCounty,
+    region:             resolved.snapshot.region,
+    locationCountry:    resolved.snapshot.country,
+    locationResolvedAt: new Date(),
+    locationConfidence: 'POSTCODE_CENTROID' as const,
+  }
+}
 
 const PIN_REGEX = /^\d{4}$/
 
@@ -62,6 +100,16 @@ export async function createBranch(
   })
   const isMainBranch = existingCount === 0
 
+  // Plan 4 M1.21 — resolve postcode → Locality + snapshot fields BEFORE the
+  // branch.create so a bad postcode or transient gazetteer outage rejects the
+  // create entirely (no half-written branch). Caller-supplied latitude/longitude
+  // are dropped on this path — pin-precise coords arrive via the admin
+  // pin-drop / Phase 4 Merchant Portal geocoder flow, which bypasses
+  // postcode resolve-on-write.
+  const postcode = data.postcode as string | undefined
+  if (!postcode) throw new AppError('POSTCODE_REQUIRED')
+  const locationFields = await resolveBranchLocationFields(prisma, postcode)
+
   const branch = await prisma.branch.create({
     data: {
       merchantId,
@@ -70,16 +118,18 @@ export async function createBranch(
       addressLine1: data.addressLine1 as string,
       addressLine2: data.addressLine2 as string | undefined,
       city:         data.city as string,
-      postcode:     data.postcode as string,
-      country:      (data.country as string | undefined) ?? 'GB',
-      latitude:     data.latitude as number | undefined,
-      longitude:    data.longitude as number | undefined,
+      postcode:     postcode,
+      country:      (data.country as string | undefined) ?? 'GB',  // legacy address-country
       phone:        data.phone as string | undefined,
       email:        data.email as string | undefined,
       websiteUrl:   data.websiteUrl as string | undefined,
       logoUrl:      data.logoUrl as string | undefined,
       bannerUrl:    data.bannerUrl as string | undefined,
       about:        data.about as string | undefined,
+      ...locationFields,  // latitude / longitude / localityId / localityName /
+                          // postTown / ladDistrict / adminCounty / region /
+                          // locationCountry / locationResolvedAt /
+                          // locationConfidence = POSTCODE_CENTROID
     },
     include: BRANCH_INCLUDE,
   })
@@ -171,6 +221,21 @@ export async function createBranchEditRequest(
 
   if (Object.keys(filtered).length === 0 && !includesPhotos) {
     throw new AppError('NO_SENSITIVE_FIELDS')
+  }
+
+  // Plan 4 M1.21 — when the merchant is proposing a postcode change, eagerly
+  // resolve and stash the full location snapshot in the pending edit so admin
+  // approval is a clean apply. Two benefits: (a) merchant gets immediate
+  // POSTCODE_NOT_FOUND / GAZETTEER_UNAVAILABLE feedback BEFORE admin sees the
+  // request; (b) `proposedChanges.localityId` etc. are present at admin-approval
+  // time so the apply step doesn't need to re-resolve.
+  //
+  // Resolved snapshot overwrites any caller-supplied latitude/longitude in
+  // `filtered` — a postcode change re-anchors the pin to the postcode
+  // centroid; pin-drop refinement is a separate (no-postcode) edit path.
+  if (typeof filtered.postcode === 'string' && filtered.postcode.length > 0) {
+    const locationFields = await resolveBranchLocationFields(prisma, filtered.postcode as string)
+    Object.assign(filtered, locationFields)
   }
 
   // Check for existing PENDING edit

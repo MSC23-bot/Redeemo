@@ -28,6 +28,18 @@ describe('merchant branch routes', () => {
       adminApproval: { create: vi.fn().mockResolvedValue({}) },
       branchUser: { updateMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      // Plan 4 M1.21: createBranch + createBranchEditRequest now call
+      // findOrCreateLocality which reads prisma.locality. Default the mock so
+      // the existing route tests don't need to wire it per-test.
+      locality: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: 'loc-test-1', name: 'TestLocality', slug: 'test-locality',
+          postTown: null, ladDistrict: 'Test', adminCounty: null, region: null,
+          country: 'England', centerLat: 51.5, centerLng: -0.1,
+          populationTier: 'UNKNOWN', needsReview: true, marketId: null,
+        }),
+      },
     } as any)
     app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn() } as any)
     await app.ready()
@@ -49,7 +61,31 @@ describe('merchant branch routes', () => {
     expect(JSON.parse(res.body)).toHaveLength(1)
   })
 
+  // Plan 4 M1.21 — POST /branches now resolves the postcode via postcodes.io
+  // before writing. Mock fetch so these tests don't depend on a real network.
+  const mockPostcodesIoEC1A = () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({
+        status: 200,
+        result: {
+          postcode: 'EC1A 1BB',
+          country: 'England',
+          region: 'London',
+          admin_district: 'City of London',
+          admin_county: null,
+          parish: 'City of London, unparished area',
+          admin_ward: 'Aldersgate',
+          parliamentary_constituency: 'Cities of London and Westminster',
+          latitude: 51.5194,
+          longitude: -0.0988,
+        },
+      }),
+    } as Response)
+  }
+
   it('POST /api/v1/merchant/branches creates branch and sets isMainBranch on first', async () => {
+    mockPostcodesIoEC1A()
     app.prisma.branch.count = vi.fn().mockResolvedValue(0)
     app.prisma.branch.create = vi.fn().mockResolvedValue({ ...mockBranch, isMainBranch: true })
 
@@ -65,13 +101,14 @@ describe('merchant branch routes', () => {
   })
 
   it('POST /api/v1/merchant/branches sets isMainBranch false for subsequent branches', async () => {
+    mockPostcodesIoEC1A()
     app.prisma.branch.count = vi.fn().mockResolvedValue(1)
     app.prisma.branch.create = vi.fn().mockResolvedValue({ ...mockBranch, id: 'b2', isMainBranch: false })
 
     const res = await app.inject({
       method: 'POST', url: '/api/v1/merchant/branches',
       headers: { authorization: `Bearer ${merchantToken}` },
-      payload: { name: 'Second Branch', addressLine1: '2 Test St', city: 'London', postcode: 'EC1A 1BC' },
+      payload: { name: 'Second Branch', addressLine1: '2 Test St', city: 'London', postcode: 'EC1A 1BB' },
     })
     expect(res.statusCode).toBe(201)
     expect(app.prisma.branch.create).toHaveBeenCalledWith(
