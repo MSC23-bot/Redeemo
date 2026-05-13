@@ -15,6 +15,7 @@ import { CATEGORY_AMENITIES } from './seed-data/categoryAmenities'
 import { ONSPD_LOCALITIES } from './seed-data/onspd-localities'
 import { seedHeuristicCatchmentEdges } from './seed-data/catchment-heuristic'
 import { seedCuratedCatchmentEdges } from './seed-data/catchmentOverrides'
+import { seedMarkets } from './seed-data/markets'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
@@ -1379,6 +1380,9 @@ async function main() {
 
   // ── Curated catchment overrides (owner-approved natural-centre relationships per active Market) ──
   await seedCuratedCatchmentEdges(prisma)
+
+  // ── Active Markets (Plan 4a rollout: Huddersfield Market only as of M1.15) ──
+  await seedMarkets(prisma)
 
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
