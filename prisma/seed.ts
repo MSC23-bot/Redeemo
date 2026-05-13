@@ -13,6 +13,7 @@ import { REDUNDANT_HIGHLIGHTS } from './seed-data/redundantHighlights'
 import { AMENITIES } from './seed-data/amenities'
 import { CATEGORY_AMENITIES } from './seed-data/categoryAmenities'
 import { ONSPD_LOCALITIES } from './seed-data/onspd-localities'
+import { seedHeuristicCatchmentEdges } from './seed-data/catchment-heuristic'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
@@ -1371,6 +1372,9 @@ async function main() {
 
   // ── Localities (UK gazetteer, ONSPD-derived; required before Branch/User writes can resolve postcodes) ──
   await seedLocalities()
+
+  // ── Heuristic catchment edges (small Localities → up to 3 nearby big ones, within 12 mi) ──
+  await seedHeuristicCatchmentEdges(prisma)
 
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
