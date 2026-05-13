@@ -1,6 +1,6 @@
 # Plan 4 — Location Model UK Enrichment (design spec)
 
-> **Status:** Tightened draft v4 (third targeted pass — approved direction; final touch-ups). Ready for implementation planning after owner sign-off.
+> **Status:** Tightened draft v5 — applies the same naming corrections that landed in plan v3 (Branch.locationCountry, MerchantHighlight via tag.label join). No design change; aligning the source of truth with the plan.
 > **Scope:** Plan 4a implementation; Plan 4b documented as deferred contract only.
 > **Brainstorm reference:** Q1–Q11 conversation 2026-05-13.
 > **Prior precursors:** Plan 1 (taxonomy), Plan 1.5 (rank-not-hide + supply-aware), Plan 2 (Home/Search/Categories/Map rebaseline), Karaara Huddersfield seed fixture (PR #77).
@@ -8,6 +8,7 @@
 > - v1 → v2: 12 owner review items — UK-wide admin geography, effective-location for GPS, place-search effective area, additive contract via `supplyRung`, Prisma relation validity + `LocalityCatchmentEdge` join table, removed fail-open kill-switch, CATCHMENT directional consistency, merchant de-dup + context-branch selection, `Branch.localityName` denormalisation, embedded risk table, removed IoM test case, Market wording.
 > - v2 → v3: 9 targeted review items — Locality canonicalisation algorithm (§4.1.1), ladder-walk pseudo-code de-dup fix (§5.6), Map response shape clarification (§5.7), `Market.status` default flipped to PAUSED (§3.3), GPS nearest-Locality implementation note (§4.4), trending-search seed fixture requirement (§11.5), `targetCountries[]` provenance note (§12.4), §6.7 wording softened, explicit "no legacy customer-app rebaseline" non-scope (§1.3 + §11.6).
 > - v3 → v4: 3 final clarifications — London BUA exception in §4.1.1 (London skips BUA matching to avoid "London" collapse), Map viewport-led EffectiveLocation in §5.7 (`/discovery/in-area` uses bbox centre, not user GPS, for relevance), new §11.7 performance guardrails (in-process caching allowed, no Redis/PostGIS/external cache in v1, required DB indexes listed).
+> - v4 → v5: alignment with plan v3 — `Branch.country` (legacy address-country) preserved; new `Branch.locationCountry` introduced for the Plan 4 nation field; `MerchantHighlight` search expressed via `Merchant.highlights.some.tag.label` (no `MerchantHighlight.label` column); `Branch.anchoredCampaigns` opposite relation made explicit on Branch additions. No design change.
 
 ---
 
@@ -239,18 +240,24 @@ locality              Locality? @relation("UserLocality", fields: [localityId], 
 ### §3.5 Branch location snapshot (additions to existing Branch model)
 
 ```prisma
-// Additions to Branch (lat/lng already nullable on the existing model)
+// Additions to Branch (lat/lng already nullable on the existing model).
+// NOTE: `Branch.country` already exists as the legacy ADDRESS country (default "GB").
+// The Plan 4 NATION field is added as a separate column `locationCountry` to avoid
+// collision. The two fields have different semantics and coexist for one deprecation cycle.
 localityId            String?
 localityName          String?              // denormalised mirror — kept in sync with Locality.name at branch write time
 postTown              String?
 ladDistrict           String?
 adminCounty           String?
 region                String?
-country               String?
+locationCountry       String?              // Plan 4 NATION: "England" | "Scotland" | "Wales" | "Northern Ireland"
 locationResolvedAt    DateTime?
 locationConfidence    LocationConfidence  @default(POSTCODE_CENTROID)
 
 locality              Locality?           @relation("BranchLocality", fields: [localityId], references: [id])
+
+// Opposite relation for Plan 4b Campaign.branchAnchor — see §12.4
+anchoredCampaigns     Campaign[]          @relation("CampaignBranchAnchor")
 
 enum LocationConfidence {
   MANUALLY_CONFIRMED
@@ -565,7 +572,7 @@ type EffectiveLocation = {
 | `LAD` | same `ladDistrict` | denormalised mirror | Works UK-wide (always set: shire district / unitary / council area / principal area / NI district) |
 | `COUNTY` | same `adminCounty` | denormalised mirror | English shire counties only; empty for unitary / Scotland / Wales / NI |
 | `REGION` | same `region` | denormalised mirror | English regions only; empty for Scotland / Wales / NI |
-| `COUNTRY` | same `country` | denormalised mirror | Works UK-wide; values are England/Scotland/Wales/Northern Ireland |
+| `COUNTRY` | same `locationCountry` (Plan 4 nation field — distinct from legacy `Branch.country` address-country) | denormalised mirror | Works UK-wide; values are England/Scotland/Wales/Northern Ireland |
 | `NATIONAL` | anywhere in UK | unfiltered | Always evaluable |
 
 **Empty-rung handling:** when a rung's match field is null on the EffectiveLocation (e.g. a Scottish user has no `adminCounty` or `region`), the rung returns 0 results. The walk continues to the next rung up to `maxRung`. If `maxRung` itself is empty, the walk stops at the last non-empty rung that contributed results (no auto-promote past `maxRung`).
@@ -830,14 +837,20 @@ For every `q` query, the search service tries detection in this order. First mat
 
 ### §6.3 Tag detection (step 2 — does NOT change EffectiveLocation)
 
+**Schema note:** the actual Prisma relations are `Merchant.tags: MerchantTag[]` and `Merchant.highlights: MerchantHighlight[]`. Both `MerchantTag` and `MerchantHighlight` carry FK references to `Tag` (via `tagId` and `highlightTagId` respectively). `MerchantHighlight` does NOT have its own `label` column — the label is reached via `MerchantHighlight.tag.label`. A single ILIKE-exact on `Tag.label` therefore covers BOTH regular tags AND highlight tags.
+
 ```
 1. ILIKE-exact (case-insensitive) on Tag.label across all 4 types: CUISINE, SPECIALTY, HIGHLIGHT, DETAIL.
-2. ILIKE-exact on MerchantHighlight.label.
-3. If matched:
-   - Scope merchant results to ones tagged with this tag.
-   - Per-type ranking weight: CUISINE = 4, HIGHLIGHT = 4, SPECIALTY = 2, DETAIL = 1.
-   - Within ranked results, apply the standard ladder walk against user's actual EffectiveLocation.
-   - UI chip: "Showing **{tag.label}** offers"
+   This covers both `Merchant.tags.some.tag.label` and `Merchant.highlights.some.tag.label`
+   because both relations reference the same Tag table.
+2. If matched, scope merchant results via:
+   OR [
+     { tags:       { some: { tagId: matched.id } } },
+     { highlights: { some: { highlightTagId: matched.id } } },
+   ]
+3. Apply per-type ranking weight: CUISINE = 4, HIGHLIGHT = 4, SPECIALTY = 2, DETAIL = 1.
+4. Within ranked results, apply the standard ladder walk against user's actual EffectiveLocation.
+5. UI chip: "Showing **{tag.label}** offers"
 ```
 
 ### §6.4 Fuzzy fall-through (step 3)
@@ -849,8 +862,8 @@ Standard fuzzy `ILIKE` across:
 - `Merchant.description`
 - `Category.name` (parent + child)
 - `MerchantSuggestedTag.tag` (existing)
-- `Tag.label` (NEW)
-- `MerchantHighlight.label` (NEW)
+- `Tag.label` via `Merchant.tags.some.tag.label` (NEW)
+- `Tag.label` via `Merchant.highlights.some.tag.label` (NEW — same Tag table, different relation)
 - `Branch.localityName` (NEW — denormalised, §3.5)
 - `Branch.postTown` (NEW)
 
@@ -1084,7 +1097,7 @@ Brand polish; Android/iOS visual inconsistency; Place Autocomplete need; cost co
 | **M1 — Foundation** | Schema migration. ONSPD+BUA seed. Heuristic + curated catchments. Market seed. Resolve-on-write in branch+user writes. `/postcode/preview` endpoint. Idempotent backfill (owner-run). | No |
 | **M2 — Ranking** | `rankMerchants` v2 with density-adaptive 8-rung ladder. `LadderProfile` matrix in code. `proximityBand` resolver. Per-rung counts. Comprehensive tests. | No |
 | **M3 — Consumer wire-up** | Discovery routes return new contract (ADDITIVE — legacy fields retained). Customer-app tile types extended. Surfaces consume `supplyRung` + `proximityBand`. No empty-state copy changes. | Yes (first user-visible flip — tier-aware tile ordering, band-aware chip rendering) |
-| **M4 — Search + UX** | Place + Tag search detection in `q` (place sets EffectiveLocation). Tag.label + MerchantHighlight.label fuzzy expansion. Section-level empty states + approved copy. Search chips. | Yes |
+| **M4 — Search + UX** | Place + Tag search detection in `q` (place sets EffectiveLocation). `Tag.label` fuzzy expansion via both `Merchant.tags` and `Merchant.highlights` relations. Section-level empty states + approved copy. Search chips. | Yes |
 | **M5 — Cleanup** | Audit-then-remove legacy fields where superseded AND audit shows no consumer reads them. | No |
 
 ### §11.2 Backfill script
@@ -1172,10 +1185,10 @@ These are acceptable as in-process maps populated on first read, invalidated onl
 - `LocalityCatchmentEdge(targetLocalityId)` — for ops queries like "who points to this locality."
 - `LocalityCatchmentEdge(sourceLocalityId, targetLocalityId)` — unique constraint already declared.
 - `Branch(localityId)` — branch-by-locality fetch at LAD/COUNTY/REGION/COUNTRY rung resolution.
-- `Branch(postTown)`, `Branch(ladDistrict)`, `Branch(adminCounty)`, `Branch(region)`, `Branch(country)` — denormalised-mirror rung matching.
+- `Branch(postTown)`, `Branch(ladDistrict)`, `Branch(adminCounty)`, `Branch(region)`, `Branch(locationCountry)` — denormalised-mirror rung matching (the Plan 4 nation field, NOT legacy address-country).
 - `Branch(locationConfidence)` — discoverability gate query.
 - `Tag(label)`, `Tag(type)` — Search Tag.label expansion (existing `Tag.tag` index stays).
-- `MerchantHighlight(label)` — Search HIGHLIGHT search.
+- (No dedicated `MerchantHighlight.label` index needed — highlights reach Tag.label via `MerchantHighlight.tag` join; the existing `Tag(label)` index covers both regular tags and highlights.)
 - `Branch(localityName)` — Search fuzzy fall-through (denormalised mirror).
 
 The M1 plan task list materialises each of these. Pre-launch a "DB index audit" task confirms each query the ranking ladder makes hits an index (covered already by memory §W production-resilience standing checklist).
@@ -1287,7 +1300,7 @@ Plan 4b spec finalizes. Approved vocabulary candidates: "New local offers are be
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| 12 | Search Tag.label join explosion at scale | Low at v1 | Medium at scale | DB indexes on `Tag.label`, `Tag.type`, `MerchantHighlight.label`. Memory §W index-audit flag pre-launch. |
+| 12 | Search Tag.label join explosion at scale | Low at v1 | Medium at scale | DB indexes on `Tag(label)` + `Tag(type)` cover both `Merchant.tags` and `Merchant.highlights` joins (both reference the same Tag table). Memory §W index-audit flag pre-launch. |
 | 13 | rankMerchants v2 ladder walk slower than v1 (8 rungs vs 3) | Low | Low at v1 | Pure in-memory after one DB fetch. ~2-3x in-memory work; negligible. |
 | 14 | Map post-rank bbox filter slow as supply grows | Low at v1 | Medium long-term | Already memory §W flagged. DB-side bbox prefilter when warranted. NOT Plan 4a scope. |
 | 15 | `/postcode/preview` adds backend chatter during PC2 typing | Low | Low | Existing PC2 already calls postcodes.io per keystroke. Same profile. |
