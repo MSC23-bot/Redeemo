@@ -66,6 +66,11 @@ const BRANCH_LOCALITY_MAP: Readonly<Record<string, string>> = {
   'tax-branch-covelum-002':    'colchester',              // Colchester CO1 1JN
   // Dev fixture:
   'dev-branch-001':            'aldersgate',              // London EC1A 1BB (City of London ward)
+  // M1.24 trending-search fixtures (Pizza / Nail salon / Barber / Gym):
+  'tax-branch-pinos-pizzeria-001':  'huddersfield',       // Huddersfield HD1 2BJ
+  'tax-branch-polish-nails-001':    'holmfirth',          // Holmfirth     HD9 2DN
+  'tax-branch-trim-co-barbers-001': 'huddersfield',       // Huddersfield HD1 2QT
+  'tax-branch-iron-forge-gym-001':  'marsden',            // Marsden       HD7 6BR
 }
 
 type BranchLocationSnapshot = {
@@ -455,6 +460,9 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Specialty Coffee', type: 'SPECIALTY' },
       { label: 'Matcha', type: 'SPECIALTY' },
       { label: 'Patisserie', type: 'SPECIALTY' },
+      // M1.24 — Brunch trending-search coverage. The tag was already in this
+      // fixture's tag list before M1.24; calling out here so the trending-
+      // search audit doesn't flag Bean & Brew as Brunch-untagged.
       { label: 'Brunch', type: 'SPECIALTY' },
       { label: 'Independent', type: 'HIGHLIGHT' },
       { label: 'Vegan-Friendly', type: 'HIGHLIGHT' },
@@ -811,6 +819,161 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       longitude:    -1.7809,
       phone:        '+441484500900',
       email:        'hello@karaara.test',
+    },
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Plan 4 M1.24 — trending-search fixture merchants (Pizza / Nail / Barber /
+  // Gym). Bean & Brew above covers Coffee + Brunch (Brunch tag added in M1.24).
+  // All four fictional but realistic test/demo merchants; Huddersfield-area
+  // distribution per owner approval (2026-05-14):
+  //   - Pinos Pizzeria    → huddersfield (Kirklees)
+  //   - Polish Nail Studio → holmfirth   (Kirklees, Huddersfield Market)
+  //   - Trim & Co Barbers  → huddersfield (Kirklees)
+  //   - Iron Forge Gym     → marsden     (Kirklees, Huddersfield Market)
+  // BRANCH_LOCALITY_MAP (top of seed.ts) gets four matching entries so the
+  // M1.16 buildBranchLocationSnapshot helper sets locationConfidence:
+  // MANUALLY_CONFIRMED + the full Locality snapshot on each branch upsert.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Scenario 10 — Pizza trending coverage. Pino's Pizzeria (apostrophe stripped
+  // for ASCII-safety per owner direction). Restaurant subcategory + Italian
+  // CUISINE + Pizza SPECIALTY → trending term "Pizza" hits via SPECIALTY tag.
+  {
+    id: 'tax-merchant-pinos-pizzeria-001',
+    businessName: 'Pinos Pizzeria',
+    tradingName: 'Pinos Pizzeria',
+    description: 'Wood-fired pizzas and Italian small plates in central Huddersfield.',
+    parentCategoryName: 'Food & Drink',
+    subcategoryName: 'Restaurant',
+    primaryDescriptorTag: { label: 'Italian', type: 'CUISINE' },
+    tags: [
+      { label: 'Italian',           type: 'CUISINE' },
+      { label: 'Pizza',             type: 'SPECIALTY' },  // ← satisfies trending "Pizza"
+      { label: 'Family-Friendly',   type: 'HIGHLIGHT' },
+      { label: 'Independent',       type: 'HIGHLIGHT' },
+    ],
+    highlights: [
+      { label: 'Family-Friendly', sortOrder: 0 },
+      { label: 'Independent',     sortOrder: 1 },
+    ],
+    amenities: ['Wi-Fi', 'Outdoor Seating'],
+    branch: {
+      id:           'tax-branch-pinos-pizzeria-001',
+      name:         'Pinos Pizzeria — Huddersfield',
+      addressLine1: '47 New Street',
+      city:         'Huddersfield',
+      postcode:     'HD1 2BJ',
+      latitude:     53.6485,
+      longitude:    -1.7820,
+      phone:        '+441484501100',
+      email:        'info@pinos-pizzeria.test',
+    },
+  },
+
+  // Scenario 11 — Nail Salon trending coverage. HIDDEN descriptor (Nail Salon
+  // subcategory) → no primaryDescriptorTag; UI displays bare subcategory name.
+  // Trending term "Nail salon" hits via the subcategory match.
+  {
+    id: 'tax-merchant-polish-nails-001',
+    businessName: 'Polish Nail Studio',
+    tradingName: 'Polish Nail Studio',
+    description: 'Independent nail salon in Holmfirth — gel, BIAB, manicures and pedicures.',
+    parentCategoryName: 'Beauty & Wellness',
+    subcategoryName: 'Nail Salon',
+    primaryDescriptorTag: null,
+    tags: [
+      { label: 'Manicure',     type: 'SPECIALTY' },
+      { label: 'Pedicure',     type: 'SPECIALTY' },
+      { label: 'Gel Nails',    type: 'SPECIALTY' },
+      { label: 'BIAB',         type: 'SPECIALTY' },
+      { label: 'Independent',  type: 'HIGHLIGHT' },
+      { label: 'Women-Owned',  type: 'HIGHLIGHT' },
+    ],
+    highlights: [
+      { label: 'Independent', sortOrder: 0 },
+      { label: 'Women-Owned', sortOrder: 1 },
+    ],
+    amenities: ['Online Booking', 'Wi-Fi'],
+    branch: {
+      id:           'tax-branch-polish-nails-001',
+      name:         'Polish Nail Studio — Holmfirth',
+      addressLine1: '8 Victoria Square',
+      city:         'Holmfirth',
+      postcode:     'HD9 2DN',
+      latitude:     53.5700,
+      longitude:    -1.7885,
+      phone:        '+441484501200',
+      email:        'bookings@polish-nails.test',
+    },
+  },
+
+  // Scenario 12 — Barber trending coverage. HIDDEN descriptor (Barber
+  // subcategory). Walk-Ins Welcome DETAIL tag adds realism without breaking
+  // the test data.
+  {
+    id: 'tax-merchant-trim-co-barbers-001',
+    businessName: 'Trim & Co Barbers',
+    tradingName: 'Trim & Co Barbers',
+    description: 'Independent barbers in Huddersfield — walk-ins welcome, classic and modern cuts, hot towel shaves.',
+    parentCategoryName: 'Beauty & Wellness',
+    subcategoryName: 'Barber',
+    primaryDescriptorTag: null,
+    tags: [
+      { label: "Men's Grooming",    type: 'SPECIALTY' },
+      { label: 'Hot Towel Shave',   type: 'SPECIALTY' },
+      { label: 'Independent',       type: 'HIGHLIGHT' },
+      { label: 'Walk-Ins Welcome',  type: 'DETAIL' },
+    ],
+    highlights: [
+      { label: 'Independent', sortOrder: 0 },
+    ],
+    amenities: ['Wi-Fi'],
+    branch: {
+      id:           'tax-branch-trim-co-barbers-001',
+      name:         'Trim & Co Barbers — Huddersfield',
+      addressLine1: '22 King Street',
+      city:         'Huddersfield',
+      postcode:     'HD1 2QT',
+      latitude:     53.6470,
+      longitude:    -1.7795,
+      phone:        '+441484501300',
+      email:        'hi@trim-co-barbers.test',
+    },
+  },
+
+  // Scenario 13 — Gym trending coverage. RECOMMENDED descriptor on Gym
+  // subcategory but we leave primaryDescriptorTag null (generic gym, no
+  // dominant discipline) — UI falls back to bare "Gym".
+  {
+    id: 'tax-merchant-iron-forge-gym-001',
+    businessName: 'Iron Forge Gym',
+    tradingName: 'Iron Forge Gym',
+    description: 'Independent strength and functional fitness gym in Marsden — heavy iron, kettlebells, and a small-group HIIT class schedule.',
+    parentCategoryName: 'Health & Fitness',
+    subcategoryName: 'Gym',
+    primaryDescriptorTag: null,
+    tags: [
+      { label: 'Strength',           type: 'SPECIALTY' },
+      { label: 'HIIT',               type: 'SPECIALTY' },
+      { label: 'Functional',         type: 'SPECIALTY' },
+      { label: 'Personal Training',  type: 'SPECIALTY' },
+      { label: 'Independent',        type: 'HIGHLIGHT' },
+    ],
+    highlights: [
+      { label: 'Independent', sortOrder: 0 },
+    ],
+    amenities: ['Showers', 'Lockers', 'Free Parking'],
+    branch: {
+      id:           'tax-branch-iron-forge-gym-001',
+      name:         'Iron Forge Gym — Marsden',
+      addressLine1: '15 Peel Street',
+      city:         'Marsden',
+      postcode:     'HD7 6BR',
+      latitude:     53.6019,
+      longitude:    -1.9303,
+      phone:        '+441484501400',
+      email:        'info@iron-forge-gym.test',
     },
   },
 ]
