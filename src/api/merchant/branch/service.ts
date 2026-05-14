@@ -233,7 +233,12 @@ export async function createBranchEditRequest(
   // Resolved snapshot overwrites any caller-supplied latitude/longitude in
   // `filtered` — a postcode change re-anchors the pin to the postcode
   // centroid; pin-drop refinement is a separate (no-postcode) edit path.
-  if (typeof filtered.postcode === 'string' && filtered.postcode.length > 0) {
+  //
+  // PR #81 review follow-up — trim() the postcode candidate before the
+  // length check. A whitespace-only payload ("   ") would pass `length > 0`
+  // and then trip resolvePostcode into the < 5-char POSTCODE_NOT_FOUND
+  // branch; trimming up front gives a cleaner contract.
+  if (typeof filtered.postcode === 'string' && filtered.postcode.trim().length > 0) {
     const locationFields = await resolveBranchLocationFields(prisma, filtered.postcode as string)
     Object.assign(filtered, locationFields)
   }

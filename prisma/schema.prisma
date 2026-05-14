@@ -414,6 +414,13 @@ model Branch {
   addressLine2  String?
   city          String
   postcode      String
+  // Legacy ADDRESS-country (ISO-3166 alpha-2; defaults "GB"). DISTINCT from
+  // the Plan 4 `locationCountry` column below which carries the resolved
+  // NATION ("England" / "Scotland" / "Wales" / "Northern Ireland"). Both
+  // coexist for one deprecation cycle — `country` for the address envelope
+  // and any external integrations expecting an ISO-2 code, `locationCountry`
+  // for Plan 4 discovery / locality rollups. M5 cleanup audits whether the
+  // legacy field can be retired.
   country       String   @default("GB")
   latitude      Decimal? @db.Decimal(10, 8)
   longitude     Decimal? @db.Decimal(11, 8)
@@ -431,8 +438,18 @@ model Branch {
 
   // Plan 4a location snapshot — see spec §3.5.
   // NOTE: `locationCountry` is the resolved NATION (England/Scotland/Wales/NI).
-  // It is INTENTIONALLY distinct from the existing `country` column (which is the
-  // address country, e.g. "GB"). Both fields coexist for one deprecation cycle.
+  // It is INTENTIONALLY distinct from the existing `country` column above
+  // (which is the ISO-2 address country, default "GB"). Both fields coexist
+  // for one deprecation cycle — see the comment on `country` for the
+  // semantic split.
+  //
+  // `postTown` is currently mostly null in M1: the ONSPD seed generator
+  // doesn't populate Locality.postTown (the BUA join supplies a name but
+  // not a post-town), and postcodes.io's `post_town` field is also not
+  // reliably populated for every postcode. M1.16 + M1.22 backfill paths
+  // preserve whatever postcodes.io returns (null where absent). Future
+  // post-town enrichment (a separate ONS lookup or PAF data feed) will
+  // populate this densely.
   localityId         String?
   localityName       String?
   postTown           String?
