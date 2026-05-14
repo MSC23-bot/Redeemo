@@ -25,6 +25,17 @@ const TIERS = {
   // don't collectively punish multiple customers. Locked 2026-05-09,
   // deferred-followups §AG1 (post-PR-#49 pre-public-launch hardening).
   redemptionPolling: { prod: { max: 30, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
+  // Postcode-preview tier — protects GET /api/v1/customer/postcode/preview,
+  // the OPEN-SCOPE read-only endpoint hit during PC2 debounced typing.
+  // Legitimate cadence is ~5-10 req over 2-3 seconds (one per debounced
+  // keystroke as the user finishes their postcode); 30/min/IP comfortably
+  // covers that + retry behaviour without (a) exposing Redeemo as a free
+  // postcode-lookup proxy or (b) letting an attacker burn through our
+  // postcodes.io budget (their published 3000 req/min ceiling). Keyed by
+  // req.ip — no req.user.sub available on an open-scope endpoint. Locked
+  // 2026-05-14 from PR #81 review (Codex + self-review converged on this
+  // as a must-fix-before-prod alongside the resolver AbortSignal timeout).
+  postcodePreview:   { prod: { max: 30, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
 } as const
 
 const GLOBAL = { prod: { max: 100, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } }
