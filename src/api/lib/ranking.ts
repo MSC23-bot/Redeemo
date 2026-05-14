@@ -235,3 +235,119 @@ export async function computeRatingsByMerchant(
 
   return result
 }
+
+// ─── Plan 4 M2 — parallel new ranking primitives ─────────────────────────────
+//
+// Everything BELOW this line is the M2 ranking refactor. Everything ABOVE
+// is the Plan 1.5 legacy path (classifyTier / rankMerchants) and stays
+// intact until M3 swaps Discovery's callers over, and M5 audits-then-deletes.
+//
+// See:
+//   docs/superpowers/specs/2026-05-13-plan-4-location-model-uk-enrichment-design.md §5
+//   docs/superpowers/plans/2026-05-13-plan-4-location-model-uk-enrichment.md  Task M2.5
+
+import type { SupplyRung } from './ladderProfiles'
+import type { EffectiveLocation } from './effectiveLocation'
+
+const MILES_TO_METRES = 1609.344
+
+type BranchForClassification = {
+  latitude: number | null
+  longitude: number | null
+  isActive: boolean
+  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
+  localityId: string | null
+  postTown: string | null
+  ladDistrict: string | null
+  adminCounty: string | null
+  region: string | null
+  /**
+   * Plan 4 nation snapshot ("England" | "Scotland" | "Wales" |
+   * "Northern Ireland"). Distinct from the legacy `Branch.country`
+   * (ISO-2 address-country, e.g. "GB") — see spec §3.5.
+   */
+  locationCountry: string | null
+}
+
+/**
+ * Classify a branch into a SupplyRung relative to an EffectiveLocation.
+ *
+ * Returns null for non-discoverable branches:
+ *   - `isActive = false`
+ *   - `locationConfidence ∈ { POSTCODE_CENTROID, NEEDS_REVIEW }`
+ *
+ * Only `MANUALLY_CONFIRMED` and `ADDRESS_GEOCODED` branches are
+ * discoverable. This is structurally how the PR #81 redaction
+ * contract is enforced at the ranking layer — an approximate
+ * postcode-centroid pin can never produce a NEARBY match.
+ *
+ * Rung evaluation order (most-specific first):
+ *   NEARBY → CATCHMENT → POST_TOWN → LAD → COUNTY → REGION → COUNTRY → NATIONAL
+ *
+ * All admin-rung comparisons are null-safe — both sides must be
+ * non-null. UK-wide: a Scottish user with null adminCounty + null
+ * region falls through past those rungs cleanly without spurious
+ * null-vs-null matches.
+ */
+export function classifyRung(
+  branch: BranchForClassification,
+  effLoc: EffectiveLocation,
+  nearbyRadiusMiles: number,
+  /**
+   * Locality IDs reachable from `effLoc.locality` via outgoing
+   * CATCHMENT edges. Looked up once by the caller (M2.6) and passed
+   * in — keeps `classifyRung` synchronous + pure.
+   */
+  outgoingCatchmentTargetIds: readonly string[],
+): SupplyRung | null {
+  // Discoverability gate.
+  if (!branch.isActive) return null
+  if (branch.locationConfidence !== 'MANUALLY_CONFIRMED' && branch.locationConfidence !== 'ADDRESS_GEOCODED') {
+    return null
+  }
+
+  // NEARBY — distance check via reused shared/haversine helper.
+  if (branch.latitude !== null && branch.longitude !== null) {
+    const dMetres = haversineMetres(effLoc.lat, effLoc.lng, branch.latitude, branch.longitude)
+    if (dMetres <= nearbyRadiusMiles * MILES_TO_METRES) return 'NEARBY'
+  }
+
+  // CATCHMENT — same locality OR effLoc has an outgoing edge into branch's locality.
+  if (branch.localityId && (
+    branch.localityId === effLoc.locality.id ||
+    outgoingCatchmentTargetIds.includes(branch.localityId)
+  )) {
+    return 'CATCHMENT'
+  }
+
+  // POST_TOWN.
+  if (branch.postTown && effLoc.locality.postTown && branch.postTown === effLoc.locality.postTown) {
+    return 'POST_TOWN'
+  }
+
+  // LAD.
+  if (branch.ladDistrict && branch.ladDistrict === effLoc.locality.ladDistrict) {
+    return 'LAD'
+  }
+
+  // COUNTY (English shire counties only; null on unitary / Scotland / Wales / NI).
+  if (branch.adminCounty && effLoc.locality.adminCounty && branch.adminCounty === effLoc.locality.adminCounty) {
+    return 'COUNTY'
+  }
+
+  // REGION (English regions only; null on Scotland / Wales / NI).
+  if (branch.region && effLoc.locality.region && branch.region === effLoc.locality.region) {
+    return 'REGION'
+  }
+
+  // COUNTRY — Plan 4 nation match. Branch reads `locationCountry`
+  // (Plan 4 nation snapshot); Locality reads `country` (the matching
+  // Plan 4 nation field on Locality). The field-name asymmetry is
+  // intentional per spec §3.5.
+  if (branch.locationCountry && branch.locationCountry === effLoc.locality.country) {
+    return 'COUNTRY'
+  }
+
+  // NATIONAL — anywhere else in the UK that survived the discoverability gate.
+  return 'NATIONAL'
+}
