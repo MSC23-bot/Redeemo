@@ -139,4 +139,67 @@ describe('Branch locationConfidence redaction (PR #81 review B2)', () => {
     expect(branch.longitude).toBe(-1.7809)
     expect(branch.locationConfidence).toBe('MANUALLY_CONFIRMED')
   })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PR #81 Codex re-review — gate the three tile / map / cold-open paths
+  // that were missed in the first round of Blocker 2.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('enrichMerchantTile: MANUALLY_CONFIRMED merchant in-area tile carries a real distance + nearestBranchId', async () => {
+    // Karaara (MANUALLY_CONFIRMED) inside a bbox around Huddersfield.
+    // enrichMerchantTile is invoked for every in-area match; this test
+    // pins the positive case (the gate doesn't break confirmed branches
+    // — tile.distance + nearestBranchId are populated as expected).
+    //
+    // The negative case (POSTCODE_CENTROID merchant excluded entirely
+    // from the bbox via merchantHasBranchInBbox) is pinned by the
+    // separate "Map bbox in-area query" test below.
+    const { getInAreaMerchants } = await import('../../../../src/api/customer/discovery/service')
+    const result = await getInAreaMerchants(prisma, {
+      bbox: { minLat: 53.60, maxLat: 53.70, minLng: -1.85, maxLng: -1.75 },
+      lat: 53.65, lng: -1.78,
+      userId: null,
+      limit: 50,
+    })
+    const tile = result.merchants.find((m: { id: string }) => m.id === 'tax-merchant-karaara-001') as
+      | { distance: number | null; nearestBranchId: string | null }
+      | undefined
+    expect(tile).toBeDefined()
+    expect(tile!.distance).not.toBeNull()
+    expect(tile!.distance).toBeGreaterThan(0)
+    expect(tile!.nearestBranchId).toBe('tax-branch-karaara-001')
+  })
+
+  it('selectedBranch GPS-ranking on cold-open is NOT influenced by approximate coords', async () => {
+    // Test merchant has one POSTCODE_CENTROID branch. Cold-open with user
+    // GPS coords near that branch's postcode centroid would historically
+    // pick it via GPS-rank — but since we null out approximate branch
+    // coords before the resolver, the resolver falls back to mainBranch /
+    // oldest. With only one branch, mainBranch is always picked. The
+    // selectedBranch.distance stays null (gated by hasExactPosition).
+    const merchant = await getCustomerMerchant(prisma, TEST_MERCHANT_ID, null, {
+      lat: 53.65, lng: -1.78,
+    })
+    expect(merchant.selectedBranch?.id).toBe(APPROX_BRANCH_ID)   // mainBranch fallback
+    expect(merchant.selectedBranch?.distance).toBeNull()         // gated
+    expect(merchant.selectedBranch?.latitude).toBeNull()         // redacted
+    expect(merchant.selectedBranch?.longitude).toBeNull()        // redacted
+  })
+
+  it('Map bbox in-area query: POSTCODE_CENTROID branch is NOT matched even when its postcode-centroid is inside the bbox', async () => {
+    const { getInAreaMerchants } = await import('../../../../src/api/customer/discovery/service')
+    // Tight bbox around the transient test branch's coordinates
+    // (53.6463, -1.7809). Pre-fix, this would match the merchant via the
+    // approximate coords. Post-fix, the merchant must NOT appear because
+    // its only branch is POSTCODE_CENTROID.
+    const bbox = { minLat: 53.64, maxLat: 53.66, minLng: -1.79, maxLng: -1.77 }
+    const result = await getInAreaMerchants(prisma, {
+      bbox,
+      lat: 53.65, lng: -1.78,
+      userId: null,
+      limit: 50,
+    })
+    const found = result.merchants.find((m: { id: string }) => m.id === TEST_MERCHANT_ID)
+    expect(found).toBeUndefined()
+  })
 })

@@ -58,7 +58,11 @@ function fixtureMerchant(overrides: {
     categories:           [],
     highlights:           [],
     vouchers:             [],
-    branches:             overrides.branches.map(b => ({ ...b, isActive: true })),
+    // PR #81 review B2 — fixture branches default to MANUALLY_CONFIRMED so
+    // the locationConfidence-gated bbox / distance / tile paths see them
+    // as exact-position branches. Tests that need to exercise the
+    // POSTCODE_CENTROID downgrade override this explicitly.
+    branches:             overrides.branches.map(b => ({ ...b, isActive: true, locationConfidence: 'MANUALLY_CONFIRMED' })),
     _count:               { vouchers: 0 },
   }
 }

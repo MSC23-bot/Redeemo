@@ -374,7 +374,9 @@ function enrichMerchantTile(
     categories: { category: { id: string; name: string; parentId: string | null } }[]
     highlights: TileHighlight[]
     vouchers: { id: string; estimatedSaving: unknown }[]
-    branches: { id: string; latitude: unknown; longitude: unknown }[]
+    // PR #81 Codex re-review — branch type carries locationConfidence so the
+    // tile distance computation below can gate on hasExactPosition().
+    branches: { id: string; latitude: unknown; longitude: unknown; locationConfidence?: string | null }[]
     _count: { vouchers: number }
   },
   opts: {
@@ -390,10 +392,13 @@ function enrichMerchantTile(
   let nearestBranchId: string | null = null
   if (opts.lat !== null && opts.lng !== null) {
     for (const branch of merchant.branches) {
-      const bLat = branch.latitude !== null ? Number(branch.latitude) : null
-      const bLng = branch.longitude !== null ? Number(branch.longitude) : null
-      if (bLat === null || bLng === null) continue
-      const d = haversineMetres(opts.lat, opts.lng, bLat, bLng)
+      // PR #81 Codex re-review — tile distance + nearestBranchId only
+      // operates on MANUALLY_CONFIRMED branches. Pre-fix, home / search /
+      // category / campaign tiles could surface a tile.distance computed
+      // against a POSTCODE_CENTROID branch, presenting approximate
+      // proximity as exact.
+      if (!hasExactPosition(branch)) continue
+      const d = haversineMetres(opts.lat, opts.lng, Number(branch.latitude), Number(branch.longitude))
       if (distance === null || d < distance) {
         distance = d
         nearestBranchId = branch.id
@@ -825,12 +830,19 @@ export async function getCustomerMerchant(
   // Resolve which branch to show in the P2 branch-scoped detail panel.
   // Validates the ?branch= candidate; falls back gracefully when missing/inactive/foreign.
   const resolveResult = resolveSelectedBranch(
+    // PR #81 Codex re-review — null out lat/lng for non-MANUALLY_CONFIRMED
+    // branches before passing into the resolver. The resolver's pickColdOpen
+    // path tries GPS-based nearest first; without this gate, approximate
+    // POSTCODE_CENTROID coords would influence which branch is "selected"
+    // on cold-open. Branches with null coords still participate in
+    // mainBranch / oldest-active fallbacks, so the user still gets a
+    // branch — just not one ranked by approximate proximity.
     merchant.branches.map((b: any) => ({
       id: b.id,
       isActive: b.isActive,
       isMainBranch: b.isMainBranch,
-      latitude:  b.latitude  !== null ? Number(b.latitude)  : null,
-      longitude: b.longitude !== null ? Number(b.longitude) : null,
+      latitude:  hasExactPosition(b) ? Number(b.latitude)  : null,
+      longitude: hasExactPosition(b) ? Number(b.longitude) : null,
       createdAt: b.createdAt,
     })),
     opts.branchId ?? null,
@@ -1793,11 +1805,18 @@ type Bbox = { minLat: number; maxLat: number; minLng: number; maxLng: number }
  * to Number consistent with the rest of the discovery pipeline.
  */
 function merchantHasBranchInBbox(
-  merchant: { branches: Array<{ latitude: unknown; longitude: unknown }> },
+  merchant: { branches: Array<{ latitude: unknown; longitude: unknown; locationConfidence?: string | null }> },
   bbox: Bbox,
 ): boolean {
   for (const b of merchant.branches) {
-    if (b.latitude === null || b.longitude === null) continue
+    // PR #81 Codex re-review — application-level bbox inclusion gates on
+    // MANUALLY_CONFIRMED. Companion to the SQL where-filter in
+    // getInAreaMerchants (which already requires
+    // locationConfidence: 'MANUALLY_CONFIRMED'); this helper covers the
+    // post-rank in-memory bbox checks used elsewhere in the discovery
+    // pipeline. A merchant with only POSTCODE_CENTROID branches inside
+    // the bbox must NOT surface on map / in-area surfaces.
+    if (!hasExactPosition(b)) continue
     const lat = Number(b.latitude)
     const lng = Number(b.longitude)
     if (lat >= bbox.minLat && lat <= bbox.maxLat && lng >= bbox.minLng && lng <= bbox.maxLng) {
