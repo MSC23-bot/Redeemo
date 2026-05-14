@@ -74,4 +74,54 @@ describe('findOrCreateLocality', () => {
     expect(loc.name).toBe('Test New Parish')
     expect(loc.country).toBe('England')
   })
+
+  // PR #81 review — regression pin against the slug-collision bug Codex
+  // flagged. Two Localities in the same (ladDistrict, country) where the
+  // bare-name parish slugifies to the same string as the parenthetical
+  // disambiguator + LAD-suffix. Identity MUST be tuple-based: looking
+  // up the bare name returns the bare row, looking up the parenthetical
+  // returns the parenthetical row. Pre-fix, slug-based lookup returned
+  // whichever row happened to claim the colliding slug first.
+  it('distinguishes Langley vs Langley (Uttlesford) by name even though slugs are similar', async () => {
+    // Seed both rows in the same (ladDistrict, country):
+    const bare = await prisma.locality.create({
+      data: {
+        name: 'Test-Langley',
+        slug: 'test-langley',
+        ladDistrict: 'Test-Uttlesford',
+        country: 'England',
+        centerLat: 51.97,
+        centerLng: 0.27,
+        populationTier: 'VILLAGE',
+      },
+    })
+    const paren = await prisma.locality.create({
+      data: {
+        name: 'Test-Langley (Test-Uttlesford)',
+        slug: 'test-langley-test-uttlesford',  // slugifies the parenthetical version
+        ladDistrict: 'Test-Uttlesford',
+        country: 'England',
+        centerLat: 51.98,
+        centerLng: 0.28,
+        populationTier: 'HAMLET',
+      },
+    })
+
+    const bareSnap: ResolvedPostcodeSnapshot = {
+      postcode: 'TX1 1XX', latitude: 51.97, longitude: 0.27,
+      country: 'England', region: null, ladDistrict: 'Test-Uttlesford',
+      adminCounty: null, parish: 'Test-Langley',
+      adminWard: null, parliamentaryConstituency: null, postTown: null,
+    }
+    const parenSnap: ResolvedPostcodeSnapshot = { ...bareSnap, parish: 'Test-Langley (Test-Uttlesford)' }
+
+    const bareResolved = await findOrCreateLocality(prisma, bareSnap)
+    const parenResolved = await findOrCreateLocality(prisma, parenSnap)
+
+    expect(bareResolved.id).toBe(bare.id)
+    expect(parenResolved.id).toBe(paren.id)
+    expect(bareResolved.id).not.toBe(parenResolved.id)   // distinct rows
+    expect(bareResolved.needsReview).toBe(false)         // existing rows, not auto-created
+    expect(parenResolved.needsReview).toBe(false)
+  })
 })

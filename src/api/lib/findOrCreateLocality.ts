@@ -71,19 +71,33 @@ export function buildLocalitySlug(name: string, ladDistrict?: string): string {
  * Read-only lookup. Returns the matching Locality if seeded; null if no match.
  * NEVER writes. Used by /postcode/preview during PC2 debounced typing so we
  * don't auto-create rows on every keystroke (Plan 4a §M1.19 read-only fix).
+ *
+ * Identity is (name, ladDistrict, country) — backed by the
+ * @@unique([name, ladDistrict, country]) constraint on Locality (PR #81
+ * review fix; see Locality model comment in schema.prisma).
+ *
+ * The earlier slug-based lookup had a real correctness bug: slugify
+ * ('Langley (Uttlesford)') collapses to the same primary slug as
+ * 'Langley' + LAD-suffix ('langley-uttlesford'), so a postcode for the
+ * bare 'Langley' parish could resolve to the parenthetical disambiguator's
+ * Locality row (or vice versa). Tuple match closes this entirely — the
+ * seed generator groups Localities by (country, ladName, name) already,
+ * so this is exactly the natural identity.
  */
 export async function findExistingLocality(
   prisma: PrismaClient,
   snap: ResolvedPostcodeSnapshot,
 ): Promise<Locality | null> {
   const name = pickRuntimeLocalityName(snap)
-  const primarySlug = buildLocalitySlug(name)
-  const primary = await prisma.locality.findUnique({ where: { slug: primarySlug } })
-  if (primary && primary.ladDistrict === snap.ladDistrict && primary.country === snap.country) {
-    return primary
-  }
-  const fallbackSlug = buildLocalitySlug(name, snap.ladDistrict)
-  return prisma.locality.findUnique({ where: { slug: fallbackSlug } })
+  return prisma.locality.findUnique({
+    where: {
+      name_ladDistrict_country: {
+        name,
+        ladDistrict: snap.ladDistrict,
+        country: snap.country,
+      },
+    },
+  })
 }
 
 /**

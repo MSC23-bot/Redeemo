@@ -1531,6 +1531,19 @@ model Locality {
   branches               Branch[]                @relation("BranchLocality")
   users                  User[]                  @relation("UserLocality")
 
+  // Plan 4 M1 PR #81 review — identity tuple. Two Localities in the same
+  // (ladDistrict, country) cannot share a name. Pins the seed-generator
+  // invariant at the DB level + auto-creates the composite index needed
+  // by findExistingLocality (M1.18 / M1.19) for runtime tuple-lookup.
+  //
+  // Why this matters: postcodes.io parish names come through as bare
+  // ("Langley") or parenthetical ("Langley (Uttlesford)") for ambiguous
+  // parishes. Both can exist in the same LAD. Pre-fix, slug-based lookup
+  // could resolve a postcode for the bare-name parish to the parenthetical
+  // disambiguator's Locality (or vice versa) because slug("Langley") +
+  // LAD-suffix collides with slugify("Langley (Uttlesford)"). Tuple-match
+  // by (name, ladDistrict, country) is the correct identity.
+  @@unique([name, ladDistrict, country])
   @@index([marketId])
   @@index([populationTier])
   @@index([country])
