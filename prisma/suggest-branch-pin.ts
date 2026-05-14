@@ -153,6 +153,18 @@ async function main() {
     if (result.error === 'API_KEY_MISSING') {
       console.error('Set GOOGLE_MAPS_API_KEY in .env (see docs/operations/google-places-setup.md).')
     }
+    if (result.error === 'LOCAL_DAILY_CAP_REACHED') {
+      console.error('You have hit the local daily cap for Google Places calls.')
+      console.error('Resets at local midnight. To raise temporarily, re-run with')
+      console.error('  GOOGLE_PLACES_DAILY_CAP=1000 npx tsx prisma/suggest-branch-pin.ts ...')
+      console.error('See docs/operations/google-places-setup.md for the default + reasoning.')
+    }
+    if (result.error === 'LOCAL_MONTHLY_CAP_REACHED') {
+      console.error('You have hit the local MONTHLY cap for Google Places calls.')
+      console.error('Default cap sits below the 5,000 free Text Search Pro events/month.')
+      console.error('Resets on the 1st of next month (local time). To raise temporarily:')
+      console.error('  GOOGLE_PLACES_MONTHLY_CAP=6000 npx tsx prisma/suggest-branch-pin.ts ...')
+    }
     await prisma.$disconnect()
     process.exit(1)
   }

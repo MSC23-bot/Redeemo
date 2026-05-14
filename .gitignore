@@ -38,3 +38,9 @@ DESIGN.md
 
 # ONSPD download — not committed (~1GB)
 prisma/scripts/.local/
+
+# Local runtime cache — Google Places daily-call counter
+# (Plan 4 M2.3.5 — local hard-stop replacing the un-adjustable Google quota).
+# Stores the per-day Google Places call count so the wrapper can refuse
+# fetch once the daily cap is reached. Owner-machine state, never repo state.
+.cache/
