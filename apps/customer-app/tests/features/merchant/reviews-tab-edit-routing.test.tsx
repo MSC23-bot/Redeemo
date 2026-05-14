@@ -110,6 +110,7 @@ function renderTab() {
     <QueryClientProvider client={qc}>
       <ReviewsTab
         merchantId="m1"
+        merchantName="Covelum"
         currentBranchId="b-brightlingsea"
         currentBranchName="Brightlingsea"
         myReview={ownReviewBrightlingsea}

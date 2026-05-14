@@ -93,6 +93,7 @@ function makeWrapper() {
 
 const baseProps = {
   merchantId:         'm1',
+  merchantName:       'Covelum',
   currentBranchId:    'b1',
   currentBranchName:  'Brightlingsea',
   myReview:           null,

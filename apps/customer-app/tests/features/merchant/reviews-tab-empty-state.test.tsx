@@ -37,6 +37,7 @@ function renderTab(props: Partial<React.ComponentProps<typeof ReviewsTab>> = {})
     <QueryClientProvider client={qc}>
       <ReviewsTab
         merchantId="m1"
+        merchantName="Covelum"
         currentBranchId="b1"
         currentBranchName="Brightlingsea"
         myReview={null}
@@ -50,9 +51,14 @@ function renderTab(props: Partial<React.ComponentProps<typeof ReviewsTab>> = {})
 }
 
 describe('ReviewsTab empty state — branch-aware copy + cross-link (PR #33 fix-up)', () => {
-  it('branch-scoped empty: shows "Be the first to review {branchName}" + cross-link', () => {
+  // §AS (2026-05-14): copy refreshed from locality-only ("Be the first to
+  // review Brightlingsea") to merchant-led ("Be the first to review
+  // {merchant} at {branch}"). Pre-§AS the empty-state leaned on
+  // currentBranchName alone, which is the de-duplicated locality and
+  // lost merchant identity.
+  it('branch-scoped empty: shows "Be the first to review {merchant} at {branchName}" + cross-link', () => {
     const { getByText, getByLabelText } = renderTab()
-    expect(getByText('Be the first to review Brightlingsea')).toBeTruthy()
+    expect(getByText('Be the first to review Covelum at Brightlingsea')).toBeTruthy()
     // Subtle cross-link surfaces the toggle path per spec Q5 lock.
     expect(getByLabelText('See reviews from other branches')).toBeTruthy()
   })
@@ -65,10 +71,14 @@ describe('ReviewsTab empty state — branch-aware copy + cross-link (PR #33 fix-
     expect(mockUseReviewSummary).toHaveBeenLastCalledWith('m1', expect.not.objectContaining({ branchId: expect.anything() }))
   })
 
-  it('"all branches" empty: shows generic "No reviews yet" + NO cross-link', () => {
+  // §AS (2026-05-14): all-branches empty-state ALSO now surfaces merchant
+  // identity ("Be the first to review {merchant}") for symmetry with the
+  // branch-scoped variant. Pre-§AS this read "No reviews yet" with no
+  // merchant context at all.
+  it('"all branches" empty: shows "Be the first to review {merchant}" + NO cross-link', () => {
     const { getByText, getByLabelText, queryByLabelText } = renderTab()
     fireEvent.press(getByLabelText('All branches'))
-    expect(getByText('No reviews yet')).toBeTruthy()
+    expect(getByText('Be the first to review Covelum')).toBeTruthy()
     expect(queryByLabelText('See reviews from other branches')).toBeNull()
   })
 
@@ -93,9 +103,9 @@ describe('ReviewsTab empty state — branch-aware copy + cross-link (PR #33 fix-
       expect(queryByLabelText('See reviews from other branches')).toBeNull()
     })
 
-    it('still shows the branch-aware empty copy ("Be the first to review {branchName}")', () => {
+    it('still shows the branch-aware empty copy ("Be the first to review {merchant} at {branchName}")', () => {
       const { getByText } = renderTab({ isMultiBranch: false })
-      expect(getByText('Be the first to review Brightlingsea')).toBeTruthy()
+      expect(getByText('Be the first to review Covelum at Brightlingsea')).toBeTruthy()
     })
   })
 })

@@ -30,6 +30,7 @@ const renderTab = (props: Partial<React.ComponentProps<typeof ReviewsTab>> = {})
     <QueryClientProvider client={qc}>
       <ReviewsTab
         merchantId="m1"
+        merchantName="Covelum"
         currentBranchId="b1"
         currentBranchName="Brightlingsea"
         myReview={null}
@@ -75,6 +76,7 @@ describe('ReviewsTab branch-filter toggle', () => {
       <QueryClientProvider client={new QueryClient()}>
         <ReviewsTab
           merchantId="m1"
+          merchantName="Covelum"
           currentBranchId="b2"
           currentBranchName="Frinton"
           myReview={null}
@@ -92,9 +94,11 @@ describe('ReviewsTab branch-filter toggle', () => {
   //   - "Reviews of {branch}" → "Reviews for {branch}" (more natural English)
   //   - "All branches" → "Reviews across all branches" (matches the branch
   //     case grammatically; both forms now lead with "Reviews")
-  it('renders the scope label "Reviews for {branch}" between toggle and breakdown when filter=branch', () => {
+  // §AS (2026-05-14): scope label now merchant-led —
+  //   "Reviews for {branch}" → "Reviews for {merchant} at {branch}".
+  it('renders the scope label "Reviews for {merchant} at {branch}" between toggle and breakdown when filter=branch', () => {
     const { getByText } = renderTab({ currentBranchName: 'Brightlingsea', isMultiBranch: true })
-    expect(getByText('Reviews for Brightlingsea')).toBeTruthy()
+    expect(getByText('Reviews for Covelum at Brightlingsea')).toBeTruthy()
   })
 
   it('switches scope label to "Reviews across all branches" after toggling to all', () => {

@@ -14,6 +14,11 @@ import type { Review } from '@/lib/api/reviews'
 
 type Props = {
   merchantId:        string
+  // §AS (deferred-followups, 2026-05-14): the surface needs merchant
+  // identity directly so empty-state + scope-label copy doesn't lean on
+  // `currentBranchName` alone (which is the de-duplicated locality, e.g.
+  // just "Huddersfield" — meaningless without merchant context).
+  merchantName:      string
   currentBranchId:   string
   currentBranchName: string
   myReview:          Review | null
@@ -46,7 +51,7 @@ type Props = {
   onAutoOpenConsumed?: () => void
 }
 
-export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myReview, isMultiBranch, currentBranchCount, allBranchesCount, initialOpenWriteFor, onAutoOpenConsumed }: Props) {
+export function ReviewsTab({ merchantId, merchantName, currentBranchId, currentBranchName, myReview, isMultiBranch, currentBranchCount, allBranchesCount, initialOpenWriteFor, onAutoOpenConsumed }: Props) {
   const { status } = useAuthStore()
   const isAuthed = status === 'authed'
 
@@ -263,7 +268,7 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
   //   typography pass (still subtle, not a heading).
   const renderScopeLabel = () => (
     <Text variant="label.md" style={styles.scopeLabel} numberOfLines={1} ellipsizeMode="tail">
-      {filter === 'branch' ? `Reviews for ${currentBranchName}` : 'Reviews across all branches'}
+      {filter === 'branch' ? `Reviews for ${merchantName} at ${currentBranchName}` : 'Reviews across all branches'}
     </Text>
   )
 
@@ -304,7 +309,9 @@ export function ReviewsTab({ merchantId, currentBranchId, currentBranchName, myR
         )}
         <View style={styles.emptyText}>
           <Text variant="heading.md" color="secondary" align="center">
-            {isBranchScoped ? `Be the first to review ${currentBranchName}` : 'No reviews yet'}
+            {isBranchScoped
+              ? `Be the first to review ${merchantName} at ${currentBranchName}`
+              : `Be the first to review ${merchantName}`}
           </Text>
           {showCrossLink && (
             <Pressable
