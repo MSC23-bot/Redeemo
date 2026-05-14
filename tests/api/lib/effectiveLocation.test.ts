@@ -19,8 +19,10 @@
 //
 // Test fixtures live in the North Sea (lat 54.0+, lng ≥ 2.4) so the
 // 16k real seeded UK Localities cannot interfere with GPS lookups.
-// Slugs / emails prefixed `test-` per project convention. Cleanup is
-// scoped in afterAll.
+// Slugs / emails prefixed `m2-effective-` so this file's fixtures
+// have a private namespace that no other test file shares (M2.7
+// fix — see PR #84 commit 0723b9d). Cleanup is prefix-scoped in
+// both beforeAll (self-healing for prior failed runs) and afterAll.
 
 import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -53,6 +55,15 @@ let userWithoutLocationId: string  // has localityId but lat/lng null (incomplet
 let userWithoutLocalityId: string  // no localityId at all
 
 beforeAll(async () => {
+  // Self-healing cleanup. A prior failed run can leave orphan rows
+  // matching this file's `m2-effective-*` namespace and a re-run
+  // would then fail on the email-unique constraint OR the
+  // Locality `@@unique([name, ladDistrict, country])` constraint.
+  // Wipe our own namespace first; users before localities to
+  // satisfy the User.localityId foreign key.
+  await prisma.user.deleteMany({ where: { email: { startsWith: 'm2-effective-' } } })
+  await prisma.locality.deleteMany({ where: { slug: { startsWith: 'm2-effective-' } } })
+
   const urban = await prisma.locality.create({
     data: {
       name: 'TestUrban', slug: 'm2-effective-urban',
@@ -115,9 +126,13 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await prisma.user.deleteMany({
-    where: { id: { in: [completeUserId, userWithoutLocationId, userWithoutLocalityId] } },
-  })
+  // Prefix-scoped cleanup, NOT id-list-scoped. If `beforeAll`
+  // partially fails (e.g. fails between creating users 1 and 2 of
+  // the three), the captured `*Id` variables would be undefined or
+  // a mix, leaving orphans the id-list cleanup wouldn't reach.
+  // Prefix cleanup is recoverable from any partial-success state.
+  // Users before localities for the FK reason described in beforeAll.
+  await prisma.user.deleteMany({ where: { email: { startsWith: 'm2-effective-' } } })
   await prisma.locality.deleteMany({ where: { slug: { startsWith: 'm2-effective-' } } })
   await prisma.$disconnect()
 })

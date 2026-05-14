@@ -410,8 +410,12 @@ describe('rankMerchantsV2 — UK-wide robustness', () => {
       densityClass: 'URBAN',
       source: 'GPS',
     }
+    // Branch placed at (56.10, -3.20), ~17km north of (55.95, -3.19) —
+    // clearly outside the LOCAL_TIGHT × URBAN NEARBY radius (1.5mi
+    // ≈ 2.4km). This makes the LAD outcome deterministic (was loose-
+    // assertion in the original M2.6 test — PR #84 review fix).
     const m = merchant('m-edinburgh', [
-      branch(55.96, -3.18, {
+      branch(56.10, -3.20, {
         id: 'b-edin',
         ladDistrict: 'Edinburgh',
         adminCounty: null,
@@ -421,20 +425,49 @@ describe('rankMerchantsV2 — UK-wide robustness', () => {
     ])
     const result = rankMerchantsV2([m], {
       effLoc: scottishEffLoc,
-      ladderProfile: 'MIXED_NORMAL',
+      // LOCAL_TIGHT gives the tightest NEARBY radius across all profiles
+      // (URBAN: 1.5mi). Guarantees the 17km branch is outside NEARBY
+      // and forces the LAD rung match.
+      ladderProfile: 'LOCAL_TIGHT',
       outgoingCatchmentTargetIds: [],
       categoryIntent: 'MIXED',
       targetCount: 50, hardCap: 200,
     })
     expect(result.tiles).toHaveLength(1)
-    // ~1km — outside MIXED_NORMAL × URBAN NEARBY radius (5mi); falls to LAD.
-    // Either NEARBY (if close enough) or LAD is acceptable depending on
-    // the exact distance, but it must NOT be COUNTY/REGION (both null on
-    // both sides) and must NOT be NATIONAL.
-    const rung = result.tiles[0].supplyRung
-    expect(['NEARBY', 'LAD']).toContain(rung)
-    expect(rung).not.toBe('COUNTY')
-    expect(rung).not.toBe('REGION')
-    expect(rung).not.toBe('NATIONAL')
+    expect(result.tiles[0].supplyRung).toBe('LAD')
+  })
+})
+
+// ── Edge cases ─────────────────────────────────────────────────────────
+
+describe('rankMerchantsV2 — edge cases', () => {
+  it('empty merchants array returns no tiles and all-zero rungCounts', () => {
+    const result = rankMerchantsV2([], {
+      effLoc, ladderProfile: 'MIXED_NORMAL',
+      outgoingCatchmentTargetIds: [],
+      categoryIntent: 'MIXED',
+      targetCount: 50, hardCap: 200,
+    })
+    expect(result.tiles).toEqual([])
+    expect(result.rungCounts).toEqual({
+      NEARBY: 0, CATCHMENT: 0, POST_TOWN: 0, LAD: 0,
+      COUNTY: 0, REGION: 0, COUNTRY: 0, NATIONAL: 0,
+    })
+  })
+
+  it('merchants with empty branches array return no tiles and all-zero rungCounts', () => {
+    const m1 = merchant('m-no-branches-1', [])
+    const m2 = merchant('m-no-branches-2', [])
+    const result = rankMerchantsV2([m1, m2], {
+      effLoc, ladderProfile: 'MIXED_NORMAL',
+      outgoingCatchmentTargetIds: [],
+      categoryIntent: 'MIXED',
+      targetCount: 50, hardCap: 200,
+    })
+    expect(result.tiles).toEqual([])
+    expect(result.rungCounts).toEqual({
+      NEARBY: 0, CATCHMENT: 0, POST_TOWN: 0, LAD: 0,
+      COUNTY: 0, REGION: 0, COUNTRY: 0, NATIONAL: 0,
+    })
   })
 })

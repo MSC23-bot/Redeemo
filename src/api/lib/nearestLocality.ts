@@ -28,6 +28,19 @@ import { haversineMetres } from '../shared/haversine'
 // scan. Candidate set is sorted by true Haversine distance afterwards,
 // so the "shape" of the prefilter does not affect correctness, only
 // the size of the in-memory pass.
+//
+// M3 prerequisite: the candidate set is NOT bounded — `findMany` could
+// in principle return every Locality inside the bbox. The plan's claim
+// of "<100 rows" is for sparse rural points. Dense areas (Greater
+// London, Manchester) may return materially more. A naive `take: 500`
+// is NOT safe — it could silently drop the true nearest in a
+// dense bbox where Prisma's default order isn't distance-aware.
+// Before M3 wires this into live Discovery, profile real dense-area
+// counts from the M1 ONSPD seed and either:
+//   (a) prove the count safely fits in memory + add a regression test, OR
+//   (b) introduce a distance-aware DB sort (`ORDER BY` on a computed
+//       expression or a PostGIS `<->` operator) and then cap.
+// Tracked at deferred-followups §AS (PR #84 review carry-overs).
 const BBOX_DEGREES = 0.3
 
 export async function findNearestLocality(

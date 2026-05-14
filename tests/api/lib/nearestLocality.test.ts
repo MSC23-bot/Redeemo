@@ -11,7 +11,10 @@
 // lng > 2.0) where the UK seed has no real Localities to compete. This
 // keeps the tests defensive against the 16k real seeded localities on
 // Neon and makes pass/fail signal deterministic. All fixture slugs are
-// prefixed `test-` per project convention so cleanup is scoped + safe.
+// prefixed `m2-nearest-` so this file's fixtures have a private
+// namespace that no other test file shares (M2.7 fix — see PR #84
+// commit 0723b9d). Cleanup is prefix-scoped in both beforeAll
+// (self-healing for prior failed runs) and afterAll.
 
 import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -30,6 +33,14 @@ const Q_SCOTTISH = { lat: 55.0, lng: 2.5 }          // bbox: [54.7..55.3] × [2.
 const Q_BBOX_BOUNDARY = { lat: 56.0, lng: 2.5 }     // bbox: [55.7..56.3] × [2.2..2.8]
 
 beforeAll(async () => {
+  // Self-healing cleanup. A prior failed run can leave orphan rows
+  // matching this file's `m2-nearest-*` namespace, and a re-run
+  // would then fail on the Locality
+  // `@@unique([name, ladDistrict, country])` constraint. Wipe our
+  // own namespace first. No User rows in this file, so locality
+  // delete is unconditional.
+  await prisma.locality.deleteMany({ where: { slug: { startsWith: 'm2-nearest-' } } })
+
   await prisma.locality.createMany({
     data: [
       // Test 1: at exact query point → distance 0 → must win.

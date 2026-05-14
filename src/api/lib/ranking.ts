@@ -249,8 +249,18 @@ export async function computeRatingsByMerchant(
 import type { SupplyRung } from './ladderProfiles'
 import type { EffectiveLocation } from './effectiveLocation'
 
+// M5 cleanup: align with the legacy path's `NEARBY_RADIUS_MILES * 1609.34`
+// constant once the legacy `classifyTier` / `rankMerchants` block above is
+// audit-deleted. The current values agree to <1m at NEARBY distances but
+// the duplication is a code smell while both paths co-exist.
+// See deferred-followups §AS (PR #84 review carry-overs).
 const MILES_TO_METRES = 1609.344
 
+// M5 cleanup: `BranchForClassification` (this type) and `RankableBranch`
+// (defined below) differ only by `RankableBranch` adding `id: string`.
+// Once the legacy ranking path is removed in M5, unify these into a
+// single type — e.g. `RankableBranch = BranchForClassification & { id: string }`.
+// See deferred-followups §AS (PR #84 review carry-overs).
 type BranchForClassification = {
   latitude: number | null
   longitude: number | null
@@ -439,7 +449,7 @@ function selectContextBranch<B extends RankableBranch>(
     const db = b.latitude !== null && b.longitude !== null
       ? haversineMetres(effLoc.lat, effLoc.lng, b.latitude, b.longitude) : Infinity
     if (da !== db) return da - db
-    return (a.id ?? '').localeCompare(b.id ?? '')
+    return a.id.localeCompare(b.id)
   })[0]
 }
 
@@ -502,10 +512,14 @@ export function rankMerchantsV2<B extends RankableBranch>(
     }
   }
 
-  // Step 2: select context branch per merchant.
+  // Step 2: select context branch per merchant. A precomputed Map
+  // avoids `Array.find` inside the loop — was O(merchants²) on the
+  // initial M2.6 draft (PR #84 review). Cheap at v1 volume; load-
+  // bearing once M3 wires this into live Discovery.
+  const merchantById = new Map(merchants.map(m => [m.id, m]))
   const entries: MerchantEntry<B>[] = []
   for (const [id, branches] of candidateBranchesByMerchant.entries()) {
-    const merchant = merchants.find(m => m.id === id)!
+    const merchant = merchantById.get(id)!
     const contextBranch = selectContextBranch(branches, effLoc)
     entries.push({
       id,
