@@ -26,7 +26,11 @@ type MarketSeed = {
   slug: string
   name: string
   anchorLocalitySlug: string
-  status: 'ACTIVE' | 'PAUSED' | 'RETIRED'
+  // Plan 4a MarketStatus is intentionally simple: ACTIVE | PAUSED. RETIRED is
+  // deferred to the Phase 5 Admin Panel / Market Ops tooling enum extension
+  // (see project_admin_panel_market_expansion_tooling.md §AQ + project_
+  // deferred_followups_index.md §AP / §AQ).
+  status: 'ACTIVE' | 'PAUSED'
   ladDistrict: string | null
   adminCounty: string | null
   region: string | null
