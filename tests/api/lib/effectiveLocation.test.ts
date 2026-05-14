@@ -33,9 +33,16 @@ const prisma = new PrismaClient({ adapter })
 
 // Coordinates well outside the UK seed's lng-max (2.0), so test
 // fixtures dominate every bbox lookup.
-const URBAN_COORDS = { lat: 54.0, lng: 2.5 }      // a CITY-tier test locality lives here
-const RURAL_COORDS = { lat: 55.0, lng: 2.5 }      // a VILLAGE-tier test locality lives here
-const SCOTTISH_COORDS = { lat: 56.0, lng: 2.5 }   // null adminCounty + null region, SMALL_TOWN tier
+//
+// Deliberately at lng=4.0 (not lng=2.5) so this file's fixtures cannot
+// share a bbox window with nearestLocality.test.ts (which uses lng=2.5
+// in the same lat band). Both files exercise findNearestLocality
+// against the real DB; concurrent runs must NOT see each other's rows
+// in the same query. The bbox window is 0.3° wide; 1.5° of separation
+// is 5× the window, so the two zones are guaranteed disjoint.
+const URBAN_COORDS = { lat: 54.0, lng: 4.0 }      // a CITY-tier test locality lives here
+const RURAL_COORDS = { lat: 55.0, lng: 4.0 }      // a VILLAGE-tier test locality lives here
+const SCOTTISH_COORDS = { lat: 56.0, lng: 4.0 }   // null adminCounty + null region, SMALL_TOWN tier
 
 let urbanLocalityId: string
 let ruralLocalityId: string
@@ -48,7 +55,7 @@ let userWithoutLocalityId: string  // no localityId at all
 beforeAll(async () => {
   const urban = await prisma.locality.create({
     data: {
-      name: 'TestUrban', slug: 'test-effective-urban',
+      name: 'TestUrban', slug: 'm2-effective-urban',
       ladDistrict: 'TestLAD', country: 'England',
       adminCounty: 'TestCounty', region: 'TestRegion',
       centerLat: URBAN_COORDS.lat, centerLng: URBAN_COORDS.lng,
@@ -59,7 +66,7 @@ beforeAll(async () => {
 
   const rural = await prisma.locality.create({
     data: {
-      name: 'TestRural', slug: 'test-effective-rural',
+      name: 'TestRural', slug: 'm2-effective-rural',
       ladDistrict: 'TestLAD', country: 'England',
       adminCounty: 'TestCounty', region: 'TestRegion',
       centerLat: RURAL_COORDS.lat, centerLng: RURAL_COORDS.lng,
@@ -70,7 +77,7 @@ beforeAll(async () => {
 
   const scottish = await prisma.locality.create({
     data: {
-      name: 'TestScottish', slug: 'test-effective-scottish',
+      name: 'TestScottish', slug: 'm2-effective-scottish',
       ladDistrict: 'TestLAD', country: 'Scotland',
       adminCounty: null, region: null,
       centerLat: SCOTTISH_COORDS.lat, centerLng: SCOTTISH_COORDS.lng,
@@ -81,7 +88,7 @@ beforeAll(async () => {
 
   const complete = await prisma.user.create({
     data: {
-      email: 'test-effective-complete@test.local',
+      email: 'm2-effective-complete@test.local',
       latitude: URBAN_COORDS.lat, longitude: URBAN_COORDS.lng,
       localityId: urban.id,
     },
@@ -90,7 +97,7 @@ beforeAll(async () => {
 
   const noLocation = await prisma.user.create({
     data: {
-      email: 'test-effective-nolocation@test.local',
+      email: 'm2-effective-nolocation@test.local',
       latitude: null, longitude: null,
       localityId: urban.id, // localityId without lat/lng → still incomplete
     },
@@ -99,7 +106,7 @@ beforeAll(async () => {
 
   const noLocality = await prisma.user.create({
     data: {
-      email: 'test-effective-nolocality@test.local',
+      email: 'm2-effective-nolocality@test.local',
       latitude: null, longitude: null,
       localityId: null,
     },
@@ -111,7 +118,7 @@ afterAll(async () => {
   await prisma.user.deleteMany({
     where: { id: { in: [completeUserId, userWithoutLocationId, userWithoutLocalityId] } },
   })
-  await prisma.locality.deleteMany({ where: { slug: { startsWith: 'test-effective-' } } })
+  await prisma.locality.deleteMany({ where: { slug: { startsWith: 'm2-effective-' } } })
   await prisma.$disconnect()
 })
 

@@ -34,7 +34,7 @@ beforeAll(async () => {
     data: [
       // Test 1: at exact query point → distance 0 → must win.
       {
-        name: 'TestExact', slug: 'test-exact-q-base',
+        name: 'TestExact', slug: 'm2-nearest-exact',
         ladDistrict: 'TestLAD', country: 'TestCountry',
         centerLat: Q_BASE.lat, centerLng: Q_BASE.lng,
         populationTier: 'CITY',
@@ -42,21 +42,26 @@ beforeAll(async () => {
       // Test 2: two fixtures, both inside bbox, different distances. The
       // closer one must win the Haversine sort.
       {
-        name: 'TestNear', slug: 'test-near-q-base',
+        name: 'TestNear', slug: 'm2-nearest-near',
         ladDistrict: 'TestLAD', country: 'TestCountry',
         centerLat: Q_BASE.lat + 0.0001, centerLng: Q_BASE.lng + 0.0001, // ~14m
         populationTier: 'TOWN',
       },
       {
-        name: 'TestFarInBbox', slug: 'test-far-q-base',
+        name: 'TestFarInBbox', slug: 'm2-nearest-far',
         ladDistrict: 'TestLAD', country: 'TestCountry',
         centerLat: Q_BASE.lat + 0.05, centerLng: Q_BASE.lng + 0.05, // ~6km
         populationTier: 'VILLAGE',
       },
       // Test 5: Scottish-style — null adminCounty + null region. Must be
       // returnable; the helper does not filter on those fields.
+      //
+      // NAME is deliberately file-unique ('NearestLocScottish') so the
+      // Locality `@@unique([name, ladDistrict, country])` tuple does
+      // not collide with another concurrently-running test file that
+      // might also create a Scottish-style fixture.
       {
-        name: 'TestScottish', slug: 'test-scottish-q-scottish',
+        name: 'NearestLocScottish', slug: 'm2-nearest-scottish',
         ladDistrict: 'TestLAD', country: 'Scotland',
         centerLat: Q_SCOTTISH.lat, centerLng: Q_SCOTTISH.lng,
         adminCounty: null, region: null,
@@ -66,7 +71,7 @@ beforeAll(async () => {
       // 0.3° bbox; fixture at +0.31° lat is OUTSIDE. The outside fixture
       // must NOT be returned even though no closer candidate exists.
       {
-        name: 'TestJustInside', slug: 'test-just-inside-bbox',
+        name: 'TestJustInside', slug: 'm2-nearest-just-inside-bbox',
         ladDistrict: 'TestLAD', country: 'TestCountry',
         centerLat: Q_BBOX_BOUNDARY.lat + 0.29, centerLng: Q_BBOX_BOUNDARY.lng,
         populationTier: 'VILLAGE',
@@ -80,7 +85,7 @@ beforeAll(async () => {
   // point so its bbox doesn't overlap.
   await prisma.locality.create({
     data: {
-      name: 'TestJustOutside', slug: 'test-just-outside-bbox',
+      name: 'TestJustOutside', slug: 'm2-nearest-just-outside-bbox',
       ladDistrict: 'TestLAD', country: 'TestCountry',
       centerLat: 57.0 + 0.31, centerLng: 2.5,         // 0.31° lat north of (57.0, 2.5)
       populationTier: 'VILLAGE',
@@ -89,14 +94,19 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await prisma.locality.deleteMany({ where: { slug: { startsWith: 'test-' } } })
+  // Narrow to this file's own slug prefix only. A broader cleanup
+  // (e.g. `startsWith: 'test-'`) would clobber other test files'
+  // fixtures (e.g. effectiveLocation's `test-effective-*`) when
+  // vitest schedules files in parallel and one file's afterAll
+  // fires while another's tests are still running.
+  await prisma.locality.deleteMany({ where: { slug: { startsWith: 'm2-nearest-' } } })
   await prisma.$disconnect()
 })
 
 describe('findNearestLocality', () => {
   it('returns the fixture at the exact query point (distance 0 wins)', async () => {
     const result = await findNearestLocality(prisma, Q_BASE.lat, Q_BASE.lng)
-    expect(result?.slug).toBe('test-exact-q-base')
+    expect(result?.slug).toBe('m2-nearest-exact')
   })
 
   it('Haversine sort: among candidates in the bbox, the closest one wins', async () => {
@@ -107,7 +117,7 @@ describe('findNearestLocality', () => {
     // the in-memory Haversine pass is actually evaluating distances,
     // not just trusting candidate-array ordering.
     const result = await findNearestLocality(prisma, Q_BASE.lat + 0.0001, Q_BASE.lng + 0.0001)
-    expect(result?.slug).toBe('test-near-q-base')
+    expect(result?.slug).toBe('m2-nearest-near')
   })
 
   it('bbox prefilter: fixture just OUTSIDE the bbox is NOT returned even with no closer candidate', async () => {
@@ -124,7 +134,7 @@ describe('findNearestLocality', () => {
     // Query Q_BBOX_BOUNDARY (56.0, 2.5). TestJustInside is at (56.29, 2.5)
     // — INSIDE the bbox (upper bound 56.3). It should be returned.
     const result = await findNearestLocality(prisma, Q_BBOX_BOUNDARY.lat, Q_BBOX_BOUNDARY.lng)
-    expect(result?.slug).toBe('test-just-inside-bbox')
+    expect(result?.slug).toBe('m2-nearest-just-inside-bbox')
   })
 
   it('returns null when no Locality lies in the bbox window (far from any UK locality)', async () => {
@@ -138,7 +148,7 @@ describe('findNearestLocality', () => {
     // Pins UK-wide robustness: the helper does not filter on or break
     // because of nullable admin-hierarchy fields.
     const result = await findNearestLocality(prisma, Q_SCOTTISH.lat, Q_SCOTTISH.lng)
-    expect(result?.slug).toBe('test-scottish-q-scottish')
+    expect(result?.slug).toBe('m2-nearest-scottish')
     expect(result?.adminCounty).toBeNull()
     expect(result?.region).toBeNull()
     expect(result?.country).toBe('Scotland')
