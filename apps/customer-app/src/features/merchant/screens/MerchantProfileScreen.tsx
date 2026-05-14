@@ -864,6 +864,7 @@ export function MerchantProfileScreen({ id }: Props) {
           {activeTab === 'reviews' && (
             <ReviewsTab
               merchantId={merchant.id}
+              merchantName={merchant.businessName}
               currentBranchId={sb.id}
               currentBranchName={branchShortName(sb.name)}
               myReview={sb.myReview}
