@@ -140,6 +140,14 @@ export const ERROR_DEFINITIONS = {
   // codes specifically describe a review-side linkage failure.
   REDEMPTION_BRANCH_MISMATCH:      { statusCode: 400, message: 'This redemption was at a different branch.' },
   REDEMPTION_MERCHANT_MISMATCH:    { statusCode: 400, message: 'This redemption is for a different merchant.' },
+  // Plan 4 M1.20 — postcode-resolver error codes, surfaced by PC2 submit
+  // (customer profile update) and Branch create / pending-edit (M1.21).
+  // POSTCODE_REQUIRED: 400, returned by Branch.create when called without a postcode.
+  // POSTCODE_NOT_FOUND: 400, postcodes.io 404 OR canonical form < 5 chars.
+  // GAZETTEER_UNAVAILABLE: 503, postcodes.io 5xx / network failure — transient.
+  POSTCODE_REQUIRED:               { statusCode: 400, message: 'A postcode is required.' },
+  POSTCODE_NOT_FOUND:              { statusCode: 400, message: "We couldn't recognise this postcode. Please check and try again." },
+  GAZETTEER_UNAVAILABLE:           { statusCode: 503, message: "We couldn't verify your postcode right now. Please try again in a moment." },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS

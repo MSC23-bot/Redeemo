@@ -5,6 +5,7 @@ import { profileRoutes } from './profile/routes'
 import { favouritesRoutes } from './favourites/routes'
 import { reviewOpenRoutes, reviewAuthRoutes } from './reviews/routes'
 import { savingsRoutes } from './savings/routes'
+import { postcodeRoutes } from './postcode/routes'
 
 /**
  * Attempts to extract the `sub` (userId) from an Authorization: Bearer <token>
@@ -43,6 +44,11 @@ async function customerPlugin(app: FastifyInstance) {
 
     // Review list routes (no auth required, optional userId for isOwnReview)
     open.register(reviewOpenRoutes)
+
+    // Postcode preview (no auth required — PC2 onboarding happens pre-auth).
+    // Read-only by design: M1.19 service uses findExistingLocality, NOT
+    // findOrCreateLocality, so PC2 debounced typing cannot auto-create rows.
+    open.register(postcodeRoutes)
   })
 
   // ------------------------------------------------------------------

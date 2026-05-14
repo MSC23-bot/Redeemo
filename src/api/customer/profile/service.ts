@@ -2,6 +2,8 @@ import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { hashPassword, verifyPassword } from '../../shared/password'
 import { writeAuditLog } from '../../shared/audit'
+import { resolvePostcode } from '../../lib/postcodeResolver'
+import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
 
 // Profile completeness: 9 optional fields tracked. Percentage shown on profile screen.
 function computeProfileCompleteness(user: {
@@ -91,6 +93,36 @@ export async function updateCustomerProfile(
     : data.name !== undefined ? data.name
     : undefined
 
+  // Plan 4 M1.20 — postcode resolve-on-write. When a postcode arrives in the
+  // payload, we resolve it via postcodes.io BEFORE the user.update so the
+  // existing valid location is never overwritten by an unresolved postcode.
+  // Resolver failures throw AppError (POSTCODE_NOT_FOUND / GAZETTEER_UNAVAILABLE
+  // — both defined in ERROR_DEFINITIONS, both surface as their declared
+  // statusCode via the global error handler). On success, the full snapshot
+  // (postcode + lat/lng + Locality FK + admin-hierarchy mirrors) is persisted
+  // atomically with the rest of the update.
+  let postcodeSnapshotUpdate: Record<string, unknown> = {}
+  if (data.postcode !== undefined && data.postcode !== null) {
+    const resolved = await resolvePostcode(data.postcode)
+    if (!resolved.ok) throw new AppError(resolved.error)
+    const locality = await findOrCreateLocality(prisma, resolved.snapshot)
+    postcodeSnapshotUpdate = {
+      postcode:           resolved.snapshot.postcode,
+      latitude:           resolved.snapshot.latitude,
+      longitude:          resolved.snapshot.longitude,
+      localityId:         locality.id,
+      postTown:           resolved.snapshot.postTown ?? locality.postTown,
+      ladDistrict:        resolved.snapshot.ladDistrict,
+      adminCounty:        resolved.snapshot.adminCounty,
+      region:             resolved.snapshot.region,
+      country:            resolved.snapshot.country,
+      locationResolvedAt: new Date(),
+      // Keep the legacy `city` field aligned with the locality name. M5
+      // cleanup will audit and may remove the field entirely.
+      city:               locality.name,
+    }
+  }
+
   const updated = await prisma.user.update({
     where: { id: userId },
     data: {
@@ -100,8 +132,11 @@ export async function updateCustomerProfile(
       ...(data.gender !== undefined ? { gender: data.gender } : {}),
       ...(data.addressLine1 !== undefined ? { addressLine1: data.addressLine1 } : {}),
       ...(data.addressLine2 !== undefined ? { addressLine2: data.addressLine2 } : {}),
-      ...(data.city !== undefined ? { city: data.city } : {}),
-      ...(data.postcode !== undefined ? { postcode: data.postcode } : {}),
+      // Plan-4 postcode snapshot is the source of truth for city/postcode when
+      // a postcode is provided. Direct `city` updates remain honoured when
+      // the payload includes city without postcode (legacy compat).
+      ...(data.postcode === undefined && data.city !== undefined ? { city: data.city } : {}),
+      ...postcodeSnapshotUpdate,
       ...(data.profileImageUrl !== undefined ? { profileImageUrl: data.profileImageUrl } : {}),
       ...(data.newsletterConsent !== undefined ? { newsletterConsent: data.newsletterConsent } : {}),
     },

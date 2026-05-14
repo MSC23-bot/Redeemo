@@ -35,3 +35,6 @@ docs/branding/
 # Same category as .claude/, .superpowers/, graphify-out/, docs/branding/.
 PRODUCT.md
 DESIGN.md
+
+# ONSPD download — not committed (~1GB)
+prisma/scripts/.local/

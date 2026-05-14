@@ -31,6 +31,61 @@ import {
 } from '../../redemption/reusable'
 import { PRESENTATION_WINDOW_MS } from '../../redemption/presentation-window'
 
+/**
+ * Plan 4 M1 PR #81 review — server-side enforcement that approximate branch
+ * coordinates (POSTCODE_CENTROID, NEEDS_REVIEW, anything other than
+ * MANUALLY_CONFIRMED) MUST NOT reach the customer-app as exact positions.
+ * Owner-locked 2026-05-14:
+ *
+ *   The important product principle is: we should not present postcode-
+ *   centroid coordinates as an exact merchant location. Exact branch
+ *   location matters for distance, directions, user trust, and map pins.
+ *   Until a branch is manually confirmed, the backend should prevent the
+ *   customer-app from accidentally treating approximate coordinates as
+ *   exact.
+ *
+ * `exposeBranchPosition` is called at every customer-facing serialization
+ * point. For non-MANUALLY_CONFIRMED branches it nulls latitude / longitude
+ * on the response and exposes `locationConfidence` so the customer-app
+ * can surface "exact location pending confirmation" UI in a follow-up PR.
+ * Existing client-side null-checks on lat/lng (distance-sort, map-pin,
+ * "get directions") degrade gracefully — those paths already skip rows
+ * with null coords.
+ */
+function exposeBranchPosition<B extends {
+  locationConfidence?: string | null
+  latitude: unknown
+  longitude: unknown
+}>(b: B): { latitude: number | null; longitude: number | null; locationConfidence: string } {
+  const confidence = b.locationConfidence ?? 'POSTCODE_CENTROID'
+  if (confidence !== 'MANUALLY_CONFIRMED') {
+    return { latitude: null, longitude: null, locationConfidence: confidence }
+  }
+  return {
+    latitude:  b.latitude  !== null ? Number(b.latitude)  : null,
+    longitude: b.longitude !== null ? Number(b.longitude) : null,
+    locationConfidence: confidence,
+  }
+}
+
+/**
+ * Companion gate for SERVER-SIDE computations that consume branch lat/lng
+ * (distance calculations, "near me" sorting, etc.). Returns true only when
+ * the branch is MANUALLY_CONFIRMED AND has non-null coordinates — i.e.
+ * when the position can be used as an exact reference point. Pre-fix,
+ * distance was computed against POSTCODE_CENTROID branches' centroids,
+ * which is approximate by ~100-500m and shouldn't be presented as
+ * precise distance to the user.
+ */
+function hasExactPosition(b: {
+  locationConfidence?: string | null
+  latitude: unknown
+  longitude: unknown
+}): boolean {
+  return b.locationConfidence === 'MANUALLY_CONFIRMED'
+    && b.latitude !== null && b.longitude !== null
+}
+
 // Location context helper — resolves what location label + source to return
 // Priority: live coordinates > stored profile city > none
 async function resolveLocationContext(
@@ -172,7 +227,7 @@ const MERCHANT_TILE_SELECT = {
   },
   branches: {
     where: { isActive: true },
-    select: { id: true, latitude: true, longitude: true, city: true, isActive: true },
+    select: { id: true, latitude: true, longitude: true, locationConfidence: true, city: true, isActive: true },
   },
   _count: {
     select: {
@@ -319,7 +374,9 @@ function enrichMerchantTile(
     categories: { category: { id: string; name: string; parentId: string | null } }[]
     highlights: TileHighlight[]
     vouchers: { id: string; estimatedSaving: unknown }[]
-    branches: { id: string; latitude: unknown; longitude: unknown }[]
+    // PR #81 Codex re-review — branch type carries locationConfidence so the
+    // tile distance computation below can gate on hasExactPosition().
+    branches: { id: string; latitude: unknown; longitude: unknown; locationConfidence?: string | null }[]
     _count: { vouchers: number }
   },
   opts: {
@@ -335,10 +392,13 @@ function enrichMerchantTile(
   let nearestBranchId: string | null = null
   if (opts.lat !== null && opts.lng !== null) {
     for (const branch of merchant.branches) {
-      const bLat = branch.latitude !== null ? Number(branch.latitude) : null
-      const bLng = branch.longitude !== null ? Number(branch.longitude) : null
-      if (bLat === null || bLng === null) continue
-      const d = haversineMetres(opts.lat, opts.lng, bLat, bLng)
+      // PR #81 Codex re-review — tile distance + nearestBranchId only
+      // operates on MANUALLY_CONFIRMED branches. Pre-fix, home / search /
+      // category / campaign tiles could surface a tile.distance computed
+      // against a POSTCODE_CENTROID branch, presenting approximate
+      // proximity as exact.
+      if (!hasExactPosition(branch)) continue
+      const d = haversineMetres(opts.lat, opts.lng, Number(branch.latitude), Number(branch.longitude))
       if (distance === null || d < distance) {
         distance = d
         nearestBranchId = branch.id
@@ -657,7 +717,7 @@ export async function getCustomerMerchant(
         select: {
           id: true, name: true, isMainBranch: true, isActive: true,
           addressLine1: true, addressLine2: true, city: true, postcode: true, country: true,
-          phone: true, email: true, latitude: true, longitude: true,
+          phone: true, email: true, latitude: true, longitude: true, locationConfidence: true,
           websiteUrl: true, logoUrl: true, bannerUrl: true, about: true,
           createdAt: true,
           openingHours: {
@@ -727,10 +787,11 @@ export async function getCustomerMerchant(
   const { lat, lng } = opts
   if (lat !== undefined && lng !== undefined) {
     for (const b of activeBranches) {
-      const bLat = b.latitude !== null ? Number(b.latitude) : null
-      const bLng = b.longitude !== null ? Number(b.longitude) : null
-      if (bLat === null || bLng === null) continue
-      const d = haversineMetres(lat, lng, bLat, bLng)
+      // PR #81 review B2 — distance/nearest only operates on MANUALLY_CONFIRMED
+      // branches. POSTCODE_CENTROID coords are approximate; presenting an exact
+      // distance from them would mislead the user.
+      if (!hasExactPosition(b)) continue
+      const d = haversineMetres(lat, lng, Number(b.latitude), Number(b.longitude))
       if (distance === null || d < distance) { distance = d; nearestBranchId = b.id }
     }
   }
@@ -769,12 +830,19 @@ export async function getCustomerMerchant(
   // Resolve which branch to show in the P2 branch-scoped detail panel.
   // Validates the ?branch= candidate; falls back gracefully when missing/inactive/foreign.
   const resolveResult = resolveSelectedBranch(
+    // PR #81 Codex re-review — null out lat/lng for non-MANUALLY_CONFIRMED
+    // branches before passing into the resolver. The resolver's pickColdOpen
+    // path tries GPS-based nearest first; without this gate, approximate
+    // POSTCODE_CENTROID coords would influence which branch is "selected"
+    // on cold-open. Branches with null coords still participate in
+    // mainBranch / oldest-active fallbacks, so the user still gets a
+    // branch — just not one ranked by approximate proximity.
     merchant.branches.map((b: any) => ({
       id: b.id,
       isActive: b.isActive,
       isMainBranch: b.isMainBranch,
-      latitude:  b.latitude  !== null ? Number(b.latitude)  : null,
-      longitude: b.longitude !== null ? Number(b.longitude) : null,
+      latitude:  hasExactPosition(b) ? Number(b.latitude)  : null,
+      longitude: hasExactPosition(b) ? Number(b.longitude) : null,
       createdAt: b.createdAt,
     })),
     opts.branchId ?? null,
@@ -842,8 +910,8 @@ export async function getCustomerMerchant(
     addressLine1: selectedBranchRaw.addressLine1, addressLine2: (selectedBranchRaw as any).addressLine2,
     city: selectedBranchRaw.city, postcode: selectedBranchRaw.postcode,
     country: (selectedBranchRaw as any).country,
-    latitude:  selectedBranchRaw.latitude  !== null ? Number(selectedBranchRaw.latitude)  : null,
-    longitude: selectedBranchRaw.longitude !== null ? Number(selectedBranchRaw.longitude) : null,
+    // PR #81 review B2 — redact lat/lng + expose locationConfidence.
+    ...exposeBranchPosition(selectedBranchRaw),
     phone:      fallback((selectedBranchRaw as any).phone,      null),
     email:      fallback((selectedBranchRaw as any).email,      null),
     websiteUrl: fallback((selectedBranchRaw as any).websiteUrl, merchant.websiteUrl),
@@ -853,8 +921,10 @@ export async function getCustomerMerchant(
     openingHours: selectedBranchRaw.openingHours,
     photos: selectedBranchPhotos,
     amenities: selectedBranchRaw.amenities.map((a: any) => a.amenity),
-    distance: (opts.lat !== undefined && opts.lng !== undefined &&
-               selectedBranchRaw.latitude !== null && selectedBranchRaw.longitude !== null)
+    // PR #81 review B2 — distance only when the selected branch's position
+    // is MANUALLY_CONFIRMED (so the user never sees an "exact" distance
+    // computed from postcode-centroid coords).
+    distance: (opts.lat !== undefined && opts.lng !== undefined && hasExactPosition(selectedBranchRaw))
       ? haversineMetres(opts.lat, opts.lng, Number(selectedBranchRaw.latitude), Number(selectedBranchRaw.longitude))
       : null,
     isOpenNow: isOpenNow(selectedBranchRaw.openingHours),
@@ -988,9 +1058,11 @@ export async function getCustomerMerchant(
       id: nearestBranch.id, name: nearestBranch.name,
       addressLine1: nearestBranch.addressLine1, addressLine2: (nearestBranch as any).addressLine2,
       city: nearestBranch.city, postcode: nearestBranch.postcode,
-      latitude:  nearestBranch.latitude  !== null ? Number(nearestBranch.latitude)  : null,
-      longitude: nearestBranch.longitude !== null ? Number(nearestBranch.longitude) : null,
+      // PR #81 review B2 — redact lat/lng + expose locationConfidence.
+      ...exposeBranchPosition(nearestBranch),
       phone: nearestBranch.phone, email: nearestBranch.email,
+      // `distance` here is the same `distance` already computed above and
+      // already gated on hasExactPosition(); safe to inherit.
       distance,
       isOpenNow: openNow,
     } : null,
@@ -1004,15 +1076,12 @@ export async function getCustomerMerchant(
       isActive: b.isActive,           // NEW — picker needs this to grey out suspended
       addressLine1: b.addressLine1, addressLine2: b.addressLine2,
       city: b.city, postcode: b.postcode,
-      latitude:  b.latitude  !== null ? Number(b.latitude)  : null,
-      longitude: b.longitude !== null ? Number(b.longitude) : null,
+      // PR #81 review B2 — redact lat/lng + expose locationConfidence.
+      ...exposeBranchPosition(b),
       phone: b.phone, email: b.email,
-      distance: (lat !== undefined && lng !== undefined)
-        ? (() => {
-            const bLat = b.latitude !== null ? Number(b.latitude) : null
-            const bLng = b.longitude !== null ? Number(b.longitude) : null
-            return bLat !== null && bLng !== null ? haversineMetres(lat, lng, bLat, bLng) : null
-          })()
+      // PR #81 review B2 — per-branch distance only for MANUALLY_CONFIRMED.
+      distance: (lat !== undefined && lng !== undefined && hasExactPosition(b))
+        ? haversineMetres(lat, lng, Number(b.latitude), Number(b.longitude))
         : null,
       isOpenNow:   isOpenNow(b.openingHours),
       avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
@@ -1042,12 +1111,12 @@ export async function getCustomerMerchantBranches(prisma: PrismaClient, merchant
     throw new AppError('MERCHANT_UNAVAILABLE')
   }
 
-  return prisma.branch.findMany({
+  const branches = await prisma.branch.findMany({
     where: { merchantId, isActive: true },
     select: {
       id: true, name: true, isMainBranch: true,
       addressLine1: true, addressLine2: true, city: true, postcode: true,
-      phone: true, latitude: true, longitude: true,
+      phone: true, latitude: true, longitude: true, locationConfidence: true,
       openingHours: {
         select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
         orderBy: { dayOfWeek: 'asc' },
@@ -1055,6 +1124,8 @@ export async function getCustomerMerchantBranches(prisma: PrismaClient, merchant
     },
     orderBy: { isMainBranch: 'desc' },
   })
+  // PR #81 review B2 — redact lat/lng + expose locationConfidence on each row.
+  return branches.map((b) => ({ ...b, ...exposeBranchPosition(b) }))
 }
 
 // ─── Voucher Detail ───────────────────────────────────────────────────────────
@@ -1460,8 +1531,12 @@ export async function searchMerchants(
   if (minLat !== undefined && maxLat !== undefined && minLng !== undefined && maxLng !== undefined) {
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
+      // PR #81 review B2 — bbox filter must require MANUALLY_CONFIRMED.
+      // Without this, a merchant with only POSTCODE_CENTROID branches in
+      // the bbox would surface on the map with an exact-pin position.
       { branches: { some: {
         isActive: true,
+        locationConfidence: 'MANUALLY_CONFIRMED',
         latitude:  { gte: minLat, lte: maxLat },
         longitude: { gte: minLng, lte: maxLng },
       }}},
@@ -1476,9 +1551,13 @@ export async function searchMerchants(
 
   let sorted = rawMerchants as any[]
   if (sortBy === 'nearest' && lat !== undefined && lng !== undefined) {
+    // PR #81 review B2 — nearest-sort only considers MANUALLY_CONFIRMED
+    // branches. Merchants with only approximate branches receive
+    // Infinity (rank last) rather than being ordered by approximate
+    // proximity that we'd then display as exact.
     sorted = [...rawMerchants].sort((a: any, b: any) => {
-      const distA = Math.min(...(a.branches as any[]).filter((br: any) => br.latitude !== null && br.longitude !== null).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
-      const distB = Math.min(...(b.branches as any[]).filter((br: any) => br.latitude !== null && br.longitude !== null).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
+      const distA = Math.min(...(a.branches as any[]).filter((br: any) => hasExactPosition(br)).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
+      const distB = Math.min(...(b.branches as any[]).filter((br: any) => hasExactPosition(br)).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
       return distA - distB
     })
   }
@@ -1486,9 +1565,13 @@ export async function searchMerchants(
   let final: any[] = sorted
 
   if (params.maxDistanceMiles && lat !== undefined && lng !== undefined) {
+    // PR #81 review B2 — maxDistanceMiles only filters by MANUALLY_CONFIRMED
+    // branches. A merchant with only POSTCODE_CENTROID branches is treated
+    // as out-of-range (Infinity) rather than letting approximate coords
+    // pass the radius filter.
     const maxMetres = params.maxDistanceMiles * 1609.34
     final = final.filter((m: any) => {
-      const minDist = Math.min(...(m.branches as any[]).filter((br: any) => br.latitude !== null && br.longitude !== null).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
+      const minDist = Math.min(...(m.branches as any[]).filter((br: any) => hasExactPosition(br)).map((br: any) => haversineMetres(lat!, lng!, Number(br.latitude), Number(br.longitude))).concat([Infinity]))
       return minDist <= maxMetres
     })
   }
@@ -1722,11 +1805,18 @@ type Bbox = { minLat: number; maxLat: number; minLng: number; maxLng: number }
  * to Number consistent with the rest of the discovery pipeline.
  */
 function merchantHasBranchInBbox(
-  merchant: { branches: Array<{ latitude: unknown; longitude: unknown }> },
+  merchant: { branches: Array<{ latitude: unknown; longitude: unknown; locationConfidence?: string | null }> },
   bbox: Bbox,
 ): boolean {
   for (const b of merchant.branches) {
-    if (b.latitude === null || b.longitude === null) continue
+    // PR #81 Codex re-review — application-level bbox inclusion gates on
+    // MANUALLY_CONFIRMED. Companion to the SQL where-filter in
+    // getInAreaMerchants (which already requires
+    // locationConfidence: 'MANUALLY_CONFIRMED'); this helper covers the
+    // post-rank in-memory bbox checks used elsewhere in the discovery
+    // pipeline. A merchant with only POSTCODE_CENTROID branches inside
+    // the bbox must NOT surface on map / in-area surfaces.
+    if (!hasExactPosition(b)) continue
     const lat = Number(b.latitude)
     const lng = Number(b.longitude)
     if (lat >= bbox.minLat && lat <= bbox.maxLat && lng >= bbox.minLng && lng <= bbox.maxLng) {

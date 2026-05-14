@@ -12,6 +12,10 @@ import {
 import { REDUNDANT_HIGHLIGHTS } from './seed-data/redundantHighlights'
 import { AMENITIES } from './seed-data/amenities'
 import { CATEGORY_AMENITIES } from './seed-data/categoryAmenities'
+import { ONSPD_LOCALITIES } from './seed-data/onspd-localities'
+import { seedHeuristicCatchmentEdges } from './seed-data/catchment-heuristic'
+import { seedCuratedCatchmentEdges } from './seed-data/catchmentOverrides'
+import { seedMarkets } from './seed-data/markets'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
@@ -31,6 +35,80 @@ const subcategoryIdByNameAndParent = new Map<SubcatKey, string>()
 const subcategoryIdsByName = new Map<string, string[]>()  // handles cross-listings (e.g. Aesthetics Clinic)
 const tagIdByLabelAndType = new Map<string, string>()     // `${label}:${type}` → id
 const amenityIdByName = new Map<string, string>()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan 4 M1.16 — owner-curated branch → Locality mapping
+//
+// Every seeded branch is MANUALLY_CONFIRMED against its real-world postcode.
+// The map drives buildBranchLocationSnapshot() below; the helper is called at
+// every branch upsert site so the snapshot fields (localityId + admin-hierarchy
+// mirror columns) stay current on every seed run.
+//
+// To add a new seeded branch:
+//   1. Add the branch.upsert call site with `...locationSnapshot` in both
+//      create AND update payloads.
+//   2. Add a row to BRANCH_LOCALITY_MAP below mapping branchId → locality slug.
+//   3. The buildBranchLocationSnapshot() helper will throw at seed time if
+//      either lookup fails, so missing entries fail fast.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BRANCH_LOCALITY_MAP: Readonly<Record<string, string>> = {
+  // 8 taxonomy-test merchants:
+  'tax-branch-cafe-001':       'hoxton-east-shoreditch',  // London EC2A 3BJ (Hackney ward)
+  'tax-branch-pilates-001':    'clapham-town',            // London SW4 7TR (Lambeth ward)
+  'tax-branch-foodhall-001':   'borough-bankside',        // London SE1 9AA (Southwark ward)
+  'tax-branch-aesthetics-001': 'marylebone',              // London W1U 4PB (Westminster ward)
+  'tax-branch-vet-001':        'hackney-central',         // London E8 4RP  (Hackney ward)
+  'tax-branch-covelum-001':    'brightlingsea',           // Brightlingsea CO7 0AY
+  'tax-branch-mykerala-001':   'ipswich',                 // Ipswich IP4 1HJ
+  'tax-branch-karaara-001':    'huddersfield',            // Huddersfield HD1 2PY (Plan 4a anchor)
+  // Multi-branch fixture (Covelum 2nd branch):
+  'tax-branch-covelum-002':    'colchester',              // Colchester CO1 1JN
+  // Dev fixture:
+  'dev-branch-001':            'aldersgate',              // London EC1A 1BB (City of London ward)
+  // M1.24 trending-search fixtures (Pizza / Nail salon / Barber / Gym):
+  'tax-branch-pinos-pizzeria-001':  'huddersfield',       // Huddersfield HD1 2BJ
+  'tax-branch-polish-nails-001':    'holmfirth',          // Holmfirth     HD9 2DN
+  'tax-branch-trim-co-barbers-001': 'huddersfield',       // Huddersfield HD1 2QT
+  'tax-branch-iron-forge-gym-001':  'marsden',            // Marsden       HD7 6BR
+}
+
+type BranchLocationSnapshot = {
+  locationConfidence: 'MANUALLY_CONFIRMED'
+  localityId: string
+  localityName: string
+  postTown: string | null
+  ladDistrict: string | null
+  adminCounty: string | null
+  region: string | null
+  locationCountry: string  // Plan 4a nation snapshot ("England" etc.); distinct from legacy Branch.country (ISO-2)
+  locationResolvedAt: Date
+}
+
+async function buildBranchLocationSnapshot(branchId: string): Promise<BranchLocationSnapshot> {
+  const slug = BRANCH_LOCALITY_MAP[branchId]
+  if (!slug) {
+    throw new Error(`buildBranchLocationSnapshot: no Locality mapping for branchId="${branchId}". Add to BRANCH_LOCALITY_MAP.`)
+  }
+  const loc = await prisma.locality.findUnique({
+    where: { slug },
+    select: { id: true, name: true, postTown: true, ladDistrict: true, adminCounty: true, region: true, country: true },
+  })
+  if (!loc) {
+    throw new Error(`buildBranchLocationSnapshot: Locality slug "${slug}" (for branch "${branchId}") not found. Did seedLocalities() run?`)
+  }
+  return {
+    locationConfidence: 'MANUALLY_CONFIRMED',
+    localityId: loc.id,
+    localityName: loc.name,
+    postTown: loc.postTown,
+    ladDistrict: loc.ladDistrict,
+    adminCounty: loc.adminCounty,
+    region: loc.region,
+    locationCountry: loc.country,
+    locationResolvedAt: new Date(),
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Taxonomy seeding
@@ -382,6 +460,9 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       { label: 'Specialty Coffee', type: 'SPECIALTY' },
       { label: 'Matcha', type: 'SPECIALTY' },
       { label: 'Patisserie', type: 'SPECIALTY' },
+      // M1.24 — Brunch trending-search coverage. The tag was already in this
+      // fixture's tag list before M1.24; calling out here so the trending-
+      // search audit doesn't flag Bean & Brew as Brunch-untagged.
       { label: 'Brunch', type: 'SPECIALTY' },
       { label: 'Independent', type: 'HIGHLIGHT' },
       { label: 'Vegan-Friendly', type: 'HIGHLIGHT' },
@@ -740,6 +821,161 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       email:        'hello@karaara.test',
     },
   },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Plan 4 M1.24 — trending-search fixture merchants (Pizza / Nail / Barber /
+  // Gym). Bean & Brew above covers Coffee + Brunch (Brunch tag added in M1.24).
+  // All four fictional but realistic test/demo merchants; Huddersfield-area
+  // distribution per owner approval (2026-05-14):
+  //   - Pinos Pizzeria    → huddersfield (Kirklees)
+  //   - Polish Nail Studio → holmfirth   (Kirklees, Huddersfield Market)
+  //   - Trim & Co Barbers  → huddersfield (Kirklees)
+  //   - Iron Forge Gym     → marsden     (Kirklees, Huddersfield Market)
+  // BRANCH_LOCALITY_MAP (top of seed.ts) gets four matching entries so the
+  // M1.16 buildBranchLocationSnapshot helper sets locationConfidence:
+  // MANUALLY_CONFIRMED + the full Locality snapshot on each branch upsert.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Scenario 10 — Pizza trending coverage. Pino's Pizzeria (apostrophe stripped
+  // for ASCII-safety per owner direction). Restaurant subcategory + Italian
+  // CUISINE + Pizza SPECIALTY → trending term "Pizza" hits via SPECIALTY tag.
+  {
+    id: 'tax-merchant-pinos-pizzeria-001',
+    businessName: 'Pinos Pizzeria',
+    tradingName: 'Pinos Pizzeria',
+    description: 'Wood-fired pizzas and Italian small plates in central Huddersfield.',
+    parentCategoryName: 'Food & Drink',
+    subcategoryName: 'Restaurant',
+    primaryDescriptorTag: { label: 'Italian', type: 'CUISINE' },
+    tags: [
+      { label: 'Italian',           type: 'CUISINE' },
+      { label: 'Pizza',             type: 'SPECIALTY' },  // ← satisfies trending "Pizza"
+      { label: 'Family-Friendly',   type: 'HIGHLIGHT' },
+      { label: 'Independent',       type: 'HIGHLIGHT' },
+    ],
+    highlights: [
+      { label: 'Family-Friendly', sortOrder: 0 },
+      { label: 'Independent',     sortOrder: 1 },
+    ],
+    amenities: ['Wi-Fi', 'Outdoor Seating'],
+    branch: {
+      id:           'tax-branch-pinos-pizzeria-001',
+      name:         'Pinos Pizzeria — Huddersfield',
+      addressLine1: '47 New Street',
+      city:         'Huddersfield',
+      postcode:     'HD1 2BJ',
+      latitude:     53.6485,
+      longitude:    -1.7820,
+      phone:        '+441484501100',
+      email:        'info@pinos-pizzeria.test',
+    },
+  },
+
+  // Scenario 11 — Nail Salon trending coverage. HIDDEN descriptor (Nail Salon
+  // subcategory) → no primaryDescriptorTag; UI displays bare subcategory name.
+  // Trending term "Nail salon" hits via the subcategory match.
+  {
+    id: 'tax-merchant-polish-nails-001',
+    businessName: 'Polish Nail Studio',
+    tradingName: 'Polish Nail Studio',
+    description: 'Independent nail salon in Holmfirth — gel, BIAB, manicures and pedicures.',
+    parentCategoryName: 'Beauty & Wellness',
+    subcategoryName: 'Nail Salon',
+    primaryDescriptorTag: null,
+    tags: [
+      { label: 'Manicure',     type: 'SPECIALTY' },
+      { label: 'Pedicure',     type: 'SPECIALTY' },
+      { label: 'Gel Nails',    type: 'SPECIALTY' },
+      { label: 'BIAB',         type: 'SPECIALTY' },
+      { label: 'Independent',  type: 'HIGHLIGHT' },
+      { label: 'Women-Owned',  type: 'HIGHLIGHT' },
+    ],
+    highlights: [
+      { label: 'Independent', sortOrder: 0 },
+      { label: 'Women-Owned', sortOrder: 1 },
+    ],
+    amenities: ['Online Booking', 'Wi-Fi'],
+    branch: {
+      id:           'tax-branch-polish-nails-001',
+      name:         'Polish Nail Studio — Holmfirth',
+      addressLine1: '8 Victoria Square',
+      city:         'Holmfirth',
+      postcode:     'HD9 2DN',
+      latitude:     53.5700,
+      longitude:    -1.7885,
+      phone:        '+441484501200',
+      email:        'bookings@polish-nails.test',
+    },
+  },
+
+  // Scenario 12 — Barber trending coverage. HIDDEN descriptor (Barber
+  // subcategory). Walk-Ins Welcome DETAIL tag adds realism without breaking
+  // the test data.
+  {
+    id: 'tax-merchant-trim-co-barbers-001',
+    businessName: 'Trim & Co Barbers',
+    tradingName: 'Trim & Co Barbers',
+    description: 'Independent barbers in Huddersfield — walk-ins welcome, classic and modern cuts, hot towel shaves.',
+    parentCategoryName: 'Beauty & Wellness',
+    subcategoryName: 'Barber',
+    primaryDescriptorTag: null,
+    tags: [
+      { label: "Men's Grooming",    type: 'SPECIALTY' },
+      { label: 'Hot Towel Shave',   type: 'SPECIALTY' },
+      { label: 'Independent',       type: 'HIGHLIGHT' },
+      { label: 'Walk-Ins Welcome',  type: 'DETAIL' },
+    ],
+    highlights: [
+      { label: 'Independent', sortOrder: 0 },
+    ],
+    amenities: ['Wi-Fi'],
+    branch: {
+      id:           'tax-branch-trim-co-barbers-001',
+      name:         'Trim & Co Barbers — Huddersfield',
+      addressLine1: '22 King Street',
+      city:         'Huddersfield',
+      postcode:     'HD1 2QT',
+      latitude:     53.6470,
+      longitude:    -1.7795,
+      phone:        '+441484501300',
+      email:        'hi@trim-co-barbers.test',
+    },
+  },
+
+  // Scenario 13 — Gym trending coverage. RECOMMENDED descriptor on Gym
+  // subcategory but we leave primaryDescriptorTag null (generic gym, no
+  // dominant discipline) — UI falls back to bare "Gym".
+  {
+    id: 'tax-merchant-iron-forge-gym-001',
+    businessName: 'Iron Forge Gym',
+    tradingName: 'Iron Forge Gym',
+    description: 'Independent strength and functional fitness gym in Marsden — heavy iron, kettlebells, and a small-group HIIT class schedule.',
+    parentCategoryName: 'Health & Fitness',
+    subcategoryName: 'Gym',
+    primaryDescriptorTag: null,
+    tags: [
+      { label: 'Strength',           type: 'SPECIALTY' },
+      { label: 'HIIT',               type: 'SPECIALTY' },
+      { label: 'Functional',         type: 'SPECIALTY' },
+      { label: 'Personal Training',  type: 'SPECIALTY' },
+      { label: 'Independent',        type: 'HIGHLIGHT' },
+    ],
+    highlights: [
+      { label: 'Independent', sortOrder: 0 },
+    ],
+    amenities: ['Showers', 'Lockers', 'Free Parking'],
+    branch: {
+      id:           'tax-branch-iron-forge-gym-001',
+      name:         'Iron Forge Gym — Marsden',
+      addressLine1: '15 Peel Street',
+      city:         'Marsden',
+      postcode:     'HD7 6BR',
+      latitude:     53.6019,
+      longitude:    -1.9303,
+      phone:        '+441484501400',
+      email:        'info@iron-forge-gym.test',
+    },
+  },
 ]
 
 /**
@@ -921,9 +1157,12 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
     })
 
     // Branch (with encrypted PIN, idempotent on stable id).
+    // M1.16: branch location snapshot is refreshed on every seed run so
+    // system-owned admin-hierarchy mirror columns stay current.
+    const locationSnapshot = await buildBranchLocationSnapshot(spec.branch.id)
     await prisma.branch.upsert({
       where: { id: spec.branch.id },
-      update: {},
+      update: { ...locationSnapshot },
       create: {
         id: spec.branch.id,
         merchantId: spec.id,
@@ -939,6 +1178,7 @@ async function seedTaxonomyTestMerchants(): Promise<void> {
         email: spec.branch.email ?? null,
         redemptionPin: encrypt('1234'),
         isActive: true,
+        ...locationSnapshot,
       },
     })
 
@@ -1076,9 +1316,10 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
   // ── 4. Second branch — Colchester (multi-branch fixture) ──
   // Unblocks BranchesTab QA + the chip + picker (intentionally
   // hidden on single-branch merchants per the branch-aware spec).
+  const covelum2ndLocationSnapshot = await buildBranchLocationSnapshot(COVELUM_2ND_BRANCH_ID)
   await prisma.branch.upsert({
     where:  { id: COVELUM_2ND_BRANCH_ID },
-    update: {},
+    update: { ...covelum2ndLocationSnapshot },
     create: {
       id:           COVELUM_2ND_BRANCH_ID,
       merchantId:   COVELUM_MERCHANT_ID,
@@ -1094,6 +1335,7 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
       email:        'colchester@covelum.test',
       redemptionPin: encrypt('1234'),
       isActive:     true,
+      ...covelum2ndLocationSnapshot,
     },
   })
   // Slightly different schedule for variety so the two branches don't
@@ -1272,6 +1514,43 @@ async function seedCategoryAmenities(): Promise<void> {
   console.log(`Seeded ${rows.length} CategoryAmenity rules`)
 }
 
+async function seedLocalities(): Promise<void> {
+  let inserted = 0
+  let skipped = 0
+  for (const loc of ONSPD_LOCALITIES) {
+    const result = await prisma.locality.upsert({
+      where: { slug: loc.slug },
+      create: {
+        name: loc.name,
+        slug: loc.slug,
+        postTown: loc.postTown,
+        ladDistrict: loc.ladDistrict,
+        adminCounty: loc.adminCounty,
+        region: loc.region,
+        country: loc.country,
+        centerLat: loc.centerLat,
+        centerLng: loc.centerLng,
+        populationTier: loc.populationTier,
+      },
+      update: {
+        // Update everything except marketId/needsReview (those are managed by other scripts)
+        name: loc.name,
+        postTown: loc.postTown,
+        ladDistrict: loc.ladDistrict,
+        adminCounty: loc.adminCounty,
+        region: loc.region,
+        country: loc.country,
+        centerLat: loc.centerLat,
+        centerLng: loc.centerLng,
+        populationTier: loc.populationTier,
+      },
+    })
+    if (result.createdAt.getTime() === result.updatedAt.getTime()) inserted++
+    else skipped++
+  }
+  console.log(`Seeded localities: ${inserted} new, ${skipped} existing`)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1330,6 +1609,18 @@ async function main() {
   await seedRedundantHighlights()
   await seedAmenities()
   await seedCategoryAmenities()
+
+  // ── Localities (UK gazetteer, ONSPD-derived; required before Branch/User writes can resolve postcodes) ──
+  await seedLocalities()
+
+  // ── Heuristic catchment edges (small Localities → up to 3 nearby big ones, within 12 mi) ──
+  await seedHeuristicCatchmentEdges(prisma)
+
+  // ── Curated catchment overrides (owner-approved natural-centre relationships per active Market) ──
+  await seedCuratedCatchmentEdges(prisma)
+
+  // ── Active Markets (Plan 4a rollout: Huddersfield Market only as of M1.15) ──
+  await seedMarkets(prisma)
 
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
@@ -1490,9 +1781,10 @@ async function main() {
   })
 
   // ── Dev branch ──
+  const devBranchLocationSnapshot = await buildBranchLocationSnapshot('dev-branch-001')
   const branch = await prisma.branch.upsert({
     where: { id: 'dev-branch-001' },
-    update: {},
+    update: { ...devBranchLocationSnapshot },
     create: {
       id: 'dev-branch-001',
       merchantId: merchant.id,
@@ -1508,6 +1800,7 @@ async function main() {
       email: 'london@thecoffeehouse.com',
       redemptionPin: encrypt('1234'),
       isActive: true,
+      ...devBranchLocationSnapshot,
     },
   })
 
