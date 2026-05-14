@@ -40,6 +40,15 @@ export type ResolvePostcodeResult =
 
 const POSTCODES_IO_BASE = 'https://api.postcodes.io'
 
+// Plan 4 M1 PR #81 review — 5-second AbortSignal timeout. Without it, a slow
+// or hanging postcodes.io connection blocks the Fastify request until OS-
+// level TCP timeout (~30-120s), which freezes PC2 typing and exhausts our
+// connection pool. 5s is generous: real postcodes.io p99 is well under 1s;
+// timeouts here almost always indicate a real outage worth degrading on.
+// The catch block below already maps any thrown error (including
+// AbortError from timeout) to GAZETTEER_UNAVAILABLE.
+const POSTCODES_IO_TIMEOUT_MS = 5_000
+
 export async function resolvePostcode(rawPostcode: string): Promise<ResolvePostcodeResult> {
   // Canonical-form normalisation: strip whitespace, uppercase. We rely on
   // postcodes.io to return the canonically-spaced form in its response body
@@ -48,7 +57,9 @@ export async function resolvePostcode(rawPostcode: string): Promise<ResolvePostc
   if (cleaned.length < 5) return { ok: false, error: 'POSTCODE_NOT_FOUND' }
 
   try {
-    const res = await fetch(`${POSTCODES_IO_BASE}/postcodes/${encodeURIComponent(cleaned)}`)
+    const res = await fetch(`${POSTCODES_IO_BASE}/postcodes/${encodeURIComponent(cleaned)}`, {
+      signal: AbortSignal.timeout(POSTCODES_IO_TIMEOUT_MS),
+    })
     if (res.status === 404) return { ok: false, error: 'POSTCODE_NOT_FOUND' }
     if (!res.ok) return { ok: false, error: 'GAZETTEER_UNAVAILABLE' }
 

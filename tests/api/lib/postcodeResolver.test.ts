@@ -63,4 +63,39 @@ describe('resolvePostcode', () => {
       expect(result.error).toBe('GAZETTEER_UNAVAILABLE')
     }
   })
+
+  it('returns ok:false with GAZETTEER_UNAVAILABLE when the fetch times out (AbortSignal)', async () => {
+    // Simulate the AbortError thrown by AbortSignal.timeout(5000) when the
+    // postcodes.io request exceeds 5s. The catch block must map this to
+    // GAZETTEER_UNAVAILABLE just like any other network failure.
+    const abortError = new Error('The operation was aborted due to timeout')
+    abortError.name = 'AbortError'
+    vi.spyOn(global, 'fetch').mockRejectedValue(abortError)
+
+    const result = await resolvePostcode('HD1 2PY')
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toBe('GAZETTEER_UNAVAILABLE')
+    }
+  })
+
+  it('passes an AbortSignal with a timeout to fetch', async () => {
+    // Defensive pin against future refactors that might drop the timeout.
+    // We don't assert the exact ms value (could shift) — just that an
+    // AbortSignal IS being supplied.
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ status: 200, result: {
+        postcode: 'HD1 2PY', country: 'England', region: null,
+        admin_district: 'X', admin_county: null, parish: null,
+        admin_ward: null, parliamentary_constituency: null,
+        latitude: 0, longitude: 0,
+      } }),
+    } as Response)
+
+    await resolvePostcode('HD1 2PY')
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    const opts = fetchSpy.mock.calls[0][1] as RequestInit | undefined
+    expect(opts?.signal).toBeInstanceOf(AbortSignal)
+  })
 })
