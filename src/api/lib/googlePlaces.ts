@@ -196,6 +196,16 @@ export async function searchPlaces(
   if (capFailure) return { ok: false, error: capFailure }
 
   const source: UsageSource = opts.source ?? 'admin_cli'
+  // Count the attempt *before* fetch fires. If the process crashes
+  // between this line and the caller's DB transaction / AuditLog write,
+  // the `.cache/google-places-usage.json` counter will over-report by 1
+  // relative to the AuditLog rows. That asymmetry is intentional:
+  //   - The usage counter exists to protect spend / billing — conservative
+  //     over-counting is the safe direction (counts attempts, not successes).
+  //   - The AuditLog records *successful confirmations* only — written
+  //     atomically with the branch update inside `prisma.$transaction(...)`.
+  // The two are not expected to match; both are correct for what they
+  // measure. See spec §4.8 + plan §M2.3.5.
   bumpUsage(source)
 
   try {

@@ -391,8 +391,8 @@ No automated re-verification cadence. Re-confirmation is event-driven.
 | M2.2 (`prisma/suggest-branch-pin.ts` CLI) | **Implemented + committed** (mocked tests only). |
 | M2.3 (`.env.example` + `docs/operations/google-places-setup.md`) | **Implemented + committed**. |
 | M2.3.5 (local daily + monthly cap hard-stop + source tracking) | **Implemented + committed**. 30/30 wrapper tests green; 86/86 `tests/api/lib/` regression green; tsc clean. |
-| M2.4 (live Google smoke test) | **PAUSED — awaiting explicit owner green-light.** No live Google call has been made; no DB-mutating write has been made. |
-| M2.5 (push + open PR) | Pending M2.4. |
+| M2.4 (live smoke + write-path validation) | **Completed 2026-05-14.** Live `suggest` smoke (1 Google Text Search call, owner-authorised) returned a Veppura candidate against Karaara — owner classified the heuristic LOW (name-token miss) as expected behaviour for a converting premises. Manual write-path smoke test (`--manual` mode, 0 Google calls) executed against dev fixture `1a024ace-eeec-4892-aaf5-725868de828f` — confirmed: lat/lng overwrite, `POSTCODE_CENTROID` → `MANUALLY_CONFIRMED` flip, `BRANCH_PIN_CONFIRMED` AuditLog row with full before/after metadata, counter unchanged (apiCalls=0 in manual mode), single-branch scope, Karaara untouched. **No further live Google calls pending unless explicitly approved by the owner.** |
+| M2.5 (push + open PR) | **Completed 2026-05-14.** Branch `feature/merchant-pin-confirmation-phase-1` pushed; PR #82 open against `main`. |
 | Google Cloud project setup | Owner-completed (per session of 2026-05-14): project + billing enabled, Places API (New) enabled, key restricted to Places API (New), billing alert at ~£5/month, `GOOGLE_MAPS_API_KEY` in `.env`. **Note:** Google-side per-day quota knob is NOT settable for Places API (New) — replaced by the local hard-stop in §4.8. |
 
 **Pause points for the implementer (locked):**

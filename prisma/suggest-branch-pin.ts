@@ -28,6 +28,18 @@ import { searchPlaces, bestCandidateConfidence, type GooglePlaceCandidate } from
 
 const UK_BOUNDS = { minLat: 49.5, maxLat: 61.0, minLng: -8.5, maxLng: 2.0 }
 
+// Reads the value that should follow `args[idx]`. Returns null when the slot
+// is missing OR when the slot itself looks like another flag (`--foo`), so
+// `--confirm-place-id --note foo` cannot silently consume `--note` as the
+// placeId. Each caller turns the null into a flag-specific usage error.
+function valueAfter(args: string[], idx: number): string | null {
+  if (idx === -1) return null
+  const next = args[idx + 1]
+  if (next === undefined) return null
+  if (next.startsWith('--')) return null
+  return next
+}
+
 function parseArgs(argv: string[]):
   | {
       branchId: string
@@ -59,16 +71,24 @@ function parseArgs(argv: string[]):
   if (hasConfirmBest) mode = 'confirm-best'
   if (hasConfirmPlaceId) {
     mode = 'confirm-place-id'
-    placeId = args[placeIdIdx + 1]
+    const value = valueAfter(args, placeIdIdx)
+    if (value === null) return { error: '--confirm-place-id requires a placeId argument' }
+    placeId = value
   }
   if (hasManual) {
     mode = 'manual'
     const latIdx = args.indexOf('--lat')
     const lngIdx = args.indexOf('--lng')
     if (latIdx === -1 || lngIdx === -1) return { error: '--manual requires --lat and --lng' }
-    lat = parseFloat(args[latIdx + 1])
-    lng = parseFloat(args[lngIdx + 1])
-    if (isNaN(lat) || isNaN(lng)) return { error: '--lat and --lng must be numeric' }
+    const latRaw = valueAfter(args, latIdx)
+    const lngRaw = valueAfter(args, lngIdx)
+    if (latRaw === null) return { error: '--lat requires a numeric value' }
+    if (lngRaw === null) return { error: '--lng requires a numeric value' }
+    // Number() rejects trailing-garbage (`Number('51.8abc') === NaN`), unlike
+    // parseFloat which would silently accept the prefix `51.8`.
+    lat = Number(latRaw)
+    lng = Number(lngRaw)
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return { error: '--lat and --lng must be numeric' }
     if (
       lat < UK_BOUNDS.minLat ||
       lat > UK_BOUNDS.maxLat ||
@@ -82,10 +102,11 @@ function parseArgs(argv: string[]):
   }
 
   const noteIdx = args.indexOf('--note')
-  const note = noteIdx !== -1 ? args[noteIdx + 1] : undefined
-
-  if (mode === 'confirm-place-id' && !placeId) {
-    return { error: '--confirm-place-id requires a placeId argument' }
+  let note: string | undefined
+  if (noteIdx !== -1) {
+    const value = valueAfter(args, noteIdx)
+    if (value === null) return { error: '--note requires a value' }
+    note = value
   }
 
   return { branchId, mode, placeId, lat, lng, note }
@@ -117,7 +138,10 @@ async function main() {
     process.exit(1)
   }
 
-  const merchantLabel = branch.merchant.tradingName ?? branch.merchant.businessName
+  // Trimmed-fallback (not nullish-only): an empty / whitespace-only
+  // `tradingName` would otherwise produce a degenerate Google query like
+  // " 1 High St, ...". Falls through to `businessName` in that case.
+  const merchantLabel = branch.merchant.tradingName?.trim() || branch.merchant.businessName
   console.log(`Branch:       ${branch.id} (${branch.name})`)
   console.log(`Merchant:     ${merchantLabel}`)
   console.log(`Address:      ${branch.addressLine1}, ${branch.city} ${branch.postcode}`)
