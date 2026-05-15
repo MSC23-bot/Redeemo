@@ -26,7 +26,7 @@ import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { searchMerchants } from '../../../../src/api/customer/discovery/service'
+import { searchMerchants, getHomeFeed } from '../../../../src/api/customer/discovery/service'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
@@ -188,5 +188,56 @@ describe('M3a hybrid contract — legacy + V2 fields side-by-side', () => {
     // classifies as NEARBY (the redaction only affects what's exposed
     // on the response, not internal classification).
     expect(meta.nearbyCount).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('M3a hybrid — getHomeFeed wires V2 fields onto tiles (shape preserved)', () => {
+  it('home response keeps the existing top-level shape (no fields removed)', async () => {
+    const home = await getHomeFeed(prisma, { userId: null, lat: HUDDERSFIELD.lat, lng: HUDDERSFIELD.lng })
+    // Top-level keys are exactly the pre-M3a set. No additions at this
+    // level (per owner direction — additive only at tile level for Home).
+    const keys = Object.keys(home).sort()
+    expect(keys).toEqual([
+      'campaigns', 'featured', 'locationContext', 'nearbyByCategory', 'trending',
+    ])
+    // The existing locationContext shape is intact.
+    expect(home.locationContext).toBeDefined()
+    expect(home.locationContext).toHaveProperty('city')
+    expect(home.locationContext).toHaveProperty('source')
+  })
+
+  it('home tiles carry the additive M3 V2 fields (null or populated, never undefined)', async () => {
+    const home = await getHomeFeed(prisma, { userId: null, lat: HUDDERSFIELD.lat, lng: HUDDERSFIELD.lng })
+
+    // The seeded Karaara merchant has a Huddersfield branch and so
+    // should appear in nearbyByCategory under its primary category
+    // (city-equals filter inside getHomeFeed). It's MANUALLY_CONFIRMED,
+    // so V2 must classify it.
+    const allNearby = home.nearbyByCategory.flatMap(g => g.merchants)
+    const karaara = allNearby.find((m: any) => m.id === 'tax-merchant-karaara-001')
+    if (karaara) {
+      // V2 admits Karaara → fields populated.
+      expect((karaara as any).supplyRung).not.toBeNull()
+      expect((karaara as any).proximityBand).not.toBeNull()
+      expect(typeof (karaara as any).contextBranchId).toBe('string')
+      expect(typeof (karaara as any).distanceMetres).toBe('number')
+    }
+
+    // Across ALL home tiles in ALL three collections (featured /
+    // trending / nearbyByCategory), every tile must carry the four
+    // additive M3 fields as `null | string | number` (never
+    // `undefined`). This pins the merge contract: even tiles V2
+    // didn't classify must have the fields explicitly set to null.
+    const allHomeTiles = [
+      ...home.featured,
+      ...home.trending,
+      ...home.nearbyByCategory.flatMap(g => g.merchants),
+    ]
+    for (const tile of allHomeTiles) {
+      expect((tile as any)).toHaveProperty('supplyRung')
+      expect((tile as any)).toHaveProperty('proximityBand')
+      expect((tile as any)).toHaveProperty('distanceMetres')
+      expect((tile as any)).toHaveProperty('contextBranchId')
+    }
   })
 })

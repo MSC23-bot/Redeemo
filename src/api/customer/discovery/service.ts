@@ -383,6 +383,35 @@ const EMPTY_RUNG_COUNTS = {
 } as const
 
 /**
+ * Merge the additive M3 V2 fields onto an enriched tile by `merchantId`
+ * lookup. Returns the tile unchanged if V2 didn't classify the merchant
+ * (POSTCODE_CENTROID / NEEDS_REVIEW / inactive), with the new fields
+ * defaulted to null. Used by all four Discovery surfaces (search,
+ * category, in-area, home) so the merge logic stays consistent.
+ *
+ * The tile object is spread first, so a caller can pre-attach legacy
+ * fields (e.g. `supplyTier`) without them being clobbered.
+ */
+function mergeV2FieldsOntoTile<T extends { id: string }>(
+  tile: T,
+  v2TileById: Map<string, RankMerchantsV2Result['tiles'][number]>,
+): T & {
+  supplyRung:      RankMerchantsV2Result['tiles'][number]['supplyRung']      | null
+  proximityBand:   RankMerchantsV2Result['tiles'][number]['proximityBand']   | null
+  distanceMetres:  number | null
+  contextBranchId: string | null
+} {
+  const v2Tile = v2TileById.get(tile.id)
+  return {
+    ...tile,
+    supplyRung:      v2Tile?.supplyRung      ?? null,
+    proximityBand:   v2Tile?.proximityBand   ?? null,
+    distanceMetres:  v2Tile?.distanceMetres  ?? null,
+    contextBranchId: v2Tile?.contextBranchId ?? null,
+  }
+}
+
+/**
  * Determines which tiers to keep, given the caller's requested scope (or
  * default-by-intent), tier counts of available supply, and cascading expansion.
  *
@@ -788,12 +817,55 @@ export async function getHomeFeed(
     merchants: item.merchants.map((m: any) => enrichedById[m.id]),
   }))
 
+  // Plan 4 M3a hybrid — attach V2 fields to ALL home tiles (featured /
+  // trending / nearbyByCategory) for merchants V2 admits. Legacy
+  // inclusion/order is unchanged: featured is admin-curated, trending
+  // is by-redemption-count, nearbyByCategory is the city-filtered
+  // grouping. V2 fields are pure metadata on the tile.
+  //
+  // Ratings are NOT computed for Home today (the legacy ranker isn't
+  // called here), and V2's only use of ratings is in-rung sort —
+  // which Home doesn't surface. Safe to pass avgRating=null,
+  // reviewCount=0 across the board.
+  const homeV2EffLoc = await resolveEffectiveLocation(
+    prisma,
+    { lat: lat ?? undefined, lng: lng ?? undefined },
+    userId,
+  )
+  let homeV2TileById = new Map<string, RankMerchantsV2Result['tiles'][number]>()
+  if (homeV2EffLoc) {
+    const uniqueMerchants = Array.from(new Map<string, any>(
+      [...featured, ...trending, ...allNearbyMerchants].map(m => [m.id, m]),
+    ).values())
+    if (uniqueMerchants.length > 0) {
+      const outgoingCatchmentTargetIds = await getOutgoingCatchmentTargetIds(prisma, homeV2EffLoc.locality.id)
+      const v2Result = rankMerchantsV2(
+        uniqueMerchants.map(m => ({
+          id: m.id, businessName: m.businessName,
+          avgRating: null, reviewCount: 0,
+          branches: m.branches,
+        })),
+        {
+          effLoc: homeV2EffLoc,
+          ladderProfile: 'MIXED_NORMAL',  // Home is category-agnostic — safe default
+          outgoingCatchmentTargetIds,
+          categoryIntent: 'MIXED',
+          targetCount: 1000, hardCap: 2000,
+        },
+      )
+      homeV2TileById = v2TilesByMerchantId(v2Result)
+    }
+  }
+
   return {
     locationContext: { city: locationCtx.city, source: locationCtx.source },
-    featured: enrichedFeatured,
-    trending: enrichedTrending,
+    featured: enrichedFeatured.map(t => mergeV2FieldsOntoTile(t, homeV2TileById)),
+    trending: enrichedTrending.map(t => mergeV2FieldsOntoTile(t, homeV2TileById)),
     campaigns,
-    nearbyByCategory: enrichedNearby,
+    nearbyByCategory: enrichedNearby.map(item => ({
+      category: item.category,
+      merchants: item.merchants.map((t: any) => mergeV2FieldsOntoTile(t, homeV2TileById)),
+    })),
   }
 }
 
@@ -1812,18 +1884,11 @@ export async function searchMerchants(
   const enriched = await enrichMerchantTiles(prisma, page as any, {
     lat: lat ?? null, lng: lng ?? null, userId,
   })
-  const merchants = enriched.map((tile: any, i: number) => {
-    const v2Tile = v2TileById.get(page[i].id)
-    return {
-      ...tile,
-      supplyTier: page[i].supplyTier,
-      // M3a hybrid additive — null for merchants V2 rejected (POSTCODE_CENTROID etc.).
-      supplyRung:      v2Tile?.supplyRung      ?? null,
-      proximityBand:   v2Tile?.proximityBand   ?? null,
-      distanceMetres:  v2Tile?.distanceMetres  ?? null,
-      contextBranchId: v2Tile?.contextBranchId ?? null,
-    }
-  })
+  const merchants = enriched.map((tile: any, i: number) =>
+    // M3a hybrid additive — V2 fields null for merchants V2 rejected
+    // (POSTCODE_CENTROID etc.).
+    mergeV2FieldsOntoTile({ ...tile, supplyTier: page[i].supplyTier }, v2TileById),
+  )
 
   return {
     merchants,
@@ -1940,17 +2005,9 @@ export async function getCategoryMerchants(
   })
 
   // 9. Forward supplyTier from the rank step onto each enriched tile + attach V2 fields where present.
-  const merchants = enriched.map((tile: any, i: number) => {
-    const v2Tile = v2TileById.get(page[i].id)
-    return {
-      ...tile,
-      supplyTier: page[i].supplyTier,
-      supplyRung:      v2Tile?.supplyRung      ?? null,
-      proximityBand:   v2Tile?.proximityBand   ?? null,
-      distanceMetres:  v2Tile?.distanceMetres  ?? null,
-      contextBranchId: v2Tile?.contextBranchId ?? null,
-    }
-  })
+  const merchants = enriched.map((tile: any, i: number) =>
+    mergeV2FieldsOntoTile({ ...tile, supplyTier: page[i].supplyTier }, v2TileById),
+  )
 
   return {
     merchants,
@@ -2125,17 +2182,9 @@ export async function getInAreaMerchants(
   })
 
   // 9. Forward supplyTier from the rank step + attach V2 fields where present.
-  const merchants = enriched.map((tile: any, i: number) => {
-    const v2Tile = v2TileById.get(page[i].id)
-    return {
-      ...tile,
-      supplyTier: page[i].supplyTier,
-      supplyRung:      v2Tile?.supplyRung      ?? null,
-      proximityBand:   v2Tile?.proximityBand   ?? null,
-      distanceMetres:  v2Tile?.distanceMetres  ?? null,
-      contextBranchId: v2Tile?.contextBranchId ?? null,
-    }
-  })
+  const merchants = enriched.map((tile: any, i: number) =>
+    mergeV2FieldsOntoTile({ ...tile, supplyTier: page[i].supplyTier }, v2TileById),
+  )
 
   // emptyStateReason for in-area: only 'none' or 'no_uk_supply'. The
   // 'expanded_to_wider' value is impossible (no scope cascade). The
