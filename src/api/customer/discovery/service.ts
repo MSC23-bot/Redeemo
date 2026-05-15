@@ -11,11 +11,17 @@ import { resolveProfileCity } from '../../lib/userCity'
 import { getCurrentCycleWindow } from '../../subscription/cycle'
 import {
   rankMerchants,
+  rankMerchantsV2,
   resolveCategoryIntent,
   computeRatingsByMerchant,
   type CategoryIntentType,
   type SupplyTier,
+  type RankableMerchant,
+  type RankMerchantsV2Result,
 } from '../../lib/ranking'
+import { resolveEffectiveLocation, type EffectiveLocation } from '../../lib/effectiveLocation'
+import { getOutgoingCatchmentTargetIds } from '../../lib/catchmentLookup'
+import type { LadderProfile } from '../../lib/ladderProfiles'
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 import { resolveSelectedBranch } from './branch-resolver'
 import { buildDisplayName, formatReview } from '../reviews/service'
@@ -227,7 +233,19 @@ const MERCHANT_TILE_SELECT = {
   },
   branches: {
     where: { isActive: true },
-    select: { id: true, latitude: true, longitude: true, locationConfidence: true, city: true, isActive: true },
+    // Branch fields used by:
+    //   - exposeBranchPosition / hasExactPosition (PR #81 redaction)
+    //   - legacy classifyTier (city match)
+    //   - rankMerchantsV2 + classifyRung (M2 / Plan 4 mirror columns)
+    // The mirror columns (localityId..locationCountry) were added by Plan
+    // 4 M1's resolve-on-write work; including them here lets the M3a
+    // hybrid pipeline run V2 alongside legacy without an extra fetch.
+    select: {
+      id: true, latitude: true, longitude: true, locationConfidence: true,
+      city: true, isActive: true,
+      localityId: true, postTown: true, ladDistrict: true,
+      adminCounty: true, region: true, locationCountry: true,
+    },
   },
   _count: {
     select: {
@@ -245,6 +263,124 @@ type ScopeResolution = {
   scopeExpanded: boolean
   resolvedScope: 'nearby' | 'city' | 'region' | 'platform'
 }
+
+// ─── Plan 4 M3a — hybrid ranking helpers ─────────────────────────────────────
+//
+// This is the M3 hybrid/deprecation phase. Legacy `rankMerchants` remains the
+// inclusion/order source so POSTCODE_CENTROID merchants do not disappear (per
+// owner direction 2026-05-15, locked at deferred-followups §AV). `rankMerchantsV2`
+// runs alongside and contributes ONLY the new M2 fields (`supplyRung`,
+// `proximityBand`, `contextBranchId`, `distanceMetres`, `rungCounts`) — and only
+// for merchants whose branches pass `classifyRung`'s discoverability gate
+// (MANUALLY_CONFIRMED or ADDRESS_GEOCODED). Merchants V2 rejects keep their legacy
+// `supplyTier` and receive null/absent for the new fields. The redaction
+// contract for lat/lng/distance is unchanged: `exposeBranchPosition` +
+// `hasExactPosition` still gate position exposure at the serialization boundary.
+//
+// M5 or a later owner-approved policy can flip to V2 as the sole ranking path
+// (would exclude POSTCODE_CENTROID merchants entirely — a product-policy change
+// tracked at deferred-followups §AV).
+
+/**
+ * Resolve the effective LadderProfile for a ranking call given an optional
+ * category id and an optional subcategory id. Category self-reference per
+ * Plan 4 M3 D1 lock — Prisma schema has no `Subcategory` table; subcategories
+ * are Category rows with `parentId` non-null.
+ *
+ *   subcategory.ladderProfileOverride  → if non-null, win.
+ *   subcategory.parent.ladderProfile   → else inherit from parent.
+ *   category.ladderProfile             → else if categoryId only.
+ *   'MIXED_NORMAL'                     → safe default.
+ */
+async function resolveLadderProfileForCategory(
+  prisma: PrismaClient,
+  categoryId: string | undefined | null,
+  subcategoryId: string | undefined | null,
+): Promise<LadderProfile> {
+  if (subcategoryId) {
+    const sub = await prisma.category.findUnique({
+      where: { id: subcategoryId },
+      select: { ladderProfileOverride: true, parent: { select: { ladderProfile: true } } },
+    })
+    if (sub?.ladderProfileOverride) return sub.ladderProfileOverride
+    if (sub?.parent?.ladderProfile) return sub.parent.ladderProfile
+  }
+  if (categoryId) {
+    const cat = await prisma.category.findUnique({
+      where: { id: categoryId },
+      select: { ladderProfile: true },
+    })
+    if (cat?.ladderProfile) return cat.ladderProfile
+  }
+  return 'MIXED_NORMAL'
+}
+
+type V2RankAttempt = {
+  effLoc: EffectiveLocation | null
+  result: RankMerchantsV2Result | null
+}
+
+/**
+ * Try to run rankMerchantsV2 alongside the legacy ranker. Returns null result
+ * when no EffectiveLocation can be resolved (no GPS + no userId-with-locality
+ * + no place match) — in that case `effectiveLocality` in meta is null and the
+ * new fields are absent on every tile.
+ *
+ * NOTE: this is the HYBRID-phase wrapper. It does NOT replace the legacy
+ * pipeline. Callers run `rankMerchants(...)` for inclusion/order and call
+ * this to populate the additive M3 fields. M5 or a future policy change
+ * removes the legacy half — see §AV.
+ */
+async function tryRankMerchantsV2<M extends RankableMerchant<any>>(
+  prisma: PrismaClient,
+  merchants: M[],
+  ctx: {
+    userId: string | null
+    lat: number | null
+    lng: number | null
+    categoryId?: string | null
+    subcategoryId?: string | null
+  },
+): Promise<V2RankAttempt> {
+  const effLoc = await resolveEffectiveLocation(
+    prisma,
+    { lat: ctx.lat ?? undefined, lng: ctx.lng ?? undefined },
+    ctx.userId,
+  )
+  if (!effLoc) return { effLoc: null, result: null }
+
+  const [ladderProfile, outgoingCatchmentTargetIds] = await Promise.all([
+    resolveLadderProfileForCategory(prisma, ctx.categoryId, ctx.subcategoryId),
+    getOutgoingCatchmentTargetIds(prisma, effLoc.locality.id),
+  ])
+
+  // For the hybrid phase, categoryIntent feeding into in-rung sort doesn't
+  // actually drive the response order (legacy `ordered` does). We still
+  // honour it so rungCounts reflect the spec's intended bucketing.
+  const result = rankMerchantsV2(merchants, {
+    effLoc,
+    ladderProfile,
+    outgoingCatchmentTargetIds,
+    categoryIntent: 'MIXED',
+    targetCount: 500,
+    hardCap: 1000,
+  })
+  return { effLoc, result }
+}
+
+/**
+ * Build a `Map<merchantId, RankedTile>` from a V2 result so the legacy
+ * pipeline can attach the new fields to the page tiles by id-lookup.
+ */
+function v2TilesByMerchantId(result: RankMerchantsV2Result | null) {
+  if (!result) return new Map<string, RankMerchantsV2Result['tiles'][number]>()
+  return new Map(result.tiles.map(t => [t.merchantId, t]))
+}
+
+const EMPTY_RUNG_COUNTS = {
+  NEARBY: 0, CATCHMENT: 0, POST_TOWN: 0, LAD: 0,
+  COUNTY: 0, REGION: 0, COUNTRY: 0, NATIONAL: 0,
+} as const
 
 /**
  * Determines which tiers to keep, given the caller's requested scope (or
@@ -1628,10 +1764,21 @@ export async function searchMerchants(
     ? augmented.filter((m: any) => (m.avgRating ?? 0) >= 4.0 && m.reviewCount >= 5)
     : augmented
 
-  // Rank by intent.
+  // Rank by intent (legacy — drives inclusion/order during the M3a hybrid phase).
   const { ordered: rankedTiles, counts: tierCounts } = rankMerchants(augmentedFiltered as any, {
     intentType, userLat: lat ?? null, userLng: lng ?? null, profileCity,
   })
+
+  // Plan 4 M3a hybrid — run V2 alongside legacy. Populates the additive
+  // contract fields (supplyRung / proximityBand / rungCounts / effectiveLocality)
+  // for merchants V2's classifyRung admits. Merchants V2 rejects (POSTCODE_CENTROID
+  // etc.) keep their legacy supplyTier from above with no new fields attached.
+  // See deferred-followups §AV for the future policy decision.
+  const v2 = await tryRankMerchantsV2(prisma, augmentedFiltered as any, {
+    userId, lat: lat ?? null, lng: lng ?? null,
+    categoryId, subcategoryId,
+  })
+  const v2TileById = v2TilesByMerchantId(v2.result)
 
   // Apply sort overrides post-rank.
   let postSorted = rankedTiles as any[]
@@ -1665,10 +1812,18 @@ export async function searchMerchants(
   const enriched = await enrichMerchantTiles(prisma, page as any, {
     lat: lat ?? null, lng: lng ?? null, userId,
   })
-  const merchants = enriched.map((tile: any, i: number) => ({
-    ...tile,
-    supplyTier: page[i].supplyTier,
-  }))
+  const merchants = enriched.map((tile: any, i: number) => {
+    const v2Tile = v2TileById.get(page[i].id)
+    return {
+      ...tile,
+      supplyTier: page[i].supplyTier,
+      // M3a hybrid additive — null for merchants V2 rejected (POSTCODE_CENTROID etc.).
+      supplyRung:      v2Tile?.supplyRung      ?? null,
+      proximityBand:   v2Tile?.proximityBand   ?? null,
+      distanceMetres:  v2Tile?.distanceMetres  ?? null,
+      contextBranchId: v2Tile?.contextBranchId ?? null,
+    }
+  })
 
   return {
     merchants,
@@ -1685,6 +1840,10 @@ export async function searchMerchants(
         resolution.scopeExpanded,
         tierCounts.nearbyCount + tierCounts.cityCount + tierCounts.distantCount,
       ),
+      // M3a additive: rungCounts reflects only V2-admitted merchants (hybrid
+      // phase). effectiveLocality from the EffectiveLocation resolver.
+      rungCounts:        v2.result?.rungCounts ?? EMPTY_RUNG_COUNTS,
+      effectiveLocality: v2.effLoc ? { id: v2.effLoc.locality.id, name: v2.effLoc.locality.name } : null,
     },
   }
 }
@@ -1751,10 +1910,21 @@ export async function getCategoryMerchants(
     reviewCount: ratingByMerchant.get(m.id)?.reviewCount ?? 0,
   }))
 
-  // 5. Rank by intent (raw merchants — branches still present for classifyTier)
+  // 5. Rank by intent (legacy — drives inclusion/order during the M3a hybrid phase).
   const { ordered, counts } = rankMerchants(augmented as any, {
     intentType, userLat, userLng, profileCity,
   })
+
+  // 5b. M3a hybrid — V2 alongside. See §AV for the policy decision.
+  const v2 = await tryRankMerchantsV2(prisma, augmented as any, {
+    userId: options.userId ?? null, lat: userLat, lng: userLng,
+    // getCategoryMerchants is invoked with a single id that may be either
+    // top-level (categoryId) or a subcategory. The helper Category lookup
+    // determines which.
+    categoryId: cat?.parent ? null : categoryId, // top-level
+    subcategoryId: cat?.parent ? categoryId : null, // subcategory
+  })
+  const v2TileById = v2TilesByMerchantId(v2.result)
 
   // 6. Filter to retained tiers (default-by-intent or explicit scope, with cascade)
   const resolution = resolveScopeForRanking(options.scope, intentType, counts)
@@ -1769,11 +1939,18 @@ export async function getCategoryMerchants(
     lat: userLat, lng: userLng, userId: options.userId ?? null,
   })
 
-  // 9. Forward supplyTier from the rank step onto each enriched tile
-  const merchants = enriched.map((tile: any, i: number) => ({
-    ...tile,
-    supplyTier: page[i].supplyTier,
-  }))
+  // 9. Forward supplyTier from the rank step onto each enriched tile + attach V2 fields where present.
+  const merchants = enriched.map((tile: any, i: number) => {
+    const v2Tile = v2TileById.get(page[i].id)
+    return {
+      ...tile,
+      supplyTier: page[i].supplyTier,
+      supplyRung:      v2Tile?.supplyRung      ?? null,
+      proximityBand:   v2Tile?.proximityBand   ?? null,
+      distanceMetres:  v2Tile?.distanceMetres  ?? null,
+      contextBranchId: v2Tile?.contextBranchId ?? null,
+    }
+  })
 
   return {
     merchants,
@@ -1790,6 +1967,8 @@ export async function getCategoryMerchants(
         resolution.scopeExpanded,
         counts.nearbyCount + counts.cityCount + counts.distantCount,
       ),
+      rungCounts:        v2.result?.rungCounts ?? EMPTY_RUNG_COUNTS,
+      effectiveLocality: v2.effLoc ? { id: v2.effLoc.locality.id, name: v2.effLoc.locality.name } : null,
     },
   }
 }
@@ -1903,10 +2082,35 @@ export async function getInAreaMerchants(
     reviewCount: ratingByMerchant.get(m.id)?.reviewCount ?? 0,
   }))
 
-  // 5. Rank by intent — counts reflect the UK-wide input set (Plan 1.5 invariant)
+  // 5. Rank by intent (legacy — drives inclusion/order during the M3a hybrid phase).
+  //    Counts reflect the UK-wide input set (Plan 1.5 invariant).
   const { ordered, counts } = rankMerchants(augmented as any, {
     intentType, userLat, userLng, profileCity,
   })
+
+  // 5b. M3a hybrid V2 — Map-specific: EffectiveLocation derived from the
+  //     viewport centre per spec §5.7, NOT the user's lat/lng. A user
+  //     panning the map to a different area sees that area's rungs/bands
+  //     attached to the V2-classified subset. Outgoing catchment loaded
+  //     from the viewport-centre Locality.
+  const viewportCenterLat = (options.bbox.minLat + options.bbox.maxLat) / 2
+  const viewportCenterLng = (options.bbox.minLng + options.bbox.maxLng) / 2
+  const viewportEffLoc = await resolveEffectiveLocation(prisma, {
+    lat: viewportCenterLat, lng: viewportCenterLng,
+  }, null)
+  let v2Result: RankMerchantsV2Result | null = null
+  if (viewportEffLoc) {
+    const [ladderProfile, outgoingCatchmentTargetIds] = await Promise.all([
+      resolveLadderProfileForCategory(prisma, options.categoryId, null),
+      getOutgoingCatchmentTargetIds(prisma, viewportEffLoc.locality.id),
+    ])
+    v2Result = rankMerchantsV2(augmented as any, {
+      effLoc: viewportEffLoc, ladderProfile,
+      outgoingCatchmentTargetIds, categoryIntent: 'MIXED',
+      targetCount: 500, hardCap: 1000,
+    })
+  }
+  const v2TileById = v2TilesByMerchantId(v2Result)
 
   // 6. Filter by bbox (application level — see docstring)
   const filtered = ordered.filter(m => merchantHasBranchInBbox(m as any, options.bbox))
@@ -1920,11 +2124,18 @@ export async function getInAreaMerchants(
     lat: userLat, lng: userLng, userId: options.userId ?? null,
   })
 
-  // 9. Forward supplyTier from the rank step onto each enriched tile
-  const merchants = enriched.map((tile: any, i: number) => ({
-    ...tile,
-    supplyTier: page[i].supplyTier,
-  }))
+  // 9. Forward supplyTier from the rank step + attach V2 fields where present.
+  const merchants = enriched.map((tile: any, i: number) => {
+    const v2Tile = v2TileById.get(page[i].id)
+    return {
+      ...tile,
+      supplyTier: page[i].supplyTier,
+      supplyRung:      v2Tile?.supplyRung      ?? null,
+      proximityBand:   v2Tile?.proximityBand   ?? null,
+      distanceMetres:  v2Tile?.distanceMetres  ?? null,
+      contextBranchId: v2Tile?.contextBranchId ?? null,
+    }
+  })
 
   // emptyStateReason for in-area: only 'none' or 'no_uk_supply'. The
   // 'expanded_to_wider' value is impossible (no scope cascade). The
@@ -1944,6 +2155,11 @@ export async function getInAreaMerchants(
       cityCount:        counts.cityCount,
       distantCount:     counts.distantCount,
       emptyStateReason,
+      // M3a additive — viewport-centre-derived. effectiveLocality describes
+      // the locality the user's MAP IS CURRENTLY CENTRED ON (spec §5.7),
+      // NOT the user's saved area.
+      rungCounts:        v2Result?.rungCounts ?? EMPTY_RUNG_COUNTS,
+      effectiveLocality: viewportEffLoc ? { id: viewportEffLoc.locality.id, name: viewportEffLoc.locality.name } : null,
     },
   }
 }
