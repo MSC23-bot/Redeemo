@@ -11,6 +11,7 @@ import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
+import { LocalityCaption } from '@/design-system/components/LocalityCaption'
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState<T>(value)
@@ -107,6 +108,13 @@ export function SearchScreen() {
             </View>
           )}
         </View>
+      )}
+
+      {/* Plan 4 M3b follow-up — secondary metadata answering "near
+          where?". Renders null when meta or effectiveLocality is
+          absent, so safe to mount unconditionally. */}
+      {showResults && (
+        <LocalityCaption localityName={meta?.effectiveLocality?.name} />
       )}
 
       {showResults && expandedBanner && (
