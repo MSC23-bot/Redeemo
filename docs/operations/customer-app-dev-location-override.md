@@ -5,20 +5,30 @@ to read a fixed UK lat/lng instead of the device GPS. Exists so the
 project owner can QA Plan 4 Discovery (Home / Search / Category /
 Map) end-to-end from outside the UK without faking GPS at the OS level.
 
-## ⚠️ Dev / preview builds only
+## ⚠️ Local dev / Expo dev-client only
 
-> **Never set these env vars in a production CI pipeline.** The override
-> path is `__DEV__`-gated at runtime so a release build always ignores
-> the value even if it somehow lands in `extra`, but treating the env
-> vars themselves as dev-only is the primary line of defence.
+> **The override is active ONLY when `__DEV__` is true** — i.e. a local
+> Metro session or an Expo dev-client build. EAS preview-channel,
+> internal-distribution, and production builds run with
+> `__DEV__ === false` and **ignore the override entirely**, even if
+> the env vars happen to be baked in.
+>
+> If at some point we need to QA an installed preview build on a real
+> device, that requires a separate opt-in path (e.g. an explicit
+> `EXPO_PUBLIC_ENABLE_DEV_LOCATION_OVERRIDE` allow flag); it is
+> intentionally **not** part of this mechanism. Use Expo dev-client
+> for QA in the meantime.
+>
+> **Never set these env vars in production CI.**
 
 ## How it works
 
 1. `apps/customer-app/app.config.ts` reads `EXPO_PUBLIC_DEV_LOCATION_LAT`
    and `EXPO_PUBLIC_DEV_LOCATION_LNG` at build time. If **both** parse
    as finite numbers, the pair is baked into the Expo config as
-   `extra.devLocationOverride = { lat, lng }`. Otherwise the field is
-   omitted.
+   `extra.devLocationOverride = { lat, lng }` (via conditional spread —
+   the key is **omitted entirely** when either env var is missing or
+   non-numeric).
 2. `apps/customer-app/src/lib/devLocationOverride.ts` reads that field
    at runtime, gated by `__DEV__`, and re-validates that both values
    are finite numbers.
@@ -46,9 +56,8 @@ EXPO_PUBLIC_DEV_LOCATION_LAT=53.6458
 EXPO_PUBLIC_DEV_LOCATION_LNG=-1.7850
 ```
 
-Then start the Expo dev server (or rebuild a dev/preview EAS build).
-Restart Metro after editing `.env.local`; env vars are baked at build
-time.
+Then start the Expo dev server (or relaunch the Expo dev-client). Restart
+Metro after editing `.env.local`; env vars are baked at build time.
 
 To turn the override off, comment the two lines out (or delete them)
 and restart Metro. With both unset, `useUserLocation` falls back to the
@@ -66,11 +75,12 @@ real device GPS path.
 ## Safety properties
 
 - `__DEV__` is replaced by the Metro/Hermes bundler with the literal
-  `false` in release builds, so the override branch is dead-code
-  eliminated from the production bundle.
+  `false` in release / EAS preview builds, so the override branch is
+  dead-code eliminated from those bundles. The override genuinely
+  cannot fire there.
 - `app.config.ts` only adds `extra.devLocationOverride` when both env
   vars parse as finite numbers. A typo or missing var leaves the field
-  absent entirely.
+  absent entirely (conditional spread, not `undefined`).
 - `devLocationOverride()` re-validates both values are finite numbers
   at runtime — defence against a malformed object somehow landing in
   `extra`.
@@ -83,6 +93,6 @@ point a customer-visible debug control replaces it, delete:
 
 - `apps/customer-app/src/lib/devLocationOverride.ts`
 - The `parseDevLocationOverride` helper + `extra.devLocationOverride`
-  field in `apps/customer-app/app.config.ts`
+  conditional spread in `apps/customer-app/app.config.ts`
 - The override branches in `useUserLocation`
 - This document and the commented env block in `.env.example`

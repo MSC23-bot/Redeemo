@@ -20,10 +20,11 @@ export function useUserLocation(): LocationState {
   const [location, setLocation] = useState<UserLocation | null>(null)
 
   const requestPermission = useCallback(async () => {
-    // Plan 4 §AU — dev/preview-only UK location override.
-    // Skips permission prompt, GPS read, and reverse geocode. `area`
-    // and `city` stay null so no fake place strings leak into UI; the
-    // backend resolves `effectiveLocality` from lat/lng on the wire.
+    // Plan 4 §AU — local-dev-only UK location override (Metro / Expo
+    // dev-client). Skips permission prompt, GPS read, and reverse
+    // geocode. `area` and `city` stay null so no fake place strings
+    // leak into UI; the backend resolves `effectiveLocality` from
+    // lat/lng on the wire.
     const override = devLocationOverride()
     if (override) {
       setStatus('granted')
