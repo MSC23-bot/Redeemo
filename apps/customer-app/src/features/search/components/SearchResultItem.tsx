@@ -2,6 +2,7 @@ import React from 'react'
 import { View, TouchableOpacity, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
+import { ProximityBandChip } from '@/design-system/components/ProximityBandChip'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
 
 type Props = {
@@ -74,6 +75,8 @@ export function SearchResultItem({ merchant, query, onPress }: Props) {
         {metaParts.length > 0 && (
           <Text style={styles.meta} numberOfLines={1}>{metaParts.join(' · ')}</Text>
         )}
+        {/* Plan 4 M3b — renders null for NEARBY / null / undefined. */}
+        <ProximityBandChip band={merchant.proximityBand} />
       </View>
 
       {/* Right */}
