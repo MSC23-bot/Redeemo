@@ -19,6 +19,7 @@ import { LocationBadge } from '../components/LocationBadge'
 import { MapListView } from '../components/MapListView'
 import { SearchBar } from '@/features/search/components/SearchBar'
 import { FilterSheet, FilterState } from '@/features/search/components/FilterSheet'
+import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocalityBadge'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
 
 const LONDON_REGION: Region = {
@@ -384,6 +385,17 @@ export function MapScreen({ onMerchantPress }: Props) {
             onSelect={handleSelectCategory}
           />
         )}
+
+        {/* Plan 4 M3b follow-up — viewport locality badge. Renders
+            null when meta.effectiveLocality is absent. Suppressed
+            when the camera is offshore (the offshore message in
+            MapEmptyArea already covers that case) or while the
+            permission overlay is up (page is in onboarding mode). */}
+        {!offshore && !showLocationPermission && !showLocationSearch && (
+          <View style={styles.viewportLocalityRow} pointerEvents="box-none">
+            <ViewportLocalityBadge localityName={meta?.effectiveLocality?.name} />
+          </View>
+        )}
       </SafeAreaView>
 
       {/* Filter button (above recentre, with active-dot indicator) */}
@@ -480,6 +492,10 @@ const styles = StyleSheet.create({
     paddingBottom: spacing[2],
   },
   locationBadgeContainer: {
+    paddingHorizontal: spacing[4] + 2,
+    paddingTop:        spacing[1],
+  },
+  viewportLocalityRow: {
     paddingHorizontal: spacing[4] + 2,
     paddingTop:        spacing[1],
   },

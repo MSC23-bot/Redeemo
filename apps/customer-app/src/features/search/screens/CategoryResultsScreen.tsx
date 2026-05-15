@@ -10,6 +10,7 @@ import { useUserLocation } from '@/hooks/useLocation'
 import { MerchantTile } from '@/features/shared/MerchantTile'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
+import { LocalityCaption } from '@/design-system/components/LocalityCaption'
 import { FilterSheet, FilterState } from '../components/FilterSheet'
 
 /**
@@ -188,6 +189,12 @@ export function CategoryResultsScreen() {
         onScopeChange={setScope}
         {...(counts ? { counts } : {})}
       />
+
+      {/* Plan 4 M3b follow-up — locality caption. Renders null when
+          meta.effectiveLocality is absent, so safe to mount uncondi-
+          tionally. Sits above the sortCaption so the two read as
+          "near where" then "ordered how". */}
+      <LocalityCaption localityName={meta?.effectiveLocality?.name} />
 
       {/* Intent-aware sort caption (decision #4: don't hide options, annotate
           the default ordering so DESTINATION categories make sense) */}
