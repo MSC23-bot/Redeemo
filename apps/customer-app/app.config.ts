@@ -1,5 +1,21 @@
 import type { ExpoConfig } from 'expo/config'
 
+// Plan 4 §AU — build-time dev location override for Discovery QA from
+// outside the UK. Only baked into `extra.devLocationOverride` when BOTH
+// env vars parse as finite numbers; otherwise the field is omitted and
+// `devLocationOverride()` returns null at runtime. Never set these in
+// production CI — the runtime helper is also `__DEV__`-gated as
+// defence-in-depth.
+function parseDevLocationOverride(): { lat: number; lng: number } | undefined {
+  const latRaw = process.env.EXPO_PUBLIC_DEV_LOCATION_LAT
+  const lngRaw = process.env.EXPO_PUBLIC_DEV_LOCATION_LNG
+  if (!latRaw || !lngRaw) return undefined
+  const lat = Number(latRaw)
+  const lng = Number(lngRaw)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined
+  return { lat, lng }
+}
+
 const config: ExpoConfig = {
   name: 'Redeemo',
   slug: 'redeemo-customer',
@@ -52,6 +68,7 @@ const config: ExpoConfig = {
     eas: {
       projectId: '7f4d609c-6862-48d4-9583-b2f58e953d87',
     },
+    devLocationOverride: parseDevLocationOverride(),
   },
 }
 

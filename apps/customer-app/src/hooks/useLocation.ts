@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import * as Location from 'expo-location'
+import { devLocationOverride } from '@/lib/devLocationOverride'
 
 export type UserLocation = {
   lat: number
@@ -19,6 +20,17 @@ export function useUserLocation(): LocationState {
   const [location, setLocation] = useState<UserLocation | null>(null)
 
   const requestPermission = useCallback(async () => {
+    // Plan 4 §AU — dev/preview-only UK location override.
+    // Skips permission prompt, GPS read, and reverse geocode. `area`
+    // and `city` stay null so no fake place strings leak into UI; the
+    // backend resolves `effectiveLocality` from lat/lng on the wire.
+    const override = devLocationOverride()
+    if (override) {
+      setStatus('granted')
+      setLocation({ lat: override.lat, lng: override.lng, area: null, city: null })
+      return
+    }
+
     setStatus('loading')
     try {
       const { status: perm } = await Location.requestForegroundPermissionsAsync()
@@ -41,6 +53,13 @@ export function useUserLocation(): LocationState {
   }, [])
 
   useEffect(() => {
+    // §AU: under override, skip the OS permission probe entirely and
+    // populate location synchronously via `requestPermission`. The
+    // OS-level prompt is never shown in override mode.
+    if (devLocationOverride()) {
+      requestPermission()
+      return
+    }
     Location.getForegroundPermissionsAsync().then(({ status: perm }) => {
       if (perm === 'granted') requestPermission()
     })
