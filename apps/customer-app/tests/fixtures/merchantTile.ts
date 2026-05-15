@@ -19,6 +19,8 @@ export function makeMerchantTile(overrides: Partial<MerchantTile> = {}): Merchan
     maxEstimatedSaving: null,
     distance:           null,
     nearestBranchId:    null,
+    latitude:           null,
+    longitude:          null,
     avgRating:          null,
     reviewCount:        0,
     isFavourited:       false,

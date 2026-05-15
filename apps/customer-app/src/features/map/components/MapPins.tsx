@@ -66,19 +66,20 @@ export function MapPins({ merchants, selectedId, onPress }: Props) {
   return (
     <>
       {merchants.map((merchant) => {
-        // Only render pins for merchants that have location data
-        // In a real scenario the merchant tile would have lat/lng from nearest branch
-        // For now we skip merchants without coordinates
-        const lat = (merchant as any).lat as number | undefined
-        const lng = (merchant as any).lng as number | undefined
-
-        if (lat === undefined || lng === undefined) return null
+        // Backend surfaces nearest-branch lat/lng on the tile only when
+        // the merchant has a MANUALLY_CONFIRMED branch (PR #81 redaction
+        // contract preserved at the tile boundary). When either coord
+        // is null the merchant gets no pin — POSTCODE_CENTROID /
+        // NEEDS_REVIEW / ADDRESS_GEOCODED branches must never appear
+        // as exact map markers.
+        const { latitude, longitude } = merchant
+        if (latitude === null || longitude === null) return null
 
         return (
           <Marker
             key={merchant.id}
             identifier={merchant.id}
-            coordinate={{ latitude: lat, longitude: lng }}
+            coordinate={{ latitude, longitude }}
             onPress={() => onPress(merchant)}
             tracksViewChanges={false}
           >
