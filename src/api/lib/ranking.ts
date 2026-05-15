@@ -60,6 +60,11 @@ export type RankMerchantsResult<T> = {
  *
  * When no location data at all (no coords, no profileCity), every merchant → DISTANT.
  * "Equally distant from a system that has no location signal."
+ *
+ * @deprecated Plan 4 M3a hybrid uses `classifyRung` + `rankMerchantsV2` for
+ * the new contract fields. `classifyTier` is still the inclusion/order source
+ * during the hybrid phase (preserves POSTCODE_CENTROID merchant visibility —
+ * see deferred-followups §AV). Plan 4 M5 audit-then-removes once policy is locked.
  */
 export function classifyTier(merchant: MerchantForTier, ctx: ClassifyTierContext): SupplyTier {
   const activeBranches = merchant.branches.filter(b => b.isActive)
@@ -123,6 +128,15 @@ function qualityComparator(
  *
  * Returns ordered merchants tagged with supplyTier and distanceMetres,
  * plus tier counts (always reflect the input set, regardless of any later filtering).
+ *
+ * @deprecated Plan 4 M3a hybrid: this function is still the
+ * inclusion/order source for Discovery responses so POSTCODE_CENTROID
+ * merchants don't disappear from search/category/map results. The new
+ * `rankMerchantsV2` runs alongside and contributes the additive M3
+ * fields (supplyRung / proximityBand / rungCounts / effectiveLocality)
+ * for merchants whose branches pass `classifyRung`'s discoverability
+ * gate. Plan 4 M5 audit-then-removes once the discoverability policy
+ * is locked — see deferred-followups §AV.
  */
 export function rankMerchants<T extends MerchantForRanking>(
   merchants: T[],

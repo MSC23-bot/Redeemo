@@ -11,13 +11,22 @@ vi.mock('@prisma/adapter-pg', () => ({
 // ── Mock the Prisma client with all methods used by searchMerchants ───────────
 vi.mock('../../../generated/prisma/client', () => {
   class PrismaClient {
-    merchantSuggestedTag = { findMany: vi.fn().mockResolvedValue([]) }
-    category             = { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) }
-    merchant             = { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) }
-    redundantHighlight   = { findMany: vi.fn().mockResolvedValue([]) }
-    review               = { groupBy: vi.fn().mockResolvedValue([]) }
-    favouriteMerchant    = { findMany: vi.fn().mockResolvedValue([]) }
-    user                 = { findUnique: vi.fn().mockResolvedValue(null) }
+    merchantSuggestedTag    = { findMany: vi.fn().mockResolvedValue([]) }
+    category                = { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) }
+    merchant                = { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) }
+    redundantHighlight      = { findMany: vi.fn().mockResolvedValue([]) }
+    review                  = { groupBy: vi.fn().mockResolvedValue([]) }
+    favouriteMerchant       = { findMany: vi.fn().mockResolvedValue([]) }
+    user                    = { findUnique: vi.fn().mockResolvedValue(null) }
+    // Plan 4 M3a hybrid — service now resolves EffectiveLocation (calls
+    // prisma.locality.findMany inside findNearestLocality) and reads
+    // outgoing catchment edges. Default mocks return empty so the
+    // resolver returns null effLoc (V2 ranking step is skipped),
+    // preserving the pre-M3a behaviour these tests were written
+    // against. Tests that want to exercise the V2 path can override
+    // these mocks per-case.
+    locality                = { findMany: vi.fn().mockResolvedValue([]) }
+    localityCatchmentEdge   = { findMany: vi.fn().mockResolvedValue([]) }
     constructor(_opts?: any) {}
   }
   return {
