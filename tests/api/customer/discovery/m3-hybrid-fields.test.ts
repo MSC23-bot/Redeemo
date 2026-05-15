@@ -206,22 +206,8 @@ describe('M3a hybrid — getHomeFeed wires V2 fields onto tiles (shape preserved
     expect(home.locationContext).toHaveProperty('source')
   })
 
-  it('home tiles carry the additive M3 V2 fields (null or populated, never undefined)', async () => {
+  it('home tiles carry the additive M3 V2 fields, and at least one tile is V2-classified', async () => {
     const home = await getHomeFeed(prisma, { userId: null, lat: HUDDERSFIELD.lat, lng: HUDDERSFIELD.lng })
-
-    // The seeded Karaara merchant has a Huddersfield branch and so
-    // should appear in nearbyByCategory under its primary category
-    // (city-equals filter inside getHomeFeed). It's MANUALLY_CONFIRMED,
-    // so V2 must classify it.
-    const allNearby = home.nearbyByCategory.flatMap(g => g.merchants)
-    const karaara = allNearby.find((m: any) => m.id === 'tax-merchant-karaara-001')
-    if (karaara) {
-      // V2 admits Karaara → fields populated.
-      expect((karaara as any).supplyRung).not.toBeNull()
-      expect((karaara as any).proximityBand).not.toBeNull()
-      expect(typeof (karaara as any).contextBranchId).toBe('string')
-      expect(typeof (karaara as any).distanceMetres).toBe('number')
-    }
 
     // Across ALL home tiles in ALL three collections (featured /
     // trending / nearbyByCategory), every tile must carry the four
@@ -233,11 +219,32 @@ describe('M3a hybrid — getHomeFeed wires V2 fields onto tiles (shape preserved
       ...home.trending,
       ...home.nearbyByCategory.flatMap(g => g.merchants),
     ]
+
+    // Unconditional pin: the seeded UK data + Huddersfield GPS MUST
+    // produce at least one Home tile. A pre-M3a regression that
+    // silently returned an empty Home payload would have been hidden
+    // by the previous conditional-Karaara assertion — this catches it.
+    expect(allHomeTiles.length).toBeGreaterThan(0)
+
     for (const tile of allHomeTiles) {
       expect((tile as any)).toHaveProperty('supplyRung')
       expect((tile as any)).toHaveProperty('proximityBand')
       expect((tile as any)).toHaveProperty('distanceMetres')
       expect((tile as any)).toHaveProperty('contextBranchId')
     }
+
+    // Generalised "at least one V2-classified Home tile" pin — NOT
+    // coupled to a specific seeded merchant. A MANUALLY_CONFIRMED
+    // branch with GPS resolving to Huddersfield should always
+    // produce at least one V2-admitted merchant. Catches a silent
+    // regression where every tile gets null fields (e.g. if
+    // resolveEffectiveLocation broke or the merge helper was bypassed).
+    const classifiedTile = allHomeTiles.find((t: any) =>
+      t.supplyRung !== null
+      && t.proximityBand !== null
+      && typeof t.contextBranchId === 'string'
+      && typeof t.distanceMetres === 'number',
+    )
+    expect(classifiedTile).toBeDefined()
   })
 })
