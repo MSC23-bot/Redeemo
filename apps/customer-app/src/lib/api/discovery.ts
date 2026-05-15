@@ -18,6 +18,52 @@ import { api } from '../api'
 const supplyTierSchema = z.enum(['NEARBY', 'CITY', 'DISTANT'])
 export type SupplyTier = z.infer<typeof supplyTierSchema>
 
+// ─── Plan 4 M3 additive types (customer-app side of M3.5) ────────────────────
+//
+// New tile + meta fields the backend started returning in M3.3 (hybrid:
+// legacy `rankMerchants` for inclusion/order + V2 alongside for these new
+// fields). Every M3 field is `.optional()` AND `.nullable()` so:
+//   - older mock responses + test fixtures that don't include them still parse
+//   - hybrid responses where V2 rejected the merchant (POSTCODE_CENTROID etc.)
+//     parse with the value as null
+//   - no UI consumer is required yet (M3b ships rendering)
+//
+// See backend src/api/lib/ladderProfiles.ts for the canonical enum lists.
+// If the backend ever adds a new rung or band, this file is the customer-app
+// side that must update before any new value reaches the UI.
+
+const supplyRungSchema = z.enum([
+  'NEARBY', 'CATCHMENT', 'POST_TOWN', 'LAD',
+  'COUNTY', 'REGION', 'COUNTRY', 'NATIONAL',
+])
+export type SupplyRung = z.infer<typeof supplyRungSchema>
+
+const proximityBandSchema = z.enum([
+  'NEARBY', 'IN_YOUR_AREA', 'A_LITTLE_FURTHER', 'NEAREST_ON_REDEEMO',
+])
+export type ProximityBand = z.infer<typeof proximityBandSchema>
+
+// 8-rung counter object on search/category/in-area `meta`. Backend always
+// emits all 8 keys (zeros included), but the field itself is `.optional()`
+// on the meta envelope so older mock responses don't break.
+const rungCountsSchema = z.object({
+  NEARBY:    z.number(),
+  CATCHMENT: z.number(),
+  POST_TOWN: z.number(),
+  LAD:       z.number(),
+  COUNTY:    z.number(),
+  REGION:    z.number(),
+  COUNTRY:   z.number(),
+  NATIONAL:  z.number(),
+})
+export type RungCounts = z.infer<typeof rungCountsSchema>
+
+const effectiveLocalitySchema = z.object({
+  id:   z.string(),
+  name: z.string(),
+})
+export type EffectiveLocality = z.infer<typeof effectiveLocalitySchema>
+
 // Highlight tile-row shape — backend emits the full join-row including the
 // nested tag object. Capped to 3 by the backend (`take: 3` on the Prisma
 // select). Tile UI does not render these yet (deferred — see PR B M4 audit
@@ -75,6 +121,15 @@ const merchantTileSchema = z.object({
   // Search / category-merchants / in-area routes do NOT set this — featured
   // status is positional (which array the tile is in) for those routes.
   featuredId:          z.string().optional(),
+  // ─── Plan 4 M3 additive tile fields ────────────────────────────────
+  // Populated by the backend M3.3 hybrid pipeline for merchants whose
+  // branches pass classifyRung's discoverability gate (MANUALLY_CONFIRMED
+  // / ADDRESS_GEOCODED). null for merchants V2 rejected (POSTCODE_CENTROID
+  // etc.). All four optional so pre-M3 mock fixtures still parse.
+  supplyRung:          supplyRungSchema.nullable().optional(),
+  proximityBand:       proximityBandSchema.nullable().optional(),
+  distanceMetres:      z.number().nullable().optional(),
+  contextBranchId:     z.string().nullable().optional(),
 })
 export type MerchantTile = z.infer<typeof merchantTileSchema>
 
@@ -148,6 +203,15 @@ const discoveryMetaSchema = z.object({
   cityCount:        z.number(),
   distantCount:     z.number(),
   emptyStateReason: z.enum(['none', 'expanded_to_wider', 'no_uk_supply']),
+  // ─── Plan 4 M3 additive meta fields ────────────────────────────────
+  // rungCounts: 8-rung distribution of V2-classified merchants only.
+  // Legacy nearbyCount/cityCount/distantCount remain authoritative for
+  // POSTCODE_CENTROID-inclusive bucketing during the hybrid phase.
+  // effectiveLocality: present when the backend's resolveEffectiveLocation
+  // returned a UK locality from the request's GPS/saved-profile/place query.
+  // Both `.optional()` so pre-M3 mock fixtures still parse.
+  rungCounts:        rungCountsSchema.optional(),
+  effectiveLocality: effectiveLocalitySchema.nullable().optional(),
 })
 export type DiscoveryMeta = z.infer<typeof discoveryMetaSchema>
 
@@ -155,12 +219,17 @@ export type DiscoveryMeta = z.infer<typeof discoveryMetaSchema>
 // no cascade). emptyStateReason narrows to 'none'|'no_uk_supply' in practice
 // but the type stays compatible with the broader enum across discovery routes
 // for client uniformity.
+//
+// In-area's effectiveLocality describes the locality at the VIEWPORT CENTRE
+// (spec §5.7), NOT the user's saved area — pans-the-map contract.
 const inAreaMetaSchema = z.object({
   resolvedArea:     z.string(),
   nearbyCount:      z.number(),
   cityCount:        z.number(),
   distantCount:     z.number(),
   emptyStateReason: z.enum(['none', 'expanded_to_wider', 'no_uk_supply']),
+  rungCounts:        rungCountsSchema.optional(),
+  effectiveLocality: effectiveLocalitySchema.nullable().optional(),
 })
 export type InAreaMeta = z.infer<typeof inAreaMetaSchema>
 
