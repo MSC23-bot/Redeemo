@@ -11,13 +11,23 @@ import type { ProximityBand } from '@/lib/api/discovery'
 // the `proximityBand` field that backend M3.3 attaches to every V2-classified
 // tile. Designed to sit alongside (NOT replace) the merchant card content.
 //
-// Locked behaviour:
-//   - 'NEARBY' renders nothing — already-nearby merchants don't need a
-//     "you are here" reminder. Returning null lets callers always render
-//     `<ProximityBandChip band={tile.proximityBand} />` without a guard.
-//   - The other three bands render the same chip shape with different
-//     copy. No colour-coded escalation: this is informational, not a
-//     warning.
+// Locked behaviour — renders nothing (returns null) when:
+//   - `band` is undefined (older API responses pre-M3)
+//   - `band` is null (the M3a hybrid phase — V2-rejected merchants:
+//     POSTCODE_CENTROID, NEEDS_REVIEW, inactive)
+//   - `band` is 'NEARBY' (already-nearby merchants need no "you are
+//     here" reminder)
+//
+// The other three bands render the same chip shape with different
+// copy. No colour-coded escalation — this is informational, not a
+// warning.
+//
+// Callers can ALWAYS render the chip directly from a tile without a
+// guard, regardless of the tile's source:
+//
+//   <ProximityBandChip band={tile.proximityBand} />
+//
+// — even if `tile.proximityBand` is typed `ProximityBand | null | undefined`.
 //
 // Visual language: existing design-system tokens only — no new visual
 // vocabulary introduced. Cream-rose tint surface (`surface.tint`) + brand
@@ -36,12 +46,24 @@ const BAND_LABEL: Record<ProximityBand, string | null> = {
 }
 
 export type ProximityBandChipProps = {
-  band: ProximityBand
+  /**
+   * Accepts the full `ProximityBand | null | undefined` shape the
+   * backend may produce. null = M3a hybrid phase V2-rejected
+   * merchant; undefined = pre-M3 response that didn't carry the field;
+   * 'NEARBY' = no chip (per §10.1 visual contract). All three cases
+   * render nothing so callers don't need a guard.
+   *
+   * The explicit `| undefined` is load-bearing under
+   * `exactOptionalPropertyTypes: true` — without it, `band={undefined}`
+   * wouldn't typecheck even though omitting the prop entirely would.
+   */
+  band?: ProximityBand | null | undefined
   /** Override the accessibility label. Defaults to the visible text. */
   accessibilityLabel?: string
 }
 
 export function ProximityBandChip({ band, accessibilityLabel }: ProximityBandChipProps) {
+  if (band === null || band === undefined) return null
   const label = BAND_LABEL[band]
   if (label === null) return null
   return (
