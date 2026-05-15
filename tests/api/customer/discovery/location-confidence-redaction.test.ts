@@ -202,4 +202,59 @@ describe('Branch locationConfidence redaction (PR #81 review B2)', () => {
     const found = result.merchants.find((m: { id: string }) => m.id === TEST_MERCHANT_ID)
     expect(found).toBeUndefined()
   })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Map tile coordinates (so MapPins can render).
+  //
+  // The tile serializer (`enrichMerchantTile`) must expose nearest-branch
+  // `latitude` + `longitude` on the tile root so the customer-app's
+  // `MapPins` component can render markers. The redaction rule still
+  // applies: only MANUALLY_CONFIRMED branches surface coordinates;
+  // POSTCODE_CENTROID / NEEDS_REVIEW / ADDRESS_GEOCODED stay null.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('tile coordinates: MANUALLY_CONFIRMED merchant tile (in-area) exposes nearest-branch latitude + longitude', async () => {
+    const { getInAreaMerchants } = await import('../../../../src/api/customer/discovery/service')
+    const result = await getInAreaMerchants(prisma, {
+      bbox: { minLat: 53.60, maxLat: 53.70, minLng: -1.85, maxLng: -1.75 },
+      lat: 53.65, lng: -1.78,
+      userId: null,
+      limit: 50,
+    })
+    const tile = result.merchants.find((m: { id: string }) => m.id === 'tax-merchant-karaara-001') as
+      | { latitude: number | null; longitude: number | null; nearestBranchId: string | null }
+      | undefined
+    expect(tile).toBeDefined()
+    // Karaara branch seed coords (MANUALLY_CONFIRMED) — same numbers the
+    // existing branch-level redaction test pins.
+    expect(tile!.latitude).toBe(53.6463)
+    expect(tile!.longitude).toBe(-1.7809)
+    expect(tile!.nearestBranchId).toBe('tax-branch-karaara-001')
+  })
+
+  it('tile coordinates: POSTCODE_CENTROID merchant tile (search route) has latitude + longitude both null', async () => {
+    // The transient test merchant (set up in beforeAll) has one
+    // POSTCODE_CENTROID branch and is excluded from in-area bbox matches
+    // by design — see the prior pin. searchMerchants does NOT exclude it,
+    // so we use that route to verify the redaction at the tile boundary.
+    const { searchMerchants } = await import('../../../../src/api/customer/discovery/service')
+    const result = await searchMerchants(prisma, {
+      q: 'PR81 Redaction',
+      limit: 50,
+      offset: 0,
+      userId: null,
+    })
+    const tile = result.merchants.find((m: { id: string }) => m.id === TEST_MERCHANT_ID) as
+      | { latitude: number | null; longitude: number | null; nearestBranchId: string | null }
+      | undefined
+    expect(tile).toBeDefined()
+    // Redaction at the tile boundary: even though the branch row has
+    // numeric lat/lng in the DB, the tile must surface null because the
+    // confidence is not MANUALLY_CONFIRMED.
+    expect(tile!.latitude).toBeNull()
+    expect(tile!.longitude).toBeNull()
+    // nearestBranchId is also null because hasExactPosition gates the
+    // server-side nearest-branch loop. Both signals collapse together.
+    expect(tile!.nearestBranchId).toBeNull()
+  })
 })

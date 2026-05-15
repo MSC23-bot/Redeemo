@@ -111,6 +111,12 @@ const merchantTileSchema = z.object({
   maxEstimatedSaving:  z.coerce.number().nullable(),
   distance:            z.number().nullable(),
   nearestBranchId:     z.string().nullable(),
+  // Nearest-branch coordinates for Map pins. Always present in the
+  // payload; null when the backend has no MANUALLY_CONFIRMED branch
+  // for the merchant (PR #81 redaction contract preserved at the
+  // tile boundary). MapPins skips merchants whose coords are null.
+  latitude:            z.number().nullable(),
+  longitude:           z.number().nullable(),
   avgRating:           z.number().nullable(),
   reviewCount:         z.number(),
   isFavourited:        z.boolean(),

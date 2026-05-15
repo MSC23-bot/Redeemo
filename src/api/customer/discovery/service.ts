@@ -555,6 +555,7 @@ function enrichMerchantTile(
 ) {
   let distance: number | null = null
   let nearestBranchId: string | null = null
+  let nearestBranch: { latitude: unknown; longitude: unknown } | null = null
   if (opts.lat !== null && opts.lng !== null) {
     for (const branch of merchant.branches) {
       // PR #81 Codex re-review — tile distance + nearestBranchId only
@@ -567,6 +568,7 @@ function enrichMerchantTile(
       if (distance === null || d < distance) {
         distance = d
         nearestBranchId = branch.id
+        nearestBranch = branch
       }
     }
   }
@@ -599,6 +601,15 @@ function enrichMerchantTile(
     isFavourited:        opts.isFavourited,
     distance,
     nearestBranchId,
+    // Map tile coordinates — nearest-branch lat/lng so the customer-app
+    // `MapPins` component can render a marker. Surfaces ONLY when the
+    // for-loop above resolved a MANUALLY_CONFIRMED nearest branch
+    // (`hasExactPosition` gated). All other paths — no user GPS, no
+    // exact branch, POSTCODE_CENTROID / NEEDS_REVIEW / ADDRESS_GEOCODED
+    // branches — return both fields as null, preserving the PR #81
+    // exact-position contract at the tile boundary.
+    latitude:  nearestBranch !== null ? Number(nearestBranch.latitude)  : null,
+    longitude: nearestBranch !== null ? Number(nearestBranch.longitude) : null,
   }
 }
 
