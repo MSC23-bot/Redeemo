@@ -235,3 +235,369 @@ export async function computeRatingsByMerchant(
 
   return result
 }
+
+// ─── Plan 4 M2 — parallel new ranking primitives ─────────────────────────────
+//
+// Everything BELOW this line is the M2 ranking refactor. Everything ABOVE
+// is the Plan 1.5 legacy path (classifyTier / rankMerchants) and stays
+// intact until M3 swaps Discovery's callers over, and M5 audits-then-deletes.
+//
+// See:
+//   docs/superpowers/specs/2026-05-13-plan-4-location-model-uk-enrichment-design.md §5
+//   docs/superpowers/plans/2026-05-13-plan-4-location-model-uk-enrichment.md  Task M2.5
+
+import type { SupplyRung } from './ladderProfiles'
+import type { EffectiveLocation } from './effectiveLocation'
+
+// M5 cleanup: align with the legacy path's `NEARBY_RADIUS_MILES * 1609.34`
+// constant once the legacy `classifyTier` / `rankMerchants` block above is
+// audit-deleted. The current values agree to <1m at NEARBY distances but
+// the duplication is a code smell while both paths co-exist.
+// See deferred-followups §AT (PR #84 review carry-overs).
+const MILES_TO_METRES = 1609.344
+
+// M5 cleanup: `BranchForClassification` (this type) and `RankableBranch`
+// (defined below) differ only by `RankableBranch` adding `id: string`.
+// Once the legacy ranking path is removed in M5, unify these into a
+// single type — e.g. `RankableBranch = BranchForClassification & { id: string }`.
+// See deferred-followups §AT (PR #84 review carry-overs).
+type BranchForClassification = {
+  latitude: number | null
+  longitude: number | null
+  isActive: boolean
+  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
+  localityId: string | null
+  postTown: string | null
+  ladDistrict: string | null
+  adminCounty: string | null
+  region: string | null
+  /**
+   * Plan 4 nation snapshot ("England" | "Scotland" | "Wales" |
+   * "Northern Ireland"). Distinct from the legacy `Branch.country`
+   * (ISO-2 address-country, e.g. "GB") — see spec §3.5.
+   */
+  locationCountry: string | null
+}
+
+/**
+ * Classify a branch into a SupplyRung relative to an EffectiveLocation.
+ *
+ * Returns null for non-discoverable branches:
+ *   - `isActive = false`
+ *   - `locationConfidence ∈ { POSTCODE_CENTROID, NEEDS_REVIEW }`
+ *
+ * Only `MANUALLY_CONFIRMED` and `ADDRESS_GEOCODED` branches are
+ * discoverable. This is structurally how the PR #81 redaction
+ * contract is enforced at the ranking layer — an approximate
+ * postcode-centroid pin can never produce a NEARBY match.
+ *
+ * Rung evaluation order (most-specific first):
+ *   NEARBY → CATCHMENT → POST_TOWN → LAD → COUNTY → REGION → COUNTRY → NATIONAL
+ *
+ * All admin-rung comparisons are null-safe — both sides must be
+ * non-null. UK-wide: a Scottish user with null adminCounty + null
+ * region falls through past those rungs cleanly without spurious
+ * null-vs-null matches.
+ */
+export function classifyRung(
+  branch: BranchForClassification,
+  effLoc: EffectiveLocation,
+  nearbyRadiusMiles: number,
+  /**
+   * Locality IDs reachable from `effLoc.locality` via outgoing
+   * CATCHMENT edges. Looked up once by the caller (M2.6) and passed
+   * in — keeps `classifyRung` synchronous + pure.
+   */
+  outgoingCatchmentTargetIds: readonly string[],
+): SupplyRung | null {
+  // Discoverability gate.
+  if (!branch.isActive) return null
+  if (branch.locationConfidence !== 'MANUALLY_CONFIRMED' && branch.locationConfidence !== 'ADDRESS_GEOCODED') {
+    return null
+  }
+
+  // NEARBY — distance check via reused shared/haversine helper.
+  if (branch.latitude !== null && branch.longitude !== null) {
+    const dMetres = haversineMetres(effLoc.lat, effLoc.lng, branch.latitude, branch.longitude)
+    if (dMetres <= nearbyRadiusMiles * MILES_TO_METRES) return 'NEARBY'
+  }
+
+  // CATCHMENT — same locality OR effLoc has an outgoing edge into branch's locality.
+  if (branch.localityId && (
+    branch.localityId === effLoc.locality.id ||
+    outgoingCatchmentTargetIds.includes(branch.localityId)
+  )) {
+    return 'CATCHMENT'
+  }
+
+  // POST_TOWN.
+  if (branch.postTown && effLoc.locality.postTown && branch.postTown === effLoc.locality.postTown) {
+    return 'POST_TOWN'
+  }
+
+  // LAD.
+  if (branch.ladDistrict && branch.ladDistrict === effLoc.locality.ladDistrict) {
+    return 'LAD'
+  }
+
+  // COUNTY (English shire counties only; null on unitary / Scotland / Wales / NI).
+  if (branch.adminCounty && effLoc.locality.adminCounty && branch.adminCounty === effLoc.locality.adminCounty) {
+    return 'COUNTY'
+  }
+
+  // REGION (English regions only; null on Scotland / Wales / NI).
+  if (branch.region && effLoc.locality.region && branch.region === effLoc.locality.region) {
+    return 'REGION'
+  }
+
+  // COUNTRY — Plan 4 nation match. Branch reads `locationCountry`
+  // (Plan 4 nation snapshot); Locality reads `country` (the matching
+  // Plan 4 nation field on Locality). The field-name asymmetry is
+  // intentional per spec §3.5.
+  if (branch.locationCountry && branch.locationCountry === effLoc.locality.country) {
+    return 'COUNTRY'
+  }
+
+  // NATIONAL — anywhere else in the UK that survived the discoverability gate.
+  return 'NATIONAL'
+}
+
+// ─── Plan 4 M2.6 — rankMerchantsV2 (collect-first ladder walk) ──────────────
+//
+// Spec §5.6. Internal-only; legacy `rankMerchants` above remains the
+// caller for the Discovery service until M3 swaps over.
+//
+// Algorithm:
+//   1. Collect every discoverable branch's matched rung, grouped by
+//      merchant. classifyRung handles the redaction gate + null rungs.
+//      Drop anything above maxRung outright.
+//   2. Select ONE context branch per merchant: most-specific rung
+//      first, then distance ASC, then id alphabetical.
+//   3. Group merchant entries by their bestRung. Sort within each
+//      rung per categoryIntent:
+//        LOCAL       — distance ASC (alphabetical fallback)
+//        DESTINATION — quality-aware (rated > unrated, rating DESC)
+//        MIXED       — distance ASC for NEARBY, quality-aware after
+//   4. Walk rungs in RUNG_ORDER, stitch into `tiles`. Apply hardCap
+//      across the whole result; apply targetCount as an outer-loop
+//      stop AFTER the NEARBY rung has been fully evaluated.
+
+import { RUNG_ORDER, rungOrdinal, getNearbyRadiusMiles, getMaxRung, getProximityBand, mapRungToLegacyTier } from './ladderProfiles'
+import type { LadderProfile, ProximityBand } from './ladderProfiles'
+
+export type RankableBranch = {
+  id: string
+  latitude: number | null
+  longitude: number | null
+  isActive: boolean
+  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
+  localityId: string | null
+  postTown: string | null
+  ladDistrict: string | null
+  adminCounty: string | null
+  region: string | null
+  locationCountry: string | null
+}
+
+export type RankableMerchant<B extends RankableBranch = RankableBranch> = {
+  id: string
+  businessName: string
+  /** Plan 1.5 aggregate. Passed through from the service layer. */
+  avgRating: number | null
+  reviewCount: number
+  branches: B[]
+}
+
+type CategoryIntent = 'LOCAL' | 'MIXED' | 'DESTINATION'
+
+export type RankMerchantsV2Input = {
+  effLoc: EffectiveLocation
+  ladderProfile: LadderProfile
+  outgoingCatchmentTargetIds: readonly string[]
+  categoryIntent: CategoryIntent
+  targetCount: number
+  hardCap: number
+}
+
+export type RankedTile = {
+  merchantId: string
+  businessName: string
+  supplyRung: SupplyRung
+  /** Legacy compat — populated alongside `supplyRung` until M5. */
+  supplyTier: 'NEARBY' | 'CITY' | 'DISTANT'
+  proximityBand: ProximityBand
+  distanceMetres: number | null
+  contextBranchId: string
+}
+
+export type RankMerchantsV2Result = {
+  tiles: RankedTile[]
+  rungCounts: Record<SupplyRung, number>
+}
+
+function selectContextBranch<B extends RankableBranch>(
+  branches: Array<B & { matchedRung: SupplyRung }>,
+  effLoc: EffectiveLocation,
+): B & { matchedRung: SupplyRung } {
+  // Most-specific rung first, then distance ASC, then id alphabetical.
+  return [...branches].sort((a, b) => {
+    const ra = rungOrdinal(a.matchedRung)
+    const rb = rungOrdinal(b.matchedRung)
+    if (ra !== rb) return ra - rb
+    const da = a.latitude !== null && a.longitude !== null
+      ? haversineMetres(effLoc.lat, effLoc.lng, a.latitude, a.longitude) : Infinity
+    const db = b.latitude !== null && b.longitude !== null
+      ? haversineMetres(effLoc.lat, effLoc.lng, b.latitude, b.longitude) : Infinity
+    if (da !== db) return da - db
+    return a.id.localeCompare(b.id)
+  })[0]
+}
+
+type MerchantEntry<B extends RankableBranch> = {
+  id: string
+  businessName: string
+  avgRating: number | null
+  reviewCount: number
+  contextBranch: B & { matchedRung: SupplyRung }
+  bestRung: SupplyRung
+}
+
+// Same shape as the legacy `qualityComparator` above. Renamed `…V2` to
+// avoid the duplicate-identifier collision inside this single module
+// while the legacy ranking path co-exists. Both will be deleted in M5
+// once the legacy path is removed.
+function qualityComparatorV2(
+  a: { businessName: string; avgRating: number | null; reviewCount: number },
+  b: { businessName: string; avgRating: number | null; reviewCount: number },
+): number {
+  const aRated = (a.reviewCount ?? 0) >= MIN_REVIEW_COUNT_FOR_RATING_SORT
+  const bRated = (b.reviewCount ?? 0) >= MIN_REVIEW_COUNT_FOR_RATING_SORT
+  if (aRated && bRated) return (b.avgRating ?? 0) - (a.avgRating ?? 0)
+  if (aRated) return -1
+  if (bRated) return 1
+  return a.businessName.localeCompare(b.businessName)
+}
+
+function distanceComparator<B extends RankableBranch>(
+  a: MerchantEntry<B>,
+  b: MerchantEntry<B>,
+  effLoc: EffectiveLocation,
+): number {
+  const da = a.contextBranch.latitude !== null && a.contextBranch.longitude !== null
+    ? haversineMetres(effLoc.lat, effLoc.lng, a.contextBranch.latitude, a.contextBranch.longitude) : Infinity
+  const db = b.contextBranch.latitude !== null && b.contextBranch.longitude !== null
+    ? haversineMetres(effLoc.lat, effLoc.lng, b.contextBranch.latitude, b.contextBranch.longitude) : Infinity
+  return da - db
+}
+
+export function rankMerchantsV2<B extends RankableBranch>(
+  merchants: RankableMerchant<B>[],
+  input: RankMerchantsV2Input,
+): RankMerchantsV2Result {
+  const { effLoc, ladderProfile, outgoingCatchmentTargetIds, categoryIntent, targetCount, hardCap } = input
+  const nearbyRadius = getNearbyRadiusMiles(ladderProfile, effLoc.densityClass)
+  const maxRung = getMaxRung(ladderProfile, effLoc.densityClass)
+  const maxRungOrdinal = rungOrdinal(maxRung)
+
+  // Step 1: collect.
+  const candidateBranchesByMerchant = new Map<string, Array<B & { matchedRung: SupplyRung }>>()
+  for (const m of merchants) {
+    for (const b of m.branches) {
+      const rung = classifyRung(b, effLoc, nearbyRadius, outgoingCatchmentTargetIds)
+      if (rung === null) continue
+      if (rungOrdinal(rung) > maxRungOrdinal) continue
+      const bucket = candidateBranchesByMerchant.get(m.id) ?? []
+      bucket.push({ ...b, matchedRung: rung })
+      candidateBranchesByMerchant.set(m.id, bucket)
+    }
+  }
+
+  // Step 2: select context branch per merchant. A precomputed Map
+  // avoids `Array.find` inside the loop — was O(merchants²) on the
+  // initial M2.6 draft (PR #84 review). Cheap at v1 volume; load-
+  // bearing once M3 wires this into live Discovery.
+  const merchantById = new Map(merchants.map(m => [m.id, m]))
+  const entries: MerchantEntry<B>[] = []
+  for (const [id, branches] of candidateBranchesByMerchant.entries()) {
+    const merchant = merchantById.get(id)!
+    const contextBranch = selectContextBranch(branches, effLoc)
+    entries.push({
+      id,
+      businessName: merchant.businessName,
+      avgRating: merchant.avgRating ?? null,
+      reviewCount: merchant.reviewCount ?? 0,
+      contextBranch,
+      bestRung: contextBranch.matchedRung,
+    })
+  }
+
+  // Step 3: group by rung.
+  const byRung = new Map<SupplyRung, MerchantEntry<B>[]>()
+  for (const e of entries) {
+    const arr = byRung.get(e.bestRung) ?? []
+    arr.push(e)
+    byRung.set(e.bestRung, arr)
+  }
+
+  function sortWithinRung(rung: SupplyRung, arr: MerchantEntry<B>[]): MerchantEntry<B>[] {
+    if (categoryIntent === 'LOCAL') {
+      return [...arr].sort((a, b) => {
+        const d = distanceComparator(a, b, effLoc)
+        if (d !== 0) return d
+        return a.businessName.localeCompare(b.businessName)
+      })
+    }
+    if (categoryIntent === 'DESTINATION') {
+      return [...arr].sort(qualityComparatorV2)
+    }
+    // MIXED: distance for NEARBY rung, quality-aware for outer rungs.
+    if (rung === 'NEARBY') {
+      return [...arr].sort((a, b) => {
+        const d = distanceComparator(a, b, effLoc)
+        if (d !== 0) return d
+        return a.businessName.localeCompare(b.businessName)
+      })
+    }
+    return [...arr].sort(qualityComparatorV2)
+  }
+
+  // Step 4: stitch.
+  const tiles: RankedTile[] = []
+  const rungCounts: Record<SupplyRung, number> = {
+    NEARBY: 0, CATCHMENT: 0, POST_TOWN: 0, LAD: 0,
+    COUNTY: 0, REGION: 0, COUNTRY: 0, NATIONAL: 0,
+  }
+  let nearbyRungEvaluated = false
+
+  for (const rung of RUNG_ORDER) {
+    if (rungOrdinal(rung) > maxRungOrdinal) break
+    const arr = byRung.get(rung) ?? []
+    const sorted = sortWithinRung(rung, arr)
+
+    for (const e of sorted) {
+      if (tiles.length >= hardCap) break
+      const cb = e.contextBranch
+      const distance = cb.latitude !== null && cb.longitude !== null
+        ? haversineMetres(effLoc.lat, effLoc.lng, cb.latitude, cb.longitude) : null
+      tiles.push({
+        merchantId: e.id,
+        businessName: e.businessName,
+        supplyRung: e.bestRung,
+        supplyTier: mapRungToLegacyTier(e.bestRung),
+        proximityBand: getProximityBand(e.bestRung, effLoc.densityClass),
+        distanceMetres: distance,
+        contextBranchId: cb.id,
+      })
+      rungCounts[e.bestRung]++
+    }
+
+    if (rung === 'NEARBY') nearbyRungEvaluated = true
+
+    // targetCount: stop adding further rungs once we've hit the target,
+    // BUT only after NEARBY has been fully evaluated (per spec §5.6).
+    if (tiles.length >= targetCount && nearbyRungEvaluated) break
+    if (tiles.length >= hardCap) break
+  }
+
+  return { tiles, rungCounts }
+}
