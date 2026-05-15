@@ -40,7 +40,7 @@ import { haversineMetres } from '../shared/haversine'
 //   (a) prove the count safely fits in memory + add a regression test, OR
 //   (b) introduce a distance-aware DB sort (`ORDER BY` on a computed
 //       expression or a PostGIS `<->` operator) and then cap.
-// Tracked at deferred-followups §AS (PR #84 review carry-overs).
+// Tracked at deferred-followups §AT (PR #84 review carry-overs).
 const BBOX_DEGREES = 0.3
 
 export async function findNearestLocality(

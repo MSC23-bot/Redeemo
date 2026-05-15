@@ -253,14 +253,14 @@ import type { EffectiveLocation } from './effectiveLocation'
 // constant once the legacy `classifyTier` / `rankMerchants` block above is
 // audit-deleted. The current values agree to <1m at NEARBY distances but
 // the duplication is a code smell while both paths co-exist.
-// See deferred-followups §AS (PR #84 review carry-overs).
+// See deferred-followups §AT (PR #84 review carry-overs).
 const MILES_TO_METRES = 1609.344
 
 // M5 cleanup: `BranchForClassification` (this type) and `RankableBranch`
 // (defined below) differ only by `RankableBranch` adding `id: string`.
 // Once the legacy ranking path is removed in M5, unify these into a
 // single type — e.g. `RankableBranch = BranchForClassification & { id: string }`.
-// See deferred-followups §AS (PR #84 review carry-overs).
+// See deferred-followups §AT (PR #84 review carry-overs).
 type BranchForClassification = {
   latitude: number | null
   longitude: number | null
