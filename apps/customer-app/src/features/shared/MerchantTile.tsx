@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { Heart, X } from 'lucide-react-native'
 import { Text, color, radius, spacing, elevation } from '@/design-system'
 import { PressableScale } from '@/design-system/motion/PressableScale'
+import { ProximityBandChip } from '@/design-system/components/ProximityBandChip'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
 import { SavePill } from './SavePill'
 import { VoucherCountPill } from './VoucherCountPill'
@@ -138,6 +139,9 @@ export function MerchantTile({
         <View style={styles.pillRow}>
           <VoucherCountPill count={merchant.voucherCount} />
           <SavePill amount={merchant.maxEstimatedSaving} />
+          {/* Plan 4 M3b — proximity chip renders null for NEARBY /
+              null / undefined; safe to mount unconditionally. */}
+          <ProximityBandChip band={merchant.proximityBand} />
           {/* OpenStatusBadge intentionally omitted — backend tile contract
               does not include isOpen state. See follow-up notes. */}
         </View>

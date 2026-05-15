@@ -76,4 +76,27 @@ describe('MapMerchantTile', () => {
     )
     expect(getByText('Bella Italia')).toBeTruthy()
   })
+
+  // Plan 4 M3b — proves the inner shared MerchantTile receives the
+  // proximityBand prop unaltered through the Map carousel wrapper.
+  // MerchantTile's own chip-matrix test covers all band variants;
+  // this is the integration pin specifically for the Map render path.
+  it('surfaces the proximity chip on the selected map card', () => {
+    const tile = makeMerchantTile({
+      id:                 'm-near',
+      businessName:       'In Your Area Cafe',
+      proximityBand:      'IN_YOUR_AREA',
+    })
+    const { getByText } = render(
+      <MapMerchantTile
+        merchants={[tile]}
+        activeIndex={0}
+        onClose={jest.fn()}
+        onIndexChange={jest.fn()}
+        onMerchantPress={jest.fn()}
+      />,
+    )
+    expect(getByText('In Your Area Cafe')).toBeTruthy()
+    expect(getByText('In your area')).toBeTruthy()
+  })
 })
