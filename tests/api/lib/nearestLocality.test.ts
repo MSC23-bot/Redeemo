@@ -185,3 +185,46 @@ describe('findNearestLocality', () => {
     expect(result).toBeNull()
   })
 })
+
+// §AT4 candidate-count regression (real UK seed — no fixtures).
+//
+// Pinned to the densest UK point we identified during the §AT4
+// profiling pass on 2026-05-15: Central London — Trafalgar Square,
+// which returned 881 candidates inside the 0.3° bbox against the M1
+// ONSPD seed (16,628 localities total).
+//
+// The 1500 threshold gives ~70% headroom over today's 881 to absorb
+// seed growth without false-positive alarms. If this test ever
+// fires, the candidate count has grown materially — the right
+// response is to RE-RUN `prisma/profile-nearest-locality-at4.ts`
+// against the new seed and re-evaluate against the owner's
+// "warm p95 < 400 ms" decision rule BEFORE shipping M3 / live
+// Discovery on the same path.
+//
+// Also asserts the candidate count is strictly positive so this
+// test cannot silently pass against an empty / un-seeded test DB.
+// If the M1 ONSPD seed is missing the test fails LOUDLY — that's
+// the signal the regression coverage is real.
+//
+// Read-only. Hits real seed rows, NOT the m2-nearest-* fixtures
+// from the file's beforeAll. No cleanup needed.
+
+describe('findNearestLocality — §AT4 candidate-count regression', () => {
+  const TRAFALGAR_SQUARE = { lat: 51.5081, lng: -0.1281 } // densest UK point in the 2026-05-15 profile
+  const BBOX_DEGREES = 0.3 // mirrors src/api/lib/nearestLocality.ts
+
+  it('Central London bbox candidate count stays bounded (<1500) against real ONSPD seed', async () => {
+    const count = await prisma.locality.count({
+      where: {
+        centerLat: { gte: TRAFALGAR_SQUARE.lat - BBOX_DEGREES, lte: TRAFALGAR_SQUARE.lat + BBOX_DEGREES },
+        centerLng: { gte: TRAFALGAR_SQUARE.lng - BBOX_DEGREES, lte: TRAFALGAR_SQUARE.lng + BBOX_DEGREES },
+      },
+    })
+    // Sanity: seed must be present. If this fires, the test isn't
+    // exercising the regression — re-seed the test DB before trusting
+    // the upper bound below.
+    expect(count).toBeGreaterThan(0)
+    // 2026-05-15 measured: 881. Threshold 1500 gives ~70% headroom.
+    expect(count).toBeLessThan(1500)
+  })
+})

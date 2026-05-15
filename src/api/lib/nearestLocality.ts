@@ -29,18 +29,33 @@ import { haversineMetres } from '../shared/haversine'
 // so the "shape" of the prefilter does not affect correctness, only
 // the size of the in-memory pass.
 //
-// M3 prerequisite: the candidate set is NOT bounded — `findMany` could
-// in principle return every Locality inside the bbox. The plan's claim
-// of "<100 rows" is for sparse rural points. Dense areas (Greater
-// London, Manchester) may return materially more. A naive `take: 500`
-// is NOT safe — it could silently drop the true nearest in a
-// dense bbox where Prisma's default order isn't distance-aware.
-// Before M3 wires this into live Discovery, profile real dense-area
-// counts from the M1 ONSPD seed and either:
-//   (a) prove the count safely fits in memory + add a regression test, OR
-//   (b) introduce a distance-aware DB sort (`ORDER BY` on a computed
-//       expression or a PostGIS `<->` operator) and then cap.
-// Tracked at deferred-followups §AT (PR #84 review carry-overs).
+// §AT4 status: profiled + CLOSED BY EVIDENCE on 2026-05-15.
+//
+//   Measured against the production Neon DB with the current M1 ONSPD
+//   seed (16,628 localities). Worst-case point in the UK is Central
+//   London — Trafalgar Square / Oxford Circus, both at ~881 candidates
+//   inside the 0.3° bbox. Warm-state latency: p50 ≈ 159 ms, p95 ≈ 172
+//   ms, max ≈ 286 ms across 20 samples after 2 warm-up shots.
+//   Estimated worst-case in-memory pull: ~430 KB per request.
+//
+//   Per the owner's decision rule (warm p95 < 400 ms), the current
+//   unbounded findMany-then-in-memory-Haversine pipeline is acceptable
+//   for M3 v1. The §AT4 carry-over from PR #84 is closed by evidence.
+//
+//   Profiling tool kept at prisma/profile-nearest-locality-at4.ts for
+//   future re-checks (e.g. after seed growth or any infra change).
+//   Regression test pinning the dense-London candidate-count upper
+//   bound lives in tests/api/lib/nearestLocality.test.ts (the §AT4
+//   regression describe block) — if it fires, re-profile before M3
+//   live-launch.
+//
+// STANDING RULE — preserved as a lasting constraint, NOT just a §AT4
+// item: any future optimisation here (e.g. distance-aware DB sort,
+// `take` cap, PostGIS `<->` operator) MUST be correctness-safe. A
+// blind `take: N` cap that doesn't sort distance-first at the DB layer
+// is FORBIDDEN — it could silently drop the true nearest locality in
+// a dense bbox where Prisma's default order isn't distance-aware.
+// Tail-latency-driven follow-up tracked at deferred-followups §AT5.
 const BBOX_DEGREES = 0.3
 
 export async function findNearestLocality(
