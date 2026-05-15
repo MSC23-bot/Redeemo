@@ -2187,9 +2187,27 @@ export async function getInAreaMerchants(
   // 7. Cap at limit (no offset; Map shows all pins in viewport up to cap)
   const page = filtered.slice(0, options.limit)
 
-  // 8. Enrich the page slice
+  // 8. Enrich the page slice.
+  //    §AX bbox-centre fallback: when the caller has no GPS (user
+  //    skipped location permission, or no §AU override), substitute
+  //    the viewport centre as the location context for tile
+  //    nearest-branch / latitude / longitude / distance selection.
+  //    Without this, every in-area tile would emit null coords and
+  //    MapPins would render zero pins for GPS-less sessions.
+  //
+  //    Scoped to this route only — Home / Search / Category retain
+  //    their original "no GPS → no nearest-branch" semantics because
+  //    their distance/order has different meaning. PR #81 redaction is
+  //    unaffected: the fallback still flows through hasExactPosition,
+  //    so POSTCODE_CENTROID / NEEDS_REVIEW / ADDRESS_GEOCODED branches
+  //    still emit null coordinates.
+  //
+  //    Ranking at step 5 still uses the caller's GPS (or null) — this
+  //    fallback only affects per-tile derivations, not order.
+  const tileLat = userLat ?? viewportCenterLat
+  const tileLng = userLng ?? viewportCenterLng
   const enriched = await enrichMerchantTiles(prisma, page as any, {
-    lat: userLat, lng: userLng, userId: options.userId ?? null,
+    lat: tileLat, lng: tileLng, userId: options.userId ?? null,
   })
 
   // 9. Forward supplyTier from the rank step + attach V2 fields where present.

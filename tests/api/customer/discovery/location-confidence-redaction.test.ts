@@ -257,4 +257,49 @@ describe('Branch locationConfidence redaction (PR #81 review B2)', () => {
     // server-side nearest-branch loop. Both signals collapse together.
     expect(tile!.nearestBranchId).toBeNull()
   })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // §AX — Map GPS-less sessions still show pins.
+  //
+  // When a Map session has a valid bbox but no caller GPS lat/lng (user
+  // skipped location permission, or no §AU override), the in-area route
+  // must still resolve a nearest-branch + tile coordinates so MapPins
+  // can render. Fallback: use the bbox centre as the location context
+  // for selecting the nearest MANUALLY_CONFIRMED branch. Redaction
+  // contract unchanged — only MANUALLY_CONFIRMED branches emit
+  // coordinates.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('§AX: in-area without caller GPS — MANUALLY_CONFIRMED merchant tile carries real lat/lng (bbox-centre fallback)', async () => {
+    const { getInAreaMerchants } = await import('../../../../src/api/customer/discovery/service')
+    // Same bbox as the existing GPS-present in-area Karaara pin, but
+    // intentionally omit lat/lng so the GPS-less code path runs.
+    const result = await getInAreaMerchants(prisma, {
+      bbox: { minLat: 53.60, maxLat: 53.70, minLng: -1.85, maxLng: -1.75 },
+      userId: null,
+      limit: 50,
+    })
+    const tile = result.merchants.find((m: { id: string }) => m.id === 'tax-merchant-karaara-001') as
+      | { latitude: number | null; longitude: number | null; nearestBranchId: string | null }
+      | undefined
+    expect(tile).toBeDefined()
+    expect(tile!.latitude).toBe(53.6463)
+    expect(tile!.longitude).toBe(-1.7809)
+    expect(tile!.nearestBranchId).toBe('tax-branch-karaara-001')
+  })
+
+  it('§AX: in-area without caller GPS — POSTCODE_CENTROID merchant stays excluded (no tile, not even with null coords)', async () => {
+    const { getInAreaMerchants } = await import('../../../../src/api/customer/discovery/service')
+    // Same tight bbox the existing PR #81 pin uses, but with no caller
+    // GPS. POSTCODE_CENTROID merchants are excluded by
+    // merchantHasBranchInBbox regardless of caller GPS, so the bbox-
+    // centre fallback does not regress the redaction.
+    const result = await getInAreaMerchants(prisma, {
+      bbox: { minLat: 53.64, maxLat: 53.66, minLng: -1.79, maxLng: -1.77 },
+      userId: null,
+      limit: 50,
+    })
+    const found = result.merchants.find((m: { id: string }) => m.id === TEST_MERCHANT_ID)
+    expect(found).toBeUndefined()
+  })
 })
