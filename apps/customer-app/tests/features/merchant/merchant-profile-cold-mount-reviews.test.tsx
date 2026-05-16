@@ -178,6 +178,15 @@ jest.mock('expo-router', () => {
       }, [])
       return mockParams
     },
+    // §BD-2 — MerchantProfileScreen calls useFocusEffect to reset
+    // the active tab when the URL has no `?tab=` param. Fire it
+    // after commit via useEffect (focus-on-mount semantics);
+    // mirrors the pattern in voucher-detail-states.test.tsx.
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => {
+        try { return effect() } catch { /* defensive */ return undefined }
+      }, [])
+    },
   }
 })
 
