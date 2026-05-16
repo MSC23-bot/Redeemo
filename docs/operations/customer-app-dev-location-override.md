@@ -5,6 +5,15 @@ to read a fixed UK lat/lng instead of the device GPS. Exists so the
 project owner can QA Plan 4 Discovery (Home / Search / Category /
 Map) end-to-end from outside the UK without faking GPS at the OS level.
 
+> **Normal customer-app QA runs via Expo Dev Client + Metro, where this
+> override is active.** See [customer-app-qa-workflow.md](customer-app-qa-workflow.md)
+> for the canonical setup loop, the decision matrix, and the (narrow)
+> list of cases that genuinely warrant an EAS preview build instead.
+> Locked 2026-05-16 after the workflow drifted into preview-build-per-
+> iteration during the §BF / §BI Map fixes — this override was inert
+> across every preview build that followed, which masked Discovery QA
+> for several sessions.
+
 ## ⚠️ Local dev / Expo dev-client only
 
 > **The override is active ONLY when `__DEV__` is true** — i.e. a local
