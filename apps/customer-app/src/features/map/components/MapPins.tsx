@@ -1,8 +1,23 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { View, StyleSheet } from 'react-native'
 import MapView, { Marker } from 'react-native-maps'
 import { Text, color } from '@/design-system'
 import { MerchantTile } from '@/lib/api/discovery'
+
+// §BC — track-then-freeze pattern for selection transitions.
+//
+// `tracksViewChanges={false}` is a perf-critical freeze that stops
+// react-native-maps from re-rendering each marker's bitmap on every
+// camera change. But it also caches the bitmap so aggressively that
+// when the marker's child component resizes (selection toggles
+// 34→42px), the affected pin disappears for ~2s during the native-
+// side bitmap rebuild.
+//
+// Fix: per-marker `tracks` state that briefly flips back to `true`
+// whenever `selected` toggles, then back to `false` after the new
+// bitmap is captured. The freeze still applies in steady state, so
+// camera-change perf is unchanged.
+const SELECTION_TRACK_MS = 250
 
 type Props = {
   merchants: MerchantTile[]
@@ -62,31 +77,58 @@ function CustomPin({
   )
 }
 
+function MapPinMarker({
+  merchant,
+  selected,
+  onPress,
+}: {
+  merchant: MerchantTile
+  selected: boolean
+  onPress: (m: MerchantTile) => void
+}) {
+  const { latitude, longitude } = merchant
+  // Initial render captures the first bitmap (tracks=true). After the
+  // capture settles, freeze for perf. The effect re-enables tracking
+  // every time `selected` toggles so the resize is captured cleanly
+  // without an unmount/remount flicker on the affected pin.
+  const [tracks, setTracks] = useState(true)
+  useEffect(() => {
+    if (latitude === null || longitude === null) return
+    setTracks(true)
+    const t = setTimeout(() => setTracks(false), SELECTION_TRACK_MS)
+    return () => clearTimeout(t)
+  }, [selected, latitude, longitude])
+
+  // Backend surfaces nearest-branch lat/lng on the tile only when
+  // the merchant has a MANUALLY_CONFIRMED branch (PR #81 redaction
+  // contract preserved at the tile boundary). When either coord is
+  // null the merchant gets no pin — POSTCODE_CENTROID / NEEDS_REVIEW /
+  // ADDRESS_GEOCODED branches must never appear as exact map markers.
+  if (latitude === null || longitude === null) return null
+
+  return (
+    <Marker
+      identifier={merchant.id}
+      coordinate={{ latitude, longitude }}
+      onPress={() => onPress(merchant)}
+      tracksViewChanges={tracks}
+    >
+      <CustomPin merchant={merchant} selected={selected} />
+    </Marker>
+  )
+}
+
 export function MapPins({ merchants, selectedId, onPress }: Props) {
   return (
     <>
-      {merchants.map((merchant) => {
-        // Backend surfaces nearest-branch lat/lng on the tile only when
-        // the merchant has a MANUALLY_CONFIRMED branch (PR #81 redaction
-        // contract preserved at the tile boundary). When either coord
-        // is null the merchant gets no pin — POSTCODE_CENTROID /
-        // NEEDS_REVIEW / ADDRESS_GEOCODED branches must never appear
-        // as exact map markers.
-        const { latitude, longitude } = merchant
-        if (latitude === null || longitude === null) return null
-
-        return (
-          <Marker
-            key={merchant.id}
-            identifier={merchant.id}
-            coordinate={{ latitude, longitude }}
-            onPress={() => onPress(merchant)}
-            tracksViewChanges={false}
-          >
-            <CustomPin merchant={merchant} selected={selectedId === merchant.id} />
-          </Marker>
-        )
-      })}
+      {merchants.map((merchant) => (
+        <MapPinMarker
+          key={merchant.id}
+          merchant={merchant}
+          selected={selectedId === merchant.id}
+          onPress={onPress}
+        />
+      ))}
     </>
   )
 }
