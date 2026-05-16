@@ -7,6 +7,12 @@ type Props = {
   value: string
   onChangeText: (text: string) => void
   onCancel?: () => void
+  // §BE — fired when the keyboard's search/return key is pressed. Lets
+  // consumers (e.g. MapScreen) resolve the typed query against a city
+  // list / geocoder when no suggestion has been tapped. Optional so
+  // existing consumers (HomeScreen, SearchScreen) keep their no-op
+  // behaviour unchanged.
+  onSubmitEditing?: () => void
   autoFocus?: boolean
   placeholder?: string
 }
@@ -29,7 +35,7 @@ function ClearIcon() {
   )
 }
 
-export function SearchBar({ value, onChangeText, onCancel, autoFocus, placeholder = 'Search merchants...' }: Props) {
+export function SearchBar({ value, onChangeText, onCancel, onSubmitEditing, autoFocus, placeholder = 'Search merchants...' }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.inputWrapper}>
@@ -37,6 +43,7 @@ export function SearchBar({ value, onChangeText, onCancel, autoFocus, placeholde
         <TextInput
           value={value}
           onChangeText={onChangeText}
+          onSubmitEditing={onSubmitEditing}
           placeholder={placeholder}
           placeholderTextColor="#9CA3AF"
           autoFocus={autoFocus}

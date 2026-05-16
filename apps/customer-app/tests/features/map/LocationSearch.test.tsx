@@ -50,4 +50,45 @@ describe('LocationSearch', () => {
     fireEvent.press(getByText('Use current location'))
     expect(onCurrentLocation).toHaveBeenCalledTimes(1)
   })
+
+  // §BE 2026-05-17 — Huddersfield was missing from UK_CITIES, so the
+  // dropdown returned no suggestions when the owner typed it during
+  // the §AU Qatar-override QA. Pin the inclusion so a future
+  // alphabetical re-sort or list trim doesn't quietly drop it.
+  it('§BE: includes Huddersfield in the filtered results when query="Huddersfield"', () => {
+    const { getByText } = render(
+      <LocationSearch
+        query="Huddersfield"
+        onCitySelect={jest.fn()}
+        onCurrentLocation={jest.fn()}
+      />,
+    )
+    expect(getByText('Huddersfield')).toBeTruthy()
+  })
+
+  // §BE 2026-05-17 — the dropdown container's absolute `top` offset
+  // must clear the SearchBar's full footprint
+  // (MapScreen.searchContainer paddingTop 8 + SearchBar inner ~50
+  // + paddingBottom 8 = ~66pt). Pre-fix `top: 56` overlapped the
+  // input; the locked value is 80. This pin catches a future style
+  // refactor that drifts the constant back into overlap territory.
+  it('§BE: container positions BELOW the SearchBar footprint (top >= 70)', () => {
+    const { getByTestId } = render(
+      <LocationSearch
+        query=""
+        onCitySelect={jest.fn()}
+        onCurrentLocation={jest.fn()}
+      />,
+    )
+    const container = getByTestId('location-search-container')
+    const style     = container.props.style
+    // RN flattens style arrays at render time; the `top` may live
+    // on the object or in the flattened result depending on the
+    // platform.  Both shapes are fine — we only care that the
+    // effective top clears the SearchBar.
+    const flat = Array.isArray(style)
+      ? Object.assign({}, ...style.filter(Boolean))
+      : style
+    expect(flat.top).toBeGreaterThanOrEqual(70)
+  })
 })
