@@ -185,4 +185,9 @@ describe('MapPins (Map tile coordinates contract)', () => {
       jest.useRealTimers()
     }
   })
+
+  // §BF stable-marker-dimensions tests live in CustomPin.test.tsx so
+  // they can render CustomPin directly without dragging the §BC track-
+  // then-freeze setTimeout chain into every assertion. See sibling test
+  // file in the same directory.
 })
