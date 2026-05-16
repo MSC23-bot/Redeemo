@@ -126,7 +126,43 @@ describe('MapPins (Map tile coordinates contract)', () => {
       render(<MapPins merchants={[a]} selectedId={null} onPress={jest.fn()} />)
       expect(mockMarkerCalls[mockMarkerCalls.length - 1]!.tracksViewChanges).toBe(true)
       // Advance past the freeze timeout — bitmap should now be frozen.
-      act(() => { jest.advanceTimersByTime(500) })
+      act(() => { jest.advanceTimersByTime(1500) })
+      const aCalls = mockMarkerCalls.filter(c => c.identifier === 'a')
+      expect(aCalls[aCalls.length - 1]!.tracksViewChanges).toBe(false)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  // §BI — the freeze window is at least 1000ms long. Locked 2026-05-16
+  // after post-§BF EAS preview QA: 250ms was sometimes too short for
+  // iOS to commit the first bitmap on cold mount under heavy frames
+  // (e.g. zooming back into London after Huddersfield → Wagtail Hackney
+  // pin intermittently missing). 1000ms gives the native side a wider
+  // safety margin. This test pins the constant so a future "tune for
+  // perf" PR doesn't silently shrink the window below the safe floor.
+  it('§BI: tracksViewChanges STAYS true at 250ms (was the §BC value; §BI widened to 1000ms+)', () => {
+    jest.useFakeTimers()
+    try {
+      const a = makeMerchantTile({ id: 'a', latitude: 51, longitude: 0 })
+      render(<MapPins merchants={[a]} selectedId={null} onPress={jest.fn()} />)
+      // 250ms — the old §BC threshold. With §BI bumping the window,
+      // tracks must still be true at this point.
+      act(() => { jest.advanceTimersByTime(250) })
+      const aCalls = mockMarkerCalls.filter(c => c.identifier === 'a')
+      expect(aCalls[aCalls.length - 1]!.tracksViewChanges).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('§BI: tracksViewChanges still flips to false eventually (window has an upper bound, not infinite)', () => {
+    jest.useFakeTimers()
+    try {
+      const a = makeMerchantTile({ id: 'a', latitude: 51, longitude: 0 })
+      render(<MapPins merchants={[a]} selectedId={null} onPress={jest.fn()} />)
+      // Past the §BI 1000ms window. Freeze should be back on for perf.
+      act(() => { jest.advanceTimersByTime(1500) })
       const aCalls = mockMarkerCalls.filter(c => c.identifier === 'a')
       expect(aCalls[aCalls.length - 1]!.tracksViewChanges).toBe(false)
     } finally {
@@ -142,7 +178,7 @@ describe('MapPins (Map tile coordinates contract)', () => {
       const { rerender, queryByTestId } = render(
         <MapPins merchants={[a, b]} selectedId="a" onPress={jest.fn()} />,
       )
-      act(() => { jest.advanceTimersByTime(500) }) // settle the freeze
+      act(() => { jest.advanceTimersByTime(1500) }) // settle past the §BI 1000ms freeze
 
       // Marker 'a' is currently mounted (it's the selected one).
       expect(queryByTestId('marker-a')).toBeTruthy()
@@ -169,7 +205,7 @@ describe('MapPins (Map tile coordinates contract)', () => {
         <MapPins merchants={[a, b]} selectedId={null} onPress={jest.fn()} />,
       )
       // Settle the initial freeze so we're past tracks=true.
-      act(() => { jest.advanceTimersByTime(500) })
+      act(() => { jest.advanceTimersByTime(1500) })
       mockMarkerCalls.length = 0
 
       // Select 'a' — its tracks should briefly flip back to true.
