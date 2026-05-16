@@ -13,7 +13,20 @@ import { MerchantTile } from '@/lib/api/discovery'
 // affected pin disappears briefly during the native-side bitmap
 // rebuild. The mechanism here re-enables `tracksViewChanges` for
 // `SELECTION_TRACK_MS` so the new bitmap captures cleanly.
-const SELECTION_TRACK_MS = 250
+//
+// §BI 2026-05-16 — bumped from 250ms to 1000ms. EAS preview QA
+// post-§BF showed an intermittent missing-pin case on cold-mount /
+// zoom-transition (e.g. London → Huddersfield → London, the Wagtail
+// Hackney pin sometimes failed to render). Hypothesis: 250ms was
+// enough for selection-transition recaptures but NOT always enough
+// for the FIRST bitmap commit on cold mount under heavy frames
+// (camera animation + N markers mounting simultaneously + JS thread
+// under load). 1000ms gives iOS a wider safety margin to commit the
+// first bitmap before the freeze restores. The perf cost is N extra
+// frames of bitmap-tracking per marker on cold mount only — once
+// the bitmap is captured, the freeze still applies for the rest of
+// the session.
+const SELECTION_TRACK_MS = 1000
 
 // §BF — stable marker dimensions.
 //
