@@ -20,6 +20,7 @@ import { MapListView } from '../components/MapListView'
 import { SearchBar } from '@/features/search/components/SearchBar'
 import { FilterSheet, FilterState } from '@/features/search/components/FilterSheet'
 import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocalityBadge'
+import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
 
 const LONDON_REGION: Region = {
@@ -188,6 +189,11 @@ export function MapScreen({ onMerchantPress }: Props) {
 
   const data      = hasNonScopeFilters ? searchResultQuery.data      : inAreaQuery.data
   const isLoading = hasNonScopeFilters ? searchResultQuery.isLoading : inAreaQuery.isLoading
+  // §BH — `isFetching` covers both first-load AND refetch, unlike
+  // `isLoading` which is true only on the initial fetch with no
+  // cached data. Drives the first-fetch loader gate below: we want
+  // the loader during any fetch where no pins are on screen yet.
+  const isFetching = hasNonScopeFilters ? searchResultQuery.isFetching : inAreaQuery.isFetching
   const merchants = data?.merchants ?? []
   const total     = data?.total     ?? 0
   const meta      = data?.meta
@@ -449,6 +455,29 @@ export function MapScreen({ onMerchantPress }: Props) {
         />
       )}
 
+      {/* §BH — first-data fetch loader. Small RedeemoLoader centered
+          on the map (NOT full-screen, NOT a blocking spinner). Visible
+          ONLY when the screen has no pins to show AND a fetch is in
+          flight. `pointerEvents="none"` so map gestures pass through
+          unhindered. Gates:
+          - merchants.length === 0 — no pins on screen (§AY already
+            keeps previous pins visible during refetch, so the loader
+            only shows when there's truly nothing to display).
+          - isFetching === true — covers both initial-load and refetch
+            cases (e.g. zoom into a new bbox with no cached data).
+          - !showLocationPermission — onboarding overlay takes
+            precedence.
+          - emptyVariant === null — MapEmptyArea / offshore /
+            no_uk_supply take precedence. */}
+      {merchants.length === 0
+        && isFetching
+        && !showLocationPermission
+        && emptyVariant === null && (
+        <View style={styles.firstFetchLoader} pointerEvents="none">
+          <RedeemoLoader size="md" accessibilityLabel="Loading nearby merchants" />
+        </View>
+      )}
+
       {emptyVariant !== null && (
         <MapEmptyArea
           variant={emptyVariant}
@@ -503,6 +532,23 @@ const styles = StyleSheet.create({
   viewportLocalityRow: {
     paddingHorizontal: spacing[4] + 2,
     paddingTop:        spacing[1],
+  },
+  // §BH — centered loader overlay during first-data fetch. Absolute
+  // fill so the loader is centered on the visible map area (not
+  // anchored to a corner). `pointerEvents="none"` on the JSX prop so
+  // gestures pass through. `layer.sticky` places the loader above
+  // the MapView base but below the floating control buttons (which
+  // also use layer.sticky in their own absolute positioning — the
+  // loader's centered position doesn't conflict).
+  firstFetchLoader: {
+    position:       'absolute',
+    top:            0,
+    bottom:         0,
+    left:           0,
+    right:          0,
+    alignItems:     'center',
+    justifyContent: 'center',
+    zIndex:         layer.sticky,
   },
   recentreButton: {
     position:        'absolute',
