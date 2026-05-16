@@ -4,6 +4,21 @@ import { MapPin, Navigation } from 'lucide-react-native'
 import { Text, color, spacing, radius, elevation, layer } from '@/design-system'
 import { geocodeCity } from '@/lib/geocoding'
 
+// §BE — Static UK city list for the LocationSearch dropdown.
+//
+// Owner-locked 2026-05-17: keep this hardcoded for now. The longer-term
+// path is a backend gazetteer / city-search endpoint (see deferred
+// follow-ups §BA broader Map / Discovery rebase + Plan 4 UK Location
+// Model). Until that ships, this list is the single source of
+// suggestion data the dropdown filters against, so any noticeable UK
+// town that owners expect to search for must be in here.
+//
+// 2026-05-17 additions (Tier 1 polish PR for §BE): Huddersfield was
+// missing despite being the Karaara fixture locality. Added alongside
+// ~11 other UK towns/cities (population ~100k+) that owners or QA
+// could reasonably type. Submit-handler fallback in MapScreen covers
+// anything STILL absent by routing the typed text through Expo's
+// `Location.geocodeAsync` directly.
 export const UK_CITIES = [
   'London',
   'Manchester',
@@ -43,6 +58,19 @@ export const UK_CITIES = [
   'Brighton',
   'Reading',
   'Norwich',
+  // §BE 2026-05-17 additions — alphabetical to avoid re-ordering churn.
+  'Blackpool',
+  'Bolton',
+  'Bournemouth',
+  'Doncaster',
+  'Huddersfield',
+  'Luton',
+  'Middlesbrough',
+  'Milton Keynes',
+  'Northampton',
+  'Slough',
+  'Stockport',
+  'Sunderland',
 ]
 
 type Props = {
@@ -92,7 +120,7 @@ export function LocationSearch({ query, onCitySelect, onCurrentLocation }: Props
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="location-search-container">
       {/* Use current location row */}
       <Pressable
         onPress={onCurrentLocation}
@@ -133,7 +161,18 @@ export function LocationSearch({ query, onCitySelect, onCurrentLocation }: Props
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 56,
+    // §BE 2026-05-17 — clear the SearchBar's full footprint.
+    //   MapScreen.searchContainer.paddingTop   (= spacing[2] = 8pt)
+    //   + SearchBar inner height               (~50pt: inputWrapper
+    //     paddingVertical 10 + text line ≈30)
+    //   + MapScreen.searchContainer.paddingBottom (= spacing[2] = 8pt)
+    //   = ~66pt minimum.  top: 80 gives a clean ~14pt visible gap
+    //   below the input so the "Use current location" card doesn't
+    //   land on top of the typed text.
+    //   Was top: 56 — the original value didn't account for the
+    //   inputWrapper height that landed once the SearchBar adopted
+    //   its current styling.
+    top: 80,
     left: spacing[4],
     right: spacing[4],
     backgroundColor: '#FFFFFF',

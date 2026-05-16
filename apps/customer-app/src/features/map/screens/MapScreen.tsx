@@ -14,13 +14,15 @@ import { LocationPermission } from '../components/LocationPermission'
 import { MapEmptyArea, type MapEmptyCase } from '../components/MapEmptyArea'
 import { MapPins } from '../components/MapPins'
 import { MapMerchantTile } from '../components/MapMerchantTile'
-import { LocationSearch } from '../components/LocationSearch'
+import { LocationSearch, UK_CITIES } from '../components/LocationSearch'
 import { LocationBadge } from '../components/LocationBadge'
 import { MapListView } from '../components/MapListView'
 import { SearchBar } from '@/features/search/components/SearchBar'
 import { FilterSheet, FilterState } from '@/features/search/components/FilterSheet'
 import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocalityBadge'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
+import { useToast } from '@/design-system'
+import { geocodeCity } from '@/lib/geocoding'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
 
 const LONDON_REGION: Region = {
@@ -271,6 +273,36 @@ export function MapScreen({ onMerchantPress }: Props) {
     await locationState.requestPermission()
   }, [locationState])
 
+  // §BE 2026-05-17 — keyboard search/return resolves the typed query.
+  //
+  // Cascade:
+  //   1. In-list match (substring against UK_CITIES, same filter
+  //      LocationSearch uses). Picks the canonical spelling so the
+  //      backend / native geocoder gets a clean name rather than
+  //      the user's typing.
+  //   2. Out-of-list fallback: geocode the typed string directly via
+  //      Expo's `Location.geocodeAsync` wrapper. Lets owners reach
+  //      towns / postcodes that aren't yet in the hardcoded list
+  //      without waiting on the larger gazetteer work (see §BA /
+  //      Plan 4 deferred follow-ups).
+  //   3. Failed geocode → non-blocking toast. Pre-§BE the keyboard
+  //      return key was unwired, so a missing match silently did
+  //      nothing.
+  const toast = useToast()
+  const handleSearchSubmit = useCallback(async () => {
+    const trimmed = searchQuery.trim()
+    if (!trimmed) return
+    const lower = trimmed.toLowerCase()
+    const inListMatch = UK_CITIES.find((c) => c.toLowerCase().includes(lower))
+    const lookupTerm  = inListMatch ?? trimmed
+    const coords      = await geocodeCity(lookupTerm)
+    if (coords) {
+      handleCitySelect(lookupTerm, coords)
+      return
+    }
+    toast.show("Couldn't find that place. Try a different city name.")
+  }, [searchQuery, handleCitySelect, toast])
+
   // ─── Filter handlers ──────────────────────────────────────────────────────
   const handleSelectCategory = useCallback((id: string | null) => {
     // Match FilterSheet's selectTopLevel rule: tap-same → clear; tap-other
@@ -365,6 +397,7 @@ export function MapScreen({ onMerchantPress }: Props) {
               setSearchQuery('')
               setShowLocationSearch(false)
             }}
+            onSubmitEditing={handleSearchSubmit}
             placeholder="Search city or merchants..."
           />
 
