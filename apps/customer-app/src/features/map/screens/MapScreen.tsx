@@ -179,6 +179,11 @@ export function MapScreen({ onMerchantPress }: Props) {
         : {}),
     },
     hasNonScopeFilters && queryBbox !== null,
+    // §AY — pan/zoom anti-flicker for the filtered Map-bbox-mode path.
+    // useInAreaMerchants already applies the same behaviour at the hook
+    // level. Opt-in here so other useSearch consumers (Search /
+    // Category screens) keep their default clear-on-key-change semantics.
+    { keepPreviousData: true },
   )
 
   const data      = hasNonScopeFilters ? searchResultQuery.data      : inAreaQuery.data

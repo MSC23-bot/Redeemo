@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { discoveryApi } from '@/lib/api/discovery'
 
 export type BoundingBox = {
@@ -41,5 +41,17 @@ export function useInAreaMerchants(
     queryFn:   () => discoveryApi.getInAreaMerchants({ ...bbox!, ...params }),
     enabled:   enabled && bbox !== null,
     staleTime: 30 * 1000,        // 30s — viewport content updates on pan
+    // §AY — keep previous viewport merchants visible while the next
+    // bbox request is in-flight. Without this, every pan/zoom clears
+    // `data` to undefined for the refetch duration → MapPins renders
+    // zero pins → user sees a blank map even though the previous
+    // result is still semantically meaningful. Once the new fetch
+    // resolves, swap to the new merchants.
+    //
+    // keepPreviousData does NOT survive `enabled=false` transitions
+    // (offshore / permission-revoked / bbox-null) — those still
+    // clear `data` cleanly so stale pins don't bleed into states
+    // where MapEmptyArea / offshore takeover need to show.
+    placeholderData: keepPreviousData,
   })
 }
