@@ -122,7 +122,25 @@ export function MerchantProfileScreen({ id }: Props) {
     ...(location ? { lat: location.lat, lng: location.lng } : {}),
     ...(branchId ? { branchId } : {}),
   }
-  const { data: merchant, isLoading, isError, error } = useMerchantProfile(id, profileOpts)
+  const { data: merchant, isLoading, isError, error, isPlaceholderData } = useMerchantProfile(id, profileOpts)
+
+  // §BD-1 — Cross-merchant stale-data gate.
+  //
+  // `useMerchantProfile` opts into `placeholderData: keepPreviousData` so the
+  // *within-merchant* branch switch is smooth (spec §4.7 / §N11): when only
+  // `branchId` changes the screen keeps the previous fetch on screen for a
+  // frame instead of skeleton-flashing. But `keepPreviousData` is unscoped —
+  // when the *merchantId* changes (route navigation Covelum → Karaara) the
+  // previous merchant's full payload also surfaces as placeholder until the
+  // new fetch resolves. That manifests as ~4-5s of "wrong merchant briefly
+  // visible" between Discovery tap and content swap.
+  //
+  // The fix is to fall through to the existing loading-skeleton path
+  // whenever the React Query payload is placeholder AND the cached merchant
+  // id disagrees with the current route id. Within-merchant branch
+  // transitions (same `merchant.id`, only `branchId` in the query key
+  // differs) still keep the previous data on screen — §N11 unaffected.
+  const isCrossMerchantStale = isPlaceholderData && !!merchant && merchant.id !== id
 
   // Reconcile the URL with the server-resolved branch ONLY when the server
   // fell back from the user's candidate (cold-open / candidate-inactive /
@@ -600,7 +618,7 @@ export function MerchantProfileScreen({ id }: Props) {
       </View>
     )
   }
-  if (isLoading || (!merchant && !isError)) {
+  if (isLoading || (!merchant && !isError) || isCrossMerchantStale) {
     return (
       <View style={styles.loading}>
         <RedeemoLoader size="lg" accessibilityLabel="Loading merchant profile" />
