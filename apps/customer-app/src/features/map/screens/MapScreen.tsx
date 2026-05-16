@@ -401,6 +401,23 @@ export function MapScreen({ onMerchantPress }: Props) {
             placeholder="Search city or merchants..."
           />
 
+          {/* §BE follow-up 2026-05-17 — LocationSearch lives INSIDE
+              searchContainer in normal flow now, so it always
+              renders directly below the SearchBar regardless of the
+              device's safe-area-top inset. The previous absolute-
+              positioned + `top: 80` approach measured from the
+              SafeAreaView's outer frame on real devices, landing the
+              dropdown ON TOP of the SearchBar on Dynamic Island
+              phones. Normal flow + the SearchBar's own marginBottom
+              gives a stable visual gap on every device. */}
+          {showLocationSearch && (
+            <LocationSearch
+              query={searchQuery}
+              onCitySelect={handleCitySelect}
+              onCurrentLocation={handleCurrentLocationFromSearch}
+            />
+          )}
+
           {remoteCityName !== null && !showLocationSearch && (
             <View style={styles.locationBadgeContainer} pointerEvents="box-none">
               <LocationBadge
@@ -413,14 +430,6 @@ export function MapScreen({ onMerchantPress }: Props) {
             </View>
           )}
         </View>
-
-        {showLocationSearch && (
-          <LocationSearch
-            query={searchQuery}
-            onCitySelect={handleCitySelect}
-            onCurrentLocation={handleCurrentLocationFromSearch}
-          />
-        )}
 
         {categories.length > 0 && !showLocationSearch && (
           <MapCategoryPills

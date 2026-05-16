@@ -159,26 +159,22 @@ export function LocationSearch({ query, onCitySelect, onCurrentLocation }: Props
 }
 
 const styles = StyleSheet.create({
+  // §BE follow-up 2026-05-17 — normal-flow card, NOT absolutely
+  // positioned. Lives inside MapScreen.searchContainer directly
+  // below the SearchBar, so the dropdown naturally sits beneath the
+  // input regardless of the device's safe-area-top inset (Dynamic
+  // Island vs notch vs older phones).  Previous shipped behaviour
+  // (`position: absolute, top: 80`) measured from the parent
+  // SafeAreaView's outer frame on real iPhones, placing the
+  // dropdown ON TOP of the SearchBar on Dynamic Island devices.
+  // Card styling (backgroundColor / borderRadius / elevation /
+  // zIndex) is preserved so it visually hovers over the map below.
   container: {
-    position: 'absolute',
-    // §BE 2026-05-17 — clear the SearchBar's full footprint.
-    //   MapScreen.searchContainer.paddingTop   (= spacing[2] = 8pt)
-    //   + SearchBar inner height               (~50pt: inputWrapper
-    //     paddingVertical 10 + text line ≈30)
-    //   + MapScreen.searchContainer.paddingBottom (= spacing[2] = 8pt)
-    //   = ~66pt minimum.  top: 80 gives a clean ~14pt visible gap
-    //   below the input so the "Use current location" card doesn't
-    //   land on top of the typed text.
-    //   Was top: 56 — the original value didn't account for the
-    //   inputWrapper height that landed once the SearchBar adopted
-    //   its current styling.
-    top: 80,
-    left: spacing[4],
-    right: spacing[4],
-    backgroundColor: '#FFFFFF',
-    borderRadius: radius.md,
-    zIndex: layer.sheet,
-    maxHeight: 320,
+    marginHorizontal: spacing[4],
+    backgroundColor:  '#FFFFFF',
+    borderRadius:     radius.md,
+    zIndex:           layer.sheet,
+    maxHeight:        320,
     ...elevation.lg,
   },
   currentLocationRow: {

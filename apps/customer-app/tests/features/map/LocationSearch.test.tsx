@@ -66,13 +66,17 @@ describe('LocationSearch', () => {
     expect(getByText('Huddersfield')).toBeTruthy()
   })
 
-  // §BE 2026-05-17 — the dropdown container's absolute `top` offset
-  // must clear the SearchBar's full footprint
-  // (MapScreen.searchContainer paddingTop 8 + SearchBar inner ~50
-  // + paddingBottom 8 = ~66pt). Pre-fix `top: 56` overlapped the
-  // input; the locked value is 80. This pin catches a future style
-  // refactor that drifts the constant back into overlap territory.
-  it('§BE: container positions BELOW the SearchBar footprint (top >= 70)', () => {
+  // §BE follow-up 2026-05-17 — the dropdown is rendered in NORMAL
+  // FLOW inside MapScreen.searchContainer (directly below the
+  // SearchBar) rather than absolutely positioned with a hardcoded
+  // `top` offset. The previous constant-bump (top: 56 → 80) didn't
+  // generalise across safe-area-top insets on real devices (e.g.
+  // Dynamic Island iPhones rendered the dropdown ON TOP of the
+  // SearchBar despite the constant being correct in theory).
+  // Normal flow + the SearchBar's own marginBottom gives a stable
+  // visual gap on every device. This pin guards against a future
+  // restyle that reintroduces absolute positioning.
+  it('§BE follow-up: container is NOT absolutely positioned (normal-flow placement)', () => {
     const { getByTestId } = render(
       <LocationSearch
         query=""
@@ -82,13 +86,10 @@ describe('LocationSearch', () => {
     )
     const container = getByTestId('location-search-container')
     const style     = container.props.style
-    // RN flattens style arrays at render time; the `top` may live
-    // on the object or in the flattened result depending on the
-    // platform.  Both shapes are fine — we only care that the
-    // effective top clears the SearchBar.
     const flat = Array.isArray(style)
       ? Object.assign({}, ...style.filter(Boolean))
       : style
-    expect(flat.top).toBeGreaterThanOrEqual(70)
+    expect(flat.position).not.toBe('absolute')
+    expect(flat.top).toBeUndefined()
   })
 })
