@@ -26,8 +26,13 @@ describe('MerchantProfileSkeleton', () => {
     expect(getByLabelText('Loading merchant profile')).toBeTruthy()
   })
 
-  // Each of the four structural regions is independently testable so a
+  // Each of the structural regions is independently testable so a
   // future visual tweak that drops a region by accident is caught.
+  it('renders the banner region (muted-navy gradient mirroring the real HeroBackdrop)', () => {
+    const { getByTestId } = render(<MerchantProfileSkeleton />)
+    expect(getByTestId('merchant-profile-skeleton-banner')).toBeTruthy()
+  })
+
   it('renders the identity cluster region (logo + name + descriptor)', () => {
     const { getByTestId } = render(<MerchantProfileSkeleton />)
     expect(getByTestId('merchant-profile-skeleton-identity')).toBeTruthy()
