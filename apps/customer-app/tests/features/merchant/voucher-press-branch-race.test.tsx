@@ -82,10 +82,21 @@ jest.mock('@/stores/auth', () => ({
 }))
 
 let mockBranchParam: string | undefined = undefined
-jest.mock('expo-router', () => ({
-  router: { back: jest.fn(), push: jest.fn(), replace: jest.fn() },
-  useLocalSearchParams: () => ({ branch: mockBranchParam }),
-}))
+jest.mock('expo-router', () => {
+  const React = require('react')
+  return {
+    router: { back: jest.fn(), push: jest.fn(), replace: jest.fn() },
+    useLocalSearchParams: () => ({ branch: mockBranchParam }),
+    // §BD-2 — MerchantProfileScreen calls useFocusEffect to reset
+    // the active tab when the URL has no `?tab=` param. Fire it
+    // after commit via useEffect (focus-on-mount semantics).
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => {
+        try { return effect() } catch { /* defensive */ return undefined }
+      }, [])
+    },
+  }
+})
 
 import { MerchantProfileScreen } from '@/features/merchant/screens/MerchantProfileScreen'
 import { merchantApi } from '@/lib/api/merchant'

@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import { LinearGradient } from 'expo-linear-gradient'
-import { router, useLocalSearchParams } from 'expo-router'
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
@@ -322,6 +322,41 @@ export function MerchantProfileScreen({ id }: Props) {
       lastUrlTabRef.current = cur
     }
   }, [screenParams.tab])
+
+  // §BD-2 — P1 product decision (locked 2026-05-16): reset to default
+  // tab on every fresh focus when the URL has no explicit `?tab=`.
+  //
+  // Trigger: device QA 2026-05-16 — open Karaara → tap Reviews → back to
+  // Discovery → reopen Karaara → Reviews still active instead of
+  // Vouchers. Root cause: expo-router (via React Navigation) reuses the
+  // merchant-profile screen instance across visits, so the lazy
+  // useState initialiser only fires on the FIRST mount; subsequent
+  // focuses keep the last-tapped activeTab. See the VoucherDetailScreen
+  // useFocusEffect comment for the same instance-reuse pattern.
+  //
+  // The reset is gated on `!screenParams.tab` so the existing URL-
+  // driven flows still work:
+  //   - `?tab=reviews` deep links → honoured (URL has tab → no reset).
+  //   - PR #40 / #41 / #46 SuccessPopup Rate & Review pushes
+  //     `?tab=reviews&openWriteReview=1&fromRedemption=<id>` →
+  //     honoured. The `initialOpenWriteFor` effect above also re-forces
+  //     'reviews' on every fresh attribution.
+  //   - TabBar taps update local state only (no URL change) — focus
+  //     doesn't change during the same session, so the user's in-session
+  //     tab taps stick.
+  //
+  // The reset DOES fire on:
+  //   - Cross-merchant navigation (id changes → fresh mount or fresh
+  //     focus depending on expo-router's stack handling).
+  //   - Same-merchant re-open from Discovery / Search (back to home →
+  //     re-tap → focus returns to the retained instance).
+  useFocusEffect(
+    useCallback(() => {
+      if (!screenParams.tab) {
+        setActiveTab('vouchers')
+      }
+    }, [screenParams.tab]),
+  )
 
   // Scrub openWriteReview + fromRedemption from the URL — but ONLY
   // after `<ReviewsTab>` has consumed `initialOpenWriteFor` and
