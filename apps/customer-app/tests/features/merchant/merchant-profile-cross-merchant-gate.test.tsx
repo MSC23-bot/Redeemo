@@ -188,7 +188,7 @@ describe('MerchantProfileScreen — §BD-1 cross-merchant stale-data gate', () =
 
     // First render: Covelum resolves immediately.
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(covelumMerchant)
-    const { findByText, queryByText, rerender, getByLabelText } = wrap(
+    const { findByText, queryByText, rerender, getByTestId } = wrap(
       <MerchantProfileScreen id="covelum-id" />,
       qc,
     )
@@ -209,8 +209,10 @@ describe('MerchantProfileScreen — §BD-1 cross-merchant stale-data gate', () =
       </SafeAreaProvider>,
     )
 
-    // Skeleton/loading path renders — Covelum is no longer visible.
-    expect(getByLabelText('Loading merchant profile')).toBeTruthy()
+    // §BD-3 — Skeleton (testID `merchant-profile-skeleton`) renders
+    // instead of the previous merchant's content during the
+    // placeholderData window. Covelum is no longer visible.
+    expect(getByTestId('merchant-profile-skeleton')).toBeTruthy()
     expect(queryByText('HEADLINE_NAME=Covelum')).toBeNull()
     expect(queryByText('HEADLINE_NAME=Karaara')).toBeNull()
 

@@ -18,7 +18,7 @@ import { useBranchSelection } from '../hooks/useBranchSelection'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HeroBackdrop, HeroNav, HeroBannerSpacer } from '../components/HeroSection'
 import { CollapsedHeader, COMPACT_BAR_HEIGHT } from '../components/CollapsedHeader'
-import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
+import { MerchantProfileSkeleton } from '../components/MerchantProfileSkeleton'
 import { MerchantDescriptor } from '../components/MerchantDescriptor'
 import { MetaRow } from '../components/MetaRow'
 import { ActionRow } from '../components/ActionRow'
@@ -127,20 +127,36 @@ export function MerchantProfileScreen({ id }: Props) {
   // §BD-1 — Cross-merchant stale-data gate.
   //
   // `useMerchantProfile` opts into `placeholderData: keepPreviousData` so the
-  // *within-merchant* branch switch is smooth (spec §4.7 / §N11): when only
-  // `branchId` changes the screen keeps the previous fetch on screen for a
-  // frame instead of skeleton-flashing. But `keepPreviousData` is unscoped —
-  // when the *merchantId* changes (route navigation Covelum → Karaara) the
-  // previous merchant's full payload also surfaces as placeholder until the
-  // new fetch resolves. That manifests as ~4-5s of "wrong merchant briefly
-  // visible" between Discovery tap and content swap.
-  //
-  // The fix is to fall through to the existing loading-skeleton path
-  // whenever the React Query payload is placeholder AND the cached merchant
-  // id disagrees with the current route id. Within-merchant branch
-  // transitions (same `merchant.id`, only `branchId` in the query key
-  // differs) still keep the previous data on screen — §N11 unaffected.
+  // *within-merchant* branch switch keeps the previous fetch's payload around
+  // (spec §4.7). That's load-bearing for the React Query cache shape, but the
+  // VISIBLE state needs to be a skeleton — the user must not see another
+  // merchant's identity under the new route.
   const isCrossMerchantStale = isPlaceholderData && !!merchant && merchant.id !== id
+
+  // §BD-3 — Within-merchant branch-switch stale-data gate (partial §N11 close).
+  //
+  // When the user taps Switch in the Branches tab, `useBranchSelection.select`
+  // calls `router.replace` with the new `?branch=` → URL `branchId` flips
+  // instantly → `useMerchantProfile` re-keys on the new branchId → React
+  // Query surfaces the previous fetch as placeholder until the new branch
+  // payload arrives (~1-2s on real device). Pre-§BD-3 this rendered
+  // Brightlingsea details under a Colchester URL for the full window.
+  //
+  // The gate is gated on `!!branchId` so cold-open (URL has no `?branch=`,
+  // server resolves a default) still flows through the legitimate
+  // `isLoading` branch — we only fire when the URL has EXPLICITLY demanded a
+  // specific branch that hasn't been honoured yet.
+  //
+  // Closes the visible-stale-identity half of §N11. The underlying ~1-2s
+  // network round-trip remains — a separate (future) prefetch follow-up
+  // would address that layer.
+  const isBranchSwitchStale =
+    isPlaceholderData &&
+    !!merchant?.selectedBranch &&
+    !!branchId &&
+    merchant.selectedBranch.id !== branchId
+
+  const isStaleNavigation = isCrossMerchantStale || isBranchSwitchStale
 
   // Reconcile the URL with the server-resolved branch ONLY when the server
   // fell back from the user's candidate (cold-open / candidate-inactive /
@@ -653,12 +669,8 @@ export function MerchantProfileScreen({ id }: Props) {
       </View>
     )
   }
-  if (isLoading || (!merchant && !isError) || isCrossMerchantStale) {
-    return (
-      <View style={styles.loading}>
-        <RedeemoLoader size="lg" accessibilityLabel="Loading merchant profile" />
-      </View>
-    )
+  if (isLoading || (!merchant && !isError) || isStaleNavigation) {
+    return <MerchantProfileSkeleton />
   }
   if (isError || !merchant) {
     return (
@@ -1049,7 +1061,6 @@ export function MerchantProfileScreen({ id }: Props) {
 //   CARDS           #FFFFFF + shadow    pops via 2pt step + shadow
 const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#FFF9F5' },
-  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9F5' },
   scroll:       { flex: 1 },
   // Round 6 follow-up: wrapper around ScrollView for the screen-
   // wide dim+restore pulse on branch switch. flex:1 so it occupies

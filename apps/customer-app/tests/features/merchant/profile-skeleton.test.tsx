@@ -301,9 +301,13 @@ describe('MerchantProfileScreen (M2)', () => {
     expect(getByText('No merchant id')).toBeTruthy()
   })
 
-  it('shows a loading indicator while the query is pending', () => {
+  it('shows the MerchantProfileSkeleton while the query is pending (§BD-3 loading-state contract)', () => {
     ;(merchantApi.getProfile as jest.Mock).mockReturnValueOnce(new Promise(() => {}))
-    const { getByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
+    const { getByTestId, getByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
+    // testID is the canonical jest hook; the accessibility label is
+    // preserved on the skeleton root so screen readers still announce
+    // the loading state.
+    expect(getByTestId('merchant-profile-skeleton')).toBeTruthy()
     expect(getByLabelText('Loading merchant profile')).toBeTruthy()
   })
 
