@@ -95,19 +95,18 @@ export function RedemptionRow({ redemption, onPress }: Props) {
     tokenColor.voucher?.byType?.[redemption.voucher.voucherType as keyof typeof tokenColor.voucher.byType] ??
     tokenColor.brandRose
 
-  // §Savings device-QA round-8 fixup 2026-05-18 — per-row voucher-type
-  // pastel surface so each row reads as its type at a glance.  Pulled
-  // from the locked `color.voucher.gradientByType[type]` token (light
-  // stop) — same pastel system as the Voucher Detail / Receipt hero.
-  // The whole-card tint is the load-bearing differentiator the owner
-  // asked for ("an element of the associated voucher"); the existing
-  // tinted-initial logo + filled-pill saving + new metaType line all
-  // reinforce the type identity without shouting.  Border softens to
-  // the type's mid-pastel to settle the edge against the page.
-  const rowPastel =
-    tokenColor.voucher.gradientByType[redemption.voucher.voucherType as keyof typeof tokenColor.voucher.gradientByType]
-  const rowBg     = rowPastel?.[0] ?? tokenColor.surface.raised
-  const rowBorder = rowPastel?.[1] ?? tokenColor.border.subtle
+  // §Savings device-QA round-8b fixup 2026-05-18 — owner direction:
+  // "add an ELEMENT, not change the background".  Card surface stays
+  // white per the round-2/3 baseline.  The voucher-type element is
+  // now carried by the metaType text colour (uses `badgeTextByType`
+  // — the dark sibling of the type accent, chosen for text-on-white
+  // contrast; passes WCAG AA normal across all 7 types).  Result:
+  // "Buy one, get one free voucher" reads in BOGO purple, "Reusable
+  // voucher" in REUSABLE teal, etc.  The existing tinted-initial
+  // logo carries the type identity in parallel.
+  const typeBadgeText =
+    tokenColor.voucher?.badgeTextByType?.[redemption.voucher.voucherType as keyof typeof tokenColor.voucher.badgeTextByType] ??
+    tokenColor.text.secondary
 
   const a11yLabel =
     `${redemption.merchant.businessName}, ${voucherTitle}, ${vtLabelAsNoun}, ${branchShort}, £${redemption.estimatedSaving.toFixed(2)} saved, ${relTime}`
@@ -132,7 +131,7 @@ export function RedemptionRow({ redemption, onPress }: Props) {
       onPress={() => onPress(redemption.id)}
       accessibilityLabel={a11yLabel}
       accessibilityRole="button"
-      style={[styles.rowSurface, { backgroundColor: rowBg, borderColor: rowBorder }]}
+      style={styles.rowSurface}
       testID={`savings-redemption-row-${redemption.id}`}
     >
       <View style={styles.rowInner}>
@@ -166,7 +165,12 @@ export function RedemptionRow({ redemption, onPress }: Props) {
           <Text variant="body.sm" style={styles.voucherTitle} numberOfLines={1}>
             {voucherTitle}
           </Text>
-          <Text variant="body.sm" style={styles.metaType} numberOfLines={1}>
+          <Text
+            variant="body.sm"
+            style={[styles.metaType, { color: typeBadgeText }]}
+            numberOfLines={1}
+            testID="savings-row-meta-type"
+          >
             {vtLabelAsNoun}
           </Text>
           <Text variant="body.sm" style={styles.metaWhere} numberOfLines={1}>
@@ -268,12 +272,12 @@ const styles = StyleSheet.create({
   },
   // §Savings device-QA round-8 — split meta into two deterministic
   // single-line rows.  Type label gets the stronger metadata weight
-  // (12pt secondary) because it's the offer's identity; branch+time
-  // stays tertiary (11pt) as supporting metadata.
+  // (12pt SemiBold) because it's the offer's identity AND now wears
+  // the voucher-type colour (set per-render via `typeBadgeText`).
+  // Branch+time stays tertiary (11pt) as supporting metadata.
   metaType: {
-    fontFamily: 'Lato-Medium',
+    fontFamily: 'Lato-SemiBold',
     fontSize: 12,
-    color: tokenColor.text.secondary,
   },
   metaWhere: {
     fontFamily: 'Lato-Regular',
