@@ -518,27 +518,29 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[5],
     color: color.text.tertiary,
   },
-  // §Savings device-QA fixup 5 2026-05-18 — Load more pill.
-  // Secondary-button styling per DESIGN.md (white surface, navy
-  // border + text, rounded-md).  Sits centered with vertical
-  // breathing room between the last row and the bottom of the list.
+  // §Savings device-QA round-2 fixup 2026-05-18 — Load more pill
+  // brand-aligned to solid navy.  Was: white surface + navy border
+  // + navy text (DESIGN.md secondary-button).  Owner direction:
+  // wants the action to feel "brand-aligned", more visible than
+  // the secondary outline.  Solid navy pill with white text =
+  // brand-coherent (navy is the typographic spine) without
+  // hijacking elevation.glow + brand-rose which DESIGN.md reserves
+  // for THE primary CTA (Subscribe / Redeem / Show to Staff).
   footerLoadMoreWrap: {
     paddingVertical: spacing[5],
     paddingHorizontal: spacing[5],
     alignItems: 'center',
   },
   loadMorePill: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: color.navy,
+    backgroundColor: color.navy,
     borderRadius: radius.md,
-    paddingHorizontal: spacing[5],
+    paddingHorizontal: spacing[6],
     paddingVertical: spacing[3],
     minWidth: 160,
     alignItems: 'center',
   },
   loadMoreText: {
-    color: color.navy,
+    color: '#FFFFFF',
     fontFamily: 'Lato-SemiBold',
   },
   listContent: {
