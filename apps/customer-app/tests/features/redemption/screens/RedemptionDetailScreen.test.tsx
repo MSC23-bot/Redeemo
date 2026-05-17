@@ -398,6 +398,59 @@ describe('RedemptionDetailScreen — actions', () => {
     fireEvent.press(getByTestId('redemption-detail-see-merchant'))
     expect(mockRouterPush).toHaveBeenCalledWith('/(app)/merchant/cov?from=savings')
   })
+
+  it('"Review this visit" routes to verified-review URL with redemptionId attribution', () => {
+    // §Savings device-QA round-5 fixup 2026-05-18 — Review this
+    // visit reuses the verified-review contract locked in PR-C
+    // (merge a80f427).  URL shape:
+    //   /(app)/merchant/[id]?branch=...&tab=reviews
+    //     &openWriteReview=1&fromRedemption=<redemptionId>
+    // MerchantProfileScreen reads these params (via
+    // `deriveInitialOpenWriteFor`), auto-opens WriteReviewSheet
+    // tied to this redemption, and `Review.redemptionId !== null`
+    // ⇒ `isVerified: true` on the resulting review.
+    setMock({ data: makeDetail({
+      id:        'red-xyz',
+      branchId:  'br-1',
+      voucher: {
+        id: 'v-1', title: 'X', voucherType: 'BOGO',
+        merchant: { id: 'cov-merchant', businessName: 'Covelum' },
+      },
+    })})
+    const { getByTestId } = wrap(<RedemptionDetailScreen />)
+    fireEvent.press(getByTestId('redemption-detail-review-this-visit'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: '/(app)/merchant/[id]',
+      params: {
+        id:              'cov-merchant',
+        branch:          'br-1',
+        tab:             'reviews',
+        openWriteReview: '1',
+        fromRedemption:  'red-xyz',
+      },
+    })
+  })
+
+  it('REGRESSION: Review this visit passes the REDEMPTION id (not the voucher id) as fromRedemption', () => {
+    // Critical attribution: fromRedemption must be the redemption.id
+    // so the backend's PR-C Path A maps Review.redemptionId to this
+    // specific event.  Pinning to a fixture where redemption.id and
+    // voucher.id are distinct strings catches any future swap.
+    setMock({ data: makeDetail({
+      id: 'red-distinct',
+      voucher: {
+        id: 'v-distinct', title: 'X', voucherType: 'BOGO',
+        merchant: { id: 'm', businessName: 'M' },
+      },
+    })})
+    const { getByTestId } = wrap(<RedemptionDetailScreen />)
+    fireEvent.press(getByTestId('redemption-detail-review-this-visit'))
+
+    const call = mockRouterPush.mock.calls[0][0] as { params: { fromRedemption: string } }
+    expect(call.params.fromRedemption).toBe('red-distinct')
+    expect(call.params.fromRedemption).not.toBe('v-distinct')
+  })
 })
 
 describe('RedemptionDetailScreen — back navigation', () => {

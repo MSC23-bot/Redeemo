@@ -321,10 +321,44 @@ export function RedemptionDetailScreen() {
         </View>
 
         {/* ── Actions row ─────────────────────────────────────────── */}
-        {/* "See merchant" stays as the only action in this commit.
-            "Review this visit" lands in commit 3 alongside the
-            verified-review wire-up. */}
+        {/* PRIMARY: Review this visit — routes to the verified-review
+            flow established by PR-C (verified-review, merge a80f427).
+            URL contract reused 1:1 from VoucherDetailScreen's
+            SuccessPopup onRateReview handler so the review created
+            from this entry point gets the same verified attribution
+            via `Review.redemptionId`.  Brand gradient + elevation.glow
+            per DESIGN.md primary-button pattern.
+
+            SECONDARY: See merchant — navy outline.  Always available
+            per locked owner direction (stable secondary action). */}
         <View style={styles.actions}>
+          <PressableScale
+            onPress={() => router.push({
+              pathname: '/(app)/merchant/[id]',
+              params: {
+                id:              r.voucher.merchant.id,
+                branch:          r.branchId,
+                tab:             'reviews',
+                openWriteReview: '1',
+                fromRedemption:  r.id,
+              },
+            } as never)}
+            style={styles.primaryButton}
+            accessibilityRole="button"
+            accessibilityLabel="Review this visit"
+            testID="redemption-detail-review-this-visit"
+          >
+            <LinearGradient
+              colors={['#E20C04', '#E84A00']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <Text variant="heading.sm" style={styles.primaryButtonText}>
+              Review this visit
+            </Text>
+          </PressableScale>
+
           <PressableScale
             onPress={() => router.push(
               `/(app)/merchant/${r.voucher.merchant.id}${from ? `?from=${from}` : ''}` as never,
@@ -531,6 +565,23 @@ const styles = StyleSheet.create({
     gap: spacing[3],
     marginTop: spacing[5],
     paddingHorizontal: spacing[5],
+  },
+  // Primary CTA — DESIGN.md primary-button pattern.  Brand gradient
+  // (Rose → Coral) painted via LinearGradient absoluteFill behind
+  // the label.  elevation.glow gives the brand-rose shadow lift
+  // reserved for the customer's primary action this minute.
+  // `overflow: hidden` clips the gradient to the pill silhouette.
+  primaryButton: {
+    borderRadius: radius.md,
+    paddingHorizontal: spacing[6],
+    paddingVertical: spacing[3],
+    alignItems: 'center',
+    overflow: 'hidden',
+    ...elevation.glow,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontFamily: 'Lato-SemiBold',
   },
   secondaryButton: {
     backgroundColor: color.surface.page,
