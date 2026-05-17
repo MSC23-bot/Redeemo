@@ -10,8 +10,9 @@ import Animated, {
   withDelay,
 } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
+import { TrendingUp } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
-import { spacing } from '@/design-system/tokens'
+import { color, spacing } from '@/design-system/tokens'
 import { useMotionScale } from '@/design-system/useMotionScale'
 
 // §Savings Rebaseline spec §ROI Callout.  Warm gradient card with a
@@ -72,18 +73,29 @@ export function RoiCallout({ thisMonthSaving, billingInterval, hasPromo }: Props
   const multiplier = (thisMonthSaving / planCost).toFixed(1)
   const amount = `£${thisMonthSaving.toFixed(2)}`
 
-  // §Savings fidelity fixup-2 2026-05-17 — full rework to match the
-  // brainstorm composition (was: centred 16pt body text).  New shape:
-  //   - flex row: 38x38 rose-tinted icon tile + text block
-  //   - eyebrow line (10px, +1px tracking, uppercase, brand-red)
-  //   - body line (13px, deep brand-red, inline strong emphasis)
-  // No em-dashes in copy (locked rule); replaced with "—" → "·" /
-  // sentence break.
-  const headline = hasPromo
-    ? "YOUR PROMO IS DELIVERING"
-    : !isAboveBreakeven
-    ? "YOU'RE ON YOUR WAY"
-    : "THIS MONTH'S RETURN"
+  // §Savings impeccable 2/6 2026-05-17 — rework against DESIGN.md tokens.
+  //
+  // Was: 🎉 emoji + UPPERCASE eyebrow headline + deep-brand-red body
+  // (custom hex #7C1E1E / #5C0F0F / #C01010 — not in DESIGN.md).
+  // Two issues per impeccable:
+  //   1. Emoji renders system-dependent (different on iOS / Android /
+  //      Hermes); breaks DESIGN.md's typography commitment.
+  //   2. Eyebrow-as-Eyebrow Rule: label.eyebrow (uppercase, +1.8
+  //      tracking) is a SECTION HEADER, not a body headline.  Using
+  //      "YOUR PROMO IS DELIVERING" as a card headline reads SaaS-
+  //      celebration — exactly the anti-pattern PRODUCT.md flags.
+  //   3. The savings amount in this callout is product narrative, not
+  //      state feedback — DESIGN.md prescribes savings-green
+  //      `#16A34A` for that role, not deep brand-red.
+  //
+  // Now:
+  //   - Lucide TrendingUp icon (from design-system barrel) replaces the
+  //     emoji.  Semantic for "your money back" rationale.
+  //   - Eyebrow headline dropped.  The body sentence already does the
+  //     work; an extra label muddies the message.
+  //   - Body in text.primary navy 14pt Lato Regular.
+  //   - Inline emphasis (saving amount + multiplier) in savings-green
+  //     Lato-SemiBold.  Tokens, not invented hex.
 
   const planCopy = billingInterval === 'ANNUAL'
     ? 'your annual plan'
@@ -107,13 +119,12 @@ export function RoiCallout({ thisMonthSaving, billingInterval, hasPromo }: Props
       </Animated.View>
       <View style={styles.inner}>
         <View style={styles.iconTile}>
-          <Text style={styles.iconGlyph}>🎉</Text>
+          <TrendingUp size={20} color={color.savingsGreen} />
         </View>
         <View style={styles.textBlock}>
-          <Text style={styles.headline}>{headline}</Text>
           {hasPromo ? (
             <Text style={styles.body}>
-              You saved <Text style={styles.bodyStrong}>{amount}</Text> this month. Keep it up!
+              You&apos;ve saved <Text style={styles.bodyStrong}>{amount}</Text> this month with your promo. Keep it up.
             </Text>
           ) : !isAboveBreakeven ? (
             <Text style={styles.body}>
@@ -122,7 +133,7 @@ export function RoiCallout({ thisMonthSaving, billingInterval, hasPromo }: Props
           ) : (
             <Text style={styles.body}>
               Saved <Text style={styles.bodyStrong}>{amount}</Text> on {planCopy}. That&apos;s{' '}
-              <Text style={styles.pill}>{`${multiplier}×`}</Text> your money back.
+              <Text style={styles.bodyStrong}>{`${multiplier}×`}</Text> your money back.
             </Text>
           )}
         </View>
@@ -152,51 +163,35 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3],
     paddingHorizontal: spacing[4],
   },
-  // Brainstorm: 38x38 rounded-12 rose-tinted tile, 20pt glyph.
+  // 40x40 savings-green tinted tile (background uses savings-green at
+  // 10% alpha — pairs with the green TrendingUp icon).  The warm
+  // gradient + green tile reads "your money is growing".
   iconTile: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: 12,
-    backgroundColor: 'rgba(226,12,4,0.10)',
+    backgroundColor: 'rgba(22,163,74,0.10)',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  iconGlyph: {
-    fontSize: 20,
-    lineHeight: 24,
-  },
   textBlock: {
     flex: 1,
   },
-  // Brainstorm eyebrow: 10px Lato-SemiBold +1px tracking uppercase
-  // deep brand-red (#C01010).
-  headline: {
-    fontFamily: 'Lato-SemiBold',
-    fontSize: 10,
-    letterSpacing: 1,
-    color: '#C01010',
-    marginBottom: 3,
-  },
-  // Brainstorm body: 13px Lato regular, deep brand-red, 1.45 lh.
+  // body.md (Lato Regular 16/24) in text.primary navy — DESIGN.md
+  // standard reading body.  No invented hex.
   body: {
     fontFamily: 'Lato-Regular',
-    fontSize: 13,
-    lineHeight: 19,
-    color: '#7C1E1E',
+    fontSize: 14,
+    lineHeight: 20,
+    color: color.text.primary,
   },
-  // Strong inline emphasis: darker brand-red, semibold.
+  // Inline emphasis on saving amount + multiplier.  Savings-green
+  // semibold per DESIGN.md "savings-green is the 'you saved £X'
+  // colour" rule.  Tabular-nums keeps amounts aligned across renders.
   bodyStrong: {
     fontFamily: 'Lato-SemiBold',
-    color: '#5C0F0F',
-  },
-  // Multiplier emphasis: bright brand-rose semibold (RN doesn't
-  // support a true inline pill background on text inside a parent
-  // <Text>; rely on weight + colour for emphasis).
-  pill: {
-    fontFamily: 'Lato-SemiBold',
-    fontSize: 13,
-    color: '#E20C04',
+    color: color.savingsGreen,
     fontVariant: ['tabular-nums'],
   },
 })
