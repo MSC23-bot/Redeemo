@@ -249,9 +249,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#010C35',
   },
+  // §Savings device-QA round-8 — visit-count line bumped from 11pt
+  // tertiary (#9CA3AF) to 12pt secondary (#4B5563) per owner direction
+  // ("nine visits / two visits are a bit difficult to read").  Stays
+  // clearly subordinate to the merchant name (14pt bold) but reads
+  // confidently as supporting metadata.
   secondaryName: {
-    fontSize: 11,
-    color: '#9CA3AF',
+    fontFamily: 'Lato-Medium',
+    fontSize: 12,
+    color: '#4B5563',
   },
   saving: {
     fontFamily: 'MusticaPro-SemiBold',

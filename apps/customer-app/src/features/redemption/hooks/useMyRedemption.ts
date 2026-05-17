@@ -54,6 +54,11 @@ export const myRedemptionDetailSchema = z.object({
     merchant: z.object({
       id:           z.string(),
       businessName: z.string(),
+      // §Savings device-QA round-8 fixup 2026-05-18 — backend select
+      // expanded to include `logoUrl` for the Redemption Receipt
+      // visual identity.  Nullable: a merchant may not have uploaded
+      // a logo yet; the receipt UI falls back to a tinted initial.
+      logoUrl:      z.string().nullable().optional(),
     }),
   }),
   branch: z.object({

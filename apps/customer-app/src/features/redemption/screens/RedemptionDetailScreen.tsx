@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react'
-import { View, ScrollView, Pressable, StyleSheet } from 'react-native'
+import { View, ScrollView, Pressable, Image, StyleSheet } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -13,7 +13,7 @@ import { isPresentationActive } from '@/features/voucher/utils/presentationWindo
 import { useMyRedemption } from '../hooks/useMyRedemption'
 import type { ValidationMethod } from '../hooks/useMyRedemption'
 
-// §Savings Redemption Receipt — PR #105 device-QA round-7, 2026-05-18.
+// §Savings Redemption Receipt — PR #105 device-QA round-8, 2026-05-18.
 //
 // Dedicated route at `/(app)/redemption/[id]`.  Fetches a SPECIFIC
 // redemption event by id (not by voucher id) so each event opens
@@ -213,6 +213,40 @@ export function RedemptionDetailScreen() {
             testID="redemption-detail-type-accent"
           />
           <View style={styles.identityInner}>
+            {/* §Savings device-QA round-8 — merchant logo top of hero.
+                Real logoUrl → rendered as an Image; null → tinted
+                initial fallback (matches Savings TopPlaces + the
+                history row treatment).  Sits above the type chip so
+                the merchant identity is the first thing the receipt
+                reads. */}
+            <View style={styles.merchantBadge} testID="redemption-detail-merchant-badge">
+              {r.voucher.merchant.logoUrl ? (
+                <Image
+                  source={{ uri: r.voucher.merchant.logoUrl }}
+                  style={styles.merchantLogoImage}
+                  accessibilityIgnoresInvertColors
+                  testID="redemption-detail-merchant-logo"
+                />
+              ) : (
+                <View
+                  style={[styles.merchantLogoFallback, { backgroundColor: `${typeAccentColor}22` }]}
+                  testID="redemption-detail-merchant-logo-fallback"
+                >
+                  <Text style={[styles.merchantLogoInitial, { color: typeAccentColor }]}>
+                    {(r.voucher.merchant.businessName || '?').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.merchantBadgeText}>
+                <Text variant="body.sm" style={styles.merchantBadgeName} numberOfLines={1}>
+                  {r.voucher.merchant.businessName}
+                </Text>
+                <Text variant="body.sm" style={styles.merchantBadgeBranch} numberOfLines={1}>
+                  {r.branch.name}
+                </Text>
+              </View>
+            </View>
+
             <View
               style={[styles.typeChip, { backgroundColor: typeAccentColor }]}
               testID="redemption-detail-type-eyebrow"
@@ -223,9 +257,6 @@ export function RedemptionDetailScreen() {
             </View>
             <Text variant="display.sm" style={styles.voucherTitle} testID="redemption-detail-voucher-title">
               {r.voucher.title}
-            </Text>
-            <Text variant="body.sm" style={styles.merchantBranchLine}>
-              {r.voucher.merchant.businessName} · {r.branch.name}
             </Text>
             {description && (
               <Text
@@ -420,15 +451,15 @@ function BackHeader({ insetsTop, onBack }: { insetsTop: number; onBack: () => vo
 // ─── Styles ───────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // Round-7 page contract: page = system `surface.page` (#FFFFFF),
-  // header sits transparent over it, identity zone wears the voucher
-  // type's pastel gradient.  This honours DESIGN.md's Cream-for-
-  // Identity Rule (cream framing a single zone reads branded — cream
-  // painted across a whole screen reads decorative) and removes the
-  // round-6 cream-page-with-peach-hero split the owner called out.
+  // Round-8 page contract: page = `surface.neutral` (#F8F9FA) — the
+  // cool-neutral ground.  The white receipt body card lifts cleanly
+  // above it, while the voucher-type pastel hero still reads
+  // intentionally against the neutral page.  Round-7 used
+  // `surface.page` (#FFFFFF) which made the white receipt card
+  // visually identical to the page — the card no longer lifted.
   screen: {
     flex: 1,
-    backgroundColor: color.surface.page,
+    backgroundColor: color.surface.neutral,
   },
   headerWrap: {
     flexDirection: 'row',
@@ -484,14 +515,54 @@ const styles = StyleSheet.create({
   },
   voucherTitle: {
     color: color.text.primary,
-    marginTop: spacing[2],
-  },
-  merchantBranchLine: {
-    color: color.text.secondary,
+    marginTop: spacing[1],
   },
   descriptionText: {
     color: color.text.primary,
     marginTop: spacing[2],
+  },
+  // §Savings round-8 — merchant badge at the top of the hero.
+  // Pairs a small rounded logo with merchant name + branch on two
+  // tight lines.  Same shape as Savings TopPlaces + RedemptionRow
+  // logo treatment so the merchant identity reads consistently
+  // across the surface family.
+  merchantBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    marginBottom: spacing[2],
+  },
+  merchantLogoImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: color.surface.subtle,
+  },
+  merchantLogoFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  merchantLogoInitial: {
+    fontFamily: 'Lato-SemiBold',
+    fontSize: 18,
+  },
+  merchantBadgeText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  merchantBadgeName: {
+    fontFamily: 'Lato-Bold',
+    fontSize: 15,
+    color: color.text.primary,
+  },
+  merchantBadgeBranch: {
+    fontFamily: 'Lato-Regular',
+    fontSize: 13,
+    color: color.text.secondary,
   },
 
   // ── Receipt surface (single card, divider rows) ──────────────

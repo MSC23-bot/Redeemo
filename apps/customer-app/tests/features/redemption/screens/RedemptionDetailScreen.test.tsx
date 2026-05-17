@@ -276,6 +276,52 @@ describe('RedemptionDetailScreen — voucher type coverage', () => {
   })
 })
 
+describe('RedemptionDetailScreen — merchant identity badge', () => {
+  it('renders the merchant logo when logoUrl is present', () => {
+    setMock({ data: makeDetail({
+      voucher: {
+        id: 'v', title: 'X', voucherType: 'BOGO',
+        merchant: { id: 'm', businessName: 'Covelum', logoUrl: 'https://cdn.example/cov.png' },
+      },
+    })})
+    const { getByTestId, queryByTestId } = wrap(<RedemptionDetailScreen />)
+    expect(getByTestId('redemption-detail-merchant-badge')).toBeTruthy()
+    expect(getByTestId('redemption-detail-merchant-logo')).toBeTruthy()
+    // Fallback initial is suppressed when the real logo is shown.
+    expect(queryByTestId('redemption-detail-merchant-logo-fallback')).toBeNull()
+  })
+
+  it('falls back to the tinted-initial avatar when logoUrl is null', () => {
+    setMock({ data: makeDetail({
+      voucher: {
+        id: 'v', title: 'X', voucherType: 'BOGO',
+        merchant: { id: 'm', businessName: 'Karaara', logoUrl: null },
+      },
+    })})
+    const { getByTestId, getByText, queryByTestId } = wrap(<RedemptionDetailScreen />)
+    expect(getByTestId('redemption-detail-merchant-logo-fallback')).toBeTruthy()
+    // Initial letter visible inside the fallback.
+    expect(getByText('K')).toBeTruthy()
+    expect(queryByTestId('redemption-detail-merchant-logo')).toBeNull()
+  })
+
+  it('renders merchant name + branch name on two separate lines inside the badge', () => {
+    setMock({ data: makeDetail({
+      voucher: {
+        id: 'v', title: 'X', voucherType: 'BOGO',
+        merchant: { id: 'm', businessName: 'Covelum', logoUrl: null },
+      },
+      branch: { id: 'br-1', name: 'Brightlingsea', addressLine1: '12 High Street', city: 'Brightlingsea', postcode: 'CO7 0AB' },
+    })})
+    const { getByText, queryByText } = wrap(<RedemptionDetailScreen />)
+    expect(getByText('Covelum')).toBeTruthy()
+    expect(getByText('Brightlingsea')).toBeTruthy()
+    // Sanity: the former combined caption "Covelum · Brightlingsea"
+    // no longer exists — the badge replaced it.
+    expect(queryByText('Covelum · Brightlingsea')).toBeNull()
+  })
+})
+
 describe('RedemptionDetailScreen — voucher description + terms', () => {
   it('renders voucher description when present', () => {
     setMock({ data: makeDetail({
@@ -374,8 +420,11 @@ describe('RedemptionDetailScreen — receipt facts', () => {
       estimatedSaving: 12.5,
     })})
     const { getByText, getByTestId } = wrap(<RedemptionDetailScreen />)
-    // Merchant + branch combined on a single caption line.
-    expect(getByText('Covelum · Brightlingsea')).toBeTruthy()
+    // §Savings round-8 — merchant identity surfaces in a dedicated
+    // logo + name + branch badge at the top of the hero.  Two
+    // independent lines now (name on its own line, branch below).
+    expect(getByText('Covelum')).toBeTruthy()
+    expect(getByText('Brightlingsea')).toBeTruthy()
     expect(getByText('Half-price pizza Monday')).toBeTruthy()
     const saving = getByTestId('redemption-detail-saving')
     // Template literal children render as `['£', '12.50']` — assert

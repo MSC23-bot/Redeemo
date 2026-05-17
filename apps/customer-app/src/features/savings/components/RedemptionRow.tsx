@@ -95,6 +95,20 @@ export function RedemptionRow({ redemption, onPress }: Props) {
     tokenColor.voucher?.byType?.[redemption.voucher.voucherType as keyof typeof tokenColor.voucher.byType] ??
     tokenColor.brandRose
 
+  // §Savings device-QA round-8 fixup 2026-05-18 — per-row voucher-type
+  // pastel surface so each row reads as its type at a glance.  Pulled
+  // from the locked `color.voucher.gradientByType[type]` token (light
+  // stop) — same pastel system as the Voucher Detail / Receipt hero.
+  // The whole-card tint is the load-bearing differentiator the owner
+  // asked for ("an element of the associated voucher"); the existing
+  // tinted-initial logo + filled-pill saving + new metaType line all
+  // reinforce the type identity without shouting.  Border softens to
+  // the type's mid-pastel to settle the edge against the page.
+  const rowPastel =
+    tokenColor.voucher.gradientByType[redemption.voucher.voucherType as keyof typeof tokenColor.voucher.gradientByType]
+  const rowBg     = rowPastel?.[0] ?? tokenColor.surface.raised
+  const rowBorder = rowPastel?.[1] ?? tokenColor.border.subtle
+
   const a11yLabel =
     `${redemption.merchant.businessName}, ${voucherTitle}, ${vtLabelAsNoun}, ${branchShort}, £${redemption.estimatedSaving.toFixed(2)} saved, ${relTime}`
 
@@ -118,7 +132,7 @@ export function RedemptionRow({ redemption, onPress }: Props) {
       onPress={() => onPress(redemption.id)}
       accessibilityLabel={a11yLabel}
       accessibilityRole="button"
-      style={styles.rowSurface}
+      style={[styles.rowSurface, { backgroundColor: rowBg, borderColor: rowBorder }]}
       testID={`savings-redemption-row-${redemption.id}`}
     >
       <View style={styles.rowInner}>
@@ -128,14 +142,23 @@ export function RedemptionRow({ redemption, onPress }: Props) {
           </Text>
         </View>
 
-        {/* §Savings device-QA round-2 fixup 2026-05-18 — three-line
-            content stack per owner direction:
-              Line 1  Merchant name (the WHO)
-              Line 2  Voucher title (the WHAT — what offer was used)
-              Line 3  Type-as-noun · branch · time (the META)
-            Adding the voucher title was the load-bearing change —
-            previously the user couldn't tell what offer each row
-            represented, only the merchant + type. */}
+        {/* §Savings device-QA round-8 fixup 2026-05-18 — four-line
+            deterministic stack (was three lines with a wrap-prone
+            single meta string).  Each line is `numberOfLines={1}` so
+            card height is identical across rows; previously the meta
+            line wrapped on long type labels ("Buy one, get one free
+            voucher · Brightlingsea · 1h ago") and orphaned the time
+            fragment, causing taller cards inconsistent with shorter-
+            label cards.  Owner direction round-8: same-size cards
+            are load-bearing; multi-line is fine as long as it's
+            consistent.
+              Line 1  Merchant name        (Lato Bold 14, primary)
+              Line 2  Voucher title        (Lato Medium 13, secondary)
+              Line 3  Type-as-noun         (Lato Medium 12, secondary)
+              Line 4  Branch · time        (Lato Regular 11, tertiary)
+            Bumped type readability from tertiary 11 → secondary 12
+            (clearer offer-type cue); kept location/time at tertiary
+            11 (metadata role). */}
         <View style={styles.content}>
           <Text variant="body.sm" style={styles.merchantName} numberOfLines={1}>
             {redemption.merchant.businessName}
@@ -143,8 +166,11 @@ export function RedemptionRow({ redemption, onPress }: Props) {
           <Text variant="body.sm" style={styles.voucherTitle} numberOfLines={1}>
             {voucherTitle}
           </Text>
-          <Text variant="body.sm" style={styles.meta} numberOfLines={2}>
-            {vtLabelAsNoun} · {branchShort} · {relTime}
+          <Text variant="body.sm" style={styles.metaType} numberOfLines={1}>
+            {vtLabelAsNoun}
+          </Text>
+          <Text variant="body.sm" style={styles.metaWhere} numberOfLines={1}>
+            {branchShort} · {relTime}
           </Text>
         </View>
 
@@ -240,7 +266,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: tokenColor.text.secondary,
   },
-  meta: {
+  // §Savings device-QA round-8 — split meta into two deterministic
+  // single-line rows.  Type label gets the stronger metadata weight
+  // (12pt secondary) because it's the offer's identity; branch+time
+  // stays tertiary (11pt) as supporting metadata.
+  metaType: {
+    fontFamily: 'Lato-Medium',
+    fontSize: 12,
+    color: tokenColor.text.secondary,
+  },
+  metaWhere: {
+    fontFamily: 'Lato-Regular',
     fontSize: 11,
     color: tokenColor.text.tertiary,
   },

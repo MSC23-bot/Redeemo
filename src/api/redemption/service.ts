@@ -605,7 +605,12 @@ export async function getMyRedemption(
       // pattern: select `type`, remap to `voucherType` in the
       // response so the customer-app's `voucherType`-keyed schemas
       // stay consistent across endpoints.
-      voucher: { select: { id: true, title: true, type: true, description: true, terms: true, merchant: { select: { id: true, businessName: true } } } },
+      // §Savings device-QA round-8 fixup 2026-05-18 — merchant.logoUrl
+      // added to the receipt payload so the Redemption Receipt screen
+      // can render the merchant identity visually (matches the
+      // savings-history row + savings TopPlaces row treatment).
+      // Additive; existing callers ignore unknown fields.
+      voucher: { select: { id: true, title: true, type: true, description: true, terms: true, merchant: { select: { id: true, businessName: true, logoUrl: true } } } },
       branch:  { select: { id: true, name: true, addressLine1: true, city: true, postcode: true } },
     },
   })

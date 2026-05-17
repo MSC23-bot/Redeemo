@@ -98,14 +98,22 @@ describe('RedemptionRow — voucher type label + branch meta', () => {
     expect(getByText(/Reusable voucher/)).toBeTruthy()
   })
 
-  it('meta line composition: "{type} voucher · {branch} · {time}"', () => {
+  it('meta is two deterministic single-line rows: type on line 1, branch · time on line 2', () => {
+    // §Savings device-QA round-8 fixup 2026-05-18 — meta split from
+    // one wrap-prone string ("{type} voucher · {branch} · {time}")
+    // into TWO deterministic single-line rows so card height is
+    // constant across the list (no orphan time fragments on long
+    // type labels).
     const r = makeRedemption({
       branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
       voucher: { id: 'v', title: 'Half-price pizza', voucherType: 'BOGO' },
       redeemedAt: new Date(Date.now() - 2 * 60 * 60_000 - 5 * 60_000).toISOString(),
     })
     const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText(/^Buy one, get one free voucher · Brightlingsea · /)).toBeTruthy()
+    // Line 3 (type-as-noun, full label, no inline branch/time).
+    expect(getByText('Buy one, get one free voucher')).toBeTruthy()
+    // Line 4 (branch · time, branchShortName-resolved).
+    expect(getByText(/^Brightlingsea · /)).toBeTruthy()
   })
 
   it('voucher title renders on its own line between merchant name and meta', () => {
@@ -121,12 +129,17 @@ describe('RedemptionRow — voucher type label + branch meta', () => {
   })
 
   it('long voucher type label does NOT lose the branch name (regression)', () => {
+    // §Savings device-QA round-8 fixup 2026-05-18 — regression now
+    // asserts BOTH rows render in full.  Previously the single-string
+    // meta would visually truncate the time fragment on narrow phones;
+    // the two-row stack pins each piece on its own line.
     const r = makeRedemption({
       branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
       voucher: { id: 'v', title: 'Half-price pizza', voucherType: 'BOGO' },
     })
     const { getByText, getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText(/Buy one, get one free voucher · Brightlingsea/)).toBeTruthy()
+    expect(getByText('Buy one, get one free voucher')).toBeTruthy()
+    expect(getByText(/Brightlingsea/)).toBeTruthy()
     const row = getByTestId('savings-redemption-row-red-1')
     expect(row.props.accessibilityLabel).toContain('Brightlingsea')
     expect(row.props.accessibilityLabel).toContain('Buy one, get one free voucher')
