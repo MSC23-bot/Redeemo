@@ -45,6 +45,10 @@ describe('savings routes', () => {
 
   afterEach(() => app.close())
 
+  // §Savings Rebaseline (Revision 2, 2026-05-17): byMerchant → byBranch.
+  // Per-entry shape carries branch + merchant context so the customer-app
+  // TopBranches row can render the "Brightlingsea (Covelum)" two-line
+  // layout without an extra fetch.
   const mockSummary = {
     lifetimeSaving: 50.00,
     thisMonthSaving: 15.00,
@@ -54,8 +58,16 @@ describe('savings routes', () => {
       { month: '2026-03', saving: 20.00, count: 4 },
       ...Array.from({ length: 10 }, (_, i) => ({ month: `2025-${String(6 + i).padStart(2, '0')}`, saving: 0, count: 0 })),
     ],
-    byMerchant: [
-      { merchantId: 'm1', businessName: 'Pizza Place', logoUrl: null, saving: 15.00, count: 3 },
+    byBranch: [
+      {
+        branchId:        'b1',
+        branchName:      'Central Branch',
+        merchantId:      'm1',
+        merchantName:    'Pizza Place',
+        merchantLogoUrl: null,
+        saving:          15.00,
+        count:           3,
+      },
     ],
     byCategory: [
       { categoryId: 'cat1', name: 'Food & Drink', saving: 15.00 },
@@ -88,8 +100,22 @@ describe('savings routes', () => {
     expect(Array.isArray(body.monthlyBreakdown)).toBe(true)
     expect(body.monthlyBreakdown).toHaveLength(12)
     expect(body.monthlyBreakdown[0]).toMatchObject({ month: '2026-04', saving: 15.00, count: 3 })
-    expect(Array.isArray(body.byMerchant)).toBe(true)
-    expect(body.byMerchant[0]).toMatchObject({ merchantId: 'm1', businessName: 'Pizza Place', saving: 15.00 })
+    // Revision 2: byBranch carries branchId + branchName + merchantId +
+    // merchantName + merchantLogoUrl + saving + count.
+    expect(Array.isArray(body.byBranch)).toBe(true)
+    expect(body.byBranch[0]).toMatchObject({
+      branchId:        'b1',
+      branchName:      'Central Branch',
+      merchantId:      'm1',
+      merchantName:    'Pizza Place',
+      merchantLogoUrl: null,
+      saving:          15.00,
+      count:           3,
+    })
+    // Revision 2 regression pin: legacy `byMerchant` field must NOT be
+    // present in the response — frontend consumers should fail loudly if
+    // someone re-introduces the merchant-level shape.
+    expect(body.byMerchant).toBeUndefined()
     expect(Array.isArray(body.byCategory)).toBe(true)
     expect(body.byCategory[0]).toMatchObject({ categoryId: 'cat1', name: 'Food & Drink' })
   })
@@ -215,19 +241,39 @@ describe('savings routes', () => {
   })
 
   describe('GET /savings/monthly-detail', () => {
+    // Revision 2: byBranch shape. Fixture demonstrates the load-bearing
+    // case — a multi-branch merchant (Covelum Brightlingsea + Covelum
+    // Colchester) splits into TWO byBranch entries with shared
+    // merchantId / merchantName, not one merged Covelum entry.
     const mockMonthlyDetail = {
       totalSaving: 20.00,
       redemptionCount: 4,
-      byMerchant: [
-        { merchantId: 'm1', businessName: 'Pizza Place', logoUrl: null, saving: 12.00, count: 2 },
-        { merchantId: 'm2', businessName: 'Coffee Shop', logoUrl: null, saving: 8.00, count: 2 },
+      byBranch: [
+        {
+          branchId:        'b1-brightlingsea',
+          branchName:      'Brightlingsea',
+          merchantId:      'm1',
+          merchantName:    'Covelum',
+          merchantLogoUrl: null,
+          saving:          12.00,
+          count:           2,
+        },
+        {
+          branchId:        'b2-colchester',
+          branchName:      'Colchester',
+          merchantId:      'm1',
+          merchantName:    'Covelum',
+          merchantLogoUrl: null,
+          saving:          8.00,
+          count:           2,
+        },
       ],
       byCategory: [
         { categoryId: 'cat1', name: 'Food & Drink', saving: 20.00 },
       ],
     }
 
-    it('returns 200 with monthly detail for a valid month', async () => {
+    it('returns 200 with monthly detail for a valid month — byBranch shape with multi-branch merchant split', async () => {
       ;(getMonthlyDetail as any).mockResolvedValue(mockMonthlyDetail)
       const res = await app.inject({
         method: 'GET',
@@ -238,8 +284,22 @@ describe('savings routes', () => {
       const body = res.json()
       expect(body.totalSaving).toBe(20.00)
       expect(body.redemptionCount).toBe(4)
-      expect(body.byMerchant).toHaveLength(2)
-      expect(body.byMerchant[0].businessName).toBe('Pizza Place')
+      // Revision 2 load-bearing pin: TWO branch entries for one merchant.
+      expect(body.byBranch).toHaveLength(2)
+      expect(body.byBranch[0]).toMatchObject({
+        branchName:   'Brightlingsea',
+        merchantId:   'm1',
+        merchantName: 'Covelum',
+        saving:       12.00,
+      })
+      expect(body.byBranch[1]).toMatchObject({
+        branchName:   'Colchester',
+        merchantId:   'm1',
+        merchantName: 'Covelum',
+        saving:       8.00,
+      })
+      // Regression pin: legacy byMerchant field must NOT be present.
+      expect(body.byMerchant).toBeUndefined()
       expect(body.byCategory).toHaveLength(1)
     })
 

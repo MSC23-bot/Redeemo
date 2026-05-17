@@ -1,8 +1,25 @@
 # Savings Tab — Design Spec
 
-**Date:** 2026-04-18  
-**Surface:** Customer App (React Native / Expo)  
+**Date:** 2026-04-18 (Revision 1) / 2026-05-17 (Revision 2 — rebaseline amendment)
+**Surface:** Customer App (React Native / Expo)
 **Route:** `/(app)/savings`
+
+---
+
+## Revision 2 — 2026-05-17 (Rebaseline amendment)
+
+This spec was originally locked 2026-04-18. The amendments below were locked 2026-05-17 after device QA and product-direction shifts: branch-as-PRIMARY-unit (2026-05-03), §AE5 Voucher Detail 2-hour presentation-window (2026-05-08), §BD-3 structural skeleton design language (2026-05-17), and the post-spec voucher types **TIME_LIMITED** (M4, 2026-05-11) + **REUSABLE** (M5, 2026-05-12). All amendments are applied in-line throughout the spec below; this header is the index of what changed.
+
+| Section | Change |
+|---|---|
+| State 1 trigger | Dropped `subscription.status === 'FREE'` — free user has no subscription record |
+| State 2 / State 3 triggers | Added `'PAST_DUE'` alongside `'ACTIVE' \| 'TRIALLING'` — routes by redemption count; no dedicated rebill CTA in this rebaseline |
+| Insight Card 2 | Renamed "Top Places" → "Top branches"; aggregation switched merchant-level → branch-level |
+| Backend requirement | Response shape: `byBranch[]` replaces `byMerchant[]` on BOTH `/summary` and `/monthly-detail`; endpoints themselves already shipped 2026-04-18 |
+| Redemption history row meta | Branch name added to meta line (e.g. "BOGO · Brightlingsea · 2 hours ago") |
+| Badge logic | "Show to staff" pill window: 24h → **2h** to match §AE5 |
+| Loading states | SavingsSkeleton: **structural** skeleton (mirrors §BD-3 `MerchantProfileSkeleton`), not generic shimmer |
+| NEW — Voucher type handling | See new section "Voucher type handling" near end of doc — TIME_LIMITED + REUSABLE handling rules |
 
 ---
 
@@ -25,7 +42,7 @@ The Savings tab is a personal financial dashboard and a subscription conversion 
 
 ## State 1 — Free User
 
-**Trigger:** `subscription === null` or `subscription.status === 'FREE'`
+**Trigger:** `subscription === null` (no active subscription record). [Revision 2: dropped `subscription.status === 'FREE'` — backend `SubscriptionStatus` enum doesn't have a `'FREE'` value; free users have no Subscription row at all, and `useSubscription()` returns `subscription: null` for them.]
 
 ### Hero header
 - Brand gradient background: `linear-gradient(145deg, #B80E08 0%, #D10A03 28%, #E20C04 52%, #CC3500 78%, #C83200 100%)`
@@ -52,7 +69,7 @@ Four cards, each with icon + title + description:
 
 ## State 2 — Subscribed, No Redemptions Yet
 
-**Trigger:** `subscription.status === 'ACTIVE' | 'TRIALLING'` AND redemption history is empty
+**Trigger:** `subscription.status === 'ACTIVE' | 'TRIALLING' | 'PAST_DUE'` AND redemption history is empty. [Revision 2: PAST_DUE users with zero redemptions route here. The rebill / retry CTA for PAST_DUE billing recovery is OUT OF SCOPE for this rebaseline — separate future workstream. Browse-vouchers CTA still works; downstream redemption is gated by the existing PAST_DUE → subscribe-prompt flow if they attempt to redeem.]
 
 ### Hero header
 - Same gradient and depth overlays as State 1
@@ -75,7 +92,7 @@ Three cards:
 
 ## State 3 — Populated Dashboard
 
-**Trigger:** `subscription.status === 'ACTIVE' | 'TRIALLING'` AND at least one redemption exists
+**Trigger:** `subscription.status === 'ACTIVE' | 'TRIALLING' | 'PAST_DUE'` AND at least one redemption exists. [Revision 2: PAST_DUE users with redemptions see the populated dashboard — their historical savings still belong to them; they just can't currently redeem new vouchers until billing is restored.]
 
 ### Hero header
 - Same gradient + depth overlays
@@ -113,10 +130,12 @@ Three cards in the `ListHeaderComponent`, each a white rounded card with `border
 - Bars animate `scaleY(0→1)` from bottom on mount with spring easing
 - Footer: min month label (left, muted) + max month label (right, `savings-green`)
 
-### Card 2 — Top Places
-- Up to two merchant rows per month: logo placeholder, merchant name (`Lato` 14px bold), meta (`Lato` 11px muted), saving amount (`MusticaPro-SemiBold` 18px `#16A34A`)
-- If only one merchant exists for the selected month, render one row — no placeholder for the second. If no merchants exist, hide Card 2 entirely.
-- Entrance: `fadeRight` staggered 85ms/92ms
+### Card 2 — Top branches  [Revision 2 — renamed from "Top Places"]
+- Up to two **branch** rows per month. Row anatomy: logo placeholder + branch name (primary line, `Lato` 14px bold, `#010C35`) + merchant name (secondary line, `Lato` 11px muted, `#9CA3AF`) + saving amount (`MusticaPro-SemiBold` 18px `#16A34A`).
+- Example row: **Brightlingsea** (primary) over *Covelum* (secondary muted). Distinguishes multi-branch merchants — a user who redeemed at Covelum Brightlingsea (£15) and Covelum Colchester (£10) sees TWO rows, not one merged "Covelum: £25" row.
+- If only one branch exists for the selected month, render one row — no placeholder for the second. If no branches, hide Card 2 entirely.
+- Entrance: `fadeRight` staggered 85ms/92ms.
+- **Aggregation switched merchant-level → branch-level** per the locked branch-as-PRIMARY-unit product rule (memory `project_branch_first_class_platform_rules.md`, 2026-05-03). Backend `byBranch[]` shape provides `branchId / branchName / merchantId / merchantName / merchantLogoUrl / saving / count` — see Backend requirement section below.
 
 ### Card 3 — By Category
 - Horizontal progress bars per category
@@ -147,10 +166,27 @@ Tapping any past month bar on Card 1 updates Cards 2 and 3 to show that month's 
 ### History list
 The redemption history list is **never filtered by selected month** — it always shows the full all-time history regardless of which bar is selected. Month drill-down only affects the insight cards.
 
-### Backend requirement
-New endpoint: `GET /api/v1/customer/savings/monthly-detail?month=YYYY-MM`  
-Returns: `{ totalSaving, redemptionCount, byMerchant[], byCategory[] }` for that specific month.  
-The hero card's lifetime/current-month stats always come from the existing `GET /api/v1/customer/savings` summary endpoint.
+### Backend requirement  [Revision 2 — endpoint already shipped 2026-04-18; only the response shape changed]
+
+Both `GET /api/v1/customer/savings/summary` and `GET /api/v1/customer/savings/monthly-detail?month=YYYY-MM` return `byBranch[]` (Revision 2) instead of `byMerchant[]` (Revision 1). Per-entry shape:
+
+```
+{
+  branchId:        string,
+  branchName:      string,
+  merchantId:      string,
+  merchantName:    string,
+  merchantLogoUrl: string | null,
+  saving:          number,
+  count:           number,
+}
+```
+
+Ordering: descending by `saving`. Both endpoints continue to return `byCategory[]` (merchant-level — categories are assigned to merchants, not branches) and the other top-level summary fields unchanged.
+
+The hero card's lifetime / current-month stats come from the existing `GET /api/v1/customer/savings/summary` endpoint, also unchanged in this revision.
+
+**PR-A (the backend prerequisite for this rebaseline track)** ships only the `byMerchant → byBranch` swap. No new endpoints, no Prisma schema changes, no other contract shifts.
 
 ---
 
@@ -185,15 +221,15 @@ Full all-time list, paginated via `onEndReached` (page size: 20). When all items
 ### Row anatomy
 - Logo placeholder: 46×46pt, `border-radius: 14px`, coloured by voucher type
 - Merchant name: `Lato` 14px bold, `#010C35`
-- Meta: voucher type + relative time — `Lato` 11px `#9CA3AF`
+- Meta: voucher type + **branch name** + relative time — `Lato` 11px `#9CA3AF`. Example: "BOGO · Brightlingsea · 2 hours ago". [Revision 2: branch name added between voucher type and relative time — multi-branch merchants must be distinguishable on the row. Use `branchShortName()` helper from `apps/customer-app/src/features/merchant/utils/branchShortName.ts` for the display, matching the Merchant Profile convention.]
 - Saving amount: `MusticaPro-SemiBold` 16px `#16A34A`, tabular nums, prefix `+`
 - Badge (right-aligned, below amount):
 
 | Condition | Badge |
 |---|---|
-| `isValidated = false` AND ≤24h since redemption | Amber pill: "Show to staff" — `bg: #FEF3C7`, `color: #B45309` |
-| `isValidated = true` AND ≤24h since validation | Green pill: "Validated ✓" — `bg: #DCFCE7`, `color: #16A34A` |
-| Everything else (>24h or older) | Plain text: "Redeemed" — `#9CA3AF`, no pill |
+| `isValidated = false` AND **≤2h** since redemption [Revision 2] | Amber pill: "Show to staff" — `bg: #FEF3C7`, `color: #B45309`. **Window matches §AE5 Voucher Detail presentation-window** locked 2026-05-08 — the Show-to-Staff CTA inside Voucher Detail is hidden after 2h, so the Savings badge must not promise an action the destination won't honour. |
+| `isValidated = true` AND ≤24h since validation | Green pill: "Validated ✓" — `bg: #DCFCE7`, `color: #16A34A`. Unchanged — celebration of a completed action, not an in-progress affordance. |
+| Everything else (`isValidated = false` AND >2h; OR `isValidated = true` AND >24h since validation) | Plain text: "Redeemed" — `#9CA3AF`, no pill. |
 
 **Tap action:** All rows navigate to `VoucherDetailScreen` in its redeemed state. The "Show to staff" badge is informational — tapping the row opens the detail screen where the customer can access the code again.
 
@@ -203,11 +239,12 @@ Full all-time list, paginated via `onEndReached` (page size: 20). When all items
 
 ## Loading States
 
-### Initial screen load
+### Initial screen load  [Revision 2 — structural skeleton replaces generic shimmer]
 On first navigation to the Savings tab, always show a skeleton regardless of known subscription status. Do not pre-render empty states from cached auth data.
 
-- **Skeleton layout:** Hero area shimmer block (full gradient height) + two skeleton insight card blocks below
-- Once the savings API resolves, render the correct state (State 1, 2, or 3) with entrance animations
+- **Skeleton layout (Revision 2 — structural):** cream canvas (`#FFF9F5`) matching the populated screen background; hero block with muted-navy gradient placeholder (`#D8DDE8 → #D0D6E2 → #C9D0DE`, mirrors `MerchantProfileSkeleton`'s palette locked 2026-05-17); 3 insight card shells (trend / top branches / by category) with cool-grey `#E5E7EB` placeholder rows; ROI callout placeholder; 3-4 RedemptionRow placeholders. Reuse the existing shimmer primitive from `SkeletonTile`.
+- Once the savings API resolves, render the correct state (State 1, 2, or 3) with entrance animations.
+- Cross-ref: §BD-3 / `MerchantProfileSkeleton.tsx` is the canonical structural-skeleton example for the customer-app. Maintain visual consistency across surfaces.
 
 ### Month drill-down fetch
 Skeleton shimmer inside insight Cards 2 and 3 while fetching. Card 1 bar chart remains interactive. Viewing chip appears immediately (optimistic).
@@ -290,3 +327,40 @@ All from `src/design-system/tokens.ts`:
 | Subscriber empty CTA "Browse vouchers" | Home tab — `/(app)/index` |
 | Any history row tap | `VoucherDetailScreen` in redeemed state |
 | Viewing chip ✕ or tapping current month bar | Resets to current month (no navigation) |
+
+---
+
+## Voucher type handling  [Revision 2 — 2026-05-17 addition]
+
+All Savings aggregations (lifetime total, this-month, top branches, by-category, redemption count, RedemptionRow listings) are **redemption-based** — every successful `VoucherRedemption` row contributes regardless of voucher type. The relevant voucher types as of this revision: BOGO, Discount Fixed / Discount Percent, Spend & Save, Freebie, Package Deal, **Time-Limited** (M4, shipped 2026-05-11), **Reusable** (M5, shipped 2026-05-12).
+
+### Counting rules
+
+- **REUSABLE vouchers** count once per successful redemption. A REUSABLE voucher used 5 times across cooldown cycles produces 5 rows in the redemption history and contributes 5× the per-redemption saving to every aggregate (lifetime / monthly / by-branch / by-category / count). There is no per-voucher de-duplication.
+- **TIME_LIMITED vouchers** count normally on redemption. The time-limited availability window gates when a redemption can happen, not how it's counted afterward.
+- All other voucher types (BOGO, Discount, Spend & Save, Freebie, Package Deal) count once per redemption as before.
+
+### Backend formula
+
+No change. The existing service queries `VoucherRedemption` directly without filtering by `voucher.voucherType`, so all types are included by default. PR-A backend tests pin this — a `voucherType` filter regression in the future would be caught by the "TIME_LIMITED + REUSABLE redemptions count toward all aggregates" pin.
+
+### RedemptionRow type label
+
+Display a human-readable voucher / offer type label for every current voucher type, using the canonical `voucherTypeLabel(type)` helper from [`apps/customer-app/src/features/voucher/utils/voucherTheme.ts`](../../apps/customer-app/src/features/voucher/utils/voucherTheme.ts). Labels in use (verified 2026-05-17):
+
+| Voucher type | Label |
+|---|---|
+| `BOGO` | BOGO |
+| `DISCOUNT_FIXED` / `DISCOUNT_PERCENT` | Discount |
+| `SPEND_AND_SAVE` | Spend & Save |
+| `FREEBIE` | Freebie |
+| `PACKAGE_DEAL` | Package Deal |
+| `TIME_LIMITED` | Time limited |
+| `REUSABLE` | Reusable |
+
+Matches Voucher Detail / SuccessPopup / ShowToStaff / RedemptionDetailsCard / CouponHeader copy conventions across the app. If a new voucher type ships later, add it to `voucherTypeLabel` first; Savings will pick up the new label automatically.
+
+### Not in scope
+
+- **No separate voucher-type breakdown card** in this rebaseline. Category breakdown stays merchant-category-based (Food & Drink / Beauty / etc.), not voucher-type-based. A future voucher-type breakdown could be added but is out of scope for the Savings rebaseline track.
+- **No special UX for REUSABLE cooldown state** on RedemptionRow (e.g. "On cooldown until …"). REUSABLE rows look the same as other rows; cooldown state is a Voucher Detail concern, not a Savings concern.

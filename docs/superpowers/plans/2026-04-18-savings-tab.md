@@ -2,7 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Savings tab in the customer app — a personal financial dashboard with 3 user states (free, subscriber-empty, populated), month drill-down, ROI callout, and paginated redemption history — exactly matching the approved design spec at `docs/superpowers/specs/2026-04-18-savings-tab-design.md`.
+> **Rebaseline Amendment 2026-05-17** — This plan was originally locked 2026-04-18. The rebaseline track (sequenced as two PRs: PR-A backend prerequisite + PR-B frontend port) operates against the **amended spec** at `docs/superpowers/specs/2026-04-18-savings-tab-design.md` (see the "Revision 2" header at the top of that doc for the index of changes). Affected tasks below:
+>
+> - **Task 1** (now obsolete): `validatedAt` added to redemptions response — already shipped 2026-04-18; verified on main as of 2026-05-17.
+> - **Task 2** (now obsolete): monthly-detail endpoint added — already shipped 2026-04-18; only the response shape changed (PR-A: `byMerchant` → `byBranch`).
+> - **Task 3** (adapted): customer-app API client must consume `byBranch[]` instead of `byMerchant[]`. Subscription `promoCodeId` field already on main.
+> - **Task 9** (renamed): "TopPlaces" → "TopBranches"; aggregation switched merchant-level → branch-level.
+> - **Task 11** (adapted): RedemptionRow meta includes branch name; "Show to staff" badge window is 2h (not 24h) per §AE5; row uses `voucherTypeLabel()` helper for TIME_LIMITED / REUSABLE / all other type labels.
+> - **Task 7** (rewrite): SavingsSkeleton is a structural skeleton (mirrors §BD-3 `MerchantProfileSkeleton`), not a generic shimmer-only block.
+> - **Task 12** (adapted): SavingsScreen state machine — State 1 trigger is `subscription === null` (drop `'FREE'` branch); State 2 / State 3 accept `'PAST_DUE'` and route by redemption count.
+> - **NEW**: Voucher type handling rules (TIME_LIMITED + REUSABLE) — see new "Voucher type handling" section in the amended spec. All voucher types count toward aggregations per-redemption; no separate breakdown card; RedemptionRow uses canonical `voucherTypeLabel`.
+>
+> Backend prerequisite (PR-A): spec/plan amendment commit + service.ts swap (`byMerchant` → `byBranch` in `getSavingsSummary` and `getMonthlyDetail`) + Zod-shape update + tests covering multi-branch split, REUSABLE/TIME_LIMITED inclusion, and ordering. ~150 LOC. Frontend (PR-B) executes Tasks 3 → 13 against the amended contract once PR-A is on main.
+
+**Goal:** Build the Savings tab in the customer app — a personal financial dashboard with 3 user states (free, subscriber-empty, populated), month drill-down, ROI callout, and paginated redemption history — exactly matching the approved design spec at `docs/superpowers/specs/2026-04-18-savings-tab-design.md` (Revision 2, post-rebaseline-amendment).
 
 **Architecture:** FlatList with ListHeaderComponent (hero + insight cards + ROI callout as header, redemption rows as list items). Three user states determined by subscription status + redemption count. Month drill-down fetches per-month insight data from a new backend endpoint. All animations use `transform`/`opacity` only via `react-native-reanimated`, respecting `useMotionScale()` for reduceMotion.
 
@@ -40,7 +53,7 @@ All paths below are relative to `apps/customer-app/`.
 | `src/features/savings/components/SavingsSkeleton.tsx` | **Create:** Hero + insight skeleton shimmer |
 | `src/features/savings/components/TrendChart.tsx` | **Create:** Card 1 — 6-month bar chart with tappable bars |
 | `src/features/savings/components/ViewingChip.tsx` | **Create:** Amber month-viewing pill |
-| `src/features/savings/components/TopPlaces.tsx` | **Create:** Card 2 — top merchants |
+| `src/features/savings/components/TopBranches.tsx` | **Create:** Card 2 — top branches [Revision 2: renamed from `TopPlaces.tsx`; aggregation switched merchant-level → branch-level per branch-as-PRIMARY-unit rule] |
 | `src/features/savings/components/ByCategory.tsx` | **Create:** Card 3 — category progress bars |
 | `src/features/savings/components/RoiCallout.tsx` | **Create:** 4-variant ROI card with shimmer sweep |
 | `src/features/savings/components/RedemptionRow.tsx` | **Create:** History row with badge logic |
@@ -60,7 +73,7 @@ All paths below are relative to `apps/customer-app/`.
 | `tests/features/savings/components/BenefitCards.test.tsx` | Benefit card rendering |
 | `tests/features/savings/components/TrendChart.test.tsx` | Bar chart interaction |
 | `tests/features/savings/components/ViewingChip.test.tsx` | Chip spring/dismiss |
-| `tests/features/savings/components/TopPlaces.test.tsx` | Merchant rows + hiding |
+| `tests/features/savings/components/TopBranches.test.tsx` | Branch rows + multi-branch-merchant split + hiding [Revision 2 — renamed from TopPlaces.test.tsx] |
 | `tests/features/savings/components/ByCategory.test.tsx` | Category bars |
 | `tests/features/savings/components/RoiCallout.test.tsx` | 4 variants + hidden states |
 | `tests/features/savings/components/RedemptionRow.test.tsx` | Badge logic + press |
@@ -198,7 +211,9 @@ git commit -m "feat(savings): include validatedAt in redemption history response
 
 ## Task 2: Backend — Add monthly-detail endpoint
 
-The month drill-down feature requires a new endpoint that returns `byMerchant[]` and `byCategory[]` for any specific past month. The existing summary endpoint only returns these for the current month.
+> **REVISION 2 NOTE (2026-05-17, post-PR-A).** This task is now **archival**. The monthly-detail endpoint shipped 2026-04-18 (verified on `main`). PR-A (merge SHA recorded in commit log; see top-of-doc rebaseline amendment for context) subsequently swapped the response field `byMerchant[]` → **`byBranch[]`** per the branch-as-PRIMARY-unit rule. The code snippets below have been updated in-line to reflect the post-PR-A shape; do NOT execute this task verbatim against current `main`. PR-B's frontend port should consume the contract documented in the amended spec (`docs/superpowers/specs/2026-04-18-savings-tab-design.md` → "Backend requirement", Revision 2).
+
+The month drill-down feature requires a new endpoint that returns `byBranch[]` and `byCategory[]` for any specific past month. The existing summary endpoint only returns these for the current month.
 
 **Files:**
 - Modify: `src/api/customer/savings/service.ts`
@@ -211,19 +226,39 @@ Add to `tests/api/customer/savings.routes.test.ts`:
 
 ```ts
 describe('GET /savings/monthly-detail', () => {
+  // Revision 2 (post-PR-A): byBranch shape. Fixture demonstrates the
+  // load-bearing case — a multi-branch merchant (Covelum Brightlingsea
+  // + Covelum Colchester) splits into TWO byBranch entries with
+  // shared merchantId / merchantName.
   const mockMonthlyDetail = {
     totalSaving: 20.00,
     redemptionCount: 4,
-    byMerchant: [
-      { merchantId: 'm1', businessName: 'Pizza Place', logoUrl: null, saving: 12.00, count: 2 },
-      { merchantId: 'm2', businessName: 'Coffee Shop', logoUrl: null, saving: 8.00, count: 2 },
+    byBranch: [
+      {
+        branchId:        'b1-brightlingsea',
+        branchName:      'Brightlingsea',
+        merchantId:      'm1',
+        merchantName:    'Covelum',
+        merchantLogoUrl: null,
+        saving:          12.00,
+        count:           2,
+      },
+      {
+        branchId:        'b2-colchester',
+        branchName:      'Colchester',
+        merchantId:      'm1',
+        merchantName:    'Covelum',
+        merchantLogoUrl: null,
+        saving:          8.00,
+        count:           2,
+      },
     ],
     byCategory: [
       { categoryId: 'cat1', name: 'Food & Drink', saving: 20.00 },
     ],
   }
 
-  it('returns 200 with monthly detail for a valid month', async () => {
+  it('returns 200 with monthly detail for a valid month — byBranch shape with multi-branch merchant split', async () => {
     const { getMonthlyDetail } = await import('../../../src/api/customer/savings/service')
     ;(getMonthlyDetail as any).mockResolvedValue(mockMonthlyDetail)
     const res = await app.inject({
@@ -235,8 +270,20 @@ describe('GET /savings/monthly-detail', () => {
     const body = res.json()
     expect(body.totalSaving).toBe(20.00)
     expect(body.redemptionCount).toBe(4)
-    expect(body.byMerchant).toHaveLength(2)
-    expect(body.byMerchant[0].businessName).toBe('Pizza Place')
+    // Revision 2 load-bearing pin: TWO branch entries for one merchant.
+    expect(body.byBranch).toHaveLength(2)
+    expect(body.byBranch[0]).toMatchObject({
+      branchName:   'Brightlingsea',
+      merchantId:   'm1',
+      merchantName: 'Covelum',
+    })
+    expect(body.byBranch[1]).toMatchObject({
+      branchName:   'Colchester',
+      merchantId:   'm1',
+      merchantName: 'Covelum',
+    })
+    // Regression pin: legacy byMerchant field must NOT be present.
+    expect(body.byMerchant).toBeUndefined()
     expect(body.byCategory).toHaveLength(1)
   })
 
@@ -316,11 +363,13 @@ export async function getMonthlyDetail(
   const totalSaving = Number(agg._sum.estimatedSaving ?? 0)
   const redemptionCount = agg._count.id
 
-  // By merchant
+  // By branch — Revision 2 (post-PR-A): see getSavingsSummary above for
+  // the architectural rationale (branch-as-PRIMARY-unit locked rule).
   const rows = await prisma.voucherRedemption.findMany({
     where: { userId, redeemedAt: { gte: start, lt: end } },
     select: {
       estimatedSaving: true,
+      branch:  { select: { id: true, name: true } },
       voucher: {
         select: {
           merchant: { select: { id: true, businessName: true, logoUrl: true } },
@@ -329,18 +378,29 @@ export async function getMonthlyDetail(
     },
   })
 
-  const byMerchantMap: Record<string, {
-    merchantId: string; businessName: string; logoUrl: string | null; saving: number; count: number
+  const byBranchMap: Record<string, {
+    branchId: string; branchName: string;
+    merchantId: string; merchantName: string; merchantLogoUrl: string | null;
+    saving: number; count: number
   }> = {}
   for (const r of rows) {
+    const b = r.branch
     const m = r.voucher.merchant
-    if (!byMerchantMap[m.id]) {
-      byMerchantMap[m.id] = { merchantId: m.id, businessName: m.businessName, logoUrl: m.logoUrl, saving: 0, count: 0 }
+    if (!byBranchMap[b.id]) {
+      byBranchMap[b.id] = {
+        branchId:        b.id,
+        branchName:      b.name,
+        merchantId:      m.id,
+        merchantName:    m.businessName,
+        merchantLogoUrl: m.logoUrl,
+        saving:          0,
+        count:           0,
+      }
     }
-    byMerchantMap[m.id].saving += Number(r.estimatedSaving ?? 0)
-    byMerchantMap[m.id].count += 1
+    byBranchMap[b.id].saving += Number(r.estimatedSaving ?? 0)
+    byBranchMap[b.id].count  += 1
   }
-  const byMerchant = Object.values(byMerchantMap).sort((a, b) => b.saving - a.saving)
+  const byBranch = Object.values(byBranchMap).sort((a, b) => b.saving - a.saving)
 
   // By category
   const catRows = await prisma.voucherRedemption.findMany({
@@ -368,7 +428,7 @@ export async function getMonthlyDetail(
   }
   const byCategory = Object.values(byCategoryMap).sort((a, b) => b.saving - a.saving)
 
-  return { totalSaving, redemptionCount, byMerchant, byCategory }
+  return { totalSaving, redemptionCount, byBranch, byCategory }
 }
 ```
 
@@ -442,7 +502,7 @@ describe('savingsApi', () => {
       thisMonthSaving: 25,
       thisMonthRedemptionCount: 5,
       monthlyBreakdown: [],
-      byMerchant: [],
+      byBranch: [],
       byCategory: [],
     })
     const result = await savingsApi.getSummary()
@@ -466,7 +526,7 @@ describe('savingsApi', () => {
     mockApi.get.mockResolvedValue({
       totalSaving: 20,
       redemptionCount: 4,
-      byMerchant: [],
+      byBranch: [],
       byCategory: [],
     })
     const result = await savingsApi.getMonthlyDetail('2026-03')
@@ -504,12 +564,17 @@ export type MonthBreakdown = {
   count: number
 }
 
-export type MerchantSaving = {
-  merchantId: string
-  businessName: string
-  logoUrl: string | null
-  saving: number
-  count: number
+// Revision 2 (post-PR-A): per-entry carries branch + merchant context.
+// Was named `MerchantSaving` in Revision 1 — renamed to `BranchSaving`
+// because aggregation is branch-level per the branch-as-PRIMARY-unit rule.
+export type BranchSaving = {
+  branchId:        string
+  branchName:      string
+  merchantId:      string
+  merchantName:    string
+  merchantLogoUrl: string | null
+  saving:          number
+  count:           number
 }
 
 export type CategorySaving = {
@@ -523,7 +588,7 @@ export type SavingsSummary = {
   thisMonthSaving: number
   thisMonthRedemptionCount: number
   monthlyBreakdown: MonthBreakdown[]
-  byMerchant: MerchantSaving[]
+  byBranch: BranchSaving[]
   byCategory: CategorySaving[]
 }
 
@@ -557,7 +622,7 @@ export type SavingsRedemptionsResponse = {
 export type MonthlyDetail = {
   totalSaving: number
   redemptionCount: number
-  byMerchant: MerchantSaving[]
+  byBranch: BranchSaving[]
   byCategory: CategorySaving[]
 }
 
@@ -662,7 +727,7 @@ describe('useSavingsSummary', () => {
       thisMonthSaving: 25,
       thisMonthRedemptionCount: 5,
       monthlyBreakdown: [],
-      byMerchant: [],
+      byBranch: [],
       byCategory: [],
     })
     const { result } = renderHook(() => useSavingsSummary(), { wrapper })
@@ -819,7 +884,7 @@ describe('useMonthlyDetail', () => {
     mockApi.getMonthlyDetail.mockResolvedValue({
       totalSaving: 20,
       redemptionCount: 4,
-      byMerchant: [],
+      byBranch: [],
       byCategory: [],
     })
     const { result } = renderHook(() => useMonthlyDetail('2026-03'), { wrapper })
@@ -1937,16 +2002,18 @@ git commit -m "feat(savings): add 6-month trend bar chart with tappable bars"
 
 ---
 
-## Task 9: Frontend — ViewingChip + TopPlaces + ByCategory (Cards 2 & 3 + chip)
+## Task 9: Frontend — ViewingChip + TopBranches + ByCategory (Cards 2 & 3 + chip)
 
-The viewing chip, top places card, and category breakdown card. These work together during month drill-down.
+> **REVISION 2 NOTE (2026-05-17, post-PR-A).** What was `TopPlaces` in Revision 1 is now `TopBranches` — aggregation switched merchant-level → branch-level per the branch-as-PRIMARY-unit rule. The component below MUST consume `byBranch[]` from the API (per-entry shape: branchId / branchName / merchantId / merchantName / merchantLogoUrl / saving / count). The row anatomy renders branch name on the primary line, merchant name on the secondary line (muted) — so a multi-branch merchant produces two distinct rows, e.g. "Brightlingsea / Covelum" and "Colchester / Covelum". The literal code snippets in this task body still reference the Revision-1 `TopPlaces` / `merchants` names; PR-B implementers should rename `TopPlaces` → `TopBranches`, `merchants` → `branches`, `MerchantSaving` → `BranchSaving` while porting. See the amended spec ("Card 2 — Top branches", Revision 2) for the locked design.
+
+The viewing chip, top branches card, and category breakdown card. These work together during month drill-down.
 
 **Files:**
 - Create: `src/features/savings/components/ViewingChip.tsx`
-- Create: `src/features/savings/components/TopPlaces.tsx`
+- Create: `src/features/savings/components/TopBranches.tsx` [Revision 2 — was TopPlaces.tsx]
 - Create: `src/features/savings/components/ByCategory.tsx`
 - Create: `tests/features/savings/components/ViewingChip.test.tsx`
-- Create: `tests/features/savings/components/TopPlaces.test.tsx`
+- Create: `tests/features/savings/components/TopBranches.test.tsx` [Revision 2 — was TopPlaces.test.tsx]
 - Create: `tests/features/savings/components/ByCategory.test.tsx`
 
 - [ ] **Step 1: Write tests**
@@ -3026,7 +3093,7 @@ describe('SavingsScreen', () => {
 
   it('shows free user state when not subscribed', async () => {
     mockSummary.mockReturnValue({
-      data: { lifetimeSaving: 0, thisMonthSaving: 0, thisMonthRedemptionCount: 0, monthlyBreakdown: [], byMerchant: [], byCategory: [] },
+      data: { lifetimeSaving: 0, thisMonthSaving: 0, thisMonthRedemptionCount: 0, monthlyBreakdown: [], byBranch: [], byCategory: [] },
       isLoading: false, isError: false, refetch: jest.fn(),
     })
     mockSub.mockReturnValue({ subscription: null, isSubscribed: false, isSubLoading: false })
@@ -3036,7 +3103,7 @@ describe('SavingsScreen', () => {
 
   it('shows subscriber-empty state with no redemptions', async () => {
     mockSummary.mockReturnValue({
-      data: { lifetimeSaving: 0, thisMonthSaving: 0, thisMonthRedemptionCount: 0, monthlyBreakdown: [], byMerchant: [], byCategory: [] },
+      data: { lifetimeSaving: 0, thisMonthSaving: 0, thisMonthRedemptionCount: 0, monthlyBreakdown: [], byBranch: [], byCategory: [] },
       isLoading: false, isError: false, refetch: jest.fn(),
     })
     mockSub.mockReturnValue({ subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } }, isSubscribed: true, isSubLoading: false })
@@ -3073,7 +3140,8 @@ import { SavingsSkeleton, InsightSkeleton } from '../components/SavingsSkeleton'
 import { BenefitCards } from '../components/BenefitCards'
 import { TrendChart } from '../components/TrendChart'
 import { ViewingChip } from '../components/ViewingChip'
-import { TopPlaces } from '../components/TopPlaces'
+// Revision 2 (post-PR-A): renamed TopPlaces → TopBranches.
+import { TopBranches } from '../components/TopBranches'
 import { ByCategory } from '../components/ByCategory'
 import { RoiCallout } from '../components/RoiCallout'
 import { RedemptionRow } from '../components/RedemptionRow'
@@ -3122,9 +3190,11 @@ export function SavingsScreen() {
   }, [summary.data])
 
   // ── Insight data: current or selected month ─────────────────────────────
-  const insightMerchants = selectedMonth
-    ? (monthDetail.data?.byMerchant ?? [])
-    : (summary.data?.byMerchant ?? [])
+  // Revision 2 (post-PR-A): renamed from `insightMerchants` to
+  // `insightBranches` because aggregation is branch-level.
+  const insightBranches = selectedMonth
+    ? (monthDetail.data?.byBranch ?? [])
+    : (summary.data?.byBranch ?? [])
   const insightCategories = selectedMonth
     ? (monthDetail.data?.byCategory ?? [])
     : (summary.data?.byCategory ?? [])
@@ -3235,7 +3305,9 @@ export function SavingsScreen() {
           ) : (
             <>
               <FadeInDown delay={650}>
-                <TopPlaces merchants={insightMerchants} />
+                {/* Revision 2 (post-PR-A): renamed TopPlaces → TopBranches;
+                    insightMerchants → insightBranches; consume byBranch[]. */}
+                <TopBranches branches={insightBranches} />
               </FadeInDown>
               <FadeInDown delay={750}>
                 <ByCategory categories={insightCategories} />

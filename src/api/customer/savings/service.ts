@@ -49,11 +49,19 @@ export async function getSavingsSummary(prisma: PrismaClient, userId: string) {
     count:  monthlyAggs[i]._count.id,
   }))
 
-  // ── By merchant — this month ──────────────────────────────────────────────
+  // ── By branch — this month ────────────────────────────────────────────────
+  // §Savings Rebaseline (Revision 2, 2026-05-17): aggregation switched from
+  // merchant-level to branch-level per the branch-as-PRIMARY-unit locked
+  // product rule (memory `project_branch_first_class_platform_rules.md`,
+  // 2026-05-03). Per-entry shape: branchId / branchName / merchantId /
+  // merchantName / merchantLogoUrl / saving / count.  Merchant context
+  // (name + logo) is preserved so the customer-app TopBranches row can
+  // render "Brightlingsea (Covelum)" without an extra fetch.
   const thisMonthRows = await prisma.voucherRedemption.findMany({
     where: { userId, redeemedAt: { gte: thisMonth.start, lt: thisMonth.end } },
     select: {
       estimatedSaving: true,
+      branch:  { select: { id: true, name: true } },
       voucher: {
         select: {
           merchant: { select: { id: true, businessName: true, logoUrl: true } },
@@ -62,18 +70,29 @@ export async function getSavingsSummary(prisma: PrismaClient, userId: string) {
     },
   })
 
-  const byMerchantMap: Record<string, {
-    merchantId: string; businessName: string; logoUrl: string | null; saving: number; count: number
+  const byBranchMap: Record<string, {
+    branchId: string; branchName: string;
+    merchantId: string; merchantName: string; merchantLogoUrl: string | null;
+    saving: number; count: number
   }> = {}
   for (const r of thisMonthRows) {
+    const b = r.branch
     const m = r.voucher.merchant
-    if (!byMerchantMap[m.id]) {
-      byMerchantMap[m.id] = { merchantId: m.id, businessName: m.businessName, logoUrl: m.logoUrl, saving: 0, count: 0 }
+    if (!byBranchMap[b.id]) {
+      byBranchMap[b.id] = {
+        branchId:        b.id,
+        branchName:      b.name,
+        merchantId:      m.id,
+        merchantName:    m.businessName,
+        merchantLogoUrl: m.logoUrl,
+        saving:          0,
+        count:           0,
+      }
     }
-    byMerchantMap[m.id].saving += Number(r.estimatedSaving ?? 0)
-    byMerchantMap[m.id].count  += 1
+    byBranchMap[b.id].saving += Number(r.estimatedSaving ?? 0)
+    byBranchMap[b.id].count  += 1
   }
-  const byMerchant = Object.values(byMerchantMap).sort((a, b) => b.saving - a.saving)
+  const byBranch = Object.values(byBranchMap).sort((a, b) => b.saving - a.saving)
 
   // ── By category — this month ──────────────────────────────────────────────
   const thisMonthCatRows = await prisma.voucherRedemption.findMany({
@@ -106,7 +125,7 @@ export async function getSavingsSummary(prisma: PrismaClient, userId: string) {
     thisMonthSaving,
     thisMonthRedemptionCount,
     monthlyBreakdown,
-    byMerchant,
+    byBranch,
     byCategory,
   }
 }
@@ -188,11 +207,13 @@ export async function getMonthlyDetail(
   const totalSaving = Number(agg._sum.estimatedSaving ?? 0)
   const redemptionCount = agg._count.id
 
-  // By merchant
+  // By branch — Revision 2 (2026-05-17): see getSavingsSummary above
+  // for the architectural rationale.  Same per-entry shape.
   const rows = await prisma.voucherRedemption.findMany({
     where: { userId, redeemedAt: { gte: start, lt: end } },
     select: {
       estimatedSaving: true,
+      branch:  { select: { id: true, name: true } },
       voucher: {
         select: {
           merchant: { select: { id: true, businessName: true, logoUrl: true } },
@@ -201,18 +222,29 @@ export async function getMonthlyDetail(
     },
   })
 
-  const byMerchantMap: Record<string, {
-    merchantId: string; businessName: string; logoUrl: string | null; saving: number; count: number
+  const byBranchMap: Record<string, {
+    branchId: string; branchName: string;
+    merchantId: string; merchantName: string; merchantLogoUrl: string | null;
+    saving: number; count: number
   }> = {}
   for (const r of rows) {
+    const b = r.branch
     const m = r.voucher.merchant
-    if (!byMerchantMap[m.id]) {
-      byMerchantMap[m.id] = { merchantId: m.id, businessName: m.businessName, logoUrl: m.logoUrl, saving: 0, count: 0 }
+    if (!byBranchMap[b.id]) {
+      byBranchMap[b.id] = {
+        branchId:        b.id,
+        branchName:      b.name,
+        merchantId:      m.id,
+        merchantName:    m.businessName,
+        merchantLogoUrl: m.logoUrl,
+        saving:          0,
+        count:           0,
+      }
     }
-    byMerchantMap[m.id].saving += Number(r.estimatedSaving ?? 0)
-    byMerchantMap[m.id].count += 1
+    byBranchMap[b.id].saving += Number(r.estimatedSaving ?? 0)
+    byBranchMap[b.id].count  += 1
   }
-  const byMerchant = Object.values(byMerchantMap).sort((a, b) => b.saving - a.saving)
+  const byBranch = Object.values(byBranchMap).sort((a, b) => b.saving - a.saving)
 
   // By category
   const catRows = await prisma.voucherRedemption.findMany({
@@ -240,5 +272,5 @@ export async function getMonthlyDetail(
   }
   const byCategory = Object.values(byCategoryMap).sort((a, b) => b.saving - a.saving)
 
-  return { totalSaving, redemptionCount, byMerchant, byCategory }
+  return { totalSaving, redemptionCount, byBranch, byCategory }
 }
