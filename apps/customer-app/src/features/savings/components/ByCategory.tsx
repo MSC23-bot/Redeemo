@@ -19,23 +19,34 @@ const BAR_STAGGER = 65
 const BAR_START_DELAY = 900
 
 function CategoryBar({ category, maxSaving, index }: { category: CategorySaving; maxSaving: number; index: number }) {
-  const fillPct = maxSaving > 0 ? (category.saving / maxSaving) * 100 : 0
-  const width = useSharedValue(0)
-  const scale = useMotionScale()
+  // §Savings emil-pass 2/7 2026-05-17 — hardware acceleration.
+  // The fill bar previously animated `width` from 0% → fillPct%.
+  // `width` is NOT GPU-accelerated; every frame triggers layout +
+  // paint.  Switched to `scaleX` from 0 → fillPct/100 with
+  // `transformOrigin: 'left'`.  Visually identical (the bar still
+  // grows from the left edge to the target percentage) but the
+  // animation now runs on the compositor thread.
+  //
+  // The track is the constant-width container; the fill spans
+  // `width: '100%'` and scales DOWN by default, scaling UP to the
+  // target ratio during the entrance.
+  const fillRatio = maxSaving > 0 ? category.saving / maxSaving : 0
+  const scaleX = useSharedValue(0)
+  const motionScale = useMotionScale()
 
   useEffect(() => {
-    if (scale === 0) {
-      width.value = fillPct
+    if (motionScale === 0) {
+      scaleX.value = fillRatio
       return
     }
-    width.value = withDelay(
+    scaleX.value = withDelay(
       BAR_START_DELAY + index * BAR_STAGGER,
-      withSpring(fillPct, { damping: 16, stiffness: 140 }),
+      withSpring(fillRatio, { damping: 16, stiffness: 140 }),
     )
-  }, [fillPct, index, scale, width])
+  }, [fillRatio, index, motionScale, scaleX])
 
   const fillStyle = useAnimatedStyle(() => ({
-    width: `${width.value}%` as unknown as number,
+    transform: [{ scaleX: scaleX.value }],
   }))
 
   return (
@@ -135,9 +146,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   barFill: {
-    height: 6,
-    borderRadius: 99,
-    overflow: 'hidden',
+    // emil-pass 2/7: the fill is a constant-width 100% bar that
+    // scales horizontally from 0 → fillRatio.  transformOrigin: 'left'
+    // anchors the scale at the leading edge so the bar appears to
+    // grow rightward (matching the previous width-animated behaviour).
+    width:           '100%',
+    height:          6,
+    borderRadius:    99,
+    overflow:        'hidden',
+    transformOrigin: 'left',
   },
   emptyLabel: {
     color: '#9CA3AF',
