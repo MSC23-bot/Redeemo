@@ -123,27 +123,36 @@ export function ViewingChip({ month, onDismiss }: Props) {
         accessibilityLabel={`Viewing ${monthLabel}. Tap to return to current month`}
         testID="savings-viewing-chip-dismiss"
       >
-        <X size={14} color="#B45309" />
+        <X size={14} color="#010C35" />
       </Pressable>
     </Animated.View>
   )
 }
 
 const styles = StyleSheet.create({
+  // §Savings impeccable 4/6 2026-05-17 — re-palette.
+  // Was: amber `#FEF3C7` bg + `#FDE68A` border + `#B45309` text /
+  // X-icon — warning-amber palette on an INFORMATIONAL chip implied a
+  // caution that isn't there.  DESIGN.md reserves amber for genuine
+  // warnings (expires-in-24h, low-remaining).
+  // Now: cream `surface.tint #FEF6F5` bg + `border.subtle #E5E7EB`
+  // hairline border + navy `text.primary #010C35` text + X.  Reads as
+  // a calm savings-flow chip; cream identity tone tied back to the
+  // brand's identity zone (no new colour invented).
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'center',
-    backgroundColor: '#FEF3C7',
+    backgroundColor: '#FEF6F5',
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: '#E5E7EB',
     borderRadius: radius.pill,
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[1],
     gap: spacing[2],
   },
   chipText: {
-    color: '#B45309',
+    color: '#010C35',
     fontFamily: 'Lato-SemiBold',
     fontSize: 12,
   },
