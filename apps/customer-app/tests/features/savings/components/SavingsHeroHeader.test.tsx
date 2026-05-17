@@ -64,8 +64,15 @@ describe('SavingsHeroHeader — 3 state variants', () => {
     expect(onBrowse).toHaveBeenCalled()
   })
 
-  it('populated: renders lifetime + chips with actual values', () => {
-    const { getByTestId, getByText } = wrap(
+  it('populated: renders lifetime amount on cream identity zone + single editorial caption', () => {
+    // §Savings impeccable 6/6 rework: the populated hero MOVED from
+    // brand-rose-drench-with-stat-chips (the SaaS metric template
+    // PRODUCT.md + DESIGN.md ban) to a cream identity zone with the
+    // amount in display.xl navy + a one-line caption beneath.
+    // No more "Total saved" eyebrow chip and no more two frosted
+    // stat chips.  The caption sentence now carries the this-month
+    // + redemption-count breakdown.
+    const { getByTestId } = wrap(
       <SavingsHeroHeader
         state="populated"
         onSubscribe={() => {}}
@@ -76,13 +83,33 @@ describe('SavingsHeroHeader — 3 state variants', () => {
       />,
     )
     expect(getByTestId('savings-hero-populated')).toBeTruthy()
-    expect(getByText('Total saved')).toBeTruthy()
-    // Lifetime amount is rendered via Animated.Text which
-    // testing-library's `getByText` doesn't traverse the same way
-    // as a plain Text — use the testID + children inspection.
+
+    // Lifetime amount is rendered via Animated.Text — getByText
+    // doesn't traverse the same way as a plain Text — use the testID
+    // + children inspection.
     const lifetime = getByTestId('savings-hero-lifetime')
     expect(JSON.stringify(lifetime.props.children)).toContain('£247.50')
-    expect(getByText('£32.00')).toBeTruthy()
-    expect(getByText('5')).toBeTruthy()
+
+    // Single editorial caption beneath the amount.  Singular vs
+    // plural redemption-count is part of the brand-tone polish.
+    const caption = getByTestId('savings-hero-populated-caption')
+    expect(JSON.stringify(caption.props.children)).toContain('£32.00 this month')
+    expect(JSON.stringify(caption.props.children)).toContain('5 redemptions')
+  })
+
+  it('populated: caption uses singular "redemption" when count === 1', () => {
+    const { getByTestId } = wrap(
+      <SavingsHeroHeader
+        state="populated"
+        onSubscribe={() => {}}
+        onBrowse={() => {}}
+        lifetimeSaving={12.5}
+        thisMonthSaving={12.5}
+        thisMonthRedemptionCount={1}
+      />,
+    )
+    const caption = getByTestId('savings-hero-populated-caption')
+    expect(JSON.stringify(caption.props.children)).toContain('1 redemption')
+    expect(JSON.stringify(caption.props.children)).not.toContain('1 redemptions')
   })
 })
