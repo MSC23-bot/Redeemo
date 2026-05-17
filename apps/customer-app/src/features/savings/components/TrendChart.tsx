@@ -17,14 +17,23 @@ import { SavingsCardTitleRow } from './TopBranches'
 // Always 6 bars (trailing 6 months including current); each bar is a
 // 44pt touch target. £0 months render as a 3pt stub (still tappable —
 // triggers the £0 empty-state insight). Current month bar full red +
-// dot indicator above; others muted.  Bars animate scaleY 0→1 from
-// bottom on mount with spring easing; 75ms stagger per bar starting
-// at 650ms.  Reduce-motion snaps to 1.
+// dot indicator above; others muted.
+//
+// §Savings emil-pass 4/7 2026-05-17 — bar entrance retimed.
+// Previously: bars waited 650ms after mount then sprang in over a
+// further 75ms × 6 = 450ms stagger (total ~1.1s before the last bar
+// settled).  The 650ms initial delay was a hold-over from when the
+// cascade above the chart fired late — that cascade is now 0–250ms
+// total (emil-pass 3/7), so the bars no longer need to wait.  New
+// timing: 80ms initial delay (gives the chart card itself time to
+// fade in via the parent FadeInDown at delay:50) + 40ms stagger per
+// bar.  Total bar-cascade end: 80 + 5*40 + ~settle ≈ 380ms.
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const CHART_HEIGHT = 120
 const MIN_BAR_HEIGHT = 3
-const BAR_STAGGER = 75
+const BAR_STAGGER = 40
+const BAR_START_DELAY = 80
 
 function monthLabel(yyyymm: string): string {
   const monStr = yyyymm.split('-')[1] ?? '1'
@@ -62,7 +71,7 @@ function Bar({
       return
     }
     scaleY.value = withDelay(
-      650 + index * BAR_STAGGER,
+      BAR_START_DELAY + index * BAR_STAGGER,
       withSpring(1, { damping: 14, stiffness: 180 }),
     )
   }, [index, scale, scaleY])
