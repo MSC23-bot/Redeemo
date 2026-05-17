@@ -121,19 +121,18 @@ export function RedemptionRow({ redemption, onPress }: Props) {
       style={styles.rowSurface}
       testID={`savings-redemption-row-${redemption.id}`}
     >
-      {/* §Savings device-QA round-8c fixup 2026-05-18 — voucher-type
-          element added per owner direction ("add a line or something
-          that associates to the voucher, not the color, even a pill
-          or chip").  4pt full-width band at the top of the card in
-          the voucher-type accent colour from `color.voucher.byType`.
-          Reads as a "voucher tag" the way physical tickets and
-          receipts have a coloured header band.  NOT a side-stripe
-          (DESIGN.md bans side-stripes > 1px); top-band is a separate
-          pattern, semantically distinct.  Card surface stays white.
-          The `overflow: 'hidden'` on rowSurface + the band rendering
-          as the FIRST child means the band tucks into the card's
-          rounded top corners cleanly. */}
-      <View style={[styles.typeBand, { backgroundColor: logoColor }]} testID="savings-row-type-band" />
+      {/* §Savings device-QA round-8d fixup 2026-05-18 — voucher-type
+          element flipped from horizontal top-band to vertical left-
+          stripe per owner direction ("I want a vertical line").
+          4pt-wide stripe runs full card height in the voucher-type
+          accent colour (`color.voucher.byType[type]`).  Absolute-
+          positioned over rowInner so the card content keeps its
+          layout untouched; clipped to the card's rounded corners by
+          rowSurface `overflow: 'hidden'`.
+          NOTE — DESIGN.md "Side-stripe borders > 1px never
+          intentional" is overridden here by explicit owner direction
+          on this surface.  Recorded as a deliberate deviation. */}
+      <View style={[styles.typeStripe, { backgroundColor: logoColor }]} testID="savings-row-type-stripe" />
       <View style={styles.rowInner}>
         <View style={[styles.logo, { backgroundColor: `${logoColor}18` }]}>
           <Text style={[styles.logoInitial, { color: logoColor }]}>
@@ -234,17 +233,27 @@ const styles = StyleSheet.create({
     // the card's rounded top corners.
     overflow: 'hidden',
   },
-  // §Savings round-8c — voucher-type top band.  4pt tall, full row
-  // width, voucher-type accent colour.  Sits above rowInner inside
-  // the card; clipped to the card radius by rowSurface overflow.
-  typeBand: {
-    height: 4,
+  // §Savings round-8d — voucher-type left stripe.  4pt wide, full
+  // card height, voucher-type accent colour.  Absolute over the row
+  // so rowInner layout is undisturbed; clipped to the card's rounded
+  // corners by rowSurface overflow:hidden.  DESIGN.md side-stripe
+  // ban is overridden here by explicit owner direction.
+  typeStripe: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    zIndex: 1,
   },
   rowInner: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
     alignItems: 'flex-start',
     gap: spacing[3],
+    // Left padding bumped to clear the 4pt vertical type stripe + a
+    // breathing gap.  Spacing[4] = 16; stripe is 4 → effective
+    // content-to-stripe gap is 12pt.
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
   },
