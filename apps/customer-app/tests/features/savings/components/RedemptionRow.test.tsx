@@ -89,34 +89,41 @@ describe('RedemptionRow — voucher type label + branch meta', () => {
     expect(getByText(/Reusable/)).toBeTruthy()
   })
 
-  it('meta layout is two lines: line 1 = voucher type label; line 2 = branchShortName · relative time', () => {
+  it('meta is a single combined line ("type · branch · time") that wraps to 2 lines max', () => {
+    // §Savings fixup 2026-05-17 — row density pass.  The earlier
+    // fixup split meta into two stacked Text rows (3-line total row,
+    // too tall vs the target brainstorm density).  Target: single
+    // meta Text with numberOfLines={2} wrap.
     const r = makeRedemption({
       branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
       voucher: { id: 'v', title: 't', voucherType: 'BOGO' },
-      redeemedAt: new Date(Date.now() - 2 * 60 * 60_000 - 5 * 60_000).toISOString(),  // 2h 5m ago — past 2h gate
+      redeemedAt: new Date(Date.now() - 2 * 60 * 60_000 - 5 * 60_000).toISOString(),  // 2h 5m ago
     })
     const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    // Line 1 — full canonical voucher type label, no truncation.
-    // Owner-locked 2026-05-17: keep "Buy one, get one free" wording;
-    // density is solved by layout, not by switching to "BOGO".
-    expect(getByText('Buy one, get one free')).toBeTruthy()
-    // Line 2 — branchShortName + relative time on a separate row, so
-    // the branch is always visible even when the type label is long.
-    expect(getByText(/^Brightlingsea · /)).toBeTruthy()
+    // Owner-locked wording: full "Buy one, get one free" canonical
+    // label, no acronym switch.  Combined into one Text node.
+    expect(getByText(/^Buy one, get one free · Brightlingsea · /)).toBeTruthy()
   })
 
-  it('long voucher type label does NOT truncate the branch name (regression for §AS-adjacent density bug)', () => {
-    // The pre-fixup single-line layout truncated the branch on dense
-    // phones when the type label was as long as "Buy one, get one
-    // free".  Two-line layout means we can always assert both pieces
-    // are independently present.
+  it('long voucher type label does NOT lose the branch name (regression for §AS-adjacent density bug)', () => {
+    // Pre-fixup single-line `numberOfLines={1}` truncated the branch
+    // on dense phones when the type label was as long as "Buy one,
+    // get one free".  Current 2-line wrap keeps the branch visible.
+    // We can't query React Native style props directly via
+    // testing-library, so pin via two paths:
+    //   (a) the rendered text node contains both type and branch
+    //   (b) the row's accessibility label always includes the branch
+    //       (built independently of the visual layout — see
+    //       construction of a11yLabel in RedemptionRow.tsx)
     const r = makeRedemption({
       branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
       voucher: { id: 'v', title: 't', voucherType: 'BOGO' },
     })
-    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText('Buy one, get one free')).toBeTruthy()
-    expect(getByText(/^Brightlingsea · /)).toBeTruthy()
+    const { getByText, getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText(/Buy one, get one free · Brightlingsea/)).toBeTruthy()
+    const row = getByTestId('savings-redemption-row-red-1')
+    expect(row.props.accessibilityLabel).toContain('Brightlingsea')
+    expect(row.props.accessibilityLabel).toContain('Buy one, get one free')
   })
 })
 

@@ -59,10 +59,25 @@ function CategoryBar({ category, maxSaving, index }: { category: CategorySaving;
 
 type Props = {
   categories: CategorySaving[]
+  // §Savings fixup 2026-05-17: see TopBranches.Props for the
+  // identical empty-state contract.  Same null-fallback when
+  // omitted.  Explicit `| undefined` for tsc strict
+  // `exactOptionalPropertyTypes`.
+  emptyLabel?: string | undefined
 }
 
-export function ByCategory({ categories }: Props) {
-  if (categories.length === 0) return null
+export function ByCategory({ categories, emptyLabel }: Props) {
+  if (categories.length === 0) {
+    if (!emptyLabel) return null
+    return (
+      <View style={styles.card} testID="savings-by-category-empty">
+        <Text variant="label.eyebrow" style={styles.sectionLabel}>By Category</Text>
+        <Text variant="body.sm" color="tertiary" style={styles.emptyLabel}>
+          {emptyLabel}
+        </Text>
+      </View>
+    )
+  }
 
   const maxSaving = Math.max(...categories.map((c) => c.saving), 1)
 
@@ -116,5 +131,10 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     overflow: 'hidden',
+  },
+  emptyLabel: {
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+    paddingVertical: spacing[2],
   },
 })

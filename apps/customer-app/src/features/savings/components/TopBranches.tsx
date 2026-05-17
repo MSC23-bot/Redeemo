@@ -24,10 +24,29 @@ import type { BranchSaving } from '@/lib/api/savings'
 type Props = {
   branches: BranchSaving[]   // sorted desc by saving — backend provides this
   onPress:  (branchId: string, merchantId: string) => void
+  // §Savings fixup 2026-05-17: when the parent wants the card to
+  // appear even with empty data (typically: user has drilled into a
+  // past month with no branch redemptions), it supplies an explicit
+  // empty-state label like "No branch savings in March".  Without
+  // this prop the component falls back to the original null-render
+  // — preserves the current-month "no insight" path which silently
+  // hides the card on cold-start users.  Explicit `| undefined` for
+  // tsc strict `exactOptionalPropertyTypes`.
+  emptyLabel?: string | undefined
 }
 
-export function TopBranches({ branches, onPress }: Props) {
-  if (branches.length === 0) return null
+export function TopBranches({ branches, onPress, emptyLabel }: Props) {
+  if (branches.length === 0) {
+    if (!emptyLabel) return null
+    return (
+      <View style={styles.card} testID="savings-top-branches-empty">
+        <Text variant="label.eyebrow" style={styles.sectionLabel}>Top branches</Text>
+        <Text variant="body.sm" color="tertiary" style={styles.emptyLabel}>
+          {emptyLabel}
+        </Text>
+      </View>
+    )
+  }
 
   const top = branches.slice(0, 2)
 
@@ -132,5 +151,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#16A34A',
     fontVariant: ['tabular-nums'],
+  },
+  emptyLabel: {
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+    paddingVertical: spacing[2],
   },
 })

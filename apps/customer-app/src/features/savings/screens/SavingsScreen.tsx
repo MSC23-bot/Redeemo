@@ -50,6 +50,18 @@ function deviceMonthLabel(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+// "2026-04" → "April".  Used for selected-month empty-state copy on
+// the insight cards.  Same MONTH_NAMES table as ViewingChip.tsx —
+// kept inline to avoid a one-line import dependency.
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+function monthName(yyyymm: string): string {
+  const mon = yyyymm.split('-')[1] ?? '1'
+  return MONTH_NAMES[parseInt(mon, 10) - 1] ?? ''
+}
+
 export function SavingsScreen() {
   const router = useRouter()
   const { subscription, isSubscribed, isSubLoading } = useSubscription()
@@ -226,10 +238,25 @@ export function SavingsScreen() {
           ) : (
             <>
               <FadeInDown delay={650}>
-                <TopBranches branches={insightBranches} onPress={handleTopBranchPress} />
+                <TopBranches
+                  branches={insightBranches}
+                  onPress={handleTopBranchPress}
+                  emptyLabel={
+                    selectedMonth
+                      ? `No branch savings in ${monthName(selectedMonth)}`
+                      : undefined
+                  }
+                />
               </FadeInDown>
               <FadeInDown delay={750}>
-                <ByCategory categories={insightCategories} />
+                <ByCategory
+                  categories={insightCategories}
+                  emptyLabel={
+                    selectedMonth
+                      ? `No category savings in ${monthName(selectedMonth)}`
+                      : undefined
+                  }
+                />
               </FadeInDown>
             </>
           )}
@@ -244,7 +271,17 @@ export function SavingsScreen() {
             </FadeInDown>
           )}
 
-          {allRedemptions.length > 0 && (
+          {/* §Savings fixup 2026-05-17: hide the all-time Redemption
+              History label when a past month is selected.  The list
+              we paginate is unfiltered by month, so showing rows
+              labelled "2h ago / yesterday / 3 Apr" UNDER a "Viewing:
+              February 2026" chip was misleading — users read those
+              rows as February redemptions.  Until we add a month-
+              filtered redemptions endpoint, the cleanest fix is to
+              hide the history section entirely under a selection.
+              Deferred follow-up: server-side `byMonth` redemption
+              endpoint + matching UI affordance.  */}
+          {!selectedMonth && allRedemptions.length > 0 && (
             <FadeInDown delay={1150}>
               <Text variant="label.eyebrow" style={styles.historyLabel}>
                 Redemption History
@@ -300,10 +337,18 @@ export function SavingsScreen() {
 
   const isPopulated = userState === 'populated'
 
+  // §Savings fixup 2026-05-17: same rationale as the history-label
+  // gate above — feed the FlatList an empty data array under a
+  // selected month so the rows themselves don't render either.  The
+  // ListHeaderComponent still drives the chart, ViewingChip, and
+  // insight cards (which DO honour the selected month via
+  // monthDetail).  Pull-to-refresh still refetches all 3 queries.
+  const listData = isPopulated && !selectedMonth ? allRedemptions : []
+
   return (
     <View style={styles.screen} testID="savings-screen">
       <FlatList
-        data={isPopulated ? allRedemptions : []}
+        data={listData}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.rowWrapper}>
@@ -312,7 +357,9 @@ export function SavingsScreen() {
         )}
         ListHeaderComponent={listHeader}
         ListFooterComponent={
-          isPopulated ? (
+          // Footer is part of the history list — same gate as the
+          // list itself.  No "caught up" copy under a selected month.
+          isPopulated && !selectedMonth ? (
             redemptions.isFetchingNextPage ? (
               <ActivityIndicator color={color.brandRose} style={styles.footerSpinner} />
             ) : allLoaded ? (
@@ -323,7 +370,7 @@ export function SavingsScreen() {
           ) : null
         }
         onEndReached={() => {
-          if (isPopulated && redemptions.hasNextPage && !redemptions.isFetchingNextPage) {
+          if (isPopulated && !selectedMonth && redemptions.hasNextPage && !redemptions.isFetchingNextPage) {
             redemptions.fetchNextPage()
           }
         }}

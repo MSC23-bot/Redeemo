@@ -396,3 +396,84 @@ describe('SavingsScreen — backend current month is authoritative (fixup §3)',
     expect(queryByTestId('savings-viewing-chip')).toBeNull()
   })
 })
+
+describe('SavingsScreen — design-fidelity fixup pass (2026-05-17)', () => {
+  it('selected month hides the all-time Redemption History rows and label', () => {
+    // §Issue 3: when the user drills into a past month via the
+    // TrendChart, the all-time recent-history rows below were
+    // misleading — they read as that month's redemptions even
+    // though they're unfiltered.  Locked fix: hide the entire
+    // history section under a selection until we have a
+    // month-filtered redemptions endpoint.
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+      redemptions: [someRedemption],
+    })
+    const { getByTestId, queryByTestId, queryByText } = wrap(<SavingsScreen />)
+
+    // Before selection: history row is visible.
+    expect(getByTestId('savings-redemption-row-red-1')).toBeTruthy()
+    expect(queryByText('Redemption History')).toBeTruthy()
+
+    // Tap a past-month bar.
+    fireEvent.press(getByTestId('savings-trend-bar-2026-04'))
+    // ViewingChip appears.
+    expect(getByTestId('savings-viewing-chip')).toBeTruthy()
+    // History rows + label are GONE.
+    expect(queryByTestId('savings-redemption-row-red-1')).toBeNull()
+    expect(queryByText('Redemption History')).toBeNull()
+  })
+
+  it('selected month with empty TopBranches shows explicit empty-state card', () => {
+    // §Issue 4: under a selected month, monthDetail returns empty
+    // byBranch / byCategory arrays when the user has no redemptions
+    // in that month.  Locked fix: show explicit empty-state cards
+    // ("No branch savings in April" / "No category savings in
+    // April") instead of silently rendering nothing.
+    const refetchMonth = jest.fn()
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+    })
+    // monthlyDetail returns success with EMPTY byBranch / byCategory.
+    mockMonthlyDetail.mockReturnValue({
+      data: { totalSaving: 0, redemptionCount: 0, byBranch: [], byCategory: [] },
+      isLoading: false, isError: false, refetch: refetchMonth,
+    })
+    const { getByTestId, getByText } = wrap(<SavingsScreen />)
+    fireEvent.press(getByTestId('savings-trend-bar-2026-04'))
+
+    // Empty-state cards render with month-name copy.
+    expect(getByTestId('savings-top-branches-empty')).toBeTruthy()
+    expect(getByText('No branch savings in April')).toBeTruthy()
+    expect(getByTestId('savings-by-category-empty')).toBeTruthy()
+    expect(getByText('No category savings in April')).toBeTruthy()
+  })
+
+  it('no-selection populated state with empty byBranch / byCategory still hides those cards (current behaviour)', () => {
+    // Locked: only the selected-month path opts into the empty-state
+    // cards (via emptyLabel prop).  Current-month with empty data
+    // still returns null on the cards — preserves the pre-fixup
+    // behaviour for cold-start subscribed-empty edge cases.
+    setMocks({
+      summaryState: 'success',
+      summaryData: {
+        ...populatedSummary,
+        byBranch:   [],   // empty
+        byCategory: [],
+      },
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+    })
+    const { queryByTestId } = wrap(<SavingsScreen />)
+    // No empty-state cards under no-selection.
+    expect(queryByTestId('savings-top-branches-empty')).toBeNull()
+    expect(queryByTestId('savings-by-category-empty')).toBeNull()
+    // Normal cards also not present (data is empty).
+    expect(queryByTestId('savings-top-branches')).toBeNull()
+    expect(queryByTestId('savings-by-category')).toBeNull()
+  })
+})

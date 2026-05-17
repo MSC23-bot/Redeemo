@@ -219,11 +219,16 @@ const styles = StyleSheet.create({
     color: '#E20C04',
     fontFamily: 'Lato-SemiBold',
   },
+  // §Savings Rebaseline fixup 2026-05-17 — hero design-fidelity pass.
+  // Was: alignItems: 'center', paddingBottom: spacing[6] — produced
+  // the centred-and-sparse look that diverged from the brainstorm
+  // target.  Now: left-aligned, tighter vertical rhythm, matches the
+  // target "title top-left, total/chips arranged tighter" composition.
   populatedContent: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: spacing[5],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[6],
+    paddingTop: spacing[1],
+    paddingBottom: spacing[5],
   },
   eyebrow: {
     fontFamily: 'Lato-SemiBold',
@@ -240,20 +245,25 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontVariant: ['tabular-nums'],
   },
+  // Left-aligned row, no `marginTop: spacing[4]` (was too airy).
   chipRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: spacing[3],
-    marginTop: spacing[4],
+    marginTop: spacing[3],
   },
+  // Chip content left-aligned (was 'center').  Matches the target
+  // where each chip reads as a stat tile, not a centred badge.
   statChip: {
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
     borderRadius: radius.lg,
-    paddingHorizontal: spacing[5],
+    paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 2,
+    minWidth: 120,
   },
   chipLabel: {
     fontFamily: 'Lato-SemiBold',

@@ -105,11 +105,17 @@ export function RedemptionRow({ redemption, onPress }: Props) {
         <Text variant="body.sm" style={styles.merchantName}>
           {redemption.merchant.businessName}
         </Text>
-        <Text variant="body.sm" style={styles.meta} numberOfLines={1}>
-          {vtLabel}
-        </Text>
-        <Text variant="body.sm" style={styles.meta} numberOfLines={1}>
-          {branchShort} · {relTime}
+        {/* §Savings fixup 2026-05-17 — row density pass.
+            Was: two stacked meta <Text>s (type on its own line +
+            branch · time on a second line) → 3-line row, too tall
+            vs the target brainstorm density.  Now: single meta line
+            wrapping to AT MOST 2 lines via `numberOfLines={2}`.
+            Short labels ("Freebie · Brightlingsea · 2h ago") render
+            on one line; long labels ("Buy one, get one free ·
+            Brightlingsea · 2 hours ago") wrap to two.  Branch name
+            + relative time always remain visible — pinned by tests. */}
+        <Text variant="body.sm" style={styles.meta} numberOfLines={2}>
+          {vtLabel} · {branchShort} · {relTime}
         </Text>
       </View>
 
@@ -138,7 +144,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
+    // §Savings fixup 2026-05-17: tighten vertical padding from
+    // spacing[3] (12px) → spacing[2] (8px) to bring the row closer
+    // to the target brainstorm density.  Paired with the single
+    // 2-line meta layout above.
+    paddingVertical: spacing[2],
     gap: spacing[3],
     backgroundColor: tokenColor.surface.raised,
     borderRadius: 12,

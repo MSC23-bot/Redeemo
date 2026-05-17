@@ -34,16 +34,18 @@ function Bar({
   month,
   saving,
   maxSaving,
-  isSelected,
-  isCurrent,
+  isHighlighted,
   index,
   onPress,
 }: {
   month: string
   saving: number
   maxSaving: number
-  isSelected: boolean
-  isCurrent: boolean
+  // §Savings fixup 2026-05-17: parent now decides which bar is
+  // "active" (selected wins over current).  Bar no longer composes
+  // its own highlight from `isSelected || isCurrent` — that produced
+  // two competing red treatments when a user selected a past month.
+  isHighlighted: boolean
   index: number
   onPress: () => void
 }) {
@@ -67,7 +69,6 @@ function Bar({
     transform: [{ scaleY: scaleY.value }],
   }))
 
-  const isHighlighted = isSelected || (isCurrent && !isSelected)
   const barColor = isHighlighted
     ? '#E20C04'
     : saving > 0
@@ -80,6 +81,7 @@ function Bar({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${label}, £${saving.toFixed(2)} saved`}
+      accessibilityState={{ selected: isHighlighted }}
       style={styles.barColumn}
       hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
       testID={`savings-trend-bar-${month}`}
@@ -119,22 +121,35 @@ export function TrendChart({ months, selectedMonth, currentMonth, onMonthSelect 
   const maxSaving = Math.max(...months.map((m) => m.saving), 1)
   const displayMonths = [...months].reverse()
 
+  // §Savings fixup 2026-05-17 — locked highlight rule:
+  //   selectedMonth set  → the selected bar wins, current month gets
+  //                        no special treatment
+  //   selectedMonth null → the current month bar is highlighted
+  // Previously: `isSelected || (isCurrent && !isSelected)` — under a
+  // selection both bars got the active red treatment, making it
+  // ambiguous which month the insight cards were showing.
+  const hasSelection = selectedMonth !== null
+
   return (
     <View style={styles.card} testID="savings-trend-chart">
       <Text variant="label.eyebrow" style={styles.sectionLabel}>6-Month Trend</Text>
       <View style={styles.chartRow}>
-        {displayMonths.map((m, i) => (
-          <Bar
-            key={m.month}
-            month={m.month}
-            saving={m.saving}
-            maxSaving={maxSaving}
-            isSelected={selectedMonth === m.month}
-            isCurrent={m.month === currentMonth}
-            index={i}
-            onPress={() => onMonthSelect(m.month)}
-          />
-        ))}
+        {displayMonths.map((m, i) => {
+          const isHighlighted = hasSelection
+            ? selectedMonth === m.month
+            : m.month === currentMonth
+          return (
+            <Bar
+              key={m.month}
+              month={m.month}
+              saving={m.saving}
+              maxSaving={maxSaving}
+              isHighlighted={isHighlighted}
+              index={i}
+              onPress={() => onMonthSelect(m.month)}
+            />
+          )
+        })}
       </View>
     </View>
   )
