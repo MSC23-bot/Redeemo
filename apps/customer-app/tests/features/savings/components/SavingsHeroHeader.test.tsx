@@ -3,6 +3,21 @@ import { render, fireEvent } from '@testing-library/react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SavingsHeroHeader } from '@/features/savings/components/SavingsHeroHeader'
 
+// Force reduce-motion for hero tests.  The hero's lifetime amount is
+// driven by `useCountUp` → `withTiming` → `useAnimatedReaction` →
+// `setDisplayed`.  The jest reanimated mock does NOT actually animate
+// `withTiming` synchronously to the target; it returns a placeholder
+// value.  Forcing `useMotionScale → 0` makes `useCountUp` short-
+// circuit and write the target value directly to the shared value,
+// so `useAnimatedReaction` reads the real target and `displayed`
+// settles on it.  This pins the steady-state rendered text, which
+// is what users actually see post-animation in production.
+// The mid-animation behaviour is exercised in the production
+// `useCountUp` + Reanimated codepath, not in jest.
+jest.mock('@/design-system/useMotionScale', () => ({
+  useMotionScale: () => 0,
+}))
+
 const initialMetrics = {
   frame:  { x: 0, y: 0, width: 393, height: 852 },
   insets: { top: 59, left: 0, right: 0, bottom: 34 },

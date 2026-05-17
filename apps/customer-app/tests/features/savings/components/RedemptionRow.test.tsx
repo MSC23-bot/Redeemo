@@ -1,15 +1,23 @@
 import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { RedemptionRow } from '@/features/savings/components/RedemptionRow'
+import { PRESENTATION_WINDOW_MS } from '@/features/voucher/utils/presentationWindow'
 import type { SavingsRedemption } from '@/lib/api/savings'
 
-// §Savings Rebaseline (PR-B, Revision 2): RedemptionRow pins.
-// Three locked adaptations verified here:
-//   1. Show-to-staff badge window: 2h (PRESENTATION_WINDOW_MS), NOT 24h.
+// §Savings Rebaseline (PR-B, Revision 2 — fixup 2026-05-17):
+// RedemptionRow pins.  Three locked adaptations verified here:
+//   1. Show-to-staff badge window: 2h via the SHARED
+//      `isPresentationActive()` helper (strict `< 2h` semantics).
+//      Savings and Voucher Detail share the same boundary check so
+//      they never disagree at exactly t = 2h.
 //   2. Voucher type label sourced from canonical `voucherTypeLabel`
-//      helper, covering TIME_LIMITED + REUSABLE.
-//   3. Meta line includes `branchShortName(branch.name)` between type
-//      and relative time.
+//      helper.  Long labels like "Buy one, get one free" are
+//      preserved verbatim (owner-locked 2026-05-17 — DO NOT switch
+//      to a "BOGO" acronym).  Density is solved by the two-line
+//      meta layout, not by truncation or rewording.
+//   3. Meta lines: two-line layout.  Line 1 = voucher type label.
+//      Line 2 = branchShortName · relative time.  Long type labels
+//      no longer truncate the branch name.
 
 function makeRedemption(overrides: Partial<SavingsRedemption> = {}): SavingsRedemption {
   return {
@@ -81,22 +89,64 @@ describe('RedemptionRow — voucher type label + branch meta', () => {
     expect(getByText(/Reusable/)).toBeTruthy()
   })
 
-  it('meta line shows branchShortName between type and relative time (multi-branch disambiguation)', () => {
+  it('meta layout is two lines: line 1 = voucher type label; line 2 = branchShortName · relative time', () => {
     const r = makeRedemption({
       branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
       voucher: { id: 'v', title: 't', voucherType: 'BOGO' },
-      redeemedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),  // 2h ago
+      redeemedAt: new Date(Date.now() - 2 * 60 * 60_000 - 5 * 60_000).toISOString(),  // 2h 5m ago — past 2h gate
     })
     const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    // branchShortName('Covelum — Brightlingsea') → 'Brightlingsea'
-    // voucherTypeLabel('BOGO') → 'Buy one, get one free' (canonical
-    // helper).  NOTE: this diverges from the brainstorm's compact
-    // 'BOGO' short form — flagged as a design-fidelity divergence in
-    // the PR-B design report.  Owner decision pending: live with the
-    // verbose label, OR add a short-label variant, OR shorten the
-    // canonical helper (would ripple across Voucher Detail / Merchant
-    // Profile / SuccessPopup / ShowToStaff).
-    expect(getByText(/Buy one, get one free · Brightlingsea · /)).toBeTruthy()
+    // Line 1 — full canonical voucher type label, no truncation.
+    // Owner-locked 2026-05-17: keep "Buy one, get one free" wording;
+    // density is solved by layout, not by switching to "BOGO".
+    expect(getByText('Buy one, get one free')).toBeTruthy()
+    // Line 2 — branchShortName + relative time on a separate row, so
+    // the branch is always visible even when the type label is long.
+    expect(getByText(/^Brightlingsea · /)).toBeTruthy()
+  })
+
+  it('long voucher type label does NOT truncate the branch name (regression for §AS-adjacent density bug)', () => {
+    // The pre-fixup single-line layout truncated the branch on dense
+    // phones when the type label was as long as "Buy one, get one
+    // free".  Two-line layout means we can always assert both pieces
+    // are independently present.
+    const r = makeRedemption({
+      branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
+      voucher: { id: 'v', title: 't', voucherType: 'BOGO' },
+    })
+    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText('Buy one, get one free')).toBeTruthy()
+    expect(getByText(/^Brightlingsea · /)).toBeTruthy()
+  })
+})
+
+describe('RedemptionRow — §AE5 boundary semantics (shared with Voucher Detail)', () => {
+  it('boundary OFF: at exactly t = PRESENTATION_WINDOW_MS the show-to-staff badge is GONE', () => {
+    // Strict `<` semantics in `isPresentationActive`: at the exact
+    // boundary the helper returns false.  Pin: Savings agrees with
+    // Voucher Detail at the same instant — never "show to staff"
+    // here when the destination has just hidden its code surface.
+    const r = makeRedemption({
+      redeemedAt: new Date(Date.now() - PRESENTATION_WINDOW_MS).toISOString(),
+      isValidated: false,
+    })
+    const { queryByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(queryByTestId('savings-row-badge-show-to-staff')).toBeNull()
+  })
+
+  it('boundary ON: at PRESENTATION_WINDOW_MS minus 1 second the show-to-staff badge IS visible', () => {
+    // 1-second buffer (NOT 1ms): test setup + render advance Date.now()
+    // by tens of milliseconds, which would otherwise tip a 1ms-margin
+    // fixture across the boundary mid-test.  The semantic intent is
+    // "just barely inside the window" — 1 second is a fair stand-in
+    // and the strict-`<` semantics are still pinned by the OFF case
+    // above at the exact boundary.
+    const r = makeRedemption({
+      redeemedAt: new Date(Date.now() - PRESENTATION_WINDOW_MS + 1000).toISOString(),
+      isValidated: false,
+    })
+    const { getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByTestId('savings-row-badge-show-to-staff')).toBeTruthy()
   })
 })
 

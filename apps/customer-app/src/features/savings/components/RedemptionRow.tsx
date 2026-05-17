@@ -4,40 +4,51 @@ import { PressableScale } from '@/design-system/motion/PressableScale'
 import { Text } from '@/design-system/Text'
 import { spacing, radius, color as tokenColor } from '@/design-system/tokens'
 import { voucherTypeLabel } from '@/features/voucher/utils/voucherTheme'
-import { PRESENTATION_WINDOW_MS } from '@/features/voucher/utils/presentationWindow'
+import { isPresentationActive } from '@/features/voucher/utils/presentationWindow'
 import { branchShortName } from '@/features/merchant/utils/branchShortName'
 import type { SavingsRedemption } from '@/lib/api/savings'
 
 // §Savings Rebaseline (PR-B, Revision 2) — Redemption history row.
 //
 // Three locked adaptations vs the Revision-1 reference branch:
-//   1. Show-to-staff badge window: 24h → 2h via PRESENTATION_WINDOW_MS.
-//      Matches §AE5 Voucher Detail show-to-staff CTA hide boundary —
-//      the Savings badge must not promise an action the destination
-//      won't honour.
+//   1. Show-to-staff badge window: 24h → 2h.  Uses the SHARED
+//      `isPresentationActive()` helper from
+//      `@/features/voucher/utils/presentationWindow` so the Savings
+//      badge and the Voucher Detail show-to-staff CTA never disagree
+//      at the boundary (semantics: `now - redeemedAt < 2h` —
+//      STRICT less-than).  §AE5 lock.
 //   2. Voucher type label: inline map → canonical `voucherTypeLabel`
 //      from `@/features/voucher/utils/voucherTheme`. Covers all
-//      current types including TIME_LIMITED + REUSABLE.
-//   3. Meta line: type + relative-time → type + branchShortName +
-//      relative-time.  Multi-branch merchants must be distinguishable
-//      on the dense row.
+//      current types including TIME_LIMITED + REUSABLE; renders
+//      "Buy one, get one free" (NOT "BOGO") so users aren't confused
+//      by acronyms.
+//   3. Meta lines: two-line layout.  Line 1 = full voucher-type
+//      label (often long, e.g. "Buy one, get one free"); line 2 =
+//      branchShortName · relative time.  Multi-branch merchants stay
+//      distinguishable AND long type labels stop truncating the
+//      branch.
 //
 // Validated badge stays 24h (celebration of a completed action, not
 // an in-progress affordance).
 //
-// Design-fidelity: row is a white card with a 1px #E5E7EB border and
-// 12px radius — matches the brainstorm `savings-design.html` visual
-// treatment (each redemption is its own surface) rather than the
-// ref-branch flat treatment.
+// Design-fidelity: row is a white card surface with a 1px hairline
+// border and 12px radius — matches the brainstorm `savings-design.html`
+// visual treatment.  All colour values pull from `@/design-system/tokens`
+// where an exact token exists; two badge backgrounds (amber / mint)
+// have no exact token yet and are documented inline as intentional
+// local hex.
 
 const VALIDATED_WINDOW_MS = 24 * 60 * 60 * 1000
 
 type BadgeType = 'show-to-staff' | 'validated' | 'plain'
 
 function getBadgeType(redemption: SavingsRedemption, now: number = Date.now()): BadgeType {
-  if (!redemption.isValidated) {
-    const redeemed = new Date(redemption.redeemedAt).getTime()
-    if (now - redeemed <= PRESENTATION_WINDOW_MS) return 'show-to-staff'
+  // Shared boundary semantics with Voucher Detail's
+  // `isPresentationActive` helper — keep them in lockstep at the
+  // 2-hour boundary.  The customer must never see "Show to staff"
+  // here if the destination has already hidden the live code surface.
+  if (!redemption.isValidated && isPresentationActive(redemption.redeemedAt, now)) {
+    return 'show-to-staff'
   }
   if (redemption.isValidated && redemption.validatedAt) {
     const validated = new Date(redemption.validatedAt).getTime()
@@ -95,7 +106,10 @@ export function RedemptionRow({ redemption, onPress }: Props) {
           {redemption.merchant.businessName}
         </Text>
         <Text variant="body.sm" style={styles.meta} numberOfLines={1}>
-          {vtLabel} · {branchShort} · {relTime}
+          {vtLabel}
+        </Text>
+        <Text variant="body.sm" style={styles.meta} numberOfLines={1}>
+          {branchShort} · {relTime}
         </Text>
       </View>
 
@@ -126,10 +140,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
     gap: spacing[3],
-    backgroundColor: '#FFFFFF',
+    backgroundColor: tokenColor.surface.raised,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: tokenColor.border.subtle,
   },
   logo: {
     width: 46,
@@ -149,11 +163,11 @@ const styles = StyleSheet.create({
   merchantName: {
     fontFamily: 'Lato-Bold',
     fontSize: 14,
-    color: '#010C35',
+    color: tokenColor.text.primary,
   },
   meta: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: tokenColor.text.tertiary,
   },
   right: {
     alignItems: 'flex-end',
@@ -162,9 +176,13 @@ const styles = StyleSheet.create({
   saving: {
     fontFamily: 'MusticaPro-SemiBold',
     fontSize: 16,
-    color: '#16A34A',
+    color: tokenColor.savingsGreen,
     fontVariant: ['tabular-nums'],
   },
+  // Intentional local hex: no exact amber-50 token in `tokens.ts`.
+  // Brand-rose / brand-coral don't fit (badge is informational, not
+  // CTA-grade).  Promote to a token if Savings ships further amber
+  // surfaces.
   badgeAmber: {
     backgroundColor: '#FEF3C7',
     borderRadius: radius.pill,
@@ -174,8 +192,10 @@ const styles = StyleSheet.create({
   badgeAmberText: {
     fontFamily: 'Lato-SemiBold',
     fontSize: 9,
-    color: '#B45309',
+    color: tokenColor.warning,
   },
+  // Intentional local hex: no exact mint-50 token.  Paired with
+  // `tokenColor.savingsGreen` foreground.
   badgeGreen: {
     backgroundColor: '#DCFCE7',
     borderRadius: radius.pill,
@@ -185,11 +205,11 @@ const styles = StyleSheet.create({
   badgeGreenText: {
     fontFamily: 'Lato-SemiBold',
     fontSize: 9,
-    color: '#16A34A',
+    color: tokenColor.savingsGreen,
   },
   plainBadge: {
     fontFamily: 'Lato-Regular',
     fontSize: 11,
-    color: '#9CA3AF',
+    color: tokenColor.text.tertiary,
   },
 })

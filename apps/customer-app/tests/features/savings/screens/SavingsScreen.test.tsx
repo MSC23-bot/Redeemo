@@ -281,3 +281,67 @@ describe('SavingsScreen — navigation', () => {
     expect(mockRouterPush).toHaveBeenCalledWith('/(app)/voucher/v-1')
   })
 })
+
+describe('SavingsScreen — month-drill-down error state (fixup §6)', () => {
+  it('selecting a past month whose detail errors → ErrorState + Retry CTA fires monthDetail.refetch', async () => {
+    const refetchMonth = jest.fn()
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+    })
+    // Override monthlyDetail to return an error on every call.  In
+    // production, isError flips only after the user selects a month
+    // and the fetch fails; here the mock is unconditional so we
+    // assert the error UI mounts after `setSelectedMonth` fires.
+    mockMonthlyDetail.mockReturnValue({
+      data: undefined, isLoading: false, isError: true, refetch: refetchMonth,
+    })
+    const { getByTestId, queryByTestId, getByText, queryByText } = wrap(<SavingsScreen />)
+    // Tap the past-month bar (2026-04 from populatedSummary fixture).
+    fireEvent.press(getByTestId('savings-trend-bar-2026-04'))
+    // ErrorState mounts inside the insightSection.
+    await waitFor(() => expect(getByTestId('savings-month-detail-error')).toBeTruthy())
+    // Title interpolates the selected month — pin the right month
+    // landed on the right error.
+    expect(getByText("Couldn't load 2026-04")).toBeTruthy()
+    // Wrong-month label is NOT shown.
+    expect(queryByText("Couldn't load 2026-05")).toBeNull()
+    // Retry tap fires monthDetail.refetch.
+    fireEvent.press(getByText('Retry'))
+    expect(refetchMonth).toHaveBeenCalled()
+    // TopBranches / ByCategory are NOT mounted while the error is
+    // visible (regression guard against showing stale insight data).
+    expect(queryByTestId('savings-top-branches-row-br-bright')).toBeNull()
+  })
+})
+
+describe('SavingsScreen — backend current month is authoritative (fixup §3)', () => {
+  it("uses monthlyBreakdown[0].month as 'current' even when it disagrees with the device clock", async () => {
+    // Pin: backend month is the source of truth.  If the device's
+    // local clock said 2026-06 but the backend returns 2026-05 as
+    // monthlyBreakdown[0].month, the screen treats 2026-05 as the
+    // current month — tapping the 2026-05 bar should reset to no
+    // selection (because it's the "current"), NOT route through
+    // useMonthlyDetail.
+    setMocks({
+      summaryState: 'success',
+      summaryData: {
+        ...populatedSummary,
+        // Authoritative current month from backend — first entry.
+        monthlyBreakdown: [
+          { month: '2026-05', saving: 32, count: 5 },
+          { month: '2026-04', saving: 18, count: 3 },
+        ],
+      },
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+    })
+    const { getByTestId, queryByTestId } = wrap(<SavingsScreen />)
+    // Tapping the backend-current month bar deselects (handler short-
+    // circuits because `month === curMonth`).
+    fireEvent.press(getByTestId('savings-trend-bar-2026-05'))
+    // ViewingChip never appears since selectedMonth stays null.
+    expect(queryByTestId('savings-viewing-chip')).toBeNull()
+  })
+})

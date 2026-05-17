@@ -41,7 +41,11 @@ import type { SavingsRedemption, MonthBreakdown } from '@/lib/api/savings'
 
 type UserState = 'loading' | 'error' | 'free' | 'subscriber-empty' | 'populated'
 
-function currentMonthLabel(): string {
+// Fallback only — used if summary data isn't loaded yet.  The backend
+// returns `monthlyBreakdown[0].month` as the authoritative "this
+// month" key (matches the Savings cycle, not necessarily the device's
+// calendar month at midnight rollover).  See Fix 3 / PR-B fixup.
+function deviceMonthLabel(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
@@ -54,7 +58,12 @@ export function SavingsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
   const monthDetail = useMonthlyDetail(selectedMonth)
 
-  const curMonth = currentMonthLabel()
+  // Backend `monthlyBreakdown[0].month` is the authoritative current
+  // month for Savings UI.  Falls back to device-local only if the
+  // summary payload hasn't resolved yet — the resulting label is used
+  // for "is this the current month" comparison only, so a transient
+  // device-derived value during loading is harmless.
+  const curMonth = summary.data?.monthlyBreakdown[0]?.month ?? deviceMonthLabel()
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   // ── User-state derivation ────────────────────────────────────────────
@@ -93,12 +102,19 @@ export function SavingsScreen() {
     return summary.data.monthlyBreakdown.slice(0, 6)
   }, [summary.data])
 
-  const insightBranches = selectedMonth
-    ? (monthDetail.data?.byBranch ?? [])
-    : (summary.data?.byBranch ?? [])
-  const insightCategories = selectedMonth
-    ? (monthDetail.data?.byCategory ?? [])
-    : (summary.data?.byCategory ?? [])
+  // Memoised so identity is stable across renders that don't change
+  // the underlying data — keeps the ListHeader element memo from
+  // invalidating on every parent re-render.
+  const insightBranches = useMemo(() => (
+    selectedMonth
+      ? (monthDetail.data?.byBranch ?? [])
+      : (summary.data?.byBranch ?? [])
+  ), [selectedMonth, monthDetail.data, summary.data])
+  const insightCategories = useMemo(() => (
+    selectedMonth
+      ? (monthDetail.data?.byCategory ?? [])
+      : (summary.data?.byCategory ?? [])
+  ), [selectedMonth, monthDetail.data, summary.data])
 
   // ── Month drill-down ───────────────────────────────────────────────
   const handleMonthSelect = useCallback((month: string) => {
@@ -161,8 +177,21 @@ export function SavingsScreen() {
     )
   }
 
-  // ── List header ───────────────────────────────────────────────────
-  const ListHeader = () => (
+  // ── List header (memoised) ─────────────────────────────────────────
+  // Previously this was `const ListHeader = () => (...)` — a new
+  // function reference on every render.  FlatList's
+  // `ListHeaderComponent={ListHeader}` would then mount a different
+  // component-type per render, unmounting + remounting the entire
+  // header subtree on every parent state update.  Symptom: tapping a
+  // month bar (`setSelectedMonth`) replayed the staggered FadeInDown
+  // entrance animations across hero + trend + insight cards.
+  //
+  // Fix: render to a stable React element via useMemo.  Identity
+  // changes only when one of the listed deps changes — which is
+  // genuinely when the header needs to update its content.  Includes
+  // `subscription` (object identity) on purpose: useSubscription's
+  // React Query cache keeps it stable across renders.
+  const listHeader = useMemo(() => (
     <View>
       <SavingsHeroHeader
         state={userState as 'free' | 'subscriber-empty' | 'populated'}
@@ -197,7 +226,7 @@ export function SavingsScreen() {
           {selectedMonth && monthDetail.isLoading ? (
             <InsightSkeleton />
           ) : selectedMonth && monthDetail.isError ? (
-            <View style={styles.insightError}>
+            <View style={styles.insightError} testID="savings-month-detail-error">
               <ErrorState
                 title={`Couldn't load ${selectedMonth}`}
                 actionLabel="Retry"
@@ -235,7 +264,25 @@ export function SavingsScreen() {
         </View>
       )}
     </View>
-  )
+  ), [
+    userState,
+    handleSubscribe,
+    handleBrowse,
+    summary.data,
+    chartMonths,
+    selectedMonth,
+    curMonth,
+    handleMonthSelect,
+    handleDismissChip,
+    monthDetail.isLoading,
+    monthDetail.isError,
+    monthDetail.refetch,
+    insightBranches,
+    insightCategories,
+    handleTopBranchPress,
+    subscription,
+    allRedemptions.length,
+  ])
 
   const isPopulated = userState === 'populated'
 
@@ -249,7 +296,7 @@ export function SavingsScreen() {
             <RedemptionRow redemption={item} onPress={handleRowPress} />
           </View>
         )}
-        ListHeaderComponent={ListHeader}
+        ListHeaderComponent={listHeader}
         ListFooterComponent={
           isPopulated ? (
             redemptions.isFetchingNextPage ? (
@@ -285,11 +332,11 @@ export function SavingsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: color.surface.neutral,
   },
   errorContainer: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: color.surface.neutral,
     justifyContent: 'center',
   },
   insightSection: {
@@ -298,13 +345,13 @@ const styles = StyleSheet.create({
     gap: spacing[3],
   },
   insightLabel: {
-    color: '#9CA3AF',
+    color: color.text.tertiary,
   },
   insightError: {
     paddingVertical: spacing[4],
   },
   historyLabel: {
-    color: '#9CA3AF',
+    color: color.text.tertiary,
     marginTop: spacing[3],
   },
   rowWrapper: {
@@ -316,7 +363,7 @@ const styles = StyleSheet.create({
   },
   endLabel: {
     paddingVertical: spacing[5],
-    color: '#9CA3AF',
+    color: color.text.tertiary,
   },
   listContent: {
     paddingBottom: layout.tabBarHeight + 20,

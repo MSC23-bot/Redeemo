@@ -1,10 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
-import Animated from 'react-native-reanimated'
+import Animated, { useAnimatedReaction, runOnJS } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Lock, PiggyBank } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
 import { spacing, radius } from '@/design-system/tokens'
+import { useMotionScale } from '@/design-system/useMotionScale'
 import { SavingsHeroGradient } from './SavingsHeroGradient'
 import { useCountUp } from '../hooks/useCountUp'
 
@@ -37,21 +38,41 @@ function formatPounds(value: number): string {
   return `£${value.toFixed(2)}`
 }
 
-// Reanimated-driven amount.  Drives the hero count-up on the
-// populated state. Reduce-motion (via useMotionScale inside useCountUp)
-// snaps the underlying value to target immediately; the rendered text
-// here always reflects the target value for simplicity — the visual
-// "count-up" is an opacity / scale primitive that would slot in for a
-// future polish round (deferred; §S2 design-pass scope).
+// Hero count-up.  `useCountUp` drives a Reanimated shared value from
+// 0 → target via withTiming; this component bridges that shared value
+// back to React state via `useAnimatedReaction + runOnJS(setState)` so
+// the displayed text actually animates.  Reduce-motion path:
+// `useMotionScale === 0` short-circuits to the target value
+// immediately AND seeds the initial displayed state to the target
+// (skips the visual count-up entirely — matches the rule that
+// reduce-motion replaces animation with the end state).
+//
+// Implementation note: useState's initial value is the target ONLY
+// when reduce-motion is active.  In the animated path the initial
+// state is 0, and useAnimatedReaction fires within the first effect
+// flush to update the displayed value as withTiming progresses.
 function AnimatedPounds({ value, duration }: { value: number; duration: number }) {
-  useCountUp(value, duration)
+  const scale = useMotionScale()
+  const sharedValue = useCountUp(value, duration)
+  const [displayed, setDisplayed] = useState(scale === 0 ? value : 0)
+
+  useAnimatedReaction(
+    () => sharedValue.value,
+    (current, previous) => {
+      if (current !== previous) {
+        runOnJS(setDisplayed)(current)
+      }
+    },
+    [sharedValue],
+  )
+
   return (
     <Animated.Text
       style={styles.lifetimeTotal}
       accessibilityLabel={`${formatPounds(value)} total saved`}
       testID="savings-hero-lifetime"
     >
-      {formatPounds(value)}
+      {formatPounds(displayed)}
     </Animated.Text>
   )
 }
