@@ -77,53 +77,59 @@ describe('RedemptionRow — badge windows', () => {
 })
 
 describe('RedemptionRow — voucher type label + branch meta', () => {
-  it('renders TIME_LIMITED with "Time limited" label (canonical voucherTypeLabel)', () => {
-    const r = makeRedemption({ voucher: { id: 'v', title: 't', voucherType: 'TIME_LIMITED' } })
-    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText(/Time limited/)).toBeTruthy()
-  })
+  // §Savings device-QA round-2 fixup 2026-05-18 — type label
+  // appended with " voucher" per owner direction.  Reads as a noun
+  // phrase: "Reusable voucher", "Time limited voucher", "Buy one,
+  // get one free voucher".
 
-  it('renders REUSABLE with "Reusable" label (canonical voucherTypeLabel)', () => {
-    const r = makeRedemption({ voucher: { id: 'v', title: 't', voucherType: 'REUSABLE' } })
-    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText(/Reusable/)).toBeTruthy()
-  })
-
-  it('meta is a single combined line ("type · branch · time") that wraps to 2 lines max', () => {
-    // §Savings fixup 2026-05-17 — row density pass.  The earlier
-    // fixup split meta into two stacked Text rows (3-line total row,
-    // too tall vs the target brainstorm density).  Target: single
-    // meta Text with numberOfLines={2} wrap.
+  it('renders TIME_LIMITED as "Time limited voucher" (type-as-noun)', () => {
     const r = makeRedemption({
-      branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
-      voucher: { id: 'v', title: 't', voucherType: 'BOGO' },
-      redeemedAt: new Date(Date.now() - 2 * 60 * 60_000 - 5 * 60_000).toISOString(),  // 2h 5m ago
+      voucher: { id: 'v', title: 'Lunch deal', voucherType: 'TIME_LIMITED' },
     })
     const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    // Owner-locked wording: full "Buy one, get one free" canonical
-    // label, no acronym switch.  Combined into one Text node.
-    expect(getByText(/^Buy one, get one free · Brightlingsea · /)).toBeTruthy()
+    expect(getByText(/Time limited voucher/)).toBeTruthy()
   })
 
-  it('long voucher type label does NOT lose the branch name (regression for §AS-adjacent density bug)', () => {
-    // Pre-fixup single-line `numberOfLines={1}` truncated the branch
-    // on dense phones when the type label was as long as "Buy one,
-    // get one free".  Current 2-line wrap keeps the branch visible.
-    // We can't query React Native style props directly via
-    // testing-library, so pin via two paths:
-    //   (a) the rendered text node contains both type and branch
-    //   (b) the row's accessibility label always includes the branch
-    //       (built independently of the visual layout — see
-    //       construction of a11yLabel in RedemptionRow.tsx)
+  it('renders REUSABLE as "Reusable voucher" (type-as-noun)', () => {
+    const r = makeRedemption({
+      voucher: { id: 'v', title: 'Coffee club', voucherType: 'REUSABLE' },
+    })
+    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText(/Reusable voucher/)).toBeTruthy()
+  })
+
+  it('meta line composition: "{type} voucher · {branch} · {time}"', () => {
     const r = makeRedemption({
       branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
-      voucher: { id: 'v', title: 't', voucherType: 'BOGO' },
+      voucher: { id: 'v', title: 'Half-price pizza', voucherType: 'BOGO' },
+      redeemedAt: new Date(Date.now() - 2 * 60 * 60_000 - 5 * 60_000).toISOString(),
+    })
+    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText(/^Buy one, get one free voucher · Brightlingsea · /)).toBeTruthy()
+  })
+
+  it('voucher title renders on its own line between merchant name and meta', () => {
+    // §Savings device-QA round-2 fixup 2026-05-18 — voucher title
+    // is now a separate line (the WHAT, between the merchant WHO
+    // and the type/branch/time META).  Owner direction: each row
+    // should clearly identify which offer was used, not just type.
+    const r = makeRedemption({
+      voucher: { id: 'v', title: 'Half-price pizza', voucherType: 'BOGO' },
+    })
+    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText('Half-price pizza')).toBeTruthy()
+  })
+
+  it('long voucher type label does NOT lose the branch name (regression)', () => {
+    const r = makeRedemption({
+      branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
+      voucher: { id: 'v', title: 'Half-price pizza', voucherType: 'BOGO' },
     })
     const { getByText, getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText(/Buy one, get one free · Brightlingsea/)).toBeTruthy()
+    expect(getByText(/Buy one, get one free voucher · Brightlingsea/)).toBeTruthy()
     const row = getByTestId('savings-redemption-row-red-1')
     expect(row.props.accessibilityLabel).toContain('Brightlingsea')
-    expect(row.props.accessibilityLabel).toContain('Buy one, get one free')
+    expect(row.props.accessibilityLabel).toContain('Buy one, get one free voucher')
   })
 })
 
@@ -166,17 +172,19 @@ describe('RedemptionRow — tap + a11y', () => {
     expect(onPress).toHaveBeenCalledWith('v-1')
   })
 
-  it('accessibility label includes merchant, branch, type, amount, and relative time', () => {
+  it('accessibility label includes merchant, voucher title, type-as-noun, branch, amount, relative time', () => {
     const r = makeRedemption({
       redeemedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
-      branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
+      branch:     { id: 'br-1', name: 'Covelum — Brightlingsea' },
+      voucher:    { id: 'v-1', title: 'Half-price pizza', voucherType: 'BOGO' },
     })
     const { getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
     const row = getByTestId('savings-redemption-row-red-1')
     const a11y = row.props.accessibilityLabel as string
     expect(a11y).toContain('Covelum')
+    expect(a11y).toContain('Half-price pizza')
+    expect(a11y).toContain('Buy one, get one free voucher')
     expect(a11y).toContain('Brightlingsea')
-    expect(a11y).toContain('Buy one, get one free')
     expect(a11y).toContain('£12.50')
     expect(a11y).toMatch(/(min|h|d|Just) ago|Just now/)
   })

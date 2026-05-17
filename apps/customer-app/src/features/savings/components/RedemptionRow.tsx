@@ -80,12 +80,20 @@ export function RedemptionRow({ redemption, onPress }: Props) {
   const branchShort = branchShortName(redemption.branch.name)
   const relTime = relativeTime(redemption.redeemedAt)
 
+  // §Savings device-QA round-2 fixup 2026-05-18 — append " voucher"
+  // to the type label per owner direction.  Reads as a noun phrase:
+  // "Reusable voucher", "Buy one, get one free voucher", "Time
+  // limited voucher".  The savings-history surface treats every row
+  // as a redeemed voucher event, so the noun belongs on the label.
+  const vtLabelAsNoun = `${vtLabel} voucher`
+  const voucherTitle = redemption.voucher.title
+
   const logoColor =
     tokenColor.voucher?.byType?.[redemption.voucher.voucherType as keyof typeof tokenColor.voucher.byType] ??
     tokenColor.brandRose
 
   const a11yLabel =
-    `${redemption.merchant.businessName}, ${branchShort}, ${vtLabel}, £${redemption.estimatedSaving.toFixed(2)} saved, ${relTime}`
+    `${redemption.merchant.businessName}, ${voucherTitle}, ${vtLabelAsNoun}, ${branchShort}, £${redemption.estimatedSaving.toFixed(2)} saved, ${relTime}`
 
   // §Savings device-QA fixup 2026-05-18 — PressableScale inner-flex bug.
   //
@@ -117,12 +125,23 @@ export function RedemptionRow({ redemption, onPress }: Props) {
           </Text>
         </View>
 
+        {/* §Savings device-QA round-2 fixup 2026-05-18 — three-line
+            content stack per owner direction:
+              Line 1  Merchant name (the WHO)
+              Line 2  Voucher title (the WHAT — what offer was used)
+              Line 3  Type-as-noun · branch · time (the META)
+            Adding the voucher title was the load-bearing change —
+            previously the user couldn't tell what offer each row
+            represented, only the merchant + type. */}
         <View style={styles.content}>
           <Text variant="body.sm" style={styles.merchantName} numberOfLines={1}>
             {redemption.merchant.businessName}
           </Text>
+          <Text variant="body.sm" style={styles.voucherTitle} numberOfLines={1}>
+            {voucherTitle}
+          </Text>
           <Text variant="body.sm" style={styles.meta} numberOfLines={2}>
-            {vtLabel} · {branchShort} · {relTime}
+            {vtLabelAsNoun} · {branchShort} · {relTime}
           </Text>
         </View>
 
@@ -201,6 +220,15 @@ const styles = StyleSheet.create({
     fontFamily: 'Lato-Bold',
     fontSize: 14,
     color: tokenColor.text.primary,
+  },
+  // §Savings device-QA round-2 fixup 2026-05-18 — voucher-title
+  // line.  Sits between the merchant name (bold) and the meta line
+  // (tertiary).  Medium-weight navy at 13pt so it reads as the
+  // offer name without competing with the merchant identity above.
+  voucherTitle: {
+    fontFamily: 'Lato-Medium',
+    fontSize: 13,
+    color: tokenColor.text.secondary,
   },
   meta: {
     fontSize: 11,
