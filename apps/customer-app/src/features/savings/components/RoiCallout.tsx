@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import { View, StyleSheet } from 'react-native'
 import Animated, {
+  Easing,
   useSharedValue,
   useAnimatedStyle,
   withTiming,
@@ -17,9 +18,19 @@ import { useMotionScale } from '@/design-system/useMotionScale'
 // shimmer sweep that runs every 2.8s after a 1.8s initial delay.
 // Hidden when `thisMonthSaving <= 0` or a past month is selected (the
 // parent gates the past-month case).  Four variant copy branches.
+//
+// §Savings emil-pass 6/7 2026-05-17 — shimmer easing.
+// Was: `withTiming(2, { duration: 1200 })` with no easing — default
+// linear curve.  Linear is correct for constant motion (skeleton
+// shimmer, marquee) but the ROI callout shimmer is a discrete event,
+// not constant — each sweep is a deliberate highlight.  Per Emil's
+// framework: strong ease-out gives the sweep a punchier landing
+// instead of grinding to a stop.  Curve = cubic-bezier(0.23, 1,
+// 0.32, 1), the Emil-prescribed strong ease-out.
 
 const MONTHLY_COST = 6.99
 const ANNUAL_MONTHLY_COST = 69.99 / 12 // £5.83
+const EASE_OUT_STRONG = Easing.bezier(0.23, 1, 0.32, 1)
 
 type Props = {
   thisMonthSaving: number
@@ -37,7 +48,11 @@ export function RoiCallout({ thisMonthSaving, billingInterval, hasPromo }: Props
       1800,
       withRepeat(
         withSequence(
-          withTiming(2, { duration: 1200 }),
+          // The sweep itself decelerates strongly — feels intentional
+          // rather than mechanical.
+          withTiming(2,    { duration: 1200, easing: EASE_OUT_STRONG }),
+          // Reset is instant (duration 0) — no easing needed; the
+          // value snaps off-screen before the next sweep starts.
           withTiming(-1.2, { duration: 0 }),
         ),
         -1,
