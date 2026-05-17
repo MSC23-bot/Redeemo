@@ -311,3 +311,132 @@ describe('savings.service — Revision 2 byBranch aggregation', () => {
     })
   })
 })
+
+// ─── getSavingsRedemptions response-shape pins (2026-05-17 hotfix) ──────────
+//
+// Backend bug shipped via PR #3ce9451 (the original savings routes
+// commit, well before PR #104).  The Prisma `select` and the result
+// access used `voucherType` — the actual schema field is `type`.
+// Prisma caught it at JSON-validation time as a runtime error; the
+// existing mock-Prisma test suite did NOT exercise this function so
+// the bug was never seen until on-device QA for PR-B (#105) hit the
+// `/api/v1/customer/savings/redemptions` endpoint and got 500s.
+//
+// Why tsc doesn't catch this: Prisma 7's generated select-arg types
+// are broader than the schema (they accept any string-key object); the
+// runtime validation is the source of truth.  The fix is the
+// `select: { type: true }` swap in `getSavingsRedemptions` PLUS the
+// response mapping `voucherType: r.voucher.type` (so the customer-app
+// contract — `voucherType` — stays unchanged).
+//
+// These tests pin the OUTPUT shape so a future regression that
+// renames the response field gets caught.  They do NOT exercise real
+// Prisma (the mock accepts any select shape), so the "wrong Prisma
+// field name" half of the bug would still need a real-DB integration
+// test to catch.  That's a deferred follow-up — for now, tsc's
+// permissive select types are a known gap and the recommendation is
+// to add a dedicated integration test for getSavingsRedemptions
+// once an integration-test pattern is established for this codebase.
+
+import { getSavingsRedemptions } from '../../../src/api/customer/savings/service'
+
+describe('savings.service — getSavingsRedemptions response shape (hotfix pin)', () => {
+  function makePrismaForRedemptions(rawRows: Array<{
+    id: string
+    redeemedAt: Date
+    estimatedSaving: number
+    isValidated: boolean
+    validatedAt: Date | null
+    voucher: { id: string; title: string; type: string; merchant: { id: string; businessName: string; logoUrl: string | null } }
+    branch: { id: string; name: string }
+  }>) {
+    const prisma = new PrismaClient() as any
+    prisma.voucherRedemption.findMany = vi.fn().mockResolvedValue(rawRows)
+    prisma.voucherRedemption.count    = vi.fn().mockResolvedValue(rawRows.length)
+    return prisma
+  }
+
+  it('maps Prisma `voucher.type` → response `voucherType` (contract-rename pin)', async () => {
+    const prisma = makePrismaForRedemptions([
+      {
+        id: 'red-1',
+        redeemedAt: new Date('2026-05-15T10:00:00Z'),
+        estimatedSaving: 12.5,
+        isValidated: false,
+        validatedAt: null,
+        voucher: {
+          id: 'v-1',
+          title: 'Free filter coffee',
+          type: 'FREEBIE',  // ← schema field is `type`, not `voucherType`
+          merchant: { id: 'cov', businessName: 'Covelum', logoUrl: null },
+        },
+        branch: { id: 'br-1', name: 'Brightlingsea' },
+      },
+    ])
+
+    const result = await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0 })
+
+    expect(result.redemptions).toHaveLength(1)
+    const r = result.redemptions[0]
+    expect(r).toBeDefined()
+    if (!r) throw new Error('unreachable')
+    // ── The contract pin: response field is `voucherType` (customer-
+    //    app Zod expects this), populated from Prisma's `voucher.type`.
+    expect(r.voucher).toMatchObject({
+      id:          'v-1',
+      title:       'Free filter coffee',
+      voucherType: 'FREEBIE',
+    })
+    // Defensive: legacy `type` field name MUST NOT leak into the
+    // response — customer-app Zod would silently drop it (passthrough)
+    // but a future contract-strict mode could reject the row.
+    expect((r.voucher as any).type).toBeUndefined()
+  })
+
+  it('covers all 8 voucher types end-to-end (BOGO / FREEBIE / TIME_LIMITED / REUSABLE / DISCOUNT_FIXED / DISCOUNT_PERCENT / SPEND_AND_SAVE / PACKAGE_DEAL)', async () => {
+    const types = [
+      'BOGO', 'FREEBIE', 'TIME_LIMITED', 'REUSABLE',
+      'DISCOUNT_FIXED', 'DISCOUNT_PERCENT', 'SPEND_AND_SAVE', 'PACKAGE_DEAL',
+    ]
+    const rawRows = types.map((t, i) => ({
+      id: `red-${i}`,
+      redeemedAt: new Date('2026-05-15T10:00:00Z'),
+      estimatedSaving: 5,
+      isValidated: false,
+      validatedAt: null,
+      voucher: {
+        id: `v-${i}`,
+        title: `Voucher ${i}`,
+        type: t,
+        merchant: { id: 'm', businessName: 'M', logoUrl: null },
+      },
+      branch: { id: 'br', name: 'B' },
+    }))
+    const prisma = makePrismaForRedemptions(rawRows)
+
+    const result = await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0 })
+
+    expect(result.redemptions.map(r => r.voucher.voucherType)).toEqual(types)
+  })
+
+  it('passes pagination offset + limit through to Prisma skip/take', async () => {
+    const prisma = makePrismaForRedemptions([])
+
+    await getSavingsRedemptions(prisma, 'user-1', { limit: 50, offset: 100 })
+
+    expect(prisma.voucherRedemption.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 100, take: 50 }),
+    )
+  })
+
+  it('total reflects Prisma count, NOT rows.length (paginated case)', async () => {
+    const prisma = new PrismaClient() as any
+    prisma.voucherRedemption.findMany = vi.fn().mockResolvedValue([])
+    prisma.voucherRedemption.count    = vi.fn().mockResolvedValue(247)
+
+    const result = await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0 })
+
+    expect(result.total).toBe(247)
+    expect(result.redemptions).toHaveLength(0)
+  })
+})

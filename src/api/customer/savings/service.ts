@@ -153,7 +153,12 @@ export async function getSavingsRedemptions(
           select: {
             id: true,
             title: true,
-            voucherType: true,
+            // Prisma schema field is `type` (see `model Voucher` in
+            // `prisma/schema.prisma`).  The customer-app expects the
+            // field named `voucherType` per the Zod schema in
+            // `apps/customer-app/src/lib/api/savings.ts` — that
+            // rename happens in the response mapping below.
+            type: true,
             merchant: { select: { id: true, businessName: true, logoUrl: true } },
           },
         },
@@ -177,7 +182,10 @@ export async function getSavingsRedemptions(
     voucher: {
       id:          r.voucher.id,
       title:       r.voucher.title,
-      voucherType: r.voucher.voucherType,
+      // Map schema `type` → response `voucherType` to match the
+      // customer-app's Zod contract.  See comment on the select
+      // above.
+      voucherType: r.voucher.type,
     },
     branch: { id: r.branch.id, name: r.branch.name },
   }))
