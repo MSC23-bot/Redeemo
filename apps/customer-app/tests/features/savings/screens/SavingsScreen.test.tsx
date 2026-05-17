@@ -18,9 +18,26 @@ import type { SavingsSummary, SavingsRedemption, MonthlyDetail } from '@/lib/api
 
 // ── Mocks ────────────────────────────────────────────────────────────
 const mockRouterPush = jest.fn()
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockRouterPush, replace: jest.fn(), back: jest.fn() }),
-}))
+jest.mock('expo-router', () => {
+  // `require` inside the factory — jest.mock factories cannot
+  // reference outer-scope identifiers (incl. React) directly.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+  const ReactInner = require('react') as typeof import('react')
+  return {
+    useRouter: () => ({ push: mockRouterPush, replace: jest.fn(), back: jest.fn() }),
+    // §Savings device-QA fixup 6 2026-05-18 — SavingsScreen now calls
+    // useFocusEffect to refetch summary + redemptions when the tab
+    // becomes active.  The jest mock fires the effect callback once
+    // on mount (sufficient for unit tests; the real focus event is a
+    // navigation concern exercised by E2E / device QA).
+    useFocusEffect: (cb: () => void | (() => void)) => {
+      ReactInner.useEffect(() => {
+        const cleanup = cb()
+        return typeof cleanup === 'function' ? cleanup : undefined
+      }, [cb])
+    },
+  }
+})
 
 const mockSubscription = jest.fn()
 jest.mock('@/hooks/useSubscription', () => ({

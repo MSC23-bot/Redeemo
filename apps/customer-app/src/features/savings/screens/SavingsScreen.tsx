@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { View, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, useFocusEffect } from 'expo-router'
 import { Text } from '@/design-system/Text'
 import { FadeInDown } from '@/design-system/motion/FadeIn'
 import { PressableScale } from '@/design-system/motion/PressableScale'
@@ -167,6 +167,28 @@ export function SavingsScreen() {
   const insightPlaces = useMemo(
     () => groupByMerchant(insightBranches),
     [insightBranches],
+  )
+
+  // §Savings device-QA fixup 6 2026-05-18 — refresh-on-focus.
+  // After a customer redeems a voucher in another tab (Voucher
+  // Detail → PinEntrySheet → success), they expect the Savings tab
+  // to reflect the new redemption when they switch back.  Previously
+  // the React Query cache held stale data until either the 60-second
+  // staleTime expired or the user pulled to refresh / tapped a
+  // different month.  `useFocusEffect` now triggers refetches of
+  // both savings summary + paginated redemptions every time the tab
+  // becomes the active route.  Light-touch: no UI change, just a
+  // background refetch that React Query reconciles into the
+  // existing cache (so visible data only changes if the server
+  // returns different data).
+  useFocusEffect(
+    useCallback(() => {
+      summary.refetch()
+      redemptions.refetch()
+      // monthDetail is only refetched if a past month is selected —
+      // re-running its query under selectedMonth: null would no-op.
+      if (selectedMonth) monthDetail.refetch()
+    }, [summary, redemptions, monthDetail, selectedMonth]),
   )
 
   // ── Month drill-down ───────────────────────────────────────────────
