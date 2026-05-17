@@ -107,12 +107,10 @@ export function SavingsHeroHeader({
   thisMonthRedemptionCount,
 }: Props) {
   const insets = useSafeAreaInsets()
-  const tone: 'brand' | 'cream' = state === 'free' ? 'brand' : 'cream'
-
-  // Caption beneath the populated amount.  Singular vs plural on the
-  // redemption count — small thing, reads correct on real data.
-  const redemptionWord = thisMonthRedemptionCount === 1 ? 'redemption' : 'redemptions'
-  const populatedCaption = `${formatPounds(thisMonthSaving)} this month · ${thisMonthRedemptionCount} ${redemptionWord}`
+  // §Savings device-QA fixup 3 2026-05-18 — populated state reverts
+  // to brand-rose tone per owner direction; State 2 stays cream.
+  const tone: 'brand' | 'cream' =
+    state === 'free' || state === 'populated' ? 'brand' : 'cream'
 
   return (
     <SavingsHeroGradient style={styles.container} tone={tone}>
@@ -185,19 +183,29 @@ export function SavingsHeroHeader({
       )}
 
       {state === 'populated' && (
-        <View style={styles.populatedContentCream} testID="savings-hero-populated">
+        <View style={styles.populatedContentBrand} testID="savings-hero-populated">
+          <Text style={styles.eyebrowBrand}>Total saved</Text>
           <AnimatedPounds
             value={lifetimeSaving}
             duration={900}
-            textStyle={styles.lifetimeTotalCream}
+            textStyle={styles.lifetimeTotalBrand}
           />
-          <Text
-            variant="body.sm"
-            style={styles.populatedCaption}
-            testID="savings-hero-populated-caption"
-          >
-            {populatedCaption}
-          </Text>
+          {/* §Savings device-QA fixup 3 2026-05-18 — full-width chip row.
+              Was: chips left-aligned with empty space on the right.  Now:
+              each chip takes `flex: 1` so the two chips fill the row
+              with proper horizontal padding (matches brainstorm
+              composition).  Chips read at larger Mustica value (22pt) +
+              eyebrow label (10pt uppercase). */}
+          <View style={styles.chipRow}>
+            <View style={styles.statChip} testID="savings-hero-chip-this-month">
+              <Text style={styles.chipLabel}>This month</Text>
+              <Text style={styles.chipValue}>{formatPounds(thisMonthSaving)}</Text>
+            </View>
+            <View style={styles.statChip} testID="savings-hero-chip-redemptions">
+              <Text style={styles.chipLabel}>Redemptions</Text>
+              <Text style={styles.chipValue}>{thisMonthRedemptionCount}</Text>
+            </View>
+          </View>
         </View>
       )}
     </SavingsHeroGradient>
@@ -309,30 +317,65 @@ const styles = StyleSheet.create({
     fontFamily: 'Lato-SemiBold',
   },
 
-  // ── State 3 (cream populated) ────────────────────────────────────
-  // Editorial layout: amount left-aligned at display.xl, single
-  // sentence caption beneath in body.sm tertiary.  No eyebrow.  No
-  // frosted chips.  No gradient accent.  Cream identity zone frames
-  // the savings amount as product narrative — exactly what
-  // DESIGN.md "Display XL: savings amounts on hero surfaces"
-  // prescribes, without the SaaS metric-tile composition around it.
-  populatedContentCream: {
-    alignItems: 'flex-start',
+  // ── State 3 (brand populated) ────────────────────────────────────
+  // §Savings device-QA fixup 3 2026-05-18 — owner direction: populated
+  // hero stays brand-rose with eyebrow + amount + two stat chips.
+  // Chips sized so the row fills the screen with even horizontal
+  // padding (each chip flex:1 + 12pt gap between).  Eyebrow + amount
+  // left-aligned per brainstorm composition.
+  populatedContentBrand: {
+    alignItems: 'stretch',
     paddingHorizontal: spacing[5],
     paddingTop: spacing[2],
     paddingBottom: spacing[6],
-    gap: spacing[2],
   },
-  lifetimeTotalCream: {
+  eyebrowBrand: {
+    fontFamily: 'Lato-SemiBold',
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.65)',
+    marginBottom: spacing[1],
+  },
+  lifetimeTotalBrand: {
     fontFamily: 'MusticaPro-SemiBold',
     fontSize: 44,
     lineHeight: 48,
     letterSpacing: -0.5,
-    color: color.navy,
+    color: '#FFFFFF',
     fontVariant: ['tabular-nums'],
   },
-  populatedCaption: {
-    color: color.text.tertiary,
+  chipRow: {
+    flexDirection: 'row',
+    gap: spacing[3],
+    marginTop: spacing[4],
+  },
+  // §Savings device-QA fixup 3 2026-05-18 — `flex: 1` on each chip so
+  // they share the row width equally (with the spacing[3] gap between).
+  // Was: left-aligned with `paddingHorizontal: spacing[3]` and no
+  // flex grow — chips ended up narrow, big empty space on the right.
+  statChip: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    gap: 2,
+  },
+  chipLabel: {
+    fontFamily: 'Lato-SemiBold',
+    fontSize: 10,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.7)',
+  },
+  chipValue: {
+    fontFamily: 'MusticaPro-SemiBold',
+    fontSize: 22,
+    lineHeight: 26,
+    color: '#FFFFFF',
     fontVariant: ['tabular-nums'],
   },
 })
