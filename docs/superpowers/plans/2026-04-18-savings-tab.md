@@ -2,7 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Savings tab in the customer app — a personal financial dashboard with 3 user states (free, subscriber-empty, populated), month drill-down, ROI callout, and paginated redemption history — exactly matching the approved design spec at `docs/superpowers/specs/2026-04-18-savings-tab-design.md`.
+> **Rebaseline Amendment 2026-05-17** — This plan was originally locked 2026-04-18. The rebaseline track (sequenced as two PRs: PR-A backend prerequisite + PR-B frontend port) operates against the **amended spec** at `docs/superpowers/specs/2026-04-18-savings-tab-design.md` (see the "Revision 2" header at the top of that doc for the index of changes). Affected tasks below:
+>
+> - **Task 1** (now obsolete): `validatedAt` added to redemptions response — already shipped 2026-04-18; verified on main as of 2026-05-17.
+> - **Task 2** (now obsolete): monthly-detail endpoint added — already shipped 2026-04-18; only the response shape changed (PR-A: `byMerchant` → `byBranch`).
+> - **Task 3** (adapted): customer-app API client must consume `byBranch[]` instead of `byMerchant[]`. Subscription `promoCodeId` field already on main.
+> - **Task 9** (renamed): "TopPlaces" → "TopBranches"; aggregation switched merchant-level → branch-level.
+> - **Task 11** (adapted): RedemptionRow meta includes branch name; "Show to staff" badge window is 2h (not 24h) per §AE5; row uses `voucherTypeLabel()` helper for TIME_LIMITED / REUSABLE / all other type labels.
+> - **Task 7** (rewrite): SavingsSkeleton is a structural skeleton (mirrors §BD-3 `MerchantProfileSkeleton`), not a generic shimmer-only block.
+> - **Task 12** (adapted): SavingsScreen state machine — State 1 trigger is `subscription === null` (drop `'FREE'` branch); State 2 / State 3 accept `'PAST_DUE'` and route by redemption count.
+> - **NEW**: Voucher type handling rules (TIME_LIMITED + REUSABLE) — see new "Voucher type handling" section in the amended spec. All voucher types count toward aggregations per-redemption; no separate breakdown card; RedemptionRow uses canonical `voucherTypeLabel`.
+>
+> Backend prerequisite (PR-A): spec/plan amendment commit + service.ts swap (`byMerchant` → `byBranch` in `getSavingsSummary` and `getMonthlyDetail`) + Zod-shape update + tests covering multi-branch split, REUSABLE/TIME_LIMITED inclusion, and ordering. ~150 LOC. Frontend (PR-B) executes Tasks 3 → 13 against the amended contract once PR-A is on main.
+
+**Goal:** Build the Savings tab in the customer app — a personal financial dashboard with 3 user states (free, subscriber-empty, populated), month drill-down, ROI callout, and paginated redemption history — exactly matching the approved design spec at `docs/superpowers/specs/2026-04-18-savings-tab-design.md` (Revision 2, post-rebaseline-amendment).
 
 **Architecture:** FlatList with ListHeaderComponent (hero + insight cards + ROI callout as header, redemption rows as list items). Three user states determined by subscription status + redemption count. Month drill-down fetches per-month insight data from a new backend endpoint. All animations use `transform`/`opacity` only via `react-native-reanimated`, respecting `useMotionScale()` for reduceMotion.
 

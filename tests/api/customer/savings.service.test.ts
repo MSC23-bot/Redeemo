@@ -1,0 +1,316 @@
+// §Savings Rebaseline (PR-A, Revision 2 — 2026-05-17): service-level pins
+// for the byMerchant → byBranch aggregation swap.
+//
+// The existing `savings.routes.test.ts` mocks the SERVICE layer entirely
+// and only verifies route plumbing.  This file targets the actual service
+// implementation by mocking the Prisma client and calling the real
+// `getSavingsSummary` / `getMonthlyDetail` to verify the aggregation
+// logic produces the right shape AND correctly handles:
+//
+//   - Multi-branch merchant split (Covelum Brightlingsea + Covelum
+//     Colchester → TWO byBranch entries, NOT one merged Covelum entry).
+//   - REUSABLE voucher redemptions counted once per redemption (a
+//     REUSABLE voucher redeemed 3× contributes 3× to saving + count).
+//   - TIME_LIMITED voucher redemptions counted normally on each
+//     redemption.
+//   - Ordering: byBranch descending by saving.
+//   - Single-branch merchant: one entry, not collapsed.
+//
+// The mock-Prisma pattern mirrors `tests/api/customer/discovery.service.test.ts`.
+
+import 'dotenv/config'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// ── Mock @prisma/adapter-pg so new PrismaPg(...) doesn't need a real DB ──────
+vi.mock('@prisma/adapter-pg', () => ({
+  PrismaPg: class PrismaPg {
+    constructor(_opts: { connectionString: string }) {}
+  },
+}))
+
+// ── Mock the Prisma client with VoucherRedemption methods ────────────────────
+//
+// Mock state captured in module scope so each test can override
+// findMany / aggregate return values via `setRedemptionRows(...)` and
+// `setAggregates(...)`.  Service `getSavingsSummary` makes:
+//   - 1 lifetime aggregate (sum only)
+//   - 1 this-month aggregate (sum + count)
+//   - 12 monthly-window aggregates (sum + count)
+//   - 2 findMany calls (byBranch + byCategory)
+//
+// We default everything to zero/empty and override the specific calls
+// the test cares about.
+
+type Row = {
+  estimatedSaving: number
+  branch: { id: string; name: string }
+  voucher: {
+    voucherType?: string
+    merchant: {
+      id:           string
+      businessName: string
+      logoUrl:      string | null
+      primaryCategory?: { id: string; name: string } | null
+    }
+  }
+}
+
+const state: {
+  rows:           Row[]
+  lifetimeSum:    number
+  thisMonthSum:   number
+  thisMonthCount: number
+} = {
+  rows:           [],
+  lifetimeSum:    0,
+  thisMonthSum:   0,
+  thisMonthCount: 0,
+}
+
+vi.mock('../../../generated/prisma/client', () => {
+  class PrismaClient {
+    voucherRedemption = {
+      aggregate: vi.fn().mockImplementation(async () => ({
+        _sum:   { estimatedSaving: 0 },
+        _count: { id: 0 },
+      })),
+      findMany: vi.fn().mockImplementation(async () => [] as Row[]),
+      count:    vi.fn().mockImplementation(async () => 0),
+    }
+    constructor(_opts?: any) {}
+  }
+  return { PrismaClient }
+})
+
+import { getSavingsSummary, getMonthlyDetail } from '../../../src/api/customer/savings/service'
+import { PrismaClient } from '../../../generated/prisma/client'
+
+function makePrismaWithRows(rows: Row[], opts?: { lifetimeSum?: number; thisMonthSum?: number; thisMonthCount?: number }) {
+  const prisma = new PrismaClient() as any
+  const lifetimeSum    = opts?.lifetimeSum    ?? rows.reduce((s, r) => s + r.estimatedSaving, 0)
+  const thisMonthSum   = opts?.thisMonthSum   ?? lifetimeSum
+  const thisMonthCount = opts?.thisMonthCount ?? rows.length
+
+  // Aggregate calls: first one is lifetime (sum only), second is
+  // this-month (sum + count), then 12 monthly windows (each sum +
+  // count, all zero by default for non-current months). The service
+  // calls them in order, so we return values keyed on call index.
+  let aggCallIdx = 0
+  prisma.voucherRedemption.aggregate = vi.fn().mockImplementation(async () => {
+    aggCallIdx++
+    if (aggCallIdx === 1) return { _sum: { estimatedSaving: lifetimeSum }, _count: { id: rows.length } }
+    if (aggCallIdx === 2) return { _sum: { estimatedSaving: thisMonthSum }, _count: { id: thisMonthCount } }
+    // monthly-window aggregates: idx 3 = current month (matches this-month),
+    // idx 4-14 = past 11 months (zero-filled).
+    if (aggCallIdx === 3) return { _sum: { estimatedSaving: thisMonthSum }, _count: { id: thisMonthCount } }
+    return { _sum: { estimatedSaving: 0 }, _count: { id: 0 } }
+  })
+
+  // findMany: first call is byBranch (rows include branch + merchant),
+  // second call is byCategory (rows include merchant.primaryCategory).
+  // The select shapes differ but we hand the same fixture to both —
+  // the service only reads the fields it asked for, so extra fields
+  // are harmless.
+  prisma.voucherRedemption.findMany = vi.fn().mockImplementation(async () => rows)
+  prisma.voucherRedemption.count    = vi.fn().mockResolvedValue(rows.length)
+
+  return prisma
+}
+
+function row(
+  branchId: string,
+  branchName: string,
+  merchantId: string,
+  merchantName: string,
+  estimatedSaving: number,
+  voucherType: string = 'BOGO',
+): Row {
+  return {
+    estimatedSaving,
+    branch: { id: branchId, name: branchName },
+    voucher: {
+      voucherType,
+      merchant: {
+        id:           merchantId,
+        businessName: merchantName,
+        logoUrl:      null,
+        primaryCategory: { id: 'cat-food', name: 'Food & Drink' },
+      },
+    },
+  }
+}
+
+describe('savings.service — Revision 2 byBranch aggregation', () => {
+  beforeEach(() => {
+    state.rows = []
+  })
+
+  // Load-bearing pin: multi-branch merchant splits into TWO byBranch
+  // entries with shared merchantId / merchantName.  Per the branch-as-
+  // PRIMARY-unit locked rule, a user who redeemed at Covelum
+  // Brightlingsea and Covelum Colchester must see two distinct rows in
+  // Top branches — not one merged "Covelum: £25" row.
+  it('getSavingsSummary: multi-branch merchant splits into TWO byBranch entries (Covelum Brightlingsea + Covelum Colchester)', async () => {
+    const rows = [
+      row('br-bright', 'Brightlingsea', 'covelum-id', 'Covelum', 15.00),
+      row('br-colch',  'Colchester',    'covelum-id', 'Covelum', 10.00),
+    ]
+    const prisma = makePrismaWithRows(rows)
+    const result = await getSavingsSummary(prisma, 'user-1')
+
+    expect(result.byBranch).toHaveLength(2)
+    expect(result.byBranch[0]).toMatchObject({
+      branchId:     'br-bright',
+      branchName:   'Brightlingsea',
+      merchantId:   'covelum-id',
+      merchantName: 'Covelum',
+      saving:       15.00,
+      count:        1,
+    })
+    expect(result.byBranch[1]).toMatchObject({
+      branchId:     'br-colch',
+      branchName:   'Colchester',
+      merchantId:   'covelum-id',
+      merchantName: 'Covelum',
+      saving:       10.00,
+      count:        1,
+    })
+    // Both entries share the same merchantId — the rebaseline rule is
+    // branch-split, NOT merchant-de-duplication.
+    expect(result.byBranch[0].merchantId).toBe(result.byBranch[1].merchantId)
+  })
+
+  // Ordering pin: descending by saving regardless of insertion order.
+  it('getSavingsSummary: byBranch sorted descending by saving', async () => {
+    const rows = [
+      row('br-low',  'LowSaving',  'm1', 'Merchant', 3.00),
+      row('br-high', 'HighSaving', 'm1', 'Merchant', 20.00),
+      row('br-mid',  'MidSaving',  'm1', 'Merchant', 11.00),
+    ]
+    const prisma = makePrismaWithRows(rows)
+    const result = await getSavingsSummary(prisma, 'user-1')
+
+    expect(result.byBranch.map(b => b.branchName)).toEqual(['HighSaving', 'MidSaving', 'LowSaving'])
+    expect(result.byBranch.map(b => b.saving)).toEqual([20.00, 11.00, 3.00])
+  })
+
+  // Single-branch merchant: one byBranch entry, not collapsed away.
+  it('getSavingsSummary: single-branch merchant produces one byBranch entry', async () => {
+    const rows = [row('br-only', 'Only Branch', 'm1', 'Karaara', 8.00)]
+    const prisma = makePrismaWithRows(rows)
+    const result = await getSavingsSummary(prisma, 'user-1')
+
+    expect(result.byBranch).toHaveLength(1)
+    expect(result.byBranch[0]).toMatchObject({
+      branchId:   'br-only',
+      branchName: 'Only Branch',
+      merchantId: 'm1',
+      saving:     8.00,
+      count:      1,
+    })
+  })
+
+  // §Voucher type handling rule (Revision 2 spec amendment): REUSABLE
+  // and TIME_LIMITED redemptions count toward all aggregates the same
+  // as any other voucher type.  This pin guards against a future filter
+  // regression (e.g., someone adding `where: { voucher: { voucherType:
+  // { not: 'REUSABLE' } } }` thinking REUSABLE shouldn't count).
+  it('getSavingsSummary: REUSABLE + TIME_LIMITED + BOGO redemptions ALL contribute to byBranch totals', async () => {
+    const rows = [
+      // REUSABLE voucher used 3× at the same branch (cooldown cycles
+      // make multiple redemptions of the same voucher legitimate).
+      row('br-x', 'Branch X', 'm1', 'Merchant', 4.00, 'REUSABLE'),
+      row('br-x', 'Branch X', 'm1', 'Merchant', 4.00, 'REUSABLE'),
+      row('br-x', 'Branch X', 'm1', 'Merchant', 4.00, 'REUSABLE'),
+      // TIME_LIMITED redemption.
+      row('br-x', 'Branch X', 'm1', 'Merchant', 6.00, 'TIME_LIMITED'),
+      // Regular BOGO for comparison.
+      row('br-x', 'Branch X', 'm1', 'Merchant', 8.00, 'BOGO'),
+    ]
+    const prisma = makePrismaWithRows(rows)
+    const result = await getSavingsSummary(prisma, 'user-1')
+
+    // All 5 redemptions roll up into the same branch entry.
+    expect(result.byBranch).toHaveLength(1)
+    expect(result.byBranch[0]).toMatchObject({
+      branchId:   'br-x',
+      branchName: 'Branch X',
+      saving:     26.00,  // 4+4+4+6+8
+      count:      5,
+    })
+    // Lifetime sum includes ALL voucher types — no filter exclusions.
+    expect(result.lifetimeSaving).toBe(26.00)
+    // Monthly count + sum also include all types.
+    expect(result.thisMonthRedemptionCount).toBe(5)
+    expect(result.thisMonthSaving).toBe(26.00)
+  })
+
+  // No redemptions: byBranch is empty, totals zero, monthlyBreakdown
+  // still produces 12 zero-filled entries.
+  it('getSavingsSummary: zero redemptions → empty byBranch + zero totals + 12-month zero-fill', async () => {
+    const prisma = makePrismaWithRows([], { lifetimeSum: 0, thisMonthSum: 0, thisMonthCount: 0 })
+    const result = await getSavingsSummary(prisma, 'user-1')
+
+    expect(result.byBranch).toHaveLength(0)
+    expect(result.lifetimeSaving).toBe(0)
+    expect(result.thisMonthSaving).toBe(0)
+    expect(result.thisMonthRedemptionCount).toBe(0)
+    expect(result.monthlyBreakdown).toHaveLength(12)
+  })
+
+  // Regression pin: the response object must NOT carry a `byMerchant`
+  // field.  If a future change reintroduces merchant-level rollup, this
+  // test fails loudly.
+  it('getSavingsSummary: response shape does NOT include legacy byMerchant field', async () => {
+    const rows = [row('br-x', 'Branch X', 'm1', 'Merchant', 5.00)]
+    const prisma = makePrismaWithRows(rows)
+    const result = await getSavingsSummary(prisma, 'user-1') as any
+
+    expect(result.byBranch).toBeDefined()
+    expect(result.byMerchant).toBeUndefined()
+  })
+
+  // ─── getMonthlyDetail mirrors the same contract ────────────────────────────
+  describe('getMonthlyDetail', () => {
+    it('multi-branch merchant split applies on the monthly endpoint too', async () => {
+      const rows = [
+        row('br-bright', 'Brightlingsea', 'covelum-id', 'Covelum', 12.00),
+        row('br-colch',  'Colchester',    'covelum-id', 'Covelum', 8.00),
+      ]
+      const prisma = makePrismaWithRows(rows)
+      const result = await getMonthlyDetail(prisma, 'user-1', '2026-04')
+
+      expect(result.byBranch).toHaveLength(2)
+      expect(result.byBranch[0].branchName).toBe('Brightlingsea')
+      expect(result.byBranch[1].branchName).toBe('Colchester')
+      expect(result.totalSaving).toBe(20.00)
+      expect(result.redemptionCount).toBe(2)
+    })
+
+    it('REUSABLE + TIME_LIMITED redemptions contribute to monthly byBranch totals', async () => {
+      const rows = [
+        row('br-y', 'Branch Y', 'm1', 'Merchant', 3.00, 'REUSABLE'),
+        row('br-y', 'Branch Y', 'm1', 'Merchant', 3.00, 'REUSABLE'),
+        row('br-y', 'Branch Y', 'm1', 'Merchant', 5.00, 'TIME_LIMITED'),
+      ]
+      const prisma = makePrismaWithRows(rows)
+      const result = await getMonthlyDetail(prisma, 'user-1', '2026-04')
+
+      expect(result.byBranch).toHaveLength(1)
+      expect(result.byBranch[0]).toMatchObject({
+        branchName: 'Branch Y',
+        saving:     11.00,  // 3+3+5
+        count:      3,
+      })
+    })
+
+    it('response shape does NOT include legacy byMerchant field', async () => {
+      const rows = [row('br-x', 'Branch X', 'm1', 'Merchant', 5.00)]
+      const prisma = makePrismaWithRows(rows)
+      const result = await getMonthlyDetail(prisma, 'user-1', '2026-04') as any
+
+      expect(result.byBranch).toBeDefined()
+      expect(result.byMerchant).toBeUndefined()
+    })
+  })
+})
