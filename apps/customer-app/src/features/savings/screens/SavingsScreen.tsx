@@ -3,8 +3,9 @@ import { View, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from 'r
 import { useRouter } from 'expo-router'
 import { Text } from '@/design-system/Text'
 import { FadeInDown } from '@/design-system/motion/FadeIn'
+import { PressableScale } from '@/design-system/motion/PressableScale'
 import { ErrorState } from '@/design-system/components/ErrorState'
-import { color, spacing, layout } from '@/design-system/tokens'
+import { color, radius, spacing, layout } from '@/design-system/tokens'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useSavingsSummary } from '../hooks/useSavingsSummary'
 import { useSavingsRedemptions } from '../hooks/useSavingsRedemptions'
@@ -104,7 +105,37 @@ export function SavingsScreen() {
   }, [redemptions.data])
 
   const totalRedemptions = redemptions.data?.pages[0]?.total ?? 0
-  const allLoaded = allRedemptions.length >= totalRedemptions && totalRedemptions > 0
+
+  // §Savings device-QA fixup 5 2026-05-18 — explicit Load-more
+  // pagination.  Was: `onEndReached` infinite scroll — dumped the
+  // whole list on one screen.  Now: show INITIAL_VISIBLE rows up
+  // front; user taps "Load more" to reveal LOAD_MORE_STEP more.
+  // When the cached pages run out we trigger the React Query
+  // `fetchNextPage` for the next backend page.  Once both the
+  // network is exhausted AND we've revealed every cached row, the
+  // footer flips to "You're all caught up".
+  const INITIAL_VISIBLE = 8
+  const LOAD_MORE_STEP  = 8
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
+  const visibleRedemptions = useMemo(
+    () => allRedemptions.slice(0, visibleCount),
+    [allRedemptions, visibleCount],
+  )
+  const moreToReveal      = visibleRedemptions.length < allRedemptions.length
+  const moreOnNetwork     = redemptions.hasNextPage
+  const hasMoreToShow     = moreToReveal || moreOnNetwork
+  const allCaughtUp       =
+    !hasMoreToShow && allRedemptions.length > 0 && totalRedemptions > 0
+
+  const handleLoadMore = useCallback(() => {
+    const next = visibleCount + LOAD_MORE_STEP
+    // If we'd reveal past the cached rows AND there's more on the
+    // network, fire the next-page fetch.  React Query appends.
+    if (next > allRedemptions.length && redemptions.hasNextPage && !redemptions.isFetchingNextPage) {
+      redemptions.fetchNextPage()
+    }
+    setVisibleCount(next)
+  }, [visibleCount, allRedemptions.length, redemptions])
 
   // ── Chart + insight slices ──────────────────────────────────────────
   // monthlyBreakdown comes back descending (current month at index 0);
@@ -363,7 +394,12 @@ export function SavingsScreen() {
   // ListHeaderComponent still drives the chart, ViewingChip, and
   // insight cards (which DO honour the selected month via
   // monthDetail).  Pull-to-refresh still refetches all 3 queries.
-  const listData = isPopulated && !selectedMonth ? allRedemptions : []
+  //
+  // §Savings device-QA fixup 5 2026-05-18: list now feeds the
+  // `visibleRedemptions` slice — first INITIAL_VISIBLE rows, then
+  // +LOAD_MORE_STEP per "Load more" tap.  No more onEndReached
+  // infinite scroll.
+  const listData = isPopulated && !selectedMonth ? visibleRedemptions : []
 
   return (
     <View style={styles.screen} testID="savings-screen">
@@ -378,23 +414,37 @@ export function SavingsScreen() {
         ListHeaderComponent={listHeader}
         ListFooterComponent={
           // Footer is part of the history list — same gate as the
-          // list itself.  No "caught up" copy under a selected month.
+          // list itself.  No load-more / caught-up copy under a
+          // selected month (the visible list is empty there).
           isPopulated && !selectedMonth ? (
             redemptions.isFetchingNextPage ? (
               <ActivityIndicator color={color.brandRose} style={styles.footerSpinner} />
-            ) : allLoaded ? (
-              <Text variant="body.sm" color="tertiary" meta align="center" style={styles.endLabel}>
+            ) : hasMoreToShow ? (
+              <View style={styles.footerLoadMoreWrap}>
+                <PressableScale
+                  onPress={handleLoadMore}
+                  accessibilityRole="button"
+                  accessibilityLabel="Load more redemptions"
+                  testID="savings-load-more"
+                  style={styles.loadMorePill}
+                >
+                  <Text variant="label.lg" style={styles.loadMoreText}>Load more</Text>
+                </PressableScale>
+              </View>
+            ) : allCaughtUp ? (
+              <Text
+                variant="body.sm"
+                color="tertiary"
+                meta
+                align="center"
+                style={styles.endLabel}
+                testID="savings-caught-up"
+              >
                 You&apos;re all caught up
               </Text>
             ) : null
           ) : null
         }
-        onEndReached={() => {
-          if (isPopulated && !selectedMonth && redemptions.hasNextPage && !redemptions.isFetchingNextPage) {
-            redemptions.fetchNextPage()
-          }
-        }}
-        onEndReachedThreshold={0.3}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -445,6 +495,29 @@ const styles = StyleSheet.create({
   endLabel: {
     paddingVertical: spacing[5],
     color: color.text.tertiary,
+  },
+  // §Savings device-QA fixup 5 2026-05-18 — Load more pill.
+  // Secondary-button styling per DESIGN.md (white surface, navy
+  // border + text, rounded-md).  Sits centered with vertical
+  // breathing room between the last row and the bottom of the list.
+  footerLoadMoreWrap: {
+    paddingVertical: spacing[5],
+    paddingHorizontal: spacing[5],
+    alignItems: 'center',
+  },
+  loadMorePill: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: color.navy,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing[5],
+    paddingVertical: spacing[3],
+    minWidth: 160,
+    alignItems: 'center',
+  },
+  loadMoreText: {
+    color: color.navy,
+    fontFamily: 'Lato-SemiBold',
   },
   listContent: {
     paddingBottom: layout.tabBarHeight + 20,
