@@ -1,39 +1,32 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { View, StyleSheet } from 'react-native'
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withDelay,
-  withSpring,
-} from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { spacing, radius, elevation, layout } from '@/design-system/tokens'
-import { useMotionScale } from '@/design-system/useMotionScale'
 import type { MonthBreakdown } from '@/lib/api/savings'
 import { SavingsCardTitleRow } from './TopBranches'
 
 // §Savings Rebaseline spec §Insight Section / Card 1 "6-Month Trend".
 // Always 6 bars (trailing 6 months including current); each bar is a
-// 44pt touch target. £0 months render as a 3pt stub (still tappable —
-// triggers the £0 empty-state insight). Current month bar full red +
-// dot indicator above; others muted.
+// 44pt touch target. £0 months render as a small visible stub (still
+// tappable — triggers the £0 empty-state insight).  Highlighted bar
+// (selected month if set, else current month) reads in brand-rose
+// with a dot above; other bars use solid grey tokens.
 //
-// §Savings emil-pass 4/7 2026-05-17 — bar entrance retimed.
-// Previously: bars waited 650ms after mount then sprang in over a
-// further 75ms × 6 = 450ms stagger (total ~1.1s before the last bar
-// settled).  The 650ms initial delay was a hold-over from when the
-// cascade above the chart fired late — that cascade is now 0–250ms
-// total (emil-pass 3/7), so the bars no longer need to wait.  New
-// timing: 80ms initial delay (gives the chart card itself time to
-// fade in via the parent FadeInDown at delay:50) + 40ms stagger per
-// bar.  Total bar-cascade end: 80 + 5*40 + ~settle ≈ 380ms.
+// §Savings device-QA fixup 2026-05-18 — bars made unconditionally
+// visible.  The previous scaleY-based entrance animation
+// (`useSharedValue(0)` + `withDelay+withSpring(1)` + `transformOrigin:
+// 'bottom'`) shipped bars at scaleY=0 on mount.  In production on
+// real devices the spring did not always tick — bars stayed
+// invisible until the user interacted with the surface.  Per Emil:
+// "If the purpose is just 'it looks cool' and the user will see it
+// often, don't animate."  The 6-Month Trend is the user's reference
+// chart — visibility is the product feature.  Entrance animation
+// removed.  Bars render at their final height immediately.
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const CHART_HEIGHT = 120
-const MIN_BAR_HEIGHT = 3
-const BAR_STAGGER = 40
-const BAR_START_DELAY = 80
+const MIN_BAR_HEIGHT = 6
 
 function monthLabel(yyyymm: string): string {
   const monStr = yyyymm.split('-')[1] ?? '1'
@@ -46,51 +39,31 @@ function Bar({
   saving,
   maxSaving,
   isHighlighted,
-  index,
   onPress,
 }: {
   month: string
   saving: number
   maxSaving: number
-  // §Savings fixup 2026-05-17: parent now decides which bar is
-  // "active" (selected wins over current).  Bar no longer composes
-  // its own highlight from `isSelected || isCurrent` — that produced
-  // two competing red treatments when a user selected a past month.
+  // §Savings fixup 2026-05-17: parent decides which bar is "active"
+  // (selected wins over current).  Bar no longer composes its own
+  // highlight from `isSelected || isCurrent` — that produced two
+  // competing red treatments when a user selected a past month.
   isHighlighted: boolean
-  index: number
   onPress: () => void
 }) {
-  const scale = useMotionScale()
-  const scaleY = useSharedValue(0)
   const barHeight =
     maxSaving > 0 ? Math.max(MIN_BAR_HEIGHT, (saving / maxSaving) * CHART_HEIGHT) : MIN_BAR_HEIGHT
 
-  useEffect(() => {
-    if (scale === 0) {
-      scaleY.value = 1
-      return
-    }
-    scaleY.value = withDelay(
-      BAR_START_DELAY + index * BAR_STAGGER,
-      withSpring(1, { damping: 14, stiffness: 180 }),
-    )
-  }, [index, scale, scaleY])
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scaleY: scaleY.value }],
-  }))
-
-  // §Savings impeccable 3/6 2026-05-17 — bar palette respects the
-  // One-Voice Brand-Rose Rule.  Was: every bar in brand-rose at
-  // varied opacity (rose-on-rose-on-rose).  Now: brand-rose is
-  // reserved for the ONE highlighted bar — the user's current focus —
-  // and other bars use a quiet navy tint (12% / 6% alpha).  The
-  // chart becomes "where is my attention" not "everything is brand".
+  // §Savings device-QA fixup 2026-05-18 — palette uses solid grey
+  // tokens for non-highlighted bars (not low-alpha navy).  The
+  // previous `rgba(1,12,53,0.06)` £0-stub was invisible on white card
+  // on real devices.  Solid `border.subtle` / `border.default` greys
+  // read clearly while staying quiet next to the focal brand-rose.
   const barColor = isHighlighted
     ? '#E20C04'                       // brand-rose — the focal bar only
     : saving > 0
-    ? 'rgba(1,12,53,0.12)'            // navy at 12% — active but quiet
-    : 'rgba(1,12,53,0.06)'            // navy at 6% — £0 stub
+    ? '#D1D5DB'                       // border.default — active, visible
+    : '#E5E7EB'                       // border.subtle — £0 stub, still visible
   const label = monthLabel(month)
 
   return (
@@ -106,11 +79,10 @@ function Bar({
     >
       <View style={[styles.dot, { opacity: isHighlighted ? 1 : 0 }]} />
       <View style={[styles.barTrack, { height: CHART_HEIGHT }]}>
-        <Animated.View
+        <View
           style={[
             styles.bar,
             { height: barHeight, backgroundColor: barColor },
-            animStyle,
           ]}
         />
       </View>
@@ -161,7 +133,7 @@ export function TrendChart({ months, selectedMonth, currentMonth, onMonthSelect 
     <View style={styles.card} testID="savings-trend-chart">
       <SavingsCardTitleRow title="6-Month Trend" context={rangeLabel} />
       <View style={styles.chartRow}>
-        {displayMonths.map((m, i) => {
+        {displayMonths.map((m) => {
           const isHighlighted = hasSelection
             ? selectedMonth === m.month
             : m.month === currentMonth
@@ -172,7 +144,6 @@ export function TrendChart({ months, selectedMonth, currentMonth, onMonthSelect 
               saving={m.saving}
               maxSaving={maxSaving}
               isHighlighted={isHighlighted}
-              index={i}
               onPress={() => onMonthSelect(m.month)}
             />
           )
@@ -216,12 +187,18 @@ const styles = StyleSheet.create({
   },
   barTrack: {
     justifyContent: 'flex-end',
+    alignItems: 'center',
     width: '100%',
     maxWidth: 32,
   },
+  // §Savings device-QA fixup 2026-05-18 — explicit width on the bar
+  // so it renders reliably regardless of parent flex-stretch
+  // behaviour.  transformOrigin dropped — no transform-based
+  // entrance animation any more, so the property has nothing to
+  // anchor.
   bar: {
+    width: '100%',
     borderRadius: radius.xs,
-    transformOrigin: 'bottom',
   },
   monthLabel: {
     fontSize: 10,
