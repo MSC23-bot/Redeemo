@@ -71,7 +71,10 @@ function relativeTime(dateStr: string, now: number = Date.now()): string {
 
 type Props = {
   redemption: SavingsRedemption
-  onPress: (voucherId: string) => void
+  // §Savings device-QA round-3 fixup 2026-05-18 — receives the
+  // redemption id (not the voucher id) so the destination opens
+  // THIS specific event, not the merchant-wide voucher.
+  onPress: (redemptionId: string) => void
 }
 
 export function RedemptionRow({ redemption, onPress }: Props) {
@@ -112,7 +115,7 @@ export function RedemptionRow({ redemption, onPress }: Props) {
   // children align horizontally as intended.
   return (
     <PressableScale
-      onPress={() => onPress(redemption.voucher.id)}
+      onPress={() => onPress(redemption.id)}
       accessibilityLabel={a11yLabel}
       accessibilityRole="button"
       style={styles.rowSurface}

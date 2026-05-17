@@ -211,8 +211,17 @@ export function SavingsScreen() {
     router.push('/(app)/' as never)
   }, [router])
 
-  const handleRowPress = useCallback((voucherId: string) => {
-    router.push(`/(app)/voucher/${voucherId}` as never)
+  // §Savings device-QA round-3 fixup 2026-05-18 — row tap routes by
+  // redemption.id, NOT voucher.id.  A Savings row represents a
+  // SPECIFIC redemption event — its own code, validation status,
+  // timestamp.  Routing by voucher.id sent every REUSABLE redemption
+  // to the same Voucher Detail page showing the same (most-recent)
+  // code, dropping the event identity.  Now routes to the dedicated
+  // /(app)/redemption/[id] receipt screen which fetches the exact
+  // record by id.  `?from=savings` flows through so the receipt's
+  // back arrow returns cleanly to this tab.
+  const handleRowPress = useCallback((redemptionId: string) => {
+    router.push(`/(app)/redemption/${redemptionId}?from=savings` as never)
   }, [router])
 
   // TopPlaces tap: merchant-level after fidelity fixup-3.  Navigate

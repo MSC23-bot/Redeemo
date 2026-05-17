@@ -291,7 +291,14 @@ describe('SavingsScreen — navigation', () => {
     expect(mockRouterPush).toHaveBeenCalledWith('/(app)/merchant/cov')
   })
 
-  it('RedemptionRow tap → /(app)/voucher/{voucherId}', async () => {
+  it('RedemptionRow tap → /(app)/redemption/{redemptionId}?from=savings (by id, not voucher)', async () => {
+    // §Savings device-QA round-3 fixup 2026-05-18 — routing changed.
+    // Was: /(app)/voucher/{voucherId} — generic voucher page; for a
+    // REUSABLE voucher with multiple redemptions every row landed on
+    // the same screen with the most-recent code, dropping event
+    // identity.  Now: /(app)/redemption/{redemptionId} — dedicated
+    // receipt for the specific event.  `?from=savings` flows so the
+    // receipt's back arrow returns home to this tab.
     setMocks({
       summaryState: 'success', summaryData: populatedSummary,
       subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
@@ -301,7 +308,45 @@ describe('SavingsScreen — navigation', () => {
     const { getByTestId } = wrap(<SavingsScreen />)
     await waitFor(() => expect(getByTestId('savings-redemption-row-red-1')).toBeTruthy())
     fireEvent.press(getByTestId('savings-redemption-row-red-1'))
-    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/voucher/v-1')
+    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/redemption/red-1?from=savings')
+  })
+
+  it('regression: two redemptions with the same voucherId but different ids route to DISTINCT receipts', async () => {
+    // The §AS-class identity bug — if two REUSABLE redemptions of the
+    // same voucher (same `voucher.id`) route by voucher.id, both
+    // rows land on the same destination and show the same code.
+    // Pin: routing keys on redemption.id so each row resolves to its
+    // own receipt URL.
+    const redemptionA: SavingsRedemption = {
+      ...someRedemption,
+      id:         'red-a',
+      voucher:    { id: 'shared-voucher', title: 'Reusable coffee', voucherType: 'REUSABLE' },
+    }
+    const redemptionB: SavingsRedemption = {
+      ...someRedemption,
+      id:         'red-b',
+      voucher:    { id: 'shared-voucher', title: 'Reusable coffee', voucherType: 'REUSABLE' },
+    }
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+      redemptions: [redemptionA, redemptionB],
+    })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    await waitFor(() => expect(getByTestId('savings-redemption-row-red-a')).toBeTruthy())
+
+    fireEvent.press(getByTestId('savings-redemption-row-red-a'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/redemption/red-a?from=savings')
+
+    fireEvent.press(getByTestId('savings-redemption-row-red-b'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/redemption/red-b?from=savings')
+
+    // The two pushes target distinct URLs — voucher.id collision
+    // doesn't merge them.  Critical regression pin.
+    const pushCalls = mockRouterPush.mock.calls.map((c) => c[0])
+    expect(pushCalls).toContain('/(app)/redemption/red-a?from=savings')
+    expect(pushCalls).toContain('/(app)/redemption/red-b?from=savings')
   })
 })
 

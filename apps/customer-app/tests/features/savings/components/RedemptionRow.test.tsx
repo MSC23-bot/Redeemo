@@ -169,7 +169,10 @@ describe('RedemptionRow — tap + a11y', () => {
     const onPress = jest.fn()
     const { getByTestId } = render(<RedemptionRow redemption={r} onPress={onPress} />)
     fireEvent.press(getByTestId('savings-redemption-row-red-1'))
-    expect(onPress).toHaveBeenCalledWith('v-1')
+    // §Savings device-QA round-3 fixup 2026-05-18 — onPress receives
+    // the redemption id (`red-1`), NOT the voucher id (`v-1`).  See
+    // the new dedicated /(app)/redemption/[id] receipt screen.
+    expect(onPress).toHaveBeenCalledWith('red-1')
   })
 
   it('accessibility label includes merchant, voucher title, type-as-noun, branch, amount, relative time', () => {
