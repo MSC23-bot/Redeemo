@@ -1,7 +1,6 @@
 import React from 'react'
-import { View, StyleSheet } from 'react-native'
+import { View, Pressable, StyleSheet } from 'react-native'
 import { Text } from '@/design-system/Text'
-import { PressableScale } from '@/design-system/motion/PressableScale'
 import { spacing, radius, elevation, layout } from '@/design-system/tokens'
 import type { MonthBreakdown } from '@/lib/api/savings'
 import { SavingsCardTitleRow } from './TopBranches'
@@ -11,22 +10,37 @@ import { SavingsCardTitleRow } from './TopBranches'
 // 44pt touch target. £0 months render as a small visible stub (still
 // tappable — triggers the £0 empty-state insight).  Highlighted bar
 // (selected month if set, else current month) reads in brand-rose
-// with a dot above; other bars use solid grey tokens.
+// with a dot above; other bars in muted brand-rose tints.
 //
-// §Savings device-QA fixup 2026-05-18 — bars made unconditionally
-// visible.  The previous scaleY-based entrance animation
-// (`useSharedValue(0)` + `withDelay+withSpring(1)` + `transformOrigin:
-// 'bottom'`) shipped bars at scaleY=0 on mount.  In production on
-// real devices the spring did not always tick — bars stayed
-// invisible until the user interacted with the surface.  Per Emil:
-// "If the purpose is just 'it looks cool' and the user will see it
-// often, don't animate."  The 6-Month Trend is the user's reference
-// chart — visibility is the product feature.  Entrance animation
-// removed.  Bars render at their final height immediately.
+// §Savings device-QA round-2 fixup 2026-05-18 — bars STILL invisible
+// after round-1 palette/animation fix.  Two root causes:
+//
+//   1. PressableScale outer-wrapper bug: PressableScale renders
+//      <Animated.View style={barColumn}><Pressable>…</Pressable>
+//      </Animated.View>.  The `style` lands on the outer Animated
+//      View, NOT the inner Pressable that contains the bars.  The
+//      inner Pressable has NO width.  barTrack inside used
+//      `width: '100%'` — 100% of an undefined parent width is 0.
+//      The bar collapsed to 0 width and rendered invisible.
+//
+//   2. Per owner direction this round: bars MUST be brand-red, not
+//      navy/grey.  Round-1 swapped to navy tints; reverted.
+//
+// Both fixed by:
+//   - Swap PressableScale → bare Pressable (the chart bar doesn't
+//     need a press-scale animation; the dot indicator is the
+//     selection affordance).  The `barColumn` style now lands
+//     directly on the Pressable, giving the children a real width
+//     constraint.
+//   - Explicit pixel widths on barTrack + bar (28pt) — no more
+//     percentage-of-undefined chain.
+//   - Palette: highlighted solid brand-rose; saving>0 brand-rose at
+//     22% alpha; £0 stub at 10% alpha.
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const CHART_HEIGHT = 120
+const CHART_HEIGHT   = 120
 const MIN_BAR_HEIGHT = 6
+const BAR_WIDTH      = 28
 
 function monthLabel(yyyymm: string): string {
   const monStr = yyyymm.split('-')[1] ?? '1'
@@ -54,31 +68,28 @@ function Bar({
   const barHeight =
     maxSaving > 0 ? Math.max(MIN_BAR_HEIGHT, (saving / maxSaving) * CHART_HEIGHT) : MIN_BAR_HEIGHT
 
-  // §Savings device-QA fixup 2026-05-18 — palette uses solid grey
-  // tokens for non-highlighted bars (not low-alpha navy).  The
-  // previous `rgba(1,12,53,0.06)` £0-stub was invisible on white card
-  // on real devices.  Solid `border.subtle` / `border.default` greys
-  // read clearly while staying quiet next to the focal brand-rose.
+  // §Savings device-QA round-2 fixup 2026-05-18 — back to brand-red
+  // per owner direction.  Highlighted bar solid; active months at
+  // 22% alpha; £0 stubs at 10% alpha (visible but quiet).
   const barColor = isHighlighted
-    ? '#E20C04'                       // brand-rose — the focal bar only
+    ? '#E20C04'                       // brand-rose — focal bar
     : saving > 0
-    ? '#D1D5DB'                       // border.default — active, visible
-    : '#E5E7EB'                       // border.subtle — £0 stub, still visible
+    ? 'rgba(226,12,4,0.22)'           // brand-rose at 22% — active
+    : 'rgba(226,12,4,0.10)'           // brand-rose at 10% — £0 stub
   const label = monthLabel(month)
 
   return (
-    <PressableScale
+    <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${label}, £${saving.toFixed(2)} saved`}
       accessibilityState={{ selected: isHighlighted }}
-      hapticStyle="none"
       style={styles.barColumn}
       hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
       testID={`savings-trend-bar-${month}`}
     >
       <View style={[styles.dot, { opacity: isHighlighted ? 1 : 0 }]} />
-      <View style={[styles.barTrack, { height: CHART_HEIGHT }]}>
+      <View style={styles.barTrack}>
         <View
           style={[
             styles.bar,
@@ -93,7 +104,7 @@ function Bar({
       >
         {label}
       </Text>
-    </PressableScale>
+    </Pressable>
   )
 }
 
@@ -185,19 +196,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#E20C04',
     marginBottom: 4,
   },
+  // §Savings device-QA round-2 fixup 2026-05-18 — explicit pixel
+  // dimensions everywhere.  The previous `width: '100%'` chain
+  // (bar → barTrack → Pressable → Animated.View) collapsed to 0
+  // when PressableScale's outer-wrapper bug left the inner Pressable
+  // without a concrete width.  Solid pixels avoid the percentage-of-
+  // undefined trap entirely.
   barTrack: {
+    width:          BAR_WIDTH,
+    height:         CHART_HEIGHT,
     justifyContent: 'flex-end',
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 32,
   },
-  // §Savings device-QA fixup 2026-05-18 — explicit width on the bar
-  // so it renders reliably regardless of parent flex-stretch
-  // behaviour.  transformOrigin dropped — no transform-based
-  // entrance animation any more, so the property has nothing to
-  // anchor.
   bar: {
-    width: '100%',
+    width:        BAR_WIDTH,
     borderRadius: radius.xs,
   },
   monthLabel: {
