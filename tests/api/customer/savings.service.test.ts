@@ -19,7 +19,7 @@
 // The mock-Prisma pattern mirrors `tests/api/customer/discovery.service.test.ts`.
 
 import 'dotenv/config'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 // ── Mock @prisma/adapter-pg so new PrismaPg(...) doesn't need a real DB ──────
 vi.mock('@prisma/adapter-pg', () => ({
@@ -30,21 +30,28 @@ vi.mock('@prisma/adapter-pg', () => ({
 
 // ── Mock the Prisma client with VoucherRedemption methods ────────────────────
 //
-// Mock state captured in module scope so each test can override
-// findMany / aggregate return values via `setRedemptionRows(...)` and
-// `setAggregates(...)`.  Service `getSavingsSummary` makes:
+// Each test builds a Prisma instance via `makePrismaWithRows(rows)` —
+// no shared mutable module-scope state.  `getSavingsSummary` makes:
 //   - 1 lifetime aggregate (sum only)
 //   - 1 this-month aggregate (sum + count)
 //   - 12 monthly-window aggregates (sum + count)
 //   - 2 findMany calls (byBranch + byCategory)
-//
-// We default everything to zero/empty and override the specific calls
-// the test cares about.
+// `makePrismaWithRows` sequences the aggregate responses by call order
+// (see the call-index dispatch inside) and returns the same `rows` for
+// both findMany calls; the service reads only the fields it `select`-ed,
+// so extra fields are harmless.
 
 type Row = {
   estimatedSaving: number
   branch: { id: string; name: string }
   voucher: {
+    // `voucherType` is fixture-readability ONLY — documents per-row
+    // intent (REUSABLE / TIME_LIMITED / BOGO) so the test reader can
+    // see what mix is being exercised.  The service sums redemption
+    // rows directly and does NOT branch on voucher type, so the field
+    // is never read by the production code; including it in the
+    // fixture just makes assertions like "REUSABLE + TIME_LIMITED +
+    // BOGO mix all count" self-documenting.
     voucherType?: string
     merchant: {
       id:           string
@@ -53,18 +60,6 @@ type Row = {
       primaryCategory?: { id: string; name: string } | null
     }
   }
-}
-
-const state: {
-  rows:           Row[]
-  lifetimeSum:    number
-  thisMonthSum:   number
-  thisMonthCount: number
-} = {
-  rows:           [],
-  lifetimeSum:    0,
-  thisMonthSum:   0,
-  thisMonthCount: 0,
 }
 
 vi.mock('../../../generated/prisma/client', () => {
@@ -91,10 +86,16 @@ function makePrismaWithRows(rows: Row[], opts?: { lifetimeSum?: number; thisMont
   const thisMonthSum   = opts?.thisMonthSum   ?? lifetimeSum
   const thisMonthCount = opts?.thisMonthCount ?? rows.length
 
-  // Aggregate calls: first one is lifetime (sum only), second is
-  // this-month (sum + count), then 12 monthly windows (each sum +
-  // count, all zero by default for non-current months). The service
-  // calls them in order, so we return values keyed on call index.
+  // Aggregate calls — ORDER-SENSITIVE.  `getSavingsSummary` issues them
+  // in this exact sequence:
+  //   1. lifetime              (sum only, no date filter)
+  //   2. this-month            (sum + count, current month window)
+  //   3. monthly-window[0]     (sum + count, current month)
+  //   4..14. monthly-window[1..11]  (sum + count, past 11 months)
+  // `getMonthlyDetail` issues a single aggregate (idx 1).
+  // If the service reorders these in the future, the call-index
+  // dispatch below needs updating in lockstep.  See
+  // `src/api/customer/savings/service.ts` for the canonical order.
   let aggCallIdx = 0
   prisma.voucherRedemption.aggregate = vi.fn().mockImplementation(async () => {
     aggCallIdx++
@@ -141,10 +142,6 @@ function row(
 }
 
 describe('savings.service — Revision 2 byBranch aggregation', () => {
-  beforeEach(() => {
-    state.rows = []
-  })
-
   // Load-bearing pin: multi-branch merchant splits into TWO byBranch
   // entries with shared merchantId / merchantName.  Per the branch-as-
   // PRIMARY-unit locked rule, a user who redeemed at Covelum

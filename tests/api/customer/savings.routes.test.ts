@@ -104,12 +104,13 @@ describe('savings routes', () => {
     // merchantName + merchantLogoUrl + saving + count.
     expect(Array.isArray(body.byBranch)).toBe(true)
     expect(body.byBranch[0]).toMatchObject({
-      branchId:     'b1',
-      branchName:   'Central Branch',
-      merchantId:   'm1',
-      merchantName: 'Pizza Place',
-      saving:       15.00,
-      count:        3,
+      branchId:        'b1',
+      branchName:      'Central Branch',
+      merchantId:      'm1',
+      merchantName:    'Pizza Place',
+      merchantLogoUrl: null,
+      saving:          15.00,
+      count:           3,
     })
     // Revision 2 regression pin: legacy `byMerchant` field must NOT be
     // present in the response — frontend consumers should fail loudly if
