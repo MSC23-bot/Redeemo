@@ -52,16 +52,27 @@ function formatPounds(value: number): string {
 // when reduce-motion is active.  In the animated path the initial
 // state is 0, and useAnimatedReaction fires within the first effect
 // flush to update the displayed value as withTiming progresses.
+//
+// §Savings emil-pass 7/7 2026-05-17 — sub-pence dedup.
+// The selector returns Math.round(value * 100) / 100 (2-decimal pence
+// granularity).  The reaction only fires runOnJS → React state update
+// when the ROUNDED value changes, not on every frame.  At the start
+// of the animation the value jumps multiple pence per frame so every
+// frame triggers a re-render (correct — text genuinely changes).  At
+// the tail of the spring where the shared value drifts by sub-pence
+// amounts (e.g. 247.4999 → 247.5001), the rounded value is constant
+// and React skips the re-render.  Cuts the trailing run of pointless
+// re-renders that show no visible difference.
 function AnimatedPounds({ value, duration }: { value: number; duration: number }) {
   const scale = useMotionScale()
   const sharedValue = useCountUp(value, duration)
   const [displayed, setDisplayed] = useState(scale === 0 ? value : 0)
 
   useAnimatedReaction(
-    () => sharedValue.value,
-    (current, previous) => {
-      if (current !== previous) {
-        runOnJS(setDisplayed)(current)
+    () => Math.round(sharedValue.value * 100) / 100,
+    (currentRounded, previousRounded) => {
+      if (currentRounded !== previousRounded) {
+        runOnJS(setDisplayed)(currentRounded)
       }
     },
     [sharedValue],
