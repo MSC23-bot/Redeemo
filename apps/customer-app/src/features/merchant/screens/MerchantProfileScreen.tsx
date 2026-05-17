@@ -15,6 +15,7 @@ import { Text, color } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { useMerchantProfile } from '../hooks/useMerchantProfile'
 import { useBranchSelection } from '../hooks/useBranchSelection'
+import { useBranchPrefetch } from '../hooks/useBranchPrefetch'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HeroBackdrop, HeroNav, HeroBannerSpacer } from '../components/HeroSection'
 import { CollapsedHeader, COMPACT_BAR_HEIGHT } from '../components/CollapsedHeader'
@@ -439,6 +440,19 @@ export function MerchantProfileScreen({ id }: Props) {
       )
     }
   }, [branchChangedParam, branchChangedToastFired, merchant, branchId, merchantId, screenParams.tab])
+
+  // §N11 prefetch — warm sibling-branch merchant-profile queries when
+  // the user opens the Branches tab. Caps at 5 nearest active non-
+  // current branches; skips suspended; skips current. §BD-3 skeleton
+  // remains the fallback for cache misses (prefetch cap exceeded,
+  // prefetch failed silently, etc.) so correctness is unchanged.
+  useBranchPrefetch({
+    merchantId,
+    branchId,
+    branches: merchant?.branches,
+    location,
+    enabled:  activeTab === 'branches' && (merchant?.branches.length ?? 0) > 1,
+  })
 
   const tabs = useMemo(() => {
     const isMultiBranch = (merchant?.branches.length ?? 0) > 1
