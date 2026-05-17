@@ -8,12 +8,12 @@ import { Text } from '@/design-system/Text'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { ErrorState } from '@/design-system/components/ErrorState'
 import { color, radius, spacing, elevation, layout } from '@/design-system/tokens'
-import { voucherTypeLabel, voucherGradient } from '@/features/voucher/utils/voucherTheme'
+import { voucherTypeLabel } from '@/features/voucher/utils/voucherTheme'
 import { isPresentationActive } from '@/features/voucher/utils/presentationWindow'
 import { useMyRedemption } from '../hooks/useMyRedemption'
 import type { ValidationMethod } from '../hooks/useMyRedemption'
 
-// §Savings Redemption Receipt — PR #105 device-QA round-6, 2026-05-18.
+// §Savings Redemption Receipt — PR #105 device-QA round-7, 2026-05-18.
 //
 // Dedicated route at `/(app)/redemption/[id]`.  Fetches a SPECIFIC
 // redemption event by id (not by voucher id) so each event opens
@@ -156,8 +156,14 @@ export function RedemptionDetailScreen() {
   }
 
   const r = query.data
-  const typeGradient    = voucherGradient(r.voucher.voucherType)
-  const typeAccentColor = typeGradient[1]          // darker stop — load-bearing for type identity
+  // Round-7 voucher-type identity pivot: hero now uses the system
+  // pastel gradient from `color.voucher.gradientByType[type]` (the
+  // DESIGN.md-locked pastel pair) and the type chip is filled with
+  // `color.voucher.byType[type]` solid + white text.  The previous
+  // `voucherGradient()` (bold pair from voucherTheme) is reserved for
+  // the active-offer VoucherCard hero — receipts are calmer.
+  const heroGradient    = color.voucher.gradientByType[r.voucher.voucherType]
+  const typeAccentColor = color.voucher.byType[r.voucher.voucherType]
   const vtLabel         = voucherTypeLabel(r.voucher.voucherType)
   const vtLabelAsNoun   = `${vtLabel} voucher`
   const codeFormatted   = formatCode(r.redemptionCode)
@@ -187,37 +193,31 @@ export function RedemptionDetailScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Cream identity zone ─────────────────────────────────── */}
-        {/* The screen's identity moment.  Cream gradient backdrop
-            (DESIGN.md Cream-for-Identity Rule); voucher-type accent
-            strip on the left edge carries the type's brand colour
-            without saturating the whole surface (controlled accent
-            per owner direction). */}
+        {/* ── Voucher-type identity zone ──────────────────────────── */}
+        {/* Round-7: hero now wears the voucher type's pastel gradient
+            from the locked DESIGN.md `gradientByType` token (BOGO
+            lavender, REUSABLE teal, TIME_LIMITED amber, etc.).  This
+            mirrors the type-colour-as-hero pattern from Voucher
+            Detail / VoucherCard, so the receipt reads as a direct
+            continuation of the voucher the customer just redeemed.
+            The earlier 4px left-edge stripe was an absolute-ban
+            pattern (DESIGN.md "Side-stripe borders > 1px never
+            intentional") and is gone — type identity is now carried
+            by the full hero surface + the filled chip below. */}
         <View style={styles.identityWrap} testID="redemption-detail-identity">
-          {/* Hero anchor — deepens the cream into a warm peach
-              gradient so the identity zone has a distinct presence
-              against the cream page above and below.  Owner
-              direction round-6: "give a color to the hero section
-              that's anchored as well." */}
           <LinearGradient
-            colors={['#FCF0E5', '#F6E1CC']}
+            colors={heroGradient as unknown as readonly [string, string]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={StyleSheet.absoluteFill}
-          />
-          <LinearGradient
-            colors={typeGradient as unknown as readonly [string, string]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={styles.typeAccentStrip}
             testID="redemption-detail-type-accent"
           />
           <View style={styles.identityInner}>
             <View
-              style={[styles.typeChip, { borderColor: typeAccentColor }]}
+              style={[styles.typeChip, { backgroundColor: typeAccentColor }]}
               testID="redemption-detail-type-eyebrow"
             >
-              <Text style={[styles.typeChipText, { color: typeAccentColor }]}>
+              <Text style={styles.typeChipText}>
                 {vtLabelAsNoun.toUpperCase()}
               </Text>
             </View>
@@ -410,7 +410,7 @@ function BackHeader({ insetsTop, onBack }: { insetsTop: number; onBack: () => vo
         <ArrowLeft size={22} color={color.text.primary} />
       </Pressable>
       <Text variant="heading.sm" style={styles.headerTitle}>
-        Redemption
+        Redemption Receipt
       </Text>
       <View style={styles.backBtn} />
     </View>
@@ -419,16 +419,16 @@ function BackHeader({ insetsTop, onBack }: { insetsTop: number; onBack: () => vo
 
 // ─── Styles ───────────────────────────────────────────────────────
 
-const TYPE_ACCENT_STRIP_WIDTH = 4
-
 const styles = StyleSheet.create({
-  // Cream anchors the whole screen — eliminates the round-5 split
-  // where the cream identity zone met a grey neutral page background
-  // and a white header.  Now header + identity + page all share the
-  // same cream surface; the receipt card lifts above it.
+  // Round-7 page contract: page = system `surface.page` (#FFFFFF),
+  // header sits transparent over it, identity zone wears the voucher
+  // type's pastel gradient.  This honours DESIGN.md's Cream-for-
+  // Identity Rule (cream framing a single zone reads branded — cream
+  // painted across a whole screen reads decorative) and removes the
+  // round-6 cream-page-with-peach-hero split the owner called out.
   screen: {
     flex: 1,
-    backgroundColor: color.cream,
+    backgroundColor: color.surface.page,
   },
   headerWrap: {
     flexDirection: 'row',
@@ -451,49 +451,36 @@ const styles = StyleSheet.create({
     paddingBottom: layout.tabBarHeight + spacing[6],
   },
 
-  // ── Cream identity zone ──────────────────────────────────────
-  // Anchored against the page via a richer cream→peach gradient
-  // that reads as one continuous warm surface with the header above
-  // and the page below (both pure cream).  Identity zone now feels
-  // intentional, not floating.
+  // ── Voucher-type identity zone ───────────────────────────────
+  // The hero IS the voucher type's territory.  Pastel gradient comes
+  // from `color.voucher.gradientByType[type]` (DESIGN.md token).
   identityWrap: {
     position: 'relative',
     overflow: 'hidden',
-  },
-  // Voucher-type accent strip — left edge, full-height of the
-  // identity zone.  Controlled accent: visible but doesn't saturate
-  // the whole surface.  Owner direction: type identity should be
-  // immediately recognisable.
-  typeAccentStrip: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: TYPE_ACCENT_STRIP_WIDTH,
   },
   identityInner: {
     paddingHorizontal: spacing[5],
     paddingTop: spacing[4],
     paddingBottom: spacing[5],
-    paddingLeft: spacing[5] + TYPE_ACCENT_STRIP_WIDTH,
     gap: spacing[1],
   },
-  // Type chip — outlined with the voucher-type's dark gradient stop.
-  // Subtle but unmistakable: text + border carry the type colour
-  // without filling the chip (which would over-saturate).
+  // Filled voucher-type chip — solid `color.voucher.byType[type]`
+  // with white text.  Strong type identity in one confident pop
+  // (replaces the round-6 outlined chip which felt thin on coloured
+  // pastels).  inline `backgroundColor` is set per render to the
+  // per-type accent; this static rule covers shape + type metrics.
   typeChip: {
     alignSelf: 'flex-start',
-    borderWidth: 1,
     borderRadius: radius.pill,
     paddingHorizontal: spacing[3],
     paddingVertical: 4,
-    backgroundColor: color.surface.page,
   },
   typeChipText: {
     fontFamily:    'Lato-SemiBold',
     fontSize:      11,
     lineHeight:    14,
     letterSpacing: 1.4,
+    color:         '#FFFFFF',
   },
   voucherTitle: {
     color: color.text.primary,
