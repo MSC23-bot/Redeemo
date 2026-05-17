@@ -103,37 +103,44 @@ export function TopPlaces({ places, onPress, emptyLabel, contextLabel }: Props) 
         const isLast = i === top.length - 1
         const visitWord = p.count === 1 ? 'visit' : 'visits'
         const secondary = `${p.count} ${visitWord}`
+        // §Savings device-QA fixup 2026-05-18 — see RedemptionRow for
+        // the PressableScale inner-flex bug.  Same shape applied here:
+        // outer PressableScale carries the row divider (border-bottom);
+        // inner <View> carries the flex-row layout so logo / text /
+        // amount sit horizontally with the amount right-aligned.
         return (
           <PressableScale
             key={p.merchantId}
             onPress={() => onPress(p.merchantId)}
             accessibilityRole="button"
             accessibilityLabel={`${p.merchantName}, £${p.saving.toFixed(2)} saved across ${p.count} redemption${p.count !== 1 ? 's' : ''}`}
-            style={[styles.row, !isLast && styles.rowDivider]}
+            style={!isLast ? styles.rowDivider : undefined}
             testID={`savings-top-places-row-${p.merchantId}`}
           >
-            {p.merchantLogoUrl ? (
-              <Image
-                source={{ uri: p.merchantLogoUrl }}
-                style={styles.logoImage}
-                accessibilityIgnoresInvertColors
-              />
-            ) : (
-              <View style={styles.logoFallback}>
-                <Text style={styles.logoInitial}>{initial}</Text>
+            <View style={styles.rowInner}>
+              {p.merchantLogoUrl ? (
+                <Image
+                  source={{ uri: p.merchantLogoUrl }}
+                  style={styles.logoImage}
+                  accessibilityIgnoresInvertColors
+                />
+              ) : (
+                <View style={styles.logoFallback}>
+                  <Text style={styles.logoInitial}>{initial}</Text>
+                </View>
+              )}
+
+              <View style={styles.rowText}>
+                <Text variant="body.sm" style={styles.primaryName} numberOfLines={1}>
+                  {p.merchantName}
+                </Text>
+                <Text variant="body.sm" color="tertiary" meta style={styles.secondaryName} numberOfLines={1}>
+                  {secondary}
+                </Text>
               </View>
-            )}
 
-            <View style={styles.rowText}>
-              <Text variant="body.sm" style={styles.primaryName} numberOfLines={1}>
-                {p.merchantName}
-              </Text>
-              <Text variant="body.sm" color="tertiary" meta style={styles.secondaryName} numberOfLines={1}>
-                {secondary}
-              </Text>
+              <Text style={styles.saving}>£{p.saving.toFixed(2)}</Text>
             </View>
-
-            <Text style={styles.saving}>£{p.saving.toFixed(2)}</Text>
           </PressableScale>
         )
       })}
@@ -194,7 +201,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     color:         '#9CA3AF',
   },
-  row: {
+  // §Savings device-QA fixup 2026-05-18 — the old `row` style lived
+  // on PressableScale (which puts it on the OUTER Animated.View, NOT
+  // the inner Pressable that contains children).  Flex-row direction
+  // never reached the children.  Now split: `rowDivider` is the
+  // outer divider-only style (lands on PressableScale); `rowInner`
+  // is the flex-row layout (lands on the inner <View>).
+  rowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing[2],

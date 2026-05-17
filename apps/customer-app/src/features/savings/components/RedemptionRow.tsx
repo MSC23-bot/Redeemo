@@ -87,53 +87,61 @@ export function RedemptionRow({ redemption, onPress }: Props) {
   const a11yLabel =
     `${redemption.merchant.businessName}, ${branchShort}, ${vtLabel}, £${redemption.estimatedSaving.toFixed(2)} saved, ${relTime}`
 
+  // §Savings device-QA fixup 2026-05-18 — PressableScale inner-flex bug.
+  //
+  // PressableScale wraps its children in `<Animated.View><Pressable>
+  // {children}</Pressable></Animated.View>`.  The outer `style` prop
+  // lands on the Animated.View, NOT on the inner Pressable which
+  // actually contains the children.  Pressable defaults to
+  // flexDirection:'column', so children stack vertically — which is
+  // what shipped on real device QA (logo on top, merchant name
+  // below, meta below that, amount + badge BENEATH the content
+  // instead of right-aligned).
+  //
+  // Fix: split the row into TWO levels.  PressableScale carries the
+  // surface (bg, border, radius); an INNER `<View>` carries the
+  // flex-row layout (flexDirection, gap, alignItems).  Now the
+  // children align horizontally as intended.
   return (
     <PressableScale
       onPress={() => onPress(redemption.voucher.id)}
       accessibilityLabel={a11yLabel}
       accessibilityRole="button"
-      style={styles.row}
+      style={styles.rowSurface}
       testID={`savings-redemption-row-${redemption.id}`}
     >
-      <View style={[styles.logo, { backgroundColor: `${logoColor}18` }]}>
-        <Text style={[styles.logoInitial, { color: logoColor }]}>
-          {redemption.merchant.businessName.charAt(0)}
-        </Text>
-      </View>
+      <View style={styles.rowInner}>
+        <View style={[styles.logo, { backgroundColor: `${logoColor}18` }]}>
+          <Text style={[styles.logoInitial, { color: logoColor }]}>
+            {redemption.merchant.businessName.charAt(0)}
+          </Text>
+        </View>
 
-      <View style={styles.content}>
-        <Text variant="body.sm" style={styles.merchantName}>
-          {redemption.merchant.businessName}
-        </Text>
-        {/* §Savings fixup 2026-05-17 — row density pass.
-            Was: two stacked meta <Text>s (type on its own line +
-            branch · time on a second line) → 3-line row, too tall
-            vs the target brainstorm density.  Now: single meta line
-            wrapping to AT MOST 2 lines via `numberOfLines={2}`.
-            Short labels ("Freebie · Brightlingsea · 2h ago") render
-            on one line; long labels ("Buy one, get one free ·
-            Brightlingsea · 2 hours ago") wrap to two.  Branch name
-            + relative time always remain visible — pinned by tests. */}
-        <Text variant="body.sm" style={styles.meta} numberOfLines={2}>
-          {vtLabel} · {branchShort} · {relTime}
-        </Text>
-      </View>
+        <View style={styles.content}>
+          <Text variant="body.sm" style={styles.merchantName} numberOfLines={1}>
+            {redemption.merchant.businessName}
+          </Text>
+          <Text variant="body.sm" style={styles.meta} numberOfLines={2}>
+            {vtLabel} · {branchShort} · {relTime}
+          </Text>
+        </View>
 
-      <View style={styles.right}>
-        <Text style={styles.saving}>+£{redemption.estimatedSaving.toFixed(2)}</Text>
-        {badge === 'show-to-staff' && (
-          <View style={styles.badgeAmber} testID="savings-row-badge-show-to-staff">
-            <Text style={styles.badgeAmberText}>Show to staff</Text>
-          </View>
-        )}
-        {badge === 'validated' && (
-          <View style={styles.badgeGreen} testID="savings-row-badge-validated">
-            <Text style={styles.badgeGreenText}>Validated ✓</Text>
-          </View>
-        )}
-        {badge === 'plain' && (
-          <Text style={styles.plainBadge} testID="savings-row-badge-plain">Redeemed</Text>
-        )}
+        <View style={styles.right}>
+          <Text style={styles.saving}>+£{redemption.estimatedSaving.toFixed(2)}</Text>
+          {badge === 'show-to-staff' && (
+            <View style={styles.badgeAmber} testID="savings-row-badge-show-to-staff">
+              <Text style={styles.badgeAmberText}>Show to staff</Text>
+            </View>
+          )}
+          {badge === 'validated' && (
+            <View style={styles.badgeGreen} testID="savings-row-badge-validated">
+              <Text style={styles.badgeGreenText}>Validated ✓</Text>
+            </View>
+          )}
+          {badge === 'plain' && (
+            <Text style={styles.plainBadge} testID="savings-row-badge-plain">Redeemed</Text>
+          )}
+        </View>
       </View>
     </PressableScale>
   )
@@ -152,23 +160,24 @@ const styles = StyleSheet.create({
   //     in place)
   //   - `flex: 1 + flexShrink: 1 + minWidth: 0` on content (allow
   //     truncation rather than overflow-wrap)
-  // §Savings impeccable 5/6 — tokenised: borderRadius 12 → radius.lg
-  // (16) so list rows share the same silhouette family as the insight
-  // cards above.  List-density padding kept compact (spacing[3]/[2])
-  // so a long history scrolls in a controlled rhythm.  46x46 logo
-  // restored to spec (was 42 from fidelity-fixup-3); spacing[3] gap
-  // gives the logo breathing room.
-  row: {
-    flexDirection: 'row',
-    flexWrap: 'nowrap',
-    alignItems: 'center',
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2],
-    gap: spacing[3],
+  // §Savings device-QA fixup 2026-05-18 — split into surface + inner.
+  // rowSurface: card chrome (bg, border, radius, padding).  Lands on
+  // PressableScale's outer Animated.View.
+  // rowInner: flex-row layout (children align horizontally).  Lands
+  // INSIDE the Pressable so children honour the row direction.
+  rowSurface: {
     backgroundColor: tokenColor.surface.raised,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: tokenColor.border.subtle,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+  },
+  rowInner: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+    gap: spacing[3],
   },
   logo: {
     width: 46,
