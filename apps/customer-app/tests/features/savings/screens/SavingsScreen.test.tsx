@@ -316,6 +316,57 @@ describe('SavingsScreen — month-drill-down error state (fixup §6)', () => {
   })
 })
 
+describe('SavingsScreen — hook-order safety (regression for fixup hotfix 2026-05-17)', () => {
+  it('mounting loading → re-rendering populated does NOT trigger "more hooks than previous render"', () => {
+    // Regression for the listHeader useMemo placement.  If the memo
+    // sits BELOW the `if (userState === 'loading') return ...` guard,
+    // it never runs on the loading render, then runs on the next
+    // populated render — React fires "Rendered more hooks than
+    // during the previous render" and the screen blanks with a
+    // red-box error.  Caught on device QA 2026-05-17.
+    //
+    // The test:
+    //   - Mount with summaryState: 'loading' → skeleton path
+    //     (skips listHeader memo if it's below the early return)
+    //   - rerender with summaryState: 'success' populated →
+    //     listHeader memo runs for the first time
+    //   - React errors if the hook count differs across renders.
+    //
+    // We capture console.error to assert no Rules-of-Hooks message
+    // fires across the transition.
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    setMocks({ summaryState: 'loading' })
+    const { rerender, getByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-skeleton')).toBeTruthy()
+
+    // Flip mocks: loading → populated
+    setMocks({
+      summaryState: 'success',
+      summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+    })
+    rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SafeAreaProvider initialMetrics={initialMetrics}><SavingsScreen /></SafeAreaProvider>
+      </QueryClientProvider>,
+    )
+
+    // Populated UI now renders without a hook-order error.
+    expect(getByTestId('savings-hero-populated')).toBeTruthy()
+
+    // No "Rendered more hooks" or "change in the order of Hooks"
+    // warnings fired during the transition.
+    const hookOrderCalls = errorSpy.mock.calls.filter(call =>
+      String(call[0] ?? '').match(/Rendered more hooks|order of Hooks/i)
+    )
+    expect(hookOrderCalls).toEqual([])
+
+    errorSpy.mockRestore()
+  })
+})
+
 describe('SavingsScreen — backend current month is authoritative (fixup §3)', () => {
   it("uses monthlyBreakdown[0].month as 'current' even when it disagrees with the device clock", async () => {
     // Pin: backend month is the source of truth.  If the device's

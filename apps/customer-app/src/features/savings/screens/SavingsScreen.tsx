@@ -158,25 +158,6 @@ export function SavingsScreen() {
     setIsRefreshing(false)
   }, [summary, redemptions, monthDetail, selectedMonth])
 
-  // ── Loading skeleton ───────────────────────────────────────────────
-  if (userState === 'loading') {
-    return <SavingsSkeleton />
-  }
-
-  // ── Error state (no cache) ─────────────────────────────────────────
-  if (userState === 'error') {
-    return (
-      <View style={styles.errorContainer}>
-        <ErrorState
-          title="Couldn't load your savings"
-          description="Something went wrong. Please try again."
-          actionLabel="Retry"
-          onRetry={() => summary.refetch()}
-        />
-      </View>
-    )
-  }
-
   // ── List header (memoised) ─────────────────────────────────────────
   // Previously this was `const ListHeader = () => (...)` — a new
   // function reference on every render.  FlatList's
@@ -191,6 +172,15 @@ export function SavingsScreen() {
   // genuinely when the header needs to update its content.  Includes
   // `subscription` (object identity) on purpose: useSubscription's
   // React Query cache keeps it stable across renders.
+  //
+  // ─── Hook-ordering note ────────────────────────────────────────────
+  // This useMemo MUST sit ABOVE the conditional early returns for
+  // 'loading' and 'error' states.  Rules of Hooks: every hook must be
+  // called on every render in the same order.  If this useMemo lived
+  // below `if (userState === 'loading') return <SavingsSkeleton />`,
+  // the loading render would skip it and the next (populated) render
+  // would call it — React errors with "Rendered more hooks than
+  // during the previous render".  Caught on device QA 2026-05-17.
   const listHeader = useMemo(() => (
     <View>
       <SavingsHeroHeader
@@ -283,6 +273,30 @@ export function SavingsScreen() {
     subscription,
     allRedemptions.length,
   ])
+
+  // ── Loading skeleton ───────────────────────────────────────────────
+  // Conditional returns come AFTER all hooks above (listHeader memo,
+  // useState, useMemo for insight slices, useCallback handlers).
+  // React enforces hook-call order across renders; any hook below
+  // here would mismatch when the state transitions from loading →
+  // populated.
+  if (userState === 'loading') {
+    return <SavingsSkeleton />
+  }
+
+  // ── Error state (no cache) ─────────────────────────────────────────
+  if (userState === 'error') {
+    return (
+      <View style={styles.errorContainer}>
+        <ErrorState
+          title="Couldn't load your savings"
+          description="Something went wrong. Please try again."
+          actionLabel="Retry"
+          onRetry={() => summary.refetch()}
+        />
+      </View>
+    )
+  }
 
   const isPopulated = userState === 'populated'
 
