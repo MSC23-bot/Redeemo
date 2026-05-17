@@ -1,0 +1,283 @@
+import React from 'react'
+import { render, fireEvent, waitFor } from '@testing-library/react-native'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SavingsScreen } from '@/features/savings/screens/SavingsScreen'
+import type { SavingsSummary, SavingsRedemption, MonthlyDetail } from '@/lib/api/savings'
+
+// §Savings Rebaseline (PR-B, Revision 2) — SavingsScreen state-machine
+// pins per plan v2 §8.  Verifies:
+//   - 5 user states (loading / error / free / subscriber-empty / populated)
+//   - PAST_DUE routes through normal states based on lifetimeSaving
+//   - CANCELLED + EXPIRED route to State 1 (free) regardless of lifetime
+//   - Subscription === null routes to State 1
+//   - Free CTA → /(auth)/subscription-prompt (NOT /(app)/subscribe-prompt)
+//   - TopBranches tap → /(app)/merchant/{id}?branch={branchId}
+//   - RedemptionRow tap → /(app)/voucher/{id}
+
+// ── Mocks ────────────────────────────────────────────────────────────
+const mockRouterPush = jest.fn()
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockRouterPush, replace: jest.fn(), back: jest.fn() }),
+}))
+
+const mockSubscription = jest.fn()
+jest.mock('@/hooks/useSubscription', () => ({
+  useSubscription: () => mockSubscription(),
+}))
+
+const mockSummary = jest.fn()
+const mockRedemptions = jest.fn()
+const mockMonthlyDetail = jest.fn()
+jest.mock('@/features/savings/hooks/useSavingsSummary', () => ({
+  useSavingsSummary: () => mockSummary(),
+}))
+jest.mock('@/features/savings/hooks/useSavingsRedemptions', () => ({
+  useSavingsRedemptions: () => mockRedemptions(),
+}))
+jest.mock('@/features/savings/hooks/useMonthlyDetail', () => ({
+  useMonthlyDetail: () => mockMonthlyDetail(),
+}))
+
+// ── Fixtures ────────────────────────────────────────────────────────
+const populatedSummary: SavingsSummary = {
+  lifetimeSaving: 247.5,
+  thisMonthSaving: 32,
+  thisMonthRedemptionCount: 5,
+  monthlyBreakdown: [
+    { month: '2026-05', saving: 32, count: 5 },
+    { month: '2026-04', saving: 18, count: 3 },
+  ],
+  byBranch: [
+    {
+      branchId: 'br-bright',
+      branchName: 'Covelum — Brightlingsea',
+      merchantId: 'cov',
+      merchantName: 'Covelum',
+      merchantLogoUrl: null,
+      saving: 15, count: 1,
+    },
+    {
+      branchId: 'br-colch',
+      branchName: 'Colchester',
+      merchantId: 'cov',
+      merchantName: 'Covelum',
+      merchantLogoUrl: null,
+      saving: 10, count: 1,
+    },
+  ],
+  byCategory: [{ categoryId: 'food', name: 'Food & Drink', saving: 20 }],
+}
+
+const emptySummary: SavingsSummary = {
+  lifetimeSaving: 0,
+  thisMonthSaving: 0,
+  thisMonthRedemptionCount: 0,
+  monthlyBreakdown: [],
+  byBranch: [],
+  byCategory: [],
+}
+
+const someRedemption: SavingsRedemption = {
+  id: 'red-1',
+  redeemedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+  estimatedSaving: 12.5,
+  isValidated: false,
+  validatedAt: null,
+  merchant: { id: 'cov', businessName: 'Covelum', logoUrl: null },
+  voucher: { id: 'v-1', title: 't', voucherType: 'BOGO' },
+  branch: { id: 'br-bright', name: 'Covelum — Brightlingsea' },
+}
+
+const initialMetrics = {
+  frame:  { x: 0, y: 0, width: 393, height: 852 },
+  insets: { top: 59, left: 0, right: 0, bottom: 34 },
+}
+
+function wrap(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <SafeAreaProvider initialMetrics={initialMetrics}>{ui}</SafeAreaProvider>
+    </QueryClientProvider>,
+  )
+}
+
+// Default mock setup; each test overrides as needed.
+function setMocks(opts: {
+  subscription?: any
+  isSubscribed?: boolean
+  isSubLoading?: boolean
+  summaryState?: 'loading' | 'success' | 'error'
+  summaryData?: SavingsSummary | null
+  redemptions?: SavingsRedemption[]
+}) {
+  mockSubscription.mockReturnValue({
+    subscription:  opts.subscription ?? null,
+    isSubscribed:  opts.isSubscribed ?? false,
+    isSubLoading:  opts.isSubLoading ?? false,
+  })
+  mockSummary.mockReturnValue({
+    data:      opts.summaryData,
+    isLoading: opts.summaryState === 'loading',
+    isError:   opts.summaryState === 'error',
+    refetch:   jest.fn(),
+  })
+  mockRedemptions.mockReturnValue({
+    data: { pages: [{ redemptions: opts.redemptions ?? [], total: opts.redemptions?.length ?? 0 }] },
+    isFetchingNextPage: false,
+    hasNextPage:        false,
+    fetchNextPage:      jest.fn(),
+    refetch:            jest.fn(),
+  })
+  mockMonthlyDetail.mockReturnValue({
+    data: undefined, isLoading: false, isError: false, refetch: jest.fn(),
+  })
+}
+
+beforeEach(() => {
+  mockRouterPush.mockReset()
+  mockSubscription.mockReset()
+  mockSummary.mockReset()
+  mockRedemptions.mockReset()
+  mockMonthlyDetail.mockReset()
+})
+
+describe('SavingsScreen — user-state derivation', () => {
+  it('loading: skeleton renders when summary is loading', () => {
+    setMocks({ summaryState: 'loading' })
+    const { getByTestId, queryByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-skeleton')).toBeTruthy()
+    expect(queryByTestId('savings-screen')).toBeNull()
+  })
+
+  it('loading: skeleton also renders when subscription is loading (avoids state flash)', () => {
+    setMocks({ summaryState: 'success', summaryData: emptySummary, isSubLoading: true })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-skeleton')).toBeTruthy()
+  })
+
+  it('error: shows ErrorState when summary errored AND no cached data', () => {
+    setMocks({ summaryState: 'error', summaryData: null })
+    const { getByText } = wrap(<SavingsScreen />)
+    expect(getByText("Couldn't load your savings")).toBeTruthy()
+  })
+
+  it('free: subscription === null routes to State 1 hero', () => {
+    setMocks({ summaryState: 'success', summaryData: emptySummary, subscription: null })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-hero-free')).toBeTruthy()
+  })
+
+  it('subscriber-empty: ACTIVE + lifetimeSaving === 0 routes to State 2 hero', () => {
+    setMocks({
+      summaryState: 'success', summaryData: emptySummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+    })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-hero-subscriber-empty')).toBeTruthy()
+  })
+
+  it('populated: ACTIVE + lifetimeSaving > 0 routes to State 3', () => {
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+      redemptions: [someRedemption],
+    })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-hero-populated')).toBeTruthy()
+    expect(getByTestId('savings-insight-section')).toBeTruthy()
+  })
+})
+
+describe('SavingsScreen — locked subscription-status routing', () => {
+  it('PAST_DUE with lifetimeSaving === 0 → State 2 (subscriber-empty)', () => {
+    setMocks({
+      summaryState: 'success', summaryData: emptySummary,
+      subscription: { status: 'PAST_DUE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: false,           // useSubscription returns false for PAST_DUE
+    })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-hero-subscriber-empty')).toBeTruthy()
+  })
+
+  it('PAST_DUE with lifetimeSaving > 0 → State 3 (populated)', () => {
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'PAST_DUE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: false,
+      redemptions: [someRedemption],
+    })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-hero-populated')).toBeTruthy()
+  })
+
+  it('CANCELLED with lifetimeSaving > 0 → State 1 (free) — NOT populated (locked §8.3)', () => {
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'CANCELLED', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: false,
+    })
+    const { getByTestId, queryByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-hero-free')).toBeTruthy()
+    expect(queryByTestId('savings-hero-populated')).toBeNull()
+  })
+
+  it('EXPIRED with lifetimeSaving > 0 → State 1 (free) — NOT populated (locked §8.3)', () => {
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'EXPIRED', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: false,
+    })
+    const { getByTestId, queryByTestId } = wrap(<SavingsScreen />)
+    expect(getByTestId('savings-hero-free')).toBeTruthy()
+    expect(queryByTestId('savings-hero-populated')).toBeNull()
+  })
+})
+
+describe('SavingsScreen — navigation', () => {
+  it('free CTA → /(auth)/subscription-prompt (NOT the stale /(app)/subscribe-prompt path)', () => {
+    setMocks({ summaryState: 'success', summaryData: emptySummary, subscription: null })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    fireEvent.press(getByTestId('savings-hero-subscribe-cta'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/(auth)/subscription-prompt')
+  })
+
+  it('subscriber-empty Browse CTA → /(app)/', () => {
+    setMocks({
+      summaryState: 'success', summaryData: emptySummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+    })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    fireEvent.press(getByTestId('savings-hero-browse-cta'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/')
+  })
+
+  it('TopBranches row tap → /(app)/merchant/{merchantId}?branch={branchId}', async () => {
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+    })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    await waitFor(() => expect(getByTestId('savings-top-branches-row-br-bright')).toBeTruthy())
+    fireEvent.press(getByTestId('savings-top-branches-row-br-bright'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/merchant/cov?branch=br-bright')
+  })
+
+  it('RedemptionRow tap → /(app)/voucher/{voucherId}', async () => {
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+      redemptions: [someRedemption],
+    })
+    const { getByTestId } = wrap(<SavingsScreen />)
+    await waitFor(() => expect(getByTestId('savings-redemption-row-red-1')).toBeTruthy())
+    fireEvent.press(getByTestId('savings-redemption-row-red-1'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/voucher/v-1')
+  })
+})

@@ -1,0 +1,324 @@
+import React, { useState, useCallback, useMemo } from 'react'
+import { View, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from 'react-native'
+import { useRouter } from 'expo-router'
+import { Text } from '@/design-system/Text'
+import { FadeInDown } from '@/design-system/motion/FadeIn'
+import { ErrorState } from '@/design-system/components/ErrorState'
+import { color, spacing, layout } from '@/design-system/tokens'
+import { useSubscription } from '@/hooks/useSubscription'
+import { useSavingsSummary } from '../hooks/useSavingsSummary'
+import { useSavingsRedemptions } from '../hooks/useSavingsRedemptions'
+import { useMonthlyDetail } from '../hooks/useMonthlyDetail'
+import { SavingsHeroHeader } from '../components/SavingsHeroHeader'
+import { SavingsSkeleton, InsightSkeleton } from '../components/SavingsSkeleton'
+import { BenefitCards } from '../components/BenefitCards'
+import { TrendChart } from '../components/TrendChart'
+import { ViewingChip } from '../components/ViewingChip'
+import { TopBranches } from '../components/TopBranches'
+import { ByCategory } from '../components/ByCategory'
+import { RoiCallout } from '../components/RoiCallout'
+import { RedemptionRow } from '../components/RedemptionRow'
+import type { SavingsRedemption, MonthBreakdown } from '@/lib/api/savings'
+
+// §Savings Rebaseline (PR-B, Revision 2) — SavingsScreen orchestrator.
+//
+// FlatList + ListHeaderComponent composition keeps everything as one
+// scrolling unit (no nested scroll conflicts).  Insight section is
+// inside the ListHeaderComponent; redemption rows are the list items
+// for pagination.
+//
+// State machine per plan v2 §8:
+//   loading   — summary fetching OR subscription fetching
+//   error     — summary errored with no cached data
+//   free      — subscription === null OR CANCELLED OR EXPIRED  (§8.3)
+//   subscriber-empty — subscribed (incl. PAST_DUE) AND lifetimeSaving === 0
+//   populated — subscribed (incl. PAST_DUE) AND lifetimeSaving > 0
+//
+// Per the LOCKED 2026-05-17 owner direction (plan §8.3): CANCELLED +
+// EXPIRED route to State 1 regardless of lifetimeSaving.  Future
+// product decision: whether historical-savings visibility should
+// remain accessible to lapsed users.
+
+type UserState = 'loading' | 'error' | 'free' | 'subscriber-empty' | 'populated'
+
+function currentMonthLabel(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+export function SavingsScreen() {
+  const router = useRouter()
+  const { subscription, isSubscribed, isSubLoading } = useSubscription()
+  const summary = useSavingsSummary()
+  const redemptions = useSavingsRedemptions()
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  const monthDetail = useMonthlyDetail(selectedMonth)
+
+  const curMonth = currentMonthLabel()
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // ── User-state derivation ────────────────────────────────────────────
+  // PAST_DUE is treated as subscriber for Savings display purposes —
+  // the user's historical savings still belong to them.  CANCELLED /
+  // EXPIRED route to State 1 per locked owner direction.
+  const userState: UserState = useMemo(() => {
+    if (summary.isLoading || isSubLoading) return 'loading'
+    if (summary.isError && !summary.data) return 'error'
+
+    const status = subscription?.status
+    if (!subscription || status === 'CANCELLED' || status === 'EXPIRED') return 'free'
+
+    const isPastDue = status === 'PAST_DUE'
+    const treatAsSubscribed = isSubscribed || isPastDue
+    if (!treatAsSubscribed) return 'free'
+
+    const lifetime = summary.data?.lifetimeSaving ?? 0
+    return lifetime > 0 ? 'populated' : 'subscriber-empty'
+  }, [summary.isLoading, summary.isError, summary.data, isSubscribed, isSubLoading, subscription])
+
+  // ── Flatten paginated redemptions ───────────────────────────────────
+  const allRedemptions: SavingsRedemption[] = useMemo(() => {
+    if (!redemptions.data) return []
+    return redemptions.data.pages.flatMap((p) => p.redemptions)
+  }, [redemptions.data])
+
+  const totalRedemptions = redemptions.data?.pages[0]?.total ?? 0
+  const allLoaded = allRedemptions.length >= totalRedemptions && totalRedemptions > 0
+
+  // ── Chart + insight slices ──────────────────────────────────────────
+  // monthlyBreakdown comes back descending (current month at index 0);
+  // TrendChart reverses for display.
+  const chartMonths: MonthBreakdown[] = useMemo(() => {
+    if (!summary.data) return []
+    return summary.data.monthlyBreakdown.slice(0, 6)
+  }, [summary.data])
+
+  const insightBranches = selectedMonth
+    ? (monthDetail.data?.byBranch ?? [])
+    : (summary.data?.byBranch ?? [])
+  const insightCategories = selectedMonth
+    ? (monthDetail.data?.byCategory ?? [])
+    : (summary.data?.byCategory ?? [])
+
+  // ── Month drill-down ───────────────────────────────────────────────
+  const handleMonthSelect = useCallback((month: string) => {
+    if (month === curMonth) {
+      setSelectedMonth(null)
+    } else {
+      setSelectedMonth(month)
+    }
+  }, [curMonth])
+
+  const handleDismissChip = useCallback(() => setSelectedMonth(null), [])
+
+  // ── Navigation handlers ────────────────────────────────────────────
+  const handleSubscribe = useCallback(() => {
+    router.push('/(auth)/subscription-prompt' as never)
+  }, [router])
+
+  const handleBrowse = useCallback(() => {
+    router.push('/(app)/' as never)
+  }, [router])
+
+  const handleRowPress = useCallback((voucherId: string) => {
+    router.push(`/(app)/voucher/${voucherId}` as never)
+  }, [router])
+
+  // TopBranches tap: navigate to merchant profile with the SELECTED
+  // branch pre-selected via the `?branch=<id>` URL param so cold-open
+  // lands on the right branch picker state.
+  const handleTopBranchPress = useCallback((branchId: string, merchantId: string) => {
+    router.push(`/(app)/merchant/${merchantId}?branch=${branchId}` as never)
+  }, [router])
+
+  // ── Pull-to-refresh ────────────────────────────────────────────────
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    await Promise.all([
+      summary.refetch(),
+      redemptions.refetch(),
+      selectedMonth ? monthDetail.refetch() : Promise.resolve(),
+    ])
+    setIsRefreshing(false)
+  }, [summary, redemptions, monthDetail, selectedMonth])
+
+  // ── Loading skeleton ───────────────────────────────────────────────
+  if (userState === 'loading') {
+    return <SavingsSkeleton />
+  }
+
+  // ── Error state (no cache) ─────────────────────────────────────────
+  if (userState === 'error') {
+    return (
+      <View style={styles.errorContainer}>
+        <ErrorState
+          title="Couldn't load your savings"
+          description="Something went wrong. Please try again."
+          actionLabel="Retry"
+          onRetry={() => summary.refetch()}
+        />
+      </View>
+    )
+  }
+
+  // ── List header ───────────────────────────────────────────────────
+  const ListHeader = () => (
+    <View>
+      <SavingsHeroHeader
+        state={userState as 'free' | 'subscriber-empty' | 'populated'}
+        onSubscribe={handleSubscribe}
+        onBrowse={handleBrowse}
+        lifetimeSaving={summary.data?.lifetimeSaving ?? 0}
+        thisMonthSaving={summary.data?.thisMonthSaving ?? 0}
+        thisMonthRedemptionCount={summary.data?.thisMonthRedemptionCount ?? 0}
+      />
+
+      {(userState === 'free' || userState === 'subscriber-empty') && (
+        <BenefitCards variant={userState} />
+      )}
+
+      {userState === 'populated' && (
+        <View style={styles.insightSection} testID="savings-insight-section">
+          <FadeInDown delay={500}>
+            <Text variant="label.eyebrow" style={styles.insightLabel}>Insights</Text>
+          </FadeInDown>
+
+          <FadeInDown delay={550}>
+            <TrendChart
+              months={chartMonths}
+              selectedMonth={selectedMonth}
+              currentMonth={curMonth}
+              onMonthSelect={handleMonthSelect}
+            />
+          </FadeInDown>
+
+          <ViewingChip month={selectedMonth} onDismiss={handleDismissChip} />
+
+          {selectedMonth && monthDetail.isLoading ? (
+            <InsightSkeleton />
+          ) : selectedMonth && monthDetail.isError ? (
+            <View style={styles.insightError}>
+              <ErrorState
+                title={`Couldn't load ${selectedMonth}`}
+                actionLabel="Retry"
+                onRetry={() => monthDetail.refetch()}
+              />
+            </View>
+          ) : (
+            <>
+              <FadeInDown delay={650}>
+                <TopBranches branches={insightBranches} onPress={handleTopBranchPress} />
+              </FadeInDown>
+              <FadeInDown delay={750}>
+                <ByCategory categories={insightCategories} />
+              </FadeInDown>
+            </>
+          )}
+
+          {!selectedMonth && summary.data && subscription?.plan && (
+            <FadeInDown delay={1100}>
+              <RoiCallout
+                thisMonthSaving={summary.data.thisMonthSaving}
+                billingInterval={subscription.plan.billingInterval}
+                hasPromo={!!subscription.promoCodeId}
+              />
+            </FadeInDown>
+          )}
+
+          {allRedemptions.length > 0 && (
+            <FadeInDown delay={1150}>
+              <Text variant="label.eyebrow" style={styles.historyLabel}>
+                Redemption History
+              </Text>
+            </FadeInDown>
+          )}
+        </View>
+      )}
+    </View>
+  )
+
+  const isPopulated = userState === 'populated'
+
+  return (
+    <View style={styles.screen} testID="savings-screen">
+      <FlatList
+        data={isPopulated ? allRedemptions : []}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <View style={styles.rowWrapper}>
+            <RedemptionRow redemption={item} onPress={handleRowPress} />
+          </View>
+        )}
+        ListHeaderComponent={ListHeader}
+        ListFooterComponent={
+          isPopulated ? (
+            redemptions.isFetchingNextPage ? (
+              <ActivityIndicator color={color.brandRose} style={styles.footerSpinner} />
+            ) : allLoaded ? (
+              <Text variant="body.sm" color="tertiary" meta align="center" style={styles.endLabel}>
+                You&apos;re all caught up
+              </Text>
+            ) : null
+          ) : null
+        }
+        onEndReached={() => {
+          if (isPopulated && redemptions.hasNextPage && !redemptions.isFetchingNextPage) {
+            redemptions.fetchNextPage()
+          }
+        }}
+        onEndReachedThreshold={0.3}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={color.brandRose}
+            colors={[color.brandRose]}
+          />
+        }
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+      />
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+  },
+  errorContainer: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+    justifyContent: 'center',
+  },
+  insightSection: {
+    paddingHorizontal: spacing[5],
+    paddingTop: spacing[5],
+    gap: spacing[3],
+  },
+  insightLabel: {
+    color: '#9CA3AF',
+  },
+  insightError: {
+    paddingVertical: spacing[4],
+  },
+  historyLabel: {
+    color: '#9CA3AF',
+    marginTop: spacing[3],
+  },
+  rowWrapper: {
+    paddingHorizontal: spacing[5],
+    paddingVertical: spacing[1],
+  },
+  footerSpinner: {
+    paddingVertical: spacing[4],
+  },
+  endLabel: {
+    paddingVertical: spacing[5],
+    color: '#9CA3AF',
+  },
+  listContent: {
+    paddingBottom: layout.tabBarHeight + 20,
+  },
+})
