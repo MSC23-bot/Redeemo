@@ -219,16 +219,17 @@ const styles = StyleSheet.create({
     color: '#E20C04',
     fontFamily: 'Lato-SemiBold',
   },
-  // §Savings Rebaseline fixup 2026-05-17 — hero design-fidelity pass.
-  // Was: alignItems: 'center', paddingBottom: spacing[6] — produced
-  // the centred-and-sparse look that diverged from the brainstorm
-  // target.  Now: left-aligned, tighter vertical rhythm, matches the
-  // target "title top-left, total/chips arranged tighter" composition.
+  // §Savings fidelity fixup-2 2026-05-17 — hero rhythm tightened
+  // further.  Was (fixup-1): paddingBottom spacing[5], chipRow
+  // marginTop spacing[3], statChip paddingVertical spacing[3].
+  // Now: paddingBottom spacing[4], chipRow marginTop spacing[2],
+  // statChip paddingVertical spacing[2].  Hero reads ~30-40px
+  // shorter overall while preserving the lifetime amount weight.
   populatedContent: {
     alignItems: 'flex-start',
     paddingHorizontal: spacing[5],
     paddingTop: spacing[1],
-    paddingBottom: spacing[5],
+    paddingBottom: spacing[4],
   },
   eyebrow: {
     fontFamily: 'Lato-SemiBold',
@@ -245,22 +246,19 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontVariant: ['tabular-nums'],
   },
-  // Left-aligned row, no `marginTop: spacing[4]` (was too airy).
   chipRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing[3],
-    marginTop: spacing[3],
+    marginTop: spacing[2],
   },
-  // Chip content left-aligned (was 'center').  Matches the target
-  // where each chip reads as a stat tile, not a centred badge.
   statChip: {
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
     borderRadius: radius.lg,
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
+    paddingVertical: spacing[2],
     alignItems: 'flex-start',
     gap: 2,
     minWidth: 120,

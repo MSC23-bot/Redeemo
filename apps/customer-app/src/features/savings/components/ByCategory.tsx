@@ -92,23 +92,26 @@ export function ByCategory({ categories, emptyLabel }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // §Savings fidelity fixup-2 2026-05-17: match brainstorm densities
+  // (track 6px not 8; row marginBottom ~10px; tighter card padding).
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: spacing[4],
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
     ...elevation.sm,
   },
   sectionLabel: {
-    marginBottom: spacing[3],
+    marginBottom: spacing[2],
     color: '#9CA3AF',
   },
   categoryRow: {
-    marginBottom: spacing[3],
+    marginBottom: spacing[2],
   },
   categoryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: spacing[1],
+    marginBottom: 5,
   },
   categoryName: {
     fontFamily: 'Lato-Medium',
@@ -122,14 +125,14 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   barTrack: {
-    height: 8,
-    borderRadius: 4,
+    height: 6,
+    borderRadius: 99,
     backgroundColor: '#F3F4F6',
     overflow: 'hidden',
   },
   barFill: {
-    height: 8,
-    borderRadius: 4,
+    height: 6,
+    borderRadius: 99,
     overflow: 'hidden',
   },
   emptyLabel: {

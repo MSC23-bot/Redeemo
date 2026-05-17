@@ -56,41 +56,47 @@ export function TopBranches({ branches, onPress, emptyLabel }: Props) {
       {top.map((b, i) => {
         const primaryLabel = branchShortName(b.branchName)
         const initial = (primaryLabel || b.branchName || '?').charAt(0).toUpperCase()
+        const isLast = i === top.length - 1
+        // §Savings fidelity fixup-2 2026-05-17: secondary line carries
+        // BOTH count and merchant name (was merchantName alone), so
+        // the row reads "Brightlingsea / 3 visits · Covelum / £20" —
+        // pairs the row's identity with usage context, matches the
+        // brainstorm "Top Places / 3 visits · Restaurants" pattern
+        // adapted to branch-first.
+        const visitWord = b.count === 1 ? 'visit' : 'visits'
+        const secondary = `${b.count} ${visitWord} · ${b.merchantName}`
         return (
-          <FadeIn key={b.branchId} delay={i * 90} y={8}>
-            <PressableScale
-              onPress={() => onPress(b.branchId, b.merchantId)}
-              accessibilityRole="button"
-              accessibilityLabel={`${primaryLabel}, ${b.merchantName}, £${b.saving.toFixed(2)} saved across ${b.count} redemption${b.count !== 1 ? 's' : ''}`}
-              style={styles.row}
-              testID={`savings-top-branches-row-${b.branchId}`}
-            >
-              {/* Logo: prefer merchant-supplied URL; otherwise an
-                  initial tile keyed by the trimmed branch name so
-                  multi-branch merchants visually differ in absence of
-                  a logo. */}
-              {b.merchantLogoUrl ? (
-                <Image
-                  source={{ uri: b.merchantLogoUrl }}
-                  style={styles.logoImage}
-                  accessibilityIgnoresInvertColors
-                />
-              ) : (
-                <View style={styles.logoFallback}>
-                  <Text style={styles.logoInitial}>{initial}</Text>
-                </View>
-              )}
-
-              <View style={styles.rowText}>
-                <Text variant="body.sm" style={styles.primaryName}>{primaryLabel}</Text>
-                <Text variant="body.sm" color="tertiary" meta style={styles.secondaryName}>
-                  {b.merchantName}
-                </Text>
+          <PressableScale
+            key={b.branchId}
+            onPress={() => onPress(b.branchId, b.merchantId)}
+            accessibilityRole="button"
+            accessibilityLabel={`${primaryLabel}, ${b.merchantName}, £${b.saving.toFixed(2)} saved across ${b.count} redemption${b.count !== 1 ? 's' : ''}`}
+            style={[styles.row, !isLast && styles.rowDivider]}
+            testID={`savings-top-branches-row-${b.branchId}`}
+          >
+            {/* Logo: prefer merchant-supplied URL; otherwise an
+                initial tile keyed by the trimmed branch name. */}
+            {b.merchantLogoUrl ? (
+              <Image
+                source={{ uri: b.merchantLogoUrl }}
+                style={styles.logoImage}
+                accessibilityIgnoresInvertColors
+              />
+            ) : (
+              <View style={styles.logoFallback}>
+                <Text style={styles.logoInitial}>{initial}</Text>
               </View>
+            )}
 
-              <Text style={styles.saving}>+£{b.saving.toFixed(2)}</Text>
-            </PressableScale>
-          </FadeIn>
+            <View style={styles.rowText}>
+              <Text variant="body.sm" style={styles.primaryName} numberOfLines={1}>{primaryLabel}</Text>
+              <Text variant="body.sm" color="tertiary" meta style={styles.secondaryName} numberOfLines={1}>
+                {secondary}
+              </Text>
+            </View>
+
+            <Text style={styles.saving}>£{b.saving.toFixed(2)}</Text>
+          </PressableScale>
         )
       })}
     </View>
@@ -101,29 +107,40 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: spacing[4],
+    // §Savings fidelity fixup-2: compact vertical padding so card
+    // doesn't read as oversized (was spacing[4] = 16; target
+    // brainstorm uses ~14-16 padding with much tighter row rhythm).
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
     ...elevation.sm,
   },
   sectionLabel: {
-    marginBottom: spacing[3],
+    marginBottom: spacing[2],
     color: '#9CA3AF',
   },
+  // Brainstorm: 9px 0 padding + 1px subtle border between rows.
+  // Tightens the per-row vertical rhythm; 42x42 logo (was 46) lines
+  // up with the brainstorm pattern.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing[2],
     gap: spacing[3],
   },
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F3F4F6',
+  },
   logoImage: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     backgroundColor: '#F3F4F6',
   },
   logoFallback: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
@@ -146,6 +163,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9CA3AF',
   },
+  // Brainstorm: 18px MusticaPro-SemiBold savings-green tabular.
+  // Drop the leading "+" — brainstorm uses bare "£20" not "+£20".
   saving: {
     fontFamily: 'MusticaPro-SemiBold',
     fontSize: 18,

@@ -57,35 +57,22 @@ export function RoiCallout({ thisMonthSaving, billingInterval, hasPromo }: Props
   const multiplier = (thisMonthSaving / planCost).toFixed(1)
   const amount = `£${thisMonthSaving.toFixed(2)}`
 
-  let content: React.ReactNode
+  // §Savings fidelity fixup-2 2026-05-17 — full rework to match the
+  // brainstorm composition (was: centred 16pt body text).  New shape:
+  //   - flex row: 38x38 rose-tinted icon tile + text block
+  //   - eyebrow line (10px, +1px tracking, uppercase, brand-red)
+  //   - body line (13px, deep brand-red, inline strong emphasis)
+  // No em-dashes in copy (locked rule); replaced with "—" → "·" /
+  // sentence break.
+  const headline = hasPromo
+    ? "YOUR PROMO IS DELIVERING"
+    : !isAboveBreakeven
+    ? "YOU'RE ON YOUR WAY"
+    : "THIS MONTH'S RETURN"
 
-  if (hasPromo) {
-    content = (
-      <Text variant="body.md" style={styles.copy}>
-        You saved <Text variant="heading.sm" style={styles.bold}>{amount}</Text> this month. Keep it up!
-      </Text>
-    )
-  } else if (!isAboveBreakeven) {
-    content = (
-      <Text variant="body.md" style={styles.copy}>
-        You&apos;re on your way — <Text variant="heading.sm" style={styles.bold}>{amount}</Text> saved this month
-      </Text>
-    )
-  } else if (billingInterval === 'MONTHLY') {
-    content = (
-      <Text variant="body.md" style={styles.copy}>
-        Saved <Text variant="heading.sm" style={styles.bold}>{amount}</Text> on your £6.99/mo plan — that&apos;s{' '}
-        <Text variant="heading.sm" style={styles.bold}>{multiplier}×</Text> your money back
-      </Text>
-    )
-  } else {
-    content = (
-      <Text variant="body.md" style={styles.copy}>
-        Saved <Text variant="heading.sm" style={styles.bold}>{amount}</Text> on your plan — that&apos;s{' '}
-        <Text variant="heading.sm" style={styles.bold}>{multiplier}×</Text> your money back
-      </Text>
-    )
-  }
+  const planCopy = billingInterval === 'ANNUAL'
+    ? 'your annual plan'
+    : 'your £6.99/mo plan'
 
   return (
     <View style={styles.container} testID="savings-roi-callout">
@@ -103,7 +90,28 @@ export function RoiCallout({ thisMonthSaving, billingInterval, hasPromo }: Props
           style={StyleSheet.absoluteFill}
         />
       </Animated.View>
-      <View style={styles.inner}>{content}</View>
+      <View style={styles.inner}>
+        <View style={styles.iconTile}>
+          <Text style={styles.iconGlyph}>🎉</Text>
+        </View>
+        <View style={styles.textBlock}>
+          <Text style={styles.headline}>{headline}</Text>
+          {hasPromo ? (
+            <Text style={styles.body}>
+              You saved <Text style={styles.bodyStrong}>{amount}</Text> this month. Keep it up!
+            </Text>
+          ) : !isAboveBreakeven ? (
+            <Text style={styles.body}>
+              You&apos;re on your way. <Text style={styles.bodyStrong}>{amount}</Text> saved so far.
+            </Text>
+          ) : (
+            <Text style={styles.body}>
+              Saved <Text style={styles.bodyStrong}>{amount}</Text> on {planCopy}. That&apos;s{' '}
+              <Text style={styles.pill}>{`${multiplier}×`}</Text> your money back.
+            </Text>
+          )}
+        </View>
+      </View>
     </View>
   )
 }
@@ -121,16 +129,59 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 120,
   },
+  // Brainstorm: 14px 16px padding, flex row, gap 12, items start.
   inner: {
-    padding: spacing[4],
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing[3],
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
   },
-  copy: {
-    color: '#010C35',
-    textAlign: 'center',
-    lineHeight: 22,
+  // Brainstorm: 38x38 rounded-12 rose-tinted tile, 20pt glyph.
+  iconTile: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(226,12,4,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  bold: {
-    color: '#010C35',
+  iconGlyph: {
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  textBlock: {
+    flex: 1,
+  },
+  // Brainstorm eyebrow: 10px Lato-SemiBold +1px tracking uppercase
+  // deep brand-red (#C01010).
+  headline: {
     fontFamily: 'Lato-SemiBold',
+    fontSize: 10,
+    letterSpacing: 1,
+    color: '#C01010',
+    marginBottom: 3,
+  },
+  // Brainstorm body: 13px Lato regular, deep brand-red, 1.45 lh.
+  body: {
+    fontFamily: 'Lato-Regular',
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#7C1E1E',
+  },
+  // Strong inline emphasis: darker brand-red, semibold.
+  bodyStrong: {
+    fontFamily: 'Lato-SemiBold',
+    color: '#5C0F0F',
+  },
+  // Multiplier emphasis: bright brand-rose semibold (RN doesn't
+  // support a true inline pill background on text inside a parent
+  // <Text>; rely on weight + colour for emphasis).
+  pill: {
+    fontFamily: 'Lato-SemiBold',
+    fontSize: 13,
+    color: '#E20C04',
+    fontVariant: ['tabular-nums'],
   },
 })

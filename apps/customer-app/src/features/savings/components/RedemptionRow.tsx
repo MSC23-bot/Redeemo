@@ -140,14 +140,14 @@ export function RedemptionRow({ redemption, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // §Savings fidelity fixup-2 2026-05-17 — row density tightened
+  // further to match brainstorm rows (logo 42, paddingVertical 10,
+  // saving 18pt).  Was: paddingVertical spacing[2] (8) + logo 46 +
+  // saving 16 — read as too sparse on device.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing[4],
-    // §Savings fixup 2026-05-17: tighten vertical padding from
-    // spacing[3] (12px) → spacing[2] (8px) to bring the row closer
-    // to the target brainstorm density.  Paired with the single
-    // 2-line meta layout above.
+    paddingHorizontal: spacing[3],
     paddingVertical: spacing[2],
     gap: spacing[3],
     backgroundColor: tokenColor.surface.raised,
@@ -156,9 +156,9 @@ const styles = StyleSheet.create({
     borderColor: tokenColor.border.subtle,
   },
   logo: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -183,9 +183,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 4,
   },
+  // 16 → 18pt to match brainstorm "Top Places" saving size.
   saving: {
     fontFamily: 'MusticaPro-SemiBold',
-    fontSize: 16,
+    fontSize: 18,
     color: tokenColor.savingsGreen,
     fontVariant: ['tabular-nums'],
   },

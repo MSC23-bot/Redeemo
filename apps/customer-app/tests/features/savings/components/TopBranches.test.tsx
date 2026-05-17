@@ -42,10 +42,21 @@ describe('TopBranches', () => {
     expect(queryByText('Covelum — Brightlingsea')).toBeNull()
   })
 
-  it('secondary line carries merchantName untrimmed', () => {
-    const branches = [makeBranch({ branchName: 'Covelum — Brightlingsea', merchantName: 'Covelum' })]
+  it('secondary line carries count + merchantName ("3 visits · Covelum" — fidelity-fixup-2 2026-05-17)', () => {
+    // §Savings fidelity fixup-2: secondary line is now
+    // "{count} {visit/visits} · {merchantName}" (was merchantName
+    // alone).  Matches the brainstorm "Top Places" target pattern
+    // where the secondary line carries usage context, not just
+    // identity.
+    const branches = [makeBranch({ branchName: 'Covelum — Brightlingsea', merchantName: 'Covelum', count: 3 })]
     const { getByText } = render(<TopBranches branches={branches} onPress={() => {}} />)
-    expect(getByText('Covelum')).toBeTruthy()
+    expect(getByText('3 visits · Covelum')).toBeTruthy()
+  })
+
+  it('secondary line uses singular "visit" when count is 1', () => {
+    const branches = [makeBranch({ branchName: 'Covelum — Brightlingsea', merchantName: 'Covelum', count: 1 })]
+    const { getByText } = render(<TopBranches branches={branches} onPress={() => {}} />)
+    expect(getByText('1 visit · Covelum')).toBeTruthy()
   })
 
   it('renders nothing when branches array is empty', () => {
