@@ -18,7 +18,10 @@ export function useCountUp(target: number, durationMs: number) {
     const dur = hasMounted.current ? Math.round(durationMs * 0.6) : durationMs
     value.value = withTiming(target, {
       duration: dur,
-      easing: Easing.out(Easing.bezier(0.16, 1, 0.3, 1)),
+      // ease-out exponential — already a deceleration curve; no need
+      // to wrap in `Easing.out` (which expects an EasingFunction, not
+      // a factory).
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
     })
     hasMounted.current = true
   }, [target, durationMs, scale, value])

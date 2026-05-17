@@ -43,7 +43,7 @@ describe('useSavingsRedemptions', () => {
 
     const { result } = renderHook(() => useSavingsRedemptions(), { wrapper })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data?.pages[0].redemptions).toHaveLength(1)
+    expect(result.current.data?.pages[0]!.redemptions).toHaveLength(1)
     expect(mockSavingsApi.getRedemptions).toHaveBeenCalledWith({ limit: 20, offset: 0 })
   })
 

@@ -96,20 +96,20 @@ describe('savingsApi.getSummary', () => {
 
     // Multi-branch split: shared merchantId, distinct branchIds.
     expect(result.byBranch).toHaveLength(2)
-    expect(result.byBranch[0].branchId).toBe('br-bright')
-    expect(result.byBranch[1].branchId).toBe('br-colch')
-    expect(result.byBranch[0].merchantId).toBe('cov')
-    expect(result.byBranch[1].merchantId).toBe('cov')
-    expect(result.byBranch[0].merchantName).toBe('Covelum')
-    expect(result.byBranch[1].merchantName).toBe('Covelum')
+    expect(result.byBranch[0]!.branchId).toBe('br-bright')
+    expect(result.byBranch[1]!.branchId).toBe('br-colch')
+    expect(result.byBranch[0]!.merchantId).toBe('cov')
+    expect(result.byBranch[1]!.merchantId).toBe('cov')
+    expect(result.byBranch[0]!.merchantName).toBe('Covelum')
+    expect(result.byBranch[1]!.merchantName).toBe('Covelum')
 
     // merchantLogoUrl nullable — first row null, second populated.
-    expect(result.byBranch[0].merchantLogoUrl).toBeNull()
-    expect(result.byBranch[1].merchantLogoUrl).toBe('https://cdn.example.com/covelum.png')
+    expect(result.byBranch[0]!.merchantLogoUrl).toBeNull()
+    expect(result.byBranch[1]!.merchantLogoUrl).toBe('https://cdn.example.com/covelum.png')
 
     // saving coerced to number on each entry.
-    expect(result.byBranch[0].saving).toBe(15)
-    expect(result.byBranch[1].saving).toBe(10)
+    expect(result.byBranch[0]!.saving).toBe(15)
+    expect(result.byBranch[1]!.saving).toBe(10)
   })
 
   it('hits the correct endpoint (no query params)', async () => {
@@ -169,9 +169,9 @@ describe('savingsApi.getRedemptions', () => {
     (api.get as jest.Mock).mockResolvedValue(REDEMPTIONS_FIXTURE)
     const result = await savingsApi.getRedemptions({ limit: 20, offset: 0 })
     expect(result.total).toBe(1)
-    expect(result.redemptions[0].estimatedSaving).toBe(12)
-    expect(result.redemptions[0].branch.name).toBe('Covelum — Brightlingsea')
-    expect(result.redemptions[0].voucher.voucherType).toBe('BOGO')
+    expect(result.redemptions[0]!.estimatedSaving).toBe(12)
+    expect(result.redemptions[0]!.branch.name).toBe('Covelum — Brightlingsea')
+    expect(result.redemptions[0]!.voucher.voucherType).toBe('BOGO')
   })
 
   it('accepts all current voucher types (BOGO + TIME_LIMITED + REUSABLE coverage)', async () => {
@@ -209,8 +209,8 @@ describe('savingsApi.getMonthlyDetail', () => {
     const result = await savingsApi.getMonthlyDetail('2026-04')
     expect(result.totalSaving).toBe(32)
     expect(result.byBranch).toHaveLength(1)
-    expect(result.byBranch[0].branchName).toBe('Covelum — Brightlingsea')
-    expect(result.byBranch[0].merchantId).toBe('cov')
+    expect(result.byBranch[0]!.branchName).toBe('Covelum — Brightlingsea')
+    expect(result.byBranch[0]!.merchantId).toBe('cov')
   })
 
   it('regression: monthly-detail also rejects a `byMerchant` payload', async () => {
