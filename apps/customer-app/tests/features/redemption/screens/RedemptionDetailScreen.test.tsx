@@ -219,16 +219,22 @@ describe('RedemptionDetailScreen — ended (window expired, not validated) state
 })
 
 describe('RedemptionDetailScreen — voucher type coverage', () => {
-  it('renders REUSABLE redemption as "Reusable voucher" eyebrow', () => {
+  // §Savings device-QA round-5 fixup 2026-05-18 — type eyebrow now
+  // renders as an UPPERCASE chip with a coloured outline (the
+  // voucher-type accent).  Text is wrapped in a child <Text>, so
+  // the chip View's children are React elements not strings —
+  // assert via the rendered text directly.
+
+  it('renders REUSABLE redemption as "REUSABLE VOUCHER" eyebrow chip', () => {
     setMock({ data: makeDetail({
       voucher: {
         id: 'v-r', title: 'Coffee club', voucherType: 'REUSABLE',
         merchant: { id: 'cov', businessName: 'Covelum' },
       },
     })})
-    const { getByTestId } = wrap(<RedemptionDetailScreen />)
-    const eyebrow = getByTestId('redemption-detail-type-eyebrow')
-    expect(JSON.stringify(eyebrow.props.children)).toContain('Reusable voucher')
+    const { getByText, getByTestId } = wrap(<RedemptionDetailScreen />)
+    expect(getByTestId('redemption-detail-type-eyebrow')).toBeTruthy()
+    expect(getByText('REUSABLE VOUCHER')).toBeTruthy()
   })
 
   it('renders TIME_LIMITED redemption with full historical receipt context even after window closed', () => {
@@ -241,8 +247,7 @@ describe('RedemptionDetailScreen — voucher type coverage', () => {
     })})
     const { getByTestId, getByText } = wrap(<RedemptionDetailScreen />)
     expect(getByTestId('redemption-detail')).toBeTruthy()
-    const eyebrow = getByTestId('redemption-detail-type-eyebrow')
-    expect(JSON.stringify(eyebrow.props.children)).toContain('Time limited voucher')
+    expect(getByText('TIME LIMITED VOUCHER')).toBeTruthy()
     expect(getByText('Lunch deal 12-2pm')).toBeTruthy()
   })
 
@@ -253,17 +258,105 @@ describe('RedemptionDetailScreen — voucher type coverage', () => {
         merchant: { id: 'm', businessName: 'Coffee Co' },
       },
     })})
-    const { getByTestId, getByText } = wrap(<RedemptionDetailScreen />)
-    const eyebrow = getByTestId('redemption-detail-type-eyebrow')
-    expect(JSON.stringify(eyebrow.props.children)).toContain('Freebie voucher')
+    const { getByText } = wrap(<RedemptionDetailScreen />)
+    expect(getByText('FREEBIE VOUCHER')).toBeTruthy()
     expect(getByText('Free coffee Friday')).toBeTruthy()
   })
 
-  it('renders BOGO redemption as "Buy one, get one free voucher" eyebrow', () => {
-    setMock({ data: makeDetail() })  // default BOGO
+  it('renders BOGO redemption as "BUY ONE, GET ONE FREE VOUCHER" eyebrow chip', () => {
+    setMock({ data: makeDetail() })
+    const { getByText } = wrap(<RedemptionDetailScreen />)
+    expect(getByText('BUY ONE, GET ONE FREE VOUCHER')).toBeTruthy()
+  })
+
+  it('voucher-type accent strip renders (controlled identity accent)', () => {
+    setMock({ data: makeDetail() })
     const { getByTestId } = wrap(<RedemptionDetailScreen />)
-    const eyebrow = getByTestId('redemption-detail-type-eyebrow')
-    expect(JSON.stringify(eyebrow.props.children)).toContain('Buy one, get one free voucher')
+    expect(getByTestId('redemption-detail-type-accent')).toBeTruthy()
+  })
+})
+
+describe('RedemptionDetailScreen — voucher description + terms', () => {
+  it('renders voucher description when present', () => {
+    setMock({ data: makeDetail({
+      voucher: {
+        id: 'v-1', title: 'Half-price pizza Monday', voucherType: 'BOGO',
+        description: 'Half off everything on the menu, Mondays from 5pm.',
+        merchant: { id: 'cov', businessName: 'Covelum' },
+      },
+    })})
+    const { getByTestId, getByText } = wrap(<RedemptionDetailScreen />)
+    expect(getByTestId('redemption-detail-description')).toBeTruthy()
+    expect(getByText('Half off everything on the menu, Mondays from 5pm.')).toBeTruthy()
+  })
+
+  it('HIDES description row entirely when voucher.description is null', () => {
+    setMock({ data: makeDetail({
+      voucher: {
+        id: 'v-1', title: 'Coffee', voucherType: 'FREEBIE',
+        description: null,
+        merchant: { id: 'm', businessName: 'M' },
+      },
+    })})
+    const { queryByTestId } = wrap(<RedemptionDetailScreen />)
+    expect(queryByTestId('redemption-detail-description')).toBeNull()
+  })
+
+  it('renders terms row when terms is present', () => {
+    setMock({ data: makeDetail({
+      voucher: {
+        id: 'v-1', title: 'X', voucherType: 'BOGO',
+        terms: 'One per customer per cycle.',
+        merchant: { id: 'm', businessName: 'M' },
+      },
+    })})
+    const { getByTestId, getByText } = wrap(<RedemptionDetailScreen />)
+    expect(getByTestId('redemption-detail-terms')).toBeTruthy()
+    expect(getByText('One per customer per cycle.')).toBeTruthy()
+  })
+
+  it('HIDES terms row entirely when voucher.terms is null (no empty row)', () => {
+    setMock({ data: makeDetail({
+      voucher: {
+        id: 'v-1', title: 'X', voucherType: 'BOGO',
+        terms: null,
+        merchant: { id: 'm', businessName: 'M' },
+      },
+    })})
+    const { queryByTestId, queryByText } = wrap(<RedemptionDetailScreen />)
+    expect(queryByTestId('redemption-detail-terms')).toBeNull()
+    expect(queryByText('TERMS')).toBeNull()
+  })
+})
+
+describe('RedemptionDetailScreen — status copy (locked owner direction)', () => {
+  it('active state: "Receipt only. To present this code, open Show to Staff on your voucher."', () => {
+    setMock({ data: makeDetail({
+      redeemedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      isValidated: false,
+    })})
+    const { getByText } = wrap(<RedemptionDetailScreen />)
+    expect(getByText('Receipt only. To present this code, open Show to Staff on your voucher.')).toBeTruthy()
+  })
+
+  it('ended state: "Receipt only. The Show to Staff window has ended."', () => {
+    setMock({ data: makeDetail({
+      redeemedAt: new Date(Date.now() - 5 * 60 * 60_000).toISOString(),
+      isValidated: false,
+    })})
+    const { getByText } = wrap(<RedemptionDetailScreen />)
+    expect(getByText('Receipt only. The Show to Staff window has ended.')).toBeTruthy()
+  })
+
+  it('validated state: chip "Validated by staff" + secondary date · method line', () => {
+    setMock({ data: makeDetail({
+      isValidated: true,
+      validatedAt: new Date('2026-05-15T09:30:00.000Z').toISOString(),
+      validationMethod: 'QR_SCAN',
+    })})
+    const { getByText } = wrap(<RedemptionDetailScreen />)
+    expect(getByText('Validated by staff')).toBeTruthy()
+    expect(getByText(/QR scan/)).toBeTruthy()
   })
 })
 
@@ -281,8 +374,8 @@ describe('RedemptionDetailScreen — receipt facts', () => {
       estimatedSaving: 12.5,
     })})
     const { getByText, getByTestId } = wrap(<RedemptionDetailScreen />)
-    expect(getByText('Covelum')).toBeTruthy()
-    expect(getByText('Brightlingsea')).toBeTruthy()
+    // Merchant + branch combined on a single caption line.
+    expect(getByText('Covelum · Brightlingsea')).toBeTruthy()
     expect(getByText('Half-price pizza Monday')).toBeTruthy()
     const saving = getByTestId('redemption-detail-saving')
     // Template literal children render as `['£', '12.50']` — assert

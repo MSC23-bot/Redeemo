@@ -2,47 +2,65 @@ import React, { useCallback, useMemo } from 'react'
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ArrowLeft, Check, Clock, Calendar, MapPin } from '@/design-system/icons'
+import { LinearGradient } from 'expo-linear-gradient'
+import { ArrowLeft, Check } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { ErrorState } from '@/design-system/components/ErrorState'
 import { color, radius, spacing, elevation, layout } from '@/design-system/tokens'
-import { voucherTypeLabel } from '@/features/voucher/utils/voucherTheme'
+import { voucherTypeLabel, voucherGradient } from '@/features/voucher/utils/voucherTheme'
 import { isPresentationActive } from '@/features/voucher/utils/presentationWindow'
 import { useMyRedemption } from '../hooks/useMyRedemption'
 import type { ValidationMethod } from '../hooks/useMyRedemption'
 
-// §Savings Redemption Detail screen — PR #105 device-QA round-3,
-// 2026-05-18.
+// §Savings Redemption Receipt — PR #105 device-QA round-5, 2026-05-18.
 //
 // Dedicated route at `/(app)/redemption/[id]`.  Fetches a SPECIFIC
-// redemption event by id (not by voucher id) so that:
+// redemption event by id (not by voucher id) so each event opens
+// its OWN receipt — load-bearing for REUSABLE vouchers where many
+// redemptions share one voucherId.
 //
-//   - Two REUSABLE redemptions of the same voucher land on distinct
-//     receipts with distinct codes / validation status / timestamps.
-//   - Historical / past-cycle redemptions remain viewable forever
-//     (the backend `getMyRedemption` has no cycle gate).
-//   - TIME_LIMITED redemptions retain their historical context even
-//     after the offer window closes.
-//   - Future deep-links (e.g. notification: "Your code was validated")
-//     have a stable receipt URL to target.
+// Visual composition (locked round-5 owner direction):
+//
+//   [back ←]   Redemption
+//   ┌──────────────────────────────────────┐
+//   │ [cream identity zone — gradient]     │
+//   │ ▌Type accent gradient strip (left)  │
+//   │   REUSABLE VOUCHER  (type chip)      │
+//   │   Half-price pizza Monday  (Display) │
+//   │   Covelum · Brightlingsea  (caption) │
+//   │   Half off everything on the menu    │
+//   │   on Mondays from 5pm.   (desc body) │
+//   └──────────────────────────────────────┘
+//   [white receipt surface — single card]
+//   ┌──────────────────────────────────────┐
+//   │  YOU SAVED                           │
+//   │  £12.50  (Display LG savings-green)  │
+//   │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
+//   │  REDEMPTION CODE                     │
+//   │  A7K2 P9X4  (mono.redemption)        │
+//   │  Receipt only. {state copy}          │
+//   │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
+//   │  REDEEMED                            │
+//   │  17 May 2026, 14:23                  │
+//   │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
+//   │  WHERE                               │
+//   │  12 High Street, Brightlingsea,      │
+//   │  CO7 0AB                             │
+//   │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
+//   │  TERMS  (only when present)          │
+//   │  One per customer per cycle.         │
+//   └──────────────────────────────────────┘
+//   [See merchant — navy outline secondary]
 //
 // State machine:
-//
-//   loading   summary fetching
-//   error     backend rejected (REDEMPTION_NOT_FOUND or other)
-//   active    !isValidated && isPresentationActive(redeemedAt)
+//   active     !isValidated && isPresentationActive(redeemedAt)
 //   validated  isValidated
-//   ended     !isValidated && !isPresentationActive
+//   ended      !isValidated && !isPresentationActive
 //
-// Code visibility:
-//   active    → code visible + "Show to staff" semantic
-//   validated → code visible (historical record) + "Validated by staff" chip
-//   ended     → code visible (historical record) + "Window ended" caption
-//
-// Code is ALWAYS shown when the screen has data — the user opened
-// their own receipt; they're entitled to see it.  The action
-// affordance changes by state; the data does not.
+// Code is ALWAYS shown when the screen has data — the user is
+// viewing their own receipt; the code is part of the historical
+// record.  Status copy (NOT the code visibility) varies by state.
 
 type ReceiptState = 'active' | 'validated' | 'ended'
 
@@ -138,14 +156,27 @@ export function RedemptionDetailScreen() {
   }
 
   const r = query.data
-  const vtLabel       = voucherTypeLabel(r.voucher.voucherType)
-  const vtLabelAsNoun = `${vtLabel} voucher`
-  const codeFormatted = formatCode(r.redemptionCode)
+  const typeGradient    = voucherGradient(r.voucher.voucherType)
+  const typeAccentColor = typeGradient[1]          // darker stop — load-bearing for type identity
+  const vtLabel         = voucherTypeLabel(r.voucher.voucherType)
+  const vtLabelAsNoun   = `${vtLabel} voucher`
+  const codeFormatted   = formatCode(r.redemptionCode)
   const validatedAtLabel = r.validatedAt ? formatDateTime(r.validatedAt) : null
   const methodSecondary  = methodLabel(r.validationMethod)
+  const description      = r.voucher.description?.trim() || null
+  const terms            = r.voucher.terms?.trim() || null
   const addressLine = [r.branch.addressLine1, r.branch.city, r.branch.postcode]
     .filter(Boolean)
     .join(', ')
+
+  // Locked copy per owner direction (round-5).  "Receipt only" lead
+  // sets the screen's identity unambiguously: this surface is NOT
+  // the presentation screen.  Non-accusatory voice throughout.
+  const statusCopy: Record<ReceiptState, string> = {
+    active:    'Receipt only. To present this code, open Show to Staff on your voucher.',
+    validated: 'Validated by staff.',
+    ended:     'Receipt only. The Show to Staff window has ended.',
+  }
 
   // ── Render ──────────────────────────────────────────────────────
   return (
@@ -156,102 +187,154 @@ export function RedemptionDetailScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Identity header (merchant + branch + type + title) ── */}
-        <View style={styles.identityCard}>
-          <Text variant="label.eyebrow" style={styles.eyebrow} testID="redemption-detail-type-eyebrow">
-            {vtLabelAsNoun}
-          </Text>
-          <Text variant="display.sm" style={styles.merchantTitle}>
-            {r.voucher.merchant.businessName}
-          </Text>
-          <Text variant="body.sm" style={styles.branchLine}>
-            {r.branch.name}
-          </Text>
-          <Text variant="heading.sm" style={styles.voucherTitleLine} testID="redemption-detail-voucher-title">
-            {r.voucher.title}
-          </Text>
-        </View>
-
-        {/* ── Saving amount block ──────────────────────────────── */}
-        <View style={styles.savingBlock}>
-          <Text variant="label.eyebrow" style={styles.eyebrowMuted}>You saved</Text>
-          <Text style={styles.savingAmount} testID="redemption-detail-saving">
-            £{r.estimatedSaving.toFixed(2)}
-          </Text>
-        </View>
-
-        {/* ── Redemption code block ────────────────────────────── */}
-        <View style={styles.codeCard} testID="redemption-detail-code-card">
-          <Text variant="label.eyebrow" style={styles.eyebrowMuted}>Redemption code</Text>
-          <Text style={styles.codeText} testID="redemption-detail-code">
-            {codeFormatted}
-          </Text>
-
-          {receiptState === 'active' && (
-            <View style={styles.statusRow} testID="redemption-detail-status-active">
-              <Clock size={14} color={color.warning} />
-              <Text variant="body.sm" style={styles.statusActive}>
-                Show to staff to validate
+        {/* ── Cream identity zone ─────────────────────────────────── */}
+        {/* The screen's identity moment.  Cream gradient backdrop
+            (DESIGN.md Cream-for-Identity Rule); voucher-type accent
+            strip on the left edge carries the type's brand colour
+            without saturating the whole surface (controlled accent
+            per owner direction). */}
+        <View style={styles.identityWrap} testID="redemption-detail-identity">
+          <LinearGradient
+            colors={['#FFF9F5', '#FCF0E5']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={typeGradient as unknown as readonly [string, string]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.typeAccentStrip}
+            testID="redemption-detail-type-accent"
+          />
+          <View style={styles.identityInner}>
+            <View
+              style={[styles.typeChip, { borderColor: typeAccentColor }]}
+              testID="redemption-detail-type-eyebrow"
+            >
+              <Text style={[styles.typeChipText, { color: typeAccentColor }]}>
+                {vtLabelAsNoun.toUpperCase()}
               </Text>
             </View>
-          )}
-          {receiptState === 'validated' && (
-            <View style={styles.statusRow} testID="redemption-detail-status-validated">
-              <View style={styles.validatedChip}>
-                <Check size={12} color={color.success} />
-                <Text style={styles.validatedChipText}>Validated by staff</Text>
+            <Text variant="display.sm" style={styles.voucherTitle} testID="redemption-detail-voucher-title">
+              {r.voucher.title}
+            </Text>
+            <Text variant="body.sm" style={styles.merchantBranchLine}>
+              {r.voucher.merchant.businessName} · {r.branch.name}
+            </Text>
+            {description && (
+              <Text
+                variant="body.md"
+                style={styles.descriptionText}
+                testID="redemption-detail-description"
+              >
+                {description}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        {/* ── Receipt surface (one white card, divider rows) ─────── */}
+        {/* Single surface.raised card — DESIGN.md No-Card-On-Card
+            Rule.  Sections separated by hairline dividers (not
+            nested boxes) so the whole receipt reads as one record. */}
+        <View style={styles.receipt} testID="redemption-detail-receipt">
+          <View style={styles.row}>
+            <Text variant="label.eyebrow" style={styles.rowEyebrow}>You saved</Text>
+            <Text style={styles.savingAmount} testID="redemption-detail-saving">
+              £{r.estimatedSaving.toFixed(2)}
+            </Text>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.row}>
+            <Text variant="label.eyebrow" style={styles.rowEyebrow}>Redemption code</Text>
+            <Text style={styles.codeText} testID="redemption-detail-code">
+              {codeFormatted}
+            </Text>
+
+            {receiptState === 'active' && (
+              <Text
+                variant="body.sm"
+                style={styles.statusCopy}
+                testID="redemption-detail-status-active"
+              >
+                {statusCopy.active}
+              </Text>
+            )}
+
+            {receiptState === 'validated' && (
+              <View style={styles.validatedBlock} testID="redemption-detail-status-validated">
+                <View style={styles.validatedChip}>
+                  <Check size={12} color={color.success} />
+                  <Text style={styles.validatedChipText}>Validated by staff</Text>
+                </View>
+                {(validatedAtLabel || methodSecondary) && (
+                  <Text variant="body.sm" style={styles.statusSecondary}>
+                    {validatedAtLabel}{methodSecondary ? ` · ${methodSecondary}` : ''}
+                  </Text>
+                )}
               </View>
-              {(validatedAtLabel || methodSecondary) && (
-                <Text variant="body.sm" style={styles.statusSecondary}>
-                  {validatedAtLabel}{methodSecondary ? ` · ${methodSecondary}` : ''}
-                </Text>
-              )}
-            </View>
-          )}
-          {receiptState === 'ended' && (
-            <View style={styles.statusRow} testID="redemption-detail-status-ended">
-              <Clock size={14} color={color.text.tertiary} />
-              <Text variant="body.sm" style={styles.statusEnded}>
-                Show-to-staff window ended
+            )}
+
+            {receiptState === 'ended' && (
+              <Text
+                variant="body.sm"
+                style={styles.statusCopy}
+                testID="redemption-detail-status-ended"
+              >
+                {statusCopy.ended}
               </Text>
-            </View>
+            )}
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.row}>
+            <Text variant="label.eyebrow" style={styles.rowEyebrow}>Redeemed</Text>
+            <Text variant="body.md" style={styles.rowValue} testID="redemption-detail-redeemed-at">
+              {formatDateTime(r.redeemedAt)}
+            </Text>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.row}>
+            <Text variant="label.eyebrow" style={styles.rowEyebrow}>Where</Text>
+            <Text variant="body.md" style={styles.rowValue} testID="redemption-detail-where">
+              {addressLine || r.branch.name}
+            </Text>
+          </View>
+
+          {terms && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.row}>
+                <Text variant="label.eyebrow" style={styles.rowEyebrow}>Terms</Text>
+                <Text variant="body.sm" style={styles.termsText} testID="redemption-detail-terms">
+                  {terms}
+                </Text>
+              </View>
+            </>
           )}
         </View>
 
-        {/* ── Receipt facts ────────────────────────────────────── */}
-        <View style={styles.factsCard}>
-          <FactRow
-            icon={<Calendar size={16} color={color.text.tertiary} />}
-            label="Redeemed"
-            value={formatDateTime(r.redeemedAt)}
-            testID="redemption-detail-redeemed-at"
-          />
-          <FactRow
-            icon={<MapPin size={16} color={color.text.tertiary} />}
-            label="Where"
-            value={addressLine || r.branch.name}
-            testID="redemption-detail-where"
-          />
-        </View>
-
-        {/* ── Actions ──────────────────────────────────────────── */}
-        {/* "See merchant" is always available per owner direction —
-            a stable secondary action on every receipt regardless of
-            voucher state.  Routes via /(app)/merchant/{merchantId};
-            ?from=savings on the inbound URL ALSO flows to merchant
-            here so its back-nav (once §BK lands) can return to the
-            tab that originally surfaced this receipt. */}
+        {/* ── Actions row ─────────────────────────────────────────── */}
+        {/* "See merchant" stays as the only action in this commit.
+            "Review this visit" lands in commit 3 alongside the
+            verified-review wire-up. */}
         <View style={styles.actions}>
           <PressableScale
             onPress={() => router.push(
               `/(app)/merchant/${r.voucher.merchant.id}${from ? `?from=${from}` : ''}` as never,
             )}
-            style={styles.actionButton}
+            style={styles.secondaryButton}
             accessibilityRole="button"
             accessibilityLabel="See merchant"
             testID="redemption-detail-see-merchant"
           >
-            <Text variant="heading.sm" style={styles.actionText}>See merchant</Text>
+            <Text variant="heading.sm" style={styles.secondaryButtonText}>See merchant</Text>
           </PressableScale>
         </View>
       </ScrollView>
@@ -275,36 +358,16 @@ function BackHeader({ insetsTop, onBack }: { insetsTop: number; onBack: () => vo
         <ArrowLeft size={22} color={color.text.primary} />
       </Pressable>
       <Text variant="heading.sm" style={styles.headerTitle}>
-        Redemption receipt
+        Redemption
       </Text>
       <View style={styles.backBtn} />
     </View>
   )
 }
 
-function FactRow({
-  icon,
-  label,
-  value,
-  testID,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: string
-  testID?: string
-}) {
-  return (
-    <View style={styles.factRow} testID={testID}>
-      <View style={styles.factIcon}>{icon}</View>
-      <View style={styles.factTextBlock}>
-        <Text variant="label.md" style={styles.factLabel}>{label}</Text>
-        <Text variant="body.sm" style={styles.factValue}>{value}</Text>
-      </View>
-    </View>
-  )
-}
-
 // ─── Styles ───────────────────────────────────────────────────────
+
+const TYPE_ACCENT_STRIP_WIDTH = 4
 
 const styles = StyleSheet.create({
   screen: {
@@ -331,88 +394,123 @@ const styles = StyleSheet.create({
     color: color.text.primary,
   },
   scrollContent: {
+    paddingBottom: layout.tabBarHeight + spacing[7],
+  },
+
+  // ── Cream identity zone ──────────────────────────────────────
+  identityWrap: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  // Voucher-type accent strip — left edge, full-height of the
+  // identity zone.  Controlled accent: visible but doesn't saturate
+  // the whole surface.  Owner direction: type identity should be
+  // immediately recognisable.
+  typeAccentStrip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: TYPE_ACCENT_STRIP_WIDTH,
+  },
+  identityInner: {
     paddingHorizontal: spacing[5],
     paddingTop: spacing[5],
-    paddingBottom: layout.tabBarHeight + spacing[7],
-    gap: spacing[4],
+    paddingBottom: spacing[6],
+    paddingLeft: spacing[5] + TYPE_ACCENT_STRIP_WIDTH,
+    gap: spacing[2],
   },
-
-  // ── Identity card ────────────────────────────────────────────
-  identityCard: {
-    backgroundColor: color.surface.raised,
-    borderRadius: radius.lg,
-    padding: spacing[5],
-    gap: spacing[1],
-    ...elevation.sm,
+  // Type chip — outlined with the voucher-type's dark gradient stop.
+  // Subtle but unmistakable: text + border carry the type colour
+  // without filling the chip (which would over-saturate).
+  typeChip: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing[3],
+    paddingVertical: 4,
+    backgroundColor: color.surface.page,
   },
-  eyebrow: {
-    color: color.text.tertiary,
-    marginBottom: spacing[1],
+  typeChipText: {
+    fontFamily:    'Lato-SemiBold',
+    fontSize:      11,
+    lineHeight:    14,
+    letterSpacing: 1.4,
   },
-  merchantTitle: {
+  voucherTitle: {
     color: color.text.primary,
+    marginTop: spacing[2],
   },
-  branchLine: {
+  merchantBranchLine: {
     color: color.text.secondary,
   },
-  voucherTitleLine: {
+  descriptionText: {
     color: color.text.primary,
-    marginTop: spacing[3],
+    marginTop: spacing[2],
   },
 
-  // ── Saving amount ────────────────────────────────────────────
-  savingBlock: {
-    alignItems: 'flex-start',
-    paddingHorizontal: spacing[2],
-    gap: spacing[1],
-  },
-  eyebrowMuted: {
-    color: color.text.tertiary,
-  },
-  savingAmount: {
-    fontFamily: 'MusticaPro-SemiBold',
-    fontSize: 40,
-    lineHeight: 44,
-    color: color.savingsGreen,
-    fontVariant: ['tabular-nums'],
-  },
-
-  // ── Code card ────────────────────────────────────────────────
-  codeCard: {
+  // ── Receipt surface (single card, divider rows) ──────────────
+  receipt: {
     backgroundColor: color.surface.raised,
     borderRadius: radius.lg,
-    padding: spacing[5],
-    gap: spacing[2],
+    marginHorizontal: spacing[5],
+    marginTop: spacing[4],
+    paddingVertical: spacing[2],
     ...elevation.sm,
   },
-  codeText: {
-    fontFamily: 'Lato-Bold',
-    fontSize: 28,
-    lineHeight: 34,
-    letterSpacing: 4,
-    color: color.text.primary,
-    fontVariant: ['tabular-nums'],
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  row: {
+    paddingHorizontal: spacing[5],
+    paddingVertical: spacing[4],
     gap: spacing[2],
-    marginTop: spacing[2],
-    flexWrap: 'wrap',
   },
-  statusActive: {
-    color: color.warning,
-    fontFamily: 'Lato-SemiBold',
-  },
-  statusEnded: {
+  rowEyebrow: {
     color: color.text.tertiary,
+  },
+  rowValue: {
+    color: color.text.primary,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: color.border.subtle,
+    marginHorizontal: spacing[5],
+  },
+  // Hero saving amount.  Display LG (32pt) Mustica Pro in savings-
+  // green per DESIGN.md "savings-green is the 'you saved £X'
+  // colour" rule.  Tabular nums keeps alignment crisp.
+  savingAmount: {
+    fontFamily:   'MusticaPro-SemiBold',
+    fontSize:     32,
+    lineHeight:   36,
+    letterSpacing: -0.5,
+    color:        color.savingsGreen,
+    fontVariant:  ['tabular-nums'],
+  },
+  // Mono redemption code per DESIGN.md `mono.redemption` variant —
+  // Lato Bold 28/34 with +4 tracking, the canonical "show this to
+  // staff" type signature.
+  codeText: {
+    fontFamily:    'Lato-Bold',
+    fontSize:      28,
+    lineHeight:    34,
+    letterSpacing: 4,
+    color:         color.text.primary,
+    fontVariant:   ['tabular-nums'],
+  },
+  statusCopy: {
+    color: color.text.secondary,
+    marginTop: spacing[1],
   },
   statusSecondary: {
     color: color.text.tertiary,
   },
+  validatedBlock: {
+    marginTop: spacing[1],
+    gap: spacing[1],
+  },
   validatedChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 4,
     backgroundColor: '#DCFCE7',
     paddingHorizontal: spacing[2],
@@ -424,52 +522,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: color.success,
   },
-
-  // ── Facts card ───────────────────────────────────────────────
-  factsCard: {
-    backgroundColor: color.surface.raised,
-    borderRadius: radius.lg,
-    padding: spacing[4],
-    gap: spacing[3],
-    ...elevation.sm,
-  },
-  factRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing[3],
-  },
-  factIcon: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-  },
-  factTextBlock: {
-    flex: 1,
-    gap: 2,
-  },
-  factLabel: {
-    color: color.text.tertiary,
-  },
-  factValue: {
-    color: color.text.primary,
+  termsText: {
+    color: color.text.secondary,
   },
 
   // ── Actions ──────────────────────────────────────────────────
   actions: {
     gap: spacing[3],
-    marginTop: spacing[2],
+    marginTop: spacing[5],
+    paddingHorizontal: spacing[5],
   },
-  actionButton: {
-    backgroundColor: color.navy,
+  secondaryButton: {
+    backgroundColor: color.surface.page,
+    borderWidth: 1,
+    borderColor: color.navy,
     borderRadius: radius.md,
     paddingHorizontal: spacing[6],
     paddingVertical: spacing[3],
     alignItems: 'center',
   },
-  actionText: {
-    color: '#FFFFFF',
+  secondaryButtonText: {
+    color: color.navy,
     fontFamily: 'Lato-SemiBold',
   },
 
