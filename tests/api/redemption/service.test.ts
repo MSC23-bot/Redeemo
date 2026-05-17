@@ -506,6 +506,47 @@ describe('listMyRedemptions', () => {
 })
 
 describe('getMyRedemption', () => {
+  // §Savings device-QA round-4 fixup 2026-05-18 — these fixtures
+  // mirror the actual Prisma select shape (voucher.{id, title,
+  // type, terms, merchant.{id, businessName}} + branch.{id, name,
+  // addressLine1, city, postcode}).  The pre-fixup test used a
+  // slim {id, userId, redemptionCode, estimatedSaving} fixture
+  // which never exercised the voucher/branch remap and let a
+  // Prisma field-name typo (`voucherType` vs `type`) ship to
+  // production — caught by device QA, fixed in this same commit.
+  function makeFullRedemption() {
+    return {
+      id: 'r1',
+      userId: 'user-1',
+      voucherId: 'v1',
+      branchId: 'b1',
+      redemptionCode: 'A7K2P9X4',
+      estimatedSaving: 12.50,
+      isValidated: false,
+      validatedAt: null,
+      validationMethod: null,
+      validatedById: null,
+      redeemedAt: new Date('2026-05-15T10:00:00.000Z'),
+      voucher: {
+        id: 'v1',
+        title: 'Half-price pizza Monday',
+        type: 'BOGO',
+        terms: 'One per customer per cycle.',
+        merchant: {
+          id: 'm1',
+          businessName: 'Covelum',
+        },
+      },
+      branch: {
+        id: 'b1',
+        name: 'Brightlingsea',
+        addressLine1: '12 High Street',
+        city: 'Brightlingsea',
+        postcode: 'CO7 0AB',
+      },
+    }
+  }
+
   it('throws REDEMPTION_NOT_FOUND when redemption does not belong to user', async () => {
     const prisma = mockPrisma()
     prisma.voucherRedemption.findUnique.mockResolvedValue(null)
@@ -513,13 +554,48 @@ describe('getMyRedemption', () => {
     await expect(getMyRedemption(prisma, 'user-1', 'r-other')).rejects.toThrow('REDEMPTION_NOT_FOUND')
   })
 
-  it('returns redemption with voucher and branch details', async () => {
+  it('returns redemption with voucher and branch details, estimatedSaving coerced to number', async () => {
     const prisma = mockPrisma()
-    const redemption = { id: 'r1', userId: 'user-1', redemptionCode: 'A7K2P9X4', estimatedSaving: 5.00 }
-    prisma.voucherRedemption.findUnique.mockResolvedValue(redemption)
+    const r = makeFullRedemption()
+    prisma.voucherRedemption.findUnique.mockResolvedValue(r)
 
     const result = await getMyRedemption(prisma, 'user-1', 'r1')
-    expect(result).toEqual({ ...redemption, estimatedSaving: Number(redemption.estimatedSaving) })
+    expect(result.id).toBe('r1')
+    expect(result.redemptionCode).toBe('A7K2P9X4')
+    expect(result.estimatedSaving).toBe(12.50)
+    expect(typeof result.estimatedSaving).toBe('number')
+    expect(result.branch.name).toBe('Brightlingsea')
+    expect(result.voucher.title).toBe('Half-price pizza Monday')
+    expect(result.voucher.merchant.businessName).toBe('Covelum')
+  })
+
+  it('REGRESSION: response voucher field is `voucherType`, NOT `type` — remap from Prisma\'s `voucher.type` to the customer-app contract', async () => {
+    // Prisma's Voucher column is named `type` (the schema).  The
+    // customer-app's redemption + savings schemas key on
+    // `voucherType` (consistent across endpoints).  The service must
+    // SELECT `type` (Prisma name) and REMAP to `voucherType` in the
+    // response.  A previous fixup (PR #105 round-3) shipped with a
+    // raw `voucherType: true` in the select — Prisma rejected with
+    // PrismaClientValidationError, every request 500'd.  This pin
+    // prevents the typo from sneaking back.
+    const prisma = mockPrisma()
+    const r = makeFullRedemption()
+    r.voucher.type = 'REUSABLE'  // pretend a REUSABLE-type voucher
+    prisma.voucherRedemption.findUnique.mockResolvedValue(r)
+
+    const result = await getMyRedemption(prisma, 'user-1', 'r1')
+    expect((result.voucher as any).voucherType).toBe('REUSABLE')
+    // Original Prisma field name MUST NOT leak into the API shape.
+    expect((result.voucher as any).type).toBeUndefined()
+  })
+
+  it('REGRESSION: voucher.merchant.id is present in the response (for "See merchant" routing in RedemptionDetailScreen)', async () => {
+    const prisma = mockPrisma()
+    const r = makeFullRedemption()
+    prisma.voucherRedemption.findUnique.mockResolvedValue(r)
+
+    const result = await getMyRedemption(prisma, 'user-1', 'r1')
+    expect(result.voucher.merchant.id).toBe('m1')
   })
 })
 
