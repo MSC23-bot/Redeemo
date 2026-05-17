@@ -146,7 +146,7 @@ export function TrendChart({ months, selectedMonth, currentMonth, onMonthSelect 
   // context label shows the date range (e.g. "Nov — Apr") so the
   // user knows at a glance which 6-month window the chart spans.
   const rangeLabel = displayMonths.length >= 2
-    ? `${monthLabel(displayMonths[0]!.month)} — ${monthLabel(displayMonths[displayMonths.length - 1]!.month)}`
+    ? `${monthLabel(displayMonths[0]!.month)} to ${monthLabel(displayMonths[displayMonths.length - 1]!.month)}`
     : displayMonths.length === 1
     ? monthLabel(displayMonths[0]!.month)
     : undefined

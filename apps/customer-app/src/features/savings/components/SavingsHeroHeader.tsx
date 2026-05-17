@@ -129,7 +129,7 @@ export function SavingsHeroHeader({
             testID="savings-hero-subscribe-cta"
           >
             <Text variant="heading.sm" style={styles.ctaText}>
-              Subscribe — from £6.99/mo
+              Subscribe from £6.99/mo
             </Text>
           </PressableScale>
         </View>
