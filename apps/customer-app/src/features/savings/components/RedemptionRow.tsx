@@ -184,18 +184,25 @@ const styles = StyleSheet.create({
   // PressableScale's outer Animated.View.
   // rowInner: flex-row layout (children align horizontally).  Lands
   // INSIDE the Pressable so children honour the row direction.
+  // §Savings device-QA round-3 fixup 2026-05-18 — spacing pass on
+  // 3-line rows.  Padding bumped vertical (more card breath); inner
+  // flex switched from `center` to `flex-start` so logo + content +
+  // amount column all anchor to the merchant-name line at the top,
+  // matching the brainstorm receipt aesthetic.  Inter-line gap
+  // inside the content stack bumped 1 → 2 for more breath between
+  // merchant / voucher-title / meta lines.
   rowSurface: {
     backgroundColor: tokenColor.surface.raised,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: tokenColor.border.subtle,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
   },
   rowInner: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing[3],
   },
   logo: {
@@ -214,7 +221,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
   },
   merchantName: {
     fontFamily: 'Lato-Bold',

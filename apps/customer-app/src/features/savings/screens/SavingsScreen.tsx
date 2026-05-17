@@ -507,9 +507,15 @@ const styles = StyleSheet.create({
     color: color.text.tertiary,
     marginTop: spacing[3],
   },
+  // §Savings device-QA round-3 fixup 2026-05-18 — spacing pass.
+  // paddingVertical spacing[1] (4) → spacing[2] (8) so the
+  // redemption rows breathe properly against each other in a long
+  // list.  Combined with the row's own paddingVertical bump
+  // (spacing[2] → spacing[3]) the history reads as a calm receipt
+  // stack instead of a packed list.
   rowWrapper: {
     paddingHorizontal: spacing[5],
-    paddingVertical: spacing[1],
+    paddingVertical: spacing[2],
   },
   footerSpinner: {
     paddingVertical: spacing[4],
