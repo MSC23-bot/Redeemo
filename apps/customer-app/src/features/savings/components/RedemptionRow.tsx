@@ -95,19 +95,6 @@ export function RedemptionRow({ redemption, onPress }: Props) {
     tokenColor.voucher?.byType?.[redemption.voucher.voucherType as keyof typeof tokenColor.voucher.byType] ??
     tokenColor.brandRose
 
-  // §Savings device-QA round-8b fixup 2026-05-18 — owner direction:
-  // "add an ELEMENT, not change the background".  Card surface stays
-  // white per the round-2/3 baseline.  The voucher-type element is
-  // now carried by the metaType text colour (uses `badgeTextByType`
-  // — the dark sibling of the type accent, chosen for text-on-white
-  // contrast; passes WCAG AA normal across all 7 types).  Result:
-  // "Buy one, get one free voucher" reads in BOGO purple, "Reusable
-  // voucher" in REUSABLE teal, etc.  The existing tinted-initial
-  // logo carries the type identity in parallel.
-  const typeBadgeText =
-    tokenColor.voucher?.badgeTextByType?.[redemption.voucher.voucherType as keyof typeof tokenColor.voucher.badgeTextByType] ??
-    tokenColor.text.secondary
-
   const a11yLabel =
     `${redemption.merchant.businessName}, ${voucherTitle}, ${vtLabelAsNoun}, ${branchShort}, £${redemption.estimatedSaving.toFixed(2)} saved, ${relTime}`
 
@@ -134,6 +121,19 @@ export function RedemptionRow({ redemption, onPress }: Props) {
       style={styles.rowSurface}
       testID={`savings-redemption-row-${redemption.id}`}
     >
+      {/* §Savings device-QA round-8c fixup 2026-05-18 — voucher-type
+          element added per owner direction ("add a line or something
+          that associates to the voucher, not the color, even a pill
+          or chip").  4pt full-width band at the top of the card in
+          the voucher-type accent colour from `color.voucher.byType`.
+          Reads as a "voucher tag" the way physical tickets and
+          receipts have a coloured header band.  NOT a side-stripe
+          (DESIGN.md bans side-stripes > 1px); top-band is a separate
+          pattern, semantically distinct.  Card surface stays white.
+          The `overflow: 'hidden'` on rowSurface + the band rendering
+          as the FIRST child means the band tucks into the card's
+          rounded top corners cleanly. */}
+      <View style={[styles.typeBand, { backgroundColor: logoColor }]} testID="savings-row-type-band" />
       <View style={styles.rowInner}>
         <View style={[styles.logo, { backgroundColor: `${logoColor}18` }]}>
           <Text style={[styles.logoInitial, { color: logoColor }]}>
@@ -167,7 +167,7 @@ export function RedemptionRow({ redemption, onPress }: Props) {
           </Text>
           <Text
             variant="body.sm"
-            style={[styles.metaType, { color: typeBadgeText }]}
+            style={styles.metaType}
             numberOfLines={1}
             testID="savings-row-meta-type"
           >
@@ -229,14 +229,24 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: tokenColor.border.subtle,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
+    // §Savings round-8c — padding moved to rowInner so the typeBand
+    // can stretch edge-to-edge.  overflow:hidden clips the band into
+    // the card's rounded top corners.
+    overflow: 'hidden',
+  },
+  // §Savings round-8c — voucher-type top band.  4pt tall, full row
+  // width, voucher-type accent colour.  Sits above rowInner inside
+  // the card; clipped to the card radius by rowSurface overflow.
+  typeBand: {
+    height: 4,
   },
   rowInner: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
     alignItems: 'flex-start',
     gap: spacing[3],
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
   },
   logo: {
     width: 46,
@@ -276,8 +286,9 @@ const styles = StyleSheet.create({
   // the voucher-type colour (set per-render via `typeBadgeText`).
   // Branch+time stays tertiary (11pt) as supporting metadata.
   metaType: {
-    fontFamily: 'Lato-SemiBold',
+    fontFamily: 'Lato-Medium',
     fontSize: 12,
+    color: tokenColor.text.secondary,
   },
   metaWhere: {
     fontFamily: 'Lato-Regular',

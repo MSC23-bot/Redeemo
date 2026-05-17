@@ -128,14 +128,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 5,
   },
+  // §Savings device-QA round-8c fixup 2026-05-18 — typography pulled
+  // in line with TopPlaces on the same screen.  Owner direction:
+  // ByCategory's 13/13 Lato sizing read noticeably smaller than the
+  // 14pt Bold name + 18pt MusticaPro saving on TopPlaces directly
+  // above, making the card feel out of step.  Bumped name to 14pt
+  // Lato-Bold (matches TopPlaces primaryName 1:1) and value to 16pt
+  // MusticaPro-SemiBold (in the same font family as TopPlaces' £18pt
+  // saving but a step smaller, keeping ByCategory's denser list from
+  // shouting over the top-tier "Top places" hero figures).
   categoryName: {
-    fontFamily: 'Lato-Medium',
-    fontSize: 13,
+    fontFamily: 'Lato-Bold',
+    fontSize: 14,
     color: '#010C35',
   },
   categoryValue: {
-    fontFamily: 'Lato-Bold',
-    fontSize: 13,
+    fontFamily: 'MusticaPro-SemiBold',
+    fontSize: 16,
     color: '#16A34A',
     fontVariant: ['tabular-nums'],
   },
