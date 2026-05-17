@@ -2,45 +2,90 @@ import React from 'react'
 import { View, Image, StyleSheet } from 'react-native'
 import { Text } from '@/design-system/Text'
 import { PressableScale } from '@/design-system/motion/PressableScale'
-import { FadeIn } from '@/design-system/motion/FadeIn'
-import { spacing, radius, elevation } from '@/design-system/tokens'
-import { branchShortName } from '@/features/merchant/utils/branchShortName'
+import { spacing, elevation } from '@/design-system/tokens'
 import type { BranchSaving } from '@/lib/api/savings'
 
-// §Savings Rebaseline (PR-B, Revision 2) — Insight Card 2 "Top
-// branches".  Renamed from `TopPlaces`; the merchant-level aggregation
-// was the Revision-1 contract.  Per the branch-as-PRIMARY-unit locked
-// product rule (memory `project_branch_first_class_platform_rules.md`,
-// 2026-05-03), multi-branch merchants surface as MULTIPLE rows.
+// §Savings fidelity fixup-3 2026-05-17 — Insight Card "Top places".
 //
-// Primary line: `branchShortName(branchName)` so `"Covelum —
-// Brightlingsea"` reads as `"Brightlingsea"` — matches the Merchant
-// Profile branch list convention.  Secondary line carries `merchantName`
-// untrimmed so the merchant identity stays visible.
+// Per direct owner direction during the third fidelity pass:
+//   "Listing branches like 'Brightlingsea'/'Colchester' doesn't serve
+//    users.  It should be merchants — the merchants they've gone
+//    to."
 //
-// Tap routes the parent screen to `/(app)/merchant/{merchantId}?branch
-// ={branchId}` so cold-open lands on the right branch in the picker.
+// The component now consumes the raw `byBranch[]` payload (backend
+// contract from PR #104, unchanged) and groups CLIENT-SIDE by
+// `merchantId` so a multi-branch merchant (e.g. Covelum Brightlingsea
+// + Covelum Colchester) collapses into ONE row labelled "Covelum"
+// with the total saving + total count across the branches.
+//
+// The component file is still named `TopBranches.tsx` for git-history
+// continuity, but the exported name is now `TopPlaces` and the card
+// title reads "Top places".  Branch-level identity is intentionally
+// hidden in this surface — branch attribution stays in `RedemptionRow`
+// where it's load-bearing for the in-store handoff.
+//
+// Brainstorm pattern (savings-polished.html):
+//   .card-title    "Top places"                              (left)
+//   .card-title    "This month" / month-name                 (right)
+//   .merchant-row  logo + name + "{count} visits"  + saving  (one line)
+//   hairline divider between rows (last row has none)
+//   max 2 rows
 
-type Props = {
-  branches: BranchSaving[]   // sorted desc by saving — backend provides this
-  onPress:  (branchId: string, merchantId: string) => void
-  // §Savings fixup 2026-05-17: when the parent wants the card to
-  // appear even with empty data (typically: user has drilled into a
-  // past month with no branch redemptions), it supplies an explicit
-  // empty-state label like "No branch savings in March".  Without
-  // this prop the component falls back to the original null-render
-  // — preserves the current-month "no insight" path which silently
-  // hides the card on cold-start users.  Explicit `| undefined` for
-  // tsc strict `exactOptionalPropertyTypes`.
-  emptyLabel?: string | undefined
+export type MerchantPlace = {
+  merchantId:      string
+  merchantName:    string
+  merchantLogoUrl: string | null
+  saving:          number
+  count:           number
 }
 
-export function TopBranches({ branches, onPress, emptyLabel }: Props) {
-  if (branches.length === 0) {
+// Group raw byBranch entries by merchantId.  Exported for tests +
+// for the screen to feed `places` once (memoised) and pass through.
+export function groupByMerchant(branches: BranchSaving[]): MerchantPlace[] {
+  const map = new Map<string, MerchantPlace>()
+  for (const b of branches) {
+    const existing = map.get(b.merchantId)
+    if (existing) {
+      existing.saving += b.saving
+      existing.count  += b.count
+      // First non-null logo wins.
+      if (!existing.merchantLogoUrl && b.merchantLogoUrl) {
+        existing.merchantLogoUrl = b.merchantLogoUrl
+      }
+    } else {
+      map.set(b.merchantId, {
+        merchantId:      b.merchantId,
+        merchantName:    b.merchantName,
+        merchantLogoUrl: b.merchantLogoUrl,
+        saving:          b.saving,
+        count:           b.count,
+      })
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.saving - a.saving)
+}
+
+type Props = {
+  places: MerchantPlace[]
+  onPress: (merchantId: string) => void
+  // §Savings fidelity fixup-2 2026-05-17: empty-state hook.  When set
+  // + places is empty, the card renders with the supplied copy
+  // instead of `null`.  Typical use: "No place savings in March"
+  // under a selected past month with no redemptions.
+  emptyLabel?: string | undefined
+  // §Savings fidelity fixup-3 2026-05-17: brainstorm-pattern context
+  // label rendered on the right of the card title.  "This month"
+  // for the unselected default; month name (e.g. "April") under a
+  // selection.  Omit → no right-side label.
+  contextLabel?: string | undefined
+}
+
+export function TopPlaces({ places, onPress, emptyLabel, contextLabel }: Props) {
+  if (places.length === 0) {
     if (!emptyLabel) return null
     return (
-      <View style={styles.card} testID="savings-top-branches-empty">
-        <Text variant="label.eyebrow" style={styles.sectionLabel}>Top branches</Text>
+      <View style={styles.card} testID="savings-top-places-empty">
+        <CardTitleRow title="Top places" context={contextLabel} />
         <Text variant="body.sm" color="tertiary" style={styles.emptyLabel}>
           {emptyLabel}
         </Text>
@@ -48,37 +93,28 @@ export function TopBranches({ branches, onPress, emptyLabel }: Props) {
     )
   }
 
-  const top = branches.slice(0, 2)
+  const top = places.slice(0, 2)
 
   return (
-    <View style={styles.card} testID="savings-top-branches">
-      <Text variant="label.eyebrow" style={styles.sectionLabel}>Top branches</Text>
-      {top.map((b, i) => {
-        const primaryLabel = branchShortName(b.branchName)
-        const initial = (primaryLabel || b.branchName || '?').charAt(0).toUpperCase()
+    <View style={styles.card} testID="savings-top-places">
+      <CardTitleRow title="Top places" context={contextLabel} />
+      {top.map((p, i) => {
+        const initial = (p.merchantName || '?').charAt(0).toUpperCase()
         const isLast = i === top.length - 1
-        // §Savings fidelity fixup-2 2026-05-17: secondary line carries
-        // BOTH count and merchant name (was merchantName alone), so
-        // the row reads "Brightlingsea / 3 visits · Covelum / £20" —
-        // pairs the row's identity with usage context, matches the
-        // brainstorm "Top Places / 3 visits · Restaurants" pattern
-        // adapted to branch-first.
-        const visitWord = b.count === 1 ? 'visit' : 'visits'
-        const secondary = `${b.count} ${visitWord} · ${b.merchantName}`
+        const visitWord = p.count === 1 ? 'visit' : 'visits'
+        const secondary = `${p.count} ${visitWord}`
         return (
           <PressableScale
-            key={b.branchId}
-            onPress={() => onPress(b.branchId, b.merchantId)}
+            key={p.merchantId}
+            onPress={() => onPress(p.merchantId)}
             accessibilityRole="button"
-            accessibilityLabel={`${primaryLabel}, ${b.merchantName}, £${b.saving.toFixed(2)} saved across ${b.count} redemption${b.count !== 1 ? 's' : ''}`}
+            accessibilityLabel={`${p.merchantName}, £${p.saving.toFixed(2)} saved across ${p.count} redemption${p.count !== 1 ? 's' : ''}`}
             style={[styles.row, !isLast && styles.rowDivider]}
-            testID={`savings-top-branches-row-${b.branchId}`}
+            testID={`savings-top-places-row-${p.merchantId}`}
           >
-            {/* Logo: prefer merchant-supplied URL; otherwise an
-                initial tile keyed by the trimmed branch name. */}
-            {b.merchantLogoUrl ? (
+            {p.merchantLogoUrl ? (
               <Image
-                source={{ uri: b.merchantLogoUrl }}
+                source={{ uri: p.merchantLogoUrl }}
                 style={styles.logoImage}
                 accessibilityIgnoresInvertColors
               />
@@ -89,13 +125,15 @@ export function TopBranches({ branches, onPress, emptyLabel }: Props) {
             )}
 
             <View style={styles.rowText}>
-              <Text variant="body.sm" style={styles.primaryName} numberOfLines={1}>{primaryLabel}</Text>
+              <Text variant="body.sm" style={styles.primaryName} numberOfLines={1}>
+                {p.merchantName}
+              </Text>
               <Text variant="body.sm" color="tertiary" meta style={styles.secondaryName} numberOfLines={1}>
                 {secondary}
               </Text>
             </View>
 
-            <Text style={styles.saving}>£{b.saving.toFixed(2)}</Text>
+            <Text style={styles.saving}>£{p.saving.toFixed(2)}</Text>
           </PressableScale>
         )
       })}
@@ -103,24 +141,50 @@ export function TopBranches({ branches, onPress, emptyLabel }: Props) {
   )
 }
 
+// Card-title row used by Top Places, By Category, and the 6-Month
+// Trend chart.  Brainstorm:
+//   font 11px Lato-Bold +0.8px tracking uppercase tertiary,
+//   span right-aligned 10px Lato-Medium NOT uppercase NOT tracked
+//   #D1D5DB (border-default).
+function CardTitleRow({ title, context }: { title: string; context: string | undefined }) {
+  return (
+    <View style={styles.titleRow}>
+      <Text style={styles.titleText}>{title}</Text>
+      {context ? <Text style={styles.contextText}>{context}</Text> : null}
+    </View>
+  )
+}
+
+// Exported so TrendChart + ByCategory can render the same title row
+// without duplicating the styles.
+export { CardTitleRow as SavingsCardTitleRow }
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    // §Savings fidelity fixup-2: compact vertical padding so card
-    // doesn't read as oversized (was spacing[4] = 16; target
-    // brainstorm uses ~14-16 padding with much tighter row rhythm).
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
     ...elevation.sm,
   },
-  sectionLabel: {
-    marginBottom: spacing[2],
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing[3],
+  },
+  titleText: {
+    fontFamily: 'Lato-Bold',
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
     color: '#9CA3AF',
   },
-  // Brainstorm: 9px 0 padding + 1px subtle border between rows.
-  // Tightens the per-row vertical rhythm; 42x42 logo (was 46) lines
-  // up with the brainstorm pattern.
+  contextText: {
+    fontFamily: 'Lato-Medium',
+    fontSize: 10,
+    color: '#D1D5DB',
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -136,6 +200,7 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 13,
     backgroundColor: '#F3F4F6',
+    flexShrink: 0,
   },
   logoFallback: {
     width: 42,
@@ -144,6 +209,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   logoInitial: {
     fontSize: 18,
@@ -152,6 +218,8 @@ const styles = StyleSheet.create({
   },
   rowText: {
     flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
     gap: 1,
   },
   primaryName: {
@@ -163,13 +231,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9CA3AF',
   },
-  // Brainstorm: 18px MusticaPro-SemiBold savings-green tabular.
-  // Drop the leading "+" — brainstorm uses bare "£20" not "+£20".
   saving: {
     fontFamily: 'MusticaPro-SemiBold',
     fontSize: 18,
     color: '#16A34A',
     fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+    flexShrink: 0,
   },
   emptyLabel: {
     color: '#9CA3AF',

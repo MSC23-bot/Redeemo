@@ -140,12 +140,21 @@ export function RedemptionRow({ redemption, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // §Savings fidelity fixup-2 2026-05-17 — row density tightened
-  // further to match brainstorm rows (logo 42, paddingVertical 10,
-  // saving 18pt).  Was: paddingVertical spacing[2] (8) + logo 46 +
-  // saving 16 — read as too sparse on device.
+  // §Savings fidelity fixup-3 2026-05-17 — row layout hardened to
+  // enforce horizontal alignment even on narrow phones.  Symptom in
+  // device QA: the right column (saving + badge) appeared centered
+  // BELOW the content rather than to its right.  Root cause: the
+  // content View had `flex: 1` but no `minWidth: 0`, so a long meta
+  // string could push the row to overflow + react-native's default
+  // wrap-on-overflow drops siblings to the next line.  Fix:
+  //   - explicit `flexWrap: 'nowrap'` on row
+  //   - `flexShrink: 0` on logo + right (never shrink, always stay
+  //     in place)
+  //   - `flex: 1 + flexShrink: 1 + minWidth: 0` on content (allow
+  //     truncation rather than overflow-wrap)
   row: {
     flexDirection: 'row',
+    flexWrap: 'nowrap',
     alignItems: 'center',
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[2],
@@ -161,6 +170,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   logoInitial: {
     fontFamily: 'Lato-SemiBold',
@@ -168,6 +178,8 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
     gap: 1,
   },
   merchantName: {
@@ -182,6 +194,7 @@ const styles = StyleSheet.create({
   right: {
     alignItems: 'flex-end',
     gap: 4,
+    flexShrink: 0,
   },
   // 16 → 18pt to match brainstorm "Top Places" saving size.
   saving: {

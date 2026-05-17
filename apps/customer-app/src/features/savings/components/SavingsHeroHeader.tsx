@@ -225,11 +225,20 @@ const styles = StyleSheet.create({
   // Now: paddingBottom spacing[4], chipRow marginTop spacing[2],
   // statChip paddingVertical spacing[2].  Hero reads ~30-40px
   // shorter overall while preserving the lifetime amount weight.
+  // §Savings fidelity fixup-3 2026-05-17 — hero shrunk further so it
+  // doesn't dominate the screen.  Was (fixup-2): paddingBottom
+  // spacing[4], chipRow marginTop spacing[2], statChip paddingV
+  // spacing[2], chipValue 22pt.  Now: paddingBottom spacing[3],
+  // chipRow marginTop spacing[2] (kept), statChip paddingH spacing[3]
+  // (was [4]), paddingV spacing[2] (kept), minWidth dropped, chipValue
+  // 22pt → 18pt, chipLabel 10pt → 9pt.  Total hero height saves
+  // ~14-18pt vs fixup-2.  Lifetime amount (48pt) unchanged — the
+  // hero's load-bearing element.
   populatedContent: {
     alignItems: 'flex-start',
     paddingHorizontal: spacing[5],
     paddingTop: spacing[1],
-    paddingBottom: spacing[4],
+    paddingBottom: spacing[3],
   },
   eyebrow: {
     fontFamily: 'Lato-SemiBold',
@@ -257,23 +266,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
     borderRadius: radius.lg,
-    paddingHorizontal: spacing[4],
+    paddingHorizontal: spacing[3],
     paddingVertical: spacing[2],
     alignItems: 'flex-start',
     gap: 2,
-    minWidth: 120,
   },
   chipLabel: {
     fontFamily: 'Lato-SemiBold',
-    fontSize: 10,
-    letterSpacing: 1.5,
+    fontSize: 9,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
     color: 'rgba(255,255,255,0.6)',
   },
   chipValue: {
     fontFamily: 'MusticaPro-SemiBold',
-    fontSize: 22,
-    lineHeight: 26,
+    fontSize: 18,
+    lineHeight: 22,
     color: '#FFFFFF',
     fontVariant: ['tabular-nums'],
   },

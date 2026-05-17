@@ -14,7 +14,7 @@ import { SavingsSkeleton, InsightSkeleton } from '../components/SavingsSkeleton'
 import { BenefitCards } from '../components/BenefitCards'
 import { TrendChart } from '../components/TrendChart'
 import { ViewingChip } from '../components/ViewingChip'
-import { TopBranches } from '../components/TopBranches'
+import { TopPlaces, groupByMerchant } from '../components/TopBranches'
 import { ByCategory } from '../components/ByCategory'
 import { RoiCallout } from '../components/RoiCallout'
 import { RedemptionRow } from '../components/RedemptionRow'
@@ -127,6 +127,16 @@ export function SavingsScreen() {
       ? (monthDetail.data?.byCategory ?? [])
       : (summary.data?.byCategory ?? [])
   ), [selectedMonth, monthDetail.data, summary.data])
+  // §Savings fidelity fixup-3 2026-05-17: client-side group byBranch
+  // into merchant-level "Top places" rows.  Owner direction during
+  // device QA: branch names alone (Brightlingsea / Colchester) don't
+  // serve users on the savings dashboard — show merchant names with
+  // the total saved across their branches.  Backend `byBranch[]`
+  // contract unchanged; aggregation lives in `groupByMerchant`.
+  const insightPlaces = useMemo(
+    () => groupByMerchant(insightBranches),
+    [insightBranches],
+  )
 
   // ── Month drill-down ───────────────────────────────────────────────
   const handleMonthSelect = useCallback((month: string) => {
@@ -152,11 +162,14 @@ export function SavingsScreen() {
     router.push(`/(app)/voucher/${voucherId}` as never)
   }, [router])
 
-  // TopBranches tap: navigate to merchant profile with the SELECTED
-  // branch pre-selected via the `?branch=<id>` URL param so cold-open
-  // lands on the right branch picker state.
-  const handleTopBranchPress = useCallback((branchId: string, merchantId: string) => {
-    router.push(`/(app)/merchant/${merchantId}?branch=${branchId}` as never)
+  // TopPlaces tap: merchant-level after fidelity fixup-3.  Navigate
+  // to merchant profile without a `?branch=` URL param so the
+  // profile resolves to its main branch (or the user's most-recent
+  // branch context).  Pre-fixup this carried `?branch={branchId}`
+  // but the rows are now merchant-grouped so we no longer have a
+  // single branch to pin.
+  const handleTopPlacePress = useCallback((merchantId: string) => {
+    router.push(`/(app)/merchant/${merchantId}` as never)
   }, [router])
 
   // ── Pull-to-refresh ────────────────────────────────────────────────
@@ -238,12 +251,13 @@ export function SavingsScreen() {
           ) : (
             <>
               <FadeInDown delay={650}>
-                <TopBranches
-                  branches={insightBranches}
-                  onPress={handleTopBranchPress}
+                <TopPlaces
+                  places={insightPlaces}
+                  onPress={handleTopPlacePress}
+                  contextLabel={selectedMonth ? monthName(selectedMonth) : 'This month'}
                   emptyLabel={
                     selectedMonth
-                      ? `No branch savings in ${monthName(selectedMonth)}`
+                      ? `No place savings in ${monthName(selectedMonth)}`
                       : undefined
                   }
                 />
@@ -251,6 +265,7 @@ export function SavingsScreen() {
               <FadeInDown delay={750}>
                 <ByCategory
                   categories={insightCategories}
+                  contextLabel={selectedMonth ? monthName(selectedMonth) : 'This month'}
                   emptyLabel={
                     selectedMonth
                       ? `No category savings in ${monthName(selectedMonth)}`
@@ -304,9 +319,9 @@ export function SavingsScreen() {
     monthDetail.isLoading,
     monthDetail.isError,
     monthDetail.refetch,
-    insightBranches,
+    insightPlaces,
     insightCategories,
-    handleTopBranchPress,
+    handleTopPlacePress,
     subscription,
     allRedemptions.length,
   ])

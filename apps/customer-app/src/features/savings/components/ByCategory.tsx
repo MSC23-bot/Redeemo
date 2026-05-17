@@ -6,6 +6,7 @@ import { Text } from '@/design-system/Text'
 import { spacing, elevation } from '@/design-system/tokens'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import type { CategorySaving } from '@/lib/api/savings'
+import { SavingsCardTitleRow } from './TopBranches'
 
 // §Savings Rebaseline spec §Insight Section / Card 3 "By Category".
 // Horizontal progress bars per category.  Fill animates width 0 → %
@@ -59,19 +60,22 @@ function CategoryBar({ category, maxSaving, index }: { category: CategorySaving;
 
 type Props = {
   categories: CategorySaving[]
-  // §Savings fixup 2026-05-17: see TopBranches.Props for the
-  // identical empty-state contract.  Same null-fallback when
-  // omitted.  Explicit `| undefined` for tsc strict
-  // `exactOptionalPropertyTypes`.
+  // §Savings fixup 2026-05-17: see TopPlaces.Props for the identical
+  // empty-state contract.  Same null-fallback when omitted.
   emptyLabel?: string | undefined
+  // §Savings fidelity fixup-3 2026-05-17: brainstorm card-title
+  // context label rendered on the right of "By category".  "This
+  // month" for the default; month name (e.g. "April") under a
+  // selection.
+  contextLabel?: string | undefined
 }
 
-export function ByCategory({ categories, emptyLabel }: Props) {
+export function ByCategory({ categories, emptyLabel, contextLabel }: Props) {
   if (categories.length === 0) {
     if (!emptyLabel) return null
     return (
       <View style={styles.card} testID="savings-by-category-empty">
-        <Text variant="label.eyebrow" style={styles.sectionLabel}>By Category</Text>
+        <SavingsCardTitleRow title="By category" context={contextLabel} />
         <Text variant="body.sm" color="tertiary" style={styles.emptyLabel}>
           {emptyLabel}
         </Text>
@@ -83,7 +87,7 @@ export function ByCategory({ categories, emptyLabel }: Props) {
 
   return (
     <View style={styles.card} testID="savings-by-category">
-      <Text variant="label.eyebrow" style={styles.sectionLabel}>By Category</Text>
+      <SavingsCardTitleRow title="By category" context={contextLabel} />
       {categories.map((cat, i) => (
         <CategoryBar key={cat.categoryId} category={cat} maxSaving={maxSaving} index={i} />
       ))}

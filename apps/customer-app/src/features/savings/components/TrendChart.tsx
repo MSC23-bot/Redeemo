@@ -10,6 +10,7 @@ import { Text } from '@/design-system/Text'
 import { spacing, radius, elevation, layout } from '@/design-system/tokens'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import type { MonthBreakdown } from '@/lib/api/savings'
+import { SavingsCardTitleRow } from './TopBranches'
 
 // §Savings Rebaseline spec §Insight Section / Card 1 "6-Month Trend".
 // Always 6 bars (trailing 6 months including current); each bar is a
@@ -130,9 +131,18 @@ export function TrendChart({ months, selectedMonth, currentMonth, onMonthSelect 
   // ambiguous which month the insight cards were showing.
   const hasSelection = selectedMonth !== null
 
+  // §Savings fidelity fixup-3 2026-05-17: brainstorm card-title
+  // context label shows the date range (e.g. "Nov — Apr") so the
+  // user knows at a glance which 6-month window the chart spans.
+  const rangeLabel = displayMonths.length >= 2
+    ? `${monthLabel(displayMonths[0]!.month)} — ${monthLabel(displayMonths[displayMonths.length - 1]!.month)}`
+    : displayMonths.length === 1
+    ? monthLabel(displayMonths[0]!.month)
+    : undefined
+
   return (
     <View style={styles.card} testID="savings-trend-chart">
-      <Text variant="label.eyebrow" style={styles.sectionLabel}>6-Month Trend</Text>
+      <SavingsCardTitleRow title="6-Month Trend" context={rangeLabel} />
       <View style={styles.chartRow}>
         {displayMonths.map((m, i) => {
           const isHighlighted = hasSelection
@@ -162,6 +172,8 @@ const styles = StyleSheet.create({
     padding: spacing[4],
     ...elevation.sm,
   },
+  // Kept for backward compat / unrelated references; the title now
+  // renders via the shared `SavingsCardTitleRow` helper.
   sectionLabel: {
     marginBottom: spacing[3],
     color: '#9CA3AF',

@@ -12,7 +12,8 @@ import type { SavingsSummary, SavingsRedemption, MonthlyDetail } from '@/lib/api
 //   - CANCELLED + EXPIRED route to State 1 (free) regardless of lifetime
 //   - Subscription === null routes to State 1
 //   - Free CTA → /(auth)/subscription-prompt (NOT /(app)/subscribe-prompt)
-//   - TopBranches tap → /(app)/merchant/{id}?branch={branchId}
+//   - TopPlaces tap → /(app)/merchant/{merchantId}  (merchant-only,
+//     fidelity fixup-3 2026-05-17)
 //   - RedemptionRow tap → /(app)/voucher/{id}
 
 // ── Mocks ────────────────────────────────────────────────────────────
@@ -256,16 +257,21 @@ describe('SavingsScreen — navigation', () => {
     expect(mockRouterPush).toHaveBeenCalledWith('/(app)/')
   })
 
-  it('TopBranches row tap → /(app)/merchant/{merchantId}?branch={branchId}', async () => {
+  it('TopPlaces row tap → /(app)/merchant/{merchantId} (merchant-only, fidelity fixup-3)', async () => {
+    // §Savings fidelity fixup-3 2026-05-17: rows are now merchant-
+    // grouped.  Covelum Brightlingsea + Covelum Colchester collapse
+    // into ONE "Covelum" row (testID `savings-top-places-row-cov`).
+    // Tap navigates to the merchant profile without `?branch=`
+    // since we no longer have a single branch to pin.
     setMocks({
       summaryState: 'success', summaryData: populatedSummary,
       subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
       isSubscribed: true,
     })
     const { getByTestId } = wrap(<SavingsScreen />)
-    await waitFor(() => expect(getByTestId('savings-top-branches-row-br-bright')).toBeTruthy())
-    fireEvent.press(getByTestId('savings-top-branches-row-br-bright'))
-    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/merchant/cov?branch=br-bright')
+    await waitFor(() => expect(getByTestId('savings-top-places-row-cov')).toBeTruthy())
+    fireEvent.press(getByTestId('savings-top-places-row-cov'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/merchant/cov')
   })
 
   it('RedemptionRow tap → /(app)/voucher/{voucherId}', async () => {
@@ -310,9 +316,9 @@ describe('SavingsScreen — month-drill-down error state (fixup §6)', () => {
     // Retry tap fires monthDetail.refetch.
     fireEvent.press(getByText('Retry'))
     expect(refetchMonth).toHaveBeenCalled()
-    // TopBranches / ByCategory are NOT mounted while the error is
+    // TopPlaces / ByCategory are NOT mounted while the error is
     // visible (regression guard against showing stale insight data).
-    expect(queryByTestId('savings-top-branches-row-br-bright')).toBeNull()
+    expect(queryByTestId('savings-top-places-row-cov')).toBeNull()
   })
 })
 
@@ -447,8 +453,8 @@ describe('SavingsScreen — design-fidelity fixup pass (2026-05-17)', () => {
     fireEvent.press(getByTestId('savings-trend-bar-2026-04'))
 
     // Empty-state cards render with month-name copy.
-    expect(getByTestId('savings-top-branches-empty')).toBeTruthy()
-    expect(getByText('No branch savings in April')).toBeTruthy()
+    expect(getByTestId('savings-top-places-empty')).toBeTruthy()
+    expect(getByText('No place savings in April')).toBeTruthy()
     expect(getByTestId('savings-by-category-empty')).toBeTruthy()
     expect(getByText('No category savings in April')).toBeTruthy()
   })
@@ -470,10 +476,10 @@ describe('SavingsScreen — design-fidelity fixup pass (2026-05-17)', () => {
     })
     const { queryByTestId } = wrap(<SavingsScreen />)
     // No empty-state cards under no-selection.
-    expect(queryByTestId('savings-top-branches-empty')).toBeNull()
+    expect(queryByTestId('savings-top-places-empty')).toBeNull()
     expect(queryByTestId('savings-by-category-empty')).toBeNull()
     // Normal cards also not present (data is empty).
-    expect(queryByTestId('savings-top-branches')).toBeNull()
+    expect(queryByTestId('savings-top-places')).toBeNull()
     expect(queryByTestId('savings-by-category')).toBeNull()
   })
 })
