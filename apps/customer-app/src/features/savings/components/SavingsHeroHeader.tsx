@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
+import { View, StyleSheet } from 'react-native'
 import Animated, { useAnimatedReaction, runOnJS } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Lock, PiggyBank } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
+import { PressableScale } from '@/design-system/motion/PressableScale'
 import { spacing, radius } from '@/design-system/tokens'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import { SavingsHeroGradient } from './SavingsHeroGradient'
@@ -109,7 +110,7 @@ export function SavingsHeroHeader({
           <Text variant="body.sm" style={styles.emptyBody}>
             Subscribe to start redeeming vouchers at local businesses and tracking every penny saved.
           </Text>
-          <Pressable
+          <PressableScale
             onPress={onSubscribe}
             style={styles.ctaButton}
             accessibilityRole="button"
@@ -119,7 +120,7 @@ export function SavingsHeroHeader({
             <Text variant="heading.sm" style={styles.ctaText}>
               Subscribe — from £6.99/mo
             </Text>
-          </Pressable>
+          </PressableScale>
         </View>
       )}
 
@@ -134,7 +135,7 @@ export function SavingsHeroHeader({
           <Text variant="body.sm" style={styles.emptyBody}>
             You&apos;re all set. Redeem a voucher at any local business and your savings will appear here.
           </Text>
-          <Pressable
+          <PressableScale
             onPress={onBrowse}
             style={styles.ctaButton}
             accessibilityRole="button"
@@ -144,7 +145,7 @@ export function SavingsHeroHeader({
             <Text variant="heading.sm" style={styles.ctaText}>
               Browse vouchers
             </Text>
-          </Pressable>
+          </PressableScale>
         </View>
       )}
 

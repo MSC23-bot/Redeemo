@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
+import { View, StyleSheet } from 'react-native'
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -7,6 +7,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
+import { PressableScale } from '@/design-system/motion/PressableScale'
 import { spacing, radius, elevation, layout } from '@/design-system/tokens'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import type { MonthBreakdown } from '@/lib/api/savings'
@@ -78,11 +79,12 @@ function Bar({
   const label = monthLabel(month)
 
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${label}, £${saving.toFixed(2)} saved`}
       accessibilityState={{ selected: isHighlighted }}
+      hapticStyle="none"
       style={styles.barColumn}
       hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
       testID={`savings-trend-bar-${month}`}
@@ -104,7 +106,7 @@ function Bar({
       >
         {label}
       </Text>
-    </Pressable>
+    </PressableScale>
   )
 }
 
