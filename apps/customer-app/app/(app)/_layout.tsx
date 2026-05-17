@@ -133,8 +133,9 @@ export default function AppLayout() {
       <Tabs.Screen name="search"        options={{ href: null }} />
       <Tabs.Screen name="categories"    options={{ href: null }} />
       <Tabs.Screen name="category/[id]" options={{ href: null }} />
-      <Tabs.Screen name="merchant/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
-      <Tabs.Screen name="voucher/[id]"  options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="merchant/[id]"   options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="voucher/[id]"    options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="redemption/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
     </Tabs>
   )
 }

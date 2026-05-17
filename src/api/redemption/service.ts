@@ -590,7 +590,12 @@ export async function getMyRedemption(
   const redemption = await prisma.voucherRedemption.findUnique({
     where:   { id: redemptionId },
     include: {
-      voucher: { select: { id: true, title: true, terms: true, merchant: { select: { businessName: true } } } },
+      // §Savings Redemption Detail screen (PR #105 device-QA round-3,
+      // 2026-05-18) — added `voucherType` (for the type label) and
+      // `merchant.id` (for the "See merchant" route) to the select.
+      // Both additive — no existing callers regress because Zod
+      // schemas in the customer-app ignore unknown fields by default.
+      voucher: { select: { id: true, title: true, voucherType: true, terms: true, merchant: { select: { id: true, businessName: true } } } },
       branch:  { select: { id: true, name: true, addressLine1: true, city: true, postcode: true } },
     },
   })
