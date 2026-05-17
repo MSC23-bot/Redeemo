@@ -2,7 +2,7 @@ import React from 'react'
 import { View, Image, StyleSheet } from 'react-native'
 import { Text } from '@/design-system/Text'
 import { PressableScale } from '@/design-system/motion/PressableScale'
-import { spacing, elevation } from '@/design-system/tokens'
+import { radius, spacing, elevation } from '@/design-system/tokens'
 import type { BranchSaving } from '@/lib/api/savings'
 
 // §Savings fidelity fixup-3 2026-05-17 — Insight Card "Top places".
@@ -164,11 +164,14 @@ function CardTitleRow({ title, context }: { title: string; context: string | und
 export { CardTitleRow as SavingsCardTitleRow }
 
 const styles = StyleSheet.create({
+  // §Savings impeccable 5/6 2026-05-17 — insight cards tokenised.
+  // Was: borderRadius 20 (off-token), asymmetric padding spacing[4]/[3].
+  // Now: rounded.lg = 16 (DESIGN.md card-default radius), uniform
+  // spacing[4] = 16 padding (DESIGN.md tight-cards rule).
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
+    borderRadius: radius.lg,
+    padding: spacing[4],
     ...elevation.sm,
   },
   titleRow: {

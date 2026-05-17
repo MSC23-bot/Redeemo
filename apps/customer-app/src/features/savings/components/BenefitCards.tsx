@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
     padding: spacing[4],
     gap: spacing[3],
     ...elevation.sm,

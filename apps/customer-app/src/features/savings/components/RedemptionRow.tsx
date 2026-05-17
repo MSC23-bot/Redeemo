@@ -152,6 +152,12 @@ const styles = StyleSheet.create({
   //     in place)
   //   - `flex: 1 + flexShrink: 1 + minWidth: 0` on content (allow
   //     truncation rather than overflow-wrap)
+  // §Savings impeccable 5/6 — tokenised: borderRadius 12 → radius.lg
+  // (16) so list rows share the same silhouette family as the insight
+  // cards above.  List-density padding kept compact (spacing[3]/[2])
+  // so a long history scrolls in a controlled rhythm.  46x46 logo
+  // restored to spec (was 42 from fidelity-fixup-3); spacing[3] gap
+  // gives the logo breathing room.
   row: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
@@ -160,14 +166,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[2],
     gap: spacing[3],
     backgroundColor: tokenColor.surface.raised,
-    borderRadius: 12,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: tokenColor.border.subtle,
   },
   logo: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,

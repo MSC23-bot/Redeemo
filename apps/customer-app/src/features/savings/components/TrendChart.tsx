@@ -183,9 +183,10 @@ export function TrendChart({ months, selectedMonth, currentMonth, onMonthSelect 
 }
 
 const styles = StyleSheet.create({
+  // §Savings impeccable 5/6 — tokenised: 20 → radius.lg (16).
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: radius.lg,
     padding: spacing[4],
     ...elevation.sm,
   },

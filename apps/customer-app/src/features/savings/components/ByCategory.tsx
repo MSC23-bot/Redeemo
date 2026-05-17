@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withDelay, withSpring } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
-import { spacing, elevation } from '@/design-system/tokens'
+import { radius, spacing, elevation } from '@/design-system/tokens'
 import { useMotionScale } from '@/design-system/useMotionScale'
 import type { CategorySaving } from '@/lib/api/savings'
 import { SavingsCardTitleRow } from './TopBranches'
@@ -107,13 +107,13 @@ export function ByCategory({ categories, emptyLabel, contextLabel }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // §Savings fidelity fixup-2 2026-05-17: match brainstorm densities
-  // (track 6px not 8; row marginBottom ~10px; tighter card padding).
+  // §Savings impeccable 5/6 — tokenised: borderRadius 20 → radius.lg
+  // (16); asymmetric padding → uniform spacing[4] (16).  Matches
+  // TopPlaces + TrendChart card silhouette across the insight section.
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
+    borderRadius: radius.lg,
+    padding: spacing[4],
     ...elevation.sm,
   },
   sectionLabel: {
