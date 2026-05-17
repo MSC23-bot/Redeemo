@@ -223,11 +223,16 @@ export function SavingsScreen() {
 
       {userState === 'populated' && (
         <View style={styles.insightSection} testID="savings-insight-section">
-          <FadeInDown delay={500}>
+          {/* §Savings emil-pass 3/7 2026-05-17 — entrance cascade
+              tightened.  Was 500 → 1150ms (cascade end ~1390ms).
+              Now 0 → 250ms (cascade end ~490ms) per Emil's
+              perceived-performance rule: UI cascades should end
+              under 500ms.  50ms stagger between items. */}
+          <FadeInDown delay={0}>
             <Text variant="label.eyebrow" style={styles.insightLabel}>Insights</Text>
           </FadeInDown>
 
-          <FadeInDown delay={550}>
+          <FadeInDown delay={50}>
             <TrendChart
               months={chartMonths}
               selectedMonth={selectedMonth}
@@ -250,7 +255,7 @@ export function SavingsScreen() {
             </View>
           ) : (
             <>
-              <FadeInDown delay={650}>
+              <FadeInDown delay={100}>
                 <TopPlaces
                   places={insightPlaces}
                   onPress={handleTopPlacePress}
@@ -262,7 +267,7 @@ export function SavingsScreen() {
                   }
                 />
               </FadeInDown>
-              <FadeInDown delay={750}>
+              <FadeInDown delay={150}>
                 <ByCategory
                   categories={insightCategories}
                   contextLabel={selectedMonth ? monthName(selectedMonth) : 'This month'}
@@ -277,7 +282,7 @@ export function SavingsScreen() {
           )}
 
           {!selectedMonth && summary.data && subscription?.plan && (
-            <FadeInDown delay={1100}>
+            <FadeInDown delay={200}>
               <RoiCallout
                 thisMonthSaving={summary.data.thisMonthSaving}
                 billingInterval={subscription.plan.billingInterval}
@@ -297,7 +302,7 @@ export function SavingsScreen() {
               Deferred follow-up: server-side `byMonth` redemption
               endpoint + matching UI affordance.  */}
           {!selectedMonth && allRedemptions.length > 0 && (
-            <FadeInDown delay={1150}>
+            <FadeInDown delay={250}>
               <Text variant="label.eyebrow" style={styles.historyLabel}>
                 Redemption History
               </Text>
