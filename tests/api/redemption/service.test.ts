@@ -531,6 +531,7 @@ describe('getMyRedemption', () => {
         id: 'v1',
         title: 'Half-price pizza Monday',
         type: 'BOGO',
+        description: 'Half off everything on the menu, Mondays from 5pm.',
         terms: 'One per customer per cycle.',
         merchant: {
           id: 'm1',
@@ -596,6 +597,32 @@ describe('getMyRedemption', () => {
 
     const result = await getMyRedemption(prisma, 'user-1', 'r1')
     expect(result.voucher.merchant.id).toBe('m1')
+  })
+
+  it('REGRESSION: voucher.description + voucher.terms are passed through to the response (RedemptionDetailScreen cream identity zone + terms row)', async () => {
+    // §Savings device-QA round-5 fixup 2026-05-18 — voucher.description
+    // newly added to the Prisma select; voucher.terms was selected
+    // already but never asserted.  Pin both fields here so a future
+    // select-tweak doesn't silently drop them.
+    const prisma = mockPrisma()
+    const r = makeFullRedemption()
+    prisma.voucherRedemption.findUnique.mockResolvedValue(r)
+
+    const result = await getMyRedemption(prisma, 'user-1', 'r1')
+    expect(result.voucher.description).toBe('Half off everything on the menu, Mondays from 5pm.')
+    expect(result.voucher.terms).toBe('One per customer per cycle.')
+  })
+
+  it('REGRESSION: voucher.description tolerates null (admin-managed field)', async () => {
+    const prisma = mockPrisma()
+    const r = makeFullRedemption()
+    ;(r.voucher as any).description = null
+    ;(r.voucher as any).terms = null
+    prisma.voucherRedemption.findUnique.mockResolvedValue(r)
+
+    const result = await getMyRedemption(prisma, 'user-1', 'r1')
+    expect(result.voucher.description).toBeNull()
+    expect(result.voucher.terms).toBeNull()
   })
 })
 

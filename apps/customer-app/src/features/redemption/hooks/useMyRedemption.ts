@@ -43,6 +43,13 @@ export const myRedemptionDetailSchema = z.object({
   voucher: z.object({
     id:          z.string(),
     title:       z.string(),
+    // §Savings device-QA round-5 fixup 2026-05-18 — description +
+    // terms surfaced on the Redemption Receipt screen.  Both
+    // optional+nullable: backend allows null on Voucher.description
+    // (admin-managed) and Voucher.terms (merchant-supplied).  When
+    // null/empty the receipt UI hides the row entirely.
+    description: z.string().nullable().optional(),
+    terms:       z.string().nullable().optional(),
     voucherType: voucherTypeSchema,
     merchant: z.object({
       id:           z.string(),

@@ -605,7 +605,7 @@ export async function getMyRedemption(
       // pattern: select `type`, remap to `voucherType` in the
       // response so the customer-app's `voucherType`-keyed schemas
       // stay consistent across endpoints.
-      voucher: { select: { id: true, title: true, type: true, terms: true, merchant: { select: { id: true, businessName: true } } } },
+      voucher: { select: { id: true, title: true, type: true, description: true, terms: true, merchant: { select: { id: true, businessName: true } } } },
       branch:  { select: { id: true, name: true, addressLine1: true, city: true, postcode: true } },
     },
   })
@@ -621,6 +621,7 @@ export async function getMyRedemption(
     voucher: {
       id:          voucher.id,
       title:       voucher.title,
+      description: voucher.description,
       terms:       voucher.terms,
       voucherType: voucher.type,
       merchant:    voucher.merchant,
