@@ -142,10 +142,14 @@ export function TopPlaces({ places, onPress, emptyLabel, contextLabel }: Props) 
 }
 
 // Card-title row used by Top Places, By Category, and the 6-Month
-// Trend chart.  Brainstorm:
-//   font 11px Lato-Bold +0.8px tracking uppercase tertiary,
-//   span right-aligned 10px Lato-Medium NOT uppercase NOT tracked
-//   #D1D5DB (border-default).
+// Trend chart.
+//
+// §Savings impeccable 3/6 2026-05-17 — context typography moved to
+// DESIGN.md tokens.  Was: 10px Lato-Medium on border-default `#D1D5DB`
+// (using a BORDER colour for text, also too small to read calmly).
+// Now: `label.md` (12px Lato-Medium) on `text.tertiary` per DESIGN.md
+// metadata role.  Title text stays at the eyebrow scale (11px Lato-
+// Bold, +0.8 tracking, uppercase, text.tertiary).
 function CardTitleRow({ title, context }: { title: string; context: string | undefined }) {
   return (
     <View style={styles.titleRow}>
@@ -181,9 +185,11 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
   },
   contextText: {
-    fontFamily: 'Lato-Medium',
-    fontSize: 10,
-    color: '#D1D5DB',
+    fontFamily:    'Lato-Medium',
+    fontSize:      12,
+    lineHeight:    16,
+    letterSpacing: 0.4,
+    color:         '#9CA3AF',
   },
   row: {
     flexDirection: 'row',

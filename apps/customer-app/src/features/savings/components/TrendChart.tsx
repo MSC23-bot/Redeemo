@@ -80,11 +80,17 @@ function Bar({
     transform: [{ scaleY: scaleY.value }],
   }))
 
+  // §Savings impeccable 3/6 2026-05-17 — bar palette respects the
+  // One-Voice Brand-Rose Rule.  Was: every bar in brand-rose at
+  // varied opacity (rose-on-rose-on-rose).  Now: brand-rose is
+  // reserved for the ONE highlighted bar — the user's current focus —
+  // and other bars use a quiet navy tint (12% / 6% alpha).  The
+  // chart becomes "where is my attention" not "everything is brand".
   const barColor = isHighlighted
-    ? '#E20C04'
+    ? '#E20C04'                       // brand-rose — the focal bar only
     : saving > 0
-    ? 'rgba(226,12,4,0.18)'
-    : 'rgba(226,12,4,0.10)'
+    ? 'rgba(1,12,53,0.12)'            // navy at 12% — active but quiet
+    : 'rgba(1,12,53,0.06)'            // navy at 6% — £0 stub
   const label = monthLabel(month)
 
   return (
