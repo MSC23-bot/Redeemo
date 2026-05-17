@@ -13,7 +13,7 @@ import { isPresentationActive } from '@/features/voucher/utils/presentationWindo
 import { useMyRedemption } from '../hooks/useMyRedemption'
 import type { ValidationMethod } from '../hooks/useMyRedemption'
 
-// §Savings Redemption Receipt — PR #105 device-QA round-5, 2026-05-18.
+// §Savings Redemption Receipt — PR #105 device-QA round-6, 2026-05-18.
 //
 // Dedicated route at `/(app)/redemption/[id]`.  Fetches a SPECIFIC
 // redemption event by id (not by voucher id) so each event opens
@@ -194,8 +194,13 @@ export function RedemptionDetailScreen() {
             without saturating the whole surface (controlled accent
             per owner direction). */}
         <View style={styles.identityWrap} testID="redemption-detail-identity">
+          {/* Hero anchor — deepens the cream into a warm peach
+              gradient so the identity zone has a distinct presence
+              against the cream page above and below.  Owner
+              direction round-6: "give a color to the hero section
+              that's anchored as well." */}
           <LinearGradient
-            colors={['#FFF9F5', '#FCF0E5']}
+            colors={['#FCF0E5', '#F6E1CC']}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={StyleSheet.absoluteFill}
@@ -321,16 +326,25 @@ export function RedemptionDetailScreen() {
         </View>
 
         {/* ── Actions row ─────────────────────────────────────────── */}
-        {/* PRIMARY: Review this visit — routes to the verified-review
-            flow established by PR-C (verified-review, merge a80f427).
-            URL contract reused 1:1 from VoucherDetailScreen's
-            SuccessPopup onRateReview handler so the review created
-            from this entry point gets the same verified attribution
-            via `Review.redemptionId`.  Brand gradient + elevation.glow
-            per DESIGN.md primary-button pattern.
-
-            SECONDARY: See merchant — navy outline.  Always available
-            per locked owner direction (stable secondary action). */}
+        {/* Side-by-side actions so the full receipt fits in a single
+            standard-iPhone viewport (~763pt body).
+            PRIMARY: Review this visit — routes to the verified-review
+            flow established by PR-C (merge a80f427).  URL contract
+            reused 1:1 from VoucherDetailScreen's SuccessPopup
+            onRateReview handler so the review created from this entry
+            point gets the same verified attribution via
+            `Review.redemptionId`.  Brand gradient + elevation.glow per
+            DESIGN.md primary-button pattern.
+            SECONDARY: See merchant — solid navy.  Brand-aligned per
+            owner direction round-6: matches the savings "Load more"
+            pill and reads as a real action surface (replaces the
+            previous white outline that felt floating against cream).
+            §BM dev-rule: PressableScale `style` lands on the OUTER
+            Animated.View — children render inside a styleless inner
+            Pressable.  We wrap children in an inner styled View that
+            owns padding + radius + overflow + elevation; the gradient
+            absoluteFill paints the full padded button bounds, not the
+            collapsed text-only inner. */}
         <View style={styles.actions}>
           <PressableScale
             onPress={() => router.push({
@@ -343,32 +357,36 @@ export function RedemptionDetailScreen() {
                 fromRedemption:  r.id,
               },
             } as never)}
-            style={styles.primaryButton}
+            style={styles.actionPressable}
             accessibilityRole="button"
             accessibilityLabel="Review this visit"
             testID="redemption-detail-review-this-visit"
           >
-            <LinearGradient
-              colors={['#E20C04', '#E84A00']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <Text variant="heading.sm" style={styles.primaryButtonText}>
-              Review this visit
-            </Text>
+            <View style={styles.primaryButtonInner}>
+              <LinearGradient
+                colors={['#E20C04', '#E84A00']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <Text variant="heading.sm" style={styles.primaryButtonText}>
+                Review this visit
+              </Text>
+            </View>
           </PressableScale>
 
           <PressableScale
             onPress={() => router.push(
               `/(app)/merchant/${r.voucher.merchant.id}${from ? `?from=${from}` : ''}` as never,
             )}
-            style={styles.secondaryButton}
+            style={styles.actionPressable}
             accessibilityRole="button"
             accessibilityLabel="See merchant"
             testID="redemption-detail-see-merchant"
           >
-            <Text variant="heading.sm" style={styles.secondaryButtonText}>See merchant</Text>
+            <View style={styles.secondaryButtonInner}>
+              <Text variant="heading.sm" style={styles.secondaryButtonText}>See merchant</Text>
+            </View>
           </PressableScale>
         </View>
       </ScrollView>
@@ -404,19 +422,21 @@ function BackHeader({ insetsTop, onBack }: { insetsTop: number; onBack: () => vo
 const TYPE_ACCENT_STRIP_WIDTH = 4
 
 const styles = StyleSheet.create({
+  // Cream anchors the whole screen — eliminates the round-5 split
+  // where the cream identity zone met a grey neutral page background
+  // and a white header.  Now header + identity + page all share the
+  // same cream surface; the receipt card lifts above it.
   screen: {
     flex: 1,
-    backgroundColor: color.surface.neutral,
+    backgroundColor: color.cream,
   },
   headerWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing[4],
-    paddingBottom: spacing[3],
-    backgroundColor: color.surface.page,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border.subtle,
+    paddingBottom: spacing[2],
+    backgroundColor: 'transparent',
   },
   backBtn: {
     width: 40,
@@ -428,10 +448,14 @@ const styles = StyleSheet.create({
     color: color.text.primary,
   },
   scrollContent: {
-    paddingBottom: layout.tabBarHeight + spacing[7],
+    paddingBottom: layout.tabBarHeight + spacing[6],
   },
 
   // ── Cream identity zone ──────────────────────────────────────
+  // Anchored against the page via a richer cream→peach gradient
+  // that reads as one continuous warm surface with the header above
+  // and the page below (both pure cream).  Identity zone now feels
+  // intentional, not floating.
   identityWrap: {
     position: 'relative',
     overflow: 'hidden',
@@ -449,10 +473,10 @@ const styles = StyleSheet.create({
   },
   identityInner: {
     paddingHorizontal: spacing[5],
-    paddingTop: spacing[5],
-    paddingBottom: spacing[6],
+    paddingTop: spacing[4],
+    paddingBottom: spacing[5],
     paddingLeft: spacing[5] + TYPE_ACCENT_STRIP_WIDTH,
-    gap: spacing[2],
+    gap: spacing[1],
   },
   // Type chip — outlined with the voucher-type's dark gradient stop.
   // Subtle but unmistakable: text + border carry the type colour
@@ -484,18 +508,20 @@ const styles = StyleSheet.create({
   },
 
   // ── Receipt surface (single card, divider rows) ──────────────
+  // White card lifts above the cream world — the receipt IS the
+  // record, the cream identity zone is the moment.  No nested cards.
   receipt: {
     backgroundColor: color.surface.raised,
     borderRadius: radius.lg,
     marginHorizontal: spacing[5],
-    marginTop: spacing[4],
-    paddingVertical: spacing[2],
+    marginTop: spacing[3],
+    paddingVertical: spacing[1],
     ...elevation.sm,
   },
   row: {
     paddingHorizontal: spacing[5],
-    paddingVertical: spacing[4],
-    gap: spacing[2],
+    paddingVertical: spacing[3],
+    gap: spacing[1],
   },
   rowEyebrow: {
     color: color.text.tertiary,
@@ -508,24 +534,24 @@ const styles = StyleSheet.create({
     backgroundColor: color.border.subtle,
     marginHorizontal: spacing[5],
   },
-  // Hero saving amount.  Display LG (32pt) Mustica Pro in savings-
+  // Hero saving amount.  Display MD (28pt) Mustica Pro in savings-
   // green per DESIGN.md "savings-green is the 'you saved £X'
   // colour" rule.  Tabular nums keeps alignment crisp.
   savingAmount: {
     fontFamily:   'MusticaPro-SemiBold',
-    fontSize:     32,
-    lineHeight:   36,
+    fontSize:     28,
+    lineHeight:   32,
     letterSpacing: -0.5,
     color:        color.savingsGreen,
     fontVariant:  ['tabular-nums'],
   },
   // Mono redemption code per DESIGN.md `mono.redemption` variant —
-  // Lato Bold 28/34 with +4 tracking, the canonical "show this to
+  // Lato Bold 24/30 with +4 tracking, the canonical "show this to
   // staff" type signature.
   codeText: {
     fontFamily:    'Lato-Bold',
-    fontSize:      28,
-    lineHeight:    34,
+    fontSize:      24,
+    lineHeight:    30,
     letterSpacing: 4,
     color:         color.text.primary,
     fontVariant:   ['tabular-nums'],
@@ -561,39 +587,53 @@ const styles = StyleSheet.create({
   },
 
   // ── Actions ──────────────────────────────────────────────────
+  // Side-by-side so both fit on a single standard-iPhone viewport.
+  // PressableScale outer wrapper is transparent (animation only);
+  // the visual surface lives in the inner View.  Each button gets
+  // `flex: 1` via the outer so both equally share the row.
   actions: {
+    flexDirection: 'row',
     gap: spacing[3],
-    marginTop: spacing[5],
+    marginTop: spacing[4],
     paddingHorizontal: spacing[5],
   },
-  // Primary CTA — DESIGN.md primary-button pattern.  Brand gradient
-  // (Rose → Coral) painted via LinearGradient absoluteFill behind
-  // the label.  elevation.glow gives the brand-rose shadow lift
-  // reserved for the customer's primary action this minute.
+  actionPressable: {
+    flex: 1,
+  },
+  // Primary CTA inner — DESIGN.md primary-button pattern.  Brand
+  // gradient (Rose → Coral) painted via LinearGradient absoluteFill
+  // behind the label.  elevation.glow gives the brand-rose shadow
+  // lift reserved for the customer's primary action this minute.
   // `overflow: hidden` clips the gradient to the pill silhouette.
-  primaryButton: {
+  primaryButtonInner: {
     borderRadius: radius.md,
-    paddingHorizontal: spacing[6],
+    paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
     alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
+    minHeight: 48,
     ...elevation.glow,
   },
   primaryButtonText: {
     color: '#FFFFFF',
     fontFamily: 'Lato-SemiBold',
   },
-  secondaryButton: {
-    backgroundColor: color.surface.page,
-    borderWidth: 1,
-    borderColor: color.navy,
+  // Secondary CTA inner — solid navy.  Matches the Savings "Load
+  // more" pill so brand-aligned actions read with one voice.
+  // Owner direction round-6: the previous white outline felt
+  // floating against cream; solid navy gives a real action surface.
+  secondaryButtonInner: {
+    backgroundColor: color.navy,
     borderRadius: radius.md,
-    paddingHorizontal: spacing[6],
+    paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
   },
   secondaryButtonText: {
-    color: color.navy,
+    color: '#FFFFFF',
     fontFamily: 'Lato-SemiBold',
   },
 
