@@ -422,7 +422,7 @@ export type RankableMerchant<B extends RankableBranch = RankableBranch> = {
   branches: B[]
 }
 
-type CategoryIntent = 'LOCAL' | 'MIXED' | 'DESTINATION'
+export type CategoryIntent = 'LOCAL' | 'MIXED' | 'DESTINATION'
 
 export type RankMerchantsV2Input = {
   effLoc: EffectiveLocation
@@ -609,6 +609,169 @@ export function rankMerchantsV2<B extends RankableBranch>(
 
     // targetCount: stop adding further rungs once we've hit the target,
     // BUT only after NEARBY has been fully evaluated (per spec §5.6).
+    if (tiles.length >= targetCount && nearbyRungEvaluated) break
+    if (tiles.length >= hardCap) break
+  }
+
+  return { tiles, rungCounts }
+}
+
+// ─── Discovery Rebaseline Phase 1 — rankBranchesV3 (branch-first) ────────────
+//
+// Spec docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §2.
+//
+// Branch-first variant of rankMerchantsV2. Per-branch tile emission — same-
+// merchant multi-locality branches surface as independent tiles. Coexists
+// with rankMerchantsV2 during Phase 1 + Phase 2; Phase 3 deletes the
+// merchant-collapse variant (selectContextBranch / MerchantEntry /
+// qualityComparatorV2 / distanceComparator / rankMerchantsV2) and unifies
+// `BranchForClassification` + `RankableBranch` per the §AT cleanup note.
+//
+// Algorithm:
+//   1. Per-branch classifyRung. Discoverability gate enforced upstream
+//      (POSTCODE_CENTROID / NEEDS_REVIEW / !isActive → null rung → drop).
+//   2. Sort within rung per categoryIntent (pure-rank D1):
+//        LOCAL       — distance ASC → businessName → id.
+//        DESTINATION — quality-aware (rated > unrated, rating DESC) → distance → name → id.
+//        MIXED       — distance for NEARBY rung; quality-aware for outer rungs.
+//      Same-merchant same-rung branches cluster naturally via secondary
+//      sort keys (distance + name); explicit dedup deferred until v2.
+//   3. Rung-walk with targetCount + hardCap — mirrors rankMerchantsV2 §5.6.
+
+export type RankableBranchInputV3 = RankableBranch & {
+  merchantId: string
+  merchant: {
+    id: string
+    businessName: string
+    avgRating: number | null
+    reviewCount: number
+    primaryCategory: { intentType: CategoryIntentType | null } | null
+  }
+}
+
+export type RankInputV3 = {
+  effLoc: EffectiveLocation
+  ladderProfile: LadderProfile
+  outgoingCatchmentTargetIds: readonly string[]
+  categoryIntent: CategoryIntent
+  targetCount: number
+  hardCap: number
+}
+
+export type RankedBranchTile = {
+  /** Branch id — the tile IS the branch. */
+  id: string
+  merchantId: string
+  /** Merchant business name (for downstream display + tiebreak debug). */
+  businessName: string
+  supplyRung: SupplyRung
+  /** Legacy compat — populated alongside `supplyRung` until Phase 3 cleanup. */
+  supplyTier: 'NEARBY' | 'CITY' | 'DISTANT'
+  proximityBand: ProximityBand
+  distanceMetres: number | null
+}
+
+export type RankBranchesV3Result = {
+  tiles: RankedBranchTile[]
+  /** Branch counts per rung (NOT merchant counts — branch-first cardinality). */
+  rungCounts: Record<SupplyRung, number>
+}
+
+export function rankBranchesV3<B extends RankableBranchInputV3>(
+  branches: B[],
+  input: RankInputV3,
+): RankBranchesV3Result {
+  const { effLoc, ladderProfile, outgoingCatchmentTargetIds, categoryIntent, targetCount, hardCap } = input
+  const nearbyRadius = getNearbyRadiusMiles(ladderProfile, effLoc.densityClass)
+  const maxRung = getMaxRung(ladderProfile, effLoc.densityClass)
+  const maxRungOrdinal = rungOrdinal(maxRung)
+
+  // Step 1: collect — per-branch rung classification.
+  type Collected<X extends RankableBranchInputV3> = {
+    branch: X
+    rung: SupplyRung
+    distance: number | null
+  }
+  const byRung = new Map<SupplyRung, Collected<B>[]>()
+  const rungCounts: Record<SupplyRung, number> = {
+    NEARBY: 0, CATCHMENT: 0, POST_TOWN: 0, LAD: 0,
+    COUNTY: 0, REGION: 0, COUNTRY: 0, NATIONAL: 0,
+  }
+
+  for (const b of branches) {
+    const rung = classifyRung(b, effLoc, nearbyRadius, outgoingCatchmentTargetIds)
+    if (rung === null) continue
+    if (rungOrdinal(rung) > maxRungOrdinal) continue
+    const distance = b.latitude !== null && b.longitude !== null
+      ? haversineMetres(effLoc.lat, effLoc.lng, b.latitude, b.longitude)
+      : null
+    const arr = byRung.get(rung) ?? []
+    arr.push({ branch: b, rung, distance })
+    byRung.set(rung, arr)
+    rungCounts[rung]++
+  }
+
+  // Step 2: sort within rung per categoryIntent.
+  function compareDistance(a: Collected<B>, b: Collected<B>): number {
+    const aD = a.distance ?? Number.POSITIVE_INFINITY
+    const bD = b.distance ?? Number.POSITIVE_INFINITY
+    if (aD !== bD) return aD - bD
+    const nameCmp = a.branch.merchant.businessName.localeCompare(b.branch.merchant.businessName)
+    if (nameCmp !== 0) return nameCmp
+    return a.branch.id.localeCompare(b.branch.id)
+  }
+
+  function compareQuality(a: Collected<B>, b: Collected<B>): number {
+    const aRated = (a.branch.merchant.reviewCount ?? 0) >= MIN_REVIEW_COUNT_FOR_RATING_SORT
+    const bRated = (b.branch.merchant.reviewCount ?? 0) >= MIN_REVIEW_COUNT_FOR_RATING_SORT
+    if (aRated && bRated) {
+      const d = (b.branch.merchant.avgRating ?? 0) - (a.branch.merchant.avgRating ?? 0)
+      if (d !== 0) return d
+    } else if (aRated) {
+      return -1
+    } else if (bRated) {
+      return 1
+    }
+    // Quality tiebreak falls through to distance + name + id.
+    return compareDistance(a, b)
+  }
+
+  function sortWithinRung(rung: SupplyRung, arr: Collected<B>[]): Collected<B>[] {
+    if (categoryIntent === 'LOCAL') {
+      return [...arr].sort(compareDistance)
+    }
+    if (categoryIntent === 'DESTINATION') {
+      return [...arr].sort(compareQuality)
+    }
+    // MIXED — distance for NEARBY, quality for outer rungs (mirrors V2).
+    return [...arr].sort(rung === 'NEARBY' ? compareDistance : compareQuality)
+  }
+
+  // Step 3: stitch with targetCount + hardCap.
+  const tiles: RankedBranchTile[] = []
+  let nearbyRungEvaluated = false
+
+  for (const rung of RUNG_ORDER) {
+    if (rungOrdinal(rung) > maxRungOrdinal) break
+    const arr = byRung.get(rung) ?? []
+    const sorted = sortWithinRung(rung, arr)
+
+    for (const c of sorted) {
+      if (tiles.length >= hardCap) break
+      tiles.push({
+        id: c.branch.id,
+        merchantId: c.branch.merchantId,
+        businessName: c.branch.merchant.businessName,
+        supplyRung: c.rung,
+        supplyTier: mapRungToLegacyTier(c.rung),
+        proximityBand: getProximityBand(c.rung, effLoc.densityClass),
+        distanceMetres: c.distance,
+      })
+    }
+
+    if (rung === 'NEARBY') nearbyRungEvaluated = true
+
+    // targetCount: stop after NEARBY fully evaluated (mirrors V2 spec §5.6).
     if (tiles.length >= targetCount && nearbyRungEvaluated) break
     if (tiles.length >= hardCap) break
   }
