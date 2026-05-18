@@ -79,23 +79,71 @@ describe('RedemptionRow — badge windows', () => {
 describe('RedemptionRow — voucher type label + branch meta', () => {
   // §Savings device-QA round-2 fixup 2026-05-18 — type label
   // appended with " voucher" per owner direction.  Reads as a noun
-  // phrase: "Reusable voucher", "Time limited voucher", "Buy one,
-  // get one free voucher".
+  // phrase: "Reusable voucher", "Time-limited voucher", "BOGO
+  // voucher".
+  //
+  // §BO Revision (2026-05-18) — VISIBLE text uses `voucherTypeLabel
+  // Short()` (BOGO → "BOGO", PACKAGE_DEAL → "Package", TIME_LIMITED
+  // → "Time-limited"; others unchanged).  Accessibility labels keep
+  // `voucherTypeLabel()` long form so screen readers say the full
+  // type name.  See `apps/customer-app/src/features/voucher/utils/
+  // voucherTheme.ts::voucherTypeLabelShort` for the short-form map.
 
-  it('renders TIME_LIMITED as "Time limited voucher" (type-as-noun)', () => {
+  it('renders TIME_LIMITED with short label "Time-limited voucher" (visible) + long label "Time limited voucher" (a11y)', () => {
+    // §BO Revision — flipped from the Revision-2 "Time limited"
+    // visible-form pin.  Short form swaps space → hyphen on this
+    // type to read crisper at small sizes.
     const r = makeRedemption({
       voucher: { id: 'v', title: 'Lunch deal', voucherType: 'TIME_LIMITED' },
     })
-    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText(/Time limited voucher/)).toBeTruthy()
+    const { getByText, getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText('Time-limited voucher')).toBeTruthy()
+    const row = getByTestId('savings-redemption-row-red-1')
+    expect(row.props.accessibilityLabel).toContain('Time limited voucher')
   })
 
-  it('renders REUSABLE as "Reusable voucher" (type-as-noun)', () => {
+  it('renders REUSABLE as "Reusable voucher" (long + short forms match)', () => {
+    // §BO Revision — REUSABLE short form === long form (no shortening
+    // needed).  Visible + a11y therefore agree.
     const r = makeRedemption({
       voucher: { id: 'v', title: 'Coffee club', voucherType: 'REUSABLE' },
     })
-    const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText(/Reusable voucher/)).toBeTruthy()
+    const { getByText, getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText('Reusable voucher')).toBeTruthy()
+    const row = getByTestId('savings-redemption-row-red-1')
+    expect(row.props.accessibilityLabel).toContain('Reusable voucher')
+  })
+
+  it('renders BOGO with short label "BOGO voucher" (visible) + long label "Buy one, get one free voucher" (a11y)', () => {
+    // §BO Revision (2026-05-18) — the load-bearing short-form case.
+    // Long form "Buy one, get one free voucher" (50+ chars) was
+    // truncating the branch suffix on narrow phones; short form
+    // "BOGO voucher" fits.  A11y label preserved long form so
+    // screen readers don't surface an acronym in isolation.
+    const r = makeRedemption({
+      voucher: { id: 'v', title: 'Half-price pizza', voucherType: 'BOGO' },
+    })
+    const { getByText, queryByText, getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText('BOGO voucher')).toBeTruthy()
+    // Visible text must NOT carry the long form (the whole point of §BO).
+    expect(queryByText('Buy one, get one free voucher')).toBeNull()
+    // A11y label keeps long form for screen-reader audibility.
+    const row = getByTestId('savings-redemption-row-red-1')
+    expect(row.props.accessibilityLabel).toContain('Buy one, get one free voucher')
+  })
+
+  it('renders PACKAGE_DEAL with short label "Package voucher" (visible) + long label "Package deal voucher" (a11y)', () => {
+    // §BO Revision — PACKAGE_DEAL drops the "deal" suffix on the
+    // dense row.  A11y keeps "Package deal" so the screen-reader
+    // distinction with TIME_LIMITED / Reusable stays clear.
+    const r = makeRedemption({
+      voucher: { id: 'v', title: 'Dinner for 2', voucherType: 'PACKAGE_DEAL' },
+    })
+    const { getByText, queryByText, getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
+    expect(getByText('Package voucher')).toBeTruthy()
+    expect(queryByText('Package deal voucher')).toBeNull()
+    const row = getByTestId('savings-redemption-row-red-1')
+    expect(row.props.accessibilityLabel).toContain('Package deal voucher')
   })
 
   it('meta is two deterministic single-line rows: type on line 1, branch · time on line 2', () => {
@@ -104,14 +152,19 @@ describe('RedemptionRow — voucher type label + branch meta', () => {
     // into TWO deterministic single-line rows so card height is
     // constant across the list (no orphan time fragments on long
     // type labels).
+    //
+    // §BO Revision (2026-05-18) — visible type label now uses the
+    // short form ("BOGO voucher", not "Buy one, get one free
+    // voucher") so the branch suffix on the second row reads in
+    // full on narrow phones.
     const r = makeRedemption({
       branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
       voucher: { id: 'v', title: 'Half-price pizza', voucherType: 'BOGO' },
       redeemedAt: new Date(Date.now() - 2 * 60 * 60_000 - 5 * 60_000).toISOString(),
     })
     const { getByText } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    // Line 3 (type-as-noun, full label, no inline branch/time).
-    expect(getByText('Buy one, get one free voucher')).toBeTruthy()
+    // Line 3 (type-as-noun, SHORT form).
+    expect(getByText('BOGO voucher')).toBeTruthy()
     // Line 4 (branch · time, branchShortName-resolved).
     expect(getByText(/^Brightlingsea · /)).toBeTruthy()
   })
@@ -133,12 +186,16 @@ describe('RedemptionRow — voucher type label + branch meta', () => {
     // asserts BOTH rows render in full.  Previously the single-string
     // meta would visually truncate the time fragment on narrow phones;
     // the two-row stack pins each piece on its own line.
+    //
+    // §BO Revision (2026-05-18) — visible label flipped to short
+    // form ("BOGO voucher"); a11y label keeps the long form
+    // ("Buy one, get one free voucher").
     const r = makeRedemption({
       branch: { id: 'br-1', name: 'Covelum — Brightlingsea' },
       voucher: { id: 'v', title: 'Half-price pizza', voucherType: 'BOGO' },
     })
     const { getByText, getByTestId } = render(<RedemptionRow redemption={r} onPress={() => {}} />)
-    expect(getByText('Buy one, get one free voucher')).toBeTruthy()
+    expect(getByText('BOGO voucher')).toBeTruthy()
     expect(getByText(/Brightlingsea/)).toBeTruthy()
     const row = getByTestId('savings-redemption-row-red-1')
     expect(row.props.accessibilityLabel).toContain('Brightlingsea')
