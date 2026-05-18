@@ -187,6 +187,9 @@ describe('Discovery Rebaseline Phase 1 — branch-first BranchTile contract', ()
     })
 
     expect(tiles).toHaveLength(2)
+    // Input-order preservation — pagination consumers depend on output order
+    // matching rankBranchesV3 input order. Pins the contract explicitly.
+    expect(tiles.map(t => t.id)).toEqual([COVELUM_BRANCH_A_ID, COVELUM_BRANCH_B_ID])
     // Both tiles MUST schema-validate.
     for (const tile of tiles) {
       const parsed = branchTileSchema.safeParse(tile)
@@ -327,5 +330,15 @@ describe('Discovery Rebaseline Phase 1 — branch-first BranchTile contract', ()
     expect(tile.branchName).toBe('Demo Locality')
     expect(tile.distance).toBe(50)
     expect(tile.distanceMetres).toBe(50)
+  })
+
+  it('returns [] without firing any DB calls when inputs is empty', async () => {
+    // Pins the short-circuit at service.ts (top of enrichBranchTiles) — if
+    // someone removes the early return, this still passes because empty
+    // arrays roundtrip safely, but the perf gain (zero DB I/O) is the real
+    // intent: prevent N callers from accidentally paying the round-trip cost
+    // on an empty rank result.
+    const tiles = await enrichBranchTiles(prisma, [], { userId: null, lat: null, lng: null })
+    expect(tiles).toEqual([])
   })
 })

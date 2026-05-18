@@ -945,54 +945,66 @@ async function enrichBranchTiles(
   const merchantIds = Array.from(new Set(inputs.map(i => i.merchantId)))
 
   // 1. Bulk fetch branches (with merchant + grouping fields pre-joined).
+  //    Must complete first — call 4 (redundant highlights) needs the
+  //    primaryCategoryId values pulled off each raw branch's merchant.
   const rawBranches = await prisma.branch.findMany({
     where:  { id: { in: branchIds } },
     select: BRANCH_TILE_SELECT,
   })
 
-  // 2. Per-BRANCH rating aggregate — distinct from the merchant variant
-  //    which sums across all branches under a merchant.  Branch-first
-  //    cardinality means each tile's rating is the branch's own rating.
-  const ratingGroups = branchIds.length > 0
-    ? await prisma.review.groupBy({
-        by:     ['branchId'],
-        where:  { branchId: { in: branchIds }, isHidden: false },
-        _avg:   { rating: true },
-        _count: { id: true },
-      })
-    : []
-  const ratingByBranch = new Map<string, { avg: number | null; count: number }>()
-  for (const r of ratingGroups) {
-    const avgRaw = r._avg.rating
-    const avg = avgRaw === null ? null : Math.round(Number(avgRaw) * 10) / 10
-    ratingByBranch.set(r.branchId, { avg, count: r._count.id })
-  }
-
-  // 3. Favourites — merchant-keyed wire under Rev-2 §7 decision #13.  Every
-  //    branch tile of the same merchant shares isFavourited.
-  const favouritedMerchantSet = new Set<string>()
-  if (ctx.userId && merchantIds.length > 0) {
-    const favs = await prisma.favouriteMerchant.findMany({
-      where:  { userId: ctx.userId, merchantId: { in: merchantIds } },
-      select: { merchantId: true },
-    })
-    for (const f of favs) favouritedMerchantSet.add(f.merchantId)
-  }
-
-  // 4. Redundant-highlight rules per subcategory — mirrors enrichMerchantTiles
-  //    (service.ts:640-661).  Group by subcategoryId so each per-branch call
-  //    below can look up its own redundant set in O(1).
+  // After call 1, calls 2/3/4 are mutually independent — they only depend
+  // on branchIds / merchantIds / subcategoryIds, all derivable now. Run
+  // them in parallel to save ~2 DB round-trips per Phase 1 endpoint call.
+  // The merchant-variant enrichMerchantTiles (service.ts:616-711) keeps
+  // the sequential pattern unchanged — Phase 3 deletes it.
   const subcategoryIds = Array.from(new Set(
     rawBranches
       .map(b => b.merchant.primaryCategoryId)
       .filter((id): id is string => Boolean(id)),
   ))
-  const redundantRows = subcategoryIds.length === 0
-    ? []
-    : await prisma.redundantHighlight.findMany({
-        where:  { subcategoryId: { in: subcategoryIds } },
-        select: { subcategoryId: true, highlightTagId: true },
-      })
+
+  const [ratingGroups, favs, redundantRows] = await Promise.all([
+    // 2. Per-BRANCH rating aggregate — distinct from the merchant variant
+    //    which sums across all branches under a merchant. Branch-first
+    //    cardinality means each tile's rating is the branch's own rating.
+    branchIds.length > 0
+      ? prisma.review.groupBy({
+          by:     ['branchId'],
+          where:  { branchId: { in: branchIds }, isHidden: false },
+          _avg:   { rating: true },
+          _count: { id: true },
+        })
+      : Promise.resolve([] as Array<{ branchId: string | null; _avg: { rating: number | null }; _count: { id: number } }>),
+    // 3. Favourites — merchant-keyed wire under Rev-2 §7 decision #13.
+    //    Every branch tile of the same merchant shares isFavourited.
+    ctx.userId && merchantIds.length > 0
+      ? prisma.favouriteMerchant.findMany({
+          where:  { userId: ctx.userId, merchantId: { in: merchantIds } },
+          select: { merchantId: true },
+        })
+      : Promise.resolve([] as Array<{ merchantId: string }>),
+    // 4. Redundant-highlight rules per subcategory — mirrors enrichMerchantTiles
+    //    (service.ts:640-661). Group by subcategoryId so each per-branch call
+    //    below can look up its own redundant set in O(1).
+    subcategoryIds.length > 0
+      ? prisma.redundantHighlight.findMany({
+          where:  { subcategoryId: { in: subcategoryIds } },
+          select: { subcategoryId: true, highlightTagId: true },
+        })
+      : Promise.resolve([] as Array<{ subcategoryId: string; highlightTagId: string }>),
+  ])
+
+  const ratingByBranch = new Map<string, { avg: number | null; count: number }>()
+  for (const r of ratingGroups) {
+    if (r.branchId === null) continue
+    const avgRaw = r._avg.rating
+    const avg = avgRaw === null ? null : Math.round(Number(avgRaw) * 10) / 10
+    ratingByBranch.set(r.branchId, { avg, count: r._count.id })
+  }
+
+  const favouritedMerchantSet = new Set<string>()
+  for (const f of favs) favouritedMerchantSet.add(f.merchantId)
+
   const redundantBySubcat = new Map<string, Set<string>>()
   for (const r of redundantRows) {
     let bucket = redundantBySubcat.get(r.subcategoryId)
