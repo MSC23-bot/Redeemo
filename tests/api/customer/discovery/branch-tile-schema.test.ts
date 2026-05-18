@@ -64,4 +64,38 @@ describe('branchTileSchema', () => {
     const withAddress = { ...validTile, branchAddressLine1: '23 High St' }
     expect(() => branchTileSchema.parse(withAddress)).toThrow(/branchAddressLine1/)
   })
+
+  // Drift-catching parametric tests.  If a SupplyRung / LocationConfidence
+  // value is added or removed at the source-of-truth, these surface the
+  // drift immediately rather than waiting for a downstream consumer to fail.
+
+  it.each([
+    'NEARBY', 'CATCHMENT', 'POST_TOWN', 'LAD',
+    'COUNTY', 'REGION', 'COUNTRY', 'NATIONAL',
+  ] as const)('accepts supplyRung=%s', (rung) => {
+    expect(() => branchTileSchema.parse({ ...validTile, supplyRung: rung })).not.toThrow()
+  })
+
+  it.each([
+    'MANUALLY_CONFIRMED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW', 'ADDRESS_GEOCODED',
+  ] as const)('accepts branchLocationConfidence=%s', (lc) => {
+    expect(() => branchTileSchema.parse({ ...validTile, branchLocationConfidence: lc })).not.toThrow()
+  })
+
+  it('rejects branchLocationConfidence with an unknown value', () => {
+    expect(() => branchTileSchema.parse({ ...validTile, branchLocationConfidence: 'WHATEVER' })).toThrow()
+  })
+
+  it('rejects a tile with merchant: null (grouping is required)', () => {
+    expect(() => branchTileSchema.parse({ ...validTile, merchant: null })).toThrow()
+  })
+
+  it('rejects merchant.highlights: null (must be array)', () => {
+    expect(() =>
+      branchTileSchema.parse({
+        ...validTile,
+        merchant: { ...validTile.merchant, highlights: null },
+      }),
+    ).toThrow()
+  })
 })

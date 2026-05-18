@@ -64,6 +64,11 @@ const merchantGroupingSchema = z.object({
 
 export const branchTileSchema = z.object({
   id: z.string(),
+  // Forward-compat: this wire field name is load-bearing for the
+  // `Branch.shortName` schema migration (deferred under §A in the spec).
+  // Server-side derivation today uses a `branchShortName(branch.name)`
+  // helper; when the migration lands, server reads `branch.shortName`
+  // directly and the wire shape does NOT change.  Do NOT rename.
   branchName: z.string(),
   branchLocalityId: z.string().nullable(),
   branchLocalityName: z.string().nullable(),
@@ -75,6 +80,12 @@ export const branchTileSchema = z.object({
   isOpenNow: z.boolean(),
   closesAtLocal: z.string().nullable(),
   distance: z.number().nullable(),
+  // Forward-compat: derived from merchant favourite state under THIS
+  // rebaseline (Rev-2 decision #13).  Wire shape is forward-compatible
+  // with the eventual branch-keyed favourites contract — when the
+  // separate favourites rebaseline ships, server populates this from
+  // the branch-keyed table; the field name + shape stay identical.
+  // Do NOT rename.
   isFavourited: z.boolean(),
   avgRating: z.number().nullable(),
   reviewCount: z.number().int().nonnegative(),
