@@ -15,6 +15,8 @@ import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import type { FastifyInstance } from 'fastify'
+import { buildApp } from '../../../../src/api/app'
 import { getCustomerMerchant, getCustomerMerchantBranches } from '../../../../src/api/customer/discovery/service'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
@@ -30,6 +32,25 @@ const TEST_MERCHANT_ID = 'plan4-pr81-redaction-test-merchant'
 const APPROX_BRANCH_ID = 'plan4-pr81-redaction-test-branch-approximate'
 const APPROX_BRANCH_POSTCODE_CENTROID_LAT = 53.6463
 const APPROX_BRANCH_POSTCODE_CENTROID_LNG = -1.7809
+
+// Task 1.11 — BranchTile redaction pins (Discovery Rebaseline Phase 1).
+// Separate FIXTURE_PREFIX so the route-shape fixtures stay isolated from
+// the long-standing service-layer fixtures above. FK-safe cleanup in the
+// shared afterAll below.
+const FIXTURE_PREFIX = 'rbl-1-11-'
+const T11_MERCHANT_ID         = `${FIXTURE_PREFIX}merchant`
+const T11_BRANCH_MC_ID        = `${FIXTURE_PREFIX}branch-mc`           // MANUALLY_CONFIRMED
+const T11_BRANCH_PC_ID        = `${FIXTURE_PREFIX}branch-pc`           // POSTCODE_CENTROID
+const T11_BRANCH_AG_ID        = `${FIXTURE_PREFIX}branch-ag`           // ADDRESS_GEOCODED
+// Search-q token unique to the fixture so the search endpoint
+// deterministically surfaces it (no collision with any seeded merchant).
+const T11_SEARCH_Q = `${FIXTURE_PREFIX}Searchable`
+// Tight bbox surrounding all three Task-1.11 fixture branches (Huddersfield
+// area, mirrors the existing service-level pin coordinates).
+const T11_BBOX = { minLat: 53.64, maxLat: 53.66, minLng: -1.79, maxLng: -1.77 }
+const T11_GPS  = { lat: 53.65, lng: -1.78 }
+
+let app: FastifyInstance
 
 beforeAll(async () => {
   // Build a transient ACTIVE merchant + one POSTCODE_CENTROID branch we can
@@ -71,9 +92,128 @@ beforeAll(async () => {
       isActive: true,
     },
   })
-})
+
+  // ── Task 1.11 fixtures — three branches at three confidences on a
+  // single transient merchant. The branch names embed T11_SEARCH_Q so
+  // the `searchBranches` route deterministically surfaces them.
+  // §BU pattern — warm the connection before fresh-per-test fixtures.
+  await prisma.$queryRaw`SELECT 1`
+
+  await prisma.merchant.upsert({
+    where: { id: T11_MERCHANT_ID },
+    create: {
+      id:                 T11_MERCHANT_ID,
+      businessName:       `${T11_SEARCH_Q} Merchant`,
+      tradingName:        `${T11_SEARCH_Q} Merchant`,
+      status:             'ACTIVE',
+      verificationStatus: 'VERIFIED',
+      contractStatus:     'SIGNED',
+    },
+    update: {
+      businessName: `${T11_SEARCH_Q} Merchant`,
+      status:       'ACTIVE',
+    },
+  })
+
+  // MANUALLY_CONFIRMED branch (positive case — surfaces with real coords).
+  await prisma.branch.upsert({
+    where: { id: T11_BRANCH_MC_ID },
+    create: {
+      id:                 T11_BRANCH_MC_ID,
+      merchantId:         T11_MERCHANT_ID,
+      name:               `${T11_SEARCH_Q} MC Branch`,
+      isMainBranch:       true,
+      addressLine1:       '1 Test St',
+      city:               'Huddersfield',
+      postcode:           'HD1 2PY',
+      country:            'GB',
+      latitude:           53.6463,
+      longitude:          -1.7809,
+      isActive:           true,
+      locationConfidence: 'MANUALLY_CONFIRMED',
+    },
+    update: {
+      latitude:           53.6463,
+      longitude:          -1.7809,
+      isActive:           true,
+      locationConfidence: 'MANUALLY_CONFIRMED',
+    },
+  })
+
+  // POSTCODE_CENTROID branch — surfaces in list views with null coords;
+  // excluded from Map in-area.
+  await prisma.branch.upsert({
+    where: { id: T11_BRANCH_PC_ID },
+    create: {
+      id:                 T11_BRANCH_PC_ID,
+      merchantId:         T11_MERCHANT_ID,
+      name:               `${T11_SEARCH_Q} PC Branch`,
+      isMainBranch:       false,
+      addressLine1:       '2 Test St',
+      city:               'Huddersfield',
+      postcode:           'HD1 2PZ',
+      country:            'GB',
+      latitude:           53.6480,
+      longitude:          -1.7820,
+      isActive:           true,
+      locationConfidence: 'POSTCODE_CENTROID',
+    },
+    update: {
+      latitude:           53.6480,
+      longitude:          -1.7820,
+      isActive:           true,
+      locationConfidence: 'POSTCODE_CENTROID',
+    },
+  })
+
+  // ADDRESS_GEOCODED branch — list-view eligible but excluded from Map
+  // in-area (the in-area predicate is MANUALLY_CONFIRMED-only per
+  // service.ts:3124, mirroring spec §4.1.1 list-vs-map asymmetry).
+  await prisma.branch.upsert({
+    where: { id: T11_BRANCH_AG_ID },
+    create: {
+      id:                 T11_BRANCH_AG_ID,
+      merchantId:         T11_MERCHANT_ID,
+      name:               `${T11_SEARCH_Q} AG Branch`,
+      isMainBranch:       false,
+      addressLine1:       '3 Test St',
+      city:               'Huddersfield',
+      postcode:           'HD1 2QA',
+      country:            'GB',
+      latitude:           53.6500,
+      longitude:          -1.7830,
+      isActive:           true,
+      locationConfidence: 'ADDRESS_GEOCODED',
+    },
+    update: {
+      latitude:           53.6500,
+      longitude:          -1.7830,
+      isActive:           true,
+      locationConfidence: 'ADDRESS_GEOCODED',
+    },
+  })
+
+  // Build the Fastify app and decorate with our Prisma connection (§BU
+  // pattern). `buildApp` skips the prisma plugin in test mode (app.ts:33),
+  // so explicit decoration is the intended seam.
+  app = await buildApp()
+  app.decorate('prisma', prisma as any)
+  app.decorate('redis', {
+    get: async () => null,
+    set: async () => 'OK',
+    del: async () => 1,
+  } as any)
+  await app.ready()
+}, 60_000)
 
 afterAll(async () => {
+  if (app) {
+    await app.close()
+  }
+  // FK-safe cleanup: branches → merchants. Task 1.11 fixtures cleaned by
+  // FIXTURE_PREFIX; PR #81 legacy fixtures cleaned by explicit id.
+  await prisma.branch.deleteMany({ where: { id: { startsWith: FIXTURE_PREFIX } } })
+  await prisma.merchant.deleteMany({ where: { id: { startsWith: FIXTURE_PREFIX } } })
   await prisma.branch.deleteMany({ where: { id: APPROX_BRANCH_ID } })
   await prisma.merchant.deleteMany({ where: { id: TEST_MERCHANT_ID } })
   await prisma.$disconnect()
@@ -302,4 +442,135 @@ describe('Branch locationConfidence redaction (PR #81 review B2)', () => {
     const found = result.merchants.find((m: { id: string }) => m.id === TEST_MERCHANT_ID)
     expect(found).toBeUndefined()
   })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 1.11 — PR #81 redaction across the new `BranchTile` shape (Phase 1).
+//
+// Spec: docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §4.1.1.
+// PR #81 (Plan 4 M1) locked the rule: only `MANUALLY_CONFIRMED` branches
+// expose exact `latitude` / `longitude`. POSTCODE_CENTROID / NEEDS_REVIEW /
+// ADDRESS_GEOCODED redact to `branchLatitude: null` + `branchLongitude: null`
+// on the wire. Spec §4.1.1 then layers the list-vs-map asymmetry on top:
+//
+//   * LIST views (Search / Home / Category / Campaign): admit all confidences
+//     EXCEPT NEEDS_REVIEW — POSTCODE_CENTROID + ADDRESS_GEOCODED still surface
+//     as tiles, just with null coordinates.
+//   * MAP `in-area`: MANUALLY_CONFIRMED ONLY — POSTCODE_CENTROID and
+//     ADDRESS_GEOCODED are EXCLUDED from the response entirely so an
+//     approximate-coord pin never appears on the map.
+//
+// These pins exercise the route layer (`app.inject`) so the full Phase 1
+// branch-tile pipeline — service fetch → `enrichBranchTile` → wire — is
+// covered end-to-end on the `branches` arm of each of the four affected
+// routes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PR #81 redaction — BranchTile (Phase 1)', () => {
+  it('search route: POSTCODE_CENTROID branch tile surfaces with null lat/lng + confidence label', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=${encodeURIComponent(T11_SEARCH_Q)}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as {
+      branches: Array<{
+        id: string
+        branchLatitude: number | null
+        branchLongitude: number | null
+        branchLocationConfidence: string
+      }>
+    }
+    const tile = body.branches.find((b) => b.id === T11_BRANCH_PC_ID)
+    expect(tile).toBeDefined()
+    expect(tile!.branchLatitude).toBeNull()
+    expect(tile!.branchLongitude).toBeNull()
+    expect(tile!.branchLocationConfidence).toBe('POSTCODE_CENTROID')
+  }, 30_000)
+
+  it('search route: POSTCODE_CENTROID branch IS admitted to list views (§4.1.1 list admission)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=${encodeURIComponent(T11_SEARCH_Q)}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { branches: Array<{ id: string }> }
+    // Pin: the POSTCODE_CENTROID branch appears as its own tile (not
+    // excluded). The list-view admission is what gives the customer
+    // a clickable card even though the map pin would be unsafe.
+    const ids = body.branches.map((b) => b.id)
+    expect(ids).toContain(T11_BRANCH_PC_ID)
+  }, 30_000)
+
+  it('in-area route: POSTCODE_CENTROID branch is EXCLUDED from Map bbox (§4.1.1 list-vs-map asymmetry)', async () => {
+    // Bbox surrounds the POSTCODE_CENTROID branch's stored coords. The
+    // MANUALLY_CONFIRMED-only predicate in `getInAreaBranches`
+    // (service.ts:3124) must keep it OUT of the `branches` arm.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/discovery/in-area?minLat=${T11_BBOX.minLat}&maxLat=${T11_BBOX.maxLat}&minLng=${T11_BBOX.minLng}&maxLng=${T11_BBOX.maxLng}&lat=${T11_GPS.lat}&lng=${T11_GPS.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { branches: Array<{ id: string }> }
+    const ids = body.branches.map((b) => b.id)
+    expect(ids).not.toContain(T11_BRANCH_PC_ID)
+  }, 30_000)
+
+  it('in-area route: ADDRESS_GEOCODED branch is EXCLUDED from Map bbox (PR #81 redaction lock)', async () => {
+    // ADDRESS_GEOCODED is geocoded but not human-verified — same exclusion
+    // as POSTCODE_CENTROID per the in-area predicate. The list-vs-map
+    // asymmetry holds: ADDRESS_GEOCODED surfaces in list views with null
+    // coords but never lands a Map pin.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/discovery/in-area?minLat=${T11_BBOX.minLat}&maxLat=${T11_BBOX.maxLat}&minLng=${T11_BBOX.minLng}&maxLng=${T11_BBOX.maxLng}&lat=${T11_GPS.lat}&lng=${T11_GPS.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { branches: Array<{ id: string }> }
+    const ids = body.branches.map((b) => b.id)
+    expect(ids).not.toContain(T11_BRANCH_AG_ID)
+  }, 30_000)
+
+  it('MANUALLY_CONFIRMED branch surfaces with REAL lat/lng on BOTH search AND in-area (positive sanity pin)', async () => {
+    // Search route — list view, MANUALLY_CONFIRMED branch carries real coords.
+    const searchRes = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=${encodeURIComponent(T11_SEARCH_Q)}`,
+    })
+    expect(searchRes.statusCode).toBe(200)
+    const searchBody = searchRes.json() as {
+      branches: Array<{
+        id: string
+        branchLatitude: number | null
+        branchLongitude: number | null
+        branchLocationConfidence: string
+      }>
+    }
+    const searchTile = searchBody.branches.find((b) => b.id === T11_BRANCH_MC_ID)
+    expect(searchTile).toBeDefined()
+    expect(searchTile!.branchLatitude).toBe(53.6463)
+    expect(searchTile!.branchLongitude).toBe(-1.7809)
+    expect(searchTile!.branchLocationConfidence).toBe('MANUALLY_CONFIRMED')
+
+    // In-area route — Map view, MANUALLY_CONFIRMED is the ONLY confidence
+    // admitted, so the same branch shows up with the same real coords.
+    const inAreaRes = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/discovery/in-area?minLat=${T11_BBOX.minLat}&maxLat=${T11_BBOX.maxLat}&minLng=${T11_BBOX.minLng}&maxLng=${T11_BBOX.maxLng}&lat=${T11_GPS.lat}&lng=${T11_GPS.lng}`,
+    })
+    expect(inAreaRes.statusCode).toBe(200)
+    const inAreaBody = inAreaRes.json() as {
+      branches: Array<{
+        id: string
+        branchLatitude: number | null
+        branchLongitude: number | null
+        branchLocationConfidence: string
+      }>
+    }
+    const inAreaTile = inAreaBody.branches.find((b) => b.id === T11_BRANCH_MC_ID)
+    expect(inAreaTile).toBeDefined()
+    expect(inAreaTile!.branchLatitude).toBe(53.6463)
+    expect(inAreaTile!.branchLongitude).toBe(-1.7809)
+    expect(inAreaTile!.branchLocationConfidence).toBe('MANUALLY_CONFIRMED')
+  }, 30_000)
 })
