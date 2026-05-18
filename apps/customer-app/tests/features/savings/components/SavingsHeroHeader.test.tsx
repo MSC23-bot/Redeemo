@@ -1,0 +1,96 @@
+import React from 'react'
+import { render, fireEvent } from '@testing-library/react-native'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { SavingsHeroHeader } from '@/features/savings/components/SavingsHeroHeader'
+
+// Force reduce-motion for hero tests.  The hero's lifetime amount is
+// driven by `useCountUp` → `withTiming` → `useAnimatedReaction` →
+// `setDisplayed`.  The jest reanimated mock does NOT actually animate
+// `withTiming` synchronously to the target; it returns a placeholder
+// value.  Forcing `useMotionScale → 0` makes `useCountUp` short-
+// circuit and write the target value directly to the shared value,
+// so `useAnimatedReaction` reads the real target and `displayed`
+// settles on it.  This pins the steady-state rendered text, which
+// is what users actually see post-animation in production.
+// The mid-animation behaviour is exercised in the production
+// `useCountUp` + Reanimated codepath, not in jest.
+jest.mock('@/design-system/useMotionScale', () => ({
+  useMotionScale: () => 0,
+}))
+
+const initialMetrics = {
+  frame:  { x: 0, y: 0, width: 393, height: 852 },
+  insets: { top: 59, left: 0, right: 0, bottom: 34 },
+}
+
+function wrap(ui: React.ReactElement) {
+  return render(<SafeAreaProvider initialMetrics={initialMetrics}>{ui}</SafeAreaProvider>)
+}
+
+describe('SavingsHeroHeader — 3 state variants', () => {
+  it('free: renders Unlock hero + Subscribe CTA', () => {
+    const onSubscribe = jest.fn()
+    const { getByTestId, getByText } = wrap(
+      <SavingsHeroHeader
+        state="free"
+        onSubscribe={onSubscribe}
+        onBrowse={() => {}}
+        lifetimeSaving={0}
+        thisMonthSaving={0}
+        thisMonthRedemptionCount={0}
+      />,
+    )
+    expect(getByTestId('savings-hero-free')).toBeTruthy()
+    expect(getByText('Unlock your savings')).toBeTruthy()
+    fireEvent.press(getByTestId('savings-hero-subscribe-cta'))
+    expect(onSubscribe).toHaveBeenCalled()
+  })
+
+  it('subscriber-empty: renders Start-saving hero + Browse CTA', () => {
+    const onBrowse = jest.fn()
+    const { getByTestId, getByText } = wrap(
+      <SavingsHeroHeader
+        state="subscriber-empty"
+        onSubscribe={() => {}}
+        onBrowse={onBrowse}
+        lifetimeSaving={0}
+        thisMonthSaving={0}
+        thisMonthRedemptionCount={0}
+      />,
+    )
+    expect(getByTestId('savings-hero-subscriber-empty')).toBeTruthy()
+    expect(getByText('Start saving today')).toBeTruthy()
+    fireEvent.press(getByTestId('savings-hero-browse-cta'))
+    expect(onBrowse).toHaveBeenCalled()
+  })
+
+  it('populated: renders eyebrow + lifetime + two full-width stat chips on brand-rose hero', () => {
+    // §Savings device-QA fixup 3 2026-05-18: the populated hero
+    // reverted from the cream-editorial impeccable rework back to
+    // brand-rose with eyebrow + amount + two stat chips per owner
+    // direction.  Chips are now `flex: 1` each so they fill the row
+    // width (was left-aligned with empty space on the right).
+    const { getByTestId, getByText } = wrap(
+      <SavingsHeroHeader
+        state="populated"
+        onSubscribe={() => {}}
+        onBrowse={() => {}}
+        lifetimeSaving={247.5}
+        thisMonthSaving={32}
+        thisMonthRedemptionCount={5}
+      />,
+    )
+    expect(getByTestId('savings-hero-populated')).toBeTruthy()
+    expect(getByText('Total saved')).toBeTruthy()
+
+    // Lifetime amount via Animated.Text — testID + children inspect.
+    const lifetime = getByTestId('savings-hero-lifetime')
+    expect(JSON.stringify(lifetime.props.children)).toContain('£247.50')
+
+    // Both stat chips present with correct values.
+    expect(getByTestId('savings-hero-chip-this-month')).toBeTruthy()
+    expect(getByTestId('savings-hero-chip-redemptions')).toBeTruthy()
+    expect(getByText('£32.00')).toBeTruthy()
+    expect(getByText('5')).toBeTruthy()
+  })
+})

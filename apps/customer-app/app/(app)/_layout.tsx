@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useAuthStore } from '@/stores/auth'
 import { resolveRedirect } from '@/lib/routing'
 import { color, spacing } from '@/design-system'
-import { Home, Map, User } from '@/design-system/icons'
+import { Home, Map, User, PiggyBank } from '@/design-system/icons'
 
 function HomeIcon({ focused }: { focused: boolean }) {
   return (
@@ -21,6 +21,15 @@ function MapIcon({ focused }: { focused: boolean }) {
     <View style={styles.iconWrapper}>
       {focused && <View style={styles.activeDot} />}
       <Map size={22} color={color.onBrand} style={{ opacity: focused ? 1 : 0.55 }} />
+    </View>
+  )
+}
+
+function SavingsIcon({ focused }: { focused: boolean }) {
+  return (
+    <View style={styles.iconWrapper}>
+      {focused && <View style={styles.activeDot} />}
+      <PiggyBank size={22} color={color.onBrand} style={{ opacity: focused ? 1 : 0.55 }} />
     </View>
   )
 }
@@ -102,6 +111,13 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="savings"
+        options={{
+          title: 'Savings',
+          tabBarIcon: ({ focused }) => <SavingsIcon focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
@@ -109,16 +125,17 @@ export default function AppLayout() {
         }}
       />
       {/* Hide non-tab routes from auto-discovery so they don't appear as default
-          tabs. Each rebaselined surface (voucher, favourites, savings) will
-          land its own visible <Tabs.Screen> entry as part of its rebaseline
-          PR. Merchant Profile is a per-merchant detail route — `tabBarStyle:
+          tabs. Each rebaselined surface (voucher, favourites) will land its
+          own visible <Tabs.Screen> entry as part of its rebaseline PR.
+          Merchant Profile is a per-merchant detail route — `tabBarStyle:
           display:'none'` hides the bottom tab bar while it's open so the
           screen owns the full viewport. */}
       <Tabs.Screen name="search"        options={{ href: null }} />
       <Tabs.Screen name="categories"    options={{ href: null }} />
       <Tabs.Screen name="category/[id]" options={{ href: null }} />
-      <Tabs.Screen name="merchant/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
-      <Tabs.Screen name="voucher/[id]"  options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="merchant/[id]"   options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="voucher/[id]"    options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="redemption/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
     </Tabs>
   )
 }

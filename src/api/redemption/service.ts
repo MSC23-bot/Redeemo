@@ -590,12 +590,48 @@ export async function getMyRedemption(
   const redemption = await prisma.voucherRedemption.findUnique({
     where:   { id: redemptionId },
     include: {
-      voucher: { select: { id: true, title: true, terms: true, merchant: { select: { businessName: true } } } },
+      // §Savings Redemption Detail screen (PR #105 device-QA round-3,
+      // 2026-05-18) — added `type` (for the voucher-type label) and
+      // `merchant.id` (for the "See merchant" route) to the select.
+      // Both additive — no existing callers regress because Zod
+      // schemas in the customer-app ignore unknown fields by default.
+      //
+      // §Savings device-QA round-4 fixup 2026-05-18 — Prisma field is
+      // `type`, not `voucherType`.  The previous select shipped
+      // `voucherType: true` which Prisma rejected at runtime with
+      // PrismaClientValidationError → 500 on every request to
+      // GET /api/v1/redemption/my/:id.  See the savings service
+      // (src/api/customer/savings/service.ts:161) for the canonical
+      // pattern: select `type`, remap to `voucherType` in the
+      // response so the customer-app's `voucherType`-keyed schemas
+      // stay consistent across endpoints.
+      // §Savings device-QA round-8 fixup 2026-05-18 — merchant.logoUrl
+      // added to the receipt payload so the Redemption Receipt screen
+      // can render the merchant identity visually (matches the
+      // savings-history row + savings TopPlaces row treatment).
+      // Additive; existing callers ignore unknown fields.
+      voucher: { select: { id: true, title: true, type: true, description: true, terms: true, merchant: { select: { id: true, businessName: true, logoUrl: true } } } },
       branch:  { select: { id: true, name: true, addressLine1: true, city: true, postcode: true } },
     },
   })
   if (!redemption || redemption.userId !== userId) throw new AppError('REDEMPTION_NOT_FOUND')
-  return { ...redemption, estimatedSaving: Number(redemption.estimatedSaving) }
+
+  // Remap Prisma's `voucher.type` → response `voucher.voucherType`
+  // (consistent with the savings + ShowToStaff response shapes that
+  // the customer-app's redemption schemas expect).
+  const { voucher, ...rest } = redemption
+  return {
+    ...rest,
+    estimatedSaving: Number(redemption.estimatedSaving),
+    voucher: {
+      id:          voucher.id,
+      title:       voucher.title,
+      description: voucher.description,
+      terms:       voucher.terms,
+      voucherType: voucher.type,
+      merchant:    voucher.merchant,
+    },
+  }
 }
 
 // ─── Show-to-Staff polling + anti-fraud telemetry ─────────────────────────────
