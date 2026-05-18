@@ -2806,6 +2806,52 @@ export async function getCategoryMerchants(
   }
 }
 
+// ─── Category Branches ───────────────────────────────────────────────────────
+//
+// Discovery Rebaseline Phase 1 Task 1.8.
+// Spec docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §1.5.
+//
+// Branch-first analogue of `getCategoryMerchants`. Returns one `BranchTile` per
+// matching branch — multi-branch merchants in the category surface as multiple
+// tiles (closes the same merchant-collapse bug class as searchBranches in a
+// category-id-driven request).
+//
+// Implementation note: this is intentionally a thin delegate over
+// `searchBranches`. The category predicate (parent + subcategory union via
+// MerchantCategory.OR primaryCategoryId) is already implemented inside
+// searchBranches under the `if (categoryId)` branch (service.ts ≈2460). Empty
+// query + a categoryId satisfies the SEARCH_QUERY_REQUIRED bounded-predicate
+// guard, so no special-casing is required. Phase 3 drops `getCategoryMerchants`
+// per the §AT cleanup note.
+export async function getCategoryBranches(
+  prisma: PrismaClient,
+  params: {
+    categoryId: string
+    limit: number
+    offset: number
+    userId: string | null
+    lat?: number | null
+    lng?: number | null
+  },
+): Promise<{
+  branches: BranchTile[]
+  totalBranches: number
+  meta: {
+    rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
+    effectiveLocality: { id: string; name: string } | null
+  }
+}> {
+  return searchBranches(prisma, {
+    q:          undefined,
+    categoryId: params.categoryId,
+    lat:        params.lat ?? undefined,
+    lng:        params.lng ?? undefined,
+    limit:      params.limit,
+    offset:     params.offset,
+    userId:     params.userId,
+  })
+}
+
 // ─── In-area (Map) ────────────────────────────────────────────────────────────
 
 type Bbox = { minLat: number; maxLat: number; minLng: number; maxLng: number }
