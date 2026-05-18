@@ -4728,11 +4728,13 @@ gh pr create --title "feat(plan-4-m3): wire Discovery surfaces to rankMerchantsV
 > **Resume criteria:** Phase 2 customer-app surface migrations of the Discovery rebaseline must be at least underway (Search + Map surfaces migrated). M4's tasks resume against the branch-first contract without conceptual change — the WIRE SHAPE consumers shifts but the place-detection / tag-expansion / chip / empty-state logic itself is unaffected.
 >
 > **Cross-refs:**
-> - Spec: `docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md` (in progress 2026-05-18).
+> - Spec: `docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md` (Rev 2.1 — owner-approved + locked 2026-05-18).
+> - Plan: `docs/superpowers/plans/2026-05-18-discovery-rebaseline-branch-first.md` (Rev 1.2 — owner-approved + locked 2026-05-18; in active execution).
+> - PR-1 (Phase 1 backend additive) in flight as PR #110 against `main`.
 > - Deferred-followups: §M (🚧 ACTIVE 2026-05-18) — full rebaseline scope, cross-refs to §BA / §BB / §AW / §AV.
 > - Memory: `project_current_state.md` (2026-05-18 top section).
 >
-> M5 (Cleanup) is unblocked — Phase 3 of the rebaseline converges with M5's "remove deprecated `rankMerchants` + `classifyTier`" task. The two cleanup tracks should run together as a single PR.
+> **M5 sequencing:** M5 cleanup should converge with Discovery Rebaseline Phase 3 / PR-7 once the branch-first surface migrations are complete. **Do NOT start M5 independently while M4 remains blocked.** The two cleanup tracks (Plan 4 M5 + Rebaseline Phase 3) ship together as a single PR after all five Phase 2 customer-app surface migrations are merged + owner-accepted.
 
 
 **Goal:** Add place + tag detection in `q` (place sets EffectiveLocation per spec §6.2), expand fuzzy search predicate with `Tag.label`, `MerchantHighlight.label`, `Branch.localityName`, `Branch.postTown`. Section-level empty states and approved copy vocabulary land. Search chip ("Showing offers in [place]" / "Showing [tag] offers") renders. Trending searches verified non-empty against fixtures.
