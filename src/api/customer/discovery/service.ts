@@ -36,6 +36,7 @@ import {
   computeAvailableAgainAt,
 } from '../../redemption/reusable'
 import { PRESENTATION_WINDOW_MS } from '../../redemption/presentation-window'
+import { type BranchTile } from './branchTileSchema'
 
 /**
  * Plan 4 M1 PR #81 review — server-side enforcement that approximate branch
@@ -709,6 +710,322 @@ async function enrichMerchantTiles(
     }),
   )
 }
+
+// ─── Discovery Rebaseline Phase 1 — branch-first enrichment ──────────────────
+//
+// Spec: docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §1.1.
+//
+// Branch-first variant of `enrichMerchantTile` / `enrichMerchantTiles`. Emits
+// ONE BranchTile per branch (vs the merchant variant which collapses every
+// branch under each merchant). Coexists with the merchant variants during
+// Phase 1 + Phase 2; Phase 3 deletes the merchant variant per the §AT cleanup
+// note.
+//
+// Shape mirrors `branchTileSchema` (src/api/customer/discovery/branchTileSchema.ts):
+//   - Top-level keys are BRANCH-scoped (id, branchName, branchLocalityId,
+//     branchLatitude, etc.).
+//   - `merchant` is the GROUPING container (id, businessName, primaryCategory,
+//     etc.), populated once per branch tile from the joined merchant.
+//   - `isFavourited` is merchant-keyed per Rev-2 §7 decision #13 — every branch
+//     tile of the same merchant shares the same value. Forward-compat with the
+//     eventual branch-keyed favourites contract (wire field stays unchanged).
+//   - `closesAtLocal` is null in Phase 1 — `isOpenNow` (src/api/shared/isOpenNow.ts)
+//     does not return close-time. PR-0.5 gate resolved by reusing the existing
+//     helper; extending its signature is out of scope for PR-1.
+//   - Position-redaction contract — `exposeBranchPosition` applied at the
+//     serialization boundary so POSTCODE_CENTROID / NEEDS_REVIEW /
+//     ADDRESS_GEOCODED branches expose null lat/lng (Plan 4 M1 PR #81 lock).
+
+const BRANCH_TILE_SELECT = {
+  id:                 true,
+  name:               true,
+  localityId:         true,
+  localityName:       true,
+  postTown:           true,
+  city:               true,
+  latitude:           true,
+  longitude:          true,
+  locationConfidence: true,
+  isActive:           true,
+  openingHours: {
+    select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+  },
+  merchant: {
+    select: {
+      id:                  true,
+      businessName:        true,
+      tradingName:         true,
+      logoUrl:             true,
+      bannerUrl:           true,
+      primaryCategoryId:   true,
+      primaryCategory: {
+        select: {
+          id: true, name: true, pinColour: true, pinIcon: true,
+          descriptorSuffix: true, parentId: true, intentType: true,
+        },
+      },
+      primaryDescriptorTag: { select: { id: true, label: true } },
+      categories: {
+        select: {
+          category: {
+            select: {
+              id: true, name: true, parentId: true, pinColour: true,
+              pinIcon: true, descriptorSuffix: true, intentType: true,
+            },
+          },
+        },
+      },
+      highlights: {
+        include: { tag: { select: { id: true, label: true } } },
+        orderBy: { sortOrder: 'asc' },
+        take: 3,
+      },
+      vouchers: {
+        where:  { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+        select: { id: true, estimatedSaving: true },
+      },
+      _count: {
+        select: {
+          vouchers: {
+            where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+          },
+        },
+      },
+    },
+  },
+} as const
+
+// Server-side mirror of apps/customer-app/src/features/merchant/utils/branchShortName.ts.
+// Strips a "Merchant — Locality" / "Merchant - Locality" / "Merchant Locality"
+// prefix from a raw branch name and returns the bare locality. Falls back to
+// the raw name when stripping would produce an empty string.
+//
+// The wire field name `branchName` is forward-compatible with the eventual
+// `Branch.shortName` schema migration (deferred under §A in the spec) — once
+// the column lands, the server reads it directly and this helper retires.
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+function branchShortNameServer(rawBranchName: string, businessName: string): string {
+  if (!rawBranchName || !businessName) return rawBranchName
+  const escaped = escapeRegex(businessName)
+  const dashed = new RegExp(`^${escaped}\\s*[\\-–—]\\s*`, 'i')
+  const spaced = new RegExp(`^${escaped}\\s+`, 'i')
+  const stripped = rawBranchName.replace(dashed, '').replace(spaced, '').trim()
+  return stripped.length > 0 ? stripped : rawBranchName
+}
+
+// Input shape supplied by the rankBranchesV3 result + per-input distance the
+// caller has already computed (or null when no effective location is resolved).
+// Mirrors the V3 fields the customer-app surfaces consume.
+export type EnrichBranchInput = {
+  branchId:      string
+  merchantId:    string
+  supplyRung:    BranchTile['supplyRung']
+  proximityBand: BranchTile['proximityBand']
+  distance:      number | null
+}
+
+// Per-request context for the enrichment pass. `userId` drives the favourites
+// lookup; `lat` / `lng` are reserved for downstream tasks that compute a
+// per-branch distance at enrichment time (Phase 1 does NOT, since rankBranchesV3
+// already supplies `distance`/`distanceMetres`).
+export type EnrichBranchCtx = {
+  userId: string | null
+  lat:    number | null
+  lng:    number | null
+}
+
+// Internal: the typed shape returned by a Prisma findMany against
+// BRANCH_TILE_SELECT. We construct it via the const-typed select for accuracy.
+type BranchSelectResult = Prisma.BranchGetPayload<{ select: typeof BRANCH_TILE_SELECT }>
+
+function enrichBranchTile(
+  branch: BranchSelectResult,
+  opts: {
+    input: EnrichBranchInput
+    rating?: { avg: number | null; count: number }
+    isFavourited: boolean
+    redundantSet: ReadonlySet<string>
+  },
+): BranchTile {
+  const merchant = branch.merchant
+  const exposed  = exposeBranchPosition(branch)
+
+  // Subcategory derivation mirrors enrichMerchantTile (service.ts:576-578) —
+  // pick the first non-primary subcategory from MerchantCategory rows.
+  const subcategory = merchant.categories
+    .map(c => c.category)
+    .find(c => c.parentId !== null && c.id !== merchant.primaryCategory?.id) ?? null
+
+  // Savings — mirrors enrichMerchantTile (service.ts:580-581). Prisma Decimal
+  // serializes as a string; coerce via Number then drop NaNs defensively.
+  const savings = merchant.vouchers
+    .map(v => Number(v.estimatedSaving))
+    .filter(n => !isNaN(n))
+  const maxEstimatedSaving = savings.length > 0 ? Math.max(...savings) : null
+
+  // Descriptor — branchTileSchema declares `descriptor: z.string()` (not
+  // nullable), so fall back to an empty string when the merchant has no
+  // primaryCategory.
+  const descriptor = descriptorForMerchant(merchant) ?? ''
+
+  // Highlights — visibleHighlightsFor filters out redundant-by-subcategory
+  // tags + caps at 3. `tag` (NOT `highlightTag`) per service.ts:225-228 +
+  // schema relation `MerchantHighlight.tag`.
+  const visibleHighlights = visibleHighlightsFor(merchant.highlights ?? [], opts.redundantSet)
+    .map(h => ({ highlightTagId: h.highlightTagId, label: h.tag.label }))
+
+  return {
+    id:                       branch.id,
+    branchName:               branchShortNameServer(branch.name, merchant.businessName),
+    branchLocalityId:         branch.localityId,
+    branchLocalityName:       branch.localityName,
+    branchPostTown:           branch.postTown,
+    branchCity:               branch.city,
+    branchLatitude:           exposed.latitude,
+    branchLongitude:          exposed.longitude,
+    branchLocationConfidence: exposed.locationConfidence as BranchTile['branchLocationConfidence'],
+    isOpenNow:                isOpenNow(branch.openingHours),
+    closesAtLocal:            null, // Phase 1 — see header comment above.
+    distance:                 opts.input.distance,
+    isFavourited:             opts.isFavourited,
+    avgRating:                opts.rating?.avg ?? null,
+    reviewCount:              opts.rating?.count ?? 0,
+    supplyRung:               opts.input.supplyRung,
+    proximityBand:            opts.input.proximityBand,
+    distanceMetres:           opts.input.distance,
+    merchant: {
+      id:                  merchant.id,
+      businessName:        merchant.businessName,
+      tradingName:         merchant.tradingName,
+      logoUrl:             merchant.logoUrl,
+      bannerUrl:           merchant.bannerUrl,
+      primaryCategory:     merchant.primaryCategory
+        ? {
+            id:               merchant.primaryCategory.id,
+            name:             merchant.primaryCategory.name,
+            pinColour:        merchant.primaryCategory.pinColour ?? null,
+            pinIcon:          merchant.primaryCategory.pinIcon ?? null,
+            descriptorSuffix: merchant.primaryCategory.descriptorSuffix ?? null,
+            parentId:         merchant.primaryCategory.parentId,
+            intentType:       merchant.primaryCategory.intentType ?? null,
+          }
+        : null,
+      primaryDescriptorTag: merchant.primaryDescriptorTag
+        ? { id: merchant.primaryDescriptorTag.id, label: merchant.primaryDescriptorTag.label }
+        : null,
+      subcategory: subcategory
+        ? {
+            id:               subcategory.id,
+            name:             subcategory.name,
+            pinColour:        subcategory.pinColour ?? null,
+            pinIcon:          subcategory.pinIcon ?? null,
+            descriptorSuffix: subcategory.descriptorSuffix ?? null,
+            parentId:         subcategory.parentId,
+            intentType:       subcategory.intentType ?? null,
+          }
+        : null,
+      descriptor,
+      highlights:           visibleHighlights,
+      voucherCount:         merchant._count.vouchers,
+      maxEstimatedSaving,
+    },
+  }
+}
+
+async function enrichBranchTiles(
+  prisma: PrismaClient,
+  inputs: EnrichBranchInput[],
+  ctx: EnrichBranchCtx,
+): Promise<BranchTile[]> {
+  if (inputs.length === 0) return []
+
+  const branchIds   = inputs.map(i => i.branchId)
+  const merchantIds = Array.from(new Set(inputs.map(i => i.merchantId)))
+
+  // 1. Bulk fetch branches (with merchant + grouping fields pre-joined).
+  const rawBranches = await prisma.branch.findMany({
+    where:  { id: { in: branchIds } },
+    select: BRANCH_TILE_SELECT,
+  })
+
+  // 2. Per-BRANCH rating aggregate — distinct from the merchant variant
+  //    which sums across all branches under a merchant.  Branch-first
+  //    cardinality means each tile's rating is the branch's own rating.
+  const ratingGroups = branchIds.length > 0
+    ? await prisma.review.groupBy({
+        by:     ['branchId'],
+        where:  { branchId: { in: branchIds }, isHidden: false },
+        _avg:   { rating: true },
+        _count: { id: true },
+      })
+    : []
+  const ratingByBranch = new Map<string, { avg: number | null; count: number }>()
+  for (const r of ratingGroups) {
+    const avgRaw = r._avg.rating
+    const avg = avgRaw === null ? null : Math.round(Number(avgRaw) * 10) / 10
+    ratingByBranch.set(r.branchId, { avg, count: r._count.id })
+  }
+
+  // 3. Favourites — merchant-keyed wire under Rev-2 §7 decision #13.  Every
+  //    branch tile of the same merchant shares isFavourited.
+  const favouritedMerchantSet = new Set<string>()
+  if (ctx.userId && merchantIds.length > 0) {
+    const favs = await prisma.favouriteMerchant.findMany({
+      where:  { userId: ctx.userId, merchantId: { in: merchantIds } },
+      select: { merchantId: true },
+    })
+    for (const f of favs) favouritedMerchantSet.add(f.merchantId)
+  }
+
+  // 4. Redundant-highlight rules per subcategory — mirrors enrichMerchantTiles
+  //    (service.ts:640-661).  Group by subcategoryId so each per-branch call
+  //    below can look up its own redundant set in O(1).
+  const subcategoryIds = Array.from(new Set(
+    rawBranches
+      .map(b => b.merchant.primaryCategoryId)
+      .filter((id): id is string => Boolean(id)),
+  ))
+  const redundantRows = subcategoryIds.length === 0
+    ? []
+    : await prisma.redundantHighlight.findMany({
+        where:  { subcategoryId: { in: subcategoryIds } },
+        select: { subcategoryId: true, highlightTagId: true },
+      })
+  const redundantBySubcat = new Map<string, Set<string>>()
+  for (const r of redundantRows) {
+    let bucket = redundantBySubcat.get(r.subcategoryId)
+    if (!bucket) {
+      bucket = new Set<string>()
+      redundantBySubcat.set(r.subcategoryId, bucket)
+    }
+    bucket.add(r.highlightTagId)
+  }
+
+  // 5. Build the tile array in input order — preserves the rankBranchesV3
+  //    ordering. Drops silently if a branch referenced in inputs no longer
+  //    exists (race against deletion); the upstream ranker already filtered
+  //    by isActive + locationConfidence so this is an edge case.
+  const branchById = new Map(rawBranches.map(b => [b.id, b]))
+  const tiles: BranchTile[] = []
+  for (const input of inputs) {
+    const branch = branchById.get(input.branchId)
+    if (!branch) continue
+    const redundantSet = branch.merchant.primaryCategoryId
+      ? (redundantBySubcat.get(branch.merchant.primaryCategoryId) ?? EMPTY_REDUNDANT_SET)
+      : EMPTY_REDUNDANT_SET
+    tiles.push(enrichBranchTile(branch, {
+      input,
+      rating:       ratingByBranch.get(branch.id),
+      isFavourited: favouritedMerchantSet.has(branch.merchant.id),
+      redundantSet,
+    }))
+  }
+  return tiles
+}
+
+export { enrichBranchTile, enrichBranchTiles }
 
 // ─── Home Feed ───────────────────────────────────────────────────────────────
 
