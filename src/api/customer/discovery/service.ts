@@ -12,12 +12,16 @@ import { getCurrentCycleWindow } from '../../subscription/cycle'
 import {
   rankMerchants,
   rankMerchantsV2,
+  rankBranchesV3,
   resolveCategoryIntent,
   computeRatingsByMerchant,
+  type CategoryIntent,
   type CategoryIntentType,
   type SupplyTier,
   type RankableMerchant,
+  type RankableBranchInputV3,
   type RankMerchantsV2Result,
+  type RankedBranchTile,
 } from '../../lib/ranking'
 import { resolveEffectiveLocation, type EffectiveLocation } from '../../lib/effectiveLocation'
 import { getOutgoingCatchmentTargetIds } from '../../lib/catchmentLookup'
@@ -2249,6 +2253,341 @@ export async function searchMerchants(
       // phase). effectiveLocality from the EffectiveLocation resolver.
       rungCounts:        v2.result?.rungCounts ?? EMPTY_RUNG_COUNTS,
       effectiveLocality: v2.effLoc ? { id: v2.effLoc.locality.id, name: v2.effLoc.locality.name } : null,
+    },
+  }
+}
+
+// ─── Search (branch-first variant) ───────────────────────────────────────────
+//
+// Discovery Rebaseline Phase 1 Task 1.5.
+// Spec docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §3.
+//
+// Branch-first analogue of `searchMerchants` above. Same param surface, but the
+// output is a flat list of `BranchTile`s (one per branch) rather than one row
+// per merchant. Coexists with the merchant variant during Phase 1 + Phase 2;
+// Phase 3 drops the merchant version per the §AT cleanup note.
+//
+// Pipeline (mirrors the 7-step shape of searchMerchants):
+//   1. Validate at least one bounded predicate (q / categoryId / subcategoryId / bbox).
+//   2. Build a branch-level Prisma where (merchant filters via `merchant: { ... }`).
+//      Free-text OR clause extends to branch-identity fields per Spec §3.1
+//      (branch.name / localityName / postTown) — the Covelum / Brightlingsea bug
+//      class closes here at the service layer.
+//   3. Fetch candidate branches (no take / skip).
+//   4. Partition by `locationConfidence`:
+//        MANUALLY_CONFIRMED + ADDRESS_GEOCODED → pass through rankBranchesV3.
+//        POSTCODE_CENTROID + NEEDS_REVIEW      → null-rung "tail" tiles. List
+//        views (Search / Home / Category) MUST surface these per Spec §4.1.1;
+//        only Map pin layers exclude them.
+//   5. Resolve effLoc + ladder profile + outgoing catchment.
+//   6. Rank the rankable subset via `rankBranchesV3`. Sort the non-rankable
+//      tail alphabetically by `merchant.businessName` then branch id for
+//      determinism.
+//   7. Concatenate (ranked ++ non-rankable tail), compute total, paginate, enrich.
+//
+// Scope resolution: rather than introduce a per-rung `resolveScopeForBranches`,
+// we delegate "show NEARBY, expand outward as needed" to rankBranchesV3 via its
+// existing `targetCount` + `maxRung` semantics (a high hardCap = 500 keeps the
+// rung walk generous enough for the page slice). The merchant-variant
+// `resolveScopeForRanking` keys on legacy `SupplyTier`, which doesn't map 1:1
+// to the V3 rung ladder — factoring it out is Phase 3 cleanup work, not Phase 1.
+export async function searchBranches(
+  prisma: PrismaClient,
+  params: {
+    q?: string
+    categoryId?: string
+    subcategoryId?: string
+    lat?: number
+    lng?: number
+    minLat?: number; maxLat?: number; minLng?: number; maxLng?: number
+    maxDistanceMiles?: number
+    minSaving?: number
+    voucherTypes?: string[]
+    amenityIds?: string[]
+    tagIds?: string[]
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
+    openNow?: boolean
+    featured?: boolean
+    topRated?: boolean
+    sortBy?: 'relevance' | 'nearest' | 'top_rated' | 'highest_saving'
+    limit: number
+    offset: number
+    userId: string | null
+  },
+): Promise<{
+  branches: BranchTile[]
+  totalBranches: number
+  meta: {
+    rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
+    effectiveLocality: { id: string; name: string } | null
+  }
+}> {
+  const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
+          minSaving, voucherTypes, limit, offset, userId } = params
+
+  // ── 1. Validate bounded predicate (mirrors searchMerchants line 1978).
+  if (!q && !categoryId && !subcategoryId && minLat === undefined) {
+    throw new AppError('SEARCH_QUERY_REQUIRED')
+  }
+
+  // ── 2. Build branch-level predicate.
+  const where: Prisma.BranchWhereInput = {
+    isActive: true,
+    merchant: { status: MerchantStatus.ACTIVE },
+  }
+
+  if (q && q.trim().length > 0) {
+    // Tag-matched merchant lookup (mirrors searchMerchants:1985-1989).
+    const tags = await prisma.merchantSuggestedTag.findMany({
+      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
+      select: { merchantId: true },
+    })
+    const tagMerchantIds = Array.from(new Set(tags.map(t => t.merchantId)))
+
+    where.OR = [
+      // Merchant-level matches (mirror searchMerchants:1991-1996).
+      { merchant: { businessName:    { contains: q, mode: 'insensitive' } } },
+      { merchant: { tradingName:     { contains: q, mode: 'insensitive' } } },
+      { merchant: { description:     { contains: q, mode: 'insensitive' } } },
+      { merchant: { primaryCategory: { name: { contains: q, mode: 'insensitive' } } } },
+      { merchant: { categories:      { some: { category: { name: { contains: q, mode: 'insensitive' } } } } } },
+      ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
+      // Branch-level matches — NEW under Spec §3.1 (closes the
+      // Covelum / Brightlingsea bug class at the service layer).
+      { name:         { contains: q, mode: 'insensitive' as const } },
+      { localityName: { contains: q, mode: 'insensitive' as const } },
+      { postTown:     { contains: q, mode: 'insensitive' as const } },
+    ]
+  }
+
+  if (categoryId) {
+    const children = await prisma.category.findMany({
+      where:  { parentId: categoryId },
+      select: { id: true },
+    })
+    const catIds = [categoryId, ...children.map(c => c.id)]
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { OR: [
+        { primaryCategoryId: { in: catIds } },
+        { categories: { some: { categoryId: { in: catIds } } } },
+      ]}},
+    ]
+  }
+
+  if (subcategoryId) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { OR: [
+        { primaryCategoryId: subcategoryId },
+        { categories: { some: { categoryId: subcategoryId } } },
+      ]}},
+    ]
+  }
+
+  if (minSaving) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { vouchers: { some: {
+        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED,
+        estimatedSaving: { gte: minSaving },
+      }}}},
+    ]
+  }
+
+  if (voucherTypes && voucherTypes.length > 0) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { vouchers: { some: {
+        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED,
+        type: { in: voucherTypes as any },
+      }}}},
+    ]
+  }
+
+  // Bounding box — branch-direct (not via merchant.branches). Per the redaction
+  // contract (PR #81) only MANUALLY_CONFIRMED branches can be filtered by exact
+  // coords; approximate branches surface in the non-rankable tail instead and
+  // are filtered out of the bbox match by definition.
+  if (minLat !== undefined && maxLat !== undefined && minLng !== undefined && maxLng !== undefined) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        locationConfidence: 'MANUALLY_CONFIRMED',
+        latitude:  { gte: minLat, lte: maxLat },
+        longitude: { gte: minLng, lte: maxLng },
+      },
+    ]
+  }
+
+  // ── 3. Fetch candidate branches (no take / skip — rank-then-paginate).
+  //    Lite select for the ranking step; full BRANCH_TILE_SELECT runs in
+  //    enrichBranchTiles for the page slice only.
+  const candidateBranches = await prisma.branch.findMany({
+    where,
+    select: {
+      id:                 true,
+      merchantId:         true,
+      name:               true,
+      latitude:           true,
+      longitude:          true,
+      isActive:           true,
+      locationConfidence: true,
+      localityId:         true,
+      postTown:           true,
+      ladDistrict:        true,
+      adminCounty:        true,
+      region:             true,
+      locationCountry:    true,
+      merchant: {
+        select: { id: true, businessName: true },
+      },
+    },
+  })
+
+  // ── 4. Partition by locationConfidence (Spec §4.1.1).
+  const rankable    = candidateBranches.filter(b =>
+    b.locationConfidence === 'MANUALLY_CONFIRMED'
+    || b.locationConfidence === 'ADDRESS_GEOCODED'
+  )
+  const nonRankable = candidateBranches.filter(b =>
+    b.locationConfidence === 'POSTCODE_CENTROID'
+    || b.locationConfidence === 'NEEDS_REVIEW'
+  )
+
+  // ── 5. Resolve effLoc + ladder profile + outgoing catchment.
+  const effLoc = await resolveEffectiveLocation(
+    prisma,
+    { lat: lat ?? undefined, lng: lng ?? undefined },
+    userId,
+  )
+  const ladderProfile = await resolveLadderProfileForCategory(prisma, categoryId, subcategoryId)
+  const outgoingCatchmentTargetIds = effLoc
+    ? await getOutgoingCatchmentTargetIds(prisma, effLoc.locality.id)
+    : []
+
+  // Intent derivation — when a categoryId is provided, derive via
+  // resolveCategoryIntent; otherwise default to MIXED (the safe default per
+  // ranking.ts:425 — works for free-text where category cannot be inferred).
+  let categoryIntent: CategoryIntent = 'MIXED'
+  if (categoryId) {
+    const catRow = await prisma.category.findUnique({
+      where:  { id: categoryId },
+      select: { intentType: true, parent: { select: { intentType: true } } },
+    })
+    if (catRow) categoryIntent = resolveCategoryIntent(catRow)
+  }
+
+  // ── 6. Rank the rankable subset.
+  let rankedTiles: RankedBranchTile[] = []
+  let rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number> = { ...EMPTY_RUNG_COUNTS }
+  if (effLoc && rankable.length > 0) {
+    const inputs: RankableBranchInputV3[] = rankable.map(b => ({
+      id:                 b.id,
+      merchantId:         b.merchantId,
+      merchant: {
+        id:           b.merchant.id,
+        businessName: b.merchant.businessName,
+        // Per-merchant rating aggregates aren't used by rankBranchesV3 when
+        // categoryIntent is MIXED for the NEARBY rung (distance compare) —
+        // and for the rare DESTINATION subcategory path the per-branch
+        // rating compute would need a separate groupBy. Phase 1 ships with
+        // null/0 here; enrichBranchTiles below populates the per-branch
+        // rating that the wire tile carries. The ranking quality-tiebreak
+        // is therefore conservative for Phase 1; Phase 2 can revisit.
+        avgRating:    null,
+        reviewCount:  0,
+      },
+      latitude:           b.latitude  !== null ? Number(b.latitude)  : null,
+      longitude:          b.longitude !== null ? Number(b.longitude) : null,
+      isActive:           b.isActive,
+      locationConfidence: b.locationConfidence,
+      localityId:         b.localityId,
+      postTown:           b.postTown,
+      ladDistrict:        b.ladDistrict,
+      adminCounty:        b.adminCounty,
+      region:             b.region,
+      locationCountry:    b.locationCountry,
+    }))
+
+    const v3 = rankBranchesV3(inputs, {
+      effLoc,
+      ladderProfile,
+      outgoingCatchmentTargetIds,
+      categoryIntent,
+      targetCount: Math.max(limit, 50),
+      // Generous cap — rank-then-paginate guarantees we never need more than
+      // (offset + limit) tiles; 500 leaves room for downstream scope cascades
+      // without paying SQL pressure (already in-memory at this point).
+      hardCap:     500,
+    })
+    rankedTiles = v3.tiles
+    rungCounts  = v3.rungCounts
+  }
+  // If effLoc is null OR no rankable candidates exist, the ranked half stays
+  // empty; the non-rankable tail still surfaces below (Spec §4.1.1).
+
+  // Build a set of ranked branch ids — when effLoc is null, any branch that
+  // wasn't ranked (which is all of them) should still surface in the tail.
+  // When effLoc IS resolved but the rankBranchesV3 walk hit the hardCap, the
+  // unranked rankable branches naturally drop (acceptable for Phase 1; spec
+  // doesn't promise a UK-wide cap-busting list).
+  const rankedIds = new Set(rankedTiles.map(t => t.id))
+
+  // ── 7. Build the non-rankable tail (POSTCODE_CENTROID + NEEDS_REVIEW).
+  //    When effLoc is null, ALL candidates flow through the tail (the ranked
+  //    half is empty by construction) — deterministic ordering matters more
+  //    than perfect distance ordering here.
+  const tailCandidates = effLoc
+    ? nonRankable
+    : candidateBranches.filter(b => !rankedIds.has(b.id))
+
+  const tailSorted = [...tailCandidates].sort((a, b) => {
+    const ma = a.merchant.businessName.localeCompare(b.merchant.businessName)
+    if (ma !== 0) return ma
+    const nb = (a.name ?? '').localeCompare(b.name ?? '')
+    if (nb !== 0) return nb
+    return a.id.localeCompare(b.id)
+  })
+
+  // ── 8. Concatenate ranked ++ tail; pagination unit is the branch tile.
+  const allInputs: EnrichBranchInput[] = [
+    ...rankedTiles.map(t => ({
+      branchId:      t.id,
+      merchantId:    t.merchantId,
+      supplyRung:    t.supplyRung,
+      proximityBand: t.proximityBand,
+      distance:      t.distanceMetres,
+    } satisfies EnrichBranchInput)),
+    ...tailSorted.map(b => ({
+      branchId:      b.id,
+      merchantId:    b.merchantId,
+      supplyRung:    null,
+      proximityBand: null,
+      distance:      null,
+    } satisfies EnrichBranchInput)),
+  ]
+
+  const totalBranches = allInputs.length
+  const pageInputs    = allInputs.slice(offset, offset + limit)
+
+  // ── 9. Enrich the page slice.
+  const branches = await enrichBranchTiles(prisma, pageInputs, {
+    userId: userId ?? null,
+    lat:    lat   ?? null,
+    lng:    lng   ?? null,
+  })
+
+  // ── 10. Meta envelope — minimal Phase 1 shape. Phase 2 / Task 1.10 may
+  //       extend with scope / scopeExpanded / nearbyCount counterparts.
+  return {
+    branches,
+    totalBranches,
+    meta: {
+      rungCounts,
+      effectiveLocality: effLoc
+        ? { id: effLoc.locality.id, name: effLoc.locality.name }
+        : null,
     },
   }
 }
