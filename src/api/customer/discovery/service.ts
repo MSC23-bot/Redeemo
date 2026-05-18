@@ -1201,6 +1201,74 @@ export async function getHomeFeed(
     }
   }
 
+  // ─── Phase 1 additive — branch-themed home-feed variants (Spec §1.5) ───────
+  //
+  // Adds `featuredBranches`, `trendingBranches`, `nearbyByCategoryBranches`
+  // alongside the existing merchant-themed fields. Existing fields are
+  // UNCHANGED — this is strictly additive. `campaigns` (banner-level) is NOT
+  // fanned out: it's a CampaignBannerTile[], not a merchant/branch tile list.
+  //
+  // Featured + Trending merchants fan out to all their active branches as
+  // separate branch tiles per Spec §5.2 interim behaviour (pre-
+  // FeaturedMerchant.branchId? schema migration). Same for nearbyByCategory.
+  //
+  // POSTCODE_CENTROID + NEEDS_REVIEW branches: surface as tiles per Spec
+  // §4.1.1 list-view admission (Home is a list view). enrichBranchTiles +
+  // exposeBranchPosition handle lat/lng redaction at the serialization
+  // boundary, so non-MANUALLY_CONFIRMED tiles surface with null
+  // branchLatitude / branchLongitude.
+  //
+  // Option A — no ranking pass for Home: Home's inclusion + order is
+  // curatorial (FeaturedMerchant table priority, trending = redemption count,
+  // nearbyByCategory = city-filtered grouping). Rank-then-paginate doesn't
+  // apply the same way as Map/Search. Each fan-out tile passes
+  // `supplyRung: null, proximityBand: null` into enrichBranchTiles; the V3
+  // ranker can be wired in a later Phase if a Home redesign requires it.
+  //
+  // Distance per tile is computed via haversineMetres ONLY when:
+  //   (a) the user has GPS (lat/lng both non-null), AND
+  //   (b) the branch is MANUALLY_CONFIRMED with both lat/lng set.
+  // Otherwise distance is null. This mirrors the redaction contract:
+  // exposeBranchPosition would null the position for non-MANUALLY_CONFIRMED
+  // branches inside enrichBranchTile, so computing a distance against
+  // approximate POSTCODE_CENTROID coords would mislead.
+  function fanOutMerchantToBranchInputs(merchant: { id: string; branches: any[] }): EnrichBranchInput[] {
+    return merchant.branches
+      .filter((b: any) => b.isActive)
+      .map((b: any) => {
+        const hasUserGps = lat !== null && lng !== null
+        const hasExact = hasExactPosition(b)
+        const d = hasUserGps && hasExact
+          ? haversineMetres(lat!, lng!, Number(b.latitude), Number(b.longitude))
+          : null
+        return {
+          branchId:      b.id,
+          merchantId:    merchant.id,
+          supplyRung:    null,
+          proximityBand: null,
+          distance:      d,
+        }
+      })
+  }
+
+  const featuredBranchInputs  = featured.flatMap((m: any)        => fanOutMerchantToBranchInputs(m))
+  const trendingBranchInputs  = (trending as any[]).flatMap((m: any) => fanOutMerchantToBranchInputs(m))
+  const nearbyBranchInputsBy  = nearbyByCategory.map(section => ({
+    category: section.category,
+    inputs:   section.merchants.flatMap((m: any) => fanOutMerchantToBranchInputs(m)),
+  }))
+
+  // Run the three enrichBranchTiles batches in parallel (mirrors the
+  // enrichMerchantTiles parallel pattern above at lines 1150-1153).
+  const [featuredBranches, trendingBranches, nearbyByCategoryBranchesFlat] = await Promise.all([
+    enrichBranchTiles(prisma, featuredBranchInputs,  { userId, lat, lng }),
+    enrichBranchTiles(prisma, trendingBranchInputs,  { userId, lat, lng }),
+    Promise.all(nearbyBranchInputsBy.map(async section => ({
+      category: section.category,
+      branches: await enrichBranchTiles(prisma, section.inputs, { userId, lat, lng }),
+    }))),
+  ])
+
   return {
     locationContext: { city: locationCtx.city, source: locationCtx.source },
     featured: enrichedFeatured.map(t => mergeV2FieldsOntoTile(t, homeV2TileById)),
@@ -1210,6 +1278,11 @@ export async function getHomeFeed(
       category: item.category,
       merchants: item.merchants.map((t: any) => mergeV2FieldsOntoTile(t, homeV2TileById)),
     })),
+    // Phase 1 additive — branch-themed variants. NOT a campaignBranches field;
+    // campaigns are banner-level and stay unchanged.
+    featuredBranches,
+    trendingBranches,
+    nearbyByCategoryBranches: nearbyByCategoryBranchesFlat,
   }
 }
 
