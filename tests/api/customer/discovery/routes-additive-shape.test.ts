@@ -286,13 +286,13 @@ describe('Discovery Rebaseline Phase 1 Task 1.10 — additive route shape', () =
     // Legacy preserved.
     expect(body).toHaveProperty('merchants')
     expect(Array.isArray(body.merchants)).toBe(true)
-    // `getCampaignMerchants` shape includes `total` on the envelope it
-    // emits — `enrichMerchantTiles({ ..., total })`. Pin defensively but
-    // do NOT block on it being a number (we don't own that envelope, and
-    // Task 1.10 makes no claim about modifying it).
-    if ('total' in body) {
-      expect(typeof body.total).toBe('number')
-    }
+    // PR-110 review fix: `total` is the TRUE matching count from
+    // `getCampaignMerchants.total` (`prisma.campaignMerchant.count(...)`),
+    // NOT derived from `merchants.length`.  Always present + always a
+    // number — pin hard.
+    expect(body).toHaveProperty('total')
+    expect(typeof body.total).toBe('number')
+    expect(body.total).toBeGreaterThanOrEqual(body.merchants.length)
 
     // Additive branch-themed fields present. `totalBranches` re-keys the
     // service-layer `total` (post-fan-out branch count) to avoid colliding

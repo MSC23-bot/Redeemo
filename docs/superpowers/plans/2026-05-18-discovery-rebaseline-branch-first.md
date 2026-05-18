@@ -1,6 +1,16 @@
 # Discovery Rebaseline — Branch-First Cardinality Implementation Plan
 
-> **Revision:** 1.1 (2026-05-18) — self-review carry-overs + implementation-correctness fixes against the real codebase.
+> **Revision:** 1.2 (2026-05-18 evening) — PR #110 review-fix amendments. No contract changes; tightens the PR-2 gate + Phase 3 polish list.
+
+> **Revision history:**
+> - **Rev 1.0** — initial plan from Spec Rev 2.1.
+> - **Rev 1.1** — self-review carry-overs + implementation-correctness fixes against the real codebase (see existing Rev 1.1 changelog below).
+> - **Rev 1.2** — PR #110 review-fix amendments:
+>   1. **PR-2 entry gate added (Task 2.1.0):** `scope` parity inside `searchBranches` is now MANDATORY before the Search UI flip. Previously PR-2 would have flipped the customer-facing scope cascade into a silent no-op for branch results.
+>   2. **Filter-deferral table added under PR-2** — the seven other `searchBranches` ignored params (`maxDistanceMiles`, `amenityIds`, `tagIds`, `openNow`, `featured`, `topRated`, `sortBy`) get explicit deferred-followups IDs (§BX.1-§BX.7) + pickup triggers in `project_deferred_followups_index.md`.
+>   3. **Phase 3 polish item added** — `getCampaignBranches` return field `total` → `totalBranches` rename for naming consistency with `searchBranches`.
+>
+> Implementation-correctness changes shipping in the PR-110 review-fix commits (not plan changes): real `total` on `getCampaignMerchants`, `/search` route ignored-params comment with PR-2 gate pointer, Plan 4 M4 BLOCKED banner staged into PR-110 (was local-only before review).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -2275,13 +2285,50 @@ Update memory files (using Write tool, NOT in this checklist's command form — 
 
 **Tests touched:** `tests/features/search/SearchScreen.test.tsx`, `tests/features/search/SearchResultItem.proximity-chip.test.tsx`, `tests/features/search/SearchScreen.locality.test.tsx`, `tests/hooks/useSearch.test.tsx`.
 
+## PR-2 entry gate — `scope` parity MANDATORY before UI flip (added Rev 1.2 — PR #110 review fix)
+
+PR-1 shipped `searchBranches` with eight `searchMerchants` params accepted-but-ignored: `scope`, `maxDistanceMiles`, `amenityIds`, `tagIds`, `openNow`, `featured`, `topRated`, `sortBy` (see service docblock at `src/api/customer/discovery/service.ts` lines ~2294-2317).
+
+**`scope` is the user-visible filter on the Search surface today** (the "Nearby / City / Region / Platform" scope cascade). Flipping the Search UI to read `branches` without `scope` parity on the branch path would silently turn the user-facing scope filter into a no-op for branch results. Unacceptable.
+
+**Therefore PR-2 MUST land `scope` parity inside `searchBranches` BEFORE the UI flip.** Add a new task at the start of PR-2:
+
+### Task 2.1.0: Implement `scope` parity inside `searchBranches` (NEW Rev 1.2 gate)
+
+- [ ] **Step 1: Read existing `searchMerchants` `resolveScopeForRanking` flow** at `src/api/customer/discovery/service.ts:424-451` and the call site at line 1887 — understand how legacy `SupplyTier` retained-tier filtering interacts with the V2 hybrid path.
+- [ ] **Step 2: Decide branch-first scope resolution model.** Two options:
+  - **(a) `resolveScopeForBranches` helper** — sibling to `resolveScopeForRanking` keyed on `SupplyRung` (not `SupplyTier`). Maps user scope (`'nearby'|'city'|'region'|'platform'`) → retained `SupplyRung` set. Apply post-`rankBranchesV3` rank.
+  - **(b) Extend `searchBranches` to accept `scope` directly + map inline** via a small helper.
+  Recommend (a) — single source of truth for scope semantics, reusable by `getCategoryBranches` + `getInAreaBranches` if they ever need it.
+- [ ] **Step 3: Wire `scope` into `searchBranches`'s rank pipeline.** Pass through from route → service. Apply retained-rung filter AFTER `rankBranchesV3` returns but BEFORE the POSTCODE_CENTROID tail concat (the tail is unranked; scope doesn't apply).
+- [ ] **Step 4: Add tests** — pin `scope: 'nearby'` filters to NEARBY rung only; `scope: 'city'` admits NEARBY + CATCHMENT + POST_TOWN; `scope: 'region'` admits up through REGION; `scope: 'platform'` admits all rungs.
+- [ ] **Step 5: Update the service docblock** at `searchBranches` to drop `scope` from the accepted-but-ignored list.
+- [ ] **Step 6: Update the `/search` route comment** at `src/api/customer/discovery/routes.ts` to drop `scope` from the gate note.
+
+**Only after Task 2.1.0 lands** do Tasks 2.1.1-2.1.5 (the UI migration) become eligible. Without Task 2.1.0, PR-2 ships a silent UX regression.
+
+## Filters still deferred AFTER Task 2.1.0 (track per-item)
+
+The other seven params remain ignored after Task 2.1.0. Each is tracked in `project_deferred_followups_index.md` with an explicit ID + pickup trigger:
+
+| Param | Deferred-followups ID | Pickup trigger |
+|---|---|---|
+| `maxDistanceMiles` | §BX.1 | Post-Phase-2 distance-filter UX work (currently no UI exposes this slider) |
+| `amenityIds` | §BX.2 | When FilterSheet branch-tile parity ships (FilterSheet currently filters merchants) |
+| `tagIds` | §BX.3 | Plan 4 M4.3 — Tag.label search expansion |
+| `openNow` | §BX.4 | Phase 2 (Map) — open-status filter is most useful on map view; bundle with M4.4 |
+| `featured` | §BX.5 | When `FeaturedMerchant.branchId?` schema lands (Spec §A) — current featured filter is merchant-scope |
+| `topRated` | §BX.6 | Phase 2 (Search) polish — branch-level rating sort needs reviewCount threshold review |
+| `sortBy` | §BX.7 | Phase 2 (Search) polish — `relevance/nearest/top_rated/highest_saving` need branch-first semantics |
+
 **Acceptance:**
+- Task 2.1.0 ships first — `scope` parity inside `searchBranches`, tested.
 - All Search-feature jest tests pass against the new shape.
 - Customer-app full jest passes.
 - Backend regression unchanged.
-- Owner device-QA on iPhone confirms multi-branch merchants surface as separate result rows.
+- Owner device-QA on iPhone confirms (a) multi-branch merchants surface as separate result rows, AND (b) the user-facing scope cascade still cuts results correctly when flipped to branch mode.
 
-**Rollback:** Per-PR revert. Customer-app reverts to reading `merchants`; service still emits both fields.
+**Rollback:** Per-PR revert. Customer-app reverts to reading `merchants`; service still emits both fields. Task 2.1.0's `scope` parity is a service-layer additive change — won't break the legacy merchant path on revert.
 
 ---
 
@@ -3847,6 +3894,10 @@ Using Write tool:
 - [ ] No customer-app code references `MerchantTile` type.
 - [ ] Plan 4 M5 spec/plan available — confirm convergence target tasks.
 - [ ] Owner explicit green-light to ship the irreversible cleanup.
+
+### Phase 3 polish — naming consistency clean-up (added Rev 1.2 — PR #110 review note)
+
+- [ ] **Rename `getCampaignBranches`'s return field `total` → `totalBranches`** so it matches `searchBranches.totalBranches` / the wire field. Today the route handler re-keys it at the boundary; the service-layer name asymmetry is harmless during Phase 1+2 coexistence but is a Phase 3 polish opportunity. Single-line rename + the corresponding route handler removes its re-key.
 
 ### Task 3.1: Backend deletes
 

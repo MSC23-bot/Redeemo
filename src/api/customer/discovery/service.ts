@@ -3326,7 +3326,14 @@ export async function getCampaignMerchants(
   prisma: PrismaClient,
   campaignId: string,
   params: { categoryId?: string; limit: number; offset: number; lat?: number; lng?: number; userId?: string | null },
-) {
+): Promise<{ merchants: any[]; total: number }> {
+  // Discovery Rebaseline Phase 1 review-fix (PR #110): the return shape is
+  // now `{ merchants, total }` where `total` is the TRUE matching count
+  // BEFORE pagination — separate from `merchants.length` which is the
+  // page-slice count.  Earlier on this PR the route derived `total` from
+  // `merchants.length`, which lied to consumers about pagination math.
+  // Fix surfaces the real count via a paired `count()` query under the
+  // same predicate as the `findMany`.
   const now = new Date()
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -3337,34 +3344,42 @@ export async function getCampaignMerchants(
     throw new AppError('CAMPAIGN_NOT_FOUND')
   }
 
-  const rows = await prisma.campaignMerchant.findMany({
-    where: {
-      campaignId,
-      isActive: true,
-      startDate: { lte: now },
-      endDate:   { gte: now },
-      merchant: {
-        status: MerchantStatus.ACTIVE,
-        ...(params.categoryId ? {
-          OR: [
-            { primaryCategoryId: params.categoryId },
-            { categories: { some: { categoryId: params.categoryId } } },
-          ],
-        } : {}),
-      },
+  // Shared predicate — total + page slice use the SAME where clause so
+  // `total` reflects pre-pagination matching rows, not page size.
+  const where: Prisma.CampaignMerchantWhereInput = {
+    campaignId,
+    isActive: true,
+    startDate: { lte: now },
+    endDate:   { gte: now },
+    merchant: {
+      status: MerchantStatus.ACTIVE,
+      ...(params.categoryId ? {
+        OR: [
+          { primaryCategoryId: params.categoryId },
+          { categories: { some: { categoryId: params.categoryId } } },
+        ],
+      } : {}),
     },
-    select: { merchant: { select: MERCHANT_TILE_SELECT as any } },
-    orderBy: { merchant: { businessName: 'asc' } },
-    take:   params.limit,
-    skip:   params.offset,
-  })
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.campaignMerchant.count({ where }),
+    prisma.campaignMerchant.findMany({
+      where,
+      select: { merchant: { select: MERCHANT_TILE_SELECT as any } },
+      orderBy: { merchant: { businessName: 'asc' } },
+      take:   params.limit,
+      skip:   params.offset,
+    }),
+  ])
 
   const rawMerchants = rows.map((r: any) => r.merchant)
-  return enrichMerchantTiles(prisma, rawMerchants, {
+  const merchants = await enrichMerchantTiles(prisma, rawMerchants, {
     lat: params.lat ?? null,
     lng: params.lng ?? null,
     userId: params.userId ?? null,
   })
+  return { merchants, total }
 }
 
 /**

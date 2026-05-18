@@ -97,6 +97,20 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // `branches` + `totalBranches` fields additively alongside the legacy
   // `merchants` + `total` response. Customer-app continues reading legacy
   // until Phase 2 surface PRs migrate consumers individually.
+  //
+  // Phase 1 ignored-params disclosure (mirrors searchBranches docblock at
+  // service.ts ~line 2294-2317): `searchBranches` accepts the full searchQuery
+  // signature but INTENTIONALLY ignores `scope`, `maxDistanceMiles`,
+  // `amenityIds`, `tagIds`, `openNow`, `featured`, `topRated`, `sortBy` for
+  // Phase 1. These pass through here so the merchant variant honours them and
+  // the branch variant accepts-and-no-ops — keeps callers' query strings
+  // portable as more params get honoured incrementally in Phase 2/3.
+  //
+  // PR-2 gate (Spec/Plan): Search customer-app migration MUST implement at
+  // least `scope` parity inside `searchBranches` before the UI flips from
+  // `merchants` to `branches` — otherwise the user-visible scope filter
+  // becomes a no-op for branch results.  Other filter parity is tracked
+  // explicitly in the Phase 1.5 plan amendment + deferred-followups index.
   app.get('/api/v1/customer/search', async (req: FastifyRequest, reply) => {
     const params = searchQuery.parse(req.query)
     const userId = optionalUserId(req)
@@ -231,22 +245,16 @@ export async function discoveryRoutes(app: FastifyInstance) {
 
   // GET /api/v1/customer/campaigns/:id/merchants — paginated merchants in a campaign (no auth)
   //
-  // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
-  // `branches` + `totalBranches` fields additively alongside the legacy
-  // `merchants` + `total` response. NOTE: branch-first
-  // `getCampaignBranches` returns its post-fan-out count in `total`, which
-  // we re-key as `totalBranches` here to avoid collision with the legacy
-  // merchant `total` field on the response. Consumers continue reading
-  // legacy until Phase 2 surface PRs migrate individually.
-  //
-  // Pre-Task-1.10 the service `getCampaignMerchants` returned a flat tile
-  // array, but `apps/customer-web/lib/api.ts:241` already typed it as
-  // `{ merchants, total }` — there was a latent shape mismatch between
-  // service-layer return and customer-web's expectation. Task 1.10 wraps
-  // the array under `merchants` (and derives `total` from `merchants.length`
-  // — the legacy contract is post-pagination count) so the legacy consumer
-  // contract is honoured at the same time the branch-themed fields are
-  // attached.
+  // Discovery Rebaseline Phase 1 — attaches branch-themed `branches` +
+  // `totalBranches` fields additively alongside `merchants` + `total`.
+  // `getCampaignMerchants` returns `{ merchants, total }` where `total` is
+  // the TRUE matching count (pre-pagination); `getCampaignBranches.total`
+  // is the post-fan-out branch count which we re-key as `totalBranches` on
+  // the response to avoid collision with the merchant `total` field.
+  // Customer-app does NOT consume this endpoint today (verified zero
+  // grep hits); customer-web's existing type at `apps/customer-web/lib/api.ts:233`
+  // expects `{ merchants, total }` — that contract is honoured truthfully
+  // here (`total` is now matching-count, not page-size, per PR-110 review fix).
   app.get('/api/v1/customer/campaigns/:id/merchants', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
     const query = z.object({
@@ -257,13 +265,13 @@ export async function discoveryRoutes(app: FastifyInstance) {
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(req.query)
     const userId = optionalUserId(req)
-    const [merchants, branchResult] = await Promise.all([
+    const [merchantResult, branchResult] = await Promise.all([
       getCampaignMerchants(app.prisma, id, { ...query, userId }),
       getCampaignBranches(app.prisma, id, { ...query, userId }),
     ])
     return reply.send({
-      merchants,
-      total:         merchants.length,
+      merchants:     merchantResult.merchants,
+      total:         merchantResult.total,
       branches:      branchResult.branches,
       totalBranches: branchResult.total,
     })
