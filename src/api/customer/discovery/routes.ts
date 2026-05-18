@@ -2,9 +2,11 @@ import { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import {
   getHomeFeed, getCustomerMerchant, getCustomerMerchantBranches,
-  getCustomerVoucher, searchMerchants, listActiveCategories,
-  getActiveCampaigns, getCampaignMerchants, getCategoryMerchants,
-  getInAreaMerchants,
+  getCustomerVoucher, searchMerchants, searchBranches,
+  listActiveCategories, getActiveCampaigns,
+  getCampaignMerchants, getCampaignBranches,
+  getCategoryMerchants, getCategoryBranches,
+  getInAreaMerchants, getInAreaBranches,
 } from './service'
 import { getEligibleAmenitiesForSubcategory } from '../../lib/amenity'
 import { optionalUserId } from '../plugin'
@@ -90,11 +92,23 @@ export async function discoveryRoutes(app: FastifyInstance) {
 
   // GET /api/v1/customer/search — merchant search (no auth)
   // Requires q (text), categoryId, subcategoryId, or bounding box (minLat/maxLat/minLng/maxLng).
+  //
+  // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
+  // `branches` + `totalBranches` fields additively alongside the legacy
+  // `merchants` + `total` response. Customer-app continues reading legacy
+  // until Phase 2 surface PRs migrate consumers individually.
   app.get('/api/v1/customer/search', async (req: FastifyRequest, reply) => {
     const params = searchQuery.parse(req.query)
     const userId = optionalUserId(req)
-    const results = await searchMerchants(app.prisma, { ...params, userId })
-    return reply.send(results)
+    const [merchantResult, branchResult] = await Promise.all([
+      searchMerchants(app.prisma, { ...params, userId }),
+      searchBranches(app.prisma, { ...params, userId }),
+    ])
+    return reply.send({
+      ...merchantResult,
+      branches:      branchResult.branches,
+      totalBranches: branchResult.totalBranches,
+    })
   })
 
   // GET /api/v1/customer/categories — locked discovery taxonomy (no auth, no params)
@@ -118,15 +132,33 @@ export async function discoveryRoutes(app: FastifyInstance) {
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(req.query)
     const userId = optionalUserId(req)
-    const result = await getCategoryMerchants(app.prisma, id, {
-      scope:  query.scope,
-      lat:    query.lat ?? null,
-      lng:    query.lng ?? null,
-      userId,
-      limit:  query.limit,
-      offset: query.offset,
+    // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
+    // `branches` + `totalBranches` fields additively alongside the legacy
+    // `merchants` + `total` response. Consumers continue reading legacy until
+    // Phase 2 surface PRs migrate individually.
+    const [merchantResult, branchResult] = await Promise.all([
+      getCategoryMerchants(app.prisma, id, {
+        scope:  query.scope,
+        lat:    query.lat ?? null,
+        lng:    query.lng ?? null,
+        userId,
+        limit:  query.limit,
+        offset: query.offset,
+      }),
+      getCategoryBranches(app.prisma, {
+        categoryId: id,
+        lat:        query.lat ?? null,
+        lng:        query.lng ?? null,
+        userId,
+        limit:      query.limit,
+        offset:     query.offset,
+      }),
+    ])
+    return reply.send({
+      ...merchantResult,
+      branches:      branchResult.branches,
+      totalBranches: branchResult.totalBranches,
     })
-    return reply.send(result)
   })
 
   // GET /api/v1/customer/categories/:id/amenities — eligible amenities for a
@@ -161,15 +193,34 @@ export async function discoveryRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: { code: 'INVALID_BBOX', message: 'minLat/minLng must be ≤ maxLat/maxLng' } })
     }
     const userId = optionalUserId(req)
-    const result = await getInAreaMerchants(app.prisma, {
-      bbox:       { minLat: query.minLat, maxLat: query.maxLat, minLng: query.minLng, maxLng: query.maxLng },
-      categoryId: query.categoryId,
-      lat:        query.lat ?? null,
-      lng:        query.lng ?? null,
-      userId,
-      limit:      query.limit,
+    // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
+    // `branches` field additively alongside the legacy `merchants` field.
+    // In-area has no `totalBranches` (no pagination — Map shows all pins in
+    // the viewport up to `limit`). Consumers continue reading legacy until
+    // Phase 2 surface PRs migrate individually.
+    const bbox = { minLat: query.minLat, maxLat: query.maxLat, minLng: query.minLng, maxLng: query.maxLng }
+    const [merchantResult, branchResult] = await Promise.all([
+      getInAreaMerchants(app.prisma, {
+        bbox,
+        categoryId: query.categoryId,
+        lat:        query.lat ?? null,
+        lng:        query.lng ?? null,
+        userId,
+        limit:      query.limit,
+      }),
+      getInAreaBranches(app.prisma, {
+        bbox,
+        categoryId: query.categoryId,
+        lat:        query.lat ?? null,
+        lng:        query.lng ?? null,
+        userId,
+        limit:      query.limit,
+      }),
+    ])
+    return reply.send({
+      ...merchantResult,
+      branches: branchResult.branches,
     })
-    return reply.send(result)
   })
 
   // GET /api/v1/customer/campaigns — active campaigns with banner (no auth)
@@ -179,6 +230,23 @@ export async function discoveryRoutes(app: FastifyInstance) {
   })
 
   // GET /api/v1/customer/campaigns/:id/merchants — paginated merchants in a campaign (no auth)
+  //
+  // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
+  // `branches` + `totalBranches` fields additively alongside the legacy
+  // `merchants` + `total` response. NOTE: branch-first
+  // `getCampaignBranches` returns its post-fan-out count in `total`, which
+  // we re-key as `totalBranches` here to avoid collision with the legacy
+  // merchant `total` field on the response. Consumers continue reading
+  // legacy until Phase 2 surface PRs migrate individually.
+  //
+  // Pre-Task-1.10 the service `getCampaignMerchants` returned a flat tile
+  // array, but `apps/customer-web/lib/api.ts:241` already typed it as
+  // `{ merchants, total }` — there was a latent shape mismatch between
+  // service-layer return and customer-web's expectation. Task 1.10 wraps
+  // the array under `merchants` (and derives `total` from `merchants.length`
+  // — the legacy contract is post-pagination count) so the legacy consumer
+  // contract is honoured at the same time the branch-themed fields are
+  // attached.
   app.get('/api/v1/customer/campaigns/:id/merchants', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
     const query = z.object({
@@ -189,7 +257,15 @@ export async function discoveryRoutes(app: FastifyInstance) {
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(req.query)
     const userId = optionalUserId(req)
-    const result = await getCampaignMerchants(app.prisma, id, { ...query, userId })
-    return reply.send(result)
+    const [merchants, branchResult] = await Promise.all([
+      getCampaignMerchants(app.prisma, id, { ...query, userId }),
+      getCampaignBranches(app.prisma, id, { ...query, userId }),
+    ])
+    return reply.send({
+      merchants,
+      total:         merchants.length,
+      branches:      branchResult.branches,
+      totalBranches: branchResult.total,
+    })
   })
 }

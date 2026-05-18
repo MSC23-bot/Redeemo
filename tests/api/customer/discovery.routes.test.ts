@@ -8,11 +8,19 @@ vi.mock('../../../src/api/customer/discovery/service', () => ({
   getCustomerMerchantBranches: vi.fn(),
   getCustomerVoucher:          vi.fn(),
   searchMerchants:             vi.fn(),
+  // Discovery Rebaseline Phase 1 Task 1.10 — the 4 affected routes now
+  // also call the branch-themed service functions in parallel with their
+  // merchant-themed counterparts (Promise.all). Mocks must declare them
+  // or `searchBranches is not a function` errors fire at request time.
+  searchBranches:              vi.fn(),
   listActiveCategories:        vi.fn(),
   getActiveCampaigns:          vi.fn(),
   getCampaignMerchants:        vi.fn(),
+  getCampaignBranches:         vi.fn(),
   getCategoryMerchants:        vi.fn(),
+  getCategoryBranches:         vi.fn(),
   getInAreaMerchants:          vi.fn(),
+  getInAreaBranches:           vi.fn(),
 }))
 
 vi.mock('../../../src/api/lib/amenity', () => ({
@@ -38,11 +46,15 @@ import {
   getCustomerMerchantBranches,
   getCustomerVoucher,
   searchMerchants,
+  searchBranches,
   listActiveCategories,
   getActiveCampaigns,
   getCampaignMerchants,
+  getCampaignBranches,
   getCategoryMerchants,
+  getCategoryBranches,
   getInAreaMerchants,
+  getInAreaBranches,
 } from '../../../src/api/customer/discovery/service'
 import { getEligibleAmenitiesForSubcategory } from '../../../src/api/lib/amenity'
 
@@ -75,6 +87,27 @@ describe('discovery routes', () => {
     } as any)
 
     await app.ready()
+
+    // Phase 1 Task 1.10 — every existing route test that mocks
+    // `<merchant>` now also fires `<branch>` in parallel via Promise.all
+    // inside the route handler. Provide harmless default mock returns so
+    // tests that pre-date Task 1.10 don't need touching unless they
+    // specifically assert on the new fields.
+    vi.mocked(searchBranches).mockResolvedValue({
+      branches: [], totalBranches: 0,
+      meta: { rungCounts: {} as any, effectiveLocality: null },
+    } as any)
+    vi.mocked(getCategoryBranches).mockResolvedValue({
+      branches: [], totalBranches: 0,
+      meta: { rungCounts: {} as any, effectiveLocality: null },
+    } as any)
+    vi.mocked(getInAreaBranches).mockResolvedValue({
+      branches: [],
+      meta: { rungCounts: {} as any, effectiveLocality: null },
+    } as any)
+    vi.mocked(getCampaignBranches).mockResolvedValue({
+      branches: [], total: 0,
+    } as any)
 
     const jwtAny = app.jwt as any
     customerToken = jwtAny.customer.sign(
@@ -466,8 +499,16 @@ describe('discovery routes', () => {
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(Array.isArray(body)).toBe(true)
-    expect(body).toHaveLength(1)
+    // Phase 1 Task 1.10 wraps the previously-flat-array response into a
+    // `{ merchants, total, branches, totalBranches }` envelope so the
+    // route emits a coherent additive shape AND aligns with the
+    // customer-web type annotation (`{ merchants, total }` at
+    // apps/customer-web/lib/api.ts:241) that the route previously
+    // contradicted.
+    expect(Array.isArray(body.merchants)).toBe(true)
+    expect(body.merchants).toHaveLength(1)
+    expect(body).toHaveProperty('branches')
+    expect(body).toHaveProperty('totalBranches')
     expect(getCampaignMerchants).toHaveBeenCalledWith(
       expect.anything(),
       'campaign-1',
