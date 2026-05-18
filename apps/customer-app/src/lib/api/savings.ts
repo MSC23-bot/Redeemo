@@ -114,10 +114,18 @@ export const savingsApi = {
   // gets sent as a query param.  React Query's `initialPageParam: 0`
   // would otherwise have its first page silently omit the offset,
   // making the test fixture diverge from real network traffic.
-  async getRedemptions(params: { limit?: number; offset?: number } = {}): Promise<SavingsRedemptionsResponse> {
+  //
+  // §BN Revision-3 (2026-05-18) — optional `month: 'YYYY-MM'` scopes
+  // the response to that calendar month.  Same conditional include
+  // pattern (omit-when-undefined) so the all-time URL shape stays
+  // identical for callers that don't pass a month.
+  async getRedemptions(
+    params: { limit?: number; offset?: number; month?: string } = {},
+  ): Promise<SavingsRedemptionsResponse> {
     const qs = new URLSearchParams()
     if (params.limit  !== undefined) qs.set('limit',  String(params.limit))
     if (params.offset !== undefined) qs.set('offset', String(params.offset))
+    if (params.month  !== undefined) qs.set('month',  params.month)
     const query = qs.toString()
     const raw = await api.get<unknown>(
       `/api/v1/customer/savings/redemptions${query ? `?${query}` : ''}`,

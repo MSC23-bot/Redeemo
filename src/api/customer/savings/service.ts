@@ -130,16 +130,48 @@ export async function getSavingsSummary(prisma: PrismaClient, userId: string) {
   }
 }
 
+/**
+ * §BN month-scoped Redemption History — Revision-3 (2026-05-18).
+ *
+ * Optional `month: 'YYYY-MM'` filter scopes results to redemptions in
+ * that calendar month (UTC).  When omitted, the original all-time
+ * behaviour is preserved (regression pin: see month-omit case in
+ * `tests/api/customer/savings.service.test.ts`).
+ *
+ * Pagination (`limit` / `offset`) operates WITHIN the filtered set,
+ * and `total` reflects the month-scoped count when a month is
+ * supplied.  This drives the customer-app "Load more" pill correctly
+ * under month scope without any client-side cap arithmetic.
+ *
+ * Month parsing mirrors `getMonthlyDetail` exactly (UTC `gte / lt`
+ * boundaries) — see that helper above for the boundary rationale.
+ * The route layer validates `month` against the canonical YYYY-MM
+ * regex before this function ever sees it.
+ */
 export async function getSavingsRedemptions(
   prisma: PrismaClient,
   userId: string,
-  params: { limit: number; offset: number },
+  params: { limit: number; offset: number; month?: string },
 ) {
-  const { limit, offset } = params
+  const { limit, offset, month } = params
+
+  // Build the where clause once and reuse for findMany + count so the
+  // two queries see exactly the same filter.  Diverging would be a
+  // pagination contract bug (total wouldn't match the rows).
+  const where: { userId: string; redeemedAt?: { gte: Date; lt: Date } } = { userId }
+  if (month) {
+    const [yearStr, monthStr] = month.split('-')
+    const year = parseInt(yearStr, 10)
+    const mon  = parseInt(monthStr, 10)
+    where.redeemedAt = {
+      gte: new Date(Date.UTC(year, mon - 1, 1)),
+      lt:  new Date(Date.UTC(year, mon,     1)),
+    }
+  }
 
   const [rows, total] = await Promise.all([
     prisma.voucherRedemption.findMany({
-      where: { userId },
+      where,
       orderBy: { redeemedAt: 'desc' },
       skip: offset,
       take: limit,
@@ -165,7 +197,7 @@ export async function getSavingsRedemptions(
         branch: { select: { id: true, name: true } },
       },
     }),
-    prisma.voucherRedemption.count({ where: { userId } }),
+    prisma.voucherRedemption.count({ where }),
   ])
 
   const redemptions = rows.map(r => ({

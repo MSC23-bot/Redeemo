@@ -440,3 +440,162 @@ describe('savings.service — getSavingsRedemptions response shape (hotfix pin)'
     expect(result.redemptions).toHaveLength(0)
   })
 })
+
+// ─── §BN month-scoped Redemption History (Revision-3, 2026-05-18) ──────────
+//
+// The customer-app Savings tab passes the currently-selected trend
+// month to `getSavingsRedemptions` so the history section shows that
+// month's redemptions exclusively.  Spec amendment in
+// `docs/superpowers/specs/2026-04-18-savings-tab-design.md` documents
+// the Revision-2 → Revision-3 flip.
+//
+// These tests pin:
+//   1. With `month` supplied: Prisma sees the correct UTC bounds AND
+//      both findMany + count share the same where clause (pagination
+//      total contract).
+//   2. With `month` omitted: the all-time behaviour from Revision-2
+//      is preserved (regression pin — protects against accidental
+//      always-filter regressions).
+//   3. Pagination still operates correctly within the month-scoped
+//      result set.
+//   4. Empty month returns `{ redemptions: [], total: 0 }`.
+
+describe('savings.service — §BN month-scoped getSavingsRedemptions', () => {
+  function makePrismaForMonthScope(rawRows: Array<{
+    id: string
+    redeemedAt: Date
+    estimatedSaving: number
+    isValidated: boolean
+    validatedAt: Date | null
+    voucher: { id: string; title: string; type: string; merchant: { id: string; businessName: string; logoUrl: string | null } }
+    branch: { id: string; name: string }
+  }>, total: number) {
+    const prisma = new PrismaClient() as any
+    prisma.voucherRedemption.findMany = vi.fn().mockResolvedValue(rawRows)
+    prisma.voucherRedemption.count    = vi.fn().mockResolvedValue(total)
+    return prisma
+  }
+
+  it('month=YYYY-MM passes correct UTC date-range filter to Prisma', async () => {
+    const prisma = makePrismaForMonthScope([], 0)
+
+    await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0, month: '2026-03' })
+
+    expect(prisma.voucherRedemption.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'user-1',
+          redeemedAt: {
+            gte: new Date(Date.UTC(2026, 2, 1)),  // March 1, 2026 UTC (mon-1 for 0-indexed)
+            lt:  new Date(Date.UTC(2026, 3, 1)),  // April 1, 2026 UTC (boundary)
+          },
+        }),
+      }),
+    )
+  })
+
+  it('findMany + count share the SAME where clause (pagination contract pin)', async () => {
+    const prisma = makePrismaForMonthScope([], 0)
+
+    await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0, month: '2026-03' })
+
+    const findManyCall = prisma.voucherRedemption.findMany.mock.calls[0][0]
+    const countCall    = prisma.voucherRedemption.count.mock.calls[0][0]
+
+    // Both queries must filter on the same boundaries — otherwise
+    // `total` could under/over-report and break the "Load more"
+    // pagination contract.
+    expect(countCall.where).toEqual(findManyCall.where)
+  })
+
+  it('month omitted: preserves all-time behaviour (REGRESSION pin)', async () => {
+    const prisma = makePrismaForMonthScope([], 0)
+
+    await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0 })
+
+    // findMany.where should be ONLY { userId } — no redeemedAt clause.
+    expect(prisma.voucherRedemption.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'user-1' },
+      }),
+    )
+    expect(prisma.voucherRedemption.count).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+    })
+  })
+
+  it('pagination operates WITHIN the month-scoped result set (skip + take preserved)', async () => {
+    const prisma = makePrismaForMonthScope([], 0)
+
+    await getSavingsRedemptions(prisma, 'user-1', { limit: 10, offset: 30, month: '2026-04' })
+
+    expect(prisma.voucherRedemption.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 30,
+        take: 10,
+        where: expect.objectContaining({
+          userId: 'user-1',
+          redeemedAt: {
+            gte: new Date(Date.UTC(2026, 3, 1)),  // April 1
+            lt:  new Date(Date.UTC(2026, 4, 1)),  // May 1
+          },
+        }),
+      }),
+    )
+  })
+
+  it('month with zero redemptions returns { redemptions: [], total: 0 }', async () => {
+    const prisma = makePrismaForMonthScope([], 0)
+
+    const result = await getSavingsRedemptions(prisma, 'user-1', {
+      limit: 20, offset: 0, month: '2026-02',
+    })
+
+    expect(result).toEqual({ redemptions: [], total: 0 })
+  })
+
+  it('month total reflects the month-scoped Prisma count (NOT all-time)', async () => {
+    // Real-world: user has 247 redemptions all-time but only 4 in March.
+    // findMany returns the 4 March rows; count returns 4 (month-scoped).
+    const marchRows = [
+      {
+        id: 'red-march-1',
+        redeemedAt: new Date('2026-03-15T10:00:00Z'),
+        estimatedSaving: 12.5,
+        isValidated: true,
+        validatedAt: new Date('2026-03-15T10:05:00Z'),
+        voucher: {
+          id: 'v-1', title: 'BOGO Pizza', type: 'BOGO',
+          merchant: { id: 'm-1', businessName: 'Bella Italia', logoUrl: null },
+        },
+        branch: { id: 'br-1', name: 'Soho' },
+      },
+    ]
+    const prisma = makePrismaForMonthScope(marchRows, 4)
+
+    const result = await getSavingsRedemptions(prisma, 'user-1', {
+      limit: 20, offset: 0, month: '2026-03',
+    })
+
+    expect(result.total).toBe(4)
+    expect(result.redemptions).toHaveLength(1)
+    expect(result.redemptions[0]?.id).toBe('red-march-1')
+  })
+
+  it('December → January boundary advances year correctly (UTC)', async () => {
+    const prisma = makePrismaForMonthScope([], 0)
+
+    await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0, month: '2026-12' })
+
+    expect(prisma.voucherRedemption.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          redeemedAt: {
+            gte: new Date(Date.UTC(2026, 11, 1)),  // Dec 1, 2026
+            lt:  new Date(Date.UTC(2027, 0,  1)),  // Jan 1, 2027 — year advances
+          },
+        }),
+      }),
+    )
+  })
+})

@@ -1,8 +1,40 @@
 # Savings Tab — Design Spec
 
-**Date:** 2026-04-18 (Revision 1) / 2026-05-17 (Revision 2 — rebaseline amendment)
+**Date:** 2026-04-18 (Revision 1) / 2026-05-17 (Revision 2 — rebaseline amendment) / 2026-05-18 (Revision 3 — month-scoped Redemption History)
 **Surface:** Customer App (React Native / Expo)
 **Route:** `/(app)/savings`
+
+---
+
+## Revision 3 — 2026-05-18 (Month-scoped Redemption History amendment)
+
+Amends Revision-2 §"History list" (in the Month Drill-Down section) following the 2026-05-18 reconciliation audit and the §BN deferred-followup that audit produced.
+
+**The divergence Revision-3 closes.** Revision-2 line 167 read: *"The redemption history list is **never filtered by selected month** — it always shows the full all-time history regardless of which bar is selected. Month drill-down only affects the insight cards."* PR #105 shipped customer-app commit `930ab66` ("Issue 3") which HID the entire Redemption History section under a month selection — a stop-gap because the spec's "all-time-with-chip" framing was tested in device QA and read confusingly (rows labelled "2 hours ago" / "Yesterday" under a "Viewing: February 2026" chip were misread as February redemptions). The 2026-05-18 reconciliation audit surfaced this as §BN.
+
+**Revision-3 locked behaviour:** tapping a past-month bar scopes the Redemption History section to that month. The Revision-2 "never filtered" rule is REVERSED.
+
+**What changes:**
+
+| Surface | Revision-2 (was) | Revision-3 (now) |
+|---|---|---|
+| Section label (default, no month selected) | "Redemption History" | "Redemption History" (unchanged) |
+| Section label (past month selected) | "Redemption History" (all-time rows underneath) | **"Redemptions in {Month YYYY}"** (e.g. "Redemptions in March 2026") |
+| Rows under selection | all-time (mis-read as month-scoped) | scoped to the selected month |
+| Empty state under selection | n/a (rows always shown) | **"No redemptions in {Month YYYY}."** below the section label |
+| "Load more" / "You're all caught up" | applied to all-time | applied within the month-scoped result set |
+| Dismissing the chip | n/a | reverts label + rows to all-time (Revision-2 behaviour) |
+
+**Backend contract change (additive).** `GET /api/v1/customer/savings/redemptions` accepts an optional `month=YYYY-MM` query parameter. When supplied, results + `total` are scoped to that calendar month (UTC boundaries, matching `getMonthlyDetail`). When omitted, the Revision-2 all-time behaviour is preserved verbatim. Existing callers untouched.
+
+**Customer-app contract change.** `useSavingsRedemptions(selectedMonth: string | null = null)` re-keys on month so different months stay in isolated React Query cache entries. `visibleCount` resets to `INITIAL_VISIBLE` on month switch.
+
+**What this does NOT do.** The broader brainstorm `Filter` button on the Redemption History header (`savings-polished.html:785`) remains DEFERRED under **§BS** in the deferred-followups index. That richer affordance (filter by merchant / voucher type / validation status, beyond just month) is a separate Tier 2 workstream and will likely require its own brainstorm-first design pass to lock the taxonomy. Revision-3 closes the month-scope half; the multi-axis filter half is §BS.
+
+**Cross-references:**
+- §BN entry in `memory/project_deferred_followups_index.md` — full audit trail, Path A vs B analysis.
+- §BS entry in same — the deferred richer Filter affordance.
+- PR #105 commit `930ab66` ("Issue 3") — the Revision-2 stop-gap behaviour being superseded.
 
 ---
 
@@ -164,7 +196,12 @@ Tapping any past month bar on Card 1 updates Cards 2 and 3 to show that month's 
 - Content crossfades: outgoing content fades to opacity:0 (200ms), new content fades in
 
 ### History list
-The redemption history list is **never filtered by selected month** — it always shows the full all-time history regardless of which bar is selected. Month drill-down only affects the insight cards.
+
+**Revision 3 (2026-05-18, supersedes Revision 1 + 2):** the Redemption History list IS scoped to the selected month. Section label adapts to "Redemptions in {Month YYYY}"; empty-state copy "No redemptions in {Month YYYY}." renders when the month-scoped fetch returns zero rows. The Revision-2 "never filtered" rule (preserved below for historical traceability) is overruled.
+
+> ~~The redemption history list is **never filtered by selected month** — it always shows the full all-time history regardless of which bar is selected. Month drill-down only affects the insight cards.~~ (Revision-2 rule, overruled by Revision 3 — see the Revision-3 amendment header at top of this spec for context.)
+
+The broader **Filter button** seen in the brainstorm `savings-polished.html:785` (richer filtering by merchant / voucher type / validation status, beyond just month) remains DEFERRED under §BS in the deferred-followups index — that affordance is a separate Tier 2 workstream and is NOT part of Revision 3.
 
 ### Backend requirement  [Revision 2 — endpoint already shipped 2026-04-18; only the response shape changed]
 
