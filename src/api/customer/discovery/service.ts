@@ -2934,6 +2934,202 @@ export async function getInAreaMerchants(
   }
 }
 
+// ─── In-area (Map, branch-first variant) ─────────────────────────────────────
+//
+// Discovery Rebaseline Phase 1 Task 1.6.
+// Spec docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §4.1.1.
+//
+// Branch-first analogue of `getInAreaMerchants` above. Emits one `BranchTile`
+// per branch inside the bbox rather than one tile per merchant. Coexists with
+// the merchant variant during Phase 1 + Phase 2; Phase 3 drops the merchant
+// version per the §AT cleanup note.
+//
+// **Critical list-vs-map asymmetry (Spec §4.1.1):**
+//   Map endpoint accepts MANUALLY_CONFIRMED branches ONLY. Unlike
+//   `searchBranches` (which unions MANUALLY_CONFIRMED + ADDRESS_GEOCODED in
+//   the rankable half and surfaces POSTCODE_CENTROID + NEEDS_REVIEW as a
+//   non-rankable tail), Map pins require exact coordinates by definition.
+//   Pinning at a non-exact coord would silently relax PR #81's redaction
+//   contract (`exposeBranchPosition` nulls lat/lng for non-exact branches,
+//   so non-exact tiles would emit null coords and render as zero pins
+//   anyway — but excluding them server-side keeps the contract explicit
+//   and `totalBranches` honest).
+//
+// Pipeline:
+//   1. Predicate: isActive=true + merchant ACTIVE + MANUALLY_CONFIRMED only +
+//      bbox bounds on the branch row itself.
+//   2. Fetch candidates (lite select for ranking).
+//   3. Derive viewport-centred effLoc from the bbox centre (mirrors
+//      getInAreaMerchants:2856-2860). A user panning the map sees the
+//      panned area's rungs/bands, NOT their saved area's.
+//   4. Rank via rankBranchesV3 with ladderProfile='MIXED_NORMAL' and
+//      categoryIntent='MIXED' (safe defaults for Map; spec §5.7).
+//   5. Enrich the ranked tiles. The caller's lat/lng (NOT viewport centre)
+//      drives the per-tile distance display, so a user looking at a panned
+//      map still sees "X km from you" — not "X km from viewport centre".
+//
+// No pagination — Map shows all pins in the viewport up to `limit` (mirrors
+// the merchant variant's contract).
+export async function getInAreaBranches(
+  prisma: PrismaClient,
+  params: {
+    bbox: Bbox
+    categoryId?: string
+    lat?: number | null
+    lng?: number | null
+    userId: string | null
+    limit: number
+  },
+): Promise<{
+  branches: BranchTile[]
+  meta: {
+    effectiveLocality: { id: string; name: string } | null
+    rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
+  }
+}> {
+  const { bbox, categoryId, lat, lng, userId, limit } = params
+
+  // ── 1. Branch-level predicate — MANUALLY_CONFIRMED ONLY (PR #81 redaction
+  //    contract + Spec §4.1.1 list-vs-map asymmetry).
+  const where: Prisma.BranchWhereInput = {
+    isActive: true,
+    merchant: {
+      status: MerchantStatus.ACTIVE,
+      ...(categoryId
+        ? { OR: [
+            { primaryCategoryId: categoryId },
+            { categories: { some: { categoryId } } },
+          ] }
+        : {}),
+    },
+    locationConfidence: 'MANUALLY_CONFIRMED',
+    latitude:  { gte: bbox.minLat, lte: bbox.maxLat, not: null },
+    longitude: { gte: bbox.minLng, lte: bbox.maxLng, not: null },
+  }
+
+  // ── 2. Fetch candidate branches (lite select for ranking; full enrichment
+  //    runs on the page slice via enrichBranchTiles).
+  const candidateBranches = await prisma.branch.findMany({
+    where,
+    select: {
+      id:                 true,
+      merchantId:         true,
+      name:               true,
+      latitude:           true,
+      longitude:          true,
+      isActive:           true,
+      locationConfidence: true,
+      localityId:         true,
+      postTown:           true,
+      ladDistrict:        true,
+      adminCounty:        true,
+      region:             true,
+      locationCountry:    true,
+      merchant: {
+        select: { id: true, businessName: true },
+      },
+    },
+    take: limit,
+  })
+
+  // ── 3. Resolve viewport-centred effLoc (mirrors getInAreaMerchants:2856-2860).
+  //    A user panning the map to a different area sees that area's
+  //    rungs/bands, NOT their saved area's.
+  const viewportCenterLat = (bbox.minLat + bbox.maxLat) / 2
+  const viewportCenterLng = (bbox.minLng + bbox.maxLng) / 2
+  const viewportEffLoc = await resolveEffectiveLocation(
+    prisma,
+    { lat: viewportCenterLat, lng: viewportCenterLng },
+    null,
+  )
+
+  // ── 4. Rank the candidates via rankBranchesV3.
+  //    All candidates are MANUALLY_CONFIRMED by predicate, so there is no
+  //    non-rankable tail (unlike searchBranches). categoryIntent defaults to
+  //    MIXED (safe per ranking.ts when no category is provided);
+  //    ladderProfile is 'MIXED_NORMAL' for Map per spec §5.7.
+  let rankedTiles: RankedBranchTile[] = []
+  let rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number> = { ...EMPTY_RUNG_COUNTS }
+  if (viewportEffLoc && candidateBranches.length > 0) {
+    let categoryIntent: CategoryIntent = 'MIXED'
+    if (categoryId) {
+      const catRow = await prisma.category.findUnique({
+        where:  { id: categoryId },
+        select: { intentType: true, parent: { select: { intentType: true } } },
+      })
+      if (catRow) categoryIntent = resolveCategoryIntent(catRow)
+    }
+
+    const outgoingCatchmentTargetIds = await getOutgoingCatchmentTargetIds(
+      prisma, viewportEffLoc.locality.id,
+    )
+
+    const inputs: RankableBranchInputV3[] = candidateBranches.map(b => ({
+      id:                 b.id,
+      merchantId:         b.merchantId,
+      merchant: {
+        id:           b.merchant.id,
+        businessName: b.merchant.businessName,
+        // Per-branch ratings populated downstream in enrichBranchTiles.
+        // ranking step uses null/0 conservatively (Phase 1 parity with
+        // searchBranches; Phase 2 can revisit).
+        avgRating:    null,
+        reviewCount:  0,
+      },
+      latitude:           b.latitude  !== null ? Number(b.latitude)  : null,
+      longitude:          b.longitude !== null ? Number(b.longitude) : null,
+      isActive:           b.isActive,
+      locationConfidence: b.locationConfidence,
+      localityId:         b.localityId,
+      postTown:           b.postTown,
+      ladDistrict:        b.ladDistrict,
+      adminCounty:        b.adminCounty,
+      region:             b.region,
+      locationCountry:    b.locationCountry,
+    }))
+
+    const v3 = rankBranchesV3(inputs, {
+      effLoc: viewportEffLoc,
+      ladderProfile: 'MIXED_NORMAL',
+      outgoingCatchmentTargetIds,
+      categoryIntent,
+      targetCount: limit,
+      hardCap:     limit,
+    })
+    rankedTiles = v3.tiles
+    rungCounts  = v3.rungCounts
+  }
+
+  // ── 5. Enrich the ranked tiles. The caller's lat/lng (NOT viewport centre)
+  //    drives the per-tile distance display — a user looking at a panned map
+  //    still sees "X km from you", not "X km from viewport centre".
+  const branches = await enrichBranchTiles(
+    prisma,
+    rankedTiles.map(t => ({
+      branchId:      t.id,
+      merchantId:    t.merchantId,
+      supplyRung:    t.supplyRung,
+      proximityBand: t.proximityBand,
+      distance:      t.distanceMetres,
+    } satisfies EnrichBranchInput)),
+    {
+      userId: userId ?? null,
+      lat:    lat   ?? null,
+      lng:    lng   ?? null,
+    },
+  )
+
+  return {
+    branches,
+    meta: {
+      effectiveLocality: viewportEffLoc
+        ? { id: viewportEffLoc.locality.id, name: viewportEffLoc.locality.name }
+        : null,
+      rungCounts,
+    },
+  }
+}
+
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 /**
