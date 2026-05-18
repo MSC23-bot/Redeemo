@@ -62,7 +62,6 @@ function makeBranch(over: Partial<RankableBranchInputV3> = {}): RankableBranchIn
       businessName: 'Default Merchant',
       avgRating: null,
       reviewCount: 0,
-      primaryCategory: { intentType: 'LOCAL' },
     },
     latitude: 51.811,
     longitude: 1.027,
@@ -102,7 +101,6 @@ describe('rankBranchesV3 — branch-first cardinality', () => {
         businessName: 'Covelum',
         avgRating: null,
         reviewCount: 0,
-        primaryCategory: { intentType: 'LOCAL' },
       },
       latitude: 51.811,
       longitude: 1.027,
@@ -115,7 +113,6 @@ describe('rankBranchesV3 — branch-first cardinality', () => {
         businessName: 'Covelum',
         avgRating: null,
         reviewCount: 0,
-        primaryCategory: { intentType: 'LOCAL' },
       },
       latitude: 51.889,
       longitude: 0.903,
@@ -183,7 +180,6 @@ describe('rankBranchesV3 — pure-rank D1 sort', () => {
         businessName: 'Covelum',
         avgRating: null,
         reviewCount: 0,
-        primaryCategory: { intentType: 'LOCAL' },
       },
       latitude: 51.811, // viewer location → NEARBY
       longitude: 1.027,
@@ -196,7 +192,6 @@ describe('rankBranchesV3 — pure-rank D1 sort', () => {
         businessName: 'Covelum',
         avgRating: null,
         reviewCount: 0,
-        primaryCategory: { intentType: 'LOCAL' },
       },
       latitude: 51.811, // also NEARBY for this test
       longitude: 1.027,
@@ -209,7 +204,6 @@ describe('rankBranchesV3 — pure-rank D1 sort', () => {
         businessName: 'Karaara',
         avgRating: null,
         reviewCount: 0,
-        primaryCategory: { intentType: 'LOCAL' },
       },
       latitude: 53.6458,
       longitude: -1.7850,
@@ -269,7 +263,6 @@ describe('rankBranchesV3 — rungCounts envelope', () => {
         businessName: 'Alpha',
         avgRating: null,
         reviewCount: 0,
-        primaryCategory: { intentType: 'LOCAL' },
       },
     })
     const m1b2 = makeBranch({
@@ -280,7 +273,6 @@ describe('rankBranchesV3 — rungCounts envelope', () => {
         businessName: 'Alpha',
         avgRating: null,
         reviewCount: 0,
-        primaryCategory: { intentType: 'LOCAL' },
       },
     })
 
@@ -316,5 +308,260 @@ describe('rankBranchesV3 — tile shape', () => {
     expect(t.proximityBand).toBeTruthy()
     expect(t.distanceMetres).toBeGreaterThanOrEqual(0)
     expect(t.businessName).toBe('Default Merchant')
+  })
+})
+
+// ── 6. hardCap, targetCount, rungCounts parity, MIXED, DESTINATION, over-maxRung ──
+
+describe('rankBranchesV3 — hardCap caps tiles globally', () => {
+  it('emits exactly hardCap tiles when more branches are eligible', () => {
+    // 60 NEARBY-eligible branches; hardCap = 20.
+    const branches = Array.from({ length: 60 }, (_, i) =>
+      makeBranch({
+        id: `brn_hc_${i.toString().padStart(3, '0')}`,
+        merchantId: `mer_hc_${i}`,
+        merchant: {
+          id: `mer_hc_${i}`,
+          businessName: `HardCap ${i.toString().padStart(3, '0')}`,
+          avgRating: null,
+          reviewCount: 0,
+        },
+        latitude: 51.811,
+        longitude: 1.027,
+      }),
+    )
+
+    const result = rankBranchesV3(branches, baseInput({ targetCount: 100, hardCap: 20 }))
+
+    expect(result.tiles).toHaveLength(20)
+    // Post-fix: rungCounts.NEARBY MUST reflect emitted tiles (20), not eligible
+    // branches (60). Mirrors rankMerchantsV2 line 605 semantics — V2 increments
+    // rungCounts inside the stitch loop AFTER hardCap + tiles.push.
+    expect(result.rungCounts.NEARBY).toBe(20)
+  })
+})
+
+describe('rankBranchesV3 — targetCount stops outer loop after NEARBY fully evaluated', () => {
+  it('does NOT cap mid-NEARBY: emits all NEARBY branches even when targetCount is exceeded', () => {
+    // 30 NEARBY-eligible branches + 30 CATCHMENT-eligible branches in a
+    // catchment-target locality. targetCount=5, hardCap=100.
+    const nearby = Array.from({ length: 30 }, (_, i) =>
+      makeBranch({
+        id: `brn_n_${i.toString().padStart(3, '0')}`,
+        merchantId: `mer_n_${i}`,
+        merchant: {
+          id: `mer_n_${i}`,
+          businessName: `Near ${i.toString().padStart(3, '0')}`,
+          avgRating: null,
+          reviewCount: 0,
+        },
+        latitude: 51.811,
+        longitude: 1.027,
+      }),
+    )
+    // CATCHMENT branches via outgoing-edge to 'loc_catch'. Lat/lng far enough
+    // to not match NEARBY radius (LOCAL_NORMAL URBAN = 3 miles).
+    const catchment = Array.from({ length: 30 }, (_, i) =>
+      makeBranch({
+        id: `brn_c_${i.toString().padStart(3, '0')}`,
+        merchantId: `mer_c_${i}`,
+        merchant: {
+          id: `mer_c_${i}`,
+          businessName: `Catch ${i.toString().padStart(3, '0')}`,
+          avgRating: null,
+          reviewCount: 0,
+        },
+        latitude: 52.500, // ~80km north — well outside any NEARBY radius
+        longitude: 1.027,
+        localityId: 'loc_catch',
+        postTown: 'OTHER',
+        ladDistrict: 'OtherLad',
+        adminCounty: 'OtherCounty',
+        region: 'OtherRegion',
+      }),
+    )
+
+    const result = rankBranchesV3(
+      [...nearby, ...catchment],
+      baseInput({ targetCount: 5, hardCap: 100, outgoingCatchmentTargetIds: ['loc_catch'] }),
+    )
+
+    // All 30 NEARBY branches emit (targetCount only stops the OUTER loop
+    // AFTER NEARBY rung has been fully evaluated, per spec §5.6).
+    expect(result.rungCounts.NEARBY).toBe(30)
+    // Zero CATCHMENT branches emit (targetCount hit + NEARBY done → outer loop exits).
+    expect(result.rungCounts.CATCHMENT).toBe(0)
+    expect(result.tiles).toHaveLength(30)
+    expect(result.tiles.every(t => t.supplyRung === 'NEARBY')).toBe(true)
+  })
+})
+
+describe('rankBranchesV3 — rungCounts under hardCap mirrors V2', () => {
+  it('rungCounts reflects EMITTED tile count, not eligible branch count', () => {
+    const branches = Array.from({ length: 50 }, (_, i) =>
+      makeBranch({
+        id: `brn_e_${i.toString().padStart(3, '0')}`,
+        merchantId: `mer_e_${i}`,
+        merchant: {
+          id: `mer_e_${i}`,
+          businessName: `Eq ${i.toString().padStart(3, '0')}`,
+          avgRating: null,
+          reviewCount: 0,
+        },
+      }),
+    )
+
+    const result = rankBranchesV3(branches, baseInput({ targetCount: 100, hardCap: 10 }))
+
+    expect(result.tiles).toHaveLength(10)
+    // V2 parity: rungCounts post-cap, NOT pre-cap.
+    expect(result.rungCounts.NEARBY).toBe(10)
+  })
+})
+
+describe('rankBranchesV3 — MIXED intent: distance at NEARBY, quality at outer rungs', () => {
+  it('MIXED at NEARBY uses distance ASC (closer branch first)', () => {
+    const near = makeBranch({
+      id: 'brn_mixed_near',
+      latitude: 51.811,
+      longitude: 1.027,
+      merchant: {
+        id: 'mer_mixed_near',
+        businessName: 'Mixed Near',
+        avgRating: 3.0,
+        reviewCount: 10,
+      },
+    })
+    const farther = makeBranch({
+      id: 'brn_mixed_far',
+      latitude: 51.815, // ~445m
+      longitude: 1.027,
+      merchant: {
+        id: 'mer_mixed_far',
+        businessName: 'Mixed Far',
+        avgRating: 5.0, // higher quality, but distance dominates at NEARBY
+        reviewCount: 10,
+      },
+    })
+
+    const result = rankBranchesV3([farther, near], baseInput({ categoryIntent: 'MIXED' }))
+
+    expect(result.tiles.map(t => t.id)).toEqual(['brn_mixed_near', 'brn_mixed_far'])
+  })
+
+  it('MIXED at outer rung (CATCHMENT) uses quality (rated > unrated)', () => {
+    // Both branches are CATCHMENT (outgoing edge → loc_catch), same distance.
+    const rated = makeBranch({
+      id: 'brn_catch_rated',
+      latitude: 52.500,
+      longitude: 1.027,
+      localityId: 'loc_catch',
+      postTown: 'OTHER',
+      ladDistrict: 'OtherLad',
+      adminCounty: 'OtherCounty',
+      region: 'OtherRegion',
+      merchant: {
+        id: 'mer_catch_rated',
+        businessName: 'Rated Catch',
+        avgRating: 4.5,
+        reviewCount: 10, // ≥ MIN_REVIEW_COUNT_FOR_RATING_SORT (3)
+      },
+    })
+    const unrated = makeBranch({
+      id: 'brn_catch_unrated',
+      latitude: 52.500,
+      longitude: 1.027,
+      localityId: 'loc_catch',
+      postTown: 'OTHER',
+      ladDistrict: 'OtherLad',
+      adminCounty: 'OtherCounty',
+      region: 'OtherRegion',
+      merchant: {
+        id: 'mer_catch_unrated',
+        businessName: 'Aaaa Unrated', // alphabetically first — would win pure-alpha but quality kicks in
+        avgRating: null,
+        reviewCount: 0,
+      },
+    })
+
+    const result = rankBranchesV3(
+      [unrated, rated],
+      baseInput({ categoryIntent: 'MIXED', outgoingCatchmentTargetIds: ['loc_catch'] }),
+    )
+
+    // Both at CATCHMENT; quality-aware sort places the rated one first.
+    expect(result.tiles.map(t => t.supplyRung)).toEqual(['CATCHMENT', 'CATCHMENT'])
+    expect(result.tiles.map(t => t.id)).toEqual(['brn_catch_rated', 'brn_catch_unrated'])
+  })
+})
+
+describe('rankBranchesV3 — DESTINATION quality fallback when both unrated', () => {
+  it('both branches unrated → quality comparator falls through to distance', () => {
+    const near = makeBranch({
+      id: 'brn_dest_near',
+      latitude: 51.811,
+      longitude: 1.027,
+      merchant: {
+        id: 'mer_dest_near',
+        businessName: 'Bee Dest', // alphabetically AFTER 'Aaa Dest' — distance must dominate
+        avgRating: null,
+        reviewCount: 1, // below MIN_REVIEW_COUNT_FOR_RATING_SORT (3) → unrated
+      },
+    })
+    const farther = makeBranch({
+      id: 'brn_dest_far',
+      latitude: 51.815, // ~445m
+      longitude: 1.027,
+      merchant: {
+        id: 'mer_dest_far',
+        businessName: 'Aaa Dest',
+        avgRating: null,
+        reviewCount: 1, // also unrated
+      },
+    })
+
+    const result = rankBranchesV3([farther, near], baseInput({ categoryIntent: 'DESTINATION' }))
+
+    // Both unrated → falls through to distance ASC; closer 'Bee Dest' wins despite alphabetically later name.
+    expect(result.tiles.map(t => t.id)).toEqual(['brn_dest_near', 'brn_dest_far'])
+  })
+})
+
+describe('rankBranchesV3 — over-maxRung branches excluded from tiles AND rungCounts', () => {
+  it('LOCAL_TIGHT URBAN max is LAD — a COUNTY-classified branch is dropped from both', () => {
+    // viewer at Brightlingsea (Essex / Tendring). Construct a branch that lands at COUNTY
+    // (same Essex county, different locality + postTown + LAD, NEARBY distance excluded).
+    // LOCAL_TIGHT URBAN nearby radius = 1.5 miles; 'far' branch ~80km away.
+    const nearbyLad = makeBranch({
+      id: 'brn_local_lad',
+      latitude: 51.811,
+      longitude: 1.027,
+      // default fixture is Brightlingsea — NEARBY rung.
+    })
+    const overMax = makeBranch({
+      id: 'brn_county_over_max',
+      latitude: 52.000, // ~21km north of Brightlingsea → outside 1.5mi NEARBY
+      longitude: 1.027,
+      localityId: 'loc_chelmsford',
+      postTown: 'CHELMSFORD', // different postTown
+      ladDistrict: 'Chelmsford', // different LAD
+      adminCounty: 'Essex', // SAME county → would classify as COUNTY
+      region: 'East of England',
+      locationCountry: 'England',
+    })
+
+    const result = rankBranchesV3(
+      [nearbyLad, overMax],
+      baseInput({ ladderProfile: 'LOCAL_TIGHT' }),
+    )
+
+    // Only the NEARBY branch emits — over-max COUNTY branch dropped.
+    expect(result.tiles.map(t => t.id)).toEqual(['brn_local_lad'])
+    expect(result.rungCounts.NEARBY).toBe(1)
+    expect(result.rungCounts.COUNTY).toBe(0)
+    // Defensive — no spurious counts at any rung beyond max.
+    expect(result.rungCounts.REGION).toBe(0)
+    expect(result.rungCounts.COUNTRY).toBe(0)
+    expect(result.rungCounts.NATIONAL).toBe(0)
   })
 })

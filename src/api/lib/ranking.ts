@@ -645,7 +645,6 @@ export type RankableBranchInputV3 = RankableBranch & {
     businessName: string
     avgRating: number | null
     reviewCount: number
-    primaryCategory: { intentType: CategoryIntentType | null } | null
   }
 }
 
@@ -708,7 +707,6 @@ export function rankBranchesV3<B extends RankableBranchInputV3>(
     const arr = byRung.get(rung) ?? []
     arr.push({ branch: b, rung, distance })
     byRung.set(rung, arr)
-    rungCounts[rung]++
   }
 
   // Step 2: sort within rung per categoryIntent.
@@ -767,6 +765,7 @@ export function rankBranchesV3<B extends RankableBranchInputV3>(
         proximityBand: getProximityBand(c.rung, effLoc.densityClass),
         distanceMetres: c.distance,
       })
+      rungCounts[c.rung]++
     }
 
     if (rung === 'NEARBY') nearbyRungEvaluated = true
