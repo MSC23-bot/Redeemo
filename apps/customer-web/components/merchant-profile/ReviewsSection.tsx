@@ -18,6 +18,11 @@ type Review = {
 
 type Props = {
   merchantId: string
+  // §AS customer-web parity 2026-05-18 — merchant display name passed from
+  // the parent (`merchant.tradingName ?? merchant.businessName`) so the
+  // empty-state CTA can identify the merchant by name, matching the
+  // customer-app `ReviewsTab.tsx::deriveCopyForCurrentScope` pattern.
+  merchantDisplayName: string
   avgRating: number | null
   reviewCount: number
 }
@@ -54,7 +59,7 @@ function formatRelativeDate(iso: string): string {
   return `${Math.floor(diff / (365 * day))} yr ago`
 }
 
-export function ReviewsSection({ merchantId, avgRating, reviewCount }: Props) {
+export function ReviewsSection({ merchantId, merchantDisplayName, avgRating, reviewCount }: Props) {
   const [reviews, setReviews] = useState<Review[]>([])
   const [loaded, setLoaded] = useState(false)
 
@@ -77,7 +82,35 @@ export function ReviewsSection({ merchantId, avgRating, reviewCount }: Props) {
     return () => controller.abort()
   }, [merchantId])
 
-  if (reviewCount === 0) return null
+  // §AS customer-web parity 2026-05-18 — replace the previous `return null`
+  // with a lightweight empty-state CTA matching customer-app's
+  // `ReviewsTab.tsx:313` copy ("Be the first to review {merchantName}").
+  // Customer-web does NOT yet have a write-review surface, so this is
+  // informational only — no action button. Matches customer-app behaviour
+  // for "all branches, zero reviews" scope.
+  if (reviewCount === 0) {
+    return (
+      <motion.section
+        id="reviews"
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: '-60px' }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="max-w-7xl mx-auto px-6 py-10 md:py-12 border-b border-[#EDE8E8]"
+        data-testid="reviews-section-empty"
+      >
+        <h2
+          className="font-display text-[#010C35] leading-tight mb-3"
+          style={{ fontSize: 'clamp(22px, 2.6vw, 28px)', letterSpacing: '-0.2px' }}
+        >
+          Member reviews
+        </h2>
+        <p className="text-[14px] text-[#9CA3AF]">
+          Be the first to review {merchantDisplayName}.
+        </p>
+      </motion.section>
+    )
+  }
 
   return (
     <motion.section
@@ -137,8 +170,19 @@ export function ReviewsSection({ merchantId, avgRating, reviewCount }: Props) {
                     </span>
                   )}
                 </div>
+                {/*
+                  §AS customer-web parity 2026-05-18 — branch label appended
+                  after the relative date, matching customer-app's
+                  `ReviewCard.tsx:102` " · {branchName}" pattern. Customer-web
+                  has no per-branch reviews-scope toggle yet (the merchant
+                  page renders "all branches" by default), so the branch label
+                  shows whenever the review payload carries a non-empty
+                  branchName. Defensive guard against empty strings so a
+                  malformed payload never renders a dangling " · " separator.
+                */}
                 <span className="text-[11.5px] text-[#9CA3AF] flex-shrink-0">
                   {formatRelativeDate(r.createdAt)}
+                  {r.branchName ? ` · ${r.branchName}` : ''}
                 </span>
               </div>
               <div className="mb-2">

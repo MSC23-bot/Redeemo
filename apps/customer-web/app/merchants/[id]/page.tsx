@@ -127,6 +127,7 @@ export default async function MerchantProfilePage({ params, searchParams }: Prop
       <BranchesSection branches={merchant.branches} />
       <ReviewsSection
         merchantId={merchant.id}
+        merchantDisplayName={displayName}
         avgRating={merchant.avgRating}
         reviewCount={merchant.reviewCount}
       />
