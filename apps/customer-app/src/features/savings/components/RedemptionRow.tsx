@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { Text } from '@/design-system/Text'
 import { spacing, radius, color as tokenColor } from '@/design-system/tokens'
-import { voucherTypeLabel } from '@/features/voucher/utils/voucherTheme'
+import { voucherTypeLabel, voucherTypeLabelShort } from '@/features/voucher/utils/voucherTheme'
 import { isPresentationActive } from '@/features/voucher/utils/presentationWindow'
 import { branchShortName } from '@/features/merchant/utils/branchShortName'
 import type { SavingsRedemption } from '@/lib/api/savings'
@@ -79,16 +79,30 @@ type Props = {
 
 export function RedemptionRow({ redemption, onPress }: Props) {
   const badge = getBadgeType(redemption)
-  const vtLabel = voucherTypeLabel(redemption.voucher.voucherType)
-  const branchShort = branchShortName(redemption.branch.name)
-  const relTime = relativeTime(redemption.redeemedAt)
+  // §BO Revision (2026-05-18) — two labels for the same voucher type:
+  //   - vtLabelLong  for the a11y label (screen-reader audibility:
+  //     "Buy one, get one free voucher" beats "BOGO voucher")
+  //   - vtLabelShort for VISIBLE row text (avoids truncating the
+  //     branch suffix on narrow phones)
+  //
+  // Only BOGO + PACKAGE_DEAL + TIME_LIMITED differ between the two;
+  // every other type matches 1:1, so the dual-label cost is real
+  // only on the three long-form types.
+  const vtLabelLong  = voucherTypeLabel(redemption.voucher.voucherType)
+  const vtLabelShort = voucherTypeLabelShort(redemption.voucher.voucherType)
+  const branchShort  = branchShortName(redemption.branch.name)
+  const relTime      = relativeTime(redemption.redeemedAt)
 
   // §Savings device-QA round-2 fixup 2026-05-18 — append " voucher"
   // to the type label per owner direction.  Reads as a noun phrase:
-  // "Reusable voucher", "Buy one, get one free voucher", "Time
-  // limited voucher".  The savings-history surface treats every row
-  // as a redeemed voucher event, so the noun belongs on the label.
-  const vtLabelAsNoun = `${vtLabel} voucher`
+  // "Reusable voucher", "BOGO voucher", "Time-limited voucher".
+  // The savings-history surface treats every row as a redeemed
+  // voucher event, so the noun belongs on the label.
+  //
+  // §BO Revision (2026-05-18) — visible noun uses the short form;
+  // a11y noun uses the long form so screen readers say the full type.
+  const vtLabelAsNoun     = `${vtLabelShort} voucher`
+  const vtLabelAsNounLong = `${vtLabelLong} voucher`
   const voucherTitle = redemption.voucher.title
 
   const logoColor =
@@ -96,7 +110,7 @@ export function RedemptionRow({ redemption, onPress }: Props) {
     tokenColor.brandRose
 
   const a11yLabel =
-    `${redemption.merchant.businessName}, ${voucherTitle}, ${vtLabelAsNoun}, ${branchShort}, £${redemption.estimatedSaving.toFixed(2)} saved, ${relTime}`
+    `${redemption.merchant.businessName}, ${voucherTitle}, ${vtLabelAsNounLong}, ${branchShort}, £${redemption.estimatedSaving.toFixed(2)} saved, ${relTime}`
 
   // §Savings device-QA fixup 2026-05-18 — PressableScale inner-flex bug.
   //

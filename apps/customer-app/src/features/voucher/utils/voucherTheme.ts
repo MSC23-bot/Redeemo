@@ -34,12 +34,63 @@ const TYPE_LABELS: Record<VoucherType, string> = {
   REUSABLE:         'Reusable',
 }
 
+// §BO Revision (2026-05-18) — short-form labels for dense row
+// contexts (Savings RedemptionRow + future analytics surfaces) where
+// the canonical long-form labels above truncate the row's branch
+// suffix on narrow phones.  Only BOGO + PACKAGE_DEAL + TIME_LIMITED
+// shorten meaningfully; the rest match the long form 1:1 so callers
+// can use this helper uniformly without per-type branching.
+//
+// Visual-only contract: callers MUST still surface the long form in
+// accessibility labels (`accessibilityLabel`) so screen readers say
+// the full type name.  See `RedemptionRow.tsx` for the canonical
+// long-vs-short split.
+const TYPE_LABELS_SHORT: Record<VoucherType, string> = {
+  BOGO:             'BOGO',
+  DISCOUNT_FIXED:   'Discount',
+  DISCOUNT_PERCENT: 'Discount',
+  FREEBIE:          'Freebie',
+  SPEND_AND_SAVE:   'Spend & save',
+  PACKAGE_DEAL:     'Package',
+  TIME_LIMITED:     'Time-limited',
+  REUSABLE:         'Reusable',
+}
+
 export function voucherGradient(type: VoucherType): VoucherGradient {
   return TYPE_GRADIENTS[type] ?? TYPE_GRADIENTS.DISCOUNT_FIXED
 }
 
 export function voucherTypeLabel(type: VoucherType): string {
   return TYPE_LABELS[type] ?? 'Voucher'
+}
+
+/**
+ * Short-form voucher-type label for dense row contexts.
+ *
+ * The canonical `voucherTypeLabel()` returns full marketing-tone
+ * labels ("Buy one, get one free", "Package deal", "Time limited").
+ * On dense rows like the Savings RedemptionRow meta line — where
+ * the rendered text is `${label} voucher` followed by a separate
+ * branch · time row — the long form can truncate the branch suffix
+ * on narrow phones (iPhone 13 mini etc.).
+ *
+ * Use this helper for VISIBLE TEXT on dense rows only.  Continue
+ * using `voucherTypeLabel()` for:
+ *   - Voucher Detail surfaces (hero type chip, type explainer card)
+ *   - Redemption Receipt header chip
+ *   - SuccessPopup voucher strip
+ *   - Merchant Profile voucher cards
+ *   - Accessibility labels (screen readers benefit from the full
+ *     wording even when the visible text is short)
+ *
+ * Most types are unchanged between long and short forms; only BOGO
+ * (50+ chars → 4 chars), PACKAGE_DEAL ("Package deal" → "Package"),
+ * and TIME_LIMITED ("Time limited" → "Time-limited") materially
+ * shorten.  The rest pass through unchanged so callers don't need
+ * per-type branching.
+ */
+export function voucherTypeLabelShort(type: VoucherType): string {
+  return TYPE_LABELS_SHORT[type] ?? 'Voucher'
 }
 
 /**
