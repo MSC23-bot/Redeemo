@@ -3366,3 +3366,141 @@ export async function getCampaignMerchants(
     userId: params.userId ?? null,
   })
 }
+
+/**
+ * Discovery Rebaseline Phase 1 Task 1.9 — branch-first variant of
+ * `getCampaignMerchants`.
+ *
+ * Spec §8.1: Campaigns (`Campaign → CampaignMerchant → Merchant`) follow the
+ * same branch-scoped principle as Featured/Trending in §5.2. For each
+ * `CampaignMerchant`, we fan out to all of the merchant's ACTIVE branches and
+ * emit one `BranchTile` per branch.
+ *
+ * Interim behaviour pre-`CampaignMerchant.branchId?` schema migration: every
+ * campaign merchant fans out to ALL its active branches (identical to the
+ * Featured fan-out pattern in `getHomeFeed`, Task 1.7). A future Phase will
+ * let admins target specific branches per campaign.
+ *
+ * Status / date-window semantics: returns `{ branches: [], total: 0 }` when the
+ * campaign is missing, not ACTIVE, or outside its date window. This diverges
+ * intentionally from `getCampaignMerchants` (which throws `CAMPAIGN_NOT_FOUND`)
+ * — branch-first endpoints in Phase 1 prefer empty-list returns so the
+ * consumer surface can degrade gracefully (mirrors `searchBranches` /
+ * `getCategoryBranches` for empty result sets).
+ *
+ * No ranking pass — campaigns are curatorial. Each input row passes
+ * `supplyRung: null, proximityBand: null`. Distance is computed via
+ * `haversineMetres` ONLY when the user has GPS AND the branch is
+ * MANUALLY_CONFIRMED (matches the Home fan-out distance gate at
+ * service.ts:1239-1243 + the `hasExactPosition` redaction contract).
+ *
+ * Coexists with `getCampaignMerchants` through Phase 1+2; Phase 3 drops the
+ * merchant-themed variant.
+ */
+export async function getCampaignBranches(
+  prisma: PrismaClient,
+  campaignId: string,
+  params: {
+    categoryId?: string
+    lat?: number | null
+    lng?: number | null
+    userId: string | null
+    limit?: number
+    offset?: number
+  },
+): Promise<{ branches: BranchTile[]; total: number }> {
+  const now = new Date()
+  const campaign = await prisma.campaign.findUnique({
+    where:  { id: campaignId },
+    select: { id: true, status: true, startDate: true, endDate: true },
+  })
+  if (!campaign) return { branches: [], total: 0 }
+  if (
+    campaign.status !== CampaignStatus.ACTIVE ||
+    campaign.startDate > now ||
+    campaign.endDate < now
+  ) {
+    return { branches: [], total: 0 }
+  }
+
+  // Walk CampaignMerchant rows scoped to active campaign-merchant links
+  // (`isActive: true` + own date window) plus an active-merchant guard.
+  // Mirrors getCampaignMerchants' merchant scoping at service.ts:3340-3354,
+  // including the categoryId OR-expansion across primary + linked categories.
+  const cmRows = await prisma.campaignMerchant.findMany({
+    where: {
+      campaignId,
+      isActive:  true,
+      startDate: { lte: now },
+      endDate:   { gte: now },
+      merchant:  {
+        status: MerchantStatus.ACTIVE,
+        ...(params.categoryId ? {
+          OR: [
+            { primaryCategoryId: params.categoryId },
+            { categories: { some: { categoryId: params.categoryId } } },
+          ],
+        } : {}),
+      },
+    },
+    select: {
+      merchant: {
+        select: {
+          id:       true,
+          branches: {
+            where: { isActive: true },
+            select: {
+              id:                 true,
+              latitude:           true,
+              longitude:          true,
+              locationConfidence: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { merchant: { businessName: 'asc' } },
+  })
+
+  // Fan out to EnrichBranchInput rows — one per active branch, per merchant
+  // in the campaign. supplyRung/proximityBand null because campaigns skip the
+  // V3 ranker (curatorial inclusion).
+  const lat = params.lat ?? null
+  const lng = params.lng ?? null
+  const inputs: EnrichBranchInput[] = []
+  for (const row of cmRows) {
+    const merchant = row.merchant
+    if (!merchant) continue
+    for (const b of merchant.branches) {
+      const hasUserGps = lat !== null && lng !== null
+      const hasExact   = hasExactPosition(b)
+      const distance   = hasUserGps && hasExact
+        ? haversineMetres(lat, lng, Number(b.latitude), Number(b.longitude))
+        : null
+      inputs.push({
+        branchId:      b.id,
+        merchantId:    merchant.id,
+        supplyRung:    null,
+        proximityBand: null,
+        distance,
+      })
+    }
+  }
+
+  const total = inputs.length
+
+  // Pagination — apply only when limit is supplied. Mirrors getHomeFeed's
+  // post-rank slicing pattern; the same fan-out tile cannot be sliced
+  // mid-merchant because each row is already 1-tile-per-branch.
+  const page = params.limit !== undefined
+    ? inputs.slice(params.offset ?? 0, (params.offset ?? 0) + params.limit)
+    : inputs
+
+  const branches = await enrichBranchTiles(prisma, page, {
+    userId: params.userId,
+    lat,
+    lng,
+  })
+
+  return { branches, total }
+}
