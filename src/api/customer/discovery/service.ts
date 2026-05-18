@@ -2291,6 +2291,30 @@ export async function searchMerchants(
 // rung walk generous enough for the page slice). The merchant-variant
 // `resolveScopeForRanking` keys on legacy `SupplyTier`, which doesn't map 1:1
 // to the V3 rung ladder — factoring it out is Phase 3 cleanup work, not Phase 1.
+//
+// Phase 1 params accepted but NOT honoured (the function signature mirrors
+// searchMerchants for surface parity; honouring is delegated to Phase 3
+// cleanup or follow-up work; rankBranchesV3 + the branch-first contract
+// intentionally simplify the Phase 1 surface):
+//   - scope            — retained-rung walk delegated to rankBranchesV3's
+//                        targetCount / hardCap semantics (see scope-resolution
+//                        note above); no resolveScopeForBranches introduced.
+//   - maxDistanceMiles — would require a post-rank distance filter; deferred.
+//   - amenityIds       — branch-level amenity filter; deferred.
+//   - tagIds           — Tag.label filter; deferred (Plan 4 M4 work).
+//   - openNow          — Europe/London current-time gate; deferred.
+//   - featured         — FeaturedMerchant overlay; deferred.
+//   - topRated         — quality-aware sort; deferred.
+//   - sortBy           — relevance / nearest / top_rated / highest_saving
+//                        override; deferred (current sort is rankBranchesV3's
+//                        default per ladder profile).
+//
+// Route handlers that wire searchBranches alongside searchMerchants (Task 1.10)
+// should be aware of this parity gap. Two options for callers:
+//   (a) strip these params at the route layer when delegating to searchBranches.
+//   (b) accept them at the route and document the no-op for callers.
+// Recommended: (b) — accept-and-no-op keeps callers' tests portable across
+// Phase 1 / 2 / 3 as more params get honoured incrementally.
 export async function searchBranches(
   prisma: PrismaClient,
   params: {
