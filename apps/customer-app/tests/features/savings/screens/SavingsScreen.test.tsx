@@ -466,32 +466,100 @@ describe('SavingsScreen — backend current month is authoritative (fixup §3)',
 })
 
 describe('SavingsScreen — design-fidelity fixup pass (2026-05-17)', () => {
-  it('selected month hides the all-time Redemption History rows and label', () => {
-    // §Issue 3: when the user drills into a past month via the
-    // TrendChart, the all-time recent-history rows below were
-    // misleading — they read as that month's redemptions even
-    // though they're unfiltered.  Locked fix: hide the entire
-    // history section under a selection until we have a
-    // month-filtered redemptions endpoint.
+  it('§BN Revision-3: selected month adapts the Redemption History label + scopes rows to that month', () => {
+    // §BN Revision-3 (2026-05-18) — Supersedes the Revision-2
+    // "selected month hides..." pin from PR #105's commit `930ab66`.
+    //
+    // Original Revision-2 behaviour: selecting a past month HIDES
+    // the entire Redemption History section.  That was a stop-gap
+    // because the byMonth redemptions endpoint hadn't shipped yet
+    // (commit body for `930ab66` explicitly flagged it as a
+    // deferred follow-up).  Device QA confirmed the all-time list
+    // under a "Viewing: <Month>" chip was confusing.
+    //
+    // Revision-3 behaviour (locked 2026-05-18):
+    //   - Selecting a past month re-keys `useSavingsRedemptions` to
+    //     fetch that month's redemptions.
+    //   - The section label adapts to "Redemptions in <Month YYYY>".
+    //   - Rows render the month-scoped result set (the test mock
+    //     keeps returning the same fixture row for both keys, but
+    //     in production the backend filters via the new optional
+    //     `month` param on /api/v1/customer/savings/redemptions).
     setMocks({
       summaryState: 'success', summaryData: populatedSummary,
       subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
       isSubscribed: true,
       redemptions: [someRedemption],
     })
-    const { getByTestId, queryByTestId, queryByText } = wrap(<SavingsScreen />)
+    const { getByTestId, queryByText, getByText } = wrap(<SavingsScreen />)
 
-    // Before selection: history row is visible.
+    // Before selection: section label is the default "Redemption History".
     expect(getByTestId('savings-redemption-row-red-1')).toBeTruthy()
     expect(queryByText('Redemption History')).toBeTruthy()
+    expect(queryByText(/Redemptions in /)).toBeNull()
 
     // Tap a past-month bar.
     fireEvent.press(getByTestId('savings-trend-bar-2026-04'))
-    // ViewingChip appears.
+
+    // ViewingChip appears AND the section label adapts.
     expect(getByTestId('savings-viewing-chip')).toBeTruthy()
-    // History rows + label are GONE.
-    expect(queryByTestId('savings-redemption-row-red-1')).toBeNull()
     expect(queryByText('Redemption History')).toBeNull()
+    expect(getByText('Redemptions in April 2026')).toBeTruthy()
+    // Rows still render (NOT hidden under selection); the section
+    // is scoped to that month rather than vanishing.
+    expect(getByTestId('savings-redemption-row-red-1')).toBeTruthy()
+  })
+
+  it('§BN Revision-3: selected month with zero redemptions renders empty-state copy', () => {
+    // §BN Revision-3 (2026-05-18) — when the user picks a past
+    // month that has zero redemptions, the section label still
+    // adapts to "Redemptions in <Month>" and an empty-state
+    // sentence renders directly below: "No redemptions in <Month>."
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+      redemptions: [],   // ← zero rows under the month scope
+    })
+    const { getByTestId, queryByTestId, getByText } = wrap(<SavingsScreen />)
+
+    // Default state: no rows + section label hidden (matches the
+    // `!selectedMonth && allRedemptions.length > 0` no-default-label
+    // semantics inherited from the Revision-2 baseline).
+    expect(queryByTestId('savings-history-empty')).toBeNull()
+
+    // Tap a past-month bar with no redemptions.
+    fireEvent.press(getByTestId('savings-trend-bar-2026-04'))
+
+    // Empty-state copy renders + section label adapts.
+    expect(getByText('Redemptions in April 2026')).toBeTruthy()
+    expect(getByTestId('savings-history-empty')).toBeTruthy()
+    expect(getByText('No redemptions in April 2026.')).toBeTruthy()
+    // No rows in the list (zero data).
+    expect(queryByTestId('savings-redemption-row-red-1')).toBeNull()
+  })
+
+  it('§BN Revision-3: dismissing the chip reverts label + rows to all-time', () => {
+    // §BN Revision-3 (2026-05-18) — tapping ✕ on the ViewingChip
+    // resets `selectedMonth` to null, which re-keys the hook back
+    // to all-time and reverts the section label to "Redemption
+    // History".
+    setMocks({
+      summaryState: 'success', summaryData: populatedSummary,
+      subscription: { status: 'ACTIVE', plan: { billingInterval: 'MONTHLY' } },
+      isSubscribed: true,
+      redemptions: [someRedemption],
+    })
+    const { getByTestId, queryByText, getByText } = wrap(<SavingsScreen />)
+
+    // Select then dismiss.
+    fireEvent.press(getByTestId('savings-trend-bar-2026-04'))
+    expect(getByText('Redemptions in April 2026')).toBeTruthy()
+    fireEvent.press(getByTestId('savings-viewing-chip-dismiss'))
+
+    // Back to all-time label.
+    expect(queryByText('Redemptions in April 2026')).toBeNull()
+    expect(getByText('Redemption History')).toBeTruthy()
   })
 
   it('selected month with empty TopBranches shows explicit empty-state card', () => {

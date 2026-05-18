@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { View, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from 'react-native'
 import { useRouter, useFocusEffect } from 'expo-router'
 import { Text } from '@/design-system/Text'
@@ -63,12 +63,29 @@ function monthName(yyyymm: string): string {
   return MONTH_NAMES[parseInt(mon, 10) - 1] ?? ''
 }
 
+// §BN Revision-3 (2026-05-18) — "Redemptions in March 2026" / "No
+// redemptions in March 2026." copy specifically asks for the year.
+// TopPlaces + ByCategory empty-state copy still uses the short form
+// (`monthName`) above, so this helper is intentionally separate
+// rather than rewriting the existing one and rippling into all the
+// short-form callers.
+function monthNameWithYear(yyyymm: string): string {
+  const [yearStr, monStr] = yyyymm.split('-')
+  const monIndex = parseInt(monStr ?? '1', 10) - 1
+  const monLabel = MONTH_NAMES[monIndex] ?? ''
+  return `${monLabel} ${yearStr ?? ''}`.trim()
+}
+
 export function SavingsScreen() {
   const router = useRouter()
   const { subscription, isSubscribed, isSubLoading } = useSubscription()
   const summary = useSavingsSummary()
-  const redemptions = useSavingsRedemptions()
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  // §BN Revision-3 (2026-05-18) — hook re-keys on `selectedMonth` so
+  // a past-month selection refetches scoped history; null preserves
+  // the all-time fetch.  See `useSavingsRedemptions` for the cache
+  // separation contract.
+  const redemptions = useSavingsRedemptions(selectedMonth)
   const monthDetail = useMonthlyDetail(selectedMonth)
 
   // Backend `monthlyBreakdown[0].month` is the authoritative current
@@ -117,6 +134,17 @@ export function SavingsScreen() {
   const INITIAL_VISIBLE = 8
   const LOAD_MORE_STEP  = 8
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
+
+  // §BN Revision-3 (2026-05-18) — reset the visible-rows counter when
+  // the user switches month (or clears the month selection).  Without
+  // this, switching from all-time → March (with all-time count > 8)
+  // would land on visibleCount=32 against March's 5 rows — confusing
+  // because "Load more" then never appears even though the user
+  // effectively reset the scope.  Reset gives every month-switch a
+  // clean INITIAL_VISIBLE entry experience.
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE)
+  }, [selectedMonth])
   const visibleRedemptions = useMemo(
     () => allRedemptions.slice(0, visibleCount),
     [allRedemptions, visibleCount],
@@ -353,21 +381,41 @@ export function SavingsScreen() {
             </FadeInDown>
           )}
 
-          {/* §Savings fixup 2026-05-17: hide the all-time Redemption
-              History label when a past month is selected.  The list
-              we paginate is unfiltered by month, so showing rows
-              labelled "2h ago / yesterday / 3 Apr" UNDER a "Viewing:
-              February 2026" chip was misleading — users read those
-              rows as February redemptions.  Until we add a month-
-              filtered redemptions endpoint, the cleanest fix is to
-              hide the history section entirely under a selection.
-              Deferred follow-up: server-side `byMonth` redemption
-              endpoint + matching UI affordance.  */}
-          {!selectedMonth && allRedemptions.length > 0 && (
+          {/* §BN Revision-3 (2026-05-18) — month-scoped Redemption
+              History.  When the user taps a past-month bar in the
+              trend chart, `useSavingsRedemptions(selectedMonth)` re-
+              keys and fetches that month's redemptions; the section
+              label adapts to "Redemptions in <Month YYYY>".
+              Empty-state copy ("No redemptions in <Month YYYY>.")
+              renders inline below the label when the month-scoped
+              fetch returns zero rows.
+
+              Supersedes the Revision-2 fixup-1 (commit `930ab66`)
+              that hid the entire section under a month selection —
+              that was a stop-gap because the byMonth endpoint hadn't
+              shipped yet.  See spec Revision-3 banner. */}
+          {(selectedMonth || allRedemptions.length > 0) && (
             <FadeInDown delay={250}>
-              <Text variant="label.eyebrow" style={styles.historyLabel}>
-                Redemption History
+              <Text
+                variant="label.eyebrow"
+                style={styles.historyLabel}
+                testID="savings-history-label"
+              >
+                {selectedMonth
+                  ? `Redemptions in ${monthNameWithYear(selectedMonth)}`
+                  : 'Redemption History'}
               </Text>
+              {selectedMonth && allRedemptions.length === 0 && !redemptions.isFetching && (
+                <Text
+                  variant="body.sm"
+                  color="tertiary"
+                  meta
+                  style={styles.historyEmpty}
+                  testID="savings-history-empty"
+                >
+                  No redemptions in {monthNameWithYear(selectedMonth)}.
+                </Text>
+              )}
             </FadeInDown>
           )}
         </View>
@@ -419,18 +467,19 @@ export function SavingsScreen() {
 
   const isPopulated = userState === 'populated'
 
-  // §Savings fixup 2026-05-17: same rationale as the history-label
-  // gate above — feed the FlatList an empty data array under a
-  // selected month so the rows themselves don't render either.  The
-  // ListHeaderComponent still drives the chart, ViewingChip, and
-  // insight cards (which DO honour the selected month via
-  // monthDetail).  Pull-to-refresh still refetches all 3 queries.
+  // §BN Revision-3 (2026-05-18) — the FlatList renders the SAME
+  // `visibleRedemptions` slice regardless of month scope.  Under a
+  // selected month, `useSavingsRedemptions(selectedMonth)` already
+  // returns only that month's rows, so the list naturally shows
+  // exactly what the user expects from the "Viewing: <Month>" chip.
+  // Empty-state copy ("No redemptions in <Month>.") renders in the
+  // ListHeader, not in the list body.
   //
-  // §Savings device-QA fixup 5 2026-05-18: list now feeds the
+  // §Savings device-QA fixup 5 2026-05-18: list feeds the
   // `visibleRedemptions` slice — first INITIAL_VISIBLE rows, then
   // +LOAD_MORE_STEP per "Load more" tap.  No more onEndReached
   // infinite scroll.
-  const listData = isPopulated && !selectedMonth ? visibleRedemptions : []
+  const listData = isPopulated ? visibleRedemptions : []
 
   return (
     <View style={styles.screen} testID="savings-screen">
@@ -444,10 +493,16 @@ export function SavingsScreen() {
         )}
         ListHeaderComponent={listHeader}
         ListFooterComponent={
-          // Footer is part of the history list — same gate as the
-          // list itself.  No load-more / caught-up copy under a
-          // selected month (the visible list is empty there).
-          isPopulated && !selectedMonth ? (
+          // §BN Revision-3 (2026-05-18) — footer now mirrors the
+          // list's own pagination signals regardless of month scope.
+          // Under a selected month with zero rows the footer is
+          // naturally suppressed: `hasMoreToShow` is false (no rows
+          // to reveal), and `allCaughtUp` requires
+          // `allRedemptions.length > 0` so it doesn't fire either.
+          // Under a month WITH rows the "Load more" / "You're all
+          // caught up" affordances work naturally inside the month
+          // scope.
+          isPopulated ? (
             redemptions.isFetchingNextPage ? (
               <ActivityIndicator color={color.brandRose} style={styles.footerSpinner} />
             ) : hasMoreToShow ? (
@@ -515,6 +570,15 @@ const styles = StyleSheet.create({
   historyLabel: {
     color: color.text.tertiary,
     marginTop: spacing[3],
+  },
+  // §BN Revision-3 (2026-05-18) — empty-state copy under a selected
+  // month with zero redemptions.  Sits directly below the
+  // "Redemptions in <Month>" label, in the same tertiary tone as
+  // the existing TopPlaces / ByCategory month empty-state cards so
+  // the three insight surfaces read as a coherent month-scope set.
+  historyEmpty: {
+    marginTop: spacing[2],
+    paddingHorizontal: spacing[5],
   },
   // §Savings device-QA round-3 fixup 2026-05-18 — spacing pass.
   // paddingVertical spacing[1] (4) → spacing[2] (8) so the
