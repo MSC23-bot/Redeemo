@@ -42,7 +42,14 @@ const mockMeta = {
 
 // Per-scenario state — flipped by individual tests via the controlled flag.
 const mockSearchState = {
-  scenario: 'happy' as 'happy' | 'empty' | 'expanded' | 'no_uk_supply' | 'multi_branch' | 'count_list_mismatch',
+  scenario: 'happy' as
+    | 'happy'
+    | 'empty'
+    | 'expanded'
+    | 'no_uk_supply'
+    | 'multi_branch'
+    | 'count_list_mismatch'
+    | 'karaara_nearby_only',
 }
 
 // Covelum multi-branch fixture — the load-bearing cardinality test.
@@ -113,6 +120,24 @@ jest.mock('@/hooks/useSearch', () => ({
             branches: [covelumBri, covelumCol], totalBranches: 2,
             meta:       mockMeta,
             branchMeta: mockMeta,
+          },
+          isLoading: false,
+        }
+      case 'karaara_nearby_only':
+        // Owner observation that drove the cumulative-display rule:
+        // Karaara 276m nearby → backend buckets nearbyCount=1, cityCount=0,
+        // distantCount=0.  Bucket display would show "Nearby · 1, Your city · 0,
+        // UK-wide · 0" — counter-intuitive because if a result is NEARBY it's
+        // also IN YOUR CITY and UK-WIDE.  Cumulative display rule:
+        //   Nearby   = 1
+        //   Your city = 1 + 0 = 1
+        //   UK-wide  = 1 + 0 + 0 = 1
+        return {
+          data: {
+            merchants: [], total: 0,
+            branches: [mockPizzaExpress], totalBranches: 1,
+            meta:       { ...mockMeta, nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+            branchMeta: { ...mockMeta, nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
           },
           isLoading: false,
         }
@@ -192,14 +217,36 @@ describe('SearchScreen', () => {
     await waitFor(() => expect(getByText('Pizza Express')).toBeTruthy())
   })
 
-  it('renders ScopePillRow with tier counts after typing', async () => {
+  it('renders ScopePillRow with CUMULATIVE display counts after typing (PR #112 device-QA fix #2)', async () => {
+    // mockMeta: nearbyCount=0, cityCount=1, distantCount=12.
+    // PR #112 cumulative display rule (locked):
+    //   Nearby   = nearbyCount                          = 0
+    //   Your city = nearbyCount + cityCount             = 0 + 1 = 1
+    //   UK-wide  = nearbyCount + cityCount + distantCount = 0 + 1 + 12 = 13
+    // Backend bucket-count contract on the wire is UNCHANGED — the
+    // cumulative transform happens at the display layer only.
     const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
-      // Locked label set: Nearby, Your city, UK-wide. region is NOT surfaced.
       expect(getByText(/Nearby · 0/)).toBeTruthy()
       expect(getByText(/Your city · 1/)).toBeTruthy()
-      expect(getByText(/UK-wide · 12/)).toBeTruthy()
+      expect(getByText(/UK-wide · 13/)).toBeTruthy()
+    })
+  })
+
+  it('CUMULATIVE counts — Karaara nearby-only case (1/0/0 buckets → 1/1/1 display)', async () => {
+    // Owner-flagged screenshot case (PR #112 device-QA fix #2): Karaara
+    // sits 276m away (nearby).  Cumulative display avoids the absurd
+    // "Nearby · 1, Your city · 0, UK-wide · 0" that bucket semantics
+    // produce — a result that's IN YOUR AREA must ALSO appear in YOUR
+    // CITY and UK-WIDE counts.
+    mockSearchState.scenario = 'karaara_nearby_only'
+    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'Karaara')
+    await waitFor(() => {
+      expect(getByText(/Nearby · 1/)).toBeTruthy()
+      expect(getByText(/Your city · 1/)).toBeTruthy()
+      expect(getByText(/UK-wide · 1/)).toBeTruthy()
     })
   })
 

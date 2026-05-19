@@ -890,13 +890,50 @@ const BRANCH_TILE_SELECT = {
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
-function branchShortNameServer(rawBranchName: string, businessName: string): string {
-  if (!rawBranchName || !businessName) return rawBranchName
-  const escaped = escapeRegex(businessName)
-  const dashed = new RegExp(`^${escaped}\\s*[\\-–—]\\s*`, 'i')
-  const spaced = new RegExp(`^${escaped}\\s+`, 'i')
-  const stripped = rawBranchName.replace(dashed, '').replace(spaced, '').trim()
-  return stripped.length > 0 ? stripped : rawBranchName
+/**
+ * Strips merchant-name prefixes from a stored branch name.
+ *
+ * Seeded branch names use the merchant's TRADING NAME (short form) in the
+ * "Brand — Locality" pattern (e.g. `"Covelum — Brightlingsea"` where
+ * `businessName = "Covelum Restaurant"` and `tradingName = "Covelum"`).
+ * The helper tries the trading name first (if non-null) because that's the
+ * canonical prefix on stored branch rows; falls back to the full business
+ * name for callers that don't supply a trading name.
+ *
+ * Owner device-QA bug (PR #112, 2026-05-19): the previous version of this
+ * helper only tested against `businessName` ("Covelum Restaurant"), which
+ * never matches `"Covelum — Brightlingsea"` as a prefix.  Result: branch
+ * name shipped through to the UI unchanged ("Covelum — Brightlingsea"),
+ * combined with the locality field on the client to produce the
+ * "Covelum — Brightlingsea, Brightlingsea" duplicate the owner screenshotted.
+ *
+ * Handles em-dash (—), en-dash (–), and hyphen (-).
+ */
+function branchShortNameServer(
+  rawBranchName: string,
+  businessName: string,
+  tradingName: string | null,
+): string {
+  if (!rawBranchName) return rawBranchName
+
+  // Try trading name first — that's the canonical prefix on stored branches.
+  // Fall back to businessName if trading name is null/empty.
+  const candidates: string[] = []
+  if (tradingName && tradingName.trim().length > 0) candidates.push(tradingName.trim())
+  if (businessName && businessName.trim().length > 0) candidates.push(businessName.trim())
+
+  let result = rawBranchName
+  for (const candidate of candidates) {
+    const escaped = escapeRegex(candidate)
+    const dashed  = new RegExp(`^${escaped}\\s*[\\-–—]\\s*`, 'i')
+    const spaced  = new RegExp(`^${escaped}\\s+`, 'i')
+    const stripped = result.replace(dashed, '').replace(spaced, '').trim()
+    if (stripped !== result && stripped.length > 0) {
+      result = stripped
+      break  // first matching candidate wins
+    }
+  }
+  return result.length > 0 ? result : rawBranchName
 }
 
 // Input shape supplied by the rankBranchesV3 result + per-input distance the
@@ -962,7 +999,7 @@ function enrichBranchTile(
 
   return {
     id:                       branch.id,
-    branchName:               branchShortNameServer(branch.name, merchant.businessName),
+    branchName:               branchShortNameServer(branch.name, merchant.businessName, merchant.tradingName),
     branchLocalityId:         branch.localityId,
     branchLocalityName:       branch.localityName,
     branchPostTown:           branch.postTown,
@@ -2805,6 +2842,25 @@ export async function searchBranches(
       })
     : []
 
+  // Per-branch distance for the fallback tail.  Computed when the branch
+  // has exact coordinates (MANUALLY_CONFIRMED gate per PR #81 redaction).
+  // Mirrors the haversine the existing rank path applies; the result is
+  // metres from the caller's effLoc.
+  //
+  // Owner device-QA bug (PR #112, 2026-05-19): the original §7.5 path set
+  // `distance: null` on every fallback tile, leaving the customer-app
+  // unable to render distance or a meaningful proximity chip for direct
+  // text-match results.  Computing distance per-branch (when coords +
+  // effLoc are available) plus emitting `proximityBand:
+  // 'NEAREST_ON_REDEEMO'` on the wire gives the customer-app a clean
+  // chip + distance line.
+  function fallbackDistanceFor(b: typeof rankable[number]): number | null {
+    if (!effLoc) return null
+    if (b.locationConfidence !== 'MANUALLY_CONFIRMED') return null
+    if (b.latitude === null || b.longitude === null) return null
+    return haversineMetres(effLoc.lat, effLoc.lng, Number(b.latitude), Number(b.longitude))
+  }
+
   // ── 8. Concatenate ranked ++ text-match fallback ++ non-rankable tail.
   //    Pagination unit is the branch tile.
   //
@@ -2827,9 +2883,14 @@ export async function searchBranches(
     ...textMatchFallback.map(b => ({
       branchId:      b.id,
       merchantId:    b.merchantId,
+      // supplyRung stays null because classifyRung either returned null
+      // OR returned a rung above maxRung — the rung is genuinely unknown
+      // for ranking purposes.  proximityBand is set explicitly to
+      // NEAREST_ON_REDEEMO so the customer-app renders the correct chip
+      // for direct text-match hits.
       supplyRung:    null,
-      proximityBand: null,
-      distance:      null,
+      proximityBand: 'NEAREST_ON_REDEEMO',
+      distance:      fallbackDistanceFor(b),
     } satisfies EnrichBranchInput)),
     ...tailSorted.map(b => ({
       branchId:      b.id,

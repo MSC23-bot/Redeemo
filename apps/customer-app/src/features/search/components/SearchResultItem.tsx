@@ -3,6 +3,7 @@ import { View, TouchableOpacity, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
 import { ProximityBandChip } from '@/design-system/components/ProximityBandChip'
+import { formatDistance, formatGbp, formatVoucherCount } from '@/design-system/utils/formatters'
 import { BranchTile } from '@/lib/api/discovery'
 
 // Discovery Rebaseline PR-2 (Phase 2.1) — prop shape switches from
@@ -26,12 +27,12 @@ type Props = {
   onPress: (branchId: string, merchantId: string) => void
 }
 
-function formatDistance(metres: number | null): string | null {
-  if (metres === null) return null
-  if (metres < 1000) return `${Math.round(metres)}m`
-  const miles = metres / 1609.34
-  return `${miles.toFixed(1)} mi`
-}
+// PR #112 device-QA fix (2026-05-19) — distance formatting now goes
+// through the shared `formatDistance` at `@/design-system/utils/
+// formatters.ts`.  Locked rule: <500m → "{n} metres away"; ≥500m →
+// "{miles.toFixed(1)} miles away".  Cross-surface (Search / Map /
+// Home / Category) consistency lives in the shared helper; Phase 2.x
+// surfaces import the same function.
 
 /**
  * De-dupes the locality segment when it matches the branch name.
@@ -98,8 +99,22 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
   if (descriptor) metaParts.push(descriptor)
   if (distanceStr) metaParts.push(distanceStr)
 
-  const savingText = tile.merchant.maxEstimatedSaving != null && tile.merchant.maxEstimatedSaving > 0
-    ? `Save £${tile.merchant.maxEstimatedSaving}`
+  // Savings pill content — owner-locked PR #112 device-QA fix.
+  //
+  //   voucherCount === 0 → hide pill entirely.
+  //   voucherCount > 0 + maxEstimatedSaving > 0 → stacked pill:
+  //     line 1: "Up to £8.50 off"      (locked wording — NEVER "Save £X.XX")
+  //     line 2: "2 offers" / "1 offer" (voucher-count helper handles
+  //                                     singular/plural)
+  //   voucherCount > 0 + maxEstimatedSaving null/0 → single line "2 offers".
+  //
+  // `formatGbp` enforces two-decimal GBP formatting (8.5 → £8.50);
+  // `formatVoucherCount` handles 1-vs-N pluralisation.
+  const voucherCount     = tile.merchant.voucherCount ?? 0
+  const showPill         = voucherCount > 0
+  const voucherCountText = formatVoucherCount(voucherCount)            // '1 offer' / '2 offers' / null
+  const maxSavingText    = tile.merchant.maxEstimatedSaving != null && tile.merchant.maxEstimatedSaving > 0
+    ? `Up to ${formatGbp(tile.merchant.maxEstimatedSaving)} off`
     : null
 
   return (
@@ -140,13 +155,21 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         <ProximityBandChip band={tile.proximityBand} />
       </View>
 
-      {/* Right — save pill aligned to the top of the info block; intentional
-          alignment so the pill anchors against the merchant name baseline
-          (visually reads as "Covelum · Save £15"). */}
+      {/* Right — stacked savings pill (PR #112 device-QA fix).
+          Locked anatomy:
+            - top line: "Up to £8.50 off"  (locked wording, savings-green bold)
+            - bottom:   "2 offers"          (smaller, muted savings-green)
+          If voucherCount === 0, the pill is hidden entirely (savings-only
+          surfaces without context were misleading per the owner). */}
       <View style={styles.right}>
-        {savingText && (
+        {showPill && (
           <View style={styles.savePill}>
-            <Text style={styles.saveText}>{savingText}</Text>
+            {maxSavingText && (
+              <Text style={styles.savePillPrimary}>{maxSavingText}</Text>
+            )}
+            {voucherCountText && (
+              <Text style={styles.savePillSecondary}>{voucherCountText}</Text>
+            )}
           </View>
         )}
         {/*
@@ -232,19 +255,32 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingTop: 2,             // micro-align with the merchant name baseline
   },
-  // Save pill — slightly bigger paint area, gentler border, intentional
-  // savings-green palette.  Anchors the eye after the merchant name.
+  // Save pill — stacked anatomy per PR #112 owner-locked design:
+  //   primary line: "Up to £8.50 off"  — 11pt Lato-Bold savings-green
+  //   secondary line: "2 offers"        — 10pt Lato-Regular muted savings-green
+  // Soft savings-green tile, gentle border, fully rounded.  Right-aligned
+  // text so both lines anchor to the pill's right edge.
   savePill: {
     backgroundColor: '#ECFDF5',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: 'rgba(5,150,105,0.18)',
+    alignItems: 'flex-end',
+    minWidth: 96,             // keeps pill width stable across short / long savings copy
   },
-  saveText: {
-    fontSize: 11,              // bumped from 8 — readable on device
+  savePillPrimary: {
+    fontSize: 11,
     fontFamily: 'Lato-Bold',
     color: '#047857',
+    lineHeight: 14,
+  },
+  savePillSecondary: {
+    fontSize: 10,
+    fontFamily: 'Lato-Regular',
+    color: '#059669',         // slightly lighter savings-green for hierarchy
+    lineHeight: 13,
+    marginTop: 1,
   },
 })

@@ -17,39 +17,43 @@ describe('MerchantTile — proximity chip wiring (Plan 4 M3b)', () => {
     expect(getByText('In your area')).toBeTruthy()
   })
 
-  it('renders "A little further" when proximityBand is A_LITTLE_FURTHER', () => {
+  // PR #112 device-QA copy refresh (2026-05-19) — owner-locked copy on
+  // ProximityBandChip. Negative pins guard against silent revert.
+  it('renders "A little further away" when proximityBand is A_LITTLE_FURTHER (PR #112 copy)', () => {
     const tile = makeMerchantTile({ proximityBand: 'A_LITTLE_FURTHER' })
-    const { getByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
-    expect(getByText('A little further')).toBeTruthy()
+    const { getByText, queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
+    expect(getByText('A little further away')).toBeTruthy()
+    expect(queryByText('A little further')).toBeNull()
   })
 
-  it('renders "Nearest on Redeemo" when proximityBand is NEAREST_ON_REDEEMO', () => {
+  it('renders "Closest match on Redeemo" when proximityBand is NEAREST_ON_REDEEMO (PR #112 copy)', () => {
     const tile = makeMerchantTile({ proximityBand: 'NEAREST_ON_REDEEMO' })
-    const { getByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
-    expect(getByText('Nearest on Redeemo')).toBeTruthy()
+    const { getByText, queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
+    expect(getByText('Closest match on Redeemo')).toBeTruthy()
+    expect(queryByText('Nearest on Redeemo')).toBeNull()
   })
 
   it('renders no chip when proximityBand is NEARBY', () => {
     const tile = makeMerchantTile({ proximityBand: 'NEARBY' })
     const { queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further')).toBeNull()
-    expect(queryByText('Nearest on Redeemo')).toBeNull()
+    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 
   it('renders no chip when proximityBand is null (V2-rejected merchant in hybrid phase)', () => {
     const tile = makeMerchantTile({ proximityBand: null })
     const { queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further')).toBeNull()
-    expect(queryByText('Nearest on Redeemo')).toBeNull()
+    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 
   it('renders no chip when proximityBand is absent (pre-M3 response)', () => {
     const tile = makeMerchantTile() // fixture default omits the field
     const { queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further')).toBeNull()
-    expect(queryByText('Nearest on Redeemo')).toBeNull()
+    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 })

@@ -43,14 +43,20 @@ describe('<ProximityBandChip>', () => {
     expect(getByText('In your area')).toBeTruthy()
   })
 
-  it('A_LITTLE_FURTHER renders "A little further"', () => {
-    const { getByText } = render(<ProximityBandChip band="A_LITTLE_FURTHER" />)
-    expect(getByText('A little further')).toBeTruthy()
+  // PR #112 device-QA copy refresh (2026-05-19) — owner-locked copy:
+  //   A_LITTLE_FURTHER   → 'A little further away'  (was 'A little further' — felt unfinished)
+  //   NEAREST_ON_REDEEMO → 'Closest match on Redeemo' (was 'Nearest on Redeemo' — clearer copy)
+  // Negative pins guard the old copy so a future revert can't silently land.
+  it('A_LITTLE_FURTHER renders "A little further away" (PR #112 copy refresh)', () => {
+    const { getByText, queryByText } = render(<ProximityBandChip band="A_LITTLE_FURTHER" />)
+    expect(getByText('A little further away')).toBeTruthy()
+    expect(queryByText('A little further')).toBeNull()
   })
 
-  it('NEAREST_ON_REDEEMO renders "Nearest on Redeemo"', () => {
-    const { getByText } = render(<ProximityBandChip band="NEAREST_ON_REDEEMO" />)
-    expect(getByText('Nearest on Redeemo')).toBeTruthy()
+  it('NEAREST_ON_REDEEMO renders "Closest match on Redeemo" (PR #112 copy refresh)', () => {
+    const { getByText, queryByText } = render(<ProximityBandChip band="NEAREST_ON_REDEEMO" />)
+    expect(getByText('Closest match on Redeemo')).toBeTruthy()
+    expect(queryByText('Nearest on Redeemo')).toBeNull()
   })
 
   it('uses the visible label as the default accessibilityLabel', () => {
@@ -64,6 +70,6 @@ describe('<ProximityBandChip>', () => {
     )
     expect(getByLabelText('About 5 miles away')).toBeTruthy()
     // Default label is NOT applied when an override is provided.
-    expect(queryByLabelText('A little further')).toBeNull()
+    expect(queryByLabelText('A little further away')).toBeNull()
   })
 })

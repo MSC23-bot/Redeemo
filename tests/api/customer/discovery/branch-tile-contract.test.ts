@@ -41,6 +41,14 @@ const COVELUM_BRANCH_A_ID  = `${FIXTURE_PREFIX}covelum-brightlingsea-branch`
 const COVELUM_BRANCH_B_ID  = `${FIXTURE_PREFIX}covelum-colchester-branch`
 const PC_MERCHANT_ID       = `${FIXTURE_PREFIX}pc-redaction-merchant`
 const PC_BRANCH_ID         = `${FIXTURE_PREFIX}pc-redaction-branch`
+// PR #112 device-QA fix — tradingName-prefix-strip pin.
+// Owner-flagged Covelum bug: backend left branch names as
+// "Covelum — Brightlingsea" because seed used tradingName ("Covelum") as
+// the prefix while the helper only checked businessName ("Covelum
+// Restaurant"). branchShortNameServer now tries tradingName first, then
+// businessName.
+const TRADING_MERCHANT_ID  = `${FIXTURE_PREFIX}trading-prefix-merchant`
+const TRADING_BRANCH_ID    = `${FIXTURE_PREFIX}trading-prefix-branch`
 
 // Reference coordinates within Essex (Brightlingsea / Colchester) — both are
 // MANUALLY_CONFIRMED so the redaction gate lets lat/lng surface.
@@ -141,12 +149,62 @@ async function createPostcodeCentroidFixture() {
   })
 }
 
+async function createTradingPrefixFixture() {
+  // businessName ≠ tradingName.  Branch is prefixed with tradingName ONLY.
+  // The pre-fix helper would NOT strip (businessName mismatch); the post-fix
+  // helper tries tradingName first and strips correctly.
+  await prisma.merchant.upsert({
+    where: { id: TRADING_MERCHANT_ID },
+    create: {
+      id:                  TRADING_MERCHANT_ID,
+      businessName:        `${FIXTURE_PREFIX}Covelum Restaurant Ltd`,
+      tradingName:         `${FIXTURE_PREFIX}Covelum`,
+      status:              'ACTIVE',
+      verificationStatus:  'VERIFIED',
+      contractStatus:      'SIGNED',
+    },
+    update: {
+      businessName:        `${FIXTURE_PREFIX}Covelum Restaurant Ltd`,
+      tradingName:         `${FIXTURE_PREFIX}Covelum`,
+      status:              'ACTIVE',
+    },
+  })
+  await prisma.branch.upsert({
+    where: { id: TRADING_BRANCH_ID },
+    create: {
+      id:                 TRADING_BRANCH_ID,
+      merchantId:         TRADING_MERCHANT_ID,
+      // Branch name is prefixed with the TRADING name, not the business name.
+      name:               `${FIXTURE_PREFIX}Covelum — Brightlingsea`,
+      isMainBranch:       true,
+      addressLine1:       '1 Test St',
+      city:               'Brightlingsea',
+      postcode:           'CO7 0AA',
+      country:            'GB',
+      latitude:           BRIGHTLINGSEA.lat,
+      longitude:          BRIGHTLINGSEA.lng,
+      isActive:           true,
+      locationConfidence: 'MANUALLY_CONFIRMED',
+    },
+    update: {
+      merchantId:         TRADING_MERCHANT_ID,
+      name:               `${FIXTURE_PREFIX}Covelum — Brightlingsea`,
+      city:               'Brightlingsea',
+      latitude:           BRIGHTLINGSEA.lat,
+      longitude:          BRIGHTLINGSEA.lng,
+      isActive:           true,
+      locationConfidence: 'MANUALLY_CONFIRMED',
+    },
+  })
+}
+
 beforeAll(async () => {
   // Warm up the connection so the first findMany doesn't time out under
   // cold-start conditions (Neon serverless ping pattern, locked at §BU).
   await prisma.$queryRaw`SELECT 1`
   await createCovelumLikeFixture()
   await createPostcodeCentroidFixture()
+  await createTradingPrefixFixture()
 })
 
 afterAll(async () => {
@@ -330,6 +388,36 @@ describe('Discovery Rebaseline Phase 1 — branch-first BranchTile contract', ()
     expect(tile.branchName).toBe('Demo Locality')
     expect(tile.distance).toBe(50)
     expect(tile.distanceMetres).toBe(50)
+  })
+
+  it('branchShortNameServer strips prefix using tradingName when businessName does not match (PR #112)', async () => {
+    // Pins the PR #112 device-QA fix: helper now tries tradingName first,
+    // then businessName.  Before the fix, the branchName would surface as
+    // "${prefix}Covelum — Brightlingsea" because businessName
+    // ("${prefix}Covelum Restaurant Ltd") did not match the branch prefix
+    // ("${prefix}Covelum").
+    const tiles = await enrichBranchTiles(
+      prisma,
+      [{
+        branchId:      TRADING_BRANCH_ID,
+        merchantId:    TRADING_MERCHANT_ID,
+        supplyRung:    'NEARBY',
+        proximityBand: 'NEARBY',
+        distance:      120,
+      }],
+      { userId: null, lat: BRIGHTLINGSEA.lat, lng: BRIGHTLINGSEA.lng },
+    )
+
+    expect(tiles).toHaveLength(1)
+    const tile = tiles[0]
+    // The locality fragment alone — prefix stripped via tradingName path.
+    expect(tile.branchName).toBe('Brightlingsea')
+    // Negative pin: the un-stripped form MUST NOT surface.
+    expect(tile.branchName).not.toContain('Covelum')
+    expect(tile.branchName).not.toContain('—')
+    // Merchant grouping container preserves both names verbatim.
+    expect(tile.merchant.businessName).toBe(`${FIXTURE_PREFIX}Covelum Restaurant Ltd`)
+    expect(tile.merchant.tradingName).toBe(`${FIXTURE_PREFIX}Covelum`)
   })
 
   it('returns [] without firing any DB calls when inputs is empty', async () => {

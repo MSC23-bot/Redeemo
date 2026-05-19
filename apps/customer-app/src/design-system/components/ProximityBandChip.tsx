@@ -38,11 +38,20 @@ import type { ProximityBand } from '@/lib/api/discovery'
 // Not interactive (no Pressable, no haptics). For interactive filter
 // chips use `design-system/components/Chip.tsx` instead.
 
+// PR #112 device-QA copy refresh (2026-05-19) — owner-locked copy:
+//   IN_YOUR_AREA       → 'In your area'           (unchanged)
+//   A_LITTLE_FURTHER   → 'A little further away'  (was 'A little further' — felt unfinished)
+//   NEAREST_ON_REDEEMO → 'Closest match on Redeemo' (was 'Nearest on Redeemo' — clearer copy)
+//
+// Direct text-match-fallback tiles surface here with `proximityBand:
+// 'NEAREST_ON_REDEEMO'` set explicitly by the backend (see
+// `service.ts` §7.5).  No client-side bridge needed — the wire carries
+// the right value.
 const BAND_LABEL: Record<ProximityBand, string | null> = {
   NEARBY:             null,
   IN_YOUR_AREA:       'In your area',
-  A_LITTLE_FURTHER:   'A little further',
-  NEAREST_ON_REDEEMO: 'Nearest on Redeemo',
+  A_LITTLE_FURTHER:   'A little further away',
+  NEAREST_ON_REDEEMO: 'Closest match on Redeemo',
 }
 
 export type ProximityBandChipProps = {

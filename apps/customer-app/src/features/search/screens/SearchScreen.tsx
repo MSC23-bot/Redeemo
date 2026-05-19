@@ -80,9 +80,30 @@ export function SearchScreen() {
   // backend), we hide counts entirely rather than silently mixing
   // merchant-tier counts into a branch list.  Better to show nothing
   // than to mislead.
+  // PR #112 device-QA fix #2 (2026-05-19) — display counts on the
+  // ScopePillRow are CUMULATIVE (Nearby ⊆ Your city ⊆ UK-wide) so the
+  // user's mental model matches what they see.  Backend bucket counts
+  // are preserved on the wire (`branchMeta.nearbyCount /cityCount /
+  // distantCount`) — the cumulative transform happens here at the
+  // display layer ONLY so other `/search` consumers (Home / Map /
+  // Category) continue to read the bucket contract unchanged.
+  //
+  //   Nearby   = branchMeta.nearbyCount
+  //   Your city = branchMeta.nearbyCount + branchMeta.cityCount
+  //   UK-wide  = branchMeta.nearbyCount + branchMeta.cityCount + branchMeta.distantCount
+  //
+  // Owner observation that drove this change: Karaara 276m away
+  // rendered `Nearby · 1, Your city · 0, UK-wide · 0` — counter-
+  // intuitive because if a result is nearby, users assume it's also
+  // in city and UK-wide.  Cumulative counts produce
+  // `Nearby · 1, Your city · 1, UK-wide · 1` for the same data.
   const branchMeta = data?.branchMeta
   const counts = branchMeta
-    ? { nearby: branchMeta.nearbyCount, city: branchMeta.cityCount, platform: branchMeta.distantCount }
+    ? {
+        nearby:   branchMeta.nearbyCount,
+        city:     branchMeta.nearbyCount + branchMeta.cityCount,
+        platform: branchMeta.nearbyCount + branchMeta.cityCount + branchMeta.distantCount,
+      }
     : undefined
 
   // 'expanded_to_wider' renders ABOVE the list as a banner (results exist).

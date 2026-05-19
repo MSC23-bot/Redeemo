@@ -22,20 +22,26 @@ describe('SearchResultItem — proximity chip wiring (Plan 4 M3b)', () => {
     expect(getByText('In your area')).toBeTruthy()
   })
 
-  it('renders "A little further" when proximityBand is A_LITTLE_FURTHER', () => {
+  // PR #112 device-QA copy refresh (2026-05-19) — owner-locked copy on
+  // ProximityBandChip:
+  //   A_LITTLE_FURTHER   → 'A little further away'
+  //   NEAREST_ON_REDEEMO → 'Closest match on Redeemo'
+  it('renders "A little further away" when proximityBand is A_LITTLE_FURTHER (PR #112 copy)', () => {
     const tile = makeBranchTile({ proximityBand: 'A_LITTLE_FURTHER' })
-    const { getByText } = render(
+    const { getByText, queryByText } = render(
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
-    expect(getByText('A little further')).toBeTruthy()
+    expect(getByText('A little further away')).toBeTruthy()
+    expect(queryByText('A little further')).toBeNull()
   })
 
-  it('renders "Nearest on Redeemo" when proximityBand is NEAREST_ON_REDEEMO', () => {
+  it('renders "Closest match on Redeemo" when proximityBand is NEAREST_ON_REDEEMO (PR #112 copy)', () => {
     const tile = makeBranchTile({ proximityBand: 'NEAREST_ON_REDEEMO' })
-    const { getByText } = render(
+    const { getByText, queryByText } = render(
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
-    expect(getByText('Nearest on Redeemo')).toBeTruthy()
+    expect(getByText('Closest match on Redeemo')).toBeTruthy()
+    expect(queryByText('Nearest on Redeemo')).toBeNull()
   })
 
   it('renders no chip when proximityBand is NEARBY', () => {
@@ -44,8 +50,8 @@ describe('SearchResultItem — proximity chip wiring (Plan 4 M3b)', () => {
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further')).toBeNull()
-    expect(queryByText('Nearest on Redeemo')).toBeNull()
+    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 
   it('renders no chip when proximityBand is null', () => {
@@ -54,7 +60,7 @@ describe('SearchResultItem — proximity chip wiring (Plan 4 M3b)', () => {
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further')).toBeNull()
-    expect(queryByText('Nearest on Redeemo')).toBeNull()
+    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 })
