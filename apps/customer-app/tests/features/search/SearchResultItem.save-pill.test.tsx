@@ -1,211 +1,231 @@
-// PR #112 device-QA fixup-3 (2026-05-19) — save-pill anatomy pin.
+// PR #112 device-QA fixup-4 (2026-05-19) — save badge anatomy pin.
 //
-// Owner-locked state machine (hierarchy reversed from fixup-2 — count is
-// now PRIMARY, value is SECONDARY; multi-offer merchants surface TOTAL
-// value across all active vouchers instead of the misleading max-single
-// saving):
+// Owner-locked state machine — hierarchy is now SAVING-FIRST (the
+// commercial hook); voucher count is secondary context.  Copy is
+// vouchers-language ("voucher" / "vouchers"), never "offer(s)".
 //
-//   voucherCount === 0                              → pill hidden.
-//   voucherCount === 1 + maxEstimatedSaving > 0     → "1 offer" + "Up to £X.XX off"
-//   voucherCount === 1 + maxEstimatedSaving null/0  → "1 offer" only
-//   voucherCount >= 2 + totalEstimatedSaving > 0    → "N offers" + "£X.XX total value"
-//   voucherCount >= 2 + totalEstimatedSaving null/0 → "N offers" only
+//   voucherCount === 0                              → badge hidden.
+//   voucherCount === 1 + maxEstimatedSaving > 0     → "Save up to £X.XX" + "1 voucher"
+//   voucherCount === 1 + maxEstimatedSaving null/0  → "1 voucher" only
+//   voucherCount >= 2 + totalEstimatedSaving > 0    → "Save £X.XX"      + "across N vouchers"
+//   voucherCount >= 2 + totalEstimatedSaving null/0 → "N vouchers" only
 //
-// Backend additive `merchant.totalEstimatedSaving` drives the multi-offer
-// secondary line.  `maxEstimatedSaving` continues to feed the 1-offer
-// path unchanged.  Negative pins guard against regression to "Save £" or
-// "Up to £X off" wording for the 2+ case.
+// Locked NEGATIVE pins (must NOT appear anywhere on the badge):
+//   - "Save £X" pattern is ALLOWED (locked copy); "Save £X off" / "Save £X.XX off" prior
+//     wording is NOT.
+//   - "total value"   (fixup-3 wording)
+//   - "offers" / "offer" (any-fixup wording)
+//   - "Up to £X off"  (fixup-2 single-line wording)
 
 import React from 'react'
 import { render } from '@testing-library/react-native'
 import { SearchResultItem } from '@/features/search/components/SearchResultItem'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
-describe('SearchResultItem — save pill anatomy (PR #112 fixup-3)', () => {
-  describe('2+ offers — primary "N offers" + secondary "£X.XX total value"', () => {
-    it('2 offers + totalEstimatedSaving=13.5 → "2 offers" + "£13.50 total value"', () => {
+describe('SearchResultItem — save badge anatomy (PR #112 fixup-4)', () => {
+  describe('2+ vouchers — primary "Save £X" + secondary "across N vouchers"', () => {
+    it('6 vouchers + totalEstimatedSaving=38.5 → "Save £38.50" + "across 6 vouchers"', () => {
       const tile = makeBranchTile({
         merchant: {
           id: 'm1', businessName: 'Pizza Express',
-          voucherCount: 2, maxEstimatedSaving: 8.5, totalEstimatedSaving: 13.5,
+          voucherCount: 6, maxEstimatedSaving: 8.5, totalEstimatedSaving: 38.5,
         },
       })
       const { getByText, queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('2 offers')).toBeTruthy()
-      expect(getByText('£13.50 total value')).toBeTruthy()
-      // Negative pins — 1-offer wording must NOT leak into the 2+ case.
+      expect(getByText('Save £38.50')).toBeTruthy()
+      expect(getByText('across 6 vouchers')).toBeTruthy()
+      // Negative pins — old wording must NOT leak.
+      expect(queryByText(/offers?/i)).toBeNull()
+      expect(queryByText(/total value/i)).toBeNull()
       expect(queryByText(/Up to £/)).toBeNull()
-      expect(queryByText(/Save £/)).toBeNull()
     })
 
-    it('10 offers + totalEstimatedSaving=99.5 → "10 offers" + "£99.50 total value"', () => {
+    it('2 vouchers + totalEstimatedSaving=13.5 → "Save £13.50" + "across 2 vouchers"', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm2', businessName: 'Big Chain',
+          id: 'm2', businessName: 'Two Voucher Co',
+          voucherCount: 2, maxEstimatedSaving: 8.5, totalEstimatedSaving: 13.5,
+        },
+      })
+      const { getByText } = render(
+        <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
+      )
+      expect(getByText('Save £13.50')).toBeTruthy()
+      expect(getByText('across 2 vouchers')).toBeTruthy()
+    })
+
+    it('10 vouchers + totalEstimatedSaving=99.5 → "Save £99.50" + "across 10 vouchers"', () => {
+      const tile = makeBranchTile({
+        merchant: {
+          id: 'm3', businessName: 'Big Chain',
           voucherCount: 10, maxEstimatedSaving: 12, totalEstimatedSaving: 99.5,
         },
       })
       const { getByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('10 offers')).toBeTruthy()
-      expect(getByText('£99.50 total value')).toBeTruthy()
+      expect(getByText('Save £99.50')).toBeTruthy()
+      expect(getByText('across 10 vouchers')).toBeTruthy()
     })
 
-    it('GBP two-decimal contract: 3 offers + totalSaving=24 → "3 offers" + "£24.00 total value"', () => {
+    it('GBP two-decimal contract: 3 vouchers + totalSaving=24 → "Save £24.00" + "across 3 vouchers"', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm3', businessName: 'Whole Pound Total',
+          id: 'm4', businessName: 'Whole Pound Total',
           voucherCount: 3, maxEstimatedSaving: 8, totalEstimatedSaving: 24,
         },
       })
       const { getByText, queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('3 offers')).toBeTruthy()
-      expect(getByText('£24.00 total value')).toBeTruthy()
-      expect(queryByText('£24 total value')).toBeNull()
+      expect(getByText('Save £24.00')).toBeTruthy()
+      expect(getByText('across 3 vouchers')).toBeTruthy()
+      expect(queryByText('Save £24')).toBeNull() // 2dp contract
     })
 
-    it('2 offers + totalEstimatedSaving=null → single-line "2 offers" (no total-value line)', () => {
+    it('2 vouchers + totalEstimatedSaving=null → single-line "2 vouchers" (no saving headline)', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm4', businessName: 'No Total Available',
+          id: 'm5', businessName: 'No Total Available',
           voucherCount: 2, maxEstimatedSaving: 8.5, totalEstimatedSaving: null,
         },
       })
       const { getByText, queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('2 offers')).toBeTruthy()
-      // No total-value line, AND no "Up to £" line (which is a 1-offer-only treatment).
-      expect(queryByText(/total value/)).toBeNull()
-      expect(queryByText(/Up to £/)).toBeNull()
+      expect(getByText('2 vouchers')).toBeTruthy()
+      // No "Save £" line when total is null/0 — we do NOT fall back to max for the 2+ case.
+      expect(queryByText(/Save £/)).toBeNull()
+      expect(queryByText(/across/)).toBeNull()
     })
 
-    it('2 offers + totalEstimatedSaving=0 → single-line "2 offers" (zero saving suppresses line)', () => {
+    it('2 vouchers + totalEstimatedSaving=0 → single-line "2 vouchers" (zero suppresses headline)', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm5', businessName: 'Zero Total',
+          id: 'm6', businessName: 'Zero Total',
           voucherCount: 2, maxEstimatedSaving: 8.5, totalEstimatedSaving: 0,
         },
       })
       const { getByText, queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('2 offers')).toBeTruthy()
-      expect(queryByText(/total value/)).toBeNull()
+      expect(getByText('2 vouchers')).toBeTruthy()
+      expect(queryByText(/Save £/)).toBeNull()
     })
   })
 
-  describe('1 offer — primary "1 offer" + secondary "Up to £X.XX off"', () => {
-    it('1 offer + maxEstimatedSaving=5.5 → "1 offer" + "Up to £5.50 off"', () => {
+  describe('1 voucher — primary "Save up to £X" + secondary "1 voucher"', () => {
+    it('1 voucher + maxEstimatedSaving=5.5 → "Save up to £5.50" + "1 voucher"', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm6', businessName: 'Single Offer Co',
+          id: 'm7', businessName: 'Single Voucher Co',
           voucherCount: 1, maxEstimatedSaving: 5.5, totalEstimatedSaving: 5.5,
         },
       })
       const { getByText, queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('1 offer')).toBeTruthy()
-      expect(getByText('Up to £5.50 off')).toBeTruthy()
-      // Negative pins — 2+ wording must NOT leak into the 1-offer case.
-      expect(queryByText(/total value/)).toBeNull()
-      expect(queryByText(/Save £/)).toBeNull()
+      expect(getByText('Save up to £5.50')).toBeTruthy()
+      expect(getByText('1 voucher')).toBeTruthy()
+      // Negative pins
+      expect(queryByText(/offer/i)).toBeNull()
+      expect(queryByText(/total value/i)).toBeNull()
+      expect(queryByText(/across/)).toBeNull()
+      expect(queryByText('1 vouchers')).toBeNull()    // pluralisation guard
     })
 
-    it('1 offer + maxEstimatedSaving=10 → "1 offer" + "Up to £10.00 off"', () => {
+    it('1 voucher + maxEstimatedSaving=10 → "Save up to £10.00" + "1 voucher" (2dp on whole-pound)', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm7', businessName: 'Whole Pound Single',
+          id: 'm8', businessName: 'Whole Pound Single',
           voucherCount: 1, maxEstimatedSaving: 10, totalEstimatedSaving: 10,
         },
       })
-      const { getByText } = render(
+      const { getByText, queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('1 offer')).toBeTruthy()
-      expect(getByText('Up to £10.00 off')).toBeTruthy()
+      expect(getByText('Save up to £10.00')).toBeTruthy()
+      expect(getByText('1 voucher')).toBeTruthy()
+      expect(queryByText('Save up to £10')).toBeNull()
     })
 
-    it('1 offer + maxEstimatedSaving=null → single-line "1 offer" only', () => {
+    it('1 voucher + maxEstimatedSaving=null → single-line "1 voucher" only', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm8', businessName: 'Single No Saving',
+          id: 'm9', businessName: 'Single No Saving',
           voucherCount: 1, maxEstimatedSaving: null, totalEstimatedSaving: null,
         },
       })
       const { getByText, queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('1 offer')).toBeTruthy()
-      expect(queryByText(/Up to £/)).toBeNull()
-      expect(queryByText(/total value/)).toBeNull()
+      expect(getByText('1 voucher')).toBeTruthy()
+      expect(queryByText(/Save/)).toBeNull()
     })
 
-    it('1 offer + maxEstimatedSaving=0 → single-line "1 offer" (zero suppresses line)', () => {
+    it('1 voucher + maxEstimatedSaving=0 → single-line "1 voucher"', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm9', businessName: 'Zero Single',
+          id: 'm10', businessName: 'Zero Single',
           voucherCount: 1, maxEstimatedSaving: 0, totalEstimatedSaving: 0,
         },
       })
       const { getByText, queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(getByText('1 offer')).toBeTruthy()
-      expect(queryByText(/Up to £/)).toBeNull()
+      expect(getByText('1 voucher')).toBeTruthy()
+      expect(queryByText(/Save/)).toBeNull()
     })
   })
 
-  describe('0 offers — pill hidden entirely', () => {
-    it('voucherCount=0 + all savings null → pill hidden', () => {
+  describe('0 vouchers — badge hidden entirely', () => {
+    it('voucherCount=0 + all savings null → badge hidden', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm10', businessName: 'No Vouchers',
+          id: 'm11', businessName: 'No Vouchers',
           voucherCount: 0, maxEstimatedSaving: null, totalEstimatedSaving: null,
         },
       })
       const { queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(queryByText(/offer/)).toBeNull()
-      expect(queryByText(/total value/)).toBeNull()
-      expect(queryByText(/Up to £/)).toBeNull()
-      expect(queryByText(/Save £/)).toBeNull()
+      expect(queryByText(/voucher/)).toBeNull()
+      expect(queryByText(/Save/)).toBeNull()
+      expect(queryByText(/offer/i)).toBeNull()
     })
 
-    it('voucherCount=0 + max/total non-null → STILL hidden (count drives pill, not savings)', () => {
+    it('voucherCount=0 + savings non-null → STILL hidden (count drives badge)', () => {
       const tile = makeBranchTile({
         merchant: {
-          id: 'm11', businessName: 'Saving But No Vouchers',
+          id: 'm12', businessName: 'Saving But No Vouchers',
           voucherCount: 0, maxEstimatedSaving: 8.5, totalEstimatedSaving: 8.5,
         },
       })
       const { queryByText } = render(
         <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
       )
-      expect(queryByText(/offer/)).toBeNull()
-      expect(queryByText(/total value/)).toBeNull()
-      expect(queryByText(/Up to £/)).toBeNull()
+      expect(queryByText(/voucher/)).toBeNull()
+      expect(queryByText(/Save/)).toBeNull()
     })
   })
 
-  // Regression guard — never let "Save £X.XX" creep back in.
-  it('regression: "Save £" wording never appears in any state', () => {
-    const tile = makeBranchTile({
-      merchant: {
-        id: 'm12', businessName: 'Comprehensive',
-        voucherCount: 5, maxEstimatedSaving: 8.5, totalEstimatedSaving: 42.5,
-      },
+  describe('regression — banned legacy strings', () => {
+    it('"Save £X off" / "Save £X.XX off" prior wording must NOT appear anywhere', () => {
+      const tile = makeBranchTile({
+        merchant: {
+          id: 'm13', businessName: 'Comprehensive',
+          voucherCount: 5, maxEstimatedSaving: 8.5, totalEstimatedSaving: 42.5,
+        },
+      })
+      const { queryByText } = render(
+        <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
+      )
+      expect(queryByText(/Save £[\d.]+\s+off/)).toBeNull()
+      expect(queryByText(/offer/i)).toBeNull()
+      expect(queryByText(/total value/i)).toBeNull()
+      expect(queryByText(/Up to £/)).toBeNull()
     })
-    const { queryByText } = render(
-      <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
-    )
-    expect(queryByText(/Save £/)).toBeNull()
   })
 })

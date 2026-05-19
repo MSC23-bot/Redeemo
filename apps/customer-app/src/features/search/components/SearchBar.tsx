@@ -74,10 +74,12 @@ export function SearchBar({ value, onChangeText, onCancel, onSubmitEditing, auto
 }
 
 const styles = StyleSheet.create({
-  // PR #112 device-QA fixup-3 (2026-05-19) — design-system token alignment.
-  // Calmer surface: navy-tinted elevation.sm (no brand-rose tinted border,
-  // no heavy shadow); border-subtle hairline; rounded.md (12px); body.md
-  // typography on the input.
+  // PR #112 fixup-4 (2026-05-19) — owner-direction brand polish.
+  // Pulls the search bar back toward Redeemo identity: warm cream-rose
+  // surface tint, brand-rose hairline keyline (subtle, NOT 1.5px loud),
+  // larger radius for a more "search-component-feel" pill, body.md
+  // input typography, calmer cancel.  Identifiable as Redeemo on first
+  // glance, not a default RN input.
   container: {
     flexDirection:     'row',
     paddingHorizontal: 16,
@@ -89,39 +91,42 @@ const styles = StyleSheet.create({
     flex:              1,
     flexDirection:     'row',
     alignItems:        'center',
-    backgroundColor:   '#FFFFFF',           // surface-page
-    borderRadius:      12,                  // rounded.md
+    backgroundColor:   '#FFFFFF',                  // surface-page
+    borderRadius:      14,                         // a touch bigger than rounded.md (12) — softer
     paddingHorizontal: 14,
     paddingVertical:   12,
     gap:               10,
     borderWidth:       1,
-    borderColor:       '#E5E7EB',           // border-subtle
-    shadowColor:       '#010C35',           // navy-tinted elevation.sm
-    shadowOpacity:     0.06,
-    shadowRadius:      4,
+    borderColor:       'rgba(226,12,4,0.12)',      // brand-rose hairline, very subtle
+    shadowColor:       '#010C35',                  // navy-tinted shadow tints toward brand
+    shadowOpacity:     0.05,
+    shadowRadius:      6,
     shadowOffset:      { width: 0, height: 2 },
     elevation:         1,
   },
   input: {
     flex:       1,
     fontFamily: 'Lato-Regular',
-    fontSize:   15,                         // body-ish, more readable on device
-    color:      '#010C35',                  // text.primary navy
+    fontSize:   15,                                // body.md-ish, comfortable density
+    color:      '#010C35',                         // text.primary navy
     padding:    0,
+    // Owner: typography must feel "Redeemo" — Lato hovers between body
+    // and label, kept Regular weight; we lean into ink colour for warmth.
   },
   clearBtn: {
     width:           22,
     height:          22,
     borderRadius:    11,
-    backgroundColor: '#F3F4F6',             // surface-subtle
+    backgroundColor: '#FEF6F5',                    // surface-tint (warmer than surface-subtle)
     alignItems:      'center',
     justifyContent:  'center',
   },
   cancelText: {
-    fontFamily:    'Lato-Medium',           // label.lg — softer than SemiBold
+    fontFamily:    'Lato-SemiBold',                // a touch firmer — owner-feedback
     fontSize:      14,
-    color:         '#E20C04',               // brand-rose
+    color:         '#E20C04',                      // brand-rose
     letterSpacing: 0.2,
-    paddingLeft:   2,
+    paddingLeft:   4,
+    paddingRight:  2,
   },
 })

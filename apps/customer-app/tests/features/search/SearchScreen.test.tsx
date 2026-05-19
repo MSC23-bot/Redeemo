@@ -45,6 +45,7 @@ const mockMeta = {
 const mockSearchState = {
   scenario: 'happy' as
     | 'happy'
+    | 'happy_with_locality'
     | 'empty'
     | 'expanded'
     | 'no_uk_supply'
@@ -138,6 +139,18 @@ jest.mock('@/hooks/useSearch', () => ({
             branches: [covelumBri, covelumCol], totalBranches: 2,
             meta:       mockMeta,
             branchMeta: mockMeta,
+          },
+          isLoading: false,
+        }
+      case 'happy_with_locality':
+        // Happy path with an effectiveLocality on the wire, so the
+        // unified header surfaces the "near Huddersfield" suffix.
+        return {
+          data: {
+            merchants: [], total: 0,
+            branches: [mockPizzaExpress], totalBranches: 1,
+            meta:       { ...mockMeta, effectiveLocality: { name: 'Huddersfield' } },
+            branchMeta: { ...mockMeta, effectiveLocality: { name: 'Huddersfield' } },
           },
           isLoading: false,
         }
@@ -292,23 +305,49 @@ describe('SearchScreen', () => {
     await waitFor(() => expect(getByText(/No matches in the UK yet/)).toBeTruthy())
   })
 
-  // PR #112 fixup-3 — locality-aware <ExpandedResultBanner> renders
-  // instead of the legacy em-dash one-liner.  Copy: "Nothing in
-  // {locality} yet" + "Here are the closest matches".  Banner sits
-  // ABOVE the list; results still render.
-  it('renders locality-aware expanded banner when reason=expanded_to_wider AND results exist (fixup-3 copy)', async () => {
+  // PR #112 fixup-4 — unified locality-aware header.  Replaces both the
+  // separate `<LocalityCaption>` and `<ExpandedResultBanner>` with a SINGLE
+  // header line at the top of the result list:
+  //
+  //   Normal:    Results for "X" near <Locality>
+  //   Expanded:  Closest matches for "X" near <Locality>
+  //
+  // Positive framing on expanded ("Closest matches" instead of
+  // "Nothing in X yet") per owner direction.
+  it('unified expanded header copy (fixup-4): "Closest matches for X near Locality"', async () => {
     mockSearchState.scenario = 'expanded'
     const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
-      // New locality-aware copy.
-      expect(getByText('Nothing in Huddersfield yet')).toBeTruthy()
-      expect(getByText('Here are the closest matches')).toBeTruthy()
-      // Banner does not replace results — list still shows.
+      expect(getByText('Closest matches for "Pizza" near Huddersfield')).toBeTruthy()
+      // List still renders.
       expect(getByText('Pizza Express')).toBeTruthy()
-      // Legacy banner copy MUST NOT appear (regression guard).
-      expect(queryByText(/showing wider results/)).toBeNull()
-      expect(queryByText(/No matches nearby/)).toBeNull()
+    })
+    // Legacy/rejected copy MUST NOT appear (regression guards).
+    expect(queryByText(/Nothing in Huddersfield yet/)).toBeNull()
+    expect(queryByText(/Here are the closest matches/)).toBeNull()
+    expect(queryByText(/showing wider results/)).toBeNull()
+    expect(queryByText(/No matches nearby/)).toBeNull()
+  })
+
+  it('unified normal header copy (fixup-4): "Results for X near Locality"', async () => {
+    // happy-path mockMeta sets scope=city, scopeExpanded=false; we add an
+    // effectiveLocality on the wire so the unified header carries the
+    // locality suffix.
+    mockSearchState.scenario = 'happy_with_locality'
+    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    await waitFor(() => {
+      expect(getByText('Results for "Pizza" near Huddersfield')).toBeTruthy()
+    })
+  })
+
+  it('unified header falls back to plain "Results for X" when locality is absent', async () => {
+    // mockMeta default has effectiveLocality undefined.
+    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    await waitFor(() => {
+      expect(getByText('Results for "Pizza"')).toBeTruthy()
     })
   })
 

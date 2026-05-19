@@ -2578,16 +2578,44 @@ export async function searchBranches(
     })
     const tagMerchantIds = Array.from(new Set(tags.map(t => t.merchantId)))
 
+    // PR #112 fixup-4 (2026-05-19) — relevance fix: gate description
+    // substring matching to queries ≥ MIN_DESCRIPTION_MATCH_LENGTH.
+    //
+    // Owner-flagged regression: query `cove` (4 chars) surfaced
+    // `Wagtail Veterinary Practice` because the merchant description
+    // contained a 4-char substring (e.g. "cover", "covered", "covers").
+    // Short queries are weak signal for description-content matching
+    // and generate disproportionate false positives.
+    //
+    // Strong matches (always on, regardless of q length):
+    //   - merchant.businessName / tradingName
+    //   - merchant.primaryCategory.name + categories[].name
+    //   - merchant.suggestedTag (via tagMerchantIds)
+    //   - branch.name / branch.localityName / branch.postTown
+    //
+    // Weak match (gated):
+    //   - merchant.description — requires q.length >= 5
+    //
+    // Threshold = 5 chars: empirically suppresses the `cove`-class
+    // false-positive while letting `covel` / `cover` through (where
+    // description match adds genuine signal).
+    const trimmedQ = q.trim()
+    const MIN_DESCRIPTION_MATCH_LENGTH = 5
+    const includeDescriptionMatch =
+      trimmedQ.length >= MIN_DESCRIPTION_MATCH_LENGTH
+
     where.OR = [
-      // Merchant-level matches (mirror searchMerchants:1991-1996).
+      // Merchant-level STRONG matches (always on).
       { merchant: { businessName:    { contains: q, mode: 'insensitive' } } },
       { merchant: { tradingName:     { contains: q, mode: 'insensitive' } } },
-      { merchant: { description:     { contains: q, mode: 'insensitive' } } },
       { merchant: { primaryCategory: { name: { contains: q, mode: 'insensitive' } } } },
       { merchant: { categories:      { some: { category: { name: { contains: q, mode: 'insensitive' } } } } } },
       ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
-      // Branch-level matches — NEW under Spec §3.1 (closes the
-      // Covelum / Brightlingsea bug class at the service layer).
+      // Merchant-level WEAK match — gated on q length.
+      ...(includeDescriptionMatch
+        ? [{ merchant: { description: { contains: q, mode: 'insensitive' as const } } }]
+        : []),
+      // Branch-level matches — Spec §3.1 (Covelum / Brightlingsea bug class).
       { name:         { contains: q, mode: 'insensitive' as const } },
       { localityName: { contains: q, mode: 'insensitive' as const } },
       { postTown:     { contains: q, mode: 'insensitive' as const } },

@@ -56,12 +56,13 @@ export function ScopePillRow({ selectedScope, onScopeChange, counts }: Props) {
   )
 }
 
-// PR #112 device-QA fixup-3 (2026-05-19) — active-pill colour aligned to
-// DESIGN.md "navy active-tab tint" rule.  Brand Rose stays load-bearing
-// on the redemption CTA / LIVE pip per the One-Voice Brand-Rose Rule
-// (≤10% of any screen) — a scope filter highlight is selection state,
-// not CTA, so it routes through navy.  Active pill also gets a subtle
-// elevation.sm lift so the selected affordance reads on-device.
+// PR #112 fixup-4 (2026-05-19) — owner override: active pill uses
+// Redeemo brand-rose, NOT navy.  Owner direction explicit: "Use Redeemo
+// primary brand red for the active Search scope pill."  This is an
+// intentional override of DESIGN.md's "navy active-tab tint" rule + the
+// One-Voice Brand-Rose Rule for THIS surface — scope selection on
+// Search is a primary-action affordance per the owner's mental model,
+// not just a filter state.  Other surfaces (tab bar) keep navy active.
 const styles = StyleSheet.create({
   row: {
     flexDirection:    'row',
@@ -77,12 +78,12 @@ const styles = StyleSheet.create({
     backgroundColor:   '#F3F4F6',           // surface-subtle (inactive)
   },
   pillActive: {
-    backgroundColor: '#010C35',             // navy / text.primary
-    shadowColor:     '#010C35',
-    shadowOpacity:   0.10,
-    shadowRadius:    4,
-    shadowOffset:    { width: 0, height: 2 },
-    elevation:       1,
+    backgroundColor: '#E20C04',             // brand-rose
+    shadowColor:     '#E20C04',
+    shadowOpacity:   0.18,
+    shadowRadius:    6,
+    shadowOffset:    { width: 0, height: 3 },
+    elevation:       2,
   },
   pillText: {
     fontSize:      12,

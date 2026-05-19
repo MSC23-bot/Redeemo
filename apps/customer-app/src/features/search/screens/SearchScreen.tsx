@@ -8,12 +8,10 @@ import { useUserLocation } from '@/hooks/useLocation'
 import { SearchBar } from '../components/SearchBar'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
-import { ExpandedResultBanner } from '../components/ExpandedResultBanner'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { BranchTile } from '@/lib/api/discovery'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
-import { LocalityCaption } from '@/design-system/components/LocalityCaption'
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState<T>(value)
@@ -140,12 +138,28 @@ export function SearchScreen() {
     ? effectiveScopeFromMeta(branchMeta.scope)
     : requestedScope
 
-  // 'expanded_to_wider' renders ABOVE the list as a banner (results exist).
-  // 'none' / 'no_uk_supply' render INSIDE the list as the empty state.
-  const expandedBanner = branches.length > 0 && branchMeta?.emptyStateReason === 'expanded_to_wider'
-  const emptyReason    = branches.length === 0
+  // 'expanded_to_wider' is reflected in the SINGLE results header line below
+  // — no separate banner.  'none' / 'no_uk_supply' render INSIDE the list as
+  // the empty state.
+  const isExpanded   = branches.length > 0 && branchMeta?.emptyStateReason === 'expanded_to_wider'
+  const localityName = branchMeta?.effectiveLocality?.name?.trim() || null
+  const emptyReason  = branches.length === 0
     ? (branchMeta?.emptyStateReason ?? 'none')
     : null
+
+  // PR #112 fixup-4 (2026-05-19) — owner-locked unified header copy.
+  // Replaces the previous two-line treatment (`Results for "X"` +
+  // `<LocalityCaption>` + optional `<ExpandedResultBanner>`).  One line:
+  //
+  //   Normal:    Results for "X" near <Locality>     / Results for "X"
+  //   Expanded:  Closest matches for "X" near <Locality>  / Closest matches for "X"
+  //
+  // Positive framing on expanded ("Closest matches" instead of "Nothing in X
+  // yet") per owner direction.  No em dashes; British English.
+  const stem = isExpanded ? 'Closest matches' : 'Results'
+  const resultsHeaderText = localityName
+    ? `${stem} for "${debouncedQuery}" near ${localityName}`
+    : `${stem} for "${debouncedQuery}"`
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
@@ -170,8 +184,10 @@ export function SearchScreen() {
 
       {(showLoading || showResults) && (
         <View style={styles.resultsHeader}>
-          <Text style={styles.resultsLabel}>
-            Results for &quot;{debouncedQuery}&quot;
+          <Text style={styles.resultsLabel} numberOfLines={2}>
+            {showLoading
+              ? `Results for "${debouncedQuery}"`
+              : resultsHeaderText}
           </Text>
           {showLoading && (
             <View style={styles.loadingRow}>
@@ -179,17 +195,6 @@ export function SearchScreen() {
             </View>
           )}
         </View>
-      )}
-
-      {/* Plan 4 M3b follow-up — secondary metadata answering "near
-          where?". Renders null when meta or effectiveLocality is
-          absent, so safe to mount unconditionally. */}
-      {showResults && (
-        <LocalityCaption localityName={branchMeta?.effectiveLocality?.name} />
-      )}
-
-      {showResults && expandedBanner && (
-        <ExpandedResultBanner localityName={branchMeta?.effectiveLocality?.name} />
       )}
 
       {showLoading && (

@@ -2,9 +2,9 @@ import React from 'react'
 import { View, TouchableOpacity, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
-import { ProximityBandChip } from '@/design-system/components/ProximityBandChip'
-import { formatDistance, formatGbp, formatVoucherCount } from '@/design-system/utils/formatters'
+import { formatDistance, formatGbp } from '@/design-system/utils/formatters'
 import { BranchTile } from '@/lib/api/discovery'
+import type { ProximityBand } from '@/lib/api/discovery'
 
 // Discovery Rebaseline PR-2 (Phase 2.1) — prop shape switches from
 // `MerchantTile` to `BranchTile`.  One tile per BRANCH (Covelum bug fix):
@@ -58,6 +58,34 @@ export function formatBranchLine(branchName: string, locality: string | null): s
   return `${trimmedName}, ${trimmedLocality}`
 }
 
+// PR #112 fixup-4 (2026-05-19) — proximity label compressed for the
+// meta-line context.  Owner direction: drop the bright-red pill (too
+// loud, competing with merchant name) and fold the band into the
+// dense `descriptor · distance · proximity` meta line.  Shortened
+// copy because distance already says "X miles away" — the meta-line
+// proximity tag is descriptive, not a unit clarification.
+//
+// Exported for unit testing.
+export function proximityMetaLabel(band: ProximityBand | null | undefined): string | null {
+  switch (band) {
+    case 'IN_YOUR_AREA':       return 'In your area'
+    case 'A_LITTLE_FURTHER':   return 'A short trip'
+    case 'NEAREST_ON_REDEEMO': return 'Closest match'
+    case 'NEARBY':             return null
+    default:                    return null
+  }
+}
+
+// PR #112 fixup-4 (2026-05-19) — owner-locked voucher pluralisation.
+// Replaces `formatVoucherCount` ("N offers" wording) on the Search card.
+// Redeemo provides VOUCHERS — copy must reflect the product.
+//
+// Exported for unit testing.
+export function formatVouchersWord(count: number | null | undefined): string | null {
+  if (count == null || count <= 0) return null
+  return count === 1 ? '1 voucher' : `${count} vouchers`
+}
+
 function HighlightedName({ name, query }: { name: string; query: string }) {
   if (!query.trim()) return <Text style={styles.merchantName}>{name}</Text>
   const lower = name.toLowerCase()
@@ -89,42 +117,63 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
     null
   const branchLine = formatBranchLine(tile.branchName, locality)
 
-  // Tertiary meta line: merchant.descriptor (new field that wraps category +
-  // descriptor tag); fall back to primaryCategory.name if descriptor empty.
+  // Tertiary meta line: merchant.descriptor + distance + proximity label.
+  // PR #112 fixup-4: proximity moves OFF the standalone chip and INTO the
+  // dense meta line ("Indian Restaurant · 173.1 miles away · Closest match").
+  // Drops the bright-red pill clutter without losing the proximity signal.
   const descriptor =
     (tile.merchant.descriptor && tile.merchant.descriptor.trim().length > 0)
       ? tile.merchant.descriptor
       : tile.merchant.primaryCategory?.name ?? null
+  const proximityLabel = proximityMetaLabel(tile.proximityBand)
   const metaParts: string[] = []
-  if (descriptor) metaParts.push(descriptor)
-  if (distanceStr) metaParts.push(distanceStr)
+  if (descriptor)     metaParts.push(descriptor)
+  if (distanceStr)    metaParts.push(distanceStr)
+  if (proximityLabel) metaParts.push(proximityLabel)
 
-  // Savings pill content — owner-locked PR #112 device-QA fixup-3 (2026-05-19).
-  // Hierarchy reversed from fixup-2: count is now PRIMARY (large, prominent),
-  // value is SECONDARY.  Multi-offer merchants surface TOTAL value across all
-  // active vouchers, not the max-single-voucher saving (which was misleading).
+  // PR #112 fixup-4 (2026-05-19) — owner-locked save badge anatomy.
+  // Hierarchy:
+  //   Primary   = SAVING AMOUNT (commercial hook)
+  //   Secondary = voucher count (context)
   //
-  //   voucherCount === 0                             → pill hidden.
-  //   voucherCount === 1 + maxEstimatedSaving > 0   → "1 offer" + "Up to £X.XX off"
-  //   voucherCount === 1 + maxEstimatedSaving null/0 → "1 offer" only
-  //   voucherCount >= 2 + totalEstimatedSaving > 0  → "N offers" + "£X.XX total value"
-  //   voucherCount >= 2 + totalEstimatedSaving null/0 → "N offers" only
+  // State machine:
+  //   voucherCount === 0                              → badge hidden
+  //   voucherCount === 1 + maxEstimatedSaving > 0     → "Save up to £X.XX" + "1 voucher"
+  //   voucherCount === 1 + maxEstimatedSaving null/0  → "1 voucher" only (no saving figure)
+  //   voucherCount >= 2 + totalEstimatedSaving > 0    → "Save £X.XX"      + "across N vouchers"
+  //   voucherCount >= 2 + totalEstimatedSaving null/0 → "N vouchers" only
   //
-  // Backend additive: `merchant.totalEstimatedSaving` = sum of estimatedSaving
-  // across active+approved vouchers; `maxEstimatedSaving` NOT overloaded.
-  // `formatGbp` enforces two-decimal GBP (8.5 → £8.50); `formatVoucherCount`
-  // handles 1-vs-N pluralisation.
-  const voucherCount        = tile.merchant.voucherCount ?? 0
-  const showPill            = voucherCount > 0
-  const voucherCountText    = formatVoucherCount(voucherCount) // '1 offer' / '2 offers' / null
-  const maxSaving           = tile.merchant.maxEstimatedSaving
-  const totalSaving         = tile.merchant.totalEstimatedSaving
-  const valueLineText: string | null =
-    voucherCount === 1 && maxSaving != null && maxSaving > 0
-      ? `Up to ${formatGbp(maxSaving)} off`
-      : voucherCount >= 2 && totalSaving != null && totalSaving > 0
-        ? `${formatGbp(totalSaving)} total value`
-        : null
+  // Locked copy rules (owner direction):
+  //   - Word is "voucher(s)", NEVER "offer(s)".
+  //   - Word "Save" must be present and prominent.
+  //   - For ≥ 2 vouchers, the saving sum is the headline; voucher count is context.
+  //
+  // Backend: `merchant.totalEstimatedSaving` = sum of estimatedSaving across
+  // active+approved vouchers; `maxEstimatedSaving` continues to drive 1-voucher
+  // path.  Both fields populated independently (additive contract).
+  const voucherCount = tile.merchant.voucherCount ?? 0
+  const showBadge    = voucherCount > 0
+  const maxSaving    = tile.merchant.maxEstimatedSaving
+  const totalSaving  = tile.merchant.totalEstimatedSaving
+
+  // Compute saving headline + secondary line based on state.
+  let savingHeadline: string | null = null
+  let secondaryLine: string | null  = null
+  if (voucherCount === 1) {
+    if (maxSaving != null && maxSaving > 0) {
+      savingHeadline = `Save up to ${formatGbp(maxSaving)}`
+      secondaryLine  = '1 voucher'
+    } else {
+      secondaryLine = '1 voucher'
+    }
+  } else if (voucherCount >= 2) {
+    if (totalSaving != null && totalSaving > 0) {
+      savingHeadline = `Save ${formatGbp(totalSaving)}`
+      secondaryLine  = `across ${voucherCount} vouchers`
+    } else {
+      secondaryLine = formatVouchersWord(voucherCount)
+    }
+  }
 
   return (
     <TouchableOpacity
@@ -152,32 +201,28 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
       </View>
 
       {/* Info — three-tier hierarchy: merchant name primary, branch line
-          secondary, descriptor + distance tertiary. */}
+          secondary, descriptor + distance + proximity tertiary. */}
       <View style={styles.info}>
         <HighlightedName name={displayName} query={query} />
         <Text style={styles.branchLine} numberOfLines={1}>{branchLine}</Text>
         {metaParts.length > 0 && (
-          <Text style={styles.meta} numberOfLines={1}>{metaParts.join(' · ')}</Text>
+          <Text style={styles.meta} numberOfLines={2}>{metaParts.join(' · ')}</Text>
         )}
-        {/* Plan 4 M3b — renders null for NEARBY / null / undefined.
-            `proximityBand` is hoisted to BRANCH level on BranchTile. */}
-        <ProximityBandChip band={tile.proximityBand} />
       </View>
 
-      {/* Right — stacked savings pill (PR #112 device-QA fixup-3).
-          Hierarchy locked:
-            - primary line: "N offers" / "1 offer"  (heading.sm Lato-SemiBold)
-            - secondary:    "£X.XX total value" OR "Up to £X.XX off"
-                            (body.sm Lato-Regular muted savings-green)
-          voucherCount === 0 → pill hidden entirely. */}
+      {/* Right — saving badge (PR #112 fixup-4 anatomy).
+          Compact, calmer, doesn't dominate.  Hierarchy:
+            - Primary:   "Save £X" / "Save up to £X"  (commercial hook)
+            - Secondary: "across N vouchers" / "1 voucher" (context)
+          voucherCount === 0 → badge hidden entirely. */}
       <View style={styles.right}>
-        {showPill && (
-          <View style={styles.savePill}>
-            {voucherCountText && (
-              <Text style={styles.savePillPrimary}>{voucherCountText}</Text>
+        {showBadge && (
+          <View style={styles.saveBadge}>
+            {savingHeadline && (
+              <Text style={styles.saveBadgePrimary} numberOfLines={1}>{savingHeadline}</Text>
             )}
-            {valueLineText && (
-              <Text style={styles.savePillSecondary}>{valueLineText}</Text>
+            {secondaryLine && (
+              <Text style={styles.saveBadgeSecondary} numberOfLines={1}>{secondaryLine}</Text>
             )}
           </View>
         )}
@@ -198,19 +243,22 @@ const styles = StyleSheet.create({
   // Card — slightly taller paint area, a touch more horizontal breathing
   // room, gentler shadow.  Stronger visual confidence than the original
   // 10/12 padding scale.
+  // PR #112 fixup-4: roomier card.  Owner: badge was bulky and crushed the
+  // text stack.  Increased vertical padding for breathing room, kept the 12pt
+  // gap, and shrunk the badge minWidth so the info column can grow.  Card
+  // shadow keeps DESIGN.md navy-tint.
   container: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',         // vertical centre — badge no longer top-anchored
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,             // rounded.lg per DESIGN.md
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    borderRadius: 16,             // rounded.lg
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     marginHorizontal: 16,
     marginBottom: 10,
-    gap: 12,
-    // Navy-tinted elevation.sm per DESIGN.md "shadows tint toward brand" rule.
-    shadowColor: '#010C35',
-    shadowOpacity: 0.08,
+    gap: 14,
+    shadowColor: '#010C35',       // navy-tinted elevation.sm
+    shadowOpacity: 0.06,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
@@ -237,7 +285,7 @@ const styles = StyleSheet.create({
   info: {
     flex: 1,
     minWidth: 0,
-    gap: 3,                    // a touch more vertical air between lines
+    gap: 4,                    // tightened from 6 — pulls the three lines into a tighter stack
   },
   merchantName: {
     fontSize: 15,              // bumped from 12 — strong primary anchor
@@ -255,43 +303,40 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   meta: {
-    fontSize: 11,              // bumped from 10 — readable tertiary
+    fontSize: 12,              // bumped from 11 — readable density for 3-segment meta
     fontFamily: 'Lato-Regular',
-    color: '#6B7280',
-    lineHeight: 14,
+    color: '#6B7280',          // text.secondary
+    lineHeight: 16,
   },
   right: {
     alignItems: 'flex-end',
-    gap: 4,
-    paddingTop: 0,
+    gap: 2,
+    paddingLeft: 4,
   },
-  // Save pill — stacked anatomy, fixup-3 hierarchy reversed:
-  //   primary line: "2 offers"          — heading.sm Lato-SemiBold 16/22
-  //   secondary line: "£X.XX total value" or "Up to £X.XX off"
-  //                                       — body.sm Lato-Regular 13pt muted
-  // Savings-green tinted tile, gentle hairline border, rounded.lg.
-  savePill: {
-    backgroundColor: '#ECFDF5',                    // savings-green tint
-    borderRadius: 16,                              // rounded.lg
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(22,163,74,0.20)',           // savings-green hairline
+  // PR #112 fixup-4 (2026-05-19) — calmer save badge.
+  //   Primary:   "Save £38.50" / "Save up to £5.50"  (heading.sm Lato-SemiBold)
+  //   Secondary: "across 6 vouchers" / "1 voucher"   (label.md Lato-Regular)
+  // Less bulky than fixup-3: no surface tile + no border.  Saving amount stands
+  // alone in deep savings-green — the data is the hero (DESIGN.md "the savings
+  // amount in display.md or larger on every voucher card" — Search card is
+  // dense, so we use heading.sm but keep Mustica Pro vibe via weight).
+  saveBadge: {
     alignItems: 'flex-end',
-    minWidth: 116,                                 // accommodates '10 offers' + '£99.50 total value'
+    minWidth: 0,                                   // shrink-to-content; no longer dominates the card
+    paddingVertical: 2,
   },
-  savePillPrimary: {
-    fontSize: 16,                                  // heading.sm — owner-locked prominence
+  saveBadgePrimary: {
+    fontSize: 16,                                  // heading.sm — saving as the hero
     fontFamily: 'Lato-SemiBold',
     color: '#15803D',                              // deep savings-green
     lineHeight: 20,
+    letterSpacing: -0.1,                           // optical tighten on bold numerals
   },
-  savePillSecondary: {
-    fontSize: 12,                                  // body.sm-ish, paired with primary
+  saveBadgeSecondary: {
+    fontSize: 12,                                  // label.md
     fontFamily: 'Lato-Regular',
-    color: '#15803D',
-    opacity: 0.78,                                 // muted hierarchy
+    color: '#6B7280',                              // text.secondary muted — calm context line
     lineHeight: 16,
-    marginTop: 2,
+    marginTop: 1,
   },
 })
