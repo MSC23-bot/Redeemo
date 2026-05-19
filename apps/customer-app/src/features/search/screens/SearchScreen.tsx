@@ -9,7 +9,7 @@ import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { BranchTile } from '@/lib/api/discovery'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { LocalityCaption } from '@/design-system/components/LocalityCaption'
 
@@ -57,7 +57,11 @@ export function SearchScreen() {
   )
 
   const handleCancel = () => { Keyboard.dismiss(); router.back() }
-  const merchants: MerchantTileType[] = data?.merchants ?? []
+  // Discovery Rebaseline PR-2 (Phase 2.1) — read the additive `branches`
+  // arm.  Multi-branch merchants now render as separate rows (Covelum bug
+  // fix, Spec §3.3).  The legacy `merchants` arm is still on the wire for
+  // surfaces that haven't migrated yet (Home / Category / Map).
+  const branches: BranchTile[] = data?.branches ?? []
   const showTrending = !searchEnabled
   const showLoading = searchEnabled && isLoading
   const showResults = searchEnabled && !isLoading
@@ -72,8 +76,8 @@ export function SearchScreen() {
 
   // 'expanded_to_wider' renders ABOVE the list as a banner (results exist).
   // 'none' / 'no_uk_supply' render INSIDE the list as the empty state.
-  const expandedBanner = merchants.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'
-  const emptyReason    = merchants.length === 0
+  const expandedBanner = branches.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'
+  const emptyReason    = branches.length === 0
     ? (meta?.emptyStateReason ?? 'none')
     : null
 
@@ -132,13 +136,15 @@ export function SearchScreen() {
 
       {showResults && (
         <FlatList
-          data={merchants}
+          data={branches}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <SearchResultItem
-              merchant={item}
+              tile={item}
               query={debouncedQuery}
-              onPress={(id) => router.push(`/merchant/${id}` as any)}
+              onPress={(branchId, merchantId) =>
+                router.push(`/(app)/merchant/${merchantId}?branch=${branchId}` as any)
+              }
             />
           )}
           keyboardShouldPersistTaps="handled"

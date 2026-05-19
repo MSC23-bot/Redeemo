@@ -4,13 +4,25 @@
 import React from 'react'
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { makeMerchantTile } from '../../fixtures/merchantTile'
+import { makeBranchTile } from '../../fixtures/branchTile'
 
-const mockTile = makeMerchantTile({
-  id: 'm1', businessName: 'Karaara',
-  primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null },
-  voucherCount: 3, maxEstimatedSaving: 15, distance: 800, nearestBranchId: 'b1',
-  avgRating: 4.5, reviewCount: 50,
+// Discovery Rebaseline PR-2 (Phase 2.1) — SearchScreen now reads the
+// additive `branches` arm; this caption test ports its fixture to the
+// `BranchTile` shape.
+const mockTile = makeBranchTile({
+  id: 'brn1', branchName: 'Huddersfield',
+  branchLocalityName: 'Huddersfield',
+  distance: 800,
+  avgRating: 4.5,
+  reviewCount: 50,
+  merchant: {
+    id: 'm1',
+    businessName: 'Karaara',
+    primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null, parentId: null },
+    descriptor: 'Indian restaurant',
+    voucherCount: 3,
+    maxEstimatedSaving: 15,
+  },
 })
 
 const baseMeta = {
@@ -33,8 +45,10 @@ jest.mock('@/hooks/useSearch', () => ({
     if (!enabled) return { data: undefined, isLoading: false }
     return {
       data: {
-        merchants: [mockTile],
-        total: 1,
+        merchants: [],
+        total: 0,
+        branches: [mockTile],
+        totalBranches: 1,
         meta: mockState.metaPresent
           ? {
               ...baseMeta,

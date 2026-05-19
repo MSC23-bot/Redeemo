@@ -3,12 +3,17 @@ import { View, TouchableOpacity, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
 import { ProximityBandChip } from '@/design-system/components/ProximityBandChip'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { BranchTile } from '@/lib/api/discovery'
 
+// Discovery Rebaseline PR-2 (Phase 2.1) — prop shape switches from
+// `MerchantTile` to `BranchTile`.  One tile per BRANCH (Covelum bug fix):
+// multi-branch merchants now render as separate Search rows sharing one
+// merchant identity.  Render hierarchy per Spec §3.3 — merchant.businessName
+// primary, branch locality secondary, descriptor tertiary.
 type Props = {
-  merchant: MerchantTileType
+  tile: BranchTile
   query: string
-  onPress: (id: string) => void
+  onPress: (branchId: string, merchantId: string) => void
 }
 
 function formatDistance(metres: number | null): string | null {
@@ -33,30 +38,48 @@ function HighlightedName({ name, query }: { name: string; query: string }) {
   )
 }
 
-export function SearchResultItem({ merchant, query, onPress }: Props) {
-  const displayName = merchant.tradingName ?? merchant.businessName
-  const distanceStr = formatDistance(merchant.distance)
-  const categoryName = merchant.primaryCategory?.name ?? null
+export function SearchResultItem({ tile, query, onPress }: Props) {
+  // Primary identity: merchant business name (Spec §3.3).
+  const displayName = tile.merchant.businessName
+  const distanceStr = formatDistance(tile.distance)
+
+  // Secondary line: branch name + locality fallback chain
+  // (branchLocalityName ?? branchPostTown ?? branchCity).
+  const locality =
+    tile.branchLocalityName ??
+    tile.branchPostTown ??
+    tile.branchCity ??
+    null
+  const branchLine = locality
+    ? `${tile.branchName}, ${locality}`
+    : tile.branchName
+
+  // Tertiary meta line: merchant.descriptor (new field that wraps category +
+  // descriptor tag); fall back to primaryCategory.name if descriptor empty.
+  const descriptor =
+    (tile.merchant.descriptor && tile.merchant.descriptor.trim().length > 0)
+      ? tile.merchant.descriptor
+      : tile.merchant.primaryCategory?.name ?? null
   const metaParts: string[] = []
-  if (categoryName) metaParts.push(categoryName)
+  if (descriptor) metaParts.push(descriptor)
   if (distanceStr) metaParts.push(distanceStr)
 
-  const savingText = merchant.maxEstimatedSaving != null && merchant.maxEstimatedSaving > 0
-    ? `Save £${merchant.maxEstimatedSaving}`
+  const savingText = tile.merchant.maxEstimatedSaving != null && tile.merchant.maxEstimatedSaving > 0
+    ? `Save £${tile.merchant.maxEstimatedSaving}`
     : null
 
   return (
     <TouchableOpacity
       style={styles.container}
-      onPress={() => onPress(merchant.id)}
+      onPress={() => onPress(tile.id, tile.merchant.id)}
       accessibilityRole="button"
-      accessibilityLabel={`${displayName}, ${metaParts.join(', ')}`}
+      accessibilityLabel={`${displayName}, ${branchLine}${metaParts.length > 0 ? `, ${metaParts.join(', ')}` : ''}`}
       activeOpacity={0.7}
     >
       {/* Logo */}
       <View style={styles.logoWrapper}>
-        {merchant.logoUrl ? (
-          <Image source={{ uri: merchant.logoUrl }} style={styles.logo} />
+        {tile.merchant.logoUrl ? (
+          <Image source={{ uri: tile.merchant.logoUrl }} style={styles.logo} />
         ) : (
           <LinearGradient
             colors={['#2d1810', '#4a2520']}
@@ -72,11 +95,13 @@ export function SearchResultItem({ merchant, query, onPress }: Props) {
       {/* Info */}
       <View style={styles.info}>
         <HighlightedName name={displayName} query={query} />
+        <Text style={styles.branchLine} numberOfLines={1}>{branchLine}</Text>
         {metaParts.length > 0 && (
           <Text style={styles.meta} numberOfLines={1}>{metaParts.join(' · ')}</Text>
         )}
-        {/* Plan 4 M3b — renders null for NEARBY / null / undefined. */}
-        <ProximityBandChip band={merchant.proximityBand} />
+        {/* Plan 4 M3b — renders null for NEARBY / null / undefined.
+            `proximityBand` is hoisted to BRANCH level on BranchTile. */}
+        <ProximityBandChip band={tile.proximityBand} />
       </View>
 
       {/* Right */}
@@ -87,13 +112,12 @@ export function SearchResultItem({ merchant, query, onPress }: Props) {
           </View>
         )}
         {/*
-          Open/closed badge intentionally omitted — backend MerchantTile
-          contract does not include isOpen / isOpenNow on list responses
-          (only on getCustomerMerchant / getCustomerMerchantBranches detail
-          responses). PR B M4 audit removed the matching hardcoded badge in
-          MerchantTile.tsx; this is the same fix for SearchResultItem.
-          Re-enable when the backend extends the tile contract to include
-          per-tile open state.
+          Open/closed badge intentionally omitted at this layout layer —
+          `isOpenNow` is now available on BranchTile (was missing from
+          MerchantTile pre-rebaseline). Discovery Rebaseline keeps the
+          render parity baseline; surfacing the badge belongs to a
+          follow-on visual pass alongside MerchantTile (PR-3/4) so both
+          tile types pick up the badge consistently.
         */}
       </View>
     </TouchableOpacity>
@@ -145,6 +169,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Lato-Bold',
     color: '#010C35',
+  },
+  branchLine: {
+    fontSize: 11,
+    fontFamily: 'Lato-Regular',
+    color: '#374151',
   },
   meta: {
     fontSize: 10,
