@@ -2497,6 +2497,14 @@ export async function searchBranches(
     effectiveLocality: { id: string; name: string } | null
     scope: 'nearby' | 'city' | 'region' | 'platform'
     scopeExpanded: boolean
+    // PR-2 device-QA fix (2026-05-19) — parity with `searchMerchants`
+    // meta so the customer-app SearchScreen can read this envelope
+    // exclusively (no mixing of merchant-tier counts into branch list).
+    nearbyCount: number
+    cityCount: number
+    distantCount: number
+    emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply'
+    resolvedArea: string
   }
 }> {
   const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
@@ -2750,7 +2758,64 @@ export async function searchBranches(
     return a.id.localeCompare(b.id)
   })
 
-  // ── 8. Concatenate ranked ++ tail; pagination unit is the branch tile.
+  // ── 7.5. PR-2 device-QA blocker fix (2026-05-19) — direct text-match fallback.
+  //
+  // When `q` is a non-empty text query AND `effLoc` is resolved AND the
+  // post-scope-cascade `rankedTiles` is EMPTY, surface rankable branches
+  // matching the predicate as a deterministic fallback tail.  Without
+  // this, e.g. `q="Covelum"` from a London effLoc returns empty
+  // `branches[]` because Covelum's branches classify as NATIONAL (no
+  // locality/post-town/lad/county/region match to a London-anchored
+  // effLoc) and `rankBranchesV3` drops anything above the ladder maxRung
+  // (REGION for MIXED_NORMAL @ URBAN).  The scope cascade can't help:
+  // `rungCounts` reflects only rank-admitted branches.
+  //
+  // Spec rationale: a user searching a specific merchant name expects to
+  // find that merchant regardless of ladder/scope.  Mirrors the legacy
+  // `rankMerchants` cascade behaviour — direct text matches always
+  // surface when scope+cascade would otherwise return zero results.
+  //
+  // **Critical narrowness:** the fallback only fires when ranked+scoped
+  // output is EMPTY.  If the scope filter has real supply (e.g. user picks
+  // `scope: 'nearby'` AND there are nearby branches matching `q`), scope
+  // wins — the fallback does NOT pull in DISTANT-tier or other-rung
+  // matches.  This preserves the locked Task 2.1.0 scope semantics for
+  // queries that have actual matches at the requested scope; the
+  // fallback rescues only the "no results at all" case.
+  //
+  // Gated on:
+  //   - `q && q.trim().length > 0` — non-empty text query (browse queries
+  //     stay strict).
+  //   - `effLoc` — the null-effLoc path already surfaces all candidates
+  //     via its own broader tail; no fallback needed.
+  //   - `rankedTiles.length === 0` — scope+cascade returned empty.
+  //
+  // Map (`getInAreaBranches`) is a different function and UNAFFECTED.
+  const textMatchFallback = (
+    effLoc
+    && q && q.trim().length > 0
+    && rankedTiles.length === 0
+  )
+    ? [...rankable].filter(b => !rankedIds.has(b.id)).sort((a, b) => {
+        const ma = a.merchant.businessName.localeCompare(b.merchant.businessName)
+        if (ma !== 0) return ma
+        const nb = (a.name ?? '').localeCompare(b.name ?? '')
+        if (nb !== 0) return nb
+        return a.id.localeCompare(b.id)
+      })
+    : []
+
+  // ── 8. Concatenate ranked ++ text-match fallback ++ non-rankable tail.
+  //    Pagination unit is the branch tile.
+  //
+  //    Order rationale:
+  //      1. Ranked tiles first (best user-visible ordering — rung+distance+quality).
+  //      2. Text-match fallback (rank-dropped rankable matches; null rung/distance
+  //         per Spec §4.1.1 list-view admission semantics).
+  //      3. POSTCODE_CENTROID / NEEDS_REVIEW tail (also null rung/distance per §4.1.1).
+  //
+  //    These three sets are disjoint (textMatchFallback ⊆ rankable; tail = nonRankable;
+  //    `rankable ∩ nonRankable = ∅` by the locationConfidence partition above).
   const allInputs: EnrichBranchInput[] = [
     ...rankedTiles.map(t => ({
       branchId:      t.id,
@@ -2758,6 +2823,13 @@ export async function searchBranches(
       supplyRung:    t.supplyRung,
       proximityBand: t.proximityBand,
       distance:      t.distanceMetres,
+    } satisfies EnrichBranchInput)),
+    ...textMatchFallback.map(b => ({
+      branchId:      b.id,
+      merchantId:    b.merchantId,
+      supplyRung:    null,
+      proximityBand: null,
+      distance:      null,
     } satisfies EnrichBranchInput)),
     ...tailSorted.map(b => ({
       branchId:      b.id,
@@ -2778,10 +2850,54 @@ export async function searchBranches(
     lng:    lng   ?? null,
   })
 
-  // ── 10. Meta envelope — Phase 1 + Task 2.1.0 shape. `scope` +
-  //       `scopeExpanded` mirror the merchant-variant envelope so consumers
-  //       can render empty-state copy + scope-expanded indicators
-  //       identically across both variants.
+  // ── 10. Meta envelope — Phase 1 + Task 2.1.0 + PR-2 device-QA fix.
+  //
+  // Derives legacy-shape NEARBY/CITY/DISTANT tier counts from
+  // `rungCounts` via the tier↔rung mapping locked by Task 2.1.0
+  // (matches `mapRungToLegacyTier` at ladderProfiles.ts:110):
+  //   NEARBY tier  = NEARBY rung
+  //   CITY tier    = CATCHMENT + POST_TOWN rungs
+  //   DISTANT tier = LAD + COUNTY + REGION + COUNTRY + NATIONAL rungs
+  //                  + textMatch-fallback count (null rung; the
+  //                    rank-dropped direct matches that surface
+  //                    because of the §7.5 text-match safety net)
+  //                  + non-rankable tail count (POSTCODE_CENTROID /
+  //                    NEEDS_REVIEW per Spec §4.1.1 list admission)
+  //
+  // Both null-rung sources count toward DISTANT because they're
+  // structurally "UK-wide" — no locality match to the caller's
+  // effLoc, just a direct text/admission surface.  Mirrors legacy
+  // `searchMerchants` semantics where every active merchant lands
+  // in NEARBY / CITY / DISTANT with no maxRung gate.
+  const nearbyCount  = rungCounts.NEARBY
+  const cityCount    = rungCounts.CATCHMENT + rungCounts.POST_TOWN
+  const distantCount =
+    rungCounts.LAD + rungCounts.COUNTY + rungCounts.REGION
+    + rungCounts.COUNTRY + rungCounts.NATIONAL
+    + textMatchFallback.length
+    + tailSorted.length
+
+  // emptyStateReason — mirrors `buildEmptyStateReason` (service.ts:477).
+  //   'no_uk_supply'      : no candidates at all in UK
+  //   'expanded_to_wider' : scope cascade widened to find supply
+  //   'none'              : results found at requested scope
+  const totalSupply = nearbyCount + cityCount + distantCount
+  const emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply' =
+    totalSupply === 0       ? 'no_uk_supply'      :
+    totalBranches === 0     ? 'no_uk_supply'      :
+    scopeResolution.scopeExpanded ? 'expanded_to_wider' :
+    'none'
+
+  // resolvedArea — mirrors `buildResolvedArea` (service.ts:488).
+  const profileCity = (await prisma.user.findUnique({
+    where: { id: userId ?? '' },
+    select: { city: true },
+  }))?.city ?? null
+  const resolvedArea =
+    scopeResolution.resolvedScope === 'nearby' ? 'Nearby' :
+    scopeResolution.resolvedScope === 'city'   ? (profileCity ?? 'Your city') :
+    'United Kingdom'
+
   return {
     branches,
     totalBranches,
@@ -2790,8 +2906,13 @@ export async function searchBranches(
       effectiveLocality: effLoc
         ? { id: effLoc.locality.id, name: effLoc.locality.name }
         : null,
-      scope:         scopeResolution.resolvedScope,
-      scopeExpanded: scopeResolution.scopeExpanded,
+      scope:            scopeResolution.resolvedScope,
+      scopeExpanded:    scopeResolution.scopeExpanded,
+      nearbyCount,
+      cityCount,
+      distantCount,
+      emptyStateReason,
+      resolvedArea,
     },
   }
 }

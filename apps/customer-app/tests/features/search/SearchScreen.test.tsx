@@ -42,7 +42,7 @@ const mockMeta = {
 
 // Per-scenario state — flipped by individual tests via the controlled flag.
 const mockSearchState = {
-  scenario: 'happy' as 'happy' | 'empty' | 'expanded' | 'no_uk_supply' | 'multi_branch',
+  scenario: 'happy' as 'happy' | 'empty' | 'expanded' | 'no_uk_supply' | 'multi_branch' | 'count_list_mismatch',
 }
 
 // Covelum multi-branch fixture — the load-bearing cardinality test.
@@ -70,13 +70,19 @@ const covelumCol = makeBranchTile({
 jest.mock('@/hooks/useSearch', () => ({
   useSearch: (_params: any, enabled: boolean) => {
     if (!enabled) return { data: undefined, isLoading: false }
+    // PR-2 device-QA fix (2026-05-19) — SearchScreen reads `branchMeta`
+    // (NOT legacy `meta`) for counts + emptyStateReason + locality.
+    // Mocks set BOTH so legacy consumers (Home / Map / Category — not
+    // yet migrated) continue to work and the SearchScreen path reads
+    // the branch-aligned envelope.
     switch (mockSearchState.scenario) {
       case 'empty':
         return {
           data: {
             merchants: [], total: 0,
             branches: [], totalBranches: 0,
-            meta: { ...mockMeta, emptyStateReason: 'none' },
+            meta:       { ...mockMeta, emptyStateReason: 'none' },
+            branchMeta: { ...mockMeta, emptyStateReason: 'none' },
           },
           isLoading: false,
         }
@@ -85,7 +91,8 @@ jest.mock('@/hooks/useSearch', () => ({
           data: {
             merchants: [], total: 0,
             branches: [mockPizzaExpress], totalBranches: 1,
-            meta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
+            meta:       { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
+            branchMeta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
           },
           isLoading: false,
         }
@@ -94,7 +101,8 @@ jest.mock('@/hooks/useSearch', () => ({
           data: {
             merchants: [], total: 0,
             branches: [], totalBranches: 0,
-            meta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
+            meta:       { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
+            branchMeta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
           },
           isLoading: false,
         }
@@ -103,7 +111,23 @@ jest.mock('@/hooks/useSearch', () => ({
           data: {
             merchants: [], total: 0,
             branches: [covelumBri, covelumCol], totalBranches: 2,
-            meta: mockMeta,
+            meta:       mockMeta,
+            branchMeta: mockMeta,
+          },
+          isLoading: false,
+        }
+      case 'count_list_mismatch':
+        // Owner-flagged screenshot bug: legacy merchant meta is non-zero
+        // (UK-wide pill shows "1") but the branch list is empty.  The
+        // FIX is that SearchScreen reads `branchMeta` (branch counts = 0)
+        // and the empty-state copy + count both reflect branch reality.
+        return {
+          data: {
+            merchants: [{ id: 'leg-1', businessName: 'Legacy Merchant' }] as any,
+            total: 1,
+            meta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 1, emptyStateReason: 'none' },
+            branches: [], totalBranches: 0,
+            branchMeta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
           },
           isLoading: false,
         }
@@ -112,7 +136,8 @@ jest.mock('@/hooks/useSearch', () => ({
           data: {
             merchants: [], total: 0,
             branches: [mockPizzaExpress], totalBranches: 1,
-            meta: mockMeta,
+            meta:       mockMeta,
+            branchMeta: mockMeta,
           },
           isLoading: false,
         }
@@ -215,14 +240,19 @@ describe('SearchScreen', () => {
   // branch was lost from the UI.
   it('multi-branch merchant renders as TWO search rows (Covelum bug closure)', async () => {
     mockSearchState.scenario = 'multi_branch'
-    const { getByPlaceholderText, getAllByText, getByText } = render(<SearchScreen />, { wrapper })
+    const { getByPlaceholderText, getAllByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText, 'Covelum')
     await waitFor(() => {
       // Merchant identity appears once per branch row — two rows for Covelum.
       expect(getAllByText('Covelum').length).toBe(2)
-      // Branch locality surfaces on each row.
-      expect(getByText(/Brightlingsea, Brightlingsea/)).toBeTruthy()
-      expect(getByText(/Colchester, Colchester/)).toBeTruthy()
+      // Branch identity surfaces on each row — de-duped per the
+      // PR-2 device-QA fix (branchName === localityName).
+      expect(getAllByText('Brightlingsea').length).toBe(1)
+      expect(getAllByText('Colchester').length).toBe(1)
+      // Negative pin: the old buggy duplicate-label format MUST NOT
+      // appear — pins the de-dupe contract from formatBranchLine.
+      expect(queryByText('Brightlingsea, Brightlingsea')).toBeNull()
+      expect(queryByText('Colchester, Colchester')).toBeNull()
     })
   })
 
@@ -232,5 +262,32 @@ describe('SearchScreen', () => {
     await waitFor(() => expect(getByText('Pizza Express')).toBeTruthy())
     fireEvent.press(getByText('Pizza Express'))
     expect(mockRouterPush).toHaveBeenCalledWith('/(app)/merchant/m1?branch=brn1')
+  })
+
+  // PR-2 device-QA fix (2026-05-19) — count/list consistency pin.
+  //
+  // Owner-flagged screenshot bug: scope pill displayed "UK-wide · 1"
+  // while the branch list was empty.  Root cause: SearchScreen consumed
+  // the LEGACY merchant `meta.distantCount` (= 1, because the merchant
+  // path matched the query) while rendering the EMPTY `branches[]`.
+  //
+  // Fix: SearchScreen reads `branchMeta` exclusively — counts +
+  // emptyStateReason both reflect branch reality.  Empty branch list +
+  // zero branch counts + 'no_uk_supply' empty state all agree.
+  it('reads branchMeta — does NOT mix legacy merchant counts into branch list (PR-2 device-QA pin)', async () => {
+    mockSearchState.scenario = 'count_list_mismatch'
+    const { getByPlaceholderText, queryByText, getByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    // Branch list is empty → empty-state copy MUST render (not the
+    // legacy merchant `Legacy Merchant` name).
+    await waitFor(() => {
+      expect(queryByText('Legacy Merchant')).toBeNull()
+      expect(getByText(/No matches in the UK yet/i)).toBeTruthy()
+    })
+    // Scope pills: counts must reflect branchMeta (all zero) NOT the
+    // legacy merchant meta (distantCount: 1).  The "UK-wide · 1" string
+    // MUST NOT appear.
+    expect(queryByText(/UK-wide · 1\b/)).toBeNull()
+    expect(queryByText(/UK-wide · 0\b/)).toBeTruthy()
   })
 })

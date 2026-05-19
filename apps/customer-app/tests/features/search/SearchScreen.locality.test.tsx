@@ -43,20 +43,25 @@ const mockState = {
 jest.mock('@/hooks/useSearch', () => ({
   useSearch: (_params: any, enabled: boolean) => {
     if (!enabled) return { data: undefined, isLoading: false }
+    // PR-2 device-QA fix (2026-05-19) — SearchScreen reads `branchMeta`
+    // (NOT legacy `meta`) for the LocalityCaption.  Set both so any
+    // future test that uses the legacy field still works.
+    const builtMeta = mockState.metaPresent
+      ? {
+          ...baseMeta,
+          ...(mockState.effectiveLocality !== null
+            ? { effectiveLocality: mockState.effectiveLocality }
+            : {}),
+        }
+      : undefined
     return {
       data: {
         merchants: [],
         total: 0,
         branches: [mockTile],
         totalBranches: 1,
-        meta: mockState.metaPresent
-          ? {
-              ...baseMeta,
-              ...(mockState.effectiveLocality !== null
-                ? { effectiveLocality: mockState.effectiveLocality }
-                : {}),
-            }
-          : undefined,
+        meta:       builtMeta,
+        branchMeta: builtMeta,
       },
       isLoading: false,
     }

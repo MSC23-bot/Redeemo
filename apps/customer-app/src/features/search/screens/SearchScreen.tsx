@@ -66,19 +66,30 @@ export function SearchScreen() {
   const showLoading = searchEnabled && isLoading
   const showResults = searchEnabled && !isLoading
 
-  // Tier counts come from the meta envelope (always reflects UK-wide supply,
-  // per the Plan 1.5 invariant). When meta isn't present yet we hide the
-  // numbers but keep the pills selectable.
-  const meta = data?.meta
-  const counts = meta
-    ? { nearby: meta.nearbyCount, city: meta.cityCount, platform: meta.distantCount }
+  // PR-2 device-QA fix (2026-05-19) — read `branchMeta` instead of legacy
+  // `meta` for counts + emptyStateReason + effectiveLocality.  Without
+  // this, scope pills displayed merchant-tier counts while the list
+  // rendered branches — the owner-observed split that produced
+  // misleading "UK-wide · 1" pills alongside an empty branch list.
+  //
+  // `branchMeta` is emitted by the /search route additively alongside
+  // the legacy `meta` (which other surfaces — Home / Map / Category —
+  // continue to read until their Phase 2.x migrations land).
+  //
+  // Fallback: if `branchMeta` isn't present (legacy server, pre-PR-2
+  // backend), we hide counts entirely rather than silently mixing
+  // merchant-tier counts into a branch list.  Better to show nothing
+  // than to mislead.
+  const branchMeta = data?.branchMeta
+  const counts = branchMeta
+    ? { nearby: branchMeta.nearbyCount, city: branchMeta.cityCount, platform: branchMeta.distantCount }
     : undefined
 
   // 'expanded_to_wider' renders ABOVE the list as a banner (results exist).
   // 'none' / 'no_uk_supply' render INSIDE the list as the empty state.
-  const expandedBanner = branches.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'
+  const expandedBanner = branches.length > 0 && branchMeta?.emptyStateReason === 'expanded_to_wider'
   const emptyReason    = branches.length === 0
-    ? (meta?.emptyStateReason ?? 'none')
+    ? (branchMeta?.emptyStateReason ?? 'none')
     : null
 
   return (
@@ -118,7 +129,7 @@ export function SearchScreen() {
           where?". Renders null when meta or effectiveLocality is
           absent, so safe to mount unconditionally. */}
       {showResults && (
-        <LocalityCaption localityName={meta?.effectiveLocality?.name} />
+        <LocalityCaption localityName={branchMeta?.effectiveLocality?.name} />
       )}
 
       {showResults && expandedBanner && (

@@ -323,12 +323,21 @@ export type InAreaMeta = z.infer<typeof inAreaMetaSchema>
 // the backend in parallel; SearchScreen consumes `branches`, while Home /
 // Category / Map continue reading `merchants` until their own Phase 2.x
 // migrations land.
+//
+// PR-2 device-QA fix (2026-05-19) — `branchMeta` carries branch-aligned
+// counts + emptyStateReason + resolvedArea (shape parity with the legacy
+// `meta` field but derived from the branch path).  SearchScreen MUST read
+// `branchMeta` (not `meta`) for counts + empty-state copy; otherwise the
+// scope pills show merchant-tier counts while the list renders branches —
+// the owner-observed split that caused misleading "UK-wide · 1" pills
+// alongside an empty branch list.
 const searchResponseSchema = z.object({
   merchants:     z.array(merchantTileSchema),
   total:         z.number(),
   meta:          discoveryMetaSchema.optional(),
   branches:      z.array(branchTileSchema).optional(),
   totalBranches: z.number().optional(),
+  branchMeta:    discoveryMetaSchema.optional(),
 })
 export type SearchResponse = z.infer<typeof searchResponseSchema>
 

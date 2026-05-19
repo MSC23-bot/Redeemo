@@ -10,6 +10,16 @@ import { BranchTile } from '@/lib/api/discovery'
 // multi-branch merchants now render as separate Search rows sharing one
 // merchant identity.  Render hierarchy per Spec §3.3 — merchant.businessName
 // primary, branch locality secondary, descriptor tertiary.
+//
+// PR-2 device-QA polish (2026-05-19) — owner-flagged blockers from
+// screenshots:
+//   1. Locality duplication ("Huddersfield, Huddersfield" /
+//      "Holmfirth, Holmfirth").  Fixed via `formatBranchLine` below —
+//      case-insensitive trimmed equality test.
+//   2. Visual hierarchy too loose — bumped name/branch/meta type scale,
+//      tightened spacing, polished save pill + fallback logo per the
+//      owner's "stronger hierarchy / better spacing/padding/scale /
+//      polished fallback logo" direction.
 type Props = {
   tile: BranchTile
   query: string
@@ -23,6 +33,30 @@ function formatDistance(metres: number | null): string | null {
   return `${miles.toFixed(1)} mi`
 }
 
+/**
+ * De-dupes the locality segment when it matches the branch name.
+ * Owner-observed screenshots: Karaara branch in Huddersfield rendered as
+ * "Huddersfield, Huddersfield" because `branchName === 'Huddersfield'`
+ * AND `branchLocalityName === 'Huddersfield'`.  Same for Polish Nail
+ * Studio at Holmfirth.
+ *
+ * Comparison is case-insensitive + trim-normalised so "Huddersfield "
+ * / "huddersfield" / "HUDDERSFIELD" all collapse to a single segment.
+ *
+ * Exported for direct unit testing (see SearchResultItem.locality.test.tsx).
+ */
+export function formatBranchLine(branchName: string, locality: string | null): string {
+  const trimmedName     = branchName.trim()
+  const trimmedLocality = locality?.trim() ?? ''
+  if (trimmedLocality.length === 0) return trimmedName
+  if (trimmedName.toLowerCase() === trimmedLocality.toLowerCase()) {
+    // Branch name IS the locality — show one segment, prefer the
+    // branchName-as-typed (preserves the merchant's chosen casing).
+    return trimmedName
+  }
+  return `${trimmedName}, ${trimmedLocality}`
+}
+
 function HighlightedName({ name, query }: { name: string; query: string }) {
   if (!query.trim()) return <Text style={styles.merchantName}>{name}</Text>
   const lower = name.toLowerCase()
@@ -32,7 +66,7 @@ function HighlightedName({ name, query }: { name: string; query: string }) {
   return (
     <Text style={styles.merchantName} numberOfLines={1}>
       {name.slice(0, idx)}
-      <Text style={[styles.merchantName, { color: '#E20C04' }]}>{name.slice(idx, idx + query.length)}</Text>
+      <Text style={[styles.merchantName, styles.highlightMatch]}>{name.slice(idx, idx + query.length)}</Text>
       {name.slice(idx + query.length)}
     </Text>
   )
@@ -44,15 +78,15 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
   const distanceStr = formatDistance(tile.distance)
 
   // Secondary line: branch name + locality fallback chain
-  // (branchLocalityName ?? branchPostTown ?? branchCity).
+  // (branchLocalityName ?? branchPostTown ?? branchCity).  De-duped when
+  // the locality matches the branch name (owner-flagged Huddersfield /
+  // Holmfirth screenshots).
   const locality =
     tile.branchLocalityName ??
     tile.branchPostTown ??
     tile.branchCity ??
     null
-  const branchLine = locality
-    ? `${tile.branchName}, ${locality}`
-    : tile.branchName
+  const branchLine = formatBranchLine(tile.branchName, locality)
 
   // Tertiary meta line: merchant.descriptor (new field that wraps category +
   // descriptor tag); fall back to primaryCategory.name if descriptor empty.
@@ -76,13 +110,14 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
       accessibilityLabel={`${displayName}, ${branchLine}${metaParts.length > 0 ? `, ${metaParts.join(', ')}` : ''}`}
       activeOpacity={0.7}
     >
-      {/* Logo */}
+      {/* Logo — solid surface for image; warmer cream gradient fallback
+          with tinted initial.  Bumped to 48pt for a more confident scale. */}
       <View style={styles.logoWrapper}>
         {tile.merchant.logoUrl ? (
           <Image source={{ uri: tile.merchant.logoUrl }} style={styles.logo} />
         ) : (
           <LinearGradient
-            colors={['#2d1810', '#4a2520']}
+            colors={['#FCEDE3', '#F6DCC9']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.logo}
@@ -92,7 +127,8 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         )}
       </View>
 
-      {/* Info */}
+      {/* Info — three-tier hierarchy: merchant name primary, branch line
+          secondary, descriptor + distance tertiary. */}
       <View style={styles.info}>
         <HighlightedName name={displayName} query={query} />
         <Text style={styles.branchLine} numberOfLines={1}>{branchLine}</Text>
@@ -104,7 +140,9 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         <ProximityBandChip band={tile.proximityBand} />
       </View>
 
-      {/* Right */}
+      {/* Right — save pill aligned to the top of the info block; intentional
+          alignment so the pill anchors against the merchant name baseline
+          (visually reads as "Covelum · Save £15"). */}
       <View style={styles.right}>
         {savingText && (
           <View style={styles.savePill}>
@@ -125,75 +163,87 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // Card — slightly taller paint area, a touch more horizontal breathing
+  // room, gentler shadow.  Stronger visual confidence than the original
+  // 10/12 padding scale.
   container: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 10,
-    paddingHorizontal: 12,
-    marginHorizontal: 18,
-    marginBottom: 6,
-    gap: 10,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    gap: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
   logoWrapper: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     overflow: 'hidden',
     flexShrink: 0,
   },
   logo: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoInitial: {
-    fontSize: 16,
+    fontSize: 20,
     fontFamily: 'Lato-Bold',
-    color: 'rgba(255,255,255,0.7)',
+    color: '#8B5A3C',          // warm brand brown — reads on cream gradient
   },
   info: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 3,                    // a touch more vertical air between lines
   },
   merchantName: {
-    fontSize: 12,
+    fontSize: 15,              // bumped from 12 — strong primary anchor
     fontFamily: 'Lato-Bold',
-    color: '#010C35',
+    color: '#010C35',          // brand navy
+    lineHeight: 18,
+  },
+  highlightMatch: {
+    color: '#E20C04',          // brand red — query token highlight
   },
   branchLine: {
-    fontSize: 11,
+    fontSize: 13,              // bumped from 11 — clear secondary
     fontFamily: 'Lato-Regular',
-    color: '#374151',
+    color: '#1F2937',          // slightly darker than before — better hierarchy contrast
+    lineHeight: 16,
   },
   meta: {
-    fontSize: 10,
+    fontSize: 11,              // bumped from 10 — readable tertiary
     fontFamily: 'Lato-Regular',
     color: '#6B7280',
+    lineHeight: 14,
   },
   right: {
     alignItems: 'flex-end',
-    gap: 2,
+    gap: 4,
+    paddingTop: 2,             // micro-align with the merchant name baseline
   },
+  // Save pill — slightly bigger paint area, gentler border, intentional
+  // savings-green palette.  Anchors the eye after the merchant name.
   savePill: {
     backgroundColor: '#ECFDF5',
-    borderRadius: 50,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderWidth: 1,
-    borderColor: 'rgba(5,150,105,0.12)',
+    borderColor: 'rgba(5,150,105,0.18)',
   },
   saveText: {
-    fontSize: 8,
+    fontSize: 11,              // bumped from 8 — readable on device
     fontFamily: 'Lato-Bold',
     color: '#047857',
   },
