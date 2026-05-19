@@ -25,7 +25,7 @@ import {
 } from '../../lib/ranking'
 import { resolveEffectiveLocation, type EffectiveLocation } from '../../lib/effectiveLocation'
 import { getOutgoingCatchmentTargetIds } from '../../lib/catchmentLookup'
-import type { LadderProfile } from '../../lib/ladderProfiles'
+import type { LadderProfile, SupplyRung } from '../../lib/ladderProfiles'
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 import { resolveSelectedBranch } from './branch-resolver'
 import { buildDisplayName, formatReview } from '../reviews/service'
@@ -464,6 +464,86 @@ function retainedHasZeroSupply(
   if (retained.includes('CITY'))    total += counts.cityCount
   if (retained.includes('DISTANT')) total += counts.distantCount
   return total === 0
+}
+
+// ─── Discovery Rebaseline Task 2.1.0 — branch-first scope cascade ────────────
+//
+// Plan Rev 1.2 PR-2 entry gate. Branch-first sibling of
+// `resolveScopeForRanking` (line ~429). The customer-app eventually flips
+// Search from `merchants` to `branches`; until then the merchant variant
+// honours `scope`. After this lands, both variants honour it identically so
+// the UI flip is safe.
+//
+// Same cascade semantics as the legacy SupplyTier path, but operates on
+// SupplyRung directly via the canonical tier ↔ rung mapping (mirrors
+// `mapRungToLegacyTier` at ladderProfiles.ts:110):
+//
+//   NEARBY tier  → { NEARBY }
+//   CITY tier    → { CATCHMENT, POST_TOWN }
+//   DISTANT tier → { LAD, COUNTY, REGION, COUNTRY, NATIONAL }
+//
+// The cascade axis is NEARBY-tier-only / CITY-tier-included /
+// DISTANT-tier-included — NOT individual rungs. This keeps `resolvedScope`
+// legible (`'nearby' | 'city' | 'platform'`) and matches what the
+// customer-app's SearchScope cascade already renders.
+
+type BranchScopeResolution = {
+  retainedRungs: ReadonlySet<SupplyRung>
+  scopeExpanded: boolean
+  resolvedScope: 'nearby' | 'city' | 'region' | 'platform'
+}
+
+const NEARBY_TIER_RUNGS:  readonly SupplyRung[] = ['NEARBY']
+const CITY_TIER_RUNGS:    readonly SupplyRung[] = ['CATCHMENT', 'POST_TOWN']
+const DISTANT_TIER_RUNGS: readonly SupplyRung[] = ['LAD', 'COUNTY', 'REGION', 'COUNTRY', 'NATIONAL']
+
+function tiersToRungs(tiers: readonly ('NEARBY' | 'CITY' | 'DISTANT')[]): SupplyRung[] {
+  const out: SupplyRung[] = []
+  if (tiers.includes('NEARBY'))  out.push(...NEARBY_TIER_RUNGS)
+  if (tiers.includes('CITY'))    out.push(...CITY_TIER_RUNGS)
+  if (tiers.includes('DISTANT')) out.push(...DISTANT_TIER_RUNGS)
+  return out
+}
+
+function rungSupplyForTiers(
+  tiers: readonly ('NEARBY' | 'CITY' | 'DISTANT')[],
+  rungCounts: Record<SupplyRung, number>,
+): number {
+  return tiersToRungs(tiers).reduce((sum, r) => sum + (rungCounts[r] ?? 0), 0)
+}
+
+function resolveScopeForBranches(
+  requested: RequestedScope,
+  intent: CategoryIntentType,
+  rungCounts: Record<SupplyRung, number>,
+): BranchScopeResolution {
+  // Initial tier list — exact mirror of `resolveScopeForRanking`'s logic.
+  const initialTiers: ('NEARBY' | 'CITY' | 'DISTANT')[] = (() => {
+    if (requested === 'platform') return ['NEARBY', 'CITY', 'DISTANT']
+    if (requested === 'nearby')   return ['NEARBY']
+    if (requested === 'city' || requested === 'region') return ['NEARBY', 'CITY']
+    if (intent === 'DESTINATION') return ['NEARBY', 'CITY', 'DISTANT']
+    return ['NEARBY', 'CITY']
+  })()
+
+  let tiers: ('NEARBY' | 'CITY' | 'DISTANT')[] = initialTiers
+  let expanded = false
+  while (tiers.length < 3 && rungSupplyForTiers(tiers, rungCounts) === 0) {
+    if (!tiers.includes('CITY'))    { tiers = [...tiers, 'CITY'];    expanded = true; continue }
+    if (!tiers.includes('DISTANT')) { tiers = [...tiers, 'DISTANT']; expanded = true; continue }
+    break
+  }
+
+  const resolvedScope: BranchScopeResolution['resolvedScope'] =
+    tiers.includes('DISTANT') ? 'platform' :
+    tiers.includes('CITY')    ? 'city' :
+    'nearby'
+
+  return {
+    retainedRungs: new Set<SupplyRung>(tiersToRungs(tiers)),
+    scopeExpanded: expanded,
+    resolvedScope,
+  }
 }
 
 /**
@@ -2358,29 +2438,27 @@ export async function searchMerchants(
 //      determinism.
 //   7. Concatenate (ranked ++ non-rankable tail), compute total, paginate, enrich.
 //
-// Scope resolution: rather than introduce a per-rung `resolveScopeForBranches`,
-// we delegate "show NEARBY, expand outward as needed" to rankBranchesV3 via its
-// existing `targetCount` + `maxRung` semantics (a high hardCap = 500 keeps the
-// rung walk generous enough for the page slice). The merchant-variant
-// `resolveScopeForRanking` keys on legacy `SupplyTier`, which doesn't map 1:1
-// to the V3 rung ladder — factoring it out is Phase 3 cleanup work, not Phase 1.
+// Scope resolution: Task 2.1.0 (Plan Rev 1.2 PR-2 entry gate) added a per-rung
+// `resolveScopeForBranches` helper sibling of `resolveScopeForRanking`. The
+// user-facing `scope` cascade now cuts branch results identically to the
+// merchant variant. See line ~470 for the helper + the canonical tier ↔ rung
+// mapping that mirrors `mapRungToLegacyTier` at ladderProfiles.ts:110.
 //
 // Phase 1 params accepted but NOT honoured (the function signature mirrors
-// searchMerchants for surface parity; honouring is delegated to Phase 3
+// searchMerchants for surface parity; honouring is delegated to Phase 2/3
 // cleanup or follow-up work; rankBranchesV3 + the branch-first contract
-// intentionally simplify the Phase 1 surface):
-//   - scope            — retained-rung walk delegated to rankBranchesV3's
-//                        targetCount / hardCap semantics (see scope-resolution
-//                        note above); no resolveScopeForBranches introduced.
-//   - maxDistanceMiles — would require a post-rank distance filter; deferred.
-//   - amenityIds       — branch-level amenity filter; deferred.
-//   - tagIds           — Tag.label filter; deferred (Plan 4 M4 work).
-//   - openNow          — Europe/London current-time gate; deferred.
-//   - featured         — FeaturedMerchant overlay; deferred.
-//   - topRated         — quality-aware sort; deferred.
+// intentionally simplify the Phase 1 surface). After Task 2.1.0 closed
+// `scope`, the remaining seven ignored params (tracked under
+// deferred-followups §BX.1-§BX.7) are:
+//   - maxDistanceMiles — would require a post-rank distance filter; deferred (§BX.1).
+//   - amenityIds       — branch-level amenity filter; deferred (§BX.2).
+//   - tagIds           — Tag.label filter; deferred Plan 4 M4 work (§BX.3).
+//   - openNow          — Europe/London current-time gate; deferred (§BX.4).
+//   - featured         — FeaturedMerchant overlay; deferred (§BX.5).
+//   - topRated         — quality-aware sort; deferred (§BX.6).
 //   - sortBy           — relevance / nearest / top_rated / highest_saving
-//                        override; deferred (current sort is rankBranchesV3's
-//                        default per ladder profile).
+//                        override; deferred (§BX.7) — current sort is
+//                        rankBranchesV3's default per ladder profile.
 //
 // Route handlers that wire searchBranches alongside searchMerchants (Task 1.10)
 // should be aware of this parity gap. Two options for callers:
@@ -2417,10 +2495,12 @@ export async function searchBranches(
   meta: {
     rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
     effectiveLocality: { id: string; name: string } | null
+    scope: 'nearby' | 'city' | 'region' | 'platform'
+    scopeExpanded: boolean
   }
 }> {
   const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
-          minSaving, voucherTypes, limit, offset, userId } = params
+          minSaving, voucherTypes, scope, limit, offset, userId } = params
 
   // ── 1. Validate bounded predicate (mirrors searchMerchants line 1978).
   if (!q && !categoryId && !subcategoryId && minLat === undefined) {
@@ -2624,6 +2704,29 @@ export async function searchBranches(
   // If effLoc is null OR no rankable candidates exist, the ranked half stays
   // empty; the non-rankable tail still surfaces below (Spec §4.1.1).
 
+  // ── 6.5. Discovery Rebaseline Task 2.1.0 — scope cascade parity.
+  //
+  // Branch-first sibling of `resolveScopeForRanking` (line ~429). User-facing
+  // `scope` ('nearby' | 'city' | 'region' | 'platform') drives which rungs
+  // survive into the final list. Default (no `scope` param) follows category
+  // intent: DESTINATION admits all rungs, LOCAL/MIXED defaults to
+  // NEARBY+CITY tiers. Cascade expands to a wider tier when the current
+  // retained set has zero supply (mirrors merchant-variant behaviour).
+  //
+  // Filter applies ONLY to rankedTiles. The POSTCODE_CENTROID / NEEDS_REVIEW
+  // tail (built below) carries `supplyRung: null` and is unranked — scope
+  // semantics don't apply, so tail tiles always surface regardless of scope.
+  // Matches Spec §4.1.1 list-view admission (POSTCODE_CENTROID branches
+  // surface in lists regardless of rank).
+  const scopeResolution = resolveScopeForBranches(
+    scope as RequestedScope,
+    categoryIntent,
+    rungCounts,
+  )
+  rankedTiles = rankedTiles.filter(
+    t => t.supplyRung !== null && scopeResolution.retainedRungs.has(t.supplyRung),
+  )
+
   // Build a set of ranked branch ids — when effLoc is null, any branch that
   // wasn't ranked (which is all of them) should still surface in the tail.
   // When effLoc IS resolved but the rankBranchesV3 walk hit the hardCap, the
@@ -2675,8 +2778,10 @@ export async function searchBranches(
     lng:    lng   ?? null,
   })
 
-  // ── 10. Meta envelope — minimal Phase 1 shape. Phase 2 / Task 1.10 may
-  //       extend with scope / scopeExpanded / nearbyCount counterparts.
+  // ── 10. Meta envelope — Phase 1 + Task 2.1.0 shape. `scope` +
+  //       `scopeExpanded` mirror the merchant-variant envelope so consumers
+  //       can render empty-state copy + scope-expanded indicators
+  //       identically across both variants.
   return {
     branches,
     totalBranches,
@@ -2685,6 +2790,8 @@ export async function searchBranches(
       effectiveLocality: effLoc
         ? { id: effLoc.locality.id, name: effLoc.locality.name }
         : null,
+      scope:         scopeResolution.resolvedScope,
+      scopeExpanded: scopeResolution.scopeExpanded,
     },
   }
 }
