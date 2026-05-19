@@ -58,23 +58,36 @@ export function formatBranchLine(branchName: string, locality: string | null): s
   return `${trimmedName}, ${trimmedLocality}`
 }
 
-// PR #112 fixup-4 (2026-05-19) — proximity label compressed for the
-// meta-line context.  Owner direction: drop the bright-red pill (too
-// loud, competing with merchant name) and fold the band into the
-// dense `descriptor · distance · proximity` meta line.  Shortened
-// copy because distance already says "X miles away" — the meta-line
-// proximity tag is descriptive, not a unit clarification.
+// PR #112 fixup-5 (2026-05-19) — proximity cue is a SEPARATE muted row.
+//
+// Owner direction (latest device screenshot): inline meta-line treatment
+// from fixup-4 was wrong because it blended a "WHY this result is shown"
+// cue with normal metadata AND wrapped badly ("Closest / match" split on
+// 166mi cards).  Cue must now sit on its own compact muted-pill row
+// below the meta line.
+//
+// Copy:
+//   IN_YOUR_AREA       → 'In your area'
+//   A_LITTLE_FURTHER   → 'A short trip'
+//   NEAREST_ON_REDEEMO → 'Closest available match'  (was 'Closest match' —
+//                                                    owner-locked clearer copy)
+//   NEARBY             → null  (no row; already nearby, no explanation needed)
 //
 // Exported for unit testing.
-export function proximityMetaLabel(band: ProximityBand | null | undefined): string | null {
+export function proximityRowLabel(band: ProximityBand | null | undefined): string | null {
   switch (band) {
     case 'IN_YOUR_AREA':       return 'In your area'
     case 'A_LITTLE_FURTHER':   return 'A short trip'
-    case 'NEAREST_ON_REDEEMO': return 'Closest match'
+    case 'NEAREST_ON_REDEEMO': return 'Closest available match'
     case 'NEARBY':             return null
     default:                    return null
   }
 }
+
+// Back-compat alias — `proximityMetaLabel` was the fixup-4 helper name.
+// Kept as a deprecation hook so any external import keeps building; new
+// consumers should use `proximityRowLabel`.
+export const proximityMetaLabel = proximityRowLabel
 
 // PR #112 fixup-4 (2026-05-19) — owner-locked voucher pluralisation.
 // Replaces `formatVoucherCount` ("N offers" wording) on the Search card.
@@ -117,19 +130,20 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
     null
   const branchLine = formatBranchLine(tile.branchName, locality)
 
-  // Tertiary meta line: merchant.descriptor + distance + proximity label.
-  // PR #112 fixup-4: proximity moves OFF the standalone chip and INTO the
-  // dense meta line ("Indian Restaurant · 173.1 miles away · Closest match").
-  // Drops the bright-red pill clutter without losing the proximity signal.
+  // Tertiary meta line: ONLY descriptor + distance.
+  // PR #112 fixup-5: proximity cue moves OFF the meta line and onto its own
+  // muted-pill row below (`proximityRowLabel` → <View style={styles.proximityRow}>).
+  // Owner direction: a "why this result is shown" cue is meaningful context,
+  // not metadata — it must read as visually separate AND must never wrap
+  // ("Closest / match" was the bad-wrap regression).
   const descriptor =
     (tile.merchant.descriptor && tile.merchant.descriptor.trim().length > 0)
       ? tile.merchant.descriptor
       : tile.merchant.primaryCategory?.name ?? null
-  const proximityLabel = proximityMetaLabel(tile.proximityBand)
   const metaParts: string[] = []
-  if (descriptor)     metaParts.push(descriptor)
-  if (distanceStr)    metaParts.push(distanceStr)
-  if (proximityLabel) metaParts.push(proximityLabel)
+  if (descriptor)  metaParts.push(descriptor)
+  if (distanceStr) metaParts.push(distanceStr)
+  const proximityLabel = proximityRowLabel(tile.proximityBand)
 
   // PR #112 fixup-4 (2026-05-19) — owner-locked save badge anatomy.
   // Hierarchy:
@@ -200,13 +214,28 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         )}
       </View>
 
-      {/* Info — three-tier hierarchy: merchant name primary, branch line
-          secondary, descriptor + distance + proximity tertiary. */}
+      {/* Info — four-tier hierarchy.
+          1. Merchant name             (heading)
+          2. Branch/locality           (sub)
+          3. Descriptor + distance     (meta — no proximity)
+          4. Proximity cue (optional)  (muted pill, own row, never wraps) */}
       <View style={styles.info}>
         <HighlightedName name={displayName} query={query} />
         <Text style={styles.branchLine} numberOfLines={1}>{branchLine}</Text>
         {metaParts.length > 0 && (
-          <Text style={styles.meta} numberOfLines={2}>{metaParts.join(' · ')}</Text>
+          <Text style={styles.meta} numberOfLines={1}>{metaParts.join(' · ')}</Text>
+        )}
+        {proximityLabel && (
+          <View style={styles.proximityRow}>
+            <Text
+              style={styles.proximityLabel}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              accessibilityLabel={proximityLabel}
+            >
+              {proximityLabel}
+            </Text>
+          </View>
         )}
       </View>
 
@@ -303,10 +332,30 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   meta: {
-    fontSize: 12,              // bumped from 11 — readable density for 3-segment meta
+    fontSize: 12,              // readable density for the descriptor + distance line
     fontFamily: 'Lato-Regular',
     color: '#6B7280',          // text.secondary
     lineHeight: 16,
+  },
+  // PR #112 fixup-5 (2026-05-19) — proximity cue on its own row.
+  // Owner-locked: calm, compact, MUTED.  Never bright red.  Never wraps
+  // (alignSelf flex-start + numberOfLines 1 + ellipsis if absurdly narrow).
+  // Smaller than merchant name + saving badge so it doesn't compete.
+  proximityRow: {
+    alignSelf:         'flex-start',
+    backgroundColor:   '#F3F4F6',         // surface-subtle — calm muted grey
+    borderRadius:      9999,              // rounded.pill
+    paddingHorizontal: 8,
+    paddingVertical:   3,
+    marginTop:         6,                 // separates from meta line
+    maxWidth:          '100%',            // never overflow into the badge
+  },
+  proximityLabel: {
+    fontSize:      11,                    // smaller than meta — clear hierarchy
+    fontFamily:    'Lato-Medium',
+    color:         '#4B5563',             // text.secondary
+    lineHeight:    14,
+    letterSpacing: 0.1,
   },
   right: {
     alignItems: 'flex-end',
