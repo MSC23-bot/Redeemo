@@ -9,7 +9,7 @@ describe('ScopePillRow', () => {
     )
     expect(getByText('Nearby')).toBeTruthy()
     expect(getByText('Your city')).toBeTruthy()
-    expect(getByText('UK-wide')).toBeTruthy()
+    expect(getByText('More places')).toBeTruthy()
     // `region` is reserved-for-future and explicitly NOT surfaced
     expect(queryByText(/Region/i)).toBeNull()
   })
@@ -24,7 +24,7 @@ describe('ScopePillRow', () => {
     )
     expect(getByText('Nearby · 3')).toBeTruthy()
     expect(getByText('Your city · 47')).toBeTruthy()
-    expect(getByText('UK-wide · 132')).toBeTruthy()
+    expect(getByText('More places · 132')).toBeTruthy()
   })
 
   it('omits counts when prop is absent', () => {
@@ -42,7 +42,7 @@ describe('ScopePillRow', () => {
     )
     fireEvent.press(getByText('Your city'))
     expect(onScopeChange).toHaveBeenCalledWith('city')
-    fireEvent.press(getByText('UK-wide'))
+    fireEvent.press(getByText('More places'))
     expect(onScopeChange).toHaveBeenCalledWith('platform')
   })
 

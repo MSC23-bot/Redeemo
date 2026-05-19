@@ -181,7 +181,16 @@ export function SearchScreen() {
         placeholder="Search merchants..."
       />
 
-      {showTrending && <TrendingSearches onTagPress={setQuery} />}
+      {showTrending && (
+        <>
+          {/* PR #112 fixup-6.4 (2026-05-20) — pre-search discovery prompt.
+              Owner-locked copy: "Find your next local saving" + persona
+              body line.  Renders above <TrendingSearches> so the user
+              gets a discovery cue + actionable pills on first mount. */}
+          <SearchEmptyState reason="pre_search" />
+          <TrendingSearches onTagPress={setQuery} />
+        </>
+      )}
 
       {searchEnabled && (
         <ScopePillRow
@@ -201,7 +210,11 @@ export function SearchScreen() {
           </Text>
           {showLoading && (
             <View style={styles.loadingRow}>
-              <RedeemoLoader size={22} accessibilityLabel="Searching" />
+              {/* PR #112 fixup-6.4 (2026-05-20) — owner direction: loader bumped
+                  from 22pt to 28pt.  Slightly bigger reads more confidently
+                  against the result-header row without crowding the
+                  "Results for X near Y" text. */}
+              <RedeemoLoader size={28} accessibilityLabel="Searching" />
             </View>
           )}
         </View>

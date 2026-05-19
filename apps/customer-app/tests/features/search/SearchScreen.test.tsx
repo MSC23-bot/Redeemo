@@ -283,60 +283,90 @@ describe('SearchScreen', () => {
     // PR #112 cumulative display rule (locked):
     //   Nearby   = nearbyCount                          = 0
     //   Your city = nearbyCount + cityCount             = 0 + 1 = 1
-    //   UK-wide  = nearbyCount + cityCount + distantCount = 0 + 1 + 12 = 13
+    //   More places = nearbyCount + cityCount + distantCount = 0 + 1 + 12 = 13
     // Backend bucket-count contract on the wire is UNCHANGED — the
     // cumulative transform happens at the display layer only.
-    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    // Third pill renamed UK-wide → "More places" in fixup-6.4.
+    const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
       expect(getByText(/Nearby · 0/)).toBeTruthy()
       expect(getByText(/Your city · 1/)).toBeTruthy()
-      expect(getByText(/UK-wide · 13/)).toBeTruthy()
+      expect(getByText(/More places · 13/)).toBeTruthy()
     })
+    // Negative pin — legacy "UK-wide" label must NOT appear.
+    expect(queryByText(/UK-wide/)).toBeNull()
   })
 
   it('CUMULATIVE counts — Karaara nearby-only case (1/0/0 buckets → 1/1/1 display)', async () => {
-    // Owner-flagged screenshot case (PR #112 device-QA fix #2): Karaara
-    // sits 276m away (nearby).  Cumulative display avoids the absurd
-    // "Nearby · 1, Your city · 0, UK-wide · 0" that bucket semantics
-    // produce — a result that's IN YOUR AREA must ALSO appear in YOUR
-    // CITY and UK-WIDE counts.
+    // Owner-flagged screenshot case: Karaara sits 276m away (nearby).
+    // Cumulative display avoids the absurd "Nearby · 1, Your city · 0,
+    // More places · 0" that bucket semantics produce — a result that's
+    // IN YOUR AREA must ALSO appear in YOUR CITY and MORE-PLACES counts.
+    // Third pill renamed UK-wide → "More places" in fixup-6.4.
     mockSearchState.scenario = 'karaara_nearby_only'
     const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText, 'Karaara')
     await waitFor(() => {
       expect(getByText(/Nearby · 1/)).toBeTruthy()
       expect(getByText(/Your city · 1/)).toBeTruthy()
-      expect(getByText(/UK-wide · 1/)).toBeTruthy()
+      expect(getByText(/More places · 1/)).toBeTruthy()
     })
   })
 
-  // PR #112 fixup-6 — empty-state copy moves to `<SearchEmptyState>` with
-  // Redeemo-persona, query-aware copy ("Nothing for X yet" / "Nothing for
-  // X in the UK yet").
-  it('renders "Nothing for X yet" copy when results are empty (reason=none)', async () => {
+  // PR #112 fixup-6.4 — owner-locked persona copy refresh.  Banned
+  // wording (regression-pinned): `Nothing`, `in the UK`, `come back
+  // soon` / `check back soon`, em dashes, double dashes.
+  it('renders "No exact matches" copy when results are empty (reason=none)', async () => {
     mockSearchState.scenario = 'empty'
     const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
-      expect(getByText('Nothing for "Pizza" yet')).toBeTruthy()
-      expect(getByText('Try a different keyword.')).toBeTruthy()
+      expect(getByText('No exact matches for "Pizza"')).toBeTruthy()
+      expect(getByText('Try a different keyword, or browse nearby categories.')).toBeTruthy()
     })
-    // Legacy copy regression pin.
+    // Banned wording — none of these may appear.
+    expect(queryByText(/Nothing for/)).toBeNull()
+    expect(queryByText(/in the UK/)).toBeNull()
+    expect(queryByText(/come back soon/i)).toBeNull()
+    expect(queryByText(/check back soon/i)).toBeNull()
+    expect(queryByText(/—/)).toBeNull()
+    expect(queryByText(/--/)).toBeNull()
+    // Legacy fixup-3 copy must NOT appear.
     expect(queryByText('No merchants found')).toBeNull()
   })
 
-  it('renders "Nothing for X in the UK yet" copy when reason=no_uk_supply', async () => {
+  it('renders "We could not find a match" copy when reason=no_uk_supply', async () => {
     mockSearchState.scenario = 'no_uk_supply'
     const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
-      expect(getByText('Nothing for "Pizza" in the UK yet')).toBeTruthy()
-      expect(getByText("We're growing. Check back soon.")).toBeTruthy()
+      expect(getByText('We could not find a match for "Pizza"')).toBeTruthy()
+      expect(getByText('Try another search, or explore what is available near you.')).toBeTruthy()
     })
-    // Legacy em-dash copy must NOT appear.
-    expect(queryByText(/we['’]re growing daily/)).toBeNull()
+    // Banned wording — none of these may appear.
+    expect(queryByText(/Nothing for/)).toBeNull()
+    expect(queryByText(/in the UK/)).toBeNull()
+    expect(queryByText(/come back soon/i)).toBeNull()
+    expect(queryByText(/check back soon/i)).toBeNull()
+    expect(queryByText(/we['’]re growing/i)).toBeNull()
     expect(queryByText(/—/)).toBeNull()
+    expect(queryByText(/--/)).toBeNull()
+  })
+
+  it('renders pre-search discovery prompt above TrendingSearches before any query is typed', async () => {
+    // No typing — initial state.  Pre-search empty state mounts above
+    // the popular-searches row so the screen has a friendly cue.
+    const { getByText, queryByText } = render(<SearchScreen />, { wrapper })
+    expect(getByText('Find your next local saving')).toBeTruthy()
+    expect(getByText('Search restaurants, cafés, salons, gyms and more.')).toBeTruthy()
+    // Still shows trending searches below.
+    expect(getByText('Trending')).toBeTruthy()
+    // Banned wording — none of these may appear in the pre-search state.
+    expect(queryByText(/Nothing/)).toBeNull()
+    expect(queryByText(/in the UK/)).toBeNull()
+    expect(queryByText(/come back soon/i)).toBeNull()
+    expect(queryByText(/check back soon/i)).toBeNull()
   })
 
   // PR #112 fixup-4 — unified locality-aware header.  Replaces both the
@@ -388,24 +418,23 @@ describe('SearchScreen', () => {
   // PR #112 fixup-3 — effective-scope pin.
   // The active scope pill reflects what's DISPLAYED, not what was REQUESTED.
   // When backend cascades 'city' → 'platform' (no city supply), the active
-  // pill moves to 'UK-wide' so the UI stays internally consistent (no
-  // "Your city · 0 selected" while results show below).
+  // pill moves to 'More places' so the UI stays internally consistent (no
+  // "Your city · 0 selected" while results show below).  Third pill
+  // renamed UK-wide → "More places" in fixup-6.4.
   it('active scope pill reflects effective (displayed) scope, not requested scope', async () => {
     mockSearchState.scenario = 'expanded'
     const { getByPlaceholderText, getByLabelText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
       // ScopePillRow uses accessibilityState.selected for the active pill.
-      // We can confirm via the a11y label "Filter to UK-wide".
-      const platformPill = getByLabelText(/Filter to UK-wide/i)
-      // RN Testing Library exposes accessibilityState via .props on the host.
+      const platformPill = getByLabelText(/Filter to More places/i)
       expect(platformPill.props.accessibilityState).toMatchObject({ selected: true })
       const cityPill = getByLabelText(/Filter to Your city/i)
       expect(cityPill.props.accessibilityState).toMatchObject({ selected: false })
     })
   })
 
-  it('does NOT surface a "region" pill — only Nearby / Your city / UK-wide', async () => {
+  it('does NOT surface a "region" pill — only Nearby / Your city / More places', async () => {
     const { getByPlaceholderText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => expect(queryByText(/Region/i)).toBeNull())
@@ -462,16 +491,18 @@ describe('SearchScreen', () => {
     const { getByPlaceholderText, queryByText, getByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     // Branch list is empty → empty-state copy MUST render (not the
-    // legacy merchant `Legacy Merchant` name).  Fixup-6 copy: "Nothing
-    // for X in the UK yet" via <SearchEmptyState>.
+    // legacy merchant `Legacy Merchant` name).  Fixup-6.4 copy:
+    // "We could not find a match for X" via <SearchEmptyState
+    // reason='no_uk_supply'>.
     await waitFor(() => {
       expect(queryByText('Legacy Merchant')).toBeNull()
-      expect(getByText(/Nothing for "Pizza" in the UK yet/i)).toBeTruthy()
+      expect(getByText('We could not find a match for "Pizza"')).toBeTruthy()
     })
     // Scope pills: counts must reflect branchMeta (all zero) NOT the
-    // legacy merchant meta (distantCount: 1).  The "UK-wide · 1" string
-    // MUST NOT appear.
-    expect(queryByText(/UK-wide · 1\b/)).toBeNull()
-    expect(queryByText(/UK-wide · 0\b/)).toBeTruthy()
+    // legacy merchant meta (distantCount: 1).  The "More places · 1"
+    // string MUST NOT appear.  Third pill renamed UK-wide → More places
+    // in fixup-6.4.
+    expect(queryByText(/More places · 1\b/)).toBeNull()
+    expect(queryByText(/More places · 0\b/)).toBeTruthy()
   })
 })

@@ -25,10 +25,18 @@ type Props = {
   }
 }
 
+// PR #112 fixup-6.4 (2026-05-20) — owner-locked label refresh:
+//   third pill `UK-wide` → `More places`.
+// Reasoning: "UK-wide" implied a national directory; users already know
+// Redeemo operates UK-wide, so the label felt redundant and overly
+// abstract. `More places` is plain-spoken and matches the cascade
+// behaviour ("show me more places when nearer rungs are thin").
+// Cumulative count semantics preserved: `More places · 13` reads as
+// "13 places when you broaden the search."
 const PILLS: Array<{ key: Scope; label: string }> = [
   { key: 'nearby',   label: 'Nearby' },
   { key: 'city',     label: 'Your city' },
-  { key: 'platform', label: 'UK-wide' },
+  { key: 'platform', label: 'More places' },
 ]
 
 export function ScopePillRow({ selectedScope, onScopeChange, counts }: Props) {

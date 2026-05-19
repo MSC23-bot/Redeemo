@@ -2,26 +2,29 @@ import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Text } from '@/design-system/Text'
 
-// PR #112 fixup-6 (2026-05-20) — Search-specific empty-state copy aligned to
-// Redeemo persona (PRODUCT.md: confident, plain-spoken, British English, no
-// em dashes).  Owner direction: empty-state copy must be persona-appropriate
-// and NOT the verbatim mockup wording.
+// PR #112 fixup-6.4 (2026-05-20) — owner-locked copy refresh.  All three
+// states use Redeemo-persona language: confident, plain-spoken, British
+// English, no em dashes.  Banned wording (regression-pinned in tests):
+//   - "Nothing for X..."         — owner direction: avoid `nothing`.
+//   - "in the UK"                — implies regional limit / dead end.
+//   - "come back soon" / "check back soon" — sounds like a dead end.
+//   - em dashes / double dashes.
 //
-// Animated illustration assets are explicitly DEFERRED to §CH — this
-// component ships the copy + structure only.  When §CH lands, the
-// illustration slot mounts INSIDE this same component so the copy/contract
-// is preserved.
+// State machine:
+//   reason='none'              → user searched, predicate matched no rows
+//   reason='no_uk_supply'      → no platform supply for the query
+//   reason='pre_search'        → user hasn't typed yet; render this above
+//                                <TrendingSearches> as a discovery prompt
+//   reason='expanded_to_wider' → component renders nothing; the unified
+//                                result header carries the locality-aware
+//                                "Closest matches for X near Y" copy
 //
-//   reason='none'              → "Nothing for 'X' yet" + "Try a different keyword."
-//   reason='no_uk_supply'      → "Nothing for 'X' in the UK yet" + "We're growing. Check back soon."
-//   reason='expanded_to_wider' → component does NOT render; the unified
-//                                 result header carries the locality-aware
-//                                 "Closest matches for X near Y" copy.
-//
-// `query` is optional.  When absent (e.g. user navigated to Search with an
-// empty input), the title/body fall back to query-free wording.
+// Animated illustration slot is reserved here for §CH (deferred — Motion
+// + 21st.dev tooling).  The empty <View> above the title is the mount
+// slot; when assets land, an <Illustration reason={reason} /> renders
+// there.
 
-type EmptyStateReason = 'none' | 'no_uk_supply' | 'expanded_to_wider'
+type EmptyStateReason = 'none' | 'no_uk_supply' | 'expanded_to_wider' | 'pre_search'
 
 type Props = {
   reason: EmptyStateReason | null | undefined
@@ -40,22 +43,40 @@ export function SearchEmptyState({ reason, query }: Props) {
   const q = trimmed(query)
   const { title, body } = (() => {
     switch (reason) {
-      case 'no_uk_supply':
+      case 'pre_search':
         return {
-          title: q ? `Nothing for "${q}" in the UK yet` : 'Nothing in the UK yet',
-          body:  "We're growing. Check back soon.",
+          title: 'Find your next local saving',
+          body:  'Search restaurants, cafés, salons, gyms and more.',
         }
+      case 'no_uk_supply':
+        return q
+          ? {
+              title: `We could not find a match for "${q}"`,
+              body:  'Try another search, or explore what is available near you.',
+            }
+          : {
+              title: 'We could not find a match',
+              body:  'Try another search, or explore what is available near you.',
+            }
       case 'none':
       default:
-        return {
-          title: q ? `Nothing for "${q}" yet` : 'Nothing here yet',
-          body:  'Try a different keyword.',
-        }
+        return q
+          ? {
+              title: `No exact matches for "${q}"`,
+              body:  'Try a different keyword, or browse nearby categories.',
+            }
+          : {
+              title: 'No exact matches',
+              body:  'Try a different keyword, or browse nearby categories.',
+            }
     }
   })()
 
   return (
-    <View style={styles.container} testID={`search-empty-${reason}`}>
+    <View
+      style={reason === 'pre_search' ? styles.containerPreSearch : styles.container}
+      testID={`search-empty-${reason}`}
+    >
       <Text style={styles.title} accessibilityRole="header" numberOfLines={2}>
         {title}
       </Text>
@@ -73,18 +94,26 @@ const styles = StyleSheet.create({
     paddingBottom:     32,
     alignItems:        'center',
   },
+  // Pre-search variant sits above <TrendingSearches>, so it uses tighter
+  // top padding (the search bar above already provides breathing room).
+  containerPreSearch: {
+    paddingHorizontal: 28,
+    paddingTop:        24,
+    paddingBottom:     16,
+    alignItems:        'center',
+  },
   title: {
-    fontSize:   18,                // heading.md
-    fontFamily: 'Lato-SemiBold',
-    color:      '#010C35',         // text.primary navy
-    lineHeight: 24,
-    textAlign:  'center',
+    fontSize:    18,                // heading.md
+    fontFamily:  'Lato-SemiBold',
+    color:       '#010C35',         // text.primary navy
+    lineHeight:  24,
+    textAlign:   'center',
     marginBottom: 6,
   },
   body: {
-    fontSize:   14,                // body.sm
+    fontSize:   14,                 // body.sm
     fontFamily: 'Lato-Regular',
-    color:      '#4B5563',         // text.secondary
+    color:      '#4B5563',          // text.secondary
     lineHeight: 20,
     textAlign:  'center',
   },
