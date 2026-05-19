@@ -252,11 +252,14 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         )}
       </View>
 
-      {/* Right column — fixup-6.1 layout (owner-locked).
-          Heart anchors at the TOP-RIGHT corner; save badge sits vertically
-          centered in the remaining space.  The center wrapper expands via
-          flex:1 so the badge moves toward the visual midline as the card
-          grows in height (4-line info column with proximity row, etc.). */}
+      {/* Right column — fixup-6.2 (owner-locked).
+          Heart anchors at the TOP-RIGHT corner; save badge sits at a FIXED
+          vertical offset so its primary line aligns with the info-column
+          meta line ("Indian Cafe · 0.2 miles away") regardless of whether
+          the card includes a proximity row.  Container `minHeight: 114`
+          enforces consistent card heights across the surface — short cards
+          (no proximity row) gain extra bottom padding rather than collapsing
+          into a shorter tile. */}
       <View style={styles.right}>
         <Pressable
           onPress={(e) => { e.stopPropagation(); favourite.toggle() }}
@@ -274,18 +277,16 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
             strokeWidth={2}
           />
         </Pressable>
-        <View style={styles.saveBadgeCenterWrap}>
-          {showBadge && (
-            <View style={styles.saveBadge}>
-              {savingHeadline && (
-                <Text style={styles.saveBadgePrimary} numberOfLines={1}>{savingHeadline}</Text>
-              )}
-              {secondaryLine && (
-                <Text style={styles.saveBadgeSecondary} numberOfLines={1}>{secondaryLine}</Text>
-              )}
-            </View>
-          )}
-        </View>
+        {showBadge && (
+          <View style={styles.saveBadge}>
+            {savingHeadline && (
+              <Text style={styles.saveBadgePrimary} numberOfLines={1}>{savingHeadline}</Text>
+            )}
+            {secondaryLine && (
+              <Text style={styles.saveBadgeSecondary} numberOfLines={1}>{secondaryLine}</Text>
+            )}
+          </View>
+        )}
         {/*
           Open/closed badge intentionally omitted at this layout layer —
           `isOpenNow` is now available on BranchTile (was missing from
@@ -303,19 +304,22 @@ const styles = StyleSheet.create({
   // Card — slightly taller paint area, a touch more horizontal breathing
   // room, gentler shadow.  Stronger visual confidence than the original
   // 10/12 padding scale.
-  // PR #112 fixup-6.1: container is `alignItems: 'stretch'` so the
-  // right-column children can claim the full card height.  Logo + info
-  // sit at the top naturally; the right column hosts heart pinned to
-  // top and saveBadge vertically centered in the remaining space.
+  // PR #112 fixup-6.2 (2026-05-20) — consistent card heights + badge
+  // alignment.  `alignItems: 'flex-start'` so children top-align (the
+  // right column no longer stretches to fit the info column).  Fixed
+  // `minHeight: 114` enforces uniform tile size across cards with and
+  // without a proximity row — short cards (3-line info) gain extra
+  // bottom padding rather than visibly shrinking.
   container: {
     flexDirection: 'row',
-    alignItems: 'stretch',        // children fill card height
+    alignItems: 'flex-start',     // top-align logo / info / right column
     backgroundColor: '#FFFFFF',
     borderRadius: 16,             // rounded.lg
     paddingVertical: 16,
     paddingHorizontal: 16,
     marginHorizontal: 16,
     marginBottom: 10,
+    minHeight: 114,               // uniform tile height (3-line + 4-line cards)
     gap: 14,
     shadowColor: '#010C35',       // navy-tinted elevation.sm
     shadowOpacity: 0.06,
@@ -388,41 +392,42 @@ const styles = StyleSheet.create({
     lineHeight:    14,
     letterSpacing: 0.1,
   },
-  // PR #112 fixup-6.1 (2026-05-20) — owner-locked right-column layout.
-  // Heart pinned to top, save badge vertically centered in the remaining
-  // space.  `right` is a flex column that fills the card height (parent
-  // alignItems: 'stretch').  The center wrapper claims `flex: 1` so the
-  // badge sits at the visual middle of the right column.
+  // PR #112 fixup-6.2 (2026-05-20) — heart top-right + saving badge at
+  // fixed vertical offset so its primary line aligns with the info-column
+  // meta line (the descriptor + distance row).  Offset math:
+  //   info column layout (from top of right column = top of card content):
+  //     name      y=0..18    (Lato-SemiBold 15pt lineHeight 18)
+  //     gap       y=18..22
+  //     branch    y=22..38   (Lato-Regular 13pt lineHeight 16)
+  //     gap       y=38..42
+  //     meta      y=42..58   (Lato-Regular 12pt lineHeight 16)
+  //     meta center: y=50
+  //   right column at y=0..28: heart (height 28).
+  //   gap below heart = 12px → save badge starts at y=40.
+  //   saveBadgePrimary lineHeight 20, spans y=40..60, center y=50. MATCHES.
   right: {
     flexDirection:  'column',
     alignItems:     'flex-end',
     paddingLeft:    4,
-    minWidth:       64,                    // reserve consistent right-rail width
+    minWidth:       64,
   },
   heartBtn: {
     width:          32,
     height:         28,
     alignItems:     'flex-end',
-    justifyContent: 'flex-start',          // hug the top of the right column
-    paddingRight:   2,                     // optical balance with card right padding
-    paddingTop:     0,                     // anchored at the corner
-  },
-  saveBadgeCenterWrap: {
-    flex:           1,                     // claim remaining vertical space
-    justifyContent: 'center',              // badge vertically centred in that space
-    alignItems:     'flex-end',            // right-edge alignment for badge text
+    justifyContent: 'flex-start',
+    paddingRight:   2,
+    paddingTop:     0,
   },
   // PR #112 fixup-4 (2026-05-19) — calmer save badge.
   //   Primary:   "Save £38.50" / "Save up to £5.50"  (heading.sm Lato-SemiBold)
   //   Secondary: "across 6 vouchers" / "1 voucher"   (label.md Lato-Regular)
-  // Less bulky than fixup-3: no surface tile + no border.  Saving amount stands
-  // alone in deep savings-green — the data is the hero (DESIGN.md "the savings
-  // amount in display.md or larger on every voucher card" — Search card is
-  // dense, so we use heading.sm but keep Mustica Pro vibe via weight).
+  // fixup-6.2: marginTop offsets the badge below the heart so its primary
+  // line aligns with the info-column meta line (descriptor + distance).
   saveBadge: {
     alignItems: 'flex-end',
-    minWidth: 0,                                   // shrink-to-content; no longer dominates the card
-    paddingVertical: 2,
+    minWidth:   0,
+    marginTop:  12,                      // 28 (heart) + 12 (gap) = badge top at y=40 (aligned with meta)
   },
   saveBadgePrimary: {
     fontSize: 16,                                  // heading.sm — saving as the hero
