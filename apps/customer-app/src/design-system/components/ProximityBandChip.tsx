@@ -38,10 +38,14 @@ import type { ProximityBand } from '@/lib/api/discovery'
 // Not interactive (no Pressable, no haptics). For interactive filter
 // chips use `design-system/components/Chip.tsx` instead.
 
-// PR #112 device-QA copy refresh (2026-05-19) — owner-locked copy:
-//   IN_YOUR_AREA       → 'In your area'           (unchanged)
-//   A_LITTLE_FURTHER   → 'A little further away'  (was 'A little further' — felt unfinished)
-//   NEAREST_ON_REDEEMO → 'Closest match on Redeemo' (was 'Nearest on Redeemo' — clearer copy)
+// PR #112 device-QA fixup-3 copy lock (2026-05-19) — owner-locked copy:
+//   IN_YOUR_AREA       → 'In your area'              (unchanged)
+//   A_LITTLE_FURTHER   → 'A short trip away'         (was 'A little further away' — too
+//                                                    casual at 6.7 miles per device QA)
+//   NEAREST_ON_REDEEMO → 'Closest match on Redeemo'  (unchanged)
+//
+// Thresholds remain backend-driven (rankBranchesV3 rung classification —
+// Plan 4 M3 / Task 2.1.0); the client only renames labels.
 //
 // Direct text-match-fallback tiles surface here with `proximityBand:
 // 'NEAREST_ON_REDEEMO'` set explicitly by the backend (see
@@ -50,7 +54,7 @@ import type { ProximityBand } from '@/lib/api/discovery'
 const BAND_LABEL: Record<ProximityBand, string | null> = {
   NEARBY:             null,
   IN_YOUR_AREA:       'In your area',
-  A_LITTLE_FURTHER:   'A little further away',
+  A_LITTLE_FURTHER:   'A short trip away',
   NEAREST_ON_REDEEMO: 'Closest match on Redeemo',
 }
 

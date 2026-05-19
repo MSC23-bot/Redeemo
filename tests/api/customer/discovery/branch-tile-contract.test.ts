@@ -50,6 +50,18 @@ const PC_BRANCH_ID         = `${FIXTURE_PREFIX}pc-redaction-branch`
 const TRADING_MERCHANT_ID  = `${FIXTURE_PREFIX}trading-prefix-merchant`
 const TRADING_BRANCH_ID    = `${FIXTURE_PREFIX}trading-prefix-branch`
 
+// PR #112 device-QA fixup-3 — totalEstimatedSaving pin.
+// Multi-voucher merchant with three vouchers (£5.50, £8.00, £0.00).
+// totalEstimatedSaving = 13.50 (sum); maxEstimatedSaving = 8.00 (max).
+// Pins the additive contract: both fields populated independently.
+const TOTAL_MERCHANT_ID    = `${FIXTURE_PREFIX}total-saving-merchant`
+const TOTAL_BRANCH_ID      = `${FIXTURE_PREFIX}total-saving-branch`
+const TOTAL_VOUCHER_IDS    = [
+  `${FIXTURE_PREFIX}total-saving-v1`,
+  `${FIXTURE_PREFIX}total-saving-v2`,
+  `${FIXTURE_PREFIX}total-saving-v3`,
+]
+
 // Reference coordinates within Essex (Brightlingsea / Colchester) — both are
 // MANUALLY_CONFIRMED so the redaction gate lets lat/lng surface.
 const BRIGHTLINGSEA = { lat: 51.81, lng: 1.02 }
@@ -198,6 +210,79 @@ async function createTradingPrefixFixture() {
   })
 }
 
+async function createTotalSavingFixture() {
+  // Multi-voucher merchant fixture for totalEstimatedSaving pin.
+  // Three active+approved vouchers with savings 5.50 / 8.00 / 0 → sum 13.50.
+  // maxEstimatedSaving stays at 8.00 (additive contract).
+  await prisma.merchant.upsert({
+    where: { id: TOTAL_MERCHANT_ID },
+    create: {
+      id:                  TOTAL_MERCHANT_ID,
+      businessName:        `${FIXTURE_PREFIX}Multi-Offer Co`,
+      tradingName:         null,
+      status:              'ACTIVE',
+      verificationStatus:  'VERIFIED',
+      contractStatus:      'SIGNED',
+    },
+    update: { status: 'ACTIVE' },
+  })
+  await prisma.branch.upsert({
+    where: { id: TOTAL_BRANCH_ID },
+    create: {
+      id:                 TOTAL_BRANCH_ID,
+      merchantId:         TOTAL_MERCHANT_ID,
+      name:               'Main',
+      isMainBranch:       true,
+      addressLine1:       '1 Test St',
+      city:               'Brightlingsea',
+      postcode:           'CO7 0AA',
+      country:            'GB',
+      latitude:           BRIGHTLINGSEA.lat,
+      longitude:          BRIGHTLINGSEA.lng,
+      isActive:           true,
+      locationConfidence: 'MANUALLY_CONFIRMED',
+    },
+    update: {
+      merchantId:         TOTAL_MERCHANT_ID,
+      city:               'Brightlingsea',
+      latitude:           BRIGHTLINGSEA.lat,
+      longitude:          BRIGHTLINGSEA.lng,
+      isActive:           true,
+      locationConfidence: 'MANUALLY_CONFIRMED',
+    },
+  })
+
+  // Three vouchers — savings 5.50 / 8.00 / 0.  Customer-facing service
+  // filters by ACTIVE + APPROVED so we set both.
+  const voucherSpecs: Array<[string, string, number]> = [
+    [TOTAL_VOUCHER_IDS[0]!, `${FIXTURE_PREFIX}RMV-001`, 5.5],
+    [TOTAL_VOUCHER_IDS[1]!, `${FIXTURE_PREFIX}RMV-002`, 8.0],
+    [TOTAL_VOUCHER_IDS[2]!, `${FIXTURE_PREFIX}RCV-001`, 0],
+  ]
+  for (const [id, code, saving] of voucherSpecs) {
+    await prisma.voucher.upsert({
+      where: { id },
+      create: {
+        id,
+        merchantId:      TOTAL_MERCHANT_ID,
+        code,
+        title:           `${FIXTURE_PREFIX}V`,
+        description:     `${FIXTURE_PREFIX}V`,
+        terms:           `${FIXTURE_PREFIX}T`,
+        type:            'DISCOUNT_FIXED',
+        estimatedSaving: saving,
+        status:          'ACTIVE',
+        approvalStatus:  'APPROVED',
+      },
+      update: {
+        estimatedSaving: saving,
+        status:          'ACTIVE',
+        approvalStatus:  'APPROVED',
+      },
+    })
+  }
+}
+
 beforeAll(async () => {
   // Warm up the connection so the first findMany doesn't time out under
   // cold-start conditions (Neon serverless ping pattern, locked at §BU).
@@ -205,11 +290,16 @@ beforeAll(async () => {
   await createCovelumLikeFixture()
   await createPostcodeCentroidFixture()
   await createTradingPrefixFixture()
+  await createTotalSavingFixture()
 })
 
 afterAll(async () => {
-  // Delete branches before merchants (FK ordering). Cleanup is
-  // FIXTURE_PREFIX-scoped so any unrelated row stays untouched.
+  // Delete vouchers first (FK to merchant), then branches (FK to merchant),
+  // then merchants.  Cleanup is FIXTURE_PREFIX-scoped so any unrelated
+  // row stays untouched.
+  await prisma.voucher.deleteMany({
+    where: { id: { startsWith: FIXTURE_PREFIX } },
+  })
   await prisma.branch.deleteMany({
     where: { id: { startsWith: FIXTURE_PREFIX } },
   })
@@ -418,6 +508,33 @@ describe('Discovery Rebaseline Phase 1 — branch-first BranchTile contract', ()
     // Merchant grouping container preserves both names verbatim.
     expect(tile.merchant.businessName).toBe(`${FIXTURE_PREFIX}Covelum Restaurant Ltd`)
     expect(tile.merchant.tradingName).toBe(`${FIXTURE_PREFIX}Covelum`)
+  })
+
+  it('totalEstimatedSaving = sum of voucher savings; maxEstimatedSaving stays at max (PR #112 fixup-3)', async () => {
+    // Three vouchers: 5.50 + 8.00 + 0 = 13.50 total.  Max = 8.00.
+    // Additive contract: both fields populated independently.
+    const tiles = await enrichBranchTiles(
+      prisma,
+      [{
+        branchId:      TOTAL_BRANCH_ID,
+        merchantId:    TOTAL_MERCHANT_ID,
+        supplyRung:    'NEARBY',
+        proximityBand: 'NEARBY',
+        distance:      0,
+      }],
+      { userId: null, lat: BRIGHTLINGSEA.lat, lng: BRIGHTLINGSEA.lng },
+    )
+
+    expect(tiles).toHaveLength(1)
+    const tile = tiles[0]
+    expect(tile.merchant.voucherCount).toBe(3)
+    expect(tile.merchant.maxEstimatedSaving).toBe(8)
+    expect(tile.merchant.totalEstimatedSaving).toBe(13.5)
+    // Schema validates the additive field.
+    const parsed = branchTileSchema.safeParse(tile)
+    if (!parsed.success) {
+      throw new Error(`Schema rejected: ${JSON.stringify(parsed.error.issues, null, 2)}`)
+    }
   })
 
   it('returns [] without firing any DB calls when inputs is empty', async () => {

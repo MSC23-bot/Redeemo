@@ -1,6 +1,6 @@
 import React from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
-import { Text, color, spacing, radius } from '@/design-system'
+import { Text, spacing, radius } from '@/design-system'
 
 /**
  * Three-pill scope selector for SearchScreen + CategoryResultsScreen.
@@ -56,29 +56,42 @@ export function ScopePillRow({ selectedScope, onScopeChange, counts }: Props) {
   )
 }
 
+// PR #112 device-QA fixup-3 (2026-05-19) — active-pill colour aligned to
+// DESIGN.md "navy active-tab tint" rule.  Brand Rose stays load-bearing
+// on the redemption CTA / LIVE pip per the One-Voice Brand-Rose Rule
+// (≤10% of any screen) — a scope filter highlight is selection state,
+// not CTA, so it routes through navy.  Active pill also gets a subtle
+// elevation.sm lift so the selected affordance reads on-device.
 const styles = StyleSheet.create({
   row: {
     flexDirection:    'row',
     flexWrap:         'wrap',
     gap:              spacing[2],
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical:  spacing[2],
   },
   pill: {
     borderRadius:      radius.pill,
-    paddingHorizontal: spacing[4],
-    paddingVertical:   spacing[2],
-    backgroundColor:   color.surface.neutral,
+    paddingHorizontal: 14,
+    paddingVertical:   8,
+    backgroundColor:   '#F3F4F6',           // surface-subtle (inactive)
   },
   pillActive: {
-    backgroundColor: color.brandRose,
+    backgroundColor: '#010C35',             // navy / text.primary
+    shadowColor:     '#010C35',
+    shadowOpacity:   0.10,
+    shadowRadius:    4,
+    shadowOffset:    { width: 0, height: 2 },
+    elevation:       1,
   },
   pillText: {
-    fontSize:   12,
-    fontFamily: 'Lato-SemiBold',
-    color:      color.navy,
+    fontSize:      12,
+    fontFamily:    'Lato-Medium',           // label.md
+    color:         '#4B5563',               // text.secondary (inactive)
+    letterSpacing: 0.2,
   },
   pillTextActive: {
-    color: color.onBrand,
+    color:      '#FFFFFF',                  // text.inverse
+    fontFamily: 'Lato-SemiBold',
   },
 })

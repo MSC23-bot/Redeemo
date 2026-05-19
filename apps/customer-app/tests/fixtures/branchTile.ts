@@ -50,6 +50,7 @@ export function makeBranchTile(
       highlights:           [],
       voucherCount:         0,
       maxEstimatedSaving:   null,
+      totalEstimatedSaving: null,
       ...merchantOverrides,
     },
   }

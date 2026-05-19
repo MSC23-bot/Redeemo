@@ -24,14 +24,14 @@ describe('SearchResultItem — proximity chip wiring (Plan 4 M3b)', () => {
 
   // PR #112 device-QA copy refresh (2026-05-19) — owner-locked copy on
   // ProximityBandChip:
-  //   A_LITTLE_FURTHER   → 'A little further away'
+  //   A_LITTLE_FURTHER   → 'A short trip away'
   //   NEAREST_ON_REDEEMO → 'Closest match on Redeemo'
-  it('renders "A little further away" when proximityBand is A_LITTLE_FURTHER (PR #112 copy)', () => {
+  it('renders "A short trip away" when proximityBand is A_LITTLE_FURTHER (PR #112 copy)', () => {
     const tile = makeBranchTile({ proximityBand: 'A_LITTLE_FURTHER' })
     const { getByText, queryByText } = render(
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
-    expect(getByText('A little further away')).toBeTruthy()
+    expect(getByText('A short trip away')).toBeTruthy()
     expect(queryByText('A little further')).toBeNull()
   })
 
@@ -50,7 +50,7 @@ describe('SearchResultItem — proximity chip wiring (Plan 4 M3b)', () => {
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('A short trip away')).toBeNull()
     expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 
@@ -60,7 +60,7 @@ describe('SearchResultItem — proximity chip wiring (Plan 4 M3b)', () => {
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('A short trip away')).toBeNull()
     expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 })

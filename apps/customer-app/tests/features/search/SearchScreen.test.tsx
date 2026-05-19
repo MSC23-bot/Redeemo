@@ -1,6 +1,7 @@
 import React from 'react'
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SearchScreen } from '@/features/search/screens/SearchScreen'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
@@ -94,12 +95,29 @@ jest.mock('@/hooks/useSearch', () => ({
           isLoading: false,
         }
       case 'expanded':
+        // PR #112 fixup-3: backend cascaded out of 'city' to 'platform' to
+        // find supply.  effectiveLocality carries the user's location label
+        // (Huddersfield); branchMeta.scope='platform' is the EFFECTIVE
+        // scope the active pill should highlight (NOT 'city' which the
+        // user asked for).  See effective-scope spec §4.1.
         return {
           data: {
             merchants: [], total: 0,
             branches: [mockPizzaExpress], totalBranches: 1,
-            meta:       { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
-            branchMeta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
+            meta:       {
+              ...mockMeta,
+              scope: 'platform',
+              scopeExpanded: true,
+              emptyStateReason: 'expanded_to_wider',
+              effectiveLocality: { name: 'Huddersfield' },
+            },
+            branchMeta: {
+              ...mockMeta,
+              scope: 'platform',
+              scopeExpanded: true,
+              emptyStateReason: 'expanded_to_wider',
+              effectiveLocality: { name: 'Huddersfield' },
+            },
           },
           isLoading: false,
         }
@@ -185,7 +203,17 @@ jest.mock('expo-router', () => ({
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return React.createElement(QueryClientProvider, { client: qc }, children)
+  // PR #112 fixup-3: SearchScreen reads `useSafeAreaInsets()` so the
+  // top-bar padding is notch-aware.  SafeAreaProvider must wrap the
+  // render tree under test.  initialMetrics keeps the test deterministic
+  // (no real device measurement).
+  const frame = { x: 0, y: 0, width: 390, height: 844 } as const
+  const insets = { top: 47, right: 0, bottom: 34, left: 0 } as const
+  return React.createElement(
+    SafeAreaProvider,
+    { initialMetrics: { frame, insets } },
+    React.createElement(QueryClientProvider, { client: qc }, children),
+  )
 }
 
 async function typeAndSettle(getByPlaceholderText: any, text: string = 'Pizza') {
@@ -264,14 +292,43 @@ describe('SearchScreen', () => {
     await waitFor(() => expect(getByText(/No matches in the UK yet/)).toBeTruthy())
   })
 
-  it('renders "showing wider results" banner when reason=expanded_to_wider AND results exist', async () => {
+  // PR #112 fixup-3 — locality-aware <ExpandedResultBanner> renders
+  // instead of the legacy em-dash one-liner.  Copy: "Nothing in
+  // {locality} yet" + "Here are the closest matches".  Banner sits
+  // ABOVE the list; results still render.
+  it('renders locality-aware expanded banner when reason=expanded_to_wider AND results exist (fixup-3 copy)', async () => {
     mockSearchState.scenario = 'expanded'
-    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
-      expect(getByText(/showing wider results/)).toBeTruthy()
-      // banner does not replace results — list still shows
+      // New locality-aware copy.
+      expect(getByText('Nothing in Huddersfield yet')).toBeTruthy()
+      expect(getByText('Here are the closest matches')).toBeTruthy()
+      // Banner does not replace results — list still shows.
       expect(getByText('Pizza Express')).toBeTruthy()
+      // Legacy banner copy MUST NOT appear (regression guard).
+      expect(queryByText(/showing wider results/)).toBeNull()
+      expect(queryByText(/No matches nearby/)).toBeNull()
+    })
+  })
+
+  // PR #112 fixup-3 — effective-scope pin.
+  // The active scope pill reflects what's DISPLAYED, not what was REQUESTED.
+  // When backend cascades 'city' → 'platform' (no city supply), the active
+  // pill moves to 'UK-wide' so the UI stays internally consistent (no
+  // "Your city · 0 selected" while results show below).
+  it('active scope pill reflects effective (displayed) scope, not requested scope', async () => {
+    mockSearchState.scenario = 'expanded'
+    const { getByPlaceholderText, getByLabelText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    await waitFor(() => {
+      // ScopePillRow uses accessibilityState.selected for the active pill.
+      // We can confirm via the a11y label "Filter to UK-wide".
+      const platformPill = getByLabelText(/Filter to UK-wide/i)
+      // RN Testing Library exposes accessibilityState via .props on the host.
+      expect(platformPill.props.accessibilityState).toMatchObject({ selected: true })
+      const cityPill = getByLabelText(/Filter to Your city/i)
+      expect(cityPill.props.accessibilityState).toMatchObject({ selected: false })
     })
   })
 

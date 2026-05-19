@@ -99,23 +99,32 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
   if (descriptor) metaParts.push(descriptor)
   if (distanceStr) metaParts.push(distanceStr)
 
-  // Savings pill content — owner-locked PR #112 device-QA fix.
+  // Savings pill content — owner-locked PR #112 device-QA fixup-3 (2026-05-19).
+  // Hierarchy reversed from fixup-2: count is now PRIMARY (large, prominent),
+  // value is SECONDARY.  Multi-offer merchants surface TOTAL value across all
+  // active vouchers, not the max-single-voucher saving (which was misleading).
   //
-  //   voucherCount === 0 → hide pill entirely.
-  //   voucherCount > 0 + maxEstimatedSaving > 0 → stacked pill:
-  //     line 1: "Up to £8.50 off"      (locked wording — NEVER "Save £X.XX")
-  //     line 2: "2 offers" / "1 offer" (voucher-count helper handles
-  //                                     singular/plural)
-  //   voucherCount > 0 + maxEstimatedSaving null/0 → single line "2 offers".
+  //   voucherCount === 0                             → pill hidden.
+  //   voucherCount === 1 + maxEstimatedSaving > 0   → "1 offer" + "Up to £X.XX off"
+  //   voucherCount === 1 + maxEstimatedSaving null/0 → "1 offer" only
+  //   voucherCount >= 2 + totalEstimatedSaving > 0  → "N offers" + "£X.XX total value"
+  //   voucherCount >= 2 + totalEstimatedSaving null/0 → "N offers" only
   //
-  // `formatGbp` enforces two-decimal GBP formatting (8.5 → £8.50);
-  // `formatVoucherCount` handles 1-vs-N pluralisation.
-  const voucherCount     = tile.merchant.voucherCount ?? 0
-  const showPill         = voucherCount > 0
-  const voucherCountText = formatVoucherCount(voucherCount)            // '1 offer' / '2 offers' / null
-  const maxSavingText    = tile.merchant.maxEstimatedSaving != null && tile.merchant.maxEstimatedSaving > 0
-    ? `Up to ${formatGbp(tile.merchant.maxEstimatedSaving)} off`
-    : null
+  // Backend additive: `merchant.totalEstimatedSaving` = sum of estimatedSaving
+  // across active+approved vouchers; `maxEstimatedSaving` NOT overloaded.
+  // `formatGbp` enforces two-decimal GBP (8.5 → £8.50); `formatVoucherCount`
+  // handles 1-vs-N pluralisation.
+  const voucherCount        = tile.merchant.voucherCount ?? 0
+  const showPill            = voucherCount > 0
+  const voucherCountText    = formatVoucherCount(voucherCount) // '1 offer' / '2 offers' / null
+  const maxSaving           = tile.merchant.maxEstimatedSaving
+  const totalSaving         = tile.merchant.totalEstimatedSaving
+  const valueLineText: string | null =
+    voucherCount === 1 && maxSaving != null && maxSaving > 0
+      ? `Up to ${formatGbp(maxSaving)} off`
+      : voucherCount >= 2 && totalSaving != null && totalSaving > 0
+        ? `${formatGbp(totalSaving)} total value`
+        : null
 
   return (
     <TouchableOpacity
@@ -155,20 +164,20 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         <ProximityBandChip band={tile.proximityBand} />
       </View>
 
-      {/* Right — stacked savings pill (PR #112 device-QA fix).
-          Locked anatomy:
-            - top line: "Up to £8.50 off"  (locked wording, savings-green bold)
-            - bottom:   "2 offers"          (smaller, muted savings-green)
-          If voucherCount === 0, the pill is hidden entirely (savings-only
-          surfaces without context were misleading per the owner). */}
+      {/* Right — stacked savings pill (PR #112 device-QA fixup-3).
+          Hierarchy locked:
+            - primary line: "N offers" / "1 offer"  (heading.sm Lato-SemiBold)
+            - secondary:    "£X.XX total value" OR "Up to £X.XX off"
+                            (body.sm Lato-Regular muted savings-green)
+          voucherCount === 0 → pill hidden entirely. */}
       <View style={styles.right}>
         {showPill && (
           <View style={styles.savePill}>
-            {maxSavingText && (
-              <Text style={styles.savePillPrimary}>{maxSavingText}</Text>
-            )}
             {voucherCountText && (
-              <Text style={styles.savePillSecondary}>{voucherCountText}</Text>
+              <Text style={styles.savePillPrimary}>{voucherCountText}</Text>
+            )}
+            {valueLineText && (
+              <Text style={styles.savePillSecondary}>{valueLineText}</Text>
             )}
           </View>
         )}
@@ -193,15 +202,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 12,
+    borderRadius: 16,             // rounded.lg per DESIGN.md
+    paddingVertical: 14,
     paddingHorizontal: 14,
     marginHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 10,
     gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
+    // Navy-tinted elevation.sm per DESIGN.md "shadows tint toward brand" rule.
+    shadowColor: '#010C35',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
@@ -253,34 +263,35 @@ const styles = StyleSheet.create({
   right: {
     alignItems: 'flex-end',
     gap: 4,
-    paddingTop: 2,             // micro-align with the merchant name baseline
+    paddingTop: 0,
   },
-  // Save pill — stacked anatomy per PR #112 owner-locked design:
-  //   primary line: "Up to £8.50 off"  — 11pt Lato-Bold savings-green
-  //   secondary line: "2 offers"        — 10pt Lato-Regular muted savings-green
-  // Soft savings-green tile, gentle border, fully rounded.  Right-aligned
-  // text so both lines anchor to the pill's right edge.
+  // Save pill — stacked anatomy, fixup-3 hierarchy reversed:
+  //   primary line: "2 offers"          — heading.sm Lato-SemiBold 16/22
+  //   secondary line: "£X.XX total value" or "Up to £X.XX off"
+  //                                       — body.sm Lato-Regular 13pt muted
+  // Savings-green tinted tile, gentle hairline border, rounded.lg.
   savePill: {
-    backgroundColor: '#ECFDF5',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: '#ECFDF5',                    // savings-green tint
+    borderRadius: 16,                              // rounded.lg
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderWidth: 1,
-    borderColor: 'rgba(5,150,105,0.18)',
+    borderColor: 'rgba(22,163,74,0.20)',           // savings-green hairline
     alignItems: 'flex-end',
-    minWidth: 96,             // keeps pill width stable across short / long savings copy
+    minWidth: 116,                                 // accommodates '10 offers' + '£99.50 total value'
   },
   savePillPrimary: {
-    fontSize: 11,
-    fontFamily: 'Lato-Bold',
-    color: '#047857',
-    lineHeight: 14,
+    fontSize: 16,                                  // heading.sm — owner-locked prominence
+    fontFamily: 'Lato-SemiBold',
+    color: '#15803D',                              // deep savings-green
+    lineHeight: 20,
   },
   savePillSecondary: {
-    fontSize: 10,
+    fontSize: 12,                                  // body.sm-ish, paired with primary
     fontFamily: 'Lato-Regular',
-    color: '#059669',         // slightly lighter savings-green for hierarchy
-    lineHeight: 13,
-    marginTop: 1,
+    color: '#15803D',
+    opacity: 0.78,                                 // muted hierarchy
+    lineHeight: 16,
+    marginTop: 2,
   },
 })

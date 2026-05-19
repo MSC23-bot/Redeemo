@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { View, FlatList, StyleSheet, Keyboard } from 'react-native'
 import { useRouter } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text } from '@/design-system/Text'
 import { useSearch } from '@/hooks/useSearch'
 import { useUserLocation } from '@/hooks/useLocation'
 import { SearchBar } from '../components/SearchBar'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
+import { ExpandedResultBanner } from '../components/ExpandedResultBanner'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { BranchTile } from '@/lib/api/discovery'
@@ -29,18 +31,36 @@ function ResultSkeleton() {
     <View style={styles.skeletonCard}>
       <View style={styles.skeletonAvatar} />
       <View style={styles.skeletonLines}>
-        <View style={[styles.skeletonLine, { width: 100 }]} />
-        <View style={[styles.skeletonLine, { width: 140, marginTop: 6 }]} />
+        <View style={[styles.skeletonLine, { width: 120, height: 12 }]} />
+        <View style={[styles.skeletonLine, { width: 140 }]} />
+        <View style={[styles.skeletonLine, { width: 90 }]} />
       </View>
       <View style={styles.skeletonPill} />
     </View>
   )
 }
 
+// Spec §4.1 scope cascade: backend bucket → display pill mapping.  The pill
+// row surfaces 3 user-facing values; backend `branchMeta.scope` reports the
+// raw cascade rung (5 values incl. 'region' which we treat as 'city').
+function effectiveScopeFromMeta(
+  metaScope: 'nearby' | 'city' | 'region' | 'platform' | undefined,
+): Scope {
+  if (metaScope === 'nearby')   return 'nearby'
+  if (metaScope === 'platform') return 'platform'
+  // 'city' and 'region' both render under the 'Your city' pill — locked
+  // at Task 2.1.0 scope parity (memory project_discovery_rebaseline_task_2_1_0).
+  return 'city'
+}
+
 export function SearchScreen() {
-  const router = useRouter()
+  const router  = useRouter()
+  const insets  = useSafeAreaInsets()
   const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<Scope | undefined>(undefined)
+  // `requestedScope` = the scope the user last tapped (undefined → default).
+  // `effectiveScope` = what's actually being shown (derived below from
+  // branchMeta).  The pill highlight tracks effectiveScope, NOT requestedScope.
+  const [requestedScope, setRequestedScope] = useState<Scope | undefined>(undefined)
   const debouncedQuery = useDebounce(query, 300)
   const { location } = useUserLocation()
 
@@ -50,7 +70,7 @@ export function SearchScreen() {
       q: debouncedQuery,
       ...(location?.lat !== undefined ? { lat: location.lat } : {}),
       ...(location?.lng !== undefined ? { lng: location.lng } : {}),
-      ...(scope ? { scope } : {}),
+      ...(requestedScope ? { scope: requestedScope } : {}),
       limit: 30,
     },
     searchEnabled
@@ -106,6 +126,20 @@ export function SearchScreen() {
       }
     : undefined
 
+  // PR #112 fixup-3 (2026-05-19) — effective-scope derivation.
+  // Active pill highlight reflects what's DISPLAYED, not what was REQUESTED.
+  // When the backend cascades out of the user's requested scope (e.g. user
+  // tapped "Your city" but Huddersfield has no supply → backend served
+  // UK-wide), highlight the wider pill that actually carries the results.
+  // The expanded-banner above the list does the explaining.
+  //
+  // Owner-locked rule: "active pill should reflect what is actually being
+  // shown" — internally consistent UX (no "Your city · 0 selected" with
+  // results visible below).
+  const effectiveScope: Scope | undefined = branchMeta
+    ? effectiveScopeFromMeta(branchMeta.scope)
+    : requestedScope
+
   // 'expanded_to_wider' renders ABOVE the list as a banner (results exist).
   // 'none' / 'no_uk_supply' render INSIDE the list as the empty state.
   const expandedBanner = branches.length > 0 && branchMeta?.emptyStateReason === 'expanded_to_wider'
@@ -114,7 +148,7 @@ export function SearchScreen() {
     : null
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
       <SearchBar
         value={query}
         onChangeText={setQuery}
@@ -127,8 +161,9 @@ export function SearchScreen() {
 
       {searchEnabled && (
         <ScopePillRow
-          selectedScope={scope}
-          onScopeChange={setScope}
+          // Active pill = effectiveScope (what's displayed), not requestedScope.
+          selectedScope={effectiveScope}
+          onScopeChange={setRequestedScope}
           {...(counts ? { counts } : {})}
         />
       )}
@@ -136,7 +171,7 @@ export function SearchScreen() {
       {(showLoading || showResults) && (
         <View style={styles.resultsHeader}>
           <Text style={styles.resultsLabel}>
-            Results for "{debouncedQuery}"
+            Results for &quot;{debouncedQuery}&quot;
           </Text>
           {showLoading && (
             <View style={styles.loadingRow}>
@@ -154,7 +189,7 @@ export function SearchScreen() {
       )}
 
       {showResults && expandedBanner && (
-        <EmptyStateMessage reason="expanded_to_wider" />
+        <ExpandedResultBanner localityName={branchMeta?.effectiveLocality?.name} />
       )}
 
       {showLoading && (
@@ -193,66 +228,66 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFF9F5',
-    paddingTop: 60,
   },
   resultsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection:    'row',
+    alignItems:       'center',
+    justifyContent:   'space-between',
     paddingHorizontal: 18,
-    marginBottom: 8,
+    paddingTop:        4,
+    marginBottom:      10,
   },
   resultsLabel: {
-    fontSize: 11,
+    fontSize:   14,                // body.sm — bumped from 11pt per device QA
     fontFamily: 'Lato-Regular',
-    color: '#6B7280',
+    color:      '#6B7280',
   },
   loadingRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems:    'center',
   },
-  skeletons: { gap: 6 },
+  skeletons: { gap: 8, paddingTop: 4 },
   skeletonCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 10,
-    paddingHorizontal: 12,
-    marginHorizontal: 18,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    flexDirection:     'row',
+    alignItems:        'center',
+    backgroundColor:   '#FFFFFF',
+    borderRadius:      16,           // rounded.lg — match real card
+    paddingVertical:   14,
+    paddingHorizontal: 14,
+    marginHorizontal:  16,
+    gap:               12,
+    shadowColor:       '#010C35',    // navy-tinted
+    shadowOpacity:     0.05,
+    shadowRadius:      4,
+    shadowOffset:      { width: 0, height: 2 },
+    elevation:         1,
   },
   skeletonAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+    width:           48,             // match real 48pt logo
+    height:          48,
+    borderRadius:    12,
     backgroundColor: '#E5E7EB',
-    flexShrink: 0,
+    flexShrink:      0,
   },
-  skeletonLines: { flex: 1 },
+  skeletonLines: { flex: 1, gap: 6 },
   skeletonLine: {
-    height: 10,
-    borderRadius: 5,
+    height:          10,
+    borderRadius:    5,
     backgroundColor: '#E5E7EB',
   },
   skeletonPill: {
-    width: 50,
-    height: 18,
-    borderRadius: 50,
+    width:           96,            // match new pill minWidth
+    height:          38,
+    borderRadius:    16,            // rounded.lg
     backgroundColor: '#E5E7EB',
   },
-  listContent: { paddingBottom: 24 },
+  listContent: { paddingBottom: 32 }, // clear tab bar comfortably
   emptyText: {
-    fontSize: 13,
+    fontSize:   13,
     fontFamily: 'Lato-Regular',
-    color: '#9CA3AF',
-    textAlign: 'center',
-    marginTop: 32,
+    color:      '#9CA3AF',
+    textAlign:  'center',
+    marginTop:  32,
     paddingHorizontal: 24,
   },
 })

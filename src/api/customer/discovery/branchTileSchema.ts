@@ -60,6 +60,13 @@ const merchantGroupingSchema = z.object({
   highlights: z.array(tileHighlightSchema),
   voucherCount: z.number().int().nonnegative(),
   maxEstimatedSaving: z.number().nullable(),
+  // PR #112 device-QA fixup-3 (2026-05-19) — sum of estimatedSaving across
+  // active+approved vouchers for this merchant.  Drives the Search card
+  // "N offers · £X.XX total value" pill for multi-offer merchants.
+  // ADDITIVE — maxEstimatedSaving is NOT overloaded.  Other surfaces
+  // (Voucher Detail, Merchant Profile voucher card) keep reading
+  // maxEstimatedSaving unchanged.
+  totalEstimatedSaving: z.number().nullable(),
 }).strict()
 
 export const branchTileSchema = z.object({

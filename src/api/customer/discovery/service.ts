@@ -985,6 +985,17 @@ function enrichBranchTile(
     .map(v => Number(v.estimatedSaving))
     .filter(n => !isNaN(n))
   const maxEstimatedSaving = savings.length > 0 ? Math.max(...savings) : null
+  // PR #112 device-QA fixup-3 (2026-05-19) — total value across all
+  // active+approved vouchers.  Drives the Search card "N offers · £X.XX
+  // total value" pill on multi-offer merchants.  ADDITIVE — does NOT
+  // overload maxEstimatedSaving.  Other surfaces continue to read max.
+  // Round to whole pence to avoid float-arith drift over many vouchers.
+  const totalEstimatedSavingRaw = savings.length > 0
+    ? savings.reduce((a, b) => a + b, 0)
+    : null
+  const totalEstimatedSaving = totalEstimatedSavingRaw === null
+    ? null
+    : Math.round(totalEstimatedSavingRaw * 100) / 100
 
   // Descriptor — branchTileSchema declares `descriptor: z.string()` (not
   // nullable), so fall back to an empty string when the merchant has no
@@ -1051,6 +1062,7 @@ function enrichBranchTile(
       highlights:           visibleHighlights,
       voucherCount:         merchant._count.vouchers,
       maxEstimatedSaving,
+      totalEstimatedSaving,
     },
   }
 }

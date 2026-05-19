@@ -19,10 +19,10 @@ describe('MerchantTile — proximity chip wiring (Plan 4 M3b)', () => {
 
   // PR #112 device-QA copy refresh (2026-05-19) — owner-locked copy on
   // ProximityBandChip. Negative pins guard against silent revert.
-  it('renders "A little further away" when proximityBand is A_LITTLE_FURTHER (PR #112 copy)', () => {
+  it('renders "A short trip away" when proximityBand is A_LITTLE_FURTHER (PR #112 copy)', () => {
     const tile = makeMerchantTile({ proximityBand: 'A_LITTLE_FURTHER' })
     const { getByText, queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
-    expect(getByText('A little further away')).toBeTruthy()
+    expect(getByText('A short trip away')).toBeTruthy()
     expect(queryByText('A little further')).toBeNull()
   })
 
@@ -37,7 +37,7 @@ describe('MerchantTile — proximity chip wiring (Plan 4 M3b)', () => {
     const tile = makeMerchantTile({ proximityBand: 'NEARBY' })
     const { queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('A short trip away')).toBeNull()
     expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 
@@ -45,7 +45,7 @@ describe('MerchantTile — proximity chip wiring (Plan 4 M3b)', () => {
     const tile = makeMerchantTile({ proximityBand: null })
     const { queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('A short trip away')).toBeNull()
     expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 
@@ -53,7 +53,7 @@ describe('MerchantTile — proximity chip wiring (Plan 4 M3b)', () => {
     const tile = makeMerchantTile() // fixture default omits the field
     const { queryByText } = render(<MerchantTile merchant={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A little further away')).toBeNull()
+    expect(queryByText('A short trip away')).toBeNull()
     expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 })

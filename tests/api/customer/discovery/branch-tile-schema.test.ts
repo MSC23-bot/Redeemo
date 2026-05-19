@@ -34,6 +34,9 @@ describe('branchTileSchema', () => {
       highlights: [],
       voucherCount: 2,
       maxEstimatedSaving: 15,
+      // PR #112 fixup-3 additive — sum of estimatedSaving across active
+      // approved vouchers.  Required on the strict schema.
+      totalEstimatedSaving: 27.5,
     },
   }
 
