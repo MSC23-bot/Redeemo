@@ -1,8 +1,10 @@
 import React from 'react'
-import { View, TouchableOpacity, StyleSheet, Image } from 'react-native'
+import { View, TouchableOpacity, Pressable, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { Heart } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
 import { formatDistance, formatGbp } from '@/design-system/utils/formatters'
+import { useFavourite } from '@/hooks/useFavourite'
 import { BranchTile } from '@/lib/api/discovery'
 import type { ProximityBand } from '@/lib/api/discovery'
 
@@ -189,6 +191,17 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
     }
   }
 
+  // PR #112 fixup-6 (2026-05-20) — owner-locked: heart icon on the
+  // SearchResultItem, wired to the merchant favourite mutation via
+  // `useFavourite`.  Optimistic UI is built into the hook (local state
+  // flips on success).  Heart tap stops event propagation so the card
+  // press handler doesn't fire.
+  const favourite = useFavourite({
+    type:         'merchant',
+    id:           tile.merchant.id,
+    isFavourited: tile.isFavourited,
+  })
+
   return (
     <TouchableOpacity
       style={styles.container}
@@ -239,12 +252,27 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         )}
       </View>
 
-      {/* Right — saving badge (PR #112 fixup-4 anatomy).
-          Compact, calmer, doesn't dominate.  Hierarchy:
-            - Primary:   "Save £X" / "Save up to £X"  (commercial hook)
-            - Secondary: "across N vouchers" / "1 voucher" (context)
-          voucherCount === 0 → badge hidden entirely. */}
+      {/* Right — heart (favourite toggle) above saving badge.
+          PR #112 fixup-6: owner-locked heart-from-search.  Tap-target
+          44pt minimum.  Event capture prevents the card press from
+          firing under the heart tap. */}
       <View style={styles.right}>
+        <Pressable
+          onPress={(e) => { e.stopPropagation(); favourite.toggle() }}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={favourite.isFavourited ? 'Remove from favourites' : 'Add to favourites'}
+          accessibilityState={{ selected: favourite.isFavourited }}
+          style={styles.heartBtn}
+          testID="search-result-favourite"
+        >
+          <Heart
+            size={20}
+            color={favourite.isFavourited ? '#E20C04' : '#9CA3AF'}
+            fill={favourite.isFavourited ? '#E20C04' : 'transparent'}
+            strokeWidth={2}
+          />
+        </Pressable>
         {showBadge && (
           <View style={styles.saveBadge}>
             {savingHeadline && (
@@ -359,8 +387,16 @@ const styles = StyleSheet.create({
   },
   right: {
     alignItems: 'flex-end',
-    gap: 2,
+    gap: 6,
     paddingLeft: 4,
+    minHeight: 44,                         // anchor the heart row
+  },
+  heartBtn: {
+    width: 36,
+    height: 32,
+    alignItems:     'flex-end',
+    justifyContent: 'center',
+    paddingRight:   2,                     // optical balance with card right padding
   },
   // PR #112 fixup-4 (2026-05-19) — calmer save badge.
   //   Primary:   "Save £38.50" / "Save up to £5.50"  (heading.sm Lato-SemiBold)

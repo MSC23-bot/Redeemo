@@ -21,9 +21,17 @@
 // keep the contract durable against future visual passes.
 
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render as rtlRender } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SearchResultItem, formatBranchLine } from '@/features/search/components/SearchResultItem'
 import { makeBranchTile } from '../../fixtures/branchTile'
+
+// PR #112 fixup-6 — SearchResultItem now wires `useFavourite` so render
+// needs a QueryClient context.
+function render(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return rtlRender(React.createElement(QueryClientProvider, { client: qc }, ui))
+}
 
 describe('SearchResultItem — formatBranchLine (locality de-dupe)', () => {
   it('exact branchName === locality collapses to one segment', () => {

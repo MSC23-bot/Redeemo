@@ -21,22 +21,30 @@
 //      null/undefined).
 
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render as rtlRender } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SearchResultItem, proximityRowLabel } from '@/features/search/components/SearchResultItem'
 import { makeBranchTile } from '../../fixtures/branchTile'
+
+// PR #112 fixup-6 — SearchResultItem now wires `useFavourite` for the
+// heart icon, so render needs a QueryClient context.
+function render(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return rtlRender(React.createElement(QueryClientProvider, { client: qc }, ui))
+}
 
 describe('SearchResultItem — proximity cue on its own row (PR #112 fixup-5)', () => {
   it('IN_YOUR_AREA renders "In your area" on its own row AND the meta line carries no proximity', () => {
     const tile = makeBranchTile({
       proximityBand: 'IN_YOUR_AREA',
-      distance: 2400,                       // 2400m → "1.5 miles away"
+      distance: 2400,                       // 2400m → "1.5 miles away" (miles-only contract)
       merchant: { id: 'm1', businessName: 'M', descriptor: 'Indian Restaurant', voucherCount: 0 },
     })
     const { getByText, queryByText } = render(
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
     expect(getByText('In your area')).toBeTruthy()
-    // Meta line is descriptor + distance ONLY — no proximity suffix.
+    // Meta line is descriptor + distance ONLY (miles-only post fixup-6).
     expect(getByText(/Indian Restaurant · 1\.5 miles away/)).toBeTruthy()
     // Negative pin — meta-line-with-proximity wording must NOT appear.
     expect(queryByText(/Indian Restaurant.*In your area/)).toBeNull()
@@ -52,6 +60,7 @@ describe('SearchResultItem — proximity cue on its own row (PR #112 fixup-5)', 
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
     expect(getByText('A short trip')).toBeTruthy()
+    // 10_800m → 10800/1609.34 = 6.71 → "6.7 miles away"
     expect(getByText(/Coffee shop · 6\.7 miles away/)).toBeTruthy()
     // Negative pin — folded meta-line treatment must NOT appear.
     expect(queryByText(/Coffee shop.*A short trip/)).toBeNull()
@@ -83,7 +92,8 @@ describe('SearchResultItem — proximity cue on its own row (PR #112 fixup-5)', 
     const { getByText, queryByText } = render(
       <SearchResultItem tile={tile} query="" onPress={jest.fn()} />,
     )
-    expect(getByText(/Cafe · 200 metres away/)).toBeTruthy()
+    // Miles-only contract — 200m → 0.1 miles.
+    expect(getByText(/Cafe · 0\.1 miles away/)).toBeTruthy()
     expect(queryByText(/In your area/)).toBeNull()
     expect(queryByText(/A short trip/)).toBeNull()
     expect(queryByText(/Closest/)).toBeNull()

@@ -207,6 +207,14 @@ export function MerchantProfileScreen({ id }: Props) {
     // auto-open fires so back-nav doesn't re-trigger.
     openWriteReview?: string
     fromRedemption?:  string
+    // PR #112 fixup-6 LOCKED 2026-05-20: Search→Merchant→back must return
+    // to Search with the user's typed query preserved.  Default
+    // `router.back()` falls back to the previous tab (Discovery) under
+    // expo-router Tabs, so Search explicitly stamps `from=search&q=<q>`
+    // on the merchant URL; the hero back handler routes the user back
+    // to `/(app)/search?q=<q>` when these params are present.
+    from?: string
+    q?:    string
   }>()
 
   // Initial tab honours the URL.  Lazy initialiser eliminates the
@@ -970,6 +978,22 @@ export function MerchantProfileScreen({ id }: Props) {
         onShare={handleShare}
         scrollY={scrollY}
         topOffset={sbbHeight}
+        // PR #112 fixup-6 (2026-05-20) — when the user arrived from Search,
+        // route back to /(app)/search with the typed query preserved.
+        // Default expo-router Tabs `router.back()` falls back to the
+        // previously-active tab (Discovery) which is the owner-flagged bug.
+        onBack={
+          screenParams.from === 'search'
+            ? () => {
+                const q = typeof screenParams.q === 'string' ? screenParams.q : ''
+                router.push(
+                  q
+                    ? (`/(app)/search?q=${encodeURIComponent(q)}` as any)
+                    : ('/(app)/search' as any),
+                )
+              }
+            : undefined
+        }
       />
 
       {/* M2.1 — Floating TabBar layer. Mounted as an absolute sibling

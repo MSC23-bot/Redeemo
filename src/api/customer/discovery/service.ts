@@ -890,6 +890,41 @@ const BRANCH_TILE_SELECT = {
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
+
+/**
+ * PR #112 fixup-6 (2026-05-20) — owner-locked search-query normalisation.
+ *
+ * Owner-flagged regression: `restaurant` returned Fino's Pizzeria + The Coffee
+ * House, while `restaurant ` (trailing space) returned Covelum Restaurant + My
+ * Kerala Restaurant.  Trailing/internal whitespace must NEVER materially
+ * change matches.
+ *
+ * Rules:
+ *   1. Trim leading/trailing whitespace.
+ *   2. Collapse repeated internal whitespace runs to a single space.
+ *      `\s+` covers spaces, tabs, non-breaking spaces, line breaks.
+ *   3. Return null when the result is empty (caller short-circuits).
+ *
+ * Apply in BOTH `searchMerchants` and `searchBranches` consistently.  Display
+ * surfaces may still echo the user-typed query verbatim; backend matching
+ * routes through the normalised value.
+ *
+ * Examples:
+ *   normalizeSearchQuery('restaurant')        → 'restaurant'
+ *   normalizeSearchQuery('restaurant ')       → 'restaurant'
+ *   normalizeSearchQuery('  restaurant  ')    → 'restaurant'
+ *   normalizeSearchQuery('coffee   shop')     → 'coffee shop'
+ *   normalizeSearchQuery('\tcoffee\nshop ')   → 'coffee shop'
+ *   normalizeSearchQuery('')                  → null
+ *   normalizeSearchQuery('   ')               → null
+ *   normalizeSearchQuery(null)                → null
+ *   normalizeSearchQuery(undefined)           → null
+ */
+export function normalizeSearchQuery(raw: string | null | undefined): string | null {
+  if (raw == null) return null
+  const collapsed = raw.replace(/\s+/g, ' ').trim()
+  return collapsed.length > 0 ? collapsed : null
+}
 /**
  * Strips merchant-name prefixes from a stored branch name.
  *
@@ -2181,24 +2216,29 @@ export async function searchMerchants(
           minSaving, voucherTypes, amenityIds, tagIds, scope, openNow, featured, topRated,
           sortBy, limit, offset, userId } = params
 
-  if (!q && !categoryId && !subcategoryId && minLat === undefined) {
+  // PR #112 fixup-6 (2026-05-20) — normalise the user query before matching.
+  // Owner-locked: trim + collapse internal whitespace.  Trailing/internal
+  // whitespace MUST NOT change results (`restaurant` vs `restaurant ` etc.).
+  const normalizedQ = normalizeSearchQuery(q)
+
+  if (!normalizedQ && !categoryId && !subcategoryId && minLat === undefined) {
     throw new AppError('SEARCH_QUERY_REQUIRED')
   }
 
   const where: Prisma.MerchantWhereInput = { status: MerchantStatus.ACTIVE }
 
-  if (q) {
+  if (normalizedQ) {
     const tags = await prisma.merchantSuggestedTag.findMany({
-      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
+      where: { tag: { contains: normalizedQ, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
       select: { merchantId: true },
     })
     const tagMerchantIds = [...new Set(tags.map((t: any) => t.merchantId))]
     where.OR = [
-      { businessName:    { contains: q, mode: 'insensitive' } },
-      { tradingName:     { contains: q, mode: 'insensitive' } },
-      { description:     { contains: q, mode: 'insensitive' } },
-      { primaryCategory: { name: { contains: q, mode: 'insensitive' } } },
-      { categories:      { some: { category: { name: { contains: q, mode: 'insensitive' } } } } },
+      { businessName:    { contains: normalizedQ, mode: 'insensitive' } },
+      { tradingName:     { contains: normalizedQ, mode: 'insensitive' } },
+      { description:     { contains: normalizedQ, mode: 'insensitive' } },
+      { primaryCategory: { name: { contains: normalizedQ, mode: 'insensitive' } } },
+      { categories:      { some: { category: { name: { contains: normalizedQ, mode: 'insensitive' } } } } },
       ...(tagMerchantIds.length > 0 ? [{ id: { in: tagMerchantIds } }] : []),
     ]
   }
@@ -2559,8 +2599,15 @@ export async function searchBranches(
   const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
           minSaving, voucherTypes, scope, limit, offset, userId } = params
 
+  // PR #112 fixup-6 (2026-05-20) — normalise the user query before matching.
+  // Owner-locked: trim + collapse internal whitespace.  Trailing/internal
+  // whitespace MUST NOT change results (`restaurant` vs `restaurant ` etc.).
+  // Routes through the same `normalizeSearchQuery` helper as `searchMerchants`
+  // so both services see identical match input for any given user query.
+  const normalizedQ = normalizeSearchQuery(q)
+
   // ── 1. Validate bounded predicate (mirrors searchMerchants line 1978).
-  if (!q && !categoryId && !subcategoryId && minLat === undefined) {
+  if (!normalizedQ && !categoryId && !subcategoryId && minLat === undefined) {
     throw new AppError('SEARCH_QUERY_REQUIRED')
   }
 
@@ -2570,10 +2617,10 @@ export async function searchBranches(
     merchant: { status: MerchantStatus.ACTIVE },
   }
 
-  if (q && q.trim().length > 0) {
+  if (normalizedQ) {
     // Tag-matched merchant lookup (mirrors searchMerchants:1985-1989).
     const tags = await prisma.merchantSuggestedTag.findMany({
-      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
+      where: { tag: { contains: normalizedQ, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
       select: { merchantId: true },
     })
     const tagMerchantIds = Array.from(new Set(tags.map(t => t.merchantId)))
@@ -2594,31 +2641,30 @@ export async function searchBranches(
     //   - branch.name / branch.localityName / branch.postTown
     //
     // Weak match (gated):
-    //   - merchant.description — requires q.length >= 5
+    //   - merchant.description — requires normalizedQ.length >= 5
     //
     // Threshold = 5 chars: empirically suppresses the `cove`-class
     // false-positive while letting `covel` / `cover` through (where
     // description match adds genuine signal).
-    const trimmedQ = q.trim()
     const MIN_DESCRIPTION_MATCH_LENGTH = 5
     const includeDescriptionMatch =
-      trimmedQ.length >= MIN_DESCRIPTION_MATCH_LENGTH
+      normalizedQ.length >= MIN_DESCRIPTION_MATCH_LENGTH
 
     where.OR = [
       // Merchant-level STRONG matches (always on).
-      { merchant: { businessName:    { contains: q, mode: 'insensitive' } } },
-      { merchant: { tradingName:     { contains: q, mode: 'insensitive' } } },
-      { merchant: { primaryCategory: { name: { contains: q, mode: 'insensitive' } } } },
-      { merchant: { categories:      { some: { category: { name: { contains: q, mode: 'insensitive' } } } } } },
+      { merchant: { businessName:    { contains: normalizedQ, mode: 'insensitive' } } },
+      { merchant: { tradingName:     { contains: normalizedQ, mode: 'insensitive' } } },
+      { merchant: { primaryCategory: { name: { contains: normalizedQ, mode: 'insensitive' } } } },
+      { merchant: { categories:      { some: { category: { name: { contains: normalizedQ, mode: 'insensitive' } } } } } },
       ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
-      // Merchant-level WEAK match — gated on q length.
+      // Merchant-level WEAK match — gated on normalised q length.
       ...(includeDescriptionMatch
-        ? [{ merchant: { description: { contains: q, mode: 'insensitive' as const } } }]
+        ? [{ merchant: { description: { contains: normalizedQ, mode: 'insensitive' as const } } }]
         : []),
       // Branch-level matches — Spec §3.1 (Covelum / Brightlingsea bug class).
-      { name:         { contains: q, mode: 'insensitive' as const } },
-      { localityName: { contains: q, mode: 'insensitive' as const } },
-      { postTown:     { contains: q, mode: 'insensitive' as const } },
+      { name:         { contains: normalizedQ, mode: 'insensitive' as const } },
+      { localityName: { contains: normalizedQ, mode: 'insensitive' as const } },
+      { postTown:     { contains: normalizedQ, mode: 'insensitive' as const } },
     ]
   }
 
@@ -2868,9 +2914,11 @@ export async function searchBranches(
   //   - `rankedTiles.length === 0` — scope+cascade returned empty.
   //
   // Map (`getInAreaBranches`) is a different function and UNAFFECTED.
+  // Gate also uses the normalised q (PR #112 fixup-6) so `"restaurant "`
+  // and `"restaurant"` reach the fallback identically.
   const textMatchFallback = (
     effLoc
-    && q && q.trim().length > 0
+    && normalizedQ !== null
     && rankedTiles.length === 0
   )
     ? [...rankable].filter(b => !rankedIds.has(b.id)).sort((a, b) => {

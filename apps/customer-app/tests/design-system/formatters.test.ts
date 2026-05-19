@@ -70,6 +70,11 @@ describe('formatVoucherCount', () => {
 })
 
 describe('formatDistance', () => {
+  // PR #112 fixup-6 (2026-05-20) — owner-locked: miles-only display.
+  // Mixed-unit display ("276 metres away" vs "5.1 miles away") confused
+  // readers; single-unit miles is the trust fix.  Sub-1-mile values
+  // render as "0.X miles away" rather than switching to metres.
+
   it('returns null for null', () => {
     expect(formatDistance(null)).toBeNull()
   })
@@ -78,19 +83,23 @@ describe('formatDistance', () => {
     expect(formatDistance(undefined)).toBeNull()
   })
 
-  it('formats 0 metres as "0 metres away"', () => {
-    expect(formatDistance(0)).toBe('0 metres away')
+  it('formats 0 metres as "0.0 miles away" (miles-only contract)', () => {
+    expect(formatDistance(0)).toBe('0.0 miles away')
   })
 
-  it('formats 276 metres as "276 metres away" (owner screenshot case)', () => {
-    expect(formatDistance(276)).toBe('276 metres away')
+  it('formats 100 metres as "0.1 miles away" (sub-1-mile renders in miles)', () => {
+    expect(formatDistance(100)).toBe('0.1 miles away')
   })
 
-  it('formats 499 metres as "499 metres away" (just under threshold)', () => {
-    expect(formatDistance(499)).toBe('499 metres away')
+  it('formats 276 metres as "0.2 miles away" (owner screenshot case — now miles)', () => {
+    expect(formatDistance(276)).toBe('0.2 miles away')
   })
 
-  it('formats 500 metres as "0.3 miles away" (at threshold — flips to miles)', () => {
+  it('formats 499 metres as "0.3 miles away"', () => {
+    expect(formatDistance(499)).toBe('0.3 miles away')
+  })
+
+  it('formats 500 metres as "0.3 miles away" (continues miles-only)', () => {
     expect(formatDistance(500)).toBe('0.3 miles away')
   })
 
@@ -98,15 +107,18 @@ describe('formatDistance', () => {
     expect(formatDistance(1000)).toBe('0.6 miles away')
   })
 
+  it('formats 1609 metres as "1.0 miles away" (1 mile mark)', () => {
+    expect(formatDistance(1609)).toBe('1.0 miles away')
+  })
+
   it('formats 8200 metres as "5.1 miles away" (multi-mile)', () => {
     expect(formatDistance(8200)).toBe('5.1 miles away')
   })
 
-  it('rounds metres values: 276.7 → 277 metres away', () => {
-    expect(formatDistance(276.7)).toBe('277 metres away')
-  })
-
-  it('always uses 1 decimal on miles: 1609 → 1.0 miles away', () => {
-    expect(formatDistance(1609)).toBe('1.0 miles away')
+  it('negative pin — "metres away" wording must NOT appear under any positive distance', () => {
+    expect(formatDistance(0)).not.toMatch(/metres/)
+    expect(formatDistance(50)).not.toMatch(/metres/)
+    expect(formatDistance(276)).not.toMatch(/metres/)
+    expect(formatDistance(499)).not.toMatch(/metres/)
   })
 })

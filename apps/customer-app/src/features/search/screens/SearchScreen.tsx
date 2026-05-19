@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { View, FlatList, StyleSheet, Keyboard } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text } from '@/design-system/Text'
 import { useSearch } from '@/hooks/useSearch'
@@ -8,8 +8,8 @@ import { useUserLocation } from '@/hooks/useLocation'
 import { SearchBar } from '../components/SearchBar'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
+import { SearchEmptyState } from '../components/SearchEmptyState'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
-import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { BranchTile } from '@/lib/api/discovery'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 
@@ -54,7 +54,17 @@ function effectiveScopeFromMeta(
 export function SearchScreen() {
   const router  = useRouter()
   const insets  = useSafeAreaInsets()
-  const [query, setQuery] = useState('')
+  // PR #112 fixup-6 (2026-05-20) — accept `?q=` on the URL so users
+  // returning from a merchant page (with `from=search&q=<query>`) land
+  // back on Search with their typed query restored.  Lazy initialiser
+  // pulls the URL param on first mount; subsequent input is local state.
+  const params  = useLocalSearchParams<{ q?: string | string[] }>()
+  const initialQ = (() => {
+    const raw = params?.q
+    if (Array.isArray(raw)) return raw[0] ?? ''
+    return typeof raw === 'string' ? raw : ''
+  })()
+  const [query, setQuery] = useState(initialQ)
   // `requestedScope` = the scope the user last tapped (undefined → default).
   // `effectiveScope` = what's actually being shown (derived below from
   // branchMeta).  The pill highlight tracks effectiveScope, NOT requestedScope.
@@ -214,15 +224,26 @@ export function SearchScreen() {
             <SearchResultItem
               tile={item}
               query={debouncedQuery}
-              onPress={(branchId, merchantId) =>
-                router.push(`/(app)/merchant/${merchantId}?branch=${branchId}` as any)
-              }
+              onPress={(branchId, merchantId) => {
+                // PR #112 fixup-6 (2026-05-20) — pass `from=search` + the
+                // current query so the merchant page's back button routes
+                // back to Search with the query preserved (owner-locked).
+                const qParam = debouncedQuery.length > 0
+                  ? `&from=search&q=${encodeURIComponent(debouncedQuery)}`
+                  : '&from=search'
+                router.push(`/(app)/merchant/${merchantId}?branch=${branchId}${qParam}` as any)
+              }}
             />
           )}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={<EmptyStateMessage reason={emptyReason} />}
+          ListEmptyComponent={
+            <SearchEmptyState
+              reason={emptyReason as 'none' | 'no_uk_supply' | null}
+              query={debouncedQuery}
+            />
+          }
         />
       )}
     </View>

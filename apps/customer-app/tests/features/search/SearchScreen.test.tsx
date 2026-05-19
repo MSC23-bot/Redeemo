@@ -210,8 +210,14 @@ jest.mock('@/hooks/useLocation', () => ({
 }))
 
 const mockRouterPush = jest.fn()
+// PR #112 fixup-6 (2026-05-20) — Search now reads `useLocalSearchParams` to
+// restore the user's query when returning from a merchant via
+// `?from=search&q=<q>`.  Mock returns no params so the screen behaves as
+// a fresh entry; tests that need a restored-q can override `mockUrlParams`.
+const mockUrlParams: Record<string, string> = {}
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockRouterPush, back: jest.fn() }),
+  useRouter:             () => ({ push: mockRouterPush, back: jest.fn() }),
+  useLocalSearchParams:  () => ({ ...mockUrlParams }),
 }))
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -240,6 +246,20 @@ describe('SearchScreen', () => {
   beforeEach(() => {
     mockSearchState.scenario = 'happy'
     mockRouterPush.mockReset()
+    Object.keys(mockUrlParams).forEach(k => delete mockUrlParams[k])
+  })
+
+  // PR #112 fixup-6 — Search restores the user's query from the URL `?q=`
+  // param on mount.  Used by the Search→Merchant→back round-trip so the
+  // typed query is preserved across navigation.
+  it('restores the typed query from the URL ?q= param on mount (fixup-6 back-nav restore)', async () => {
+    mockUrlParams.q = 'Karaara'
+    const { getByDisplayValue, getByText } = render(<SearchScreen />, { wrapper })
+    // Input is pre-populated.
+    expect(getByDisplayValue('Karaara')).toBeTruthy()
+    // Debounced search fires; results render (mock returns mockPizzaExpress
+    // for any enabled query — what matters is the input populated).
+    await waitFor(() => expect(getByText('Pizza Express')).toBeTruthy())
   })
 
   it('renders search input', () => {
@@ -291,18 +311,32 @@ describe('SearchScreen', () => {
     })
   })
 
-  it('renders "No merchants found" copy when results are empty (reason=none)', async () => {
+  // PR #112 fixup-6 — empty-state copy moves to `<SearchEmptyState>` with
+  // Redeemo-persona, query-aware copy ("Nothing for X yet" / "Nothing for
+  // X in the UK yet").
+  it('renders "Nothing for X yet" copy when results are empty (reason=none)', async () => {
     mockSearchState.scenario = 'empty'
-    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
-    await waitFor(() => expect(getByText('No merchants found')).toBeTruthy())
+    await waitFor(() => {
+      expect(getByText('Nothing for "Pizza" yet')).toBeTruthy()
+      expect(getByText('Try a different keyword.')).toBeTruthy()
+    })
+    // Legacy copy regression pin.
+    expect(queryByText('No merchants found')).toBeNull()
   })
 
-  it('renders "No matches in the UK yet" copy when reason=no_uk_supply', async () => {
+  it('renders "Nothing for X in the UK yet" copy when reason=no_uk_supply', async () => {
     mockSearchState.scenario = 'no_uk_supply'
-    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
-    await waitFor(() => expect(getByText(/No matches in the UK yet/)).toBeTruthy())
+    await waitFor(() => {
+      expect(getByText('Nothing for "Pizza" in the UK yet')).toBeTruthy()
+      expect(getByText("We're growing. Check back soon.")).toBeTruthy()
+    })
+    // Legacy em-dash copy must NOT appear.
+    expect(queryByText(/we['’]re growing daily/)).toBeNull()
+    expect(queryByText(/—/)).toBeNull()
   })
 
   // PR #112 fixup-4 — unified locality-aware header.  Replaces both the
@@ -399,12 +433,18 @@ describe('SearchScreen', () => {
     })
   })
 
-  it('tile tap routes to /(app)/merchant/[id]?branch=<branchId> (Spec §6.1 locked URL)', async () => {
+  // PR #112 fixup-6 — tile tap also stamps `from=search&q=<query>` on the
+  // merchant URL so the merchant page's back button returns the user to
+  // Search with their query preserved (default `router.back()` would fall
+  // back to Discovery under expo-router Tabs).
+  it('tile tap routes to /(app)/merchant/[id]?branch=<branchId>&from=search&q=<q> (fixup-6)', async () => {
     const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => expect(getByText('Pizza Express')).toBeTruthy())
     fireEvent.press(getByText('Pizza Express'))
-    expect(mockRouterPush).toHaveBeenCalledWith('/(app)/merchant/m1?branch=brn1')
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/(app)/merchant/m1?branch=brn1&from=search&q=Pizza',
+    )
   })
 
   // PR-2 device-QA fix (2026-05-19) — count/list consistency pin.
@@ -422,10 +462,11 @@ describe('SearchScreen', () => {
     const { getByPlaceholderText, queryByText, getByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     // Branch list is empty → empty-state copy MUST render (not the
-    // legacy merchant `Legacy Merchant` name).
+    // legacy merchant `Legacy Merchant` name).  Fixup-6 copy: "Nothing
+    // for X in the UK yet" via <SearchEmptyState>.
     await waitFor(() => {
       expect(queryByText('Legacy Merchant')).toBeNull()
-      expect(getByText(/No matches in the UK yet/i)).toBeTruthy()
+      expect(getByText(/Nothing for "Pizza" in the UK yet/i)).toBeTruthy()
     })
     // Scope pills: counts must reflect branchMeta (all zero) NOT the
     // legacy merchant meta (distantCount: 1).  The "UK-wide · 1" string

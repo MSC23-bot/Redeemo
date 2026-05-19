@@ -48,37 +48,32 @@ export function formatVoucherCount(count: number | null | undefined): string | n
 }
 
 /**
- * Distance formatter — owner-locked PR #112 device-QA rule
- * (2026-05-19).
+ * Distance formatter — owner-locked PR #112 fixup-6 rule (2026-05-20).
  *
- *   null              → null (caller hides)
- *   < 500 metres      → `{n} metres away`
- *   ≥ 500 metres      → `{miles.toFixed(1)} miles away`
+ *   null  → null (caller hides)
+ *   any m → `{miles.toFixed(1)} miles away`
  *
- * The 500-metre threshold is a clear walkable / not-walkable cutoff
- * the user can interpret without unit-conversion mental math.  Below
- * 500m the metres value is small enough to feel intuitive ("276 metres
- * away" reads as "about a 3-4 minute walk").  At or above 500m the
- * miles framing matches how UK customers think about driving / longer
- * journeys.
- *
- * "metres" (full word) avoids the bare `m` ambiguity (miles vs metres)
- * the owner flagged on the original screenshot.
+ * Owner direction (supersedes the fixup-2 mixed-unit rule): always
+ * miles, never metres.  Sub-1-mile distances render as `0.X miles
+ * away` rather than switching to metres.  The owner observation: mixing
+ * "276 metres away" with "5.1 miles away" in the same card list
+ * confuses readers, and the bare `m` ambiguity (miles vs metres) was
+ * the original screenshot trigger.  Single-unit display is the trust
+ * fix.
  *
  * Examples:
  *   formatDistance(null) → null
- *   formatDistance(0)    → '0 metres away'
- *   formatDistance(276)  → '276 metres away'
- *   formatDistance(499)  → '499 metres away'
+ *   formatDistance(0)    → '0.0 miles away'
+ *   formatDistance(100)  → '0.1 miles away'
+ *   formatDistance(276)  → '0.2 miles away'
+ *   formatDistance(499)  → '0.3 miles away'
  *   formatDistance(500)  → '0.3 miles away'
  *   formatDistance(1000) → '0.6 miles away'
+ *   formatDistance(1609) → '1.0 miles away'
  *   formatDistance(8200) → '5.1 miles away'
  */
 export function formatDistance(metres: number | null | undefined): string | null {
   if (metres === null || metres === undefined) return null
-  if (metres < 500) {
-    return `${Math.round(metres)} metres away`
-  }
   const miles = metres / 1609.34
   return `${miles.toFixed(1)} miles away`
 }
