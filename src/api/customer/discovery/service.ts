@@ -2835,6 +2835,16 @@ export async function searchBranches(
   // If effLoc is null OR no rankable candidates exist, the ranked half stays
   // empty; the non-rankable tail still surfaces below (Spec §4.1.1).
 
+  // PR #112 fixup-6.3 (2026-05-20) — capture the PRE-scope-filter ranked set
+  // so the text-match fallback can distinguish "maxRung-dropped" branches
+  // (rank gate excluded them — bucket B) from "scope-dropped" branches
+  // (classified into a rung but excluded by user-selected scope — bucket A).
+  // Only bucket B surfaces unconditionally; bucket A respects scope.
+  // Owner direction: "Direct merchant-name match should not disappear
+  // simply because another branch/rung/scope gate ranks differently" —
+  // applies to rank gate (bucket B), NOT user-selected scope (bucket A).
+  const preScopeRankedIds = new Set(rankedTiles.map(t => t.id))
+
   // ── 6.5. Discovery Rebaseline Task 2.1.0 — scope cascade parity.
   //
   // Branch-first sibling of `resolveScopeForRanking` (line ~429). User-facing
@@ -2883,51 +2893,63 @@ export async function searchBranches(
 
   // ── 7.5. PR-2 device-QA blocker fix (2026-05-19) — direct text-match fallback.
   //
-  // When `q` is a non-empty text query AND `effLoc` is resolved AND the
-  // post-scope-cascade `rankedTiles` is EMPTY, surface rankable branches
-  // matching the predicate as a deterministic fallback tail.  Without
-  // this, e.g. `q="Covelum"` from a London effLoc returns empty
-  // `branches[]` because Covelum's branches classify as NATIONAL (no
-  // locality/post-town/lad/county/region match to a London-anchored
-  // effLoc) and `rankBranchesV3` drops anything above the ladder maxRung
-  // (REGION for MIXED_NORMAL @ URBAN).  The scope cascade can't help:
-  // `rungCounts` reflects only rank-admitted branches.
+  // When `q` is a non-empty text query AND `effLoc` is resolved, surface
+  // rankable branches matching the predicate that `rankBranchesV3`
+  // dropped (rung null OR rung > maxRung) as a deterministic fallback
+  // tail AFTER the ranked output.  Without this, e.g. searching
+  // `restaurant` from a Huddersfield effLoc drops `Covelum Restaurant`
+  // entirely — Covelum's branches classify as COUNTRY (East-of-England
+  // region) and `rankBranchesV3` discards anything above the ladder
+  // maxRung (REGION for MIXED_NORMAL @ URBAN).  The scope cascade
+  // can't help: `rungCounts` reflects only rank-admitted branches.
   //
-  // Spec rationale: a user searching a specific merchant name expects to
-  // find that merchant regardless of ladder/scope.  Mirrors the legacy
-  // `rankMerchants` cascade behaviour — direct text matches always
-  // surface when scope+cascade would otherwise return zero results.
+  // PR #112 fixup-6.3 (2026-05-20) — bucket-aware gate.
+  // Owner direction: "Direct merchant-name matches must be strong
+  // matches.  A direct merchant-name match should not disappear simply
+  // because another branch/rung/scope gate ranks differently."
   //
-  // **Critical narrowness:** the fallback only fires when ranked+scoped
-  // output is EMPTY.  If the scope filter has real supply (e.g. user picks
-  // `scope: 'nearby'` AND there are nearby branches matching `q`), scope
-  // wins — the fallback does NOT pull in DISTANT-tier or other-rung
-  // matches.  This preserves the locked Task 2.1.0 scope semantics for
-  // queries that have actual matches at the requested scope; the
-  // fallback rescues only the "no results at all" case.
+  // The fallback population is split into two buckets:
+  //   bucket A — branches classified into a rung by rankBranchesV3 but
+  //              filtered out by the user-selected scope cascade.
+  //              These RESPECT scope and do NOT surface in the
+  //              fallback (preserves Task 2.1.0 scope contract).
+  //   bucket B — branches the rank gate dropped entirely (rung null OR
+  //              rung > maxRung).  These ALWAYS surface when q is
+  //              non-empty + effLoc is resolved (owner direction).
   //
-  // Gated on:
-  //   - `q && q.trim().length > 0` — non-empty text query (browse queries
-  //     stay strict).
-  //   - `effLoc` — the null-effLoc path already surfaces all candidates
-  //     via its own broader tail; no fallback needed.
-  //   - `rankedTiles.length === 0` — scope+cascade returned empty.
+  // `preScopeRankedIds` captures the set of branches that rankBranchesV3
+  // admitted (before scope filter).  Bucket B = rankable - preScopeRankedIds.
   //
+  // The owner-flagged Covelum disappearance was a bucket-B miss: Covelum's
+  // East-of-England branches classified as COUNTRY > maxRung REGION
+  // (MIXED_NORMAL @ URBAN default for free-text q), so they got dropped
+  // by the rank gate.  Pre-fixup-6.3 the fallback only fired when
+  // `rankedTiles.length === 0`; when Pino's NEARBY ranked,
+  // rankedTiles=1 and the fallback skipped, hiding Covelum.  Now
+  // bucket B always surfaces independently of scope semantics.
+  //
+  // Order semantics (Spec §4.1.1 preserved):
+  //   1. Ranked tiles (rung-aware, scope-filtered) — primary output.
+  //   2. Text-match fallback (bucket B — rank-dropped rankable matches;
+  //      null rung, computed distance, NEAREST_ON_REDEEMO band per
+  //      §7.5 wiring).
+  //   3. POSTCODE_CENTROID / NEEDS_REVIEW tail.
+  //
+  // Browse queries (no q) and non-effLoc paths are UNAFFECTED.
   // Map (`getInAreaBranches`) is a different function and UNAFFECTED.
-  // Gate also uses the normalised q (PR #112 fixup-6) so `"restaurant "`
-  // and `"restaurant"` reach the fallback identically.
   const textMatchFallback = (
     effLoc
     && normalizedQ !== null
-    && rankedTiles.length === 0
   )
-    ? [...rankable].filter(b => !rankedIds.has(b.id)).sort((a, b) => {
-        const ma = a.merchant.businessName.localeCompare(b.merchant.businessName)
-        if (ma !== 0) return ma
-        const nb = (a.name ?? '').localeCompare(b.name ?? '')
-        if (nb !== 0) return nb
-        return a.id.localeCompare(b.id)
-      })
+    ? [...rankable]
+        .filter(b => !preScopeRankedIds.has(b.id))   // bucket B only — rank-dropped
+        .sort((a, b) => {
+          const ma = a.merchant.businessName.localeCompare(b.merchant.businessName)
+          if (ma !== 0) return ma
+          const nb = (a.name ?? '').localeCompare(b.name ?? '')
+          if (nb !== 0) return nb
+          return a.id.localeCompare(b.id)
+        })
     : []
 
   // Per-branch distance for the fallback tail.  Computed when the branch

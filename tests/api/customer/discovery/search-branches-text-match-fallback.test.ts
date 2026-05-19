@@ -188,6 +188,90 @@ describe('searchBranches — direct text match fallback (PR-2 device-QA blocker 
     expect(covelumBranches.length).toBeGreaterThanOrEqual(2)
   })
 
+  // PR #112 fixup-6.3 (2026-05-20) — owner regression pin.
+  //
+  // Owner-flagged device-QA: searching `restaurant` from Huddersfield
+  // returned Pino's Pizzeria + The Coffee House but NOT Covelum
+  // Restaurant.  Root cause: the original fallback gate was
+  // `rankedTiles.length === 0`; when Pino's ranked into NEARBY,
+  // rankedTiles=1, the fallback skipped, and Covelum (classified
+  // COUNTRY > REGION maxRung) disappeared entirely.
+  //
+  // Fix relaxes the gate so the fallback runs whenever q is non-empty
+  // AND effLoc is resolved.  This pin asserts that contract: a query
+  // with BOTH a ranking branch (in some other fixture) AND a
+  // text-match-dropped branch (this fixture's Covelum) must surface
+  // BOTH.
+  //
+  // The Covelum fixture sits at lat=54.5, lng=5.0 (North Sea) with all
+  // locality fields null → classifyRung returns NATIONAL > maxRung
+  // REGION → dropped.  Plus the dev DB contains Pino's Pizzeria
+  // around Huddersfield, which DOES rank.  So for `q=COVELUM_NAME`
+  // there are zero ranking branches (only Covelum matches the
+  // predicate), but for a broader query like merchant-name substring
+  // matching both fixtures, both must surface.
+  //
+  // We pin the specific case by querying for the fixture's prefixed
+  // name (only matches Covelum) but adding an English-effLoc — Covelum
+  // MUST still surface even though no broader matches rank, AND for the
+  // owner case we just need the gate to be relaxed (covered by all
+  // existing tests in this file post-fix).  This new test adds an
+  // EXPLICIT pin for the "rankable matches but also dropped matches"
+  // scenario by simulating a query against the dev DB's seeded
+  // Restaurant subcategory — Pino's ranks NEARBY from Huddersfield,
+  // Covelum branches at the fixture coords are dropped, and both
+  // must appear when the fixture name AND Pino's both match.
+  //
+  // To avoid coupling to seed-data ordering, we use a more constrained
+  // query that pins the contract directly: branches that match the
+  // fixture name surface even WHEN a ranking branch for the same
+  // merchant exists in another locality.  We create one EXTRA branch
+  // for the same merchant at Huddersfield coords (will rank NEARBY)
+  // and assert that the fixture's North-Sea branches still surface.
+  it('relaxed gate: fixture branches surface EVEN WHEN another branch of the same merchant ranks NEARBY (PR #112 fixup-6.3)', async () => {
+    // Add a 3rd branch right next to Huddersfield — this will rank NEARBY
+    // for the upcoming searchBranches call with Huddersfield coords.
+    const huddBranch = await prisma.branch.create({
+      data: {
+        merchantId:         MERCHANT_ID,
+        name:               `${FIXTURE_PREFIX}Covelum-Huddersfield`,
+        addressLine1:       '99 Test St',
+        city:               'Huddersfield',
+        postcode:           'HD1 1XX',
+        country:            'GB',
+        latitude:           53.6463, // Huddersfield centre
+        longitude:          -1.7809,
+        locationConfidence: 'MANUALLY_CONFIRMED',
+        isActive:           true,
+      },
+    })
+
+    try {
+      const result = await searchBranches(prisma, {
+        q:      COVELUM_NAME,
+        lat:    53.6463, // Huddersfield
+        lng:    -1.7809,
+        limit:  20,
+        offset: 0,
+        userId: null,
+      } as any)
+
+      const covelumBranches = result.branches.filter(t => t.merchant.id === MERCHANT_ID)
+      // BOTH the Huddersfield branch (rank NEARBY) AND the two North-Sea
+      // fixture branches (text-match fallback) MUST surface.  Pre-fix,
+      // the Huddersfield ranking branch satisfied rankedTiles.length>0
+      // and the gate skipped the fallback, dropping branches A and B.
+      const branchIds = new Set(covelumBranches.map(t => t.id))
+      expect(branchIds.has(huddBranch.id)).toBe(true)
+      expect(branchIds.has(BRANCH_A_ID)).toBe(true)
+      expect(branchIds.has(BRANCH_B_ID)).toBe(true)
+      expect(covelumBranches).toHaveLength(3)
+    } finally {
+      // Always clean up the extra fixture, even if assertions throw.
+      await prisma.branch.delete({ where: { id: huddBranch.id } })
+    }
+  })
+
   it('Empty q (category-only / bbox-only) keeps the strict rung gate — no text-match fallback fires', async () => {
     // Category-only queries are browsing, not direct search.  The user
     // hasn't asked for a specific merchant — strict rung gate keeps
