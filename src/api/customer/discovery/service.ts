@@ -25,7 +25,7 @@ import {
 } from '../../lib/ranking'
 import { resolveEffectiveLocation, type EffectiveLocation } from '../../lib/effectiveLocation'
 import { getOutgoingCatchmentTargetIds } from '../../lib/catchmentLookup'
-import type { LadderProfile, SupplyRung } from '../../lib/ladderProfiles'
+import type { LadderProfile, ProximityBand, SupplyRung } from '../../lib/ladderProfiles'
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 import { resolveSelectedBranch } from './branch-resolver'
 import { buildDisplayName, formatReview } from '../reviews/service'
@@ -2974,7 +2974,20 @@ export async function searchBranches(
   // ── 8. Concatenate ranked ++ text-match fallback ++ non-rankable tail.
   //    Pagination unit is the branch tile.
   //
-  //    Order rationale:
+  //    PR #112 fixup-6.5 (2026-05-20) — scope-aware list assembly.
+  //    Owner-flagged blocker: scope=`Nearby · 1` was active but the
+  //    visible list contained 4 items (Pino's NEARBY + 3 Covelum/Kerala
+  //    rank-dropped fallback rows).  Narrow scope must show ONLY the
+  //    scope-filtered tiles; the cumulative count (`More places · 5`)
+  //    tells the user there's more wider supply.
+  //
+  //    `showWiderSupply` controls whether the text-match fallback +
+  //    POSTCODE_CENTROID tail surface in the LIST.  Both still count
+  //    toward `distantCount` (cumulative meta) so the pill row stays
+  //    accurate; they're hidden until the user broadens scope OR the
+  //    scope-filtered ranked set is empty (cascade rescue path).
+  //
+  //    Order rationale (when wider supply IS shown):
   //      1. Ranked tiles first (best user-visible ordering — rung+distance+quality).
   //      2. Text-match fallback (rank-dropped rankable matches; null rung/distance
   //         per Spec §4.1.1 list-view admission semantics).
@@ -2982,6 +2995,9 @@ export async function searchBranches(
   //
   //    These three sets are disjoint (textMatchFallback ⊆ rankable; tail = nonRankable;
   //    `rankable ∩ nonRankable = ∅` by the locationConfidence partition above).
+  const showWiderSupply =
+    scopeResolution.resolvedScope === 'platform'
+    || rankedTiles.length === 0
   const allInputs: EnrichBranchInput[] = [
     ...rankedTiles.map(t => ({
       branchId:      t.id,
@@ -2990,25 +3006,29 @@ export async function searchBranches(
       proximityBand: t.proximityBand,
       distance:      t.distanceMetres,
     } satisfies EnrichBranchInput)),
-    ...textMatchFallback.map(b => ({
-      branchId:      b.id,
-      merchantId:    b.merchantId,
-      // supplyRung stays null because classifyRung either returned null
-      // OR returned a rung above maxRung — the rung is genuinely unknown
-      // for ranking purposes.  proximityBand is set explicitly to
-      // NEAREST_ON_REDEEMO so the customer-app renders the correct chip
-      // for direct text-match hits.
-      supplyRung:    null,
-      proximityBand: 'NEAREST_ON_REDEEMO',
-      distance:      fallbackDistanceFor(b),
-    } satisfies EnrichBranchInput)),
-    ...tailSorted.map(b => ({
-      branchId:      b.id,
-      merchantId:    b.merchantId,
-      supplyRung:    null,
-      proximityBand: null,
-      distance:      null,
-    } satisfies EnrichBranchInput)),
+    ...(showWiderSupply
+      ? textMatchFallback.map(b => ({
+          branchId:      b.id,
+          merchantId:    b.merchantId,
+          // supplyRung stays null because classifyRung either returned null
+          // OR returned a rung above maxRung — the rung is genuinely unknown
+          // for ranking purposes.  proximityBand is set explicitly to
+          // NEAREST_ON_REDEEMO so the customer-app renders the correct chip
+          // for direct text-match hits.
+          supplyRung:    null,
+          proximityBand: 'NEAREST_ON_REDEEMO' as ProximityBand,
+          distance:      fallbackDistanceFor(b),
+        } satisfies EnrichBranchInput))
+      : []),
+    ...(showWiderSupply
+      ? tailSorted.map(b => ({
+          branchId:      b.id,
+          merchantId:    b.merchantId,
+          supplyRung:    null,
+          proximityBand: null,
+          distance:      null,
+        } satisfies EnrichBranchInput))
+      : []),
   ]
 
   const totalBranches = allInputs.length
