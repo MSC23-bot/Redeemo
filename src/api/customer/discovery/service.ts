@@ -12,12 +12,16 @@ import { getCurrentCycleWindow } from '../../subscription/cycle'
 import {
   rankMerchants,
   rankMerchantsV2,
+  rankBranchesV3,
   resolveCategoryIntent,
   computeRatingsByMerchant,
+  type CategoryIntent,
   type CategoryIntentType,
   type SupplyTier,
   type RankableMerchant,
+  type RankableBranchInputV3,
   type RankMerchantsV2Result,
+  type RankedBranchTile,
 } from '../../lib/ranking'
 import { resolveEffectiveLocation, type EffectiveLocation } from '../../lib/effectiveLocation'
 import { getOutgoingCatchmentTargetIds } from '../../lib/catchmentLookup'
@@ -36,6 +40,7 @@ import {
   computeAvailableAgainAt,
 } from '../../redemption/reusable'
 import { PRESENTATION_WINDOW_MS } from '../../redemption/presentation-window'
+import { type BranchTile } from './branchTileSchema'
 
 /**
  * Plan 4 M1 PR #81 review — server-side enforcement that approximate branch
@@ -710,6 +715,334 @@ async function enrichMerchantTiles(
   )
 }
 
+// ─── Discovery Rebaseline Phase 1 — branch-first enrichment ──────────────────
+//
+// Spec: docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §1.1.
+//
+// Branch-first variant of `enrichMerchantTile` / `enrichMerchantTiles`. Emits
+// ONE BranchTile per branch (vs the merchant variant which collapses every
+// branch under each merchant). Coexists with the merchant variants during
+// Phase 1 + Phase 2; Phase 3 deletes the merchant variant per the §AT cleanup
+// note.
+//
+// Shape mirrors `branchTileSchema` (src/api/customer/discovery/branchTileSchema.ts):
+//   - Top-level keys are BRANCH-scoped (id, branchName, branchLocalityId,
+//     branchLatitude, etc.).
+//   - `merchant` is the GROUPING container (id, businessName, primaryCategory,
+//     etc.), populated once per branch tile from the joined merchant.
+//   - `isFavourited` is merchant-keyed per Rev-2 §7 decision #13 — every branch
+//     tile of the same merchant shares the same value. Forward-compat with the
+//     eventual branch-keyed favourites contract (wire field stays unchanged).
+//   - `closesAtLocal` is null in Phase 1 — `isOpenNow` (src/api/shared/isOpenNow.ts)
+//     does not return close-time. PR-0.5 gate resolved by reusing the existing
+//     helper; extending its signature is out of scope for PR-1.
+//   - Position-redaction contract — `exposeBranchPosition` applied at the
+//     serialization boundary so POSTCODE_CENTROID / NEEDS_REVIEW /
+//     ADDRESS_GEOCODED branches expose null lat/lng (Plan 4 M1 PR #81 lock).
+
+const BRANCH_TILE_SELECT = {
+  id:                 true,
+  name:               true,
+  localityId:         true,
+  localityName:       true,
+  postTown:           true,
+  city:               true,
+  latitude:           true,
+  longitude:          true,
+  locationConfidence: true,
+  isActive:           true,
+  openingHours: {
+    select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+  },
+  merchant: {
+    select: {
+      id:                  true,
+      businessName:        true,
+      tradingName:         true,
+      logoUrl:             true,
+      bannerUrl:           true,
+      primaryCategoryId:   true,
+      primaryCategory: {
+        select: {
+          id: true, name: true, pinColour: true, pinIcon: true,
+          descriptorSuffix: true, parentId: true, intentType: true,
+        },
+      },
+      primaryDescriptorTag: { select: { id: true, label: true } },
+      categories: {
+        select: {
+          category: {
+            select: {
+              id: true, name: true, parentId: true, pinColour: true,
+              pinIcon: true, descriptorSuffix: true, intentType: true,
+            },
+          },
+        },
+      },
+      highlights: {
+        include: { tag: { select: { id: true, label: true } } },
+        orderBy: { sortOrder: 'asc' },
+        take: 3,
+      },
+      vouchers: {
+        where:  { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+        select: { id: true, estimatedSaving: true },
+      },
+      _count: {
+        select: {
+          vouchers: {
+            where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+          },
+        },
+      },
+    },
+  },
+} as const
+
+// Server-side mirror of apps/customer-app/src/features/merchant/utils/branchShortName.ts.
+// Strips a "Merchant — Locality" / "Merchant - Locality" / "Merchant Locality"
+// prefix from a raw branch name and returns the bare locality. Falls back to
+// the raw name when stripping would produce an empty string.
+//
+// The wire field name `branchName` is forward-compatible with the eventual
+// `Branch.shortName` schema migration (deferred under §A in the spec) — once
+// the column lands, the server reads it directly and this helper retires.
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+function branchShortNameServer(rawBranchName: string, businessName: string): string {
+  if (!rawBranchName || !businessName) return rawBranchName
+  const escaped = escapeRegex(businessName)
+  const dashed = new RegExp(`^${escaped}\\s*[\\-–—]\\s*`, 'i')
+  const spaced = new RegExp(`^${escaped}\\s+`, 'i')
+  const stripped = rawBranchName.replace(dashed, '').replace(spaced, '').trim()
+  return stripped.length > 0 ? stripped : rawBranchName
+}
+
+// Input shape supplied by the rankBranchesV3 result + per-input distance the
+// caller has already computed (or null when no effective location is resolved).
+// Mirrors the V3 fields the customer-app surfaces consume.
+export type EnrichBranchInput = {
+  branchId:      string
+  merchantId:    string
+  supplyRung:    BranchTile['supplyRung']
+  proximityBand: BranchTile['proximityBand']
+  distance:      number | null
+}
+
+// Per-request context for the enrichment pass. `userId` drives the favourites
+// lookup; `lat` / `lng` are reserved for downstream tasks that compute a
+// per-branch distance at enrichment time (Phase 1 does NOT, since rankBranchesV3
+// already supplies `distance`/`distanceMetres`).
+export type EnrichBranchCtx = {
+  userId: string | null
+  lat:    number | null
+  lng:    number | null
+}
+
+// Internal: the typed shape returned by a Prisma findMany against
+// BRANCH_TILE_SELECT. We construct it via the const-typed select for accuracy.
+type BranchSelectResult = Prisma.BranchGetPayload<{ select: typeof BRANCH_TILE_SELECT }>
+
+function enrichBranchTile(
+  branch: BranchSelectResult,
+  opts: {
+    input: EnrichBranchInput
+    rating?: { avg: number | null; count: number }
+    isFavourited: boolean
+    redundantSet: ReadonlySet<string>
+  },
+): BranchTile {
+  const merchant = branch.merchant
+  const exposed  = exposeBranchPosition(branch)
+
+  // Subcategory derivation mirrors enrichMerchantTile (service.ts:576-578) —
+  // pick the first non-primary subcategory from MerchantCategory rows.
+  const subcategory = merchant.categories
+    .map(c => c.category)
+    .find(c => c.parentId !== null && c.id !== merchant.primaryCategory?.id) ?? null
+
+  // Savings — mirrors enrichMerchantTile (service.ts:580-581). Prisma Decimal
+  // serializes as a string; coerce via Number then drop NaNs defensively.
+  const savings = merchant.vouchers
+    .map(v => Number(v.estimatedSaving))
+    .filter(n => !isNaN(n))
+  const maxEstimatedSaving = savings.length > 0 ? Math.max(...savings) : null
+
+  // Descriptor — branchTileSchema declares `descriptor: z.string()` (not
+  // nullable), so fall back to an empty string when the merchant has no
+  // primaryCategory.
+  const descriptor = descriptorForMerchant(merchant) ?? ''
+
+  // Highlights — visibleHighlightsFor filters out redundant-by-subcategory
+  // tags + caps at 3. `tag` (NOT `highlightTag`) per service.ts:225-228 +
+  // schema relation `MerchantHighlight.tag`.
+  const visibleHighlights = visibleHighlightsFor(merchant.highlights ?? [], opts.redundantSet)
+    .map(h => ({ highlightTagId: h.highlightTagId, label: h.tag.label }))
+
+  return {
+    id:                       branch.id,
+    branchName:               branchShortNameServer(branch.name, merchant.businessName),
+    branchLocalityId:         branch.localityId,
+    branchLocalityName:       branch.localityName,
+    branchPostTown:           branch.postTown,
+    branchCity:               branch.city,
+    branchLatitude:           exposed.latitude,
+    branchLongitude:          exposed.longitude,
+    branchLocationConfidence: exposed.locationConfidence as BranchTile['branchLocationConfidence'],
+    isOpenNow:                isOpenNow(branch.openingHours),
+    closesAtLocal:            null, // Phase 1 — see header comment above.
+    distance:                 opts.input.distance,
+    isFavourited:             opts.isFavourited,
+    avgRating:                opts.rating?.avg ?? null,
+    reviewCount:              opts.rating?.count ?? 0,
+    supplyRung:               opts.input.supplyRung,
+    proximityBand:            opts.input.proximityBand,
+    distanceMetres:           opts.input.distance,
+    merchant: {
+      id:                  merchant.id,
+      businessName:        merchant.businessName,
+      tradingName:         merchant.tradingName,
+      logoUrl:             merchant.logoUrl,
+      bannerUrl:           merchant.bannerUrl,
+      primaryCategory:     merchant.primaryCategory
+        ? {
+            id:               merchant.primaryCategory.id,
+            name:             merchant.primaryCategory.name,
+            pinColour:        merchant.primaryCategory.pinColour ?? null,
+            pinIcon:          merchant.primaryCategory.pinIcon ?? null,
+            descriptorSuffix: merchant.primaryCategory.descriptorSuffix ?? null,
+            parentId:         merchant.primaryCategory.parentId,
+            intentType:       merchant.primaryCategory.intentType ?? null,
+          }
+        : null,
+      primaryDescriptorTag: merchant.primaryDescriptorTag
+        ? { id: merchant.primaryDescriptorTag.id, label: merchant.primaryDescriptorTag.label }
+        : null,
+      subcategory: subcategory
+        ? {
+            id:               subcategory.id,
+            name:             subcategory.name,
+            pinColour:        subcategory.pinColour ?? null,
+            pinIcon:          subcategory.pinIcon ?? null,
+            descriptorSuffix: subcategory.descriptorSuffix ?? null,
+            parentId:         subcategory.parentId,
+            intentType:       subcategory.intentType ?? null,
+          }
+        : null,
+      descriptor,
+      highlights:           visibleHighlights,
+      voucherCount:         merchant._count.vouchers,
+      maxEstimatedSaving,
+    },
+  }
+}
+
+async function enrichBranchTiles(
+  prisma: PrismaClient,
+  inputs: EnrichBranchInput[],
+  ctx: EnrichBranchCtx,
+): Promise<BranchTile[]> {
+  if (inputs.length === 0) return []
+
+  const branchIds   = inputs.map(i => i.branchId)
+  const merchantIds = Array.from(new Set(inputs.map(i => i.merchantId)))
+
+  // 1. Bulk fetch branches (with merchant + grouping fields pre-joined).
+  //    Must complete first — call 4 (redundant highlights) needs the
+  //    primaryCategoryId values pulled off each raw branch's merchant.
+  const rawBranches = await prisma.branch.findMany({
+    where:  { id: { in: branchIds } },
+    select: BRANCH_TILE_SELECT,
+  })
+
+  // After call 1, calls 2/3/4 are mutually independent — they only depend
+  // on branchIds / merchantIds / subcategoryIds, all derivable now. Run
+  // them in parallel to save ~2 DB round-trips per Phase 1 endpoint call.
+  // The merchant-variant enrichMerchantTiles (service.ts:616-711) keeps
+  // the sequential pattern unchanged — Phase 3 deletes it.
+  const subcategoryIds = Array.from(new Set(
+    rawBranches
+      .map(b => b.merchant.primaryCategoryId)
+      .filter((id): id is string => Boolean(id)),
+  ))
+
+  const [ratingGroups, favs, redundantRows] = await Promise.all([
+    // 2. Per-BRANCH rating aggregate — distinct from the merchant variant
+    //    which sums across all branches under a merchant. Branch-first
+    //    cardinality means each tile's rating is the branch's own rating.
+    branchIds.length > 0
+      ? prisma.review.groupBy({
+          by:     ['branchId'],
+          where:  { branchId: { in: branchIds }, isHidden: false },
+          _avg:   { rating: true },
+          _count: { id: true },
+        })
+      : Promise.resolve([] as Array<{ branchId: string | null; _avg: { rating: number | null }; _count: { id: number } }>),
+    // 3. Favourites — merchant-keyed wire under Rev-2 §7 decision #13.
+    //    Every branch tile of the same merchant shares isFavourited.
+    ctx.userId && merchantIds.length > 0
+      ? prisma.favouriteMerchant.findMany({
+          where:  { userId: ctx.userId, merchantId: { in: merchantIds } },
+          select: { merchantId: true },
+        })
+      : Promise.resolve([] as Array<{ merchantId: string }>),
+    // 4. Redundant-highlight rules per subcategory — mirrors enrichMerchantTiles
+    //    (service.ts:640-661). Group by subcategoryId so each per-branch call
+    //    below can look up its own redundant set in O(1).
+    subcategoryIds.length > 0
+      ? prisma.redundantHighlight.findMany({
+          where:  { subcategoryId: { in: subcategoryIds } },
+          select: { subcategoryId: true, highlightTagId: true },
+        })
+      : Promise.resolve([] as Array<{ subcategoryId: string; highlightTagId: string }>),
+  ])
+
+  const ratingByBranch = new Map<string, { avg: number | null; count: number }>()
+  for (const r of ratingGroups) {
+    if (r.branchId === null) continue
+    const avgRaw = r._avg.rating
+    const avg = avgRaw === null ? null : Math.round(Number(avgRaw) * 10) / 10
+    ratingByBranch.set(r.branchId, { avg, count: r._count.id })
+  }
+
+  const favouritedMerchantSet = new Set<string>()
+  for (const f of favs) favouritedMerchantSet.add(f.merchantId)
+
+  const redundantBySubcat = new Map<string, Set<string>>()
+  for (const r of redundantRows) {
+    let bucket = redundantBySubcat.get(r.subcategoryId)
+    if (!bucket) {
+      bucket = new Set<string>()
+      redundantBySubcat.set(r.subcategoryId, bucket)
+    }
+    bucket.add(r.highlightTagId)
+  }
+
+  // 5. Build the tile array in input order — preserves the rankBranchesV3
+  //    ordering. Drops silently if a branch referenced in inputs no longer
+  //    exists (race against deletion); the upstream ranker already filtered
+  //    by isActive + locationConfidence so this is an edge case.
+  const branchById = new Map(rawBranches.map(b => [b.id, b]))
+  const tiles: BranchTile[] = []
+  for (const input of inputs) {
+    const branch = branchById.get(input.branchId)
+    if (!branch) continue
+    const redundantSet = branch.merchant.primaryCategoryId
+      ? (redundantBySubcat.get(branch.merchant.primaryCategoryId) ?? EMPTY_REDUNDANT_SET)
+      : EMPTY_REDUNDANT_SET
+    tiles.push(enrichBranchTile(branch, {
+      input,
+      rating:       ratingByBranch.get(branch.id),
+      isFavourited: favouritedMerchantSet.has(branch.merchant.id),
+      redundantSet,
+    }))
+  }
+  return tiles
+}
+
+export { enrichBranchTile, enrichBranchTiles }
+
 // ─── Home Feed ───────────────────────────────────────────────────────────────
 
 export async function getHomeFeed(
@@ -868,6 +1201,74 @@ export async function getHomeFeed(
     }
   }
 
+  // ─── Phase 1 additive — branch-themed home-feed variants (Spec §1.5) ───────
+  //
+  // Adds `featuredBranches`, `trendingBranches`, `nearbyByCategoryBranches`
+  // alongside the existing merchant-themed fields. Existing fields are
+  // UNCHANGED — this is strictly additive. `campaigns` (banner-level) is NOT
+  // fanned out: it's a CampaignBannerTile[], not a merchant/branch tile list.
+  //
+  // Featured + Trending merchants fan out to all their active branches as
+  // separate branch tiles per Spec §5.2 interim behaviour (pre-
+  // FeaturedMerchant.branchId? schema migration). Same for nearbyByCategory.
+  //
+  // POSTCODE_CENTROID + NEEDS_REVIEW branches: surface as tiles per Spec
+  // §4.1.1 list-view admission (Home is a list view). enrichBranchTiles +
+  // exposeBranchPosition handle lat/lng redaction at the serialization
+  // boundary, so non-MANUALLY_CONFIRMED tiles surface with null
+  // branchLatitude / branchLongitude.
+  //
+  // Option A — no ranking pass for Home: Home's inclusion + order is
+  // curatorial (FeaturedMerchant table priority, trending = redemption count,
+  // nearbyByCategory = city-filtered grouping). Rank-then-paginate doesn't
+  // apply the same way as Map/Search. Each fan-out tile passes
+  // `supplyRung: null, proximityBand: null` into enrichBranchTiles; the V3
+  // ranker can be wired in a later Phase if a Home redesign requires it.
+  //
+  // Distance per tile is computed via haversineMetres ONLY when:
+  //   (a) the user has GPS (lat/lng both non-null), AND
+  //   (b) the branch is MANUALLY_CONFIRMED with both lat/lng set.
+  // Otherwise distance is null. This mirrors the redaction contract:
+  // exposeBranchPosition would null the position for non-MANUALLY_CONFIRMED
+  // branches inside enrichBranchTile, so computing a distance against
+  // approximate POSTCODE_CENTROID coords would mislead.
+  function fanOutMerchantToBranchInputs(merchant: { id: string; branches: any[] }): EnrichBranchInput[] {
+    return merchant.branches
+      .filter((b: any) => b.isActive)
+      .map((b: any) => {
+        const hasUserGps = lat !== null && lng !== null
+        const hasExact = hasExactPosition(b)
+        const d = hasUserGps && hasExact
+          ? haversineMetres(lat!, lng!, Number(b.latitude), Number(b.longitude))
+          : null
+        return {
+          branchId:      b.id,
+          merchantId:    merchant.id,
+          supplyRung:    null,
+          proximityBand: null,
+          distance:      d,
+        }
+      })
+  }
+
+  const featuredBranchInputs  = featured.flatMap((m: any)        => fanOutMerchantToBranchInputs(m))
+  const trendingBranchInputs  = (trending as any[]).flatMap((m: any) => fanOutMerchantToBranchInputs(m))
+  const nearbyBranchInputsBy  = nearbyByCategory.map(section => ({
+    category: section.category,
+    inputs:   section.merchants.flatMap((m: any) => fanOutMerchantToBranchInputs(m)),
+  }))
+
+  // Run the three enrichBranchTiles batches in parallel (mirrors the
+  // enrichMerchantTiles parallel pattern above at lines 1150-1153).
+  const [featuredBranches, trendingBranches, nearbyByCategoryBranchesFlat] = await Promise.all([
+    enrichBranchTiles(prisma, featuredBranchInputs,  { userId, lat, lng }),
+    enrichBranchTiles(prisma, trendingBranchInputs,  { userId, lat, lng }),
+    Promise.all(nearbyBranchInputsBy.map(async section => ({
+      category: section.category,
+      branches: await enrichBranchTiles(prisma, section.inputs, { userId, lat, lng }),
+    }))),
+  ])
+
   return {
     locationContext: { city: locationCtx.city, source: locationCtx.source },
     featured: enrichedFeatured.map(t => mergeV2FieldsOntoTile(t, homeV2TileById)),
@@ -877,6 +1278,11 @@ export async function getHomeFeed(
       category: item.category,
       merchants: item.merchants.map((t: any) => mergeV2FieldsOntoTile(t, homeV2TileById)),
     })),
+    // Phase 1 additive — branch-themed variants. NOT a campaignBranches field;
+    // campaigns are banner-level and stay unchanged.
+    featuredBranches,
+    trendingBranches,
+    nearbyByCategoryBranches: nearbyByCategoryBranchesFlat,
   }
 }
 
@@ -1924,6 +2330,365 @@ export async function searchMerchants(
   }
 }
 
+// ─── Search (branch-first variant) ───────────────────────────────────────────
+//
+// Discovery Rebaseline Phase 1 Task 1.5.
+// Spec docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §3.
+//
+// Branch-first analogue of `searchMerchants` above. Same param surface, but the
+// output is a flat list of `BranchTile`s (one per branch) rather than one row
+// per merchant. Coexists with the merchant variant during Phase 1 + Phase 2;
+// Phase 3 drops the merchant version per the §AT cleanup note.
+//
+// Pipeline (mirrors the 7-step shape of searchMerchants):
+//   1. Validate at least one bounded predicate (q / categoryId / subcategoryId / bbox).
+//   2. Build a branch-level Prisma where (merchant filters via `merchant: { ... }`).
+//      Free-text OR clause extends to branch-identity fields per Spec §3.1
+//      (branch.name / localityName / postTown) — the Covelum / Brightlingsea bug
+//      class closes here at the service layer.
+//   3. Fetch candidate branches (no take / skip).
+//   4. Partition by `locationConfidence`:
+//        MANUALLY_CONFIRMED + ADDRESS_GEOCODED → pass through rankBranchesV3.
+//        POSTCODE_CENTROID + NEEDS_REVIEW      → null-rung "tail" tiles. List
+//        views (Search / Home / Category) MUST surface these per Spec §4.1.1;
+//        only Map pin layers exclude them.
+//   5. Resolve effLoc + ladder profile + outgoing catchment.
+//   6. Rank the rankable subset via `rankBranchesV3`. Sort the non-rankable
+//      tail alphabetically by `merchant.businessName` then branch id for
+//      determinism.
+//   7. Concatenate (ranked ++ non-rankable tail), compute total, paginate, enrich.
+//
+// Scope resolution: rather than introduce a per-rung `resolveScopeForBranches`,
+// we delegate "show NEARBY, expand outward as needed" to rankBranchesV3 via its
+// existing `targetCount` + `maxRung` semantics (a high hardCap = 500 keeps the
+// rung walk generous enough for the page slice). The merchant-variant
+// `resolveScopeForRanking` keys on legacy `SupplyTier`, which doesn't map 1:1
+// to the V3 rung ladder — factoring it out is Phase 3 cleanup work, not Phase 1.
+//
+// Phase 1 params accepted but NOT honoured (the function signature mirrors
+// searchMerchants for surface parity; honouring is delegated to Phase 3
+// cleanup or follow-up work; rankBranchesV3 + the branch-first contract
+// intentionally simplify the Phase 1 surface):
+//   - scope            — retained-rung walk delegated to rankBranchesV3's
+//                        targetCount / hardCap semantics (see scope-resolution
+//                        note above); no resolveScopeForBranches introduced.
+//   - maxDistanceMiles — would require a post-rank distance filter; deferred.
+//   - amenityIds       — branch-level amenity filter; deferred.
+//   - tagIds           — Tag.label filter; deferred (Plan 4 M4 work).
+//   - openNow          — Europe/London current-time gate; deferred.
+//   - featured         — FeaturedMerchant overlay; deferred.
+//   - topRated         — quality-aware sort; deferred.
+//   - sortBy           — relevance / nearest / top_rated / highest_saving
+//                        override; deferred (current sort is rankBranchesV3's
+//                        default per ladder profile).
+//
+// Route handlers that wire searchBranches alongside searchMerchants (Task 1.10)
+// should be aware of this parity gap. Two options for callers:
+//   (a) strip these params at the route layer when delegating to searchBranches.
+//   (b) accept them at the route and document the no-op for callers.
+// Recommended: (b) — accept-and-no-op keeps callers' tests portable across
+// Phase 1 / 2 / 3 as more params get honoured incrementally.
+export async function searchBranches(
+  prisma: PrismaClient,
+  params: {
+    q?: string
+    categoryId?: string
+    subcategoryId?: string
+    lat?: number
+    lng?: number
+    minLat?: number; maxLat?: number; minLng?: number; maxLng?: number
+    maxDistanceMiles?: number
+    minSaving?: number
+    voucherTypes?: string[]
+    amenityIds?: string[]
+    tagIds?: string[]
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
+    openNow?: boolean
+    featured?: boolean
+    topRated?: boolean
+    sortBy?: 'relevance' | 'nearest' | 'top_rated' | 'highest_saving'
+    limit: number
+    offset: number
+    userId: string | null
+  },
+): Promise<{
+  branches: BranchTile[]
+  totalBranches: number
+  meta: {
+    rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
+    effectiveLocality: { id: string; name: string } | null
+  }
+}> {
+  const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
+          minSaving, voucherTypes, limit, offset, userId } = params
+
+  // ── 1. Validate bounded predicate (mirrors searchMerchants line 1978).
+  if (!q && !categoryId && !subcategoryId && minLat === undefined) {
+    throw new AppError('SEARCH_QUERY_REQUIRED')
+  }
+
+  // ── 2. Build branch-level predicate.
+  const where: Prisma.BranchWhereInput = {
+    isActive: true,
+    merchant: { status: MerchantStatus.ACTIVE },
+  }
+
+  if (q && q.trim().length > 0) {
+    // Tag-matched merchant lookup (mirrors searchMerchants:1985-1989).
+    const tags = await prisma.merchantSuggestedTag.findMany({
+      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
+      select: { merchantId: true },
+    })
+    const tagMerchantIds = Array.from(new Set(tags.map(t => t.merchantId)))
+
+    where.OR = [
+      // Merchant-level matches (mirror searchMerchants:1991-1996).
+      { merchant: { businessName:    { contains: q, mode: 'insensitive' } } },
+      { merchant: { tradingName:     { contains: q, mode: 'insensitive' } } },
+      { merchant: { description:     { contains: q, mode: 'insensitive' } } },
+      { merchant: { primaryCategory: { name: { contains: q, mode: 'insensitive' } } } },
+      { merchant: { categories:      { some: { category: { name: { contains: q, mode: 'insensitive' } } } } } },
+      ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
+      // Branch-level matches — NEW under Spec §3.1 (closes the
+      // Covelum / Brightlingsea bug class at the service layer).
+      { name:         { contains: q, mode: 'insensitive' as const } },
+      { localityName: { contains: q, mode: 'insensitive' as const } },
+      { postTown:     { contains: q, mode: 'insensitive' as const } },
+    ]
+  }
+
+  if (categoryId) {
+    const children = await prisma.category.findMany({
+      where:  { parentId: categoryId },
+      select: { id: true },
+    })
+    const catIds = [categoryId, ...children.map(c => c.id)]
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { OR: [
+        { primaryCategoryId: { in: catIds } },
+        { categories: { some: { categoryId: { in: catIds } } } },
+      ]}},
+    ]
+  }
+
+  if (subcategoryId) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { OR: [
+        { primaryCategoryId: subcategoryId },
+        { categories: { some: { categoryId: subcategoryId } } },
+      ]}},
+    ]
+  }
+
+  if (minSaving) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { vouchers: { some: {
+        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED,
+        estimatedSaving: { gte: minSaving },
+      }}}},
+    ]
+  }
+
+  if (voucherTypes && voucherTypes.length > 0) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { vouchers: { some: {
+        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED,
+        type: { in: voucherTypes as any },
+      }}}},
+    ]
+  }
+
+  // Bounding box — branch-direct (not via merchant.branches). Per the redaction
+  // contract (PR #81) only MANUALLY_CONFIRMED branches can be filtered by exact
+  // coords; approximate branches surface in the non-rankable tail instead and
+  // are filtered out of the bbox match by definition.
+  if (minLat !== undefined && maxLat !== undefined && minLng !== undefined && maxLng !== undefined) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        locationConfidence: 'MANUALLY_CONFIRMED',
+        latitude:  { gte: minLat, lte: maxLat },
+        longitude: { gte: minLng, lte: maxLng },
+      },
+    ]
+  }
+
+  // ── 3. Fetch candidate branches (no take / skip — rank-then-paginate).
+  //    Lite select for the ranking step; full BRANCH_TILE_SELECT runs in
+  //    enrichBranchTiles for the page slice only.
+  const candidateBranches = await prisma.branch.findMany({
+    where,
+    select: {
+      id:                 true,
+      merchantId:         true,
+      name:               true,
+      latitude:           true,
+      longitude:          true,
+      isActive:           true,
+      locationConfidence: true,
+      localityId:         true,
+      postTown:           true,
+      ladDistrict:        true,
+      adminCounty:        true,
+      region:             true,
+      locationCountry:    true,
+      merchant: {
+        select: { id: true, businessName: true },
+      },
+    },
+  })
+
+  // ── 4. Partition by locationConfidence (Spec §4.1.1).
+  const rankable    = candidateBranches.filter(b =>
+    b.locationConfidence === 'MANUALLY_CONFIRMED'
+    || b.locationConfidence === 'ADDRESS_GEOCODED'
+  )
+  const nonRankable = candidateBranches.filter(b =>
+    b.locationConfidence === 'POSTCODE_CENTROID'
+    || b.locationConfidence === 'NEEDS_REVIEW'
+  )
+
+  // ── 5. Resolve effLoc + ladder profile + outgoing catchment.
+  const effLoc = await resolveEffectiveLocation(
+    prisma,
+    { lat: lat ?? undefined, lng: lng ?? undefined },
+    userId,
+  )
+  const ladderProfile = await resolveLadderProfileForCategory(prisma, categoryId, subcategoryId)
+  const outgoingCatchmentTargetIds = effLoc
+    ? await getOutgoingCatchmentTargetIds(prisma, effLoc.locality.id)
+    : []
+
+  // Intent derivation — when a categoryId is provided, derive via
+  // resolveCategoryIntent; otherwise default to MIXED (the safe default per
+  // ranking.ts:425 — works for free-text where category cannot be inferred).
+  let categoryIntent: CategoryIntent = 'MIXED'
+  if (categoryId) {
+    const catRow = await prisma.category.findUnique({
+      where:  { id: categoryId },
+      select: { intentType: true, parent: { select: { intentType: true } } },
+    })
+    if (catRow) categoryIntent = resolveCategoryIntent(catRow)
+  }
+
+  // ── 6. Rank the rankable subset.
+  let rankedTiles: RankedBranchTile[] = []
+  let rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number> = { ...EMPTY_RUNG_COUNTS }
+  if (effLoc && rankable.length > 0) {
+    const inputs: RankableBranchInputV3[] = rankable.map(b => ({
+      id:                 b.id,
+      merchantId:         b.merchantId,
+      merchant: {
+        id:           b.merchant.id,
+        businessName: b.merchant.businessName,
+        // Per-merchant rating aggregates aren't used by rankBranchesV3 when
+        // categoryIntent is MIXED for the NEARBY rung (distance compare) —
+        // and for the rare DESTINATION subcategory path the per-branch
+        // rating compute would need a separate groupBy. Phase 1 ships with
+        // null/0 here; enrichBranchTiles below populates the per-branch
+        // rating that the wire tile carries. The ranking quality-tiebreak
+        // is therefore conservative for Phase 1; Phase 2 can revisit.
+        avgRating:    null,
+        reviewCount:  0,
+      },
+      latitude:           b.latitude  !== null ? Number(b.latitude)  : null,
+      longitude:          b.longitude !== null ? Number(b.longitude) : null,
+      isActive:           b.isActive,
+      locationConfidence: b.locationConfidence,
+      localityId:         b.localityId,
+      postTown:           b.postTown,
+      ladDistrict:        b.ladDistrict,
+      adminCounty:        b.adminCounty,
+      region:             b.region,
+      locationCountry:    b.locationCountry,
+    }))
+
+    const v3 = rankBranchesV3(inputs, {
+      effLoc,
+      ladderProfile,
+      outgoingCatchmentTargetIds,
+      categoryIntent,
+      targetCount: Math.max(limit, 50),
+      // Generous cap — rank-then-paginate guarantees we never need more than
+      // (offset + limit) tiles; 500 leaves room for downstream scope cascades
+      // without paying SQL pressure (already in-memory at this point).
+      hardCap:     500,
+    })
+    rankedTiles = v3.tiles
+    rungCounts  = v3.rungCounts
+  }
+  // If effLoc is null OR no rankable candidates exist, the ranked half stays
+  // empty; the non-rankable tail still surfaces below (Spec §4.1.1).
+
+  // Build a set of ranked branch ids — when effLoc is null, any branch that
+  // wasn't ranked (which is all of them) should still surface in the tail.
+  // When effLoc IS resolved but the rankBranchesV3 walk hit the hardCap, the
+  // unranked rankable branches naturally drop (acceptable for Phase 1; spec
+  // doesn't promise a UK-wide cap-busting list).
+  const rankedIds = new Set(rankedTiles.map(t => t.id))
+
+  // ── 7. Build the non-rankable tail (POSTCODE_CENTROID + NEEDS_REVIEW).
+  //    When effLoc is null, ALL candidates flow through the tail (the ranked
+  //    half is empty by construction) — deterministic ordering matters more
+  //    than perfect distance ordering here.
+  const tailCandidates = effLoc
+    ? nonRankable
+    : candidateBranches.filter(b => !rankedIds.has(b.id))
+
+  const tailSorted = [...tailCandidates].sort((a, b) => {
+    const ma = a.merchant.businessName.localeCompare(b.merchant.businessName)
+    if (ma !== 0) return ma
+    const nb = (a.name ?? '').localeCompare(b.name ?? '')
+    if (nb !== 0) return nb
+    return a.id.localeCompare(b.id)
+  })
+
+  // ── 8. Concatenate ranked ++ tail; pagination unit is the branch tile.
+  const allInputs: EnrichBranchInput[] = [
+    ...rankedTiles.map(t => ({
+      branchId:      t.id,
+      merchantId:    t.merchantId,
+      supplyRung:    t.supplyRung,
+      proximityBand: t.proximityBand,
+      distance:      t.distanceMetres,
+    } satisfies EnrichBranchInput)),
+    ...tailSorted.map(b => ({
+      branchId:      b.id,
+      merchantId:    b.merchantId,
+      supplyRung:    null,
+      proximityBand: null,
+      distance:      null,
+    } satisfies EnrichBranchInput)),
+  ]
+
+  const totalBranches = allInputs.length
+  const pageInputs    = allInputs.slice(offset, offset + limit)
+
+  // ── 9. Enrich the page slice.
+  const branches = await enrichBranchTiles(prisma, pageInputs, {
+    userId: userId ?? null,
+    lat:    lat   ?? null,
+    lng:    lng   ?? null,
+  })
+
+  // ── 10. Meta envelope — minimal Phase 1 shape. Phase 2 / Task 1.10 may
+  //       extend with scope / scopeExpanded / nearbyCount counterparts.
+  return {
+    branches,
+    totalBranches,
+    meta: {
+      rungCounts,
+      effectiveLocality: effLoc
+        ? { id: effLoc.locality.id, name: effLoc.locality.name }
+        : null,
+    },
+  }
+}
+
 // ─── Category Merchants ──────────────────────────────────────────────────────
 //
 // Group 4c (Task 19) — paginated merchants for a single category id, with the
@@ -2039,6 +2804,52 @@ export async function getCategoryMerchants(
       effectiveLocality: v2.effLoc ? { id: v2.effLoc.locality.id, name: v2.effLoc.locality.name } : null,
     },
   }
+}
+
+// ─── Category Branches ───────────────────────────────────────────────────────
+//
+// Discovery Rebaseline Phase 1 Task 1.8.
+// Spec docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §1.5.
+//
+// Branch-first analogue of `getCategoryMerchants`. Returns one `BranchTile` per
+// matching branch — multi-branch merchants in the category surface as multiple
+// tiles (closes the same merchant-collapse bug class as searchBranches in a
+// category-id-driven request).
+//
+// Implementation note: this is intentionally a thin delegate over
+// `searchBranches`. The category predicate (parent + subcategory union via
+// MerchantCategory.OR primaryCategoryId) is already implemented inside
+// searchBranches under the `if (categoryId)` branch (service.ts ≈2460). Empty
+// query + a categoryId satisfies the SEARCH_QUERY_REQUIRED bounded-predicate
+// guard, so no special-casing is required. Phase 3 drops `getCategoryMerchants`
+// per the §AT cleanup note.
+export async function getCategoryBranches(
+  prisma: PrismaClient,
+  params: {
+    categoryId: string
+    limit: number
+    offset: number
+    userId: string | null
+    lat?: number | null
+    lng?: number | null
+  },
+): Promise<{
+  branches: BranchTile[]
+  totalBranches: number
+  meta: {
+    rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
+    effectiveLocality: { id: string; name: string } | null
+  }
+}> {
+  return searchBranches(prisma, {
+    q:          undefined,
+    categoryId: params.categoryId,
+    lat:        params.lat ?? undefined,
+    lng:        params.lng ?? undefined,
+    limit:      params.limit,
+    offset:     params.offset,
+    userId:     params.userId,
+  })
 }
 
 // ─── In-area (Map) ────────────────────────────────────────────────────────────
@@ -2242,6 +3053,202 @@ export async function getInAreaMerchants(
   }
 }
 
+// ─── In-area (Map, branch-first variant) ─────────────────────────────────────
+//
+// Discovery Rebaseline Phase 1 Task 1.6.
+// Spec docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §4.1.1.
+//
+// Branch-first analogue of `getInAreaMerchants` above. Emits one `BranchTile`
+// per branch inside the bbox rather than one tile per merchant. Coexists with
+// the merchant variant during Phase 1 + Phase 2; Phase 3 drops the merchant
+// version per the §AT cleanup note.
+//
+// **Critical list-vs-map asymmetry (Spec §4.1.1):**
+//   Map endpoint accepts MANUALLY_CONFIRMED branches ONLY. Unlike
+//   `searchBranches` (which unions MANUALLY_CONFIRMED + ADDRESS_GEOCODED in
+//   the rankable half and surfaces POSTCODE_CENTROID + NEEDS_REVIEW as a
+//   non-rankable tail), Map pins require exact coordinates by definition.
+//   Pinning at a non-exact coord would silently relax PR #81's redaction
+//   contract (`exposeBranchPosition` nulls lat/lng for non-exact branches,
+//   so non-exact tiles would emit null coords and render as zero pins
+//   anyway — but excluding them server-side keeps the contract explicit
+//   and `totalBranches` honest).
+//
+// Pipeline:
+//   1. Predicate: isActive=true + merchant ACTIVE + MANUALLY_CONFIRMED only +
+//      bbox bounds on the branch row itself.
+//   2. Fetch candidates (lite select for ranking).
+//   3. Derive viewport-centred effLoc from the bbox centre (mirrors
+//      getInAreaMerchants:2856-2860). A user panning the map sees the
+//      panned area's rungs/bands, NOT their saved area's.
+//   4. Rank via rankBranchesV3 with ladderProfile='MIXED_NORMAL' and
+//      categoryIntent='MIXED' (safe defaults for Map; spec §5.7).
+//   5. Enrich the ranked tiles. The caller's lat/lng (NOT viewport centre)
+//      drives the per-tile distance display, so a user looking at a panned
+//      map still sees "X km from you" — not "X km from viewport centre".
+//
+// No pagination — Map shows all pins in the viewport up to `limit` (mirrors
+// the merchant variant's contract).
+export async function getInAreaBranches(
+  prisma: PrismaClient,
+  params: {
+    bbox: Bbox
+    categoryId?: string
+    lat?: number | null
+    lng?: number | null
+    userId: string | null
+    limit: number
+  },
+): Promise<{
+  branches: BranchTile[]
+  meta: {
+    effectiveLocality: { id: string; name: string } | null
+    rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
+  }
+}> {
+  const { bbox, categoryId, lat, lng, userId, limit } = params
+
+  // ── 1. Branch-level predicate — MANUALLY_CONFIRMED ONLY (PR #81 redaction
+  //    contract + Spec §4.1.1 list-vs-map asymmetry).
+  const where: Prisma.BranchWhereInput = {
+    isActive: true,
+    merchant: {
+      status: MerchantStatus.ACTIVE,
+      ...(categoryId
+        ? { OR: [
+            { primaryCategoryId: categoryId },
+            { categories: { some: { categoryId } } },
+          ] }
+        : {}),
+    },
+    locationConfidence: 'MANUALLY_CONFIRMED',
+    latitude:  { gte: bbox.minLat, lte: bbox.maxLat, not: null },
+    longitude: { gte: bbox.minLng, lte: bbox.maxLng, not: null },
+  }
+
+  // ── 2. Fetch candidate branches (lite select for ranking; full enrichment
+  //    runs on the page slice via enrichBranchTiles).
+  const candidateBranches = await prisma.branch.findMany({
+    where,
+    select: {
+      id:                 true,
+      merchantId:         true,
+      name:               true,
+      latitude:           true,
+      longitude:          true,
+      isActive:           true,
+      locationConfidence: true,
+      localityId:         true,
+      postTown:           true,
+      ladDistrict:        true,
+      adminCounty:        true,
+      region:             true,
+      locationCountry:    true,
+      merchant: {
+        select: { id: true, businessName: true },
+      },
+    },
+    take: limit,
+  })
+
+  // ── 3. Resolve viewport-centred effLoc (mirrors getInAreaMerchants:2856-2860).
+  //    A user panning the map to a different area sees that area's
+  //    rungs/bands, NOT their saved area's.
+  const viewportCenterLat = (bbox.minLat + bbox.maxLat) / 2
+  const viewportCenterLng = (bbox.minLng + bbox.maxLng) / 2
+  const viewportEffLoc = await resolveEffectiveLocation(
+    prisma,
+    { lat: viewportCenterLat, lng: viewportCenterLng },
+    null,
+  )
+
+  // ── 4. Rank the candidates via rankBranchesV3.
+  //    All candidates are MANUALLY_CONFIRMED by predicate, so there is no
+  //    non-rankable tail (unlike searchBranches). categoryIntent defaults to
+  //    MIXED (safe per ranking.ts when no category is provided);
+  //    ladderProfile is 'MIXED_NORMAL' for Map per spec §5.7.
+  let rankedTiles: RankedBranchTile[] = []
+  let rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number> = { ...EMPTY_RUNG_COUNTS }
+  if (viewportEffLoc && candidateBranches.length > 0) {
+    let categoryIntent: CategoryIntent = 'MIXED'
+    if (categoryId) {
+      const catRow = await prisma.category.findUnique({
+        where:  { id: categoryId },
+        select: { intentType: true, parent: { select: { intentType: true } } },
+      })
+      if (catRow) categoryIntent = resolveCategoryIntent(catRow)
+    }
+
+    const outgoingCatchmentTargetIds = await getOutgoingCatchmentTargetIds(
+      prisma, viewportEffLoc.locality.id,
+    )
+
+    const inputs: RankableBranchInputV3[] = candidateBranches.map(b => ({
+      id:                 b.id,
+      merchantId:         b.merchantId,
+      merchant: {
+        id:           b.merchant.id,
+        businessName: b.merchant.businessName,
+        // Per-branch ratings populated downstream in enrichBranchTiles.
+        // ranking step uses null/0 conservatively (Phase 1 parity with
+        // searchBranches; Phase 2 can revisit).
+        avgRating:    null,
+        reviewCount:  0,
+      },
+      latitude:           b.latitude  !== null ? Number(b.latitude)  : null,
+      longitude:          b.longitude !== null ? Number(b.longitude) : null,
+      isActive:           b.isActive,
+      locationConfidence: b.locationConfidence,
+      localityId:         b.localityId,
+      postTown:           b.postTown,
+      ladDistrict:        b.ladDistrict,
+      adminCounty:        b.adminCounty,
+      region:             b.region,
+      locationCountry:    b.locationCountry,
+    }))
+
+    const v3 = rankBranchesV3(inputs, {
+      effLoc: viewportEffLoc,
+      ladderProfile: 'MIXED_NORMAL',
+      outgoingCatchmentTargetIds,
+      categoryIntent,
+      targetCount: limit,
+      hardCap:     limit,
+    })
+    rankedTiles = v3.tiles
+    rungCounts  = v3.rungCounts
+  }
+
+  // ── 5. Enrich the ranked tiles. The caller's lat/lng (NOT viewport centre)
+  //    drives the per-tile distance display — a user looking at a panned map
+  //    still sees "X km from you", not "X km from viewport centre".
+  const branches = await enrichBranchTiles(
+    prisma,
+    rankedTiles.map(t => ({
+      branchId:      t.id,
+      merchantId:    t.merchantId,
+      supplyRung:    t.supplyRung,
+      proximityBand: t.proximityBand,
+      distance:      t.distanceMetres,
+    } satisfies EnrichBranchInput)),
+    {
+      userId: userId ?? null,
+      lat:    lat   ?? null,
+      lng:    lng   ?? null,
+    },
+  )
+
+  return {
+    branches,
+    meta: {
+      effectiveLocality: viewportEffLoc
+        ? { id: viewportEffLoc.locality.id, name: viewportEffLoc.locality.name }
+        : null,
+      rungCounts,
+    },
+  }
+}
+
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 /**
@@ -2319,7 +3326,14 @@ export async function getCampaignMerchants(
   prisma: PrismaClient,
   campaignId: string,
   params: { categoryId?: string; limit: number; offset: number; lat?: number; lng?: number; userId?: string | null },
-) {
+): Promise<{ merchants: any[]; total: number }> {
+  // Discovery Rebaseline Phase 1 review-fix (PR #110): the return shape is
+  // now `{ merchants, total }` where `total` is the TRUE matching count
+  // BEFORE pagination — separate from `merchants.length` which is the
+  // page-slice count.  Earlier on this PR the route derived `total` from
+  // `merchants.length`, which lied to consumers about pagination math.
+  // Fix surfaces the real count via a paired `count()` query under the
+  // same predicate as the `findMany`.
   const now = new Date()
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -2330,13 +3344,111 @@ export async function getCampaignMerchants(
     throw new AppError('CAMPAIGN_NOT_FOUND')
   }
 
-  const rows = await prisma.campaignMerchant.findMany({
+  // Shared predicate — total + page slice use the SAME where clause so
+  // `total` reflects pre-pagination matching rows, not page size.
+  const where: Prisma.CampaignMerchantWhereInput = {
+    campaignId,
+    isActive: true,
+    startDate: { lte: now },
+    endDate:   { gte: now },
+    merchant: {
+      status: MerchantStatus.ACTIVE,
+      ...(params.categoryId ? {
+        OR: [
+          { primaryCategoryId: params.categoryId },
+          { categories: { some: { categoryId: params.categoryId } } },
+        ],
+      } : {}),
+    },
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.campaignMerchant.count({ where }),
+    prisma.campaignMerchant.findMany({
+      where,
+      select: { merchant: { select: MERCHANT_TILE_SELECT as any } },
+      orderBy: { merchant: { businessName: 'asc' } },
+      take:   params.limit,
+      skip:   params.offset,
+    }),
+  ])
+
+  const rawMerchants = rows.map((r: any) => r.merchant)
+  const merchants = await enrichMerchantTiles(prisma, rawMerchants, {
+    lat: params.lat ?? null,
+    lng: params.lng ?? null,
+    userId: params.userId ?? null,
+  })
+  return { merchants, total }
+}
+
+/**
+ * Discovery Rebaseline Phase 1 Task 1.9 — branch-first variant of
+ * `getCampaignMerchants`.
+ *
+ * Spec §8.1: Campaigns (`Campaign → CampaignMerchant → Merchant`) follow the
+ * same branch-scoped principle as Featured/Trending in §5.2. For each
+ * `CampaignMerchant`, we fan out to all of the merchant's ACTIVE branches and
+ * emit one `BranchTile` per branch.
+ *
+ * Interim behaviour pre-`CampaignMerchant.branchId?` schema migration: every
+ * campaign merchant fans out to ALL its active branches (identical to the
+ * Featured fan-out pattern in `getHomeFeed`, Task 1.7). A future Phase will
+ * let admins target specific branches per campaign.
+ *
+ * Status / date-window semantics: returns `{ branches: [], total: 0 }` when the
+ * campaign is missing, not ACTIVE, or outside its date window. This diverges
+ * intentionally from `getCampaignMerchants` (which throws `CAMPAIGN_NOT_FOUND`)
+ * — branch-first endpoints in Phase 1 prefer empty-list returns so the
+ * consumer surface can degrade gracefully (mirrors `searchBranches` /
+ * `getCategoryBranches` for empty result sets).
+ *
+ * No ranking pass — campaigns are curatorial. Each input row passes
+ * `supplyRung: null, proximityBand: null`. Distance is computed via
+ * `haversineMetres` ONLY when the user has GPS AND the branch is
+ * MANUALLY_CONFIRMED (matches the Home fan-out distance gate at
+ * service.ts:1239-1243 + the `hasExactPosition` redaction contract).
+ *
+ * Coexists with `getCampaignMerchants` through Phase 1+2; Phase 3 drops the
+ * merchant-themed variant.
+ */
+export async function getCampaignBranches(
+  prisma: PrismaClient,
+  campaignId: string,
+  params: {
+    categoryId?: string
+    lat?: number | null
+    lng?: number | null
+    userId: string | null
+    limit?: number
+    offset?: number
+  },
+): Promise<{ branches: BranchTile[]; total: number }> {
+  const now = new Date()
+  const campaign = await prisma.campaign.findUnique({
+    where:  { id: campaignId },
+    select: { id: true, status: true, startDate: true, endDate: true },
+  })
+  if (!campaign) return { branches: [], total: 0 }
+  if (
+    campaign.status !== CampaignStatus.ACTIVE ||
+    campaign.startDate > now ||
+    campaign.endDate < now
+  ) {
+    return { branches: [], total: 0 }
+  }
+
+  // Walk CampaignMerchant rows scoped to active campaign-merchant links
+  // (`isActive: true` + own date window) plus an active-merchant guard.
+  // Mirrors getCampaignMerchants' merchant scoping at service.ts:3340-3354,
+  // including the categoryId OR-expansion across primary + linked categories.
+  const cmRows = await prisma.campaignMerchant.findMany({
     where: {
       campaignId,
-      isActive: true,
+      isActive:  true,
       startDate: { lte: now },
       endDate:   { gte: now },
-      merchant: {
+      merchant:  {
         status: MerchantStatus.ACTIVE,
         ...(params.categoryId ? {
           OR: [
@@ -2346,16 +3458,64 @@ export async function getCampaignMerchants(
         } : {}),
       },
     },
-    select: { merchant: { select: MERCHANT_TILE_SELECT as any } },
+    select: {
+      merchant: {
+        select: {
+          id:       true,
+          branches: {
+            where: { isActive: true },
+            select: {
+              id:                 true,
+              latitude:           true,
+              longitude:          true,
+              locationConfidence: true,
+            },
+          },
+        },
+      },
+    },
     orderBy: { merchant: { businessName: 'asc' } },
-    take:   params.limit,
-    skip:   params.offset,
   })
 
-  const rawMerchants = rows.map((r: any) => r.merchant)
-  return enrichMerchantTiles(prisma, rawMerchants, {
-    lat: params.lat ?? null,
-    lng: params.lng ?? null,
-    userId: params.userId ?? null,
+  // Fan out to EnrichBranchInput rows — one per active branch, per merchant
+  // in the campaign. supplyRung/proximityBand null because campaigns skip the
+  // V3 ranker (curatorial inclusion).
+  const lat = params.lat ?? null
+  const lng = params.lng ?? null
+  const inputs: EnrichBranchInput[] = []
+  for (const row of cmRows) {
+    const merchant = row.merchant
+    if (!merchant) continue
+    for (const b of merchant.branches) {
+      const hasUserGps = lat !== null && lng !== null
+      const hasExact   = hasExactPosition(b)
+      const distance   = hasUserGps && hasExact
+        ? haversineMetres(lat, lng, Number(b.latitude), Number(b.longitude))
+        : null
+      inputs.push({
+        branchId:      b.id,
+        merchantId:    merchant.id,
+        supplyRung:    null,
+        proximityBand: null,
+        distance,
+      })
+    }
+  }
+
+  const total = inputs.length
+
+  // Pagination — apply only when limit is supplied. Mirrors getHomeFeed's
+  // post-rank slicing pattern; the same fan-out tile cannot be sliced
+  // mid-merchant because each row is already 1-tile-per-branch.
+  const page = params.limit !== undefined
+    ? inputs.slice(params.offset ?? 0, (params.offset ?? 0) + params.limit)
+    : inputs
+
+  const branches = await enrichBranchTiles(prisma, page, {
+    userId: params.userId,
+    lat,
+    lng,
   })
+
+  return { branches, total }
 }

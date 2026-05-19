@@ -8,11 +8,19 @@ vi.mock('../../../src/api/customer/discovery/service', () => ({
   getCustomerMerchantBranches: vi.fn(),
   getCustomerVoucher:          vi.fn(),
   searchMerchants:             vi.fn(),
+  // Discovery Rebaseline Phase 1 Task 1.10 — the 4 affected routes now
+  // also call the branch-themed service functions in parallel with their
+  // merchant-themed counterparts (Promise.all). Mocks must declare them
+  // or `searchBranches is not a function` errors fire at request time.
+  searchBranches:              vi.fn(),
   listActiveCategories:        vi.fn(),
   getActiveCampaigns:          vi.fn(),
   getCampaignMerchants:        vi.fn(),
+  getCampaignBranches:         vi.fn(),
   getCategoryMerchants:        vi.fn(),
+  getCategoryBranches:         vi.fn(),
   getInAreaMerchants:          vi.fn(),
+  getInAreaBranches:           vi.fn(),
 }))
 
 vi.mock('../../../src/api/lib/amenity', () => ({
@@ -38,11 +46,15 @@ import {
   getCustomerMerchantBranches,
   getCustomerVoucher,
   searchMerchants,
+  searchBranches,
   listActiveCategories,
   getActiveCampaigns,
   getCampaignMerchants,
+  getCampaignBranches,
   getCategoryMerchants,
+  getCategoryBranches,
   getInAreaMerchants,
+  getInAreaBranches,
 } from '../../../src/api/customer/discovery/service'
 import { getEligibleAmenitiesForSubcategory } from '../../../src/api/lib/amenity'
 
@@ -75,6 +87,27 @@ describe('discovery routes', () => {
     } as any)
 
     await app.ready()
+
+    // Phase 1 Task 1.10 — every existing route test that mocks
+    // `<merchant>` now also fires `<branch>` in parallel via Promise.all
+    // inside the route handler. Provide harmless default mock returns so
+    // tests that pre-date Task 1.10 don't need touching unless they
+    // specifically assert on the new fields.
+    vi.mocked(searchBranches).mockResolvedValue({
+      branches: [], totalBranches: 0,
+      meta: { rungCounts: {} as any, effectiveLocality: null },
+    } as any)
+    vi.mocked(getCategoryBranches).mockResolvedValue({
+      branches: [], totalBranches: 0,
+      meta: { rungCounts: {} as any, effectiveLocality: null },
+    } as any)
+    vi.mocked(getInAreaBranches).mockResolvedValue({
+      branches: [],
+      meta: { rungCounts: {} as any, effectiveLocality: null },
+    } as any)
+    vi.mocked(getCampaignBranches).mockResolvedValue({
+      branches: [], total: 0,
+    } as any)
 
     const jwtAny = app.jwt as any
     customerToken = jwtAny.customer.sign(
@@ -455,9 +488,10 @@ describe('discovery routes', () => {
   })
 
   it('GET /api/v1/customer/campaigns/:id/merchants returns 200', async () => {
-    vi.mocked(getCampaignMerchants).mockResolvedValueOnce([
-      { id: 'merchant-1', businessName: 'Acme' },
-    ] as any)
+    vi.mocked(getCampaignMerchants).mockResolvedValueOnce({
+      merchants: [{ id: 'merchant-1', businessName: 'Acme' }] as any,
+      total: 1,
+    })
 
     const res = await app.inject({
       method: 'GET',
@@ -466,13 +500,48 @@ describe('discovery routes', () => {
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(Array.isArray(body)).toBe(true)
-    expect(body).toHaveLength(1)
+    // Phase 1 wraps the previously-flat-array response into a
+    // `{ merchants, total, branches, totalBranches }` envelope.  PR-110
+    // review fix: `total` is now the TRUE matching count (pre-pagination),
+    // sourced from `getCampaignMerchants.total` — NOT derived from
+    // `merchants.length` as the initial Task 1.10 commit had it.
+    expect(Array.isArray(body.merchants)).toBe(true)
+    expect(body.merchants).toHaveLength(1)
+    expect(body).toHaveProperty('branches')
+    expect(body).toHaveProperty('totalBranches')
+    expect(body.total).toBe(1)
     expect(getCampaignMerchants).toHaveBeenCalledWith(
       expect.anything(),
       'campaign-1',
       expect.objectContaining({ limit: 20, offset: 0 }),
     )
+  })
+
+  it('GET /api/v1/customer/campaigns/:id/merchants — `total` reflects true matching count when `limit < total` (PR-110 review pin)', async () => {
+    // Mock a campaign with 50 matching merchants but only the first page of
+    // 20 surfaced in `merchants[]`.  Pre-fix the route returned
+    // `total: merchants.length` (= 20), lying about pagination math.
+    // Post-fix `total` MUST equal the true matching count (50).
+    vi.mocked(getCampaignMerchants).mockResolvedValueOnce({
+      merchants: Array.from({ length: 20 }, (_, i) => ({
+        id: `merchant-${i}`,
+        businessName: `Acme ${i}`,
+      })) as any,
+      total: 50,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/campaigns/campaign-1/merchants?limit=20&offset=0',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.merchants).toHaveLength(20)
+    // Critical assertion: total !== merchants.length when pagination has
+    // cut off matches.  Consumers paginate against `total`, not page size.
+    expect(body.total).toBe(50)
+    expect(body.total).not.toBe(body.merchants.length)
   })
 
   it('GET /api/v1/customer/campaigns/:id/merchants returns 404 when CAMPAIGN_NOT_FOUND', async () => {

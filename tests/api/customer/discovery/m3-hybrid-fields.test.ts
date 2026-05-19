@@ -193,18 +193,22 @@ describe('M3a hybrid contract — legacy + V2 fields side-by-side', () => {
 
 describe('M3a hybrid — getHomeFeed wires V2 fields onto tiles (shape preserved)', () => {
   it('home response keeps the existing top-level shape (no fields removed)', async () => {
-    const home = await getHomeFeed(prisma, { userId: null, lat: HUDDERSFIELD.lat, lng: HUDDERSFIELD.lng })
-    // Top-level keys are exactly the pre-M3a set. No additions at this
-    // level (per owner direction — additive only at tile level for Home).
-    const keys = Object.keys(home).sort()
-    expect(keys).toEqual([
-      'campaigns', 'featured', 'locationContext', 'nearbyByCategory', 'trending',
-    ])
+    const home = await getHomeFeed(prisma, { userId: null, lat: HUDDERSFIELD.lat, lng: HUDDERSFIELD.lng }) as any
+    // M3a-era top-level keys MUST still exist (no field removed). The
+    // Discovery Rebaseline Phase 1 Task 1.7 PR (Spec §1.5) additionally
+    // appends three NEW branch-themed keys (`featuredBranches`,
+    // `trendingBranches`, `nearbyByCategoryBranches`) alongside these —
+    // pinned in `home-feed-branches.test.ts`. We assert presence (not an
+    // exact key-set match) so future additive Phase 1/2 fields don't
+    // require touching this anti-removal pin.
+    for (const key of ['campaigns', 'featured', 'locationContext', 'nearbyByCategory', 'trending']) {
+      expect(home).toHaveProperty(key)
+    }
     // The existing locationContext shape is intact.
     expect(home.locationContext).toBeDefined()
     expect(home.locationContext).toHaveProperty('city')
     expect(home.locationContext).toHaveProperty('source')
-  })
+  }, 30_000)
 
   it('home tiles carry the additive M3 V2 fields, and at least one tile is V2-classified', async () => {
     const home = await getHomeFeed(prisma, { userId: null, lat: HUDDERSFIELD.lat, lng: HUDDERSFIELD.lng })
