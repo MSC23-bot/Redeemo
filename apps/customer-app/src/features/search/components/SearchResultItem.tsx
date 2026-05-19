@@ -252,10 +252,11 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         )}
       </View>
 
-      {/* Right — heart (favourite toggle) above saving badge.
-          PR #112 fixup-6: owner-locked heart-from-search.  Tap-target
-          44pt minimum.  Event capture prevents the card press from
-          firing under the heart tap. */}
+      {/* Right column — fixup-6.1 layout (owner-locked).
+          Heart anchors at the TOP-RIGHT corner; save badge sits vertically
+          centered in the remaining space.  The center wrapper expands via
+          flex:1 so the badge moves toward the visual midline as the card
+          grows in height (4-line info column with proximity row, etc.). */}
       <View style={styles.right}>
         <Pressable
           onPress={(e) => { e.stopPropagation(); favourite.toggle() }}
@@ -273,16 +274,18 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
             strokeWidth={2}
           />
         </Pressable>
-        {showBadge && (
-          <View style={styles.saveBadge}>
-            {savingHeadline && (
-              <Text style={styles.saveBadgePrimary} numberOfLines={1}>{savingHeadline}</Text>
-            )}
-            {secondaryLine && (
-              <Text style={styles.saveBadgeSecondary} numberOfLines={1}>{secondaryLine}</Text>
-            )}
-          </View>
-        )}
+        <View style={styles.saveBadgeCenterWrap}>
+          {showBadge && (
+            <View style={styles.saveBadge}>
+              {savingHeadline && (
+                <Text style={styles.saveBadgePrimary} numberOfLines={1}>{savingHeadline}</Text>
+              )}
+              {secondaryLine && (
+                <Text style={styles.saveBadgeSecondary} numberOfLines={1}>{secondaryLine}</Text>
+              )}
+            </View>
+          )}
+        </View>
         {/*
           Open/closed badge intentionally omitted at this layout layer —
           `isOpenNow` is now available on BranchTile (was missing from
@@ -300,13 +303,13 @@ const styles = StyleSheet.create({
   // Card — slightly taller paint area, a touch more horizontal breathing
   // room, gentler shadow.  Stronger visual confidence than the original
   // 10/12 padding scale.
-  // PR #112 fixup-4: roomier card.  Owner: badge was bulky and crushed the
-  // text stack.  Increased vertical padding for breathing room, kept the 12pt
-  // gap, and shrunk the badge minWidth so the info column can grow.  Card
-  // shadow keeps DESIGN.md navy-tint.
+  // PR #112 fixup-6.1: container is `alignItems: 'stretch'` so the
+  // right-column children can claim the full card height.  Logo + info
+  // sit at the top naturally; the right column hosts heart pinned to
+  // top and saveBadge vertically centered in the remaining space.
   container: {
     flexDirection: 'row',
-    alignItems: 'center',         // vertical centre — badge no longer top-anchored
+    alignItems: 'stretch',        // children fill card height
     backgroundColor: '#FFFFFF',
     borderRadius: 16,             // rounded.lg
     paddingVertical: 16,
@@ -385,18 +388,29 @@ const styles = StyleSheet.create({
     lineHeight:    14,
     letterSpacing: 0.1,
   },
+  // PR #112 fixup-6.1 (2026-05-20) — owner-locked right-column layout.
+  // Heart pinned to top, save badge vertically centered in the remaining
+  // space.  `right` is a flex column that fills the card height (parent
+  // alignItems: 'stretch').  The center wrapper claims `flex: 1` so the
+  // badge sits at the visual middle of the right column.
   right: {
-    alignItems: 'flex-end',
-    gap: 6,
-    paddingLeft: 4,
-    minHeight: 44,                         // anchor the heart row
+    flexDirection:  'column',
+    alignItems:     'flex-end',
+    paddingLeft:    4,
+    minWidth:       64,                    // reserve consistent right-rail width
   },
   heartBtn: {
-    width: 36,
-    height: 32,
+    width:          32,
+    height:         28,
     alignItems:     'flex-end',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',          // hug the top of the right column
     paddingRight:   2,                     // optical balance with card right padding
+    paddingTop:     0,                     // anchored at the corner
+  },
+  saveBadgeCenterWrap: {
+    flex:           1,                     // claim remaining vertical space
+    justifyContent: 'center',              // badge vertically centred in that space
+    alignItems:     'flex-end',            // right-edge alignment for badge text
   },
   // PR #112 fixup-4 (2026-05-19) — calmer save badge.
   //   Primary:   "Save £38.50" / "Save up to £5.50"  (heading.sm Lato-SemiBold)
