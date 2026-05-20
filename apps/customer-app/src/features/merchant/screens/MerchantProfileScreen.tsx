@@ -41,6 +41,7 @@ import { BranchContextBand } from '../components/BranchContextBand'
 import { BranchSwitchToast } from '../components/BranchSwitchToast'
 import { branchShortName } from '../utils/branchShortName'
 import { sortMerchantVouchers } from '../utils/voucherCardSort'
+import { resolveBackNavigation } from '../utils/resolveBackNavigation'
 
 function buildBranchLine(branch: { city: string | null; name: string }): string | null {
   // Pass 1 fallback: city when available, else strip-prefix the branch name.
@@ -978,21 +979,23 @@ export function MerchantProfileScreen({ id }: Props) {
         onShare={handleShare}
         scrollY={scrollY}
         topOffset={sbbHeight}
-        // PR #112 fixup-6 (2026-05-20) — when the user arrived from Search,
-        // route back to /(app)/search with the typed query preserved.
-        // Default expo-router Tabs `router.back()` falls back to the
-        // previously-active tab (Discovery) which is the owner-flagged bug.
+        // Explicit back-navigation per `?from=…` URL param.  Default
+        // expo-router Tabs `router.back()` falls back to the
+        // previously-active tab (typically Discovery), which is the
+        // owner-flagged bug class.  Surfaces that stamp `from=…`:
+        //   - `from=search&q=<q>` — Phase 2.1 Search (PR #112 fixup-6)
+        //   - `from=map`          — Phase 2.2 Map (PR-3 Phase D)
+        // `resolveBackNavigation` is a pure helper; null = defer to
+        // default router.back() behaviour.  See
+        // `apps/customer-app/src/features/merchant/utils/resolveBackNavigation.ts`.
         onBack={
-          screenParams.from === 'search'
-            ? () => {
-                const q = typeof screenParams.q === 'string' ? screenParams.q : ''
-                router.push(
-                  q
-                    ? (`/(app)/search?q=${encodeURIComponent(q)}` as any)
-                    : ('/(app)/search' as any),
-                )
-              }
-            : undefined
+          (() => {
+            const target = resolveBackNavigation(
+              typeof screenParams.from === 'string' ? screenParams.from : undefined,
+              typeof screenParams.q    === 'string' ? screenParams.q    : undefined,
+            )
+            return target ? () => router.push(target as any) : undefined
+          })()
         }
       />
 

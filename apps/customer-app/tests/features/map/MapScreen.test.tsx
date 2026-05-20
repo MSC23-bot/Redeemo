@@ -45,9 +45,12 @@ const mockSearchCalls: HookCall[] = []
 // Module-level state read by hook mocks. Tests mutate this in `beforeEach` /
 // inside individual tests before render to drive screen behaviour.
 const mockState = {
-  inAreaData:     null as null | { merchants: unknown[]; total: number; meta: { resolvedArea: string; nearbyCount: number; cityCount: number; distantCount: number; emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply' } },
+  // PR-3 Phase D — fixtures now optionally carry `branches[]`.
+  // MapScreen consumes branches for pins / carousel / list, plus
+  // empty-state + §BH loader gates.
+  inAreaData:     null as null | { merchants: unknown[]; branches?: unknown[]; total: number; meta: { resolvedArea: string; nearbyCount: number; cityCount: number; distantCount: number; emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply' } },
   inAreaLoading:  false,
-  searchData:     null as null | { merchants: unknown[]; total: number; meta?: { resolvedArea: string; scope: 'nearby' | 'city' | 'region' | 'platform'; scopeExpanded: boolean; nearbyCount: number; cityCount: number; distantCount: number; emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply' } },
+  searchData:     null as null | { merchants: unknown[]; branches?: unknown[]; total: number; meta?: { resolvedArea: string; scope: 'nearby' | 'city' | 'region' | 'platform'; scopeExpanded: boolean; nearbyCount: number; cityCount: number; distantCount: number; emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply' } },
   searchLoading:  false,
   locationStatus: 'granted' as 'idle' | 'loading' | 'granted' | 'denied',
 }

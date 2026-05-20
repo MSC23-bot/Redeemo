@@ -48,12 +48,23 @@ const mockState = {
   locationStatus: 'granted' as 'idle' | 'loading' | 'granted' | 'denied',
 }
 
+// PR-3 Phase D — `mockBranch` mirrors `mockTile` so the inAreaData
+// envelope is production-coherent (both arrays populated when the
+// viewport has supply). MapScreen now gates empty-state + §BH loader
+// on `branches.length`.
+const { makeBranchTile } = require('../../fixtures/branchTile')
+const mockBranch = makeBranchTile({
+  id: 'brn1', branchLatitude: 51.5, branchLongitude: -0.1,
+  merchant: { id: 'm1', businessName: 'Test' },
+})
+
 jest.mock('@/features/map/hooks/useInAreaBranches', () => ({
   useInAreaBranches: (bbox: BBox | null, _params: any, enabled = true) => {
     if (!enabled || bbox === null) return { data: undefined, isLoading: false }
     return {
       data: {
         merchants: [mockTile],
+        branches:  [mockBranch],
         total: 1,
         meta: {
           ...inAreaBaseMeta,

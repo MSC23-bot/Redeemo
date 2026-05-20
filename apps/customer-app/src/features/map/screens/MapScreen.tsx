@@ -203,20 +203,23 @@ export function MapScreen({ onMerchantPress }: Props) {
   // cached data. Drives the first-fetch loader gate below: we want
   // the loader during any fetch where no pins are on screen yet.
   const isFetching = hasNonScopeFilters ? searchResultQuery.isFetching : inAreaQuery.isFetching
-  // `merchants` still drives the empty-state classification +
-  // §BH first-fetch loader gate during Phase C — both gates were
-  // historically keyed on merchant count.  Phase D will audit whether
-  // to switch them to `branches.length` once the full pin/carousel/
-  // list pipeline is verified branch-first.
-  const merchants = data?.merchants ?? []
-  // PR-3 Phase C — branch-first wire shape (Phase 1 PR #110 additive
-  // on the in-area endpoint; PR #112 already shipped it on search).
-  // Feeds <MapPins> for one-pin-per-branch cardinality AND
-  // <MapBranchTile> carousel + <MapListView> rows for branch-keyed
-  // display identity.
-  const branches  = (data as { branches?: BranchTileType[] } | undefined)?.branches ?? []
-  const total     = data?.total     ?? 0
-  const meta      = data?.meta
+  // PR-3 Phase D — branch-first end-to-end on Map.  The legacy
+  // `merchants` variable (kept through Phase C for backward-compat
+  // with existing test fixtures) is gone — all user-visible Map
+  // surfaces (pins, carousel, list) consume `branches`, and the
+  // empty-state + §BH loader gates are now keyed off `branches.length`
+  // too (audit-driven flip, plan §3 + owner direction 2026-05-20).
+  // In production the two arrays are coherent (same SQL, same MC
+  // gate), so the flip changes no observable behaviour but removes
+  // the silent legacy dependency.
+  const branches = (data as { branches?: BranchTileType[] } | undefined)?.branches ?? []
+  // `total` drives the MapListView count badge — semantically "how
+  // many rows in the list" — so it follows `branches.length` (what
+  // the list actually renders).  The backend in-area endpoint does
+  // not emit a separate `totalBranches`, so reading `branches.length`
+  // is the right source.
+  const total    = branches.length
+  const meta     = data?.meta
 
   const categories = categoriesData?.categories ?? []
 
@@ -358,10 +361,18 @@ export function MapScreen({ onMerchantPress }: Props) {
   )
 
   // Tap from carousel card or list row → navigate to Merchant Profile.
-  // Phase C preserves the existing `/merchant/${merchantId}` URL —
-  // Phase D wires the `?branch=${branchId}&from=map` contract on top.
-  // We still resolve branch.id → merchant.id here because the route
-  // path is keyed on merchant.id today.
+  // PR-3 Phase D — locked URL contract:
+  //   `/(app)/merchant/${merchantId}?branch=${branchId}&from=map`
+  // - `?branch=…` lands the Merchant Profile pre-selected to the
+  //   tapped branch (existing branch-aware contract from PR #33).
+  // - `&from=map` lets `MerchantProfileScreen.onBack` route back to
+  //   `/(app)/map` instead of falling through to `router.back()`
+  //   (which under expo-router Tabs lands on the previously-active
+  //   tab — the owner-flagged bug class Phase 2.1 Search closed for
+  //   `from=search`, applied here to Map).
+  // The route path is keyed on merchant.id today, so we still resolve
+  // branch.id → branch.merchant.id.  The route group prefix
+  // `/(app)/…` mirrors Phase 2.1 Search (`SearchScreen.tsx:247`).
   const handleBranchNavigate = useCallback(
     (branchId: string) => {
       const branch = branches.find((b) => b.id === branchId)
@@ -370,7 +381,9 @@ export function MapScreen({ onMerchantPress }: Props) {
       if (onMerchantPress) {
         onMerchantPress(merchantId)
       } else {
-        router.push(`/merchant/${merchantId}` as any)
+        router.push(
+          `/(app)/merchant/${merchantId}?branch=${branchId}&from=map` as any,
+        )
       }
     },
     [branches, onMerchantPress, router],
@@ -386,10 +399,10 @@ export function MapScreen({ onMerchantPress }: Props) {
     if (showLocationPermission) return null
     if (offshore)                return 'offshore'
     if (isLoading)               return null
-    if (merchants.length > 0)    return null
+    if (branches.length > 0)     return null
     if (meta?.emptyStateReason === 'no_uk_supply') return 'no_uk_supply'
     return 'viewport_empty'
-  }, [showLocationPermission, offshore, isLoading, merchants.length, meta])
+  }, [showLocationPermission, offshore, isLoading, branches.length, meta])
 
   const hasFilters =
     filters.categoryId !== null ||
@@ -406,7 +419,14 @@ export function MapScreen({ onMerchantPress }: Props) {
         style={styles.map}
         initialRegion={LONDON_REGION}
         onRegionChangeComplete={handleRegionChangeComplete}
-        showsUserLocation={locationState.status === 'granted'}
+        // Fold 3 (PR-3 Phase D) — suppress the blue user-location dot
+        // whenever the user is browsing a remote city via
+        // <LocationSearch>.  Without this, the dot stays anchored at
+        // the user's real GPS while the camera has moved to e.g.
+        // Manchester — making it look like the user has teleported.
+        // Re-enables on dismiss of <LocationBadge> (or "Use current
+        // location") because `remoteCityName` returns to null there.
+        showsUserLocation={locationState.status === 'granted' && remoteCityName === null}
         showsMyLocationButton={false}
       >
         <MapPins
@@ -532,8 +552,10 @@ export function MapScreen({ onMerchantPress }: Props) {
           on the map (NOT full-screen, NOT a blocking spinner). Visible
           ONLY when the screen has no pins to show AND a fetch is in
           flight. `pointerEvents="none"` so map gestures pass through
-          unhindered. Gates:
-          - merchants.length === 0 — no pins on screen (§AY already
+          unhindered. PR-3 Phase D gate flip: was `merchants.length === 0`,
+          now `branches.length === 0` (the user-visible "nothing on
+          screen" source). Gates:
+          - branches.length === 0 — no pins on screen (§AY already
             keeps previous pins visible during refetch, so the loader
             only shows when there's truly nothing to display).
           - isFetching === true — covers both initial-load and refetch
@@ -542,7 +564,7 @@ export function MapScreen({ onMerchantPress }: Props) {
             precedence.
           - emptyVariant === null — MapEmptyArea / offshore /
             no_uk_supply take precedence. */}
-      {merchants.length === 0
+      {branches.length === 0
         && isFetching
         && !showLocationPermission
         && emptyVariant === null && (

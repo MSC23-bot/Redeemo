@@ -33,10 +33,14 @@ jest.mock('react-native-maps', () => {
 type BBox = { minLat: number; maxLat: number; minLng: number; maxLng: number }
 
 const mockState = {
-  inAreaData:     null as null | { merchants: any[]; total: number; meta: any },
+  // PR-3 Phase D — fixtures now provide `branches[]` alongside the
+  // legacy `merchants[]`.  Empty-state + §BH loader gates flipped to
+  // `branches.length`, so loader/empty tests must populate (or omit)
+  // both arrays coherently.
+  inAreaData:     null as null | { merchants: any[]; branches?: any[]; total: number; meta: any },
   inAreaLoading:  false,
   inAreaFetching: false,
-  searchData:     null as null | { merchants: any[]; total: number; meta?: any },
+  searchData:     null as null | { merchants: any[]; branches?: any[]; total: number; meta?: any },
   searchLoading:  false,
   searchFetching: false,
   locationStatus: 'granted' as 'idle' | 'loading' | 'granted' | 'denied',
@@ -119,11 +123,15 @@ describe('MapScreen — §BH first-fetch loader', () => {
     expect(queryByLabelText(LOADER_ACCESSIBILITY_LABEL)).toBeTruthy()
   })
 
-  it('does NOT show the loader when merchants are already present during refetch (§AY case)', () => {
-    // Refetch in progress, but previous viewport's merchants are
-    // still on screen via placeholderData → no loader.
+  it('does NOT show the loader when branches are already present during refetch (§AY case)', () => {
+    // Refetch in progress, but previous viewport's branches are
+    // still on screen via placeholderData → no loader.  PR-3 Phase D
+    // gate flip: loader visibility now keyed on `branches.length`,
+    // not the legacy `merchants.length`.
+    const { makeBranchTile } = require('../../fixtures/branchTile')
     mockState.inAreaData = {
       merchants: [mockTile],
+      branches:  [makeBranchTile({ id: 'brn1', branchLatitude: 51.5, branchLongitude: -0.1 })],
       total: 1,
       meta: { resolvedArea: 'Test', nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
     }
@@ -142,10 +150,11 @@ describe('MapScreen — §BH first-fetch loader', () => {
   })
 
   it('does NOT show the loader when MapEmptyArea / no_uk_supply is rendering', () => {
-    // emptyVariant resolves to 'no_uk_supply' when merchants empty + not
+    // emptyVariant resolves to 'no_uk_supply' when branches empty + not
     // loading + meta says no_uk_supply. Loader must yield to that.
     mockState.inAreaData = {
       merchants: [],
+      branches:  [],
       total: 0,
       meta: { resolvedArea: 'Test', nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
     }

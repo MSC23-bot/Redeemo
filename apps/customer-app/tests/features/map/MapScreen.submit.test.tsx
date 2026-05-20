@@ -37,10 +37,11 @@ jest.mock('react-native-maps', () => {
 // ─── Hook mocks ──────────────────────────────────────────────────────────────
 
 const mockState = {
-  inAreaData:     null as null | { merchants: any[]; total: number; meta: any },
+  // PR-3 Phase D — fixtures now optionally carry `branches[]`.
+  inAreaData:     null as null | { merchants: any[]; branches?: any[]; total: number; meta: any },
   inAreaLoading:  false,
   inAreaFetching: false,
-  searchData:     null as null | { merchants: any[]; total: number; meta?: any },
+  searchData:     null as null | { merchants: any[]; branches?: any[]; total: number; meta?: any },
   searchLoading:  false,
   searchFetching: false,
   locationStatus: 'granted' as 'idle' | 'loading' | 'granted' | 'denied',
