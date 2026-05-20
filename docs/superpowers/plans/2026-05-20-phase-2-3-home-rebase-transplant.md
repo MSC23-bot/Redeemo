@@ -69,6 +69,83 @@ The original §2 Out-of-scope said "Map, Search, Category, Voucher Detail, or Me
 
 ---
 
+## 0-amend-C. Pre-implementation amendment C (2026-05-21, owner-flagged)
+
+Owner referenced the supply-aware design spec — passive Home rails should automatically widen scope to avoid empty/sparse rails and honestly communicate the resolved scope in the section header. Audit confirms this behaviour is **NOT shipped today**. The gap is substantial — backend ranker integration + new response fields + client header logic. **OUT of Phase 2.3 scope.** Recorded as new deferred entry §CM.
+
+### Spec the owner cited
+
+From `docs/superpowers/specs/2026-04-29-supply-aware-correction-design.md`:
+- User-initiated screens (Search / Category) MUST NOT silently widen scope.
+- **Passive Home rails MAY widen scope automatically to avoid empty/sparse rails.**
+- If a Home rail widens, the section header MUST communicate the resolved scope honestly: "Featured near you" → "Featured across {city}" → "Featured across {region}" → wider/platform wording.
+- If even the widest scope has no supply, the rail SHOULD be suppressed rather than rendered empty.
+
+### Current Home backend behaviour (audited 2026-05-21 at `93803ca`)
+
+| Rail | Current source | Scope behaviour | Honesty in header |
+|---|---|---|---|
+| **Featured** | `prisma.featuredMerchant.findMany` at `service.ts:1221` — date-filtered, ACTIVE merchants, ordered by `startDate ASC`, take 10. **No location/scope filter at all.** | Platform-wide. Whatever admin curates appears for every user regardless of location. No cascade. | Static literal `Featured` in `FeaturedCarousel.tsx:76`. |
+| **Trending** | Counts redemptions this calendar month at `service.ts:1240-1267`, **city-filtered** at line 1249 (`if locationCtx.city && branch.city !== locationCtx.city: skip`). Top 10. **Single-attempt city filter; NO widening.** If city has 0 trending, returns empty. | None — city-only or unfiltered. Empty array possible. | Static literal `Trending near you` in `TrendingSection.tsx:42`. **Mismatch:** if zero supply in user's city, the section is client-suppressed (`merchants.length === 0` returns null) but no widening is attempted. |
+| **NearbyByCategory** | `prisma.merchant.findMany` at `service.ts:1283-1295`, **city-filtered** at line 1289. Up to 60 merchants, grouped into 6 categories × 5. **Single-attempt city filter; NO widening.** | None. Categories without 5 merchants in-city stay sparse; categories with 0 are dropped client-side. | Static literal `{CategoryName} near you` in `NearbyByCategory.tsx:51`. **Mismatch:** sparse categories render with implicitly-misleading "near you" wording even if the merchants are technically in-city but few. |
+| **Response shape** | `homeFeedResponseSchema` carries `featuredBranches[]`, `trendingBranches[]`, `nearbyByCategoryBranches[]` per Phase 1 additive. | **No per-rail `scope` field.** No `resolvedScope` / `scopeExpanded` / `effectiveLocality` per section. | — |
+
+**Critical context from `service.ts:1385-1390` ("Option A — no ranking pass for Home"):**
+
+> Home's inclusion + order is curatorial (FeaturedMerchant table priority, trending = redemption count, nearbyByCategory = city-filtered grouping). Rank-then-paginate doesn't apply the same way as Map/Search. Each fan-out tile passes `supplyRung: null, proximityBand: null` into enrichBranchTiles; the V3 ranker can be wired in a later Phase if a Home redesign requires it.
+
+This is an EXPLICIT carve-out — the backend was deliberately wired to skip `rankBranchesV3` for Home. The supply-aware scope-cascade primitive (`rankBranchesV3` + the `scopeResolution.resolvedScope` machinery at `service.ts:425-426, 3100`) exists but is wired into Search/Category, NOT Home.
+
+### Scope assessment for closing this gap
+
+| Work | Estimated cost |
+|---|---|
+| Backend: rewire Featured query to support scope cascade (currently no scope concept at all — needs a design call too) | ~80-150 LOC + decision: should Featured cascade at all, given it's admin-curated? |
+| Backend: rewire Trending query to do nearby → city → region → platform cascade | ~100-150 LOC |
+| Backend: rewire NearbyByCategory query to cascade per category | ~150-200 LOC |
+| Backend: extend `homeFeedResponseSchema` with per-rail scope metadata (e.g. `{ branches, scope: 'nearby'|'city'|'region'|'platform', scopeExpanded: bool, resolvedAreaLabel: string }`) | ~30 LOC schema + plumbing |
+| Backend tests: cascade pins for each rail at each scope level + suppression at widest-empty | ~200-300 LOC |
+| Customer-app: extend `homeFeedResponseSchema` Zod with the new metadata | ~20 LOC |
+| Customer-app: header copy logic per resolved scope on 3 components (`FeaturedCarousel`, `TrendingSection`, `NearbyByCategory`) | ~100-150 LOC + product copy decisions on exact wording per scope level |
+| Customer-app tests for header variants × 3 rails × 4 scope levels | ~150-200 LOC |
+| **Total** | **~700-1100 LOC + 3-4 product decisions** |
+
+**This is a substantial product-feature workstream, not a contract-migration item.** It has:
+- Backend ranker integration (the same work that Search + Category did in Plan 1.5)
+- Product decisions on exact header copy per scope level
+- Response-shape changes (new metadata fields per rail)
+- Significant test coverage
+
+### Decision
+
+**OUT of Phase 2.3. Recorded as deferred §CM.** Phase 2.3 stays focused on:
+- Branch-first contract migration (3 carousels flip)
+- `?branch=&from=home` navigation
+- `resolveBackNavigation` `from=home` (Amendment B)
+- Schema envelope extension (Amendment A)
+- Save badge consumer-side wording (Amendment A)
+- Scoped formatter audit (low-risk only)
+
+### Regression pins added in this PR (preserve current literal headers)
+
+To make §CM closure unambiguous later, Phase 2.3 adds these pins:
+- `FeaturedCarousel` header reads `Featured` (literal, no dynamic scope token today).
+- `TrendingSection` header reads `Trending near you` (literal).
+- `NearbyByCategory` header reads `{section.category.name} near you` (literal pattern; cite a Covelum-category seed fixture for the value).
+
+These pins lock the current state. When §CM ships, those pins WILL fail and the §CM PR will update them with the new scope-aware copy. The failure is intentional — it forces the §CM PR to acknowledge every header change.
+
+### Device-QA note (preserve current behaviour)
+
+If a rail has 0 supply in the user's current city, the rail is suppressed client-side via the existing `merchants.length === 0` early return in each component. This is **the same behaviour as today** — Phase 2.3 changes nothing here. Owner-facing QA copy in the PR body will explicitly call out: "Rails do not widen scope yet. Empty rails are suppressed silently. Honesty headers + cascade ship in §CM."
+
+### Cross-references
+
+- New deferred entry §CM in `project_deferred_followups_index.md` — captures the full audit + scope estimate + dependencies.
+- Spec source: `docs/superpowers/specs/2026-04-29-supply-aware-correction-design.md` §5.3 + §5.4 (scope-cascade primitive) and the locked passive-rail-widening rule cited by the owner.
+
+---
+
 ## 1. Goal & non-goals
 
 **Goal:** Make Home a fully branch-first surface end-to-end on the consumer side. Each Featured / Trending / NearbyByCategory tile renders one branch; each tap carries `?branch=<id>&from=home`; multi-branch merchants (Covelum Brightlingsea + Colchester) fan out to multiple tiles per the locked spec §5.2 interim behaviour.
@@ -114,6 +191,7 @@ The original §2 Out-of-scope said "Map, Search, Category, Voucher Detail, or Me
 - ❌ **All backend changes** (per Amendment A — `totalEstimatedSaving` already shipped end-to-end; no backend additive remaining for this PR). Unless a focused test proves a missing field, in which case PAUSE + escalate.
 - ❌ Touching `<MerchantTile.tsx>` props or rendering logic. All adaptation happens via the surface-local adapter.
 - ❌ Touching `MerchantProfileScreen.tsx` or any other component under `apps/customer-app/src/features/merchant/`. **Exception (per Amendment B):** the pure-function helper `apps/customer-app/src/features/merchant/utils/resolveBackNavigation.ts` + its test file are IN scope for the `from=home` recognition. No screen-level edits.
+- ❌ **Supply-aware Home rail cascade + honesty headers (per Amendment C).** Backend rail queries stay as-is (Featured platform-wide, Trending + NearbyByCategory single-attempt city filter). Section headers stay as literal `Featured` / `Trending near you` / `{Category} near you`. Deferred to §CM. Phase 2.3 adds regression pins on the current literal copy so §CM closure is unambiguous later.
 
 ---
 
@@ -349,9 +427,10 @@ Per the 2026-05-21 amendment, `totalEstimatedSaving` is already wired end-to-end
 - [ ] Step J4: Pin POSTCODE_CENTROID null-distance rendering (use a low-confidence seed fixture or mock).
 - [ ] Step J5: Pin Save badge copy: `Save £X across N vouchers` (multi) and `Save up to £X` + `1 voucher` (single).
 - [ ] Step J6: Pin "voucher" / "vouchers" wording — banned: "offer" / "offers".
-- [ ] Step J7: Run full Home jest suite — must pass.
-- [ ] Step J8: Run targeted backend vitest — must pass.
-- [ ] Step J9: Run `tsc --noEmit` both sides — 0 new errors.
+- [ ] Step J7: **Amendment C regression pins.** Add 3 assertions locking current literal section-header copy: `FeaturedCarousel` → `Featured`; `TrendingSection` → `Trending near you`; `NearbyByCategory` → `{category.name} near you` (cite a Covelum-category fixture for the resolved string). These pins WILL fail when §CM ships its honesty cascade — by design.
+- [ ] Step J8: Run full Home jest suite — must pass.
+- [ ] Step J9: Run targeted backend vitest — must pass.
+- [ ] Step J10: Run `tsc --noEmit` both sides — 0 new errors.
 
 ### Task M: `resolveBackNavigation` adds `from=home` (per Amendment B)
 
@@ -415,6 +494,9 @@ Per the 2026-05-21 amendment, `totalEstimatedSaving` is already wired end-to-end
 13. **`resolveBackNavigation('home', undefined)` returns `/(app)/`** (Amendment B positive pin).
 14. **`resolveBackNavigation('home', 'ignored')` returns `/(app)/`** (Amendment B — q is ignored, mirrors `from=map`).
 15. The "unrecognised from values" test no longer includes `'home'` (Amendment B regression guard — that line moved to the new positive describe block).
+16. **`FeaturedCarousel` header renders literal `Featured`** (Amendment C regression pin — preserves current copy; §CM closure WILL flip this to dynamic scope-aware copy).
+17. **`TrendingSection` header renders literal `Trending near you`** (Amendment C regression pin).
+18. **`NearbyByCategory` section header renders `{category.name} near you`** (Amendment C regression pin; cite a Covelum-category seed fixture for the resolved string).
 
 ### tsc
 
@@ -436,6 +518,7 @@ Per the 2026-05-21 amendment, `totalEstimatedSaving` is already wired end-to-end
 - [ ] Pull-to-refresh works with brand-rose tint.
 - [ ] No visual regressions on spacing, fonts, colours, gradient treatments.
 - [ ] **Back-nav from Merchant Profile to Home routes back to Home tab** (NOT to whatever tab was last active under expo-router Tabs default). Tests pin the helper at `/(app)/`; device QA confirms end-to-end UX (Amendment B). Mirrors the Search + Map back-nav fix pattern from PR #112 fixup-6 + PR-3 Phase D.
+- [ ] **Home rails do NOT widen scope yet (Amendment C deferral).** Empty rails are suppressed silently as today; the literal headers `Featured` / `Trending near you` / `{Category} near you` remain unchanged. If you observe an empty Trending or Nearby category in a city with limited supply, that's expected — honesty cascade ships in §CM, not this PR. Confirm: no header copy has changed vs current main.
 
 ---
 
@@ -446,6 +529,7 @@ Per the 2026-05-21 amendment, `totalEstimatedSaving` is already wired end-to-end
 | Multi-branch fan-out renders unexpected duplicate tiles | Low | Medium | Backend pin in `home-feed-branches.test.ts` Phase 1 already enforces fan-out shape. Customer-app pin in this PR enforces correct render. Device QA on Covelum. |
 | `totalEstimatedSaving` rounding diverges from Search PR #112 | **Closed** | — | Backend logic already shipped; Phase 2.3 verifies only. Risk removed by Amendment A. |
 | `from=home` back-nav silently falls back to default router.back() because helper not updated | Low | Medium | Amendment B makes the helper edit + test pin in-scope (Task M). Without it, Home tile → Merchant Profile → back would route to last-active tab instead of Home, mirroring the bug class PR #112 fixup-6 + PR-3 Phase D fixed for Search/Map. |
+| Empty / sparse Home rails in a sparsely-seeded city without honesty header (e.g. Trending = 0 in user's city → suppressed; user sees no signal that wider supply exists) | Medium | **Acceptable until §CM** | Amendment C explicitly defers the cascade + honesty headers to §CM. Current behaviour suppresses empty rails silently — same as today's main. Device-QA note + PR-body call-out make the deferred state explicit. Regression pins in tests lock current literal headers so §CM closure is unambiguous. |
 | Adapter pattern leaks shape into shared `<MerchantTile>` | Low | Medium | Adapter strictly surface-local. Code reviewer enforces no edits to `<MerchantTile.tsx>` in this PR. Phase 2.5 cleanup deletes adapter. |
 | §BY audit widens scope mid-implementation | Medium | Low | Owner-locked at 0.4: PAUSE + escalate if non-trivial. Hard cap: 1-2 lines per migration site, Home-scoped only. |
 | Karaara/My Kerala null-media tiles crash render | Low | High | Verify `<MerchantTile>` already has logo/banner null-safety (pre-existing — dev-merchant-001 era). Add explicit pin if missing. |
@@ -475,6 +559,7 @@ Run with fresh eyes against the spec:
 These are explicitly OUT of Phase 2.3 but recorded so they don't get lost:
 
 - **§CL** — Three Home empty handlers (`onCampaignPress` / `onFilterPress` / `onSeeAll` on Featured). Need separate UX brainstorm before implementation. Recorded as new deferred entry in plan-lock commit.
+- **§CM** — Supply-aware Home rail cascade + honesty headers (Amendment C). Backend ranker integration for Featured / Trending / NearbyByCategory + per-rail scope metadata on the response + dynamic header copy on 3 components. ~700-1100 LOC + product-decision sub-questions on exact per-scope copy. Cross-ref: `docs/superpowers/specs/2026-04-29-supply-aware-correction-design.md` §5.3 + §5.4. Recorded as new deferred entry in the Amendment C commit.
 - **Phase 2.4** — Category surface customer-app migration (next in Discovery rebaseline order per spec §10.2).
 - **Phase 2.5** — Tile-component rename sweep (`<MerchantTile>` → `<BranchTile>`); deletes the Home adapter introduced by this PR.
 - **Phase 3** — Discovery rebaseline cleanup (drop legacy `merchants` / `featured` / `trending` / `nearbyByCategory` fields from the wire entirely).
