@@ -30,6 +30,24 @@ export function HomeScreen() {
     setRefreshing(false)
   }
 
+  // Phase 2.3 — Home tile tap routes carry both the merchant id (route
+  // path) AND the branch id (`?branch=` for Merchant Profile attribution)
+  // PLUS `from=home` so resolveBackNavigation can return the user to
+  // the Home tab on back-press.  Multi-branch merchants fan out to one
+  // tile per branch per the locked §M one-pin-per-branch principle.
+  //
+  // The carousels pass branch.id into onBranchPress via the
+  // branchToMerchantTile adapter's `id: branch.id` swap; the per-rail
+  // lookup below finds the parent merchant.id for the route path.
+  const routeToBranch = (
+    branchId: string,
+    branches: { id: string; merchant: { id: string } }[],
+  ) => {
+    const match = branches.find((b) => b.id === branchId)
+    const merchantId = match?.merchant.id ?? branchId
+    router.push(`/merchant/${merchantId}?branch=${branchId}&from=home` as never)
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -72,20 +90,27 @@ export function HomeScreen() {
           </View>
         ) : (
           <FeaturedCarousel
-            merchants={feed?.featured ?? []}
-            onMerchantPress={(id) => router.push(`/merchant/${id}`)}
+            branches={feed?.featuredBranches ?? []}
+            onBranchPress={(branchId) => routeToBranch(branchId, feed?.featuredBranches ?? [])}
             onSeeAll={() => {}}
           />
         )}
 
         <TrendingSection
-          merchants={feed?.trending ?? []}
-          onMerchantPress={(id) => router.push(`/merchant/${id}`)}
+          branches={feed?.trendingBranches ?? []}
+          onBranchPress={(branchId) => routeToBranch(branchId, feed?.trendingBranches ?? [])}
         />
 
         <NearbyByCategory
-          sections={feed?.nearbyByCategory ?? []}
-          onMerchantPress={(id) => router.push(`/merchant/${id}`)}
+          sections={(feed?.nearbyByCategoryBranches ?? []).map((s) => ({
+            category: s.category,
+            branches: s.branches,
+          }))}
+          onBranchPress={(branchId) => {
+            // Find the branch across all category sections for merchant id resolution.
+            const all = (feed?.nearbyByCategoryBranches ?? []).flatMap((s) => s.branches)
+            routeToBranch(branchId, all)
+          }}
           onCategoryPress={(id) => router.push(`/category/${id}` as any)}
         />
       </ScrollView>
