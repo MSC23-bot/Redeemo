@@ -54,7 +54,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
     const offenders = merchants
       .filter(m => !m.logoUrl || !m.bannerUrl)
       .map(m => m.businessName)
-    expect(offenders).toEqual([])
+    expect(offenders, `Merchants missing logoUrl or bannerUrl: ${offenders.join(', ')}`).toEqual([])
   })
 
   it('R3: every active branch has at least one BranchOpeningHours row', async () => {
@@ -63,7 +63,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
       select: { id: true, name: true, openingHours: { select: { id: true } } },
     })
     const offenders = branches.filter(b => b.openingHours.length === 0).map(b => b.name)
-    expect(offenders).toEqual([])
+    expect(offenders, `Branches with 0 BranchOpeningHours rows: ${offenders.join(', ')}`).toEqual([])
   })
 
   it('R4: every active branch has redemptionPin set', async () => {
@@ -72,7 +72,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
       select: { id: true, name: true, redemptionPin: true },
     })
     const offenders = branches.filter(b => !b.redemptionPin).map(b => b.name)
-    expect(offenders).toEqual([])
+    expect(offenders, `Branches with null redemptionPin: ${offenders.join(', ')}`).toEqual([])
   })
 
   it('R5: every active branch has address (addressLine1, city, postcode, country)', async () => {
@@ -83,7 +83,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
     const offenders = branches
       .filter(b => !b.addressLine1 || !b.city || !b.postcode || !b.country)
       .map(b => b.name)
-    expect(offenders).toEqual([])
+    expect(offenders, `Branches missing addressLine1/city/postcode/country: ${offenders.join(', ')}`).toEqual([])
   })
 
   it('R6: every active branch has phone OR email contact', async () => {
@@ -92,7 +92,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
       select: { id: true, name: true, phone: true, email: true },
     })
     const offenders = branches.filter(b => !b.phone && !b.email).map(b => b.name)
-    expect(offenders).toEqual([])
+    expect(offenders, `Branches with phone AND email both null: ${offenders.join(', ')}`).toEqual([])
   })
 
   it('R7: every customer-visible merchant has primaryCategoryId set', async () => {
@@ -101,7 +101,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
       select: { id: true, businessName: true, primaryCategoryId: true },
     })
     const offenders = merchants.filter(m => !m.primaryCategoryId).map(m => m.businessName)
-    expect(offenders).toEqual([])
+    expect(offenders, `Merchants with null primaryCategoryId: ${offenders.join(', ')}`).toEqual([])
   })
 
   it('R8: no leaked-test-fixture-prefix merchants are ACTIVE', async () => {
@@ -112,7 +112,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
     const offenders = merchants
       .filter(m => LEAKED_FIXTURE_PREFIXES.some(p => m.businessName.startsWith(p)))
       .map(m => m.businessName)
-    expect(offenders).toEqual([])
+    expect(offenders, `Leaked-fixture-prefix merchants still ACTIVE: ${offenders.join(', ')}`).toEqual([])
   })
 
   it('R9: real merchants have MANUALLY_CONFIRMED branches with non-null coords', async () => {
@@ -123,6 +123,6 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
     const offenders = branches
       .filter(b => b.locationConfidence !== 'MANUALLY_CONFIRMED' || b.latitude === null || b.longitude === null)
       .map(b => b.name)
-    expect(offenders).toEqual([])
+    expect(offenders, `Real-merchant branches not MANUALLY_CONFIRMED or with null coords: ${offenders.join(', ')}`).toEqual([])
   })
 })
