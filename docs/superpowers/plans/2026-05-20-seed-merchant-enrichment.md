@@ -588,11 +588,24 @@ Owner reviews the audit report output + decides which Stage 2 rules to close fir
 
 ## Stage 2: Vouchers + media + opening hours + PINs for fake/demo merchants
 
-**Goal:** Close R1 (vouchers), R2 (media), R3 (hours), R4 (PINs), R5 (address), R6 (contact), R7 (category) for the 9 fake/demo merchants. Real merchants stay untouched in this stage.
+**Goal:** Close R1 (vouchers), R2 (media), R3 (hours), R4 (PINs), R5 (address), R6 (contact), R7 (category) for the 9 fake/demo merchants + The Coffee House dev fixture. Real merchants stay UNTOUCHED in this stage EXCEPT for adding missing PINs.
 
-**D3 locked:** 3 vouchers per fake/demo merchant unless the category naturally supports fewer. Mix of types to exercise the multi-voucher carousel + multi-type pill colours.
+**Stage 2 final scope (locked 2026-05-20 post-implementation-pre-check):**
+
+| Merchant cohort | What Stage 2 touches |
+|---|---|
+| 9 fake/demo merchants (`tax-merchant-cafe-001`, `pilates-001`, `iron-forge-gym-001`, `aesthetics-001`, `foodhall-001`, `pinos-pizzeria-001`, `polish-nails-001`, `trim-co-barbers-001`, `vet-001`) | Full enrichment: `logoUrl` + `bannerUrl` + `websiteUrl` + 3 vouchers (Wagtail vet exception: 2 vouchers, see D3) + 7-day single-session opening hours + `redemptionPin = '1234'` + phone + email if missing |
+| `dev-merchant-001` (The Coffee House) | **Partial enrichment** per owner direction: add `logoUrl` + `bannerUrl` + `websiteUrl` + 7-day opening hours ONLY. Do NOT add a 3rd voucher (it already has 2 ACTIVE+APPROVED). Do NOT change `redemptionPin` (already set). All other fields already complete per pre-impl audit. |
+| 3 real merchants (Karaara, My Kerala, Covelum) | **PIN-ONLY enrichment.** If `redemptionPin` is null, set to `'1234'`. NO other field touched. NO coord changes. NO `locationConfidence` changes. NO Google Places calls. |
+| 22 leaked test fixtures | UNTOUCHED. Stage 4 cleans. |
+
+**D3 locked + Wagtail exception:** 3 vouchers per fake/demo merchant unless the category naturally supports fewer. Wagtail Veterinary Practice gets **2 vouchers** (a FREEBIE + a DISCOUNT_PERCENT — "BOGO vet consultations" is not realistic). 2 vouchers still exercises the multi-voucher carousel UI. All other 8 fake/demo merchants ship 3 vouchers.
 
 **D2 locked:** every branch redemption PIN = `1234` (dev/QA only). The enrichment helper marks this clearly via a `DEV_QA_PIN` named constant + comment.
+
+**Opening hours — single-session only in Stage 2.** Split-session support (e.g. lunch + dinner same day) cannot be expressed today: `prisma/schema.prisma:483-494` has `@@unique([branchId, dayOfWeek])`. Owner-decided 2026-05-20 to DEFER split-session support to a new bounded workstream **§SE.1 (split-session opening hours support)** — see `project_deferred_followups_index.md` §SE.1 for the schema migration + downstream-file list. Stage 2 ships single-session category-realistic 7-day schedules. Restaurants / pizzerias / food halls get one continuous span (e.g. 12:00-22:00) rather than artificially flattening lunch + dinner.
+
+**§SE.1 cross-ref:** the deferred-index entry captures the schema migration target (`@@unique([branchId, dayOfWeek])` → `@@unique([branchId, dayOfWeek, sortOrder])`), the 8 downstream files affected (1 schema, 1 backend service, 6 customer-app components), the test surface, and four recommended brainstorm questions for the §SE.1 plan kickoff.
 
 **Out of scope this stage:**
 - Real-merchant coord changes (Stage 3)
