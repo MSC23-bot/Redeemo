@@ -8,12 +8,12 @@ import { Text, color, spacing, radius, elevation, layer } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useCategories } from '@/hooks/useCategories'
 import { useSearch } from '@/hooks/useSearch'
-import { useInAreaMerchants, type BoundingBox } from '../hooks/useInAreaMerchants'
+import { useInAreaBranches, type BoundingBox } from '../hooks/useInAreaBranches'
 import { MapCategoryPills } from '../components/MapCategoryPills'
 import { LocationPermission } from '../components/LocationPermission'
 import { MapEmptyArea, type MapEmptyCase } from '../components/MapEmptyArea'
 import { MapPins } from '../components/MapPins'
-import { MapMerchantTile } from '../components/MapMerchantTile'
+import { MapBranchTile } from '../components/MapBranchTile'
 import { LocationSearch, UK_CITIES } from '../components/LocationSearch'
 import { LocationBadge } from '../components/LocationBadge'
 import { MapListView } from '../components/MapListView'
@@ -23,7 +23,8 @@ import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocali
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useToast } from '@/design-system'
 import { geocodeCity } from '@/lib/geocoding'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import type { BranchTile as BranchTileType } from '@/lib/api/discovery'
+import { mapDataView } from '../utils/mapDataView'
 
 const LONDON_REGION: Region = {
   latitude:       51.5074,
@@ -72,9 +73,13 @@ function regionIsOffshore(region: Region): boolean {
   )
 }
 
-type Props = {
-  onMerchantPress?: (id: string) => void
-}
+// PR-3 fixup-1 (2026-05-20) — `onMerchantPress` prop removed (YAGNI).
+// Grep confirmed zero callers in customer-app/src; the prop existed only
+// as a Phase A interim hook. Map navigation now always routes via
+// `router.push` from `handleBranchNavigate`. Any future external host
+// (Storybook, demo screen) can mock `expo-router` if it needs to
+// intercept navigation.
+type Props = Record<string, never>
 
 /**
  * MapScreen — Hybrid hook strategy (PR C M2).
@@ -84,9 +89,9 @@ type Props = {
  * derived purely from those buckets; both hooks are always invoked
  * (React rules-of-hooks) and `enabled` switches which one fetches:
  *
- *   - hasNonScopeFilters === false → `useInAreaMerchants` is enabled
+ *   - hasNonScopeFilters === false → `useInAreaBranches` is enabled
  *                                    (intent-aware ranking via the
- *                                    PR-A /discovery/in-area route)
+ *                                    /discovery/in-area route)
  *
  *   - hasNonScopeFilters === true  → `useSearch` is enabled with a bbox
  *                                    (full filter set: sortBy, voucher-
@@ -99,7 +104,7 @@ type Props = {
  * the single source of truth: pill-tap → setFilters({ categoryId, … });
  * FilterSheet onApply → setFilters(next).
  */
-export function MapScreen({ onMerchantPress }: Props) {
+export function MapScreen(_props: Props) {
   const router = useRouter()
   const mapRef = useRef<MapView>(null)
   const locationState = useUserLocation()
@@ -132,10 +137,17 @@ export function MapScreen({ onMerchantPress }: Props) {
 
   // ─── UI-only state ─────────────────────────────────────────────────────────
   const [showListView, setShowListView] = useState(false)
-  const [selectedMerchant, setSelectedMerchant] = useState<MerchantTileType | null>(null)
+  // PR-3 Phase C — carousel + list are now branch-keyed end-to-end.
+  // `selectedBranchId` gates the carousel mount AND drives `<MapPins>`
+  // visual selection state.  Phase B's interim `selectedMerchant`
+  // (which existed to feed the merchant-keyed shared `<MerchantTile>`
+  // through the carousel) has been dropped — the carousel now adapts
+  // each BranchTile internally via `branchToMerchantTile`.
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null)
   const [locationPermissionDismissed, setLocationPermissionDismissed] = useState(false)
   const [remoteCityName, setRemoteCityName] = useState<string | null>(null)
-  const [activeMerchantIndex, setActiveMerchantIndex] = useState(0)
+  // PR-3 Phase C — indexes into `branches[]` (carousel is branch-keyed).
+  const [activeBranchIndex, setActiveBranchIndex] = useState(0)
 
   // ─── Derived: hybrid-hook router ──────────────────────────────────────────
   // categoryId is intentionally NOT in this list — both /discovery/in-area
@@ -151,7 +163,7 @@ export function MapScreen({ onMerchantPress }: Props) {
   const offshore = regionIsOffshore(region)
 
   // ─── Both queries always invoked (rules of hooks); `enabled` selects ──────
-  const inAreaQuery = useInAreaMerchants(
+  const inAreaQuery = useInAreaBranches(
     queryBbox,
     {
       ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
@@ -183,7 +195,7 @@ export function MapScreen({ onMerchantPress }: Props) {
     },
     hasNonScopeFilters && queryBbox !== null,
     // §AY — pan/zoom anti-flicker for the filtered Map-bbox-mode path.
-    // useInAreaMerchants already applies the same behaviour at the hook
+    // useInAreaBranches already applies the same behaviour at the hook
     // level. Opt-in here so other useSearch consumers (Search /
     // Category screens) keep their default clear-on-key-change semantics.
     { keepPreviousData: true },
@@ -196,9 +208,17 @@ export function MapScreen({ onMerchantPress }: Props) {
   // cached data. Drives the first-fetch loader gate below: we want
   // the loader during any fetch where no pins are on screen yet.
   const isFetching = hasNonScopeFilters ? searchResultQuery.isFetching : inAreaQuery.isFetching
-  const merchants = data?.merchants ?? []
-  const total     = data?.total     ?? 0
-  const meta      = data?.meta
+  // PR-3 Phase D — branch-first end-to-end on Map.  All user-visible
+  // Map surfaces (pins, carousel, list) consume `branches`, and the
+  // empty-state + §BH loader gates are keyed off `branches.length`.
+  //
+  // PR-3 fixup-1 (2026-05-20) — extracted to `mapDataView()` so the
+  // Codex #1 branchMeta ↔ meta fallback can be pinned in isolation
+  // (see `tests/features/map/utils/mapDataView.test.ts`).  The helper
+  // resolves both arms cleanly: SearchResponse prefers branchMeta /
+  // totalBranches; InAreaResponse falls through to meta /
+  // branches.length.
+  const { branches, total, meta } = mapDataView(data)
 
   const categories = categoriesData?.categories ?? []
 
@@ -324,25 +344,63 @@ export function MapScreen({ onMerchantPress }: Props) {
     setSearchQuery('')
   }, [])
 
-  // ─── Merchant tile handlers ───────────────────────────────────────────────
-  const handleMerchantPress = useCallback(
-    (merchant: MerchantTileType) => {
-      setSelectedMerchant(merchant)
-      const idx = merchants.findIndex((m) => m.id === merchant.id)
-      if (idx !== -1) setActiveMerchantIndex(idx)
-    },
-    [merchants],
-  )
-
-  const handleMerchantNavigate = useCallback(
-    (id: string) => {
-      if (onMerchantPress) {
-        onMerchantPress(id)
-      } else {
-        router.push(`/merchant/${id}` as any)
+  // ─── Branch tile handlers ─────────────────────────────────────────────────
+  // PR-3 Phase C — both the pin layer and the carousel/list layer are
+  // now branch-keyed.  Phase B's `handleMerchantPress` (orphaned after
+  // <MapPins> flipped to BranchTile) was dropped.  Phase B's
+  // `handleBranchPress` simplifies — no merchant lookup needed since
+  // the carousel + list consume branches directly.
+  //
+  // PR-3 fixup-1 (2026-05-20) — `__DEV__` guard added.  A stale pin tap
+  // (e.g. user taps mid-refetch and the branch is already gone from the
+  // new array) silently no-ops in production but logs in dev so the
+  // race is observable during device QA.
+  const handleBranchPress = useCallback(
+    (branch: BranchTileType) => {
+      setSelectedBranchId(branch.id)
+      const idx = branches.findIndex((b) => b.id === branch.id)
+      if (idx !== -1) {
+        setActiveBranchIndex(idx)
+      } else if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn('[MapScreen] handleBranchPress: branch not in current array, activeBranchIndex unchanged', branch.id)
       }
     },
-    [onMerchantPress, router],
+    [branches],
+  )
+
+  // Tap from carousel card or list row → navigate to Merchant Profile.
+  // PR-3 Phase D — locked URL contract:
+  //   `/(app)/merchant/${merchantId}?branch=${branchId}&from=map`
+  // - `?branch=…` lands the Merchant Profile pre-selected to the
+  //   tapped branch (existing branch-aware contract from PR #33).
+  // - `&from=map` lets `MerchantProfileScreen.onBack` route back to
+  //   `/(app)/map` instead of falling through to `router.back()`
+  //   (which under expo-router Tabs lands on the previously-active
+  //   tab — the owner-flagged bug class Phase 2.1 Search closed for
+  //   `from=search`, applied here to Map).
+  // The route path is keyed on merchant.id today, so we still resolve
+  // branch.id → branch.merchant.id.  The route group prefix
+  // `/(app)/…` mirrors Phase 2.1 Search (`SearchScreen.tsx:247`).
+  //
+  // PR-3 fixup-1 (2026-05-20) — `__DEV__` guard added for stale taps
+  // (production silent; dev surfaces the race).
+  const handleBranchNavigate = useCallback(
+    (branchId: string) => {
+      const branch = branches.find((b) => b.id === branchId)
+      if (!branch) {
+        if (__DEV__) {
+          // eslint-disable-next-line no-console
+          console.warn('[MapScreen] handleBranchNavigate: branch not found for id', branchId)
+        }
+        return
+      }
+      const merchantId = branch.merchant.id
+      router.push(
+        `/(app)/merchant/${merchantId}?branch=${branchId}&from=map` as any,
+      )
+    },
+    [branches, router],
   )
 
   // ─── Empty-state classification ───────────────────────────────────────────
@@ -355,10 +413,10 @@ export function MapScreen({ onMerchantPress }: Props) {
     if (showLocationPermission) return null
     if (offshore)                return 'offshore'
     if (isLoading)               return null
-    if (merchants.length > 0)    return null
+    if (branches.length > 0)     return null
     if (meta?.emptyStateReason === 'no_uk_supply') return 'no_uk_supply'
     return 'viewport_empty'
-  }, [showLocationPermission, offshore, isLoading, merchants.length, meta])
+  }, [showLocationPermission, offshore, isLoading, branches.length, meta])
 
   const hasFilters =
     filters.categoryId !== null ||
@@ -375,13 +433,20 @@ export function MapScreen({ onMerchantPress }: Props) {
         style={styles.map}
         initialRegion={LONDON_REGION}
         onRegionChangeComplete={handleRegionChangeComplete}
-        showsUserLocation={locationState.status === 'granted'}
+        // Fold 3 (PR-3 Phase D) — suppress the blue user-location dot
+        // whenever the user is browsing a remote city via
+        // <LocationSearch>.  Without this, the dot stays anchored at
+        // the user's real GPS while the camera has moved to e.g.
+        // Manchester — making it look like the user has teleported.
+        // Re-enables on dismiss of <LocationBadge> (or "Use current
+        // location") because `remoteCityName` returns to null there.
+        showsUserLocation={locationState.status === 'granted' && remoteCityName === null}
         showsMyLocationButton={false}
       >
         <MapPins
-          merchants={merchants}
-          selectedId={selectedMerchant?.id ?? null}
-          onPress={handleMerchantPress}
+          branches={branches}
+          selectedId={selectedBranchId}
+          onPress={handleBranchPress}
         />
       </MapView>
 
@@ -487,13 +552,13 @@ export function MapScreen({ onMerchantPress }: Props) {
         />
       )}
 
-      {selectedMerchant !== null && merchants.length > 0 && (
-        <MapMerchantTile
-          merchants={merchants}
-          activeIndex={activeMerchantIndex}
-          onClose={() => setSelectedMerchant(null)}
-          onIndexChange={setActiveMerchantIndex}
-          onMerchantPress={handleMerchantNavigate}
+      {selectedBranchId !== null && branches.length > 0 && (
+        <MapBranchTile
+          branches={branches}
+          activeIndex={activeBranchIndex}
+          onClose={() => setSelectedBranchId(null)}
+          onIndexChange={setActiveBranchIndex}
+          onBranchPress={handleBranchNavigate}
         />
       )}
 
@@ -501,8 +566,10 @@ export function MapScreen({ onMerchantPress }: Props) {
           on the map (NOT full-screen, NOT a blocking spinner). Visible
           ONLY when the screen has no pins to show AND a fetch is in
           flight. `pointerEvents="none"` so map gestures pass through
-          unhindered. Gates:
-          - merchants.length === 0 — no pins on screen (§AY already
+          unhindered. PR-3 Phase D gate flip: was `merchants.length === 0`,
+          now `branches.length === 0` (the user-visible "nothing on
+          screen" source). Gates:
+          - branches.length === 0 — no pins on screen (§AY already
             keeps previous pins visible during refetch, so the loader
             only shows when there's truly nothing to display).
           - isFetching === true — covers both initial-load and refetch
@@ -511,7 +578,7 @@ export function MapScreen({ onMerchantPress }: Props) {
             precedence.
           - emptyVariant === null — MapEmptyArea / offshore /
             no_uk_supply take precedence. */}
-      {merchants.length === 0
+      {branches.length === 0
         && isFetching
         && !showLocationPermission
         && emptyVariant === null && (
@@ -531,10 +598,10 @@ export function MapScreen({ onMerchantPress }: Props) {
 
       <MapListView
         visible={showListView}
-        merchants={merchants}
+        branches={branches}
         total={total}
         onDismiss={() => setShowListView(false)}
-        onMerchantPress={handleMerchantNavigate}
+        onBranchPress={handleBranchNavigate}
       />
 
       <FilterSheet

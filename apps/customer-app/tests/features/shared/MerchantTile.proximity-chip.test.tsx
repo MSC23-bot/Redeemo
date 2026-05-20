@@ -2,7 +2,7 @@
 //
 // Covers all five band states (3 visible, 2 hidden + the absent case).
 // MerchantTile is used by Home Featured / Trending / NearbyByCategory,
-// Category results, and the Map carousel (via MapMerchantTile). One
+// Category results, and the Map carousel (via MapBranchTile). One
 // wiring in MerchantTile.tsx feeds every consumer; this test pins it.
 
 import React from 'react'

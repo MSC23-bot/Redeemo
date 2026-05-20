@@ -357,6 +357,14 @@ const inAreaResponseSchema = z.object({
   merchants: z.array(merchantTileSchema),
   total:     z.number(),
   meta:      inAreaMetaSchema,
+  // Discovery Rebaseline Phase 1 (PR #110) — additive branch-first
+  // field. Backend emits this alongside the legacy `merchants` field
+  // on every in-area response (`routes.ts:226-247`). PR-3 Phase B
+  // wires `MapPins` to consume `branches` for one-pin-per-branch
+  // cardinality; `MapBranchTile` carousel + `MapListView` flip in
+  // Phase C; the legacy `merchants` field stays during the
+  // additive period (Phase 3 cleanup removes it).
+  branches:  z.array(branchTileSchema).optional(),
 })
 export type InAreaResponse = z.infer<typeof inAreaResponseSchema>
 
@@ -458,10 +466,14 @@ export const discoveryApi = {
   },
 
   /**
-   * GET /api/v1/customer/discovery/in-area — Map bbox endpoint. Added to
-   * the client contract in PR B; UI wiring lives in PR C.
+   * GET /api/v1/customer/discovery/in-area — Map bbox endpoint. Backend
+   * emits both `merchants[]` (legacy) and `branches[]` (Discovery
+   * Rebaseline Phase 1, PR #110) in the same response. Renamed from
+   * `getInAreaMerchants` to `getInAreaBranches` during PR-3 (Discovery
+   * Rebaseline Phase 2.2) for naming consistency with the branch-first
+   * surface migration. Endpoint URL unchanged.
    */
-  async getInAreaMerchants(opts: {
+  async getInAreaBranches(opts: {
     minLat:      number
     maxLat:      number
     minLng:      number

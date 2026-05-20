@@ -1,4 +1,4 @@
-// §AY — useInAreaMerchants keeps previous merchants visible during
+// §AY — useInAreaBranches keeps previous merchants visible during
 // bbox refetch (pan/zoom anti-flicker behaviour).
 //
 // Map pan/zoom triggers a new bbox query. Default React Query
@@ -12,10 +12,10 @@ import React from 'react'
 import { renderHook, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { discoveryApi } from '@/lib/api/discovery'
-import { useInAreaMerchants } from '@/features/map/hooks/useInAreaMerchants'
+import { useInAreaBranches } from '@/features/map/hooks/useInAreaBranches'
 import { makeMerchantTile } from '../../fixtures/merchantTile'
 
-jest.spyOn(discoveryApi, 'getInAreaMerchants')
+jest.spyOn(discoveryApi, 'getInAreaBranches')
 
 const tileA = makeMerchantTile({ id: 'a', businessName: 'Bbox-A Cafe' })
 const tileB = makeMerchantTile({ id: 'b', businessName: 'Bbox-B Cafe' })
@@ -53,15 +53,15 @@ function makeWrapper() {
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
 }
 
-describe('useInAreaMerchants — pan/zoom keep-previous behaviour (§AY)', () => {
-  beforeEach(() => { (discoveryApi.getInAreaMerchants as jest.Mock).mockReset() })
+describe('useInAreaBranches — pan/zoom keep-previous behaviour (§AY)', () => {
+  beforeEach(() => { (discoveryApi.getInAreaBranches as jest.Mock).mockReset() })
 
   it('keeps previous viewport merchants visible while the next bbox request is in-flight', async () => {
     // First bbox resolves to responseA.
-    (discoveryApi.getInAreaMerchants as jest.Mock).mockResolvedValueOnce(responseA)
+    (discoveryApi.getInAreaBranches as jest.Mock).mockResolvedValueOnce(responseA)
     const wrapper = makeWrapper()
     const { result, rerender } = renderHook(
-      ({ bbox }: { bbox: typeof bboxA }) => useInAreaMerchants(bbox),
+      ({ bbox }: { bbox: typeof bboxA }) => useInAreaBranches(bbox),
       { wrapper, initialProps: { bbox: bboxA } },
     )
 
@@ -73,7 +73,7 @@ describe('useInAreaMerchants — pan/zoom keep-previous behaviour (§AY)', () =>
     // viewport's merchants stay until the new fetch resolves.
     let resolveB: (value: typeof responseB) => void = () => {}
     const pendingB = new Promise<typeof responseB>((resolve) => { resolveB = resolve })
-    ;(discoveryApi.getInAreaMerchants as jest.Mock).mockReturnValueOnce(pendingB)
+    ;(discoveryApi.getInAreaBranches as jest.Mock).mockReturnValueOnce(pendingB)
     rerender({ bbox: bboxB })
 
     // During the in-flight gap: previous merchants still visible.
@@ -90,10 +90,10 @@ describe('useInAreaMerchants — pan/zoom keep-previous behaviour (§AY)', () =>
     // Defensive: if bbox is later null'd out (offshore / permission revoked
     // / unmount-equivalent), the previous data must not stick forever.
     // keepPreviousData should NOT survive across `enabled=false` transitions.
-    (discoveryApi.getInAreaMerchants as jest.Mock).mockResolvedValue(responseA)
+    (discoveryApi.getInAreaBranches as jest.Mock).mockResolvedValue(responseA)
     const wrapper = makeWrapper()
     const { result, rerender } = renderHook(
-      ({ bbox }: { bbox: typeof bboxA | null }) => useInAreaMerchants(bbox),
+      ({ bbox }: { bbox: typeof bboxA | null }) => useInAreaBranches(bbox),
       { wrapper, initialProps: { bbox: bboxA as typeof bboxA | null } },
     )
     rerender({ bbox: null })

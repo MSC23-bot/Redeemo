@@ -6,6 +6,7 @@ import { Text, color, radius, spacing, elevation } from '@/design-system'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { ProximityBandChip } from '@/design-system/components/ProximityBandChip'
 import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { formatDistance as formatDistanceShared } from '@/design-system/utils/formatters'
 import { SavePill } from './SavePill'
 import { VoucherCountPill } from './VoucherCountPill'
 import { StarRating } from './StarRating'
@@ -16,11 +17,19 @@ import { StarRating } from './StarRating'
 // a green "Open" badge on every tile was misleading. Re-enable when the
 // backend extends the tile contract to include per-tile open state.
 
+// PR-3 fixup-1 (2026-05-20) — local `formatDistance` helper REMOVED.
+// Codex #2 finding: the shared `<MerchantTile>` (used by Home Featured /
+// Trending / NearbyByCategory, Search Category Results, AND the Map
+// carousel via `MapBranchTile`'s adapter) rendered metres for sub-1km
+// (`500m`) and `mi` for >1km (`1.2 mi`), while Search-side
+// `<SearchResultItem>` rendered miles-only (`0.3 miles away`).  Routing
+// the shared component through the same `formatDistance` helper
+// unifies the format across all 5 surfaces.  Locked PR #112 fixup-6
+// rule — always miles, never metres — now applies UK-wide.  Closes
+// the cross-surface portion of §BY for the surfaces using
+// `<MerchantTile>`.
 function formatDistance(metres: number | null): string {
-  if (metres === null) return ''
-  if (metres < 1000) return `${Math.round(metres)}m`
-  const miles = metres / 1609.34
-  return `${miles.toFixed(1)} mi`
+  return formatDistanceShared(metres) ?? ''
 }
 
 type Props = {

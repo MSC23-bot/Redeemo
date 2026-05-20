@@ -16,29 +16,35 @@ type InAreaParams = {
   limit?:      number
 }
 
-export const inAreaMerchantsQueryKey = (params: InAreaParams) =>
-  ['discovery', 'in-area', params] as const
+export const inAreaBranchesQueryKey = (params: InAreaParams) =>
+  ['discovery', 'in-area-branches', params] as const
 
 /**
- * React Query wrapper around `discoveryApi.getInAreaMerchants` (PR A's
- * `/api/v1/customer/discovery/in-area`). Used by Map for the default
+ * React Query wrapper around `discoveryApi.getInAreaBranches`
+ * (`/api/v1/customer/discovery/in-area`). Used by Map for the default
  * unfiltered viewport view (no sortBy / voucherTypes / amenityIds /
  * openNow). For filtered viewport queries, MapScreen switches to
  * `useSearch` with a bbox — the in-area route does not accept those
  * params (mirrors the CategoryResults hybrid hook pattern).
  *
+ * Returns the full response (`select: r => r`) so MapScreen can read
+ * `branches`, `totalBranches`, and `branchMeta.effectiveLocality` /
+ * `branchMeta.rungCounts` from a single hook call. Owner-locked
+ * 2026-05-20 during the PR-3 contract-mismatch review.
+ *
  * `enabled` is forced false until `bbox` is non-null so the screen can
  * mount without a viewport (initial location-permission state) and
  * fetch only once the camera reports its first region.
  */
-export function useInAreaMerchants(
+export function useInAreaBranches(
   bbox:    BoundingBox | null,
   params:  Omit<InAreaParams, 'bbox'> = {},
   enabled: boolean = true,
 ) {
   return useQuery({
-    queryKey:  inAreaMerchantsQueryKey({ bbox: bbox ?? { minLat: 0, maxLat: 0, minLng: 0, maxLng: 0 }, ...params }),
-    queryFn:   () => discoveryApi.getInAreaMerchants({ ...bbox!, ...params }),
+    queryKey:  inAreaBranchesQueryKey({ bbox: bbox ?? { minLat: 0, maxLat: 0, minLng: 0, maxLng: 0 }, ...params }),
+    queryFn:   () => discoveryApi.getInAreaBranches({ ...bbox!, ...params }),
+    select:    r => r,
     enabled:   enabled && bbox !== null,
     staleTime: 30 * 1000,        // 30s — viewport content updates on pan
     // §AY — keep previous viewport merchants visible while the next

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { View, StyleSheet } from 'react-native'
-import MapView, { Marker } from 'react-native-maps'
+import { Marker } from 'react-native-maps'
 import { Text, color } from '@/design-system'
-import { MerchantTile } from '@/lib/api/discovery'
+import { BranchTile } from '@/lib/api/discovery'
 
 // §BC — track-then-freeze pattern for selection transitions.
 //
@@ -49,13 +49,20 @@ const MARKER_TAIL_HEIGHT = 10
 const INNER_SCALE_UNSELECTED = 0.81 // ≈ 34/42 — preserves the old visual feel
 
 type Props = {
-  merchants: MerchantTile[]
+  branches: BranchTile[]
   selectedId: string | null
-  onPress: (merchant: MerchantTile) => void
+  onPress: (branch: BranchTile) => void
 }
 
-function getPinColor(merchant: MerchantTile): string {
-  const catName = merchant.primaryCategory?.name?.toLowerCase() ?? ''
+// Fold 1 (PR-3 Phase B) — read the backend-emitted
+// `branch.merchant.primaryCategory.pinColour` first and only fall
+// through to the hardcoded palette when that field is null/undefined.
+// Closes the §7.2 visual-correctness gap where non-Big-Four
+// categories all defaulted to `color.pin.default` (brandRose).
+function getPinColor(branch: BranchTile): string {
+  const backendPinColour = branch.merchant.primaryCategory?.pinColour
+  if (backendPinColour) return backendPinColour
+  const catName = branch.merchant.primaryCategory?.name?.toLowerCase() ?? ''
   if (catName.includes('food') || catName.includes('drink')) return color.pin.foodDrink
   if (catName.includes('beauty') || catName.includes('wellness')) return color.pin.beautyWellness
   if (catName.includes('fitness') || catName.includes('sport')) return color.pin.fitnessSport
@@ -66,14 +73,14 @@ function getPinColor(merchant: MerchantTile): string {
 // Exported for §BF stable-dimensions tests. Not part of the public
 // component API.
 export function CustomPin({
-  merchant,
+  branch,
   selected,
 }: {
-  merchant: MerchantTile
+  branch: BranchTile
   selected: boolean
 }) {
-  const pinColor = getPinColor(merchant)
-  const letter = merchant.businessName.charAt(0).toUpperCase()
+  const pinColor = getPinColor(branch)
+  const letter = branch.merchant.businessName.charAt(0).toUpperCase()
   // §BF — outer marker bounds stay constant (MARKER_SIZE × tail). The
   // inner content uses transform: scale to express the unselected
   // visual size. Layout bounds don't change → native marker bitmap
@@ -83,7 +90,7 @@ export function CustomPin({
 
   return (
     <View
-      testID={`custom-pin-${merchant.id}`}
+      testID={`custom-pin-${branch.id}`}
       style={styles.pinContainer}
     >
       {/* Circle with letter */}
@@ -118,54 +125,58 @@ export function CustomPin({
 }
 
 function MapPinMarker({
-  merchant,
+  branch,
   selected,
   onPress,
 }: {
-  merchant: MerchantTile
+  branch: BranchTile
   selected: boolean
-  onPress: (m: MerchantTile) => void
+  onPress: (b: BranchTile) => void
 }) {
-  const { latitude, longitude } = merchant
+  const { branchLatitude, branchLongitude } = branch
   // Initial render captures the first bitmap (tracks=true). After the
   // capture settles, freeze for perf. The effect re-enables tracking
   // every time `selected` toggles so the resize is captured cleanly
   // without an unmount/remount flicker on the affected pin.
   const [tracks, setTracks] = useState(true)
   useEffect(() => {
-    if (latitude === null || longitude === null) return
+    if (branchLatitude === null || branchLongitude === null) return
     setTracks(true)
     const t = setTimeout(() => setTracks(false), SELECTION_TRACK_MS)
     return () => clearTimeout(t)
-  }, [selected, latitude, longitude])
+  }, [selected, branchLatitude, branchLongitude])
 
-  // Backend surfaces nearest-branch lat/lng on the tile only when
-  // the merchant has a MANUALLY_CONFIRMED branch (PR #81 redaction
-  // contract preserved at the tile boundary). When either coord is
-  // null the merchant gets no pin — POSTCODE_CENTROID / NEEDS_REVIEW /
-  // ADDRESS_GEOCODED branches must never appear as exact map markers.
-  if (latitude === null || longitude === null) return null
+  // Defensive client-side null-coord filter (PR-3 plan §6.3).
+  // Backend `getInAreaBranches` is MANUALLY_CONFIRMED-only at the
+  // SQL predicate (service.ts:3555) — POSTCODE_CENTROID /
+  // NEEDS_REVIEW / ADDRESS_GEOCODED branches never leave the
+  // database on this route, so `branchLatitude` / `branchLongitude`
+  // arrive non-null in practice. This guard is belt-and-braces
+  // against (a) a future backend predicate regression, (b) a fixture
+  // mistake injecting null-coord rows directly into <MapPins>,
+  // (c) malformed wire data from a serialization bug.
+  if (branchLatitude === null || branchLongitude === null) return null
 
   return (
     <Marker
-      identifier={merchant.id}
-      coordinate={{ latitude, longitude }}
-      onPress={() => onPress(merchant)}
+      identifier={branch.id}
+      coordinate={{ latitude: branchLatitude, longitude: branchLongitude }}
+      onPress={() => onPress(branch)}
       tracksViewChanges={tracks}
     >
-      <CustomPin merchant={merchant} selected={selected} />
+      <CustomPin branch={branch} selected={selected} />
     </Marker>
   )
 }
 
-export function MapPins({ merchants, selectedId, onPress }: Props) {
+export function MapPins({ branches, selectedId, onPress }: Props) {
   return (
     <>
-      {merchants.map((merchant) => (
+      {branches.map((branch) => (
         <MapPinMarker
-          key={merchant.id}
-          merchant={merchant}
-          selected={selectedId === merchant.id}
+          key={branch.id}
+          branch={branch}
+          selected={selectedId === branch.id}
           onPress={onPress}
         />
       ))}

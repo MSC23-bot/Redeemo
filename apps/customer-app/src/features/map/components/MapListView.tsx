@@ -1,21 +1,26 @@
 import React from 'react'
 import { View, FlatList, Pressable, StyleSheet } from 'react-native'
-import { Text, color, spacing, radius, elevation, layer } from '@/design-system'
+import { Text, color, spacing, radius, elevation } from '@/design-system'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { FadeIn } from '@/design-system/motion/FadeIn'
 import { StarRating } from '@/features/shared/StarRating'
 import { SavePill } from '@/features/shared/SavePill'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { formatDistance } from '@/design-system/utils/formatters'
+import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 
-function formatDistance(metres: number | null): string {
-  if (metres === null) return ''
-  if (metres < 1000) return `${Math.round(metres)}m`
-  const miles = metres / 1609.34
-  return `${miles.toFixed(1)} mi`
-}
-
-function getCategoryColor(merchant: MerchantTileType): string {
-  const catName = merchant.primaryCategory?.name?.toLowerCase() ?? ''
+/**
+ * Fold 2 (PR-3 Phase C) — read the backend-emitted
+ * `branch.merchant.primaryCategory.pinColour` for the row thumbnail
+ * first, fall through to the hardcoded palette by category name only
+ * when the backend field is null/undefined.  Closes a §7.8
+ * visual-correctness gap where non-Big-Four categories' list-row
+ * thumbnails diverged from their pin colours.  Same logic as
+ * `MapPins.getPinColor` (Fold 1 in Phase B).
+ */
+function getCategoryColor(branch: BranchTileType): string {
+  const backendPinColour = branch.merchant.primaryCategory?.pinColour
+  if (backendPinColour) return backendPinColour
+  const catName = branch.merchant.primaryCategory?.name?.toLowerCase() ?? ''
   if (catName.includes('food') || catName.includes('drink')) return '#E65100'
   if (catName.includes('beauty') || catName.includes('wellness')) return '#E91E8C'
   if (catName.includes('fitness') || catName.includes('sport')) return '#4CAF50'
@@ -23,24 +28,26 @@ function getCategoryColor(merchant: MerchantTileType): string {
   return color.brandRose
 }
 
-type MerchantRowProps = {
-  merchant: MerchantTileType
+type BranchRowProps = {
+  branch: BranchTileType
   index: number
-  onPress: (id: string) => void
+  onPress: (branchId: string) => void
 }
 
-function MerchantRow({ merchant, index, onPress }: MerchantRowProps) {
-  const thumbColor = getCategoryColor(merchant)
-  const letter = merchant.businessName.charAt(0).toUpperCase()
-  const catName = merchant.primaryCategory?.name ?? ''
-  const distStr = formatDistance(merchant.distance)
+function BranchRow({ branch, index, onPress }: BranchRowProps) {
+  const thumbColor = getCategoryColor(branch)
+  const letter = branch.merchant.businessName.charAt(0).toUpperCase()
+  const catName = branch.merchant.primaryCategory?.name ?? ''
+  // Shared miles-only formatter (PR #112 fixup-6 lock).  Returns null
+  // for null/undefined distance — caller filters out of the info string.
+  const distStr = formatDistance(branch.distance) ?? ''
   const info = [catName, distStr].filter(Boolean).join(' · ')
 
   return (
     <FadeIn delay={index * 40} y={8}>
       <Pressable
-        onPress={() => onPress(merchant.id)}
-        accessibilityLabel={merchant.businessName}
+        onPress={() => onPress(branch.id)}
+        accessibilityLabel={branch.merchant.businessName}
         style={styles.row}
       >
         {/* Colored thumb */}
@@ -53,14 +60,14 @@ function MerchantRow({ merchant, index, onPress }: MerchantRowProps) {
         {/* Info */}
         <View style={styles.rowContent}>
           <Text variant="heading.sm" style={styles.merchantName} numberOfLines={1}>
-            {merchant.businessName}
+            {branch.merchant.businessName}
           </Text>
           <Text variant="label.md" style={styles.infoText} numberOfLines={1}>
             {info}
           </Text>
           <View style={styles.pillRow}>
-            <StarRating rating={merchant.avgRating} count={merchant.reviewCount} />
-            <SavePill amount={merchant.maxEstimatedSaving} />
+            <StarRating rating={branch.avgRating} count={branch.reviewCount} />
+            <SavePill amount={branch.merchant.maxEstimatedSaving} />
           </View>
         </View>
       </Pressable>
@@ -70,13 +77,17 @@ function MerchantRow({ merchant, index, onPress }: MerchantRowProps) {
 
 type Props = {
   visible: boolean
-  merchants: MerchantTileType[]
+  branches: BranchTileType[]
   total: number
   onDismiss: () => void
-  onMerchantPress: (id: string) => void
+  /**
+   * Fires with the tapped row's `branch.id`.  Phase D will wire the
+   * `?branch=${id}&from=map` URL contract on top of this signature.
+   */
+  onBranchPress: (branchId: string) => void
 }
 
-export function MapListView({ visible, merchants, total, onDismiss, onMerchantPress }: Props) {
+export function MapListView({ visible, branches, total, onDismiss, onBranchPress }: Props) {
   return (
     <BottomSheet
       visible={visible}
@@ -95,17 +106,18 @@ export function MapListView({ visible, merchants, total, onDismiss, onMerchantPr
         </View>
       </View>
 
-      {/* Merchant list */}
+      {/* Branch list — branch-keyed identity (PR-3 Phase C).  Two
+          branches of the same merchant render as TWO distinct rows. */}
       <FlatList
-        data={merchants}
+        data={branches}
         keyExtractor={(item) => item.id}
         style={styles.list}
         showsVerticalScrollIndicator={false}
         renderItem={({ item, index }) => (
-          <MerchantRow
-            merchant={item}
+          <BranchRow
+            branch={item}
             index={index}
-            onPress={onMerchantPress}
+            onPress={onBranchPress}
           />
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}

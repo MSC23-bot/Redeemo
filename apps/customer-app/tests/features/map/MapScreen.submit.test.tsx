@@ -37,17 +37,18 @@ jest.mock('react-native-maps', () => {
 // ─── Hook mocks ──────────────────────────────────────────────────────────────
 
 const mockState = {
-  inAreaData:     null as null | { merchants: any[]; total: number; meta: any },
+  // PR-3 Phase D — fixtures now optionally carry `branches[]`.
+  inAreaData:     null as null | { merchants: any[]; branches?: any[]; total: number; meta: any },
   inAreaLoading:  false,
   inAreaFetching: false,
-  searchData:     null as null | { merchants: any[]; total: number; meta?: any },
+  searchData:     null as null | { merchants: any[]; branches?: any[]; total: number; meta?: any },
   searchLoading:  false,
   searchFetching: false,
   locationStatus: 'granted' as 'idle' | 'loading' | 'granted' | 'denied',
 }
 
-jest.mock('@/features/map/hooks/useInAreaMerchants', () => ({
-  useInAreaMerchants: (bbox: any, _params: any = {}, enabled: boolean = true) => {
+jest.mock('@/features/map/hooks/useInAreaBranches', () => ({
+  useInAreaBranches: (bbox: any, _params: any = {}, enabled: boolean = true) => {
     const active = enabled && bbox !== null
     return {
       data:       active ? mockState.inAreaData : undefined,
