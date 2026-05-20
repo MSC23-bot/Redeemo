@@ -23,7 +23,7 @@ import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocali
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useToast } from '@/design-system'
 import { geocodeCity } from '@/lib/geocoding'
-import { MerchantTile as MerchantTileType, BranchTile as BranchTileType } from '@/lib/api/discovery'
+import type { BranchTile as BranchTileType } from '@/lib/api/discovery'
 
 const LONDON_REGION: Region = {
   latitude:       51.5074,
@@ -132,18 +132,17 @@ export function MapScreen({ onMerchantPress }: Props) {
 
   // ─── UI-only state ─────────────────────────────────────────────────────────
   const [showListView, setShowListView] = useState(false)
-  const [selectedMerchant, setSelectedMerchant] = useState<MerchantTileType | null>(null)
-  // PR-3 Phase B — track the tapped BRANCH id alongside the merchant
-  // tile for the carousel. `selectedMerchant` still drives the
-  // MapBranchTile carousel + MapListView (merchant-keyed during Phase
-  // B's interim — Phase C will flip the carousel + list to be
-  // branch-keyed and `selectedMerchant` will go away).
-  // `selectedBranchId` drives MapPins' visual selection state — which
-  // pin renders at scale(1.0) vs scale(0.81).
+  // PR-3 Phase C — carousel + list are now branch-keyed end-to-end.
+  // `selectedBranchId` gates the carousel mount AND drives `<MapPins>`
+  // visual selection state.  Phase B's interim `selectedMerchant`
+  // (which existed to feed the merchant-keyed shared `<MerchantTile>`
+  // through the carousel) has been dropped — the carousel now adapts
+  // each BranchTile internally via `branchToMerchantTile`.
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null)
   const [locationPermissionDismissed, setLocationPermissionDismissed] = useState(false)
   const [remoteCityName, setRemoteCityName] = useState<string | null>(null)
-  const [activeMerchantIndex, setActiveMerchantIndex] = useState(0)
+  // PR-3 Phase C — indexes into `branches[]` (carousel is branch-keyed).
+  const [activeBranchIndex, setActiveBranchIndex] = useState(0)
 
   // ─── Derived: hybrid-hook router ──────────────────────────────────────────
   // categoryId is intentionally NOT in this list — both /discovery/in-area
@@ -204,12 +203,17 @@ export function MapScreen({ onMerchantPress }: Props) {
   // cached data. Drives the first-fetch loader gate below: we want
   // the loader during any fetch where no pins are on screen yet.
   const isFetching = hasNonScopeFilters ? searchResultQuery.isFetching : inAreaQuery.isFetching
+  // `merchants` still drives the empty-state classification +
+  // §BH first-fetch loader gate during Phase C — both gates were
+  // historically keyed on merchant count.  Phase D will audit whether
+  // to switch them to `branches.length` once the full pin/carousel/
+  // list pipeline is verified branch-first.
   const merchants = data?.merchants ?? []
-  // PR-3 Phase B — branch-first wire shape (Phase 1 PR #110 additive
+  // PR-3 Phase C — branch-first wire shape (Phase 1 PR #110 additive
   // on the in-area endpoint; PR #112 already shipped it on search).
-  // Feeds <MapPins> for one-pin-per-branch cardinality. The legacy
-  // `merchants` field above still feeds <MapBranchTile> carousel +
-  // <MapListView> during Phase B's interim; Phase C will flip them.
+  // Feeds <MapPins> for one-pin-per-branch cardinality AND
+  // <MapBranchTile> carousel + <MapListView> rows for branch-keyed
+  // display identity.
   const branches  = (data as { branches?: BranchTileType[] } | undefined)?.branches ?? []
   const total     = data?.total     ?? 0
   const meta      = data?.meta
@@ -338,45 +342,38 @@ export function MapScreen({ onMerchantPress }: Props) {
     setSearchQuery('')
   }, [])
 
-  // ─── Merchant tile handlers ───────────────────────────────────────────────
-  const handleMerchantPress = useCallback(
-    (merchant: MerchantTileType) => {
-      setSelectedMerchant(merchant)
-      const idx = merchants.findIndex((m) => m.id === merchant.id)
-      if (idx !== -1) setActiveMerchantIndex(idx)
-    },
-    [merchants],
-  )
-
-  // PR-3 Phase B — pin tap handler. <MapPins> now fires onPress with
-  // the tapped BranchTile (one-pin-per-branch contract). Phase B
-  // interim: resolve the branch back to its merchant via
-  // `branch.merchant.id` so the existing merchant-keyed
-  // <MapBranchTile> carousel + <MapListView> keep working unchanged.
-  // Phase C will flip those consumers to branch-keyed shape and this
-  // handler will simplify to setSelectedBranchId + setActiveBranchIndex.
+  // ─── Branch tile handlers ─────────────────────────────────────────────────
+  // PR-3 Phase C — both the pin layer and the carousel/list layer are
+  // now branch-keyed.  Phase B's `handleMerchantPress` (orphaned after
+  // <MapPins> flipped to BranchTile) was dropped.  Phase B's
+  // `handleBranchPress` simplifies — no merchant lookup needed since
+  // the carousel + list consume branches directly.
   const handleBranchPress = useCallback(
     (branch: BranchTileType) => {
       setSelectedBranchId(branch.id)
-      const merchant = merchants.find((m) => m.id === branch.merchant.id) ?? null
-      setSelectedMerchant(merchant)
-      if (merchant) {
-        const idx = merchants.findIndex((m) => m.id === merchant.id)
-        if (idx !== -1) setActiveMerchantIndex(idx)
-      }
+      const idx = branches.findIndex((b) => b.id === branch.id)
+      if (idx !== -1) setActiveBranchIndex(idx)
     },
-    [merchants],
+    [branches],
   )
 
-  const handleMerchantNavigate = useCallback(
-    (id: string) => {
+  // Tap from carousel card or list row → navigate to Merchant Profile.
+  // Phase C preserves the existing `/merchant/${merchantId}` URL —
+  // Phase D wires the `?branch=${branchId}&from=map` contract on top.
+  // We still resolve branch.id → merchant.id here because the route
+  // path is keyed on merchant.id today.
+  const handleBranchNavigate = useCallback(
+    (branchId: string) => {
+      const branch = branches.find((b) => b.id === branchId)
+      if (!branch) return
+      const merchantId = branch.merchant.id
       if (onMerchantPress) {
-        onMerchantPress(id)
+        onMerchantPress(merchantId)
       } else {
-        router.push(`/merchant/${id}` as any)
+        router.push(`/merchant/${merchantId}` as any)
       }
     },
-    [onMerchantPress, router],
+    [branches, onMerchantPress, router],
   )
 
   // ─── Empty-state classification ───────────────────────────────────────────
@@ -521,13 +518,13 @@ export function MapScreen({ onMerchantPress }: Props) {
         />
       )}
 
-      {selectedMerchant !== null && merchants.length > 0 && (
+      {selectedBranchId !== null && branches.length > 0 && (
         <MapBranchTile
-          merchants={merchants}
-          activeIndex={activeMerchantIndex}
-          onClose={() => { setSelectedMerchant(null); setSelectedBranchId(null) }}
-          onIndexChange={setActiveMerchantIndex}
-          onMerchantPress={handleMerchantNavigate}
+          branches={branches}
+          activeIndex={activeBranchIndex}
+          onClose={() => setSelectedBranchId(null)}
+          onIndexChange={setActiveBranchIndex}
+          onBranchPress={handleBranchNavigate}
         />
       )}
 
@@ -565,10 +562,10 @@ export function MapScreen({ onMerchantPress }: Props) {
 
       <MapListView
         visible={showListView}
-        merchants={merchants}
+        branches={branches}
         total={total}
         onDismiss={() => setShowListView(false)}
-        onMerchantPress={handleMerchantNavigate}
+        onBranchPress={handleBranchNavigate}
       />
 
       <FilterSheet

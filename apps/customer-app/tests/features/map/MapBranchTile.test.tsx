@@ -1,43 +1,61 @@
+// PR-3 Phase C — MapBranchTile carousel consumes BranchTile[] and
+// each card is branch-keyed.  Two branches of the same merchant
+// render as two distinct cards (Covelum bug closure on the carousel
+// surface).  Tap fires `onBranchPress(branch.id)` — the shared
+// `<MerchantTile>` consumer is fed an adapted object whose `id` is
+// `branch.id`, so the identity propagates naturally.
+
 import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { MapBranchTile } from '@/features/map/components/MapBranchTile'
-import { makeMerchantTile } from '../../fixtures/merchantTile'
+import { makeBranchTile } from '../../fixtures/branchTile'
 
-const mockMerchant = makeMerchantTile({
-  id:                 'm1',
-  businessName:       'Bella Italia',
-  primaryCategory:    { id: 'c1', name: 'Food & Drink',     pinColour: null, pinIcon: null },
-  voucherCount:       2,
-  maxEstimatedSaving: 20,
-  distance:           500,
-  nearestBranchId:    'b1',
-  avgRating:          4.2,
-  reviewCount:        30,
+const mockBranchA = makeBranchTile({
+  id:              'brn-bella-soho',
+  branchName:      'Soho',
+  branchLatitude:  51.5141,
+  branchLongitude: -0.1310,
+  distance:        500,
+  avgRating:       4.2,
+  reviewCount:     30,
+  isFavourited:    false,
+  merchant: {
+    id:                 'm-bella-italia',
+    businessName:       'Bella Italia',
+    primaryCategory:    { id: 'c1', name: 'Food & Drink', pinColour: null, pinIcon: null, parentId: null },
+    voucherCount:       2,
+    maxEstimatedSaving: 20,
+  },
 })
 
-const mockMerchant2 = makeMerchantTile({
-  id:                 'm2',
-  businessName:       'Nails & Beauty',
-  primaryCategory:    { id: 'c2', name: 'Beauty & Wellness', pinColour: null, pinIcon: null },
-  voucherCount:       1,
-  maxEstimatedSaving: 10,
-  distance:           1200,
-  nearestBranchId:    'b2',
-  isFavourited:       true,
+const mockBranchB = makeBranchTile({
+  id:              'brn-nails-westend',
+  branchName:      'West End',
+  branchLatitude:  51.5145,
+  branchLongitude: -0.1300,
+  distance:        1200,
+  isFavourited:    true,
+  merchant: {
+    id:                 'm-nails-beauty',
+    businessName:       'Nails & Beauty',
+    primaryCategory:    { id: 'c2', name: 'Beauty & Wellness', pinColour: null, pinIcon: null, parentId: null },
+    voucherCount:       1,
+    maxEstimatedSaving: 10,
+  },
 })
 
 describe('MapBranchTile', () => {
-  it('renders merchant name', () => {
+  it('renders merchant name (sourced from branch.merchant.businessName)', () => {
     const onClose = jest.fn()
-    const onMerchantPress = jest.fn()
+    const onBranchPress = jest.fn()
     const onIndexChange = jest.fn()
     const { getByText } = render(
       <MapBranchTile
-        merchants={[mockMerchant]}
+        branches={[mockBranchA]}
         activeIndex={0}
         onClose={onClose}
         onIndexChange={onIndexChange}
-        onMerchantPress={onMerchantPress}
+        onBranchPress={onBranchPress}
       />,
     )
     expect(getByText('Bella Italia')).toBeTruthy()
@@ -45,15 +63,15 @@ describe('MapBranchTile', () => {
 
   it('calls onClose when X is pressed', () => {
     const onClose = jest.fn()
-    const onMerchantPress = jest.fn()
+    const onBranchPress = jest.fn()
     const onIndexChange = jest.fn()
     const { getByLabelText } = render(
       <MapBranchTile
-        merchants={[mockMerchant]}
+        branches={[mockBranchA]}
         activeIndex={0}
         onClose={onClose}
         onIndexChange={onIndexChange}
-        onMerchantPress={onMerchantPress}
+        onBranchPress={onBranchPress}
       />,
     )
     const closeBtn = getByLabelText('Close merchant tile')
@@ -61,39 +79,137 @@ describe('MapBranchTile', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('renders multiple merchants with dot indicators', () => {
+  it('renders multiple branches with dot indicators', () => {
     const onClose = jest.fn()
-    const onMerchantPress = jest.fn()
+    const onBranchPress = jest.fn()
     const onIndexChange = jest.fn()
     const { getByText } = render(
       <MapBranchTile
-        merchants={[mockMerchant, mockMerchant2]}
+        branches={[mockBranchA, mockBranchB]}
         activeIndex={0}
         onClose={onClose}
         onIndexChange={onIndexChange}
-        onMerchantPress={onMerchantPress}
+        onBranchPress={onBranchPress}
       />,
     )
     expect(getByText('Bella Italia')).toBeTruthy()
+  })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // One-card-per-branch cardinality (Covelum bug closure, §M / Phase C).
+  //
+  // Two branches of the same merchant (Covelum Brightlingsea +
+  // Colchester both under `m-covelum`) must render as TWO distinct
+  // carousel cards. Pre-Phase-C the carousel collapsed to merchant
+  // identity → only one Covelum card showed. Phase C: each branch
+  // gets its own card.
+  // ──────────────────────────────────────────────────────────────────────
+
+  it('§M: two branches of the same merchant render two distinct carousel cards', () => {
+    const brightlingsea = makeBranchTile({
+      id:              'brn-covelum-bri',
+      branchName:      'Brightlingsea',
+      branchLatitude:  51.8054,
+      branchLongitude: 1.0244,
+      distance:        163_000,
+      merchant: {
+        id:                 'm-covelum',
+        businessName:       'Covelum Restaurant',
+        primaryCategory:    { id: 'c1', name: 'Food & Drink', pinColour: null, pinIcon: null, parentId: null },
+        voucherCount:       2,
+        maxEstimatedSaving: 20,
+      },
+    })
+    const colchester = makeBranchTile({
+      id:              'brn-covelum-col',
+      branchName:      'Colchester',
+      branchLatitude:  51.8959,
+      branchLongitude: 0.8919,
+      distance:        158_000,
+      merchant: {
+        id:                 'm-covelum',
+        businessName:       'Covelum Restaurant',
+        primaryCategory:    { id: 'c1', name: 'Food & Drink', pinColour: null, pinIcon: null, parentId: null },
+        voucherCount:       2,
+        maxEstimatedSaving: 20,
+      },
+    })
+    const { UNSAFE_getAllByType } = render(
+      <MapBranchTile
+        branches={[brightlingsea, colchester]}
+        activeIndex={0}
+        onClose={jest.fn()}
+        onIndexChange={jest.fn()}
+        onBranchPress={jest.fn()}
+      />,
+    )
+    // The shared <MerchantTile> is the unit of render per card.
+    // Two branches of the same merchant must render two
+    // distinct <MerchantTile> instances at distinct positions.
+    const { MerchantTile: MerchantTileComponent } = require('@/features/shared/MerchantTile')
+    const merchantTiles = UNSAFE_getAllByType(MerchantTileComponent)
+    expect(merchantTiles).toHaveLength(2)
+  })
+
+  it('§M: tap fires onBranchPress with the tapped CARD\'s branch.id (not the merchant.id)', () => {
+    const brightlingsea = makeBranchTile({
+      id:              'brn-covelum-bri',
+      branchLatitude:  51.8054,
+      branchLongitude: 1.0244,
+      merchant:        { id: 'm-covelum', businessName: 'Covelum' },
+    })
+    const colchester = makeBranchTile({
+      id:              'brn-covelum-col',
+      branchLatitude:  51.8959,
+      branchLongitude: 0.8919,
+      merchant:        { id: 'm-covelum', businessName: 'Covelum' },
+    })
+    const onBranchPress = jest.fn()
+    const { UNSAFE_getAllByType } = render(
+      <MapBranchTile
+        branches={[brightlingsea, colchester]}
+        activeIndex={0}
+        onClose={jest.fn()}
+        onIndexChange={jest.fn()}
+        onBranchPress={onBranchPress}
+      />,
+    )
+    // Locate both PressableScale roots (one per card) and tap the second.
+    const { PressableScale } = require('@/design-system/motion/PressableScale')
+    const pressables = UNSAFE_getAllByType(PressableScale)
+    expect(pressables.length).toBeGreaterThanOrEqual(2)
+    // Each PressableScale's onPress is wired with the adapted MerchantTile's
+    // `merchant.id` — but the adapter sets `id: branch.id`, so the callback
+    // fires with the BRANCH id (which is the load-bearing identity for the
+    // Phase D `?branch=` URL contract).
+    pressables[1]!.props.onPress()
+    expect(onBranchPress).toHaveBeenCalledWith('brn-covelum-col')
+    expect(onBranchPress).not.toHaveBeenCalledWith('m-covelum')
   })
 
   // Plan 4 M3b — proves the inner shared MerchantTile receives the
   // proximityBand prop unaltered through the Map carousel wrapper.
   // MerchantTile's own chip-matrix test covers all band variants;
   // this is the integration pin specifically for the Map render path.
-  it('surfaces the proximity chip on the selected map card', () => {
-    const tile = makeMerchantTile({
-      id:                 'm-near',
-      businessName:       'In Your Area Cafe',
-      proximityBand:      'IN_YOUR_AREA',
+  it('surfaces the proximity chip on the selected map card (branch-level proximityBand)', () => {
+    const tile = makeBranchTile({
+      id:             'brn-near',
+      branchName:     'In Your Area',
+      branchLatitude: 51.5,
+      branchLongitude: -0.1,
+      proximityBand:  'IN_YOUR_AREA',
+      merchant: {
+        id:           'm-near',
+        businessName: 'In Your Area Cafe',
+      },
     })
     const { getByText } = render(
       <MapBranchTile
-        merchants={[tile]}
+        branches={[tile]}
         activeIndex={0}
         onClose={jest.fn()}
         onIndexChange={jest.fn()}
-        onMerchantPress={jest.fn()}
+        onBranchPress={jest.fn()}
       />,
     )
     expect(getByText('In Your Area Cafe')).toBeTruthy()
