@@ -17,6 +17,7 @@ import { seedHeuristicCatchmentEdges } from './seed-data/catchment-heuristic'
 import { seedCuratedCatchmentEdges } from './seed-data/catchmentOverrides'
 import { seedMarkets } from './seed-data/markets'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
+import { DEMO_MERCHANT_ENRICHMENT, REAL_MERCHANT_PIN_BRANCH_IDS } from './seed-data/demoMerchantEnrichment'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
 
@@ -1274,6 +1275,125 @@ const COVELUM_MAIN_BRANCH_ID = 'tax-branch-covelum-001'
 const COVELUM_2ND_BRANCH_ID  = 'tax-branch-covelum-002'
 
 async function seedDemoMerchantEnrichment(): Promise<void> {
+  // ───────────────────────────────────────────────────────────────────
+  // 0. Stage 2 enrichment — 9 fake/demo merchants + dev-merchant-001
+  //    (partial) + Cohort C real-merchant branch PINs.
+  //
+  //    Source of truth: prisma/seed-data/demoMerchantEnrichment.ts.
+  //    Plan: docs/superpowers/plans/2026-05-20-seed-merchant-enrichment.md
+  //    §Stage 2 final scope (locked 2026-05-20 post-implementation-pre-check).
+  //
+  //    The Covelum-specific block in §1-§6 below runs unchanged after
+  //    this iteration; Covelum is NOT in DEMO_MERCHANT_ENRICHMENT
+  //    (real merchant; receives PIN-only treatment via §0.2 below).
+  // ───────────────────────────────────────────────────────────────────
+  for (const entry of DEMO_MERCHANT_ENRICHMENT) {
+    // 0.1.a — merchant media. Same fields for every entry; Cohort B
+    //   (The Coffee House) gets media + website like everyone else.
+    await prisma.merchant.update({
+      where: { id: entry.merchantId },
+      data: {
+        logoUrl:    entry.logoUrl,
+        bannerUrl:  entry.bannerUrl,
+        websiteUrl: entry.websiteUrl,
+      },
+    })
+
+    // 0.1.b — vouchers. Cohort B (dev-merchant-001) ships vouchers: []
+    //   and is intentionally skipped (already has 2 RMV vouchers from
+    //   the auth-flow demo fixture).
+    if (entry.vouchers.length > 0) {
+      for (const v of entry.vouchers) {
+        await prisma.voucher.upsert({
+          where: { id: v.id },
+          create: {
+            id:              v.id,
+            merchantId:      entry.merchantId,
+            code:            v.code,
+            isMandatory:     false,
+            type:            v.type as VoucherType,
+            title:           v.title,
+            description:     v.description,
+            estimatedSaving: v.estimatedSaving,
+            status:          'ACTIVE',
+            approvalStatus:  'APPROVED',
+            approvedAt:      new Date(),
+          },
+          update: {
+            code:            v.code,
+            type:            v.type as VoucherType,
+            title:           v.title,
+            description:     v.description,
+            estimatedSaving: v.estimatedSaving,
+            status:          'ACTIVE',
+            approvalStatus:  'APPROVED',
+          },
+        })
+      }
+    }
+
+    // 0.1.c — per-branch enrichment: PIN, opening hours, contact gap-fills.
+    for (const [branchId, b] of Object.entries(entry.branches)) {
+      // PIN idempotency guard: write encrypted PIN ONLY if currently null.
+      //   - Fake/demo branches already have PIN set in the taxonomy seed
+      //     (encrypt('1234') at line 1188), so this is a no-op there.
+      //   - dev-branch-001 (Cohort B) PIN is preserved — owner-locked
+      //     "Do NOT change redemptionPin (already set)".
+      //   - Forward-compat: if any future branch lands without a PIN, the
+      //     guard writes one without overwriting hand-set values.
+      const current = await prisma.branch.findUnique({
+        where: { id: branchId },
+        select: { redemptionPin: true, phone: true, email: true },
+      })
+      if (!current) continue
+      const updates: { redemptionPin?: string; phone?: string; email?: string } = {}
+      if (!current.redemptionPin) updates.redemptionPin = encrypt(b.redemptionPinPlaintext)
+      if (!current.phone && b.phone) updates.phone = b.phone
+      if (!current.email && b.email) updates.email = b.email
+      if (Object.keys(updates).length > 0) {
+        await prisma.branch.update({ where: { id: branchId }, data: updates })
+      }
+
+      // Opening hours: idempotent — delete-then-recreate the 7-day
+      // schedule. Schema has @@unique([branchId, dayOfWeek]) so split
+      // sessions are not expressible (deferred to §SE.1).
+      await prisma.branchOpeningHours.deleteMany({ where: { branchId } })
+      for (const oh of b.openingHours) {
+        await prisma.branchOpeningHours.create({
+          data: {
+            branchId,
+            dayOfWeek: oh.dayOfWeek,
+            openTime:  oh.openTime,
+            closeTime: oh.closeTime,
+            isClosed:  oh.isClosed,
+          },
+        })
+      }
+    }
+  }
+  console.log(
+    `✓ Stage 2 enrichment applied to ${DEMO_MERCHANT_ENRICHMENT.length} demo merchants ` +
+    `(8 fake/demo full + Wagtail 2-voucher exception + The Coffee House partial)`,
+  )
+
+  // 0.2 — Cohort C real-merchant branches: PIN-only enrichment, IFF
+  //   redemptionPin is currently null. Owner-locked: NO other field
+  //   touched (no coords, no locationConfidence, no address, no
+  //   contact, no vouchers, no media, no opening hours).
+  for (const realBranchId of REAL_MERCHANT_PIN_BRANCH_IDS) {
+    const current = await prisma.branch.findUnique({
+      where: { id: realBranchId },
+      select: { redemptionPin: true },
+    })
+    if (!current) continue
+    if (current.redemptionPin) continue // already set — DO NOT overwrite
+    await prisma.branch.update({
+      where: { id: realBranchId },
+      data:  { redemptionPin: encrypt('1234') },
+    })
+    console.log(`✓ Stage 2 Cohort C — set redemptionPin on ${realBranchId} (was null)`)
+  }
+
   // ── 1. Merchant logo / banner / website ──
   // Logo uses placehold.co (deterministic, brand colour). Banner + photos
   // use Unsplash food/restaurant imagery for a realistic demo feel. If
