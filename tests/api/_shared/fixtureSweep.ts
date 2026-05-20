@@ -52,6 +52,7 @@ export type FixtureSweepSummary = {
   branches: number
   vouchers: number
   reviews: number
+  reviewHelpfuls: number
   voucherRedemptions: number
   branchAmenities: number
   users: number
@@ -60,9 +61,15 @@ export type FixtureSweepSummary = {
 /**
  * Sweep leaked test fixtures matching the caller-provided merchant prefixes.
  *
- * Cascade order (dependents first, matches the historical inline cleanup):
- *   voucherRedemption → review → branchAmenity → branch (cascades
- *   BranchOpeningHours + BranchPhoto via schema) → voucher → merchant.
+ * Cascade order (dependents first; locked Stage 4 fixup 2026-05-20 added
+ * `reviewHelpful` between `voucherRedemption` and `review` because the
+ * `ReviewHelpful → Review` schema relation has no `onDelete: Cascade`):
+ *   voucherRedemption → reviewHelpful → review → branchAmenity → branch
+ *   (cascades BranchOpeningHours + BranchPhoto via schema) → voucher →
+ *   merchant.
+ *
+ * `ReviewReport → Review` does have `onDelete: Cascade`, so it auto-cleans
+ * when `review.deleteMany` runs — no manual step needed.
  *
  * User sweep:
  *   Driven by `USER_EMAIL_PREFIX_BY_MERCHANT_PREFIX`.  For each caller-passed
@@ -82,6 +89,7 @@ export async function sweepFixturesByPrefixes(
     branches: 0,
     vouchers: 0,
     reviews: 0,
+    reviewHelpfuls: 0,
     voucherRedemptions: 0,
     branchAmenities: 0,
     users: 0,
@@ -100,6 +108,21 @@ export async function sweepFixturesByPrefixes(
   if (branchIds.length > 0) {
     const r = await prisma.voucherRedemption.deleteMany({ where: { branchId: { in: branchIds } } })
     summary.voucherRedemptions = r.count
+
+    // ReviewHelpful BEFORE Review — schema relation has no onDelete:Cascade.
+    // Resolve review ids tied to leaked branches first, then delete helpfuls
+    // pointing at those reviews.  Skip the query entirely if there are no
+    // leaked reviews (idempotent safety + saves a round-trip).
+    const reviewRows = await prisma.review.findMany({
+      where: { branchId: { in: branchIds } },
+      select: { id: true },
+    })
+    const reviewIds = reviewRows.map(rv => rv.id)
+    if (reviewIds.length > 0) {
+      const rh = await prisma.reviewHelpful.deleteMany({ where: { reviewId: { in: reviewIds } } })
+      summary.reviewHelpfuls = rh.count
+    }
+
     const rv = await prisma.review.deleteMany({ where: { branchId: { in: branchIds } } })
     summary.reviews = rv.count
     const ba = await prisma.branchAmenity.deleteMany({ where: { branchId: { in: branchIds } } })

@@ -84,13 +84,24 @@ async function main(): Promise<void> {
     const allBranchIds = leakedMerchants.flatMap(m => m.branches.map(b => b.id))
 
     // Cascade-row counts.  Each guard short-circuits empty-id arrays to
-    // avoid wasteful `{ in: [] }` round-trips.
+    // avoid wasteful `{ in: [] }` round-trips.  ReviewHelpful step matches
+    // the helper's cascade order — no schema cascade on
+    // `ReviewHelpful → Review`, so it must be deleted explicitly.
     const cascadeRedemptions = allBranchIds.length === 0
       ? 0
       : await prisma.voucherRedemption.count({ where: { branchId: { in: allBranchIds } } })
-    const cascadeReviews = allBranchIds.length === 0
+
+    const leakedReviewIds = allBranchIds.length === 0
+      ? []
+      : (await prisma.review.findMany({
+          where: { branchId: { in: allBranchIds } },
+          select: { id: true },
+        })).map(r => r.id)
+
+    const cascadeReviewHelpfuls = leakedReviewIds.length === 0
       ? 0
-      : await prisma.review.count({ where: { branchId: { in: allBranchIds } } })
+      : await prisma.reviewHelpful.count({ where: { reviewId: { in: leakedReviewIds } } })
+    const cascadeReviews = leakedReviewIds.length
     const cascadeBranchAmenities = allBranchIds.length === 0
       ? 0
       : await prisma.branchAmenity.count({ where: { branchId: { in: allBranchIds } } })
@@ -126,6 +137,7 @@ async function main(): Promise<void> {
     console.log('')
     console.log('Total would-delete (cascade):')
     console.log(`  voucherRedemption: ${cascadeRedemptions}`)
+    console.log(`  reviewHelpful:     ${cascadeReviewHelpfuls}`)
     console.log(`  review:            ${cascadeReviews}`)
     console.log(`  branchAmenity:     ${cascadeBranchAmenities}`)
     console.log(`  branch:            ${cascadeBranches}`)
@@ -148,6 +160,7 @@ async function main(): Promise<void> {
 
     console.log('=== Deletion summary ===')
     console.log(`  voucherRedemption: ${summary.voucherRedemptions}`)
+    console.log(`  reviewHelpful:     ${summary.reviewHelpfuls}`)
     console.log(`  review:            ${summary.reviews}`)
     console.log(`  branchAmenity:     ${summary.branchAmenities}`)
     console.log(`  branch:            ${summary.branches}`)
