@@ -941,6 +941,54 @@ gh pr create --title "feat(seed): Stage 3 — real merchant coord verification (
 
 **Goal:** With Stages 1-2 closed, R1-R7 should pass. R8 fails until Stage 4 cleans the leaked fixtures. R9 still fails until Stage 3 closes (deferred). Stage 4 promotes the guardrail to ACTIVE (un-skips the `describe.skip`) for R1-R8 specifically. R9 can be added to the active set after Stage 3 lands.
 
+### Stage 4 owner-locked scope (2026-05-20, post Stage 2 merge `6720fe7`)
+
+Five locked decisions from the Stage 4 pre-implementation package owner approval:
+
+| # | Decision | Locked value |
+|---|---|---|
+| S4.D1 | Cleanup strategy | **HARD DELETE** (matches PR #113 fixup-1 P1Test precedent). Soft-delete (`status='INACTIVE'`) rejected — leaves clutter, confuses future audits. |
+| S4.D2 | Existing `clean-leaked-p1test-fixtures.ts` | **KEEP UNCHANGED.** Approved historical artefact; new general script supersedes it operationally without deleting the old one. |
+| S4.D3 | PR composition | **SINGLE PR** containing: new `prisma/clean-leaked-test-fixtures.ts`, new `tests/api/_shared/fixtureSweep.ts`, refactor of `tests/api/customer/discovery.selectedBranch.test.ts`, un-skip seed-guardrail R1-R8 + keep R9 `it.skip`, plan as-shipped addendum. |
+| S4.D4 | Execution sequence | implement branch → DRY-RUN only → open PR with dry-run output captured → **PAUSE for owner approval of exact deletion counts** → run `--confirm` while PR open → post-cleanup audit → update PR final package → owner merge. NO `--confirm` before PR exists with dry-run output reviewed. |
+| S4.D5 | Audit-script shared-prefix refactor | **NO REFACTOR.** Keep `prisma/audit-seed-state.ts` as-is. Cross-boundary `prisma/` → `tests/api/_shared/` import would be awkward. Small prefix list duplication is acceptable. |
+
+**Locked leaked-fixture prefixes (8 prefixes, single source per file — duplicated by design per S4.D5):**
+
+```
+P1Test-           (0 rows today; included for forward-protection + supersedes the old P1Test-specific script operationally)
+SummaryTest-      (8 merchants / 16 branches)
+SummaryTestOther- (10 merchants / 8 branches)
+TEST              (3 merchants / 2 branches / 1 voucher; trailing space intentional — see prefix-rationale note below)
+UpsertRevive-     (1 merchant / 1 branch)
+Revive-           (0 rows today; forward-protection)
+Drift-            (0 rows today; forward-protection)
+FilterFlip-       (0 rows today; forward-protection)
+```
+
+> Note: `TEST ` has a trailing space. The taxonomy test fixtures use `TEST §AG3 …` naming. `TEST` without the trailing space would match legitimate "TESTing" / "Test" merchants. The trailing-space form is preserved verbatim from the existing audit-script constant.
+
+**Locked file scope for THIS Stage 4 PR (Task 4.2 is narrower than the original plan §Task 4.2):**
+
+| File | Action | Notes |
+|---|---|---|
+| `prisma/clean-leaked-test-fixtures.ts` | **NEW** | Mirrors `clean-leaked-p1test-fixtures.ts`. Iterates the 8-prefix list. Dry-run default, `--confirm` writes. Uses shared `sweepFixturesByPrefixes` helper so behaviour is identical to what tests use. |
+| `tests/api/_shared/fixtureSweep.ts` | **NEW** | Single exported function `sweepFixturesByPrefixes(prisma, prefixes)`. Returns counts. No console output. Re-exports the canonical `LEAKED_FIXTURE_PREFIXES` for the cleanup script + guardrail vitest to consume. |
+| `tests/api/customer/discovery.selectedBranch.test.ts` | **MODIFY** | Drop inline `sweepP1TestFixtures()`. Use shared helper. Test still only sweeps `P1Test-` prefix (NOT all 8) so it does NOT interfere with other tests. |
+| `tests/prisma/seed-guardrail.test.ts` | **MODIFY** | Outer `describe.skip` → `describe`. R9 only → `it.skip` with explanatory comment. Import `LEAKED_FIXTURE_PREFIXES` from shared helper (drop local copy). Header comment block rewritten to reflect Stage 4 promotion. |
+| `prisma/audit-seed-state.ts` | **NO CHANGE** (S4.D5) | Keep its local `LEAKED_FIXTURE_PREFIXES` constant. Duplication acceptable. |
+| `prisma/clean-leaked-p1test-fixtures.ts` | **NO CHANGE** (S4.D2) | Keep unchanged. |
+| `docs/superpowers/plans/2026-05-20-seed-merchant-enrichment.md` | **MODIFY** | This scope-lock section is added in the lock commit; the post-merge "as-shipped" addendum follows after Stage 4 ships. |
+| **Out of scope for THIS PR**: original plan §Task 4.2 mentioned refactoring "7 candidate test files in `tests/api/customer/discovery/`". Scope reduced to ONLY `discovery.selectedBranch.test.ts` per the approved Stage 4 package. Other files can adopt the helper opportunistically in future PRs. |
+
+**R9 stays `it.skip` after Stage 4** even though it currently passes (all 4 real-merchant branches have `MANUALLY_CONFIRMED` + non-null coords today). Reason: R9's semantic intent is "real-merchant coords have actually been Google-Places-verified". Stage 3 does that verification for Karaara + My Kerala + Covelum Colchester. Until Stage 3 lands, R9 stays inactive in CI even though it would mechanically pass.
+
+**Stage 3 still PAUSED after Stage 4 lands.** Stage 3 must be explicitly owner-started.
+
+**Phase 2.3 Home + Phase 2.4 Category gated:** must NOT start until Stage 4 is merged AND the seed audit reports clean R1-R8.
+
+**Expected post-Stage-4 audit:** 6 failures total (4 R2 + 2 R3 = Karaara + My Kerala media + hours; Stage 3 closes). R1/R4/R5/R6/R7/R8 all 0. R9 0 (mechanically) but skipped in CI.
+
 ### Task 4.1: Clean the leaked test fixtures
 
 **Files:**
