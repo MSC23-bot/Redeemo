@@ -33,11 +33,19 @@ export const LEAKED_FIXTURE_PREFIXES = [
   'FilterFlip-',
 ] as const
 
-// Only the `P1Test-` class has a documented user-email-leak pattern
+// Explicit merchant-prefix → user-email-prefix mapping.  Only the
+// `P1Test-` class has a documented user-email-leak pattern
 // (`p1test-${Date.now()}@example.com` from `discovery.selectedBranch.test.ts`).
-// The other 7 prefix classes never created `User` rows.  Kept lowercased so
-// `User.email.startsWith()` matches case-insensitively in practice.
-export const LEAKED_USER_EMAIL_PREFIXES = ['p1test-'] as const
+// The other 7 prefix classes never created `User` rows.
+//
+// Mapping is intentionally explicit (not derived by string-prefix matching)
+// so a future prefix class with a divergent email pattern (e.g. merchant
+// `Foo-` + emails `foo-user-*@…`) is captured as data, not lost to a
+// silently-failing prefix-overlap heuristic.  Seed pattern writes emails
+// lowercased; matched case-sensitively against the lowercased prefix.
+export const USER_EMAIL_PREFIX_BY_MERCHANT_PREFIX: Readonly<Record<string, readonly string[]>> = {
+  'P1Test-': ['p1test-'],
+} as const
 
 export type FixtureSweepSummary = {
   merchants: number
@@ -57,9 +65,10 @@ export type FixtureSweepSummary = {
  *   BranchOpeningHours + BranchPhoto via schema) → voucher → merchant.
  *
  * User sweep:
- *   Only fires if the caller's `prefixes` intersect with
- *   `LEAKED_USER_EMAIL_PREFIXES` (today: `['p1test-']`).  Sweeps
- *   `User.email startsWith` the lowercased prefix.
+ *   Driven by `USER_EMAIL_PREFIX_BY_MERCHANT_PREFIX`.  For each caller-passed
+ *   merchant prefix, looks up the explicit list of user-email prefixes (if
+ *   any) and sweeps `User.email startsWith` against each.  Today only
+ *   `'P1Test-' → ['p1test-']` is mapped.
  *
  * No console output (test-suite friendly).  No throw on empty matches
  * (empty result is a valid idempotent no-op).
@@ -107,13 +116,14 @@ export async function sweepFixturesByPrefixes(
     summary.merchants = m.count
   }
 
-  // Users — sweep only if caller's prefixes intersect with the documented
-  // user-email-leak class.  Today only `P1Test-` qualifies (→ `p1test-`).
-  const lowerCaller = prefixes.map(p => p.toLowerCase())
-  const userEmailPrefixes = LEAKED_USER_EMAIL_PREFIXES.filter(emailPrefix =>
-    // Match if any caller merchant prefix (lowercased) starts with the same
-    // root as the email prefix (e.g. `p1test-` matches `p1test-`).
-    lowerCaller.some(cp => cp.startsWith(emailPrefix)),
+  // Users — explicit lookup via USER_EMAIL_PREFIX_BY_MERCHANT_PREFIX.
+  // Today only `P1Test-` has an entry; other merchant prefixes resolve to no
+  // user-email sweep.  Dedup since a future map might point multiple merchant
+  // prefixes at the same email prefix.
+  const userEmailPrefixes = Array.from(
+    new Set(
+      prefixes.flatMap(p => USER_EMAIL_PREFIX_BY_MERCHANT_PREFIX[p] ?? []),
+    ),
   )
   if (userEmailPrefixes.length > 0) {
     const u = await prisma.user.deleteMany({

@@ -39,9 +39,9 @@ const prisma = new PrismaClient({ adapter })
 //
 // The Date.now() suffix per-merchant is preserved as a within-run
 // uniqueness marker (tests run in parallel via vitest pool); the
-// prefix-sweep cleanup is the orthogonal safety net.
-const P1TEST_MERCHANT_PREFIX = 'P1Test-'
-const P1TEST_USER_EMAIL_PREFIX = 'p1test-'
+// prefix-sweep cleanup via `sweepFixturesByPrefixes(prisma, ['P1Test-'])`
+// is the orthogonal safety net.  Per-prefix constants live in
+// `tests/api/_shared/fixtureSweep.ts` (single source of truth).
 
 // Warm the Neon serverless connection before the first heavy-write test
 // AND clean any leftover P1Test fixtures from previous failed runs.

@@ -38,7 +38,7 @@ import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import {
   LEAKED_FIXTURE_PREFIXES,
-  LEAKED_USER_EMAIL_PREFIXES,
+  USER_EMAIL_PREFIX_BY_MERCHANT_PREFIX,
   sweepFixturesByPrefixes,
 } from '../tests/api/_shared/fixtureSweep'
 
@@ -57,40 +57,34 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient({ adapter })
 
   try {
-    // Per-prefix enumeration so the dry-run report is intelligible.
-    const perPrefix: PerPrefixCount[] = []
-    for (const prefix of LEAKED_FIXTURE_PREFIXES) {
-      const merchants = await prisma.merchant.findMany({
-        where: { businessName: { startsWith: prefix } },
-        select: {
-          id: true,
-          branches: { select: { id: true } },
-          vouchers: { select: { id: true } },
-        },
-      })
-      perPrefix.push({
+    // Single batch fetch — every leaked merchant + its branches + its vouchers.
+    // Per-prefix breakdown is then derived in-memory by matching on
+    // `businessName.startsWith(prefix)` (mirrors the SQL filter).
+    const leakedMerchants = await prisma.merchant.findMany({
+      where: { OR: LEAKED_FIXTURE_PREFIXES.map(p => ({ businessName: { startsWith: p } })) },
+      select: {
+        id: true,
+        businessName: true,
+        branches: { select: { id: true } },
+        vouchers: { select: { id: true } },
+      },
+    })
+
+    const perPrefix: PerPrefixCount[] = LEAKED_FIXTURE_PREFIXES.map(prefix => {
+      const matching = leakedMerchants.filter(m => m.businessName.startsWith(prefix))
+      return {
         prefix,
-        merchants: merchants.length,
-        branches: merchants.reduce((acc, m) => acc + m.branches.length, 0),
-        vouchers: merchants.reduce((acc, m) => acc + m.vouchers.length, 0),
-      })
-    }
+        merchants: matching.length,
+        branches: matching.reduce((acc, m) => acc + m.branches.length, 0),
+        vouchers: matching.reduce((acc, m) => acc + m.vouchers.length, 0),
+      }
+    })
 
-    // Aggregate would-delete counts for the cascade summary.
-    const allBranchIds = await prisma.merchant
-      .findMany({
-        where: { OR: LEAKED_FIXTURE_PREFIXES.map(p => ({ businessName: { startsWith: p } })) },
-        select: { branches: { select: { id: true } } },
-      })
-      .then(rows => rows.flatMap(r => r.branches.map(b => b.id)))
+    const allMerchantIds = leakedMerchants.map(m => m.id)
+    const allBranchIds = leakedMerchants.flatMap(m => m.branches.map(b => b.id))
 
-    const allMerchantIds = await prisma.merchant
-      .findMany({
-        where: { OR: LEAKED_FIXTURE_PREFIXES.map(p => ({ businessName: { startsWith: p } })) },
-        select: { id: true },
-      })
-      .then(rows => rows.map(r => r.id))
-
+    // Cascade-row counts.  Each guard short-circuits empty-id arrays to
+    // avoid wasteful `{ in: [] }` round-trips.
     const cascadeRedemptions = allBranchIds.length === 0
       ? 0
       : await prisma.voucherRedemption.count({ where: { branchId: { in: allBranchIds } } })
@@ -106,9 +100,15 @@ async function main(): Promise<void> {
       : await prisma.voucher.count({ where: { merchantId: { in: allMerchantIds } } })
     const cascadeMerchants = allMerchantIds.length
 
-    const cascadeUsers = await prisma.user.count({
-      where: { OR: LEAKED_USER_EMAIL_PREFIXES.map(ep => ({ email: { startsWith: ep } })) },
-    })
+    // User-email cascade: explicit lookup via the merchant→email-prefix map.
+    const userEmailPrefixes = Array.from(
+      new Set(LEAKED_FIXTURE_PREFIXES.flatMap(p => USER_EMAIL_PREFIX_BY_MERCHANT_PREFIX[p] ?? [])),
+    )
+    const cascadeUsers = userEmailPrefixes.length === 0
+      ? 0
+      : await prisma.user.count({
+          where: { OR: userEmailPrefixes.map(ep => ({ email: { startsWith: ep } })) },
+        })
 
     // Report.
     console.log('=== Stage 4 leaked-fixture cleanup — scoped cleanup ===')
