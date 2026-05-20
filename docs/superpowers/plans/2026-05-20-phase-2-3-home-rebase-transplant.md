@@ -16,11 +16,56 @@
 |---|---|---|
 | **0.1** | Overall path | **Option C — branch-first migrate only.** No transplant. The refined v7 Home UI/UX on `main` is preserved. NO redesign, NO restyle, NO re-polish. |
 | **0.2** | Empty handlers `onCampaignPress` / `onFilterPress` / `onSeeAll` | **OUT of Phase 2.3.** Do NOT add routes or screens. Record as deferred follow-up (§CL — see this plan's bookkeeping task). Visible no-op flagged in device-QA checklist. |
-| **0.3** | §CA Home save badge | **IN if low-risk.** Add `totalEstimatedSaving` backend additive + Home `Save £X across N vouchers` copy mirroring Search PR #112 fixup-4. **Escalate** if implementation reveals broader scope. |
+| **0.3** | §CA Home save badge | **IN if low-risk.** Add `totalEstimatedSaving` backend additive + Home `Save £X across N vouchers` copy mirroring Search PR #112 fixup-4. **Escalate** if implementation reveals broader scope. (See §0-amend below — backend field already exists; only consumer-side work remains.) |
 | **0.4** | §BY formatter audit | **IN as small audit.** Pin shared `formatDistance` reuse on Home in tests. GBP + voucher-count helper migration in-scope ONLY if low-risk + scoped to Home; do NOT broaden into Phase-2.5-territory shared-component cleanup. |
 | **0.5** | Tier classification | **Tier 2 plan-first.** No Tier 3 brainstorm — locked Discovery rebaseline spec already covers Phase 2.3. |
 | **0.6** | Branch + base | Base `main` (`93803ca`); branch `feature/discovery-rebaseline-phase-2-3-home-customer-app`. |
 | **0.7** | Standing rules carry forward | Single-component carry-forward (§0.7 spec lock); `?branch=&from=home` URL contract; POSTCODE_CENTROID redaction passes through unchanged; no schema changes; no Map / Search / Category surface drift. |
+
+---
+
+## 0-amend. Pre-implementation amendment (2026-05-21, owner-approved)
+
+Owner reviewed the plan against current `main` and caught two contract mismatches BEFORE implementation started. Both confirmed via direct code inspection. The original §0 directives stand; this amendment refines the implementation specifics.
+
+### Amendment A — `totalEstimatedSaving` already shipped end-to-end
+
+**Original Task B claim (incorrect):** "Add `totalEstimatedSaving` to backend home-feed branch-tile projection."
+
+**Reality on `main` at `93803ca`:**
+- `src/api/customer/discovery/branchTileSchema.ts:69` — `totalEstimatedSaving: z.number().nullable()` is part of `branchTileSchema` already.
+- `src/api/customer/discovery/service.ts:1028-1033, 1100` — `enrichBranchTile()` computes and emits `totalEstimatedSaving` with the locked rounding rule (mirrors PR #112 fixup-4).
+- `src/api/customer/discovery/service.ts:1427-1429` — `enrichBranchTiles` already runs over `featuredBranchInputs`, `trendingBranchInputs`, AND the per-category nearby inputs in parallel. So Home's branch tiles ALREADY carry `totalEstimatedSaving` on the wire.
+- `apps/customer-app/src/lib/api/discovery.ts:183-201` — customer-app `branchTileMerchantGroupingSchema` already carries `totalEstimatedSaving` at the nested `merchant.*` level (line 200).
+- `apps/customer-app/src/lib/api/discovery.ts:203-223` — `branchTileSchema` (line 222) references that grouping schema, so the field flows through to Home tiles.
+
+**The residual gap is one Zod schema extension:** `homeFeedResponseSchema` at `apps/customer-app/src/lib/api/discovery.ts:275-284` does NOT currently include `featuredBranches`, `trendingBranches`, or `nearbyByCategoryBranches`. The backend emits them; Zod silently strips them on parse today.
+
+**Reframed Task B:**
+- Verify (via grep + code-read) that `branch.merchant.totalEstimatedSaving` already flows through backend → wire → customer-app `BranchTile.merchant.totalEstimatedSaving`.
+- Extend `homeFeedResponseSchema` (customer-app only) with `featuredBranches`, `trendingBranches`, `nearbyByCategoryBranches` fields typed as `z.array(branchTileSchema)`.
+- NO backend changes.
+- Add or extend a customer-app test pinning the parsed `HomeFeedResponse` includes the `*Branches` fields with `merchant.totalEstimatedSaving` populated.
+- ONLY make backend changes if a focused test proves the field is missing from Home branch tiles — none expected, but pause + escalate if a probe reveals one.
+
+### Amendment B — `resolveBackNavigation` needs `from=home`
+
+**Original plan claim (incorrect):** "`MerchantProfileScreen.handleBack` already recognises `from === 'home'` via `resolveBackNavigation` helper (locked PR #113 fixup). Phase 2.3 just provides the URL param."
+
+**Reality on `main` at `93803ca`:** `apps/customer-app/src/features/merchant/utils/resolveBackNavigation.ts` handles ONLY `from=search` (with optional `q`) and `from=map`. Any other `from` value returns `null` (default `router.back()` fallback). The existing test at `apps/customer-app/tests/features/merchant/utils/resolveBackNavigation.test.ts` explicitly pins `resolveBackNavigation('home', undefined).toBeNull()` under "unrecognised from values" (line 35).
+
+**Canonical Home route:** `/(app)/` — used at 3 existing call sites: `SavingsScreen.tsx:239`, `SubscribePromptScreen.tsx:270`, `VoucherDetailScreen.tsx:1001`. All use `router.push('/(app)/' as never)` or `router.replace('/(app)/' as never)`.
+
+**New in-scope work for Phase 2.3:**
+- Update `resolveBackNavigation.ts` to recognise `from=home`, returning `/(app)/`.
+- Update `resolveBackNavigation.test.ts` to:
+  - REMOVE the `expect(resolveBackNavigation('home', undefined)).toBeNull()` line from the "unrecognised from values" describe block.
+  - ADD a new `describe('from=home (Phase 2.3 contract)', ...)` block with a positive pin: `expect(resolveBackNavigation('home', undefined)).toBe('/(app)/')` + a second pin asserting `q` is ignored (mirrors the `from=map` pattern).
+- Verify `MerchantProfileScreen.handleBack` already calls `resolveBackNavigation(from, q)` (it does, per PR #113); no screen-level edit needed.
+
+### Scope clarification on the out-of-scope list
+
+The original §2 Out-of-scope said "Map, Search, Category, Voucher Detail, or Merchant Profile surfaces" must NOT be touched. The `resolveBackNavigation.ts` helper LIVES under `apps/customer-app/src/features/merchant/utils/` but is a shared pure-function helper, not a Merchant Profile screen edit. Amendment B narrows the out-of-scope to specifically: do NOT touch `MerchantProfileScreen.tsx` or any other component file under `src/features/merchant/` — only the helper + its test. See §2 update below.
 
 ---
 
@@ -42,19 +87,19 @@
 
 ### In scope (single PR)
 
-1. **Backend additive — `totalEstimatedSaving` on the home-feed branch tile projection.** Mirror the projection logic locked at PR #112 fixup-4 (Search). One field, one service line, one schema entry, one test pin.
-2. **Customer-app Zod schemas.** Extend `discovery.ts` with `branchTileSchema` + envelope fields for Home (`featuredBranches`, `trendingBranches`, `nearbyByCategoryBranches`). Preserve legacy field schemas for Phase 1 additive-compatibility.
-3. **HomeScreen orchestrator update.** Read new `*Branches` fields from `useHomeFeed` payload; pass to the three carousels.
-4. **FeaturedCarousel.tsx** — flip to `BranchTile[]` consumption via adapter. Preserve auto-scroll, rose star, FEATURED badge prop on shared `<MerchantTile>`.
-5. **TrendingSection.tsx** — flip to `BranchTile[]` consumption via adapter. Preserve warm-gradient wrap + flame icon.
-6. **NearbyByCategory.tsx** — flip to `nearbyByCategoryBranches[]` (list of `{ category, branches }`). Preserve tappable header + "See all" chevron.
-7. **Scoped `branchToMerchantTile` adapter** under `src/features/home/utils/` — local to Home, deletable in Phase 2.5. Mirrors Phase 2.2 Map's `branchToMerchantTile` adapter.
-8. **Navigation contract** — every tile tap routes to `/merchant/${tile.merchant.id}?branch=${tile.id}&from=home`. Matches Phase 2.1 + 2.2 precedent.
-9. **§CA partial closure for Home** (per owner-locked 0.3) — `Save £X across N vouchers` badge copy on Home cards; backend `totalEstimatedSaving` field. Single-voucher case uses `Save up to £X` + `1 voucher` per locked wording.
+1. **Customer-app schema envelope extension** (per Amendment A) — extend `homeFeedResponseSchema` in `apps/customer-app/src/lib/api/discovery.ts` with `featuredBranches: z.array(branchTileSchema)`, `trendingBranches: z.array(branchTileSchema)`, and `nearbyByCategoryBranches: z.array({ category, branches })` fields. Reuse the existing `branchTileSchema` (line 203) — do NOT redefine. Preserve legacy `featured` / `trending` / `nearbyByCategory` fields for Phase 1 additive-compatibility.
+2. **HomeScreen orchestrator update.** Read new `*Branches` fields from `useHomeFeed` payload; pass to the three carousels.
+3. **FeaturedCarousel.tsx** — flip to `BranchTile[]` consumption via adapter. Preserve auto-scroll, rose star, FEATURED badge prop on shared `<MerchantTile>`.
+4. **TrendingSection.tsx** — flip to `BranchTile[]` consumption via adapter. Preserve warm-gradient wrap + flame icon.
+5. **NearbyByCategory.tsx** — flip to `nearbyByCategoryBranches[]` (list of `{ category, branches }`). Preserve tappable header + "See all" chevron.
+6. **Scoped `branchToMerchantTile` adapter** under `src/features/home/utils/` — local to Home, deletable in Phase 2.5. Mirrors Phase 2.2 Map's `branchToMerchantTile` adapter.
+7. **Navigation contract** — every tile tap routes to `/merchant/${tile.merchant.id}?branch=${tile.id}&from=home`. Matches Phase 2.1 + 2.2 precedent.
+8. **`resolveBackNavigation` helper update** (per Amendment B) — add `from=home` handling. Returns `/(app)/` (canonical Home route used by 3 existing call sites). Update the helper + its dedicated test file. The Merchant Profile screen itself is NOT touched — only the pure-function helper at `src/features/merchant/utils/resolveBackNavigation.ts` + its test.
+9. **§CA partial closure for Home** (per owner-locked 0.3, refined by Amendment A) — `Save £X across N vouchers` badge copy on Home cards. **No backend additive needed** — `branch.merchant.totalEstimatedSaving` already flows through end-to-end. Single-voucher case uses `Save up to £X` + `1 voucher` per locked wording.
 10. **§BY partial closure for Home** (per owner-locked 0.4) — pin shared `formatDistance` reuse in tests; migrate any inline `£${n}` / `${n} offers` strings discovered during audit. Scope-cap: if migration broadens beyond Home, defer.
-11. **Test coverage** — flip existing Home test fixtures to branch-first; add multi-branch fan-out pin (Covelum) + `?branch=&from=home` navigation pin + POSTCODE_CENTROID null-distance pin + Save badge copy pin (single + multi-voucher cases).
-12. **Deferred-followups bookkeeping** — new §CL entry for the 3 Home empty handlers. Committed as part of the plan-lock commit so it doesn't get lost.
-13. **Plan doc** — this file (`docs/superpowers/plans/2026-05-20-phase-2-3-home-rebase-transplant.md`) lands as the plan-lock commit.
+11. **Test coverage** — flip existing Home test fixtures to branch-first; add multi-branch fan-out pin (Covelum) + `?branch=&from=home` navigation pin + POSTCODE_CENTROID null-distance pin + Save badge copy pin (single + multi-voucher cases) + verification pin that `branch.merchant.totalEstimatedSaving` is parsed by the extended `homeFeedResponseSchema` + `resolveBackNavigation('home', ...)` positive-case pin.
+12. **Deferred-followups bookkeeping** — new §CL entry for the 3 Home empty handlers. Committed as part of the plan-lock commit so it doesn't get lost. (DONE in commit `70a763c`.)
+13. **Plan doc** — this file lands as the plan-lock commit. (DONE in commit `70a763c`.)
 
 ### Out of scope (explicit)
 
@@ -66,8 +111,9 @@
 - ❌ §CE / §CF / §CG / §CH Search filters / sort / recent / illustration assets — separate workstreams.
 - ❌ Branch-level Favourites infra (§CI) — Home tile `isFavourited` continues merchant-keyed derivation per Spec Rev 2 §13.
 - ❌ Plan 4 M4 place-match UX.
-- ❌ Backend schema migrations. The only additive is `totalEstimatedSaving` on the existing projection.
+- ❌ **All backend changes** (per Amendment A — `totalEstimatedSaving` already shipped end-to-end; no backend additive remaining for this PR). Unless a focused test proves a missing field, in which case PAUSE + escalate.
 - ❌ Touching `<MerchantTile.tsx>` props or rendering logic. All adaptation happens via the surface-local adapter.
+- ❌ Touching `MerchantProfileScreen.tsx` or any other component under `apps/customer-app/src/features/merchant/`. **Exception (per Amendment B):** the pure-function helper `apps/customer-app/src/features/merchant/utils/resolveBackNavigation.ts` + its test file are IN scope for the `from=home` recognition. No screen-level edits.
 
 ---
 
@@ -143,14 +189,17 @@ Three call sites (`FeaturedCarousel`, `TrendingSection`, `NearbyByCategory`) —
 
 ### 3.4 — §CA Save badge
 
-Backend projection adds `totalEstimatedSaving: number | null` to the home-feed branch-tile select. Computed as `sum(voucher.estimatedSaving) where voucher.status='ACTIVE' && voucher.approvalStatus='APPROVED' && belongs to merchant`. Same rounding rule as PR #112 fixup-4 (locked).
+**Amendment A — backend already done.** `totalEstimatedSaving` is computed by `enrichBranchTile()` at `src/api/customer/discovery/service.ts:1028-1100` and emitted on every branch tile (Featured / Trending / NearbyByCategory) via `enrichBranchTiles` at `service.ts:1428-1429`. The customer-app `branchTileMerchantGroupingSchema` at `discovery.ts:200` already parses it under `branch.merchant.totalEstimatedSaving`. **No backend work and no `branchTileSchema` work needed in this PR.**
 
-Home `<MerchantTile>` card render (Featured + Trending + NearbyByCategory) shows the save badge with:
-- Multi-voucher case: `Save £X` (primary, large) + `across N vouchers` (secondary, small)
-- Single-voucher case: `Save up to £X` (primary) + `1 voucher` (secondary)
-- Word "voucher" / "vouchers" — NEVER "offer" or "offers" (locked at PR #112 fixup-4, §CA).
+What Phase 2.3 still does for §CA:
+- Verify (via grep + read) that `merchant.totalEstimatedSaving` flows through to the Home tiles after the `homeFeedResponseSchema` envelope extension lands.
+- Update the Home `<MerchantTile>` card render path (Featured + Trending + NearbyByCategory) to display the save badge with the locked wording:
+  - Multi-voucher: `Save £X` (primary) + `across N vouchers` (secondary)
+  - Single-voucher: `Save up to £X` (primary) + `1 voucher` (secondary)
+  - Word "voucher" / "vouchers" — NEVER "offer" / "offers"
+- If the shared `<MerchantTile>` already renders this badge correctly (it likely does, given PR #112 fixup-4 landed it for Search), the work is purely test-coverage. If the badge does NOT yet render on the Home card path, the only edit allowed is via the surface-local `branchToMerchantTile` adapter — do NOT modify `<MerchantTile.tsx>` itself.
 
-Pin both cases in tests so they don't regress to "offer".
+Pin both single-voucher and multi-voucher cases in tests so they don't regress to "offer" wording. Pin that `branch.merchant.totalEstimatedSaving` is present in the parsed `HomeFeedResponse`.
 
 ### 3.5 — §BY formatter audit
 
@@ -171,26 +220,24 @@ If the audit reveals broader changes needed, PAUSE and escalate. Defer to a sepa
 
 ## 4. File structure
 
-### Backend (3 files, ~30 LOC net)
+### Backend (0 files — REMOVED per Amendment A)
+
+Per the 2026-05-21 amendment, `totalEstimatedSaving` is already wired end-to-end on `main`. No backend changes are required for Phase 2.3. Verify-only check: read `src/api/customer/discovery/branchTileSchema.ts:69` + `service.ts:1028-1100` + `service.ts:1428-1429` to confirm the field is emitted for Featured / Trending / NearbyByCategory branch tiles. If a focused test discovers a field is missing, PAUSE + escalate before any backend edit.
+
+### Customer-app (7-9 files, ~250-300 LOC net)
 
 | File | Action | Notes |
 |---|---|---|
-| `src/api/customer/discovery/service.ts` (or wherever the home-feed projection lives) | MODIFY | Add `totalEstimatedSaving` to the branch-tile projection. Mirror PR #112 fixup-4 logic. |
-| `src/api/customer/discovery/schemas.ts` (or wherever `BranchTile` Zod / TS shape lives backend-side) | MODIFY | Add `totalEstimatedSaving: number | null` to `BranchTile` shape. |
-| `tests/api/customer/discovery/home-feed-branches.test.ts` | MODIFY | Add `totalEstimatedSaving` assertion to existing 4 pins. Test single-voucher + multi-voucher fixtures. |
-
-### Customer-app (6-8 files, ~250-300 LOC net)
-
-| File | Action | Notes |
-|---|---|---|
-| `apps/customer-app/src/lib/api/discovery.ts` | MODIFY | Add `branchTileSchema` (Zod) + extend `homeFeedResponseSchema` with `featuredBranches` / `trendingBranches` / `nearbyByCategoryBranches`. Preserve legacy schema fields. |
+| `apps/customer-app/src/lib/api/discovery.ts` | MODIFY | Extend `homeFeedResponseSchema` (line 275) with `featuredBranches`, `trendingBranches`, `nearbyByCategoryBranches` — reuse the existing `branchTileSchema` (line 203). DO NOT redefine `branchTileSchema`. Preserve legacy schema fields. |
 | `apps/customer-app/src/features/home/utils/branchToMerchantTile.ts` | **NEW** | Surface-local adapter. ~50-80 LOC. |
 | `apps/customer-app/src/features/home/screens/HomeScreen.tsx` | MODIFY | Read new `*Branches` fields; pass to carousels. |
 | `apps/customer-app/src/features/home/components/FeaturedCarousel.tsx` | MODIFY | Accept `BranchTile[]`; loop through adapter. |
 | `apps/customer-app/src/features/home/components/TrendingSection.tsx` | MODIFY | Same pattern. |
 | `apps/customer-app/src/features/home/components/NearbyByCategory.tsx` | MODIFY | Accept `nearbyByCategoryBranches[]`; loop. |
+| `apps/customer-app/src/features/merchant/utils/resolveBackNavigation.ts` | MODIFY (per Amendment B) | Add `if (from === 'home') return '/(app)/'`. ~3 LOC. |
+| `apps/customer-app/tests/features/merchant/utils/resolveBackNavigation.test.ts` | MODIFY (per Amendment B) | Remove the existing `'home' → null` pin from the "unrecognised from values" block. Add a new positive describe block for `from=home`. |
 | `apps/customer-app/tests/features/home/screens/HomeScreen.test.tsx` | MODIFY | Branch-first fixtures + multi-branch fan-out pin. |
-| `apps/customer-app/tests/features/home/components/FeaturedCarousel.test.tsx` | MODIFY | `?branch=&from=home` navigation pin + FEATURED badge pin. |
+| `apps/customer-app/tests/features/home/components/FeaturedCarousel.test.tsx` | MODIFY | `?branch=&from=home` navigation pin + FEATURED badge pin + save badge wording pin. |
 | `apps/customer-app/tests/features/home/components/TrendingSection.test.tsx` | MODIFY OR ADD if missing | Same navigation pin + warm-gradient render pin. |
 | `apps/customer-app/tests/features/home/components/NearbyByCategory.test.tsx` | MODIFY | Same navigation pin + multi-category render. |
 
@@ -228,16 +275,17 @@ If the audit reveals broader changes needed, PAUSE and escalate. Defer to a sepa
 - [ ] Step A4: Commit both as a single plan-lock commit.
 - [ ] Step A5: PAUSE for owner approval before any further work.
 
-### Task B: Backend additive (`totalEstimatedSaving`)
+### Task B: Verify `totalEstimatedSaving` end-to-end (per Amendment A — verify, do NOT add)
 
-**Files:** `src/api/customer/discovery/service.ts`, `src/api/customer/discovery/schemas.ts` (or equivalent), `tests/api/customer/discovery/home-feed-branches.test.ts`.
+**Files (read-only):** `src/api/customer/discovery/branchTileSchema.ts`, `src/api/customer/discovery/service.ts`, `tests/api/customer/discovery/home-feed-branches.test.ts`, `apps/customer-app/src/lib/api/discovery.ts`.
 
-- [ ] Step B1: Locate the home-feed branch-tile projection. Confirm the Search projection pattern from PR #112 fixup-4 to mirror.
-- [ ] Step B2: Add `totalEstimatedSaving` to the projection. SQL/Prisma: sum the merchant's active+approved voucher `estimatedSaving` values; return as number or null. Same rounding as PR #112.
-- [ ] Step B3: Update the backend `BranchTile` shape (TS + Zod if present) to include `totalEstimatedSaving: number | null`.
-- [ ] Step B4: Extend `home-feed-branches.test.ts` with a single-voucher and a multi-voucher fixture assertion. Pin: `Save £X` rounding rule. Pin: null when no vouchers.
-- [ ] Step B5: Run `npx vitest run tests/api/customer/discovery/home-feed-branches.test.ts` — must pass.
-- [ ] Step B6: Run `npx tsc --noEmit -p tsconfig.json` — must show only the 4 pre-existing §BV errors.
+- [ ] Step B1: Read `src/api/customer/discovery/branchTileSchema.ts:69` — confirm `totalEstimatedSaving: z.number().nullable()` is present in the backend `branchTileSchema`.
+- [ ] Step B2: Read `src/api/customer/discovery/service.ts:1028-1033, 1100` — confirm `enrichBranchTile()` computes and assigns `totalEstimatedSaving` with the locked rounding rule.
+- [ ] Step B3: Read `src/api/customer/discovery/service.ts:1427-1449` — confirm `enrichBranchTiles` runs over `featuredBranchInputs` AND `trendingBranchInputs` AND the per-category nearby inputs.
+- [ ] Step B4: Read `apps/customer-app/src/lib/api/discovery.ts:183-201, 203-223` — confirm customer-app `branchTileMerchantGroupingSchema` carries `totalEstimatedSaving` (line 200) and `branchTileSchema` references it (line 222).
+- [ ] Step B5: Read `tests/api/customer/discovery/home-feed-branches.test.ts` — confirm at least one existing pin asserts `totalEstimatedSaving` on a multi-voucher fixture. If no such pin exists, ADD a minimal pin asserting the field is non-null + matches the rounding rule on a Covelum-style multi-voucher merchant.
+- [ ] Step B6: If a focused test in Step B5 reveals a missing/zero `totalEstimatedSaving` for any Home branch tile, **PAUSE + escalate**. Backend edits are out-of-scope without owner approval.
+- [ ] Step B7 (commit): if Step B5 only added a verification test, commit it with a clear message: "test(home): pin totalEstimatedSaving flows through home-feed branch tiles (Phase 2.3 Amendment A verification)".
 
 ### Task C: Customer-app schema update
 
@@ -305,6 +353,28 @@ If the audit reveals broader changes needed, PAUSE and escalate. Defer to a sepa
 - [ ] Step J8: Run targeted backend vitest — must pass.
 - [ ] Step J9: Run `tsc --noEmit` both sides — 0 new errors.
 
+### Task M: `resolveBackNavigation` adds `from=home` (per Amendment B)
+
+**Files:** `apps/customer-app/src/features/merchant/utils/resolveBackNavigation.ts`, `apps/customer-app/tests/features/merchant/utils/resolveBackNavigation.test.ts`.
+
+- [ ] Step M1: Update the helper to add a `from=home` case BEFORE the final `return null`:
+  ```ts
+  if (from === 'home') {
+    // Canonical Home route — matches the pattern used by
+    // SavingsScreen.tsx:239, SubscribePromptScreen.tsx:270,
+    // VoucherDetailScreen.tsx:1001.  `q` is ignored.
+    return '/(app)/'
+  }
+  ```
+- [ ] Step M2: Update the helper's header doc comment to add `from=home` to the "Surfaces that stamp `from=<surface>`" list with the cross-reference `Phase 2.3 Home (this PR)`.
+- [ ] Step M3: Edit `resolveBackNavigation.test.ts`:
+  - REMOVE the line `expect(resolveBackNavigation('home', undefined)).toBeNull()` from the existing `describe('default fallback', ...)` block's "unrecognised from values" test (currently line 35).
+  - ADD a new `describe('from=home (Phase 2.3 contract)', ...)` block matching the `from=map` pattern, with two pins:
+    - `expect(resolveBackNavigation('home', undefined)).toBe('/(app)/')`
+    - `expect(resolveBackNavigation('home', 'ignored')).toBe('/(app)/')` (q is ignored, mirroring from=map)
+- [ ] Step M4: Run `npx jest apps/customer-app/tests/features/merchant/utils/resolveBackNavigation.test.ts` — all tests pass.
+- [ ] Step M5: Verify `MerchantProfileScreen.handleBack` already calls `resolveBackNavigation(from, q)` (it does, per PR #113); no screen-level edit needed.
+
 ### Task K: Open PR + pause
 
 - [ ] Step K1: Push branch + open PR with detailed body (mirror Stage 2 / Stage 4 PR-body convention).
@@ -323,27 +393,28 @@ If the audit reveals broader changes needed, PAUSE and escalate. Defer to a sepa
 
 ## 6. Tests + QA checklist
 
-### Backend vitest pins
+### Backend vitest pins (verification-only per Amendment A)
 
-1. `home-feed-branches.test.ts` carries `totalEstimatedSaving` on each branch tile.
-2. Multi-voucher merchant → `totalEstimatedSaving` = sum of all active+approved voucher savings.
-3. Single-voucher merchant → `totalEstimatedSaving` = that voucher's saving.
-4. Zero-voucher merchant → `totalEstimatedSaving` = null.
-5. Existing 4 Phase 1 pins remain green.
+1. `home-feed-branches.test.ts` has at least one pin asserting `totalEstimatedSaving` is present + correctly summed on a multi-voucher merchant's Home branch tile. If not present, ADD this pin (Step B5). If the pin reveals a missing field, PAUSE + escalate (Step B6).
+2. Existing Phase 1 pins remain green.
 
 ### Customer-app jest pins
 
-1. HomeScreen renders 3 carousels populated from `*Branches` fields.
-2. FeaturedCarousel tile tap → `router.push('/merchant/{id}?branch={branchId}&from=home')`.
-3. TrendingSection same.
-4. NearbyByCategory tile tap same.
-5. NearbyByCategory section-header tap routes to `/category/:id` (existing behaviour preserved).
-6. Multi-branch Featured merchant fans out: Covelum Brightlingsea + Colchester both render as separate tiles.
-7. POSTCODE_CENTROID branch tile renders with null distance (no "X miles away" string).
-8. Save badge copy multi-voucher: `Save £X` + `across N vouchers`.
-9. Save badge copy single-voucher: `Save up to £X` + `1 voucher`.
-10. Save badge wording: never contains "offer" / "offers".
-11. Shared `formatDistance` is the only source of the "X miles away" string on Home (regression pin).
+1. `homeFeedResponseSchema` parses a fixture containing `featuredBranches` / `trendingBranches` / `nearbyByCategoryBranches` and exposes `branch.merchant.totalEstimatedSaving` end-to-end (positive pin for Amendment A consumer-side gap).
+2. HomeScreen renders 3 carousels populated from `*Branches` fields.
+3. FeaturedCarousel tile tap → `router.push('/merchant/{id}?branch={branchId}&from=home')`.
+4. TrendingSection same.
+5. NearbyByCategory tile tap same.
+6. NearbyByCategory section-header tap routes to `/category/:id` (existing behaviour preserved).
+7. Multi-branch Featured merchant fans out: Covelum Brightlingsea + Colchester both render as separate tiles.
+8. POSTCODE_CENTROID branch tile renders with null distance (no "X miles away" string).
+9. Save badge copy multi-voucher: `Save £X` + `across N vouchers`.
+10. Save badge copy single-voucher: `Save up to £X` + `1 voucher`.
+11. Save badge wording: never contains "offer" / "offers".
+12. Shared `formatDistance` is the only source of the "X miles away" string on Home (regression pin).
+13. **`resolveBackNavigation('home', undefined)` returns `/(app)/`** (Amendment B positive pin).
+14. **`resolveBackNavigation('home', 'ignored')` returns `/(app)/`** (Amendment B — q is ignored, mirrors `from=map`).
+15. The "unrecognised from values" test no longer includes `'home'` (Amendment B regression guard — that line moved to the new positive describe block).
 
 ### tsc
 
@@ -364,7 +435,7 @@ If the audit reveals broader changes needed, PAUSE and escalate. Defer to a sepa
 - [ ] Save badges show correct wording across multi-voucher and single-voucher merchants.
 - [ ] Pull-to-refresh works with brand-rose tint.
 - [ ] No visual regressions on spacing, fonts, colours, gradient treatments.
-- [ ] No regressions in back-nav from Merchant Profile to Home (preserves `from=home`).
+- [ ] **Back-nav from Merchant Profile to Home routes back to Home tab** (NOT to whatever tab was last active under expo-router Tabs default). Tests pin the helper at `/(app)/`; device QA confirms end-to-end UX (Amendment B). Mirrors the Search + Map back-nav fix pattern from PR #112 fixup-6 + PR-3 Phase D.
 
 ---
 
@@ -373,7 +444,8 @@ If the audit reveals broader changes needed, PAUSE and escalate. Defer to a sepa
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Multi-branch fan-out renders unexpected duplicate tiles | Low | Medium | Backend pin in `home-feed-branches.test.ts` Phase 1 already enforces fan-out shape. Customer-app pin in this PR enforces correct render. Device QA on Covelum. |
-| `totalEstimatedSaving` rounding diverges from Search PR #112 | Low | Low | Mirror exact rounding rule. Pin test compares against fixed fixture value. |
+| `totalEstimatedSaving` rounding diverges from Search PR #112 | **Closed** | — | Backend logic already shipped; Phase 2.3 verifies only. Risk removed by Amendment A. |
+| `from=home` back-nav silently falls back to default router.back() because helper not updated | Low | Medium | Amendment B makes the helper edit + test pin in-scope (Task M). Without it, Home tile → Merchant Profile → back would route to last-active tab instead of Home, mirroring the bug class PR #112 fixup-6 + PR-3 Phase D fixed for Search/Map. |
 | Adapter pattern leaks shape into shared `<MerchantTile>` | Low | Medium | Adapter strictly surface-local. Code reviewer enforces no edits to `<MerchantTile.tsx>` in this PR. Phase 2.5 cleanup deletes adapter. |
 | §BY audit widens scope mid-implementation | Medium | Low | Owner-locked at 0.4: PAUSE + escalate if non-trivial. Hard cap: 1-2 lines per migration site, Home-scoped only. |
 | Karaara/My Kerala null-media tiles crash render | Low | High | Verify `<MerchantTile>` already has logo/banner null-safety (pre-existing — dev-merchant-001 era). Add explicit pin if missing. |
