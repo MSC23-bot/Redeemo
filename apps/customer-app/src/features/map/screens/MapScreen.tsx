@@ -23,7 +23,7 @@ import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocali
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useToast } from '@/design-system'
 import { geocodeCity } from '@/lib/geocoding'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { MerchantTile as MerchantTileType, BranchTile as BranchTileType } from '@/lib/api/discovery'
 
 const LONDON_REGION: Region = {
   latitude:       51.5074,
@@ -133,6 +133,14 @@ export function MapScreen({ onMerchantPress }: Props) {
   // ─── UI-only state ─────────────────────────────────────────────────────────
   const [showListView, setShowListView] = useState(false)
   const [selectedMerchant, setSelectedMerchant] = useState<MerchantTileType | null>(null)
+  // PR-3 Phase B — track the tapped BRANCH id alongside the merchant
+  // tile for the carousel. `selectedMerchant` still drives the
+  // MapBranchTile carousel + MapListView (merchant-keyed during Phase
+  // B's interim — Phase C will flip the carousel + list to be
+  // branch-keyed and `selectedMerchant` will go away).
+  // `selectedBranchId` drives MapPins' visual selection state — which
+  // pin renders at scale(1.0) vs scale(0.81).
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null)
   const [locationPermissionDismissed, setLocationPermissionDismissed] = useState(false)
   const [remoteCityName, setRemoteCityName] = useState<string | null>(null)
   const [activeMerchantIndex, setActiveMerchantIndex] = useState(0)
@@ -197,6 +205,12 @@ export function MapScreen({ onMerchantPress }: Props) {
   // the loader during any fetch where no pins are on screen yet.
   const isFetching = hasNonScopeFilters ? searchResultQuery.isFetching : inAreaQuery.isFetching
   const merchants = data?.merchants ?? []
+  // PR-3 Phase B — branch-first wire shape (Phase 1 PR #110 additive
+  // on the in-area endpoint; PR #112 already shipped it on search).
+  // Feeds <MapPins> for one-pin-per-branch cardinality. The legacy
+  // `merchants` field above still feeds <MapBranchTile> carousel +
+  // <MapListView> during Phase B's interim; Phase C will flip them.
+  const branches  = (data as { branches?: BranchTileType[] } | undefined)?.branches ?? []
   const total     = data?.total     ?? 0
   const meta      = data?.meta
 
@@ -334,6 +348,26 @@ export function MapScreen({ onMerchantPress }: Props) {
     [merchants],
   )
 
+  // PR-3 Phase B — pin tap handler. <MapPins> now fires onPress with
+  // the tapped BranchTile (one-pin-per-branch contract). Phase B
+  // interim: resolve the branch back to its merchant via
+  // `branch.merchant.id` so the existing merchant-keyed
+  // <MapBranchTile> carousel + <MapListView> keep working unchanged.
+  // Phase C will flip those consumers to branch-keyed shape and this
+  // handler will simplify to setSelectedBranchId + setActiveBranchIndex.
+  const handleBranchPress = useCallback(
+    (branch: BranchTileType) => {
+      setSelectedBranchId(branch.id)
+      const merchant = merchants.find((m) => m.id === branch.merchant.id) ?? null
+      setSelectedMerchant(merchant)
+      if (merchant) {
+        const idx = merchants.findIndex((m) => m.id === merchant.id)
+        if (idx !== -1) setActiveMerchantIndex(idx)
+      }
+    },
+    [merchants],
+  )
+
   const handleMerchantNavigate = useCallback(
     (id: string) => {
       if (onMerchantPress) {
@@ -379,9 +413,9 @@ export function MapScreen({ onMerchantPress }: Props) {
         showsMyLocationButton={false}
       >
         <MapPins
-          merchants={merchants}
-          selectedId={selectedMerchant?.id ?? null}
-          onPress={handleMerchantPress}
+          branches={branches}
+          selectedId={selectedBranchId}
+          onPress={handleBranchPress}
         />
       </MapView>
 
@@ -491,7 +525,7 @@ export function MapScreen({ onMerchantPress }: Props) {
         <MapBranchTile
           merchants={merchants}
           activeIndex={activeMerchantIndex}
-          onClose={() => setSelectedMerchant(null)}
+          onClose={() => { setSelectedMerchant(null); setSelectedBranchId(null) }}
           onIndexChange={setActiveMerchantIndex}
           onMerchantPress={handleMerchantNavigate}
         />
