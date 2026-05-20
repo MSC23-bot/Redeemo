@@ -2937,6 +2937,15 @@ export async function searchBranches(
   //
   // Browse queries (no q) and non-effLoc paths are UNAFFECTED.
   // Map (`getInAreaBranches`) is a different function and UNAFFECTED.
+  // PR #112 fixup-6.6 (2026-05-20) — distance-first sort for the fallback.
+  // Owner-flagged: two Covelum branches sorted alphabetically by
+  // branch.name → Brightlingsea (173mi) appeared before Colchester
+  // (165mi).  Within the fallback bucket, nearer branches must come
+  // first.  Branches with null distance (POSTCODE_CENTROID — already
+  // routed to the tail, not the fallback, so this shouldn't fire in
+  // practice; defensive ordering anyway) sort last.
+  // Tiebreakers: merchant.businessName → branch.name → branch.id
+  // (deterministic across pagination calls).
   const textMatchFallback = (
     effLoc
     && normalizedQ !== null
@@ -2944,6 +2953,9 @@ export async function searchBranches(
     ? [...rankable]
         .filter(b => !preScopeRankedIds.has(b.id))   // bucket B only — rank-dropped
         .sort((a, b) => {
+          const da = fallbackDistanceFor(a) ?? Number.POSITIVE_INFINITY
+          const db = fallbackDistanceFor(b) ?? Number.POSITIVE_INFINITY
+          if (da !== db) return da - db
           const ma = a.merchant.businessName.localeCompare(b.merchant.businessName)
           if (ma !== 0) return ma
           const nb = (a.name ?? '').localeCompare(b.name ?? '')

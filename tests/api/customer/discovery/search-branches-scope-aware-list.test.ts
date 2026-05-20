@@ -169,6 +169,40 @@ describe('searchBranches — scope-aware list assembly (PR #112 fixup-6.5)', () 
     expect(ids.size).toBe(1)
   })
 
+  // PR #112 fixup-6.6 (2026-05-20) — fallback distance-first sort pin.
+  //
+  // Owner-flagged device-QA: under `More places`, the two Covelum
+  // branches surfaced with Brightlingsea (173.1mi) BEFORE Colchester
+  // (165.6mi).  Root cause: fallback sort was alphabetical by
+  // merchant.businessName + branch.name → 'B' < 'C' → Brightlingsea
+  // first despite being farther.
+  //
+  // Fix: distance ASC primary, alphabetical tiebreak.  Within the
+  // fallback bucket, nearer branches surface first.
+  it('fallback ordering: same-merchant branches sort nearer-first (distance ASC, not alphabetical)', async () => {
+    const result = await searchBranches(prisma, {
+      q:      MERCHANT_NAME,
+      lat:    53.6463, lng: -1.7809, // Huddersfield
+      scope:  'platform',            // broaden so fallback surfaces
+      limit:  100, offset: 0, userId: null,
+    } as any)
+    // All 5 fixture branches in this suite share the same businessName,
+    // so the alphabetical tiebreak would NOT discriminate by distance
+    // pre-fix.  Now distance is the primary key.
+    const ourTiles = result.branches.filter(t => t.merchant.id === MERCHANT_ID)
+    // Compute index-of for each fixture branch.
+    const idx = (id: string) => ourTiles.findIndex(t => t.id === id)
+    // Nearby is always first (it's in ranked, not fallback).
+    expect(idx(NEARBY_BRANCH)).toBe(0)
+    // The 4 far branches are at lat=54.5 with longitudes 5.00, 5.01, 5.02, 5.03.
+    // From Huddersfield (53.6463, -1.7809), the longitude diff drives the
+    // distance variance — FAR_BRANCH_1 (lng=5.00) is closer than
+    // FAR_BRANCH_4 (lng=5.03).  Owner-locked ordering: nearer first.
+    expect(idx(FAR_BRANCH_1)).toBeLessThan(idx(FAR_BRANCH_2))
+    expect(idx(FAR_BRANCH_2)).toBeLessThan(idx(FAR_BRANCH_3))
+    expect(idx(FAR_BRANCH_3)).toBeLessThan(idx(FAR_BRANCH_4))
+  })
+
   it('cascade rescue: scope=nearby with NO nearby supply auto-expands to wider, list shows wider (owner direction)', async () => {
     // Deactivate the nearby branch temporarily — scope=nearby now has
     // zero supply, cascade should expand to wider scope to show the
