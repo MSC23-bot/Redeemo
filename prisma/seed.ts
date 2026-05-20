@@ -17,7 +17,7 @@ import { seedHeuristicCatchmentEdges } from './seed-data/catchment-heuristic'
 import { seedCuratedCatchmentEdges } from './seed-data/catchmentOverrides'
 import { seedMarkets } from './seed-data/markets'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
-import { DEMO_MERCHANT_ENRICHMENT, REAL_MERCHANT_PIN_BRANCH_IDS } from './seed-data/demoMerchantEnrichment'
+import { DEMO_MERCHANT_ENRICHMENT, DEV_QA_PIN, REAL_MERCHANT_PIN_BRANCH_IDS } from './seed-data/demoMerchantEnrichment'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
 
@@ -1311,7 +1311,7 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
             merchantId:      entry.merchantId,
             code:            v.code,
             isMandatory:     false,
-            type:            v.type as VoucherType,
+            type:            v.type,
             title:           v.title,
             description:     v.description,
             estimatedSaving: v.estimatedSaving,
@@ -1321,7 +1321,7 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
           },
           update: {
             code:            v.code,
-            type:            v.type as VoucherType,
+            type:            v.type,
             title:           v.title,
             description:     v.description,
             estimatedSaving: v.estimatedSaving,
@@ -1354,19 +1354,16 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
         await prisma.branch.update({ where: { id: branchId }, data: updates })
       }
 
-      // Opening hours: idempotent — delete-then-recreate the 7-day
-      // schedule. Schema has @@unique([branchId, dayOfWeek]) so split
-      // sessions are not expressible (deferred to §SE.1).
-      await prisma.branchOpeningHours.deleteMany({ where: { branchId } })
+      // Opening hours: idempotent via per-row upsert on the compound
+      // unique key. Matches the Covelum block pattern below (line ~1424)
+      // — no destructive mid-loop window. Schema has
+      // @@unique([branchId, dayOfWeek]) so split sessions are not
+      // expressible (deferred to §SE.1).
       for (const oh of b.openingHours) {
-        await prisma.branchOpeningHours.create({
-          data: {
-            branchId,
-            dayOfWeek: oh.dayOfWeek,
-            openTime:  oh.openTime,
-            closeTime: oh.closeTime,
-            isClosed:  oh.isClosed,
-          },
+        await prisma.branchOpeningHours.upsert({
+          where:  { branchId_dayOfWeek: { branchId, dayOfWeek: oh.dayOfWeek } },
+          update: { openTime: oh.openTime, closeTime: oh.closeTime, isClosed: oh.isClosed },
+          create: { branchId, dayOfWeek: oh.dayOfWeek, openTime: oh.openTime, closeTime: oh.closeTime, isClosed: oh.isClosed },
         })
       }
     }
@@ -1389,7 +1386,7 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
     if (current.redemptionPin) continue // already set — DO NOT overwrite
     await prisma.branch.update({
       where: { id: realBranchId },
-      data:  { redemptionPin: encrypt('1234') },
+      data:  { redemptionPin: encrypt(DEV_QA_PIN) },
     })
     console.log(`✓ Stage 2 Cohort C — set redemptionPin on ${realBranchId} (was null)`)
   }
