@@ -11,14 +11,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { discoveryApi } from '@/lib/api/discovery'
 import { useSearch } from '@/hooks/useSearch'
 import { makeMerchantTile } from '../fixtures/merchantTile'
+import { makeBranchTile } from '../fixtures/branchTile'
 
 jest.spyOn(discoveryApi, 'searchMerchants')
 
 const tileA = makeMerchantTile({ id: 'a', businessName: 'A' })
 const tileB = makeMerchantTile({ id: 'b', businessName: 'B' })
 
-const responseA = { merchants: [tileA], total: 1 }
-const responseB = { merchants: [tileB], total: 1 }
+// Discovery Rebaseline PR-2 — wire shape now carries both `merchants` (legacy
+// arm, still consumed by Home/Category/Map) and `branches` (the additive
+// branch-first arm consumed by SearchScreen).
+const branchA = makeBranchTile({ id: 'brn-a', merchant: { id: 'a', businessName: 'A' } })
+const branchB = makeBranchTile({ id: 'brn-b', merchant: { id: 'b', businessName: 'B' } })
+
+const responseA = { merchants: [tileA], total: 1, branches: [branchA], totalBranches: 1 }
+const responseB = { merchants: [tileB], total: 1, branches: [branchB], totalBranches: 1 }
 
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })

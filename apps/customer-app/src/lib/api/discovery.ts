@@ -139,6 +139,90 @@ const merchantTileSchema = z.object({
 })
 export type MerchantTile = z.infer<typeof merchantTileSchema>
 
+// ─── Discovery Rebaseline PR-2 — BranchTile wire shape ────────────────────────
+//
+// Source of truth: docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md §1.1.
+// Mirrors the backend `branchTileSchema` at
+// `src/api/customer/discovery/branchTileSchema.ts` — same field set, same
+// `.strict()` discipline (locality-only contract; `branchAddressLine1/2` /
+// `branchPostcode` MUST NOT appear).
+//
+// NOTE on naming: this `BranchTile` is the DISCOVERY wire-tile shape
+// (Phase 1 Spec §1.1) — strict, no street address.  There is a
+// separate `BranchTile` in `apps/customer-app/src/lib/api/merchant.ts:118`
+// that's the Merchant Profile branch-picker shape (richer; has phone,
+// email, isMainBranch, etc.).  They coexist by per-file import
+// discipline — Discovery code imports from `@/lib/api/discovery`,
+// Merchant Profile code imports from `@/lib/api/merchant`.
+
+const branchLocationConfidenceSchema = z.enum([
+  'MANUALLY_CONFIRMED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW', 'ADDRESS_GEOCODED',
+])
+export type BranchLocationConfidence = z.infer<typeof branchLocationConfidenceSchema>
+
+const branchTileCategorySummarySchema = z.object({
+  id:               z.string(),
+  name:             z.string(),
+  pinColour:        z.string().nullable().optional(),
+  pinIcon:          z.string().nullable().optional(),
+  descriptorSuffix: z.string().nullable().optional(),
+  parentId:         z.string().nullable(),
+  intentType:       z.enum(['LOCAL', 'DESTINATION', 'MIXED']).nullable().optional(),
+}).strict().nullable()
+
+const branchTileDescriptorTagSummarySchema = z.object({
+  id:    z.string(),
+  label: z.string(),
+}).strict().nullable()
+
+const branchTileHighlightSchema = z.object({
+  highlightTagId: z.string(),
+  label:          z.string(),
+}).strict()
+
+const branchTileMerchantGroupingSchema = z.object({
+  id:                   z.string(),
+  businessName:         z.string(),
+  tradingName:          z.string().nullable(),
+  logoUrl:              z.string().nullable(),
+  bannerUrl:            z.string().nullable(),
+  primaryCategory:      branchTileCategorySummarySchema,
+  primaryDescriptorTag: branchTileDescriptorTagSummarySchema,
+  subcategory:          branchTileCategorySummarySchema,
+  descriptor:           z.string(),
+  highlights:           z.array(branchTileHighlightSchema),
+  voucherCount:         z.number().int().nonnegative(),
+  maxEstimatedSaving:   z.coerce.number().nullable(),
+  // PR #112 device-QA fixup-3 (2026-05-19) — sum of estimatedSaving
+  // across active+approved vouchers for this merchant.  Drives the
+  // Search card "N offers · £X.XX total value" pill on multi-offer
+  // merchants.  ADDITIVE — maxEstimatedSaving is NOT overloaded.
+  totalEstimatedSaving: z.coerce.number().nullable(),
+}).strict()
+
+const branchTileSchema = z.object({
+  id:                       z.string(),                          // branch.id — load-bearing for tile key + navigation
+  branchName:               z.string(),
+  branchLocalityId:         z.string().nullable(),
+  branchLocalityName:       z.string().nullable(),
+  branchPostTown:           z.string().nullable(),
+  branchCity:               z.string().nullable(),
+  branchLatitude:           z.number().nullable(),
+  branchLongitude:          z.number().nullable(),
+  branchLocationConfidence: branchLocationConfidenceSchema,
+  isOpenNow:                z.boolean(),
+  closesAtLocal:            z.string().nullable(),
+  distance:                 z.number().nullable(),               // metres
+  isFavourited:             z.boolean(),
+  avgRating:                z.number().nullable(),               // BRANCH-level
+  reviewCount:              z.number().int().nonnegative(),      // BRANCH-level
+  supplyRung:               supplyRungSchema.nullable(),
+  proximityBand:            proximityBandSchema.nullable(),
+  distanceMetres:           z.number().nullable(),
+  merchant:                 branchTileMerchantGroupingSchema,
+}).strict()
+export type BranchTile = z.infer<typeof branchTileSchema>
+
 const categorySchema = z.object({
   id:                  z.string(),
   name:                z.string(),
@@ -239,10 +323,26 @@ const inAreaMetaSchema = z.object({
 })
 export type InAreaMeta = z.infer<typeof inAreaMetaSchema>
 
+// Discovery Rebaseline PR-2 (Phase 2.1) — `branches` + `totalBranches` ship
+// alongside the legacy `merchants` + `total` arms.  Both arms are emitted by
+// the backend in parallel; SearchScreen consumes `branches`, while Home /
+// Category / Map continue reading `merchants` until their own Phase 2.x
+// migrations land.
+//
+// PR-2 device-QA fix (2026-05-19) — `branchMeta` carries branch-aligned
+// counts + emptyStateReason + resolvedArea (shape parity with the legacy
+// `meta` field but derived from the branch path).  SearchScreen MUST read
+// `branchMeta` (not `meta`) for counts + empty-state copy; otherwise the
+// scope pills show merchant-tier counts while the list renders branches —
+// the owner-observed split that caused misleading "UK-wide · 1" pills
+// alongside an empty branch list.
 const searchResponseSchema = z.object({
-  merchants: z.array(merchantTileSchema),
-  total:     z.number(),
-  meta:      discoveryMetaSchema.optional(),
+  merchants:     z.array(merchantTileSchema),
+  total:         z.number(),
+  meta:          discoveryMetaSchema.optional(),
+  branches:      z.array(branchTileSchema).optional(),
+  totalBranches: z.number().optional(),
+  branchMeta:    discoveryMetaSchema.optional(),
 })
 export type SearchResponse = z.infer<typeof searchResponseSchema>
 

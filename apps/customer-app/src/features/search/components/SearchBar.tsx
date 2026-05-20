@@ -19,7 +19,7 @@ type Props = {
 
 function SearchIcon() {
   return (
-    <Svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth={2} strokeLinecap="round">
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth={2} strokeLinecap="round">
       <Circle cx="11" cy="11" r="8" />
       <Line x1="21" y1="21" x2="16.65" y2="16.65" />
     </Svg>
@@ -28,7 +28,7 @@ function SearchIcon() {
 
 function ClearIcon() {
   return (
-    <Svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth={3} strokeLinecap="round">
+    <Svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="#010C35" strokeWidth={2.5} strokeLinecap="round">
       <Line x1="18" y1="6" x2="6" y2="18" />
       <Line x1="6" y1="6" x2="18" y2="18" />
     </Svg>
@@ -74,48 +74,59 @@ export function SearchBar({ value, onChangeText, onCancel, onSubmitEditing, auto
 }
 
 const styles = StyleSheet.create({
+  // PR #112 fixup-4 (2026-05-19) — owner-direction brand polish.
+  // Pulls the search bar back toward Redeemo identity: warm cream-rose
+  // surface tint, brand-rose hairline keyline (subtle, NOT 1.5px loud),
+  // larger radius for a more "search-component-feel" pill, body.md
+  // input typography, calmer cancel.  Identifiable as Redeemo on first
+  // glance, not a default RN input.
   container: {
-    flexDirection: 'row',
-    paddingHorizontal: 18,
-    gap: 10,
-    alignItems: 'center',
-    marginBottom: 14,
+    flexDirection:     'row',
+    paddingHorizontal: 16,
+    gap:               10,
+    alignItems:        'center',
+    marginBottom:      14,
   },
   inputWrapper: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    flex:              1,
+    flexDirection:     'row',
+    alignItems:        'center',
+    backgroundColor:   '#FFFFFF',                  // surface-page
+    borderRadius:      14,                         // a touch bigger than rounded.md (12) — softer
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-    borderWidth: 1.5,
-    borderColor: 'rgba(226,12,4,0.15)',
+    paddingVertical:   12,
+    gap:               10,
+    borderWidth:       1,
+    borderColor:       'rgba(226,12,4,0.12)',      // brand-rose hairline, very subtle
+    shadowColor:       '#010C35',                  // navy-tinted shadow tints toward brand
+    shadowOpacity:     0.05,
+    shadowRadius:      6,
+    shadowOffset:      { width: 0, height: 2 },
+    elevation:         1,
   },
   input: {
-    flex: 1,
-    fontFamily: 'Lato-Medium',
-    fontSize: 13,
-    color: '#010C35',
-    padding: 0,
+    flex:       1,
+    fontFamily: 'Lato-Regular',
+    fontSize:   15,                                // body.md-ish, comfortable density
+    color:      '#010C35',                         // text.primary navy
+    padding:    0,
+    // Owner: typography must feel "Redeemo" — Lato hovers between body
+    // and label, kept Regular weight; we lean into ink colour for warmth.
   },
   clearBtn: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width:           22,
+    height:          22,
+    borderRadius:    11,
+    backgroundColor: '#FEF6F5',                    // surface-tint (warmer than surface-subtle)
+    alignItems:      'center',
+    justifyContent:  'center',
   },
   cancelText: {
-    fontFamily: 'Lato-SemiBold',
-    fontSize: 13,
-    color: '#E20C04',
+    fontFamily:    'Lato-SemiBold',                // a touch firmer — owner-feedback
+    fontSize:      14,
+    color:         '#E20C04',                      // brand-rose
+    letterSpacing: 0.2,
+    paddingLeft:   4,
+    paddingRight:  2,
   },
 })

@@ -138,6 +138,13 @@ type NavProps = {
   onShare: () => void
   scrollY: SharedValue<number>
   topOffset?: number
+  // PR #112 fixup-6 (2026-05-20) — Search→Merchant→back routes through a
+  // custom handler so the user returns to Search with their query
+  // preserved.  When absent, the back button falls back to `router.back()`.
+  // The explicit `| undefined` is load-bearing under
+  // `exactOptionalPropertyTypes: true` — MerchantProfileScreen passes
+  // `onBack={cond ? fn : undefined}` directly without a spread.
+  onBack?: (() => void) | undefined
 }
 
 /**
@@ -158,9 +165,11 @@ type NavProps = {
 export function HeroNav({
   isFavourited, onToggleFavourite, onShare,
   scrollY, topOffset = 0,
+  onBack,
 }: NavProps) {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const handleBack = onBack ?? (() => router.back())
 
   const animatedStyle = useAnimatedStyle(() => {
     'worklet'
@@ -176,7 +185,7 @@ export function HeroNav({
     >
       <View style={styles.navRow}>
         <Pressable
-          onPress={() => { lightHaptic(); router.back() }}
+          onPress={() => { lightHaptic(); handleBack() }}
           style={styles.frostedBtn}
           accessibilityRole="button"
           accessibilityLabel="Go back"

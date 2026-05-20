@@ -115,7 +115,8 @@ describe('CategoryResultsScreen', () => {
     const { getByText } = render(<CategoryResultsScreen />, { wrapper })
     expect(getByText(/Nearby · 5/)).toBeTruthy()
     expect(getByText(/Your city · 12/)).toBeTruthy()
-    expect(getByText(/UK-wide · 30/)).toBeTruthy()
+    // Third pill renamed UK-wide → "More places" in PR #112 fixup-6.4.
+    expect(getByText(/More places · 30/)).toBeTruthy()
   })
 
   it('renders empty-state copy when category-hook returns 0 merchants (reason=none)', () => {

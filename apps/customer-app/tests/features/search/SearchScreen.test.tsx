@@ -1,17 +1,34 @@
 import React from 'react'
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { SearchScreen } from '@/features/search/screens/SearchScreen'
-import { makeMerchantTile } from '../../fixtures/merchantTile'
+import { makeBranchTile } from '../../fixtures/branchTile'
+
+// Discovery Rebaseline PR-2 (Phase 2.1) — wire shape now carries
+// `branches: BranchTile[]` alongside the legacy `merchants` arm.  SearchScreen
+// consumes `branches`; multi-branch merchants render as separate rows.
 
 // jest.mock factories cannot reference out-of-scope variables — use the
-// `mock`-prefixed escape hatch to share the merchant fixture across the
-// useSearch mock and the assertions below.
-const mockPizzaExpress = makeMerchantTile({
-  id: 'm1', businessName: 'Pizza Express',
-  primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null },
-  voucherCount: 3, maxEstimatedSaving: 15, distance: 800, nearestBranchId: 'b1',
-  avgRating: 4.5, reviewCount: 50,
+// `mock`-prefixed escape hatch to share the fixture across the useSearch
+// mock and the assertions below.
+const mockPizzaExpress = makeBranchTile({
+  id: 'brn1',
+  branchName: 'Soho',
+  branchLocalityName: 'Soho',
+  distance: 800,
+  merchant: {
+    id:           'm1',
+    businessName: 'Pizza Express',
+    primaryCategory: {
+      id: 'c1', name: 'Food', pinColour: null, pinIcon: null, parentId: null,
+    },
+    descriptor:         'Italian restaurant',
+    voucherCount:       3,
+    maxEstimatedSaving: 15,
+  },
+  avgRating: 4.5,
+  reviewCount: 50,
 })
 
 const mockMeta = {
@@ -26,23 +43,82 @@ const mockMeta = {
 
 // Per-scenario state — flipped by individual tests via the controlled flag.
 const mockSearchState = {
-  scenario: 'happy' as 'happy' | 'empty' | 'expanded' | 'no_uk_supply',
+  scenario: 'happy' as
+    | 'happy'
+    | 'happy_with_locality'
+    | 'empty'
+    | 'expanded'
+    | 'no_uk_supply'
+    | 'multi_branch'
+    | 'count_list_mismatch'
+    | 'karaara_nearby_only',
 }
+
+// Covelum multi-branch fixture — the load-bearing cardinality test.
+const covelumBri = makeBranchTile({
+  id: 'brn_covelum_bri',
+  branchName: 'Brightlingsea',
+  branchLocalityName: 'Brightlingsea',
+  merchant: {
+    id: 'mer_covelum',
+    businessName: 'Covelum',
+    descriptor: 'Coffee shop',
+  },
+})
+const covelumCol = makeBranchTile({
+  id: 'brn_covelum_col',
+  branchName: 'Colchester',
+  branchLocalityName: 'Colchester',
+  merchant: {
+    id: 'mer_covelum',
+    businessName: 'Covelum',
+    descriptor: 'Coffee shop',
+  },
+})
 
 jest.mock('@/hooks/useSearch', () => ({
   useSearch: (_params: any, enabled: boolean) => {
     if (!enabled) return { data: undefined, isLoading: false }
+    // PR-2 device-QA fix (2026-05-19) — SearchScreen reads `branchMeta`
+    // (NOT legacy `meta`) for counts + emptyStateReason + locality.
+    // Mocks set BOTH so legacy consumers (Home / Map / Category — not
+    // yet migrated) continue to work and the SearchScreen path reads
+    // the branch-aligned envelope.
     switch (mockSearchState.scenario) {
       case 'empty':
         return {
-          data: { merchants: [], total: 0, meta: { ...mockMeta, emptyStateReason: 'none' } },
+          data: {
+            merchants: [], total: 0,
+            branches: [], totalBranches: 0,
+            meta:       { ...mockMeta, emptyStateReason: 'none' },
+            branchMeta: { ...mockMeta, emptyStateReason: 'none' },
+          },
           isLoading: false,
         }
       case 'expanded':
+        // PR #112 fixup-3: backend cascaded out of 'city' to 'platform' to
+        // find supply.  effectiveLocality carries the user's location label
+        // (Huddersfield); branchMeta.scope='platform' is the EFFECTIVE
+        // scope the active pill should highlight (NOT 'city' which the
+        // user asked for).  See effective-scope spec §4.1.
         return {
           data: {
-            merchants: [mockPizzaExpress], total: 1,
-            meta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
+            merchants: [], total: 0,
+            branches: [mockPizzaExpress], totalBranches: 1,
+            meta:       {
+              ...mockMeta,
+              scope: 'platform',
+              scopeExpanded: true,
+              emptyStateReason: 'expanded_to_wider',
+              effectiveLocality: { name: 'Huddersfield' },
+            },
+            branchMeta: {
+              ...mockMeta,
+              scope: 'platform',
+              scopeExpanded: true,
+              emptyStateReason: 'expanded_to_wider',
+              effectiveLocality: { name: 'Huddersfield' },
+            },
           },
           isLoading: false,
         }
@@ -50,13 +126,75 @@ jest.mock('@/hooks/useSearch', () => ({
         return {
           data: {
             merchants: [], total: 0,
-            meta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
+            branches: [], totalBranches: 0,
+            meta:       { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
+            branchMeta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
+          },
+          isLoading: false,
+        }
+      case 'multi_branch':
+        return {
+          data: {
+            merchants: [], total: 0,
+            branches: [covelumBri, covelumCol], totalBranches: 2,
+            meta:       mockMeta,
+            branchMeta: mockMeta,
+          },
+          isLoading: false,
+        }
+      case 'happy_with_locality':
+        // Happy path with an effectiveLocality on the wire, so the
+        // unified header surfaces the "near Huddersfield" suffix.
+        return {
+          data: {
+            merchants: [], total: 0,
+            branches: [mockPizzaExpress], totalBranches: 1,
+            meta:       { ...mockMeta, effectiveLocality: { name: 'Huddersfield' } },
+            branchMeta: { ...mockMeta, effectiveLocality: { name: 'Huddersfield' } },
+          },
+          isLoading: false,
+        }
+      case 'karaara_nearby_only':
+        // Owner observation that drove the cumulative-display rule:
+        // Karaara 276m nearby → backend buckets nearbyCount=1, cityCount=0,
+        // distantCount=0.  Bucket display would show "Nearby · 1, Your city · 0,
+        // UK-wide · 0" — counter-intuitive because if a result is NEARBY it's
+        // also IN YOUR CITY and UK-WIDE.  Cumulative display rule:
+        //   Nearby   = 1
+        //   Your city = 1 + 0 = 1
+        //   UK-wide  = 1 + 0 + 0 = 1
+        return {
+          data: {
+            merchants: [], total: 0,
+            branches: [mockPizzaExpress], totalBranches: 1,
+            meta:       { ...mockMeta, nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+            branchMeta: { ...mockMeta, nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+          },
+          isLoading: false,
+        }
+      case 'count_list_mismatch':
+        // Owner-flagged screenshot bug: legacy merchant meta is non-zero
+        // (UK-wide pill shows "1") but the branch list is empty.  The
+        // FIX is that SearchScreen reads `branchMeta` (branch counts = 0)
+        // and the empty-state copy + count both reflect branch reality.
+        return {
+          data: {
+            merchants: [{ id: 'leg-1', businessName: 'Legacy Merchant' }] as any,
+            total: 1,
+            meta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 1, emptyStateReason: 'none' },
+            branches: [], totalBranches: 0,
+            branchMeta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
           },
           isLoading: false,
         }
       default:
         return {
-          data: { merchants: [mockPizzaExpress], total: 1, meta: mockMeta },
+          data: {
+            merchants: [], total: 0,
+            branches: [mockPizzaExpress], totalBranches: 1,
+            meta:       mockMeta,
+            branchMeta: mockMeta,
+          },
           isLoading: false,
         }
     }
@@ -71,13 +209,30 @@ jest.mock('@/hooks/useLocation', () => ({
   }),
 }))
 
+const mockRouterPush = jest.fn()
+// PR #112 fixup-6 (2026-05-20) — Search now reads `useLocalSearchParams` to
+// restore the user's query when returning from a merchant via
+// `?from=search&q=<q>`.  Mock returns no params so the screen behaves as
+// a fresh entry; tests that need a restored-q can override `mockUrlParams`.
+const mockUrlParams: Record<string, string> = {}
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useRouter:             () => ({ push: mockRouterPush, back: jest.fn() }),
+  useLocalSearchParams:  () => ({ ...mockUrlParams }),
 }))
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return React.createElement(QueryClientProvider, { client: qc }, children)
+  // PR #112 fixup-3: SearchScreen reads `useSafeAreaInsets()` so the
+  // top-bar padding is notch-aware.  SafeAreaProvider must wrap the
+  // render tree under test.  initialMetrics keeps the test deterministic
+  // (no real device measurement).
+  const frame = { x: 0, y: 0, width: 390, height: 844 } as const
+  const insets = { top: 47, right: 0, bottom: 34, left: 0 } as const
+  return React.createElement(
+    SafeAreaProvider,
+    { initialMetrics: { frame, insets } },
+    React.createElement(QueryClientProvider, { client: qc }, children),
+  )
 }
 
 async function typeAndSettle(getByPlaceholderText: any, text: string = 'Pizza') {
@@ -88,7 +243,24 @@ async function typeAndSettle(getByPlaceholderText: any, text: string = 'Pizza') 
 }
 
 describe('SearchScreen', () => {
-  beforeEach(() => { mockSearchState.scenario = 'happy' })
+  beforeEach(() => {
+    mockSearchState.scenario = 'happy'
+    mockRouterPush.mockReset()
+    Object.keys(mockUrlParams).forEach(k => delete mockUrlParams[k])
+  })
+
+  // PR #112 fixup-6 — Search restores the user's query from the URL `?q=`
+  // param on mount.  Used by the Search→Merchant→back round-trip so the
+  // typed query is preserved across navigation.
+  it('restores the typed query from the URL ?q= param on mount (fixup-6 back-nav restore)', async () => {
+    mockUrlParams.q = 'Karaara'
+    const { getByDisplayValue, getByText } = render(<SearchScreen />, { wrapper })
+    // Input is pre-populated.
+    expect(getByDisplayValue('Karaara')).toBeTruthy()
+    // Debounced search fires; results render (mock returns mockPizzaExpress
+    // for any enabled query — what matters is the input populated).
+    await waitFor(() => expect(getByText('Pizza Express')).toBeTruthy())
+  })
 
   it('renders search input', () => {
     const { getByPlaceholderText } = render(<SearchScreen />, { wrapper })
@@ -106,45 +278,231 @@ describe('SearchScreen', () => {
     await waitFor(() => expect(getByText('Pizza Express')).toBeTruthy())
   })
 
-  it('renders ScopePillRow with tier counts after typing', async () => {
-    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+  it('renders ScopePillRow with CUMULATIVE display counts after typing (PR #112 device-QA fix #2)', async () => {
+    // mockMeta: nearbyCount=0, cityCount=1, distantCount=12.
+    // PR #112 cumulative display rule (locked):
+    //   Nearby   = nearbyCount                          = 0
+    //   Your city = nearbyCount + cityCount             = 0 + 1 = 1
+    //   More places = nearbyCount + cityCount + distantCount = 0 + 1 + 12 = 13
+    // Backend bucket-count contract on the wire is UNCHANGED — the
+    // cumulative transform happens at the display layer only.
+    // Third pill renamed UK-wide → "More places" in fixup-6.4.
+    const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
-      // Locked label set: Nearby, Your city, UK-wide. region is NOT surfaced.
       expect(getByText(/Nearby · 0/)).toBeTruthy()
       expect(getByText(/Your city · 1/)).toBeTruthy()
-      expect(getByText(/UK-wide · 12/)).toBeTruthy()
+      expect(getByText(/More places · 13/)).toBeTruthy()
+    })
+    // Negative pin — legacy "UK-wide" label must NOT appear.
+    expect(queryByText(/UK-wide/)).toBeNull()
+  })
+
+  it('CUMULATIVE counts — Karaara nearby-only case (1/0/0 buckets → 1/1/1 display)', async () => {
+    // Owner-flagged screenshot case: Karaara sits 276m away (nearby).
+    // Cumulative display avoids the absurd "Nearby · 1, Your city · 0,
+    // More places · 0" that bucket semantics produce — a result that's
+    // IN YOUR AREA must ALSO appear in YOUR CITY and MORE-PLACES counts.
+    // Third pill renamed UK-wide → "More places" in fixup-6.4.
+    mockSearchState.scenario = 'karaara_nearby_only'
+    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'Karaara')
+    await waitFor(() => {
+      expect(getByText(/Nearby · 1/)).toBeTruthy()
+      expect(getByText(/Your city · 1/)).toBeTruthy()
+      expect(getByText(/More places · 1/)).toBeTruthy()
     })
   })
 
-  it('renders "No merchants found" copy when results are empty (reason=none)', async () => {
+  // PR #112 fixup-6.4 — owner-locked persona copy refresh.  Banned
+  // wording (regression-pinned): `Nothing`, `in the UK`, `come back
+  // soon` / `check back soon`, em dashes, double dashes.
+  it('renders "No exact matches" copy when results are empty (reason=none)', async () => {
     mockSearchState.scenario = 'empty'
-    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
-    await waitFor(() => expect(getByText('No merchants found')).toBeTruthy())
+    await waitFor(() => {
+      expect(getByText('No exact matches for "Pizza"')).toBeTruthy()
+      expect(getByText('Try a different keyword, or browse nearby categories.')).toBeTruthy()
+    })
+    // Banned wording — none of these may appear.
+    expect(queryByText(/Nothing for/)).toBeNull()
+    expect(queryByText(/in the UK/)).toBeNull()
+    expect(queryByText(/come back soon/i)).toBeNull()
+    expect(queryByText(/check back soon/i)).toBeNull()
+    expect(queryByText(/—/)).toBeNull()
+    expect(queryByText(/--/)).toBeNull()
+    // Legacy fixup-3 copy must NOT appear.
+    expect(queryByText('No merchants found')).toBeNull()
   })
 
-  it('renders "No matches in the UK yet" copy when reason=no_uk_supply', async () => {
+  it('renders "We could not find a match" copy when reason=no_uk_supply', async () => {
     mockSearchState.scenario = 'no_uk_supply'
-    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
-    await waitFor(() => expect(getByText(/No matches in the UK yet/)).toBeTruthy())
+    await waitFor(() => {
+      expect(getByText('We could not find a match for "Pizza"')).toBeTruthy()
+      expect(getByText('Try another search, or explore what is available near you.')).toBeTruthy()
+    })
+    // Banned wording — none of these may appear.
+    expect(queryByText(/Nothing for/)).toBeNull()
+    expect(queryByText(/in the UK/)).toBeNull()
+    expect(queryByText(/come back soon/i)).toBeNull()
+    expect(queryByText(/check back soon/i)).toBeNull()
+    expect(queryByText(/we['’]re growing/i)).toBeNull()
+    expect(queryByText(/—/)).toBeNull()
+    expect(queryByText(/--/)).toBeNull()
   })
 
-  it('renders "showing wider results" banner when reason=expanded_to_wider AND results exist', async () => {
+  it('renders pre-search discovery prompt above TrendingSearches before any query is typed', async () => {
+    // No typing — initial state.  Pre-search empty state mounts above
+    // the popular-searches row so the screen has a friendly cue.
+    const { getByText, queryByText } = render(<SearchScreen />, { wrapper })
+    expect(getByText('Find your next local saving')).toBeTruthy()
+    expect(getByText('Search restaurants, cafés, salons, gyms and more.')).toBeTruthy()
+    // Still shows trending searches below.
+    expect(getByText('Trending')).toBeTruthy()
+    // Banned wording — none of these may appear in the pre-search state.
+    expect(queryByText(/Nothing/)).toBeNull()
+    expect(queryByText(/in the UK/)).toBeNull()
+    expect(queryByText(/come back soon/i)).toBeNull()
+    expect(queryByText(/check back soon/i)).toBeNull()
+  })
+
+  // PR #112 fixup-4 — unified locality-aware header.  Replaces both the
+  // separate `<LocalityCaption>` and `<ExpandedResultBanner>` with a SINGLE
+  // header line at the top of the result list:
+  //
+  //   Normal:    Results for "X" near <Locality>
+  //   Expanded:  Closest matches for "X" near <Locality>
+  //
+  // Positive framing on expanded ("Closest matches" instead of
+  // "Nothing in X yet") per owner direction.
+  it('unified expanded header copy (fixup-4): "Closest matches for X near Locality"', async () => {
     mockSearchState.scenario = 'expanded'
+    const { getByPlaceholderText, getByText, queryByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    await waitFor(() => {
+      expect(getByText('Closest matches for "Pizza" near Huddersfield')).toBeTruthy()
+      // List still renders.
+      expect(getByText('Pizza Express')).toBeTruthy()
+    })
+    // Legacy/rejected copy MUST NOT appear (regression guards).
+    expect(queryByText(/Nothing in Huddersfield yet/)).toBeNull()
+    expect(queryByText(/Here are the closest matches/)).toBeNull()
+    expect(queryByText(/showing wider results/)).toBeNull()
+    expect(queryByText(/No matches nearby/)).toBeNull()
+  })
+
+  it('unified normal header copy (fixup-4): "Results for X near Locality"', async () => {
+    // happy-path mockMeta sets scope=city, scopeExpanded=false; we add an
+    // effectiveLocality on the wire so the unified header carries the
+    // locality suffix.
+    mockSearchState.scenario = 'happy_with_locality'
     const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => {
-      expect(getByText(/showing wider results/)).toBeTruthy()
-      // banner does not replace results — list still shows
-      expect(getByText('Pizza Express')).toBeTruthy()
+      expect(getByText('Results for "Pizza" near Huddersfield')).toBeTruthy()
     })
   })
 
-  it('does NOT surface a "region" pill — only Nearby / Your city / UK-wide', async () => {
+  it('unified header falls back to plain "Results for X" when locality is absent', async () => {
+    // mockMeta default has effectiveLocality undefined.
+    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    await waitFor(() => {
+      expect(getByText('Results for "Pizza"')).toBeTruthy()
+    })
+  })
+
+  // PR #112 fixup-3 — effective-scope pin.
+  // The active scope pill reflects what's DISPLAYED, not what was REQUESTED.
+  // When backend cascades 'city' → 'platform' (no city supply), the active
+  // pill moves to 'More places' so the UI stays internally consistent (no
+  // "Your city · 0 selected" while results show below).  Third pill
+  // renamed UK-wide → "More places" in fixup-6.4.
+  it('active scope pill reflects effective (displayed) scope, not requested scope', async () => {
+    mockSearchState.scenario = 'expanded'
+    const { getByPlaceholderText, getByLabelText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    await waitFor(() => {
+      // ScopePillRow uses accessibilityState.selected for the active pill.
+      const platformPill = getByLabelText(/Filter to More places/i)
+      expect(platformPill.props.accessibilityState).toMatchObject({ selected: true })
+      const cityPill = getByLabelText(/Filter to Your city/i)
+      expect(cityPill.props.accessibilityState).toMatchObject({ selected: false })
+    })
+  })
+
+  it('does NOT surface a "region" pill — only Nearby / Your city / More places', async () => {
     const { getByPlaceholderText, queryByText } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText)
     await waitFor(() => expect(queryByText(/Region/i)).toBeNull())
+  })
+
+  // Discovery Rebaseline PR-2 (Phase 2.1) — load-bearing Covelum cardinality
+  // pin. Multi-branch merchants must render as separate Search rows. Before
+  // this rebaseline, search collapsed Covelum to one tile and the Colchester
+  // branch was lost from the UI.
+  it('multi-branch merchant renders as TWO search rows (Covelum bug closure)', async () => {
+    mockSearchState.scenario = 'multi_branch'
+    const { getByPlaceholderText, getAllByText, queryByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'Covelum')
+    await waitFor(() => {
+      // Merchant identity appears once per branch row — two rows for Covelum.
+      expect(getAllByText('Covelum').length).toBe(2)
+      // Branch identity surfaces on each row — de-duped per the
+      // PR-2 device-QA fix (branchName === localityName).
+      expect(getAllByText('Brightlingsea').length).toBe(1)
+      expect(getAllByText('Colchester').length).toBe(1)
+      // Negative pin: the old buggy duplicate-label format MUST NOT
+      // appear — pins the de-dupe contract from formatBranchLine.
+      expect(queryByText('Brightlingsea, Brightlingsea')).toBeNull()
+      expect(queryByText('Colchester, Colchester')).toBeNull()
+    })
+  })
+
+  // PR #112 fixup-6 — tile tap also stamps `from=search&q=<query>` on the
+  // merchant URL so the merchant page's back button returns the user to
+  // Search with their query preserved (default `router.back()` would fall
+  // back to Discovery under expo-router Tabs).
+  it('tile tap routes to /(app)/merchant/[id]?branch=<branchId>&from=search&q=<q> (fixup-6)', async () => {
+    const { getByPlaceholderText, getByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    await waitFor(() => expect(getByText('Pizza Express')).toBeTruthy())
+    fireEvent.press(getByText('Pizza Express'))
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/(app)/merchant/m1?branch=brn1&from=search&q=Pizza',
+    )
+  })
+
+  // PR-2 device-QA fix (2026-05-19) — count/list consistency pin.
+  //
+  // Owner-flagged screenshot bug: scope pill displayed "UK-wide · 1"
+  // while the branch list was empty.  Root cause: SearchScreen consumed
+  // the LEGACY merchant `meta.distantCount` (= 1, because the merchant
+  // path matched the query) while rendering the EMPTY `branches[]`.
+  //
+  // Fix: SearchScreen reads `branchMeta` exclusively — counts +
+  // emptyStateReason both reflect branch reality.  Empty branch list +
+  // zero branch counts + 'no_uk_supply' empty state all agree.
+  it('reads branchMeta — does NOT mix legacy merchant counts into branch list (PR-2 device-QA pin)', async () => {
+    mockSearchState.scenario = 'count_list_mismatch'
+    const { getByPlaceholderText, queryByText, getByText } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText)
+    // Branch list is empty → empty-state copy MUST render (not the
+    // legacy merchant `Legacy Merchant` name).  Fixup-6.4 copy:
+    // "We could not find a match for X" via <SearchEmptyState
+    // reason='no_uk_supply'>.
+    await waitFor(() => {
+      expect(queryByText('Legacy Merchant')).toBeNull()
+      expect(getByText('We could not find a match for "Pizza"')).toBeTruthy()
+    })
+    // Scope pills: counts must reflect branchMeta (all zero) NOT the
+    // legacy merchant meta (distantCount: 1).  The "More places · 1"
+    // string MUST NOT appear.  Third pill renamed UK-wide → More places
+    // in fixup-6.4.
+    expect(queryByText(/More places · 1\b/)).toBeNull()
+    expect(queryByText(/More places · 0\b/)).toBeTruthy()
   })
 })

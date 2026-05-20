@@ -25,7 +25,7 @@ import {
 } from '../../lib/ranking'
 import { resolveEffectiveLocation, type EffectiveLocation } from '../../lib/effectiveLocation'
 import { getOutgoingCatchmentTargetIds } from '../../lib/catchmentLookup'
-import type { LadderProfile, SupplyRung } from '../../lib/ladderProfiles'
+import type { LadderProfile, ProximityBand, SupplyRung } from '../../lib/ladderProfiles'
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
 import { resolveSelectedBranch } from './branch-resolver'
 import { buildDisplayName, formatReview } from '../reviews/service'
@@ -890,13 +890,85 @@ const BRANCH_TILE_SELECT = {
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
-function branchShortNameServer(rawBranchName: string, businessName: string): string {
-  if (!rawBranchName || !businessName) return rawBranchName
-  const escaped = escapeRegex(businessName)
-  const dashed = new RegExp(`^${escaped}\\s*[\\-–—]\\s*`, 'i')
-  const spaced = new RegExp(`^${escaped}\\s+`, 'i')
-  const stripped = rawBranchName.replace(dashed, '').replace(spaced, '').trim()
-  return stripped.length > 0 ? stripped : rawBranchName
+
+/**
+ * PR #112 fixup-6 (2026-05-20) — owner-locked search-query normalisation.
+ *
+ * Owner-flagged regression: `restaurant` returned Fino's Pizzeria + The Coffee
+ * House, while `restaurant ` (trailing space) returned Covelum Restaurant + My
+ * Kerala Restaurant.  Trailing/internal whitespace must NEVER materially
+ * change matches.
+ *
+ * Rules:
+ *   1. Trim leading/trailing whitespace.
+ *   2. Collapse repeated internal whitespace runs to a single space.
+ *      `\s+` covers spaces, tabs, non-breaking spaces, line breaks.
+ *   3. Return null when the result is empty (caller short-circuits).
+ *
+ * Apply in BOTH `searchMerchants` and `searchBranches` consistently.  Display
+ * surfaces may still echo the user-typed query verbatim; backend matching
+ * routes through the normalised value.
+ *
+ * Examples:
+ *   normalizeSearchQuery('restaurant')        → 'restaurant'
+ *   normalizeSearchQuery('restaurant ')       → 'restaurant'
+ *   normalizeSearchQuery('  restaurant  ')    → 'restaurant'
+ *   normalizeSearchQuery('coffee   shop')     → 'coffee shop'
+ *   normalizeSearchQuery('\tcoffee\nshop ')   → 'coffee shop'
+ *   normalizeSearchQuery('')                  → null
+ *   normalizeSearchQuery('   ')               → null
+ *   normalizeSearchQuery(null)                → null
+ *   normalizeSearchQuery(undefined)           → null
+ */
+export function normalizeSearchQuery(raw: string | null | undefined): string | null {
+  if (raw == null) return null
+  const collapsed = raw.replace(/\s+/g, ' ').trim()
+  return collapsed.length > 0 ? collapsed : null
+}
+/**
+ * Strips merchant-name prefixes from a stored branch name.
+ *
+ * Seeded branch names use the merchant's TRADING NAME (short form) in the
+ * "Brand — Locality" pattern (e.g. `"Covelum — Brightlingsea"` where
+ * `businessName = "Covelum Restaurant"` and `tradingName = "Covelum"`).
+ * The helper tries the trading name first (if non-null) because that's the
+ * canonical prefix on stored branch rows; falls back to the full business
+ * name for callers that don't supply a trading name.
+ *
+ * Owner device-QA bug (PR #112, 2026-05-19): the previous version of this
+ * helper only tested against `businessName` ("Covelum Restaurant"), which
+ * never matches `"Covelum — Brightlingsea"` as a prefix.  Result: branch
+ * name shipped through to the UI unchanged ("Covelum — Brightlingsea"),
+ * combined with the locality field on the client to produce the
+ * "Covelum — Brightlingsea, Brightlingsea" duplicate the owner screenshotted.
+ *
+ * Handles em-dash (—), en-dash (–), and hyphen (-).
+ */
+function branchShortNameServer(
+  rawBranchName: string,
+  businessName: string,
+  tradingName: string | null,
+): string {
+  if (!rawBranchName) return rawBranchName
+
+  // Try trading name first — that's the canonical prefix on stored branches.
+  // Fall back to businessName if trading name is null/empty.
+  const candidates: string[] = []
+  if (tradingName && tradingName.trim().length > 0) candidates.push(tradingName.trim())
+  if (businessName && businessName.trim().length > 0) candidates.push(businessName.trim())
+
+  let result = rawBranchName
+  for (const candidate of candidates) {
+    const escaped = escapeRegex(candidate)
+    const dashed  = new RegExp(`^${escaped}\\s*[\\-–—]\\s*`, 'i')
+    const spaced  = new RegExp(`^${escaped}\\s+`, 'i')
+    const stripped = result.replace(dashed, '').replace(spaced, '').trim()
+    if (stripped !== result && stripped.length > 0) {
+      result = stripped
+      break  // first matching candidate wins
+    }
+  }
+  return result.length > 0 ? result : rawBranchName
 }
 
 // Input shape supplied by the rankBranchesV3 result + per-input distance the
@@ -948,6 +1020,17 @@ function enrichBranchTile(
     .map(v => Number(v.estimatedSaving))
     .filter(n => !isNaN(n))
   const maxEstimatedSaving = savings.length > 0 ? Math.max(...savings) : null
+  // PR #112 device-QA fixup-3 (2026-05-19) — total value across all
+  // active+approved vouchers.  Drives the Search card "N offers · £X.XX
+  // total value" pill on multi-offer merchants.  ADDITIVE — does NOT
+  // overload maxEstimatedSaving.  Other surfaces continue to read max.
+  // Round to whole pence to avoid float-arith drift over many vouchers.
+  const totalEstimatedSavingRaw = savings.length > 0
+    ? savings.reduce((a, b) => a + b, 0)
+    : null
+  const totalEstimatedSaving = totalEstimatedSavingRaw === null
+    ? null
+    : Math.round(totalEstimatedSavingRaw * 100) / 100
 
   // Descriptor — branchTileSchema declares `descriptor: z.string()` (not
   // nullable), so fall back to an empty string when the merchant has no
@@ -962,7 +1045,7 @@ function enrichBranchTile(
 
   return {
     id:                       branch.id,
-    branchName:               branchShortNameServer(branch.name, merchant.businessName),
+    branchName:               branchShortNameServer(branch.name, merchant.businessName, merchant.tradingName),
     branchLocalityId:         branch.localityId,
     branchLocalityName:       branch.localityName,
     branchPostTown:           branch.postTown,
@@ -1014,6 +1097,7 @@ function enrichBranchTile(
       highlights:           visibleHighlights,
       voucherCount:         merchant._count.vouchers,
       maxEstimatedSaving,
+      totalEstimatedSaving,
     },
   }
 }
@@ -2132,24 +2216,29 @@ export async function searchMerchants(
           minSaving, voucherTypes, amenityIds, tagIds, scope, openNow, featured, topRated,
           sortBy, limit, offset, userId } = params
 
-  if (!q && !categoryId && !subcategoryId && minLat === undefined) {
+  // PR #112 fixup-6 (2026-05-20) — normalise the user query before matching.
+  // Owner-locked: trim + collapse internal whitespace.  Trailing/internal
+  // whitespace MUST NOT change results (`restaurant` vs `restaurant ` etc.).
+  const normalizedQ = normalizeSearchQuery(q)
+
+  if (!normalizedQ && !categoryId && !subcategoryId && minLat === undefined) {
     throw new AppError('SEARCH_QUERY_REQUIRED')
   }
 
   const where: Prisma.MerchantWhereInput = { status: MerchantStatus.ACTIVE }
 
-  if (q) {
+  if (normalizedQ) {
     const tags = await prisma.merchantSuggestedTag.findMany({
-      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
+      where: { tag: { contains: normalizedQ, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
       select: { merchantId: true },
     })
     const tagMerchantIds = [...new Set(tags.map((t: any) => t.merchantId))]
     where.OR = [
-      { businessName:    { contains: q, mode: 'insensitive' } },
-      { tradingName:     { contains: q, mode: 'insensitive' } },
-      { description:     { contains: q, mode: 'insensitive' } },
-      { primaryCategory: { name: { contains: q, mode: 'insensitive' } } },
-      { categories:      { some: { category: { name: { contains: q, mode: 'insensitive' } } } } },
+      { businessName:    { contains: normalizedQ, mode: 'insensitive' } },
+      { tradingName:     { contains: normalizedQ, mode: 'insensitive' } },
+      { description:     { contains: normalizedQ, mode: 'insensitive' } },
+      { primaryCategory: { name: { contains: normalizedQ, mode: 'insensitive' } } },
+      { categories:      { some: { category: { name: { contains: normalizedQ, mode: 'insensitive' } } } } },
       ...(tagMerchantIds.length > 0 ? [{ id: { in: tagMerchantIds } }] : []),
     ]
   }
@@ -2497,13 +2586,28 @@ export async function searchBranches(
     effectiveLocality: { id: string; name: string } | null
     scope: 'nearby' | 'city' | 'region' | 'platform'
     scopeExpanded: boolean
+    // PR-2 device-QA fix (2026-05-19) — parity with `searchMerchants`
+    // meta so the customer-app SearchScreen can read this envelope
+    // exclusively (no mixing of merchant-tier counts into branch list).
+    nearbyCount: number
+    cityCount: number
+    distantCount: number
+    emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply'
+    resolvedArea: string
   }
 }> {
   const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
           minSaving, voucherTypes, scope, limit, offset, userId } = params
 
+  // PR #112 fixup-6 (2026-05-20) — normalise the user query before matching.
+  // Owner-locked: trim + collapse internal whitespace.  Trailing/internal
+  // whitespace MUST NOT change results (`restaurant` vs `restaurant ` etc.).
+  // Routes through the same `normalizeSearchQuery` helper as `searchMerchants`
+  // so both services see identical match input for any given user query.
+  const normalizedQ = normalizeSearchQuery(q)
+
   // ── 1. Validate bounded predicate (mirrors searchMerchants line 1978).
-  if (!q && !categoryId && !subcategoryId && minLat === undefined) {
+  if (!normalizedQ && !categoryId && !subcategoryId && minLat === undefined) {
     throw new AppError('SEARCH_QUERY_REQUIRED')
   }
 
@@ -2513,27 +2617,54 @@ export async function searchBranches(
     merchant: { status: MerchantStatus.ACTIVE },
   }
 
-  if (q && q.trim().length > 0) {
+  if (normalizedQ) {
     // Tag-matched merchant lookup (mirrors searchMerchants:1985-1989).
     const tags = await prisma.merchantSuggestedTag.findMany({
-      where: { tag: { contains: q, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
+      where: { tag: { contains: normalizedQ, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
       select: { merchantId: true },
     })
     const tagMerchantIds = Array.from(new Set(tags.map(t => t.merchantId)))
 
+    // PR #112 fixup-4 (2026-05-19) — relevance fix: gate description
+    // substring matching to queries ≥ MIN_DESCRIPTION_MATCH_LENGTH.
+    //
+    // Owner-flagged regression: query `cove` (4 chars) surfaced
+    // `Wagtail Veterinary Practice` because the merchant description
+    // contained a 4-char substring (e.g. "cover", "covered", "covers").
+    // Short queries are weak signal for description-content matching
+    // and generate disproportionate false positives.
+    //
+    // Strong matches (always on, regardless of q length):
+    //   - merchant.businessName / tradingName
+    //   - merchant.primaryCategory.name + categories[].name
+    //   - merchant.suggestedTag (via tagMerchantIds)
+    //   - branch.name / branch.localityName / branch.postTown
+    //
+    // Weak match (gated):
+    //   - merchant.description — requires normalizedQ.length >= 5
+    //
+    // Threshold = 5 chars: empirically suppresses the `cove`-class
+    // false-positive while letting `covel` / `cover` through (where
+    // description match adds genuine signal).
+    const MIN_DESCRIPTION_MATCH_LENGTH = 5
+    const includeDescriptionMatch =
+      normalizedQ.length >= MIN_DESCRIPTION_MATCH_LENGTH
+
     where.OR = [
-      // Merchant-level matches (mirror searchMerchants:1991-1996).
-      { merchant: { businessName:    { contains: q, mode: 'insensitive' } } },
-      { merchant: { tradingName:     { contains: q, mode: 'insensitive' } } },
-      { merchant: { description:     { contains: q, mode: 'insensitive' } } },
-      { merchant: { primaryCategory: { name: { contains: q, mode: 'insensitive' } } } },
-      { merchant: { categories:      { some: { category: { name: { contains: q, mode: 'insensitive' } } } } } },
+      // Merchant-level STRONG matches (always on).
+      { merchant: { businessName:    { contains: normalizedQ, mode: 'insensitive' } } },
+      { merchant: { tradingName:     { contains: normalizedQ, mode: 'insensitive' } } },
+      { merchant: { primaryCategory: { name: { contains: normalizedQ, mode: 'insensitive' } } } },
+      { merchant: { categories:      { some: { category: { name: { contains: normalizedQ, mode: 'insensitive' } } } } } },
       ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
-      // Branch-level matches — NEW under Spec §3.1 (closes the
-      // Covelum / Brightlingsea bug class at the service layer).
-      { name:         { contains: q, mode: 'insensitive' as const } },
-      { localityName: { contains: q, mode: 'insensitive' as const } },
-      { postTown:     { contains: q, mode: 'insensitive' as const } },
+      // Merchant-level WEAK match — gated on normalised q length.
+      ...(includeDescriptionMatch
+        ? [{ merchant: { description: { contains: normalizedQ, mode: 'insensitive' as const } } }]
+        : []),
+      // Branch-level matches — Spec §3.1 (Covelum / Brightlingsea bug class).
+      { name:         { contains: normalizedQ, mode: 'insensitive' as const } },
+      { localityName: { contains: normalizedQ, mode: 'insensitive' as const } },
+      { postTown:     { contains: normalizedQ, mode: 'insensitive' as const } },
     ]
   }
 
@@ -2704,6 +2835,16 @@ export async function searchBranches(
   // If effLoc is null OR no rankable candidates exist, the ranked half stays
   // empty; the non-rankable tail still surfaces below (Spec §4.1.1).
 
+  // PR #112 fixup-6.3 (2026-05-20) — capture the PRE-scope-filter ranked set
+  // so the text-match fallback can distinguish "maxRung-dropped" branches
+  // (rank gate excluded them — bucket B) from "scope-dropped" branches
+  // (classified into a rung but excluded by user-selected scope — bucket A).
+  // Only bucket B surfaces unconditionally; bucket A respects scope.
+  // Owner direction: "Direct merchant-name match should not disappear
+  // simply because another branch/rung/scope gate ranks differently" —
+  // applies to rank gate (bucket B), NOT user-selected scope (bucket A).
+  const preScopeRankedIds = new Set(rankedTiles.map(t => t.id))
+
   // ── 6.5. Discovery Rebaseline Task 2.1.0 — scope cascade parity.
   //
   // Branch-first sibling of `resolveScopeForRanking` (line ~429). User-facing
@@ -2750,7 +2891,125 @@ export async function searchBranches(
     return a.id.localeCompare(b.id)
   })
 
-  // ── 8. Concatenate ranked ++ tail; pagination unit is the branch tile.
+  // ── 7.5. PR-2 device-QA blocker fix (2026-05-19) — direct text-match fallback.
+  //
+  // When `q` is a non-empty text query AND `effLoc` is resolved, surface
+  // rankable branches matching the predicate that `rankBranchesV3`
+  // dropped (rung null OR rung > maxRung) as a deterministic fallback
+  // tail AFTER the ranked output.  Without this, e.g. searching
+  // `restaurant` from a Huddersfield effLoc drops `Covelum Restaurant`
+  // entirely — Covelum's branches classify as COUNTRY (East-of-England
+  // region) and `rankBranchesV3` discards anything above the ladder
+  // maxRung (REGION for MIXED_NORMAL @ URBAN).  The scope cascade
+  // can't help: `rungCounts` reflects only rank-admitted branches.
+  //
+  // PR #112 fixup-6.3 (2026-05-20) — bucket-aware gate.
+  // Owner direction: "Direct merchant-name matches must be strong
+  // matches.  A direct merchant-name match should not disappear simply
+  // because another branch/rung/scope gate ranks differently."
+  //
+  // The fallback population is split into two buckets:
+  //   bucket A — branches classified into a rung by rankBranchesV3 but
+  //              filtered out by the user-selected scope cascade.
+  //              These RESPECT scope and do NOT surface in the
+  //              fallback (preserves Task 2.1.0 scope contract).
+  //   bucket B — branches the rank gate dropped entirely (rung null OR
+  //              rung > maxRung).  These ALWAYS surface when q is
+  //              non-empty + effLoc is resolved (owner direction).
+  //
+  // `preScopeRankedIds` captures the set of branches that rankBranchesV3
+  // admitted (before scope filter).  Bucket B = rankable - preScopeRankedIds.
+  //
+  // The owner-flagged Covelum disappearance was a bucket-B miss: Covelum's
+  // East-of-England branches classified as COUNTRY > maxRung REGION
+  // (MIXED_NORMAL @ URBAN default for free-text q), so they got dropped
+  // by the rank gate.  Pre-fixup-6.3 the fallback only fired when
+  // `rankedTiles.length === 0`; when Pino's NEARBY ranked,
+  // rankedTiles=1 and the fallback skipped, hiding Covelum.  Now
+  // bucket B always surfaces independently of scope semantics.
+  //
+  // Order semantics (Spec §4.1.1 preserved):
+  //   1. Ranked tiles (rung-aware, scope-filtered) — primary output.
+  //   2. Text-match fallback (bucket B — rank-dropped rankable matches;
+  //      null rung, computed distance, NEAREST_ON_REDEEMO band per
+  //      §7.5 wiring).
+  //   3. POSTCODE_CENTROID / NEEDS_REVIEW tail.
+  //
+  // Browse queries (no q) and non-effLoc paths are UNAFFECTED.
+  // Map (`getInAreaBranches`) is a different function and UNAFFECTED.
+  // PR #112 fixup-6.6 (2026-05-20) — distance-first sort for the fallback.
+  // Owner-flagged: two Covelum branches sorted alphabetically by
+  // branch.name → Brightlingsea (173mi) appeared before Colchester
+  // (165mi).  Within the fallback bucket, nearer branches must come
+  // first.  Branches with null distance (POSTCODE_CENTROID — already
+  // routed to the tail, not the fallback, so this shouldn't fire in
+  // practice; defensive ordering anyway) sort last.
+  // Tiebreakers: merchant.businessName → branch.name → branch.id
+  // (deterministic across pagination calls).
+  const textMatchFallback = (
+    effLoc
+    && normalizedQ !== null
+  )
+    ? [...rankable]
+        .filter(b => !preScopeRankedIds.has(b.id))   // bucket B only — rank-dropped
+        .sort((a, b) => {
+          const da = fallbackDistanceFor(a) ?? Number.POSITIVE_INFINITY
+          const db = fallbackDistanceFor(b) ?? Number.POSITIVE_INFINITY
+          if (da !== db) return da - db
+          const ma = a.merchant.businessName.localeCompare(b.merchant.businessName)
+          if (ma !== 0) return ma
+          const nb = (a.name ?? '').localeCompare(b.name ?? '')
+          if (nb !== 0) return nb
+          return a.id.localeCompare(b.id)
+        })
+    : []
+
+  // Per-branch distance for the fallback tail.  Computed when the branch
+  // has exact coordinates (MANUALLY_CONFIRMED gate per PR #81 redaction).
+  // Mirrors the haversine the existing rank path applies; the result is
+  // metres from the caller's effLoc.
+  //
+  // Owner device-QA bug (PR #112, 2026-05-19): the original §7.5 path set
+  // `distance: null` on every fallback tile, leaving the customer-app
+  // unable to render distance or a meaningful proximity chip for direct
+  // text-match results.  Computing distance per-branch (when coords +
+  // effLoc are available) plus emitting `proximityBand:
+  // 'NEAREST_ON_REDEEMO'` on the wire gives the customer-app a clean
+  // chip + distance line.
+  function fallbackDistanceFor(b: typeof rankable[number]): number | null {
+    if (!effLoc) return null
+    if (b.locationConfidence !== 'MANUALLY_CONFIRMED') return null
+    if (b.latitude === null || b.longitude === null) return null
+    return haversineMetres(effLoc.lat, effLoc.lng, Number(b.latitude), Number(b.longitude))
+  }
+
+  // ── 8. Concatenate ranked ++ text-match fallback ++ non-rankable tail.
+  //    Pagination unit is the branch tile.
+  //
+  //    PR #112 fixup-6.5 (2026-05-20) — scope-aware list assembly.
+  //    Owner-flagged blocker: scope=`Nearby · 1` was active but the
+  //    visible list contained 4 items (Pino's NEARBY + 3 Covelum/Kerala
+  //    rank-dropped fallback rows).  Narrow scope must show ONLY the
+  //    scope-filtered tiles; the cumulative count (`More places · 5`)
+  //    tells the user there's more wider supply.
+  //
+  //    `showWiderSupply` controls whether the text-match fallback +
+  //    POSTCODE_CENTROID tail surface in the LIST.  Both still count
+  //    toward `distantCount` (cumulative meta) so the pill row stays
+  //    accurate; they're hidden until the user broadens scope OR the
+  //    scope-filtered ranked set is empty (cascade rescue path).
+  //
+  //    Order rationale (when wider supply IS shown):
+  //      1. Ranked tiles first (best user-visible ordering — rung+distance+quality).
+  //      2. Text-match fallback (rank-dropped rankable matches; null rung/distance
+  //         per Spec §4.1.1 list-view admission semantics).
+  //      3. POSTCODE_CENTROID / NEEDS_REVIEW tail (also null rung/distance per §4.1.1).
+  //
+  //    These three sets are disjoint (textMatchFallback ⊆ rankable; tail = nonRankable;
+  //    `rankable ∩ nonRankable = ∅` by the locationConfidence partition above).
+  const showWiderSupply =
+    scopeResolution.resolvedScope === 'platform'
+    || rankedTiles.length === 0
   const allInputs: EnrichBranchInput[] = [
     ...rankedTiles.map(t => ({
       branchId:      t.id,
@@ -2759,13 +3018,29 @@ export async function searchBranches(
       proximityBand: t.proximityBand,
       distance:      t.distanceMetres,
     } satisfies EnrichBranchInput)),
-    ...tailSorted.map(b => ({
-      branchId:      b.id,
-      merchantId:    b.merchantId,
-      supplyRung:    null,
-      proximityBand: null,
-      distance:      null,
-    } satisfies EnrichBranchInput)),
+    ...(showWiderSupply
+      ? textMatchFallback.map(b => ({
+          branchId:      b.id,
+          merchantId:    b.merchantId,
+          // supplyRung stays null because classifyRung either returned null
+          // OR returned a rung above maxRung — the rung is genuinely unknown
+          // for ranking purposes.  proximityBand is set explicitly to
+          // NEAREST_ON_REDEEMO so the customer-app renders the correct chip
+          // for direct text-match hits.
+          supplyRung:    null,
+          proximityBand: 'NEAREST_ON_REDEEMO' as ProximityBand,
+          distance:      fallbackDistanceFor(b),
+        } satisfies EnrichBranchInput))
+      : []),
+    ...(showWiderSupply
+      ? tailSorted.map(b => ({
+          branchId:      b.id,
+          merchantId:    b.merchantId,
+          supplyRung:    null,
+          proximityBand: null,
+          distance:      null,
+        } satisfies EnrichBranchInput))
+      : []),
   ]
 
   const totalBranches = allInputs.length
@@ -2778,10 +3053,54 @@ export async function searchBranches(
     lng:    lng   ?? null,
   })
 
-  // ── 10. Meta envelope — Phase 1 + Task 2.1.0 shape. `scope` +
-  //       `scopeExpanded` mirror the merchant-variant envelope so consumers
-  //       can render empty-state copy + scope-expanded indicators
-  //       identically across both variants.
+  // ── 10. Meta envelope — Phase 1 + Task 2.1.0 + PR-2 device-QA fix.
+  //
+  // Derives legacy-shape NEARBY/CITY/DISTANT tier counts from
+  // `rungCounts` via the tier↔rung mapping locked by Task 2.1.0
+  // (matches `mapRungToLegacyTier` at ladderProfiles.ts:110):
+  //   NEARBY tier  = NEARBY rung
+  //   CITY tier    = CATCHMENT + POST_TOWN rungs
+  //   DISTANT tier = LAD + COUNTY + REGION + COUNTRY + NATIONAL rungs
+  //                  + textMatch-fallback count (null rung; the
+  //                    rank-dropped direct matches that surface
+  //                    because of the §7.5 text-match safety net)
+  //                  + non-rankable tail count (POSTCODE_CENTROID /
+  //                    NEEDS_REVIEW per Spec §4.1.1 list admission)
+  //
+  // Both null-rung sources count toward DISTANT because they're
+  // structurally "UK-wide" — no locality match to the caller's
+  // effLoc, just a direct text/admission surface.  Mirrors legacy
+  // `searchMerchants` semantics where every active merchant lands
+  // in NEARBY / CITY / DISTANT with no maxRung gate.
+  const nearbyCount  = rungCounts.NEARBY
+  const cityCount    = rungCounts.CATCHMENT + rungCounts.POST_TOWN
+  const distantCount =
+    rungCounts.LAD + rungCounts.COUNTY + rungCounts.REGION
+    + rungCounts.COUNTRY + rungCounts.NATIONAL
+    + textMatchFallback.length
+    + tailSorted.length
+
+  // emptyStateReason — mirrors `buildEmptyStateReason` (service.ts:477).
+  //   'no_uk_supply'      : no candidates at all in UK
+  //   'expanded_to_wider' : scope cascade widened to find supply
+  //   'none'              : results found at requested scope
+  const totalSupply = nearbyCount + cityCount + distantCount
+  const emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply' =
+    totalSupply === 0       ? 'no_uk_supply'      :
+    totalBranches === 0     ? 'no_uk_supply'      :
+    scopeResolution.scopeExpanded ? 'expanded_to_wider' :
+    'none'
+
+  // resolvedArea — mirrors `buildResolvedArea` (service.ts:488).
+  const profileCity = (await prisma.user.findUnique({
+    where: { id: userId ?? '' },
+    select: { city: true },
+  }))?.city ?? null
+  const resolvedArea =
+    scopeResolution.resolvedScope === 'nearby' ? 'Nearby' :
+    scopeResolution.resolvedScope === 'city'   ? (profileCity ?? 'Your city') :
+    'United Kingdom'
+
   return {
     branches,
     totalBranches,
@@ -2790,8 +3109,13 @@ export async function searchBranches(
       effectiveLocality: effLoc
         ? { id: effLoc.locality.id, name: effLoc.locality.name }
         : null,
-      scope:         scopeResolution.resolvedScope,
-      scopeExpanded: scopeResolution.scopeExpanded,
+      scope:            scopeResolution.resolvedScope,
+      scopeExpanded:    scopeResolution.scopeExpanded,
+      nearbyCount,
+      cityCount,
+      distantCount,
+      emptyStateReason,
+      resolvedArea,
     },
   }
 }

@@ -120,10 +120,18 @@ export async function discoveryRoutes(app: FastifyInstance) {
       searchMerchants(app.prisma, { ...params, userId }),
       searchBranches(app.prisma, { ...params, userId }),
     ])
+    // PR-2 device-QA fix (2026-05-19) — emit `branchMeta` as a separate
+    // field alongside the legacy `...merchantResult` spread so consumers
+    // reading `branches[]` can also read branch-aligned counts +
+    // emptyStateReason + resolvedArea WITHOUT picking up the legacy
+    // merchant meta (which would mismatch — owner observed scope pills
+    // claiming results while the branch list was empty).  Legacy `meta`
+    // continues to ship for callers still on the merchant arm.
     return reply.send({
       ...merchantResult,
       branches:      branchResult.branches,
       totalBranches: branchResult.totalBranches,
+      branchMeta:    branchResult.meta,
     })
   })
 
