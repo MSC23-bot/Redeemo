@@ -943,6 +943,10 @@ gh pr create --title "feat(seed): Stage 3 — real merchant coord verification (
 
 ### Stage 4 owner-locked scope (2026-05-20, post Stage 2 merge `6720fe7`)
 
+> **Mid-PR-#116 amendment (2026-05-20 post first `--confirm` run, owner-approved):**
+> - **Cascade fix** — added `ReviewHelpful` step BETWEEN `voucherRedemption` and `review` after the first `--confirm` aborted on `review_helpfuls_reviewId_fkey` FK. Schema relation `ReviewHelpful → Review` has no `onDelete: Cascade`, so explicit deletion is required. 3 ReviewHelpful rows added to the cleanup scope (the only delta vs the originally-approved counts). DB was unchanged after the failed attempt (Prisma per-call atomic rollback). Helper, cleanup script, and `FixtureSweepSummary` type all updated. See commit `aae800d` for the fixup.
+> - **Guardrail activation scope corrected (Option A)** — original plan said "promote R1-R8 to active" but R2 + R3 still have non-leaked residual failures (the locked Stage 3 work on Karaara + My Kerala media + opening hours). Activating them would have left the CI red. Owner-approved Option A: Stage 4 activates ONLY the rules it actually closed (R1 + R4 + R5 + R6 + R7 + R8); R2, R3, R9 stay `it.skip` until Stage 3 ships. Final guardrail result: 6 passed / 3 skipped. The skipped tests carry `— un-skip on Stage 3 merge` annotations matching R9's pattern.
+
 Five locked decisions from the Stage 4 pre-implementation package owner approval:
 
 | # | Decision | Locked value |
@@ -981,13 +985,20 @@ FilterFlip-       (0 rows today; forward-protection)
 | `docs/superpowers/plans/2026-05-20-seed-merchant-enrichment.md` | **MODIFY** | This scope-lock section is added in the lock commit; the post-merge "as-shipped" addendum follows after Stage 4 ships. |
 | **Out of scope for THIS PR**: original plan §Task 4.2 mentioned refactoring "7 candidate test files in `tests/api/customer/discovery/`". Scope reduced to ONLY `discovery.selectedBranch.test.ts` per the approved Stage 4 package. Other files can adopt the helper opportunistically in future PRs. |
 
-**R9 stays `it.skip` after Stage 4** even though it currently passes (all 4 real-merchant branches have `MANUALLY_CONFIRMED` + non-null coords today). Reason: R9's semantic intent is "real-merchant coords have actually been Google-Places-verified". Stage 3 does that verification for Karaara + My Kerala + Covelum Colchester. Until Stage 3 lands, R9 stays inactive in CI even though it would mechanically pass.
+**R2 / R3 / R9 all stay `it.skip` after Stage 4** (Option A locked mid-PR — see amendment above):
+- **R2** (`logoUrl + bannerUrl`) — fails on Karaara + My Kerala media gaps; Stage 3 closes.
+- **R3** (opening hours) — fails on Karaara + My Kerala opening hours; Stage 3 closes.
+- **R9** (real-merchant coords) — currently passes mechanically (all 4 branches `MANUALLY_CONFIRMED` via seed code) but semantic intent is "Google-Places-verified". Stage 3 closes.
+- All three carry `— un-skip on Stage 3 merge` annotation; Stage 3 PR flips them in one commit.
 
 **Stage 3 still PAUSED after Stage 4 lands.** Stage 3 must be explicitly owner-started.
 
-**Phase 2.3 Home + Phase 2.4 Category gated:** must NOT start until Stage 4 is merged AND the seed audit reports clean R1-R8.
+**Phase 2.3 Home + Phase 2.4 Category gated:** must NOT start until Stage 4 is merged AND the seed audit reports clean for the activated rules (R1 / R4 / R5 / R6 / R7 / R8). R2 / R3 / R9 residuals are explicitly Stage 3 work and do not gate Phase 2.3 / 2.4 start by themselves — but in practice Stage 3 will close those before Phase 2.3 / 2.4 ship.
 
-**Expected post-Stage-4 audit:** 6 failures total (4 R2 + 2 R3 = Karaara + My Kerala media + hours; Stage 3 closes). R1/R4/R5/R6/R7/R8 all 0. R9 0 (mechanically) but skipped in CI.
+**Expected post-Stage-4 state on dev DB:**
+- Audit total: 6 failures (4 R2 + 2 R3 = Karaara + My Kerala media + hours; Stage 3 closes).
+- Audit per-rule activated-clean: R1 / R4 / R5 / R6 / R7 / R8 all = 0; R9 = 0 mechanically.
+- Guardrail vitest: **6 passed / 3 skipped** (R1/R4/R5/R6/R7/R8 active; R2/R3/R9 `it.skip`).
 
 ### Task 4.1: Clean the leaked test fixtures
 
