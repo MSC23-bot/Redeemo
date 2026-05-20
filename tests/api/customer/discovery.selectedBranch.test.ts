@@ -11,14 +11,62 @@ import { getCustomerMerchant } from '../../../src/api/customer/discovery/service
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
 
-// Warm the Neon serverless connection before the first heavy-write test.
-// This file creates fresh merchants per test (unlike sibling files that read
-// pre-seeded data via beforeAll findFirst, which incidentally warms the pool).
-// Without this, the first test races a cold compute under maxWorkers parallelism
-// and hits the 5000ms default test timeout.
+// PR-3 fixup-1 (2026-05-20) — deterministic prefix sweep.
+//
+// Fixture identity prefixes used by this file:
+//   - merchant.businessName: `P1Test-${Date.now()}`
+//   - user.email:            `p1test-${Date.now()}@example.com`
+//
+// Pre-fix, the cleanup only ran via the `createdMerchantIds` /
+// `createdUserIds` arrays populated as tests created rows.  When a test
+// crashed / timed out / vitest force-killed a worker, those in-memory
+// arrays were lost and the rows leaked.  Live dev DB audit on
+// 2026-05-20 surfaced 21 leaked merchants (42 branches) + 2 leaked
+// users from runs spanning 2026-05-02 → 2026-05-09.  Hardening:
+//
+//   1. `beforeAll` sweep — wipes any leftover P1Test fixtures from
+//      previous failed runs BEFORE seeding fresh rows.  Idempotent.
+//   2. `afterAll` sweep — wipes by prefix, NOT by in-memory id list.
+//      Catches anything created in this run even if the in-memory
+//      tracking is incomplete (e.g. test crash mid-create).
+//
+// The Date.now() suffix per-merchant is preserved as a within-run
+// uniqueness marker (tests run in parallel via vitest pool); the
+// prefix-sweep cleanup is the orthogonal safety net.
+const P1TEST_MERCHANT_PREFIX = 'P1Test-'
+const P1TEST_USER_EMAIL_PREFIX = 'p1test-'
+
+async function sweepP1TestFixtures(): Promise<{ merchants: number; branches: number; users: number }> {
+  // Resolve in single batch to minimise round-trips.
+  const merchants = await prisma.merchant.findMany({
+    where: { businessName: { startsWith: P1TEST_MERCHANT_PREFIX } },
+    select: { id: true, branches: { select: { id: true } } },
+  })
+  const merchantIds = merchants.map(m => m.id)
+  const branchIds   = merchants.flatMap(m => m.branches.map(b => b.id))
+
+  if (branchIds.length > 0) {
+    await prisma.voucherRedemption.deleteMany({ where: { branchId: { in: branchIds } } })
+    await prisma.review.deleteMany({ where: { branchId: { in: branchIds } } })
+    await prisma.branchAmenity.deleteMany({ where: { branchId: { in: branchIds } } })
+    await prisma.branch.deleteMany({ where: { id: { in: branchIds } } })
+  }
+  if (merchantIds.length > 0) {
+    await prisma.voucher.deleteMany({ where: { merchantId: { in: merchantIds } } })
+    await prisma.merchant.deleteMany({ where: { id: { in: merchantIds } } })
+  }
+  const { count: userCount } = await prisma.user.deleteMany({
+    where: { email: { startsWith: P1TEST_USER_EMAIL_PREFIX } },
+  })
+  return { merchants: merchantIds.length, branches: branchIds.length, users: userCount }
+}
+
+// Warm the Neon serverless connection before the first heavy-write test
+// AND clean any leftover P1Test fixtures from previous failed runs.
 beforeAll(async () => {
   await prisma.$queryRaw`SELECT 1`
-}, 15000)
+  await sweepP1TestFixtures()
+}, 30000)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixtures
@@ -134,26 +182,14 @@ async function createUser(): Promise<{ id: string }> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 afterAll(async () => {
-  // Delete order: voucherRedemptions → reviews → vouchers → branchAmenities → branches (cascades photos + hours) → merchants → users
-  if (createdMerchantIds.length > 0) {
-    const branchRows = await prisma.branch.findMany({
-      where: { merchantId: { in: createdMerchantIds } },
-      select: { id: true },
-    })
-    const branchIds = branchRows.map(b => b.id)
-    if (branchIds.length > 0) {
-      await prisma.voucherRedemption.deleteMany({ where: { branchId: { in: branchIds } } })
-      await prisma.review.deleteMany({ where: { branchId: { in: branchIds } } })
-      await prisma.branchAmenity.deleteMany({ where: { branchId: { in: branchIds } } })
-      // Branch cascade deletes BranchOpeningHours, BranchPhoto
-      await prisma.branch.deleteMany({ where: { id: { in: branchIds } } })
-    }
-    await prisma.voucher.deleteMany({ where: { merchantId: { in: createdMerchantIds } } })
-    await prisma.merchant.deleteMany({ where: { id: { in: createdMerchantIds } } })
-  }
-  if (createdUserIds.length > 0) {
-    await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
-  }
+  // PR-3 fixup-1 (2026-05-20) — sweep by prefix, NOT by the in-memory
+  // `createdMerchantIds` / `createdUserIds` arrays.  The previous
+  // implementation only deleted rows tracked in those arrays — when a
+  // test crashed mid-create or vitest force-killed the worker, the
+  // arrays were lost and the rows leaked.  Prefix sweep catches
+  // EVERYTHING created with the P1Test- prefix in this run regardless
+  // of in-memory tracking state, and is safe to re-run (idempotent).
+  await sweepP1TestFixtures()
   await prisma.$disconnect()
 })
 

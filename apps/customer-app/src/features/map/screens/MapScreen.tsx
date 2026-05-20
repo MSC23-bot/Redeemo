@@ -24,6 +24,7 @@ import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useToast } from '@/design-system'
 import { geocodeCity } from '@/lib/geocoding'
 import type { BranchTile as BranchTileType } from '@/lib/api/discovery'
+import { mapDataView } from '../utils/mapDataView'
 
 const LONDON_REGION: Region = {
   latitude:       51.5074,
@@ -72,9 +73,13 @@ function regionIsOffshore(region: Region): boolean {
   )
 }
 
-type Props = {
-  onMerchantPress?: (id: string) => void
-}
+// PR-3 fixup-1 (2026-05-20) — `onMerchantPress` prop removed (YAGNI).
+// Grep confirmed zero callers in customer-app/src; the prop existed only
+// as a Phase A interim hook. Map navigation now always routes via
+// `router.push` from `handleBranchNavigate`. Any future external host
+// (Storybook, demo screen) can mock `expo-router` if it needs to
+// intercept navigation.
+type Props = Record<string, never>
 
 /**
  * MapScreen — Hybrid hook strategy (PR C M2).
@@ -99,7 +104,7 @@ type Props = {
  * the single source of truth: pill-tap → setFilters({ categoryId, … });
  * FilterSheet onApply → setFilters(next).
  */
-export function MapScreen({ onMerchantPress }: Props) {
+export function MapScreen(_props: Props) {
   const router = useRouter()
   const mapRef = useRef<MapView>(null)
   const locationState = useUserLocation()
@@ -203,23 +208,17 @@ export function MapScreen({ onMerchantPress }: Props) {
   // cached data. Drives the first-fetch loader gate below: we want
   // the loader during any fetch where no pins are on screen yet.
   const isFetching = hasNonScopeFilters ? searchResultQuery.isFetching : inAreaQuery.isFetching
-  // PR-3 Phase D — branch-first end-to-end on Map.  The legacy
-  // `merchants` variable (kept through Phase C for backward-compat
-  // with existing test fixtures) is gone — all user-visible Map
-  // surfaces (pins, carousel, list) consume `branches`, and the
-  // empty-state + §BH loader gates are now keyed off `branches.length`
-  // too (audit-driven flip, plan §3 + owner direction 2026-05-20).
-  // In production the two arrays are coherent (same SQL, same MC
-  // gate), so the flip changes no observable behaviour but removes
-  // the silent legacy dependency.
-  const branches = (data as { branches?: BranchTileType[] } | undefined)?.branches ?? []
-  // `total` drives the MapListView count badge — semantically "how
-  // many rows in the list" — so it follows `branches.length` (what
-  // the list actually renders).  The backend in-area endpoint does
-  // not emit a separate `totalBranches`, so reading `branches.length`
-  // is the right source.
-  const total    = branches.length
-  const meta     = data?.meta
+  // PR-3 Phase D — branch-first end-to-end on Map.  All user-visible
+  // Map surfaces (pins, carousel, list) consume `branches`, and the
+  // empty-state + §BH loader gates are keyed off `branches.length`.
+  //
+  // PR-3 fixup-1 (2026-05-20) — extracted to `mapDataView()` so the
+  // Codex #1 branchMeta ↔ meta fallback can be pinned in isolation
+  // (see `tests/features/map/utils/mapDataView.test.ts`).  The helper
+  // resolves both arms cleanly: SearchResponse prefers branchMeta /
+  // totalBranches; InAreaResponse falls through to meta /
+  // branches.length.
+  const { branches, total, meta } = mapDataView(data)
 
   const categories = categoriesData?.categories ?? []
 
@@ -351,11 +350,21 @@ export function MapScreen({ onMerchantPress }: Props) {
   // <MapPins> flipped to BranchTile) was dropped.  Phase B's
   // `handleBranchPress` simplifies — no merchant lookup needed since
   // the carousel + list consume branches directly.
+  //
+  // PR-3 fixup-1 (2026-05-20) — `__DEV__` guard added.  A stale pin tap
+  // (e.g. user taps mid-refetch and the branch is already gone from the
+  // new array) silently no-ops in production but logs in dev so the
+  // race is observable during device QA.
   const handleBranchPress = useCallback(
     (branch: BranchTileType) => {
       setSelectedBranchId(branch.id)
       const idx = branches.findIndex((b) => b.id === branch.id)
-      if (idx !== -1) setActiveBranchIndex(idx)
+      if (idx !== -1) {
+        setActiveBranchIndex(idx)
+      } else if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn('[MapScreen] handleBranchPress: branch not in current array, activeBranchIndex unchanged', branch.id)
+      }
     },
     [branches],
   )
@@ -373,20 +382,25 @@ export function MapScreen({ onMerchantPress }: Props) {
   // The route path is keyed on merchant.id today, so we still resolve
   // branch.id → branch.merchant.id.  The route group prefix
   // `/(app)/…` mirrors Phase 2.1 Search (`SearchScreen.tsx:247`).
+  //
+  // PR-3 fixup-1 (2026-05-20) — `__DEV__` guard added for stale taps
+  // (production silent; dev surfaces the race).
   const handleBranchNavigate = useCallback(
     (branchId: string) => {
       const branch = branches.find((b) => b.id === branchId)
-      if (!branch) return
-      const merchantId = branch.merchant.id
-      if (onMerchantPress) {
-        onMerchantPress(merchantId)
-      } else {
-        router.push(
-          `/(app)/merchant/${merchantId}?branch=${branchId}&from=map` as any,
-        )
+      if (!branch) {
+        if (__DEV__) {
+          // eslint-disable-next-line no-console
+          console.warn('[MapScreen] handleBranchNavigate: branch not found for id', branchId)
+        }
+        return
       }
+      const merchantId = branch.merchant.id
+      router.push(
+        `/(app)/merchant/${merchantId}?branch=${branchId}&from=map` as any,
+      )
     },
-    [branches, onMerchantPress, router],
+    [branches, router],
   )
 
   // ─── Empty-state classification ───────────────────────────────────────────
