@@ -707,8 +707,17 @@ const TEST_MERCHANT_SPECS: TestMerchantSpec[] = [
       addressLine1: '27 Waterside',
       city: 'Brightlingsea',
       postcode: 'CO7 0AY',
-      latitude: 51.8054,
-      longitude: 1.0244,
+      // PR #113 fixup-1 (2026-05-20) — Google Places confirmation.
+      // Was 51.8054, 1.0244 (pre-confirmation MANUALLY_CONFIRMED but
+      // ~157m off the actual 27 Waterside, Waterside Marina address).
+      // Owner device QA on Brightlingsea Map flagged the offset; Google
+      // Places returned a single high-quality candidate (placeId
+      // ChIJEbR0RqcR2UcRvqfZ5zndZGQ, types [subpremise, street_address]).
+      // Applied to the dev DB via `prisma/suggest-branch-pin.ts
+      // --confirm-place-id`; audit row logged. Seed lat/lng mirrored
+      // here so future seed reruns persist the corrected coord.
+      latitude: 51.8066107,
+      longitude: 1.0231983,
       phone: '+441206302700',
       email: 'hello@covelum.test',
     },
