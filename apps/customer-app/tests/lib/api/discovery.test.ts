@@ -42,6 +42,8 @@ describe('discoveryApi', () => {
     (api.get as jest.Mock).mockResolvedValue({
       locationContext: { city: null, source: 'none' },
       featured: [], trending: [], campaigns: [], nearbyByCategory: [],
+      // Phase 2.3 additive arms — backend always emits these.
+      featuredBranches: [], trendingBranches: [], nearbyByCategoryBranches: [],
     })
     await discoveryApi.getHomeFeed()
     expect(api.get).toHaveBeenCalledWith('/api/v1/customer/home')
@@ -51,6 +53,8 @@ describe('discoveryApi', () => {
     (api.get as jest.Mock).mockResolvedValue({
       locationContext: { city: 'London', source: 'coordinates' },
       featured: [], trending: [], campaigns: [], nearbyByCategory: [],
+      // Phase 2.3 additive arms — backend always emits these.
+      featuredBranches: [], trendingBranches: [], nearbyByCategoryBranches: [],
     })
     await discoveryApi.getHomeFeed({ lat: 51.5, lng: -0.1 })
     expect(api.get).toHaveBeenCalledWith('/api/v1/customer/home?lat=51.5&lng=-0.1')
