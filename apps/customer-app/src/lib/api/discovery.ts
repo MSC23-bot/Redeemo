@@ -458,10 +458,14 @@ export const discoveryApi = {
   },
 
   /**
-   * GET /api/v1/customer/discovery/in-area — Map bbox endpoint. Added to
-   * the client contract in PR B; UI wiring lives in PR C.
+   * GET /api/v1/customer/discovery/in-area — Map bbox endpoint. Backend
+   * emits both `merchants[]` (legacy) and `branches[]` (Discovery
+   * Rebaseline Phase 1, PR #110) in the same response. Renamed from
+   * `getInAreaMerchants` to `getInAreaBranches` during PR-3 (Discovery
+   * Rebaseline Phase 2.2) for naming consistency with the branch-first
+   * surface migration. Endpoint URL unchanged.
    */
-  async getInAreaMerchants(opts: {
+  async getInAreaBranches(opts: {
     minLat:      number
     maxLat:      number
     minLng:      number

@@ -1,6 +1,6 @@
 import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
-import { MapMerchantTile } from '@/features/map/components/MapMerchantTile'
+import { MapBranchTile } from '@/features/map/components/MapBranchTile'
 import { makeMerchantTile } from '../../fixtures/merchantTile'
 
 const mockMerchant = makeMerchantTile({
@@ -26,13 +26,13 @@ const mockMerchant2 = makeMerchantTile({
   isFavourited:       true,
 })
 
-describe('MapMerchantTile', () => {
+describe('MapBranchTile', () => {
   it('renders merchant name', () => {
     const onClose = jest.fn()
     const onMerchantPress = jest.fn()
     const onIndexChange = jest.fn()
     const { getByText } = render(
-      <MapMerchantTile
+      <MapBranchTile
         merchants={[mockMerchant]}
         activeIndex={0}
         onClose={onClose}
@@ -48,7 +48,7 @@ describe('MapMerchantTile', () => {
     const onMerchantPress = jest.fn()
     const onIndexChange = jest.fn()
     const { getByLabelText } = render(
-      <MapMerchantTile
+      <MapBranchTile
         merchants={[mockMerchant]}
         activeIndex={0}
         onClose={onClose}
@@ -66,7 +66,7 @@ describe('MapMerchantTile', () => {
     const onMerchantPress = jest.fn()
     const onIndexChange = jest.fn()
     const { getByText } = render(
-      <MapMerchantTile
+      <MapBranchTile
         merchants={[mockMerchant, mockMerchant2]}
         activeIndex={0}
         onClose={onClose}
@@ -88,7 +88,7 @@ describe('MapMerchantTile', () => {
       proximityBand:      'IN_YOUR_AREA',
     })
     const { getByText } = render(
-      <MapMerchantTile
+      <MapBranchTile
         merchants={[tile]}
         activeIndex={0}
         onClose={jest.fn()}

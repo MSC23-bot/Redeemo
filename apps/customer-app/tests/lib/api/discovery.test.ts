@@ -106,12 +106,12 @@ describe('discoveryApi', () => {
     expect(r.meta.emptyStateReason).toBe('none')
   })
 
-  it('getInAreaMerchants forwards bbox and returns the in-area meta shape (no scope/scopeExpanded)', async () => {
+  it('getInAreaBranches forwards bbox and returns the in-area meta shape (no scope/scopeExpanded)', async () => {
     (api.get as jest.Mock).mockResolvedValue({
       merchants: [tile], total: 1,
       meta: { resolvedArea: 'London', nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
     })
-    const r = await discoveryApi.getInAreaMerchants({
+    const r = await discoveryApi.getInAreaBranches({
       minLat: 51.4, maxLat: 51.6, minLng: -0.2, maxLng: 0,
       categoryId: 'cat-1', limit: 50,
     })
@@ -253,7 +253,7 @@ describe('discoveryApi', () => {
         effectiveLocality: { id: 'loc-london', name: 'London' },
       }
       ;(api.get as jest.Mock).mockResolvedValue({ merchants: [], total: 0, meta: inAreaMeta })
-      const r = await discoveryApi.getInAreaMerchants({
+      const r = await discoveryApi.getInAreaBranches({
         minLat: 51.4, maxLat: 51.6, minLng: -0.2, maxLng: 0,
       })
       expect((r.meta as any).effectiveLocality?.id).toBe('loc-london')

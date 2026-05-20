@@ -42,8 +42,8 @@ const mockState = {
   locationStatus: 'granted' as 'idle' | 'loading' | 'granted' | 'denied',
 }
 
-jest.mock('@/features/map/hooks/useInAreaMerchants', () => ({
-  useInAreaMerchants: (bbox: BBox | null, _params: any = {}, enabled: boolean = true) => {
+jest.mock('@/features/map/hooks/useInAreaBranches', () => ({
+  useInAreaBranches: (bbox: BBox | null, _params: any = {}, enabled: boolean = true) => {
     const active = enabled && bbox !== null
     return {
       data:       active ? mockState.inAreaData : undefined,

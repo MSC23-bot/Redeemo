@@ -8,12 +8,12 @@ import { Text, color, spacing, radius, elevation, layer } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useCategories } from '@/hooks/useCategories'
 import { useSearch } from '@/hooks/useSearch'
-import { useInAreaMerchants, type BoundingBox } from '../hooks/useInAreaMerchants'
+import { useInAreaBranches, type BoundingBox } from '../hooks/useInAreaBranches'
 import { MapCategoryPills } from '../components/MapCategoryPills'
 import { LocationPermission } from '../components/LocationPermission'
 import { MapEmptyArea, type MapEmptyCase } from '../components/MapEmptyArea'
 import { MapPins } from '../components/MapPins'
-import { MapMerchantTile } from '../components/MapMerchantTile'
+import { MapBranchTile } from '../components/MapBranchTile'
 import { LocationSearch, UK_CITIES } from '../components/LocationSearch'
 import { LocationBadge } from '../components/LocationBadge'
 import { MapListView } from '../components/MapListView'
@@ -84,9 +84,9 @@ type Props = {
  * derived purely from those buckets; both hooks are always invoked
  * (React rules-of-hooks) and `enabled` switches which one fetches:
  *
- *   - hasNonScopeFilters === false → `useInAreaMerchants` is enabled
+ *   - hasNonScopeFilters === false → `useInAreaBranches` is enabled
  *                                    (intent-aware ranking via the
- *                                    PR-A /discovery/in-area route)
+ *                                    /discovery/in-area route)
  *
  *   - hasNonScopeFilters === true  → `useSearch` is enabled with a bbox
  *                                    (full filter set: sortBy, voucher-
@@ -151,7 +151,7 @@ export function MapScreen({ onMerchantPress }: Props) {
   const offshore = regionIsOffshore(region)
 
   // ─── Both queries always invoked (rules of hooks); `enabled` selects ──────
-  const inAreaQuery = useInAreaMerchants(
+  const inAreaQuery = useInAreaBranches(
     queryBbox,
     {
       ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
@@ -183,7 +183,7 @@ export function MapScreen({ onMerchantPress }: Props) {
     },
     hasNonScopeFilters && queryBbox !== null,
     // §AY — pan/zoom anti-flicker for the filtered Map-bbox-mode path.
-    // useInAreaMerchants already applies the same behaviour at the hook
+    // useInAreaBranches already applies the same behaviour at the hook
     // level. Opt-in here so other useSearch consumers (Search /
     // Category screens) keep their default clear-on-key-change semantics.
     { keepPreviousData: true },
@@ -488,7 +488,7 @@ export function MapScreen({ onMerchantPress }: Props) {
       )}
 
       {selectedMerchant !== null && merchants.length > 0 && (
-        <MapMerchantTile
+        <MapBranchTile
           merchants={merchants}
           activeIndex={activeMerchantIndex}
           onClose={() => setSelectedMerchant(null)}

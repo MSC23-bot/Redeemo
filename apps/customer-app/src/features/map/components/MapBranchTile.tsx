@@ -25,7 +25,7 @@ type Props = {
   onFavourite?: (id: string) => void
 }
 
-export function MapMerchantTile({
+export function MapBranchTile({
   merchants,
   activeIndex,
   onClose,
