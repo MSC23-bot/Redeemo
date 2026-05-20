@@ -288,6 +288,17 @@ const campaignSchema = z.object({
 })
 export type CampaignTile = z.infer<typeof campaignSchema>
 
+// Discovery Rebaseline Phase 2.3 (Home customer-app migration) — additive
+// branch-first envelope fields.  Backend emits `featuredBranches`,
+// `trendingBranches`, and `nearbyByCategoryBranches` on every home-feed
+// response (`src/api/customer/discovery/service.ts:1447-1449`); prior to
+// this PR the customer-app schema silently stripped them on Zod parse.
+//
+// Phase 2.3 carousels (FeaturedCarousel / TrendingSection /
+// NearbyByCategory) consume the new `*Branches` arms via a surface-local
+// `branchToMerchantTile` adapter.  Legacy `featured` / `trending` /
+// `nearbyByCategory` fields stay on the schema during the additive
+// period (Phase 3 cleanup removes them).
 const homeFeedResponseSchema = z.object({
   locationContext: locationContextSchema,
   featured:        z.array(merchantTileSchema),
@@ -296,6 +307,13 @@ const homeFeedResponseSchema = z.object({
   nearbyByCategory: z.array(z.object({
     category: z.object({ id: z.string(), name: z.string() }),
     merchants: z.array(merchantTileSchema),
+  })),
+  // ─── Phase 2.3 additive branch-first arms ────────────────────────────
+  featuredBranches:        z.array(branchTileSchema),
+  trendingBranches:        z.array(branchTileSchema),
+  nearbyByCategoryBranches: z.array(z.object({
+    category: z.object({ id: z.string(), name: z.string() }),
+    branches: z.array(branchTileSchema),
   })),
 })
 export type HomeFeedResponse = z.infer<typeof homeFeedResponseSchema>
