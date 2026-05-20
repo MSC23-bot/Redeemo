@@ -1,15 +1,21 @@
 // tests/prisma/seed-guardrail.test.ts
 //
-// Real-DB integration test (§BU pattern) — runs the same audit script
-// inline against the connected DB. Stage 1 ships this as NON-BLOCKING:
-// the test exists, is skipped by default via `describe.skip`, and can
-// be flipped to `describe` for manual local QA.  Stage 4 promotes it
-// to active (un-skipped) once Stages 2/3 have closed the rule failures.
+// Real-DB integration test (§BU pattern).  Stage 4 promotes R1 + R4 + R5 +
+// R6 + R7 + R8 to ACTIVE (CI-blocking) — these are the rules that Stage 4
+// cleanup actually closed.  R2 / R3 / R9 stay `it.skip` until Stage 3
+// closes the real-merchant media + opening hours + Google-Places coord
+// verification (4 R2 + 2 R3 + 0 R9 residual failures known to remain
+// on dev DB pre-Stage-3).
+//
+// See docs/superpowers/plans/2026-05-20-seed-merchant-enrichment.md
+// "Stage 4 owner-locked scope" section + the post-merge addendum for
+// the rationale on the R2 / R3 / R9 deferral.
 
 import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { PrismaClient } from '../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { LEAKED_FIXTURE_PREFIXES } from '../api/_shared/fixtureSweep'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
@@ -20,17 +26,13 @@ const REAL_MERCHANT_IDS = new Set([
   'tax-merchant-covelum-001',
 ])
 
-const LEAKED_FIXTURE_PREFIXES = [
-  'P1Test-', 'SummaryTest-', 'SummaryTestOther-', 'TEST ',
-  'UpsertRevive-', 'Revive-', 'Drift-', 'FilterFlip-',
-] as const
-
 beforeAll(async () => { await prisma.$queryRaw`SELECT 1` }, 15000)
 afterAll(async () => { await prisma.$disconnect() })
 
-// Stage 1 ships as describe.skip — non-blocking until Stage 2/3 close the gaps.
-// Stage 4 flips this to `describe` to make it CI-blocking.
-describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
+// Stage 4 (2026-05-20) — R1 + R4 + R5 + R6 + R7 + R8 are now ACTIVE
+// (CI-blocking).  R2 / R3 / R9 stay `it.skip` until Stage 3 closes
+// real-merchant media + opening hours + Google-Places coord verification.
+describe('seed-guardrail (R1/R4/R5/R6/R7/R8 active; R2/R3/R9 await Stage 3)', () => {
   it('R1: every active branch of an ACTIVE merchant has >=1 approved voucher', async () => {
     const merchants = await prisma.merchant.findMany({
       where: { status: 'ACTIVE' },
@@ -46,7 +48,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
     expect(offenders, `Merchants with active branches but 0 approved vouchers: ${offenders.join(', ')}`).toEqual([])
   })
 
-  it('R2: every customer-visible merchant has logoUrl AND bannerUrl', async () => {
+  it.skip('R2: every customer-visible merchant has logoUrl AND bannerUrl — un-skip on Stage 3 merge', async () => {
     const merchants = await prisma.merchant.findMany({
       where: { status: 'ACTIVE' },
       select: { id: true, businessName: true, logoUrl: true, bannerUrl: true },
@@ -57,7 +59,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
     expect(offenders, `Merchants missing logoUrl or bannerUrl: ${offenders.join(', ')}`).toEqual([])
   })
 
-  it('R3: every active branch has at least one BranchOpeningHours row', async () => {
+  it.skip('R3: every active branch has at least one BranchOpeningHours row — un-skip on Stage 3 merge', async () => {
     const branches = await prisma.branch.findMany({
       where: { isActive: true, merchant: { status: 'ACTIVE' } },
       select: { id: true, name: true, openingHours: { select: { id: true } } },
@@ -115,7 +117,7 @@ describe.skip('seed-guardrail (Stage 4 will un-skip)', () => {
     expect(offenders, `Leaked-fixture-prefix merchants still ACTIVE: ${offenders.join(', ')}`).toEqual([])
   })
 
-  it('R9: real merchants have MANUALLY_CONFIRMED branches with non-null coords', async () => {
+  it.skip('R9: real merchants have MANUALLY_CONFIRMED branches with non-null coords — un-skip on Stage 3 merge', async () => {
     const branches = await prisma.branch.findMany({
       where: { isActive: true, merchant: { id: { in: Array.from(REAL_MERCHANT_IDS) } } },
       select: { id: true, name: true, latitude: true, longitude: true, locationConfidence: true },
