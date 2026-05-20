@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
 import { useRouter } from 'expo-router'
 import { color, spacing } from '@/design-system'
@@ -58,6 +58,17 @@ export function HomeScreen() {
     router.push(`/merchant/${match.merchant.id}?branch=${branchId}&from=home` as any)
   }
 
+  // Memoise the flattened NearbyByCategory branch list so tile taps don't
+  // rebuild it on every press (closes the code-quality reviewer's Important
+  // #5 — `flatMap` allocation per tap).  Rebuilds only when the feed
+  // mutates, which is also the only time branch identity could shift.
+  const allNearbyBranches = useMemo(
+    () => (feed?.nearbyByCategoryBranches ?? []).flatMap((s) => s.branches),
+    [feed?.nearbyByCategoryBranches],
+  )
+  const onNearbyBranchPress = (branchId: string) =>
+    routeToBranch(branchId, allNearbyBranches)
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -113,11 +124,7 @@ export function HomeScreen() {
 
         <NearbyByCategory
           sections={feed?.nearbyByCategoryBranches ?? []}
-          onBranchPress={(branchId) => {
-            // Find the branch across all category sections for merchant id resolution.
-            const all = (feed?.nearbyByCategoryBranches ?? []).flatMap((s) => s.branches)
-            routeToBranch(branchId, all)
-          }}
+          onBranchPress={onNearbyBranchPress}
           onCategoryPress={(id) => router.push(`/category/${id}` as any)}
         />
       </ScrollView>

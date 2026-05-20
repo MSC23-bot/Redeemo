@@ -4,7 +4,7 @@
 
 **Goal:** Migrate the customer-app Home tab (Featured + Trending + NearbyByCategory carousels) from consuming legacy `MerchantTile[]` to the new branch-first `BranchTile[]` contract emitted by Phase 1 backend (PR #110). The refined v7 Home UI/UX is **already on `main`** — this PR does **NOT** redesign, restyle, or re-polish Home.
 
-**Architecture:** Three carousels flip to new `*Branches` response fields; each tile tap routes with `?branch=<id>&from=home` to Merchant Profile (matching Phase 2.1 Search + Phase 2.2 Map patterns). A scoped `branchToMerchantTile` adapter (mirroring Phase 2.2 Map's adapter) bridges the data shape without touching the shared `<MerchantTile>` component (Phase 2.5 will rename that). Two small additive items propagate locked patterns from neighbouring surfaces: §CA Save badge (`Save £X across N vouchers`) and §BY formatter audit (verify shared `formatDistance` usage; migrate any inline GBP / voucher-count strings if found low-risk).
+**Architecture:** Three carousels flip to new `*Branches` response fields; each tile tap routes with `?branch=<id>&from=home` to Merchant Profile (matching Phase 2.1 Search + Phase 2.2 Map patterns). A scoped `branchToMerchantTile` adapter (mirroring Phase 2.2 Map's adapter) bridges the data shape without touching the shared `<MerchantTile>` component (Phase 2.5 will rename that). Two small additive items: §CA wire-verification of `totalEstimatedSaving` (pill-level UI migration deferred per Step I2) and §BY formatter audit pinning shared `formatDistance` reuse (pill-level migration deferred per Step I2).
 
 **Tech Stack:** Expo SDK 54 + expo-router v4, React Query, Zod, Prisma 7 + driver-adapter, vitest (backend) + jest-expo (customer-app).
 
@@ -123,7 +123,7 @@ This is an EXPLICIT carve-out — the backend was deliberately wired to skip `ra
 - `?branch=&from=home` navigation
 - `resolveBackNavigation` `from=home` (Amendment B)
 - Schema envelope extension (Amendment A)
-- Save badge consumer-side wording (Amendment A)
+- Save badge wire-verification ONLY (Amendment A — pill UI deferred per Step I2)
 - Scoped formatter audit (low-risk only)
 
 ### Regression pins added in this PR (preserve current literal headers)
@@ -172,9 +172,9 @@ If a rail has 0 supply in the user's current city, the rail is suppressed client
 6. **Scoped `branchToMerchantTile` adapter** under `src/features/home/utils/` — local to Home, deletable in Phase 2.5. Mirrors Phase 2.2 Map's `branchToMerchantTile` adapter.
 7. **Navigation contract** — every tile tap routes to `/merchant/${tile.merchant.id}?branch=${tile.id}&from=home`. Matches Phase 2.1 + 2.2 precedent.
 8. **`resolveBackNavigation` helper update** (per Amendment B) — add `from=home` handling. Returns `/(app)/` (canonical Home route used by 3 existing call sites). Update the helper + its dedicated test file. The Merchant Profile screen itself is NOT touched — only the pure-function helper at `src/features/merchant/utils/resolveBackNavigation.ts` + its test.
-9. **§CA partial closure for Home** (per owner-locked 0.3, refined by Amendment A) — `Save £X across N vouchers` badge copy on Home cards. **No backend additive needed** — `branch.merchant.totalEstimatedSaving` already flows through end-to-end. Single-voucher case uses `Save up to £X` + `1 voucher` per locked wording.
+9. **§CA wire-verification only** (per owner-locked 0.3, refined by Amendment A + Step I2 deferral 2026-05-21) — verify `branch.merchant.totalEstimatedSaving` flows through end-to-end. **NO UI-side closure in this PR.** The Home save badge still renders `Save up to £{Math.round(maxEstimatedSaving)}` via the unchanged shared `<SavePill>`. The `Save £X across N vouchers` UI copy migration touches shared components (`<SavePill>`, `<VoucherCountPill>`, `formatGbp`, `formatVoucherCount`) and propagates beyond Home — deferred to the §BY pill-level extension entry per Step I2 escalation. See §3.4 for full split.
 10. **§BY partial closure for Home** (per owner-locked 0.4) — pin shared `formatDistance` reuse in tests; migrate any inline `£${n}` / `${n} offers` strings discovered during audit. Scope-cap: if migration broadens beyond Home, defer.
-11. **Test coverage** — flip existing Home test fixtures to branch-first; add multi-branch fan-out pin (Covelum) + `?branch=&from=home` navigation pin + POSTCODE_CENTROID null-distance pin + Save badge copy pin (single + multi-voucher cases) + verification pin that `branch.merchant.totalEstimatedSaving` is parsed by the extended `homeFeedResponseSchema` + `resolveBackNavigation('home', ...)` positive-case pin.
+11. **Test coverage** — flip existing Home test fixtures to branch-first; add multi-branch fan-out pin (Covelum) + `?branch=&from=home` navigation pin + POSTCODE_CENTROID null-distance pin + verification pin that `branch.merchant.totalEstimatedSaving` is parsed by the extended `homeFeedResponseSchema` (wire only) + `resolveBackNavigation('home', ...)` positive-case pin. **NO UI-side save-badge copy assertions** — that's a regression pin for the §BY pill closure PR, not this one (Step I2 deferral).
 12. **Deferred-followups bookkeeping** — new §CL entry for the 3 Home empty handlers. Committed as part of the plan-lock commit so it doesn't get lost. (DONE in commit `70a763c`.)
 13. **Plan doc** — this file lands as the plan-lock commit. (DONE in commit `70a763c`.)
 
@@ -249,7 +249,7 @@ The adapter:
 - Carries `branch.merchant.id` → route path `/merchant/<merchantId>`.
 - Carries `branch.merchant.businessName` + `branch.branchName` → tile copy (matches §M one-pin-per-branch locked principle).
 - Carries `branch.distance` + `branch.branchLocationConfidence` — POSTCODE_CENTROID branches have null distance per the redaction contract.
-- Carries `branch.merchant.voucherCount` + `branch.merchant.totalEstimatedSaving` → save badge copy (`Save £X across N vouchers` or single-voucher variant).
+- Carries `branch.merchant.voucherCount` + `branch.merchant.maxEstimatedSaving` (passed through to the shared `<MerchantTile>` for the current `Save up to £X` rendering). `totalEstimatedSaving` is on the wire and parsed but NOT consumed by the shared component today — pill-level UI migration deferred per Step I2.
 - Carries `branch.isOpenNow` → open-status indicator.
 - Carries `branch.merchant.isFavourited` (merchant-keyed per Spec Rev 2 §13).
 
@@ -267,17 +267,33 @@ Three call sites (`FeaturedCarousel`, `TrendingSection`, `NearbyByCategory`) —
 
 ### 3.4 — §CA Save badge
 
-**Amendment A — backend already done.** `totalEstimatedSaving` is computed by `enrichBranchTile()` at `src/api/customer/discovery/service.ts:1028-1100` and emitted on every branch tile (Featured / Trending / NearbyByCategory) via `enrichBranchTiles` at `service.ts:1428-1429`. The customer-app `branchTileMerchantGroupingSchema` at `discovery.ts:200` already parses it under `branch.merchant.totalEstimatedSaving`. **No backend work and no `branchTileSchema` work needed in this PR.**
+> **Implementation reality (locked 2026-05-21 by Step I2 escalation):** §CA in Phase 2.3 is **wire-verified ONLY — NOT UI-closed**. Below details the exact split.
 
-What Phase 2.3 still does for §CA:
-- Verify (via grep + read) that `merchant.totalEstimatedSaving` flows through to the Home tiles after the `homeFeedResponseSchema` envelope extension lands.
-- Update the Home `<MerchantTile>` card render path (Featured + Trending + NearbyByCategory) to display the save badge with the locked wording:
-  - Multi-voucher: `Save £X` (primary) + `across N vouchers` (secondary)
-  - Single-voucher: `Save up to £X` (primary) + `1 voucher` (secondary)
-  - Word "voucher" / "vouchers" — NEVER "offer" / "offers"
-- If the shared `<MerchantTile>` already renders this badge correctly (it likely does, given PR #112 fixup-4 landed it for Search), the work is purely test-coverage. If the badge does NOT yet render on the Home card path, the only edit allowed is via the surface-local `branchToMerchantTile` adapter — do NOT modify `<MerchantTile.tsx>` itself.
+**Wire side (✅ closed):**
+- Backend already computes `totalEstimatedSaving` via `enrichBranchTile()` at `src/api/customer/discovery/service.ts:1028-1100` and emits it on every Home branch tile via `enrichBranchTiles` at `service.ts:1428-1429`.
+- Customer-app `branchTileMerchantGroupingSchema` at `discovery.ts:200` parses it under `branch.merchant.totalEstimatedSaving`.
+- Phase 2.3 verification pin at `tests/api/customer/discovery/home-feed-branches.test.ts` asserts the rounded sum (5.00 + 7.50 = 12.50) lands on a multi-voucher fixture (commit `d68aaa0`).
 
-Pin both single-voucher and multi-voucher cases in tests so they don't regress to "offer" wording. Pin that `branch.merchant.totalEstimatedSaving` is present in the parsed `HomeFeedResponse`.
+**UI side (❌ DEFERRED to §BY pill-level migration):**
+- The shared `<MerchantTile>` component at `MerchantTile.tsx:150` reads `merchant.maxEstimatedSaving` (NOT `totalEstimatedSaving`) and feeds it into `<SavePill>`.
+- `<SavePill>` at `SavePill.tsx:15` renders the literal `Save up to £{Math.round(amount)}` — the OLD pre-PR-#112-fixup-4 copy.
+- The Phase 2.3 `branchToMerchantTile` adapter at `branchToMerchantTile.ts:70` passes `maxEstimatedSaving` through and does NOT include `totalEstimatedSaving` in its output (because the shared component doesn't read it).
+- Phase 2.3 does NOT add the new `Save £X across N vouchers` UI copy on Home tiles. That UI-side migration touches `<SavePill>`, `<VoucherCountPill>`, `formatGbp`, and `formatVoucherCount` — all shared components that propagate to Map / Search / Category surfaces too. Step I2 escalation (2026-05-21, owner-approved) deferred this work under the §BY pill-level extension entry in `project_deferred_followups_index.md`.
+
+**What Phase 2.3 actually does for §CA:**
+- ✅ Verify wire shape (Task B, Amendment A).
+- ✅ Pin `branch.merchant.totalEstimatedSaving` parse + flow-through.
+- ❌ Do NOT modify `<MerchantTile.tsx>`, `<SavePill.tsx>`, `<VoucherCountPill.tsx>`, `formatGbp`, or `formatVoucherCount`.
+- ❌ Do NOT add UI tests asserting the new `Save £X across N vouchers` wording — that's a regression pin for the §BY pill closure PR, not this one.
+
+When the §BY pill-level closure PR lands, the migration will:
+1. Decide the £-rounding rule for the discovery card pill (integer vs two-decimal).
+2. Fix `formatVoucherCount` to return `voucher(s)` (standing-rule remediation).
+3. Update `<SavePill>` to consume `merchant.totalEstimatedSaving` + render the new copy.
+4. Update the adapter to pass `totalEstimatedSaving` through.
+5. Add UI regression pins asserting the new copy across Home + Map + Search + Category.
+
+Until that PR ships, Home save-pill rendering remains identical to current `main` (no visible change to users from Phase 2.3).
 
 ### 3.5 — §BY formatter audit
 
@@ -425,7 +441,7 @@ Per the 2026-05-21 amendment, `totalEstimatedSaving` is already wired end-to-end
 - [ ] Step J2: Add multi-branch Featured fan-out pin using Covelum (`tax-branch-covelum-001` + `tax-branch-covelum-002`).
 - [ ] Step J3: Pin `?branch=&from=home` navigation URL on tap (all three carousels).
 - [ ] Step J4: Pin POSTCODE_CENTROID null-distance rendering (use a low-confidence seed fixture or mock).
-- [ ] Step J5: Pin Save badge copy: `Save £X across N vouchers` (multi) and `Save up to £X` + `1 voucher` (single).
+- [ ] Step J5: ~~Pin Save badge copy~~ — **REMOVED per Step I2 deferral 2026-05-21.** Save badge UI copy migration is deferred to the §BY pill-level closure PR. Phase 2.3 only pins the wire-side `totalEstimatedSaving` value via the backend test (Step B5).
 - [ ] Step J6: Pin "voucher" / "vouchers" wording — banned: "offer" / "offers".
 - [ ] Step J7: **Amendment C regression pins.** Add 3 assertions locking current literal section-header copy: `FeaturedCarousel` → `Featured`; `TrendingSection` → `Trending near you`; `NearbyByCategory` → `{category.name} near you` (cite a Covelum-category fixture for the resolved string). These pins WILL fail when §CM ships its honesty cascade — by design.
 - [ ] Step J8: Run full Home jest suite — must pass.
