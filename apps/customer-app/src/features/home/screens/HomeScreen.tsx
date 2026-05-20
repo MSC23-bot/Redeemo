@@ -44,8 +44,18 @@ export function HomeScreen() {
     branches: { id: string; merchant: { id: string } }[],
   ) => {
     const match = branches.find((b) => b.id === branchId)
-    const merchantId = match?.merchant.id ?? branchId
-    router.push(`/merchant/${merchantId}?branch=${branchId}&from=home` as never)
+    if (!match) {
+      // Stale tap — branch is no longer in the current feed (e.g. data
+      // refetched between render and tap). Match the Map precedent at
+      // MapScreen.tsx:391-396 — warn in dev and bail rather than push
+      // a broken `/merchant/<branchId>?branch=<branchId>` URL.
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn(`[HomeScreen] routeToBranch: branchId not found in feed: ${branchId}`)
+      }
+      return
+    }
+    router.push(`/merchant/${match.merchant.id}?branch=${branchId}&from=home` as any)
   }
 
   return (
@@ -102,10 +112,7 @@ export function HomeScreen() {
         />
 
         <NearbyByCategory
-          sections={(feed?.nearbyByCategoryBranches ?? []).map((s) => ({
-            category: s.category,
-            branches: s.branches,
-          }))}
+          sections={feed?.nearbyByCategoryBranches ?? []}
           onBranchPress={(branchId) => {
             // Find the branch across all category sections for merchant id resolution.
             const all = (feed?.nearbyByCategoryBranches ?? []).flatMap((s) => s.branches)

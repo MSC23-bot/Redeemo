@@ -1,5 +1,5 @@
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render, fireEvent } from '@testing-library/react-native'
 import { NearbyByCategory } from '@/features/home/components/NearbyByCategory'
 import { makeBranchTile } from '../../../fixtures/branchTile'
 
@@ -45,5 +45,31 @@ describe('NearbyByCategory (Phase 2.3 branch-first)', () => {
       />,
     )
     expect(getByText('Indian Restaurants near you')).toBeTruthy()
+  })
+
+  it('fires onBranchPress with the branch.id on tile press (Phase 2.3 branch-identity contract)', () => {
+    const onBranchPress = jest.fn()
+    const { getByText } = render(
+      <NearbyByCategory
+        sections={sections}
+        onBranchPress={onBranchPress}
+        onCategoryPress={jest.fn()}
+      />,
+    )
+    fireEvent.press(getByText('Karaara Tandoor'))
+    expect(onBranchPress).toHaveBeenCalledWith('brn-curry-1')
+  })
+
+  it('fires onCategoryPress with the category.id on header press (existing nav contract preserved)', () => {
+    const onCategoryPress = jest.fn()
+    const { getByText } = render(
+      <NearbyByCategory
+        sections={sections}
+        onBranchPress={jest.fn()}
+        onCategoryPress={onCategoryPress}
+      />,
+    )
+    fireEvent.press(getByText('Indian Restaurants near you'))
+    expect(onCategoryPress).toHaveBeenCalledWith('cat-indian-restaurants')
   })
 })

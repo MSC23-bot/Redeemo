@@ -1,5 +1,5 @@
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render, fireEvent } from '@testing-library/react-native'
 import { TrendingSection } from '@/features/home/components/TrendingSection'
 import { makeBranchTile } from '../../../fixtures/branchTile'
 
@@ -32,5 +32,14 @@ describe('TrendingSection (Phase 2.3 branch-first)', () => {
       <TrendingSection branches={branches} onBranchPress={jest.fn()} />,
     )
     expect(getByText('Trending near you')).toBeTruthy()
+  })
+
+  it('fires onBranchPress with the branch.id on tile press (Phase 2.3 branch-identity contract)', () => {
+    const onBranchPress = jest.fn()
+    const { getByText } = render(
+      <TrendingSection branches={branches} onBranchPress={onBranchPress} />,
+    )
+    fireEvent.press(getByText('Sunset Cafe'))
+    expect(onBranchPress).toHaveBeenCalledWith('brn-trend-1')
   })
 })
