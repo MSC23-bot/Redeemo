@@ -3263,15 +3263,15 @@ export async function getCategoryBranches(
     userId: string | null
     lat?: number | null
     lng?: number | null
+    // PR #120 device-QA fix (2026-05-21) — accept scope and thread to
+    // searchBranches. Without this the branch list ignores the user's
+    // scope-pill selection while the route's merchant-side meta reports
+    // scope-aware counts: the two surfaces drift in unit (merchants vs
+    // branches) AND in scope. Owner-reported symptoms: `Nearby · 0` pill
+    // still rendering nearby branches; pill counts not matching the list.
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
   },
-): Promise<{
-  branches: BranchTile[]
-  totalBranches: number
-  meta: {
-    rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
-    effectiveLocality: { id: string; name: string } | null
-  }
-}> {
+): ReturnType<typeof searchBranches> {
   return searchBranches(prisma, {
     q:          undefined,
     categoryId: params.categoryId,
@@ -3280,6 +3280,7 @@ export async function getCategoryBranches(
     limit:      params.limit,
     offset:     params.offset,
     userId:     params.userId,
+    ...(params.scope ? { scope: params.scope } : {}),
   })
 }
 
