@@ -1,5 +1,6 @@
 import React from 'react'
-import { View, Pressable, StyleSheet, Image } from 'react-native'
+import { View, Pressable, StyleSheet } from 'react-native'
+import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Heart, X } from 'lucide-react-native'
 import { Text, color, radius, spacing, elevation } from '@/design-system'
@@ -67,9 +68,17 @@ export function BranchTile({
       {/* Banner */}
       <View style={styles.banner}>
         {branch.merchant.bannerUrl ? (
-          <Image source={{ uri: branch.merchant.bannerUrl }} style={styles.bannerImage} />
+          <Image
+            testID="branch-tile-banner-image"
+            source={{ uri: branch.merchant.bannerUrl }}
+            style={styles.bannerImage}
+            contentFit="cover"
+            transition={180}
+            recyclingKey={branch.id}
+          />
         ) : (
           <LinearGradient
+            testID="branch-tile-banner-fallback"
             colors={['#667EEA', '#764BA2']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -120,7 +129,14 @@ export function BranchTile({
         {/* Logo overlay */}
         <View style={styles.logoWrapper}>
           {branch.merchant.logoUrl ? (
-            <Image source={{ uri: branch.merchant.logoUrl }} style={styles.logo} />
+            <Image
+              testID="branch-tile-logo-image"
+              source={{ uri: branch.merchant.logoUrl }}
+              style={styles.logo}
+              contentFit="cover"
+              transition={180}
+              recyclingKey={`${branch.id}-logo`}
+            />
           ) : (
             <View style={[styles.logo, { backgroundColor: color.navy }]}>
               <Text
@@ -167,7 +183,10 @@ const styles = StyleSheet.create({
     ...elevation.sm,
   },
   banner: { height: 80, position: 'relative' },
-  bannerImage: { width: '100%', height: '100%' },
+  // §CV Phase A — cream (#FFF6EE) placeholder paints under the expo-image
+  // banner while it loads, giving a calm "growing in" feel instead of a
+  // blank rectangle.  Matches the warm app surface (color.cream token).
+  bannerImage: { width: '100%', height: '100%', backgroundColor: '#FFF6EE' },
   featuredBadge: {
     position: 'absolute',
     top: 8,
@@ -212,6 +231,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 2,
     borderColor: '#FFFFFF',
+    // §CV Phase A — cream placeholder under the logo image during load.
+    // The initials-block path (logoUrl===null) overrides backgroundColor
+    // to color.navy via the inline style below.
+    backgroundColor: '#FFF6EE',
     alignItems: 'center',
     justifyContent: 'center',
     ...elevation.sm,
