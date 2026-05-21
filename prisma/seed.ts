@@ -1718,6 +1718,8 @@ async function seedHomeFeedFixtures(): Promise<void> {
         endDate,
         costGbp:        100.00,
         radiusMiles:    50,
+        targetLocations: [],
+        sortByDistance: true,
         paymentStatus:  'PAID',
         isActive:       true,
       },
@@ -1747,6 +1749,7 @@ async function seedHomeFeedFixtures(): Promise<void> {
         startDate,
         endDate,
         status:          'ACTIVE',
+        targetLocations: [],
       },
     })
   }
