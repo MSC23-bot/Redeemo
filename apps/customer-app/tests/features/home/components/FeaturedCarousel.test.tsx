@@ -76,9 +76,8 @@ describe('FeaturedCarousel (Phase 2.3 branch-first)', () => {
   })
 
   it('calls onBranchPress with branch.id when a tile is pressed', () => {
-    // Phase 2.3 navigation pin — adapter swaps `id: branch.id`, so the
-    // shared <MerchantTile>'s onPress(id) callback fires with the BRANCH
-    // id (load-bearing for ?branch=<branchId>&from=home URL contract).
+    // Phase 2.3 navigation pin — <BranchTile> passes branch.id directly
+    // to onPress (load-bearing for ?branch=<branchId>&from=home URL contract).
     const onBranchPress = jest.fn()
     const { getByText } = render(
       <FeaturedCarousel branches={branches} onBranchPress={onBranchPress} onSeeAll={jest.fn()} />,
@@ -120,12 +119,12 @@ describe('FeaturedCarousel (Phase 2.3 branch-first)', () => {
     // Phase 2.3 §M one-pin-per-branch / one-tile-per-branch regression
     // pin — when a Featured merchant has multiple active branches (the
     // canonical owner-flagged Covelum Brightlingsea + Colchester case),
-    // FeaturedCarousel must render BOTH as separate <MerchantTile> instances.
+    // FeaturedCarousel must render BOTH as separate <BranchTile> instances.
     // Tapping either tile fires onBranchPress with the BRANCH id (not the
     // shared merchant id) so URL routing carries branch attribution.
     //
-    // Note: the shared <MerchantTile> renders `merchant.businessName`
-    // (not branchName) as the headline — so both Covelum tiles surface
+    // Note: <BranchTile> renders `branch.merchant.businessName`
+    // as the headline — so both Covelum tiles surface
     // the text "Covelum".  We disambiguate by index via getAllByText().
     const covelumBranches = [
       makeBranchTile({

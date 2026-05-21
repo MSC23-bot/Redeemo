@@ -3,15 +3,14 @@ import { View, ScrollView } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Flame } from 'lucide-react-native'
 import { Text, color, spacing } from '@/design-system'
-import { MerchantTile } from '@/features/shared/MerchantTile'
-import { BranchTile } from '@/lib/api/discovery'
-import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
+import { BranchTile } from '@/features/shared/BranchTile'
+import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 
 const TILE_WIDTH = 240
 const TILE_GAP = 12
 
 type Props = {
-  branches: BranchTile[]
+  branches: BranchTileType[]
   // Receives branch.id — call site routes to
   // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
   onBranchPress: (branchId: string) => void
@@ -54,11 +53,10 @@ export function TrendingSection({ branches, onBranchPress, onFavourite }: Props)
       >
         {branches.map((branch) => (
           // Branch-keyed identity (Phase 2.3) — same pattern as
-          // FeaturedCarousel; adapter swaps `id: branch.id` so the
-          // `onPress` callback receives branch identity.
-          <MerchantTile
+          // FeaturedCarousel.
+          <BranchTile
             key={branch.id}
-            merchant={branchToMerchantTileProps(branch)}
+            branch={branch}
             onPress={onBranchPress}
             {...(onFavourite ? { onFavourite } : {})}
             width={TILE_WIDTH}

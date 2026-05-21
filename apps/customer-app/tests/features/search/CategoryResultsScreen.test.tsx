@@ -229,7 +229,7 @@ describe('CategoryResultsScreen', () => {
   // ─── Phase 2.4 branch-first pins (§M one-tile-per-branch) ────────────────
 
   it('§M: renders two distinct tiles for two branches of the same merchant', async () => {
-    // Two branches, same merchant id — must produce 2 distinct <MerchantTile>
+    // Two branches, same merchant id — must produce 2 distinct <BranchTile>
     // renders, NOT 1 collapsed tile. This is the locked §M one-tile-per-branch
     // product principle mirroring Phase 2.1 Search + Phase 2.2 Map + Phase 2.3 Home.
     const branch1 = makeBranchTile({

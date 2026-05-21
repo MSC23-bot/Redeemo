@@ -5,35 +5,35 @@ import { Heart, X } from 'lucide-react-native'
 import { Text, color, radius, spacing, elevation } from '@/design-system'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { ProximityBandChip } from '@/design-system/components/ProximityBandChip'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { formatDistance as formatDistanceShared } from '@/design-system/utils/formatters'
 import { SavePill } from './SavePill'
 import { VoucherCountPill } from './VoucherCountPill'
 import { StarRating } from './StarRating'
 // NOTE: `OpenStatusBadge` was previously rendered with a hardcoded
 // `isOpen={true}` value. Removed in PR B M4 audit because the backend
-// MerchantTile contract does NOT expose an isOpen / isOpenNow field on
+// BranchTile contract does NOT expose an isOpen / isOpenNow field on
 // list responses (only on merchant detail + branch list responses). Showing
 // a green "Open" badge on every tile was misleading. Re-enable when the
 // backend extends the tile contract to include per-tile open state.
 
 // PR-3 fixup-1 (2026-05-20) — local `formatDistance` helper REMOVED.
-// Codex #2 finding: the shared `<MerchantTile>` (used by Home Featured /
+// Codex #2 finding: the shared `<BranchTile>` (used by Home Featured /
 // Trending / NearbyByCategory, Search Category Results, AND the Map
-// carousel via `MapBranchTile`'s adapter) rendered metres for sub-1km
+// carousel via `MapBranchTile`) rendered metres for sub-1km
 // (`500m`) and `mi` for >1km (`1.2 mi`), while Search-side
 // `<SearchResultItem>` rendered miles-only (`0.3 miles away`).  Routing
 // the shared component through the same `formatDistance` helper
 // unifies the format across all 5 surfaces.  Locked PR #112 fixup-6
 // rule — always miles, never metres — now applies UK-wide.  Closes
 // the cross-surface portion of §BY for the surfaces using
-// `<MerchantTile>`.
+// `<BranchTile>`.
 function formatDistance(metres: number | null): string {
   return formatDistanceShared(metres) ?? ''
 }
 
 type Props = {
-  merchant: MerchantTileType
+  branch: BranchTileType
   onPress: (id: string) => void
   onFavourite?: (id: string) => void
   showFeaturedBadge?: boolean
@@ -42,8 +42,8 @@ type Props = {
   width?: number
 }
 
-export function MerchantTile({
-  merchant,
+export function BranchTile({
+  branch,
   onPress,
   onFavourite,
   showFeaturedBadge,
@@ -51,23 +51,23 @@ export function MerchantTile({
   onClose,
   width,
 }: Props) {
-  const distanceStr = formatDistance(merchant.distance)
+  const distanceStr = formatDistance(branch.distance)
   // Prefer the Plan-1 descriptor ("Italian Restaurant", "Boutique Hotel")
   // when present; fall back to the category name. Avoids showing just
   // "Restaurant" on a merchant tagged as Italian.
-  const labelText = merchant.descriptor ?? merchant.primaryCategory?.name ?? ''
+  const labelText = branch.merchant.descriptor ?? branch.merchant.primaryCategory?.name ?? ''
   const infoText = [labelText, distanceStr].filter(Boolean).join(' · ')
 
   return (
     <PressableScale
-      onPress={() => onPress(merchant.id)}
-      accessibilityLabel={`${merchant.businessName}, ${labelText}`}
+      onPress={() => onPress(branch.id)}
+      accessibilityLabel={`${branch.merchant.businessName}, ${labelText}`}
       style={[styles.card, width ? { width } : undefined]}
     >
       {/* Banner */}
       <View style={styles.banner}>
-        {merchant.bannerUrl ? (
-          <Image source={{ uri: merchant.bannerUrl }} style={styles.bannerImage} />
+        {branch.merchant.bannerUrl ? (
+          <Image source={{ uri: branch.merchant.bannerUrl }} style={styles.bannerImage} />
         ) : (
           <LinearGradient
             colors={['#667EEA', '#764BA2']}
@@ -94,14 +94,14 @@ export function MerchantTile({
         {/* Favourite heart */}
         {onFavourite && (
           <Pressable
-            onPress={() => onFavourite(merchant.id)}
-            accessibilityLabel={merchant.isFavourited ? 'Remove from favourites' : 'Add to favourites'}
+            onPress={() => onFavourite(branch.id)}
+            accessibilityLabel={branch.isFavourited ? 'Remove from favourites' : 'Add to favourites'}
             style={styles.heartButton}
           >
             <Heart
               size={16}
               color="#FFFFFF"
-              fill={merchant.isFavourited ? '#FFFFFF' : 'transparent'}
+              fill={branch.isFavourited ? '#FFFFFF' : 'transparent'}
             />
           </Pressable>
         )}
@@ -119,15 +119,15 @@ export function MerchantTile({
 
         {/* Logo overlay */}
         <View style={styles.logoWrapper}>
-          {merchant.logoUrl ? (
-            <Image source={{ uri: merchant.logoUrl }} style={styles.logo} />
+          {branch.merchant.logoUrl ? (
+            <Image source={{ uri: branch.merchant.logoUrl }} style={styles.logo} />
           ) : (
             <View style={[styles.logo, { backgroundColor: color.navy }]}>
               <Text
                 variant="label.md"
                 style={{ color: '#FFF', fontSize: 14, fontFamily: 'Lato-Bold' }}
               >
-                {merchant.businessName.charAt(0)}
+                {branch.merchant.businessName.charAt(0)}
               </Text>
             </View>
           )}
@@ -138,19 +138,19 @@ export function MerchantTile({
       <View style={styles.content}>
         <View style={styles.nameRow}>
           <Text variant="body.sm" style={styles.name} numberOfLines={1}>
-            {merchant.businessName}
+            {branch.merchant.businessName}
           </Text>
-          <StarRating rating={merchant.avgRating} count={merchant.reviewCount} />
+          <StarRating rating={branch.avgRating} count={branch.reviewCount} />
         </View>
         <Text variant="label.md" style={styles.info} numberOfLines={1}>
           {infoText}
         </Text>
         <View style={styles.pillRow}>
-          <VoucherCountPill count={merchant.voucherCount} />
-          <SavePill amount={merchant.maxEstimatedSaving} />
+          <VoucherCountPill count={branch.merchant.voucherCount} />
+          <SavePill amount={branch.merchant.maxEstimatedSaving} />
           {/* Plan 4 M3b — proximity chip renders null for NEARBY /
               null / undefined; safe to mount unconditionally. */}
-          <ProximityBandChip band={merchant.proximityBand} />
+          <ProximityBandChip band={branch.proximityBand} />
           {/* OpenStatusBadge intentionally omitted — backend tile contract
               does not include isOpen state. See follow-up notes. */}
         </View>

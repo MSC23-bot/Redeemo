@@ -9,11 +9,10 @@ import {
 } from 'react-native'
 import { X } from 'lucide-react-native'
 import { color, spacing, radius, elevation, layer, motion } from '@/design-system'
-import { MerchantTile } from '@/features/shared/MerchantTile'
+import { BranchTile } from '@/features/shared/BranchTile'
 import { DotIndicator } from '@/features/shared/DotIndicator'
 import {
   BranchTile as BranchTileType,
-  MerchantTile as MerchantTileType,
 } from '@/lib/api/discovery'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
@@ -25,81 +24,13 @@ type Props = {
   onClose: () => void
   onIndexChange: (index: number) => void
   /**
-   * Fires with the tapped CARD's branch.id (not the merchant.id).  The
-   * shared `<MerchantTile>` consumer below is fed an adapted object
-   * whose `id` is `branch.id`, so its `onPress(merchant.id)` callback
-   * propagates the branch identity naturally.  Phase D will wire the
-   * `?branch=${id}&from=map` URL contract on top of this signature.
+   * Fires with the tapped CARD's branch.id (not the merchant.id).
+   * The shared `<BranchTile>` consumer passes branch.id directly to
+   * its `onPress` callback, which carries the branch identity through
+   * the `?branch=${id}&from=map` URL contract.
    */
   onBranchPress: (branchId: string) => void
   onFavourite?: (id: string) => void
-}
-
-/**
- * Phase C interim adapter — turns a `BranchTile` into a
- * `MerchantTile`-shaped object so the shared `<MerchantTile>` consumer
- * can render unchanged.  The crucial swap is `id: branch.id` (not
- * `branch.merchant.id`) — this is what makes the carousel
- * branch-identity-aware.  Phase 2.5 sweep will refactor the shared
- * component to accept `BranchTile` natively and this adapter goes away.
- *
- * Branch-level fields (`distance`, `isFavourited`, `avgRating`,
- * `reviewCount`, `proximityBand`, `supplyRung`, `distanceMetres`,
- * `latitude`, `longitude`, `nearestBranchId`) are sourced from the
- * `BranchTile`; merchant-grouping fields (`businessName`, `logoUrl`,
- * `bannerUrl`, `primaryCategory`, `descriptor`, `voucherCount`,
- * `maxEstimatedSaving`, etc.) come from `branch.merchant`.
- *
- * `supplyTier` is not on `BranchTile` (the BranchTile contract uses
- * the finer-grained `supplyRung` instead).  Defaults to `'NEARBY'` —
- * the shared `<MerchantTile>` doesn't visibly render `supplyTier`
- * (used only by upstream ranking).
- */
-function branchToMerchantTile(branch: BranchTileType): MerchantTileType {
-  // The shared `<MerchantTile>` reads only `primaryCategory?.name`
-  // for its visible UI (line 49 of MerchantTile.tsx) — the other
-  // category fields are along for the type contract.  Coerce the
-  // optional `pinColour` / `pinIcon` to nullable to satisfy
-  // MerchantTile's stricter typing without conditional spread noise.
-  const primaryCategory = branch.merchant.primaryCategory
-    ? {
-        id:        branch.merchant.primaryCategory.id,
-        name:      branch.merchant.primaryCategory.name,
-        pinColour: branch.merchant.primaryCategory.pinColour ?? null,
-        pinIcon:   branch.merchant.primaryCategory.pinIcon ?? null,
-      }
-    : null
-
-  return {
-    id:                  branch.id,
-    businessName:        branch.merchant.businessName,
-    tradingName:         branch.merchant.tradingName,
-    logoUrl:             branch.merchant.logoUrl,
-    bannerUrl:           branch.merchant.bannerUrl,
-    primaryCategory,
-    primaryDescriptorTag: branch.merchant.primaryDescriptorTag,
-    subcategory:         branch.merchant.subcategory,
-    voucherCount:        branch.merchant.voucherCount,
-    maxEstimatedSaving:  branch.merchant.maxEstimatedSaving,
-    distance:            branch.distance,
-    nearestBranchId:     branch.id,
-    latitude:            branch.branchLatitude,
-    longitude:           branch.branchLongitude,
-    avgRating:           branch.avgRating,
-    reviewCount:         branch.reviewCount,
-    isFavourited:        branch.isFavourited,
-    supplyTier:          'NEARBY',
-    descriptor:          branch.merchant.descriptor,
-    // `highlights` is shape-incompatible between BranchTile (lean
-    // `{ highlightTagId, label }[]`) and MerchantTile (rich
-    // `{ id, highlightTagId, sortOrder, tag: { id, label } }[]`).
-    // The shared `<MerchantTile>` doesn't render `highlights`, so we
-    // simply omit (it's optional on MerchantTile).  Phase 2.5 sweep
-    // will reconcile.
-    supplyRung:          branch.supplyRung,
-    proximityBand:       branch.proximityBand,
-    distanceMetres:      branch.distanceMetres,
-  }
 }
 
 export function MapBranchTile({
@@ -159,11 +90,11 @@ export function MapBranchTile({
         contentContainerStyle={styles.scrollContent}
       >
         {branches.map((branch) => (
-          // Branch-keyed identity (PR-3 Phase C) — two branches of the
+          // Branch-keyed identity (Phase 2.5) — two branches of the
           // same merchant render as TWO distinct carousel cards.
           <View key={branch.id} style={[styles.tileWrapper, { width: TILE_WIDTH }]}>
-            <MerchantTile
-              merchant={branchToMerchantTile(branch)}
+            <BranchTile
+              branch={branch}
               onPress={onBranchPress}
               {...(onFavourite ? { onFavourite } : {})}
               width={TILE_WIDTH}
