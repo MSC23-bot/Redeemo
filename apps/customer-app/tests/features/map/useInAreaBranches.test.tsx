@@ -13,15 +13,17 @@ import { renderHook, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { discoveryApi } from '@/lib/api/discovery'
 import { useInAreaBranches } from '@/features/map/hooks/useInAreaBranches'
-import { makeMerchantTile } from '../../fixtures/merchantTile'
+import { makeBranchTile } from '../../fixtures/branchTile'
 
 jest.spyOn(discoveryApi, 'getInAreaBranches')
 
-const tileA = makeMerchantTile({ id: 'a', businessName: 'Bbox-A Cafe' })
-const tileB = makeMerchantTile({ id: 'b', businessName: 'Bbox-B Cafe' })
+// Phase 3a Task B: migrated from makeMerchantTile to makeBranchTile.
+const branchA = makeBranchTile({ id: 'a', merchant: { businessName: 'Bbox-A Cafe' } })
+const branchB = makeBranchTile({ id: 'b', merchant: { businessName: 'Bbox-B Cafe' } })
 
 const responseA = {
-  merchants: [tileA],
+  merchants: [],
+  branches: [branchA],
   total: 1,
   meta: {
     resolvedArea:     'A',
@@ -32,7 +34,8 @@ const responseA = {
   },
 }
 const responseB = {
-  merchants: [tileB],
+  merchants: [],
+  branches: [branchB],
   total: 1,
   meta: {
     resolvedArea:     'B',
@@ -65,7 +68,7 @@ describe('useInAreaBranches — pan/zoom keep-previous behaviour (§AY)', () => 
       { wrapper, initialProps: { bbox: bboxA } },
     )
 
-    await waitFor(() => expect(result.current.data?.merchants[0]?.id).toBe('a'))
+    await waitFor(() => expect(result.current.data?.branches?.[0]?.id).toBe('a'))
 
     // Pan: bbox changes. The next fetch is pending (never resolves
     // during this assertion window), so default behaviour would
@@ -78,11 +81,11 @@ describe('useInAreaBranches — pan/zoom keep-previous behaviour (§AY)', () => 
 
     // During the in-flight gap: previous merchants still visible.
     await waitFor(() => expect(result.current.isFetching).toBe(true))
-    expect(result.current.data?.merchants[0]?.id).toBe('a')
+    expect(result.current.data?.branches?.[0]?.id).toBe('a')
 
     // Resolve the second fetch → swap to new viewport.
     resolveB(responseB)
-    await waitFor(() => expect(result.current.data?.merchants[0]?.id).toBe('b'))
+    await waitFor(() => expect(result.current.data?.branches?.[0]?.id).toBe('b'))
     expect(result.current.isFetching).toBe(false)
   })
 

@@ -10,22 +10,18 @@ import { renderHook, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { discoveryApi } from '@/lib/api/discovery'
 import { useSearch } from '@/hooks/useSearch'
-import { makeMerchantTile } from '../fixtures/merchantTile'
 import { makeBranchTile } from '../fixtures/branchTile'
 
 jest.spyOn(discoveryApi, 'searchMerchants')
 
-const tileA = makeMerchantTile({ id: 'a', businessName: 'A' })
-const tileB = makeMerchantTile({ id: 'b', businessName: 'B' })
-
-// Discovery Rebaseline PR-2 — wire shape now carries both `merchants` (legacy
-// arm, still consumed by Home/Category/Map) and `branches` (the additive
-// branch-first arm consumed by SearchScreen).
+// Phase 3a Task B: migrated from makeMerchantTile to makeBranchTile.
+// Assertions updated from merchants[0]?.id → branches[0]?.merchant?.id;
+// expected values ('a', 'b') unchanged.
 const branchA = makeBranchTile({ id: 'brn-a', merchant: { id: 'a', businessName: 'A' } })
 const branchB = makeBranchTile({ id: 'brn-b', merchant: { id: 'b', businessName: 'B' } })
 
-const responseA = { merchants: [tileA], total: 1, branches: [branchA], totalBranches: 1 }
-const responseB = { merchants: [tileB], total: 1, branches: [branchB], totalBranches: 1 }
+const responseA = { merchants: [], total: 1, branches: [branchA], totalBranches: 1 }
+const responseB = { merchants: [], total: 1, branches: [branchB], totalBranches: 1 }
 
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -44,7 +40,7 @@ describe('useSearch — keepPreviousData opt-in (§AY)', () => {
       ({ q }: { q: string }) => useSearch({ q, limit: 30 }, true, { keepPreviousData: true }),
       { wrapper, initialProps: { q: 'first' } },
     )
-    await waitFor(() => expect(result.current.data?.merchants[0]?.id).toBe('a'))
+    await waitFor(() => expect(result.current.data?.branches?.[0]?.merchant?.id).toBe('a'))
 
     // New query, response pending.
     let resolveB: (value: typeof responseB) => void = () => {}
@@ -54,10 +50,10 @@ describe('useSearch — keepPreviousData opt-in (§AY)', () => {
 
     await waitFor(() => expect(result.current.isFetching).toBe(true))
     // Previous results still visible — the §AY win.
-    expect(result.current.data?.merchants[0]?.id).toBe('a')
+    expect(result.current.data?.branches?.[0]?.merchant?.id).toBe('a')
 
     resolveB(responseB)
-    await waitFor(() => expect(result.current.data?.merchants[0]?.id).toBe('b'))
+    await waitFor(() => expect(result.current.data?.branches?.[0]?.merchant?.id).toBe('b'))
   })
 
   it('without the flag (default): previous results clear during next fetch (SearchScreen / Category behaviour)', async () => {
@@ -67,7 +63,7 @@ describe('useSearch — keepPreviousData opt-in (§AY)', () => {
       ({ q }: { q: string }) => useSearch({ q, limit: 30 }),
       { wrapper, initialProps: { q: 'first' } },
     )
-    await waitFor(() => expect(result.current.data?.merchants[0]?.id).toBe('a'))
+    await waitFor(() => expect(result.current.data?.branches?.[0]?.merchant?.id).toBe('a'))
 
     // New query, response pending.
     let resolveB: (value: typeof responseB) => void = () => {}
@@ -80,6 +76,6 @@ describe('useSearch — keepPreviousData opt-in (§AY)', () => {
     expect(result.current.data).toBeUndefined()
 
     resolveB(responseB)
-    await waitFor(() => expect(result.current.data?.merchants[0]?.id).toBe('b'))
+    await waitFor(() => expect(result.current.data?.branches?.[0]?.merchant?.id).toBe('b'))
   })
 })
