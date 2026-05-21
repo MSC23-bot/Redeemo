@@ -214,8 +214,13 @@ export function MerchantProfileScreen({ id }: Props) {
     // expo-router Tabs, so Search explicitly stamps `from=search&q=<q>`
     // on the merchant URL; the hero back handler routes the user back
     // to `/(app)/search?q=<q>` when these params are present.
-    from?: string
-    q?:    string
+    from?:       string
+    q?:          string
+    // Phase 2.4 LOCKED 2026-05-21: Category→Merchant→back must return to
+    // the category results page.  CategoryResults stamps `from=category&
+    // categoryId=<id>` on the merchant URL; the hero back handler routes
+    // to `/(app)/category/<id>` (or `/(app)/categories` when absent).
+    categoryId?: string
   }>()
 
   // Initial tab honours the URL.  Lazy initialiser eliminates the
@@ -992,7 +997,10 @@ export function MerchantProfileScreen({ id }: Props) {
           (() => {
             const target = resolveBackNavigation(
               typeof screenParams.from === 'string' ? screenParams.from : undefined,
-              typeof screenParams.q    === 'string' ? screenParams.q    : undefined,
+              {
+                ...(typeof screenParams.q          === 'string' ? { q:          screenParams.q          } : {}),
+                ...(typeof screenParams.categoryId === 'string' ? { categoryId: screenParams.categoryId } : {}),
+              },
             )
             return target ? () => router.push(target as any) : undefined
           })()
