@@ -22,8 +22,9 @@
 | **0.6** | Negative-pin test mechanism | **APPROVED.** Jest meta-test at `apps/customer-app/tests/_meta/phase-2-5-adapter-removed.test.ts` using node `fs` to prove (a) the three adapter file paths don't exist; (b) no source file imports `branchToMerchantTile` / `branchToMerchantTileProps`; (c) no source file imports `'@/features/shared/MerchantTile'`. |
 | **0.7** | Wire-type `MerchantTile` + `makeMerchantTile` fixture | **APPROVED — keep both** until Phase 3 removes the legacy wire field. |
 | **0.8** | `discovery.ts` schema comment update | **APPROVED.** Comment block at `discovery.ts:297-301` (the homeFeedResponseSchema docblock referencing the Phase 2.3 adapter) updated inline. |
-| **0.9** | **Amendment — source comment honesty cleanup** | **APPROVED.** Limited scope: three specific source-comment locations updated inline as Task I. NOT a broader docs/memory sweep. NOT a test-comment sweep. |
+| **0.9** | **Amendment — source comment honesty cleanup** | **APPROVED.** Limited scope: three specific source-comment locations updated inline as Task E. NOT a broader docs/memory sweep. NOT a test-comment sweep. |
 | **0.10** | Standing rules carry forward | Single-component carry-forward; §M one-tile-per-branch product principle; POSTCODE_CENTROID redaction passes through unchanged; SHA-bound merge command; subagent-driven implementer + spec/code-quality reviewer per task; Step K3 owner device-QA gate before merge. |
+| **0.11** | **Amendment — no knowingly broken intermediate commit** | **APPROVED.** Owner direction 2026-05-21: do NOT create an intermediate commit whose state breaks the build. Replaces the original Task B (rename-only with note "Do not pivot off this SHA") with a **combined structural commit** that lands the shared component rename + all 5 consumer call-site migrations + adapter-test renames + the load-bearing `require` at `MapBranchTile.test.tsx:149` atomically. Every commit in the chain is buildable + jest-clean + tsc-clean. See revised §4 task layout. |
 
 ---
 
@@ -213,11 +214,20 @@ cd apps/customer-app && npx tsc --noEmit > /tmp/tsc-baseline.log 2>&1; echo "EXI
 
 Capture exit code + line count (expected: clean, exit 0). PAUSE if any new errors above the pre-existing §BV baseline.
 
-### Task B: Create `<BranchTile>` component (rename + prop refactor)
+### Task B: Combined structural rename commit (per §0.11 amendment)
 
-- [ ] **B1** `git mv apps/customer-app/src/features/shared/MerchantTile.tsx apps/customer-app/src/features/shared/BranchTile.tsx`.
+**Atomic commit** that lands every change required for the build to stay green: shared component rename, all 5 consumer migrations, Map inline-adapter deletion, 4 consumer-side test file updates, both shared-component test file renames, and the load-bearing `require` at `MapBranchTile.test.tsx:149`. After this single commit: `tsc --noEmit` is clean **and** every jest test still passes. The only loose end remaining is the two external adapter source files (`home/utils/branchToMerchantTile.ts` + `search/utils/branchToMerchantTile.ts`) + their test, which are now dead code (no importers) and get deleted in Task C.
 
-- [ ] **B2** Rewrite the component body. Apply the following systematic transforms to the file content:
+This task is large but cohesive — it IS the rename. Splitting it further would either re-introduce a knowingly broken intermediate commit (forbidden by §0.11) or require a transient `MerchantTile.tsx` ↔ `BranchTile.tsx` coexistence (which is a compat shim, forbidden by §0.3).
+
+- [ ] **B1** `git mv` the shared component file:
+
+```bash
+cd /Users/shebinchaliyath/Developer/Redeemo
+git mv apps/customer-app/src/features/shared/MerchantTile.tsx apps/customer-app/src/features/shared/BranchTile.tsx
+```
+
+- [ ] **B2** Rewrite the component body at the new path. Apply the following systematic transforms:
 
   1. Component name: `export function MerchantTile(...)` → `export function BranchTile(...)`.
   2. Type alias import line: `import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'` → `import { BranchTile as BranchTileType } from '@/lib/api/discovery'`.
@@ -237,258 +247,157 @@ Capture exit code + line count (expected: clean, exit 0). PAUSE if any new error
      - `merchant.maxEstimatedSaving` → `branch.merchant.maxEstimatedSaving`
      - `merchant.proximityBand` → `branch.proximityBand`
      - `merchant.isFavourited` → `branch.isFavourited`
-  6. JSDoc / inline comments updated to reference `BranchTile` consumption (no more "adapter" framing).
+  6. JSDoc / inline comments updated to reference `BranchTile` consumption (no "adapter" framing).
   7. Defensive: do NOT change layout, styling, motion props, or JSX structure. Only the field-access paths.
 
-- [ ] **B3** Run customer-app tsc:
+- [ ] **B3** Migrate the 3 Home carousel call sites. For each of:
+  - `apps/customer-app/src/features/home/components/FeaturedCarousel.tsx`
+  - `apps/customer-app/src/features/home/components/TrendingSection.tsx`
+  - `apps/customer-app/src/features/home/components/NearbyByCategory.tsx`
+
+  apply the same systematic edit:
+  - `import { MerchantTile } from '@/features/shared/MerchantTile'` → `import { BranchTile } from '@/features/shared/BranchTile'`
+  - REMOVE `import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'`
+  - Inside the JSX, replace:
+    ```tsx
+    <MerchantTile
+      key={branch.id}
+      merchant={branchToMerchantTileProps(branch)}
+      onPress={onBranchPress}
+      ...
+    />
+    ```
+    with:
+    ```tsx
+    <BranchTile
+      key={branch.id}
+      branch={branch}
+      onPress={onBranchPress}
+      ...
+    />
+    ```
+
+- [ ] **B4** Migrate the Category screen at `apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx`:
+  - Line 10 import: `MerchantTile` → `BranchTile` (with new path).
+  - Line ~14 import: REMOVE `branchToMerchantTileProps`.
+  - Lines ~212-235 (FlatList renderItem): replace `<MerchantTile merchant={branchToMerchantTileProps(branch)} onPress={...} />` with `<BranchTile branch={branch} onPress={...} />`. The `onPress` body — the URL-construction closure with `merchantId = branch.merchant.id` + `branchId = branch.id` + `from=category&categoryId=` — stays unchanged.
+
+- [ ] **B5** Migrate the Map carousel at `apps/customer-app/src/features/map/components/MapBranchTile.tsx`:
+  - Line 12: `import { MerchantTile }` → `import { BranchTile } from '@/features/shared/BranchTile'`.
+  - Line ~15: KEEP `import { BranchTile as BranchTileType } from '@/lib/api/discovery'` (already exists; the type alias).
+  - Line ~16: REMOVE the `MerchantTile as MerchantTileType` import line entirely.
+  - Lines 38-103: DELETE the entire `branchToMerchantTile()` function + its docblock + the `MerchantTileType` return type reference. The carousel component starts at line 105 today; after deletion, it starts where the function was.
+  - Lines ~165-166 (inside the ScrollView map): `<MerchantTile merchant={branchToMerchantTile(branch)} ... />` → `<BranchTile branch={branch} ... />`.
+
+- [ ] **B6** Update the 4 consumer-side test files (selectors / mocks / load-bearing requires):
+  - `apps/customer-app/tests/features/home/components/FeaturedCarousel.test.tsx` — `<MerchantTile>` selectors / mocks → `<BranchTile>`. Remove any `branchToMerchantTileProps` import.
+  - `apps/customer-app/tests/features/search/CategoryResultsScreen.test.tsx` — same. Remove `branchToMerchantTileProps` import. Note: the `mockTile = makeMerchantTile(...)` fixture variable can STAY (legacy fixture is preserved per §0.7), but if the test is being touched anyway, prefer switching to `makeBranchTile` for cleanliness — owner has not blocked either choice. Default to `makeBranchTile`.
+  - `apps/customer-app/tests/features/search/CategoryResultsScreen.locality.test.tsx` — same.
+  - `apps/customer-app/tests/features/map/MapBranchTile.test.tsx` — `<MerchantTile>` selectors → `<BranchTile>`. **Load-bearing**: line ~149 contains `const { MerchantTile: MerchantTileComponent } = require('@/features/shared/MerchantTile')` — this is a runtime require, not just a comment. Replace with `const { BranchTile: BranchTileComponent } = require('@/features/shared/BranchTile')`. Update the downstream variable name + `UNSAFE_getAllByType(BranchTileComponent)`.
+
+  **Defensive**: do NOT change assertion VALUES. Only the component name + prop shape in renders/mocks + load-bearing requires.
+
+- [ ] **B7** Rename the 2 shared-component test files via `git mv` + content update:
+
+```bash
+cd /Users/shebinchaliyath/Developer/Redeemo
+git mv apps/customer-app/tests/features/shared/MerchantTile.distance-format.test.tsx apps/customer-app/tests/features/shared/BranchTile.distance-format.test.tsx
+git mv apps/customer-app/tests/features/shared/MerchantTile.proximity-chip.test.tsx  apps/customer-app/tests/features/shared/BranchTile.proximity-chip.test.tsx
+```
+
+Inside each renamed file:
+  - Component import path: `'@/features/shared/MerchantTile'` → `'@/features/shared/BranchTile'`, with `MerchantTile` → `BranchTile` named export.
+  - JSX: `<MerchantTile merchant={tile} ... />` → `<BranchTile branch={tile} ... />`. Local fixture variable name `tile` can stay (structurally compatible).
+  - Fixture builder: `makeMerchantTile({...})` → `makeBranchTile({...})`. Update field paths where the fixture used to set merchant-grouping fields at the top level (e.g. `voucherCount: 3` → `merchant: { voucherCount: 3 }`).
+  - `describe()` block strings: rename `MerchantTile` → `BranchTile`.
+  - **Defensive**: do NOT change assertion VALUES. Only fixture shape + component name flip.
+
+- [ ] **B8** Run customer-app tsc — must be clean:
 
 ```bash
 cd apps/customer-app && npx tsc --noEmit 2>&1 | tail -20
 ```
 
-5 import sites in `src/features/{home,search,map}/...` will now fail to import the old `MerchantTile`. THIS IS EXPECTED — Tasks C/D/E fix them. Capture the error list. PAUSE if errors appear OUTSIDE those 5 expected sites.
+Exit 0 + zero new errors above the baseline captured in A4. If anything fails, PAUSE — do NOT proceed to B9.
 
-- [ ] **B4** Commit (must NOT be runnable yet — broken until Tasks C/D/E land):
-
-```bash
-git add apps/customer-app/src/features/shared/BranchTile.tsx
-git rm apps/customer-app/src/features/shared/MerchantTile.tsx  # auto-staged by git mv but explicit for clarity
-git commit -m "$(cat <<'EOF'
-feat(shared): rename <MerchantTile> → <BranchTile>; consume BranchTile natively
-
-Phase 2.5 Task B. Renames shared tile component + refactors prop shape
-to read BranchTile fields directly (top-level branch fields + nested
-branch.merchant.* grouping). 13 audit-confirmed field paths updated;
-no visual / layout / motion changes.
-
-This commit alone leaves 5 consumer call sites broken — Tasks C
-(Home carousels), D (Category screen), and E (Map carousel) migrate
-them in the next 3 commits. Do not pivot off this SHA without the
-follow-on commits.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
-
-### Task C: Migrate Home carousels
-
-- [ ] **C1** Update `apps/customer-app/src/features/home/components/FeaturedCarousel.tsx`:
-
-  - Line ~5: `import { MerchantTile } from '@/features/shared/MerchantTile'` → `import { BranchTile } from '@/features/shared/BranchTile'`.
-  - Line ~8: REMOVE `import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'`.
-  - Line ~106-109 (the `<MerchantTile>` block):
-
-  Before:
-  ```tsx
-  <MerchantTile
-    key={branch.id}
-    merchant={branchToMerchantTileProps(branch)}
-    onPress={onBranchPress}
-    ...
-  />
-  ```
-
-  After:
-  ```tsx
-  <BranchTile
-    key={branch.id}
-    branch={branch}
-    onPress={onBranchPress}
-    ...
-  />
-  ```
-
-- [ ] **C2** Apply the same transform to `apps/customer-app/src/features/home/components/TrendingSection.tsx`.
-
-- [ ] **C3** Apply the same transform to `apps/customer-app/src/features/home/components/NearbyByCategory.tsx`.
-
-- [ ] **C4** Update `apps/customer-app/tests/features/home/components/FeaturedCarousel.test.tsx`:
-
-  - Component import → `BranchTile` from `@/features/shared/BranchTile`.
-  - Any `<MerchantTile>` selectors / mocks → `<BranchTile>`.
-  - Any `branchToMerchantTileProps` import — REMOVE.
-
-- [ ] **C5** Run the Home test file:
+- [ ] **B9** Run customer-app jest — full sweep must pass:
 
 ```bash
-cd apps/customer-app && npx jest tests/features/home/components/FeaturedCarousel.test.tsx --forceExit --silent 2>&1 | tail -10
+cd apps/customer-app && npx jest --forceExit --silent 2>&1 | tail -10
 ```
 
-All pins pass. If any pin breaks because it pinned the component NAME rather than behaviour, update the pin to assert behaviour instead. PAUSE if a behaviour pin breaks.
+Expected: ~207 suites / ~2118 tests, all passing. The two adapter source files are still on disk and the Search/Category adapter test file is still there (these are deleted in Task C); the adapter test continues to pass since the adapter source is unchanged. PAUSE if any Phase 2.4 regression pin breaks (especially the §M one-tile-per-branch, URL contract, route-id reset, cumulative pill counts, branchMeta read-through pins on `CategoryResultsScreen.test.tsx`).
 
-- [ ] **C6** Run customer-app tsc — Home carousels should now type-check.
-
-- [ ] **C7** Commit:
+- [ ] **B10** Commit (single atomic structural commit):
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo
-git add apps/customer-app/src/features/home/components/FeaturedCarousel.tsx \
+git add apps/customer-app/src/features/shared/BranchTile.tsx \
+        apps/customer-app/src/features/home/components/FeaturedCarousel.tsx \
         apps/customer-app/src/features/home/components/TrendingSection.tsx \
         apps/customer-app/src/features/home/components/NearbyByCategory.tsx \
-        apps/customer-app/tests/features/home/components/FeaturedCarousel.test.tsx
-git commit -m "$(cat <<'EOF'
-feat(home): migrate carousels to <BranchTile> native render
-
-Phase 2.5 Task C. FeaturedCarousel / TrendingSection / NearbyByCategory
-flip from <MerchantTile merchant={branchToMerchantTileProps(branch)} />
-to <BranchTile branch={branch} />. No visual change.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
-
-### Task D: Migrate Category screen
-
-- [ ] **D1** Update `apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx`:
-
-  - Line 10: `import { MerchantTile } from '@/features/shared/MerchantTile'` → `import { BranchTile } from '@/features/shared/BranchTile'`.
-  - Line ~14: REMOVE `import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'`.
-  - Lines ~212-235 (the FlatList renderItem block):
-
-  Before:
-  ```tsx
-  <MerchantTile
-    merchant={branchToMerchantTileProps(branch)}
-    onPress={() => {
-      const merchantId = branch.merchant.id
-      const branchId   = branch.id
-      const url = id
-        ? `/merchant/${merchantId}?branch=${branchId}&from=category&categoryId=${id}`
-        : `/merchant/${merchantId}?branch=${branchId}&from=category`
-      router.push(url as any)
-    }}
-  />
-  ```
-
-  After:
-  ```tsx
-  <BranchTile
-    branch={branch}
-    onPress={() => {
-      const merchantId = branch.merchant.id
-      const branchId   = branch.id
-      const url = id
-        ? `/merchant/${merchantId}?branch=${branchId}&from=category&categoryId=${id}`
-        : `/merchant/${merchantId}?branch=${branchId}&from=category`
-      router.push(url as any)
-    }}
-  />
-  ```
-
-- [ ] **D2** Update both Category test files:
-
-  - `apps/customer-app/tests/features/search/CategoryResultsScreen.test.tsx` — `<MerchantTile>` selectors → `<BranchTile>`; remove `branchToMerchantTileProps` import; remove the `mockTile` legacy fixture if no longer needed (replace with `makeBranchTile` everywhere).
-  - `apps/customer-app/tests/features/search/CategoryResultsScreen.locality.test.tsx` — same.
-
-  **Defensive**: do NOT change assertion VALUES. Only the component name + prop shape in the renders/mocks.
-
-- [ ] **D3** Run the Category tests:
-
-```bash
-cd apps/customer-app && npx jest tests/features/search/CategoryResultsScreen --forceExit --silent 2>&1 | tail -10
-```
-
-All pins pass (especially the Phase 2.4 wave-2 + wave-3 regression pins: §M one-tile-per-branch, URL contract, route-id reset, cumulative pill counts, branchMeta read-through). PAUSE if any behaviour pin breaks.
-
-- [ ] **D4** Run customer-app tsc — Category screen should now type-check.
-
-- [ ] **D5** Commit:
-
-```bash
-cd /Users/shebinchaliyath/Developer/Redeemo
-git add apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx \
+        apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx \
+        apps/customer-app/src/features/map/components/MapBranchTile.tsx \
+        apps/customer-app/tests/features/home/components/FeaturedCarousel.test.tsx \
         apps/customer-app/tests/features/search/CategoryResultsScreen.test.tsx \
-        apps/customer-app/tests/features/search/CategoryResultsScreen.locality.test.tsx
-git commit -m "$(cat <<'EOF'
-feat(category): migrate CategoryResultsScreen to <BranchTile> native render
+        apps/customer-app/tests/features/search/CategoryResultsScreen.locality.test.tsx \
+        apps/customer-app/tests/features/map/MapBranchTile.test.tsx \
+        apps/customer-app/tests/features/shared/BranchTile.distance-format.test.tsx \
+        apps/customer-app/tests/features/shared/BranchTile.proximity-chip.test.tsx
+# The git mv above already staged the deletion of the old MerchantTile.tsx + the two
+# old shared-component test paths. They appear in the commit automatically.
 
-Phase 2.5 Task D. Flips from <MerchantTile merchant={branchToMerchantTileProps(branch)} />
-to <BranchTile branch={branch} />. URL contract from Phase 2.4
-(?branch=&from=category&categoryId=) preserved. All Phase 2.4 regression
-pins (§M, URL, route-id reset, cumulative counts, branchMeta) still pass.
+git commit -m "$(cat <<'EOF'
+feat(shared): rename <MerchantTile> → <BranchTile>; migrate all 4 surfaces
+
+Phase 2.5 Task B (structural rename) — single buildable atomic commit
+per plan §0.11 amendment.
+
+Changes (13 files):
+  - apps/customer-app/src/features/shared/MerchantTile.tsx renamed via
+    git mv to BranchTile.tsx; component body refactored to read
+    BranchTile wire fields directly (13 audit-confirmed field paths;
+    top-level branch.* + nested branch.merchant.* grouping).
+  - 3 Home carousels (FeaturedCarousel, TrendingSection, NearbyByCategory)
+    flip to <BranchTile branch={branch} />, drop branchToMerchantTileProps
+    import.
+  - Category screen (CategoryResultsScreen) flips to <BranchTile />,
+    drops branchToMerchantTileProps import.
+  - Map carousel (MapBranchTile) drops its inline branchToMerchantTile()
+    function (was lines 58-103); flips to <BranchTile />. File name kept
+    per §0.5.
+  - 4 consumer-side test files updated (selectors / mocks / one
+    load-bearing require at MapBranchTile.test.tsx:149).
+  - 2 shared-component test files renamed via git mv
+    (MerchantTile.{distance,proximity}.test.tsx →
+    BranchTile.{distance,proximity}.test.tsx), fixture builder switched
+    to makeBranchTile.
+
+After this commit: tsc clean, jest 2118/2118 pass, every Phase 2.4
+regression pin preserved. The two external adapter source files
+(home/utils + search/utils) are now dead code (zero importers) — Task C
+deletes them.
+
+No visual / layout / motion change on any surface.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
 
-### Task E: Migrate Map carousel + drop inline adapter
+### Task C: Delete the two external adapter files + the adapter test
 
-- [ ] **E1** Update `apps/customer-app/src/features/map/components/MapBranchTile.tsx`:
+After Task B, the two external adapter source files have zero importers (audited live by Task A1 + Task B confirmation). Map's inline `branchToMerchantTile` function was deleted as part of Task B5. This task removes the dead-code adapter sources + the now-irrelevant adapter test.
 
-  - Line 12: `import { MerchantTile } from '@/features/shared/MerchantTile'` → `import { BranchTile } from '@/features/shared/BranchTile'`.
-  - Line ~15: KEEP `import { BranchTile as BranchTileType } from '@/lib/api/discovery'` (already exists; the type alias).
-  - Line ~16: REMOVE the `MerchantTile as MerchantTileType` import line entirely.
-  - Lines 38-103: DELETE the entire `branchToMerchantTile()` function + its docblock + the `MerchantTileType` return type reference. The carousel component starts at line 105 today; after deletion, it starts where the function was.
-  - Lines ~165-166 (the `<MerchantTile>` block inside the ScrollView map):
-
-  Before:
-  ```tsx
-  <MerchantTile
-    merchant={branchToMerchantTile(branch)}
-    onPress={onBranchPress}
-    ...
-    width={TILE_WIDTH}
-  />
-  ```
-
-  After:
-  ```tsx
-  <BranchTile
-    branch={branch}
-    onPress={onBranchPress}
-    ...
-    width={TILE_WIDTH}
-  />
-  ```
-
-- [ ] **E2** Update `apps/customer-app/tests/features/map/MapBranchTile.test.tsx`:
-
-  - Any `branchToMerchantTile(branch)` adapter assertions → direct `<BranchTile branch={branch} />` assertions.
-  - Component selectors `<MerchantTile>` → `<BranchTile>`.
-
-- [ ] **E3** Run the Map test:
-
-```bash
-cd apps/customer-app && npx jest tests/features/map/MapBranchTile.test.tsx --forceExit --silent 2>&1 | tail -10
-```
-
-PAUSE if any pin breaks.
-
-- [ ] **E4** Run customer-app tsc — Map carousel should now type-check; entire app should be clean of broken imports.
-
-- [ ] **E5** Commit:
-
-```bash
-cd /Users/shebinchaliyath/Developer/Redeemo
-git add apps/customer-app/src/features/map/components/MapBranchTile.tsx \
-        apps/customer-app/tests/features/map/MapBranchTile.test.tsx
-git commit -m "$(cat <<'EOF'
-feat(map): migrate MapBranchTile carousel to <BranchTile> native render
-
-Phase 2.5 Task E. Removes inline branchToMerchantTile() function
-(was lines 58-103); carousel now renders <BranchTile branch={branch} />
-directly. MapBranchTile.tsx file kept (carousel name retained per
-plan §0.5). No visual change; carousel logic untouched.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
-
-### Task F: Delete the two external adapter files
-
-- [ ] **F1** Confirm no remaining importers of `branchToMerchantTile` or `branchToMerchantTileProps`:
+- [ ] **C1** Confirm no remaining importers of `branchToMerchantTile` or `branchToMerchantTileProps`:
 
 ```bash
 grep -rn "branchToMerchantTile\|branchToMerchantTileProps" apps/customer-app/src apps/customer-app/app 2>/dev/null
 ```
 
-Should be EMPTY. PAUSE if any source file still imports either symbol (Map's inline function was already deleted in Task E).
+Should be EMPTY. PAUSE if any source file still imports either symbol.
 
-- [ ] **F2** Delete the two external adapter files + the Phase 2.4 adapter test:
+- [ ] **C2** Delete the two external adapter files + the Phase 2.4 adapter test:
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo
@@ -497,16 +406,16 @@ git rm apps/customer-app/src/features/search/utils/branchToMerchantTile.ts
 git rm apps/customer-app/tests/features/search/utils/branchToMerchantTile.test.ts
 ```
 
-- [ ] **F3** Confirm customer-app tsc still clean.
+- [ ] **C3** Confirm customer-app tsc still clean + jest still passes (no consumer touched these files, so this is defensive).
 
-- [ ] **F4** Commit:
+- [ ] **C4** Commit:
 
 ```bash
 git commit -m "$(cat <<'EOF'
 chore(discovery): delete surface-local branchToMerchantTile adapters
 
-Phase 2.5 Task F. Removes the three interim adapter shapes shipped in
-Phase 2.2 (Map inline function — done in Task E), Phase 2.3 (Home
+Phase 2.5 Task C. Removes the three interim adapter shapes shipped in
+Phase 2.2 (Map inline function — done in Task B5), Phase 2.3 (Home
 util — this commit), Phase 2.4 (Search/Category util — this commit).
 Companion Phase 2.4 adapter test also removed.
 
@@ -518,54 +427,9 @@ EOF
 )"
 ```
 
-### Task G: Rename the two shared-component test files
+### Task D: Add negative-pin meta-test
 
-- [ ] **G1** Move the two test files via `git mv`:
-
-```bash
-cd /Users/shebinchaliyath/Developer/Redeemo
-git mv apps/customer-app/tests/features/shared/MerchantTile.distance-format.test.tsx apps/customer-app/tests/features/shared/BranchTile.distance-format.test.tsx
-git mv apps/customer-app/tests/features/shared/MerchantTile.proximity-chip.test.tsx  apps/customer-app/tests/features/shared/BranchTile.proximity-chip.test.tsx
-```
-
-- [ ] **G2** Edit each renamed file:
-
-  - Component import: `import { MerchantTile } from '@/features/shared/MerchantTile'` → `import { BranchTile } from '@/features/shared/BranchTile'`.
-  - JSX: `<MerchantTile merchant={tile} ... />` → `<BranchTile branch={tile} ... />`. (The local fixture variable can keep its name `tile` since `BranchTile` is structurally compatible — see G3.)
-  - Fixture builder: `makeMerchantTile({...})` → `makeBranchTile({...})`. Update fixture field paths if they're per-merchant (e.g. `voucherCount` becomes `merchant: { voucherCount }`).
-  - `describe()` blocks: rename strings from `MerchantTile` → `BranchTile`.
-
-- [ ] **G3** Defensive: do NOT change ASSERTIONS or test logic. If a test computed expected distance formatting or proximity-chip rendering, those expected values stay identical. Only the input fixture shape + component name flip.
-
-- [ ] **G4** Run the two renamed tests:
-
-```bash
-cd apps/customer-app && npx jest tests/features/shared/BranchTile --forceExit --silent 2>&1 | tail -10
-```
-
-All pins pass.
-
-- [ ] **G5** Commit:
-
-```bash
-cd /Users/shebinchaliyath/Developer/Redeemo
-git add apps/customer-app/tests/features/shared/BranchTile.distance-format.test.tsx \
-        apps/customer-app/tests/features/shared/BranchTile.proximity-chip.test.tsx
-git commit -m "$(cat <<'EOF'
-test(shared): rename MerchantTile.{distance,proximity}.test.tsx → BranchTile.*
-
-Phase 2.5 Task G. File path + describe-block + component selectors
-+ fixture builder switch from MerchantTile/makeMerchantTile to
-BranchTile/makeBranchTile. Assertion values untouched.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
-
-### Task H: Add negative-pin meta-test
-
-- [ ] **H1** Create `apps/customer-app/tests/_meta/phase-2-5-adapter-removed.test.ts` with the following content:
+- [ ] **D1** Create `apps/customer-app/tests/_meta/phase-2-5-adapter-removed.test.ts` with the following content:
 
 ```ts
 import fs from 'node:fs'
@@ -649,7 +513,7 @@ describe('Phase 2.5 — surface-local branchToMerchantTile adapter is fully remo
 })
 ```
 
-- [ ] **H2** Run the meta-test:
+- [ ] **D2** Run the meta-test:
 
 ```bash
 cd apps/customer-app && npx jest tests/_meta/phase-2-5-adapter-removed.test.ts --forceExit --silent 2>&1 | tail -10
@@ -657,7 +521,7 @@ cd apps/customer-app && npx jest tests/_meta/phase-2-5-adapter-removed.test.ts -
 
 All 3 pins pass.
 
-- [ ] **H3** Commit:
+- [ ] **D3** Commit:
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo
@@ -665,12 +529,12 @@ git add apps/customer-app/tests/_meta/phase-2-5-adapter-removed.test.ts
 git commit -m "$(cat <<'EOF'
 test(meta): lock no-adapter-remains invariant for Phase 2.5
 
-Phase 2.5 Task H. Jest meta-test under tests/_meta/ asserts the
+Phase 2.5 Task D. Jest meta-test under tests/_meta/ asserts the
 post-Phase-2.5 structural invariants:
 
   1. The 3 surface-local adapter file paths do NOT exist
      (home/utils + search/utils + map inline function — Map inline
-     was deleted in Task E; the test only checks the 2 external files).
+     was deleted in Task B5; the test only checks the 2 external files).
   2. No source file imports branchToMerchantTile / Props.
   3. No source file under features/** imports the old shared
      MerchantTile component path.
@@ -682,9 +546,9 @@ EOF
 )"
 ```
 
-### Task I: Source-comment honesty cleanup (per §0.9 amendment)
+### Task E: Source-comment honesty cleanup (per §0.9 amendment)
 
-- [ ] **I1** Update `apps/customer-app/src/features/home/screens/HomeScreen.tsx` lines 33-41 (the comment block above `routeToBranch`):
+- [ ] **E1** Update `apps/customer-app/src/features/home/screens/HomeScreen.tsx` lines 33-41 (the comment block above `routeToBranch`):
 
 Before:
 ```tsx
@@ -712,7 +576,7 @@ After:
   // lookup below finds the parent merchant.id for the route path.
 ```
 
-- [ ] **I2** Update `apps/customer-app/src/features/map/screens/MapScreen.tsx` lines 140-145 (the comment block above `selectedBranchId`):
+- [ ] **E2** Update `apps/customer-app/src/features/map/screens/MapScreen.tsx` lines 140-145 (the comment block above `selectedBranchId`):
 
 Before:
 ```tsx
@@ -735,7 +599,7 @@ After:
   // natively.
 ```
 
-- [ ] **I3** Update `apps/customer-app/src/features/search/components/SearchResultItem.tsx` lines 11-15 (the prop-shape switch comment):
+- [ ] **E3** Update `apps/customer-app/src/features/search/components/SearchResultItem.tsx` lines 11-15 (the prop-shape switch comment):
 
 Before:
 ```tsx
@@ -755,7 +619,7 @@ After:
 // locality secondary, descriptor tertiary.
 ```
 
-- [ ] **I4** Update `apps/customer-app/src/features/search/components/SearchResultItem.tsx` lines 290-297 (the open-status comment block):
+- [ ] **E4** Update `apps/customer-app/src/features/search/components/SearchResultItem.tsx` lines 290-297 (the open-status comment block):
 
 Before:
 ```tsx
@@ -782,9 +646,9 @@ After:
         */}
 ```
 
-- [ ] **I5** Defensive: do NOT change any code, JSX, or assertion in these three files beyond the comment text. Each edit is comment-only.
+- [ ] **E5** Defensive: do NOT change any code, JSX, or assertion in these three files beyond the comment text. Each edit is comment-only.
 
-- [ ] **I6** Run customer-app tsc to confirm no logic accidentally got touched:
+- [ ] **E6** Run customer-app tsc to confirm no logic accidentally got touched:
 
 ```bash
 cd apps/customer-app && npx tsc --noEmit 2>&1 | tail -5; echo "EXIT=$?"
@@ -792,7 +656,7 @@ cd apps/customer-app && npx tsc --noEmit 2>&1 | tail -5; echo "EXIT=$?"
 
 Exit code 0 + no new errors.
 
-- [ ] **I7** Commit:
+- [ ] **E7** Commit:
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo
@@ -802,7 +666,7 @@ git add apps/customer-app/src/features/home/screens/HomeScreen.tsx \
 git commit -m "$(cat <<'EOF'
 docs: source-comment honesty cleanup after Phase 2.5 adapter deletion
 
-Phase 2.5 Task I (amendment per plan §0.9). Three source-comment
+Phase 2.5 Task E (amendment per plan §0.9). Three source-comment
 blocks updated inline so they stay honest after the adapter layer
 goes:
 
@@ -825,9 +689,9 @@ EOF
 )"
 ```
 
-### Task J: Update `discovery.ts` schema comment (per §0.8)
+### Task F: Update `discovery.ts` schema comment (per §0.8)
 
-- [ ] **J1** Update `apps/customer-app/src/lib/api/discovery.ts` lines 297-301 (the homeFeedResponseSchema docblock):
+- [ ] **F1** Update `apps/customer-app/src/lib/api/discovery.ts` lines 297-301 (the homeFeedResponseSchema docblock):
 
 Before:
 ```ts
@@ -849,9 +713,9 @@ After:
 // cleanup removes them).
 ```
 
-- [ ] **J2** Run customer-app tsc — must stay clean (comment-only change).
+- [ ] **F2** Run customer-app tsc — must stay clean (comment-only change).
 
-- [ ] **J3** Commit:
+- [ ] **F3** Commit:
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo
@@ -859,7 +723,7 @@ git add apps/customer-app/src/lib/api/discovery.ts
 git commit -m "$(cat <<'EOF'
 docs(discovery): update homeFeedResponseSchema comment post Phase 2.5
 
-Phase 2.5 Task J (per plan §0.8). The homeFeedResponseSchema docblock
+Phase 2.5 Task F (per plan §0.8). The homeFeedResponseSchema docblock
 referenced the Phase 2.3 surface-local adapter; Phase 2.5 deleted it,
 so the docblock now reflects that the carousels render <BranchTile>
 directly.
@@ -869,9 +733,9 @@ EOF
 )"
 ```
 
-### Task K: Pre-merge gate (Step K3 owner device-QA)
+### Task G: Pre-merge gate (owner device QA)
 
-- [ ] **K1** Full customer-app jest sweep:
+- [ ] **G1** Full customer-app jest sweep:
 
 ```bash
 cd apps/customer-app && npx jest --forceExit --silent 2>&1 | tail -10
@@ -879,7 +743,7 @@ cd apps/customer-app && npx jest --forceExit --silent 2>&1 | tail -10
 
 Suite count + test count: expected ~207 suites / ~2118 tests give-or-take a few (negative-pin file adds +1 suite +3 tests; renamed shared-component tests are still 2 files; deleted adapter test removes 1 suite). Net delta: roughly +0 to +2 suites, +2 to +5 tests. PAUSE if any pre-existing pin breaks.
 
-- [ ] **K2** Backend vitest sweep (defensive — no backend changes expected):
+- [ ] **G2** Backend vitest sweep (defensive — no backend changes expected):
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo && npx vitest run 2>&1 | tail -5
@@ -887,7 +751,7 @@ cd /Users/shebinchaliyath/Developer/Redeemo && npx vitest run 2>&1 | tail -5
 
 Unchanged from main baseline (~1010/1010 passing + the known Neon flake passes in isolation).
 
-- [ ] **K3** tsc clean (both layers):
+- [ ] **G3** tsc clean (both layers):
 
 ```bash
 cd apps/customer-app && npx tsc --noEmit 2>&1 | tail -5; echo "EXIT=$?"
@@ -896,7 +760,7 @@ cd /Users/shebinchaliyath/Developer/Redeemo && npx tsc --noEmit > /tmp/tsc-final
 
 Customer-app exit 0; backend root diff empty (unchanged from §BV baseline).
 
-- [ ] **K4** Push branch + open PR titled `Phase 2.5 — tile-rename + shared-component sweep`. PR body must:
+- [ ] **G4** Push branch + open PR titled `Phase 2.5 — tile-rename + shared-component sweep`. PR body must:
 
   - Explicitly say no visual change.
   - List the three adapter file deletions + the component file rename.
@@ -904,14 +768,14 @@ Customer-app exit 0; backend root diff empty (unchanged from §BV baseline).
   - Affirm the four out-of-scope locks (§BY, §CP, §CO, §CQ).
   - Note the negative-pin meta-test as the future-proofing guard.
 
-- [ ] **K5** Owner device QA across all 4 surfaces. Verify NO visual regression on:
+- [ ] **G5** Owner device QA across all 4 surfaces. Verify NO visual regression on:
 
   1. **Home** — Featured / Trending / NearbyByCategory carousels render unchanged. Multi-branch merchants (Covelum) still fan out to multiple tiles. Tile tap → Merchant Profile with `?branch=&from=home`. Back → returns to Home.
   2. **Search** — `<SearchResultItem>` already used `BranchTile` natively pre-Phase-2.5 (no change there). Confirm no regression. Stale-comment edits don't affect rendering.
   3. **Category** — `<BranchTile>` renders identically to the old `<MerchantTile>`. Pill counts cumulative. §M multi-branch fan-out works. URL contract preserved. Back from Merchant Profile → returns to `/(app)/category/<id>` (subcategory preserved).
   4. **Map** — Carousel + list both render `<BranchTile>` natively. Tap a pin → carousel shows the right branch. Swiping the carousel updates `activeIndex`. Close button works.
 
-- [ ] **K6** SHA-bound merge once QA passes (per workflow hook contract):
+- [ ] **G6** SHA-bound merge once QA passes (per workflow hook contract):
 
 ```bash
 SHA=$(gh pr view N --json headRefOid --jq .headRefOid)
@@ -920,7 +784,7 @@ gh api "repos/MSC23-bot/Redeemo/compare/main...$SHA" --jq '{ahead_by, total_comm
 REDEEMO_PR_SCOPE_VERIFIED=$SHA gh pr merge N --merge
 ```
 
-- [ ] **K7** Post-merge memory close-out:
+- [ ] **G7** Post-merge memory close-out:
   - Create `project_discovery_rebaseline_phase2_5_complete.md` topic file.
   - Update `project_current_state.md` to new main HEAD.
   - Update `project_deferred_followups_index.md` §M: Phase 2.5 SHIPPED, Phase 3 cleanup ELIGIBLE.
@@ -933,13 +797,13 @@ REDEEMO_PR_SCOPE_VERIFIED=$SHA gh pr merge N --merge
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Hidden `<MerchantTile>` consumer missed in the audit | Low | Medium | Task A1 grep + tsc + jest catch all unknown imports; negative-pin meta-test in Task H is the standing future-proof. |
-| Visual regression on a surface I didn't device-QA | Medium | Medium | Task K5 covers all 4 surfaces explicitly. |
-| `<BranchTile>` field-access path bug (e.g. `branch.merchant.X` accessed as `branch.X` by mistake) | Medium | High | Task B's systematic transform table (§1.2) is the spec; Task K5 device QA catches behaviour drift; existing tests pin distance + proximity. |
+| Hidden `<MerchantTile>` consumer missed in the audit | Low | Medium | Task A1 grep + tsc + jest catch all unknown imports; negative-pin meta-test in Task D is the standing future-proof. |
+| Visual regression on a surface I didn't device-QA | Medium | Medium | Task G5 covers all 4 surfaces explicitly. |
+| `<BranchTile>` field-access path bug (e.g. `branch.merchant.X` accessed as `branch.X` by mistake) | Medium | High | Task B's systematic transform table (§1.2) is the spec; Task G5 device QA catches behaviour drift; existing tests pin distance + proximity. |
 | Type-vs-component name clash trips an import | Low | Low | Task B2's import line + universal `BranchTile as BranchTileType` alias pattern (§0.4). |
 | §BY pill shape needs changing mid-task | Low | High | **PAUSE + ESCALATE** per §0.5 / §0.10 escalation gate. Do NOT touch `<SavePill>` / `<VoucherCountPill>` shapes in this PR. |
 | Phase 2.4 regression pins break because they pinned component name | Low | Medium | Task D3 + D4 explicitly check. If pins break, update to assert behaviour (not name); never change values. |
-| Comment cleanup accidentally edits code | Low | Medium | Task I5 explicit defensive rule + tsc check in I6. |
+| Comment cleanup accidentally edits code | Low | Medium | Task E5 explicit defensive rule + tsc check in E6. |
 | Memory file references to deleted symbols become stale | Low | Cosmetic | Out of scope per §0.9; new entries reference Phase 2.5 cleanly. Old entries remain historical record. |
 
 ---
@@ -956,11 +820,11 @@ REDEEMO_PR_SCOPE_VERIFIED=$SHA gh pr merge N --merge
 
 ## 7. Self-review (pre-lock)
 
-- [x] **Spec coverage** — Discovery rebaseline spec §M / Plan Rev 1.2 PR-6 / Phase 2.5 tile-rename cell. All requirements traced to tasks B-J.
+- [x] **Spec coverage** — Discovery rebaseline spec §M / Plan Rev 1.2 PR-6 / Phase 2.5 tile-rename cell. All requirements traced to tasks B-G.
 - [x] **No placeholders** — every task lists exact files, exact line ranges, exact code.
 - [x] **Type consistency** — `BranchTileType` aliased at every component-side import; wire type `BranchTile` unchanged in `discovery.ts`. Component `BranchTile` distinct via import path.
-- [x] **Scope discipline** — §2 out-of-scope list exhaustive; Task K4 PR-body checklist enforces no-overclaim.
-- [x] **Negative-pin coverage** — Task H locks the structural invariant. Future PRs can't reintroduce the adapter pattern without that test failing.
+- [x] **Scope discipline** — §2 out-of-scope list exhaustive; Task G4 PR-body checklist enforces no-overclaim.
+- [x] **Negative-pin coverage** — Task D locks the structural invariant. Future PRs can't reintroduce the adapter pattern without that test failing.
 - [x] **Reviewer-friendly diff** — sequence is rename component → migrate consumers → delete adapters → rename tests → add meta-test → comment cleanup. Each commit is self-contained; the chain is auditable.
 
 ---
@@ -970,9 +834,9 @@ REDEEMO_PR_SCOPE_VERIFIED=$SHA gh pr merge N --merge
 Same Tier 2 plan-first pattern as Phase 2.4:
 
 1. **Plan-lock commit** (this commit) — pause for owner review.
-2. **Implementer subagent** per task (B through J) sequentially. Each commit reviewed by spec-compliance + code-quality reviewer subagents before next task.
+2. **Implementer subagent** per task (B through F) sequentially. Each commit reviewed by spec-compliance + code-quality reviewer subagents before next task.
 3. **Step K3 owner device-QA gate** across all 4 surfaces before merge.
 4. **SHA-bound merge** via the env-var override hook contract.
-5. **Post-merge bookkeeping** per Task K7.
+5. **Post-merge bookkeeping** per Task G7.
 
 **Pause point:** plan-lock commit + owner review before Task A1 starts.
