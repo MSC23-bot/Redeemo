@@ -25,6 +25,7 @@
 | **0.9** | No `<SavePill>` / `<VoucherCountPill>` shape changes | Phase 2.5 §BY escalation gate carries forward. PAUSE if needed. |
 | **0.10** | Negative-pin meta-test extension | Extend `apps/customer-app/tests/_meta/phase-2-5-adapter-removed.test.ts` with new patterns forbidding `MerchantTile` type imports and `makeMerchantTile` fixture imports under `apps/customer-app/src/`. |
 | **0.11** | Standing rules carry forward | SHA-bound merge command; subagent-driven implementer + spec/code-quality reviewer per task; owner device-QA gate before merge (lighter than Phase 2.5 — no visual surface impacted). |
+| **0.12** | **Amendment — 4 audit corrections (2026-05-21 owner re-review)** | (a) `inAreaResponseSchema.meta` MUST STAY (Map `mapDataView.ts:63` reads `d?.branchMeta ?? d?.meta`; InAreaResponse has no `branchMeta`, so `.meta` is the only envelope). (b) `CategoryResultsScreen.tsx:164,170` carries legacy `?? data?.total` and `?? data?.meta` fallbacks — owner option (a) locked: add small source cleanup to switch to `data?.totalBranches ?? 0` and `data?.branchMeta`, then schema removal is safe. (c) Audit claim in §1.2 corrected — there ARE 2 source-side legacy reads (Category + mapDataView), not zero; my original grep missed the `??` fallback pattern. (d) Task E cascade-cleanup: if `merchantTileSchema` becomes unused, also remove its dependent legacy-only helpers `supplyTierSchema` / `SupplyTier` type / `highlightSchema` / `MerchantTileHighlight` type (audit-confirmed: no src-tree consumers outside `merchantTileSchema` itself). |
 
 ---
 
@@ -42,32 +43,60 @@
 | `searchResponseSchema.total` | 377 | `z.number()` | **DELETE** |
 | `searchResponseSchema.meta` | 378 | `discoveryMetaSchema.optional()` | **DELETE** (customer-app reads `branchMeta` only post Phase 2.4) |
 | `categoryMerchantsResponseSchema.merchants` | 400 | `z.array(merchantTileSchema)` | **DELETE** |
-| `categoryMerchantsResponseSchema.total` | 401 | `z.number()` | **DELETE** |
-| `categoryMerchantsResponseSchema.meta` | 402 | `discoveryMetaSchema` | **DELETE** (customer-app reads `branchMeta ?? meta` — defensive fallback; but with `meta` gone schema-side, the `??` becomes a no-op which is what we want) |
-| `inAreaResponseSchema.merchants` | 410 | `z.array(merchantTileSchema)` | **DELETE** |
-| `inAreaResponseSchema.total` | 411 | `z.number()` | **DELETE** |
-| `inAreaResponseSchema.meta` | 412 | `inAreaMetaSchema` | **DELETE** (customer-app Map surface reads `branches` + uses its own metadata) |
+| `categoryMerchantsResponseSchema.total` | 401 | `z.number()` | **DELETE** — requires §0.12(b) source cleanup at `CategoryResultsScreen.tsx:164` first (clean `data?.totalBranches ?? 0`, drop the `?? data?.total` fallback) |
+| `categoryMerchantsResponseSchema.meta` | 402 | `discoveryMetaSchema` | **DELETE** — requires §0.12(b) source cleanup at `CategoryResultsScreen.tsx:170` first (clean `data?.branchMeta`, drop the `?? data?.meta` fallback) |
+| `inAreaResponseSchema.merchants` | 410 | `z.array(merchantTileSchema)` | **DELETE** — zero source consumers (Map reads `data?.branches` only) |
+| `inAreaResponseSchema.total` | 411 | `z.number()` | **DELETE** — `mapDataView.ts:62` falls back to `branches.length` (NOT `data?.total`); zero source consumers |
+| `inAreaResponseSchema.meta` | 412 | `inAreaMetaSchema` | **🛑 KEEP** per §0.12(a) — `mapDataView.ts:63` reads `d?.branchMeta ?? d?.meta` and InAreaResponse has NO `branchMeta` field on the wire, so `.meta` is the SINGLE COHERENT envelope for Map's default in-area mode. Removing this breaks `<MapEmptyArea>` empty-state classification + `<ViewportLocalityBadge>`. |
 
 **NOT touched** (kept as branch-first canonical schemas): `homeFeedResponseSchema.locationContext`, `homeFeedResponseSchema.campaigns` (banner-level, not merchant array), `homeFeedResponseSchema.featuredBranches`, `homeFeedResponseSchema.trendingBranches`, `homeFeedResponseSchema.nearbyByCategoryBranches`, `searchResponseSchema.branches/totalBranches/branchMeta`, `categoryMerchantsResponseSchema.branches/totalBranches/branchMeta`, `inAreaResponseSchema.branches`, `merchantTileSchema` itself (still used internally — see §1.3).
 
-### 1.2 Customer-app source consumers — audit-verified ZERO
+### 1.2 Customer-app source consumers — audit (corrected 2026-05-21 per §0.12(c))
 
-Grep on `apps/customer-app/src/**` (excluding `lib/api/discovery.ts` itself and the test directory) for:
-- `data?.merchants` / `data.merchants`
-- `data?.featured` / `data.featured`
-- `data?.trending` / `data.trending`
-- `data?.nearbyByCategory`
-- `data?.total` / `data.total` (legacy total — distinct from `totalBranches`)
+**Original claim was wrong** — my initial grep missed the `??` fallback pattern. Re-audit:
 
-Returns **zero hits**. Phase 2.5 left no customer-app source consumers of legacy fields. Verified 2026-05-21.
+**Direct reads** (e.g. `data?.merchants` accessing the field as primary value) — **zero hits**. Phase 2.5 left no surfaces that primary-read legacy fields.
 
-### 1.3 Constraint — `merchantTileSchema` SHAPE STAYS
+**Fallback reads** (e.g. `data?.branchMeta ?? data?.meta`) — **TWO LEGITIMATE CONSUMERS**:
 
-The `merchantTileSchema` declaration itself (the Zod schema describing the merchant tile shape) stays in `discovery.ts` because:
-- Internal to `branchTileSchema`'s `merchant` nested grouping shape (line ~190 — `branchTileMerchantGroupingSchema` carries similar fields)
-- Used to type `merchantTileSchema` for the legacy fixture if we kept it (but we're removing the fixture per §0.3)
+| File | Line | Pattern | Action |
+|---|---|---|---|
+| `apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx` | 164 | `data?.totalBranches ?? data?.total ?? 0` | Phase 3a Task E cleans → `data?.totalBranches ?? 0` |
+| `apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx` | 170 | `data?.branchMeta ?? data?.meta` | Phase 3a Task E cleans → `data?.branchMeta` |
+| `apps/customer-app/src/features/map/utils/mapDataView.ts` | 63 | `d?.branchMeta ?? d?.meta` | **🛑 STAYS** — load-bearing for InAreaResponse default-mode meta envelope (§0.12(a)) |
 
-Actually — once the type alias `MerchantTile` is deleted AND every customer-app schema field that references `z.array(merchantTileSchema)` is deleted, the `merchantTileSchema` declaration itself becomes unused. **Phase 3a removes it too** if the audit confirms zero remaining usages post Task E. Otherwise keep it.
+The CategoryResultsScreen `??` fallbacks were added defensively in Phase 2.4 wave-2 when `branchMeta` was first introduced; Phase 2.4 made `branchMeta` + `totalBranches` canonical, so the legacy fallbacks are now dead-code safety nets. Removing them is the Phase 3a source cleanup.
+
+`mapDataView.ts:63` is fundamentally different: InAreaResponse's wire shape has only `meta` (the route does NOT emit `branchMeta`), so the fallback to `d?.meta` is the SOURCE of meta data for Map's default in-area mode — not a fallback. This is why `inAreaResponseSchema.meta` MUST STAY.
+
+**Other legacy field reads** (direct `data?.merchants` / `data?.featured` / `data?.trending` / `data?.nearbyByCategory`) — still **zero hits** as previously stated.
+
+### 1.2.1 Customer-app source files affected by Phase 3a
+
+| File | Why touched |
+|---|---|
+| `apps/customer-app/src/lib/api/discovery.ts` | Drop `MerchantTile` + legacy fields from response schemas + cascade dependents (§0.12(d)) |
+| `apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx` | Drop the 2-line legacy `??` fallback per §0.12(b) (Task E) |
+| (no other src files) | — |
+
+### 1.3 `merchantTileSchema` removal + cascade audit (corrected per §0.12(d))
+
+**Audit-verified cascade chain** (`apps/customer-app/src/lib/api/discovery.ts` references):
+
+| Symbol | Line | Other consumers in src tree? |
+|---|---|---|
+| `merchantTileSchema` (Zod) | 84 | Only referenced internally (lines 306-411 via `z.array(merchantTileSchema)`) — all those references gone in Task F |
+| `MerchantTile` type alias | 149 | Audit-verified zero src-tree consumers outside discovery.ts itself |
+| `supplyTierSchema` | 18 | Only referenced internally at line 132 (`supplyTier: supplyTierSchema.nullable().optional()` inside `merchantTileSchema`) |
+| `SupplyTier` type alias | 19 | Audit-verified zero src-tree consumers outside discovery.ts itself |
+| `highlightSchema` | 72 | Only referenced internally at line 134 (`highlights: z.array(highlightSchema).optional()` inside `merchantTileSchema`) |
+| `MerchantTileHighlight` type alias | 78 | Audit-verified zero src-tree consumers outside discovery.ts itself |
+
+**Conclusion**: ALL FIVE symbols become orphans once `merchantTileSchema`'s 4 references (in the four response schemas) are deleted. Phase 3a Task F removes the entire cascade.
+
+**Defensive verification step in Task F**: re-grep each symbol after the response-schema deletions. If any unexpected src-tree consumer surfaces (e.g. a third-party import discovered late), PAUSE and escalate rather than blind-delete.
+
+**Branch-side schemas are independent**: `branchTileSchema` declares its own `branchTileMerchantGroupingSchema` (lines ~187-200) with its own `voucherCount` / `maxEstimatedSaving` / etc., AND its own `branchTileHighlightSchema` (line ~187-190). These do NOT depend on `supplyTierSchema` / `highlightSchema` / `merchantTileSchema`. Removing the merchant-side cascade does not touch the branch-side.
 
 ### 1.4 Test files using `makeMerchantTile` (9 consumers)
 
@@ -140,7 +169,8 @@ Patterns:
 
 | File | Action |
 |---|---|
-| `apps/customer-app/src/lib/api/discovery.ts` | Drop `MerchantTile` type alias + 13 legacy fields from 4 response schemas; audit-conditional drop of `merchantTileSchema` if unused |
+| `apps/customer-app/src/lib/api/discovery.ts` | Drop `MerchantTile` type alias + legacy fields from `homeFeedResponseSchema`, `searchResponseSchema`, `categoryMerchantsResponseSchema` (merchants + total + meta); drop `merchants` + `total` from `inAreaResponseSchema` (KEEP `.meta` per §0.12(a)); drop `merchantTileSchema` + cascade dependents (`supplyTierSchema` / `SupplyTier` type / `highlightSchema` / `MerchantTileHighlight` type) per §0.12(d) |
+| **NEW per §0.12(b)**: `apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx` | Lines 164 + 170 source cleanup: `data?.totalBranches ?? data?.total ?? 0` → `data?.totalBranches ?? 0`; `data?.branchMeta ?? data?.meta` → `data?.branchMeta`. Drops the dead legacy `??` fallbacks added defensively in Phase 2.4. Comment context updated to reflect the canonical post-2.4 contract. |
 | `apps/customer-app/tests/features/search/CategoryResultsScreen.test.tsx` | `makeMerchantTile` → `makeBranchTile`; remove legacy `merchants[]` from mock payloads (Zod strips them anyway, but cleaner to omit) |
 | `apps/customer-app/tests/features/search/CategoryResultsScreen.locality.test.tsx` | Same |
 | `apps/customer-app/tests/features/map/useInAreaBranches.test.tsx` | Same |
@@ -367,54 +397,153 @@ EOF
 )"
 ```
 
-### Task E: Drop legacy schema fields + `MerchantTile` type alias from `discovery.ts`
+### Task E: CategoryResultsScreen source cleanup (per §0.12(b))
 
-**Buildable end-state**: Zod schemas declare branch-first shape only; wire keeps emitting both shapes; Zod default behaviour strips legacy keys silently at parse time. Tsc + jest still pass.
+**Buildable end-state**: `CategoryResultsScreen.tsx` reads `data?.totalBranches ?? 0` and `data?.branchMeta` directly. Tsc + jest still pass. Unblocks Task F's schema deletion of `categoryMerchantsResponseSchema.total/meta`.
 
-- [ ] **E1** Open `apps/customer-app/src/lib/api/discovery.ts`. Apply edits per §1.1:
+- [ ] **E1** Confirm exact line numbers:
+
+```bash
+grep -n "data?\.totalBranches\|data?\.branchMeta" apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx
+```
+
+Expected (against `a069a2e`): line 164 + line 170.
+
+- [ ] **E2** Apply the two-line cleanup. Before / after:
+
+```diff
+- const total     = data?.totalBranches ?? data?.total ?? 0
++ const total     = data?.totalBranches ?? 0
+```
+
+```diff
+- const meta      = data?.branchMeta ?? data?.meta
++ const meta      = data?.branchMeta
+```
+
+Update any inline comments that reference "legacy fallback" or "Phase 2.4 defensive fallback" near these lines to reflect the post-3a canonical contract (branchMeta + totalBranches are canonical; no legacy fallback needed). Comment context only — no other code changes.
+
+- [ ] **E3** Customer-app tsc clean (still should pass at this commit since schema legacy arm is intact):
+
+```bash
+cd apps/customer-app && npx tsc --noEmit 2>&1 | tail -5
+```
+
+- [ ] **E4** Run Category test suites:
+
+```bash
+cd apps/customer-app && npx jest tests/features/search/CategoryResultsScreen --forceExit --silent 2>&1 | tail -5
+```
+
+All pins pass.
+
+- [ ] **E5** Full customer-app jest sweep — must still pass.
+
+- [ ] **E6** Commit:
+
+```bash
+cd /Users/shebinchaliyath/Developer/Redeemo
+git add apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx
+git commit -m "$(cat <<'EOF'
+feat(category): drop legacy total/meta fallbacks; canonicalise on branchMeta + totalBranches
+
+Phase 3a Task E (per plan §0.12(b)). The defensive `??` fallbacks on
+`data?.total` and `data?.meta` that Phase 2.4 wave-2 added to
+CategoryResultsScreen.tsx are now dead code. Phase 2.4 made
+`branchMeta` + `totalBranches` canonical on the category-merchants
+endpoint; the legacy `total` + `meta` arms have zero remaining
+customer-app readers.
+
+  - Line 164: `data?.totalBranches ?? data?.total ?? 0` → `data?.totalBranches ?? 0`
+  - Line 170: `data?.branchMeta ?? data?.meta` → `data?.branchMeta`
+
+Wire emission is UNCHANGED — backend keeps emitting both shapes
+(customer-web still consumes the legacy arm). Customer-app simply
+stops referencing the legacy fields, which unblocks Task F's removal
+of `categoryMerchantsResponseSchema.total/meta` schema declarations.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task F: Drop legacy schema fields + `MerchantTile` type alias + cascade dependents from `discovery.ts`
+
+**Buildable end-state**: Zod schemas declare branch-first shape only; wire keeps emitting both shapes; Zod default behaviour strips legacy keys silently at parse time. `inAreaResponseSchema.meta` STAYS per §0.12(a). All `merchantTileSchema` dependents (cascade per §0.12(d)) removed if audit-confirmed orphan. Tsc + jest still pass.
+
+- [ ] **F1** Open `apps/customer-app/src/lib/api/discovery.ts`. Apply edits per §1.1 (corrected per §0.12):
   - Line 149: DELETE `export type MerchantTile = z.infer<typeof merchantTileSchema>`
   - Lines 306-313: DELETE `featured`, `trending`, `nearbyByCategory` field declarations from `homeFeedResponseSchema`
   - Lines 376-378: DELETE `merchants`, `total`, `meta` field declarations from `searchResponseSchema`
   - Lines 400-402: DELETE `merchants`, `total`, `meta` field declarations from `categoryMerchantsResponseSchema`
-  - Lines 410-412: DELETE `merchants`, `total`, `meta` field declarations from `inAreaResponseSchema`
-  - Inline comments referencing the legacy fields ("Legacy `merchants` field stays during the additive period…") — update to reflect that the customer-app schema no longer carries the legacy arms (wire still emits, but customer-app strips on parse).
+  - Line 410: DELETE `merchants` field declaration from `inAreaResponseSchema`
+  - Line 411: DELETE `total` field declaration from `inAreaResponseSchema`
+  - Line 412: **🛑 KEEP `meta: inAreaMetaSchema`** per §0.12(a) — load-bearing for Map default in-area mode (`mapDataView.ts:63` reads `d?.branchMeta ?? d?.meta`; InAreaResponse has NO `branchMeta` field on the wire, so `.meta` is the SINGLE coherent envelope).
+  - Update inline comments referencing legacy fields to reflect that customer-app schema no longer carries the legacy `merchants`/`total` arms (wire still emits; customer-app strips on parse). For `inAreaResponseSchema.meta`: ADD a comment explaining why this field STAYS (InAreaResponse has no branchMeta on the wire, so meta is the only envelope).
 
-- [ ] **E2** Audit whether `merchantTileSchema` Zod declaration itself is still referenced after the field deletions:
+- [ ] **F2** Cascade audit per §1.3 — confirm no other src-tree consumers exist:
 
 ```bash
-grep -n "merchantTileSchema" apps/customer-app/src/lib/api/discovery.ts
+grep -rnE "\bsupplyTierSchema\b|\bSupplyTier\b|\bMerchantTileHighlight\b|\bhighlightSchema\b|\bmerchantTileSchema\b" apps/customer-app/src --include="*.ts" --include="*.tsx" 2>/dev/null | grep -v "lib/api/discovery.ts"
 ```
 
-If zero hits remain post-edits, also delete the `merchantTileSchema` declaration. If any hit remains (e.g. used by `branchTileMerchantGroupingSchema` indirectly), KEEP it. Plan-time assumption: it's likely standalone and can go.
+Expected: EMPTY (per §1.3 audit). If any consumer surfaces, PAUSE and escalate — do NOT blind-delete the dependents.
 
-- [ ] **E3** Customer-app tsc clean:
+- [ ] **F3** Delete `merchantTileSchema` + cascade dependents at `discovery.ts`:
+  - Line ~84: DELETE `const merchantTileSchema = z.object({...})` (entire block)
+  - Line ~18: DELETE `const supplyTierSchema = z.enum(['NEARBY', 'CITY', 'DISTANT'])`
+  - Line ~19: DELETE `export type SupplyTier = z.infer<typeof supplyTierSchema>`
+  - Line ~72: DELETE `const highlightSchema = z.object({...})` (entire block)
+  - Line ~78: DELETE `export type MerchantTileHighlight = z.infer<typeof highlightSchema>`
+
+  Defensive: if F2 returned ANY hit, KEEP the schema + its dependents. Branch-side schemas (`branchTileMerchantGroupingSchema` / `branchTileHighlightSchema`) are independent per §1.3.
+
+- [ ] **F4** Customer-app tsc clean:
 
 ```bash
 cd apps/customer-app && npx tsc --noEmit 2>&1 | tail -20
 ```
 
-Expected: zero new errors. If any source file fails because it referenced `MerchantTile` or a legacy field, PAUSE — Task A1/A2 should have caught it.
+Expected: zero new errors. If any source file fails because it referenced `MerchantTile` / `SupplyTier` / `MerchantTileHighlight` or a legacy field, PAUSE — Task A1/A2 + F2 should have caught it.
 
-- [ ] **E4** Customer-app jest sweep — must still pass.
+- [ ] **F5** Customer-app jest sweep — must still pass.
 
-- [ ] **E5** Commit:
+- [ ] **F6** Commit:
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo
 git add apps/customer-app/src/lib/api/discovery.ts
 git commit -m "$(cat <<'EOF'
-chore(customer-app): drop MerchantTile type + legacy schema fields
+chore(customer-app): drop MerchantTile type + legacy schema fields + cascade dependents
 
-Phase 3a Task E. Customer-app `apps/customer-app/src/lib/api/discovery.ts`
-no longer declares the merchant-first response arm:
+Phase 3a Task F. Customer-app `apps/customer-app/src/lib/api/discovery.ts`
+no longer declares the merchant-first response arm and its merchant-
+only auxiliary helpers:
 
   - DELETED: `MerchantTile` type alias (line 149).
   - DELETED from `homeFeedResponseSchema`: `featured`, `trending`,
     `nearbyByCategory` legacy fields.
   - DELETED from `searchResponseSchema`: `merchants`, `total`, `meta`.
   - DELETED from `categoryMerchantsResponseSchema`: `merchants`,
-    `total`, `meta`.
-  - DELETED from `inAreaResponseSchema`: `merchants`, `total`, `meta`.
+    `total`, `meta` (unblocked by Task E source cleanup).
+  - DELETED from `inAreaResponseSchema`: `merchants`, `total`.
+  - 🛑 KEPT `inAreaResponseSchema.meta` — load-bearing for Map default
+    in-area mode (`mapDataView.ts:63` reads `d?.branchMeta ?? d?.meta`;
+    InAreaResponse has NO `branchMeta` on the wire, so `meta` is the
+    SINGLE coherent envelope for Map's default mode).
+  - DELETED merchant-only auxiliary symbols (cascade per plan §0.12(d)
+    + §1.3 audit-confirmed zero remaining src-tree consumers):
+      - `merchantTileSchema` declaration
+      - `supplyTierSchema` Zod enum
+      - `SupplyTier` type alias
+      - `highlightSchema` Zod object
+      - `MerchantTileHighlight` type alias
+
+Branch-side schemas (`branchTileSchema` / `branchTileMerchantGroupingSchema`
+/ `branchTileHighlightSchema`) are independent and continue to declare
+their own shapes.
 
 Wire emission is UNCHANGED — backend keeps emitting both legacy and
 branch-first shapes (customer-web still reads the legacy contract).
@@ -431,11 +560,11 @@ EOF
 )"
 ```
 
-### Task F: Extend negative-pin meta-test
+### Task G: Extend negative-pin meta-test
 
 **Buildable end-state**: 2 new pins in the existing meta-test; total grows from 3 to 5 pins. Tsc + jest still pass.
 
-- [ ] **F1** Open `apps/customer-app/tests/_meta/phase-2-5-adapter-removed.test.ts`. Extend `FORBIDDEN_IMPORT_PATTERNS` with two new patterns AND add two new `it()` blocks for the Phase 3a invariants:
+- [ ] **G1** Open `apps/customer-app/tests/_meta/phase-2-5-adapter-removed.test.ts`. Extend `FORBIDDEN_IMPORT_PATTERNS` with two new patterns AND add two new `it()` blocks for the Phase 3a invariants:
 
 ```ts
 // Phase 3a additions (2026-05-21) — block reintroduction of the
@@ -476,7 +605,7 @@ Also extend the docstring at the top of the file to call out Phase 3a additions.
 
 Note: the meta-test walks `SRC_ROOT` (`apps/customer-app/src/`) only — it does NOT scan tests. Tests that legitimately reference `MerchantTile` in comments / regex patterns / their own scope are unaffected.
 
-- [ ] **F2** Run the meta-test:
+- [ ] **G2** Run the meta-test:
 
 ```bash
 cd apps/customer-app && npx jest tests/_meta/phase-2-5-adapter-removed.test.ts --forceExit --silent 2>&1 | tail -10
@@ -484,9 +613,9 @@ cd apps/customer-app && npx jest tests/_meta/phase-2-5-adapter-removed.test.ts -
 
 All 5 pins (3 existing + 2 new) pass.
 
-- [ ] **F3** Customer-app tsc + jest sweep — must still pass.
+- [ ] **G3** Customer-app tsc + jest sweep — must still pass.
 
-- [ ] **F4** Commit:
+- [ ] **G4** Commit:
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo
@@ -510,9 +639,9 @@ EOF
 )"
 ```
 
-### Task G: Pre-merge gate (sweeps + PR + device QA + merge + memory close-out)
+### Task H: Pre-merge gate (sweeps + PR + device QA + merge + memory close-out)
 
-- [ ] **G1** Full customer-app jest sweep — confirm baseline + test-count delta:
+- [ ] **H1** Full customer-app jest sweep — confirm baseline + test-count delta:
 
 ```bash
 cd apps/customer-app && npx jest --forceExit --silent 2>&1 | tail -6
@@ -520,9 +649,9 @@ cd apps/customer-app && npx jest --forceExit --silent 2>&1 | tail -6
 
 Expected: ~207 suites (same as Phase 2.5 baseline). Test count: 2097 baseline minus deleted legacy-arm assertions in Task C minus any merged tests + the 2 new meta-test pins from Task F. Estimated post-Phase-3a: ~207 suites / ~2090 tests (a few legacy-arm tests gone from `discovery.test.ts`).
 
-- [ ] **G2** Customer-app tsc clean.
+- [ ] **H2** Customer-app tsc clean.
 
-- [ ] **G3** Backend vitest sweep — verify NO backend changes (Phase 3a touches zero backend code, so a clean sweep is the expected baseline):
+- [ ] **H3** Backend vitest sweep — verify NO backend changes (Phase 3a touches zero backend code, so a clean sweep is the expected baseline):
 
 ```bash
 cd /Users/shebinchaliyath/Developer/Redeemo && npx vitest run 2>&1 | tail -6
@@ -530,20 +659,20 @@ cd /Users/shebinchaliyath/Developer/Redeemo && npx vitest run 2>&1 | tail -6
 
 Same Neon-flake pattern from Phase 2.5 close-out is expected and pre-existing; isolation re-runs verify each flake passes cleanly.
 
-- [ ] **G4** Push branch + open PR titled `Phase 3a — customer-app residual legacy cleanup`. PR body must:
+- [ ] **H4** Push branch + open PR titled `Phase 3a — customer-app residual legacy cleanup`. PR body must:
   - Explicitly say no backend changes, no wire-shape changes, no customer-web changes
   - List the 11 files modified + 1 file deleted + 2 new meta-test pins added
   - Confirm `<SavePill>` / `<VoucherCountPill>` unchanged (§BY escalation gate not triggered)
   - Cross-ref §CU as the deferred sibling for Phase 3b backend cleanup
   - Affirm Plan 4 M5.3 stays deferred
 
-- [ ] **G5** Owner device QA (lighter than Phase 2.5 — no visual surface impacted). Verification:
+- [ ] **H5** Owner device QA (lighter than Phase 2.5 — no visual surface impacted). Verification:
   1. Customer-app builds + runs (Metro reload with cache clear after merge).
   2. Home / Search / Map / Category surfaces all render correctly (sanity smoke test — these should be entirely unaffected since they read branch-first arms only).
   3. Backend continues serving (no API regression).
   4. Customer-web's QA path is OUT of scope but worth a spot check that it still works (it should — wire unchanged).
 
-- [ ] **G6** SHA-bound merge once QA passes:
+- [ ] **H6** SHA-bound merge once QA passes:
 
 ```bash
 SHA=$(gh pr view N --json headRefOid --jq .headRefOid)
@@ -552,7 +681,7 @@ gh api "repos/MSC23-bot/Redeemo/compare/main...$SHA" --jq '{ahead_by, total_comm
 REDEEMO_PR_SCOPE_VERIFIED=$SHA gh pr merge N --merge
 ```
 
-- [ ] **G7** Post-merge memory close-out:
+- [ ] **H7** Post-merge memory close-out:
   - Create `project_discovery_rebaseline_phase3a_complete.md` topic file.
   - Update `project_current_state.md` to new main HEAD (Phase 3a SHIPPED; Phase 3b deferred under §CU).
   - Add deferred-followups §CU per §0.5 (NEW entry — see §6 below for the locked content).
@@ -569,14 +698,14 @@ REDEEMO_PR_SCOPE_VERIFIED=$SHA gh pr merge N --merge
 | Customer-app source file silently reads a legacy field after schema cleanup | Very low | Medium | A1 grep audit + tsc would catch; negative-pin meta-test in Task F is the standing future-proof. |
 | `makeBranchTile` doesn't perfectly substitute for `makeMerchantTile` (field path remap mismatch) | Low | Low | Task B's per-file jest runs catch breakage before commit. |
 | Deleted `discovery.test.ts` legacy assertions covered a real contract bug | Low | Low | Backend tests still verify legacy wire emission; customer-web's E2E if run would catch a real regression. |
-| `merchantTileSchema` Zod declaration still referenced internally after type-alias removal | Low | Low | Task E2 audit before deleting; KEEP if any reference found. |
+| `merchantTileSchema` Zod declaration still referenced internally after type-alias removal | Low | Low | Task F2 cascade audit before deleting; KEEP `merchantTileSchema` + dependents if any reference found (§1.3 conditional). |
 | Zod parse fails because wire emits a field the schema doesn't declare | None | — | Zod's default `z.object` strips unknown keys silently. Verified throughout Phase 2 by the fact that customer-app worked despite the wire emitting both shapes pre-Phase-3a. |
 | customer-web breaks | None | — | Phase 3a touches zero backend code and zero customer-web code. Wire is unchanged. |
 | Plan 4 M5.3 expectations re-surface | Low | Cosmetic | §CU deferred entry locks the dependency on customer-web migration. Owner aware. |
 
 ---
 
-## 6. New deferred-followups entry §CU (Task G7 content)
+## 6. New deferred-followups entry §CU (Task H7 content)
 
 Add the following block to `/Users/shebinchaliyath/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_deferred_followups_index.md` at the end of the file:
 
@@ -655,9 +784,9 @@ Add the following block to `/Users/shebinchaliyath/.claude/projects/-Users-shebi
 Same Tier 2 plan-first pattern as Phase 2.5:
 
 1. **Plan-lock commit** (this commit) — pause for owner review.
-2. **Implementer subagent** per task (B through F) sequentially. Each commit reviewed by spec-compliance + code-quality reviewer subagents before next task.
+2. **Implementer subagent** per task (B through G) sequentially. Each commit reviewed by spec-compliance + code-quality reviewer subagents before next task.
 3. **Owner device QA gate** (lighter than Phase 2.5 — no visual impact) across the customer-app build before merge.
 4. **SHA-bound merge** via the env-var override hook contract.
-5. **Post-merge bookkeeping** per Task G7.
+5. **Post-merge bookkeeping** per Task H7.
 
 **Pause point:** plan-lock commit + owner review before Task A1 starts.
