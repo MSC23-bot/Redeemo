@@ -18,6 +18,7 @@ import { seedCuratedCatchmentEdges } from './seed-data/catchmentOverrides'
 import { seedMarkets } from './seed-data/markets'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
 import { DEMO_MERCHANT_ENRICHMENT, DEV_QA_PIN, REAL_MERCHANT_PIN_BRANCH_IDS } from './seed-data/demoMerchantEnrichment'
+import { FEATURED_MERCHANT_FIXTURES, CAMPAIGN_FIXTURES } from './seed-data/homeFeedFixtures'
 
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
 
@@ -1678,6 +1679,88 @@ async function seedLocalities(): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Home feed minimum-viable seed (Tier 1, owner-approved 2026-05-21)
+//
+// Populates `FeaturedMerchant` + `Campaign` tables so `getHomeFeed()`
+// returns non-empty Featured + Campaign rails on dev DB. Stage 1-4
+// seed enrichment did NOT scope these tables; Phase 2.3 Home device
+// QA surfaced the gap. Source-of-truth data in
+// `prisma/seed-data/homeFeedFixtures.ts`. All operations idempotent
+// (upsert by stable id) — safe to re-run.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function seedHomeFeedFixtures(): Promise<void> {
+  const now = new Date()
+  // startDate intentionally in the past (1 day ago) so the home-feed
+  // query's `startDate: { lte: now }` predicate fires immediately on
+  // first seed run; endDate far in the future so the rails don't drift
+  // out of range during demo.
+  const startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  const endDate   = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000)
+
+  for (const f of FEATURED_MERCHANT_FIXTURES) {
+    await prisma.featuredMerchant.upsert({
+      where: { id: f.id },
+      create: {
+        id:             f.id,
+        merchantId:     f.merchantId,
+        startDate,
+        endDate,
+        costGbp:        100.00,
+        radiusMiles:    50,
+        targetLocations: [],
+        sortByDistance: true,
+        paymentStatus:  'PAID',
+        isActive:       true,
+      },
+      update: {
+        startDate,
+        endDate,
+        costGbp:        100.00,
+        radiusMiles:    50,
+        targetLocations: [],
+        sortByDistance: true,
+        paymentStatus:  'PAID',
+        isActive:       true,
+      },
+    })
+  }
+
+  for (const c of CAMPAIGN_FIXTURES) {
+    await prisma.campaign.upsert({
+      where: { id: c.id },
+      create: {
+        id:              c.id,
+        name:            c.name,
+        description:     c.description,
+        bannerImageUrl:  c.bannerImageUrl,
+        startDate,
+        endDate,
+        status:          'ACTIVE',
+        // Plan 4b deferred fields stay at schema defaults — explicit
+        // empty arrays + nulls for clarity; the home-feed query at
+        // service.ts:1270-1279 reads none of them in Plan 4a.
+        targetLocations: [],
+      },
+      update: {
+        name:            c.name,
+        description:     c.description,
+        bannerImageUrl:  c.bannerImageUrl,
+        startDate,
+        endDate,
+        status:          'ACTIVE',
+        targetLocations: [],
+      },
+    })
+  }
+
+  console.log(
+    `✓ Home feed fixtures: ${FEATURED_MERCHANT_FIXTURES.length} active FeaturedMerchant ` +
+    `+ ${CAMPAIGN_FIXTURES.length} active Campaign rows`,
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2002,6 +2085,15 @@ async function main() {
   // already exist; this layer adds logo / banner / hours / photos / 2nd
   // branch / reviewers / reviews / verified redemption on top.
   await seedDemoMerchantEnrichment()
+
+  // ── Home feed minimum-viable seed (Tier 1, owner-approved 2026-05-21) ──
+  // Populates the `FeaturedMerchant` + `Campaign` tables that
+  // `getHomeFeed()` reads but the Stage 1-4 seed enrichment did not
+  // touch. Without these rows, Home's <FeaturedCarousel> and
+  // <CampaignCarousel> rails render empty on dev DB. Runs AFTER demo
+  // merchant enrichment so the FK targets (merchant IDs) exist + are
+  // ACTIVE.
+  await seedHomeFeedFixtures()
 
   // ── Backfill denormalised merchant counts ──
   await recomputeCategoryCounts(prisma)
