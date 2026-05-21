@@ -12,6 +12,7 @@ import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { LocalityCaption } from '@/design-system/components/LocalityCaption'
 import { FilterSheet, FilterState } from '../components/FilterSheet'
+import { CategoryResultsSkeleton } from '../components/CategoryResultsSkeleton'
 
 /**
  * CategoryResultsScreen — Hybrid hook strategy (PR B Milestone 4, Option A).
@@ -244,31 +245,40 @@ export function CategoryResultsScreen() {
       {/* Banner ABOVE the list when scope was widened but results exist */}
       {expandedBanner && <EmptyStateMessage reason="expanded_to_wider" />}
 
-      {/* Results list */}
-      <FlatList
-        data={branches}
-        keyExtractor={(branch) => branch.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item: branch }) => (
-          <BranchTile
-            branch={branch}
-            onPress={() => {
-              // Branch-keyed identity (Phase 2.4): branch.id is the load-bearing
-              // identity for the ?branch= URL contract (branch-aware Merchant
-              // Profile + `from=category&categoryId=` for back-nav — see
-              // resolveBackNavigation.ts).
-              const merchantId = branch.merchant.id
-              const branchId   = branch.id
-              const url = id
-                ? `/merchant/${merchantId}?branch=${branchId}&from=category&categoryId=${id}`
-                : `/merchant/${merchantId}?branch=${branchId}&from=category`
-              router.push(url as any)
-            }}
-          />
-        )}
-        ListEmptyComponent={<EmptyStateMessage reason={emptyReason} />}
-      />
+      {/* §CS Phase A — skeleton state for the cold-load window.
+          Gates: loading AND zero branches.  Once `branches.length > 0`
+          (cache hit or successful refetch) the real list takes over
+          immediately — no skeleton flash on filter changes.  The
+          settled-empty path still routes through `<EmptyStateMessage>`
+          (preserved as `ListEmptyComponent` below). */}
+      {isLoading && branches.length === 0 ? (
+        <CategoryResultsSkeleton />
+      ) : (
+        <FlatList
+          data={branches}
+          keyExtractor={(branch) => branch.id}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item: branch }) => (
+            <BranchTile
+              branch={branch}
+              onPress={() => {
+                // Branch-keyed identity (Phase 2.4): branch.id is the load-bearing
+                // identity for the ?branch= URL contract (branch-aware Merchant
+                // Profile + `from=category&categoryId=` for back-nav — see
+                // resolveBackNavigation.ts).
+                const merchantId = branch.merchant.id
+                const branchId   = branch.id
+                const url = id
+                  ? `/merchant/${merchantId}?branch=${branchId}&from=category&categoryId=${id}`
+                  : `/merchant/${merchantId}?branch=${branchId}&from=category`
+                router.push(url as any)
+              }}
+            />
+          )}
+          ListEmptyComponent={<EmptyStateMessage reason={emptyReason} />}
+        />
+      )}
 
       {/* Filter sheet */}
       <FilterSheet
