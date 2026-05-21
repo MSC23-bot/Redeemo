@@ -155,19 +155,15 @@ export function CategoryResultsScreen() {
   // Pick the active dataset from whichever hook is enabled.
   const data      = hasNonScopeFilters ? searchQuery.data      : categoryQuery.data
   const isLoading = hasNonScopeFilters ? searchQuery.isLoading : categoryQuery.isLoading
-  // Branch-first (Phase 2.4): render one tile per branch. Same
+  // Branch-first (Phase 2.4 + 3a): render one tile per branch. Same
   // `?branch=&from=category&categoryId=` contract as Phase 2.1 Search +
-  // Phase 2.2 Map + Phase 2.3 Home. `total` falls back to legacy `total`
-  // only defensively — `totalBranches` is now schema-required per Task B,
-  // so Zod parse would have failed before this point if it were missing.
+  // Phase 2.2 Map + Phase 2.3 Home. `branchMeta` + `totalBranches` are
+  // the canonical metadata + count source — Phase 3a (per plan §0.12(b))
+  // dropped the legacy `?? data?.total` and `?? data?.meta` defensive
+  // fallbacks now that Phase 2.4 made the branch-first envelope canonical.
   const branches  = data?.branches ?? []
-  const total     = data?.totalBranches ?? data?.total ?? 0
-  // PR #120 device-QA fix (2026-05-21) — read branch-aligned meta when the
-  // backend emits it. Without this, pill counts + emptyStateReason +
-  // expandedBanner derived from merchant-tier meta while the list rendered
-  // branches. Mirrors SearchScreen's branchMeta-first read (line 128).
-  // Legacy `meta` fallback preserves cold-cache + pre-fix-server behaviour.
-  const meta      = data?.branchMeta ?? data?.meta
+  const total     = data?.totalBranches ?? 0
+  const meta      = data?.branchMeta
 
   // PR #120 device-QA fix wave 3 (2026-05-21) — cumulative pill counts.
   //

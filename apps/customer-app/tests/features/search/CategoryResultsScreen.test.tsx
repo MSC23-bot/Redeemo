@@ -2,20 +2,13 @@ import React from 'react'
 import { render, waitFor, fireEvent } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CategoryResultsScreen } from '@/features/search/screens/CategoryResultsScreen'
-import { makeMerchantTile } from '../../fixtures/merchantTile'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
-const mockTile = makeMerchantTile({
-  id: 'm1', businessName: 'Test Merchant',
-  primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null },
-  voucherCount: 2, maxEstimatedSaving: 10, distance: 500, nearestBranchId: 'b1',
-  avgRating: 4.2, reviewCount: 15,
-})
-
-// Phase 2.4: canonical branch tile for the same merchant as mockTile.
+// Phase 3a Task B: migrated from makeMerchantTile to makeBranchTile.
 const mockBranchTile = makeBranchTile({
-  id: 'b1', distance: 500,
-  merchant: { id: 'm1', businessName: 'Test Merchant', voucherCount: 2, maxEstimatedSaving: 10 },
+  id: 'b1', distance: 500, avgRating: 4.2, reviewCount: 15,
+  merchant: { id: 'm1', businessName: 'Test Merchant', voucherCount: 2, maxEstimatedSaving: 10,
+    primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null, parentId: null } },
 })
 
 type EmptyReason = 'none' | 'expanded_to_wider' | 'no_uk_supply'
@@ -45,7 +38,7 @@ const mockState = {
   intentType:        'LOCAL'   as 'LOCAL' | 'DESTINATION' | 'MIXED',
   // Phase 2.4: categoryHookData now includes branches[] + totalBranches
   categoryHookData:  {
-    merchants: [mockTile],
+    merchants: [],
     total: 1,
     meta: mockMeta,
     branches: [mockBranchTile],
@@ -123,11 +116,12 @@ describe('CategoryResultsScreen', () => {
   beforeEach(() => {
     mockState.intentType          = 'LOCAL'
     mockState.categoryHookData    = {
-      merchants: [mockTile],
+      merchants: [],
       total: 1,
       meta: mockMeta,
       branches: [mockBranchTile],
       totalBranches: 1,
+      branchMeta: mockMeta,
     }
     mockState.categoryHookLoading = false
     mockState.searchHookData      = null
@@ -175,6 +169,7 @@ describe('CategoryResultsScreen', () => {
       meta: { ...mockMeta, emptyStateReason: 'none' },
       branches: [],
       totalBranches: 0,
+      branchMeta: { ...mockMeta, emptyStateReason: 'none' },
     }
     const { getByText } = render(<CategoryResultsScreen />, { wrapper })
     expect(getByText('No merchants found')).toBeTruthy()
@@ -182,11 +177,12 @@ describe('CategoryResultsScreen', () => {
 
   it('renders the wider-results banner when reason=expanded_to_wider AND results exist', () => {
     mockState.categoryHookData = {
-      merchants: [mockTile],
+      merchants: [],
       total: 1,
       meta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
       branches: [mockBranchTile],
       totalBranches: 1,
+      branchMeta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
     }
     const { getByText } = render(<CategoryResultsScreen />, { wrapper })
     expect(getByText(/showing wider results/)).toBeTruthy()
@@ -200,6 +196,7 @@ describe('CategoryResultsScreen', () => {
       meta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
       branches: [],
       totalBranches: 0,
+      branchMeta: { ...mockMeta, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
     }
     const { getByText } = render(<CategoryResultsScreen />, { wrapper })
     expect(getByText(/No matches in the UK yet/)).toBeTruthy()
@@ -365,7 +362,7 @@ describe('CategoryResultsScreen', () => {
       // branchMeta: {nearbyCount: 2, cityCount: 1, distantCount: 0} →
       //   Nearby · 2, Your city · 2+1 = 3, More places · 2+1+0 = 3
       mockState.categoryHookData = {
-        merchants: [mockTile],
+        merchants: [],
         total: 1,
         meta: { ...mockMeta, nearbyCount: 99, cityCount: 99, distantCount: 99 },
         branches: [mockBranchTile],
@@ -384,23 +381,13 @@ describe('CategoryResultsScreen', () => {
       expect(queryByText(/More places · 0/)).toBeNull()
     })
 
-    it('falls back to legacy meta when branchMeta is absent, still CUMULATIVE', () => {
-      // Back-compat pin: pre-fix server / cold cache → branchMeta omitted →
-      // read legacy meta. Counts are STILL cumulative regardless of source.
-      // legacy meta = {nearbyCount: 5, cityCount: 12, distantCount: 30} →
-      //   Nearby · 5, Your city · 17, More places · 47
-      mockState.categoryHookData = {
-        merchants: [mockTile],
-        total: 1,
-        meta: { ...mockMeta, nearbyCount: 5, cityCount: 12, distantCount: 30 },
-        branches: [mockBranchTile],
-        totalBranches: 1,
-      }
-      const { getByText } = render(<CategoryResultsScreen />, { wrapper })
-      expect(getByText(/Nearby · 5/)).toBeTruthy()
-      expect(getByText(/Your city · 17/)).toBeTruthy()
-      expect(getByText(/More places · 47/)).toBeTruthy()
-    })
+    // Phase 3a Task E: the "falls back to legacy meta when branchMeta is
+    // absent" pin was REMOVED — Phase 3a §0.12(b) dropped the screen's
+    // legacy `?? data?.meta` fallback because Phase 2.4 made branchMeta
+    // canonical. The post-3a contract is: branchMeta is the only source
+    // of pill counts + emptyStateReason; legacy meta is silently stripped
+    // by Zod at parse (or simply not consumed). No fallback semantics
+    // remain to pin.
 
     it('cumulative pill counts mirror SearchScreen formula (regression pin against per-tier reversion)', () => {
       // Locks the cumulative arithmetic explicitly. If someone reverts to
@@ -410,7 +397,7 @@ describe('CategoryResultsScreen', () => {
       //   Per-tier (broken): Nearby · 2, Your city · 0, More places · 3
       //   Cumulative (fix):  Nearby · 2, Your city · 2, More places · 5
       mockState.categoryHookData = {
-        merchants: [mockTile],
+        merchants: [],
         total: 1,
         meta: mockMeta,
         branches: [mockBranchTile],
@@ -432,7 +419,7 @@ describe('CategoryResultsScreen', () => {
       // is 'none', the banner does NOT render — even when legacy meta
       // says 'expanded_to_wider' (the merchant-tier opinion).
       mockState.categoryHookData = {
-        merchants: [mockTile],
+        merchants: [],
         total: 1,
         meta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
         branches: [mockBranchTile],
@@ -503,7 +490,7 @@ describe('CategoryResultsScreen', () => {
       // canonical default path stays canonical through a route change:
       // category data renders on the new id with no filter leakage.
       mockState.categoryHookData = {
-        merchants: [mockTile],
+        merchants: [],
         total: 1,
         meta: mockMeta,
         branches: [makeBranchTile({ id: 'beauty-branch', merchant: { id: 'beauty-m', businessName: 'Beauty Place' } })],

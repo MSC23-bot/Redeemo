@@ -4,19 +4,11 @@
 import React from 'react'
 import { render, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { makeMerchantTile } from '../../fixtures/merchantTile'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
-const mockTile = makeMerchantTile({
-  id: 'm1', businessName: 'Test Merchant',
-  primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null },
-  voucherCount: 2, maxEstimatedSaving: 10, distance: 500, nearestBranchId: 'b1',
-  avgRating: 4.2, reviewCount: 15,
-})
-
-// Phase 2.4: canonical branch tile to accompany the legacy merchantTile.
+// Phase 3a Task B: migrated from makeMerchantTile to makeBranchTile.
 const mockBranchTile = makeBranchTile({
-  id: 'b1', distance: 500,
+  id: 'b1', distance: 500, avgRating: 4.2, reviewCount: 15,
   merchant: { id: 'm1', businessName: 'Test Merchant', voucherCount: 2, maxEstimatedSaving: 10 },
 })
 
@@ -38,17 +30,20 @@ jest.mock('@/hooks/useCategoryMerchants', () => ({
   useCategoryMerchants: (id: string | null) => ({
     data: id
       ? {
-          merchants: [mockTile],
+          merchants: [],
           total: 1,
-          meta: {
+          meta: baseMeta,
+          // Phase 2.4: branch-first fields required by categoryMerchantsResponseSchema
+          branches: [mockBranchTile],
+          totalBranches: 1,
+          // Phase 3a Task E: screen reads branchMeta only (legacy meta
+          // fallback removed). effectiveLocality is sourced from branchMeta.
+          branchMeta: {
             ...baseMeta,
             ...(mockState.effectiveLocality !== null
               ? { effectiveLocality: mockState.effectiveLocality }
               : {}),
           },
-          // Phase 2.4: branch-first fields required by categoryMerchantsResponseSchema
-          branches: [mockBranchTile],
-          totalBranches: 1,
         }
       : undefined,
     isLoading: false,

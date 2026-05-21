@@ -11,8 +11,6 @@
 import React from 'react'
 import { render } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { makeMerchantTile } from '../../fixtures/merchantTile'
-
 // ─── react-native-maps mock ──────────────────────────────────────────────────
 jest.mock('react-native-maps', () => {
   const ReactLib = require('react')
@@ -98,12 +96,6 @@ function wrapper({ children }: { children: React.ReactNode }) {
 
 const LOADER_ACCESSIBILITY_LABEL = 'Loading nearby merchants'
 
-const mockTile = makeMerchantTile({
-  id: 'm1', businessName: 'Sample',
-  primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null },
-  latitude: 51.5074, longitude: -0.1278,
-})
-
 describe('MapScreen — §BH first-fetch loader', () => {
   beforeEach(() => {
     mockState.inAreaData     = null
@@ -130,7 +122,7 @@ describe('MapScreen — §BH first-fetch loader', () => {
     // not the legacy `merchants.length`.
     const { makeBranchTile } = require('../../fixtures/branchTile')
     mockState.inAreaData = {
-      merchants: [mockTile],
+      merchants: [],
       branches:  [makeBranchTile({ id: 'brn1', branchLatitude: 51.5, branchLongitude: -0.1 })],
       total: 1,
       meta: { resolvedArea: 'Test', nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },

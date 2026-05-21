@@ -4,8 +4,6 @@
 import React from 'react'
 import { render, act } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { makeMerchantTile } from '../../fixtures/merchantTile'
-
 // ─── react-native-maps mock ──────────────────────────────────────────────────
 let mockOnRegionChangeComplete: ((region: unknown) => void) | null = null
 const mockAnimateToRegion = jest.fn()
@@ -28,12 +26,6 @@ jest.mock('react-native-maps', () => {
 
 // ─── Hook mocks ──────────────────────────────────────────────────────────────
 type BBox = { minLat: number; maxLat: number; minLng: number; maxLng: number }
-
-const mockTile = makeMerchantTile({
-  id: 'm1', businessName: 'Bella',
-  primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null },
-  voucherCount: 1, maxEstimatedSaving: 5, distance: 600, nearestBranchId: 'b1',
-})
 
 const inAreaBaseMeta = {
   resolvedArea:     'Huddersfield',
@@ -63,7 +55,7 @@ jest.mock('@/features/map/hooks/useInAreaBranches', () => ({
     if (!enabled || bbox === null) return { data: undefined, isLoading: false }
     return {
       data: {
-        merchants: [mockTile],
+        merchants: [],
         branches:  [mockBranch],
         total: 1,
         meta: {
