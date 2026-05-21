@@ -2,20 +2,28 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 /**
- * Phase 2.5 negative-pin meta-test.
+ * Phase 2.5 + 3a negative-pin meta-test.
  *
- * Locks the post-Phase-2.5 invariant that NO surface-local
- * branchToMerchantTile adapter remains in the customer-app source tree.
- * Prevents future PRs from reintroducing the adapter pattern by:
+ * Locks the post-Phase-2.5-and-3a invariant that NO surface-local
+ * branchToMerchantTile adapter AND no merchant-first contract artefacts
+ * remain in the customer-app source tree. Prevents future PRs from
+ * reintroducing either pattern by:
  *
+ *   Phase 2.5 pins:
  *   1. Asserting the 3 adapter file paths do NOT exist.
  *   2. Asserting NO source file under apps/customer-app/src/** imports
  *      `branchToMerchantTile` or `branchToMerchantTileProps`.
  *   3. Asserting NO source file under apps/customer-app/src/features/**
  *      imports the old shared component path `'@/features/shared/MerchantTile'`.
  *
- * If any of these fail, Phase 2.5's structural goal is broken. Do NOT
- * relax these pins; instead, fix the offending import path.
+ *   Phase 3a pins (new):
+ *   4. Asserting NO source file imports the legacy `MerchantTile` type
+ *      alias from `'@/lib/api/discovery'` (Task F deleted it).
+ *   5. Asserting NO source file imports the legacy `makeMerchantTile`
+ *      fixture (Task D deleted the file).
+ *
+ * If any of these fail, the relevant phase's structural goal is broken.
+ * Do NOT relax these pins; instead, fix the offending import path.
  */
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
@@ -85,6 +93,43 @@ describe('Phase 2.5 — surface-local branchToMerchantTile adapter is fully remo
       if (/from\s+['"]@\/features\/shared\/MerchantTile['"]/.test(content)) {
         offenders.push(path.relative(REPO_ROOT, file))
       }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  // Phase 3a additions (2026-05-21) — block reintroduction of the
+  // merchant-first tile contract at the customer-app source layer.
+  // Phase 3a deleted the `MerchantTile` type alias + the `makeMerchantTile`
+  // fixture. These pins are belt-and-braces (tsc covers reintroduction
+  // because the symbols don't exist post Task F + Task D), but they
+  // serve as a standing structural guard against silent regressions.
+
+  it('Phase 3a — no source file imports the legacy MerchantTile type from @/lib/api/discovery', () => {
+    const files = walkSync(SRC_ROOT)
+    const pattern = /import\s+(?:type\s+)?\{[^}]*\bMerchantTile\b[^}]*\}\s+from\s+['"]@\/lib\/api\/discovery['"]/
+    const offenders: { file: string; line: number }[] = []
+    for (const file of files) {
+      const content = fs.readFileSync(file, 'utf8').split('\n')
+      content.forEach((line, idx) => {
+        if (pattern.test(line)) {
+          offenders.push({ file: path.relative(REPO_ROOT, file), line: idx + 1 })
+        }
+      })
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('Phase 3a — no source file imports the legacy makeMerchantTile fixture', () => {
+    const files = walkSync(SRC_ROOT)
+    const pattern = /import\s+\{[^}]*\bmakeMerchantTile\b[^}]*\}/
+    const offenders: { file: string; line: number }[] = []
+    for (const file of files) {
+      const content = fs.readFileSync(file, 'utf8').split('\n')
+      content.forEach((line, idx) => {
+        if (pattern.test(line)) {
+          offenders.push({ file: path.relative(REPO_ROOT, file), line: idx + 1 })
+        }
+      })
     }
     expect(offenders).toEqual([])
   })
