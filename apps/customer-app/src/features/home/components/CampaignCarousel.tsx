@@ -16,6 +16,22 @@ const DEFAULT_GRADIENTS: [string, string][] = [
   ['#11998E', '#38EF7D'],
 ]
 
+// PR #123 fixup-2 (2026-05-22) — per-banner theme overlay.
+//
+// Convert a `#RRGGBB` hex colour to `rgba(r,g,b,a)`.  Used for the banner
+// overlay: each campaign gets a single-colour vertical gradient overlay
+// keyed to its own theme (gradientStart / gradientEnd, or the
+// DEFAULT_GRADIENTS fallback indexed by position).  Strong alpha at top
+// AND bottom drives white-text legibility; the photo shows through
+// where the alpha is lowest.
+function withAlpha(hex: string, alpha: number): string {
+  const clean = hex.startsWith('#') ? hex.slice(1) : hex
+  const r = parseInt(clean.slice(0, 2), 16)
+  const g = parseInt(clean.slice(2, 4), 16)
+  const b = parseInt(clean.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 // Campaign tile shape — sourced from the backend home-feed response.
 // Field name is `bannerImageUrl` (Prisma column), NOT the older `bannerUrl`.
 // gradientStart/gradientEnd/ctaText are not currently emitted by the
@@ -29,6 +45,12 @@ type Props = {
 
 export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
+  // PR #123 fixup-1 (2026-05-22) — §CN onError fallback.
+  // When expo-image fails to load (network error, host CDN issue, etc.),
+  // we flip the tile back to gradient-only mode by tracking the
+  // campaign ids that have errored.  Closes the wording vs implementation
+  // gap caught in PR #123 review.
+  const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set())
   const scrollRef = useRef<ScrollView>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -64,6 +86,12 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
 
   if (campaigns.length === 0) return null
 
+  // PR #123 fixup-1 (2026-05-22) — dot indicator sync fix.
+  // The previous `onMomentumScrollEnd`-only handler updated the active
+  // index only AFTER the snap animation completed, which felt laggy on
+  // manual swipes.  Switching to `onScroll` with 16ms throttle lets the
+  // dot track the actual visible banner.  Auto-scroll timer reset stays
+  // on `onScrollBeginDrag` so the user's manual interaction always wins.
   return (
     <View>
       <ScrollView
@@ -74,14 +102,30 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
         snapToAlignment="start"
         decelerationRate="fast"
         showsHorizontalScrollIndicator={false}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingHorizontal: 18, gap: BANNER_GAP }}
-        onMomentumScrollEnd={(e) => {
+        onScrollBeginDrag={() => {
+          // Cancel the auto-scroll timer the moment the user starts dragging
+          // so the carousel doesn't fight the interaction.
+          if (timerRef.current) {
+            clearInterval(timerRef.current)
+            timerRef.current = null
+          }
+        }}
+        onScroll={(e) => {
           const offsetX = e.nativeEvent.contentOffset.x
-          const index = Math.round(offsetX / (BANNER_WIDTH + BANNER_GAP))
-          setActiveIndex(index)
-          // Reset auto-scroll timer on manual scroll
-          if (timerRef.current) clearInterval(timerRef.current)
-          startAutoScroll()
+          const index = Math.max(
+            0,
+            Math.min(
+              campaigns.length - 1,
+              Math.round(offsetX / (BANNER_WIDTH + BANNER_GAP)),
+            ),
+          )
+          setActiveIndex((prev) => (prev === index ? prev : index))
+        }}
+        onMomentumScrollEnd={() => {
+          // Restart auto-scroll only once momentum has settled.
+          if (timerRef.current === null) startAutoScroll()
         }}
       >
         {campaigns.map((campaign, i) => {
@@ -90,12 +134,35 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
           const gradientStart = campaign.gradientStart ?? fallback[0]
           const gradientEnd = campaign.gradientEnd ?? fallback[1]
 
-          // §CN — render the bannerImageUrl photo with a navy gradient
-          // overlay rgba(1,12,53,0.4) for legibility. The gradient-only
-          // path is preserved when the campaign has no image (or the
-          // image fails to load and expo-image keeps the cream
-          // placeholder visible).
-          const hasBanner = !!campaign.bannerImageUrl
+          // PR #123 fixup-2 (2026-05-22) — per-banner theme overlay.
+          //
+          // Each campaign now renders its banner photo under a SINGLE-
+          // COLOUR vertical gradient using its OWN theme colours (the
+          // pair already used for the gradient-only fallback path).  No
+          // more navy+rose mix across all banners — every banner is
+          // tinted to its own theme, and the tint is itself a vertical
+          // gradient (theme start at top → theme end at bottom) with
+          // strong alpha at both ends for white-text legibility.
+          //
+          // Effect:
+          //   - Campaign 1 (blue/purple theme) banners read blue→purple.
+          //   - Campaign 2 (red/orange theme) banners read red→orange.
+          //   - Campaign 3 (teal/green theme) banners read teal→green.
+          //   - Each banner FEELS its own theme; the photo is visible
+          //     through the gradient but never overwhelms the text.
+          //
+          // Gradient-only fallback path runs when:
+          //   (a) the campaign has no bannerImageUrl at all, OR
+          //   (b) expo-image's onError fired (network / host failure).
+          const hasBanner = !!campaign.bannerImageUrl && !failedIds.has(campaign.id)
+          // 2-stop overlay — theme[0]→theme[1] at strong alpha throughout.
+          // The gradient comes from the theme colour shift; the high alpha
+          // (~0.85) guarantees the photo never overpowers the text.  A
+          // 3-stop version with a low-alpha middle was tried first and
+          // left description text hard to read against bright Unsplash
+          // photos.
+          const overlayTop    = withAlpha(gradientStart, 0.85)
+          const overlayBottom = withAlpha(gradientEnd,   0.88)
 
           const body = (
             <>
@@ -156,10 +223,23 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
                   contentFit="cover"
                   transition={180}
                   recyclingKey={campaign.id}
+                  onError={() => {
+                    setFailedIds((prev) => {
+                      if (prev.has(campaign.id)) return prev
+                      const next = new Set(prev)
+                      next.add(campaign.id)
+                      return next
+                    })
+                  }}
                 />
                 <LinearGradient
                   testID={`campaign-banner-overlay-${campaign.id}`}
-                  colors={['transparent', 'rgba(1,12,53,0.4)']}
+                  // Per-banner theme — vertical 2-stop gradient using
+                  // the campaign's own theme colours at strong alpha.
+                  // The gradient comes from theme[0]→theme[1]; alpha
+                  // stays high enough at both ends to keep white text
+                  // legible on bright photos.
+                  colors={[overlayTop, overlayBottom]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 0, y: 1 }}
                   style={StyleSheet.absoluteFillObject}
