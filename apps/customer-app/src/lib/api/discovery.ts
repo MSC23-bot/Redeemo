@@ -120,7 +120,16 @@ const merchantTileSchema = z.object({
   avgRating:           z.number().nullable(),
   reviewCount:         z.number(),
   isFavourited:        z.boolean(),
-  supplyTier:          supplyTierSchema,
+  // Backend `getHomeFeed()` deliberately bypasses the legacy rank
+  // pipeline that forwards `supplyTier`; it emits the Plan 4 M3
+  // `supplyRung` field below instead (service.ts §"Option A — no
+  // ranking pass for Home" + the mergeV2FieldsOntoTile helper).
+  // Search / Category / in-area routes DO forward `supplyTier`, so
+  // it's still set on tiles from those endpoints. Relaxed to
+  // nullable+optional here so home-feed tiles parse cleanly —
+  // mirrors the Plan 4 M3 additive-field treatment below (locked
+  // 2026-05-21 via the customer-app schema-drift hotfix).
+  supplyTier:          supplyTierSchema.nullable().optional(),
   descriptor:          z.string().nullable().optional(),
   highlights:          z.array(highlightSchema).optional(),
   // Set ONLY on tiles that came back from the home feed's `featured` array.
@@ -233,7 +242,14 @@ const categorySchema = z.object({
   pinIcon:             z.string().nullable().optional(),
   sortOrder:           z.number().optional(),
   intentType:          z.enum(['LOCAL', 'DESTINATION', 'MIXED']).nullable().optional(),
-  descriptorState:     z.enum(['RECOMMENDED', 'OPTIONAL']).nullable().optional(),
+  // Backend currently emits 'RECOMMENDED' / 'OPTIONAL' / 'HIDDEN' / null
+  // (verified live 2026-05-21 — 4 of 20 top-level categories returned
+  // 'HIDDEN', e.g. "Barber"). The 'HIDDEN' member was missing from the
+  // enum, causing every customer-app categories parse to fail. Schema
+  // tolerates the value here; FILTERING categories by HIDDEN is a
+  // product-semantics decision deliberately out-of-scope for this
+  // hotfix (locked 2026-05-21).
+  descriptorState:     z.enum(['RECOMMENDED', 'OPTIONAL', 'HIDDEN']).nullable().optional(),
   descriptorSuffix:    z.string().nullable().optional(),
   // merchantCountByCity is a JSON map keyed by city name. PR B does not
   // surface this in the AllCategoriesScreen UI (decision #5 — broken count
