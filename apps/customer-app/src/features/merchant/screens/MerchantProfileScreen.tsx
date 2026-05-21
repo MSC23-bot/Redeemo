@@ -984,15 +984,10 @@ export function MerchantProfileScreen({ id }: Props) {
         onShare={handleShare}
         scrollY={scrollY}
         topOffset={sbbHeight}
-        // Explicit back-navigation per `?from=…` URL param.  Default
-        // expo-router Tabs `router.back()` falls back to the
-        // previously-active tab (typically Discovery), which is the
-        // owner-flagged bug class.  Surfaces that stamp `from=…`:
-        //   - `from=search&q=<q>` — Phase 2.1 Search (PR #112 fixup-6)
-        //   - `from=map`          — Phase 2.2 Map (PR-3 Phase D)
-        // `resolveBackNavigation` is a pure helper; null = defer to
-        // default router.back() behaviour.  See
-        // `apps/customer-app/src/features/merchant/utils/resolveBackNavigation.ts`.
+        // Explicit back-navigation per `?from=…` URL param. Default
+        // expo-router Tabs `router.back()` falls back to the previously-
+        // active tab — the owner-flagged bug class. See
+        // `resolveBackNavigation.ts` for all supported `from=…` surfaces.
         onBack={
           (() => {
             const target = resolveBackNavigation(
