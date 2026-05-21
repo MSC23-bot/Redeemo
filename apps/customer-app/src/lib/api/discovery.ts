@@ -386,16 +386,21 @@ export type SearchResponse = z.infer<typeof searchResponseSchema>
 // category-merchants response. Prior to this extension the customer-app schema
 // silently stripped them on Zod parse.
 //
-// NOTE: `branchMeta` is intentionally absent — the category-merchants endpoint
-// does NOT emit it (verified live probe 2026-05-21; only the search endpoint
-// emits branchMeta for branch-aligned scope pill counts).
+// PR #120 device-QA fix (2026-05-21) — `branchMeta` carries branch-aligned
+// counts + emptyStateReason + scope + resolvedArea (parity with the legacy
+// `meta` field but derived from the branch path). `CategoryResultsScreen`
+// MUST read `branchMeta` (not `meta`) for counts + empty-state copy when
+// rendering branches; otherwise the scope pills show merchant-tier counts
+// while the list renders branches — the owner-observed split that caused
+// misleading "Nearby · 0" pills alongside a non-empty branch list. Mirrors
+// the /search precedent (searchResponseSchema line 379).
 const categoryMerchantsResponseSchema = z.object({
   merchants:     z.array(merchantTileSchema),
   total:         z.number(),
   meta:          discoveryMetaSchema,
-  // Phase 2.4 additive — mirrors Phase 2.1 Search response shape
   branches:      z.array(branchTileSchema),
   totalBranches: z.number(),
+  branchMeta:    discoveryMetaSchema.optional(),
 })
 export type CategoryMerchantsResponse = z.infer<typeof categoryMerchantsResponseSchema>
 

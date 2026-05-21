@@ -79,18 +79,38 @@ export function CategoryResultsScreen() {
     openNow:      false,
   })
 
-  // Sync filter.categoryId from the URL once `id` resolves. The useState
-  // initialiser captures `id` at first render — but expo-router's
-  // useLocalSearchParams() can return undefined briefly on first mount,
-  // before re-running with the resolved id. Without this sync the
-  // FilterSheet's "selected top-level" pill would not pre-select on cold
-  // start, and the categoryId-mismatch guard below would have to handle
-  // the null case forever.
+  // PR #120 device-QA fix (2026-05-21) — sync filter state to the route
+  // category on EVERY id change, not just on first mount.
+  //
+  // Previous gate `if (id && filters.categoryId === null)` only fired
+  // when categoryId was null (post-cold-start). When the user navigates
+  // Food → Beauty → Shopping, the route `id` changes but `filters.categoryId`
+  // stays on the previous category (not null), so the gate skipped.
+  // `hasNonScopeFilters` then evaluated `filters.categoryId !== id` as
+  // `true`, routed through `useSearch` with the STALE categoryId, and the
+  // new category page rendered the OLD category's merchants/branches —
+  // the owner-reported "Beauty & Wellness shows Karaara / Pinos" symptom.
+  //
+  // Owner-locked behaviour: on route id change, reset filters.categoryId to
+  // the new id AND clear all other filters (sortBy / voucherTypes /
+  // amenityIds / openNow) — Food's "openNow=true" filter shouldn't carry
+  // into Beauty either. The user's scope selection (separate state) is
+  // also reset to default for the same reason. The render branch then
+  // returns to the default useCategoryMerchants path (intent-aware ranking)
+  // until the user explicitly applies a filter on the new category page.
   useEffect(() => {
-    if (id && filters.categoryId === null) {
-      setFilters((prev) => ({ ...prev, categoryId: id }))
-    }
-  }, [id, filters.categoryId])
+    if (!id) return
+    setFilters((prev) => prev.categoryId === id ? prev : {
+      categoryId:   id,
+      sortBy:       'relevance',
+      voucherTypes: [],
+      amenityIds:   [],
+      openNow:      false,
+    })
+    // Reset scope on route change too — same rationale (Food's "Nearby"
+    // selection shouldn't carry into Beauty).
+    setScope(undefined)
+  }, [id])
 
   // The default view (no non-scope filters) uses useCategoryMerchants for
   // intent-aware ranking. The moment any non-scope filter is applied, we
@@ -143,7 +163,12 @@ export function CategoryResultsScreen() {
   // so Zod parse would have failed before this point if it were missing.
   const branches  = data?.branches ?? []
   const total     = data?.totalBranches ?? data?.total ?? 0
-  const meta      = data?.meta
+  // PR #120 device-QA fix (2026-05-21) — read branch-aligned meta when the
+  // backend emits it. Without this, pill counts + emptyStateReason +
+  // expandedBanner derived from merchant-tier meta while the list rendered
+  // branches. Mirrors SearchScreen's branchMeta-first read (line 128).
+  // Legacy `meta` fallback preserves cold-cache + pre-fix-server behaviour.
+  const meta      = data?.branchMeta ?? data?.meta
 
   const counts = meta
     ? { nearby: meta.nearbyCount, city: meta.cityCount, platform: meta.distantCount }

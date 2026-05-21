@@ -230,13 +230,31 @@ describe('discoveryApi', () => {
       expect(typeof r.branches[1]?.merchant.totalEstimatedSaving).toBe('number')
     })
 
-    it('branchMeta is NOT in the parsed output — category endpoint does not emit it', async () => {
+    // PR #120 device-QA fix (2026-05-21) — branchMeta is NOW part of the
+    // schema. The category-merchants endpoint emits it additively for
+    // branch-aligned scope pill counts, mirroring /search. Owner-reported
+    // bug: pre-fix, the screen rendered branches against merchant-tier
+    // meta → counts disagreed with the list ("Nearby · 0" while nearby
+    // branches were visible at 0.2 mi).
+
+    it('branchMeta IS in the parsed output when emitted — PR #120 device-QA fix', async () => {
       ;(api.get as jest.Mock).mockResolvedValue({ ...categoryPayload, branchMeta: meta })
       const r = await discoveryApi.getCategoryMerchants('cat-food-drink', { lat: 53.6458, lng: -1.785 })
-      // The schema is NOT strict at the response level (z.object, not z.object.strict),
-      // so extra fields are stripped on parse. Zod strips unknown keys by default —
-      // branchMeta is simply absent from the parsed result.
-      expect((r as any).branchMeta).toBeUndefined()
+      expect(r.branchMeta).toBeDefined()
+      expect(r.branchMeta?.scope).toBe(meta.scope)
+      expect(r.branchMeta?.nearbyCount).toBe(meta.nearbyCount)
+      expect(r.branchMeta?.cityCount).toBe(meta.cityCount)
+      expect(r.branchMeta?.distantCount).toBe(meta.distantCount)
+      expect(r.branchMeta?.emptyStateReason).toBe(meta.emptyStateReason)
+    })
+
+    it('branchMeta is absent when not emitted — back-compat with pre-fix server / cold cache', async () => {
+      // The field is optional on the schema. Pre-fix server or stale cache
+      // omits branchMeta; the schema parses cleanly and the screen falls
+      // back to legacy `meta`.
+      ;(api.get as jest.Mock).mockResolvedValue(categoryPayload)
+      const r = await discoveryApi.getCategoryMerchants('cat-food-drink', { lat: 53.6458, lng: -1.785 })
+      expect(r.branchMeta).toBeUndefined()
     })
 
     it('empty branches[] + totalBranches:0 still parses cleanly (no supply case)', async () => {

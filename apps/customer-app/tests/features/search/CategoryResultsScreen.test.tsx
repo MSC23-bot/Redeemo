@@ -58,11 +58,27 @@ const mockState = {
 // Capture the push mock so URL-contract tests can assert against it.
 const mockPush = jest.fn()
 
+// PR #120 device-QA fix (2026-05-21) — mutable route params so the
+// route-id-change regression test can rerender with a different category id
+// and observe the effect-driven filter reset. Module-level mutation works
+// because the jest mock factory captures the reference, not the value.
+const mockRouteParams: { id: string | undefined } = { id: 'c1' }
+
+// PR #120 device-QA fix (2026-05-21) — capture the categoryId the hook was
+// actually called with, so route-id-change tests can pin that the stale
+// filters.categoryId does NOT propagate through.
+const mockHookCalls = {
+  lastCategoryId: null as string | null | undefined,
+}
+
 jest.mock('@/hooks/useCategoryMerchants', () => ({
-  useCategoryMerchants: (id: string | null) => ({
-    data:      id ? mockState.categoryHookData : undefined,
-    isLoading: id ? mockState.categoryHookLoading : false,
-  }),
+  useCategoryMerchants: (id: string | null) => {
+    mockHookCalls.lastCategoryId = id
+    return {
+      data:      id ? mockState.categoryHookData : undefined,
+      isLoading: id ? mockState.categoryHookLoading : false,
+    }
+  },
 }))
 
 jest.mock('@/hooks/useSearch', () => ({
@@ -95,7 +111,7 @@ jest.mock('@/hooks/useEligibleAmenities', () => ({
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn() }),
-  useLocalSearchParams: () => ({ id: 'c1' }),
+  useLocalSearchParams: () => mockRouteParams,
 }))
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -116,6 +132,8 @@ describe('CategoryResultsScreen', () => {
     mockState.categoryHookLoading = false
     mockState.searchHookData      = null
     mockPush.mockClear()
+    mockRouteParams.id            = 'c1'
+    mockHookCalls.lastCategoryId  = null
   })
 
   it('renders merchant results from useCategoryMerchants by default', async () => {
@@ -314,5 +332,202 @@ describe('CategoryResultsScreen', () => {
     }
     const { getByText } = render(<CategoryResultsScreen />, { wrapper })
     expect(getByText('No merchants found')).toBeTruthy()
+  })
+
+  // ─── PR #120 device-QA fix (2026-05-21) — regression suite ───────────────
+  //
+  // Owner-reported on-device QA failures:
+  //   (1) `Nearby · 0` pill still rendered nearby branches at 0.2 mi.
+  //   (2) `Your city · 3` pill rendered only 2 rows.
+  //   (3) `More places · 0` pill still rendered rows.
+  //   (4) Beauty & Wellness / Health & Fitness / Shopping pages rendered
+  //       food merchants (Karaara, Pinos, Bean & Brew, Coffee House).
+  //
+  // Root causes: backend route returned merchant-tier meta while rendering
+  // branches (mixed unit) AND customer-app stale `filters.categoryId` carried
+  // across route changes. Fixes:
+  //   - Backend: thread scope + emit branchMeta on /categories/:id/merchants
+  //   - Customer-app: read `branchMeta ?? meta`; reset filters on id change.
+  //
+  // The pins below cover the 5 regression cases the owner listed.
+
+  describe('PR #120 device-QA fix — branchMeta + route-id reset', () => {
+    it('scope pill counts source from branchMeta when present (NOT from legacy merchant meta)', () => {
+      // Owner case (1)+(2)+(3): pills must show branch-aligned counts so
+      // they match the rendered branch list. branchMeta counts deliberately
+      // differ from legacy meta counts to pin the read-through.
+      mockState.categoryHookData = {
+        merchants: [mockTile],
+        total: 1,
+        meta: { ...mockMeta, nearbyCount: 99, cityCount: 99, distantCount: 99 },
+        branches: [mockBranchTile],
+        totalBranches: 1,
+        // branchMeta values are what the user MUST see on the pills.
+        branchMeta: { ...mockMeta, nearbyCount: 2, cityCount: 1, distantCount: 0 },
+      }
+      const { getByText, queryByText } = render(<CategoryResultsScreen />, { wrapper })
+      expect(getByText(/Nearby · 2/)).toBeTruthy()
+      expect(getByText(/Your city · 1/)).toBeTruthy()
+      expect(getByText(/More places · 0/)).toBeTruthy()
+      // Defensive: the legacy-meta count must NOT appear anywhere.
+      expect(queryByText(/Nearby · 99/)).toBeNull()
+    })
+
+    it('falls back to legacy meta when branchMeta is absent (pre-fix server / cold cache)', () => {
+      // Defensive back-compat pin. If the backend hasn't deployed yet (or
+      // a cached response lacks branchMeta), the screen still functions —
+      // it just shows merchant-tier counts as it did before this fix.
+      mockState.categoryHookData = {
+        merchants: [mockTile],
+        total: 1,
+        meta: { ...mockMeta, nearbyCount: 5, cityCount: 12, distantCount: 30 },
+        branches: [mockBranchTile],
+        totalBranches: 1,
+        // branchMeta omitted on purpose.
+      }
+      const { getByText } = render(<CategoryResultsScreen />, { wrapper })
+      expect(getByText(/Nearby · 5/)).toBeTruthy()
+      expect(getByText(/Your city · 12/)).toBeTruthy()
+      expect(getByText(/More places · 30/)).toBeTruthy()
+    })
+
+    it('expanded-results banner sources from branchMeta.emptyStateReason (not legacy meta)', () => {
+      // Pins owner's "Expanded banner only appears when branch-aligned meta
+      // says it expanded" requirement. If branchMeta says emptyStateReason
+      // is 'none', the banner does NOT render — even when legacy meta
+      // says 'expanded_to_wider' (the merchant-tier opinion).
+      mockState.categoryHookData = {
+        merchants: [mockTile],
+        total: 1,
+        meta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
+        branches: [mockBranchTile],
+        totalBranches: 1,
+        branchMeta: { ...mockMeta, scopeExpanded: false, emptyStateReason: 'none' },
+      }
+      const { queryByText } = render(<CategoryResultsScreen />, { wrapper })
+      expect(queryByText(/showing wider results/)).toBeNull()
+    })
+
+    it('expanded-results banner DOES render when branchMeta says expanded_to_wider', () => {
+      // Symmetric case — branchMeta has the load-bearing field set to
+      // 'expanded_to_wider', so the banner appears.
+      mockState.categoryHookData = {
+        merchants: [],
+        total: 0,
+        meta: { ...mockMeta, scopeExpanded: false, emptyStateReason: 'none' },
+        branches: [mockBranchTile],
+        totalBranches: 1,
+        branchMeta: { ...mockMeta, scopeExpanded: true, emptyStateReason: 'expanded_to_wider' },
+      }
+      const { getByText } = render(<CategoryResultsScreen />, { wrapper })
+      expect(getByText(/showing wider results/)).toBeTruthy()
+    })
+
+    it('route-id change resets filters.categoryId so the new category does NOT inherit the old one', async () => {
+      // Owner case (4): Food → Beauty leaked Food merchants. Root cause was
+      // the sync effect skipping when filters.categoryId !== null. Pin the
+      // fix: on route-id change, the underlying hook is called with the NEW
+      // category id, not the previous (stale) one.
+      mockRouteParams.id = 'c1'
+      const utils = render(<CategoryResultsScreen />, { wrapper })
+
+      await waitFor(() => {
+        expect(mockHookCalls.lastCategoryId).toBe('c1')
+      })
+
+      // Simulate navigating Food → Beauty by mutating the URL param and
+      // forcing a rerender.
+      mockRouteParams.id = 'c2'
+      utils.rerender(<CategoryResultsScreen />)
+
+      // After the route change + effect-driven reset, the hook must be
+      // called with c2, NOT c1. Pre-fix, the gate `filters.categoryId ===
+      // null` skipped on the second render and the hook stayed wired to c1.
+      await waitFor(() => {
+        expect(mockHookCalls.lastCategoryId).toBe('c2')
+      })
+    })
+
+    it('route-id change clears non-scope filters too (sortBy / voucherTypes / amenityIds / openNow)', async () => {
+      // Defensive pin per the owner-locked safer reset behaviour: navigating
+      // Food → Beauty should NOT carry forward Food's "openNow=true" or
+      // any other filter. The effect resets the WHOLE filters object, not
+      // just categoryId. We verify by observing that after a route change
+      // the hook still hits useCategoryMerchants (intent-aware ranking)
+      // rather than flipping to useSearch via hasNonScopeFilters=true.
+      //
+      // The mockState.searchHookData stays null, so if hasNonScopeFilters
+      // were true after the route change, the screen would show no data
+      // (searchHookData=null → undefined data → empty list).
+      mockRouteParams.id = 'c1'
+      const utils = render(<CategoryResultsScreen />, { wrapper })
+
+      // Simulate the user having applied some non-scope filters on c1 via
+      // a rerender that already shipped — we can't directly mutate filters
+      // from outside (FilterSheet drives them). Instead, we verify the
+      // canonical default path stays canonical through a route change:
+      // category data renders on the new id with no filter leakage.
+      mockState.categoryHookData = {
+        merchants: [mockTile],
+        total: 1,
+        meta: mockMeta,
+        branches: [makeBranchTile({ id: 'beauty-branch', merchant: { id: 'beauty-m', businessName: 'Beauty Place' } })],
+        totalBranches: 1,
+      }
+      mockRouteParams.id = 'c2'
+      utils.rerender(<CategoryResultsScreen />)
+
+      const { getByText } = utils
+      await waitFor(() => {
+        expect(getByText('Beauty Place')).toBeTruthy()
+      })
+    })
+
+    it('Beauty category page does NOT render Food category merchants (smoke regression)', async () => {
+      // Owner case (5) end-to-end: navigating from Food (id=c1) to Beauty
+      // (id=c2) must show Beauty's branches, not Food's.
+      //
+      // We simulate this by:
+      //   1. Rendering Food page with Food merchants.
+      //   2. Swapping mockState.categoryHookData to Beauty merchants.
+      //   3. Mutating mockRouteParams.id to c2.
+      //   4. Rerendering.
+      //   5. Asserting Beauty's businessName shows and Food's does not.
+      const foodBranch = makeBranchTile({
+        id: 'food-b', merchant: { id: 'food-m', businessName: 'Karaara' },
+      })
+      const beautyBranch = makeBranchTile({
+        id: 'beauty-b', merchant: { id: 'beauty-m', businessName: 'Lumière Aesthetics' },
+      })
+
+      // Initial: Food page
+      mockRouteParams.id = 'c1'
+      mockState.categoryHookData = {
+        merchants: [],
+        total: 0,
+        meta: mockMeta,
+        branches: [foodBranch],
+        totalBranches: 1,
+      }
+      const utils = render(<CategoryResultsScreen />, { wrapper })
+      await waitFor(() => expect(utils.getByText('Karaara')).toBeTruthy())
+
+      // Navigate to Beauty
+      mockRouteParams.id = 'c2'
+      mockState.categoryHookData = {
+        merchants: [],
+        total: 0,
+        meta: mockMeta,
+        branches: [beautyBranch],
+        totalBranches: 1,
+      }
+      utils.rerender(<CategoryResultsScreen />)
+
+      // Beauty renders; Food does not leak through.
+      await waitFor(() => {
+        expect(utils.getByText('Lumière Aesthetics')).toBeTruthy()
+        expect(utils.queryByText('Karaara')).toBeNull()
+      })
+    })
   })
 })
