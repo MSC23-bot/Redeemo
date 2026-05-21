@@ -380,10 +380,22 @@ const searchResponseSchema = z.object({
 })
 export type SearchResponse = z.infer<typeof searchResponseSchema>
 
+// Discovery Rebaseline Phase 2.4 (Category customer-app migration) — additive
+// branch-first envelope fields. Backend (PR #110) emits `branches[]` +
+// `totalBranches` alongside legacy `merchants` + `total` on every
+// category-merchants response. Prior to this extension the customer-app schema
+// silently stripped them on Zod parse.
+//
+// NOTE: `branchMeta` is intentionally absent — the category-merchants endpoint
+// does NOT emit it (verified live probe 2026-05-21; only the search endpoint
+// emits branchMeta for branch-aligned scope pill counts).
 const categoryMerchantsResponseSchema = z.object({
-  merchants: z.array(merchantTileSchema),
-  total:     z.number(),
-  meta:      discoveryMetaSchema,
+  merchants:     z.array(merchantTileSchema),
+  total:         z.number(),
+  meta:          discoveryMetaSchema,
+  // Phase 2.4 additive — mirrors Phase 2.1 Search response shape
+  branches:      z.array(branchTileSchema),
+  totalBranches: z.number(),
 })
 export type CategoryMerchantsResponse = z.infer<typeof categoryMerchantsResponseSchema>
 

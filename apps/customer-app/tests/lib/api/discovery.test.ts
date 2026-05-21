@@ -102,7 +102,8 @@ describe('discoveryApi', () => {
   })
 
   it('getCategoryMerchants forwards id + opts and returns meta envelope', async () => {
-    (api.get as jest.Mock).mockResolvedValue({ merchants: [tile], total: 1, meta })
+    // Phase 2.4: branches + totalBranches are now required on the response.
+    (api.get as jest.Mock).mockResolvedValue({ merchants: [tile], total: 1, meta, branches: [], totalBranches: 0 })
     const r = await discoveryApi.getCategoryMerchants('cat-1', { scope: 'city', lat: 51.5, lng: -0.1, limit: 20 })
     expect(api.get).toHaveBeenCalledWith(
       '/api/v1/customer/categories/cat-1/merchants?scope=city&lat=51.5&lng=-0.1&limit=20',
@@ -138,6 +139,124 @@ describe('discoveryApi', () => {
     expect(api.get).toHaveBeenCalledWith('/api/v1/customer/categories/cat-restaurant/amenities')
     expect(r.amenities).toHaveLength(2)
     expect(r.amenities[0]?.name).toBe('Wi-Fi')
+  })
+
+  // ─── Phase 2.4 categoryMerchantsResponseSchema — branches + totalBranches ──
+  //
+  // Backend (PR #110) has always emitted `branches[]` + `totalBranches` on the
+  // category-merchants endpoint; prior to Phase 2.4 Task B the customer-app
+  // schema silently stripped them on parse. These pins verify:
+  //   1. The extended schema accepts a payload with `branches` + `totalBranches`.
+  //   2. `branches[*].merchant.totalEstimatedSaving` passes through (Fold #2).
+  //   3. `branchMeta` is NOT part of the schema (category endpoint does not emit it).
+
+  describe('Phase 2.4 categoryMerchantsResponseSchema — branch-first extension', () => {
+    // Minimal BranchTile fixture — mirrors a live Karaara Huddersfield tile
+    // from the probe in §1.2 of the plan. All required fields populated;
+    // branchTileSchema is .strict() so no extra fields allowed.
+    const branchTileMerchant = {
+      id:                   'merchant-1',
+      businessName:         'Karaara Huddersfield',
+      tradingName:          null,
+      logoUrl:              null,
+      bannerUrl:            null,
+      primaryCategory:      null,
+      primaryDescriptorTag: null,
+      subcategory:          null,
+      descriptor:           'Restaurant',
+      highlights:           [],
+      voucherCount:         2,
+      maxEstimatedSaving:   3,
+      totalEstimatedSaving: 5,   // Fold #2 — non-null saving
+    }
+
+    const branchTileA = {
+      id:                       'branch-1',
+      branchName:               'Karaara Huddersfield',
+      branchLocalityId:         'loc-1',
+      branchLocalityName:       'Huddersfield',
+      branchPostTown:           'Huddersfield',
+      branchCity:               'Huddersfield',
+      branchLatitude:           53.6458,
+      branchLongitude:          -1.785,
+      branchLocationConfidence: 'MANUALLY_CONFIRMED' as const,
+      isOpenNow:                true,
+      closesAtLocal:            '22:00',
+      distance:                 120,
+      isFavourited:             false,
+      avgRating:                4.5,
+      reviewCount:              12,
+      supplyRung:               'NEARBY' as const,
+      proximityBand:            'NEARBY' as const,
+      distanceMetres:           120,
+      merchant:                 branchTileMerchant,
+    }
+
+    const branchTileB = {
+      ...branchTileA,
+      id:           'branch-2',
+      branchName:   'Karaara Bradford',
+      branchCity:   'Bradford',
+      supplyRung:   'CATCHMENT' as const,
+      proximityBand: 'IN_YOUR_AREA' as const,
+    }
+
+    const categoryPayload = {
+      merchants: [tile],   // legacy arm — still present during additive period
+      total:     1,
+      meta,
+      branches:      [branchTileA, branchTileB],
+      totalBranches: 2,
+    }
+
+    it('accepts payload with branches[] + totalBranches (Phase 2.4 additive)', async () => {
+      ;(api.get as jest.Mock).mockResolvedValue(categoryPayload)
+      const r = await discoveryApi.getCategoryMerchants('cat-food-drink', { lat: 53.6458, lng: -1.785 })
+      expect(r.branches).toHaveLength(2)
+      expect(r.totalBranches).toBe(2)
+    })
+
+    it('branches[0].merchant.totalEstimatedSaving parses as number — Fold #2 verify', async () => {
+      ;(api.get as jest.Mock).mockResolvedValue(categoryPayload)
+      const r = await discoveryApi.getCategoryMerchants('cat-food-drink', { lat: 53.6458, lng: -1.785 })
+      expect(typeof r.branches[0]?.merchant.totalEstimatedSaving).toBe('number')
+      expect(r.branches[0]?.merchant.totalEstimatedSaving).toBe(5)
+    })
+
+    it('branches[1].merchant.totalEstimatedSaving parses as number for second tile', async () => {
+      ;(api.get as jest.Mock).mockResolvedValue(categoryPayload)
+      const r = await discoveryApi.getCategoryMerchants('cat-food-drink', { lat: 53.6458, lng: -1.785 })
+      // Both tiles share the same merchant grouping — totalEstimatedSaving non-null
+      expect(typeof r.branches[1]?.merchant.totalEstimatedSaving).toBe('number')
+    })
+
+    it('branchMeta is NOT in the parsed output — category endpoint does not emit it', async () => {
+      ;(api.get as jest.Mock).mockResolvedValue({ ...categoryPayload, branchMeta: meta })
+      const r = await discoveryApi.getCategoryMerchants('cat-food-drink', { lat: 53.6458, lng: -1.785 })
+      // The schema is NOT strict at the response level (z.object, not z.object.strict),
+      // so extra fields are stripped on parse. Zod strips unknown keys by default —
+      // branchMeta is simply absent from the parsed result.
+      expect((r as any).branchMeta).toBeUndefined()
+    })
+
+    it('empty branches[] + totalBranches:0 still parses cleanly (no supply case)', async () => {
+      ;(api.get as jest.Mock).mockResolvedValue({
+        merchants: [], total: 0, meta,
+        branches: [], totalBranches: 0,
+      })
+      const r = await discoveryApi.getCategoryMerchants('cat-empty')
+      expect(r.branches).toEqual([])
+      expect(r.totalBranches).toBe(0)
+    })
+
+    it('legacy-only payload (no branches / totalBranches) FAILS — fields are now required', async () => {
+      // The extension makes branches + totalBranches required (not optional).
+      // A payload missing them should throw a Zod parse error.
+      ;(api.get as jest.Mock).mockResolvedValue({ merchants: [tile], total: 1, meta })
+      await expect(
+        discoveryApi.getCategoryMerchants('cat-food-drink'),
+      ).rejects.toThrow()
+    })
   })
 
   // ─── Plan 4 M3.5 additive contract ────────────────────────────────────────
