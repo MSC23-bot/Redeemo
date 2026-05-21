@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL — use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the customer-app's residual legacy merchant-first contract artefacts — the `MerchantTile` type alias, the legacy `featured`/`trending`/`nearbyByCategory`/`merchants`/`total`/`meta` declarations on customer-app Zod response schemas, the `makeMerchantTile` test fixture, and the legacy-arm assertions in `tests/lib/api/discovery.test.ts`. Customer-app no longer reads any of these. Wire emission stays untouched (customer-web still reads the legacy contract). Backend services, routes, V1 ranker, `getInAreaMerchants`, `getCategoryMerchants`, `searchMerchants`, `getCampaignMerchants`, `enrichMerchantTile/Tiles` all stay. **No backend changes. No customer-web changes. No wire-shape changes.**
+**Goal:** Remove the customer-app's residual legacy merchant-first contract artefacts — the `MerchantTile` type alias, the legacy `featured`/`trending`/`nearbyByCategory`/`merchants`/`total` declarations on customer-app Zod response schemas (plus `meta` on search + category schemas — see exception below), the `makeMerchantTile` test fixture, and the legacy-arm assertions in `tests/lib/api/discovery.test.ts`. Customer-app no longer reads any of these (verified by §1.2 audit). Wire emission stays untouched (customer-web still reads the legacy contract). Backend services, routes, V1 ranker, `getInAreaMerchants`, `getCategoryMerchants`, `searchMerchants`, `getCampaignMerchants`, `enrichMerchantTile/Tiles` all stay. **No backend changes. No customer-web changes. No wire-shape changes.**
 
-**Architecture:** This PR is customer-app-internal cleanup ONLY. Zod schemas declare the branch-first shape only; Zod default behaviour silently strips legacy wire keys at parse time so wire continues emitting both shapes without breaking customer-app. The Phase 2.5 negative-pin meta-test is extended to forbid future re-introduction of `MerchantTile` type imports and `makeMerchantTile` fixture imports under `apps/customer-app/src/`.
+**Exception** (per §0.12(a) amendment): `inAreaResponseSchema.meta` EXPLICITLY STAYS. `mapDataView.ts:63` reads `d?.branchMeta ?? d?.meta` and the InAreaResponse wire shape carries NO `branchMeta` field — `.meta` is the SINGLE coherent metadata envelope for Map's default in-area mode. Removing it would break `<MapEmptyArea>` empty-state classification and `<ViewportLocalityBadge>`. The `meta` removal applies only to `searchResponseSchema` and `categoryMerchantsResponseSchema` (whose branch-first `branchMeta` envelopes are canonical post Phase 2.4); `inAreaResponseSchema.meta` is preserved.
+
+**Architecture:** This PR is customer-app-internal cleanup ONLY. Customer-app Zod schemas declare the branch-first shape only — except for `inAreaResponseSchema.meta`, which stays as the load-bearing in-area metadata envelope (per the exception above). Zod default behaviour silently strips legacy wire keys at parse time so wire continues emitting both shapes without breaking customer-app. The Phase 2.5 negative-pin meta-test is extended to forbid future re-introduction of `MerchantTile` type imports and `makeMerchantTile` fixture imports under `apps/customer-app/src/`. Customer-app source touches are limited to `apps/customer-app/src/lib/api/discovery.ts` (Task F) and `apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx` (Task E — drops two legacy `??` fallbacks per §0.12(b)).
 
 **Tech Stack:** Expo SDK 54, jest-expo. No backend changes, no Prisma migrations.
 
@@ -192,7 +194,9 @@ Patterns:
 
 - Every backend file (`src/api/**`, `tests/api/**`, `tests/prisma/**`)
 - All customer-web files (`apps/customer-web/**`)
-- All customer-app source files under `apps/customer-app/src/` EXCEPT `lib/api/discovery.ts`
+- All customer-app source files under `apps/customer-app/src/` EXCEPT:
+  - `apps/customer-app/src/lib/api/discovery.ts` (Task F — schema cleanup + cascade dependents)
+  - `apps/customer-app/src/features/search/screens/CategoryResultsScreen.tsx` (Task E — 2-line legacy `??` fallback cleanup at lines 164 + 170 per §0.12(b); no other code change)
 - `apps/customer-app/tests/fixtures/branchTile.ts` core fixture (only docstring touch)
 
 ---
