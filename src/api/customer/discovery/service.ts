@@ -2946,9 +2946,24 @@ export async function searchBranches(
   // practice; defensive ordering anyway) sort last.
   // Tiebreakers: merchant.businessName → branch.name → branch.id
   // (deterministic across pagination calls).
+  // PR #120 device-QA fix wave 3 (2026-05-21) — extend bucket B rescue to
+  // category-only browse. Pre-fix, the fallback only fired for free-text
+  // queries (normalizedQ !== null). Owner-reported symptom: Food & Drink →
+  // More places returned 5 branches (Karaara/Pinos/Coffee House/Bean &
+  // Brew/Market Quarter) but DB has 7 active Food merchants — Covelum
+  // (Brightlingsea + Colchester, 2 branches) and My Kerala (Ipswich) were
+  // permanently rank-dropped (COUNTRY rung > MIXED_NORMAL @ URBAN maxRung
+  // REGION). Without the rescue, category-only browse on platform scope
+  // misses far category supply that DOES belong on the More places list.
+  //
+  // The `showWiderSupply` gate (below at ~line 3011) controls whether
+  // bucket B appears in the LIST — only when resolvedScope === 'platform'
+  // OR rankedTiles is empty (cascade rescue). So extending this gate to
+  // category-only browse only affects platform-scope output + counts;
+  // nearby/city scope output is unchanged.
   const textMatchFallback = (
     effLoc
-    && normalizedQ !== null
+    && (normalizedQ !== null || categoryId !== undefined)
   )
     ? [...rankable]
         .filter(b => !preScopeRankedIds.has(b.id))   // bucket B only — rank-dropped

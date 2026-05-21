@@ -170,8 +170,23 @@ export function CategoryResultsScreen() {
   // Legacy `meta` fallback preserves cold-cache + pre-fix-server behaviour.
   const meta      = data?.branchMeta ?? data?.meta
 
+  // PR #120 device-QA fix wave 3 (2026-05-21) — cumulative pill counts.
+  //
+  // Previously this was `{nearby: nearbyCount, city: cityCount, platform: distantCount}`
+  // (per-tier), but the list itself is cumulative (Your city = nearby + city,
+  // More places = nearby + city + distant — backend supplies all admissible
+  // branches at the chosen scope). Per-tier counts vs cumulative list created
+  // misleading mismatches: `Your city · 0` next to a list of 2 nearby
+  // branches; `More places · 3` next to 5 visible branches.
+  //
+  // Cumulative now mirrors SearchScreen (SearchScreen.tsx:128-133). The
+  // counts read as: "how many branches will I see if I select this scope".
   const counts = meta
-    ? { nearby: meta.nearbyCount, city: meta.cityCount, platform: meta.distantCount }
+    ? {
+        nearby:   meta.nearbyCount,
+        city:     meta.nearbyCount + meta.cityCount,
+        platform: meta.nearbyCount + meta.cityCount + meta.distantCount,
+      }
     : undefined
 
   const expandedBanner = branches.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'

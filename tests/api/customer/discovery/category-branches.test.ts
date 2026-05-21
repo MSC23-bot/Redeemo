@@ -364,4 +364,90 @@ describe('Discovery Rebaseline Phase 1 — getCategoryBranches', () => {
       expect(typeof result.meta.nearbyCount).toBe('number')
     })
   })
+
+  // PR #120 device-QA fix wave 3 (2026-05-21) — pin the textMatchFallback
+  // gate widening so category-only browse with scope=platform surfaces
+  // rank-dropped supply.
+  //
+  // Owner-reported symptom: from a Huddersfield effLoc, Food & Drink →
+  // More places (scope=platform) returned 5 branches when the DB had 7
+  // active Food merchants (Covelum × 2 branches + My Kerala dropped
+  // because they classify as COUNTRY rung > MIXED_NORMAL @ URBAN maxRung
+  // REGION). Pre-fix, `textMatchFallback` only populated when
+  // `normalizedQ !== null` (free-text path), so the rescue never fired
+  // for category-only browse.
+  //
+  // Fixture geometry: multi-branch merchant (Brightlingsea + Colchester)
+  // ~160 mi from Huddersfield, NO locality / county / region / country
+  // set on the branches → classifyRung falls through to NATIONAL → above
+  // maxRung → dropped by rankBranchesV3. With the fix they surface via
+  // the rescue when scope=platform.
+  describe('PR #120 wave 3 — category-only browse rescues rank-dropped supply at scope=platform', () => {
+    it('scope=platform from Huddersfield includes Brightlingsea + Colchester branches', async () => {
+      const result = await getCategoryBranches(prisma, {
+        categoryId: PARENT_CATEGORY_ID,
+        limit:      50,
+        offset:     0,
+        userId:     null,
+        lat:        HUDDERSFIELD.lat,
+        lng:        HUDDERSFIELD.lng,
+        scope:      'platform',
+      })
+
+      const branchIds = new Set(result.branches.map(b => b.id))
+      expect(branchIds.has(MULTI_BRANCH_A_ID)).toBe(true)
+      expect(branchIds.has(MULTI_BRANCH_B_ID)).toBe(true)
+    })
+
+    it('scope=nearby from Huddersfield does NOT include the rescued far branches (visibility gate locked)', async () => {
+      // `showWiderSupply` only fires at scope=platform OR when the ranked
+      // set is empty. At scope=nearby, the SUB_BRANCH (Huddersfield) is in
+      // the ranked NEARBY result, so showWiderSupply stays false → far
+      // branches are populated in fallback but NOT surfaced in the list.
+      const result = await getCategoryBranches(prisma, {
+        categoryId: PARENT_CATEGORY_ID,
+        limit:      50,
+        offset:     0,
+        userId:     null,
+        lat:        HUDDERSFIELD.lat,
+        lng:        HUDDERSFIELD.lng,
+        scope:      'nearby',
+      })
+
+      const branchIds = new Set(result.branches.map(b => b.id))
+      expect(branchIds.has(MULTI_BRANCH_A_ID)).toBe(false)
+      expect(branchIds.has(MULTI_BRANCH_B_ID)).toBe(false)
+    })
+
+    it('rescued branches DO count toward distantCount (cumulative pill meta stays accurate)', async () => {
+      // Even on scope=nearby, distantCount includes the rescue tail so the
+      // customer-app's "More places · N" pill stays accurate regardless of
+      // the currently selected scope.
+      const nearbyResult = await getCategoryBranches(prisma, {
+        categoryId: PARENT_CATEGORY_ID,
+        limit:      50,
+        offset:     0,
+        userId:     null,
+        lat:        HUDDERSFIELD.lat,
+        lng:        HUDDERSFIELD.lng,
+        scope:      'nearby',
+      })
+      const platformResult = await getCategoryBranches(prisma, {
+        categoryId: PARENT_CATEGORY_ID,
+        limit:      50,
+        offset:     0,
+        userId:     null,
+        lat:        HUDDERSFIELD.lat,
+        lng:        HUDDERSFIELD.lng,
+        scope:      'platform',
+      })
+
+      // Both responses must agree on distant supply count (it describes UK-
+      // wide supply, not the user's selected scope).
+      expect(nearbyResult.meta.distantCount).toBe(platformResult.meta.distantCount)
+      // And the platform LIST must equal the cumulative sum of the meta.
+      const cumulative = platformResult.meta.nearbyCount + platformResult.meta.cityCount + platformResult.meta.distantCount
+      expect(platformResult.branches.length).toBe(cumulative)
+    })
+  })
 })

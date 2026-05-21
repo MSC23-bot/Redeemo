@@ -153,12 +153,19 @@ describe('CategoryResultsScreen', () => {
     expect(getByText('Default: best-rated nearby first')).toBeTruthy()
   })
 
-  it('renders ScopePillRow with tier counts from meta', () => {
+  it('renders ScopePillRow with CUMULATIVE tier counts from meta (PR #120 wave 3)', () => {
+    // mockMeta = { nearbyCount: 5, cityCount: 12, distantCount: 30 }.
+    // Cumulative read (mirrors SearchScreen + matches backend list semantics):
+    //   nearby   pill = nearbyCount                                  = 5
+    //   city     pill = nearbyCount + cityCount                      = 17
+    //   platform pill = nearbyCount + cityCount + distantCount       = 47
+    // Per-tier read (pre-wave-3) would have shown: 5 / 12 / 30 — those
+    // values are now caught by the regression pin below.
     const { getByText } = render(<CategoryResultsScreen />, { wrapper })
     expect(getByText(/Nearby · 5/)).toBeTruthy()
-    expect(getByText(/Your city · 12/)).toBeTruthy()
+    expect(getByText(/Your city · 17/)).toBeTruthy()
     // Third pill renamed UK-wide → "More places" in PR #112 fixup-6.4.
-    expect(getByText(/More places · 30/)).toBeTruthy()
+    expect(getByText(/More places · 47/)).toBeTruthy()
   })
 
   it('renders empty-state copy when branches array is empty (reason=none)', () => {
@@ -352,43 +359,71 @@ describe('CategoryResultsScreen', () => {
   // The pins below cover the 5 regression cases the owner listed.
 
   describe('PR #120 device-QA fix — branchMeta + route-id reset', () => {
-    it('scope pill counts source from branchMeta when present (NOT from legacy merchant meta)', () => {
-      // Owner case (1)+(2)+(3): pills must show branch-aligned counts so
-      // they match the rendered branch list. branchMeta counts deliberately
-      // differ from legacy meta counts to pin the read-through.
+    it('scope pill counts source from branchMeta when present, CUMULATIVE display', () => {
+      // PR #120 wave 3 (2026-05-21) — cumulative counts pinned alongside
+      // branchMeta read-through.
+      // branchMeta: {nearbyCount: 2, cityCount: 1, distantCount: 0} →
+      //   Nearby · 2, Your city · 2+1 = 3, More places · 2+1+0 = 3
       mockState.categoryHookData = {
         merchants: [mockTile],
         total: 1,
         meta: { ...mockMeta, nearbyCount: 99, cityCount: 99, distantCount: 99 },
         branches: [mockBranchTile],
         totalBranches: 1,
-        // branchMeta values are what the user MUST see on the pills.
         branchMeta: { ...mockMeta, nearbyCount: 2, cityCount: 1, distantCount: 0 },
       }
       const { getByText, queryByText } = render(<CategoryResultsScreen />, { wrapper })
       expect(getByText(/Nearby · 2/)).toBeTruthy()
-      expect(getByText(/Your city · 1/)).toBeTruthy()
-      expect(getByText(/More places · 0/)).toBeTruthy()
+      expect(getByText(/Your city · 3/)).toBeTruthy()
+      expect(getByText(/More places · 3/)).toBeTruthy()
       // Defensive: the legacy-meta count must NOT appear anywhere.
       expect(queryByText(/Nearby · 99/)).toBeNull()
+      // Defensive: per-tier reading (the pre-fix bug) would have rendered
+      // "More places · 0" since distantCount is 0. Pin that we are NOT
+      // showing that any more.
+      expect(queryByText(/More places · 0/)).toBeNull()
     })
 
-    it('falls back to legacy meta when branchMeta is absent (pre-fix server / cold cache)', () => {
-      // Defensive back-compat pin. If the backend hasn't deployed yet (or
-      // a cached response lacks branchMeta), the screen still functions —
-      // it just shows merchant-tier counts as it did before this fix.
+    it('falls back to legacy meta when branchMeta is absent, still CUMULATIVE', () => {
+      // Back-compat pin: pre-fix server / cold cache → branchMeta omitted →
+      // read legacy meta. Counts are STILL cumulative regardless of source.
+      // legacy meta = {nearbyCount: 5, cityCount: 12, distantCount: 30} →
+      //   Nearby · 5, Your city · 17, More places · 47
       mockState.categoryHookData = {
         merchants: [mockTile],
         total: 1,
         meta: { ...mockMeta, nearbyCount: 5, cityCount: 12, distantCount: 30 },
         branches: [mockBranchTile],
         totalBranches: 1,
-        // branchMeta omitted on purpose.
       }
       const { getByText } = render(<CategoryResultsScreen />, { wrapper })
       expect(getByText(/Nearby · 5/)).toBeTruthy()
-      expect(getByText(/Your city · 12/)).toBeTruthy()
-      expect(getByText(/More places · 30/)).toBeTruthy()
+      expect(getByText(/Your city · 17/)).toBeTruthy()
+      expect(getByText(/More places · 47/)).toBeTruthy()
+    })
+
+    it('cumulative pill counts mirror SearchScreen formula (regression pin against per-tier reversion)', () => {
+      // Locks the cumulative arithmetic explicitly. If someone reverts to
+      // per-tier, these specific values become impossible to satisfy.
+      // branchMeta: {nearbyCount: 2, cityCount: 0, distantCount: 3} —
+      // matches the Food & Drink scope=platform backend output today.
+      //   Per-tier (broken): Nearby · 2, Your city · 0, More places · 3
+      //   Cumulative (fix):  Nearby · 2, Your city · 2, More places · 5
+      mockState.categoryHookData = {
+        merchants: [mockTile],
+        total: 1,
+        meta: mockMeta,
+        branches: [mockBranchTile],
+        totalBranches: 1,
+        branchMeta: { ...mockMeta, nearbyCount: 2, cityCount: 0, distantCount: 3 },
+      }
+      const { getByText, queryByText } = render(<CategoryResultsScreen />, { wrapper })
+      expect(getByText(/Nearby · 2/)).toBeTruthy()
+      expect(getByText(/Your city · 2/)).toBeTruthy()
+      expect(getByText(/More places · 5/)).toBeTruthy()
+      // The pre-fix per-tier outputs must NOT appear.
+      expect(queryByText(/Your city · 0/)).toBeNull()
+      expect(queryByText(/More places · 3/)).toBeNull()
     })
 
     it('expanded-results banner sources from branchMeta.emptyStateReason (not legacy meta)', () => {
