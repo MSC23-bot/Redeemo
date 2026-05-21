@@ -8,11 +8,11 @@ import { useFavourite } from '@/hooks/useFavourite'
 import { BranchTile } from '@/lib/api/discovery'
 import type { ProximityBand } from '@/lib/api/discovery'
 
-// Discovery Rebaseline PR-2 (Phase 2.1) — prop shape switches from
-// `MerchantTile` to `BranchTile`.  One tile per BRANCH (Covelum bug fix):
-// multi-branch merchants now render as separate Search rows sharing one
-// merchant identity.  Render hierarchy per Spec §3.3 — merchant.businessName
-// primary, branch locality secondary, descriptor tertiary.
+// Discovery Rebaseline PR-2 (Phase 2.1) — prop shape is `BranchTile`.
+// One tile per BRANCH (Covelum bug fix): multi-branch merchants render
+// as separate Search rows sharing one merchant identity.  Render
+// hierarchy per Spec §3.3 — merchant.businessName primary, branch
+// locality secondary, descriptor tertiary.
 //
 // PR-2 device-QA polish (2026-05-19) — owner-flagged blockers from
 // screenshots:
@@ -290,10 +290,11 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
         {/*
           Open/closed badge intentionally omitted at this layout layer —
           `isOpenNow` is now available on BranchTile (was missing from
-          MerchantTile pre-rebaseline). Discovery Rebaseline keeps the
-          render parity baseline; surfacing the badge belongs to a
-          follow-on visual pass alongside MerchantTile (PR-3/4) so both
-          tile types pick up the badge consistently.
+          the legacy wire-shape pre-rebaseline).  Discovery Rebaseline
+          keeps the render parity baseline; surfacing the badge belongs
+          to a follow-on visual pass alongside the shared <BranchTile>
+          so both list-row and carousel-card surfaces pick up the badge
+          consistently.
         */}
       </View>
     </TouchableOpacity>

@@ -141,8 +141,9 @@ export function MapScreen(_props: Props) {
   // `selectedBranchId` gates the carousel mount AND drives `<MapPins>`
   // visual selection state.  Phase B's interim `selectedMerchant`
   // (which existed to feed the merchant-keyed shared `<MerchantTile>`
-  // through the carousel) has been dropped — the carousel now adapts
-  // each BranchTile internally via `branchToMerchantTile`.
+  // through the carousel) has been dropped — Phase 2.5 then dropped
+  // the interim adapter too, and the carousel now renders <BranchTile>
+  // natively.
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null)
   const [locationPermissionDismissed, setLocationPermissionDismissed] = useState(false)
   const [remoteCityName, setRemoteCityName] = useState<string | null>(null)
