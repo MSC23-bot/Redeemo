@@ -15,9 +15,6 @@ import { api } from '../api'
 //   - Map filter button wiring (PR C)
 // See docs/superpowers/plans/2026-04-30-customer-app-pr4-remediation.md.
 
-const supplyTierSchema = z.enum(['NEARBY', 'CITY', 'DISTANT'])
-export type SupplyTier = z.infer<typeof supplyTierSchema>
-
 // ─── Plan 4 M3 additive types (customer-app side of M3.5) ────────────────────
 //
 // New tile + meta fields the backend started returning in M3.3 (hybrid:
@@ -63,90 +60,6 @@ const effectiveLocalitySchema = z.object({
   name: z.string(),
 })
 export type EffectiveLocality = z.infer<typeof effectiveLocalitySchema>
-
-// Highlight tile-row shape — backend emits the full join-row including the
-// nested tag object. Capped to 3 by the backend (`take: 3` on the Prisma
-// select). Tile UI does not render these yet (deferred — see PR B M4 audit
-// follow-ups), but the type round-trips correctly so future renderers can
-// consume them without a schema migration.
-const highlightSchema = z.object({
-  id:             z.string(),
-  highlightTagId: z.string(),
-  sortOrder:      z.number(),
-  tag: z.object({ id: z.string(), label: z.string() }),
-})
-export type MerchantTileHighlight = z.infer<typeof highlightSchema>
-
-// Always-present-but-nullable fields use `.nullable()` (not `.nullable().optional()`)
-// so consumers can rely on `T | null` rather than `T | null | undefined`.
-// `.optional()` is reserved for fields the backend may omit entirely
-// (e.g. `featuredId` is only set on home-feed featured tiles).
-const merchantTileSchema = z.object({
-  id:                  z.string(),
-  businessName:        z.string(),
-  tradingName:         z.string().nullable(),
-  logoUrl:             z.string().nullable(),
-  bannerUrl:           z.string().nullable(),
-  primaryCategory: z.object({
-    id:               z.string(),
-    name:             z.string(),
-    pinColour:        z.string().nullable(),
-    pinIcon:          z.string().nullable(),
-    descriptorSuffix: z.string().nullable().optional(),
-    parentId:         z.string().nullable().optional(),
-  }).nullable(),
-  // primaryDescriptorTag is the curated tag (Cuisine / Specialty) the
-  // descriptor is built from. Backend emits this on every tile. Used for
-  // descriptor de-dup logic at the detail layer; tile UI doesn't read it
-  // directly yet but it's part of the locked contract.
-  primaryDescriptorTag: z.object({
-    id:    z.string(),
-    label: z.string(),
-  }).nullable().optional(),
-  subcategory: z.object({
-    id:   z.string(),
-    name: z.string(),
-  }).nullable(),
-  voucherCount:        z.number(),
-  maxEstimatedSaving:  z.coerce.number().nullable(),
-  distance:            z.number().nullable(),
-  nearestBranchId:     z.string().nullable(),
-  // Nearest-branch coordinates for Map pins. Always present in the
-  // payload; null when the backend has no MANUALLY_CONFIRMED branch
-  // for the merchant (PR #81 redaction contract preserved at the
-  // tile boundary). MapPins skips merchants whose coords are null.
-  latitude:            z.number().nullable(),
-  longitude:           z.number().nullable(),
-  avgRating:           z.number().nullable(),
-  reviewCount:         z.number(),
-  isFavourited:        z.boolean(),
-  // Backend `getHomeFeed()` deliberately bypasses the legacy rank
-  // pipeline that forwards `supplyTier`; it emits the Plan 4 M3
-  // `supplyRung` field below instead (service.ts §"Option A — no
-  // ranking pass for Home" + the mergeV2FieldsOntoTile helper).
-  // Search / Category / in-area routes DO forward `supplyTier`, so
-  // it's still set on tiles from those endpoints. Relaxed to
-  // nullable+optional here so home-feed tiles parse cleanly —
-  // mirrors the Plan 4 M3 additive-field treatment below (locked
-  // 2026-05-21 via the customer-app schema-drift hotfix).
-  supplyTier:          supplyTierSchema.nullable().optional(),
-  descriptor:          z.string().nullable().optional(),
-  highlights:          z.array(highlightSchema).optional(),
-  // Set ONLY on tiles that came back from the home feed's `featured` array.
-  // Search / category-merchants / in-area routes do NOT set this — featured
-  // status is positional (which array the tile is in) for those routes.
-  featuredId:          z.string().optional(),
-  // ─── Plan 4 M3 additive tile fields ────────────────────────────────
-  // Populated by the backend M3.3 hybrid pipeline for merchants whose
-  // branches pass classifyRung's discoverability gate (MANUALLY_CONFIRMED
-  // / ADDRESS_GEOCODED). null for merchants V2 rejected (POSTCODE_CENTROID
-  // etc.). All four optional so pre-M3 mock fixtures still parse.
-  supplyRung:          supplyRungSchema.nullable().optional(),
-  proximityBand:       proximityBandSchema.nullable().optional(),
-  distanceMetres:      z.number().nullable().optional(),
-  contextBranchId:     z.string().nullable().optional(),
-})
-export type MerchantTile = z.infer<typeof merchantTileSchema>
 
 // ─── Discovery Rebaseline PR-2 — BranchTile wire shape ────────────────────────
 //
@@ -288,29 +201,24 @@ const campaignSchema = z.object({
 })
 export type CampaignTile = z.infer<typeof campaignSchema>
 
-// Discovery Rebaseline Phase 2.3 (Home customer-app migration) — additive
-// branch-first envelope fields.  Backend emits `featuredBranches`,
-// `trendingBranches`, and `nearbyByCategoryBranches` on every home-feed
-// response (`src/api/customer/discovery/service.ts:1447-1449`); prior to
-// this PR the customer-app schema silently stripped them on Zod parse.
+// Phase 3a (per plan §0.12) — customer-app schema no longer declares the
+// legacy merchant arm (`featured`, `trending`, `nearbyByCategory`); wire
+// still emits both shapes for customer-web back-compat; Zod strips legacy
+// keys at parse here. `inAreaResponseSchema.meta` is the only legacy-shape
+// field still declared, and only because it's load-bearing for Map default
+// mode.
 //
-// Phase 2.3 carousels (FeaturedCarousel / TrendingSection /
-// NearbyByCategory) consume the new `*Branches` arms.  Phase 2.5
-// shipped the shared `<BranchTile>` rename + dropped the interim
-// adapter — the carousels now render <BranchTile branch={branch} />
-// directly.  Legacy `featured` / `trending` / `nearbyByCategory`
-// fields stay on the schema during the additive period (Phase 3
-// cleanup removes them).
+// Backend emits `featuredBranches`, `trendingBranches`, and
+// `nearbyByCategoryBranches` on every home-feed response
+// (`src/api/customer/discovery/service.ts:1447-1449`). Phase 2.3
+// carousels (FeaturedCarousel / TrendingSection / NearbyByCategory)
+// consume the `*Branches` arms. Phase 2.5 shipped the shared
+// `<BranchTile>` rename; carousels now render <BranchTile branch={branch}/>
+// directly.
 const homeFeedResponseSchema = z.object({
   locationContext: locationContextSchema,
-  featured:        z.array(merchantTileSchema),
-  trending:        z.array(merchantTileSchema),
   campaigns:       z.array(campaignSchema),
-  nearbyByCategory: z.array(z.object({
-    category: z.object({ id: z.string(), name: z.string() }),
-    merchants: z.array(merchantTileSchema),
-  })),
-  // ─── Phase 2.3 additive branch-first arms ────────────────────────────
+  // ─── Branch-first arms (canonical post Phase 2.3) ────────────────────
   featuredBranches:        z.array(branchTileSchema),
   trendingBranches:        z.array(branchTileSchema),
   nearbyByCategoryBranches: z.array(z.object({
@@ -359,47 +267,33 @@ const inAreaMetaSchema = z.object({
 })
 export type InAreaMeta = z.infer<typeof inAreaMetaSchema>
 
-// Discovery Rebaseline PR-2 (Phase 2.1) — `branches` + `totalBranches` ship
-// alongside the legacy `merchants` + `total` arms.  Both arms are emitted by
-// the backend in parallel; SearchScreen consumes `branches`, while Home /
-// Category / Map continue reading `merchants` until their own Phase 2.x
-// migrations land.
+// Phase 3a (per plan §0.12) — customer-app schema no longer declares the
+// legacy merchant arm (`merchants`, `total`, `meta`); wire still emits both
+// shapes for customer-web back-compat; Zod strips legacy keys at parse here.
 //
-// PR-2 device-QA fix (2026-05-19) — `branchMeta` carries branch-aligned
-// counts + emptyStateReason + resolvedArea (shape parity with the legacy
-// `meta` field but derived from the branch path).  SearchScreen MUST read
-// `branchMeta` (not `meta`) for counts + empty-state copy; otherwise the
-// scope pills show merchant-tier counts while the list renders branches —
-// the owner-observed split that caused misleading "UK-wide · 1" pills
-// alongside an empty branch list.
+// `branchMeta` carries branch-aligned counts + emptyStateReason +
+// resolvedArea. SearchScreen MUST read `branchMeta` (not `meta`) for counts
+// + empty-state copy; otherwise scope pills show merchant-tier counts while
+// the list renders branches — the owner-observed split that caused misleading
+// "UK-wide · 1" pills alongside an empty branch list.
 const searchResponseSchema = z.object({
-  merchants:     z.array(merchantTileSchema),
-  total:         z.number(),
-  meta:          discoveryMetaSchema.optional(),
   branches:      z.array(branchTileSchema).optional(),
   totalBranches: z.number().optional(),
   branchMeta:    discoveryMetaSchema.optional(),
 })
 export type SearchResponse = z.infer<typeof searchResponseSchema>
 
-// Discovery Rebaseline Phase 2.4 (Category customer-app migration) — additive
-// branch-first envelope fields. Backend (PR #110) emits `branches[]` +
-// `totalBranches` alongside legacy `merchants` + `total` on every
-// category-merchants response. Prior to this extension the customer-app schema
-// silently stripped them on Zod parse.
+// Phase 3a (per plan §0.12) — customer-app schema no longer declares the
+// legacy merchant arm (`merchants`, `total`, `meta`); wire still emits both
+// shapes for customer-web back-compat; Zod strips legacy keys at parse here.
 //
-// PR #120 device-QA fix (2026-05-21) — `branchMeta` carries branch-aligned
-// counts + emptyStateReason + scope + resolvedArea (parity with the legacy
-// `meta` field but derived from the branch path). `CategoryResultsScreen`
-// MUST read `branchMeta` (not `meta`) for counts + empty-state copy when
-// rendering branches; otherwise the scope pills show merchant-tier counts
-// while the list renders branches — the owner-observed split that caused
-// misleading "Nearby · 0" pills alongside a non-empty branch list. Mirrors
-// the /search precedent (searchResponseSchema line 379).
+// `branchMeta` carries branch-aligned counts + emptyStateReason + scope +
+// resolvedArea. `CategoryResultsScreen` MUST read `branchMeta` (not `meta`)
+// for counts + empty-state copy when rendering branches; otherwise scope
+// pills show merchant-tier counts while the list renders branches — the
+// owner-observed split that caused misleading "Nearby · 0" pills alongside
+// a non-empty branch list. Mirrors the /search precedent.
 const categoryMerchantsResponseSchema = z.object({
-  merchants:     z.array(merchantTileSchema),
-  total:         z.number(),
-  meta:          discoveryMetaSchema,
   branches:      z.array(branchTileSchema),
   totalBranches: z.number(),
   branchMeta:    discoveryMetaSchema.optional(),
@@ -407,16 +301,14 @@ const categoryMerchantsResponseSchema = z.object({
 export type CategoryMerchantsResponse = z.infer<typeof categoryMerchantsResponseSchema>
 
 const inAreaResponseSchema = z.object({
-  merchants: z.array(merchantTileSchema),
-  total:     z.number(),
+  // Phase 3a (§0.12(a)) — `.meta` STAYS load-bearing. mapDataView.ts:63
+  // reads `d?.branchMeta ?? d?.meta`; InAreaResponse has NO `branchMeta`
+  // on the wire, so `.meta` is the SINGLE coherent envelope for Map's
+  // default in-area mode. Removing it would break <MapEmptyArea>
+  // empty-state classification and <ViewportLocalityBadge>.
+  // `merchants` and `total` are deleted (zero source consumers — Map
+  // reads `branches` only post Phase 2.2).
   meta:      inAreaMetaSchema,
-  // Discovery Rebaseline Phase 1 (PR #110) — additive branch-first
-  // field. Backend emits this alongside the legacy `merchants` field
-  // on every in-area response (`routes.ts:226-247`). PR-3 Phase B
-  // wires `MapPins` to consume `branches` for one-pin-per-branch
-  // cardinality; `MapBranchTile` carousel + `MapListView` flip in
-  // Phase C; the legacy `merchants` field stays during the
-  // additive period (Phase 3 cleanup removes it).
   branches:  z.array(branchTileSchema).optional(),
 })
 export type InAreaResponse = z.infer<typeof inAreaResponseSchema>
