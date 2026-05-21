@@ -12,6 +12,7 @@ import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { LocalityCaption } from '@/design-system/components/LocalityCaption'
 import { FilterSheet, FilterState } from '../components/FilterSheet'
+import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
 
 /**
  * CategoryResultsScreen — Hybrid hook strategy (PR B Milestone 4, Option A).
@@ -135,21 +136,26 @@ export function CategoryResultsScreen() {
   // Pick the active dataset from whichever hook is enabled.
   const data      = hasNonScopeFilters ? searchQuery.data      : categoryQuery.data
   const isLoading = hasNonScopeFilters ? searchQuery.isLoading : categoryQuery.isLoading
-  const merchants = data?.merchants ?? []
-  const total     = data?.total ?? 0
+  // Branch-first (Phase 2.4): render one tile per branch. Same
+  // `?branch=&from=category&categoryId=` contract as Phase 2.1 Search +
+  // Phase 2.2 Map + Phase 2.3 Home. `total` falls back to legacy `total`
+  // only defensively — `totalBranches` is now schema-required per Task B,
+  // so Zod parse would have failed before this point if it were missing.
+  const branches  = data?.branches ?? []
+  const total     = data?.totalBranches ?? data?.total ?? 0
   const meta      = data?.meta
 
   const counts = meta
     ? { nearby: meta.nearbyCount, city: meta.cityCount, platform: meta.distantCount }
     : undefined
 
-  const expandedBanner = merchants.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'
+  const expandedBanner = branches.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'
   // Suppress the empty-state copy while the active query is still loading.
   // Otherwise on first mount and on filter-handoff between hooks, `data` is
-  // briefly `undefined` → `merchants=[]` → `emptyReason='none'` → the
+  // briefly `undefined` → `branches=[]` → `emptyReason='none'` → the
   // "No merchants found" copy flashes for the duration of the network round-
   // trip. Only render the empty state once the request has settled.
-  const emptyReason    = merchants.length === 0 && !isLoading
+  const emptyReason    = branches.length === 0 && !isLoading
     ? (meta?.emptyStateReason ?? 'none')
     : null
 
@@ -205,14 +211,26 @@ export function CategoryResultsScreen() {
 
       {/* Results list */}
       <FlatList
-        data={merchants}
-        keyExtractor={(item) => item.id}
+        data={branches}
+        keyExtractor={(branch) => branch.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => (
+        renderItem={({ item: branch }) => (
           <MerchantTile
-            merchant={item}
-            onPress={(merchantId) => router.push(`/merchant/${merchantId}` as any)}
+            merchant={branchToMerchantTileProps(branch)}
+            onPress={() => {
+              // Branch-keyed identity (Phase 2.4): adapter swapped `id` → `branch.id`,
+              // so the onPress callback receives branch id. We still route to the
+              // merchant route path + stamp `?branch=` for branch-aware Merchant
+              // Profile + `from=category&categoryId=` for back-nav (see
+              // resolveBackNavigation.ts).
+              const merchantId = branch.merchant.id
+              const branchId   = branch.id
+              const url = id
+                ? `/merchant/${merchantId}?branch=${branchId}&from=category&categoryId=${id}`
+                : `/merchant/${merchantId}?branch=${branchId}&from=category`
+              router.push(url as any)
+            }}
           />
         )}
         ListEmptyComponent={<EmptyStateMessage reason={emptyReason} />}
