@@ -62,8 +62,8 @@ describe('CampaignCarousel — bannerImageUrl render (§CN)', () => {
     )
     const overlay = getByTestId('campaign-banner-overlay-c1')
     expect(overlay.props.colors).toEqual([
-      processColor('rgba(102,126,234,0.85)'),
-      processColor('rgba(118,75,162,0.88)'),
+      processColor('rgba(102,126,234,0.65)'),  // #667EEA @ 0.65 (top, image visibility)
+      processColor('rgba(118,75,162,0.80)'),   // #764BA2 @ 0.80 (bottom, text legibility)
     ])
   })
 
@@ -82,8 +82,8 @@ describe('CampaignCarousel — bannerImageUrl render (§CN)', () => {
     )
     const overlay = getByTestId('campaign-banner-overlay-c-custom')
     expect(overlay.props.colors).toEqual([
-      processColor('rgba(17,34,51,0.85)'),    // #112233 @ 0.85
-      processColor('rgba(170,187,204,0.88)'), // #AABBCC @ 0.88
+      processColor('rgba(17,34,51,0.65)'),    // #112233 @ 0.65 (top)
+      processColor('rgba(170,187,204,0.80)'), // #AABBCC @ 0.80 (bottom)
     ])
   })
 
@@ -107,8 +107,8 @@ describe('CampaignCarousel — bannerImageUrl render (§CN)', () => {
     expect(colors1).not.toEqual(colors3)
     // Banner 2 should be the red/orange theme (DEFAULT_GRADIENTS[1]).
     expect(colors2).toEqual([
-      processColor('rgba(226,12,4,0.85)'),    // #E20C04 @ 0.85
-      processColor('rgba(232,74,0,0.88)'),    // #E84A00 @ 0.88
+      processColor('rgba(226,12,4,0.65)'),    // #E20C04 @ 0.65 (top)
+      processColor('rgba(232,74,0,0.80)'),    // #E84A00 @ 0.80 (bottom)
     ])
   })
 

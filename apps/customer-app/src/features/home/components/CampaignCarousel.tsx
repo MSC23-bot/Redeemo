@@ -155,14 +155,18 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
           //   (a) the campaign has no bannerImageUrl at all, OR
           //   (b) expo-image's onError fired (network / host failure).
           const hasBanner = !!campaign.bannerImageUrl && !failedIds.has(campaign.id)
-          // 2-stop overlay — theme[0]→theme[1] at strong alpha throughout.
-          // The gradient comes from the theme colour shift; the high alpha
-          // (~0.85) guarantees the photo never overpowers the text.  A
-          // 3-stop version with a low-alpha middle was tried first and
-          // left description text hard to read against bright Unsplash
-          // photos.
-          const overlayTop    = withAlpha(gradientStart, 0.85)
-          const overlayBottom = withAlpha(gradientEnd,   0.88)
+          // 2-stop overlay — theme[0]→theme[1].  Alpha is asymmetric:
+          // lighter at the top so the photo is clearly visible behind
+          // the title; stronger at the bottom where the description +
+          // CTA sit and white text needs the contrast.
+          //
+          // PR #123 fixup-3 (2026-05-22) — owner Option A: previous
+          // uniform 0.85/0.88 made the photo feel hidden.  Top alpha
+          // dropped to 0.65 (~24% less); bottom held at 0.80 (~9% less)
+          // to keep CTA legibility safe.  Per-banner theme + gradient
+          // direction unchanged.
+          const overlayTop    = withAlpha(gradientStart, 0.65)
+          const overlayBottom = withAlpha(gradientEnd,   0.80)
 
           const body = (
             <>
