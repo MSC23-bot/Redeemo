@@ -32,15 +32,18 @@ jest.mock('@/hooks/useCategoryMerchants', () => ({
       ? {
           merchants: [],
           total: 1,
-          meta: {
+          meta: baseMeta,
+          // Phase 2.4: branch-first fields required by categoryMerchantsResponseSchema
+          branches: [mockBranchTile],
+          totalBranches: 1,
+          // Phase 3a Task E: screen reads branchMeta only (legacy meta
+          // fallback removed). effectiveLocality is sourced from branchMeta.
+          branchMeta: {
             ...baseMeta,
             ...(mockState.effectiveLocality !== null
               ? { effectiveLocality: mockState.effectiveLocality }
               : {}),
           },
-          // Phase 2.4: branch-first fields required by categoryMerchantsResponseSchema
-          branches: [mockBranchTile],
-          totalBranches: 1,
         }
       : undefined,
     isLoading: false,
