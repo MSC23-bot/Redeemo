@@ -38,6 +38,13 @@ const MULTI_MERCHANT_ID    = `${FIXTURE_PREFIX}multi-merchant`
 const MULTI_BRANCH_A_ID    = `${FIXTURE_PREFIX}multi-branch-a`
 const MULTI_BRANCH_B_ID    = `${FIXTURE_PREFIX}multi-branch-b`
 const FEATURED_ROW_ID      = `${FIXTURE_PREFIX}featured-row`
+const VOUCHER_ONE_ID       = `${FIXTURE_PREFIX}voucher-1`
+const VOUCHER_TWO_ID       = `${FIXTURE_PREFIX}voucher-2`
+
+// Per the locked rounding rule at src/api/customer/discovery/service.ts:1028-1033:
+//   totalEstimatedSaving = Math.round(sum(savings) * 100) / 100
+// For these two vouchers (5.00 + 7.50) the expected total is 12.50.
+const EXPECTED_TOTAL_ESTIMATED_SAVING = 12.5
 
 // Reference coordinates (real-world UK localities). Brightlingsea +
 // Colchester are ~10km apart, both inside an Essex-ish region. The user
@@ -124,6 +131,35 @@ async function createMultiBranchFeaturedFixture() {
       paymentStatus: 'PAID',
     },
   })
+
+  // Two active+approved vouchers so the merchant emits a non-null
+  // totalEstimatedSaving on every fanned-out branch tile. Predicate at
+  // service.ts:867-869 + 996-1001 — status=ACTIVE, approvalStatus=APPROVED.
+  for (const [voucherId, code, saving] of [
+    [VOUCHER_ONE_ID, `${FIXTURE_PREFIX}V1`, '5.00'],
+    [VOUCHER_TWO_ID, `${FIXTURE_PREFIX}V2`, '7.50'],
+  ] as const) {
+    await prisma.voucher.upsert({
+      where: { id: voucherId },
+      create: {
+        id:              voucherId,
+        merchantId:      MULTI_MERCHANT_ID,
+        code,
+        type:            'DISCOUNT_FIXED',
+        title:           `${FIXTURE_PREFIX}voucher ${code}`,
+        estimatedSaving: saving,
+        status:          'ACTIVE',
+        approvalStatus:  'APPROVED',
+        approvedAt:      now,
+      },
+      update: {
+        merchantId:      MULTI_MERCHANT_ID,
+        estimatedSaving: saving,
+        status:          'ACTIVE',
+        approvalStatus:  'APPROVED',
+      },
+    })
+  }
 }
 
 beforeAll(async () => {
@@ -133,8 +169,11 @@ beforeAll(async () => {
 }, 30_000)
 
 afterAll(async () => {
-  // Order matters: FeaturedMerchant -> Branch -> Merchant.
+  // Order matters: FeaturedMerchant -> Voucher -> Branch -> Merchant.
   await prisma.featuredMerchant.deleteMany({
+    where: { id: { startsWith: FIXTURE_PREFIX } },
+  })
+  await prisma.voucher.deleteMany({
     where: { id: { startsWith: FIXTURE_PREFIX } },
   })
   await prisma.branch.deleteMany({
@@ -221,6 +260,35 @@ describe('Discovery Rebaseline Phase 1 — getHomeFeed (branch-themed additive f
     expect(feed).not.toHaveProperty('campaignBranches')
     // `campaigns` (banner-level) is still present — UNCHANGED.
     expect(feed).toHaveProperty('campaigns')
+  }, TEST_TIMEOUT_MS)
+
+  // Phase 2.3 Amendment A — verify totalEstimatedSaving flows through the
+  // Home branch-tile projection. Backend field shipped in PR #112 fixup-3
+  // (service.ts:1028-1033, 1100) and pre-existing pins above already exercise
+  // every Home rail's tile shape, but no prior pin asserts the SUM-rounded
+  // value lands on merchant grouping for a multi-voucher Home merchant.
+  it('multi-voucher Home merchant tiles carry the rounded sum of estimatedSaving on `merchant.totalEstimatedSaving`', async () => {
+    const feed = await getHomeFeed(prisma, {
+      userId: null,
+      lat:    COLCHESTER.lat,
+      lng:    COLCHESTER.lng,
+    }) as any
+
+    const branchTilesForMerchant = (feed.featuredBranches as any[])
+      .filter(t => t.merchant?.id === MULTI_MERCHANT_ID)
+    expect(branchTilesForMerchant.length).toBeGreaterThan(0)
+
+    for (const tile of branchTilesForMerchant) {
+      // Field present + numeric + positive.
+      expect(tile.merchant.totalEstimatedSaving).not.toBeNull()
+      expect(typeof tile.merchant.totalEstimatedSaving).toBe('number')
+      expect(tile.merchant.totalEstimatedSaving).toBeGreaterThan(0)
+      // Locked rounding rule: Math.round(sum * 100) / 100 of the two
+      // fixture vouchers (5.00 + 7.50 = 12.50).
+      expect(tile.merchant.totalEstimatedSaving).toBe(EXPECTED_TOTAL_ESTIMATED_SAVING)
+      // maxEstimatedSaving stays distinct + correct (highest individual voucher).
+      expect(tile.merchant.maxEstimatedSaving).toBe(7.5)
+    }
   }, TEST_TIMEOUT_MS)
 
   it('legacy `featured: MerchantTile[]` shape is unchanged — entries are merchant-shaped, not branch-shaped', async () => {

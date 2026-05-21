@@ -3,19 +3,22 @@ import { View, ScrollView, Pressable, StyleSheet } from 'react-native'
 import { ChevronRight } from 'lucide-react-native'
 import { Text, color, spacing } from '@/design-system'
 import { MerchantTile } from '@/features/shared/MerchantTile'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { BranchTile } from '@/lib/api/discovery'
+import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
 
 const TILE_WIDTH = 240
 const TILE_GAP = 12
 
 type CategorySection = {
   category: { id: string; name: string }
-  merchants: MerchantTileType[]
+  branches: BranchTile[]
 }
 
 type Props = {
   sections: CategorySection[]
-  onMerchantPress: (id: string) => void
+  // Receives branch.id — call site routes to
+  // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
+  onBranchPress: (branchId: string) => void
   onCategoryPress: (categoryId: string) => void
   onFavourite?: (id: string) => void
 }
@@ -29,9 +32,9 @@ type Props = {
  * Per the PR B architectural intent: Home stays a preview surface; filter
  * controls live in CategoryResultsScreen.
  */
-export function NearbyByCategory({ sections, onMerchantPress, onCategoryPress, onFavourite }: Props) {
-  // Filter out sections with no merchants
-  const visibleSections = sections.filter((s) => s.merchants.length > 0)
+export function NearbyByCategory({ sections, onBranchPress, onCategoryPress, onFavourite }: Props) {
+  // Filter out sections with no branches
+  const visibleSections = sections.filter((s) => s.branches.length > 0)
 
   if (visibleSections.length === 0) return null
 
@@ -62,11 +65,15 @@ export function NearbyByCategory({ sections, onMerchantPress, onCategoryPress, o
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
           >
-            {section.merchants.map((merchant) => (
+            {section.branches.map((branch) => (
+              // Branch-keyed identity (Phase 2.3) — same pattern as
+              // FeaturedCarousel + TrendingSection; adapter swaps
+              // `id: branch.id` so the `onPress` callback receives
+              // branch identity.
               <MerchantTile
-                key={merchant.id}
-                merchant={merchant}
-                onPress={onMerchantPress}
+                key={branch.id}
+                merchant={branchToMerchantTileProps(branch)}
+                onPress={onBranchPress}
                 {...(onFavourite ? { onFavourite } : {})}
                 width={TILE_WIDTH}
               />

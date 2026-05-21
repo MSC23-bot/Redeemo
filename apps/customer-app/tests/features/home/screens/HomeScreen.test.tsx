@@ -2,7 +2,7 @@ import React from 'react'
 import { render, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { HomeScreen } from '@/features/home/screens/HomeScreen'
-import { makeMerchantTile } from '../../../fixtures/merchantTile'
+import { makeBranchTile } from '../../../fixtures/branchTile'
 
 jest.mock('@/hooks/useLocation', () => ({
   useUserLocation: () => ({
@@ -14,21 +14,33 @@ jest.mock('@/hooks/useLocation', () => ({
 
 // jest.mock factories are hoisted and cannot reference out-of-scope
 // variables — except those whose name starts with `mock` (case-insensitive).
-const mockFeaturedFixture = makeMerchantTile({
-  id: 'm1', businessName: 'Test Pizza',
-  primaryCategory: { id: 'c1', name: 'Food', pinColour: null, pinIcon: null },
-  voucherCount: 2, maxEstimatedSaving: 10, distance: 500, nearestBranchId: 'b1',
-  avgRating: 4.5, reviewCount: 20,
+const mockFeaturedBranchFixture = makeBranchTile({
+  id: 'brn-pizza-1',
+  branchName: 'Shoreditch',
+  distance: 500,
+  avgRating: 4.5,
+  reviewCount: 20,
+  merchant: {
+    id: 'm1',
+    businessName: 'Test Pizza',
+    primaryCategory: { id: 'c1', name: 'Food', parentId: null },
+    voucherCount: 2,
+    maxEstimatedSaving: 10,
+    totalEstimatedSaving: 20,
+  },
 })
 
 jest.mock('@/hooks/useHomeFeed', () => ({
   useHomeFeed: () => ({
     data: {
       locationContext: { city: 'London', source: 'coordinates' },
-      featured: [mockFeaturedFixture],
+      featured: [],
       trending: [],
       campaigns: [],
       nearbyByCategory: [],
+      featuredBranches: [mockFeaturedBranchFixture],
+      trendingBranches: [],
+      nearbyByCategoryBranches: [],
     },
     isLoading: false,
     isError: false,

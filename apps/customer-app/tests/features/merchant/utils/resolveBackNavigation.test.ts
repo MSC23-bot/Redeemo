@@ -23,6 +23,13 @@ describe('resolveBackNavigation', () => {
     })
   })
 
+  describe('from=home (Phase 2.3 contract)', () => {
+    it('returns /(app)/ (canonical Home route) regardless of q', () => {
+      expect(resolveBackNavigation('home', undefined)).toBe('/(app)/')
+      expect(resolveBackNavigation('home', 'ignored')).toBe('/(app)/')
+    })
+  })
+
   describe('default fallback', () => {
     it('returns null when from is undefined (default router.back behaviour)', () => {
       expect(resolveBackNavigation(undefined, undefined)).toBeNull()
@@ -30,7 +37,6 @@ describe('resolveBackNavigation', () => {
 
     it('returns null for unrecognised from values', () => {
       expect(resolveBackNavigation('discovery', 'whatever')).toBeNull()
-      expect(resolveBackNavigation('home', undefined)).toBeNull()
     })
   })
 })

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
 import { useRouter } from 'expo-router'
 import { color, spacing } from '@/design-system'
@@ -29,6 +29,45 @@ export function HomeScreen() {
     await refetch()
     setRefreshing(false)
   }
+
+  // Phase 2.3 — Home tile tap routes carry both the merchant id (route
+  // path) AND the branch id (`?branch=` for Merchant Profile attribution)
+  // PLUS `from=home` so resolveBackNavigation can return the user to
+  // the Home tab on back-press.  Multi-branch merchants fan out to one
+  // tile per branch per the locked §M one-pin-per-branch principle.
+  //
+  // The carousels pass branch.id into onBranchPress via the
+  // branchToMerchantTile adapter's `id: branch.id` swap; the per-rail
+  // lookup below finds the parent merchant.id for the route path.
+  const routeToBranch = (
+    branchId: string,
+    branches: { id: string; merchant: { id: string } }[],
+  ) => {
+    const match = branches.find((b) => b.id === branchId)
+    if (!match) {
+      // Stale tap — branch is no longer in the current feed (e.g. data
+      // refetched between render and tap). Match the Map precedent at
+      // MapScreen.tsx:391-396 — warn in dev and bail rather than push
+      // a broken `/merchant/<branchId>?branch=<branchId>` URL.
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn(`[HomeScreen] routeToBranch: branchId not found in feed: ${branchId}`)
+      }
+      return
+    }
+    router.push(`/merchant/${match.merchant.id}?branch=${branchId}&from=home` as any)
+  }
+
+  // Memoise the flattened NearbyByCategory branch list so tile taps don't
+  // rebuild it on every press (closes the code-quality reviewer's Important
+  // #5 — `flatMap` allocation per tap).  Rebuilds only when the feed
+  // mutates, which is also the only time branch identity could shift.
+  const allNearbyBranches = useMemo(
+    () => (feed?.nearbyByCategoryBranches ?? []).flatMap((s) => s.branches),
+    [feed?.nearbyByCategoryBranches],
+  )
+  const onNearbyBranchPress = (branchId: string) =>
+    routeToBranch(branchId, allNearbyBranches)
 
   return (
     <View style={styles.container}>
@@ -72,20 +111,20 @@ export function HomeScreen() {
           </View>
         ) : (
           <FeaturedCarousel
-            merchants={feed?.featured ?? []}
-            onMerchantPress={(id) => router.push(`/merchant/${id}`)}
+            branches={feed?.featuredBranches ?? []}
+            onBranchPress={(branchId) => routeToBranch(branchId, feed?.featuredBranches ?? [])}
             onSeeAll={() => {}}
           />
         )}
 
         <TrendingSection
-          merchants={feed?.trending ?? []}
-          onMerchantPress={(id) => router.push(`/merchant/${id}`)}
+          branches={feed?.trendingBranches ?? []}
+          onBranchPress={(branchId) => routeToBranch(branchId, feed?.trendingBranches ?? [])}
         />
 
         <NearbyByCategory
-          sections={feed?.nearbyByCategory ?? []}
-          onMerchantPress={(id) => router.push(`/merchant/${id}`)}
+          sections={feed?.nearbyByCategoryBranches ?? []}
+          onBranchPress={onNearbyBranchPress}
           onCategoryPress={(id) => router.push(`/category/${id}` as any)}
         />
       </ScrollView>

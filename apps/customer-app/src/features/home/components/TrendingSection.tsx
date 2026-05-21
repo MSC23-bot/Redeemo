@@ -2,21 +2,24 @@ import React from 'react'
 import { View, ScrollView } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Flame } from 'lucide-react-native'
-import { Text, color, spacing, radius } from '@/design-system'
+import { Text, color, spacing } from '@/design-system'
 import { MerchantTile } from '@/features/shared/MerchantTile'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { BranchTile } from '@/lib/api/discovery'
+import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
 
 const TILE_WIDTH = 240
 const TILE_GAP = 12
 
 type Props = {
-  merchants: MerchantTileType[]
-  onMerchantPress: (id: string) => void
+  branches: BranchTile[]
+  // Receives branch.id — call site routes to
+  // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
+  onBranchPress: (branchId: string) => void
   onFavourite?: (id: string) => void
 }
 
-export function TrendingSection({ merchants, onMerchantPress, onFavourite }: Props) {
-  if (merchants.length === 0) return null
+export function TrendingSection({ branches, onBranchPress, onFavourite }: Props) {
+  if (branches.length === 0) return null
 
   return (
     <LinearGradient
@@ -49,11 +52,14 @@ export function TrendingSection({ merchants, onMerchantPress, onFavourite }: Pro
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
       >
-        {merchants.map((merchant) => (
+        {branches.map((branch) => (
+          // Branch-keyed identity (Phase 2.3) — same pattern as
+          // FeaturedCarousel; adapter swaps `id: branch.id` so the
+          // `onPress` callback receives branch identity.
           <MerchantTile
-            key={merchant.id}
-            merchant={merchant}
-            onPress={onMerchantPress}
+            key={branch.id}
+            merchant={branchToMerchantTileProps(branch)}
+            onPress={onBranchPress}
             {...(onFavourite ? { onFavourite } : {})}
             width={TILE_WIDTH}
           />

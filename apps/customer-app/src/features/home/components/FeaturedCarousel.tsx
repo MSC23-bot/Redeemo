@@ -4,41 +4,32 @@ import { Star } from 'lucide-react-native'
 import { Text, color, spacing } from '@/design-system'
 import { MerchantTile } from '@/features/shared/MerchantTile'
 import { DotIndicator } from '@/features/shared/DotIndicator'
-import { MerchantTile as MerchantTileType } from '@/lib/api/discovery'
+import { BranchTile } from '@/lib/api/discovery'
+import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
 
 const TILE_WIDTH = 260
 const TILE_GAP = 12
 const AUTO_SCROLL_INTERVAL = 10000
 
 type Props = {
-  merchants: MerchantTileType[]
-  onMerchantPress: (id: string) => void
+  branches: BranchTile[]
+  // Receives branch.id — call site routes to
+  // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
+  onBranchPress: (branchId: string) => void
   onSeeAll: () => void
   onFavourite?: (id: string) => void
 }
 
-export function FeaturedCarousel({ merchants, onMerchantPress, onSeeAll, onFavourite }: Props) {
+export function FeaturedCarousel({ branches, onBranchPress, onSeeAll, onFavourite }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   const scrollRef = useRef<ScrollView>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const scrollToIndex = useCallback(
-    (index: number) => {
-      const clampedIndex = Math.max(0, Math.min(index, merchants.length - 1))
-      scrollRef.current?.scrollTo({
-        x: clampedIndex * (TILE_WIDTH + TILE_GAP),
-        animated: true,
-      })
-      setActiveIndex(clampedIndex)
-    },
-    [merchants.length],
-  )
-
   const startAutoScroll = useCallback(() => {
-    if (merchants.length <= 1) return
+    if (branches.length <= 1) return
     timerRef.current = setInterval(() => {
       setActiveIndex((prev) => {
-        const next = (prev + 1) % merchants.length
+        const next = (prev + 1) % branches.length
         scrollRef.current?.scrollTo({
           x: next * (TILE_WIDTH + TILE_GAP),
           animated: true,
@@ -46,7 +37,7 @@ export function FeaturedCarousel({ merchants, onMerchantPress, onSeeAll, onFavou
         return next
       })
     }, AUTO_SCROLL_INTERVAL)
-  }, [merchants.length])
+  }, [branches.length])
 
   useEffect(() => {
     startAutoScroll()
@@ -55,7 +46,7 @@ export function FeaturedCarousel({ merchants, onMerchantPress, onSeeAll, onFavou
     }
   }, [startAutoScroll])
 
-  if (merchants.length === 0) return null
+  if (branches.length === 0) return null
 
   return (
     <View>
@@ -107,11 +98,15 @@ export function FeaturedCarousel({ merchants, onMerchantPress, onSeeAll, onFavou
           startAutoScroll()
         }}
       >
-        {merchants.map((merchant) => (
+        {branches.map((branch) => (
+          // Branch-keyed identity (Phase 2.3) — two branches of the same
+          // merchant render as TWO distinct carousel tiles per the locked
+          // §M one-pin-per-branch principle.  Adapter swaps `id: branch.id`
+          // so the `onPress` callback below receives branch identity.
           <MerchantTile
-            key={merchant.id}
-            merchant={merchant}
-            onPress={onMerchantPress}
+            key={branch.id}
+            merchant={branchToMerchantTileProps(branch)}
+            onPress={onBranchPress}
             {...(onFavourite ? { onFavourite } : {})}
             showFeaturedBadge
             width={TILE_WIDTH}
@@ -120,8 +115,8 @@ export function FeaturedCarousel({ merchants, onMerchantPress, onSeeAll, onFavou
       </ScrollView>
 
       {/* Dot indicator */}
-      {merchants.length > 1 && (
-        <DotIndicator count={merchants.length} activeIndex={activeIndex} />
+      {branches.length > 1 && (
+        <DotIndicator count={branches.length} activeIndex={activeIndex} />
       )}
     </View>
   )
