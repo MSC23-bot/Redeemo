@@ -2946,9 +2946,24 @@ export async function searchBranches(
   // practice; defensive ordering anyway) sort last.
   // Tiebreakers: merchant.businessName → branch.name → branch.id
   // (deterministic across pagination calls).
+  // PR #120 device-QA fix wave 3 (2026-05-21) — extend bucket B rescue to
+  // category-only browse. Pre-fix, the fallback only fired for free-text
+  // queries (normalizedQ !== null). Owner-reported symptom: Food & Drink →
+  // More places returned 5 branches (Karaara/Pinos/Coffee House/Bean &
+  // Brew/Market Quarter) but DB has 7 active Food merchants — Covelum
+  // (Brightlingsea + Colchester, 2 branches) and My Kerala (Ipswich) were
+  // permanently rank-dropped (COUNTRY rung > MIXED_NORMAL @ URBAN maxRung
+  // REGION). Without the rescue, category-only browse on platform scope
+  // misses far category supply that DOES belong on the More places list.
+  //
+  // The `showWiderSupply` gate (below at ~line 3011) controls whether
+  // bucket B appears in the LIST — only when resolvedScope === 'platform'
+  // OR rankedTiles is empty (cascade rescue). So extending this gate to
+  // category-only browse only affects platform-scope output + counts;
+  // nearby/city scope output is unchanged.
   const textMatchFallback = (
     effLoc
-    && normalizedQ !== null
+    && (normalizedQ !== null || categoryId !== undefined)
   )
     ? [...rankable]
         .filter(b => !preScopeRankedIds.has(b.id))   // bucket B only — rank-dropped
@@ -3263,15 +3278,15 @@ export async function getCategoryBranches(
     userId: string | null
     lat?: number | null
     lng?: number | null
+    // PR #120 device-QA fix (2026-05-21) — accept scope and thread to
+    // searchBranches. Without this the branch list ignores the user's
+    // scope-pill selection while the route's merchant-side meta reports
+    // scope-aware counts: the two surfaces drift in unit (merchants vs
+    // branches) AND in scope. Owner-reported symptoms: `Nearby · 0` pill
+    // still rendering nearby branches; pill counts not matching the list.
+    scope?: 'nearby' | 'city' | 'region' | 'platform'
   },
-): Promise<{
-  branches: BranchTile[]
-  totalBranches: number
-  meta: {
-    rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
-    effectiveLocality: { id: string; name: string } | null
-  }
-}> {
+): ReturnType<typeof searchBranches> {
   return searchBranches(prisma, {
     q:          undefined,
     categoryId: params.categoryId,
@@ -3280,6 +3295,7 @@ export async function getCategoryBranches(
     limit:      params.limit,
     offset:     params.offset,
     userId:     params.userId,
+    ...(params.scope ? { scope: params.scope } : {}),
   })
 }
 

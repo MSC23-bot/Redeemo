@@ -380,10 +380,27 @@ const searchResponseSchema = z.object({
 })
 export type SearchResponse = z.infer<typeof searchResponseSchema>
 
+// Discovery Rebaseline Phase 2.4 (Category customer-app migration) — additive
+// branch-first envelope fields. Backend (PR #110) emits `branches[]` +
+// `totalBranches` alongside legacy `merchants` + `total` on every
+// category-merchants response. Prior to this extension the customer-app schema
+// silently stripped them on Zod parse.
+//
+// PR #120 device-QA fix (2026-05-21) — `branchMeta` carries branch-aligned
+// counts + emptyStateReason + scope + resolvedArea (parity with the legacy
+// `meta` field but derived from the branch path). `CategoryResultsScreen`
+// MUST read `branchMeta` (not `meta`) for counts + empty-state copy when
+// rendering branches; otherwise the scope pills show merchant-tier counts
+// while the list renders branches — the owner-observed split that caused
+// misleading "Nearby · 0" pills alongside a non-empty branch list. Mirrors
+// the /search precedent (searchResponseSchema line 379).
 const categoryMerchantsResponseSchema = z.object({
-  merchants: z.array(merchantTileSchema),
-  total:     z.number(),
-  meta:      discoveryMetaSchema,
+  merchants:     z.array(merchantTileSchema),
+  total:         z.number(),
+  meta:          discoveryMetaSchema,
+  branches:      z.array(branchTileSchema),
+  totalBranches: z.number(),
+  branchMeta:    discoveryMetaSchema.optional(),
 })
 export type CategoryMerchantsResponse = z.infer<typeof categoryMerchantsResponseSchema>
 

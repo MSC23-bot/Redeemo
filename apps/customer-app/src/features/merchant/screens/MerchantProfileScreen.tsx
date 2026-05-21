@@ -214,8 +214,13 @@ export function MerchantProfileScreen({ id }: Props) {
     // expo-router Tabs, so Search explicitly stamps `from=search&q=<q>`
     // on the merchant URL; the hero back handler routes the user back
     // to `/(app)/search?q=<q>` when these params are present.
-    from?: string
-    q?:    string
+    from?:       string
+    q?:          string
+    // Phase 2.4 LOCKED 2026-05-21: Category→Merchant→back must return to
+    // the category results page.  CategoryResults stamps `from=category&
+    // categoryId=<id>` on the merchant URL; the hero back handler routes
+    // to `/(app)/category/<id>` (or `/(app)/categories` when absent).
+    categoryId?: string
   }>()
 
   // Initial tab honours the URL.  Lazy initialiser eliminates the
@@ -979,20 +984,18 @@ export function MerchantProfileScreen({ id }: Props) {
         onShare={handleShare}
         scrollY={scrollY}
         topOffset={sbbHeight}
-        // Explicit back-navigation per `?from=…` URL param.  Default
-        // expo-router Tabs `router.back()` falls back to the
-        // previously-active tab (typically Discovery), which is the
-        // owner-flagged bug class.  Surfaces that stamp `from=…`:
-        //   - `from=search&q=<q>` — Phase 2.1 Search (PR #112 fixup-6)
-        //   - `from=map`          — Phase 2.2 Map (PR-3 Phase D)
-        // `resolveBackNavigation` is a pure helper; null = defer to
-        // default router.back() behaviour.  See
-        // `apps/customer-app/src/features/merchant/utils/resolveBackNavigation.ts`.
+        // Explicit back-navigation per `?from=…` URL param. Default
+        // expo-router Tabs `router.back()` falls back to the previously-
+        // active tab — the owner-flagged bug class. See
+        // `resolveBackNavigation.ts` for all supported `from=…` surfaces.
         onBack={
           (() => {
             const target = resolveBackNavigation(
               typeof screenParams.from === 'string' ? screenParams.from : undefined,
-              typeof screenParams.q    === 'string' ? screenParams.q    : undefined,
+              {
+                ...(typeof screenParams.q          === 'string' ? { q:          screenParams.q          } : {}),
+                ...(typeof screenParams.categoryId === 'string' ? { categoryId: screenParams.categoryId } : {}),
+              },
             )
             return target ? () => router.push(target as any) : undefined
           })()

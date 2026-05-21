@@ -12,6 +12,7 @@ import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { LocalityCaption } from '@/design-system/components/LocalityCaption'
 import { FilterSheet, FilterState } from '../components/FilterSheet'
+import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
 
 /**
  * CategoryResultsScreen — Hybrid hook strategy (PR B Milestone 4, Option A).
@@ -78,18 +79,38 @@ export function CategoryResultsScreen() {
     openNow:      false,
   })
 
-  // Sync filter.categoryId from the URL once `id` resolves. The useState
-  // initialiser captures `id` at first render — but expo-router's
-  // useLocalSearchParams() can return undefined briefly on first mount,
-  // before re-running with the resolved id. Without this sync the
-  // FilterSheet's "selected top-level" pill would not pre-select on cold
-  // start, and the categoryId-mismatch guard below would have to handle
-  // the null case forever.
+  // PR #120 device-QA fix (2026-05-21) — sync filter state to the route
+  // category on EVERY id change, not just on first mount.
+  //
+  // Previous gate `if (id && filters.categoryId === null)` only fired
+  // when categoryId was null (post-cold-start). When the user navigates
+  // Food → Beauty → Shopping, the route `id` changes but `filters.categoryId`
+  // stays on the previous category (not null), so the gate skipped.
+  // `hasNonScopeFilters` then evaluated `filters.categoryId !== id` as
+  // `true`, routed through `useSearch` with the STALE categoryId, and the
+  // new category page rendered the OLD category's merchants/branches —
+  // the owner-reported "Beauty & Wellness shows Karaara / Pinos" symptom.
+  //
+  // Owner-locked behaviour: on route id change, reset filters.categoryId to
+  // the new id AND clear all other filters (sortBy / voucherTypes /
+  // amenityIds / openNow) — Food's "openNow=true" filter shouldn't carry
+  // into Beauty either. The user's scope selection (separate state) is
+  // also reset to default for the same reason. The render branch then
+  // returns to the default useCategoryMerchants path (intent-aware ranking)
+  // until the user explicitly applies a filter on the new category page.
   useEffect(() => {
-    if (id && filters.categoryId === null) {
-      setFilters((prev) => ({ ...prev, categoryId: id }))
-    }
-  }, [id, filters.categoryId])
+    if (!id) return
+    setFilters((prev) => prev.categoryId === id ? prev : {
+      categoryId:   id,
+      sortBy:       'relevance',
+      voucherTypes: [],
+      amenityIds:   [],
+      openNow:      false,
+    })
+    // Reset scope on route change too — same rationale (Food's "Nearby"
+    // selection shouldn't carry into Beauty).
+    setScope(undefined)
+  }, [id])
 
   // The default view (no non-scope filters) uses useCategoryMerchants for
   // intent-aware ranking. The moment any non-scope filter is applied, we
@@ -135,21 +156,46 @@ export function CategoryResultsScreen() {
   // Pick the active dataset from whichever hook is enabled.
   const data      = hasNonScopeFilters ? searchQuery.data      : categoryQuery.data
   const isLoading = hasNonScopeFilters ? searchQuery.isLoading : categoryQuery.isLoading
-  const merchants = data?.merchants ?? []
-  const total     = data?.total ?? 0
-  const meta      = data?.meta
+  // Branch-first (Phase 2.4): render one tile per branch. Same
+  // `?branch=&from=category&categoryId=` contract as Phase 2.1 Search +
+  // Phase 2.2 Map + Phase 2.3 Home. `total` falls back to legacy `total`
+  // only defensively — `totalBranches` is now schema-required per Task B,
+  // so Zod parse would have failed before this point if it were missing.
+  const branches  = data?.branches ?? []
+  const total     = data?.totalBranches ?? data?.total ?? 0
+  // PR #120 device-QA fix (2026-05-21) — read branch-aligned meta when the
+  // backend emits it. Without this, pill counts + emptyStateReason +
+  // expandedBanner derived from merchant-tier meta while the list rendered
+  // branches. Mirrors SearchScreen's branchMeta-first read (line 128).
+  // Legacy `meta` fallback preserves cold-cache + pre-fix-server behaviour.
+  const meta      = data?.branchMeta ?? data?.meta
 
+  // PR #120 device-QA fix wave 3 (2026-05-21) — cumulative pill counts.
+  //
+  // Previously this was `{nearby: nearbyCount, city: cityCount, platform: distantCount}`
+  // (per-tier), but the list itself is cumulative (Your city = nearby + city,
+  // More places = nearby + city + distant — backend supplies all admissible
+  // branches at the chosen scope). Per-tier counts vs cumulative list created
+  // misleading mismatches: `Your city · 0` next to a list of 2 nearby
+  // branches; `More places · 3` next to 5 visible branches.
+  //
+  // Cumulative now mirrors SearchScreen (SearchScreen.tsx:128-133). The
+  // counts read as: "how many branches will I see if I select this scope".
   const counts = meta
-    ? { nearby: meta.nearbyCount, city: meta.cityCount, platform: meta.distantCount }
+    ? {
+        nearby:   meta.nearbyCount,
+        city:     meta.nearbyCount + meta.cityCount,
+        platform: meta.nearbyCount + meta.cityCount + meta.distantCount,
+      }
     : undefined
 
-  const expandedBanner = merchants.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'
+  const expandedBanner = branches.length > 0 && meta?.emptyStateReason === 'expanded_to_wider'
   // Suppress the empty-state copy while the active query is still loading.
   // Otherwise on first mount and on filter-handoff between hooks, `data` is
-  // briefly `undefined` → `merchants=[]` → `emptyReason='none'` → the
+  // briefly `undefined` → `branches=[]` → `emptyReason='none'` → the
   // "No merchants found" copy flashes for the duration of the network round-
   // trip. Only render the empty state once the request has settled.
-  const emptyReason    = merchants.length === 0 && !isLoading
+  const emptyReason    = branches.length === 0 && !isLoading
     ? (meta?.emptyStateReason ?? 'none')
     : null
 
@@ -205,14 +251,26 @@ export function CategoryResultsScreen() {
 
       {/* Results list */}
       <FlatList
-        data={merchants}
-        keyExtractor={(item) => item.id}
+        data={branches}
+        keyExtractor={(branch) => branch.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => (
+        renderItem={({ item: branch }) => (
           <MerchantTile
-            merchant={item}
-            onPress={(merchantId) => router.push(`/merchant/${merchantId}` as any)}
+            merchant={branchToMerchantTileProps(branch)}
+            onPress={() => {
+              // Branch-keyed identity (Phase 2.4): adapter swapped `id` → `branch.id`,
+              // so the onPress callback receives branch id. We still route to the
+              // merchant route path + stamp `?branch=` for branch-aware Merchant
+              // Profile + `from=category&categoryId=` for back-nav (see
+              // resolveBackNavigation.ts).
+              const merchantId = branch.merchant.id
+              const branchId   = branch.id
+              const url = id
+                ? `/merchant/${merchantId}?branch=${branchId}&from=category&categoryId=${id}`
+                : `/merchant/${merchantId}?branch=${branchId}&from=category`
+              router.push(url as any)
+            }}
           />
         )}
         ListEmptyComponent={<EmptyStateMessage reason={emptyReason} />}

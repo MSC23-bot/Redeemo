@@ -176,12 +176,23 @@ export async function discoveryRoutes(app: FastifyInstance) {
         userId,
         limit:      query.limit,
         offset:     query.offset,
+        // PR #120 device-QA fix (2026-05-21) — thread the scope pill
+        // selection through so the branch list respects Nearby / Your city /
+        // UK-wide. See `getCategoryBranches` docblock for the rationale.
+        ...(query.scope ? { scope: query.scope } : {}),
       }),
     ])
     return reply.send({
       ...merchantResult,
       branches:      branchResult.branches,
       totalBranches: branchResult.totalBranches,
+      // PR #120 device-QA fix (2026-05-21) — emit branchMeta additively
+      // (parity with /search; precedent at routes.ts:134). The customer-app
+      // CategoryResultsScreen reads `branchMeta ?? meta` so pill counts,
+      // locality caption, expanded-banner, and emptyStateReason all align
+      // with the branch list it's rendering, instead of the merchant-tier
+      // meta which describes a different unit (merchants vs branches).
+      branchMeta:    branchResult.meta,
     })
   })
 

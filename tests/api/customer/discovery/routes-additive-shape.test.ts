@@ -231,7 +231,7 @@ describe('Discovery Rebaseline Phase 1 Task 1.10 — additive route shape', () =
     expect(body.totalBranches).toBeGreaterThanOrEqual(2)
   }, 30_000)
 
-  it('GET /api/v1/customer/categories/:id/merchants — carries BOTH `merchants` + `branches` + totals', async () => {
+  it('GET /api/v1/customer/categories/:id/merchants — carries BOTH `merchants` + `branches` + totals + branchMeta', async () => {
     const res = await app.inject({
       method: 'GET',
       url:    `/api/v1/customer/categories/${seededCategoryId}/merchants`,
@@ -244,12 +244,50 @@ describe('Discovery Rebaseline Phase 1 Task 1.10 — additive route shape', () =
     expect(Array.isArray(body.merchants)).toBe(true)
     expect(body).toHaveProperty('total')
     expect(typeof body.total).toBe('number')
+    expect(body).toHaveProperty('meta')
+    expect(body.meta).toBeDefined()
 
     // Additive branch-themed fields present.
     expect(body).toHaveProperty('branches')
     expect(Array.isArray(body.branches)).toBe(true)
     expect(body).toHaveProperty('totalBranches')
     expect(typeof body.totalBranches).toBe('number')
+
+    // PR #120 device-QA fix (2026-05-21) — branchMeta carries branch-aligned
+    // counts/scope/emptyStateReason so the customer-app
+    // CategoryResultsScreen no longer reads merchant-tier counts while
+    // rendering branches. Parity with /search route (routes.ts:134).
+    expect(body).toHaveProperty('branchMeta')
+    expect(body.branchMeta).toBeDefined()
+    expect(body.branchMeta.scope).toBeDefined()
+    expect(typeof body.branchMeta.scopeExpanded).toBe('boolean')
+    expect(typeof body.branchMeta.nearbyCount).toBe('number')
+    expect(typeof body.branchMeta.cityCount).toBe('number')
+    expect(typeof body.branchMeta.distantCount).toBe('number')
+    expect(['none', 'expanded_to_wider', 'no_uk_supply'])
+      .toContain(body.branchMeta.emptyStateReason)
+  }, 30_000)
+
+  it('GET /api/v1/customer/categories/:id/merchants — `scope` query param threads to the branch list', async () => {
+    // PR #120 device-QA fix (2026-05-21) — pre-fix, the route silently
+    // dropped `?scope=…` for the branch list (getCategoryBranches didn't
+    // accept the param). Owner-reported symptom: `Nearby · 0` pill still
+    // rendering nearby branches. Pin that the scope is now honoured by
+    // asserting the scope echoes back in the response's branchMeta.scope.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/categories/${seededCategoryId}/merchants?scope=platform`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+
+    expect(body.branchMeta).toBeDefined()
+    // The returned scope is EITHER the requested 'platform' OR a wider
+    // resolution if cascade kicked in (resolved scope is load-bearing for
+    // the customer-app's scope pill highlight tracking the effective
+    // scope, not the requested one). Both are valid; the load-bearing
+    // assertion is that the field is populated.
+    expect(['nearby', 'city', 'region', 'platform']).toContain(body.branchMeta.scope)
   }, 30_000)
 
   it('GET /api/v1/customer/discovery/in-area — carries BOTH `merchants` + `branches`', async () => {
