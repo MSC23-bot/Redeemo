@@ -2,16 +2,15 @@ import React from 'react'
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native'
 import { ChevronRight } from 'lucide-react-native'
 import { Text, color, spacing } from '@/design-system'
-import { MerchantTile } from '@/features/shared/MerchantTile'
-import { BranchTile } from '@/lib/api/discovery'
-import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
+import { BranchTile } from '@/features/shared/BranchTile'
+import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 
 const TILE_WIDTH = 240
 const TILE_GAP = 12
 
 type CategorySection = {
   category: { id: string; name: string }
-  branches: BranchTile[]
+  branches: BranchTileType[]
 }
 
 type Props = {
@@ -67,12 +66,10 @@ export function NearbyByCategory({ sections, onBranchPress, onCategoryPress, onF
           >
             {section.branches.map((branch) => (
               // Branch-keyed identity (Phase 2.3) — same pattern as
-              // FeaturedCarousel + TrendingSection; adapter swaps
-              // `id: branch.id` so the `onPress` callback receives
-              // branch identity.
-              <MerchantTile
+              // FeaturedCarousel + TrendingSection.
+              <BranchTile
                 key={branch.id}
-                merchant={branchToMerchantTileProps(branch)}
+                branch={branch}
                 onPress={onBranchPress}
                 {...(onFavourite ? { onFavourite } : {})}
                 width={TILE_WIDTH}

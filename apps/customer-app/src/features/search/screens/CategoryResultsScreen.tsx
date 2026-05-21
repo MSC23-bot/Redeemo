@@ -7,12 +7,11 @@ import { useSearch } from '@/hooks/useSearch'
 import { useCategories } from '@/hooks/useCategories'
 import { useCategoryMerchants } from '@/hooks/useCategoryMerchants'
 import { useUserLocation } from '@/hooks/useLocation'
-import { MerchantTile } from '@/features/shared/MerchantTile'
+import { BranchTile } from '@/features/shared/BranchTile'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { LocalityCaption } from '@/design-system/components/LocalityCaption'
 import { FilterSheet, FilterState } from '../components/FilterSheet'
-import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
 
 /**
  * CategoryResultsScreen — Hybrid hook strategy (PR B Milestone 4, Option A).
@@ -256,13 +255,12 @@ export function CategoryResultsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         renderItem={({ item: branch }) => (
-          <MerchantTile
-            merchant={branchToMerchantTileProps(branch)}
+          <BranchTile
+            branch={branch}
             onPress={() => {
-              // Branch-keyed identity (Phase 2.4): adapter swapped `id` → `branch.id`,
-              // so the onPress callback receives branch id. We still route to the
-              // merchant route path + stamp `?branch=` for branch-aware Merchant
-              // Profile + `from=category&categoryId=` for back-nav (see
+              // Branch-keyed identity (Phase 2.4): branch.id is the load-bearing
+              // identity for the ?branch= URL contract (branch-aware Merchant
+              // Profile + `from=category&categoryId=` for back-nav — see
               // resolveBackNavigation.ts).
               const merchantId = branch.merchant.id
               const branchId   = branch.id

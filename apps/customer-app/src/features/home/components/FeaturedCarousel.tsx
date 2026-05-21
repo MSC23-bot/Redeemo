@@ -2,17 +2,16 @@ import React, { useRef, useState, useEffect, useCallback } from 'react'
 import { View, ScrollView, TouchableOpacity } from 'react-native'
 import { Star } from 'lucide-react-native'
 import { Text, color, spacing } from '@/design-system'
-import { MerchantTile } from '@/features/shared/MerchantTile'
+import { BranchTile } from '@/features/shared/BranchTile'
 import { DotIndicator } from '@/features/shared/DotIndicator'
-import { BranchTile } from '@/lib/api/discovery'
-import { branchToMerchantTileProps } from '../utils/branchToMerchantTile'
+import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 
 const TILE_WIDTH = 260
 const TILE_GAP = 12
 const AUTO_SCROLL_INTERVAL = 10000
 
 type Props = {
-  branches: BranchTile[]
+  branches: BranchTileType[]
   // Receives branch.id — call site routes to
   // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
   onBranchPress: (branchId: string) => void
@@ -101,11 +100,10 @@ export function FeaturedCarousel({ branches, onBranchPress, onSeeAll, onFavourit
         {branches.map((branch) => (
           // Branch-keyed identity (Phase 2.3) — two branches of the same
           // merchant render as TWO distinct carousel tiles per the locked
-          // §M one-pin-per-branch principle.  Adapter swaps `id: branch.id`
-          // so the `onPress` callback below receives branch identity.
-          <MerchantTile
+          // §M one-pin-per-branch principle.
+          <BranchTile
             key={branch.id}
-            merchant={branchToMerchantTileProps(branch)}
+            branch={branch}
             onPress={onBranchPress}
             {...(onFavourite ? { onFavourite } : {})}
             showFeaturedBadge

@@ -295,10 +295,12 @@ export type CampaignTile = z.infer<typeof campaignSchema>
 // this PR the customer-app schema silently stripped them on Zod parse.
 //
 // Phase 2.3 carousels (FeaturedCarousel / TrendingSection /
-// NearbyByCategory) consume the new `*Branches` arms via a surface-local
-// `branchToMerchantTile` adapter.  Legacy `featured` / `trending` /
-// `nearbyByCategory` fields stay on the schema during the additive
-// period (Phase 3 cleanup removes them).
+// NearbyByCategory) consume the new `*Branches` arms.  Phase 2.5
+// shipped the shared `<BranchTile>` rename + dropped the interim
+// adapter — the carousels now render <BranchTile branch={branch} />
+// directly.  Legacy `featured` / `trending` / `nearbyByCategory`
+// fields stay on the schema during the additive period (Phase 3
+// cleanup removes them).
 const homeFeedResponseSchema = z.object({
   locationContext: locationContextSchema,
   featured:        z.array(merchantTileSchema),

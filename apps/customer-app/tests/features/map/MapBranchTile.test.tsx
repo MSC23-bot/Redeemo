@@ -1,9 +1,9 @@
-// PR-3 Phase C — MapBranchTile carousel consumes BranchTile[] and
+// Phase 2.5 — MapBranchTile carousel consumes BranchTile[] and
 // each card is branch-keyed.  Two branches of the same merchant
 // render as two distinct cards (Covelum bug closure on the carousel
 // surface).  Tap fires `onBranchPress(branch.id)` — the shared
-// `<MerchantTile>` consumer is fed an adapted object whose `id` is
-// `branch.id`, so the identity propagates naturally.
+// `<BranchTile>` consumer reads branch.id directly and propagates
+// branch identity naturally (no adapter required).
 
 import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
@@ -143,12 +143,12 @@ describe('MapBranchTile', () => {
         onBranchPress={jest.fn()}
       />,
     )
-    // The shared <MerchantTile> is the unit of render per card.
+    // The shared <BranchTile> is the unit of render per card.
     // Two branches of the same merchant must render two
-    // distinct <MerchantTile> instances at distinct positions.
-    const { MerchantTile: MerchantTileComponent } = require('@/features/shared/MerchantTile')
-    const merchantTiles = UNSAFE_getAllByType(MerchantTileComponent)
-    expect(merchantTiles).toHaveLength(2)
+    // distinct <BranchTile> instances at distinct positions.
+    const { BranchTile: BranchTileComponent } = require('@/features/shared/BranchTile')
+    const branchTiles = UNSAFE_getAllByType(BranchTileComponent)
+    expect(branchTiles).toHaveLength(2)
   })
 
   it('§M: tap fires onBranchPress with the tapped CARD\'s branch.id (not the merchant.id)', () => {
@@ -178,18 +178,17 @@ describe('MapBranchTile', () => {
     const { PressableScale } = require('@/design-system/motion/PressableScale')
     const pressables = UNSAFE_getAllByType(PressableScale)
     expect(pressables.length).toBeGreaterThanOrEqual(2)
-    // Each PressableScale's onPress is wired with the adapted MerchantTile's
-    // `merchant.id` — but the adapter sets `id: branch.id`, so the callback
-    // fires with the BRANCH id (which is the load-bearing identity for the
-    // Phase D `?branch=` URL contract).
+    // Each PressableScale's onPress is wired directly with the BranchTile's
+    // branch.id — the callback fires with the BRANCH id (load-bearing
+    // identity for the `?branch=` URL contract).
     pressables[1]!.props.onPress()
     expect(onBranchPress).toHaveBeenCalledWith('brn-covelum-col')
     expect(onBranchPress).not.toHaveBeenCalledWith('m-covelum')
   })
 
-  // Plan 4 M3b — proves the inner shared MerchantTile receives the
+  // Plan 4 M3b — proves the inner shared BranchTile receives the
   // proximityBand prop unaltered through the Map carousel wrapper.
-  // MerchantTile's own chip-matrix test covers all band variants;
+  // BranchTile's own chip-matrix test covers all band variants;
   // this is the integration pin specifically for the Map render path.
   it('surfaces the proximity chip on the selected map card (branch-level proximityBand)', () => {
     const tile = makeBranchTile({

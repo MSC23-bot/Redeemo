@@ -36,8 +36,8 @@ export function HomeScreen() {
   // the Home tab on back-press.  Multi-branch merchants fan out to one
   // tile per branch per the locked §M one-pin-per-branch principle.
   //
-  // The carousels pass branch.id into onBranchPress via the
-  // branchToMerchantTile adapter's `id: branch.id` swap; the per-rail
+  // The carousels pass branch.id into onBranchPress directly (Phase 2.5
+  // dropped the interim branchToMerchantTile adapter); the per-rail
   // lookup below finds the parent merchant.id for the route path.
   const routeToBranch = (
     branchId: string,
