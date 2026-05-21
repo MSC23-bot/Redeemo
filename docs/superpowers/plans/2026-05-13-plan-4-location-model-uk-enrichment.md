@@ -4719,22 +4719,142 @@ gh pr create --title "feat(plan-4-m3): wire Discovery surfaces to rankMerchantsV
 
 ## Milestone M4 — Search + UX (place + tag + empty states)
 
-> ## 🚫 BLOCKED 2026-05-18 — Discovery rebaseline branch-first cardinality
+> ## ✅ UNBLOCKED 2026-05-22 — Discovery rebaseline ALL phases shipped + PR #123 polish shipped
 >
-> M4 is **BLOCKED** on the §M Discovery rebaseline (branch-first cardinality), owner-approved 2026-05-18.
+> M4 was BLOCKED on the §M Discovery rebaseline. As of 2026-05-22 every Phase (1 / 2.1 / 2.2 / 2.3 / 2.4 / 2.5 / 3a) is ✅ SHIPPED on `main` (HEAD `73b3149`). Phase 3b stays deferred under §CU (blocked on customer-web migration) but does NOT gate M4 — the customer-app surface consumes the branch-first contract directly.
 >
-> **Why blocked:** every M4 task (place detection in `q`, Tag.label search expansion, SearchChip primitive, section-level empty states, Map viewport-led EffectiveLocation) layers customer-app + backend consumer surface on the current one-tile-per-merchant model. Shipping M4 first means every M4 surface inherits the structural Covelum-collapse bug (§M line 156-162), and the post-M4 rebaseline cost roughly doubles. Reverse order — rebaseline first → M4 against the new `BranchTile` contract — is materially less work.
+> The full re-audit + 9 locked owner decisions for M4 live in **§M4-AMENDMENT-2026-05-22** below. The original task bodies (M4.1-M4.8) below the amendment are RETAINED FOR REFERENCE but the amendment is the authoritative spec for what ships.
+
+> ## 🟢 §M4-AMENDMENT-2026-05-22 — re-audit + locked owner decisions
 >
-> **Resume criteria:** Phase 2 customer-app surface migrations of the Discovery rebaseline must be at least underway (Search + Map surfaces migrated). M4's tasks resume against the branch-first contract without conceptual change — the WIRE SHAPE consumers shifts but the place-detection / tag-expansion / chip / empty-state logic itself is unaffected.
+> **Branch:** `feature/plan-4-m4-search-ux` off `main` at `73b3149` (post-PR-#123 perceived-perf polish).
 >
-> **Cross-refs:**
-> - Spec: `docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md` (Rev 2.1 — owner-approved + locked 2026-05-18).
-> - Plan: `docs/superpowers/plans/2026-05-18-discovery-rebaseline-branch-first.md` (Rev 1.2 — owner-approved + locked 2026-05-18; in active execution).
-> - PR-1 (Phase 1 backend additive) in flight as PR #110 against `main`.
-> - Deferred-followups: §M (🚧 ACTIVE 2026-05-18) — full rebaseline scope, cross-refs to §BA / §BB / §AW / §AV.
-> - Memory: `project_current_state.md` (2026-05-18 top section).
+> **Tier:** Tier 2 plan-first per the standing rule. This amendment IS the plan-lock. The re-audit narrows M4 scope significantly vs the original 2026-05-13 specification — most notably (1) drops the standalone `<SearchChip>` component in favour of folding the signal into the existing unified header, and (2) targets `searchBranches` only (customer-web stays on `searchMerchants` until §CU.1 migration).
 >
-> **M5 sequencing:** M5 cleanup should converge with Discovery Rebaseline Phase 3 / PR-7 once the branch-first surface migrations are complete. **Do NOT start M5 independently while M4 remains blocked.** The two cleanup tracks (Plan 4 M5 + Rebaseline Phase 3) ship together as a single PR after all five Phase 2 customer-app surface migrations are merged + owner-accepted.
+> ### 9 locked decisions (owner approval 2026-05-22)
+>
+> | # | Decision | Locked value |
+> |---|---|---|
+> | A1 | M4.5 SearchChip path | **Path 5b** — fold place/tag signal into existing `SearchScreen` unified header. NO new `<SearchChip>` component. §CP fully deferred. |
+> | A2 | M4.2/M4.3 customer-web mirror | **Path A** — `searchBranches` only. `searchMerchants` not touched in this PR. Customer-web gets place + tag at §CU.1 migration. |
+> | A3 | §CD voucher keyword search | **Keep §CD separate.** M4.3 = curated `Tag.label` + `MerchantHighlight.tag.label` only. Voucher `title`/`description`/`terms` + `matchContext` card line stay their own PR. |
+> | A4 | M4.6 "Invite your favourite local business" Category empty-state CTA | **Dropped from M4.** No invite-flow backend exists; defer to a later product/admin tooling pass. |
+> | A5 | M4.4 trending pre-flight | **Yes** — run trending pins FIRST against `main`+dev DB before any predicate change. If any of Pizza / Brunch / Nail salon / Barber / Gym / Coffee returns zero, pause + surface seed gap before continuing. |
+> | A6 | `searchChip` wire field shape | **Minimal**: `searchChip: { mode: 'PLACE' \| 'TAG'; label: string } \| null`. No Locality id / populationTier in the wire payload yet. Extend later if needed. |
+> | A7 | `tryTagMatch` strength | **Exact-only, case-insensitive** match on `Tag.label`. Prefix/contains is the existing fuzzy fall-through. No fuzzy tag matching in this PR. |
+> | A8 | Branch name | `feature/plan-4-m4-search-ux` off `main`. |
+> | A9 | Tier / planning mode | Tier 2 plan-first. This amendment IS the plan-lock. |
+>
+> ### Per-task amendments (overrides original M4.1-M4.8 below)
+>
+> **M4.1 — Branch from main:** Branch `feature/plan-4-m4-search-ux` off `main` at `73b3149`. (Original task valid as-is.)
+>
+> **M4.2 — Place detection in Search service:**
+> - **Target switch**: modify `searchBranches` (NOT `searchMerchants`). Customer-app is the branch-first consumer; customer-web (legacy `searchMerchants`) stays untouched per A2.
+> - **Helper**: `tryPlaceMatch(prisma, q)` — ILIKE-prefix on `Locality.name`; if no hit, ILIKE-prefix on `Locality.postTown`. Sort hits by `populationTier` DESC (METRO_CORE > CITY > LARGE_TOWN > TOWN > SMALL_TOWN > VILLAGE > HAMLET > UNKNOWN). Return top hit or null.
+> - **Wire-up**: place-match wins → resolve `EffectiveLocation` from the matched Locality (not GPS). When `chipMode === 'PLACE'`, skip the existing fuzzy q-OR on merchant text fields (the place IS the area). Still honour `categoryId` / `sortBy` / `voucherTypes` / `amenityIds` / `openNow` etc.
+> - **Kill-switch**: `PLACE_SEARCH_DETECTION_ENABLED = true` const at top of file per spec §11.3.
+> - **Meta envelope**: add `searchChip: { mode, label } | null` to the `searchBranches` response shape (additive — see A6 shape).
+>
+> **M4.3 — Curated `Tag.label` + `MerchantHighlight.tag.label` matching:**
+> - **Target switch**: same as M4.2 — `searchBranches` only.
+> - **Helper**: `tryTagMatch(prisma, q)` — exact-only case-insensitive match on `Tag.label`. Returns `{ kind: 'TAG', id, label, type }` or null. Priority: runs AFTER `tryPlaceMatch` returns null.
+> - **Schema paths (corrected vs original plan)**:
+>   - `Merchant.tags: MerchantTag[]` → `MerchantTag.tag: Tag` → `Tag.label`
+>   - `Merchant.highlights: MerchantHighlight[]` → `MerchantHighlight.tag: Tag` (via `highlightTagId` FK) → `Tag.label`
+>   - `MerchantHighlight` has NO own `label` column — relation traversal only.
+> - **Wire-up**: when `tagMatch` is non-null, set `chipMode = 'TAG'` and add to the existing `where.OR`:
+>   ```ts
+>   { tags:       { some: { tagId: tagMatch.id } } },
+>   { highlights: { some: { highlightTagId: tagMatch.id } } },
+>   ```
+> - **Fuzzy fall-through**: when both `placeMatch` and `tagMatch` are null, the existing fuzzy OR runs unchanged. NO addition of curated `Tag.label` `{ contains }` to the fuzzy OR in this PR (existing `MerchantSuggestedTag.tag.contains` already covers user-submitted-tag fuzzy matching).
+> - **NOT in scope (§CD)**: no voucher.title / voucher.description / voucher.terms / matchContext changes.
+>
+> **M4.4 — Trending non-empty pre-flight (now FIRST task):**
+> - **Sequencing**: this task runs BEFORE M4.2/M4.3 predicate changes per A5.
+> - Write `tests/api/customer/discovery/trending-searches.test.ts` with 6 pins (one per trending tag, all hitting Huddersfield GPS).
+> - Run against current `main` + dev DB. If any of the 6 terms returns 0, PAUSE and surface the seed gap before continuing.
+> - If all 6 green, commit the pin file and proceed.
+>
+> **M4.5 — `SearchScreen` header copy extension (NO new component):**
+> - **Path 5b locked (A1)**: NO `<SearchChip>` component. Extend the existing `resultsHeaderText` logic in `apps/customer-app/src/features/search/screens/SearchScreen.tsx` to read `branchMeta.searchChip`.
+> - **Header copy variants (locked)**:
+>   - `searchChip === null` (existing behaviour): `Results for "<q>" near <Locality>` / `Closest matches for "<q>" near <Locality>` / `Results for "<q>"` (no locality fallback).
+>   - `searchChip.mode === 'PLACE'`: `Offers in <Place>` (drops the `Results for "<q>"` framing because `q === Place`; place IS the area).
+>   - `searchChip.mode === 'TAG'`: `<Tag> offers near <Locality>` / `<Tag> offers` (no locality fallback).
+> - **British English; no em dashes; no "showing" prefix** (consistent with PR #112 fixup-6.4 owner-locked vocabulary).
+> - **`isExpanded` interaction**: when `emptyStateReason === 'expanded_to_wider'` AND `searchChip === null`, header reads `Closest matches for "<q>"...` (existing). When place/tag-match wins, the existing expand path is conceptually bypassed (place IS the area; `expanded_to_wider` shouldn't fire on a place match).
+>
+> **M4.6 — `SearchEmptyState reason='no_location'` only:**
+> - Add a 5th case to the existing `EmptyStateReason` switch in `apps/customer-app/src/features/search/components/SearchEmptyState.tsx`: `'no_location'`.
+> - Copy (locked, persona-aligned): title `Set your area to see offers near you.`, body `We use your area to show offers nearby.`, with a `<Button>` that routes to the existing PC2 address flow.
+> - **Drop the M4.6 Category invite-flow CTA entirely** (A4 — no static email link, no UI noise).
+> - **Existing `<MapEmptyArea>` copy verification** — audit vs PR #112 fixup-6.4 vocabulary rules (no "nothing", no "come back soon", no em dashes). Minor copy edits if any deviate; if zero deviations, M4.6 ships without touching `MapEmptyArea.tsx`.
+> - **Home hide-empty sections**: already done post-Phase-2.3 (`<TrendingSection>` + `<NearbyByCategory>` return null when arrays are empty). NO change.
+>
+> **M4.7 — Map viewport-led EffectiveLocation regression pin:**
+> - Backend already wires `viewportEffLoc` in `getInAreaBranches` (M3.3 shipped). Customer-app `<ViewportLocalityBadge>` already consumes it.
+> - **Pin only**: write `tests/api/customer/discovery/map-viewport-led.test.ts` with the existing test from the original plan. If it passes against current `main` (likely), commit + move on. If it fails, investigate — that's a real bug.
+>
+> **M4.8 — Sweep + push + PR:** Standard close-out. SHA-bound merge per the workflow hook rule.
+>
+> ### Hard scope boundaries (NOT in M4 per A2-A4 + recommendation accepted)
+>
+> - **No customer-web changes** (Phase 3b track lives at §CU.1).
+> - **No `searchMerchants` changes** unless a test proves unavoidable. (Default: leave it untouched.)
+> - **No voucher keyword search** (§CD stays separate).
+> - **No Search filters / sort / recent searches / animated illustrations** (§CE-§CH stay deferred).
+> - **No proximity-chip / scope-pill design alignment** (§CP stays deferred).
+> - **No Trending model rebuild** (§CR stays deferred — M4.4 only verifies the existing seed-driven trending list returns non-empty).
+> - **No Phase 3b backend cleanup / V1 ranker removal** (§CU.2 / §CU.3 stay deferred).
+> - **No Home / Map / Category polish bucket items** (§CK / §CO / §CN / §CW / §CX / §CY / §CL / §CM / §CQ / §CS Phase B / §CT all stay deferred).
+> - **No `<SearchChip>` component** (Path 5b — header copy only).
+> - **No Category invite-flow CTA** (A4 — no backend exists).
+>
+> ### Test plan (summary)
+>
+> **Backend (vitest) new pins:**
+> - `place-search.test.ts` — 2 pins (place wins over GPS; non-place falls through to fuzzy)
+> - `tag-search.test.ts` — 2 pins (Tag.label exact; MerchantHighlight tag exact)
+> - `trending-searches.test.ts` — 6 pins (one per trending tag)
+> - `map-viewport-led.test.ts` — 1 pin (M3 regression check)
+>
+> **Customer-app (jest) new pins:**
+> - `SearchScreen.searchChip.test.tsx` — header copy variants for PLACE / TAG / null
+> - `SearchEmptyState.noLocation.test.tsx` — new `no_location` reason copy + button render
+>
+> **Sweeps at branch tip**: customer-app jest 210→~212 suites / 2104→~2114 tests; backend vitest full; both tsc clean; backend untouched outside `searchBranches` predicate.
+>
+> ### Risks (locked summary)
+>
+> 1. Place-match collides with `Tag.label` when `q` is both a place AND a tag — locked: place wins per spec §6.2; collision pinned by an explicit test.
+> 2. `MerchantHighlight.tag` traversal performance — locked: exact-only match (no contains) keeps the cost bounded.
+> 3. Trending seed gap — surface upfront via M4.4 pre-flight (FIRST task per A5).
+> 4. `searchChip` field added to backend wire — additive; Zod strip-default protects unmigrated consumers.
+>
+> ### Sequencing (locked)
+>
+> 1. Branch from main ✅ (done: `feature/plan-4-m4-search-ux` off `73b3149`)
+> 2. **Plan-amend commit** — this section (next step)
+> 3. M4.4 pre-flight FIRST — trending pins against current main
+> 4. M4.2 place detection on `searchBranches` + `searchChip` field
+> 5. M4.3 curated `Tag.label` + `MerchantHighlight.tag.label` matching
+> 6. M4.4 commit (already-green pin file)
+> 7. M4.5 `SearchScreen` header copy extension (Path 5b — no new component)
+> 8. M4.6 `SearchEmptyState reason='no_location'` only
+> 9. M4.7 Map viewport-led regression pin
+> 10. M4.8 sweeps + PR + owner device QA
+>
+> ### What stays explicitly deferred (cross-refs)
+>
+> §CP / §CD / §CE / §CF / §CG / §CH / §CR / §CU.1 / §CU.2 / §CU.3 / §CK / §CN / §CO / §CW / §CX / §CY / §CL / §CM / §CQ / §CS Phase B / §CT / §AS customer-web side. All recorded in `project_deferred_followups_index.md`.
+
+---
+
+### Original M4 task bodies (retained for reference; AMENDMENT above is authoritative)
+
+> ⚠️ The original M4.1-M4.8 task bodies below were written 2026-05-13 against the legacy `MerchantTile` wire shape and the proposed `<SearchChip>` component. They are **NOT** authoritative — the §M4-AMENDMENT-2026-05-22 above overrides them. They remain here only for traceability of how the design evolved.
 
 
 **Goal:** Add place + tag detection in `q` (place sets EffectiveLocation per spec §6.2), expand fuzzy search predicate with `Tag.label`, `MerchantHighlight.label`, `Branch.localityName`, `Branch.postTown`. Section-level empty states and approved copy vocabulary land. Search chip ("Showing offers in [place]" / "Showing [tag] offers") renders. Trending searches verified non-empty against fixtures.
