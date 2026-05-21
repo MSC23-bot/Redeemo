@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react'
-import { View, ScrollView, Dimensions, TouchableOpacity } from 'react-native'
+import { View, ScrollView, Dimensions, TouchableOpacity, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { Image } from 'expo-image'
 import { Text, color, spacing, radius } from '@/design-system'
 import { DotIndicator } from '@/features/shared/DotIndicator'
 
@@ -89,20 +90,15 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
           const gradientStart = campaign.gradientStart ?? fallback[0]
           const gradientEnd = campaign.gradientEnd ?? fallback[1]
 
-          return (
-            <LinearGradient
-              key={campaign.id}
-              colors={[gradientStart, gradientEnd]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{
-                width: BANNER_WIDTH,
-                minHeight: 140,
-                borderRadius: radius.lg,
-                padding: spacing[5],
-                justifyContent: 'flex-end',
-              }}
-            >
+          // §CN — render the bannerImageUrl photo with a navy gradient
+          // overlay rgba(1,12,53,0.4) for legibility. The gradient-only
+          // path is preserved when the campaign has no image (or the
+          // image fails to load and expo-image keeps the cream
+          // placeholder visible).
+          const hasBanner = !!campaign.bannerImageUrl
+
+          const body = (
+            <>
               <Text
                 variant="heading.md"
                 style={{ color: '#FFFFFF', marginBottom: spacing[1] }}
@@ -135,6 +131,60 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
                   {campaign.ctaText ?? 'Learn More'}
                 </Text>
               </TouchableOpacity>
+            </>
+          )
+
+          if (hasBanner) {
+            return (
+              <View
+                key={campaign.id}
+                testID={`campaign-tile-${campaign.id}`}
+                style={{
+                  width: BANNER_WIDTH,
+                  minHeight: 140,
+                  borderRadius: radius.lg,
+                  padding: spacing[5],
+                  justifyContent: 'flex-end',
+                  overflow: 'hidden',
+                  backgroundColor: '#FFF6EE',
+                }}
+              >
+                <Image
+                  testID={`campaign-banner-image-${campaign.id}`}
+                  source={{ uri: campaign.bannerImageUrl as string }}
+                  style={StyleSheet.absoluteFillObject}
+                  contentFit="cover"
+                  transition={180}
+                  recyclingKey={campaign.id}
+                />
+                <LinearGradient
+                  testID={`campaign-banner-overlay-${campaign.id}`}
+                  colors={['transparent', 'rgba(1,12,53,0.4)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+                {body}
+              </View>
+            )
+          }
+
+          return (
+            <LinearGradient
+              key={campaign.id}
+              testID={`campaign-tile-${campaign.id}`}
+              colors={[gradientStart, gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                width: BANNER_WIDTH,
+                minHeight: 140,
+                borderRadius: radius.lg,
+                padding: spacing[5],
+                justifyContent: 'flex-end',
+              }}
+            >
+              {body}
             </LinearGradient>
           )
         })}
