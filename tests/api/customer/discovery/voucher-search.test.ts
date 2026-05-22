@@ -345,3 +345,81 @@ describe('§CD voucher keyword search v1 — negative pins (status / approval / 
     expect(names).toContain(`${FIXTURE_PREFIX}Merchant DESC`)
   })
 })
+
+// §CD v1 PR #125 device-QA follow-up (2026-05-22) — supply-aware default
+// scope regression coverage for voucher-driven matches.
+//
+// Owner-flagged: "voucher-driven searches must obey the same default scope
+// rule as the rest of Search.  For some voucher-title/description searches,
+// the results appear correctly, but the default selected pill does not
+// always start at the closest available bucket."
+//
+// Verification (probe `prisma/_probe-cd-supply-scope.ts`, deleted after run):
+// the backend correctly classifies voucher-driven matches into rung counts.
+// `rungCounts.NEARBY` increments for nearby branches; `distantCount`
+// (rung COUNTRY + textMatchFallback + tail) increments for far ones;
+// `scopeExpanded` flips true when the LOCAL/MIXED cascade needs to widen
+// past NEARBY+CITY to find supply.  No bug in the backend.
+//
+// These pins lock the contract so it can't silently regress.  The
+// customer-app's `effectiveScopeFromCounts` derives the default pill from
+// the three counts + `scopeExpanded`; these tests assert the counts
+// themselves carry the right values for voucher-driven matches.
+describe('§CD voucher keyword search v1 — supply-aware default scope contract', () => {
+  // Bristol — far from Karaara (Huddersfield).  Karaara's branch will
+  // classify as COUNTY rung from this effLoc per Plan 4 rank semantics
+  // (Bristol → Huddersfield ≈ 250 km).
+  const BRISTOL = { lat: 51.4545, lng: -2.5879 }
+
+  it('Voucher title match with nearby supply → branchMeta.nearbyCount=1, scopeExpanded=false (default pill = "Nearby")', async () => {
+    // Karaara has KAR-RMV-002 voucher titled "Free Samosa with Any Chai".
+    // From Huddersfield GPS, Karaara's branch ranks NEARBY (≈276m).
+    // The supply-aware default rule reads `branchMeta.nearbyCount > 0`
+    // and lands on "Nearby" — even though backend `resolvedScope='city'`
+    // (LOCAL/MIXED intent keeps NEARBY+CITY tiers).  The customer-app
+    // priority logic in SearchScreen.effectiveScope handles this correctly
+    // via `effectiveScopeFromCounts` (PR #124 fixup-3).
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=samosa&lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}&limit=30`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.branchMeta.nearbyCount).toBeGreaterThanOrEqual(1)
+    expect(body.branchMeta.scopeExpanded).toBe(false)
+    // Sanity: at least one returned branch carries matchContext (proves the
+    // voucher predicate was the driving signal AND voucher matches feed
+    // into rungCounts via the normal rank pipeline).
+    const withContext = (body.branches as Array<{ matchContext: string | null }>)
+      .filter(b => b.matchContext !== null)
+    expect(withContext.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('Voucher match with only wider/platform supply → scopeExpanded=true, resolvedScope="platform" (default pill = "More places")', async () => {
+    // From Bristol GPS, Karaara's branch classifies into a DISTANT rung
+    // (COUNTY from Bristol → Yorkshire and the Humber).  The MIXED/LOCAL
+    // intent cascade with no scope param starts at NEARBY+CITY — both
+    // empty — so it widens to DISTANT → `scopeExpanded=true`,
+    // `resolvedScope='platform'`.
+    //
+    // Customer-app priority: scopeExpanded=true short-circuits past the
+    // supply-aware default and uses `effectiveScopeFromMetaCascadedScope
+    // (branchMeta.scope)` → "More places".
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=samosa&lat=${BRISTOL.lat}&lng=${BRISTOL.lng}&limit=30`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.branchMeta.nearbyCount).toBe(0)
+    expect(body.branchMeta.cityCount).toBe(0)
+    expect(body.branchMeta.distantCount).toBeGreaterThanOrEqual(1)
+    expect(body.branchMeta.scopeExpanded).toBe(true)
+    expect(body.branchMeta.scope).toBe('platform')
+    // The branch is still on the wire (proves voucher pre-fetch finds it
+    // regardless of distance) — just classified into a distant rung.
+    const names = (body.branches as { merchant: { businessName: string } }[])
+      .map(b => b.merchant.businessName.toLowerCase())
+    expect(names.some(n => n.includes('karaara'))).toBe(true)
+  })
+})

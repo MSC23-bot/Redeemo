@@ -580,3 +580,45 @@ After writing this plan I reviewed it against §CD entry + owner's 12 locked dec
 Given §CD is bounded scope (~5 files; ~1.5 days estimated), inline execution is reasonable. Subagent-driven preferred if owner wants stricter review checkpoints between tasks.
 
 **Default: inline execution unless owner directs otherwise.**
+
+
+---
+
+## PR #125 device-QA follow-up (2026-05-22) — voucher-driven supply-aware default scope
+
+**Owner-flagged**: voucher-driven searches must obey the same default scope rule as the rest of Search. For some voucher-title/description searches, the default selected pill did not appear to start at the closest available bucket. Asked to verify the M4 `effectiveScopeFromCounts` / supply-aware default selection logic is not bypassed or confused by voucher-driven matches, and to add regression coverage for the 4 scenarios:
+
+1. Voucher title match with nearby supply defaults to `Nearby`.
+2. Voucher description match with city but no nearby supply defaults to `Your city`.
+3. Voucher match with only wider/platform supply defaults to `More places`.
+4. User-tapped pill still overrides the default visual state.
+
+**Investigation outcome — NO BUG.** Probed `searchBranches` directly via a one-off read-only script (`prisma/_probe-cd-supply-scope.ts`, deleted after run) against 8 representative voucher-driven queries from 3 GPS points (Huddersfield / Brightlingsea / Bristol) + no-GPS. Backend correctly:
+
+- Routes voucher-matched merchants through the same `rankBranchesV3` rank pipeline as name/tag/category matches — no special-case bypass.
+- Populates `rungCounts.NEARBY/CATCHMENT/POST_TOWN/...` based on the matched branch's actual rung classification relative to `effLoc`.
+- Aggregates into `nearbyCount` / `cityCount` / `distantCount` exactly as the customer-app's `effectiveScopeFromCounts` (PR #124 fixup-3) expects.
+- Cascades `scopeExpanded` true correctly when LOCAL/MIXED-intent default `[NEARBY, CITY]` is empty and the voucher-matched supply lives in DISTANT only.
+
+Concrete probe evidence:
+- `q="samosa"` from Huddersfield (Karaara only via voucher.title) → `nearbyCount=1`, `cityCount=0`, `distantCount=0`, `scopeExpanded=false`, resolvedScope=`city` (LOCAL+MIXED keeps NEARBY+CITY). Customer-app supply-aware default → `Nearby`. ✓
+- `q="samosa"` from Bristol (Karaara via voucher.title, far) → `nearbyCount=0`, `cityCount=0`, `distantCount=1`, `scopeExpanded=true`, resolvedScope=`platform`. Customer-app priority short-circuits to backend cascade → `More places`. ✓
+
+**Regression coverage added:**
+
+1. **Backend** — `tests/api/customer/discovery/voucher-search.test.ts` new describe block (`§CD voucher keyword search v1 — supply-aware default scope contract`) — 2 integration pins on real seed data:
+   - `q="samosa"` from Huddersfield asserts `branchMeta.nearbyCount >= 1` + `scopeExpanded=false` + at least one tile carries `matchContext != null`.
+   - `q="samosa"` from Bristol asserts `nearbyCount=0` + `cityCount=0` + `distantCount >= 1` + `scopeExpanded=true` + `scope='platform'`, with Karaara still on the wire.
+
+2. **Customer-app** — `apps/customer-app/tests/features/search/SearchScreen.defaultScope.voucherDriven.test.tsx` mirrors the existing `SearchScreen.defaultScope.test.tsx` structure with `matchContext` populated on the mocked tile. 4 pins (one per owner scenario):
+   - Voucher title match + `nearbyCount=1` → `Nearby` active pill.
+   - Voucher description match + `cityCount=1, nearbyCount=0` → `Your city` active pill.
+   - Voucher match + `distantCount=1, scopeExpanded=true, scope='platform'` → `More places` active pill.
+   - User taps `More places` on a nearby-supply result → active pill follows the tap, not the supply-aware default.
+
+These pins are explicit guards against a future refactor accidentally coupling scope derivation to `matchContext` (e.g. routing voucher-driven matches through a different code path). The customer-app `effectiveScopeFromCounts` and priority logic are blind to `matchContext` today; these tests lock that contract.
+
+**Test gates at PR #125 fix tip:**
+- Backend `npx vitest run tests/api/customer/discovery/voucher-search.test.ts` → 11/11 ✓
+- Customer-app `npx jest tests/features/search` → 18 suites / 141 tests ✓
+- `tsc --noEmit` customer-app clean; backend root unchanged (4 pre-existing §BV errors in `savings.service.test.ts`).
