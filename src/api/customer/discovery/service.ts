@@ -2589,6 +2589,29 @@ const POPULATION_TIER_ORDER: Record<string, number> = {
 //                     q="cove" -> no exact-match Locality -> null).
 const PLACE_MATCH_PREFIX_THRESHOLD = 5
 
+// Plan 4 M4.3 — curated Tag match.  Exact case-insensitive lookup on
+// `Tag.label` (per §M4-AMENDMENT-2026-05-22 A7 — no fuzzy in this PR).
+// Runs AFTER tryPlaceMatch returns null (place wins over tag).  Returns
+// the matched Tag row or null.
+async function tryTagMatch(prisma: PrismaClient, q: string | undefined) {
+  if (!q) return null
+  const trimmed = q.trim()
+  if (trimmed.length < 2) return null
+
+  // Single lookup — exact case-insensitive on `Tag.label`.  Covers both
+  // regular MerchantTag tags AND MerchantHighlight tags (both reference
+  // the same `Tag` row via different join tables).  Take the first hit;
+  // `Tag.@@unique([label, type])` means (label, type) pairs are unique,
+  // but label alone can repeat across types (e.g. label="Pizza" type=
+  // CUISINE vs label="Pizza" type=SPECIALTY).  Prisma's default order
+  // returns one consistently per (label) — good enough for M4.3 since
+  // the predicate that follows joins on the Tag id, not the type.
+  return prisma.tag.findFirst({
+    where:  { label: { equals: trimmed, mode: 'insensitive' } },
+    select: { id: true, label: true, type: true },
+  })
+}
+
 async function tryPlaceMatch(prisma: PrismaClient, q: string | undefined) {
   if (!PLACE_SEARCH_DETECTION_ENABLED) return null
   if (!q) return null
@@ -2693,29 +2716,33 @@ export async function searchBranches(
     throw new AppError('SEARCH_QUERY_REQUIRED')
   }
 
-  // Plan 4 M4.2 — Place detection.  Run BEFORE building the text-match
-  // where-OR.  If `q` matches a known Locality, the place becomes the
-  // EffectiveLocation (overriding GPS); the text fuzzy is skipped (the
-  // place IS the area — branches surface via the rank-then-enrich pipeline
-  // against the place-derived effLoc).  Other filters (categoryId,
-  // sortBy, voucherTypes, amenityIds, openNow, etc.) still apply.
+  // Plan 4 M4.2 + M4.3 — Place + Tag detection.
   //
-  // Performance — run the place lookup IN PARALLEL with the tag-merchant
-  // lookup (the other DB round-trip needed when building the text-match
-  // where-OR).  Speculatively running both keeps the wall-clock cost flat
-  // for the common-case text search where placeMatch returns null and we
-  // need the tag-merchant ids anyway.  Place-matched path discards the
-  // tag result (1 wasted query, but the place-matched flow is fast
+  // Run BEFORE building the text-match where-OR.  Priority order:
+  //   1. PLACE — if `q` matches a known Locality, place wins (drives
+  //      effLoc; text-OR skipped; the place IS the area).
+  //   2. TAG   — if `q` matches a curated `Tag.label`, the matched Tag
+  //      adds `{ tags: { some: { tagId } } }` + `{ highlights: { some:
+  //      { highlightTagId } } }` to the where-OR.  The text fuzzy still
+  //      runs alongside (tag-match doesn't replace the fuzzy — it adds
+  //      a new branch).
+  //   3. neither → existing fuzzy OR runs unchanged.
+  //
+  // Performance — all 3 lookups (place, tag, tag-merchant-suggested)
+  // run IN PARALLEL via Promise.all so the wall-clock cost stays close
+  // to a single round-trip.  Place-matched path discards the tag +
+  // tag-merchant results (small waste, but place-matched flow is fast
   // overall since it skips the text-OR build).
-  const [placeMatch, tagMerchantsLookup] = normalizedQ
+  const [placeMatch, tagMatch, tagMerchantsLookup] = normalizedQ
     ? await Promise.all([
         tryPlaceMatch(prisma, normalizedQ),
+        tryTagMatch(prisma, normalizedQ),
         prisma.merchantSuggestedTag.findMany({
           where:  { tag: { contains: normalizedQ, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
           select: { merchantId: true },
         }),
       ])
-    : [null, [] as Array<{ merchantId: string }>]
+    : [null, null, [] as Array<{ merchantId: string }>]
 
   // ── 2. Build branch-level predicate.
   const where: Prisma.BranchWhereInput = {
@@ -2762,6 +2789,16 @@ export async function searchBranches(
       { merchant: { primaryCategory: { name: { contains: normalizedQ, mode: 'insensitive' } } } },
       { merchant: { categories:      { some: { category: { name: { contains: normalizedQ, mode: 'insensitive' } } } } } },
       ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
+      // Plan 4 M4.3 — curated Tag match (exact, case-insensitive).  Joins
+      // through both `MerchantTag` (regular tags) AND `MerchantHighlight`
+      // (highlight tags reference the same Tag row via highlightTagId).
+      // Only added when `tryTagMatch` found a Tag for the query.
+      ...(tagMatch
+        ? [
+            { merchant: { tags:       { some: { tagId: tagMatch.id } } } },
+            { merchant: { highlights: { some: { highlightTagId: tagMatch.id } } } },
+          ]
+        : []),
       // Merchant-level WEAK match — gated on normalised q length.
       ...(includeDescriptionMatch
         ? [{ merchant: { description: { contains: normalizedQ, mode: 'insensitive' as const } } }]
@@ -3241,12 +3278,16 @@ export async function searchBranches(
       distantCount,
       emptyStateReason,
       resolvedArea,
-      // Plan 4 M4.2 — additive search-mode indicator.  PLACE today;
-      // M4.3 will add the TAG branch.  Minimal wire shape per
-      // §M4-AMENDMENT-2026-05-22 A6 (no Locality id / populationTier).
-      searchChip: placeMatch
-        ? { mode: 'PLACE' as const, label: placeMatch.name }
-        : null,
+      // Plan 4 M4.2 + M4.3 — additive search-mode indicator.
+      //
+      // Priority: PLACE wins over TAG (place-matched queries skip the
+      // text-OR build entirely; tag-matched queries add a branch to the
+      // text-OR).  Minimal wire shape per §M4-AMENDMENT-2026-05-22 A6
+      // (no Locality id / populationTier / Tag type).
+      searchChip:
+        placeMatch ? { mode: 'PLACE' as const, label: placeMatch.name } :
+        tagMatch   ? { mode: 'TAG'   as const, label: tagMatch.label } :
+        null,
     },
   }
 }

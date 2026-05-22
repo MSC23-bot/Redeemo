@@ -51,18 +51,11 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma  = new PrismaClient({ adapter })
 
 // Trending tags exactly mirror `TRENDING_TAGS` in the customer-app component.
-// `m43Dependent` flags terms that surface ONLY after M4.3 curated-tag matching
-// lands.  Today they fail; the test file uses `it.skip` for those entries with
-// a `— un-skip after M4.3 ships` annotation so each intermediate M4 commit
-// keeps the suite green (per §0.11 no-knowingly-broken-intermediate-commit).
-const TRENDING: { term: string; m43Dependent: boolean }[] = [
-  { term: 'Pizza',       m43Dependent: false },
-  { term: 'Brunch',      m43Dependent: true  },  // un-skip after M4.3
-  { term: 'Nail salon',  m43Dependent: false },
-  { term: 'Barber',      m43Dependent: false },
-  { term: 'Gym',         m43Dependent: false },
-  { term: 'Coffee',      m43Dependent: false },
-]
+//
+// Brunch was `it.skip`-gated through M4.2 because the curated-tag predicate
+// (M4.3) hadn't shipped yet — the Brunch fixture (Bean & Brew Shoreditch)
+// is reachable only via `Tag.label`.  M4.3 unblocked it; all 6 now run.
+const TRENDING = ['Pizza', 'Brunch', 'Nail salon', 'Barber', 'Gym', 'Coffee'] as const
 
 // Huddersfield centre (Karaara's neighbourhood — used by §SE Stage 2 seed
 // merchants).  Avoids the Brightlingsea/Colchester cluster on the south
@@ -91,13 +84,9 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-describe('Plan 4 M4.4 — trending searches return non-empty (pre-flight)', () => {
-  for (const { term, m43Dependent } of TRENDING) {
-    const tester = m43Dependent ? it.skip : it
-    const title = m43Dependent
-      ? `q=${term} returns at least one branch against seed (Huddersfield GPS) — un-skip after M4.3 ships`
-      : `q=${term} returns at least one branch against seed (Huddersfield GPS)`
-    tester(title, async () => {
+describe('Plan 4 M4.4 — trending searches return non-empty', () => {
+  for (const term of TRENDING) {
+    it(`q=${term} returns at least one branch against seed (Huddersfield GPS)`, async () => {
       const res = await app.inject({
         method: 'GET',
         url:    `/api/v1/customer/search?q=${encodeURIComponent(term)}&lat=${GPS.lat}&lng=${GPS.lng}&limit=30`,
