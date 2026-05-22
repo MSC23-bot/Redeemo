@@ -288,3 +288,314 @@ export async function buildFeaturedRail(
     },
   }
 }
+
+// ─── Trending + Popular rail builders (Phase D, spec §6.2 + §10.4) ──────────
+//
+// Both rails fan out from the calendar-month redemptions table.  They share
+// the same inclusion query but apply different scope rules:
+//
+//   Trending: strict NEARBY+CITY only — never cascades.  When local supply
+//             is empty the rail hides (returns `meta: null`).
+//   Popular:  platform-wide UK inclusion.  Two branches:
+//             (a) with effLoc → rank via V3, permissive tail.
+//             (b) without effLoc → emit tiles carrying null rung/band/
+//                 distance per the §6.2 no-location tile contract.
+//
+// Mutual-exclusion contract: the caller (`getHomeFeed`) only fires Popular
+// when Trending is silent OR effLoc is null.  Asserted server-side at the
+// orchestrator (the invariant throw covers a defensive case where Popular
+// somehow runs alongside a populated Trending).
+
+const TRENDING_TAKE = 10
+const POPULAR_TAKE  = 10
+const TOP_MERCHANT_CAP = 30  // Top-N merchants by redemption count (spec §10.4)
+
+function startOfMonthUTC(now: Date): Date {
+  const d = new Date(now.getFullYear(), now.getMonth(), 1)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+/**
+ * Build the Trending rail (spec §6.2).
+ *
+ * Strict NEARBY+CITY scope.  Returns `{ branches: [], meta: null }` when:
+ *   - `effLoc` is null (no location to compute proximity against).
+ *   - No current-month redemptions at all (top-merchant list is empty).
+ *   - No active branches under the top merchants.
+ *   - No rankable branches (every active branch is POSTCODE_CENTROID /
+ *     NEEDS_REVIEW with no exact lat/lng).
+ *   - Ranked supply has zero tiles in the retained NEARBY+CITY rung set
+ *     (local supply is empty — Trending never cascades).
+ */
+export async function buildTrendingRail(
+  prisma:        PrismaClient,
+  effLoc:        EffectiveLocation | null,
+  ladderProfile: LadderProfile,
+  locationCtx:   { locality: LocalityRef | null },
+): Promise<HomeRail> {
+  // Trending requires an effective location for proximity ranking.
+  if (!effLoc) return { branches: [], meta: null }
+
+  // ── 1. Inclusion: top merchants by current-month redemption count.
+  const monthStart = startOfMonthUTC(new Date())
+  const recent = await prisma.voucherRedemption.findMany({
+    where:  { redeemedAt: { gte: monthStart } },
+    select: { branch: { select: { merchantId: true } } },
+  })
+  const counts: Record<string, number> = {}
+  for (const r of recent) {
+    const id = r.branch.merchantId
+    counts[id] = (counts[id] ?? 0) + 1
+  }
+  const topMerchantIds = Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, TOP_MERCHANT_CAP)
+    .map(([id]) => id)
+  if (topMerchantIds.length === 0) return { branches: [], meta: null }
+
+  // ── 2. Fetch active branches under the top merchants.
+  const allBranches = await prisma.branch.findMany({
+    where:  { merchantId: { in: topMerchantIds }, isActive: true, merchant: { status: MerchantStatus.ACTIVE } },
+    select: RANK_BRANCH_SELECT,
+  }) as RankBranchRow[]
+  if (allBranches.length === 0) return { branches: [], meta: null }
+
+  // ── 3. Partition by locationConfidence (mirrors buildFeaturedRail).
+  const rankable = allBranches.filter(b =>
+    b.locationConfidence === 'MANUALLY_CONFIRMED'
+    || b.locationConfidence === 'ADDRESS_GEOCODED'
+  )
+  const nonRankable = allBranches.filter(b =>
+    b.locationConfidence === 'POSTCODE_CENTROID'
+    || b.locationConfidence === 'NEEDS_REVIEW'
+  )
+
+  if (rankable.length === 0) return { branches: [], meta: null }
+
+  // ── 4. Rank the rankable subset.
+  const v3 = rankBranchesV3(rankable.map(toRankInput), {
+    effLoc,
+    ladderProfile,
+    outgoingCatchmentTargetIds: [],
+    categoryIntent: 'MIXED',
+    targetCount:    20,
+    hardCap:        500,
+  })
+
+  // ── 5. Strict NEARBY+CITY scope — never cascades.
+  const resolution = resolveScopeForHomeRail('trending', v3.rungCounts)
+  const filteredTiles = v3.tiles.filter(t => resolution.retainedRungs.has(t.supplyRung))
+
+  // No local supply → rail hidden (Trending does NOT fall back to platform).
+  if (filteredTiles.length === 0) return { branches: [], meta: null }
+
+  // ── 6. Strict-locality identity tail (spec §6.4.1).
+  const headInputs: EnrichBranchInput[] = filteredTiles.map(t => ({
+    branchId:      t.id,
+    merchantId:    t.merchantId,
+    supplyRung:    t.supplyRung,
+    proximityBand: t.proximityBand,
+    distance:      t.distanceMetres,
+  }))
+
+  const tailCandidates = nonRankable.map(b => {
+    const exposed = exposeBranchPosition(b)
+    const tailInput: EnrichBranchInput & {
+      localityId:   string | null
+      localityName: string | null
+      postTown:     string | null
+    } = {
+      branchId:      b.id,
+      merchantId:    b.merchantId,
+      supplyRung:    null,
+      proximityBand: null,
+      distance:      null,
+      localityId:    b.localityId,
+      localityName:  b.localityName,
+      postTown:      b.postTown,
+    }
+    void exposed
+    return tailInput
+  })
+
+  const tailed = appendStrictLocalityTail(headInputs, tailCandidates, effLoc)
+  const sliced = tailed.slice(0, TRENDING_TAKE)
+
+  // ── 7. Enrich into BranchTile[].
+  const ctx: EnrichBranchCtx = {
+    userId: null,
+    lat:    effLoc.lat,
+    lng:    effLoc.lng,
+  }
+  const enriched = await enrichBranchTiles(prisma, sliced as EnrichBranchInput[], ctx)
+
+  return {
+    branches: enriched,
+    meta: {
+      locality:      locationCtx.locality,
+      scope:         resolution.scope,
+      scopeExpanded: resolution.scopeExpanded,
+      rungCounts:    v3.rungCounts,
+    },
+  }
+}
+
+/**
+ * Build the Popular rail (spec §6.2).
+ *
+ * Two branches:
+ *
+ *   (a) `effLoc` non-null — UK-wide inclusion query, rank via V3,
+ *       permissive tail.  Locality on `meta` is null (rail does not
+ *       claim a locality), scope is `platform`.
+ *
+ *   (b) `effLoc` null — V3 ranker NOT invoked.  Every tile constructed
+ *       with `supplyRung: null, proximityBand: null, distance: null`
+ *       per the §6.2 no-location tile contract.  The customer-app
+ *       `<PopularSection>` tolerates these nulls and renders the tiles
+ *       without distance / proximity chips.
+ *
+ * Returns `{ branches: [], meta: null }` only when no current-month
+ * redemptions exist anywhere (top-merchant list empty) or no active
+ * branches under any top merchant.
+ */
+export async function buildPopularRail(
+  prisma:        PrismaClient,
+  effLoc:        EffectiveLocation | null,
+  ladderProfile: LadderProfile,
+): Promise<HomeRail> {
+  // ── 1. Inclusion: top merchants by current-month redemption count
+  //    (same shape as Trending — but no locality filter; UK-wide).
+  const monthStart = startOfMonthUTC(new Date())
+  const recent = await prisma.voucherRedemption.findMany({
+    where:  { redeemedAt: { gte: monthStart } },
+    select: { branch: { select: { merchantId: true } } },
+  })
+  const counts: Record<string, number> = {}
+  for (const r of recent) {
+    const id = r.branch.merchantId
+    counts[id] = (counts[id] ?? 0) + 1
+  }
+  const topMerchantIds = Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, TOP_MERCHANT_CAP)
+    .map(([id]) => id)
+  if (topMerchantIds.length === 0) return { branches: [], meta: null }
+
+  // ── 2. Fetch active branches under the top merchants.
+  const allBranches = await prisma.branch.findMany({
+    where:  { merchantId: { in: topMerchantIds }, isActive: true, merchant: { status: MerchantStatus.ACTIVE } },
+    select: RANK_BRANCH_SELECT,
+  }) as RankBranchRow[]
+  if (allBranches.length === 0) return { branches: [], meta: null }
+
+  // ── 3. No-location branch (b): emit null-classification tiles.
+  //    V3 ranker is NOT invoked because there's no effLoc to rank against.
+  //    Tile order = merchant rank order (most-redeemed first), preserved
+  //    by walking `topMerchantIds` and pulling the first active branch per
+  //    merchant.  This is intentionally a curatorial order — without GPS
+  //    the platform cannot honestly claim "nearby" anything.
+  if (!effLoc) {
+    const branchesByMerchant = new Map<string, RankBranchRow[]>()
+    for (const b of allBranches) {
+      const list = branchesByMerchant.get(b.merchantId)
+      if (list) list.push(b)
+      else branchesByMerchant.set(b.merchantId, [b])
+    }
+    const orderedInputs: EnrichBranchInput[] = []
+    for (const mid of topMerchantIds) {
+      const list = branchesByMerchant.get(mid)
+      if (!list || list.length === 0) continue
+      // One branch per merchant to keep the rail visually diverse on the
+      // no-location path.  Pick deterministically by branch id.
+      const sorted = [...list].sort((a, b) => a.id.localeCompare(b.id))
+      const first = sorted[0]
+      orderedInputs.push({
+        branchId:      first.id,
+        merchantId:    first.merchantId,
+        supplyRung:    null,
+        proximityBand: null,
+        distance:      null,
+      })
+      if (orderedInputs.length >= POPULAR_TAKE) break
+    }
+
+    const ctx: EnrichBranchCtx = { userId: null, lat: null, lng: null }
+    const enriched = await enrichBranchTiles(prisma, orderedInputs, ctx)
+    return {
+      branches: enriched,
+      meta: {
+        locality:      null,
+        scope:         'platform',
+        scopeExpanded: false,
+        rungCounts:    { ...EMPTY_RUNG_COUNTS },
+      },
+    }
+  }
+
+  // ── 4. With-effLoc branch (a): rank via V3, permissive tail.
+  const rankable = allBranches.filter(b =>
+    b.locationConfidence === 'MANUALLY_CONFIRMED'
+    || b.locationConfidence === 'ADDRESS_GEOCODED'
+  )
+  const nonRankable = allBranches.filter(b =>
+    b.locationConfidence === 'POSTCODE_CENTROID'
+    || b.locationConfidence === 'NEEDS_REVIEW'
+  )
+
+  const v3 = rankable.length > 0
+    ? rankBranchesV3(rankable.map(toRankInput), {
+        effLoc,
+        ladderProfile,
+        outgoingCatchmentTargetIds: [],
+        categoryIntent: 'MIXED',
+        targetCount:    20,
+        hardCap:        500,
+      })
+    : { tiles: [], rungCounts: { ...EMPTY_RUNG_COUNTS } }
+
+  // Popular retains every rung (platform-wide).
+  const resolution = resolveScopeForHomeRail('popular', v3.rungCounts)
+  const filteredTiles = v3.tiles.filter(t => resolution.retainedRungs.has(t.supplyRung))
+
+  const headInputs: EnrichBranchInput[] = filteredTiles.map(t => ({
+    branchId:      t.id,
+    merchantId:    t.merchantId,
+    supplyRung:    t.supplyRung,
+    proximityBand: t.proximityBand,
+    distance:      t.distanceMetres,
+  }))
+
+  const tailCandidates: EnrichBranchInput[] = nonRankable.map(b => {
+    const exposed = exposeBranchPosition(b)
+    void exposed
+    return {
+      branchId:      b.id,
+      merchantId:    b.merchantId,
+      supplyRung:    null,
+      proximityBand: null,
+      distance:      null,
+    }
+  })
+
+  const tailed = appendPermissiveTail(headInputs, tailCandidates)
+  const sliced = tailed.slice(0, POPULAR_TAKE)
+
+  const ctx: EnrichBranchCtx = {
+    userId: null,
+    lat:    effLoc.lat,
+    lng:    effLoc.lng,
+  }
+  const enriched = await enrichBranchTiles(prisma, sliced as EnrichBranchInput[], ctx)
+
+  return {
+    branches: enriched,
+    meta: {
+      locality:      null,
+      scope:         'platform',
+      scopeExpanded: false,
+      rungCounts:    v3.rungCounts,
+    },
+  }
+}
