@@ -96,11 +96,14 @@ jest.mock('@/hooks/useSearch', () => ({
           isLoading: false,
         }
       case 'expanded':
-        // PR #112 fixup-3: backend cascaded out of 'city' to 'platform' to
-        // find supply.  effectiveLocality carries the user's location label
-        // (Huddersfield); branchMeta.scope='platform' is the EFFECTIVE
-        // scope the active pill should highlight (NOT 'city' which the
-        // user asked for).  See effective-scope spec §4.1.
+        // PR #112 fixup-3 + PR #124 fixup-3 (2026-05-22): backend genuinely
+        // cascaded out of 'city' to 'platform' because nearby + city both
+        // had 0 supply.  Counts MUST reflect that — both nearbyCount and
+        // cityCount are 0, distantCount carries the result.  effective-
+        // Locality carries the user's location label (Huddersfield); the
+        // active pill should highlight 'More places' because that's the
+        // narrowest bucket where supply actually exists (per the new
+        // supply-aware default-scope rule).
         return {
           data: {
             merchants: [], total: 0,
@@ -109,6 +112,9 @@ jest.mock('@/hooks/useSearch', () => ({
               ...mockMeta,
               scope: 'platform',
               scopeExpanded: true,
+              nearbyCount:  0,
+              cityCount:    0,
+              distantCount: 1,
               emptyStateReason: 'expanded_to_wider',
               effectiveLocality: { name: 'Huddersfield' },
             },
@@ -116,6 +122,9 @@ jest.mock('@/hooks/useSearch', () => ({
               ...mockMeta,
               scope: 'platform',
               scopeExpanded: true,
+              nearbyCount:  0,
+              cityCount:    0,
+              distantCount: 1,
               emptyStateReason: 'expanded_to_wider',
               effectiveLocality: { name: 'Huddersfield' },
             },

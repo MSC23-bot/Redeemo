@@ -43,6 +43,11 @@ const baseMeta = {
 const mockState = {
   effectiveLocality: null as null | { id: string; name: string },
   searchChip:        null as null | { mode: 'PLACE' | 'TAG'; label: string },
+  // PR #124 fixup-2 (2026-05-22) — scope-expansion signals for the
+  // PLACE-mode honesty test.  When backend widened past the matched
+  // place, customer-app reads these to switch header copy.
+  scopeExpanded:     false,
+  emptyStateReason:  'none' as 'none' | 'expanded_to_wider' | 'no_uk_supply',
 }
 
 jest.mock('@/hooks/useSearch', () => ({
@@ -50,6 +55,8 @@ jest.mock('@/hooks/useSearch', () => ({
     if (!enabled) return { data: undefined, isLoading: false }
     const builtMeta = {
       ...baseMeta,
+      scopeExpanded:    mockState.scopeExpanded,
+      emptyStateReason: mockState.emptyStateReason,
       ...(mockState.effectiveLocality !== null
         ? { effectiveLocality: mockState.effectiveLocality }
         : {}),
@@ -105,9 +112,11 @@ describe('SearchScreen — searchChip header copy variants (Plan 4 M4.5)', () =>
   beforeEach(() => {
     mockState.effectiveLocality = null
     mockState.searchChip        = null
+    mockState.scopeExpanded     = false
+    mockState.emptyStateReason  = 'none'
   })
 
-  it('PLACE mode: renders "Offers in <Place>" (drops the "Results for X" framing)', async () => {
+  it('PLACE mode + in-place results: renders "Offers in <Place>"', async () => {
     mockState.searchChip        = { mode: 'PLACE', label: 'Brightlingsea' }
     mockState.effectiveLocality = { id: 'loc-br', name: 'Brightlingsea' }
     const { getByPlaceholderText, getByText, queryByText } =
@@ -120,7 +129,31 @@ describe('SearchScreen — searchChip header copy variants (Plan 4 M4.5)', () =>
     // q IS the place, so "Results for 'Brightlingsea'" would read as
     // a tautology / mid-flow stop word.
     expect(queryByText(/Results for "Brightlingsea"/)).toBeNull()
-    expect(queryByText(/near Brightlingsea/)).toBeNull()
+    expect(queryByText(/Closest matches near/)).toBeNull()
+  })
+
+  it('PLACE mode + scopeExpanded (widened past place): renders "Closest matches near <Place>" honesty', async () => {
+    // PR #124 fixup-2 (2026-05-22) — owner-direction honesty rule.
+    // Pre-fixup: header was always "Offers in Manchester" even when the
+    // backend cascaded scope past the matched place and returned
+    // platform-wide unrelated merchants.  Owner: "If the backend
+    // intentionally widens beyond the searched place, the header/copy
+    // must clearly say that."
+    mockState.searchChip        = { mode: 'PLACE', label: 'Manchester' }
+    mockState.effectiveLocality = { id: 'loc-man', name: 'Manchester' }
+    mockState.scopeExpanded     = true
+    mockState.emptyStateReason  = 'expanded_to_wider'
+    const { getByPlaceholderText, getByText, queryByText } =
+      render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'Manchester')
+    await waitFor(() => {
+      expect(getByText('Closest matches near Manchester')).toBeTruthy()
+    })
+    // The overclaim copy "Offers in Manchester" must NOT appear when the
+    // scope was widened past the matched place.
+    expect(queryByText('Offers in Manchester')).toBeNull()
+    // Legacy framings also absent.
+    expect(queryByText(/Results for "Manchester"/)).toBeNull()
   })
 
   it('TAG mode + locality present: renders "<Tag> offers near <Locality>"', async () => {

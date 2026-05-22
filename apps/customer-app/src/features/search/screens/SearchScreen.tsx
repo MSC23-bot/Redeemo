@@ -41,13 +41,41 @@ function ResultSkeleton() {
 // Spec §4.1 scope cascade: backend bucket → display pill mapping.  The pill
 // row surfaces 3 user-facing values; backend `branchMeta.scope` reports the
 // raw cascade rung (5 values incl. 'region' which we treat as 'city').
-function effectiveScopeFromMeta(
-  metaScope: 'nearby' | 'city' | 'region' | 'platform' | undefined,
-): Scope {
-  if (metaScope === 'nearby')   return 'nearby'
-  if (metaScope === 'platform') return 'platform'
-  // 'city' and 'region' both render under the 'Your city' pill — locked
-  // at Task 2.1.0 scope parity (memory project_discovery_rebaseline_task_2_1_0).
+//
+// PR #124 fixup-3 (2026-05-22) — supply-aware default scope.
+//
+// Pre-fixup: `effectiveScope` was derived from `branchMeta.scope`.  But the
+// backend's `resolvedScope` reports which TIERS are retained in the merged
+// list, not where the supply is actually concentrated.  When LOCAL/MIXED
+// intent default kept the NEARBY+CITY tiers (with nearbyCount=1, cityCount=0),
+// `branchMeta.scope === 'city'` and the UI highlighted "Your city" even
+// though all the supply was on the NEARBY rung — visually misleading.
+//
+// Owner-locked rule (PR #124 fixup-3, 2026-05-22):
+//   "If Nearby has results, default to Nearby.
+//    Else if Your city has results, default to Your city.
+//    Else default to More places."
+//
+// The narrowest-with-supply heuristic uses RAW bucket counts (NOT cumulative
+// — those would always be > 0 if any results exist).  Falls back to the
+// backend-resolved scope only when ALL buckets are zero (the genuinely-empty
+// case, where `branchMeta.emptyStateReason === 'no_uk_supply'`).
+function effectiveScopeFromCounts(
+  branchMeta: {
+    scope?:        'nearby' | 'city' | 'region' | 'platform' | undefined
+    nearbyCount?:  number
+    cityCount?:    number
+    distantCount?: number
+  } | undefined,
+): Scope | undefined {
+  if (!branchMeta) return undefined
+  if ((branchMeta.nearbyCount  ?? 0) > 0) return 'nearby'
+  if ((branchMeta.cityCount    ?? 0) > 0) return 'city'
+  if ((branchMeta.distantCount ?? 0) > 0) return 'platform'
+  // All-empty fallback — preserve backend-resolved scope so the pill
+  // still reflects the cascade outcome on no-supply searches.
+  if (branchMeta.scope === 'nearby')   return 'nearby'
+  if (branchMeta.scope === 'platform') return 'platform'
   return 'city'
 }
 
@@ -144,8 +172,11 @@ export function SearchScreen() {
   // Owner-locked rule: "active pill should reflect what is actually being
   // shown" — internally consistent UX (no "Your city · 0 selected" with
   // results visible below).
+  // PR #124 fixup-3 — derive from RAW bucket counts (narrowest with supply)
+  // instead of backend.resolvedScope (which reports retained tiers, not
+  // supply concentration).  See `effectiveScopeFromCounts` docblock above.
   const effectiveScope: Scope | undefined = branchMeta
-    ? effectiveScopeFromMeta(branchMeta.scope)
+    ? effectiveScopeFromCounts(branchMeta)
     : requestedScope
 
   // 'expanded_to_wider' is reflected in the SINGLE results header line below
@@ -170,17 +201,26 @@ export function SearchScreen() {
   // Plan 4 M4.5 (Path 5b — §M4-AMENDMENT-2026-05-22 A1):
   //
   // Extend the same unified header to read `branchMeta.searchChip` and
-  // render TWO additional copy variants WITHOUT introducing a new chip
+  // render additional copy variants WITHOUT introducing a new chip
   // component.  Keeps the customer-app surgical — owner explicitly chose
   // this over a standalone <SearchChip> to avoid compounding the §CP
   // pills+chips+banner label-system count.
   //
   //   PLACE mode (q matched a Locality):
-  //     `Offers in <Place>`                     (q IS the place — drop the
-  //                                              `Results for "X"` framing)
+  //     In-place results:  `Offers in <Place>`
+  //                        (q IS the place — drop the `Results for "X"`
+  //                         framing because q === Place name)
+  //     Widened fallback:  `Closest matches near <Place>`
+  //                        (PR #124 fixup-2 honesty rule — when the
+  //                         backend's scope cascade widened past the
+  //                         matched place to find supply, the header
+  //                         MUST reflect that the displayed results are
+  //                         NOT "in" the place.  Otherwise users see
+  //                         `Offers in Manchester` alongside platform-
+  //                         wide merchants — overclaim.)
   //
   //   TAG mode (q matched a curated Tag.label):
-  //     `<Tag> offers near <Locality>`          / `<Tag> offers`
+  //     `<Tag> offers near <Locality>` / `<Tag> offers` (no locality)
   //
   //   null mode (no place + no tag): existing `Results / Closest matches`
   //   header behaviour unchanged.
@@ -188,6 +228,17 @@ export function SearchScreen() {
   const stem         = isExpanded ? 'Closest matches' : 'Results'
   const resultsHeaderText = (() => {
     if (searchChip?.mode === 'PLACE') {
+      // PR #124 fixup-2 (2026-05-22) — owner-direction honesty rule.
+      // When the backend cascaded the scope past the matched place
+      // (`branchMeta.scopeExpanded === true` OR `emptyStateReason ===
+      // 'expanded_to_wider'`), the displayed results are NO LONGER "in"
+      // the place — they're the closest matches across a wider scope.
+      // Use the same `Closest matches` stem as the null-mode wide path,
+      // but anchored to the place via `near <Place>` instead of the q
+      // string + locality (the place IS the locality).
+      if (isExpanded) {
+        return `Closest matches near ${searchChip.label}`
+      }
       return `Offers in ${searchChip.label}`
     }
     if (searchChip?.mode === 'TAG') {

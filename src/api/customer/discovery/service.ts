@@ -2574,20 +2574,28 @@ const POPULATION_TIER_ORDER: Record<string, number> = {
 
 // Plan 4 M4.2 — `q` length threshold for prefix vs exact match.
 //
-// Prefix matching on short queries (e.g. q="cov") accidentally hits real
-// localities ("Coventry"), short-circuiting the text fuzzy and breaking
-// tests that intentionally use short queries (e.g. the PR #112 fixup-4
-// description-gate at 5 chars).  Mirrors the existing
-// `MIN_DESCRIPTION_MATCH_LENGTH` threshold pattern.
+// PR #124 fixup-1 (2026-05-22) — tightened after owner device QA flagged
+// that prefix matching was stealing common-word queries like `Indian`
+// (matched "Indian Queens" — a Cornish village/hamlet) and `nails`
+// (matched "Nailsea" — a TOWN-tier locality near Bristol).  The fix:
 //
-//   q.length >= 5 → ILIKE-prefix match (`startsWith`)
-//                   — long enough to be confident the user means a place
-//                     ("London" / "Manchester" / "Brighton" / etc.)
-//   q.length <  5 → exact case-insensitive match (`equals`)
-//                   — only short locality names that EQUAL the query
-//                     win (e.g. q="York" -> Locality "York";
-//                     q="cove" -> no exact-match Locality -> null).
-const PLACE_MATCH_PREFIX_THRESHOLD = 5
+//   1. EXACT case-insensitive match on `Locality.name` OR `postTown` —
+//      acceptable at ANY populationTier.  E.g. q="Brightlingsea" hits
+//      the Brightlingsea Locality regardless of its tier.
+//   2. PREFIX match (`startsWith`) — only when:
+//        a. query length >= PLACE_MATCH_PREFIX_THRESHOLD (raised from 5
+//           to 6 to exclude short common-word prefixes), AND
+//        b. matched Locality.populationTier ∈ PLACE_PREFIX_ALLOWED_TIERS
+//           (METRO_CORE / CITY / LARGE_TOWN only — excludes TOWN /
+//           SMALL_TOWN / VILLAGE / HAMLET, which are where "Indian
+//           Queens" / "Nailsea" sit).
+//
+// Effect: places like "London" / "Manchester" / "Brighton" / "Bath"
+// keep working via exact match at any tier; users typing "Brigh" still
+// prefix-match Brighton (LARGE_TOWN+); but "nails" and "Indian" no
+// longer steal results from genuine merchant/tag queries.
+const PLACE_MATCH_PREFIX_THRESHOLD = 6
+const PLACE_PREFIX_ALLOWED_TIERS = new Set<string>(['METRO_CORE', 'CITY', 'LARGE_TOWN'])
 
 // Plan 4 M4.3 — curated Tag match.  Exact case-insensitive lookup on
 // `Tag.label` (per §M4-AMENDMENT-2026-05-22 A7 — no fuzzy in this PR).
@@ -2617,41 +2625,59 @@ async function tryPlaceMatch(prisma: PrismaClient, q: string | undefined) {
   if (!q) return null
   const trimmed = q.trim()
   if (trimmed.length < 2) return null
+  const trimmedLower = trimmed.toLowerCase()
 
-  // Short-query path: exact case-insensitive match only.  Avoids the
-  // "cove" → "Coventry" class of false positive.
-  const useExact = trimmed.length < PLACE_MATCH_PREFIX_THRESHOLD
-  const nameWhere = useExact
-    ? { name:     { equals:     trimmed, mode: 'insensitive' as const } }
-    : { name:     { startsWith: trimmed, mode: 'insensitive' as const } }
-  const postTownWhere = useExact
-    ? { postTown: { equals:     trimmed, mode: 'insensitive' as const } }
-    : { postTown: { startsWith: trimmed, mode: 'insensitive' as const } }
-
-  // Combined OR query — name OR postTown match — keeps the place-match
-  // overhead to ONE DB round-trip per searchBranches call instead of two.
-  // Take 10 to capture all variant Localities; sort in-process by
-  // populationTier DESC so the densest variant wins (METRO_CORE > CITY >
-  // LARGE_TOWN > ...).  Name-match wins over postTown-match when both are
-  // present at the same tier (stable secondary sort).
-  const matches = await prisma.locality.findMany({
-    where: { OR: [nameWhere, postTownWhere] },
+  // Step 1 — EXACT case-insensitive match on Locality.name OR postTown.
+  // Acceptable at ANY populationTier (a small town named exactly the
+  // user's query IS the place they mean).
+  const exactMatches = await prisma.locality.findMany({
+    where: {
+      OR: [
+        { name:     { equals: trimmed, mode: 'insensitive' as const } },
+        { postTown: { equals: trimmed, mode: 'insensitive' as const } },
+      ],
+    },
     take:  10,
   })
-  if (matches.length === 0) return null
-
-  // Score: populationTier × 10 + (1 if name match, 0 if postTown-only).
-  // Name match preferred at the same tier; densest wins overall.
-  const matchesByScore = matches
-    .map(m => {
-      const nameHit = useExact
-        ? m.name.toLowerCase() === trimmed.toLowerCase()
-        : m.name.toLowerCase().startsWith(trimmed.toLowerCase())
+  if (exactMatches.length > 0) {
+    // Densest tier wins; name-match wins over postTown-match at same tier.
+    const scored = exactMatches.map(m => {
+      const nameHit = m.name.toLowerCase() === trimmedLower
       const tierScore = (POPULATION_TIER_ORDER[m.populationTier] ?? 0) * 10
       return { row: m, score: tierScore + (nameHit ? 1 : 0) }
-    })
-    .sort((a, b) => b.score - a.score)
-  return matchesByScore[0]?.row ?? null
+    }).sort((a, b) => b.score - a.score)
+    return scored[0]?.row ?? null
+  }
+
+  // Step 2 — PREFIX match — only fires when:
+  //   (a) query length >= PLACE_MATCH_PREFIX_THRESHOLD (6 chars), AND
+  //   (b) matched Locality.populationTier ∈ PLACE_PREFIX_ALLOWED_TIERS
+  //       (METRO_CORE / CITY / LARGE_TOWN only).
+  // Closes the "Indian" -> "Indian Queens" (HAMLET) and "nails" ->
+  // "Nailsea" (TOWN) false-positive classes — both fail at least one
+  // of (a) length or (b) tier.
+  if (trimmed.length < PLACE_MATCH_PREFIX_THRESHOLD) return null
+
+  const prefixMatches = await prisma.locality.findMany({
+    where: {
+      OR: [
+        { name:     { startsWith: trimmed, mode: 'insensitive' as const } },
+        { postTown: { startsWith: trimmed, mode: 'insensitive' as const } },
+      ],
+      populationTier: {
+        in: Array.from(PLACE_PREFIX_ALLOWED_TIERS) as any,
+      },
+    },
+    take:  10,
+  })
+  if (prefixMatches.length === 0) return null
+
+  const scored = prefixMatches.map(m => {
+    const nameHit = m.name.toLowerCase().startsWith(trimmedLower)
+    const tierScore = (POPULATION_TIER_ORDER[m.populationTier] ?? 0) * 10
+    return { row: m, score: tierScore + (nameHit ? 1 : 0) }
+  }).sort((a, b) => b.score - a.score)
+  return scored[0]?.row ?? null
 }
 
 export async function searchBranches(
@@ -2718,22 +2744,25 @@ export async function searchBranches(
 
   // Plan 4 M4.2 + M4.3 — Place + Tag detection.
   //
-  // Run BEFORE building the text-match where-OR.  Priority order:
-  //   1. PLACE — if `q` matches a known Locality, place wins (drives
-  //      effLoc; text-OR skipped; the place IS the area).
-  //   2. TAG   — if `q` matches a curated `Tag.label`, the matched Tag
-  //      adds `{ tags: { some: { tagId } } }` + `{ highlights: { some:
-  //      { highlightTagId } } }` to the where-OR.  The text fuzzy still
-  //      runs alongside (tag-match doesn't replace the fuzzy — it adds
-  //      a new branch).
-  //   3. neither → existing fuzzy OR runs unchanged.
+  // PR #124 fixup-1 (2026-05-22) — owner-direction precedence reorder
+  // after device QA flagged `Indian` and `nails` being stolen by
+  // PLACE detection.  Locked precedence:
+  //
+  //   1. TAG (exact curated `Tag.label` match) — wins over PLACE.
+  //      Surface predicate adds `{ tags: { some } }` + `{ highlights:
+  //      { some } }` branches; the text-OR fuzzy still runs alongside.
+  //   2. PLACE — fires ONLY when TAG returned null AND the new stricter
+  //      `tryPlaceMatch` (exact any-tier, OR prefix-with-LARGE_TOWN+)
+  //      returns a Locality.  When fired: drives effLoc + skips
+  //      text-OR (the place IS the area).
+  //   3. neither → existing multi-token fuzzy OR runs.
   //
   // Performance — all 3 lookups (place, tag, tag-merchant-suggested)
   // run IN PARALLEL via Promise.all so the wall-clock cost stays close
-  // to a single round-trip.  Place-matched path discards the tag +
-  // tag-merchant results (small waste, but place-matched flow is fast
-  // overall since it skips the text-OR build).
-  const [placeMatch, tagMatch, tagMerchantsLookup] = normalizedQ
+  // to a single round-trip.  Place lookup may be discarded when tag
+  // wins (small waste, but the parallel scheduling beats a sequential
+  // check on cold-Neon round-trip cost).
+  const [placeMatchRaw, tagMatch, tagMerchantsLookup] = normalizedQ
     ? await Promise.all([
         tryPlaceMatch(prisma, normalizedQ),
         tryTagMatch(prisma, normalizedQ),
@@ -2743,6 +2772,9 @@ export async function searchBranches(
         }),
       ])
     : [null, null, [] as Array<{ merchantId: string }>]
+  // Tag wins over place per the precedence above.  If a tag matched,
+  // ignore any speculative place result.
+  const placeMatch = tagMatch ? null : placeMatchRaw
 
   // ── 2. Build branch-level predicate.
   const where: Prisma.BranchWhereInput = {
@@ -2759,22 +2791,6 @@ export async function searchBranches(
 
     // PR #112 fixup-4 (2026-05-19) — relevance fix: gate description
     // substring matching to queries ≥ MIN_DESCRIPTION_MATCH_LENGTH.
-    //
-    // Owner-flagged regression: query `cove` (4 chars) surfaced
-    // `Wagtail Veterinary Practice` because the merchant description
-    // contained a 4-char substring (e.g. "cover", "covered", "covers").
-    // Short queries are weak signal for description-content matching
-    // and generate disproportionate false positives.
-    //
-    // Strong matches (always on, regardless of q length):
-    //   - merchant.businessName / tradingName
-    //   - merchant.primaryCategory.name + categories[].name
-    //   - merchant.suggestedTag (via tagMerchantIds)
-    //   - branch.name / branch.localityName / branch.postTown
-    //
-    // Weak match (gated):
-    //   - merchant.description — requires normalizedQ.length >= 5
-    //
     // Threshold = 5 chars: empirically suppresses the `cove`-class
     // false-positive while letting `covel` / `cover` through (where
     // description match adds genuine signal).
@@ -2782,32 +2798,78 @@ export async function searchBranches(
     const includeDescriptionMatch =
       normalizedQ.length >= MIN_DESCRIPTION_MATCH_LENGTH
 
-    where.OR = [
-      // Merchant-level STRONG matches (always on).
-      { merchant: { businessName:    { contains: normalizedQ, mode: 'insensitive' } } },
-      { merchant: { tradingName:     { contains: normalizedQ, mode: 'insensitive' } } },
-      { merchant: { primaryCategory: { name: { contains: normalizedQ, mode: 'insensitive' } } } },
-      { merchant: { categories:      { some: { category: { name: { contains: normalizedQ, mode: 'insensitive' } } } } } },
-      ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
-      // Plan 4 M4.3 — curated Tag match (exact, case-insensitive).  Joins
-      // through both `MerchantTag` (regular tags) AND `MerchantHighlight`
-      // (highlight tags reference the same Tag row via highlightTagId).
-      // Only added when `tryTagMatch` found a Tag for the query.
-      ...(tagMatch
-        ? [
-            { merchant: { tags:       { some: { tagId: tagMatch.id } } } },
-            { merchant: { highlights: { some: { highlightTagId: tagMatch.id } } } },
-          ]
-        : []),
-      // Merchant-level WEAK match — gated on normalised q length.
-      ...(includeDescriptionMatch
-        ? [{ merchant: { description: { contains: normalizedQ, mode: 'insensitive' as const } } }]
-        : []),
-      // Branch-level matches — Spec §3.1 (Covelum / Brightlingsea bug class).
-      { name:         { contains: normalizedQ, mode: 'insensitive' as const } },
-      { localityName: { contains: normalizedQ, mode: 'insensitive' as const } },
-      { postTown:     { contains: normalizedQ, mode: 'insensitive' as const } },
-    ]
+    // PR #124 fixup-1 (2026-05-22) — multi-token AND-OR support.
+    //
+    // Owner device QA flagged `Indian cafe` returning zero — single-bag
+    // OR required the FULL phrase to appear in one field.  Multi-token
+    // queries now split on whitespace; each token must match at least
+    // one of the merchant/branch fields, AND-combined across tokens.
+    //
+    // Single-token queries keep the existing OR behaviour exactly.
+    const tokens = normalizedQ.trim().split(/\s+/).filter(t => t.length > 0)
+    const isMultiToken = tokens.length > 1
+
+    function fieldOrForToken(token: string): Prisma.BranchWhereInput[] {
+      return [
+        // Merchant-level STRONG matches (always on).
+        { merchant: { businessName:    { contains: token, mode: 'insensitive' } } },
+        { merchant: { tradingName:     { contains: token, mode: 'insensitive' } } },
+        { merchant: { primaryCategory: { name: { contains: token, mode: 'insensitive' } } } },
+        { merchant: { categories:      { some: { category: { name: { contains: token, mode: 'insensitive' } } } } } },
+        // Multi-token only: curated Tag.label `contains` per token (Tag +
+        // MerchantHighlight branches).  Single-token uses `tryTagMatch`
+        // exact-only per §M4-AMENDMENT-2026-05-22 A7; the contains
+        // expansion is added only on the multi-token fuzzy fallthrough
+        // (owner direction in PR #124 fixup: "should match descriptor/
+        // category/tag combinations").
+        ...(isMultiToken
+          ? [
+              { merchant: { tags:       { some: { tag: { label: { contains: token, mode: 'insensitive' as const } } } } } },
+              { merchant: { highlights: { some: { tag: { label: { contains: token, mode: 'insensitive' as const } } } } } },
+            ]
+          : []),
+        // Description match — gated on the FULL query length (existing rule).
+        ...(includeDescriptionMatch
+          ? [{ merchant: { description: { contains: token, mode: 'insensitive' as const } } }]
+          : []),
+        // Branch-level matches — Spec §3.1 (Covelum / Brightlingsea class).
+        { name:         { contains: token, mode: 'insensitive' as const } },
+        { localityName: { contains: token, mode: 'insensitive' as const } },
+        { postTown:     { contains: token, mode: 'insensitive' as const } },
+      ]
+    }
+
+    if (isMultiToken) {
+      // AND of per-token OR-bags.  Each token must match at least one
+      // field across the merchant + branch surfaces.  Karaara surfaces
+      // for q="Indian cafe" because:
+      //   token "Indian" → description match + curated Tag (CUISINE Indian)
+      //   token "cafe"   → primaryCategory.name "Cafe & Coffee"
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        ...tokens.map(t => ({ OR: fieldOrForToken(t) })),
+      ]
+    } else {
+      where.OR = [
+        ...fieldOrForToken(normalizedQ),
+        // Single-token MerchantSuggestedTag (free-text) match — fetched
+        // in parallel with placeMatch + tagMatch above.  Multi-token
+        // skips this (each token would need its own DB lookup; the
+        // curated Tag.label contains in fieldOrForToken covers the
+        // structured-tag case).
+        ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
+        // Plan 4 M4.3 — curated Tag match (exact, case-insensitive) when
+        // `tryTagMatch` found a Tag for the whole query.  Joins through
+        // both MerchantTag and MerchantHighlight (highlight tags
+        // reference the same Tag row via highlightTagId).
+        ...(tagMatch
+          ? [
+              { merchant: { tags:       { some: { tagId: tagMatch.id } } } },
+              { merchant: { highlights: { some: { highlightTagId: tagMatch.id } } } },
+            ]
+          : []),
+      ]
+    }
   }
 
   if (categoryId) {
