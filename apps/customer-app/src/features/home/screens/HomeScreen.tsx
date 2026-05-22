@@ -11,6 +11,7 @@ import { CampaignCarousel } from '../components/CampaignCarousel'
 import { CategoryGrid } from '../components/CategoryGrid'
 import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
+import { PopularSection } from '../components/PopularSection'
 import { NearbyByCategory } from '../components/NearbyByCategory'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
 
@@ -118,10 +119,24 @@ export function HomeScreen() {
           )
         )}
 
-        <TrendingSection
-          branches={feed?.trendingBranches ?? []}
-          onBranchPress={(branchId) => routeToBranch(branchId, feed?.trendingBranches ?? [])}
-        />
+        {/* Task D.4 — Trending ↔ Popular swap.  Mutual-exclusion invariant
+            is enforced server-side by `getHomeFeed` (at most one of
+            trendingRail.meta / popularRail.meta is non-null when a
+            non-no-location effLoc resolves; on no-location the swap also
+            holds because trendingRail.meta is forced null). The client just
+            follows. */}
+        {feed?.trendingRail?.meta && (
+          <TrendingSection
+            rail={feed.trendingRail}
+            onBranchPress={(branchId) => routeToBranch(branchId, feed.trendingRail?.branches ?? [])}
+          />
+        )}
+        {!feed?.trendingRail?.meta && feed?.popularRail?.meta && (
+          <PopularSection
+            rail={feed.popularRail}
+            onBranchPress={(branchId) => routeToBranch(branchId, feed.popularRail?.branches ?? [])}
+          />
+        )}
 
         <NearbyByCategory
           sections={feed?.nearbyByCategoryBranches ?? []}
