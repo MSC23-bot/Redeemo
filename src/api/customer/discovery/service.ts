@@ -1341,6 +1341,52 @@ export { enrichBranchTile, enrichBranchTiles }
 
 // ─── Home Feed ───────────────────────────────────────────────────────────────
 
+// ─── Phase B — Home Relevance envelope types (additive, plan v1.1) ──────────
+//
+// Hard Invariant from the Home Relevance plan v1.1: the backend continues to
+// emit the legacy response fields UNCHANGED:
+//   - featuredBranches, trendingBranches, nearbyByCategoryBranches  (Phase 1
+//     branch-themed variants)
+//   - featured, trending, nearbyByCategory                          (legacy
+//     merchant-themed fields)
+//   - locationContext.city, locationContext.source
+//   - campaigns
+//
+// The new Home Relevance envelope adds NON-COLLIDING field names so legacy
+// consumers keep working while the new rails roll out:
+//   - featuredRail, trendingRail, popularRail                       (HomeRail)
+//   - nearbyByCategoryRails                                         (HomeNearbyCategoryRail[])
+//
+// Each rail carries its own meta envelope (scope + scopeExpanded + rungCounts
+// + the locality reference under which the rail was resolved), mirroring the
+// search/map meta pattern. Builders for these rails arrive in Phase C–E; this
+// file only declares the types in Phase B.1 (no behavioural change).
+//
+// Naming choice rationale: `*Rail` (not `*Branches`) so callers can grep for
+// the new envelope shape without colliding with the existing branch-themed
+// fan-out fields. `popularRail` is brand-new (no legacy `popular*` equivalent
+// exists today) — Phase E introduces the popular rail builder.
+
+export type LocalityRef = { id: string; name: string }
+
+export type HomeRailMeta = {
+  locality:       LocalityRef | null
+  scope:          'nearby' | 'city' | 'platform'
+  scopeExpanded:  boolean
+  rungCounts:     Record<SupplyRung, number>
+}
+
+export type HomeRail = {
+  branches: BranchTile[]
+  meta:     HomeRailMeta | null
+}
+
+export type HomeNearbyCategoryRail = {
+  category: { id: string; name: string }
+  branches: BranchTile[]
+  meta:     HomeRailMeta | null
+}
+
 export async function getHomeFeed(
   prisma: PrismaClient,
   options: { userId: string | null; lat: number | null; lng: number | null },
