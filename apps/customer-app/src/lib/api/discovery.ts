@@ -228,6 +228,25 @@ const homeFeedResponseSchema = z.object({
 })
 export type HomeFeedResponse = z.infer<typeof homeFeedResponseSchema>
 
+// ─── Plan 4 M4.2 / M4.3 additive: searchChip ────────────────────────────────
+//
+// Customer-facing search-mode indicator emitted by `searchBranches` when
+// the user query resolved to either a known Locality (PLACE) or a
+// curated `Tag.label` (TAG).  Drives the customer-app SearchScreen
+// header-copy variants per §M4-AMENDMENT-2026-05-22 A1 Path 5b (no
+// new `<SearchChip>` component — the existing unified header
+// extends to PLACE / TAG modes).  Minimal wire shape per A6 —
+// no Locality id / populationTier / Tag type yet.
+//
+// `.nullable().optional()` so:
+//   - older mocks / pre-M4.2 fixtures still parse (key absent → undefined)
+//   - non-PLACE / non-TAG queries set the field explicitly to `null`
+const searchChipSchema = z.object({
+  mode:  z.enum(['PLACE', 'TAG']),
+  label: z.string(),
+})
+export type SearchChip = z.infer<typeof searchChipSchema>
+
 // Discovery `meta` envelope (search + getCategoryMerchants).
 const discoveryMetaSchema = z.object({
   scope:            z.enum(['nearby', 'city', 'region', 'platform']),
@@ -246,6 +265,8 @@ const discoveryMetaSchema = z.object({
   // Both `.optional()` so pre-M3 mock fixtures still parse.
   rungCounts:        rungCountsSchema.optional(),
   effectiveLocality: effectiveLocalitySchema.nullable().optional(),
+  // ─── Plan 4 M4.2 / M4.3 additive ──────────────────────────────────
+  searchChip:        searchChipSchema.nullable().optional(),
 })
 export type DiscoveryMeta = z.infer<typeof discoveryMetaSchema>
 

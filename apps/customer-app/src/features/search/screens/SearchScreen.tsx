@@ -166,10 +166,39 @@ export function SearchScreen() {
   //
   // Positive framing on expanded ("Closest matches" instead of "Nothing in X
   // yet") per owner direction.  No em dashes; British English.
-  const stem = isExpanded ? 'Closest matches' : 'Results'
-  const resultsHeaderText = localityName
-    ? `${stem} for "${debouncedQuery}" near ${localityName}`
-    : `${stem} for "${debouncedQuery}"`
+  //
+  // Plan 4 M4.5 (Path 5b — §M4-AMENDMENT-2026-05-22 A1):
+  //
+  // Extend the same unified header to read `branchMeta.searchChip` and
+  // render TWO additional copy variants WITHOUT introducing a new chip
+  // component.  Keeps the customer-app surgical — owner explicitly chose
+  // this over a standalone <SearchChip> to avoid compounding the §CP
+  // pills+chips+banner label-system count.
+  //
+  //   PLACE mode (q matched a Locality):
+  //     `Offers in <Place>`                     (q IS the place — drop the
+  //                                              `Results for "X"` framing)
+  //
+  //   TAG mode (q matched a curated Tag.label):
+  //     `<Tag> offers near <Locality>`          / `<Tag> offers`
+  //
+  //   null mode (no place + no tag): existing `Results / Closest matches`
+  //   header behaviour unchanged.
+  const searchChip   = branchMeta?.searchChip ?? null
+  const stem         = isExpanded ? 'Closest matches' : 'Results'
+  const resultsHeaderText = (() => {
+    if (searchChip?.mode === 'PLACE') {
+      return `Offers in ${searchChip.label}`
+    }
+    if (searchChip?.mode === 'TAG') {
+      return localityName
+        ? `${searchChip.label} offers near ${localityName}`
+        : `${searchChip.label} offers`
+    }
+    return localityName
+      ? `${stem} for "${debouncedQuery}" near ${localityName}`
+      : `${stem} for "${debouncedQuery}"`
+  })()
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
