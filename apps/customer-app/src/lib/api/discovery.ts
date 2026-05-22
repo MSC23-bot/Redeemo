@@ -142,6 +142,13 @@ const branchTileSchema = z.object({
   proximityBand:            proximityBandSchema.nullable(),
   distanceMetres:           z.number().nullable(),
   merchant:                 branchTileMerchantGroupingSchema,
+  // §CD v1 (2026-05-22) — voucher keyword search.  Non-null when the
+  // merchant surfaced because the user's query matched a curated
+  // voucher's title or description AND no other strong merchant-content
+  // path explained the match.  Customer-app SearchResultItem renders
+  // the locked copy `Found in "<voucherTitle>" voucher`.  `.nullable()`
+  // on the wire; `.optional()` so older mock fixtures still parse.
+  matchContext:             z.string().nullable().optional(),
 }).strict()
 export type BranchTile = z.infer<typeof branchTileSchema>
 

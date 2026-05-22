@@ -72,4 +72,53 @@ describe('§CD voucher keyword search v1 — title + description (NOT terms)', (
       .map(b => b.merchant.businessName.toLowerCase())
     expect(names.some(n => n.includes('karaara'))).toBe(true)
   })
+
+  it('q="samosa" → matchContext populated with locked copy format on Karaara tile', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=samosa&lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}&limit=30`,
+    })
+    const body = JSON.parse(res.body)
+    const karaara = (body.branches as any[]).find(b =>
+      b.merchant.businessName.toLowerCase().includes('karaara'),
+    )
+    expect(karaara).toBeTruthy()
+    // §0.2 locked copy format: `Found in "<title>" voucher`.  The matched
+    // voucher should contain "samosa" in its title.
+    expect(karaara.matchContext).toMatch(/^Found in "[^"]*[Ss]amosa[^"]*" voucher$/)
+  })
+
+  it('q="Karaara" → matchContext is null (driving signal is businessName, NOT voucher)', async () => {
+    // Per §0.6: when the merchant ALSO surfaces via business name /
+    // category / tag / branch fields, matchContext stays null — keeps
+    // the card uncluttered when the business name already explains the
+    // match.  Karaara's businessName contains "Karaara"; even though
+    // the voucher predicate might also find a voucher containing "Karaara"
+    // (unlikely but possible), the matchContext line MUST be suppressed.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=Karaara&lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}&limit=30`,
+    })
+    const body = JSON.parse(res.body)
+    const karaara = (body.branches as any[]).find(b =>
+      b.merchant.businessName.toLowerCase().includes('karaara'),
+    )
+    expect(karaara).toBeTruthy()
+    expect(karaara.matchContext).toBeNull()
+  })
+
+  it('q matching merchant.businessName surfaces matchContext: null (Polish Nail Studio for "polish")', async () => {
+    // "polish" matches Polish Nail Studio's businessName.  matchContext
+    // should be null per §0.6 (driving signal is businessName).
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=polish&lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}&limit=30`,
+    })
+    const body = JSON.parse(res.body)
+    const polish = (body.branches as any[]).find(b =>
+      b.merchant.businessName.toLowerCase().includes('polish nail studio'),
+    )
+    expect(polish).toBeTruthy()
+    expect(polish.matchContext).toBeNull()
+  })
 })

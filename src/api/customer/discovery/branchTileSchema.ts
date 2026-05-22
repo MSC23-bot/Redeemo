@@ -100,6 +100,16 @@ export const branchTileSchema = z.object({
   proximityBand: proximityBandSchema.nullable(),
   distanceMetres: z.number().nullable(),
   merchant: merchantGroupingSchema,
+  // §CD v1 (2026-05-22) — voucher keyword search.  Non-null when the
+  // merchant surfaced because the user's query matched a curated
+  // voucher's title (or description, gated at q.length >= 5) AND no
+  // other strong merchant-content / branch-content path explained the
+  // match.  Customer-app renders the locked copy
+  //   `Found in "<voucherTitle>" voucher`
+  // under the meta row of SearchResultItem.  Empty/null when the
+  // match was driven by merchant name / category / tag / branch
+  // fields (§0.6 single-signal rule).
+  matchContext: z.string().nullable(),
 }).strict()
 
 export type BranchTile = z.infer<typeof branchTileSchema>
