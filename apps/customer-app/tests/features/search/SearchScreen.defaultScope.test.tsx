@@ -191,4 +191,52 @@ describe('SearchScreen — supply-aware default scope (PR #124 fixup-3)', () => 
       expect(findActivePillLabel(UNSAFE_root)).toBe('More places')
     })
   })
+
+  it('User tapping a pill updates the active visual state immediately (PR #124 fixup-5 blocker 2)', async () => {
+    // Pre-fixup-5: my fixup-3 supply-aware derivation IGNORED
+    // `requestedScope`.  When the user tapped "Your city" or "More places"
+    // on a query with Nearby supply, the result list changed but the red
+    // selected pill stayed on "Nearby" — owner-flagged as "feels
+    // unresponsive/confusing".
+    //
+    // Post-fixup-5 derivation:
+    //   scopeExpanded → backend resolvedScope (cascade case)
+    //   requestedScope set → user tap wins
+    //   else                → supply-aware narrowest-with-supply default
+    mockState.nearbyCount  = 1
+    mockState.cityCount    = 0
+    mockState.distantCount = 5
+    mockState.backendScope = 'city'  // backend retained NEARBY+CITY tiers
+
+    const { getByPlaceholderText, UNSAFE_root } =
+      render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'somequery')
+
+    // Initial state: supply-aware default → "Nearby" (nearbyCount=1).
+    await waitFor(() => {
+      expect(findActivePillLabel(UNSAFE_root)).toBe('Nearby')
+    })
+
+    // Simulate user tapping "More places" — find the pill by accessibility
+    // label (matches `Filter to More places, N merchants`).  Walk all pills
+    // and pick the one whose label starts with the More places prefix.
+    const allPills = UNSAFE_root.findAll((n: any) =>
+      typeof n.props?.accessibilityLabel === 'string' &&
+      n.props.accessibilityLabel.startsWith('Filter to ')
+    )
+    const platformPill = allPills.find((p: any) =>
+      p.props.accessibilityLabel.startsWith('Filter to More places'),
+    )
+    expect(platformPill).toBeTruthy()
+    await act(async () => {
+      platformPill.props.onPress()
+    })
+
+    // Active pill MUST now reflect the user's tap, not the supply-aware
+    // default.  Pre-fixup-5 this assertion failed — "Nearby" stayed
+    // selected.
+    await waitFor(() => {
+      expect(findActivePillLabel(UNSAFE_root)).toBe('More places')
+    })
+  })
 })

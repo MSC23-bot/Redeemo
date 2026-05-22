@@ -150,6 +150,46 @@ describe('PR #124 fixup — search precedence regression pins', () => {
     // gazetteer entry exists).
   })
 
+  it('q=nails → singularize variant surfaces "Polish Nail Studio" via businessName match on "nail"', async () => {
+    // PR #124 fixup-4 (2026-05-22) — owner-direction plural/singular
+    // normalization.  Pre-fixup: q="nails" returned 0 results because
+    // no merchant content contains the literal substring "nails".
+    // Post-fixup: `tokenVariants` emits ['nails', 'nail'] and the
+    // fuzzy fallthrough generates contains-checks for BOTH; "Polish
+    // Nail Studio" matches via businessName CONTAINS "nail".
+    //
+    // Also: q="nails" MUST NOT be treated as a PLACE search (tryPlace-
+    // Match doesn't use variants — owner-direction-locked).  Nailsea
+    // was the pre-fixup-1 hijack; the tier+length filter blocks it.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=nails&lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}&limit=30`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const names = (body.branches as { merchant: { businessName: string } }[])
+      .map(b => b.merchant.businessName.toLowerCase())
+    expect(names.some(n => n.includes('polish nail studio'))).toBe(true)
+    // Negative pin — NOT a place search.
+    expect(body.branchMeta?.searchChip?.mode).not.toBe('PLACE')
+  })
+
+  it('q=nail (singular) returns the same expected results as q=nails (plural)', async () => {
+    // Pin that singularize is symmetric: searching the already-singular
+    // form still works.  `tokenVariants("nail")` returns ['nail'] (no
+    // singularize because length 4 < 5); fuzzy fallthrough finds
+    // "Polish Nail Studio" via businessName CONTAINS "nail".
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/search?q=nail&lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}&limit=30`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const names = (body.branches as { merchant: { businessName: string } }[])
+      .map(b => b.merchant.businessName.toLowerCase())
+    expect(names.some(n => n.includes('polish nail studio'))).toBe(true)
+  })
+
   it('q=Manchester → PLACE chip fires AND meta carries scopeExpanded signal for honest header copy', async () => {
     // Manchester is a CITY-tier locality — prefix or exact match wins.
     // The dev DB has no Manchester merchants today, so the scope

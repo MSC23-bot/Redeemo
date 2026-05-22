@@ -74,8 +74,25 @@ function effectiveScopeFromCounts(
   if ((branchMeta.distantCount ?? 0) > 0) return 'platform'
   // All-empty fallback — preserve backend-resolved scope so the pill
   // still reflects the cascade outcome on no-supply searches.
-  if (branchMeta.scope === 'nearby')   return 'nearby'
-  if (branchMeta.scope === 'platform') return 'platform'
+  return effectiveScopeFromMetaCascadedScope(branchMeta.scope)
+}
+
+/**
+ * PR #124 fixup-5 — backend cascaded scope → display pill mapping.
+ *
+ * Used ONLY when `branchMeta.scopeExpanded === true` (i.e. backend
+ * widened past the user's requested scope to find supply).  In that
+ * case the active pill should reflect the wider resolvedScope, not
+ * the user's tap nor the supply-aware default.  See SearchScreen
+ * effectiveScope derivation for the priority rules.
+ */
+function effectiveScopeFromMetaCascadedScope(
+  metaScope: 'nearby' | 'city' | 'region' | 'platform' | undefined,
+): Scope {
+  if (metaScope === 'nearby')   return 'nearby'
+  if (metaScope === 'platform') return 'platform'
+  // 'city' and 'region' both render under the 'Your city' pill — locked
+  // at Task 2.1.0 scope parity (memory project_discovery_rebaseline_task_2_1_0).
   return 'city'
 }
 
@@ -172,12 +189,31 @@ export function SearchScreen() {
   // Owner-locked rule: "active pill should reflect what is actually being
   // shown" — internally consistent UX (no "Your city · 0 selected" with
   // results visible below).
-  // PR #124 fixup-3 — derive from RAW bucket counts (narrowest with supply)
-  // instead of backend.resolvedScope (which reports retained tiers, not
-  // supply concentration).  See `effectiveScopeFromCounts` docblock above.
-  const effectiveScope: Scope | undefined = branchMeta
-    ? effectiveScopeFromCounts(branchMeta)
-    : requestedScope
+  // PR #124 fixup-3 + fixup-5 — priority-ordered active-pill derivation:
+  //
+  //   1. Backend cascaded past the user's requested scope
+  //      (`branchMeta.scopeExpanded === true`) → reflect the resolved
+  //      (wider) scope so the pill matches what's actually displayed.
+  //      Owner-locked PR #112 fixup-3: "active pill should reflect what
+  //      is actually being shown".
+  //
+  //   2. User explicitly tapped a pill (`requestedScope` is set) →
+  //      honour the tap so the visual state updates immediately.
+  //      Closes the PR #124 device-QA "selected pill state is broken"
+  //      blocker — pre-fixup the new supply-aware derivation IGNORED
+  //      `requestedScope`, so tapping `Your city` / `More places`
+  //      changed results but left `Nearby` red.
+  //
+  //   3. Initial mount with no tap (`requestedScope === undefined`) →
+  //      supply-aware narrowest-with-supply default (fixup-3 rule).
+  const effectiveScope: Scope | undefined = (() => {
+    if (!branchMeta) return requestedScope
+    if (branchMeta.scopeExpanded) {
+      return effectiveScopeFromMetaCascadedScope(branchMeta.scope)
+    }
+    if (requestedScope) return requestedScope
+    return effectiveScopeFromCounts(branchMeta)
+  })()
 
   // 'expanded_to_wider' is reflected in the SINGLE results header line below
   // — no separate banner.  'none' / 'no_uk_supply' render INSIDE the list as
@@ -188,6 +224,24 @@ export function SearchScreen() {
     ? (branchMeta?.emptyStateReason ?? 'none')
     : null
 
+  // PR #124 fixup-5 (2026-05-22) — PLACE-search fallback honesty.
+  //
+  // Owner device QA flagged that q="Leeds" / q="Bristol" / q="Manchester"
+  // overclaimed "Offers in <Place>" while showing UK-wide / Huddersfield
+  // results — even when NO actual branches were in the searched place's
+  // Locality.  Rule:
+  //
+  //   placeFallback = searchChip.mode === 'PLACE' AND (
+  //     scopeExpanded === true OR
+  //     no branch's branchLocalityId matches the effectiveLocality.id
+  //   )
+  //
+  // When placeFallback is true:
+  //   - Hide ScopePillRow (pills are confusing in this state — "Nearby"
+  //     would refer to the user's GPS-locality, not the searched place)
+  //   - Show honest banner above results explaining the fallback
+  //   - Header reads "Closest matches near <Place>" (fixup-2 already)
+  //
   // PR #112 fixup-4 (2026-05-19) — owner-locked unified header copy.
   // Replaces the previous two-line treatment (`Results for "X"` +
   // `<LocalityCaption>` + optional `<ExpandedResultBanner>`).  One line:
@@ -226,6 +280,38 @@ export function SearchScreen() {
   //   header behaviour unchanged.
   const searchChip   = branchMeta?.searchChip ?? null
   const stem         = isExpanded ? 'Closest matches' : 'Results'
+
+  // PR #124 fixup-5 (2026-05-22) — PLACE-search fallback honesty.
+  //
+  // Owner device QA flagged that q="Leeds" / q="Bristol" / q="Manchester"
+  // overclaimed "Offers in <Place>" while showing UK-wide / Huddersfield
+  // results — even when NO actual branches were in the searched place's
+  // Locality.  Rule:
+  //
+  //   placeFallback = searchChip.mode === 'PLACE' AND (
+  //     scopeExpanded === true OR
+  //     no branch's branchLocalityId matches the effectiveLocality.id
+  //   )
+  //
+  // When placeFallback is true:
+  //   - Hide ScopePillRow (pills are confusing in this state — "Nearby"
+  //     would refer to the user's GPS-locality, not the searched place)
+  //   - Show honest banner above results explaining the fallback
+  //   - Header reads "Closest matches near <Place>" (fixup-2 already)
+  //
+  // The branch-level Locality check is the strict signal — if owner
+  // device QA observes Huddersfield merchants under "Offers in Leeds",
+  // the rung-classifier called them NEARBY (catchment edge) but they
+  // aren't IN Leeds.  The strict check sees through the rung framing.
+  const placeLocalityId = searchChip?.mode === 'PLACE'
+    ? branchMeta?.effectiveLocality?.id ?? null
+    : null
+  const inPlaceCount = placeLocalityId
+    ? branches.filter(b => b.branchLocalityId === placeLocalityId).length
+    : 0
+  const placeFallback =
+    searchChip?.mode === 'PLACE' &&
+    (branchMeta?.scopeExpanded === true || inPlaceCount === 0)
   const resultsHeaderText = (() => {
     if (searchChip?.mode === 'PLACE') {
       // PR #124 fixup-2 (2026-05-22) — owner-direction honesty rule.
@@ -292,13 +378,29 @@ export function SearchScreen() {
         </>
       )}
 
-      {searchEnabled && (
+      {/* PR #124 fixup-5 — hide pills in PLACE-fallback state.  The
+          Nearby / Your city / More places framing is anchored to the
+          user's device location; when the user explicitly searched a
+          DIFFERENT place and we don't have in-place supply, those
+          labels become misleading.  Pills come back as soon as there's
+          any in-place supply OR the user clears the place search. */}
+      {searchEnabled && !placeFallback && (
         <ScopePillRow
           // Active pill = effectiveScope (what's displayed), not requestedScope.
           selectedScope={effectiveScope}
           onScopeChange={setRequestedScope}
           {...(counts ? { counts } : {})}
         />
+      )}
+
+      {/* PR #124 fixup-5 — honest banner for PLACE-fallback state. */}
+      {placeFallback && searchChip?.mode === 'PLACE' && (
+        <View style={styles.placeFallbackBanner} testID="place-fallback-banner">
+          <Text style={styles.placeFallbackText}>
+            We do not have merchants in {searchChip.label} yet. Here are the
+            closest matches we have.
+          </Text>
+        </View>
       )}
 
       {(showLoading || showResults) && (
@@ -421,6 +523,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
   },
   listContent: { paddingBottom: 32 }, // clear tab bar comfortably
+  // PR #124 fixup-5 — PLACE-fallback honesty banner.  Soft warm-tinted
+  // surface (matches the app's cream identity); body copy reads as
+  // honest information, not an error.  Sits BELOW the unified result
+  // header ("Closest matches near <Place>") and ABOVE the result list.
+  placeFallbackBanner: {
+    marginHorizontal: 18,
+    marginTop:        8,
+    marginBottom:     8,
+    paddingVertical:    10,
+    paddingHorizontal:  14,
+    backgroundColor: '#FEF6F5',         // color.surface.tint
+    borderRadius:    12,
+  },
+  placeFallbackText: {
+    fontSize:    13,
+    fontFamily:  'Lato-Regular',
+    color:       '#4B5563',
+    lineHeight:  18,
+    textAlign:   'center',
+  },
   emptyText: {
     fontSize:   13,
     fontFamily: 'Lato-Regular',

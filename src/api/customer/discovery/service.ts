@@ -2597,27 +2597,72 @@ const POPULATION_TIER_ORDER: Record<string, number> = {
 const PLACE_MATCH_PREFIX_THRESHOLD = 6
 const PLACE_PREFIX_ALLOWED_TIERS = new Set<string>(['METRO_CORE', 'CITY', 'LARGE_TOWN'])
 
+// PR #124 fixup-4 (2026-05-22) — simple singular-form stem.
+//
+// Owner device QA flagged that `nails` returned no merchants while
+// `nail` correctly returned Polish Nail Studio.  Solution: when a query
+// (or token) ends in 's' and is long enough to be unambiguously
+// plural, emit a singular variant.  Both forms are tried in tryTagMatch
+// and added to per-token fuzzy fallthrough.
+//
+// Conservative stem rules (avoid false positives on short common words):
+//   - token.length >= 5  → minimum length to consider as plural
+//   - exclude 'ss' (kiss), 'us' (radius), 'is' (oasis), 'os' (rhinos
+//     pattern — keep)
+//   - ends in 's' → strip the trailing 's'
+//
+// This is NOT a full linguistic stemmer — owner-direction-locked as
+// "simple plural/singular normalization" only.  More complex forms
+// (irregular plurals, -ies → -y, etc.) are out of scope.  Out-of-scope
+// expansions tracked separately if device QA surfaces them.
+function singularize(token: string): string | null {
+  if (token.length < 5) return null
+  const lower = token.toLowerCase()
+  if (lower.endsWith('ss')) return null
+  if (lower.endsWith('us')) return null
+  if (lower.endsWith('is')) return null
+  if (lower.endsWith('s'))  return token.slice(0, -1)
+  return null
+}
+
+/**
+ * Variants of a token used by fuzzy-fallthrough fields and `tryTagMatch`.
+ * Always includes the original; conditionally adds the singular form
+ * when `singularize` returns one.
+ *
+ * Place-match deliberately does NOT use variants — owner direction said
+ * `nails` should NOT be promoted to a place search via `nail` (singular).
+ * tryPlaceMatch keeps its existing exact-or-prefix-with-tier logic.
+ */
+function tokenVariants(token: string): string[] {
+  const out = [token]
+  const s = singularize(token)
+  if (s) out.push(s)
+  return out
+}
+
 // Plan 4 M4.3 — curated Tag match.  Exact case-insensitive lookup on
 // `Tag.label` (per §M4-AMENDMENT-2026-05-22 A7 — no fuzzy in this PR).
 // Runs AFTER tryPlaceMatch returns null (place wins over tag).  Returns
 // the matched Tag row or null.
+//
+// PR #124 fixup-4 (2026-05-22) — extended to try singular variants too,
+// so q="nails" can find a curated "Nail" tag if one exists.  Variants
+// are tried in order (original first); first hit wins.
 async function tryTagMatch(prisma: PrismaClient, q: string | undefined) {
   if (!q) return null
   const trimmed = q.trim()
   if (trimmed.length < 2) return null
 
-  // Single lookup — exact case-insensitive on `Tag.label`.  Covers both
-  // regular MerchantTag tags AND MerchantHighlight tags (both reference
-  // the same `Tag` row via different join tables).  Take the first hit;
-  // `Tag.@@unique([label, type])` means (label, type) pairs are unique,
-  // but label alone can repeat across types (e.g. label="Pizza" type=
-  // CUISINE vs label="Pizza" type=SPECIALTY).  Prisma's default order
-  // returns one consistently per (label) — good enough for M4.3 since
-  // the predicate that follows joins on the Tag id, not the type.
-  return prisma.tag.findFirst({
-    where:  { label: { equals: trimmed, mode: 'insensitive' } },
-    select: { id: true, label: true, type: true },
-  })
+  const variants = tokenVariants(trimmed)
+  for (const variant of variants) {
+    const tag = await prisma.tag.findFirst({
+      where:  { label: { equals: variant, mode: 'insensitive' } },
+      select: { id: true, label: true, type: true },
+    })
+    if (tag) return tag
+  }
+  return null
 }
 
 async function tryPlaceMatch(prisma: PrismaClient, q: string | undefined) {
@@ -2810,12 +2855,18 @@ export async function searchBranches(
     const isMultiToken = tokens.length > 1
 
     function fieldOrForToken(token: string): Prisma.BranchWhereInput[] {
-      return [
+      // PR #124 fixup-4 (2026-05-22) — emit contains-checks for the
+      // token AND its singular variant.  Closes the "nails" → no match
+      // gap: "nails" doesn't contain in "Polish Nail Studio" or "Nail
+      // Salon", but "nail" does.  Per-field OR within each variant +
+      // OR across variants.
+      const variants = tokenVariants(token)
+      return variants.flatMap(v => [
         // Merchant-level STRONG matches (always on).
-        { merchant: { businessName:    { contains: token, mode: 'insensitive' } } },
-        { merchant: { tradingName:     { contains: token, mode: 'insensitive' } } },
-        { merchant: { primaryCategory: { name: { contains: token, mode: 'insensitive' } } } },
-        { merchant: { categories:      { some: { category: { name: { contains: token, mode: 'insensitive' } } } } } },
+        { merchant: { businessName:    { contains: v, mode: 'insensitive' as const } } },
+        { merchant: { tradingName:     { contains: v, mode: 'insensitive' as const } } },
+        { merchant: { primaryCategory: { name: { contains: v, mode: 'insensitive' as const } } } },
+        { merchant: { categories:      { some: { category: { name: { contains: v, mode: 'insensitive' as const } } } } } },
         // Multi-token only: curated Tag.label `contains` per token (Tag +
         // MerchantHighlight branches).  Single-token uses `tryTagMatch`
         // exact-only per §M4-AMENDMENT-2026-05-22 A7; the contains
@@ -2824,19 +2875,19 @@ export async function searchBranches(
         // category/tag combinations").
         ...(isMultiToken
           ? [
-              { merchant: { tags:       { some: { tag: { label: { contains: token, mode: 'insensitive' as const } } } } } },
-              { merchant: { highlights: { some: { tag: { label: { contains: token, mode: 'insensitive' as const } } } } } },
+              { merchant: { tags:       { some: { tag: { label: { contains: v, mode: 'insensitive' as const } } } } } },
+              { merchant: { highlights: { some: { tag: { label: { contains: v, mode: 'insensitive' as const } } } } } },
             ]
           : []),
         // Description match — gated on the FULL query length (existing rule).
         ...(includeDescriptionMatch
-          ? [{ merchant: { description: { contains: token, mode: 'insensitive' as const } } }]
+          ? [{ merchant: { description: { contains: v, mode: 'insensitive' as const } } }]
           : []),
         // Branch-level matches — Spec §3.1 (Covelum / Brightlingsea class).
-        { name:         { contains: token, mode: 'insensitive' as const } },
-        { localityName: { contains: token, mode: 'insensitive' as const } },
-        { postTown:     { contains: token, mode: 'insensitive' as const } },
-      ]
+        { name:         { contains: v, mode: 'insensitive' as const } },
+        { localityName: { contains: v, mode: 'insensitive' as const } },
+        { postTown:     { contains: v, mode: 'insensitive' as const } },
+      ])
     }
 
     if (isMultiToken) {
