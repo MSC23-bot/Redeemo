@@ -65,3 +65,39 @@ export function resolveScopeForHomeRail(
     scope:         'city',
   }
 }
+
+// ─── §6.4.1 strict-locality identity gate ──────────────────────────────────
+//
+// Tail tile (non-rankable POSTCODE_CENTROID / NEEDS_REVIEW branch) surfaces
+// in a local-claim Home rail only if branch identity matches the user's
+// effective locality via a three-step ladder:
+//   1. branch.localityId === effLoc.locality.id
+//   2. branch.localityName (case-insensitive) === effLoc.locality.name
+//   3. branch.postTown    (case-insensitive) === effLoc.locality.name
+//
+// Mirrors PR #124 fixup-6 multi-row Locality fallback in Search.
+// Search's tail is permissive; Home's tail is strict on local rails.
+
+export type TailIdentityCandidate = {
+  localityId:   string | null
+  localityName: string | null
+  postTown:     string | null
+}
+
+type EffLocLite = { locality: { id: string; name: string } } | null
+
+export function appendStrictLocalityTail<T extends TailIdentityCandidate, R>(
+  rankedTiles: R[],
+  candidates:  T[],
+  effLoc:      EffLocLite,
+): (R | T)[] {
+  if (!effLoc) return rankedTiles
+  const targetId        = effLoc.locality.id
+  const targetNameLower = effLoc.locality.name.toLowerCase()
+  const passing = candidates.filter(c =>
+    (c.localityId === targetId) ||
+    (c.localityName?.toLowerCase() === targetNameLower) ||
+    (c.postTown?.toLowerCase()     === targetNameLower),
+  )
+  return [...rankedTiles, ...passing]
+}
