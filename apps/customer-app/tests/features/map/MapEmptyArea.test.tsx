@@ -14,13 +14,21 @@ describe('MapEmptyArea', () => {
     expect(onRecentre).toHaveBeenCalledTimes(1)
   })
 
-  it('renders no_uk_supply copy with the "growing daily" body and Re-centre CTA', () => {
-    const { getByText } = render(
+  it('renders no_uk_supply copy + Re-centre CTA (Plan 4 M4.6 vocabulary-aligned)', () => {
+    // Plan 4 M4.6 (2026-05-22) — copy alignment with PR #112 fixup-6.4
+    // owner-locked vocabulary.  Pre-M4.6 title used "in the UK" + body
+    // used em dash + "growing daily" framing; new copy avoids the
+    // banned phrases.
+    const { getByText, queryByText } = render(
       <MapEmptyArea variant="no_uk_supply" onRecentre={jest.fn()} hasFilters={false} />,
     )
-    expect(getByText('No matches in the UK yet')).toBeTruthy()
-    expect(getByText(/growing daily/)).toBeTruthy()
+    expect(getByText('No matches yet for this view')).toBeTruthy()
+    expect(getByText('Try a different category, or clear filters to broaden the search.')).toBeTruthy()
     expect(getByText('Re-centre')).toBeTruthy()
+    // Negative pins — banned vocabulary must NOT appear on the new copy.
+    expect(queryByText(/in the UK yet/)).toBeNull()
+    expect(queryByText(/growing daily/)).toBeNull()
+    expect(queryByText(/—/)).toBeNull()
   })
 
   it('renders offshore copy + "Recentre to UK" CTA + fires onRecentre when pressed', () => {

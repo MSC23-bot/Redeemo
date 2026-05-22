@@ -41,7 +41,52 @@ function ResultSkeleton() {
 // Spec §4.1 scope cascade: backend bucket → display pill mapping.  The pill
 // row surfaces 3 user-facing values; backend `branchMeta.scope` reports the
 // raw cascade rung (5 values incl. 'region' which we treat as 'city').
-function effectiveScopeFromMeta(
+//
+// PR #124 fixup-3 (2026-05-22) — supply-aware default scope.
+//
+// Pre-fixup: `effectiveScope` was derived from `branchMeta.scope`.  But the
+// backend's `resolvedScope` reports which TIERS are retained in the merged
+// list, not where the supply is actually concentrated.  When LOCAL/MIXED
+// intent default kept the NEARBY+CITY tiers (with nearbyCount=1, cityCount=0),
+// `branchMeta.scope === 'city'` and the UI highlighted "Your city" even
+// though all the supply was on the NEARBY rung — visually misleading.
+//
+// Owner-locked rule (PR #124 fixup-3, 2026-05-22):
+//   "If Nearby has results, default to Nearby.
+//    Else if Your city has results, default to Your city.
+//    Else default to More places."
+//
+// The narrowest-with-supply heuristic uses RAW bucket counts (NOT cumulative
+// — those would always be > 0 if any results exist).  Falls back to the
+// backend-resolved scope only when ALL buckets are zero (the genuinely-empty
+// case, where `branchMeta.emptyStateReason === 'no_uk_supply'`).
+function effectiveScopeFromCounts(
+  branchMeta: {
+    scope?:        'nearby' | 'city' | 'region' | 'platform' | undefined
+    nearbyCount?:  number
+    cityCount?:    number
+    distantCount?: number
+  } | undefined,
+): Scope | undefined {
+  if (!branchMeta) return undefined
+  if ((branchMeta.nearbyCount  ?? 0) > 0) return 'nearby'
+  if ((branchMeta.cityCount    ?? 0) > 0) return 'city'
+  if ((branchMeta.distantCount ?? 0) > 0) return 'platform'
+  // All-empty fallback — preserve backend-resolved scope so the pill
+  // still reflects the cascade outcome on no-supply searches.
+  return effectiveScopeFromMetaCascadedScope(branchMeta.scope)
+}
+
+/**
+ * PR #124 fixup-5 — backend cascaded scope → display pill mapping.
+ *
+ * Used ONLY when `branchMeta.scopeExpanded === true` (i.e. backend
+ * widened past the user's requested scope to find supply).  In that
+ * case the active pill should reflect the wider resolvedScope, not
+ * the user's tap nor the supply-aware default.  See SearchScreen
+ * effectiveScope derivation for the priority rules.
+ */
+function effectiveScopeFromMetaCascadedScope(
   metaScope: 'nearby' | 'city' | 'region' | 'platform' | undefined,
 ): Scope {
   if (metaScope === 'nearby')   return 'nearby'
@@ -144,9 +189,31 @@ export function SearchScreen() {
   // Owner-locked rule: "active pill should reflect what is actually being
   // shown" — internally consistent UX (no "Your city · 0 selected" with
   // results visible below).
-  const effectiveScope: Scope | undefined = branchMeta
-    ? effectiveScopeFromMeta(branchMeta.scope)
-    : requestedScope
+  // PR #124 fixup-3 + fixup-5 — priority-ordered active-pill derivation:
+  //
+  //   1. Backend cascaded past the user's requested scope
+  //      (`branchMeta.scopeExpanded === true`) → reflect the resolved
+  //      (wider) scope so the pill matches what's actually displayed.
+  //      Owner-locked PR #112 fixup-3: "active pill should reflect what
+  //      is actually being shown".
+  //
+  //   2. User explicitly tapped a pill (`requestedScope` is set) →
+  //      honour the tap so the visual state updates immediately.
+  //      Closes the PR #124 device-QA "selected pill state is broken"
+  //      blocker — pre-fixup the new supply-aware derivation IGNORED
+  //      `requestedScope`, so tapping `Your city` / `More places`
+  //      changed results but left `Nearby` red.
+  //
+  //   3. Initial mount with no tap (`requestedScope === undefined`) →
+  //      supply-aware narrowest-with-supply default (fixup-3 rule).
+  const effectiveScope: Scope | undefined = (() => {
+    if (!branchMeta) return requestedScope
+    if (branchMeta.scopeExpanded) {
+      return effectiveScopeFromMetaCascadedScope(branchMeta.scope)
+    }
+    if (requestedScope) return requestedScope
+    return effectiveScopeFromCounts(branchMeta)
+  })()
 
   // 'expanded_to_wider' is reflected in the SINGLE results header line below
   // — no separate banner.  'none' / 'no_uk_supply' render INSIDE the list as
@@ -157,6 +224,24 @@ export function SearchScreen() {
     ? (branchMeta?.emptyStateReason ?? 'none')
     : null
 
+  // PR #124 fixup-5 (2026-05-22) — PLACE-search fallback honesty.
+  //
+  // Owner device QA flagged that q="Leeds" / q="Bristol" / q="Manchester"
+  // overclaimed "Offers in <Place>" while showing UK-wide / Huddersfield
+  // results — even when NO actual branches were in the searched place's
+  // Locality.  Rule:
+  //
+  //   placeFallback = searchChip.mode === 'PLACE' AND (
+  //     scopeExpanded === true OR
+  //     no branch's branchLocalityId matches the effectiveLocality.id
+  //   )
+  //
+  // When placeFallback is true:
+  //   - Hide ScopePillRow (pills are confusing in this state — "Nearby"
+  //     would refer to the user's GPS-locality, not the searched place)
+  //   - Show honest banner above results explaining the fallback
+  //   - Header reads "Closest matches near <Place>" (fixup-2 already)
+  //
   // PR #112 fixup-4 (2026-05-19) — owner-locked unified header copy.
   // Replaces the previous two-line treatment (`Results for "X"` +
   // `<LocalityCaption>` + optional `<ExpandedResultBanner>`).  One line:
@@ -166,10 +251,126 @@ export function SearchScreen() {
   //
   // Positive framing on expanded ("Closest matches" instead of "Nothing in X
   // yet") per owner direction.  No em dashes; British English.
-  const stem = isExpanded ? 'Closest matches' : 'Results'
-  const resultsHeaderText = localityName
-    ? `${stem} for "${debouncedQuery}" near ${localityName}`
-    : `${stem} for "${debouncedQuery}"`
+  //
+  // Plan 4 M4.5 (Path 5b — §M4-AMENDMENT-2026-05-22 A1):
+  //
+  // Extend the same unified header to read `branchMeta.searchChip` and
+  // render additional copy variants WITHOUT introducing a new chip
+  // component.  Keeps the customer-app surgical — owner explicitly chose
+  // this over a standalone <SearchChip> to avoid compounding the §CP
+  // pills+chips+banner label-system count.
+  //
+  //   PLACE mode (q matched a Locality):
+  //     In-place results:  `Offers in <Place>`
+  //                        (q IS the place — drop the `Results for "X"`
+  //                         framing because q === Place name)
+  //     Widened fallback:  `Closest matches near <Place>`
+  //                        (PR #124 fixup-2 honesty rule — when the
+  //                         backend's scope cascade widened past the
+  //                         matched place to find supply, the header
+  //                         MUST reflect that the displayed results are
+  //                         NOT "in" the place.  Otherwise users see
+  //                         `Offers in Manchester` alongside platform-
+  //                         wide merchants — overclaim.)
+  //
+  //   TAG mode (q matched a curated Tag.label):
+  //     `<Tag> offers near <Locality>` / `<Tag> offers` (no locality)
+  //
+  //   null mode (no place + no tag): existing `Results / Closest matches`
+  //   header behaviour unchanged.
+  const searchChip   = branchMeta?.searchChip ?? null
+  const stem         = isExpanded ? 'Closest matches' : 'Results'
+
+  // PR #124 fixup-5 (2026-05-22) — PLACE-search fallback honesty.
+  //
+  // Owner device QA flagged that q="Leeds" / q="Bristol" / q="Manchester"
+  // overclaimed "Offers in <Place>" while showing UK-wide / Huddersfield
+  // results — even when NO actual branches were in the searched place's
+  // Locality.  Rule:
+  //
+  //   placeFallback = searchChip.mode === 'PLACE' AND (
+  //     scopeExpanded === true OR
+  //     no branch's branchLocalityId matches the effectiveLocality.id
+  //   )
+  //
+  // When placeFallback is true:
+  //   - Hide ScopePillRow (pills are confusing in this state — "Nearby"
+  //     would refer to the user's GPS-locality, not the searched place)
+  //   - Show honest banner above results explaining the fallback
+  //   - Header reads "Closest matches near <Place>" (fixup-2 already)
+  //
+  // The branch-level Locality check is the strict signal — if owner
+  // device QA observes Huddersfield merchants under "Offers in Leeds",
+  // the rung-classifier called them NEARBY (catchment edge) but they
+  // aren't IN Leeds.  The strict check sees through the rung framing.
+  //
+  // PR #124 fixup-6 (2026-05-22) — id-match alone is too strict.
+  // Owner device QA found that q="Huddersfield" fired the fallback
+  // banner even though 3 Huddersfield merchants surfaced.  Root cause:
+  // the dev DB carries MULTIPLE Locality rows named "Huddersfield"
+  // (different LAD/source combinations — allowed by the schema's
+  // `@@unique([name, ladDistrict, country])` constraint).  The
+  // `tryPlaceMatch` resolved one Locality row; the branches were
+  // linked to a different Locality row.  Both share the name
+  // "Huddersfield" — so a NAME / postTown text fallback closes the
+  // gap.
+  //
+  // Identity ladder (priority order):
+  //   1. branchLocalityId === effectiveLocality.id (strict, exact)
+  //   2. branchLocalityName === searchChip.label   (case-insensitive)
+  //   3. branchPostTown     === searchChip.label   (case-insensitive)
+  //
+  // Any match → in-place.  Still strict enough to fail on Leeds with
+  // only Huddersfield merchants (branchLocalityName="Huddersfield"
+  // does NOT match "leeds").
+  const placeLocalityId = searchChip?.mode === 'PLACE'
+    ? branchMeta?.effectiveLocality?.id ?? null
+    : null
+  const placeLabelLower = searchChip?.mode === 'PLACE'
+    ? searchChip.label.toLowerCase()
+    : null
+  const inPlaceCount = (placeLocalityId || placeLabelLower)
+    ? branches.filter(b => {
+        if (placeLocalityId && b.branchLocalityId === placeLocalityId) return true
+        if (placeLabelLower) {
+          if (b.branchLocalityName?.toLowerCase() === placeLabelLower) return true
+          if (b.branchPostTown?.toLowerCase()     === placeLabelLower) return true
+        }
+        return false
+      }).length
+    : 0
+  const placeFallback =
+    searchChip?.mode === 'PLACE' &&
+    (branchMeta?.scopeExpanded === true || inPlaceCount === 0)
+  const resultsHeaderText = (() => {
+    if (searchChip?.mode === 'PLACE') {
+      // PR #124 fixup-2 + fixup-7 (2026-05-22) — owner-direction
+      // honesty rule.  The header MUST agree with the fallback banner:
+      // any state that triggers `placeFallback` (the inPlaceCount=0
+      // identity-ladder check OR scopeExpanded=true) MUST use the
+      // "Closest matches near" framing — NEVER "Offers in".
+      //
+      // Pre-fixup-7: header used `isExpanded` (driven by
+      // `emptyStateReason === 'expanded_to_wider'`) while banner used
+      // `placeFallback`.  For q="Leeds" where Huddersfield merchants
+      // ranked NEARBY-rung via catchment edge: banner fired (no
+      // in-place supply), but isExpanded was false (cascade didn't
+      // fire) — so the header said "Offers in Leeds" while the banner
+      // contradicted it.  Unifying on `placeFallback` closes that gap.
+      if (placeFallback) {
+        return `Closest matches near ${searchChip.label}`
+      }
+      return `Offers in ${searchChip.label}`
+    }
+    if (searchChip?.mode === 'TAG') {
+      return localityName
+        ? `${searchChip.label} offers near ${localityName}`
+        : `${searchChip.label} offers`
+    }
+    return localityName
+      ? `${stem} for "${debouncedQuery}" near ${localityName}`
+      : `${stem} for "${debouncedQuery}"`
+  })()
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
@@ -183,22 +384,58 @@ export function SearchScreen() {
 
       {showTrending && (
         <>
-          {/* PR #112 fixup-6.4 (2026-05-20) — pre-search discovery prompt.
-              Owner-locked copy: "Find your next local saving" + persona
-              body line.  Renders above <TrendingSearches> so the user
-              gets a discovery cue + actionable pills on first mount. */}
-          <SearchEmptyState reason="pre_search" />
-          <TrendingSearches onTagPress={setQuery} />
+          {/* Plan 4 M4.6 — pre-search behaviour now branches on whether
+              we have ANY location signal.  With GPS or a saved area, the
+              pre_search discovery prompt + trending pills makes sense
+              ("Find your next local saving" implies "near here").
+              Without ANY location signal, the user can't get useful
+              results without first setting their area — show the
+              no_location prompt instead so the UX leads them to PC2.
+
+              GPS-less behaviour is the only observable signal here at
+              the moment; saved-profile-area lookup would tighten this
+              further (spec §6.6) but isn't load-bearing for the M4.6
+              scope. */}
+          {location ? (
+            <>
+              {/* PR #112 fixup-6.4 (2026-05-20) — pre-search discovery
+                  prompt.  Owner-locked copy: "Find your next local
+                  saving" + persona body line. */}
+              <SearchEmptyState reason="pre_search" />
+              <TrendingSearches onTagPress={setQuery} />
+            </>
+          ) : (
+            <SearchEmptyState
+              reason="no_location"
+              onSetArea={() => router.push('/(auth)/profile-completion/address' as any)}
+            />
+          )}
         </>
       )}
 
-      {searchEnabled && (
+      {/* PR #124 fixup-5 — hide pills in PLACE-fallback state.  The
+          Nearby / Your city / More places framing is anchored to the
+          user's device location; when the user explicitly searched a
+          DIFFERENT place and we don't have in-place supply, those
+          labels become misleading.  Pills come back as soon as there's
+          any in-place supply OR the user clears the place search. */}
+      {searchEnabled && !placeFallback && (
         <ScopePillRow
           // Active pill = effectiveScope (what's displayed), not requestedScope.
           selectedScope={effectiveScope}
           onScopeChange={setRequestedScope}
           {...(counts ? { counts } : {})}
         />
+      )}
+
+      {/* PR #124 fixup-5 — honest banner for PLACE-fallback state. */}
+      {placeFallback && searchChip?.mode === 'PLACE' && (
+        <View style={styles.placeFallbackBanner} testID="place-fallback-banner">
+          <Text style={styles.placeFallbackText}>
+            We do not have merchants in {searchChip.label} yet. Here are the
+            closest matches we have.
+          </Text>
+        </View>
       )}
 
       {(showLoading || showResults) && (
@@ -321,6 +558,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
   },
   listContent: { paddingBottom: 32 }, // clear tab bar comfortably
+  // PR #124 fixup-5 — PLACE-fallback honesty banner.  Soft warm-tinted
+  // surface (matches the app's cream identity); body copy reads as
+  // honest information, not an error.  Sits BELOW the unified result
+  // header ("Closest matches near <Place>") and ABOVE the result list.
+  placeFallbackBanner: {
+    marginHorizontal: 18,
+    marginTop:        8,
+    marginBottom:     8,
+    paddingVertical:    10,
+    paddingHorizontal:  14,
+    backgroundColor: '#FEF6F5',         // color.surface.tint
+    borderRadius:    12,
+  },
+  placeFallbackText: {
+    fontSize:    13,
+    fontFamily:  'Lato-Regular',
+    color:       '#4B5563',
+    lineHeight:  18,
+    textAlign:   'center',
+  },
   emptyText: {
     fontSize:   13,
     fontFamily: 'Lato-Regular',

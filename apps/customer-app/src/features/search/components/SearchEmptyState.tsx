@@ -1,10 +1,10 @@
 import React from 'react'
-import { View, StyleSheet } from 'react-native'
+import { View, StyleSheet, Pressable } from 'react-native'
 import { Text } from '@/design-system/Text'
 
-// PR #112 fixup-6.4 (2026-05-20) — owner-locked copy refresh.  All three
-// states use Redeemo-persona language: confident, plain-spoken, British
-// English, no em dashes.  Banned wording (regression-pinned in tests):
+// PR #112 fixup-6.4 (2026-05-20) — owner-locked copy refresh.  All states
+// use Redeemo-persona language: confident, plain-spoken, British English,
+// no em dashes.  Banned wording (regression-pinned in tests):
 //   - "Nothing for X..."         — owner direction: avoid `nothing`.
 //   - "in the UK"                — implies regional limit / dead end.
 //   - "come back soon" / "check back soon" — sounds like a dead end.
@@ -15,6 +15,11 @@ import { Text } from '@/design-system/Text'
 //   reason='no_uk_supply'      → no platform supply for the query
 //   reason='pre_search'        → user hasn't typed yet; render this above
 //                                <TrendingSearches> as a discovery prompt
+//   reason='no_location'       → Plan 4 M4.6 — no q + no GPS + no saved
+//                                area.  Prompts the user to set their
+//                                area via PC2; renders the CTA button.
+//                                Wired via the optional `onSetArea`
+//                                prop so the screen owns the router push.
 //   reason='expanded_to_wider' → component renders nothing; the unified
 //                                result header carries the locality-aware
 //                                "Closest matches for X near Y" copy
@@ -24,11 +29,17 @@ import { Text } from '@/design-system/Text'
 // slot; when assets land, an <Illustration reason={reason} /> renders
 // there.
 
-type EmptyStateReason = 'none' | 'no_uk_supply' | 'expanded_to_wider' | 'pre_search'
+type EmptyStateReason = 'none' | 'no_uk_supply' | 'expanded_to_wider' | 'pre_search' | 'no_location'
 
 type Props = {
   reason: EmptyStateReason | null | undefined
   query?: string
+  /**
+   * Plan 4 M4.6 — only consulted when `reason === 'no_location'`.  The
+   * parent screen routes to the PC2 address completion flow (or its
+   * standalone equivalent).  Component-side this is presentation-only.
+   */
+  onSetArea?: () => void
 }
 
 function trimmed(q?: string): string | null {
@@ -37,7 +48,7 @@ function trimmed(q?: string): string | null {
   return t.length > 0 ? t : null
 }
 
-export function SearchEmptyState({ reason, query }: Props) {
+export function SearchEmptyState({ reason, query, onSetArea }: Props) {
   if (!reason || reason === 'expanded_to_wider') return null
 
   const q = trimmed(query)
@@ -47,6 +58,11 @@ export function SearchEmptyState({ reason, query }: Props) {
         return {
           title: 'Find your next local saving',
           body:  'Search restaurants, cafés, salons, gyms and more.',
+        }
+      case 'no_location':
+        return {
+          title: 'Set your area to see offers near you.',
+          body:  'We use your area to show offers nearby.',
         }
       case 'no_uk_supply':
         return q
@@ -83,6 +99,17 @@ export function SearchEmptyState({ reason, query }: Props) {
       <Text style={styles.body} numberOfLines={2}>
         {body}
       </Text>
+      {reason === 'no_location' && onSetArea && (
+        <Pressable
+          style={styles.setAreaButton}
+          onPress={onSetArea}
+          accessibilityRole="button"
+          accessibilityLabel="Set my area"
+          testID="search-empty-no-location-cta"
+        >
+          <Text style={styles.setAreaButtonText}>Set my area</Text>
+        </Pressable>
+      )}
     </View>
   )
 }
@@ -116,5 +143,19 @@ const styles = StyleSheet.create({
     color:      '#4B5563',          // text.secondary
     lineHeight: 20,
     textAlign:  'center',
+  },
+  // Plan 4 M4.6 — small branded CTA for the no_location prompt.
+  setAreaButton: {
+    marginTop:       16,
+    paddingHorizontal: 18,
+    paddingVertical:   10,
+    borderRadius:    24,
+    backgroundColor: '#010C35',   // navy
+  },
+  setAreaButtonText: {
+    fontSize:    14,               // label.md
+    fontFamily:  'Lato-SemiBold',
+    color:       '#FFFFFF',
+    textAlign:   'center',
   },
 })

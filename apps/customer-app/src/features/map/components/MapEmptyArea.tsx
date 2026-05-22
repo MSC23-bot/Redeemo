@@ -33,8 +33,13 @@ const COPY: Record<MapEmptyCase, { title: string; body: string; primaryCta: stri
     primaryCta: 'Re-centre',
   },
   no_uk_supply: {
-    title:      'No matches in the UK yet',
-    body:       'We’re growing daily — try a different category or clear filters.',
+    // Plan 4 M4.6 (2026-05-22) — copy alignment with PR #112 fixup-6.4
+    // owner-locked vocabulary.  Previous title used "in the UK" (banned —
+    // implies a geographic dead-end framing) and the body used an em dash
+    // (PRODUCT.md ban).  New copy is direct, plain-spoken, and
+    // actionable without the dead-end implication.
+    title:      'No matches yet for this view',
+    body:       'Try a different category, or clear filters to broaden the search.',
     primaryCta: 'Re-centre',
   },
   offshore: {

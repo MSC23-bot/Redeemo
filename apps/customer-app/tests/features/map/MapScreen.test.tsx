@@ -343,13 +343,16 @@ describe('MapScreen', () => {
     })
 
     it('renders no_uk_supply copy when meta.emptyStateReason === "no_uk_supply"', () => {
+      // Plan 4 M4.6 (2026-05-22) — copy aligned with PR #112 fixup-6.4
+      // owner-locked vocabulary; pre-M4.6 title "No matches in the UK yet"
+      // used "in the UK" (banned).
       mockState.inAreaData = {
         merchants: [],
         total:     0,
         meta:      { resolvedArea: 'London', nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'no_uk_supply' },
       }
       const { getByText } = render(<MapScreen />, { wrapper })
-      expect(getByText('No matches in the UK yet')).toBeTruthy()
+      expect(getByText('No matches yet for this view')).toBeTruthy()
     })
 
     it('renders offshore copy when the camera region falls outside the UK extent', () => {
