@@ -36,6 +36,7 @@ export function makeBranchTile(
     supplyRung:               null,
     proximityBand:            null,
     distanceMetres:           null,
+    matchContext:             null,
     ...rest,
     merchant: {
       id:                   'm1',

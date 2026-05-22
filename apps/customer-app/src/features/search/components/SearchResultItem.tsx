@@ -250,6 +250,22 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
             </Text>
           </View>
         )}
+        {/* §CD v1 (2026-05-22) — voucher matchContext line.  Renders ONLY
+            when the backend determined that a voucher.title or
+            voucher.description match was the DRIVING signal (no merchant
+            content explained the hit).  Locked copy from backend:
+            `Found in "<voucherTitle>" voucher`.  Stays visually muted
+            so it reads as context not noise. */}
+        {tile.matchContext && (
+          <Text
+            style={styles.matchContext}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            testID="search-result-match-context"
+          >
+            {tile.matchContext}
+          </Text>
+        )}
       </View>
 
       {/* Right column — fixup-6.2 (owner-locked).
@@ -443,5 +459,18 @@ const styles = StyleSheet.create({
     color: '#6B7280',                              // text.secondary muted — calm context line
     lineHeight: 16,
     marginTop: 1,
+  },
+  // §CD v1 (2026-05-22) — voucher matchContext line.  Sits below the
+  // proximity row (or directly below meta when no proximity) so it
+  // reads as the WHY-this-result-surfaced context.  Muted text colour
+  // matches the meta line; smaller font (11pt) signals it's tertiary
+  // metadata, not primary content.
+  matchContext: {
+    fontSize:   11,
+    fontFamily: 'Lato-Regular',
+    color:      '#6B7280',         // text.secondary muted
+    lineHeight: 14,
+    marginTop:  4,                 // separate from meta / proximity row
+    fontStyle:  'italic',          // distinguish from regular meta typography
   },
 })
