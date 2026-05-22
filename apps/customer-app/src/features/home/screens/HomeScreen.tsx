@@ -110,11 +110,12 @@ export function HomeScreen() {
             <SkeletonTile />
           </View>
         ) : (
-          <FeaturedCarousel
-            branches={feed?.featuredBranches ?? []}
-            onBranchPress={(branchId) => routeToBranch(branchId, feed?.featuredBranches ?? [])}
-            onSeeAll={() => {}}
-          />
+          feed?.featuredRail?.meta && (
+            <FeaturedCarousel
+              rail={feed.featuredRail}
+              onBranchPress={(branchId) => routeToBranch(branchId, feed.featuredRail?.branches ?? [])}
+            />
+          )
         )}
 
         <TrendingSection

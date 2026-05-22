@@ -41,6 +41,15 @@ jest.mock('@/hooks/useHomeFeed', () => ({
       featuredBranches: [mockFeaturedBranchFixture],
       trendingBranches: [],
       nearbyByCategoryBranches: [],
+      featuredRail: {
+        branches: [mockFeaturedBranchFixture],
+        meta: {
+          locality:      { id: 'l-london', name: 'London' },
+          scope:         'city',
+          scopeExpanded: false,
+          rungCounts:    {},
+        },
+      },
     },
     isLoading: false,
     isError: false,
@@ -78,7 +87,9 @@ describe('HomeScreen', () => {
 
   it('renders featured section', async () => {
     const { getByText } = render(<HomeScreen />, { wrapper })
-    await waitFor(() => expect(getByText('Featured')).toBeTruthy())
+    // Phase C.6 — section copy is now "Featured in {City}" from <RailHeader>
+    // driven by feed.featuredRail.meta.locality.name.
+    await waitFor(() => expect(getByText('Featured in London')).toBeTruthy())
   })
 
   it('renders category grid', async () => {

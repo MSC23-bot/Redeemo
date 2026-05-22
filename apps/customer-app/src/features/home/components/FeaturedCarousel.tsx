@@ -1,28 +1,29 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react'
-import { View, ScrollView, TouchableOpacity } from 'react-native'
-import { Star } from 'lucide-react-native'
-import { Text, color, spacing } from '@/design-system'
+import { View, ScrollView } from 'react-native'
+import { spacing } from '@/design-system'
 import { BranchTile } from '@/features/shared/BranchTile'
 import { DotIndicator } from '@/features/shared/DotIndicator'
-import { BranchTile as BranchTileType } from '@/lib/api/discovery'
+import type { HomeRail } from '@/lib/api/discovery'
+import { RailHeader } from './RailHeader'
 
 const TILE_WIDTH = 260
 const TILE_GAP = 12
 const AUTO_SCROLL_INTERVAL = 10000
 
 type Props = {
-  branches: BranchTileType[]
+  rail: HomeRail
   // Receives branch.id — call site routes to
   // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
   onBranchPress: (branchId: string) => void
-  onSeeAll: () => void
   onFavourite?: (id: string) => void
 }
 
-export function FeaturedCarousel({ branches, onBranchPress, onSeeAll, onFavourite }: Props) {
+export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   const scrollRef = useRef<ScrollView>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const branches = rail.branches
 
   const startAutoScroll = useCallback(() => {
     if (branches.length <= 1) return
@@ -45,39 +46,19 @@ export function FeaturedCarousel({ branches, onBranchPress, onSeeAll, onFavourit
     }
   }, [startAutoScroll])
 
-  if (branches.length === 0) return null
+  // Phase C §11.6 — hide rail silently when meta is null OR no branches.
+  if (!rail.meta || branches.length === 0) return null
 
   return (
     <View>
-      {/* Section header */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingHorizontal: 18,
-          marginBottom: spacing[3],
-        }}
-      >
-        <Star size={16} color="#F59E0B" fill="#F59E0B" />
-        <Text
-          variant="heading.sm"
-          style={{ color: color.navy, marginLeft: spacing[1], flex: 1 }}
-        >
-          Featured
-        </Text>
-        <TouchableOpacity onPress={onSeeAll} accessibilityLabel="See all featured merchants">
-          <Text
-            variant="label.md"
-            style={{
-              color: color.brandRose,
-              fontFamily: 'Lato-SemiBold',
-              fontSize: 13,
-            }}
-          >
-            See all
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Conditional-copy header per spec §7 + §11.1 */}
+      <RailHeader
+        meta={rail.meta}
+        railKind="featured"
+        {...(rail.meta.scopeExpanded ? { subtitle: 'Here are the closest matches we have' } : {})}
+      />
+
+      <View style={{ marginTop: spacing[3] }} />
 
       {/* Horizontal scroll of tiles */}
       <ScrollView
