@@ -344,15 +344,20 @@ export function SearchScreen() {
     (branchMeta?.scopeExpanded === true || inPlaceCount === 0)
   const resultsHeaderText = (() => {
     if (searchChip?.mode === 'PLACE') {
-      // PR #124 fixup-2 (2026-05-22) — owner-direction honesty rule.
-      // When the backend cascaded the scope past the matched place
-      // (`branchMeta.scopeExpanded === true` OR `emptyStateReason ===
-      // 'expanded_to_wider'`), the displayed results are NO LONGER "in"
-      // the place — they're the closest matches across a wider scope.
-      // Use the same `Closest matches` stem as the null-mode wide path,
-      // but anchored to the place via `near <Place>` instead of the q
-      // string + locality (the place IS the locality).
-      if (isExpanded) {
+      // PR #124 fixup-2 + fixup-7 (2026-05-22) — owner-direction
+      // honesty rule.  The header MUST agree with the fallback banner:
+      // any state that triggers `placeFallback` (the inPlaceCount=0
+      // identity-ladder check OR scopeExpanded=true) MUST use the
+      // "Closest matches near" framing — NEVER "Offers in".
+      //
+      // Pre-fixup-7: header used `isExpanded` (driven by
+      // `emptyStateReason === 'expanded_to_wider'`) while banner used
+      // `placeFallback`.  For q="Leeds" where Huddersfield merchants
+      // ranked NEARBY-rung via catchment edge: banner fired (no
+      // in-place supply), but isExpanded was false (cascade didn't
+      // fire) — so the header said "Offers in Leeds" while the banner
+      // contradicted it.  Unifying on `placeFallback` closes that gap.
+      if (placeFallback) {
         return `Closest matches near ${searchChip.label}`
       }
       return `Offers in ${searchChip.label}`

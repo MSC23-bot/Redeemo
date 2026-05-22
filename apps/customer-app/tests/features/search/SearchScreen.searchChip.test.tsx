@@ -48,6 +48,10 @@ const mockState = {
   // place, customer-app reads these to switch header copy.
   scopeExpanded:     false,
   emptyStateReason:  'none' as 'none' | 'expanded_to_wider' | 'no_uk_supply',
+  // PR #124 fixup-7 (2026-05-22) — per-test branch override so the
+  // PLACE in-place test can pass a tile whose branchLocalityName
+  // matches the searched place (closes the identity-ladder check).
+  branches:          null as any[] | null,
 }
 
 jest.mock('@/hooks/useSearch', () => ({
@@ -64,10 +68,11 @@ jest.mock('@/hooks/useSearch', () => ({
         ? { searchChip: mockState.searchChip }
         : {}),
     }
+    const branches = mockState.branches ?? [mockTile]
     return {
       data: {
-        branches:      [mockTile],
-        totalBranches: 1,
+        branches,
+        totalBranches: branches.length,
         branchMeta:    builtMeta,
       },
       isLoading: false,
@@ -114,11 +119,25 @@ describe('SearchScreen — searchChip header copy variants (Plan 4 M4.5)', () =>
     mockState.searchChip        = null
     mockState.scopeExpanded     = false
     mockState.emptyStateReason  = 'none'
+    mockState.branches          = null
   })
 
   it('PLACE mode + in-place results: renders "Offers in <Place>"', async () => {
+    // PR #124 fixup-7 (2026-05-22) — placeFallback now drives the
+    // header.  For the in-place-results path, the fixture branch
+    // MUST have branchLocalityName matching the searched place so
+    // the identity ladder counts it as in-place.
+    const inPlaceTile = makeBranchTile({
+      id: 'brn-in-br', branchName: 'Brightlingsea',
+      branchLocalityName: 'Brightlingsea',
+      branchLocalityId: 'loc-br',
+      merchant: { id: 'm1', businessName: 'Covelum', voucherCount: 3, maxEstimatedSaving: 12 },
+    })
+    const originalBranchOverride = mockTile  // keep reference to default if needed
+    void originalBranchOverride
     mockState.searchChip        = { mode: 'PLACE', label: 'Brightlingsea' }
     mockState.effectiveLocality = { id: 'loc-br', name: 'Brightlingsea' }
+    mockState.branches          = [inPlaceTile]
     const { getByPlaceholderText, getByText, queryByText } =
       render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText, 'Brightlingsea')

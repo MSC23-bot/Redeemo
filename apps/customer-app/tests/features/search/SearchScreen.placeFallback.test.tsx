@@ -138,10 +138,15 @@ describe('SearchScreen — PLACE-fallback honesty (PR #124 fixup-5)', () => {
     mockState.distantCount      = 0
   })
 
-  it('Leeds + NO in-Leeds branches (only Huddersfield catchment merchants) → banner + hidden pills', async () => {
+  it('Leeds + NO in-Leeds branches (only Huddersfield catchment merchants) → banner + hidden pills + "Closest matches near Leeds" header', async () => {
     // Models the device-QA scenario: q="Leeds" returns 3 Huddersfield
     // merchants classified as NEARBY rung (catchment edge), nothing
     // actually in Leeds Locality.
+    //
+    // PR #124 fixup-7 (2026-05-22) — banner + header MUST agree.
+    // Pre-fixup-7 the header read "Offers in Leeds" while the banner
+    // contradicted it.  Header now reads "Closest matches near Leeds"
+    // whenever placeFallback is true.
     mockState.searchChip        = { mode: 'PLACE', label: 'Leeds' }
     mockState.effectiveLocality = { id: 'loc-leeds', name: 'Leeds' }
     mockState.branches          = [huddersfieldTile]  // branchLocalityId='loc-huddersfield'
@@ -150,22 +155,24 @@ describe('SearchScreen — PLACE-fallback honesty (PR #124 fixup-5)', () => {
     mockState.distantCount      = 0
     mockState.scopeExpanded     = false
 
-    const { getByPlaceholderText, getByTestId, queryByText } =
+    const { getByPlaceholderText, getByTestId, queryByText, getByText } =
       render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText, 'Leeds')
 
     await waitFor(() => {
       expect(getByTestId('place-fallback-banner')).toBeTruthy()
     })
-    // Banner copy is the locked honesty wording.
-    expect(getByTestId('place-fallback-banner').props.children).toBeTruthy()
+    // Header MUST use the fallback "Closest matches near <Place>" framing.
+    expect(getByText('Closest matches near Leeds')).toBeTruthy()
+    // Header MUST NOT overclaim with "Offers in Leeds".
+    expect(queryByText('Offers in Leeds')).toBeNull()
     // ScopePillRow is HIDDEN — no Nearby / Your city / More places labels.
     expect(queryByText(/^Nearby/)).toBeNull()
     expect(queryByText(/^Your city/)).toBeNull()
     expect(queryByText(/^More places/)).toBeNull()
   })
 
-  it('Bristol + scopeExpanded (platform cascade) → banner + hidden pills', async () => {
+  it('Bristol + scopeExpanded (platform cascade) → banner + hidden pills + "Closest matches near" header', async () => {
     mockState.searchChip        = { mode: 'PLACE', label: 'Bristol' }
     mockState.effectiveLocality = { id: 'loc-bristol', name: 'Bristol' }
     mockState.branches          = [huddersfieldTile]  // unrelated to Bristol
@@ -175,13 +182,15 @@ describe('SearchScreen — PLACE-fallback honesty (PR #124 fixup-5)', () => {
     mockState.scopeExpanded     = true
     mockState.emptyStateReason  = 'expanded_to_wider'
 
-    const { getByPlaceholderText, getByTestId, queryByText } =
+    const { getByPlaceholderText, getByTestId, queryByText, getByText } =
       render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText, 'Bristol')
 
     await waitFor(() => {
       expect(getByTestId('place-fallback-banner')).toBeTruthy()
     })
+    expect(getByText('Closest matches near Bristol')).toBeTruthy()
+    expect(queryByText('Offers in Bristol')).toBeNull()
     expect(queryByText(/^Nearby/)).toBeNull()
     expect(queryByText(/^Your city/)).toBeNull()
     expect(queryByText(/^More places/)).toBeNull()
