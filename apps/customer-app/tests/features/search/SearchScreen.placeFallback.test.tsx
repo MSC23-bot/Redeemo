@@ -213,6 +213,70 @@ describe('SearchScreen — PLACE-fallback honesty (PR #124 fixup-5)', () => {
     expect(getByText(/^Nearby/)).toBeTruthy()
   })
 
+  it('Place WITH matching branchLocalityName but DIFFERENT branchLocalityId → in-place (name-fallback ladder)', async () => {
+    // PR #124 fixup-6 (2026-05-22) — owner device QA on Huddersfield
+    // exposed that the dev DB has MULTIPLE Locality rows named
+    // "Huddersfield" (different LADs / different sources).  The
+    // `tryPlaceMatch` resolved one Locality row; the branches were
+    // linked to a different Locality row.  Strict id-only match
+    // incorrectly fired the fallback banner.  Identity ladder now
+    // falls back to branchLocalityName (case-insensitive) and
+    // branchPostTown match.
+    const huddTileSameNameDifferentId = makeBranchTile({
+      id: 'brn_pinos_hud',
+      branchName: 'Huddersfield',
+      branchLocalityName: 'Huddersfield',
+      branchLocalityId: 'loc-hud-row-A',  // a different row from search-place locality
+      merchant: { id: 'm_pinos', businessName: 'Pinos Pizzeria' },
+    })
+    mockState.searchChip        = { mode: 'PLACE', label: 'Huddersfield' }
+    mockState.effectiveLocality = { id: 'loc-hud-row-B', name: 'Huddersfield' }  // DIFFERENT row id
+    mockState.branches          = [huddTileSameNameDifferentId]
+    mockState.nearbyCount       = 1
+    mockState.cityCount         = 0
+    mockState.distantCount      = 0
+    mockState.scopeExpanded     = false
+
+    const { getByPlaceholderText, queryByTestId, getByText } =
+      render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'Huddersfield')
+
+    await waitFor(() => {
+      expect(getByText('Offers in Huddersfield')).toBeTruthy()
+    })
+    // Banner NOT shown — name match counts as in-place even though ids differ.
+    expect(queryByTestId('place-fallback-banner')).toBeNull()
+  })
+
+  it('Place WITH matching branchPostTown (and null branchLocalityId) → in-place (postTown-fallback ladder)', async () => {
+    // Even-stricter fallback: if a branch has null branchLocalityId AND
+    // null branchLocalityName but its branchPostTown matches the
+    // searched place, it counts as in-place.  Pre-Plan-4-M1 seed
+    // branches may have null locality fields and only postTown set.
+    const tileWithPostTownOnly = makeBranchTile({
+      id: 'brn_some_branch',
+      branchName: 'Some Branch',
+      branchLocalityName: null,
+      branchLocalityId: null,
+      branchPostTown: 'Huddersfield',
+      merchant: { id: 'm_some', businessName: 'Some Merchant' },
+    })
+    mockState.searchChip        = { mode: 'PLACE', label: 'Huddersfield' }
+    mockState.effectiveLocality = { id: 'loc-hud', name: 'Huddersfield' }
+    mockState.branches          = [tileWithPostTownOnly]
+    mockState.nearbyCount       = 1
+    mockState.scopeExpanded     = false
+
+    const { getByPlaceholderText, queryByTestId, getByText } =
+      render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'Huddersfield')
+
+    await waitFor(() => {
+      expect(getByText('Offers in Huddersfield')).toBeTruthy()
+    })
+    expect(queryByTestId('place-fallback-banner')).toBeNull()
+  })
+
   it('Non-PLACE search (TAG / null) is unaffected — pills visible', async () => {
     mockState.searchChip        = { mode: 'TAG', label: 'Brunch' }
     mockState.effectiveLocality = { id: 'loc-hud', name: 'Huddersfield' }

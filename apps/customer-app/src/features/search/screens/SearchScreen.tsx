@@ -303,11 +303,41 @@ export function SearchScreen() {
   // device QA observes Huddersfield merchants under "Offers in Leeds",
   // the rung-classifier called them NEARBY (catchment edge) but they
   // aren't IN Leeds.  The strict check sees through the rung framing.
+  //
+  // PR #124 fixup-6 (2026-05-22) — id-match alone is too strict.
+  // Owner device QA found that q="Huddersfield" fired the fallback
+  // banner even though 3 Huddersfield merchants surfaced.  Root cause:
+  // the dev DB carries MULTIPLE Locality rows named "Huddersfield"
+  // (different LAD/source combinations — allowed by the schema's
+  // `@@unique([name, ladDistrict, country])` constraint).  The
+  // `tryPlaceMatch` resolved one Locality row; the branches were
+  // linked to a different Locality row.  Both share the name
+  // "Huddersfield" — so a NAME / postTown text fallback closes the
+  // gap.
+  //
+  // Identity ladder (priority order):
+  //   1. branchLocalityId === effectiveLocality.id (strict, exact)
+  //   2. branchLocalityName === searchChip.label   (case-insensitive)
+  //   3. branchPostTown     === searchChip.label   (case-insensitive)
+  //
+  // Any match → in-place.  Still strict enough to fail on Leeds with
+  // only Huddersfield merchants (branchLocalityName="Huddersfield"
+  // does NOT match "leeds").
   const placeLocalityId = searchChip?.mode === 'PLACE'
     ? branchMeta?.effectiveLocality?.id ?? null
     : null
-  const inPlaceCount = placeLocalityId
-    ? branches.filter(b => b.branchLocalityId === placeLocalityId).length
+  const placeLabelLower = searchChip?.mode === 'PLACE'
+    ? searchChip.label.toLowerCase()
+    : null
+  const inPlaceCount = (placeLocalityId || placeLabelLower)
+    ? branches.filter(b => {
+        if (placeLocalityId && b.branchLocalityId === placeLocalityId) return true
+        if (placeLabelLower) {
+          if (b.branchLocalityName?.toLowerCase() === placeLabelLower) return true
+          if (b.branchPostTown?.toLowerCase()     === placeLabelLower) return true
+        }
+        return false
+      }).length
     : 0
   const placeFallback =
     searchChip?.mode === 'PLACE' &&
