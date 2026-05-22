@@ -46,12 +46,19 @@ const VOUCHER_TWO_ID       = `${FIXTURE_PREFIX}voucher-2`
 // For these two vouchers (5.00 + 7.50) the expected total is 12.50.
 const EXPECTED_TOTAL_ESTIMATED_SAVING = 12.5
 
-// Reference coordinates (real-world UK localities). Brightlingsea +
-// Colchester are ~10km apart, both inside an Essex-ish region. The user
-// position used in the test calls is Colchester; both branches are
-// MANUALLY_CONFIRMED so they emit non-null distance.
-const BRIGHTLINGSEA = { lat: 51.81, lng: 1.02 }
-const COLCHESTER    = { lat: 51.89, lng: 0.90 }
+// Reference coordinates. Both branches sit within ~1 mile of the user GPS
+// (Colchester) so they classify as NEARBY under `rankBranchesV3` and pass
+// the Featured rail's default scope filter (NEARBY+CITY). This preserves
+// the load-bearing fan-out signal under C.1's new scope-aware Featured
+// builder (Hard Invariant — values may differ from the legacy per-merchant
+// fan-out, but fan-out itself still happens for in-scope branches).
+//
+// Both branches are MANUALLY_CONFIRMED so they emit non-null distance.
+// City labels are kept distinct (Colchester-North, Colchester-South) so
+// the multi-branch identity remains visible in the tile output.
+const COLCHESTER         = { lat: 51.89, lng: 0.90 }
+const COLCHESTER_NORTH   = { lat: 51.895, lng: 0.905 }
+const COLCHESTER_SOUTH   = { lat: 51.885, lng: 0.895 }
 
 async function createMultiBranchFeaturedFixture() {
   // One merchant with two active MANUALLY_CONFIRMED branches. The merchant
@@ -72,8 +79,8 @@ async function createMultiBranchFeaturedFixture() {
   })
 
   for (const [branchId, coords, locality, isMain] of [
-    [MULTI_BRANCH_A_ID, BRIGHTLINGSEA, 'Brightlingsea', true],
-    [MULTI_BRANCH_B_ID, COLCHESTER,    'Colchester',    false],
+    [MULTI_BRANCH_A_ID, COLCHESTER_NORTH, 'Colchester-North', true],
+    [MULTI_BRANCH_B_ID, COLCHESTER_SOUTH, 'Colchester-South', false],
   ] as const) {
     await prisma.branch.upsert({
       where: { id: branchId },
