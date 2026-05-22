@@ -2555,6 +2555,82 @@ export async function searchMerchants(
 //   (b) accept them at the route and document the no-op for callers.
 // Recommended: (b) — accept-and-no-op keeps callers' tests portable across
 // Phase 1 / 2 / 3 as more params get honoured incrementally.
+
+// Plan 4 M4.2 — Place detection.  Kill-switch per spec §11.3.  When true,
+// `searchBranches` looks up `q` against `Locality.name` (ILIKE-prefix) then
+// `Locality.postTown`; the highest-population-tier match becomes the
+// EffectiveLocation, overriding the caller's GPS.  When false, `tryPlaceMatch`
+// returns null and the existing GPS-driven path runs unchanged.
+const PLACE_SEARCH_DETECTION_ENABLED = true
+
+// Plan 4 M4.2 — populationTier sort order for place-match disambiguation.
+// When `q` matches multiple Localities (e.g. "Newport" — multiple UK
+// localities share the name), the densest one wins.  Mirrors the ladder
+// rung ordering used elsewhere in the discovery service.
+const POPULATION_TIER_ORDER: Record<string, number> = {
+  METRO_CORE: 7, CITY: 6, LARGE_TOWN: 5, TOWN: 4,
+  SMALL_TOWN:  3, VILLAGE: 2, HAMLET: 1, UNKNOWN: 0,
+}
+
+// Plan 4 M4.2 — `q` length threshold for prefix vs exact match.
+//
+// Prefix matching on short queries (e.g. q="cov") accidentally hits real
+// localities ("Coventry"), short-circuiting the text fuzzy and breaking
+// tests that intentionally use short queries (e.g. the PR #112 fixup-4
+// description-gate at 5 chars).  Mirrors the existing
+// `MIN_DESCRIPTION_MATCH_LENGTH` threshold pattern.
+//
+//   q.length >= 5 → ILIKE-prefix match (`startsWith`)
+//                   — long enough to be confident the user means a place
+//                     ("London" / "Manchester" / "Brighton" / etc.)
+//   q.length <  5 → exact case-insensitive match (`equals`)
+//                   — only short locality names that EQUAL the query
+//                     win (e.g. q="York" -> Locality "York";
+//                     q="cove" -> no exact-match Locality -> null).
+const PLACE_MATCH_PREFIX_THRESHOLD = 5
+
+async function tryPlaceMatch(prisma: PrismaClient, q: string | undefined) {
+  if (!PLACE_SEARCH_DETECTION_ENABLED) return null
+  if (!q) return null
+  const trimmed = q.trim()
+  if (trimmed.length < 2) return null
+
+  // Short-query path: exact case-insensitive match only.  Avoids the
+  // "cove" → "Coventry" class of false positive.
+  const useExact = trimmed.length < PLACE_MATCH_PREFIX_THRESHOLD
+  const nameWhere = useExact
+    ? { name:     { equals:     trimmed, mode: 'insensitive' as const } }
+    : { name:     { startsWith: trimmed, mode: 'insensitive' as const } }
+  const postTownWhere = useExact
+    ? { postTown: { equals:     trimmed, mode: 'insensitive' as const } }
+    : { postTown: { startsWith: trimmed, mode: 'insensitive' as const } }
+
+  // Combined OR query — name OR postTown match — keeps the place-match
+  // overhead to ONE DB round-trip per searchBranches call instead of two.
+  // Take 10 to capture all variant Localities; sort in-process by
+  // populationTier DESC so the densest variant wins (METRO_CORE > CITY >
+  // LARGE_TOWN > ...).  Name-match wins over postTown-match when both are
+  // present at the same tier (stable secondary sort).
+  const matches = await prisma.locality.findMany({
+    where: { OR: [nameWhere, postTownWhere] },
+    take:  10,
+  })
+  if (matches.length === 0) return null
+
+  // Score: populationTier × 10 + (1 if name match, 0 if postTown-only).
+  // Name match preferred at the same tier; densest wins overall.
+  const matchesByScore = matches
+    .map(m => {
+      const nameHit = useExact
+        ? m.name.toLowerCase() === trimmed.toLowerCase()
+        : m.name.toLowerCase().startsWith(trimmed.toLowerCase())
+      const tierScore = (POPULATION_TIER_ORDER[m.populationTier] ?? 0) * 10
+      return { row: m, score: tierScore + (nameHit ? 1 : 0) }
+    })
+    .sort((a, b) => b.score - a.score)
+  return matchesByScore[0]?.row ?? null
+}
+
 export async function searchBranches(
   prisma: PrismaClient,
   params: {
@@ -2594,6 +2670,12 @@ export async function searchBranches(
     distantCount: number
     emptyStateReason: 'none' | 'expanded_to_wider' | 'no_uk_supply'
     resolvedArea: string
+    // Plan 4 M4.2 — additive search-mode indicator.  Non-null when `q`
+    // matched a known Locality (PLACE) OR a curated Tag (TAG, M4.3).
+    // Customer-app reads this to render the place/tag-aware header copy
+    // per §M4-AMENDMENT-2026-05-22 A1 Path 5b.  Minimal shape per A6 —
+    // no Locality id / populationTier yet.
+    searchChip: { mode: 'PLACE' | 'TAG'; label: string } | null
   }
 }> {
   const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
@@ -2611,19 +2693,42 @@ export async function searchBranches(
     throw new AppError('SEARCH_QUERY_REQUIRED')
   }
 
+  // Plan 4 M4.2 — Place detection.  Run BEFORE building the text-match
+  // where-OR.  If `q` matches a known Locality, the place becomes the
+  // EffectiveLocation (overriding GPS); the text fuzzy is skipped (the
+  // place IS the area — branches surface via the rank-then-enrich pipeline
+  // against the place-derived effLoc).  Other filters (categoryId,
+  // sortBy, voucherTypes, amenityIds, openNow, etc.) still apply.
+  //
+  // Performance — run the place lookup IN PARALLEL with the tag-merchant
+  // lookup (the other DB round-trip needed when building the text-match
+  // where-OR).  Speculatively running both keeps the wall-clock cost flat
+  // for the common-case text search where placeMatch returns null and we
+  // need the tag-merchant ids anyway.  Place-matched path discards the
+  // tag result (1 wasted query, but the place-matched flow is fast
+  // overall since it skips the text-OR build).
+  const [placeMatch, tagMerchantsLookup] = normalizedQ
+    ? await Promise.all([
+        tryPlaceMatch(prisma, normalizedQ),
+        prisma.merchantSuggestedTag.findMany({
+          where:  { tag: { contains: normalizedQ, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
+          select: { merchantId: true },
+        }),
+      ])
+    : [null, [] as Array<{ merchantId: string }>]
+
   // ── 2. Build branch-level predicate.
   const where: Prisma.BranchWhereInput = {
     isActive: true,
     merchant: { status: MerchantStatus.ACTIVE },
   }
 
-  if (normalizedQ) {
-    // Tag-matched merchant lookup (mirrors searchMerchants:1985-1989).
-    const tags = await prisma.merchantSuggestedTag.findMany({
-      where: { tag: { contains: normalizedQ, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
-      select: { merchantId: true },
-    })
-    const tagMerchantIds = Array.from(new Set(tags.map(t => t.merchantId)))
+  // Only run the text fuzzy when NO place matched.  When a place matched,
+  // every branch in/around that Locality is a candidate regardless of
+  // whether its name/category/etc. contains the query string.
+  if (normalizedQ && !placeMatch) {
+    // Tag-matched merchant ids fetched in parallel with the place lookup above.
+    const tagMerchantIds = Array.from(new Set(tagMerchantsLookup.map(t => t.merchantId)))
 
     // PR #112 fixup-4 (2026-05-19) — relevance fix: gate description
     // substring matching to queries ≥ MIN_DESCRIPTION_MATCH_LENGTH.
@@ -2764,9 +2869,14 @@ export async function searchBranches(
   )
 
   // ── 5. Resolve effLoc + ladder profile + outgoing catchment.
+  // Plan 4 M4.2 — when `placeMatch` was found above, pass it as
+  // `placeLocality`; `resolveEffectiveLocation` will use it as a
+  // PLACE_QUERY source (highest priority, overrides GPS).
   const effLoc = await resolveEffectiveLocation(
     prisma,
-    { lat: lat ?? undefined, lng: lng ?? undefined },
+    placeMatch
+      ? { placeLocality: placeMatch }
+      : { lat: lat ?? undefined, lng: lng ?? undefined },
     userId,
   )
   const ladderProfile = await resolveLadderProfileForCategory(prisma, categoryId, subcategoryId)
@@ -3131,6 +3241,12 @@ export async function searchBranches(
       distantCount,
       emptyStateReason,
       resolvedArea,
+      // Plan 4 M4.2 — additive search-mode indicator.  PLACE today;
+      // M4.3 will add the TAG branch.  Minimal wire shape per
+      // §M4-AMENDMENT-2026-05-22 A6 (no Locality id / populationTier).
+      searchChip: placeMatch
+        ? { mode: 'PLACE' as const, label: placeMatch.name }
+        : null,
     },
   }
 }
