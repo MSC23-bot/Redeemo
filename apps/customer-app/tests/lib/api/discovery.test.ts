@@ -1,5 +1,5 @@
 import { api } from '@/lib/api'
-import { discoveryApi } from '@/lib/api/discovery'
+import { discoveryApi, homeFeedResponseSchema } from '@/lib/api/discovery'
 
 jest.spyOn(api, 'get')
 
@@ -58,6 +58,43 @@ describe('discoveryApi', () => {
     })
     await discoveryApi.getHomeFeed({ lat: 51.5, lng: -0.1 })
     expect(api.get).toHaveBeenCalledWith('/api/v1/customer/home?lat=51.5&lng=-0.1')
+  })
+
+  // ─── Phase B.2 — Home Relevance new envelope shape ────────────────────────
+  //
+  // Spec §5 + plan v1.1 Hard Invariant: new envelope fields
+  // (featuredRail / trendingRail / popularRail / nearbyByCategoryRails)
+  // arrive ADDITIVELY alongside the legacy branch-themed fields
+  // (featuredBranches / trendingBranches / nearbyByCategoryBranches).
+  // Backend continues emitting BOTH sets through Phase F; customer-app
+  // stops reading legacy in Phase G but the schema keeps them as
+  // .optional() so older fixtures and pre-merge backend responses
+  // still parse cleanly.
+  it('homeFeedResponseSchema parses the new envelope shape with non-colliding names', () => {
+    const sample = {
+      locationContext: {
+        locality: { id: 'loc1', name: 'Huddersfield' },
+        city:     'Huddersfield',
+        source:   'coordinates' as const,
+      },
+      campaigns: [],
+      featuredRail: {
+        branches: [],
+        meta: {
+          locality:      { id: 'loc1', name: 'Huddersfield' },
+          scope:         'city' as const,
+          scopeExpanded: false,
+          rungCounts:    { NEARBY: 0 },
+        },
+      },
+      trendingRail:          { branches: [], meta: null },
+      popularRail:           { branches: [], meta: null },
+      nearbyByCategoryRails: [],
+      featuredBranches:         [],
+      trendingBranches:         [],
+      nearbyByCategoryBranches: [],
+    }
+    expect(() => homeFeedResponseSchema.parse(sample)).not.toThrow()
   })
 
   it('searchMerchants serialises array filters as comma-separated', async () => {
