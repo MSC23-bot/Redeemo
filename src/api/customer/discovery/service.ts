@@ -2807,7 +2807,24 @@ export async function searchBranches(
   // to a single round-trip.  Place lookup may be discarded when tag
   // wins (small waste, but the parallel scheduling beats a sequential
   // check on cold-Neon round-trip cost).
-  const [placeMatchRaw, tagMatch, tagMerchantsLookup] = normalizedQ
+  // §CD v1 (2026-05-22) — voucher title + description lookup pre-fetched
+  // in parallel with the existing place/tag/suggested-tag lookups.
+  // Returning merchant ids (instead of putting an EXISTS subquery in the
+  // where.OR) collapses per-token / per-field traversal cost into a
+  // single indexed `merchant.id IN [...]` predicate.  Avoids the cold-
+  // Neon 5s timeout regression that occurred when `merchant.vouchers.some`
+  // was embedded directly in `fieldOrForToken`.
+  //
+  // §0.1 v1 scope: title (un-gated) + description (gated on
+  // MIN_DESCRIPTION_MATCH_LENGTH=5 via the includeDescriptionMatch flag
+  // resolved below).  voucher.terms EXCLUDED from v1.
+  //
+  // Status + approval gate mirrors MERCHANT_TILE_SELECT.vouchers.where
+  // exactly — only ACTIVE + APPROVED vouchers drive the match.
+  const includeDescriptionMatchForVoucher = normalizedQ
+    ? normalizedQ.length >= 5
+    : false
+  const [placeMatchRaw, tagMatch, tagMerchantsLookup, voucherMerchantsLookup] = normalizedQ
     ? await Promise.all([
         tryPlaceMatch(prisma, normalizedQ),
         tryTagMatch(prisma, normalizedQ),
@@ -2815,11 +2832,26 @@ export async function searchBranches(
           where:  { tag: { contains: normalizedQ, mode: 'insensitive' }, status: MerchantSuggestedTagStatus.APPROVED },
           select: { merchantId: true },
         }),
+        prisma.voucher.findMany({
+          where: {
+            status:         VoucherStatus.ACTIVE,
+            approvalStatus: ApprovalStatus.APPROVED,
+            OR: [
+              { title: { contains: normalizedQ, mode: 'insensitive' as const } },
+              ...(includeDescriptionMatchForVoucher
+                ? [{ description: { contains: normalizedQ, mode: 'insensitive' as const } }]
+                : []),
+            ],
+          },
+          select: { merchantId: true },
+          distinct: ['merchantId'],
+        }),
       ])
-    : [null, null, [] as Array<{ merchantId: string }>]
+    : [null, null, [] as Array<{ merchantId: string }>, [] as Array<{ merchantId: string }>]
   // Tag wins over place per the precedence above.  If a tag matched,
   // ignore any speculative place result.
   const placeMatch = tagMatch ? null : placeMatchRaw
+  const voucherMerchantIds = Array.from(new Set(voucherMerchantsLookup.map(v => v.merchantId)))
 
   // ── 2. Build branch-level predicate.
   const where: Prisma.BranchWhereInput = {
@@ -2879,6 +2911,14 @@ export async function searchBranches(
               { merchant: { highlights: { some: { tag: { label: { contains: v, mode: 'insensitive' as const } } } } } },
             ]
           : []),
+        // §CD v1 — voucher matching is handled via the pre-fetched
+        // `voucherMerchantIds` injected as a single `merchant.id IN [...]`
+        // predicate below (cheaper than per-token EXISTS subqueries).
+        // The voucher match uses the FULL normalizedQ (CONTAINS on
+        // voucher.title + voucher.description gated) — multi-token AND
+        // semantics for vouchers are intentionally "match the whole
+        // phrase against one voucher field" rather than per-token across
+        // multiple vouchers.  voucher.terms EXCLUDED from v1.
         // Description match — gated on the FULL query length (existing rule).
         ...(includeDescriptionMatch
           ? [{ merchant: { description: { contains: v, mode: 'insensitive' as const } } }]
@@ -2896,10 +2936,24 @@ export async function searchBranches(
       // for q="Indian cafe" because:
       //   token "Indian" → description match + curated Tag (CUISINE Indian)
       //   token "cafe"   → primaryCategory.name "Cafe & Coffee"
-      where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : []),
-        ...tokens.map(t => ({ OR: fieldOrForToken(t) })),
-      ]
+      //
+      // §CD v1 — voucher matching joins the AND clause as a top-level
+      // OR alternative: surface if (every token matches some field) OR
+      // (full normalizedQ matches a voucher.title / voucher.description).
+      // Implemented via a nested OR at the where level — see below.
+      const tokenAndClauses = tokens.map(t => ({ OR: fieldOrForToken(t) }))
+      if (voucherMerchantIds.length > 0) {
+        // Two alternatives: all tokens hit OR voucher full-phrase hit.
+        where.OR = [
+          { AND: tokenAndClauses },
+          { merchant: { id: { in: voucherMerchantIds } } },
+        ]
+      } else {
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : []),
+          ...tokenAndClauses,
+        ]
+      }
     } else {
       where.OR = [
         ...fieldOrForToken(normalizedQ),
@@ -2909,6 +2963,14 @@ export async function searchBranches(
         // curated Tag.label contains in fieldOrForToken covers the
         // structured-tag case).
         ...(tagMerchantIds.length > 0 ? [{ merchant: { id: { in: tagMerchantIds } } }] : []),
+        // §CD v1 — voucher title/description match via pre-fetched
+        // merchant ids.  Surfaces merchants whose ACTIVE+APPROVED
+        // vouchers carry the query phrase even when no merchant /
+        // branch / tag field matches.  Drives the matchContext line
+        // on the customer-app card.
+        ...(voucherMerchantIds.length > 0
+          ? [{ merchant: { id: { in: voucherMerchantIds } } }]
+          : []),
         // Plan 4 M4.3 — curated Tag match (exact, case-insensitive) when
         // `tryTagMatch` found a Tag for the whole query.  Joins through
         // both MerchantTag and MerchantHighlight (highlight tags
