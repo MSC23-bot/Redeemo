@@ -212,12 +212,32 @@ export function SearchScreen() {
 
       {showTrending && (
         <>
-          {/* PR #112 fixup-6.4 (2026-05-20) — pre-search discovery prompt.
-              Owner-locked copy: "Find your next local saving" + persona
-              body line.  Renders above <TrendingSearches> so the user
-              gets a discovery cue + actionable pills on first mount. */}
-          <SearchEmptyState reason="pre_search" />
-          <TrendingSearches onTagPress={setQuery} />
+          {/* Plan 4 M4.6 — pre-search behaviour now branches on whether
+              we have ANY location signal.  With GPS or a saved area, the
+              pre_search discovery prompt + trending pills makes sense
+              ("Find your next local saving" implies "near here").
+              Without ANY location signal, the user can't get useful
+              results without first setting their area — show the
+              no_location prompt instead so the UX leads them to PC2.
+
+              GPS-less behaviour is the only observable signal here at
+              the moment; saved-profile-area lookup would tighten this
+              further (spec §6.6) but isn't load-bearing for the M4.6
+              scope. */}
+          {location ? (
+            <>
+              {/* PR #112 fixup-6.4 (2026-05-20) — pre-search discovery
+                  prompt.  Owner-locked copy: "Find your next local
+                  saving" + persona body line. */}
+              <SearchEmptyState reason="pre_search" />
+              <TrendingSearches onTagPress={setQuery} />
+            </>
+          ) : (
+            <SearchEmptyState
+              reason="no_location"
+              onSetArea={() => router.push('/(auth)/profile-completion/address' as any)}
+            />
+          )}
         </>
       )}
 
