@@ -101,3 +101,13 @@ export function appendStrictLocalityTail<T extends TailIdentityCandidate, R>(
   )
   return [...rankedTiles, ...passing]
 }
+
+// ─── §6.4.2 permissive tail (platform-claim rails) ─────────────────────────
+//
+// Companion to appendStrictLocalityTail. Used by Featured cascade + Popular
+// rails where the rail does NOT claim locality, so the strict identity gate
+// does not apply. Simple concatenation.
+
+export function appendPermissiveTail<R, T>(rankedTiles: R[], candidates: T[]): (R | T)[] {
+  return [...rankedTiles, ...candidates]
+}

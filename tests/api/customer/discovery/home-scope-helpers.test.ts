@@ -1,6 +1,6 @@
 // tests/api/customer/discovery/home-scope-helpers.test.ts
 import { describe, it, expect } from 'vitest'
-import { resolveScopeForHomeRail, appendStrictLocalityTail } from '../../../../src/api/customer/discovery/homeScope'
+import { resolveScopeForHomeRail, appendStrictLocalityTail, appendPermissiveTail } from '../../../../src/api/customer/discovery/homeScope'
 import type { SupplyRung } from '../../../../src/api/lib/ladderProfiles'
 
 const empty: Record<SupplyRung, number> = {
@@ -81,5 +81,19 @@ describe('appendStrictLocalityTail (§6.4.1 identity ladder)', () => {
     const cand: TailCandidate = { id: 'b1', localityId: 'loc_huddersfield', localityName: 'Huddersfield', postTown: 'Huddersfield' }
     const out = appendStrictLocalityTail(rankedTiles, [cand], null)
     expect(out.length).toBe(2)
+  })
+})
+
+describe('appendPermissiveTail (§6.4.2 platform-claim rails)', () => {
+  it('appends all candidates regardless of locality', () => {
+    const ranked = [{ id: 'r1' }] as any[]
+    const cands  = [{ id: 't1' }, { id: 't2' }] as any[]
+    const out    = appendPermissiveTail(ranked, cands)
+    expect(out.map(t => t.id)).toEqual(['r1', 't1', 't2'])
+  })
+  it('empty candidates → ranked unchanged', () => {
+    const ranked = [{ id: 'r1' }] as any[]
+    const out    = appendPermissiveTail(ranked, [])
+    expect(out.length).toBe(1)
   })
 })
