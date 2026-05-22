@@ -181,5 +181,26 @@ describe('Trending rail — strict NEARBY+CITY (§6.2 + §8.3 rows 4-6)', () => 
       expect(trendingActive && popularActive).toBe(false)
     }
   })
+
+  // Task D.3 — Spec §6.2 + §12.1.  When no GPS/profile coords are supplied
+  // (`locationContext.source === 'none'`), Popular fans out via the
+  // platform-wide cohort path. Tiles in that branch are constructed with
+  // `supplyRung: null` / `proximityBand: null` / `distanceMetres: null`
+  // (no reference point exists to classify against). The pin asserts the
+  // tile-contract invariant regardless of whether seed data produces a
+  // non-null `popularRail.meta` on the no-location call.
+  it('Popular no-location (source=none) → every popularRail tile has supplyRung=null, proximityBand=null, distanceMetres=null', { timeout: 30_000 }, async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/v1/customer/home` })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.locationContext.source).toBe('none')
+    if (body.popularRail?.meta) {
+      for (const tile of body.popularRail.branches) {
+        expect(tile.supplyRung).toBeNull()
+        expect(tile.proximityBand).toBeNull()
+        expect(tile.distanceMetres).toBeNull()
+      }
+    }
+  })
 })
 
