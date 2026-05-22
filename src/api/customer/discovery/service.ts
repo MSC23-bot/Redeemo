@@ -41,6 +41,7 @@ import {
 } from '../../redemption/reusable'
 import { PRESENTATION_WINDOW_MS } from '../../redemption/presentation-window'
 import { type BranchTile } from './branchTileSchema'
+import { buildFeaturedRail } from './homeRailBuilders'
 
 /**
  * Plan 4 M1 PR #81 review — server-side enforcement that approximate branch
@@ -63,7 +64,7 @@ import { type BranchTile } from './branchTileSchema'
  * "get directions") degrade gracefully — those paths already skip rows
  * with null coords.
  */
-function exposeBranchPosition<B extends {
+export function exposeBranchPosition<B extends {
   locationConfidence?: string | null
   latitude: unknown
   longitude: unknown
@@ -820,7 +821,7 @@ async function enrichMerchantTiles(
 //     serialization boundary so POSTCODE_CENTROID / NEEDS_REVIEW /
 //     ADDRESS_GEOCODED branches expose null lat/lng (Plan 4 M1 PR #81 lock).
 
-const BRANCH_TILE_SELECT = {
+export const BRANCH_TILE_SELECT = {
   id:                 true,
   name:               true,
   localityId:         true,
@@ -1518,13 +1519,17 @@ export async function getHomeFeed(
     { lat: lat ?? undefined, lng: lng ?? undefined },
     userId,
   )
+  // Phase C.1: outgoing catchment targets are shared by the V2 hybrid path
+  // AND `buildFeaturedRail` below — compute once, reuse twice.
+  const outgoingCatchmentTargetIds = homeV2EffLoc
+    ? await getOutgoingCatchmentTargetIds(prisma, homeV2EffLoc.locality.id)
+    : []
   let homeV2TileById = new Map<string, RankMerchantsV2Result['tiles'][number]>()
   if (homeV2EffLoc) {
     const uniqueMerchants = Array.from(new Map<string, any>(
       [...featured, ...trending, ...allNearbyMerchants].map(m => [m.id, m]),
     ).values())
     if (uniqueMerchants.length > 0) {
-      const outgoingCatchmentTargetIds = await getOutgoingCatchmentTargetIds(prisma, homeV2EffLoc.locality.id)
       const v2Result = rankMerchantsV2(
         uniqueMerchants.map(m => ({
           id: m.id, businessName: m.businessName,
@@ -1600,10 +1605,40 @@ export async function getHomeFeed(
     inputs:   section.merchants.flatMap((m: any) => fanOutMerchantToBranchInputs(m)),
   }))
 
-  // Run the three enrichBranchTiles batches in parallel (mirrors the
-  // enrichMerchantTiles parallel pattern above at lines 1150-1153).
-  const [featuredBranches, trendingBranches, nearbyByCategoryBranchesFlat] = await Promise.all([
-    enrichBranchTiles(prisma, featuredBranchInputs,  { userId, lat, lng }),
+  // ─── Phase C.1 — Home Relevance Featured rail (spec §6.1 + §10.4) ──────────
+  //
+  // Additive `featuredRail` envelope on the response, computed via the
+  // dedicated builder.  The legacy `featuredBranches` field is sourced from
+  // the new builder per the v1.1 Hard Invariant: the FIELD is preserved
+  // (same key, same `BranchTile[]` shape), the VALUE is now the
+  // ranked/scope-aware projection rather than the legacy per-merchant
+  // fan-out.
+  //
+  // `featuredBranchInputs` (legacy per-merchant fan-out) is intentionally
+  // NO longer enriched — `buildFeaturedRail` supplies the wire value via
+  // `featuredRail.branches`.  Phases D + E migrate the trending +
+  // nearbyByCategory fan-outs in the same way.
+  void featuredBranchInputs
+
+  // Run the four work items in parallel: the new featuredRail builder +
+  // the two remaining legacy enrichBranchTiles batches +
+  // nearbyByCategoryBranches.  Mirrors the enrichMerchantTiles parallel
+  // pattern above at lines 1150-1153 — `buildFeaturedRail` adds two DB
+  // round-trips (FeaturedMerchant + Branch) before its own enrichment, so
+  // running it concurrently with the legacy batches keeps wall-clock cost
+  // bounded.
+  const [featuredRail, trendingBranches, nearbyByCategoryBranchesFlat] = await Promise.all([
+    buildFeaturedRail(
+      prisma,
+      homeV2EffLoc,
+      'MIXED_NORMAL',
+      {
+        locality: homeV2EffLoc
+          ? { id: homeV2EffLoc.locality.id, name: homeV2EffLoc.locality.name }
+          : null,
+      },
+      { outgoingCatchmentTargetIds },
+    ),
     enrichBranchTiles(prisma, trendingBranchInputs,  { userId, lat, lng }),
     Promise.all(nearbyBranchInputsBy.map(async section => ({
       category: section.category,
@@ -1622,9 +1657,15 @@ export async function getHomeFeed(
     })),
     // Phase 1 additive — branch-themed variants. NOT a campaignBranches field;
     // campaigns are banner-level and stay unchanged.
-    featuredBranches,
+    //
+    // Phase C.1: `featuredBranches` value sourced from the new
+    // `featuredRail.branches` (ranked + scope-filtered).  Field key and
+    // shape preserved per the v1.1 Hard Invariant.
+    featuredBranches: featuredRail.branches,
     trendingBranches,
     nearbyByCategoryBranches: nearbyByCategoryBranchesFlat,
+    // Phase C.1 additive new envelope — non-colliding key per v1.1.
+    featuredRail,
   }
 }
 

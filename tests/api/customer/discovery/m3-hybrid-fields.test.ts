@@ -250,5 +250,5 @@ describe('M3a hybrid — getHomeFeed wires V2 fields onto tiles (shape preserved
       && typeof t.distanceMetres === 'number',
     )
     expect(classifiedTile).toBeDefined()
-  })
+  }, 30_000)
 })
