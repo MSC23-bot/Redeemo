@@ -21,6 +21,11 @@ describe('branchTileSchema', () => {
     supplyRung: 'NEARBY',
     proximityBand: 'NEARBY',
     distanceMetres: 1240,
+    // §CD v1 (2026-05-22) — voucher matchContext on the wire.
+    // `null` when voucher was NOT the driving signal (this fixture
+    // surfaces via merchant content); customer-app SearchResultItem
+    // hides the line when null.
+    matchContext: null,
     merchant: {
       id: 'mer_covelum',
       businessName: 'Covelum',
