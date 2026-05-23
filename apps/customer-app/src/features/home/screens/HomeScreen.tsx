@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { color, spacing } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
@@ -18,8 +19,18 @@ import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
 
+// Bottom tab bar is `position: 'absolute'` with `height: 80` per the (app)
+// Tabs layout (see `apps/customer-app/app/(app)/_layout.tsx`). ScrollView
+// content must clear that height + the device safe-area inset + a small
+// breathing-room margin so the last child (e.g. <NearbySectionEmpty> CTAs
+// or <HomeExploreMore> button) is comfortably reachable without iOS
+// rubber-band bounce. PR #126 device-QA A — owner direction 2026-05-23.
+const TAB_BAR_HEIGHT       = 80
+const SCROLL_BOTTOM_GUTTER  = 24
+
 export function HomeScreen() {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const { location } = useUserLocation()
   const { data: me } = useMe()
   const { data: feed, isLoading, refetch } = useHomeFeed(
@@ -108,7 +119,10 @@ export function HomeScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
+        ]}
       >
         <HomeHeader
           firstName={me?.firstName ?? null}

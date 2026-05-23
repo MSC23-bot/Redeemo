@@ -1,6 +1,7 @@
 import React from 'react'
 import { render, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { HomeScreen } from '@/features/home/screens/HomeScreen'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
@@ -63,7 +64,13 @@ jest.mock('@/hooks/useHomeFeed', () => ({
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return React.createElement(QueryClientProvider, { client: qc }, children)
+  const frame  = { x: 0, y: 0, width: 390, height: 844 } as const
+  const insets = { top: 47, right: 0, bottom: 34, left: 0 } as const
+  return React.createElement(
+    SafeAreaProvider,
+    { initialMetrics: { frame, insets } },
+    React.createElement(QueryClientProvider, { client: qc }, children),
+  )
 }
 
 const popularBranchFixture = makeBranchTile({
