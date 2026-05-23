@@ -158,6 +158,109 @@ describe('HomeScreen dedup rules (§8.7)', () => {
     expect(queryByTestId('home-no-location-banner')).toBeNull()
   })
 
+  // ── v1.9 PR #126 device-QA-6 — <NearbyContextBanner> trigger ────────
+  //
+  // Banner trigger tightened from `.some()` (any cascaded rail) to
+  // `.every()` (ALL nbcRails must be pure-cascade).  Mixed markets where
+  // some rails have local supply suppress the banner; the v1.8 chip
+  // variants + distance chips carry the per-tile honesty signal.  Only
+  // pure-cascade markets (Manchester / Bristol-light) get the global
+  // "we're still growing in {City}" framing.
+  //
+  // Two pins cover the rule:
+  //   - Mixed market (Huddersfield-shape) → banner HIDDEN.
+  //   - All-cascaded market (Manchester-shape) → banner VISIBLE.
+
+  const huddersfieldMixedRail = {
+    category: { id: 'cat-food-drink', name: 'Food & Drink' },
+    branches: [
+      makeBranchTile({
+        id:         'brn-local-1',
+        branchName: 'Karaara',
+        distance:   800,
+        merchant: {
+          id:                   'm-karaara',
+          businessName:         'Karaara',
+          primaryCategory:      { id: 'cat-food-drink', name: 'Food & Drink', parentId: null },
+          voucherCount:         2,
+          maxEstimatedSaving:   10,
+          totalEstimatedSaving: 20,
+        },
+      }),
+    ],
+    meta: {
+      locality:      { id: 'l-huddersfield', name: 'Huddersfield' },
+      scope:         'city' as const,
+      scopeExpanded: false,   // ← local rail
+      rungCounts:    {},
+    },
+  }
+  const huddersfieldCascadeRail = {
+    category: { id: 'cat-shopping', name: 'Shopping' },
+    branches: [
+      makeBranchTile({
+        id:         'brn-cascade-1',
+        branchName: 'Wider Shop',
+        distance:   180_000,
+        merchant: {
+          id:                   'm-shop',
+          businessName:         'Wider Shop',
+          primaryCategory:      { id: 'cat-shopping', name: 'Shopping', parentId: null },
+          voucherCount:         1,
+          maxEstimatedSaving:   5,
+          totalEstimatedSaving: 5,
+        },
+      }),
+    ],
+    meta: {
+      locality:      { id: 'l-huddersfield', name: 'Huddersfield' },
+      scope:         'platform' as const,
+      scopeExpanded: true,    // ← pure-cascade rail
+      rungCounts:    {},
+    },
+  }
+
+  it('v1.9 trigger — mixed market (1 local + 1 cascade rail) HIDES <NearbyContextBanner>', async () => {
+    mockHomeFeedData = {
+      locationContext:           { city: 'Huddersfield', source: 'coordinates' },
+      campaigns:                 [],
+      featuredBranches:          [],
+      trendingBranches:          [],
+      nearbyByCategoryBranches:  [],
+      featuredRail:              { branches: [], meta: null },
+      trendingRail:              { branches: [], meta: null },
+      popularRail:               { branches: [], meta: null },
+      nearbyByCategoryRails:     [huddersfieldMixedRail, huddersfieldCascadeRail],
+    }
+
+    const { queryByTestId } = render(<HomeScreen />, { wrapper })
+
+    // Banner MUST be hidden — not every rail is cascaded.
+    await waitFor(() => expect(queryByTestId('home-nearby-context-banner')).toBeNull())
+    // The category rails themselves still render (the dedup-managed empty
+    // card MUST NOT replace them either).
+    expect(queryByTestId('home-nearby-section-empty')).toBeNull()
+  })
+
+  it('v1.9 trigger — all-cascaded market (every rail scopeExpanded=true) SHOWS <NearbyContextBanner>', async () => {
+    mockHomeFeedData = {
+      locationContext:           { city: 'Manchester', source: 'coordinates' },
+      campaigns:                 [],
+      featuredBranches:          [],
+      trendingBranches:          [],
+      nearbyByCategoryBranches:  [],
+      featuredRail:              { branches: [], meta: null },
+      trendingRail:              { branches: [], meta: null },
+      popularRail:               { branches: [], meta: null },
+      nearbyByCategoryRails:     [huddersfieldCascadeRail],  // single pure-cascade rail
+    }
+
+    const { queryByTestId } = render(<HomeScreen />, { wrapper })
+
+    await waitFor(() => expect(queryByTestId('home-nearby-context-banner')).toBeTruthy())
+    expect(queryByTestId('home-nearby-section-empty')).toBeNull()
+  })
+
   it('positive coexistence: banner CAN coexist with PopularSection (source=none + popularRail populated)', async () => {
     // PopularSection is rendered when popularRail.meta !== null and
     // trendingRail.meta === null.  It is NOT dedup-managed against the

@@ -26,11 +26,15 @@ describe('BranchTile — proximity chip wiring (Plan 4 M3b)', () => {
     expect(queryByText('A little further')).toBeNull()
   })
 
-  it('renders "Closest match on Redeemo" when proximityBand is NEAREST_ON_REDEEMO (PR #112 copy)', () => {
+  it('renders "Nearest match on Redeemo" when proximityBand is NEAREST_ON_REDEEMO (v1.9 PR #126 device-QA-6 copy)', () => {
+    // v1.9 PR #126 device-QA-6 (2026-05-23): copy refined from "Closest match
+    // on Redeemo" to "Nearest match on Redeemo" — "Nearest" reads more
+    // distance-specific than "Closest" per owner direction.
     const tile = makeBranchTile({ proximityBand: 'NEAREST_ON_REDEEMO' })
     const { getByText, queryByText } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
-    expect(getByText('Closest match on Redeemo')).toBeTruthy()
-    expect(queryByText('Nearest on Redeemo')).toBeNull()
+    expect(getByText('Nearest match on Redeemo')).toBeTruthy()
+    expect(queryByText('Nearest on Redeemo')).toBeNull()        // pre-fixup-2 wording
+    expect(queryByText('Closest match on Redeemo')).toBeNull()  // v1.7/v1.8 transitional copy
   })
 
   it('renders no chip when proximityBand is NEARBY', () => {
@@ -38,7 +42,7 @@ describe('BranchTile — proximity chip wiring (Plan 4 M3b)', () => {
     const { queryByText } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
     expect(queryByText('A short trip away')).toBeNull()
-    expect(queryByText('Closest match on Redeemo')).toBeNull()
+    expect(queryByText('Nearest match on Redeemo')).toBeNull()
   })
 
   it('renders no chip when proximityBand is null (V2-rejected branch in hybrid phase)', () => {
@@ -46,7 +50,7 @@ describe('BranchTile — proximity chip wiring (Plan 4 M3b)', () => {
     const { queryByText } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
     expect(queryByText('A short trip away')).toBeNull()
-    expect(queryByText('Closest match on Redeemo')).toBeNull()
+    expect(queryByText('Nearest match on Redeemo')).toBeNull()
   })
 
   it('renders no chip when proximityBand is absent (pre-M3 response)', () => {
@@ -54,6 +58,6 @@ describe('BranchTile — proximity chip wiring (Plan 4 M3b)', () => {
     const { queryByText } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
     expect(queryByText('A short trip away')).toBeNull()
-    expect(queryByText('Closest match on Redeemo')).toBeNull()
+    expect(queryByText('Nearest match on Redeemo')).toBeNull()
   })
 })

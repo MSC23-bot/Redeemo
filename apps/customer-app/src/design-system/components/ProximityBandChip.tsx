@@ -39,10 +39,16 @@ import type { ProximityBand } from '@/lib/api/discovery'
 // chips use `design-system/components/Chip.tsx` instead.
 
 // PR #112 device-QA fixup-3 copy lock (2026-05-19) — owner-locked copy:
-//   IN_YOUR_AREA       → 'In your area'              (unchanged)
-//   A_LITTLE_FURTHER   → 'A short trip away'         (was 'A little further away' — too
-//                                                    casual at 6.7 miles per device QA)
-//   NEAREST_ON_REDEEMO → 'Closest match on Redeemo'  (unchanged)
+//   IN_YOUR_AREA       → 'In your area'                (unchanged)
+//   A_LITTLE_FURTHER   → 'A short trip away'           (was 'A little further away' — too
+//                                                      casual at 6.7 miles per device QA)
+//   NEAREST_ON_REDEEMO → 'Nearest match on Redeemo'    (v1.9 PR #126 device-QA-6 2026-05-23
+//                                                      — was 'Closest match on Redeemo';
+//                                                      'Nearest' reads more distance-specific
+//                                                      per owner direction.  The pre-fixup-2
+//                                                      copy 'Nearest on Redeemo' is still
+//                                                      WRONG — it lacks 'match' — and remains
+//                                                      pinned as a negative guard.)
 //
 // Thresholds remain backend-driven (rankBranchesV3 rung classification —
 // Plan 4 M3 / Task 2.1.0); the client only renames labels.
@@ -55,7 +61,7 @@ const BAND_LABEL: Record<ProximityBand, string | null> = {
   NEARBY:             null,
   IN_YOUR_AREA:       'In your area',
   A_LITTLE_FURTHER:   'A short trip away',
-  NEAREST_ON_REDEEMO: 'Closest match on Redeemo',
+  NEAREST_ON_REDEEMO: 'Nearest match on Redeemo',
 }
 
 // v1.8 (PR #126 device-QA-5 owner direction 2026-05-23) — semantic-tinted

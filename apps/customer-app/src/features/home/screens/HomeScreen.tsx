@@ -115,20 +115,34 @@ export function HomeScreen() {
     && feed.locationContext.source !== 'none'
   const showExploreMore = sparseHeuristic && !showNearbySectionEmpty
 
-  // v1.5 — PR #126 device-QA-3 owner direction (β2 + β3): when at least
-  // one category rail has cascaded to platform supply (scopeExpanded=true),
-  // render <NearbyContextBanner> above the rail strip to explain the state
-  // honestly ("We're still growing in {City}. Here are the closest category
-  // matches on Redeemo."). When ALL category rails are local-supply
-  // (scopeExpanded=false), the banner stays hidden because no
-  // "growing" claim is being made.
+  // v1.9 PR #126 device-QA-6 owner direction 2026-05-23 (Huddersfield finding) —
+  // tighten the banner trigger from `.some()` to `.every()`.  Pre-v1.9 the
+  // banner fired whenever AT LEAST ONE category rail was pure-cascade
+  // (scopeExpanded=true).  In Huddersfield (3 local rails — Food & Drink /
+  // Beauty & Wellness / Health & Fitness — plus 1-2 pure-cascade rails
+  // like Shopping or Out & About), the banner appeared above the WHOLE
+  // section, reading like "we're still growing in Huddersfield" applied
+  // to the entire NearbyByCategory zone — even though the visible rails
+  // had real local supply.  v1.7's mixed-rail meta + v1.8's per-tile
+  // semantic-tinted proximity chip already carry the honesty signal for
+  // individual filler tiles inside mixed rails; the global banner is
+  // only needed when the WHOLE NBC zone is platform-wide (Manchester,
+  // Bristol-like markets).
+  //
+  // New rule: banner fires only when EVERY visible NBC rail is pure-cascade.
+  // Mixed markets (Huddersfield, Brightlingsea — any rail with local supply)
+  // suppress the banner; the chip variants + distance chips per tile do the
+  // honesty work.  Pure-cascade markets (Manchester, Bristol-light) still
+  // get the banner.  `.every()` on an empty array returns true vacuously,
+  // but the `hasNearbyRails` gate (length > 0) blocks that path — empty
+  // rails route to <NearbySectionEmpty> instead.
   //
   // Mutual exclusion with <NearbySectionEmpty> by construction —
   // showNearbySectionEmpty requires !hasNearbyRails; showNearbyContextBanner
   // requires hasNearbyRails. They can never co-mount.
-  const hasCascadedNearbyRail =
-    (feed?.nearbyByCategoryRails ?? []).some(r => r.meta?.scopeExpanded === true)
-  const showNearbyContextBanner = hasNearbyRails && hasCascadedNearbyRail
+  const allRailsAreCascaded =
+    (feed?.nearbyByCategoryRails ?? []).every(r => r.meta?.scopeExpanded === true)
+  const showNearbyContextBanner = hasNearbyRails && allRailsAreCascaded
 
   return (
     <View style={styles.container}>

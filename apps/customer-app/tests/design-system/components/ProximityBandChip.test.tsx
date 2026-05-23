@@ -55,10 +55,17 @@ describe('<ProximityBandChip>', () => {
     expect(queryByText('A little further away')).toBeNull()
   })
 
-  it('NEAREST_ON_REDEEMO renders "Closest match on Redeemo" (locked since fixup-2)', () => {
+  it('NEAREST_ON_REDEEMO renders "Nearest match on Redeemo" (v1.9 PR #126 device-QA-6 copy)', () => {
+    // v1.9 PR #126 device-QA-6 owner direction 2026-05-23: copy flipped from
+    // "Closest match on Redeemo" to "Nearest match on Redeemo".  "Nearest"
+    // reads more distance-specific than "Closest" (which can imply
+    // similarity).  Negative pins guard against:
+    //   - 'Nearest on Redeemo'         — original pre-fixup-2 copy (missing 'match')
+    //   - 'Closest match on Redeemo'   — v1.7/v1.8 transitional copy (deprecated by v1.9)
     const { getByText, queryByText } = render(<ProximityBandChip band="NEAREST_ON_REDEEMO" />)
-    expect(getByText('Closest match on Redeemo')).toBeTruthy()
+    expect(getByText('Nearest match on Redeemo')).toBeTruthy()
     expect(queryByText('Nearest on Redeemo')).toBeNull()
+    expect(queryByText('Closest match on Redeemo')).toBeNull()
   })
 
   it('uses the visible label as the default accessibilityLabel', () => {

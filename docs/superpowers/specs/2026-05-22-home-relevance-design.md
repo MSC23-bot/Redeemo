@@ -1,10 +1,33 @@
 # Home Relevance — Design Spec
 
-**Version:** 1.8 (PR #126 device-QA-5 owner direction: `proximityBand` honesty on filler tiles + semantic-tinted `<ProximityBandChip>` variants)
-**Status:** Implemented in PR #126 (feature/home-relevance) — pending device-QA-6 + SHA-bound merge
+**Version:** 1.9 (PR #126 device-QA-6 owner direction: `<NearbyContextBanner>` trigger tightened from `.some()` to `.every()` + chip copy `Closest match on Redeemo` → `Nearest match on Redeemo`)
+**Status:** Implemented in PR #126 (feature/home-relevance) — pending device-QA-7 + SHA-bound merge
 **Tier:** 3 (new backend contract, new customer-app contract, new locked product principles)
-**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23 + device-QA-4 Halifax/Manchester finding "leaf rails feel thin" 2026-05-23 + device-QA-5 Brightlingsea finding "thin local rails should top up with wider Redeemo" 2026-05-23 + device-QA-5 follow-up "filler tiles need proximityBand + chip needs semantic tinting" 2026-05-23)
+**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23 + device-QA-4 Halifax/Manchester finding "leaf rails feel thin" 2026-05-23 + device-QA-5 Brightlingsea finding "thin local rails should top up with wider Redeemo" 2026-05-23 + device-QA-5 follow-up "filler tiles need proximityBand + chip needs semantic tinting" 2026-05-23 + device-QA-6 Huddersfield finding "banner too broad — fires on partial cascade" 2026-05-23)
 **Prior audit:** Explore-agent audit of `getHomeFeed()` + customer-app Home rails + ranking utilities, 2026-05-22
+
+## v1.9 changelog (2026-05-23) — banner trigger tightening + "Nearest" copy refinement
+
+PR #126 device-QA-6 finding (Huddersfield): the `<NearbyContextBanner>` was firing for Huddersfield because at least ONE NBC rail (Shopping or Out & About — categories Huddersfield doesn't have local supply for) was pure-cascade. But the visible rails at the top of the section (Food & drink picks / Beauty & wellness picks / Health & fitness picks) had real local supply (Karaara / Pino's / Trim & Co / Iron Forge Gym). The banner sits ABOVE the entire NBC section, so visually it framed the whole zone as "we're still growing in Huddersfield" — too broad for a mixed-supply market.
+
+Owner direction (locked): the global banner is only honest when the WHOLE NBC zone is pure-cascade. Mixed markets where any rail has local supply rely on the v1.8 chip variants + distance chips to carry per-tile honesty.
+
+Two tiny changes:
+
+1. **Banner trigger:** `<NearbyContextBanner>` derivation in `HomeScreen.tsx` switched from `.some()` to `.every()`. Banner fires only when EVERY visible NBC rail has `meta.scopeExpanded === true`.
+   - **Manchester / Bristol-light** (every rail pure-cascade) → banner fires (unchanged from v1.7/v1.8).
+   - **Huddersfield / Brightlingsea / any mixed market** (at least one rail has local supply) → banner suppressed. Per-tile chip + distance carry the honesty.
+   - **Empty NBC zone** (`hasNearbyRails === false`) → `<NearbySectionEmpty>` route (banner gated off by `hasNearbyRails`; `.every()` on empty array returns `true` vacuously but `hasNearbyRails` blocks the path).
+   - Mutual exclusion with `<NearbySectionEmpty>` invariant preserved.
+
+2. **NEAREST_ON_REDEEMO chip copy:** `'Closest match on Redeemo'` → `'Nearest match on Redeemo'`. "Nearest" reads more distance-specific than "Closest" (which can imply similarity). No layout change — the chip-truncation visual regression from v1.8 (chip text clipped in the pill row on small tiles) is deferred to §DI / Home polish, NOT addressed in v1.9 per owner direction.
+
+**Spec sections amended:** §8.7 dedup rules (`<NearbyContextBanner>` row updated to reflect the `.every()` trigger).
+
+**Scope discipline (unchanged):** no Campaign / sticky-controls / Map / Search / customer-web / chip-layout redesign. v1.9 is two micro-changes: one boolean operator + one label string.
+
+**Deferred to follow-up:**
+- §DI bumped — chip layout redesign (handle truncation properly when chip + pill row exceed card width).
 
 ## v1.8 changelog (2026-05-23) — proximityBand honesty on filler tiles + tinted chip variants
 
@@ -686,13 +709,14 @@ interface NearbyContextBannerProps {
 
 **Render conditions** (set by `<HomeScreen>` derivation):
 - `hasNearbyRails === true` (at least one category rail rendering)
-- `hasCascadedNearbyRail === true` (at least one rail has `meta.scopeExpanded === true`)
+- **v1.9**: `allRailsAreCascaded === true` — EVERY visible NBC rail has `meta.scopeExpanded === true`. Pre-v1.9 used `.some()` (any cascaded rail); device-QA-6 Huddersfield finding tightened this to `.every()` because the global banner read too broad when only some lower rails were pure-cascade.
 
 **Does NOT render when:**
 - `hasNearbyRails === false` → `<NearbySectionEmpty>` takes the slot instead (mutual exclusion).
+- **v1.9**: ANY category rail has local supply (`scopeExpanded === false`). Mixed markets rely on the v1.8 per-tile chip variants + distance chips to carry honesty signal.
 - All category rails are local-supply (`scopeExpanded === false` on every rail) — no platform claim is being made.
 
-**Locked owner direction (v1.5 β2 + β3):** banner gives context without making Home feel empty; minimal visual; defers visual design polish to §DE; coexists with the cascade rails it contextualises.
+**Locked owner direction (v1.5 β2 + β3 + v1.9 trigger tightening):** banner gives context only when the WHOLE NBC zone is platform-wide. Per-tile honesty for mixed markets is carried by `<ProximityBandChip>` variants (v1.8) + distance text. Visual design polish defers to §DE; chip-layout polish defers to §DI.
 
 ### 8.8 Interaction between fallbacks — dedup rules (v1.2 + v1.5 + v1.6 updated)
 

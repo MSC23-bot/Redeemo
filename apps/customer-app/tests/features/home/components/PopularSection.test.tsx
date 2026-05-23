@@ -78,10 +78,12 @@ describe('<PopularSection>', () => {
     // The shared <BranchTile> uses `formatDistance` (returns '' for null)
     // and <ProximityBandChip> (returns null for null).  No miles label and
     // no proximity-band chip label should render.
+    // v1.9 PR #126 device-QA-6 (2026-05-23): NEAREST_ON_REDEEMO copy flipped
+    // to 'Nearest match on Redeemo'; negative pin updated.
     expect(queryByText(/miles away/)).toBeNull()
     expect(queryByText('In your area')).toBeNull()
     expect(queryByText('A short trip away')).toBeNull()
-    expect(queryByText('Closest match on Redeemo')).toBeNull()
+    expect(queryByText('Nearest match on Redeemo')).toBeNull()
   })
 
   it('with classifiable tiles → distance/proximity chip renders', () => {
