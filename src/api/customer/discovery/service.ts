@@ -41,7 +41,7 @@ import {
 } from '../../redemption/reusable'
 import { PRESENTATION_WINDOW_MS } from '../../redemption/presentation-window'
 import { type BranchTile } from './branchTileSchema'
-import { buildFeaturedRail, buildTrendingRail, buildPopularRail } from './homeRailBuilders'
+import { buildFeaturedRail, buildTrendingRail, buildPopularRail, buildNearbyByCategoryRails } from './homeRailBuilders'
 import { findNearestLocality } from '../../lib/nearestLocality'
 
 /**
@@ -1667,7 +1667,25 @@ export async function getHomeFeed(
   // customer-web bundle continues to render until §CU.1 / Phase 3b removes
   // the legacy keys.  The merchant-themed `trending` key is UNCHANGED —
   // it still emits the old enrichMerchantTiles result.
-  const [featuredRail, trendingRail, nearbyByCategoryBranchesFlat] = await Promise.all([
+  // ─── Phase E — NearbyByCategory rail wiring (spec §6.3 + §10.4) ──────────
+  //
+  // Replaces the legacy per-category branch fan-out
+  // (`nearbyBranchInputsBy.map(... enrichBranchTiles(...))`) with the new
+  // `buildNearbyByCategoryRails` builder.  Per-category strict NEARBY+CITY
+  // scope; categories with zero local supply are absent from the array.
+  //
+  // The legacy `nearbyByCategoryBranches` wire field is re-sourced from
+  // the new builder per the v1.1 Hard Invariant — same field key, same
+  // `{ category, branches }[]` shape; the VALUES are now the
+  // scope-filtered ranked-branch projections rather than the legacy
+  // unranked fan-out.  The merchant-themed `nearbyByCategory` legacy key
+  // is UNCHANGED — it still emits the original `enrichedNearby` block.
+  //
+  // The legacy `nearbyBranchInputsBy` per-merchant fan-out is intentionally
+  // NO longer enriched — `buildNearbyByCategoryRails` supplies the wire
+  // values for both the new envelope AND the legacy branch-themed field.
+  void nearbyBranchInputsBy
+  const [featuredRail, trendingRail, nbcRails] = await Promise.all([
     buildFeaturedRail(
       prisma,
       homeV2EffLoc,
@@ -1691,10 +1709,21 @@ export async function getHomeFeed(
           },
         )
       : Promise.resolve({ branches: [], meta: null } as HomeRail),
-    Promise.all(nearbyBranchInputsBy.map(async section => ({
-      category: section.category,
-      branches: await enrichBranchTiles(prisma, section.inputs, { userId, lat, lng }),
-    }))),
+    homeV2EffLoc
+      ? buildNearbyByCategoryRails(
+          prisma,
+          homeV2EffLoc,
+          'MIXED_NORMAL',
+          {
+            city:     locationCtx.city,
+            lat:      locationCtx.lat,
+            lng:      locationCtx.lng,
+            locality: homeV2EffLoc
+              ? { id: homeV2EffLoc.locality.id, name: homeV2EffLoc.locality.name }
+              : null,
+          },
+        )
+      : Promise.resolve([] as HomeNearbyCategoryRail[]),
   ])
 
   // Popular fires when Trending is silent OR there is no effective
@@ -1737,11 +1766,19 @@ export async function getHomeFeed(
     // non-empty (Trending first; Popular fallback).  Field key and shape
     // preserved per the v1.1 Hard Invariant.
     trendingBranches: legacyTrendingBranches,
-    nearbyByCategoryBranches: nearbyByCategoryBranchesFlat,
-    // Phase C.1 + Phase D additive new envelopes — non-colliding keys per v1.1.
+    // Phase E: `nearbyByCategoryBranches` legacy field re-sourced from
+    // the new `buildNearbyByCategoryRails` builder per the v1.1 Hard
+    // Invariant — same field key + `{ category, branches }[]` shape, the
+    // values are now the per-category scope-filtered ranked projections.
+    nearbyByCategoryBranches: nbcRails.map(r => ({
+      category: r.category,
+      branches: r.branches,
+    })),
+    // Phase C.1 + Phase D + Phase E additive new envelopes — non-colliding keys per v1.1.
     featuredRail,
     trendingRail,
     popularRail,
+    nearbyByCategoryRails: nbcRails,
   }
 }
 

@@ -41,6 +41,7 @@ import {
   type EnrichBranchInput,
   type EnrichBranchCtx,
   type HomeRail,
+  type HomeNearbyCategoryRail,
   type LocalityRef,
 } from './service'
 
@@ -598,4 +599,213 @@ export async function buildPopularRail(
       rungCounts:    v3.rungCounts,
     },
   }
+}
+
+// ─── NearbyByCategory rail builder (Phase E, spec §6.3 + §10.4) ─────────────
+//
+// Replaces the legacy NearbyByCategory code path (city-string merchant fan
+// out + JS group-by + per-merchant branch fan-out without scope rules).
+// The new builder runs each surviving category through `rankBranchesV3` +
+// strict NEARBY+CITY scope + `appendStrictLocalityTail` — identical
+// pattern to `buildTrendingRail`, parameterised per category.  Categories
+// with zero local supply are EXCLUDED from the response array (per
+// spec §8.3 row 7 — per-category empty is absence, not null-meta entry).
+//
+// Inclusion order mirrors the legacy implementation (60-merchant bulk fetch
+// keyed off locationCtx.city when available, falling back to a coordinate-
+// only branch query when only lat/lng is known).  Cap: 5 merchants per
+// category, 6 categories total.  Each category fan-out covers every active
+// branch under those merchants (mirrors the Featured/Trending fan-out).
+
+const NEARBY_CATEGORY_TAKE      = 5   // tiles per category
+const NEARBY_MAX_CATEGORIES     = 6   // categories per response
+const NEARBY_MERCHANT_POOL_TAKE = 60  // top-level merchant pool size
+
+// Merchant row shape used by the inclusion query — we need enough to fan
+// out to branches with RANK_BRANCH_SELECT, plus primaryCategoryId +
+// primaryCategory for the per-category group + header copy.  Locally
+// declared so the builder doesn't depend on Prisma's generated type for
+// MERCHANT_TILE_SELECT (which carries far more fields than we need here).
+type NearbyCategoryMerchantRow = {
+  id:                string
+  businessName:      string
+  primaryCategoryId: string | null
+  primaryCategory:   { id: string; name: string } | null
+}
+
+/**
+ * Build the NearbyByCategory rails (spec §6.3).
+ *
+ * Per-category strict NEARBY+CITY scope; never cascades.  Categories with
+ * zero local supply are excluded from the response array (the customer-app
+ * `<NearbyByCategory>` hides empty per-category rails; the screen-level
+ * `<NearbySectionEmpty>` mounts when the whole array is empty AND effLoc
+ * resolved).
+ *
+ * Returns `[]` whenever:
+ *   - `effLoc` is null (no proximity ranking possible — caller should
+ *     surface the no-location banner instead).
+ *   - No merchants match the locality inclusion filter.
+ *   - Every grouped category yields zero local-tier supply after ranking.
+ */
+export async function buildNearbyByCategoryRails(
+  prisma:        PrismaClient,
+  effLoc:        EffectiveLocation,
+  ladderProfile: LadderProfile,
+  locationCtx:   { city: string | null; lat: number | null; lng: number | null; locality: LocalityRef | null },
+): Promise<HomeNearbyCategoryRail[]> {
+  // ── 1. Inclusion: top merchant pool in the user's locality.  Mirrors the
+  //    legacy inclusion (service.ts:1491-1505) — `locationCtx.city` is now
+  //    populated for GPS callers post-§BB fix, so the city-match arm is
+  //    the dominant code path; the coordinate-only fallback covers the
+  //    edge case where city is still null but lat/lng exists.
+  const merchantWhere = locationCtx.city
+    ? {
+        status: MerchantStatus.ACTIVE,
+        branches: {
+          some: {
+            isActive: true,
+            city: { equals: locationCtx.city, mode: 'insensitive' as const },
+          },
+        },
+      }
+    : (locationCtx.lat !== null
+        ? {
+            status: MerchantStatus.ACTIVE,
+            branches: { some: { isActive: true } },
+          }
+        : null)
+  if (!merchantWhere) return []
+
+  const merchantPool = await prisma.merchant.findMany({
+    where:  merchantWhere,
+    select: {
+      id:                true,
+      businessName:      true,
+      primaryCategoryId: true,
+      primaryCategory:   { select: { id: true, name: true } },
+    },
+    take: NEARBY_MERCHANT_POOL_TAKE,
+  }) as NearbyCategoryMerchantRow[]
+  if (merchantPool.length === 0) return []
+
+  // ── 2. Group by primaryCategoryId — cap 5 merchants per category, cap
+  //    6 categories total.  Mirrors legacy ordering: first-seen merchant
+  //    drives the category header (its primaryCategory provides id + name).
+  const byCategory: Record<string, NearbyCategoryMerchantRow[]> = {}
+  for (const m of merchantPool) {
+    const cat = m.primaryCategoryId
+    if (!cat) continue
+    if (!byCategory[cat]) byCategory[cat] = []
+    if (byCategory[cat].length < NEARBY_CATEGORY_TAKE) byCategory[cat].push(m)
+  }
+  const groupedCategories = Object.entries(byCategory).slice(0, NEARBY_MAX_CATEGORIES)
+  if (groupedCategories.length === 0) return []
+
+  // ── 3. Single batched fetch of every active branch under the grouped
+  //    merchants.  Avoids the per-category N+1 query that the legacy code
+  //    path used (one findMany per fan-out).
+  const allMerchantIds = groupedCategories.flatMap(([, merchants]) => merchants.map(m => m.id))
+  const allBranches = await prisma.branch.findMany({
+    where: { merchantId: { in: allMerchantIds }, isActive: true },
+    select: RANK_BRANCH_SELECT,
+  }) as RankBranchRow[]
+
+  const branchesByMerchant = new Map<string, RankBranchRow[]>()
+  for (const b of allBranches) {
+    const list = branchesByMerchant.get(b.merchantId)
+    if (list) list.push(b)
+    else branchesByMerchant.set(b.merchantId, [b])
+  }
+
+  // ── 4. Per-category pipeline: split rankable/non-rankable, rank, apply
+  //    strict NEARBY+CITY scope, append strict-locality tail, enrich.
+  const rails: HomeNearbyCategoryRail[] = []
+  for (const [catId, merchants] of groupedCategories) {
+    const categoryBranches = merchants.flatMap(m => branchesByMerchant.get(m.id) ?? [])
+    if (categoryBranches.length === 0) continue
+
+    const rankable = categoryBranches.filter(b =>
+      b.locationConfidence === 'MANUALLY_CONFIRMED'
+      || b.locationConfidence === 'ADDRESS_GEOCODED'
+    )
+    const nonRankable = categoryBranches.filter(b =>
+      b.locationConfidence === 'POSTCODE_CENTROID'
+      || b.locationConfidence === 'NEEDS_REVIEW'
+    )
+
+    // Empty rankable subset → no local-tier supply possible. Skip the
+    // category.  (The strict-locality tail alone cannot keep a category
+    // alive — that mirrors the v1.2 Featured hide rule, applied here per
+    // category.)
+    if (rankable.length === 0) continue
+
+    const v3 = rankBranchesV3(rankable.map(toRankInput), {
+      effLoc,
+      ladderProfile,
+      outgoingCatchmentTargetIds: [],
+      categoryIntent: 'MIXED',
+      targetCount:    20,
+      hardCap:        500,
+    })
+
+    const resolution = resolveScopeForHomeRail('nearbyByCategory', v3.rungCounts)
+    const filteredTiles = v3.tiles.filter(t => resolution.retainedRungs.has(t.supplyRung))
+
+    // No local-tier supply for this category → skip (absent from array).
+    if (filteredTiles.length === 0) continue
+
+    const headInputs: EnrichBranchInput[] = filteredTiles.map(t => ({
+      branchId:      t.id,
+      merchantId:    t.merchantId,
+      supplyRung:    t.supplyRung,
+      proximityBand: t.proximityBand,
+      distance:      t.distanceMetres,
+    }))
+
+    const tailCandidates = nonRankable.map(b => {
+      const exposed = exposeBranchPosition(b)
+      const tailInput: EnrichBranchInput & {
+        localityId:   string | null
+        localityName: string | null
+        postTown:     string | null
+      } = {
+        branchId:      b.id,
+        merchantId:    b.merchantId,
+        supplyRung:    null,
+        proximityBand: null,
+        distance:      null,
+        localityId:    b.localityId,
+        localityName:  b.localityName,
+        postTown:      b.postTown,
+      }
+      void exposed
+      return tailInput
+    })
+
+    const tailed = appendStrictLocalityTail(headInputs, tailCandidates, effLoc)
+    const sliced = tailed.slice(0, NEARBY_CATEGORY_TAKE)
+
+    const ctx: EnrichBranchCtx = {
+      userId: null,
+      lat:    effLoc.lat,
+      lng:    effLoc.lng,
+    }
+    const enriched = await enrichBranchTiles(prisma, sliced as EnrichBranchInput[], ctx)
+
+    const headerCategory = merchants[0]?.primaryCategory ?? { id: catId, name: '' }
+
+    rails.push({
+      category: { id: headerCategory.id, name: headerCategory.name },
+      branches: enriched,
+      meta: {
+        locality:      locationCtx.locality,
+        scope:         resolution.scope,
+        scopeExpanded: resolution.scopeExpanded,
+        rungCounts:    v3.rungCounts,
+      },
+    })
+  }
+
+  return rails
 }

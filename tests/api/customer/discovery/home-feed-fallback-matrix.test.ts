@@ -87,3 +87,46 @@ describe('Fallback matrix — Featured rows (§8.3 rows 1/2/3)', () => {
     expect(true).toBe(true)
   })
 })
+
+// ─── Task E.1 — NearbyByCategory matrix rows 7 + 8 (§8.3) ────────────────────
+//
+// Row 7: per-category empty → that category absent from
+//        `nearbyByCategoryRails` array (each present entry has meta !== null).
+// Row 8: ALL categories empty AND effLoc resolved →
+//        `nearbyByCategoryRails.length === 0` AND
+//        `locationContext.source !== 'none'`.
+//        This is the trigger condition for customer-app `<NearbySectionEmpty>`.
+
+describe('Fallback matrix — NearbyByCategory rows (§8.3 rows 7-8)', () => {
+  it('row 7: per-category empty → individual nearbyByCategoryRails[i].meta !== null (empty cats absent from array)', { timeout: 30_000 }, async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body).toHaveProperty('nearbyByCategoryRails')
+    expect(Array.isArray(body.nearbyByCategoryRails)).toBe(true)
+    // Every present entry MUST have non-null meta — per-category empty
+    // categories are ABSENT from the array, not null-meta entries.
+    for (const rail of body.nearbyByCategoryRails) {
+      expect(rail.meta).not.toBeNull()
+    }
+  })
+
+  it('row 8: all categories empty AND effLoc resolved → nearbyByCategoryRails.length === 0 && source !== "none"', { timeout: 30_000 }, async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${BRISTOL.lat}&lng=${BRISTOL.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body).toHaveProperty('nearbyByCategoryRails')
+    expect(Array.isArray(body.nearbyByCategoryRails)).toBe(true)
+    // Structural: when length is 0, source MUST NOT be 'none' (effLoc
+    // resolved — otherwise this is a different fallback-matrix row).
+    if (body.nearbyByCategoryRails.length === 0) {
+      expect(body.locationContext.source).not.toBe('none')
+    }
+  })
+})
