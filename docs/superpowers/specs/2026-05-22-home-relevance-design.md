@@ -1,10 +1,36 @@
 # Home Relevance — Design Spec
 
-**Version:** 1.6 (PR #126 device-QA-4 owner direction: parent-category grouping + `homeCategoryRailLabel` + See-all suppression on one-card rails)
-**Status:** Implemented in PR #126 (feature/home-relevance) — pending device-QA-5 + SHA-bound merge
+**Version:** 1.7 (PR #126 device-QA-5 owner direction: thin-local-supply rails TOP UP with wider Redeemo fillers — `scopeExpanded` stays false on mixed rails so the `<NearbyContextBanner>` doesn't lie)
+**Status:** Implemented in PR #126 (feature/home-relevance) — pending device-QA-6 + SHA-bound merge
 **Tier:** 3 (new backend contract, new customer-app contract, new locked product principles)
-**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23 + device-QA-4 Halifax/Manchester finding "leaf rails feel thin" 2026-05-23)
+**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23 + device-QA-4 Halifax/Manchester finding "leaf rails feel thin" 2026-05-23 + device-QA-5 Brightlingsea finding "thin local rails should top up with wider Redeemo" 2026-05-23)
 **Prior audit:** Explore-agent audit of `getHomeFeed()` + customer-app Home rails + ranking utilities, 2026-05-22
+
+## v1.7 changelog (2026-05-23) — thin-local-supply top-up
+
+PR #126 device-QA-5 finding: v1.5 cascade fill activated only when a parent category had ZERO local supply. Brightlingsea Food & Drink with 2 Covelum branches → parent rail counted as filled → cascade skipped Food & Drink → My Kerala (Ipswich, ~25 mi away but closer than nothing) never surfaced on Home, even though it'd be useful for a Brightlingsea user.
+
+Owner direction (locked): Home must be local-first AND not look sparse. If a parent rail has thin local supply (1-4 merchants), top it up with the closest wider Redeemo merchants until full (5 per rail). The rail-level meta MUST stay honest — local supply is genuine, so `scopeExpanded` stays `false` (which also means mixed rails do NOT contribute to the `<NearbyContextBanner>`). The honesty signal lives at the TILE level: filler tiles carry `supplyRung: null` + a real distance chip showing they're further out.
+
+Six locked design assumptions (owner-confirmed before implementation):
+
+1. **Top-up trigger:** rails with `0 < branches.length < NEARBY_CATEGORY_TAKE` (i.e. `0 < n < 5`). Rails at the cap (5) get nothing. Rails with zero local supply get the existing v1.5 cascade-fill (pure-cascade rail, `scopeExpanded=true`).
+
+2. **Filler ordering:** appended at the END of the rail in distance-ASC order across the entire eligible pool. Local merchants stay first in their V3 rank order; fillers visibly trail with bigger distance chips. Honest progression.
+
+3. **Filler `supplyRung` + `proximityBand`:** `null`. The V3 ranker's `maxRung` gate would drop cross-region fillers; we skip V3 and use direct haversine for distance computation. Mirrors the existing pure-cascade-fill code path.
+
+4. **Rail-level `meta.scopeExpanded`:** stays `false` on mixed rails. The local supply is genuine; the rail header doesn't lie. Mixed rails do NOT trigger `<NearbyContextBanner>` — banner fires only when at least one rail is PURE cascade (zero local supply). This avoids "banner says we're still growing in {City} while user sees 2 local merchants".
+
+5. **Distance signal:** tile-level distance chip + proximity band carry the honesty. No new copy for mixed rails.
+
+6. **Fill target:** `NEARBY_CATEGORY_TAKE = 5`. Same cap for pure-local, mixed, and pure-cascade rails.
+
+Implementation: new "Step 4.5" block in `buildNearbyByCategoryRails` between the local-first loop and the cascade-fill loop. Single batched fetch — `prisma.merchant.findMany({ status: ACTIVE, primaryCategory: { OR: [{ id: { in: topUpParentIds } }, { parentId: { in: topUpParentIds } }] }, branches.some({ isActive: true }) })`. Per-rail filter excludes merchants already in the local-first slot (by merchant id) AND dedupes fillers to ONE branch per merchant for variety. POSTCODE_CENTROID + NEEDS_REVIEW branches are skipped on the filler side (every filler MUST carry a real distance chip — non-rankable supply stays a local-tail story).
+
+**Scope discipline (unchanged):** no Campaign / sticky-controls / Map / Search / customer-web / visual redesign. v1.7 is a Home relevance contract amendment only.
+
+**Spec sections amended:** §6.3 builder pipeline (Step 4.5 between local-first and cascade-fill).
 
 ## v1.6 changelog (2026-05-23) — parent-category grouping
 
@@ -314,19 +340,32 @@ The `allBranchesInLocality` derivation runs client-side in `<FeaturedCarousel>` 
 
 **Cross-rail invariant:** `trending.meta` and `popular.meta` MUST be mutually exclusive when `source !== 'none'`. At most one of the two rails ever renders in that state. In `source === 'none'` state, Trending is forced null and Popular evaluates independently. Backend asserts this in the response builder.
 
-### 6.3 NearbyByCategory rails (v1.6 amended — parent-category grouping)
+### 6.3 NearbyByCategory rails (v1.7 amended — thin-local-supply top-up)
 
-**Inclusion + cascade (v1.5) + parent-grouping (v1.6):**
+**Inclusion + cascade (v1.5) + parent-grouping (v1.6) + top-up (v1.7):**
 1. **Local-first pass** — geographic-catchment merchant pool, bbox-filtered around `effLoc.lat/lng` (`±0.3°`, matching `prisma/profile-nearest-locality-at4.ts` pattern). Pool size: 100. **Merchants grouped by `primaryCategory.parent?.id ?? primaryCategory.id` (v1.6 — parent rollup; was leaf `primaryCategoryId` in v1.5).** Per-parent-category: rank via `rankBranchesV3` → strict NEARBY+CITY scope filter (`resolveScopeForHomeRail('nearbyByCategory', ...)`) → append strict-locality tail per §6.4.1 → enrich. Surviving parent categories render with `meta.scopeExpanded === false` and `<RailHeader>` applies `homeCategoryRailLabel()` to produce `"{Sentence-cased parent} picks"` (e.g. `Food & drink picks`, `Beauty & wellness picks`). Per-tile descriptor on `BranchTile.merchant.descriptor` continues to carry the leaf differentiator (Italian Restaurant, Pizza Place, Nail Salon, Barber).
-2. **Cascade fill (v1.5 new — β1 + β5 + β7; v1.6 parent-keyed dedup)** — if the local-first loop produced fewer than `NEARBY_MAX_CATEGORIES` (6) rails, top up with UK-wide platform-fetch. **Cascade pool (v1.6): `prisma.merchant.findMany({ status: ACTIVE, branches.some({ isActive: true }) }, take: 200)` — the legacy SQL `primaryCategoryId NOT IN local-rails` filter was leaf-keyed; v1.6 dedup runs JS-side via `usedCategoryIds` (parent-keyed Set) against `railGroupingCategory(merchant)`.** Same per-parent-category grouping (5 merchants). For each cascade category:
+
+2. **Top-up pass (v1.7 NEW)** — for each parent rail with `0 < branches.length < NEARBY_CATEGORY_TAKE`, append wider-Redeemo filler tiles to fill empty slots. Single batched fetch keyed by parent ids needing top-up: `prisma.merchant.findMany({ status: ACTIVE, branches.some({ isActive: true }), primaryCategory: { OR: [{ id: { in: topUpParentIds } }, { parentId: { in: topUpParentIds } }] } }, take: 300)`. Per rail:
+   - Exclude merchants already represented in the rail (by merchant id).
+   - Fetch branches with `RANK_BRANCH_SELECT`.
+   - Filter to MANUALLY_CONFIRMED + ADDRESS_GEOCODED only (every filler tile MUST have a real distance chip — POSTCODE_CENTROID + NEEDS_REVIEW stay a local-tail story).
+   - Compute `haversineMetres(effLoc.lat, effLoc.lng, branch.lat, branch.lng)`.
+   - Distance-ASC sort across the entire eligible pool.
+   - Dedupe to ONE filler tile per merchant (variety > branch-density).
+   - Take up to `NEARBY_CATEGORY_TAKE - rail.branches.length` fillers.
+   - Filler `supplyRung: null` + `proximityBand: null` (V3 skipped — cross-region distances exceed maxRung; honesty lives at the tile-level distance chip).
+   - Append at the END of `rail.branches`.  Local-first ordering preserved.
+   - `rail.meta.scopeExpanded` STAYS `false` — mixed rails do NOT contribute to `<NearbyContextBanner>` (which only fires on pure-cascade rails).
+
+3. **Cascade fill (v1.5 — β1 + β5 + β7; v1.6 parent-keyed dedup)** — if the local-first loop produced fewer than `NEARBY_MAX_CATEGORIES` (6) rails, top up with UK-wide platform-fetch. **Cascade pool (v1.6): `prisma.merchant.findMany({ status: ACTIVE, branches.some({ isActive: true }) }, take: 200)` — the legacy SQL `primaryCategoryId NOT IN local-rails` filter was leaf-keyed; v1.6 dedup runs JS-side via `usedCategoryIds` (parent-keyed Set) against `railGroupingCategory(merchant)`.** Same per-parent-category grouping (5 merchants). For each cascade category:
    - Rank via `rankBranchesV3` (same params as local).
    - **No scope filter** — all rungs accepted.
    - **Permissive tail** (no strict-locality identity gate per β7 — rail no longer claims locality).
    - **Distance ASC sort across all rungs** (β5 — closest matches first; overrides V3's within-rung ordering for cascade rails specifically).
    - Enrich + push with `meta.scopeExpanded === true`, `meta.scope === 'platform'`, `meta.locality` preserved (used by context banner copy).
-3. Total rails capped at `NEARBY_MAX_CATEGORIES` (6).
+4. **Total rails capped at `NEARBY_MAX_CATEGORIES` (6).** Per-rail cap at `NEARBY_CATEGORY_TAKE` (5) is enforced after Step 2 top-up — fillers cannot push a rail past 5.
 
-Pre-v1.5 history: v1.3 used `branch.city === locationCtx.city` string-match (excluded catchment); v1.4 fixed inclusion to bbox-filter (matches Featured+Trending); v1.5 adds the cascade-fill behaviour so sparse-market users still get content (`local-first, not local-only`).
+Pre-v1.5 history: v1.3 used `branch.city === locationCtx.city` string-match (excluded catchment); v1.4 fixed inclusion to bbox-filter (matches Featured+Trending); v1.5 adds the cascade-fill behaviour so sparse-market users still get content (`local-first, not local-only`). v1.7 adds top-up so even rails with thin local supply fill to the cap with closest wider Redeemo merchants.
 
 **Why this matters (v1.5 owner direction):** Manchester / Bristol users pre-v1.5 saw an empty NBC zone with `<NearbySectionEmpty>` as the only signal — feel-empty Home. Post-v1.5, the cascade surfaces relevant platform merchants under honest `{Category} on Redeemo` headers + a contextual `<NearbyContextBanner>` ("We're still growing in {City}. Here are the closest category matches on Redeemo."). Distance/proximity chips on tiles carry the trust signal.
 

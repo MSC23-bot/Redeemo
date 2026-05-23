@@ -871,6 +871,154 @@ export async function buildNearbyByCategoryRails(
     })
   }
 
+  // ── 4.5. v1.7 top-up (PR #126 device-QA-5 owner direction 2026-05-23).
+  //
+  // Brightlingsea finding: a parent category rail with thin local supply
+  // (e.g. 1-2 Covelum branches in Food & Drink) DOES NOT need to suppress
+  // the wider Redeemo Food & Drink supply — My Kerala in Ipswich is closer
+  // and more useful than nothing.  Owner direction: rails with thin local
+  // supply should TOP UP with closest wider merchants until full, while
+  // the rail-level meta stays `scopeExpanded=false` (the local supply is
+  // still genuinely local — the rail header doesn't lie).  The honesty
+  // signal lives at the TILE level via the distance chip + (absent)
+  // proximity band on the filler tiles.
+  //
+  // Rule:
+  //   - Only top up rails with `0 < branches.length < NEARBY_CATEGORY_TAKE`.
+  //   - Rails at the cap (5) get nothing.
+  //   - Rails with zero local supply get the existing cascade-fill (Step 5
+  //     below), which creates a NEW pure-cascade rail with scopeExpanded=true.
+  //   - Filler ordering: distance-ASC across the entire eligible pool;
+  //     appended to the END of the rail (local merchants stay first in
+  //     their V3 rank order).
+  //   - Filler `supplyRung` + `proximityBand`: null (the V3 ranker's
+  //     maxRung gate would drop them; we skip V3 entirely for fillers
+  //     and compute haversine direct — mirrors the cascade-fill loop
+  //     below).
+  //   - Filler dedup: exclude merchants already represented in the rail
+  //     (per-merchant, by id) AND deduplicate fillers to ONE branch per
+  //     merchant (variety over branch-density).
+  //   - Mixed rails (some local + some cascade fillers) DO NOT contribute
+  //     to <NearbyContextBanner> — banner fires only when at least one
+  //     rail is PURE cascade.  This avoids "banner says we're still
+  //     growing in {City}" when the user IS seeing local merchants on
+  //     the rail.
+  const railsNeedingTopUp = rails.filter(
+    r => r.branches.length > 0 && r.branches.length < NEARBY_CATEGORY_TAKE,
+  )
+  if (railsNeedingTopUp.length > 0) {
+    const topUpParentIds = railsNeedingTopUp.map(r => r.category.id)
+    // Single batched fetch — every merchant whose primaryCategory is
+    // either one of the top-up parent ids (top-level primary) OR has a
+    // parent in the top-up set (subcategory primary, parent-rollup).
+    const topUpPool = await prisma.merchant.findMany({
+      where: {
+        status:   MerchantStatus.ACTIVE,
+        branches: { some: { isActive: true } },
+        primaryCategory: {
+          OR: [
+            { id:       { in: topUpParentIds } },
+            { parentId: { in: topUpParentIds } },
+          ],
+        },
+      },
+      select: {
+        id:                true,
+        businessName:      true,
+        primaryCategoryId: true,
+        primaryCategory:   {
+          select: {
+            id:       true,
+            name:     true,
+            parentId: true,
+            parent:   { select: { id: true, name: true } },
+          },
+        },
+      },
+      take: 300,
+    }) as NearbyCategoryMerchantRow[]
+
+    // Group candidates by parent id (mirrors railGroupingCategory).
+    const topUpByCat = new Map<string, NearbyCategoryMerchantRow[]>()
+    for (const m of topUpPool) {
+      const group = railGroupingCategory(m)
+      if (!group) continue
+      if (!topUpParentIds.includes(group.id)) continue
+      if (!topUpByCat.has(group.id)) topUpByCat.set(group.id, [])
+      topUpByCat.get(group.id)!.push(m)
+    }
+
+    for (const rail of railsNeedingTopUp) {
+      const candidates = topUpByCat.get(rail.category.id) ?? []
+      const slotsAvailable = NEARBY_CATEGORY_TAKE - rail.branches.length
+      if (slotsAvailable <= 0 || candidates.length === 0) continue
+
+      // Exclude merchants already in the rail's local-first slots
+      // (BranchTile.merchant.id is the merchant id, not the branch id).
+      const railMerchantIds = new Set(
+        rail.branches.map(b => (b as { merchant: { id: string } }).merchant.id),
+      )
+      const eligibleMerchants = candidates.filter(c => !railMerchantIds.has(c.id))
+      if (eligibleMerchants.length === 0) continue
+
+      // Fetch branches for the eligible merchants.
+      const eligibleMerchantIds = eligibleMerchants.map(m => m.id)
+      const fillerBranches = await prisma.branch.findMany({
+        where:  { merchantId: { in: eligibleMerchantIds }, isActive: true },
+        select: RANK_BRANCH_SELECT,
+      }) as RankBranchRow[]
+
+      // v1.7: skip V3 ranker entirely (cross-region distances exceed the
+      // maxRung gate); use haversine direct.  Only ADDRESS_GEOCODED /
+      // MANUALLY_CONFIRMED branches can produce a numeric distance — the
+      // POSTCODE_CENTROID + NEEDS_REVIEW non-rankable tail is OUT of scope
+      // for v1.7 fillers (mixed-rail honesty: every filler tile must have
+      // a real distance chip).  Non-rankable supply remains the local-tail
+      // story for pure-local rails.
+      const withDistance = fillerBranches
+        .filter(b =>
+          b.latitude !== null && b.longitude !== null
+          && (b.locationConfidence === 'MANUALLY_CONFIRMED' || b.locationConfidence === 'ADDRESS_GEOCODED'),
+        )
+        .map(b => ({
+          branch:   b,
+          distance: haversineMetres(effLoc.lat, effLoc.lng, Number(b.latitude), Number(b.longitude)),
+        }))
+
+      withDistance.sort((a, b) => a.distance - b.distance)
+
+      // One filler tile per merchant (variety > branch-density).
+      const usedMerchantIds = new Set<string>()
+      const fillerInputs:   EnrichBranchInput[] = []
+      for (const { branch, distance } of withDistance) {
+        if (fillerInputs.length >= slotsAvailable) break
+        if (usedMerchantIds.has(branch.merchantId)) continue
+        usedMerchantIds.add(branch.merchantId)
+        fillerInputs.push({
+          branchId:      branch.id,
+          merchantId:    branch.merchantId,
+          supplyRung:    null,
+          proximityBand: null,
+          distance,
+        })
+      }
+
+      if (fillerInputs.length === 0) continue
+
+      const ctx: EnrichBranchCtx = {
+        userId: null,
+        lat:    effLoc.lat,
+        lng:    effLoc.lng,
+      }
+      const enrichedFillers = await enrichBranchTiles(prisma, fillerInputs, ctx)
+
+      // Append fillers at the END of the rail.  Local-first ordering
+      // preserved.  meta.scopeExpanded stays false (the local supply
+      // is genuine; banner does not fire for mixed rails).
+      ;(rail.branches as unknown[]).push(...enrichedFillers)
+    }
+  }
+
   // ── 5. Cascade fill (v1.5 — PR #126 device-QA-3 owner direction).
   //
   // Home is local-first, not local-only.  If the local-first loop above

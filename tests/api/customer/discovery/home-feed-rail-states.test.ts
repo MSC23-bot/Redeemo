@@ -418,4 +418,60 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
       expect(row?.parentId).toBeNull()
     }
   })
+
+  it('v1.7 — thin-local-supply rails TOP UP with wider Redeemo fillers (scopeExpanded stays false)', { timeout: 30_000 }, async () => {
+    // v1.7 PR #126 device-QA-5 owner direction (2026-05-23): cascade fill in
+    // v1.6 activated only for parents with ZERO local supply.  A parent rail
+    // with thin local supply (e.g. 1-2 merchants) ignored UK-wide options
+    // entirely — Brightlingsea Food & Drink had 2 Covelum branches and
+    // never surfaced My Kerala (Ipswich).
+    //
+    // v1.7 fix: rails with `0 < branches.length < NEARBY_CATEGORY_TAKE`
+    // get topped up with the closest UK-wide merchants in the same parent
+    // category, distance-ASC, appended to the END of the rail.  Local-first
+    // ordering preserved.  `meta.scopeExpanded` stays `false` because local
+    // supply is genuine — the rail header doesn't lie.  The honesty signal
+    // lives at the tile level: filler tiles carry `supplyRung: null` (V3
+    // ranker skipped — cross-region distance) plus a real distance chip.
+    //
+    // Structural pin: at Brightlingsea coordinates (sparse-supply market
+    // with a known Covelum cluster), at least one nearbyByCategoryRail
+    // should have meta.scopeExpanded === false AND a mix of local tiles
+    // (supplyRung !== null) and filler tiles (supplyRung === null).  That
+    // mixed signature is the v1.7 fingerprint.
+    const BRIGHTLINGSEA = { lat: 51.8064, lng: 1.0249 }
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${BRIGHTLINGSEA.lat}&lng=${BRIGHTLINGSEA.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // Precondition — seed has Brightlingsea supply (Covelum), so we expect
+    // at least one local NBC rail.
+    const localRails = body.nearbyByCategoryRails.filter(
+      (r: any) => r.meta?.scopeExpanded === false,
+    )
+    expect(localRails.length).toBeGreaterThanOrEqual(1)
+
+    // v1.7 mixed-rail fingerprint: at least one local rail must have BOTH
+    // a tile with a non-null supplyRung (local-first slot) AND a tile with
+    // a null supplyRung (top-up filler).  Without v1.7, every local-rail
+    // tile would have supplyRung set (V3-classified).
+    const mixedRails = localRails.filter((rail: any) => {
+      const hasLocalTile  = rail.branches.some((b: any) => b.supplyRung !== null)
+      const hasFillerTile = rail.branches.some((b: any) => b.supplyRung === null)
+      return hasLocalTile && hasFillerTile
+    })
+    expect(mixedRails.length).toBeGreaterThanOrEqual(1)
+
+    // Mixed rails MUST NOT contribute to the <NearbyContextBanner>.  The
+    // banner trigger boolean (`hasCascadedNearbyRail` on the customer-app
+    // side) is `rails.some(r => r.meta?.scopeExpanded === true)`.  Mixed
+    // rails carry scopeExpanded=false so they're excluded — verified above
+    // by the localRails filter (mixedRails ⊂ localRails ⊂ scopeExpanded=false).
+    for (const rail of mixedRails) {
+      expect(rail.meta.scopeExpanded).toBe(false)
+    }
+  })
 })
