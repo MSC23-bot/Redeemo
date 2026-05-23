@@ -1,10 +1,25 @@
 # Home Relevance — Design Spec
 
-**Version:** 1.2 (updated 2026-05-23 per owner spec-review note on v1.1)
-**Status:** Spec — awaiting owner review before implementation plan
+**Version:** 1.3 (PR #126 device-QA fixups: bottom-clipping fix + locality-aware empty-state body)
+**Status:** Implemented in PR #126 (feature/home-relevance) — pending final device-QA + SHA-bound merge
 **Tier:** 3 (new backend contract, new customer-app contract, new locked product principles)
-**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2)
+**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23)
 **Prior audit:** Explore-agent audit of `getHomeFeed()` + customer-app Home rails + ranking utilities, 2026-05-22
+
+## v1.3 changelog (2026-05-23)
+
+PR #126 device-QA-2 owner direction (Manchester / Huddersfield + outskirts / sparse-market QA):
+
+1. **`<NearbySectionEmpty>` body line locality-aware (B.1).** §8.2 phrase library entry L5 amended from generic `Try browsing categories or searching to find offers across the UK.` to locality-templated `We're still growing in {City}. Try browsing categories or searching to find offers across the UK.` `{City}` sourced from `feed.locationContext.locality.name`. Defensive fallback drops the leading clause when locality is null (only fires defensively — component is gated on `source !== 'none'` at the call site). §8.4 updated with the `cityName` prop spec. Headline L1 unchanged.
+
+2. **`<HomeScreen>` ScrollView bottom-clipping fix (A).** Bottom tab bar is `position: 'absolute'` with `height: 80` per `(app)/_layout.tsx`. Pre-fix the ScrollView had no `paddingBottom`, so the last child (e.g. `<NearbySectionEmpty>` CTAs or `<HomeExploreMore>` button) was clipped behind the tab bar; iOS rubber-band scroll snapped back so the buttons were unreachable. Fixed via runtime padding `insets.bottom + TAB_BAR_HEIGHT (80) + SCROLL_BOTTOM_GUTTER (24)` from `useSafeAreaInsets()`. Pattern matches `<SearchScreen>` precedent.
+
+3. **§DE deferred follow-up created** for the larger NearbySectionEmpty v2 product decisions (visual design polish, optional nearby-merchant preview inside the card, whole-card tappability, single-tap primary action destination). Bundles with §DA (sticky-controls) and §DC (sparse-category short-trip cascade) brainstorm. Captured in `project_deferred_DB_DC_DD_home_relevance_followups.md`.
+
+Other device-QA-1 outcomes (informational; no code change in v1.3):
+- Distance audit: no code bug. Seed merchants (Karaara / Pino's / Trim & Co) cluster within ~300m in central Huddersfield by intentional seed design.
+- Sparse-supply heuristic: ships unchanged (v1.2 §8.5 conditions intact).
+- Outskirts/boundary behaviour: classifier ignores postcode prefix entirely (HD / BD / HX irrelevant); pure geographic + admin-region fields drive rung classification.
 
 ## v1.2 changelog (2026-05-23)
 
@@ -355,7 +370,7 @@ Owner-provided phrases that ALL fallback states draw from. No other empty-state 
 | L2 | `Here are the closest matches we have` | Featured cascade subtitle (§7) |
 | L3 | `Explore more on Redeemo` | `<HomeExploreMore>` button label (§8.5) |
 | L4 | `Set your area to see nearby offers` | `<HomeNoLocationBanner>` headline (§8.6) |
-| L5 | `Try browsing categories or searching to find offers across the UK.` | `<NearbySectionEmpty>` body (§8.4) |
+| L5 | `We're still growing in {City}. Try browsing categories or searching to find offers across the UK.` | `<NearbySectionEmpty>` body (§8.4). `{City}` is `feed.locationContext.locality.name`. Defensive fallback when locality is null drops the leading clause entirely, leaving just `Try browsing categories or searching to find offers across the UK.` — fires only defensively because the component is gated on `source !== 'none'` at the call site. Locality-aware variant locked PR #126 device-QA B.1 (2026-05-23). |
 | L6 | `Browse all categories` | `<NearbySectionEmpty>` primary CTA → Categories tab (§8.4) |
 | L7 | `Open search` | `<NearbySectionEmpty>` secondary CTA → Search tab (§8.4) |
 | L8 | `Allow location or set your saved area so we can show you what's nearby.` | `<HomeNoLocationBanner>` body (§8.6) |
@@ -378,7 +393,7 @@ Each row defines a state + the precise render decision. Backend response detecti
 | 5 | Trending empty, Popular fills (with effLoc) | `trending.meta === null && popular.meta !== null && locationContext.source !== 'none'` | Trending hidden; Popular renders in same slot | — | Header: `Popular on Redeemo`; tiles have rung/band/distance when classifiable |
 | 6 | Trending + Popular both empty | `trending.meta === null && popular.meta === null` | Both rails hidden silently | Next zone (NearbyByCategory or its empty state) moves up | No copy |
 | 7 | NearbyByCategory: per-category empty | individual `nearbyByCategory[i].meta === null` (or absent from array) | That category rail hidden | Other categories continue rendering | No copy |
-| 8 | NearbyByCategory: ALL categories empty AND effLoc resolved | `nearbyByCategory.length === 0 && locationContext.source !== 'none'` | All per-category rails hidden | `<NearbySectionEmpty>` card renders in place of the rails | Card: headline `We're still growing near you` + body `Try browsing categories or searching to find offers across the UK.` + buttons `Browse all categories` (→ Categories tab) + `Open search` (→ Search tab) |
+| 8 | NearbyByCategory: ALL categories empty AND effLoc resolved | `nearbyByCategory.length === 0 && locationContext.source !== 'none'` | All per-category rails hidden | `<NearbySectionEmpty>` card renders in place of the rails | Card: headline `We're still growing near you` + body `We're still growing in {City}. Try browsing categories or searching to find offers across the UK.` (defensive fallback drops the leading clause if locality is null) + buttons `Browse all categories` (→ Categories tab) + `Open search` (→ Search tab) |
 | 9 | No location at all | `locationContext.source === 'none'` | Featured / Trending / NearbyByCategory all hidden (server returns empty + null meta on each); Popular MAY render with null-tile-contract per §6.2 | `<HomeNoLocationBanner>` renders above all other content | Banner: headline `Set your area to see nearby offers` + body `Allow location or set your saved area so we can show you what's nearby.` + buttons `Allow location` (request GPS) + `Set my area` (→ PC2) |
 | 10 | Sparse local supply (rails render with 1–2 cards) | rails return `meta !== null` but `branches.length` is small | Render rails honestly with low card count | If page is thin (per §8.5 heuristic) AND `<NearbySectionEmpty>` is NOT showing, `<HomeExploreMore>` renders at page bottom | Body: `Looking for more? Explore offers across Redeemo.` + button: `Explore more on Redeemo` (→ Search tab) |
 | 11 | Total page-empty (no effLoc + no Popular either) | `locationContext.source === 'none' && popular.meta === null` | All rails hidden | Banner from row #9 only | Banner from row #9. No other CTA. |
@@ -399,9 +414,19 @@ Renders when `nearbyByCategory.length === 0 && locationContext.source !== 'none'
 
 **Visual:** soft warm-tinted card surface matching DESIGN.md's `color.surface.tint` palette (same tone used by `<RedemptionDetailsCard>` inner-notice and `<FilterSheet>` selected-row backgrounds). 1px hairline border, no card shadow, generous internal padding. Single card; not a list.
 
+**Props (v1.1 update — PR #126 device-QA B.1):**
+```ts
+interface NearbySectionEmptyProps {
+  cityName?: string | null
+}
+```
+`cityName` is passed by `<HomeScreen>` as `feed.locationContext.locality.name`. May be null only as a defensive fallback (the component itself is gated on `source !== 'none'` at the call site, so a populated locality is expected in normal operation).
+
 **Content:**
-- **Headline** (Mustica Pro Semibold, display.sm): `We're still growing near you`
-- **Body** (Lato Regular, body.md, color.text.secondary): `Try browsing categories or searching to find offers across the UK.`
+- **Headline** (Mustica Pro Semibold, display.sm): `We're still growing near you` (L1 — unchanged).
+- **Body** (Lato Regular, body.md, color.text.secondary):
+  - When `cityName` is provided: `We're still growing in {cityName}. Try browsing categories or searching to find offers across the UK.` (L5 amended).
+  - When `cityName` is null/undefined (defensive fallback): `Try browsing categories or searching to find offers across the UK.` (original generic phrasing — leading locality clause dropped entirely).
 - **Button row** (two pills, vertically stacked on narrow viewports, side-by-side otherwise):
   - **Primary:** `Browse all categories` — navigates to Categories tab (`router.push('/(app)/categories')`)
   - **Secondary:** `Open search` — navigates to Search tab with empty query (`router.push('/(app)/search')`)
@@ -413,6 +438,8 @@ Renders when `nearbyByCategory.length === 0 && locationContext.source !== 'none'
 - Any per-category rail has supply (`nearbyByCategory.length > 0`)
 
 **When this renders, `<HomeExploreMore>` MUST NOT render (v1.2 dedup).**
+
+**v1.2 / PR #126 device-QA-2 deferrals (§DE):** visual design polish, optional nearby-merchant preview inside the card, whole-card tappability, single-tap primary action destination. See deferred follow-ups `project_deferred_DB_DC_DD_home_relevance_followups.md` §DE — bundles with §DA (sticky-controls) and §DC (sparse-category short-trip cascade) brainstorm.
 
 ### 8.5 `<HomeExploreMore>` component spec (v1.2 updated)
 

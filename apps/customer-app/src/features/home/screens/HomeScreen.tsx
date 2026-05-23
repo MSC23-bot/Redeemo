@@ -198,7 +198,9 @@ export function HomeScreen() {
             onCategoryPress={(id) => router.push(`/category/${id}` as any)}
           />
         )}
-        {showNearbySectionEmpty && <NearbySectionEmpty />}
+        {showNearbySectionEmpty && (
+          <NearbySectionEmpty cityName={feed?.locationContext?.locality?.name ?? null} />
+        )}
 
         {/* Spec §8.5 + §8.7 — page-bottom soft CTA mounted under sparse-supply
             conditions.  Mutually exclusive with both <HomeNoLocationBanner>

@@ -13,7 +13,12 @@ import { Text, color, spacing, radius } from '@/design-system'
 //
 // Copy locked from §8.2 phrase library:
 //   L1: "We're still growing near you"
-//   L5: "Try browsing categories or searching to find offers across the UK."
+//   L5: "We're still growing in {City}. Try browsing categories or
+//        searching to find offers across the UK."
+//        (locality-aware — PR #126 device-QA B.1, owner direction
+//         2026-05-23.  Defensive fallback drops the locality clause
+//         when cityName is null — only fires defensively because the
+//         component is gated on source !== 'none' at the call site.)
 //   L6: "Browse all categories" (primary CTA → Categories tab)
 //   L7: "Open search"           (secondary CTA → Search tab)
 //
@@ -25,14 +30,19 @@ import { Text, color, spacing, radius } from '@/design-system'
 //   - Two pills side-by-side; the plan accepts vertical stacking on
 //     narrow viewports as a later polish.
 
-export function NearbySectionEmpty() {
+interface NearbySectionEmptyProps {
+  cityName?: string | null
+}
+
+export function NearbySectionEmpty({ cityName }: NearbySectionEmptyProps = {}) {
   const router = useRouter()
+  const bodyText = cityName
+    ? `We're still growing in ${cityName}. Try browsing categories or searching to find offers across the UK.`
+    : `Try browsing categories or searching to find offers across the UK.`
   return (
     <View style={styles.card} testID="home-nearby-section-empty">
       <Text style={styles.title}>We&apos;re still growing near you</Text>
-      <Text style={styles.body}>
-        Try browsing categories or searching to find offers across the UK.
-      </Text>
+      <Text style={styles.body}>{bodyText}</Text>
       <View style={styles.row}>
         <Pressable
           style={styles.primary}
