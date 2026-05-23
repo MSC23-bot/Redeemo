@@ -4,10 +4,17 @@ import { FeaturedCarousel } from '@/features/home/components/FeaturedCarousel'
 import type { HomeRail, HomeRailMeta } from '@/lib/api/discovery'
 import { makeBranchTile } from '../../../fixtures/branchTile'
 
+// v1.4 (PR #126 device-QA-3, 2026-05-23): branches now pass the §6.4.1
+// strict-locality identity ladder against the test meta below — sets
+// branchLocalityId === meta.locality.id so the new `allBranchesInLocality`
+// check resolves to TRUE, producing "Featured in Huddersfield" copy.
+// Pre-v1.4 the tests relied on the loose "any NEARBY+CITY scope = `in {City}`"
+// rule, which the v1.4 honesty fix tightened.
 const branches = [
   makeBranchTile({
     id: 'brn-pizza-1',
     branchName: 'Shoreditch',
+    branchLocalityId: 'l-huddersfield',
     distance: 800,
     avgRating: 4.5,
     reviewCount: 50,
@@ -23,6 +30,7 @@ const branches = [
   makeBranchTile({
     id: 'brn-hair-1',
     branchName: 'Camden',
+    branchLocalityId: 'l-huddersfield',
     distance: 1200,
     avgRating: 4.8,
     reviewCount: 30,

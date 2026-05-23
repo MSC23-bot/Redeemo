@@ -1,10 +1,45 @@
 # Home Relevance — Design Spec
 
-**Version:** 1.3 (PR #126 device-QA fixups: bottom-clipping fix + locality-aware empty-state body)
+**Version:** 1.5 (PR #126 device-QA-3 owner refinement: local-first not local-only — NBC cascade fill + `{Category} on Redeemo` + `<NearbyContextBanner>`)
 **Status:** Implemented in PR #126 (feature/home-relevance) — pending final device-QA + SHA-bound merge
 **Tier:** 3 (new backend contract, new customer-app contract, new locked product principles)
-**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23)
+**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23)
 **Prior audit:** Explore-agent audit of `getHomeFeed()` + customer-app Home rails + ranking utilities, 2026-05-22
+
+## v1.5 changelog (2026-05-23) — locked product rule: Home is local-first, not local-only
+
+PR #126 device-QA-3 refinement after Halifax + Manchester observations. Owner's locked product rule:
+
+> Home should be local-first, not local-only. The Discovery/Home page should not feel empty for users anywhere in the UK. If local/catchment merchants exist, show those first. If not, show wider Redeemo merchants with honest copy and distance/proximity chips.
+
+Three additive changes on top of v1.4 — Path β:
+
+1. **`buildNearbyByCategoryRails` cascade fill (β1 + β5 + β7).** Per-category, if the local-first loop (bbox candidates → V3 rank → strict NEARBY+CITY scope filter) produces zero supply, the builder now cascades to a UK-wide platform fetch. Up to `NEARBY_MAX_CATEGORIES` (6) rails total — categories already covered locally are excluded from the cascade. Cascaded rails:
+   - Header copy: `{Category} on Redeemo` (set by `<RailHeader>` from `meta.scopeExpanded === true`).
+   - Tail: **permissive** (no strict-locality identity gate per β7 — rail no longer claims locality).
+   - Tile order: ASC distance across all rungs (β5 — closest matches first).
+   - Meta: `{ locality: locationCtx.locality, scope: 'platform', scopeExpanded: true, rungCounts }`.
+   - Per-category cap unchanged (5 merchants).
+
+2. **`<NearbyContextBanner>` minimal component (β2 + β3).** Renders ABOVE the NearbyByCategory rail strip when at least one category rail has `meta.scopeExpanded === true`. Provides honest context that local/catchment supply is limited so the user understands the `{Category} on Redeemo` headers + larger distance chips. Locked copy (β3): `We're still growing in {City}. Here are the closest category matches on Redeemo.` Defensive fallback drops the leading clause when locality is null. Minimal visual — same warm-tinted card surface + 1px border as `<NearbySectionEmpty>` but smaller padding + no CTAs. Visual polish deferred to §DE.
+
+3. **Featured copy in-locality vs near-locality (v1.4 carry-over).** Reaffirmed: when Featured rail's NEARBY+CITY supply is genuinely IN the locality (every visible branch passes §6.4.1 strict-locality identity ladder) → `Featured in {City}`. Catchment/post-town tier supply → `Featured near {City}`. Cascade → `Featured on Redeemo`.
+
+**Dedup invariants (additive):**
+- `<NearbyContextBanner>` ⊥ `<NearbySectionEmpty>` (mutual exclusion by construction — banner needs `hasNearbyRails`; empty card needs `!hasNearbyRails`).
+- `<NearbyContextBanner>` MAY coexist with `<HomeNoLocationBanner>` only when Popular sibling rail somehow surfaces with cascade-style rails, which is structurally impossible (no-location state has no `effLoc`, so NBC builder is skipped — `nearbyByCategoryRails` is empty, banner doesn't fire).
+
+**Empty-card v1.5 condition (β4):** `<NearbySectionEmpty>` (full card with CTAs) renders only when `nearbyByCategoryRails.length === 0` — which under v1.5 only happens when the platform has zero categories with active merchants (effectively unreachable with current seed). For sparse-market real users, cascade fills + banner contextualises.
+
+**Scope discipline (unchanged):** no Campaign / sticky-controls / Map / Search / customer-web / full §DA-§DC redesign. v1.5 is a Home relevance contract amendment only.
+
+## v1.4 changelog (2026-05-23)
+
+PR #126 device-QA-3 owner direction (Halifax-locality QA — rail consistency + Featured copy honesty):
+
+1. **NearbyByCategory inclusion bbox-based, not city-string (§6.3).** The legacy `buildNearbyByCategoryRails` pre-filtered candidates by `branch.city === locationCtx.city` (case-insensitive). That excluded CATCHMENT/POST_TOWN-tier merchants that Featured + Trending already surface via the V3 scope cascade — producing the device-QA-3 inconsistency where a Halifax user saw "Featured in Halifax" with Huddersfield merchants (6-9mi catchment) AND "We're still growing in Halifax" on the empty card simultaneously. Fixed: NBC inclusion now uses a `±0.3°` bbox around `effLoc.lat/lng` (mirrors `prisma/profile-nearest-locality-at4.ts` pattern). Pool size raised to 100 candidates. Per-category `rankBranchesV3` + strict NEARBY+CITY scope filter (§6.3 strict rule unchanged) decides what surfaces. Three rails (Featured / Trending / NBC) now use the same locality concept.
+
+2. **Featured rail copy: in-locality vs near-locality framing (§6.1 + §7).** Pre-fix, Featured header read `Featured in {City}` whenever NEARBY+CITY supply existed — including when ALL visible merchants were CATCHMENT/POST_TOWN tier (i.e. 5-10mi away in different localities). For Halifax with Huddersfield merchants, this read "Featured in Halifax" alongside "6.1 miles away" chips — header overclaim. Fixed: client-side check via the §6.4.1 strict-locality identity ladder (same predicate as `appendStrictLocalityTail`). If every visible Featured branch passes the ladder → `Featured in {City}`. If any visible branch fails (i.e. catchment/post-town tier) → `Featured near {City}`. `Featured on Redeemo` cascade copy unchanged. `<FeaturedCarousel>` computes the flag; `<RailHeader>` accepts a new optional `allBranchesInLocality` prop.
 
 ## v1.3 changelog (2026-05-23)
 
@@ -208,11 +243,16 @@ type HomeFeedResponse = {
 
 **Tail-only state hides the rail (v1.2 — Option A).** If `rungCounts` has zero across NEARBY+CITY+DISTANT, the rail hides regardless of how many tail-eligible branches exist. Tail tiles cannot independently trigger any rail state because they have no rung classification to claim. This aligns Featured with Trending + NearbyByCategory rules (tail attaches only when ranked supply > 0).
 
-**Header copy is driven by `meta.scopeExpanded` + `meta.locality.name`:**
-- `scopeExpanded === false` AND locality present → `Featured in {City}`
-- `scopeExpanded === false` AND locality absent → `Featured near you` (defensive fallback)
-- `scopeExpanded === true` → `Featured on Redeemo` (subtitle: `Here are the closest matches we have` — see §8.3 row 2)
-- `meta === null` → rail hidden (see §8.3 row 3)
+**Header copy is driven by `meta.scopeExpanded` + `meta.locality.name` + client-derived `allBranchesInLocality` (v1.4):**
+- `scopeExpanded === true` → `Featured on Redeemo` (subtitle: `Here are the closest matches we have` — see §8.3 row 2). Locality framing irrelevant.
+- `scopeExpanded === false` AND locality present AND **every visible branch passes the §6.4.1 strict-locality identity ladder** → `Featured in {City}`.
+- `scopeExpanded === false` AND locality present AND **any visible branch fails the identity ladder** (i.e. CATCHMENT/POST_TOWN tier — strict-locality gate not satisfied) → `Featured near {City}` (v1.4).
+- `scopeExpanded === false` AND locality absent → `Featured near you` (defensive fallback — pre-v1.4 behaviour preserved).
+- `meta === null` → rail hidden (see §8.3 row 3).
+
+The `allBranchesInLocality` derivation runs client-side in `<FeaturedCarousel>` (the call site has both `meta.locality` and the visible `rail.branches`). The predicate matches §6.4.1 exactly: `branch.localityId === effLoc.locality.id` OR `branch.localityName?.toLowerCase() === effLoc.locality.name.toLowerCase()` OR `branch.postTown?.toLowerCase() === effLoc.locality.name.toLowerCase()`.
+
+**Why this matters (v1.4 honesty rationale):** pre-v1.4, a Halifax user seeing Huddersfield Featured merchants (6-9mi catchment) read "Featured in Halifax" alongside "6.1 miles away" chips — header overclaim. Post-v1.4, the same state reads "Featured near Halifax" (more honest); a Huddersfield user with strictly-in-Huddersfield Featured supply continues to read "Featured in Huddersfield" (unchanged).
 
 ### 6.2 Trending rail + Popular sibling (T-2)
 
@@ -244,9 +284,21 @@ type HomeFeedResponse = {
 
 **Cross-rail invariant:** `trending.meta` and `popular.meta` MUST be mutually exclusive when `source !== 'none'`. At most one of the two rails ever renders in that state. In `source === 'none'` state, Trending is forced null and Popular evaluates independently. Backend asserts this in the response builder.
 
-### 6.3 NearbyByCategory rails (NBC-1)
+### 6.3 NearbyByCategory rails (v1.5 amended — local-first not local-only)
 
-**Inclusion source:** UNCHANGED inclusion logic — merchants grouped by `primaryCategoryId` from the locality-aware candidate pool.
+**Inclusion + cascade (v1.5):**
+1. **Local-first pass** — geographic-catchment merchant pool, bbox-filtered around `effLoc.lat/lng` (`±0.3°`, matching `prisma/profile-nearest-locality-at4.ts` pattern). Pool size: 100. Merchants grouped by `primaryCategoryId`. Per-category: rank via `rankBranchesV3` → strict NEARBY+CITY scope filter (`resolveScopeForHomeRail('nearbyByCategory', ...)`) → append strict-locality tail per §6.4.1 → enrich. Surviving categories render with `meta.scopeExpanded === false` and `<RailHeader>` shows the bare category name (`Restaurants` / `Cafes & Coffee` / `Barber`).
+2. **Cascade fill (v1.5 new — β1 + β5 + β7)** — if the local-first loop produced fewer than `NEARBY_MAX_CATEGORIES` (6) rails, top up with UK-wide platform-fetch. Cascade pool: `prisma.merchant.findMany({ status: ACTIVE, primaryCategoryId NOT IN local-rails, branches.some({ isActive: true }) }, take: 200)`. Same per-category grouping (5 merchants). For each cascade category:
+   - Rank via `rankBranchesV3` (same params as local).
+   - **No scope filter** — all rungs accepted.
+   - **Permissive tail** (no strict-locality identity gate per β7 — rail no longer claims locality).
+   - **Distance ASC sort across all rungs** (β5 — closest matches first; overrides V3's within-rung ordering for cascade rails specifically).
+   - Enrich + push with `meta.scopeExpanded === true`, `meta.scope === 'platform'`, `meta.locality` preserved (used by context banner copy).
+3. Total rails capped at `NEARBY_MAX_CATEGORIES` (6).
+
+Pre-v1.5 history: v1.3 used `branch.city === locationCtx.city` string-match (excluded catchment); v1.4 fixed inclusion to bbox-filter (matches Featured+Trending); v1.5 adds the cascade-fill behaviour so sparse-market users still get content (`local-first, not local-only`).
+
+**Why this matters (v1.5 owner direction):** Manchester / Bristol users pre-v1.5 saw an empty NBC zone with `<NearbySectionEmpty>` as the only signal — feel-empty Home. Post-v1.5, the cascade surfaces relevant platform merchants under honest `{Category} on Redeemo` headers + a contextual `<NearbyContextBanner>` ("We're still growing in {City}. Here are the closest category matches on Redeemo."). Distance/proximity chips on tiles carry the trust signal.
 
 **Scope filter:** per-category rails apply the SAME strict NEARBY+CITY filter as Trending:
 1. For each category candidate set, run `rankBranchesV3` → attach rungs.
@@ -329,12 +381,14 @@ This worksheet covers **rail header copy only**. Empty-state copy + section-leve
 
 | Rail | State | Header copy | Subtitle (when applicable) |
 |---|---|---|---|
-| Featured | NEARBY+CITY supply, locality known | `Featured in {City}` | — |
+| Featured | NEARBY+CITY supply, locality known, **all visible branches pass strict-locality identity ladder** (§6.4.1) | `Featured in {City}` | — |
+| Featured | NEARBY+CITY supply, locality known, **any visible branch fails identity ladder** (CATCHMENT/POST_TOWN tier — v1.4) | `Featured near {City}` | — |
 | Featured | NEARBY+CITY supply, locality unknown | `Featured near you` | — |
 | Featured | DISTANT cascade (scopeExpanded=true) | `Featured on Redeemo` | `Here are the closest matches we have` |
 | Trending | NEARBY+CITY supply | `Trending near you` | — |
 | Popular on Redeemo | UK-wide supply (fires when Trending empty OR no-location) | `Popular on Redeemo` | — |
-| NearbyByCategory | NEARBY+CITY supply | `{Category.name} near you` | — |
+| NearbyByCategory | Local NEARBY+CITY supply (`meta.scopeExpanded === false`) | `{Category.name}` (bare neutral name — PR #126 fixup `5b21901` dropped the `near you` suffix) | — |
+| NearbyByCategory | Cascaded platform supply (`meta.scopeExpanded === true` — v1.5 β1) | `{Category.name} on Redeemo` | — |
 
 **Locked phrase rules:**
 - `near you` appears ONLY when every tile in the rail is NEARBY/CITY tier per `rankBranchesV3` OR passes the §6.4 strict-locality identity gate.
@@ -377,6 +431,7 @@ Owner-provided phrases that ALL fallback states draw from. No other empty-state 
 | L9 | `Allow location` | `<HomeNoLocationBanner>` primary CTA → request GPS (§8.6) |
 | L10 | `Set my area` | `<HomeNoLocationBanner>` secondary CTA → PC2 (§8.6) |
 | L11 | `Looking for more? Explore offers across Redeemo.` | `<HomeExploreMore>` body (§8.5) |
+| L12 | `We're still growing in {City}. Here are the closest category matches on Redeemo.` | `<NearbyContextBanner>` body (§8.7-new). `{City}` is `feed.locationContext.locality.name`. Defensive fallback when locality is null leaves only `Here are the closest category matches on Redeemo.` Locked v1.5 PR #126 device-QA-3 (β2 + β3, 2026-05-23). |
 
 All copy is British English, no em dashes, no emoji, no exclamation marks except where natural sentence structure demands.
 
@@ -488,7 +543,39 @@ Renders ONLY when `locationContext.source === 'none'`. Sits at the top of Home, 
 
 **State concurrency:** Featured / Trending / NearbyByCategory all hidden in this state (backend returns `meta = null` on each). Popular on Redeemo MAY render under the explicit no-location tile contract (§6.2) — tiles carry null rung/band/distance.
 
-### 8.7 Interaction between fallbacks — dedup rules (v1.2 updated)
+### 8.7 `<NearbyContextBanner>` component spec (v1.5 — new)
+
+Renders ABOVE the NearbyByCategory rail strip when at least one category rail has `meta.scopeExpanded === true` (v1.5 cascade fill per §6.3). Provides honest context that local/catchment supply is limited so the user understands why the rails carry `{Category} on Redeemo` headers + larger distance chips on tiles.
+
+**Visual:** intentionally minimal per β3 — "Keep this minimal. Prefer adapting/reusing the existing nearby empty-state area rather than adding a big new visual system." Same warm-tinted card surface (`color.surface.tint`) + 1px hairline border (`color.border.subtle`) as `<NearbySectionEmpty>`, smaller padding (`spacing[3]` vertical / `spacing[4]` horizontal), `radius.md` (vs `lg`), no CTAs. Single line of `body.sm` copy. Visual polish deferred to §DE.
+
+**Content:**
+- **Body** (Lato Regular, body.sm, color.text.secondary, single line wrapping permitted):
+  - When `cityName` provided: `We're still growing in {cityName}. Here are the closest category matches on Redeemo.` (L12)
+  - When `cityName` null/undefined (defensive fallback): `Here are the closest category matches on Redeemo.` (drops the leading clause — fires only defensively since the banner is gated on `hasNearbyRails && hasCascadedNearbyRail` at the call site, and cascaded rails imply a resolved locality in practice).
+- **No buttons / CTAs.**
+
+**testID:** `home-nearby-context-banner`
+
+**Props:**
+```ts
+interface NearbyContextBannerProps {
+  cityName?: string | null
+}
+```
+`cityName` is passed by `<HomeScreen>` as `feed.locationContext.locality.name`.
+
+**Render conditions** (set by `<HomeScreen>` derivation):
+- `hasNearbyRails === true` (at least one category rail rendering)
+- `hasCascadedNearbyRail === true` (at least one rail has `meta.scopeExpanded === true`)
+
+**Does NOT render when:**
+- `hasNearbyRails === false` → `<NearbySectionEmpty>` takes the slot instead (mutual exclusion).
+- All category rails are local-supply (`scopeExpanded === false` on every rail) — no platform claim is being made.
+
+**Locked owner direction (v1.5 β2 + β3):** banner gives context without making Home feel empty; minimal visual; defers visual design polish to §DE; coexists with the cascade rails it contextualises.
+
+### 8.8 Interaction between fallbacks — dedup rules (v1.2 + v1.5 updated)
 
 Hard rules enforced by the customer-app render layer to avoid stacking CTAs (operationalises §8.1 principle 2):
 
@@ -501,20 +588,25 @@ Hard rules enforced by the customer-app render layer to avoid stacking CTAs (ope
 | `<NearbySectionEmpty>` (all categories empty) | ❌ **`<HomeExploreMore>` (v1.2 dedup — mutually exclusive, never both)** |
 | `<HomeExploreMore>` (sparse heuristic) | ✅ Any rail that's actually rendering |
 | `<HomeExploreMore>` | ❌ `<NearbySectionEmpty>` (v1.2 dedup) |
+| `<NearbyContextBanner>` (v1.5 — any cascaded rail) | ❌ `<NearbySectionEmpty>` (mutually exclusive by construction — banner requires `hasNearbyRails`; empty card requires `!hasNearbyRails`) |
+| `<NearbyContextBanner>` (v1.5) | ✅ Per-category rails it contextualises (both local + cascaded mix is valid) |
+| `<NearbyContextBanner>` (v1.5) | ✅ `<HomeExploreMore>` (different intents — banner explains the cascade, ExploreMore is page-bottom nudge; can coexist) |
+| `<NearbyContextBanner>` (v1.5) | ✅ `<HomeNoLocationBanner>` (structurally impossible in practice — no-effLoc state has no NBC rails, so banner can't fire — but no hard dedup needed) |
 
-### 8.8 Render order on Home (top to bottom) — v1.2 updated
+### 8.9 Render order on Home (top to bottom) — v1.5 updated
 
 1. `<HomeNoLocationBanner>` (if `source === 'none'`)
 2. Campaign carousel (existing — out of scope this workstream)
 3. Featured rail (if `featured.meta !== null`)
 4. `<TrendingSection>` (if `trending.meta !== null`) OR `<PopularSection>` (if `trending.meta === null && popular.meta !== null`) — same vertical slot
 5. NearbyByCategory zone:
+   - **v1.5:** if any rail has `meta.scopeExpanded === true` AND `nearbyByCategory.length > 0` → `<NearbyContextBanner>` renders ABOVE the rails
    - If `nearbyByCategory.length > 0` → per-category rails (one carousel per entry)
    - Else if `locationContext.source !== 'none'` → `<NearbySectionEmpty>` card
    - Else → nothing (banner is up at top)
 6. `<HomeExploreMore>` (if sparse-supply heuristic fires AND banner is NOT up AND `<NearbySectionEmpty>` is NOT rendering — v1.2)
 
-### 8.9 What we DON'T show
+### 8.10 What we DON'T show
 
 Recorded explicitly to prevent scope creep:
 - No "0 nearby" / "no results" hard error messages anywhere. Empty rails just hide.

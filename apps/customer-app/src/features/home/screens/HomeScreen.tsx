@@ -14,6 +14,7 @@ import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
 import { PopularSection } from '../components/PopularSection'
 import { NearbyByCategory } from '../components/NearbyByCategory'
+import { NearbyContextBanner } from '../components/NearbyContextBanner'
 import { NearbySectionEmpty } from '../components/NearbySectionEmpty'
 import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { HomeExploreMore } from '../components/HomeExploreMore'
@@ -114,6 +115,21 @@ export function HomeScreen() {
     && feed.locationContext.source !== 'none'
   const showExploreMore = sparseHeuristic && !showNearbySectionEmpty
 
+  // v1.5 — PR #126 device-QA-3 owner direction (β2 + β3): when at least
+  // one category rail has cascaded to platform supply (scopeExpanded=true),
+  // render <NearbyContextBanner> above the rail strip to explain the state
+  // honestly ("We're still growing in {City}. Here are the closest category
+  // matches on Redeemo."). When ALL category rails are local-supply
+  // (scopeExpanded=false), the banner stays hidden because no
+  // "growing" claim is being made.
+  //
+  // Mutual exclusion with <NearbySectionEmpty> by construction —
+  // showNearbySectionEmpty requires !hasNearbyRails; showNearbyContextBanner
+  // requires hasNearbyRails. They can never co-mount.
+  const hasCascadedNearbyRail =
+    (feed?.nearbyByCategoryRails ?? []).some(r => r.meta?.scopeExpanded === true)
+  const showNearbyContextBanner = hasNearbyRails && hasCascadedNearbyRail
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -191,6 +207,9 @@ export function HomeScreen() {
           />
         )}
 
+        {showNearbyContextBanner && (
+          <NearbyContextBanner cityName={feed?.locationContext?.locality?.name ?? null} />
+        )}
         {hasNearbyRails && (
           <NearbyByCategory
             rails={feed!.nearbyByCategoryRails!}

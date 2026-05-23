@@ -30,6 +30,7 @@ import { MerchantStatus } from '../../../../generated/prisma/enums'
 import { rankBranchesV3, type RankableBranchInputV3 } from '../../lib/ranking'
 import type { LadderProfile, SupplyRung } from '../../lib/ladderProfiles'
 import type { EffectiveLocation } from '../../lib/effectiveLocation'
+import { haversineMetres } from '../../shared/haversine'
 import {
   resolveScopeForHomeRail,
   appendStrictLocalityTail,
@@ -654,28 +655,38 @@ export async function buildNearbyByCategoryRails(
   ladderProfile: LadderProfile,
   locationCtx:   { city: string | null; lat: number | null; lng: number | null; locality: LocalityRef | null },
 ): Promise<HomeNearbyCategoryRail[]> {
-  // ── 1. Inclusion: top merchant pool in the user's locality.  Mirrors the
-  //    legacy inclusion (service.ts:1491-1505) — `locationCtx.city` is now
-  //    populated for GPS callers post-§BB fix, so the city-match arm is
-  //    the dominant code path; the coordinate-only fallback covers the
-  //    edge case where city is still null but lat/lng exists.
-  const merchantWhere = locationCtx.city
-    ? {
-        status: MerchantStatus.ACTIVE,
-        branches: {
-          some: {
-            isActive: true,
-            city: { equals: locationCtx.city, mode: 'insensitive' as const },
-          },
-        },
-      }
-    : (locationCtx.lat !== null
-        ? {
-            status: MerchantStatus.ACTIVE,
-            branches: { some: { isActive: true } },
-          }
-        : null)
-  if (!merchantWhere) return []
+  // ── 1. Inclusion: geographic-catchment merchant pool around effLoc.
+  //
+  // PR #126 device-QA Halifax fixup (2026-05-23): the legacy inclusion
+  // pre-filtered by `branch.city === locationCtx.city` (case-insensitive
+  // string match), but that excluded catchment/post-town merchants that
+  // Featured + Trending DO surface via the V3 rank scope cascade.  A
+  // Halifax user would see "Featured in Halifax" with Huddersfield
+  // merchants (6-9mi catchment) AND "We're still growing in Halifax"
+  // on the empty card — two rails honouring different locality concepts.
+  //
+  // Fix: bbox-filter merchant branches around `effLoc.lat/lng` so the
+  // candidate pool matches what Featured + Trending consider as
+  // "NEARBY+CITY tier reach".  Then per-category `rankBranchesV3` +
+  // strict NEARBY+CITY scope (spec §6.3) decides what actually surfaces.
+  //
+  // BBOX_DEGREES = 0.3 mirrors the same pattern used by
+  // `prisma/profile-nearest-locality-at4.ts` for nearest-locality lookup.
+  // At UK latitudes this is ~21mi N/S × ~12-13mi E/W — comfortably wider
+  // than the widest CATCHMENT + POST_TOWN reach in any LadderProfile.
+  // The bbox is a coarse pre-filter; the V3 ranker + strict scope filter
+  // handle the precise NEARBY+CITY classification.
+  const BBOX_DEGREES = 0.3
+  const merchantWhere = {
+    status: MerchantStatus.ACTIVE,
+    branches: {
+      some: {
+        isActive:  true,
+        latitude:  { gte: effLoc.lat - BBOX_DEGREES, lte: effLoc.lat + BBOX_DEGREES },
+        longitude: { gte: effLoc.lng - BBOX_DEGREES, lte: effLoc.lng + BBOX_DEGREES },
+      },
+    },
+  }
 
   const merchantPool = await prisma.merchant.findMany({
     where:  merchantWhere,
@@ -687,11 +698,14 @@ export async function buildNearbyByCategoryRails(
     },
     take: NEARBY_MERCHANT_POOL_TAKE,
   }) as NearbyCategoryMerchantRow[]
-  if (merchantPool.length === 0) return []
+  // v1.5: don't early-return on empty local pool — fall through to cascade
+  // fill (§6.3 step 2) so users with zero merchants in their bbox still
+  // see UK-wide cascaded category rails ("local-first, not local-only").
 
-  // ── 2. Group by primaryCategoryId — cap 5 merchants per category, cap
-  //    6 categories total.  Mirrors legacy ordering: first-seen merchant
-  //    drives the category header (its primaryCategory provides id + name).
+  // ── 2. Group local pool by primaryCategoryId — cap 5 merchants per
+  //    category, cap 6 categories total.  Mirrors legacy ordering:
+  //    first-seen merchant drives the category header (its primaryCategory
+  //    provides id + name).
   const byCategory: Record<string, NearbyCategoryMerchantRow[]> = {}
   for (const m of merchantPool) {
     const cat = m.primaryCategoryId
@@ -700,16 +714,18 @@ export async function buildNearbyByCategoryRails(
     if (byCategory[cat].length < NEARBY_CATEGORY_TAKE) byCategory[cat].push(m)
   }
   const groupedCategories = Object.entries(byCategory).slice(0, NEARBY_MAX_CATEGORIES)
-  if (groupedCategories.length === 0) return []
+  // v1.5: again, no early-return — cascade-fill handles the empty case.
 
   // ── 3. Single batched fetch of every active branch under the grouped
   //    merchants.  Avoids the per-category N+1 query that the legacy code
   //    path used (one findMany per fan-out).
   const allMerchantIds = groupedCategories.flatMap(([, merchants]) => merchants.map(m => m.id))
-  const allBranches = await prisma.branch.findMany({
-    where: { merchantId: { in: allMerchantIds }, isActive: true },
-    select: RANK_BRANCH_SELECT,
-  }) as RankBranchRow[]
+  const allBranches = allMerchantIds.length > 0
+    ? await prisma.branch.findMany({
+        where: { merchantId: { in: allMerchantIds }, isActive: true },
+        select: RANK_BRANCH_SELECT,
+      }) as RankBranchRow[]
+    : []
 
   const branchesByMerchant = new Map<string, RankBranchRow[]>()
   for (const b of allBranches) {
@@ -805,6 +821,151 @@ export async function buildNearbyByCategoryRails(
         rungCounts:    v3.rungCounts,
       },
     })
+  }
+
+  // ── 5. Cascade fill (v1.5 — PR #126 device-QA-3 owner direction).
+  //
+  // Home is local-first, not local-only.  If the local-first loop above
+  // produced < NEARBY_MAX_CATEGORIES rails, top up with UK-wide
+  // cascaded category rails.  These render with `scopeExpanded: true`
+  // and the customer-app `<RailHeader>` switches copy to
+  // `{Category} on Redeemo` (β1).
+  //
+  // β7: cascade rails use the **permissive** tail (no strict-locality
+  // identity gate) — the rail no longer claims locality, so the gate
+  // doesn't apply.  Mirrors Featured cascade behaviour.
+  //
+  // Category selection: take the first `remaining` categories that
+  // have UK-wide active-merchant supply NOT already in the local rails.
+  // Order is Prisma findMany insertion order (matches local-loop
+  // ordering; deterministic ordering is deferred to §DD).
+  if (rails.length < NEARBY_MAX_CATEGORIES) {
+    const usedCategoryIds = new Set(rails.map(r => r.category.id))
+    const remaining       = NEARBY_MAX_CATEGORIES - rails.length
+
+    const cascadePool = await prisma.merchant.findMany({
+      where: {
+        status:            MerchantStatus.ACTIVE,
+        primaryCategoryId: usedCategoryIds.size > 0
+          ? { notIn: Array.from(usedCategoryIds) }
+          : undefined,
+        branches: { some: { isActive: true } },
+      },
+      select: {
+        id:                true,
+        businessName:      true,
+        primaryCategoryId: true,
+        primaryCategory:   { select: { id: true, name: true } },
+      },
+      take: 200,
+    }) as NearbyCategoryMerchantRow[]
+
+    const cascadeByCat: Record<string, NearbyCategoryMerchantRow[]> = {}
+    for (const m of cascadePool) {
+      const cat = m.primaryCategoryId
+      if (!cat) continue
+      if (!cascadeByCat[cat]) cascadeByCat[cat] = []
+      if (cascadeByCat[cat].length < NEARBY_CATEGORY_TAKE) cascadeByCat[cat].push(m)
+    }
+    const cascadeCategories = Object.entries(cascadeByCat).slice(0, remaining)
+
+    if (cascadeCategories.length > 0) {
+      const cascadeMerchantIds = cascadeCategories.flatMap(([, ms]) => ms.map(m => m.id))
+      const cascadeBranches = await prisma.branch.findMany({
+        where:  { merchantId: { in: cascadeMerchantIds }, isActive: true },
+        select: RANK_BRANCH_SELECT,
+      }) as RankBranchRow[]
+
+      const cascadeBranchesByMerchant = new Map<string, RankBranchRow[]>()
+      for (const b of cascadeBranches) {
+        const list = cascadeBranchesByMerchant.get(b.merchantId)
+        if (list) list.push(b)
+        else cascadeBranchesByMerchant.set(b.merchantId, [b])
+      }
+
+      for (const [catId, merchants] of cascadeCategories) {
+        const categoryBranches = merchants.flatMap(m => cascadeBranchesByMerchant.get(m.id) ?? [])
+        if (categoryBranches.length === 0) continue
+
+        const rankable = categoryBranches.filter(b =>
+          b.locationConfidence === 'MANUALLY_CONFIRMED'
+          || b.locationConfidence === 'ADDRESS_GEOCODED'
+        )
+        const nonRankable = categoryBranches.filter(b =>
+          b.locationConfidence === 'POSTCODE_CENTROID'
+          || b.locationConfidence === 'NEEDS_REVIEW'
+        )
+
+        // v1.5 cascade path: SKIP rankBranchesV3 entirely.  Cross-region
+        // distances (e.g. Manchester → Huddersfield = ~22mi = COUNTRY rung)
+        // exceed the ladder profile's maxRung gate (REGION for URBAN
+        // MIXED_NORMAL), so V3 would drop them.  Cascade is platform-claim
+        // (β7 permissive); we just want haversine distance for sorting
+        // + display.  supplyRung + proximityBand stay null (rail no longer
+        // claims locality-tier; chips show distance only).
+        const rankableWithDistance = rankable.map(b => ({
+          branch:   b,
+          distance: b.latitude !== null && b.longitude !== null
+            ? haversineMetres(effLoc.lat, effLoc.lng, Number(b.latitude), Number(b.longitude))
+            : null,
+        }))
+
+        // β5: distance ASC sort across all rankable branches.
+        rankableWithDistance.sort((a, b) => {
+          const da = a.distance ?? Number.POSITIVE_INFINITY
+          const db = b.distance ?? Number.POSITIVE_INFINITY
+          return da - db
+        })
+
+        const headInputs: EnrichBranchInput[] = rankableWithDistance.map(({ branch, distance }) => ({
+          branchId:      branch.id,
+          merchantId:    branch.merchantId,
+          supplyRung:    null,
+          proximityBand: null,
+          distance,
+        }))
+
+        const tailInputs: EnrichBranchInput[] = nonRankable.map(b => {
+          const exposed = exposeBranchPosition(b)
+          void exposed
+          return {
+            branchId:      b.id,
+            merchantId:    b.merchantId,
+            supplyRung:    null,
+            proximityBand: null,
+            distance:      null,
+          }
+        })
+
+        // β7: permissive tail (no strict-locality gate) — rail doesn't claim locality.
+        const tailed = appendPermissiveTail(headInputs, tailInputs)
+        const sliced = tailed.slice(0, NEARBY_CATEGORY_TAKE)
+        if (sliced.length === 0) continue
+
+        const ctx: EnrichBranchCtx = {
+          userId: null,
+          lat:    effLoc.lat,
+          lng:    effLoc.lng,
+        }
+        const enriched = await enrichBranchTiles(prisma, sliced as EnrichBranchInput[], ctx)
+
+        const headerCategory = merchants[0]?.primaryCategory ?? { id: catId, name: '' }
+
+        rails.push({
+          category: { id: headerCategory.id, name: headerCategory.name },
+          branches: enriched,
+          meta: {
+            locality:      locationCtx.locality,
+            scope:         'platform',
+            scopeExpanded: true,
+            // Cascade rails don't produce rung counts (V3 skipped) — empty record.
+            rungCounts:    { ...EMPTY_RUNG_COUNTS },
+          },
+        })
+
+        if (rails.length >= NEARBY_MAX_CATEGORIES) break
+      }
+    }
   }
 
   return rails

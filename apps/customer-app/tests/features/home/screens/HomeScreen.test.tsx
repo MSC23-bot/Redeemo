@@ -18,6 +18,10 @@ jest.mock('@/hooks/useLocation', () => ({
 const mockFeaturedBranchFixture = makeBranchTile({
   id: 'brn-pizza-1',
   branchName: 'Shoreditch',
+  // v1.4 (PR #126 device-QA-3): branchLocalityId matches the meta locality
+  // below so the strict-locality identity ladder resolves to TRUE → header
+  // renders "Featured in London" (not "Featured near London").
+  branchLocalityId: 'l-london',
   distance: 500,
   avgRating: 4.5,
   reviewCount: 20,

@@ -216,7 +216,7 @@ describe('Trending rail — strict NEARBY+CITY (§6.2 + §8.3 rows 4-6)', () => 
 // (matrix row 8 — triggers customer-app `<NearbySectionEmpty>`).
 
 describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
-  it('per-category supply → nearbyByCategoryRails[].meta !== null with {Category} near you header data', { timeout: 30_000 }, async () => {
+  it('per-category supply → nearbyByCategoryRails[].meta !== null with valid scope (local OR v1.5 cascaded)', { timeout: 30_000 }, async () => {
     const res = await app.inject({
       method: 'GET',
       url:    `/api/v1/customer/home?lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}`,
@@ -226,15 +226,19 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
     expect(body).toHaveProperty('nearbyByCategoryRails')
     expect(Array.isArray(body.nearbyByCategoryRails)).toBe(true)
     // Per spec §6.3 — surviving categories MUST carry a populated meta
-    // envelope.  Each entry should include category id+name and a strict
-    // NEARBY+CITY scope.
+    // envelope. v1.5 cascade fill (PR #126 device-QA-3) means rails may
+    // be EITHER local (scope='city', scopeExpanded=false) OR cascaded
+    // (scope='platform', scopeExpanded=true). Both are valid.
     for (const rail of body.nearbyByCategoryRails) {
       expect(rail.category).toMatchObject({ id: expect.any(String), name: expect.any(String) })
       expect(Array.isArray(rail.branches)).toBe(true)
       expect(rail.meta).not.toBeNull()
       if (rail.meta) {
-        expect(rail.meta.scope).toBe('city')
-        expect(rail.meta.scopeExpanded).toBe(false)
+        if (rail.meta.scopeExpanded) {
+          expect(rail.meta.scope).toBe('platform')
+        } else {
+          expect(rail.meta.scope).toBe('city')
+        }
       }
     }
   })
@@ -258,11 +262,103 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
     }
   })
 
-  it('all categories empty (effLoc resolved) → nearbyByCategoryRails.length === 0 (§8.3 row 8)', { timeout: 30_000 }, async () => {
-    // Bristol seed historically has no nearby category supply.  When all
-    // categories are empty AND effLoc resolves, the response surfaces an
-    // empty array (NOT `undefined`, NOT missing) so the customer-app
-    // <NearbySectionEmpty> can mount.
+  it('PR #126 device-QA Halifax fixup — catchment merchants surface in NBC despite branch.city != effLoc.city (§6.3 v1.4)', { timeout: 30_000 }, async () => {
+    // Halifax (53.7233, -1.8597) is ~8.5mi from Huddersfield central
+    // merchants.  Pre-v1.4 the NBC builder pre-filtered candidates by
+    // `branch.city === locationCtx.city` string-match, so Huddersfield
+    // merchants (Karaara / Pino's / Trim & Co / etc.) were excluded
+    // from Halifax's NBC pool even though they're geographically in
+    // Halifax's CATCHMENT/POST_TOWN tier (which Featured + Trending
+    // DO surface via the V3 scope cascade).  The legacy behaviour
+    // produced the device-QA-3 inconsistency: "Featured in Halifax"
+    // surfaced Huddersfield merchants AND "We're still growing in
+    // Halifax" rendered on the empty card simultaneously.
+    //
+    // v1.4 fix: NBC inclusion now bbox-filters around effLoc.lat/lng
+    // (±0.3°) so the candidate pool matches what Featured + Trending
+    // consider as NEARBY+CITY tier reach.  Per-category rankBranchesV3
+    // + strict NEARBY+CITY scope filter then decides what surfaces.
+    //
+    // Expected: with seed merchants in Huddersfield catchment, Halifax
+    // user sees at least one nearbyByCategoryRail with classified
+    // catchment-tier branches.  Asserts NBC is no longer silently empty
+    // for Halifax-class users.
+    const HALIFAX = { lat: 53.7233, lng: -1.8597 }
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${HALIFAX.lat}&lng=${HALIFAX.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // Featured + Trending surfacing catchment merchants is the existing
+    // contract — confirm at least one of them does in the same call as
+    // a precondition for the NBC assertion (if seed shifts so neither
+    // does, this test's premise is invalid and it should be reviewed).
+    const featuredOrTrendingHasCatchment =
+      (body.featuredRail?.branches?.length ?? 0) > 0 ||
+      (body.trendingRail?.branches?.length ?? 0) > 0 ||
+      (body.popularRail?.branches?.length ?? 0) > 0
+    expect(featuredOrTrendingHasCatchment).toBe(true)
+
+    // The v1.4 invariant: when Featured/Trending surface catchment
+    // merchants, NBC MUST also see them in its inclusion pool.  Some
+    // categories may still not survive the strict scope filter; that's
+    // fine.  But the section should NOT be silently empty if catchment
+    // merchants exist for the user's effLoc.
+    expect(Array.isArray(body.nearbyByCategoryRails)).toBe(true)
+    expect(body.nearbyByCategoryRails.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('v1.5 — Manchester cascade: nearbyByCategoryRails has cascaded entries (scopeExpanded=true) when no local supply', { timeout: 30_000 }, async () => {
+    // v1.5 PR #126 device-QA-3 owner direction (β1 + β7, 2026-05-23):
+    // Home is local-first, not local-only.  Manchester historically has
+    // no local merchants in seed; pre-v1.5, NBC silently returned an
+    // empty array and the customer-app rendered <NearbySectionEmpty>
+    // alone.  Post-v1.5, NBC falls back to platform-wide categories via
+    // the cascade fill — surfacing rails with scopeExpanded=true so the
+    // customer-app renders headers as `{Category} on Redeemo`.
+    //
+    // Asserts the cascade fill is wired AND emits the platform-honest
+    // meta envelope.  Without the cascade, Manchester users would see
+    // a feel-empty Home; with cascade, they see actionable category
+    // content + distance/proximity chips for honesty.
+    const MANCHESTER = { lat: 53.4808, lng: -2.2426 }
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${MANCHESTER.lat}&lng=${MANCHESTER.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(Array.isArray(body.nearbyByCategoryRails)).toBe(true)
+
+    // v1.5 invariant: when the seed has UK-wide category supply (it does),
+    // NBC for Manchester MUST surface at least one cascaded rail.
+    expect(body.nearbyByCategoryRails.length).toBeGreaterThanOrEqual(1)
+
+    // At least one rail should be cascaded (scopeExpanded=true) since
+    // Manchester has no local supply in the seed bbox.
+    const cascadedRails = body.nearbyByCategoryRails.filter(
+      (r: any) => r.meta?.scopeExpanded === true,
+    )
+    expect(cascadedRails.length).toBeGreaterThanOrEqual(1)
+
+    // Cascade meta shape — locality preserved (used by context banner),
+    // scope='platform', scopeExpanded=true.
+    for (const rail of cascadedRails) {
+      expect(rail.meta.scope).toBe('platform')
+      expect(rail.meta.scopeExpanded).toBe(true)
+    }
+  })
+
+  it('all categories empty (effLoc resolved + UK-wide truly empty) → nearbyByCategoryRails.length === 0 (§8.3 row 8 v1.5)', { timeout: 30_000 }, async () => {
+    // v1.5 — `<NearbySectionEmpty>` only renders when even the cascade fill
+    // produces 0 categories — i.e. UK-wide platform has zero categories with
+    // active merchants.  In current seed this state is unreachable (the
+    // seed has merchants); the assertion below is structural — the field
+    // shape is preserved regardless.  When the length IS 0 (e.g. on an
+    // empty database during integration setup), locationContext must NOT
+    // be 'none' (that path is handled separately via the banner).
     const res = await app.inject({
       method: 'GET',
       url:    `/api/v1/customer/home?lat=${BRISTOL.lat}&lng=${BRISTOL.lng}`,

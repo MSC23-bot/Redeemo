@@ -18,6 +18,17 @@ describe('<RailHeader>', () => {
     // owner direction + rationale.
     [{ meta: trendingLocal, railKind: 'nearbyByCategory' as const, categoryName: 'Restaurant' }, 'Restaurant'],
     [{ meta: trendingLocal, railKind: 'nearbyByCategory' as const, categoryName: 'Cafe & Coffee' }, 'Cafe & Coffee'],
+    // v1.5 PR #126 device-QA-3 (β1, 2026-05-23): cascaded category rails
+    // render `{Category} on Redeemo` when meta.scopeExpanded === true.
+    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Restaurant' }, 'Restaurant on Redeemo'],
+    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Cafe & Coffee' }, 'Cafe & Coffee on Redeemo'],
+    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Barber' }, 'Barber on Redeemo'],
+    // v1.4 PR #126 device-QA-3 (Featured copy honesty): Featured in {City}
+    // is reserved for in-locality supply; CATCHMENT/POST_TOWN tier renders
+    // "Featured near {City}".
+    [{ meta: featuredLocal, railKind: 'featured' as const, allBranchesInLocality: true }, 'Featured in Huddersfield'],
+    [{ meta: featuredLocal, railKind: 'featured' as const, allBranchesInLocality: false }, 'Featured near Huddersfield'],
+    [{ meta: featuredLocal, railKind: 'featured' as const, allBranchesInLocality: null }, 'Featured in Huddersfield'],
   ])('renders copy %j → %s', (props, expected) => {
     const { getByText } = render(<RailHeader {...(props as any)} />)
     expect(getByText(expected)).toBeTruthy()

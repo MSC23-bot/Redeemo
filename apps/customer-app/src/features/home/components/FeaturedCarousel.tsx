@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react'
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { View, ScrollView } from 'react-native'
 import { spacing } from '@/design-system'
 import { BranchTile } from '@/features/shared/BranchTile'
@@ -49,12 +49,35 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
   // Phase C §11.6 — hide rail silently when meta is null OR no branches.
   if (!rail.meta || branches.length === 0) return null
 
+  // PR #126 device-QA Halifax fixup (2026-05-23): determine whether the
+  // Featured rail's NEARBY+CITY supply is genuinely IN the locality (every
+  // visible branch passes the strict-locality identity ladder from
+  // §6.4.1) — vs CATCHMENT/POST_TOWN tier (visible branches are nearby
+  // but in different localities).  Drives the "Featured in {City}" vs
+  // "Featured near {City}" copy switch on <RailHeader>.
+  //
+  // Ignored when scopeExpanded is true (cascade copy "Featured on Redeemo"
+  // already overrides locality framing).  Returns null when locality is
+  // null (defensive — RailHeader falls back to "Featured near you").
+  const allBranchesInLocality = useMemo<boolean | null>(() => {
+    if (!rail.meta?.locality) return null
+    if (rail.meta.scopeExpanded) return null
+    const targetId    = rail.meta.locality.id
+    const targetLower = rail.meta.locality.name.toLowerCase()
+    return branches.every((b) =>
+      b.branchLocalityId === targetId ||
+      b.branchLocalityName?.toLowerCase() === targetLower ||
+      b.branchPostTown?.toLowerCase()     === targetLower
+    )
+  }, [rail.meta?.locality, rail.meta?.scopeExpanded, branches])
+
   return (
     <View>
       {/* Conditional-copy header per spec §7 + §11.1 */}
       <RailHeader
         meta={rail.meta}
         railKind="featured"
+        allBranchesInLocality={allBranchesInLocality}
         {...(rail.meta.scopeExpanded ? { subtitle: 'Here are the closest matches we have' } : {})}
       />
 

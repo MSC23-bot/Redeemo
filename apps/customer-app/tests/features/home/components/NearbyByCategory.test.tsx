@@ -86,6 +86,47 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
     expect(onCategoryPress).toHaveBeenCalledWith('cat-indian-restaurants')
   })
 
+  it('v1.5 — cascaded category rail header renders "{Category} on Redeemo"', () => {
+    // v1.5 PR #126 device-QA-3 (β1, 2026-05-23): when a category rail has
+    // cascaded to platform supply (meta.scopeExpanded === true), the
+    // header reads "{Category} on Redeemo" instead of the bare neutral
+    // name.  Mirrors Featured cascade framing.
+    const cascadedRails: HomeNearbyCategoryRail[] = [
+      {
+        category: { id: 'cat-restaurants', name: 'Restaurants' },
+        branches: [
+          makeBranchTile({
+            id: 'brn-far-1',
+            branchName: 'Distant Restaurant',
+            distance: 35_000,
+            merchant: {
+              id: 'm-far-1',
+              businessName: 'Far Restaurant',
+              primaryCategory: { id: 'cat-restaurants', name: 'Restaurants', parentId: null },
+              voucherCount: 1,
+              maxEstimatedSaving: 5,
+              totalEstimatedSaving: 5,
+            },
+          }),
+        ],
+        meta: {
+          locality:      { id: 'l1', name: 'Manchester' },
+          scope:         'platform',
+          scopeExpanded: true,
+          rungCounts:    {},
+        },
+      },
+    ]
+    const { getByText } = render(
+      <NearbyByCategory
+        rails={cascadedRails}
+        onBranchPress={jest.fn()}
+        onCategoryPress={jest.fn()}
+      />,
+    )
+    expect(getByText('Restaurants on Redeemo')).toBeTruthy()
+  })
+
   it('returns null when every rail has meta=null (defensive guard against contract drift)', () => {
     const driftedRails: HomeNearbyCategoryRail[] = [
       {
