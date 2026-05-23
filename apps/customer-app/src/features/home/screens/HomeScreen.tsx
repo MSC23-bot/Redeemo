@@ -14,6 +14,8 @@ import { TrendingSection } from '../components/TrendingSection'
 import { PopularSection } from '../components/PopularSection'
 import { NearbyByCategory } from '../components/NearbyByCategory'
 import { NearbySectionEmpty } from '../components/NearbySectionEmpty'
+import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
+import { HomeExploreMore } from '../components/HomeExploreMore'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
 
 export function HomeScreen() {
@@ -76,14 +78,30 @@ export function HomeScreen() {
   const onNearbyBranchPress = (branchId: string) =>
     routeToBranch(branchId, allNearbyBranches)
 
-  // Spec §8.8 — render conditional logic.  When per-category rails exist
-  // (length > 0), render the per-category preview rows.  When the array
-  // is empty AND a location is resolved (`source !== 'none'`), surface the
-  // section-level <NearbySectionEmpty> card.  No-location is handled by
-  // <HomeNoLocationBanner> at the top of Home (Phase F) — not by this
-  // section.
-  const hasNearbyRails  = (feed?.nearbyByCategoryRails?.length ?? 0) > 0
-  const showNearbyEmpty = !hasNearbyRails && feed?.locationContext.source !== 'none'
+  // Spec §8.7 + §8.8 — dedup-managed fallback components.
+  //
+  // Three booleans drive the three fallback components on Home.  Two
+  // mutual-exclusion invariants are baked into the derivation chain:
+  //   1. banner ⊥ NearbySectionEmpty — `showNearbySectionEmpty` requires
+  //      `!showNoLocationBanner`.
+  //   2. NearbySectionEmpty ⊥ HomeExploreMore (v1.2) — `showExploreMore`
+  //      requires `!showNearbySectionEmpty`.
+  // The third invariant (banner ⊥ HomeExploreMore) falls out for free
+  // because `sparseHeuristic` requires `source !== 'none'`, which the
+  // banner condition excludes.
+  //
+  // `<NearbyByCategory>` itself renders ONLY when rails exist; the empty
+  // card takes the same slot when rails are absent AND location resolved.
+  const hasNearbyRails         = (feed?.nearbyByCategoryRails?.length ?? 0) > 0
+  const showNoLocationBanner   = feed?.locationContext.source === 'none'
+  const showNearbySectionEmpty = !showNoLocationBanner && !hasNearbyRails && !!feed
+  const sparseHeuristic =
+    !!feed
+    && (!feed.featuredRail?.meta || feed.featuredRail.meta.scopeExpanded)
+    && !feed.trendingRail?.meta
+    && (feed.nearbyByCategoryRails?.length ?? 0) < 2
+    && feed.locationContext.source !== 'none'
+  const showExploreMore = sparseHeuristic && !showNearbySectionEmpty
 
   return (
     <View style={styles.container}>
@@ -100,6 +118,12 @@ export function HomeScreen() {
           onSearchPress={() => router.push('/search' as any)}
           onFilterPress={() => {}}
         />
+
+        {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
+            user has no resolvable location.  Dedup invariant guards
+            <NearbySectionEmpty> + <HomeExploreMore> against ever
+            co-mounting with this banner (see derivation above). */}
+        {showNoLocationBanner && <HomeNoLocationBanner />}
 
         {isLoading ? (
           <View style={styles.skeletonRow}>
@@ -160,7 +184,14 @@ export function HomeScreen() {
             onCategoryPress={(id) => router.push(`/category/${id}` as any)}
           />
         )}
-        {showNearbyEmpty && <NearbySectionEmpty />}
+        {showNearbySectionEmpty && <NearbySectionEmpty />}
+
+        {/* Spec §8.5 + §8.7 — page-bottom soft CTA mounted under sparse-supply
+            conditions.  Mutually exclusive with both <HomeNoLocationBanner>
+            (sparseHeuristic guards on source !== 'none') and
+            <NearbySectionEmpty> (showExploreMore guards on
+            !showNearbySectionEmpty). */}
+        {showExploreMore && <HomeExploreMore />}
       </ScrollView>
     </View>
   )
