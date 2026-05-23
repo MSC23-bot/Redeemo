@@ -46,5 +46,6 @@ describe('qaAccountFilter (§DG §6.2)', () => {
   it('isQaAccountEmail returns false for null/empty/undefined', () => {
     expect(isQaAccountEmail(null)).toBe(false)
     expect(isQaAccountEmail('')).toBe(false)
+    expect(isQaAccountEmail(undefined)).toBe(false)
   })
 })
