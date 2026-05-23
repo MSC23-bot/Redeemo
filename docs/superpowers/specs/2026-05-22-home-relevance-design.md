@@ -1,10 +1,47 @@
 # Home Relevance — Design Spec
 
-**Version:** 1.7 (PR #126 device-QA-5 owner direction: thin-local-supply rails TOP UP with wider Redeemo fillers — `scopeExpanded` stays false on mixed rails so the `<NearbyContextBanner>` doesn't lie)
+**Version:** 1.8 (PR #126 device-QA-5 owner direction: `proximityBand` honesty on filler tiles + semantic-tinted `<ProximityBandChip>` variants)
 **Status:** Implemented in PR #126 (feature/home-relevance) — pending device-QA-6 + SHA-bound merge
 **Tier:** 3 (new backend contract, new customer-app contract, new locked product principles)
-**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23 + device-QA-4 Halifax/Manchester finding "leaf rails feel thin" 2026-05-23 + device-QA-5 Brightlingsea finding "thin local rails should top up with wider Redeemo" 2026-05-23)
+**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23 + device-QA-4 Halifax/Manchester finding "leaf rails feel thin" 2026-05-23 + device-QA-5 Brightlingsea finding "thin local rails should top up with wider Redeemo" 2026-05-23 + device-QA-5 follow-up "filler tiles need proximityBand + chip needs semantic tinting" 2026-05-23)
 **Prior audit:** Explore-agent audit of `getHomeFeed()` + customer-app Home rails + ranking utilities, 2026-05-22
+
+## v1.8 changelog (2026-05-23) — proximityBand honesty on filler tiles + tinted chip variants
+
+PR #126 device-QA-5 follow-up finding: v1.5 cascade fillers AND v1.7 top-up fillers explicitly set `proximityBand: null` (because both call sites skip the V3 ranker — the `maxRung` gate would drop cross-region tiles). The customer-app `<ProximityBandChip>` returns null for null bands → the chip disappeared on the EXACT tiles where it'd help users understand WHY a farther merchant is appearing. With v1.5 and v1.7 now intentionally surfacing wider merchants, the chip's honesty signal becomes load-bearing — distance alone is necessary but not sufficient.
+
+Two locked v1.8 changes:
+
+1. **Backend: `deriveFillerProximityBand(distanceMetres)` helper.** Lives at the top of `src/api/customer/discovery/homeRailBuilders.ts`. Maps haversine-distance to a `ProximityBand` using thresholds that mirror the V3 rung-based classification semantically:
+   - `< 12 875 m` (8 mi)  → `IN_YOUR_AREA`
+   - `< 40 234 m` (25 mi) → `A_LITTLE_FURTHER`
+   - `>= 40 234 m`         → `NEAREST_ON_REDEEMO`
+   - `null` distance       → `null` (defensive — non-rankable tail tiles still emit null per existing contract)
+   - `NEARBY` is INTENTIONALLY never derived for fillers: by construction the local-first loop exhausted the genuinely NEARBY supply BEFORE fillers were considered, so a NEARBY filler would be dishonest.
+
+   Wired into two call sites:
+   - v1.5 cascade-fill loop `headInputs` map (was `proximityBand: null`).
+   - v1.7 top-up loop `fillerInputs.push()` (was `proximityBand: null`).
+
+   The six other `proximityBand: null` sites in `homeRailBuilders.ts` are non-rankable tail tiles (POSTCODE_CENTROID / NEEDS_REVIEW) with `distance: null` — they correctly stay null because no distance signal is available to derive from. v1.8 changes nothing for them.
+
+2. **Customer-app: semantic-tinted `<ProximityBandChip>` variants.** The chip component now varies its background colour by band, so colour communicates meaning, not just text:
+   - `IN_YOUR_AREA` → soft sage/green tint (`#E8F5EE` bg, `color.success` text) — reassuring.
+   - `A_LITTLE_FURTHER` → soft amber/peach tint (`#FEF3E6` bg, `color.warning` text) — warm.
+   - `NEAREST_ON_REDEEMO` → cream-rose tint (`color.surface.tint` bg, `color.brandRose` text) — neutral baseline (unchanged from v1.7-).
+   - `NEARBY` → still renders null (no chip on already-nearby merchants).
+
+   Lightweight implementation: variant style table inline in `ProximityBandChip.tsx`, no token churn. Existing API unchanged (same `band?: ProximityBand | null | undefined` prop). No new interaction, no tooltip, no explainer modal — those are deferred under §DI (richer chip system).
+
+**Scope discipline (unchanged):** no Campaign / sticky-controls / Map / Search / customer-web / further visual redesign. v1.8 is a Home relevance + chip-honesty amendment.
+
+**Spec sections amended:** §6.3 (Step 2 top-up + Step 3 cascade — derive `proximityBand` from distance instead of emitting null) — §8.2 chip variant table.
+
+**Deferred to follow-up:**
+- §DI (NEW) — richer `<ProximityBandChip>` design (interactive explainer modal, per-band iconography, possible distance-range copy).
+- §DH (NEW) — branch locality/post-town visible on `<BranchTile>` cards (cross-surface design call).
+- §DD (existing) — copy variation on "{x} picks" rail labels.
+- §DG (existing v1.7) — Popular rail location-aware ranking + test-redemption noise cleanup.
 
 ## v1.7 changelog (2026-05-23) — thin-local-supply top-up
 
@@ -18,7 +55,7 @@ Six locked design assumptions (owner-confirmed before implementation):
 
 2. **Filler ordering:** appended at the END of the rail in distance-ASC order across the entire eligible pool. Local merchants stay first in their V3 rank order; fillers visibly trail with bigger distance chips. Honest progression.
 
-3. **Filler `supplyRung` + `proximityBand`:** `null`. The V3 ranker's `maxRung` gate would drop cross-region fillers; we skip V3 and use direct haversine for distance computation. Mirrors the existing pure-cascade-fill code path.
+3. **Filler `supplyRung`:** `null` (V3 skipped per the maxRung gate rationale). **Filler `proximityBand`:** v1.8 supersedes — derived from haversine distance via `deriveFillerProximityBand` (see v1.8 changelog). `< 8 mi → IN_YOUR_AREA`, `< 25 mi → A_LITTLE_FURTHER`, `>= 25 mi → NEAREST_ON_REDEEMO`. Pre-v1.8 fillers emitted `proximityBand: null` and the customer-app chip silently hid; v1.8 closes that honesty gap.
 
 4. **Rail-level `meta.scopeExpanded`:** stays `false` on mixed rails. The local supply is genuine; the rail header doesn't lie. Mixed rails do NOT trigger `<NearbyContextBanner>` — banner fires only when at least one rail is PURE cascade (zero local supply). This avoids "banner says we're still growing in {City} while user sees 2 local merchants".
 
@@ -353,7 +390,7 @@ The `allBranchesInLocality` derivation runs client-side in `<FeaturedCarousel>` 
    - Distance-ASC sort across the entire eligible pool.
    - Dedupe to ONE filler tile per merchant (variety > branch-density).
    - Take up to `NEARBY_CATEGORY_TAKE - rail.branches.length` fillers.
-   - Filler `supplyRung: null` + `proximityBand: null` (V3 skipped — cross-region distances exceed maxRung; honesty lives at the tile-level distance chip).
+   - Filler `supplyRung: null` (V3 skipped — cross-region distances exceed maxRung). Filler `proximityBand`: **v1.8 derives from distance** via `deriveFillerProximityBand` (< 8 mi → `IN_YOUR_AREA`; < 25 mi → `A_LITTLE_FURTHER`; else → `NEAREST_ON_REDEEMO`). Was `null` pre-v1.8 → chip silently hid → v1.8 closes the honesty gap on EXACTLY the tiles that needed the chip most.
    - Append at the END of `rail.branches`.  Local-first ordering preserved.
    - `rail.meta.scopeExpanded` STAYS `false` — mixed rails do NOT contribute to `<NearbyContextBanner>` (which only fires on pure-cascade rails).
 
@@ -362,6 +399,7 @@ The `allBranchesInLocality` derivation runs client-side in `<FeaturedCarousel>` 
    - **No scope filter** — all rungs accepted.
    - **Permissive tail** (no strict-locality identity gate per β7 — rail no longer claims locality).
    - **Distance ASC sort across all rungs** (β5 — closest matches first; overrides V3's within-rung ordering for cascade rails specifically).
+   - **v1.8:** Filler `proximityBand` derived from distance (same `deriveFillerProximityBand` rule as Step 2 top-up). Was `null` pre-v1.8.
    - Enrich + push with `meta.scopeExpanded === true`, `meta.scope === 'platform'`, `meta.locality` preserved (used by context banner copy).
 4. **Total rails capped at `NEARBY_MAX_CATEGORIES` (6).** Per-rail cap at `NEARBY_CATEGORY_TAKE` (5) is enforced after Step 2 top-up — fillers cannot push a rail past 5.
 

@@ -474,4 +474,85 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
       expect(rail.meta.scopeExpanded).toBe(false)
     }
   })
+
+  it('v1.8 — filler tiles (v1.5 cascade + v1.7 top-up) carry a non-null proximityBand derived from distance', { timeout: 30_000 }, async () => {
+    // v1.8 PR #126 device-QA-5 owner direction (2026-05-23): pre-v1.8 the
+    // v1.5 cascade-fill loop AND the v1.7 top-up loop set
+    // `proximityBand: null` on every filler tile (because they skip
+    // rankBranchesV3 — the maxRung gate would drop cross-region tiles).
+    // The customer-app <ProximityBandChip> returns null for null bands →
+    // the chip disappeared on the EXACT tiles where it would help users
+    // understand why a farther merchant is appearing.
+    //
+    // v1.8 fix: filler tiles carry a band derived from haversine distance
+    // via `deriveFillerProximityBand` (homeRailBuilders.ts):
+    //   <  8 mi (12 875 m)  → 'IN_YOUR_AREA'
+    //   < 25 mi (40 234 m)  → 'A_LITTLE_FURTHER'
+    //   >= 25 mi            → 'NEAREST_ON_REDEEMO'
+    //
+    // NEARBY is intentionally never derived for fillers — the local-first
+    // loop already exhausted genuinely NEARBY supply BEFORE fillers were
+    // considered, so a NEARBY filler would be dishonest.
+    //
+    // Structural pin: any filler tile (supplyRung === null AND
+    // distanceMetres !== null) MUST carry a non-NEARBY proximityBand.
+    // Tested under two scenarios:
+    //   (a) Brightlingsea — produces mixed rails (v1.7 top-up fillers).
+    //   (b) Manchester    — produces pure-cascade rails (v1.5 cascade fillers).
+
+    // Scenario (a) — Brightlingsea, mixed rails via v1.7 top-up.
+    const brightRes = await app.inject({
+      method: 'GET',
+      url:    '/api/v1/customer/home?lat=51.8064&lng=1.0249',
+    })
+    expect(brightRes.statusCode).toBe(200)
+    const brightBody = JSON.parse(brightRes.body)
+    const brightFillers: any[] = brightBody.nearbyByCategoryRails
+      .flatMap((r: any) => r.branches)
+      .filter((b: any) => b.supplyRung === null && b.distanceMetres !== null)
+
+    if (brightFillers.length > 0) {
+      for (const tile of brightFillers) {
+        expect(tile.proximityBand).not.toBeNull()
+        expect(tile.proximityBand).not.toBe('NEARBY')
+        // Distance threshold check: derived band must match distance bucket.
+        const d = tile.distanceMetres as number
+        if (d < 12_875) {
+          expect(tile.proximityBand).toBe('IN_YOUR_AREA')
+        } else if (d < 40_234) {
+          expect(tile.proximityBand).toBe('A_LITTLE_FURTHER')
+        } else {
+          expect(tile.proximityBand).toBe('NEAREST_ON_REDEEMO')
+        }
+      }
+    }
+
+    // Scenario (b) — Manchester, pure-cascade rails via v1.5 cascade-fill.
+    const manRes = await app.inject({
+      method: 'GET',
+      url:    '/api/v1/customer/home?lat=53.4808&lng=-2.2426',
+    })
+    expect(manRes.statusCode).toBe(200)
+    const manBody = JSON.parse(manRes.body)
+    const manFillers: any[] = manBody.nearbyByCategoryRails
+      .filter((r: any) => r.meta?.scopeExpanded === true)
+      .flatMap((r: any) => r.branches)
+      .filter((b: any) => b.supplyRung === null && b.distanceMetres !== null)
+
+    // Manchester cascade should surface fillers; assert at least one and
+    // confirm same band-derivation rules apply.
+    expect(manFillers.length).toBeGreaterThanOrEqual(1)
+    for (const tile of manFillers) {
+      expect(tile.proximityBand).not.toBeNull()
+      expect(tile.proximityBand).not.toBe('NEARBY')
+      const d = tile.distanceMetres as number
+      if (d < 12_875) {
+        expect(tile.proximityBand).toBe('IN_YOUR_AREA')
+      } else if (d < 40_234) {
+        expect(tile.proximityBand).toBe('A_LITTLE_FURTHER')
+      } else {
+        expect(tile.proximityBand).toBe('NEAREST_ON_REDEEMO')
+      }
+    }
+  })
 })

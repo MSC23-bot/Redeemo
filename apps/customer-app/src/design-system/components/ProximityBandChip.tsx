@@ -58,6 +58,34 @@ const BAND_LABEL: Record<ProximityBand, string | null> = {
   NEAREST_ON_REDEEMO: 'Closest match on Redeemo',
 }
 
+// v1.8 (PR #126 device-QA-5 owner direction 2026-05-23) — semantic-tinted
+// chip variants so the colour communicates meaning, not just text.  Locked
+// product direction:
+//
+//   IN_YOUR_AREA       → reassuring green-tinted chip
+//   A_LITTLE_FURTHER   → warm amber/orange-tinted chip
+//   NEAREST_ON_REDEEMO → neutral-rose chip (existing visual baseline)
+//
+// Token strategy (lightweight, no token churn):
+//   - Background colours are inlined as soft tinted hex values matching
+//     the established palette (alpha-blended-from-cream look).
+//   - Text colours pull from `color.success` / `color.warning` /
+//     `color.brandRose` — existing semantic tokens.
+//
+// Future polish (richer chip system / interactive explainer modal) is
+// deferred under §DI per owner direction in PR #126 device-QA-5.  The
+// goal here is minimal visual differentiation, not a chip-system redesign.
+const BAND_STYLE: Record<ProximityBand, { bg: string; text: string } | null> = {
+  // NEARBY never renders — kept null so no surface tokens leak through.
+  NEARBY:             null,
+  // Soft sage/green tint — reassuring "you're in the zone".
+  IN_YOUR_AREA:       { bg: '#E8F5EE', text: color.success    },
+  // Soft amber/peach tint — warm "a bit further".
+  A_LITTLE_FURTHER:   { bg: '#FEF3E6', text: color.warning    },
+  // Existing baseline — cream-rose surface + brand rose text.
+  NEAREST_ON_REDEEMO: { bg: color.surface.tint, text: color.brandRose },
+}
+
 export type ProximityBandChipProps = {
   /**
    * Accepts the full `ProximityBand | null | undefined` shape the
@@ -77,16 +105,17 @@ export type ProximityBandChipProps = {
 
 export function ProximityBandChip({ band, accessibilityLabel }: ProximityBandChipProps) {
   if (band === null || band === undefined) return null
-  const label = BAND_LABEL[band]
-  if (label === null) return null
+  const label   = BAND_LABEL[band]
+  const variant = BAND_STYLE[band]
+  if (label === null || variant === null) return null
   return (
     <View
       accessible
       accessibilityRole="text"
       accessibilityLabel={accessibilityLabel ?? label}
-      style={styles.chip}
+      style={[styles.chip, { backgroundColor: variant.bg }]}
     >
-      <Text variant="label.md" style={styles.text}>{label}</Text>
+      <Text variant="label.md" style={{ color: variant.text }}>{label}</Text>
     </View>
   )
 }
@@ -95,11 +124,7 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: spacing[2],
     paddingVertical: spacing[1],
-    backgroundColor: color.surface.tint,
     borderRadius: radius.sm,
     alignSelf: 'flex-start',
-  },
-  text: {
-    color: color.brandRose,
   },
 })

@@ -28,7 +28,7 @@
 import { type PrismaClient } from '../../../../generated/prisma/client'
 import { MerchantStatus } from '../../../../generated/prisma/enums'
 import { rankBranchesV3, type RankableBranchInputV3 } from '../../lib/ranking'
-import type { LadderProfile, SupplyRung } from '../../lib/ladderProfiles'
+import type { LadderProfile, SupplyRung, ProximityBand } from '../../lib/ladderProfiles'
 import type { EffectiveLocation } from '../../lib/effectiveLocation'
 import { haversineMetres } from '../../shared/haversine'
 import {
@@ -622,6 +622,33 @@ const NEARBY_CATEGORY_TAKE      = 5   // tiles per category
 const NEARBY_MAX_CATEGORIES     = 6   // categories per response
 const NEARBY_MERCHANT_POOL_TAKE = 60  // top-level merchant pool size
 
+// v1.8 (PR #126 device-QA-5 owner direction 2026-05-23) — distance thresholds
+// for deriving a meaningful `proximityBand` on filler tiles.  v1.5 cascade +
+// v1.7 top-up fillers skip the V3 ranker (the maxRung gate would drop them),
+// so they previously emitted `proximityBand: null` → the customer-app
+// <ProximityBandChip> rendered nothing for those tiles.  But fillers are the
+// EXACT tiles where the chip helps users understand WHY a farther merchant
+// is appearing.  v1.8 derives the band from haversine distance using the
+// mapping below (mirrors the semantic intent of the V3 rung-based
+// classification at `ladderProfiles.ts::getProximityBand`):
+//
+//   < 8 mi  (12 875 m)  → IN_YOUR_AREA       — reassuring (green chip)
+//   < 25 mi (40 234 m)  → A_LITTLE_FURTHER   — warm    (amber chip)
+//   >= 25 mi            → NEAREST_ON_REDEEMO — neutral (rose chip)
+//
+// Locked behaviour: NEARBY band is NEVER derived for fillers — by construction
+// the local-first loop exhausted the genuinely NEARBY supply BEFORE fillers
+// were considered, so claiming NEARBY on a filler would be dishonest.
+const PROXIMITY_BAND_IN_AREA_M    = 12_875   // 8 mi  × 1609.344 m/mi rounded
+const PROXIMITY_BAND_SHORT_TRIP_M = 40_234   // 25 mi × 1609.344 m/mi rounded
+
+export function deriveFillerProximityBand(distanceMetres: number | null): ProximityBand | null {
+  if (distanceMetres === null) return null
+  if (distanceMetres < PROXIMITY_BAND_IN_AREA_M)    return 'IN_YOUR_AREA'
+  if (distanceMetres < PROXIMITY_BAND_SHORT_TRIP_M) return 'A_LITTLE_FURTHER'
+  return 'NEAREST_ON_REDEEMO'
+}
+
 // Merchant row shape used by the inclusion query — we need enough to fan
 // out to branches with RANK_BRANCH_SELECT, plus primaryCategoryId +
 // primaryCategory (with parent) for the per-category group + header copy.
@@ -998,7 +1025,10 @@ export async function buildNearbyByCategoryRails(
           branchId:      branch.id,
           merchantId:    branch.merchantId,
           supplyRung:    null,
-          proximityBand: null,
+          // v1.8: derive band from distance so the customer-app chip
+          // surfaces "In your area" / "A short trip away" / "Closest match
+          // on Redeemo" on top-up fillers (was `null` in v1.7 → chip hidden).
+          proximityBand: deriveFillerProximityBand(distance),
           distance,
         })
       }
@@ -1129,7 +1159,11 @@ export async function buildNearbyByCategoryRails(
           branchId:      branch.id,
           merchantId:    branch.merchantId,
           supplyRung:    null,
-          proximityBand: null,
+          // v1.8: derive band from distance for cascade-fill tiles (same
+          // rationale as the v1.7 top-up call site above).  Was `null` in
+          // v1.5/v1.6/v1.7 → chip hidden on the EXACT tiles where it'd
+          // explain why the merchant is appearing far away.
+          proximityBand: deriveFillerProximityBand(distance),
           distance,
         }))
 
