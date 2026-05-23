@@ -187,6 +187,13 @@ const eligibleAmenitySchema = z.object({
 export type EligibleAmenity = z.infer<typeof eligibleAmenitySchema>
 
 const locationContextSchema = z.object({
+  // Phase B.2 (Home Relevance, 2026-05-22) — additive `locality` on the
+  // location context envelope. Backend resolves the user's primary
+  // discovery locality via `resolveEffectiveLocation`; the rail-level
+  // `homeRailMetaSchema.locality` is the per-rail value (may differ
+  // from this top-level when cascade promotes a rail beyond local).
+  // `.optional()` so legacy responses (pre-Phase B) still parse.
+  locality: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
   city:   z.string().nullable(),
   source: z.enum(['coordinates', 'profile', 'none']),
 })
@@ -222,9 +229,59 @@ export type CampaignTile = z.infer<typeof campaignSchema>
 // consume the `*Branches` arms. Phase 2.5 shipped the shared
 // `<BranchTile>` rename; carousels now render <BranchTile branch={branch}/>
 // directly.
-const homeFeedResponseSchema = z.object({
+
+// ─── Phase B.2 — Home Relevance new envelope shape ───────────────────────────
+//
+// Spec §5 + plan v1.1 Hard Invariant. Adds NON-COLLIDING rail envelopes
+// (`featuredRail` / `trendingRail` / `popularRail` /
+// `nearbyByCategoryRails`) alongside the existing branch-themed legacy
+// arms. Each rail carries an optional `meta` describing per-rail scope,
+// cascade state, supply-rung histogram, and effective locality.
+//
+// `meta` is `.nullable()` because rails without a meaningful scope
+// envelope (e.g. cohort-based Popular fallbacks or future variants) may
+// emit `null` rather than synthesising fake counts.
+//
+// `rungCounts` uses `z.record(z.string(), z.number())` rather than the
+// canonical 8-rung `rungCountsSchema` so the wire can emit a sparse map
+// (only rungs that contributed) — the builder side decides whether to
+// fill zeros.  The render side is tolerant either way.
+const homeRailMetaSchema = z.object({
+  locality:      z.object({ id: z.string(), name: z.string() }).nullable(),
+  scope:         z.enum(['nearby', 'city', 'platform']),
+  scopeExpanded: z.boolean(),
+  rungCounts:    z.record(z.string(), z.number()),
+}).nullable()
+export type HomeRailMeta = z.infer<typeof homeRailMetaSchema>
+
+const homeRailSchema = z.object({
+  branches: z.array(branchTileSchema),
+  meta:     homeRailMetaSchema,
+})
+export type HomeRail = z.infer<typeof homeRailSchema>
+
+const homeNearbyCategoryRailSchema = z.object({
+  category: z.object({ id: z.string(), name: z.string() }),
+  branches: z.array(branchTileSchema),
+  meta:     homeRailMetaSchema,
+})
+export type HomeNearbyCategoryRail = z.infer<typeof homeNearbyCategoryRailSchema>
+
+// Schema preserves the legacy branch-themed arms (`featuredBranches`,
+// `trendingBranches`, `nearbyByCategoryBranches`) AS REQUIRED through the
+// additive period — backend continues emitting them per Hard Invariant.
+// The new rail envelopes are `.optional()` while Phase C–F roll out the
+// builders; once every rail has shipped under the new shape the legacy
+// arms relax to `.optional()` and customer-app stops reading them per
+// Phase G.
+export const homeFeedResponseSchema = z.object({
   locationContext: locationContextSchema,
   campaigns:       z.array(campaignSchema),
+  // ─── NEW additive envelopes (non-colliding names per v1.1 plan) ──────
+  featuredRail:          homeRailSchema.optional(),
+  trendingRail:          homeRailSchema.optional(),
+  popularRail:           homeRailSchema.optional(),
+  nearbyByCategoryRails: z.array(homeNearbyCategoryRailSchema).optional(),
   // ─── Branch-first arms (canonical post Phase 2.3) ────────────────────
   featuredBranches:        z.array(branchTileSchema),
   trendingBranches:        z.array(branchTileSchema),

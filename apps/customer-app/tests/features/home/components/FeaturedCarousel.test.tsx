@@ -1,12 +1,20 @@
 import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
 import { FeaturedCarousel } from '@/features/home/components/FeaturedCarousel'
+import type { HomeRail, HomeRailMeta } from '@/lib/api/discovery'
 import { makeBranchTile } from '../../../fixtures/branchTile'
 
+// v1.4 (PR #126 device-QA-3, 2026-05-23): branches now pass the §6.4.1
+// strict-locality identity ladder against the test meta below — sets
+// branchLocalityId === meta.locality.id so the new `allBranchesInLocality`
+// check resolves to TRUE, producing "Featured in Huddersfield" copy.
+// Pre-v1.4 the tests relied on the loose "any NEARBY+CITY scope = `in {City}`"
+// rule, which the v1.4 honesty fix tightened.
 const branches = [
   makeBranchTile({
     id: 'brn-pizza-1',
     branchName: 'Shoreditch',
+    branchLocalityId: 'l-huddersfield',
     distance: 800,
     avgRating: 4.5,
     reviewCount: 50,
@@ -22,6 +30,7 @@ const branches = [
   makeBranchTile({
     id: 'brn-hair-1',
     branchName: 'Camden',
+    branchLocalityId: 'l-huddersfield',
     distance: 1200,
     avgRating: 4.8,
     reviewCount: 30,
@@ -37,42 +46,59 @@ const branches = [
   }),
 ]
 
-describe('FeaturedCarousel (Phase 2.3 branch-first)', () => {
-  it('renders section header with star icon', () => {
+const huddersfieldMeta: HomeRailMeta = {
+  locality:      { id: 'l-huddersfield', name: 'Huddersfield' },
+  scope:         'city',
+  scopeExpanded: false,
+  rungCounts:    {},
+}
+
+const platformMeta: HomeRailMeta = {
+  locality:      { id: 'l-huddersfield', name: 'Huddersfield' },
+  scope:         'platform',
+  scopeExpanded: true,
+  rungCounts:    {},
+}
+
+function makeRail(b: typeof branches, meta: HomeRailMeta = huddersfieldMeta): HomeRail {
+  return { branches: b, meta }
+}
+
+describe('FeaturedCarousel (Phase C.6 — featuredRail envelope)', () => {
+  it('renders <RailHeader> "Featured in Huddersfield" when scopeExpanded=false', () => {
     const { getByText } = render(
-      <FeaturedCarousel branches={branches} onBranchPress={jest.fn()} onSeeAll={jest.fn()} />,
+      <FeaturedCarousel rail={makeRail(branches)} onBranchPress={jest.fn()} />,
     )
-    expect(getByText('Featured')).toBeTruthy()
+    expect(getByText('Featured in Huddersfield')).toBeTruthy()
   })
 
-  it('renders See all link', () => {
+  it('renders "Featured on Redeemo" + cascade subtitle when scopeExpanded=true', () => {
     const { getByText } = render(
-      <FeaturedCarousel branches={branches} onBranchPress={jest.fn()} onSeeAll={jest.fn()} />,
+      <FeaturedCarousel rail={makeRail(branches, platformMeta)} onBranchPress={jest.fn()} />,
     )
-    expect(getByText('See all')).toBeTruthy()
+    expect(getByText('Featured on Redeemo')).toBeTruthy()
+    expect(getByText('Here are the closest matches we have')).toBeTruthy()
   })
 
   it('renders branch tiles with FEATURED badge', () => {
     const { getAllByText } = render(
-      <FeaturedCarousel branches={branches} onBranchPress={jest.fn()} onSeeAll={jest.fn()} />,
+      <FeaturedCarousel rail={makeRail(branches)} onBranchPress={jest.fn()} />,
     )
     expect(getAllByText('FEATURED')).toHaveLength(2)
   })
 
   it('returns null when branches array is empty', () => {
     const { toJSON } = render(
-      <FeaturedCarousel branches={[]} onBranchPress={jest.fn()} onSeeAll={jest.fn()} />,
+      <FeaturedCarousel rail={makeRail([])} onBranchPress={jest.fn()} />,
     )
     expect(toJSON()).toBeNull()
   })
 
-  it('calls onSeeAll when See all is pressed', () => {
-    const onSeeAll = jest.fn()
-    const { getByText } = render(
-      <FeaturedCarousel branches={branches} onBranchPress={jest.fn()} onSeeAll={onSeeAll} />,
+  it('returns null when rail.meta is null (silent hide per §11.6)', () => {
+    const { toJSON } = render(
+      <FeaturedCarousel rail={{ branches, meta: null }} onBranchPress={jest.fn()} />,
     )
-    fireEvent.press(getByText('See all'))
-    expect(onSeeAll).toHaveBeenCalled()
+    expect(toJSON()).toBeNull()
   })
 
   it('calls onBranchPress with branch.id when a tile is pressed', () => {
@@ -80,7 +106,7 @@ describe('FeaturedCarousel (Phase 2.3 branch-first)', () => {
     // to onPress (load-bearing for ?branch=<branchId>&from=home URL contract).
     const onBranchPress = jest.fn()
     const { getByText } = render(
-      <FeaturedCarousel branches={branches} onBranchPress={onBranchPress} onSeeAll={jest.fn()} />,
+      <FeaturedCarousel rail={makeRail(branches)} onBranchPress={onBranchPress} />,
     )
     fireEvent.press(getByText('Pizza Place'))
     expect(onBranchPress).toHaveBeenCalledWith('brn-pizza-1')
@@ -96,23 +122,10 @@ describe('FeaturedCarousel (Phase 2.3 branch-first)', () => {
     // If a future regression introduced inline metres formatting (e.g.
     // "800m") on the Home carousel, these assertions would fail.
     const { getByText } = render(
-      <FeaturedCarousel branches={branches} onBranchPress={jest.fn()} onSeeAll={jest.fn()} />,
+      <FeaturedCarousel rail={makeRail(branches)} onBranchPress={jest.fn()} />,
     )
     expect(getByText(/0\.5 miles away/)).toBeTruthy()
     expect(getByText(/0\.7 miles away/)).toBeTruthy()
-  })
-
-  it('section header renders literal "Featured" copy (Amendment C regression pin §CM, Pin #16)', () => {
-    // Phase 2.3 Amendment C pin — lock the current literal section-header
-    // copy so §CM closure later is unambiguous.  When the supply-aware rail
-    // cascade lands, this assertion will FAIL by design — forcing the §CM
-    // PR to explicitly update the header copy per the new scope-aware rules.
-    // Today the header is the bare word "Featured" — not "Featured near you",
-    // not dynamic scope-aware copy.
-    const { getByText } = render(
-      <FeaturedCarousel branches={branches} onBranchPress={jest.fn()} onSeeAll={jest.fn()} />,
-    )
-    expect(getByText('Featured')).toBeTruthy()
   })
 
   it('renders one tile per branch for a multi-branch Featured merchant (Covelum fan-out)', () => {
@@ -157,9 +170,8 @@ describe('FeaturedCarousel (Phase 2.3 branch-first)', () => {
     const onBranchPress = jest.fn()
     const { getAllByText } = render(
       <FeaturedCarousel
-        branches={covelumBranches}
+        rail={makeRail(covelumBranches)}
         onBranchPress={onBranchPress}
-        onSeeAll={jest.fn()}
       />,
     )
 

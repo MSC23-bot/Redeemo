@@ -1,6 +1,7 @@
 import React from 'react'
 import { render, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { HomeScreen } from '@/features/home/screens/HomeScreen'
 import { makeBranchTile } from '../../../fixtures/branchTile'
 
@@ -17,6 +18,10 @@ jest.mock('@/hooks/useLocation', () => ({
 const mockFeaturedBranchFixture = makeBranchTile({
   id: 'brn-pizza-1',
   branchName: 'Shoreditch',
+  // v1.4 (PR #126 device-QA-3): branchLocalityId matches the meta locality
+  // below so the strict-locality identity ladder resolves to TRUE → header
+  // renders "Featured in London" (not "Featured near London").
+  branchLocalityId: 'l-london',
   distance: 500,
   avgRating: 4.5,
   reviewCount: 20,
@@ -41,6 +46,15 @@ jest.mock('@/hooks/useHomeFeed', () => ({
       featuredBranches: [mockFeaturedBranchFixture],
       trendingBranches: [],
       nearbyByCategoryBranches: [],
+      featuredRail: {
+        branches: [mockFeaturedBranchFixture],
+        meta: {
+          locality:      { id: 'l-london', name: 'London' },
+          scope:         'city',
+          scopeExpanded: false,
+          rungCounts:    {},
+        },
+      },
     },
     isLoading: false,
     isError: false,
@@ -67,7 +81,13 @@ jest.mock('expo-router', () => ({
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return React.createElement(QueryClientProvider, { client: qc }, children)
+  const frame  = { x: 0, y: 0, width: 390, height: 844 } as const
+  const insets = { top: 47, right: 0, bottom: 34, left: 0 } as const
+  return React.createElement(
+    SafeAreaProvider,
+    { initialMetrics: { frame, insets } },
+    React.createElement(QueryClientProvider, { client: qc }, children),
+  )
 }
 
 describe('HomeScreen', () => {
@@ -78,7 +98,9 @@ describe('HomeScreen', () => {
 
   it('renders featured section', async () => {
     const { getByText } = render(<HomeScreen />, { wrapper })
-    await waitFor(() => expect(getByText('Featured')).toBeTruthy())
+    // Phase C.6 — section copy is now "Featured in {City}" from <RailHeader>
+    // driven by feed.featuredRail.meta.locality.name.
+    await waitFor(() => expect(getByText('Featured in London')).toBeTruthy())
   })
 
   it('renders category grid', async () => {

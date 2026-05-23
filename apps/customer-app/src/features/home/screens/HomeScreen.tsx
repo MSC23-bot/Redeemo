@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { color, spacing } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
@@ -11,11 +12,26 @@ import { CampaignCarousel } from '../components/CampaignCarousel'
 import { CategoryGrid } from '../components/CategoryGrid'
 import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
+import { PopularSection } from '../components/PopularSection'
 import { NearbyByCategory } from '../components/NearbyByCategory'
+import { NearbyContextBanner } from '../components/NearbyContextBanner'
+import { NearbySectionEmpty } from '../components/NearbySectionEmpty'
+import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
+import { HomeExploreMore } from '../components/HomeExploreMore'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
+
+// Bottom tab bar is `position: 'absolute'` with `height: 80` per the (app)
+// Tabs layout (see `apps/customer-app/app/(app)/_layout.tsx`). ScrollView
+// content must clear that height + the device safe-area inset + a small
+// breathing-room margin so the last child (e.g. <NearbySectionEmpty> CTAs
+// or <HomeExploreMore> button) is comfortably reachable without iOS
+// rubber-band bounce. PR #126 device-QA A — owner direction 2026-05-23.
+const TAB_BAR_HEIGHT       = 80
+const SCROLL_BOTTOM_GUTTER  = 24
 
 export function HomeScreen() {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const { location } = useUserLocation()
   const { data: me } = useMe()
   const { data: feed, isLoading, refetch } = useHomeFeed(
@@ -62,19 +78,81 @@ export function HomeScreen() {
   // rebuild it on every press (closes the code-quality reviewer's Important
   // #5 — `flatMap` allocation per tap).  Rebuilds only when the feed
   // mutates, which is also the only time branch identity could shift.
+  //
+  // Phase E — reads the new `nearbyByCategoryRails` envelope (server-side
+  // scope-filtered) rather than the legacy `nearbyByCategoryBranches`
+  // field.  Backend continues emitting both per the Hard Invariant; the
+  // customer-app reads the new envelope per the Phase G migration.
   const allNearbyBranches = useMemo(
-    () => (feed?.nearbyByCategoryBranches ?? []).flatMap((s) => s.branches),
-    [feed?.nearbyByCategoryBranches],
+    () => (feed?.nearbyByCategoryRails ?? []).flatMap((r) => r.branches),
+    [feed?.nearbyByCategoryRails],
   )
   const onNearbyBranchPress = (branchId: string) =>
     routeToBranch(branchId, allNearbyBranches)
+
+  // Spec §8.7 + §8.8 — dedup-managed fallback components.
+  //
+  // Three booleans drive the three fallback components on Home.  Two
+  // mutual-exclusion invariants are baked into the derivation chain:
+  //   1. banner ⊥ NearbySectionEmpty — `showNearbySectionEmpty` requires
+  //      `!showNoLocationBanner`.
+  //   2. NearbySectionEmpty ⊥ HomeExploreMore (v1.2) — `showExploreMore`
+  //      requires `!showNearbySectionEmpty`.
+  // The third invariant (banner ⊥ HomeExploreMore) falls out for free
+  // because `sparseHeuristic` requires `source !== 'none'`, which the
+  // banner condition excludes.
+  //
+  // `<NearbyByCategory>` itself renders ONLY when rails exist; the empty
+  // card takes the same slot when rails are absent AND location resolved.
+  const hasNearbyRails         = (feed?.nearbyByCategoryRails?.length ?? 0) > 0
+  const showNoLocationBanner   = feed?.locationContext.source === 'none'
+  const showNearbySectionEmpty = !showNoLocationBanner && !hasNearbyRails && !!feed
+  const sparseHeuristic =
+    !!feed
+    && (!feed.featuredRail?.meta || feed.featuredRail.meta.scopeExpanded)
+    && !feed.trendingRail?.meta
+    && (feed.nearbyByCategoryRails?.length ?? 0) < 2
+    && feed.locationContext.source !== 'none'
+  const showExploreMore = sparseHeuristic && !showNearbySectionEmpty
+
+  // v1.9 PR #126 device-QA-6 owner direction 2026-05-23 (Huddersfield finding) —
+  // tighten the banner trigger from `.some()` to `.every()`.  Pre-v1.9 the
+  // banner fired whenever AT LEAST ONE category rail was pure-cascade
+  // (scopeExpanded=true).  In Huddersfield (3 local rails — Food & Drink /
+  // Beauty & Wellness / Health & Fitness — plus 1-2 pure-cascade rails
+  // like Shopping or Out & About), the banner appeared above the WHOLE
+  // section, reading like "we're still growing in Huddersfield" applied
+  // to the entire NearbyByCategory zone — even though the visible rails
+  // had real local supply.  v1.7's mixed-rail meta + v1.8's per-tile
+  // semantic-tinted proximity chip already carry the honesty signal for
+  // individual filler tiles inside mixed rails; the global banner is
+  // only needed when the WHOLE NBC zone is platform-wide (Manchester,
+  // Bristol-like markets).
+  //
+  // New rule: banner fires only when EVERY visible NBC rail is pure-cascade.
+  // Mixed markets (Huddersfield, Brightlingsea — any rail with local supply)
+  // suppress the banner; the chip variants + distance chips per tile do the
+  // honesty work.  Pure-cascade markets (Manchester, Bristol-light) still
+  // get the banner.  `.every()` on an empty array returns true vacuously,
+  // but the `hasNearbyRails` gate (length > 0) blocks that path — empty
+  // rails route to <NearbySectionEmpty> instead.
+  //
+  // Mutual exclusion with <NearbySectionEmpty> by construction —
+  // showNearbySectionEmpty requires !hasNearbyRails; showNearbyContextBanner
+  // requires hasNearbyRails. They can never co-mount.
+  const allRailsAreCascaded =
+    (feed?.nearbyByCategoryRails ?? []).every(r => r.meta?.scopeExpanded === true)
+  const showNearbyContextBanner = hasNearbyRails && allRailsAreCascaded
 
   return (
     <View style={styles.container}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
+        ]}
       >
         <HomeHeader
           firstName={me?.firstName ?? null}
@@ -84,6 +162,12 @@ export function HomeScreen() {
           onSearchPress={() => router.push('/search' as any)}
           onFilterPress={() => {}}
         />
+
+        {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
+            user has no resolvable location.  Dedup invariant guards
+            <NearbySectionEmpty> + <HomeExploreMore> against ever
+            co-mounting with this banner (see derivation above). */}
+        {showNoLocationBanner && <HomeNoLocationBanner />}
 
         {isLoading ? (
           <View style={styles.skeletonRow}>
@@ -110,23 +194,53 @@ export function HomeScreen() {
             <SkeletonTile />
           </View>
         ) : (
-          <FeaturedCarousel
-            branches={feed?.featuredBranches ?? []}
-            onBranchPress={(branchId) => routeToBranch(branchId, feed?.featuredBranches ?? [])}
-            onSeeAll={() => {}}
+          feed?.featuredRail?.meta && (
+            <FeaturedCarousel
+              rail={feed.featuredRail}
+              onBranchPress={(branchId) => routeToBranch(branchId, feed.featuredRail?.branches ?? [])}
+            />
+          )
+        )}
+
+        {/* Task D.4 — Trending ↔ Popular swap.  Mutual-exclusion invariant
+            is enforced server-side by `getHomeFeed` (at most one of
+            trendingRail.meta / popularRail.meta is non-null when a
+            non-no-location effLoc resolves; on no-location the swap also
+            holds because trendingRail.meta is forced null). The client just
+            follows. */}
+        {feed?.trendingRail?.meta && (
+          <TrendingSection
+            rail={feed.trendingRail}
+            onBranchPress={(branchId) => routeToBranch(branchId, feed.trendingRail?.branches ?? [])}
+          />
+        )}
+        {!feed?.trendingRail?.meta && feed?.popularRail?.meta && (
+          <PopularSection
+            rail={feed.popularRail}
+            onBranchPress={(branchId) => routeToBranch(branchId, feed.popularRail?.branches ?? [])}
           />
         )}
 
-        <TrendingSection
-          branches={feed?.trendingBranches ?? []}
-          onBranchPress={(branchId) => routeToBranch(branchId, feed?.trendingBranches ?? [])}
-        />
+        {showNearbyContextBanner && (
+          <NearbyContextBanner cityName={feed?.locationContext?.locality?.name ?? null} />
+        )}
+        {hasNearbyRails && (
+          <NearbyByCategory
+            rails={feed!.nearbyByCategoryRails!}
+            onBranchPress={onNearbyBranchPress}
+            onCategoryPress={(id) => router.push(`/category/${id}` as any)}
+          />
+        )}
+        {showNearbySectionEmpty && (
+          <NearbySectionEmpty cityName={feed?.locationContext?.locality?.name ?? null} />
+        )}
 
-        <NearbyByCategory
-          sections={feed?.nearbyByCategoryBranches ?? []}
-          onBranchPress={onNearbyBranchPress}
-          onCategoryPress={(id) => router.push(`/category/${id}` as any)}
-        />
+        {/* Spec §8.5 + §8.7 — page-bottom soft CTA mounted under sparse-supply
+            conditions.  Mutually exclusive with both <HomeNoLocationBanner>
+            (sparseHeuristic guards on source !== 'none') and
+            <NearbySectionEmpty> (showExploreMore guards on
+            !showNearbySectionEmpty). */}
+        {showExploreMore && <HomeExploreMore />}
       </ScrollView>
     </View>
   )

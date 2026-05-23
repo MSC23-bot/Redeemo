@@ -41,6 +41,8 @@ import {
 } from '../../redemption/reusable'
 import { PRESENTATION_WINDOW_MS } from '../../redemption/presentation-window'
 import { type BranchTile } from './branchTileSchema'
+import { buildFeaturedRail, buildTrendingRail, buildPopularRail, buildNearbyByCategoryRails } from './homeRailBuilders'
+import { findNearestLocality } from '../../lib/nearestLocality'
 
 /**
  * Plan 4 M1 PR #81 review — server-side enforcement that approximate branch
@@ -63,7 +65,7 @@ import { type BranchTile } from './branchTileSchema'
  * "get directions") degrade gracefully — those paths already skip rows
  * with null coords.
  */
-function exposeBranchPosition<B extends {
+export function exposeBranchPosition<B extends {
   locationConfidence?: string | null
   latitude: unknown
   longitude: unknown
@@ -98,25 +100,54 @@ function hasExactPosition(b: {
 }
 
 // Location context helper — resolves what location label + source to return
-// Priority: live coordinates > stored profile city > none
+// Priority: live coordinates > stored profile locality > stored profile city > none
+//
+// Phase D (§BB / D8 fix, 2026-05-22): GPS callers now resolve to the nearest
+// Locality via `findNearestLocality`, so `locationCtx.city` is populated for
+// the new Trending + Popular rail builders (and for the legacy
+// NearbyByCategory code path during the interim Phase D → Phase E window).
 async function resolveLocationContext(
   prisma: PrismaClient,
   userId: string | null,
   lat: number | null,
   lng: number | null,
-): Promise<{ city: string | null; lat: number | null; lng: number | null; source: 'coordinates' | 'profile' | 'none' }> {
+): Promise<{ locality: { id: string; name: string } | null; city: string | null; lat: number | null; lng: number | null; source: 'coordinates' | 'profile' | 'none' }> {
   if (lat !== null && lng !== null) {
-    // Coordinates supplied — use them for proximity, reverse geocode label deferred to Phase 3C
-    return { city: null, lat, lng, source: 'coordinates' }
+    const nearest = await findNearestLocality(prisma, lat, lng)
+    if (nearest) {
+      return {
+        locality: { id: nearest.id, name: nearest.name },
+        city:     nearest.name,
+        lat,
+        lng,
+        source:   'coordinates',
+      }
+    }
+    return { locality: null, city: null, lat, lng, source: 'coordinates' }
   }
   if (userId) {
     const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { city: true },
+      where:  { id: userId },
+      select: { city: true, localityId: true },
     })
-    if (user?.city) return { city: user.city, lat: null, lng: null, source: 'profile' }
+    if (user?.localityId) {
+      const loc = await prisma.locality.findUnique({
+        where:  { id: user.localityId },
+        select: { id: true, name: true },
+      })
+      if (loc) return { locality: loc, city: loc.name, lat: null, lng: null, source: 'profile' }
+    }
+    if (user?.city) {
+      const loc = await prisma.locality.findFirst({
+        where:  { name: { equals: user.city, mode: 'insensitive' } },
+        select: { id: true, name: true },
+      })
+      if (loc) return { locality: loc, city: loc.name, lat: null, lng: null, source: 'profile' }
+      // Fall back to the legacy `city` text label if no Locality row matches.
+      return { locality: null, city: user.city, lat: null, lng: null, source: 'profile' }
+    }
   }
-  return { city: null, lat: null, lng: null, source: 'none' }
+  return { locality: null, city: null, lat: null, lng: null, source: 'none' }
 }
 
 /**
@@ -820,7 +851,7 @@ async function enrichMerchantTiles(
 //     serialization boundary so POSTCODE_CENTROID / NEEDS_REVIEW /
 //     ADDRESS_GEOCODED branches expose null lat/lng (Plan 4 M1 PR #81 lock).
 
-const BRANCH_TILE_SELECT = {
+export const BRANCH_TILE_SELECT = {
   id:                 true,
   name:               true,
   localityId:         true,
@@ -1341,6 +1372,52 @@ export { enrichBranchTile, enrichBranchTiles }
 
 // ─── Home Feed ───────────────────────────────────────────────────────────────
 
+// ─── Phase B — Home Relevance envelope types (additive, plan v1.1) ──────────
+//
+// Hard Invariant from the Home Relevance plan v1.1: the backend continues to
+// emit the legacy response fields UNCHANGED:
+//   - featuredBranches, trendingBranches, nearbyByCategoryBranches  (Phase 1
+//     branch-themed variants)
+//   - featured, trending, nearbyByCategory                          (legacy
+//     merchant-themed fields)
+//   - locationContext.city, locationContext.source
+//   - campaigns
+//
+// The new Home Relevance envelope adds NON-COLLIDING field names so legacy
+// consumers keep working while the new rails roll out:
+//   - featuredRail, trendingRail, popularRail                       (HomeRail)
+//   - nearbyByCategoryRails                                         (HomeNearbyCategoryRail[])
+//
+// Each rail carries its own meta envelope (scope + scopeExpanded + rungCounts
+// + the locality reference under which the rail was resolved), mirroring the
+// search/map meta pattern. Builders for these rails arrive in Phase C–E; this
+// file only declares the types in Phase B.1 (no behavioural change).
+//
+// Naming choice rationale: `*Rail` (not `*Branches`) so callers can grep for
+// the new envelope shape without colliding with the existing branch-themed
+// fan-out fields. `popularRail` is brand-new (no legacy `popular*` equivalent
+// exists today) — Phase E introduces the popular rail builder.
+
+export type LocalityRef = { id: string; name: string }
+
+export type HomeRailMeta = {
+  locality:       LocalityRef | null
+  scope:          'nearby' | 'city' | 'platform'
+  scopeExpanded:  boolean
+  rungCounts:     Record<SupplyRung, number>
+}
+
+export type HomeRail = {
+  branches: BranchTile[]
+  meta:     HomeRailMeta | null
+}
+
+export type HomeNearbyCategoryRail = {
+  category: { id: string; name: string }
+  branches: BranchTile[]
+  meta:     HomeRailMeta | null
+}
+
 export async function getHomeFeed(
   prisma: PrismaClient,
   options: { userId: string | null; lat: number | null; lng: number | null },
@@ -1472,13 +1549,17 @@ export async function getHomeFeed(
     { lat: lat ?? undefined, lng: lng ?? undefined },
     userId,
   )
+  // Phase C.1: outgoing catchment targets are shared by the V2 hybrid path
+  // AND `buildFeaturedRail` below — compute once, reuse twice.
+  const outgoingCatchmentTargetIds = homeV2EffLoc
+    ? await getOutgoingCatchmentTargetIds(prisma, homeV2EffLoc.locality.id)
+    : []
   let homeV2TileById = new Map<string, RankMerchantsV2Result['tiles'][number]>()
   if (homeV2EffLoc) {
     const uniqueMerchants = Array.from(new Map<string, any>(
       [...featured, ...trending, ...allNearbyMerchants].map(m => [m.id, m]),
     ).values())
     if (uniqueMerchants.length > 0) {
-      const outgoingCatchmentTargetIds = await getOutgoingCatchmentTargetIds(prisma, homeV2EffLoc.locality.id)
       const v2Result = rankMerchantsV2(
         uniqueMerchants.map(m => ({
           id: m.id, businessName: m.businessName,
@@ -1554,19 +1635,119 @@ export async function getHomeFeed(
     inputs:   section.merchants.flatMap((m: any) => fanOutMerchantToBranchInputs(m)),
   }))
 
-  // Run the three enrichBranchTiles batches in parallel (mirrors the
-  // enrichMerchantTiles parallel pattern above at lines 1150-1153).
-  const [featuredBranches, trendingBranches, nearbyByCategoryBranchesFlat] = await Promise.all([
-    enrichBranchTiles(prisma, featuredBranchInputs,  { userId, lat, lng }),
-    enrichBranchTiles(prisma, trendingBranchInputs,  { userId, lat, lng }),
-    Promise.all(nearbyBranchInputsBy.map(async section => ({
-      category: section.category,
-      branches: await enrichBranchTiles(prisma, section.inputs, { userId, lat, lng }),
-    }))),
+  // ─── Phase C.1 — Home Relevance Featured rail (spec §6.1 + §10.4) ──────────
+  //
+  // Additive `featuredRail` envelope on the response, computed via the
+  // dedicated builder.  The legacy `featuredBranches` field is sourced from
+  // the new builder per the v1.1 Hard Invariant: the FIELD is preserved
+  // (same key, same `BranchTile[]` shape), the VALUE is now the
+  // ranked/scope-aware projection rather than the legacy per-merchant
+  // fan-out.
+  //
+  // `featuredBranchInputs` + `trendingBranchInputs` (legacy per-merchant
+  // fan-outs) are intentionally NO longer enriched — `buildFeaturedRail`
+  // and `buildTrendingRail` / `buildPopularRail` supply the wire values
+  // for the new envelopes.  Phase E migrates the nearbyByCategory fan-out
+  // in the same way.
+  void featuredBranchInputs
+  void trendingBranchInputs
+
+  // ─── Phase D — Trending + Popular rail wiring (spec §6.2 + §10.4) ────────
+  //
+  // Featured + Trending run in parallel.  Popular fires only when Trending
+  // is silent (meta === null) OR there's no effective location.  This
+  // implements the §6.2 mutual-exclusion contract: when effLoc is set, at
+  // most one of trendingRail / popularRail has populated meta.
+  //
+  // The §6.4 strict-locality identity gate runs inside `buildTrendingRail`;
+  // the platform-claim Popular rail uses a permissive tail.
+  //
+  // The legacy `trendingBranches` wire field is re-sourced from whichever
+  // rail is non-empty (Trending preferred, Popular fallback) so the
+  // customer-web bundle continues to render until §CU.1 / Phase 3b removes
+  // the legacy keys.  The merchant-themed `trending` key is UNCHANGED —
+  // it still emits the old enrichMerchantTiles result.
+  // ─── Phase E — NearbyByCategory rail wiring (spec §6.3 + §10.4) ──────────
+  //
+  // Replaces the legacy per-category branch fan-out
+  // (`nearbyBranchInputsBy.map(... enrichBranchTiles(...))`) with the new
+  // `buildNearbyByCategoryRails` builder.  Per-category strict NEARBY+CITY
+  // scope; categories with zero local supply are absent from the array.
+  //
+  // The legacy `nearbyByCategoryBranches` wire field is re-sourced from
+  // the new builder per the v1.1 Hard Invariant — same field key, same
+  // `{ category, branches }[]` shape; the VALUES are now the
+  // scope-filtered ranked-branch projections rather than the legacy
+  // unranked fan-out.  The merchant-themed `nearbyByCategory` legacy key
+  // is UNCHANGED — it still emits the original `enrichedNearby` block.
+  //
+  // The legacy `nearbyBranchInputsBy` per-merchant fan-out is intentionally
+  // NO longer enriched — `buildNearbyByCategoryRails` supplies the wire
+  // values for both the new envelope AND the legacy branch-themed field.
+  void nearbyBranchInputsBy
+  const [featuredRail, trendingRail, nbcRails] = await Promise.all([
+    buildFeaturedRail(
+      prisma,
+      homeV2EffLoc,
+      'MIXED_NORMAL',
+      {
+        locality: homeV2EffLoc
+          ? { id: homeV2EffLoc.locality.id, name: homeV2EffLoc.locality.name }
+          : null,
+      },
+      { outgoingCatchmentTargetIds },
+    ),
+    homeV2EffLoc
+      ? buildTrendingRail(
+          prisma,
+          homeV2EffLoc,
+          'MIXED_NORMAL',
+          {
+            locality: homeV2EffLoc
+              ? { id: homeV2EffLoc.locality.id, name: homeV2EffLoc.locality.name }
+              : null,
+          },
+        )
+      : Promise.resolve({ branches: [], meta: null } as HomeRail),
+    homeV2EffLoc
+      ? buildNearbyByCategoryRails(
+          prisma,
+          homeV2EffLoc,
+          'MIXED_NORMAL',
+          {
+            city:     locationCtx.city,
+            lat:      locationCtx.lat,
+            lng:      locationCtx.lng,
+            locality: homeV2EffLoc
+              ? { id: homeV2EffLoc.locality.id, name: homeV2EffLoc.locality.name }
+              : null,
+          },
+        )
+      : Promise.resolve([] as HomeNearbyCategoryRail[]),
   ])
 
+  // Popular fires when Trending is silent OR there is no effective
+  // location.  When Trending fired, Popular stays silent — the
+  // mutual-exclusion contract guarantees they never both populate.
+  const popularRail: HomeRail = (trendingRail.meta === null || !homeV2EffLoc)
+    ? await buildPopularRail(prisma, homeV2EffLoc, 'MIXED_NORMAL')
+    : { branches: [], meta: null }
+
+  // Defensive server-side invariant — should be unreachable given the
+  // conditional above, but throws here would surface a contract violation
+  // immediately rather than silently corrupting the response.
+  if (homeV2EffLoc && trendingRail.meta !== null && popularRail.meta !== null) {
+    throw new Error('Invariant violation: trending + popular both populated when effLoc is set')
+  }
+
+  // Legacy `trendingBranches` value source: prefer Trending; fall back to
+  // Popular.  Preserves the "Trending" surface for customer-web while
+  // customer-app reads the new envelopes (trendingRail / popularRail).
+  const legacyTrendingBranches =
+    trendingRail.branches.length > 0 ? trendingRail.branches : popularRail.branches
+
   return {
-    locationContext: { city: locationCtx.city, source: locationCtx.source },
+    locationContext: { city: locationCtx.city, source: locationCtx.source, locality: locationCtx.locality },
     featured: enrichedFeatured.map(t => mergeV2FieldsOntoTile(t, homeV2TileById)),
     trending: enrichedTrending.map(t => mergeV2FieldsOntoTile(t, homeV2TileById)),
     campaigns,
@@ -1576,9 +1757,28 @@ export async function getHomeFeed(
     })),
     // Phase 1 additive — branch-themed variants. NOT a campaignBranches field;
     // campaigns are banner-level and stay unchanged.
-    featuredBranches,
-    trendingBranches,
-    nearbyByCategoryBranches: nearbyByCategoryBranchesFlat,
+    //
+    // Phase C.1: `featuredBranches` value sourced from the new
+    // `featuredRail.branches` (ranked + scope-filtered).  Field key and
+    // shape preserved per the v1.1 Hard Invariant.
+    featuredBranches: featuredRail.branches,
+    // Phase D: `trendingBranches` value sourced from whichever rail is
+    // non-empty (Trending first; Popular fallback).  Field key and shape
+    // preserved per the v1.1 Hard Invariant.
+    trendingBranches: legacyTrendingBranches,
+    // Phase E: `nearbyByCategoryBranches` legacy field re-sourced from
+    // the new `buildNearbyByCategoryRails` builder per the v1.1 Hard
+    // Invariant — same field key + `{ category, branches }[]` shape, the
+    // values are now the per-category scope-filtered ranked projections.
+    nearbyByCategoryBranches: nbcRails.map(r => ({
+      category: r.category,
+      branches: r.branches,
+    })),
+    // Phase C.1 + Phase D + Phase E additive new envelopes — non-colliding keys per v1.1.
+    featuredRail,
+    trendingRail,
+    popularRail,
+    nearbyByCategoryRails: nbcRails,
   }
 }
 

@@ -4,21 +4,37 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { Flame } from 'lucide-react-native'
 import { Text, color, spacing } from '@/design-system'
 import { BranchTile } from '@/features/shared/BranchTile'
-import { BranchTile as BranchTileType } from '@/lib/api/discovery'
+import type { HomeRail } from '@/lib/api/discovery'
+
+// Task D.4 — Spec §11.7.
+//
+// `<TrendingSection>` now consumes the `rail: HomeRail` envelope (matching
+// the C.6 FeaturedCarousel migration pattern). Header copy stays the
+// literal "Trending near you" — Trending is strict NEARBY+CITY scope
+// (never cascades), so the locality-aware <RailHeader> would always
+// resolve to the same fallback copy.  The literal phrase is locked by
+// the Amendment C §CM regression pin.
+//
+// Silent-hide invariant (§11.6): the section returns null when
+// `rail.meta` is null OR when `branches` is empty.  HomeScreen relies on
+// this to enforce the trending↔popular swap (which fires when
+// `feed.trendingRail.meta` is null).
 
 const TILE_WIDTH = 240
-const TILE_GAP = 12
+const TILE_GAP   = 12
 
 type Props = {
-  branches: BranchTileType[]
+  rail: HomeRail
   // Receives branch.id — call site routes to
   // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
   onBranchPress: (branchId: string) => void
-  onFavourite?: (id: string) => void
+  onFavourite?:  (id: string) => void
 }
 
-export function TrendingSection({ branches, onBranchPress, onFavourite }: Props) {
-  if (branches.length === 0) return null
+export function TrendingSection({ rail, onBranchPress, onFavourite }: Props) {
+  const branches = rail.branches
+
+  if (!rail.meta || branches.length === 0) return null
 
   return (
     <LinearGradient
@@ -31,7 +47,7 @@ export function TrendingSection({ branches, onBranchPress, onFavourite }: Props)
       <View
         style={{
           flexDirection: 'row',
-          alignItems: 'center',
+          alignItems:    'center',
           paddingHorizontal: 18,
           marginBottom: spacing[3],
         }}

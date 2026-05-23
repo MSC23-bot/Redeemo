@@ -39,10 +39,16 @@ import type { ProximityBand } from '@/lib/api/discovery'
 // chips use `design-system/components/Chip.tsx` instead.
 
 // PR #112 device-QA fixup-3 copy lock (2026-05-19) — owner-locked copy:
-//   IN_YOUR_AREA       → 'In your area'              (unchanged)
-//   A_LITTLE_FURTHER   → 'A short trip away'         (was 'A little further away' — too
-//                                                    casual at 6.7 miles per device QA)
-//   NEAREST_ON_REDEEMO → 'Closest match on Redeemo'  (unchanged)
+//   IN_YOUR_AREA       → 'In your area'                (unchanged)
+//   A_LITTLE_FURTHER   → 'A short trip away'           (was 'A little further away' — too
+//                                                      casual at 6.7 miles per device QA)
+//   NEAREST_ON_REDEEMO → 'Nearest match on Redeemo'    (v1.9 PR #126 device-QA-6 2026-05-23
+//                                                      — was 'Closest match on Redeemo';
+//                                                      'Nearest' reads more distance-specific
+//                                                      per owner direction.  The pre-fixup-2
+//                                                      copy 'Nearest on Redeemo' is still
+//                                                      WRONG — it lacks 'match' — and remains
+//                                                      pinned as a negative guard.)
 //
 // Thresholds remain backend-driven (rankBranchesV3 rung classification —
 // Plan 4 M3 / Task 2.1.0); the client only renames labels.
@@ -55,7 +61,35 @@ const BAND_LABEL: Record<ProximityBand, string | null> = {
   NEARBY:             null,
   IN_YOUR_AREA:       'In your area',
   A_LITTLE_FURTHER:   'A short trip away',
-  NEAREST_ON_REDEEMO: 'Closest match on Redeemo',
+  NEAREST_ON_REDEEMO: 'Nearest match on Redeemo',
+}
+
+// v1.8 (PR #126 device-QA-5 owner direction 2026-05-23) — semantic-tinted
+// chip variants so the colour communicates meaning, not just text.  Locked
+// product direction:
+//
+//   IN_YOUR_AREA       → reassuring green-tinted chip
+//   A_LITTLE_FURTHER   → warm amber/orange-tinted chip
+//   NEAREST_ON_REDEEMO → neutral-rose chip (existing visual baseline)
+//
+// Token strategy (lightweight, no token churn):
+//   - Background colours are inlined as soft tinted hex values matching
+//     the established palette (alpha-blended-from-cream look).
+//   - Text colours pull from `color.success` / `color.warning` /
+//     `color.brandRose` — existing semantic tokens.
+//
+// Future polish (richer chip system / interactive explainer modal) is
+// deferred under §DI per owner direction in PR #126 device-QA-5.  The
+// goal here is minimal visual differentiation, not a chip-system redesign.
+const BAND_STYLE: Record<ProximityBand, { bg: string; text: string } | null> = {
+  // NEARBY never renders — kept null so no surface tokens leak through.
+  NEARBY:             null,
+  // Soft sage/green tint — reassuring "you're in the zone".
+  IN_YOUR_AREA:       { bg: '#E8F5EE', text: color.success    },
+  // Soft amber/peach tint — warm "a bit further".
+  A_LITTLE_FURTHER:   { bg: '#FEF3E6', text: color.warning    },
+  // Existing baseline — cream-rose surface + brand rose text.
+  NEAREST_ON_REDEEMO: { bg: color.surface.tint, text: color.brandRose },
 }
 
 export type ProximityBandChipProps = {
@@ -77,16 +111,17 @@ export type ProximityBandChipProps = {
 
 export function ProximityBandChip({ band, accessibilityLabel }: ProximityBandChipProps) {
   if (band === null || band === undefined) return null
-  const label = BAND_LABEL[band]
-  if (label === null) return null
+  const label   = BAND_LABEL[band]
+  const variant = BAND_STYLE[band]
+  if (label === null || variant === null) return null
   return (
     <View
       accessible
       accessibilityRole="text"
       accessibilityLabel={accessibilityLabel ?? label}
-      style={styles.chip}
+      style={[styles.chip, { backgroundColor: variant.bg }]}
     >
-      <Text variant="label.md" style={styles.text}>{label}</Text>
+      <Text variant="label.md" style={{ color: variant.text }}>{label}</Text>
     </View>
   )
 }
@@ -95,11 +130,7 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: spacing[2],
     paddingVertical: spacing[1],
-    backgroundColor: color.surface.tint,
     borderRadius: radius.sm,
     alignSelf: 'flex-start',
-  },
-  text: {
-    color: color.brandRose,
   },
 })
