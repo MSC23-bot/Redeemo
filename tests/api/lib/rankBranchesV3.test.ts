@@ -565,3 +565,110 @@ describe('rankBranchesV3 — over-maxRung branches excluded from tiles AND rungC
     expect(result.rungCounts.NATIONAL).toBe(0)
   })
 })
+
+describe('rankBranchesV3 — sortBy="popularity" (§DG)', () => {
+  // §DG spec 2026-05-23-popular-ranking-design.md §5.2(b) — `sortBy`
+  // override on RankInputV3.  When `sortBy='popularity'` + popularityMap
+  // are passed, intra-rung sort uses popularityScore desc with
+  // distance asc tiebreak (instead of categoryIntent default).
+
+  it('popularity desc orders within rung when scores differ', () => {
+    const branchLow = makeBranch({
+      id: 'brn-pop-low',
+      merchantId: 'mer-pop-low',
+      merchant: { id: 'mer-pop-low', avgRating: null, reviewCount: 0, businessName: 'Low' },
+      latitude: 51.811,
+      longitude: 1.027,
+    })
+    const branchHigh = makeBranch({
+      id: 'brn-pop-high',
+      merchantId: 'mer-pop-high',
+      merchant: { id: 'mer-pop-high', avgRating: null, reviewCount: 0, businessName: 'High' },
+      latitude: 51.811,
+      longitude: 1.027,
+    })
+    const popularityMap = new Map<string, number>([
+      ['mer-pop-low',  1],
+      ['mer-pop-high', 10],
+    ])
+    const { tiles } = rankBranchesV3([branchLow, branchHigh], baseInput({
+      categoryIntent: 'MIXED',
+      sortBy: 'popularity',
+      popularityMap,
+    }))
+    expect(tiles.map((t) => t.merchantId)).toEqual(['mer-pop-high', 'mer-pop-low'])
+  })
+
+  it('distance asc tiebreaks when popularity is tied', () => {
+    const branchFar = makeBranch({
+      id: 'brn-pop-far',
+      merchantId: 'mer-pop-far',
+      merchant: { id: 'mer-pop-far', avgRating: null, reviewCount: 0, businessName: 'Far' },
+      latitude: 51.860,  // ~5.4 km north
+      longitude: 1.027,
+    })
+    const branchNear = makeBranch({
+      id: 'brn-pop-near',
+      merchantId: 'mer-pop-near',
+      merchant: { id: 'mer-pop-near', avgRating: null, reviewCount: 0, businessName: 'Near' },
+      latitude: 51.816,  // ~556 m north
+      longitude: 1.027,
+    })
+    const popularityMap = new Map<string, number>([
+      ['mer-pop-far',  5],
+      ['mer-pop-near', 5],
+    ])
+    const { tiles } = rankBranchesV3([branchFar, branchNear], baseInput({
+      categoryIntent: 'MIXED',
+      sortBy: 'popularity',
+      popularityMap,
+    }))
+    expect(tiles.map((t) => t.id)).toEqual(['brn-pop-near', 'brn-pop-far'])
+  })
+
+  it('all-zero popularity falls through to distance asc (dormant-popularity case)', () => {
+    const branchFar = makeBranch({
+      id: 'brn-pop-zero-far',
+      merchantId: 'mer-pop-zero-far',
+      merchant: { id: 'mer-pop-zero-far', avgRating: null, reviewCount: 0, businessName: 'ZeroFar' },
+      latitude: 51.860,
+      longitude: 1.027,
+    })
+    const branchNear = makeBranch({
+      id: 'brn-pop-zero-near',
+      merchantId: 'mer-pop-zero-near',
+      merchant: { id: 'mer-pop-zero-near', avgRating: null, reviewCount: 0, businessName: 'ZeroNear' },
+      latitude: 51.816,
+      longitude: 1.027,
+    })
+    const popularityMap = new Map<string, number>()  // empty — every merchant scores 0
+    const { tiles } = rankBranchesV3([branchFar, branchNear], baseInput({
+      categoryIntent: 'MIXED',
+      sortBy: 'popularity',
+      popularityMap,
+    }))
+    expect(tiles.map((t) => t.id)).toEqual(['brn-pop-zero-near', 'brn-pop-zero-far'])
+  })
+
+  it('omitting sortBy preserves existing categoryIntent behaviour (regression)', () => {
+    const branchFar = makeBranch({
+      id: 'brn-reg-far',
+      merchantId: 'mer-reg-far',
+      merchant: { id: 'mer-reg-far', avgRating: null, reviewCount: 0, businessName: 'RegFar' },
+      latitude: 51.860,
+      longitude: 1.027,
+    })
+    const branchNear = makeBranch({
+      id: 'brn-reg-near',
+      merchantId: 'mer-reg-near',
+      merchant: { id: 'mer-reg-near', avgRating: null, reviewCount: 0, businessName: 'RegNear' },
+      latitude: 51.816,
+      longitude: 1.027,
+    })
+    // No sortBy — LOCAL intent → distance ASC (closer first).
+    const { tiles } = rankBranchesV3([branchFar, branchNear], baseInput({
+      categoryIntent: 'LOCAL',
+    }))
+    expect(tiles.map((t) => t.id)).toEqual(['brn-reg-near', 'brn-reg-far'])
+  })
+})
