@@ -1,10 +1,26 @@
 # §DG Popular Ranking + Test-Redemption Cleanup — Design Spec
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** Locked — ready for implementation planning
 **Tier:** 2 — brainstorm-first + plan-first (multi-file: schema + backend + tests + spec doc)
-**Brainstorm:** in-session 2026-05-23 (§DG scoping package + empirical probe via `prisma/audit-popular-ranking.ts` + owner locks for Option D + Option 4-light)
+**Brainstorm:** in-session 2026-05-23 (§DG scoping package + empirical probe via `prisma/audit-popular-ranking.ts` + owner locks for Option D + Option 4-light + v1.1 rolling-30-day window amendment)
 **Trigger:** PR #126 device-QA-5 (London/Westminster observation: Popular surfaces Karaara/Pino's/Iron Forge — Huddersfield-area QA-redemption-heavy merchants — ahead of relevant London merchants); standing loose thread from PR #126 close-out.
+
+## v1.1 changelog (2026-05-23) — rolling 30-day popularity window
+
+Owner direction pre-T1: the v1.0 spec inherited the existing **calendar-month** window from `buildPopularRail` + `buildTrendingRail` without challenging it. The calendar-month boundary has a real product problem — at 00:00 UTC on the 1st of each month, every merchant's popularityScore resets to 0, creating a periodic "start-of-period cliff" where Trending can go dark and Popular's tiebreaker dormant-falls-through fires for everyone.
+
+Owner-locked Option B from the pre-T1 audit:
+
+- **Both Popular AND Trending switch to a rolling 30-day window**, ending at `now`.
+- Eliminates the start-of-month cliff entirely — the window slides forward each second; no edge-case engineering for the boundary.
+- Same compute cost as calendar-month (one date-range filter).
+- Same window for both rails — the difference between Popular and Trending is V3 scope filter + sort key, NOT time horizon. Mental model stays clean.
+- A shorter 7-day rolling window for Trending (more "what's hot now" semantics) is deferred to a follow-up brainstorm once real customer volume materialises.
+
+Implementation change: replace inline `startOfMonthUTC(new Date())` calls with a new exported helper `startOfRollingPopularityWindow(now: Date): Date` living at `src/api/customer/discovery/popularityWindow.ts`. The helper takes `now` for deterministic testing; production callers pass `new Date()`. Window length is a module-level constant `ROLLING_POPULARITY_WINDOW_DAYS = 30`.
+
+Affected sections: §1 (problem statement framing), §5.1 (step 2 helper rename), §6 (cleanup helper rename), §7 (caveat rephrase — no longer tied to month boundary), §8.1 (new §DG-8 pin verifying window-boundary behaviour), §11.1 (risk note), §13 (deferred follow-up: 7-day Trending window).
 
 ---
 
@@ -53,7 +69,7 @@ Popular sits alongside Trending in the same vertical slot (`<TrendingSection>` i
 - Drop the global top-30 redemption-count pre-filter from `buildPopularRail`.
 - Rank UK-wide active merchant branches via `rankBranchesV3` with a new `categoryIntent` mode (or equivalent sort-key parameter — implementation choice for the plan).
 - Within each rung: sort tiles by `merchant.popularityScore` descending, then by `distance` ascending as tiebreaker, then by existing tiebreaks (`businessName.localeCompare`, `id.localeCompare`).
-- `popularityScore = COUNT(VoucherRedemption WHERE merchantId = m.id AND redeemedAt >= monthStart AND NOT isTestData AND user.email NOT IN QA_ACCOUNT_EMAILS)`.
+- `popularityScore = COUNT(VoucherRedemption WHERE merchantId = m.id AND redeemedAt >= windowStart AND NOT isTestData AND user.email NOT IN QA_ACCOUNT_EMAILS)` where `windowStart = startOfRollingPopularityWindow(new Date())` per v1.1 (rolling 30 days; see v1.1 changelog).
 - `resolveScopeForHomeRail('popular', ...)` retains every rung (unchanged from current behaviour).
 - Cap at `POPULAR_TAKE = 10` (unchanged).
 - Non-rankable tail (`POSTCODE_CENTROID` / `NEEDS_REVIEW`): append via `appendPermissiveTail` (unchanged).
@@ -95,9 +111,9 @@ STEP 1 — Fetch UK-wide active merchant branches.
   No redemption-count pre-filter.  No cap (V3's hardCap=500 enforces).
 
 STEP 2 — Compute per-merchant popularityScore (filtered).
-  monthStart = startOfMonthUTC(now)
+  windowStart = startOfRollingPopularityWindow(now)   // v1.1 — rolling 30 days
   popularityScore(merchantId) = COUNT(VoucherRedemption WHERE
-    redeemedAt >= monthStart
+    redeemedAt >= windowStart
     AND NOT isTestData
     AND user.email NOT IN QA_ACCOUNT_EMAILS
     AND branch.merchantId = merchantId
@@ -253,13 +269,15 @@ If a future audit shows the email filter is over- or under-filtering, a one-off 
 
 ## 7. Honesty caveat — dormant popularity (locked)
 
-**Until real customer redemption volume exists across multiple markets, Popular will behave as "closest active merchants" because the popularity tiebreaker has no signal to act on.**
+**Until real customer redemption volume accumulates across the rolling 30-day window in multiple markets, Popular will behave as "closest active merchants" because the popularity tiebreaker has no signal to act on.**
 
 This is acceptable, intentional, and more honest than the alternative (ranking by QA noise). Specifically:
 
 - For ALL users today (post-cleanup), every merchant's `popularityScore` will be ≤ 1 (essentially zero — only `sarah.k@redeemo.dev` contributed a real-shape redemption, and that's filtered out by the domain check).
 - The intra-rung sort tiebreaker (distance ASC) takes over entirely. Popular for a London user = closest London-area merchants. Popular for a Manchester user = closest Manchester-area merchants. Popular for Bristol = closest UK-wide via cascade-equivalent rung walk.
-- As real customer redemptions accumulate (post-launch), popularity activates organically — no code change required. A Westminster merchant with 50 real redemptions in a month will start ranking ahead of an Aldgate merchant with 5.
+- As real customer redemptions accumulate (post-launch), popularity activates organically — no code change required. A Westminster merchant with 50 real redemptions over the last 30 days will start ranking ahead of an Aldgate merchant with 5.
+- The rolling 30-day window (v1.1) means popularity signal slides forward continuously — there is no "start-of-period" cliff that would re-trigger this dormant state across the entire platform.
+- **Trending fallback when sparse:** if no recent local trending supply exists, Trending hides (existing behaviour, `meta = null`) and Popular / other Home rails carry the page. v1.1 does NOT introduce a lifetime-data fallback for Trending — Trending stays strictly within the rolling 30-day window.
 - No customer-app UX treatment is added for the "dormant" state. The rail header stays "Popular on Redeemo"; tiles render with proximity chips per v1.8 contract.
 
 Spec deliberately does NOT introduce a "trending soon" or "new on Redeemo" copy variant — that's polish (§DI / §DE territory) and risks coupling the rail to the absence of data.
@@ -281,6 +299,7 @@ Backend test coverage lives in `tests/api/customer/discovery/home-feed-rail-stat
 | **§DG-5 — Dormant popularity falls through to distance** | All merchants have popularityScore = 0. London Popular rail returns closest-rung London merchants in distance-ASC order (verified by tile order). |
 | **§DG-6 — Trending inclusion query also filters QA** | Trending's top-30 redemption-count query excludes QA-flagged + QA-email redemptions. With only QA redemptions present, Trending rail = empty (meta=null). |
 | **§DG-7 — `effLoc null` path uses filtered popularity** | GPS denied + only QA redemptions → Popular returns empty (or zero tiles) instead of QA-noise tiles. |
+| **§DG-8 — Rolling 30-day window boundary (v1.1)** | Two real-customer redemptions on MerchantA: one with `redeemedAt = now - 35 days` (OUTSIDE window) + one on MerchantB with `redeemedAt = now - 5 days` (INSIDE window). MerchantA's `popularityScore = 0`; MerchantB's = 1. Verified indirectly via tile ordering (MerchantB outranks MerchantA when distance is tied). The pin also pings the unit test for `startOfRollingPopularityWindow(now)` returning exactly 30 days × 24h × 60min × 60sec × 1000ms before `now` (deterministic input/output). |
 
 ### 8.2 Existing pin updates
 
@@ -314,7 +333,8 @@ This is one of the cleanest aspects of Option D: the architectural change is con
 - New customer-app copy / visual treatment for the dormant-popularity state.
 - One-off backfill of `isTestData = true` on existing rows. Email filter covers today's noise; backfill is a follow-up if telemetry shows it's needed.
 - Per-user personalisation (interest-weighted popularity) — §DB / §DD territory.
-- Real-time popularity decay (e.g. last-7-days weight × 2 vs last-30-days). Spec uses calendar-month as the existing convention; decay is a future refinement.
+- Shorter window for Trending (e.g. rolling 7 days for "what's hot now" semantics). v1.1 ships both Popular AND Trending on the same rolling 30-day window — owner-locked simpler mental model. Splitting Trending to 7 days is a future refinement once real customer volume materialises.
+- Real-time popularity decay (e.g. exponential decay over days vs the flat 30-day cutoff). v1.1 uses a flat rolling window; weighted decay is a future refinement.
 
 ---
 
@@ -331,6 +351,8 @@ This is one of the cleanest aspects of Option D: the architectural change is con
 | Existing tests creating redemptions might fail after `isTestData` defaults | Low | Audit existing tests during plan; tests that create redemptions for "real customer" scenarios keep `isTestData=false`; tests setting up Trending/Popular state add `isTestData=true` only where they explicitly want to verify the filter. |
 | Trending breaks because top-30 inclusion now filters QA | Low — INTENDED behaviour | Trending pin #2 should verify that QA-only seed produces empty Trending. Anything else is a real bug. |
 | Owner's device-QA on `customer@redeemo.com` continues to create redemptions that never count toward popularity → owner can't easily QA real popularity behaviour | Medium | Document the workaround in the plan: device-QA can create a temporary non-QA account to test popularity build-up. Long-term, dev-only override mechanism is a §DG follow-up if needed. |
+| v1.1 rolling-30-day window — query planner cost vs anchored calendar-month | Low | Identical query shape (`redeemedAt >= <date>`). Existing index on `VoucherRedemption.redeemedAt` (verify during T1) handles both equally. Benchmark during T8 if any regression suspected. |
+| v1.1 window helper called per-request — clock skew between requests | Negligible | `new Date()` is monotonic enough for a 30-day window; sub-second drift across requests doesn't shift the boundary meaningfully. |
 
 ### 11.2 Open issues (resolved during plan, not blocking spec)
 
@@ -345,6 +367,7 @@ This is one of the cleanest aspects of Option D: the architectural change is con
 1. **Schema:** Prisma migration adding `VoucherRedemption.isTestData` Boolean + index.
 2. **Backend code:**
    - `src/api/customer/discovery/qaAccountFilter.ts` (NEW) — `QA_ACCOUNT_EMAILS` + `QA_ACCOUNT_EMAIL_DOMAINS` + `isQaAccountEmail` helper.
+   - `src/api/customer/discovery/popularityWindow.ts` (NEW, v1.1) — `ROLLING_POPULARITY_WINDOW_DAYS = 30` constant + `startOfRollingPopularityWindow(now: Date): Date` helper. Consumed by both `buildPopularRail` (`computePopularityScores`) and `buildTrendingRail` (inclusion query).
    - `src/api/customer/discovery/homeRailBuilders.ts` — `buildPopularRail` refactor per §5; `buildTrendingRail` inclusion query gets QA filter.
    - `src/api/lib/ranking.ts` — either new `categoryIntent: 'POPULAR'` mode OR new `sortBy` parameter (decided in plan).
 3. **QA scripts + seed:** all redemption-creation paths add `isTestData: true`.

@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace `buildPopularRail`'s location-blind global redemption-count pre-filter with V3-based ranking + popularity as intra-rung tiebreaker, and add a forward-compat schema flag + QA-account email filter so the popularity signal reflects real customers (not QA noise).
+**Version:** 1.1 — amended pre-T1 to encode the rolling-30-day window owner-locked at spec v1.1.
+
+**Goal:** Replace `buildPopularRail`'s location-blind global redemption-count pre-filter with V3-based ranking + popularity as intra-rung tiebreaker, and add a forward-compat schema flag + QA-account email filter so the popularity signal reflects real customers (not QA noise). v1.1 also replaces the inherited calendar-month window with a rolling 30-day window (Popular AND Trending) so there is no start-of-period cliff.
 
 **Architecture:** Three layers stack additively. (1) Schema migration adds `VoucherRedemption.isTestData` (Boolean, default false, indexed). (2) New `qaAccountFilter` module provides a compile-time email/domain check + canonical QA-account list. (3) `rankBranchesV3` gains an optional `sortBy: 'popularity'` parameter + `popularityMap`; `buildPopularRail` uses it after computing per-merchant popularity via a single aggregate query with both filters applied. `buildTrendingRail` inherits the same filter on its inclusion query. Customer-app wire shape unchanged.
 
@@ -18,8 +20,10 @@
 
 **CREATE:**
 - `prisma/migrations/<auto-timestamp>_add_voucher_redemption_is_test_data/migration.sql` — Prisma-generated schema migration.
-- `src/api/customer/discovery/qaAccountFilter.ts` — `QA_ACCOUNT_EMAILS` + `QA_ACCOUNT_EMAIL_DOMAINS` constants + `isQaAccountEmail(email)` helper + `qaAccountPrismaFilter` factory returning the Prisma `where` fragment for `VoucherRedemption.user`.
+- `src/api/customer/discovery/qaAccountFilter.ts` — `QA_ACCOUNT_EMAILS` + `QA_ACCOUNT_EMAIL_DOMAINS` constants + `isQaAccountEmail(email)` helper.
 - `tests/api/customer/discovery/qa-account-filter.test.ts` — vitest unit tests for the helper.
+- `src/api/customer/discovery/popularityWindow.ts` (v1.1) — `ROLLING_POPULARITY_WINDOW_DAYS = 30` constant + `startOfRollingPopularityWindow(now: Date): Date` helper. Consumed by both `buildPopularRail` and `buildTrendingRail` inclusion query.
+- `tests/api/customer/discovery/popularity-window.test.ts` (v1.1) — vitest unit tests for the helper.
 
 **MODIFY:**
 - `prisma/schema.prisma` — add `isTestData Boolean @default(false)` field + `@@index([isTestData])` to `VoucherRedemption` model.
@@ -215,7 +219,7 @@ Plan executes on `feature/dg-popular-ranking`, which already carries the §DG sp
 
   Expected: PASS — `8 passed (8)`.
 
-- [ ] **Step 2.5: Commit**
+- [ ] **Step 2.5: Commit qaAccountFilter**
 
   ```bash
   git add src/api/customer/discovery/qaAccountFilter.ts tests/api/customer/discovery/qa-account-filter.test.ts
@@ -226,6 +230,124 @@ Plan executes on `feature/dg-popular-ranking`, which already carries the §DG sp
   creates that skip the new isTestData flag.
 
   Spec: §6.2"
+  ```
+
+### Steps (v1.1 — popularityWindow helper)
+
+- [ ] **Step 2.6: Write the failing test for `startOfRollingPopularityWindow`**
+
+  Create `tests/api/customer/discovery/popularity-window.test.ts`:
+
+  ```ts
+  import { describe, it, expect } from 'vitest'
+  import {
+    ROLLING_POPULARITY_WINDOW_DAYS,
+    startOfRollingPopularityWindow,
+  } from '../../../../src/api/customer/discovery/popularityWindow'
+
+  // §DG v1.1 spec — rolling 30-day popularity window.  Used by both
+  // buildPopularRail (computePopularityScores) and buildTrendingRail
+  // inclusion query.  Pure function — takes `now` as Date, returns the
+  // window start (30 days × 24h × 60m × 60s × 1000ms before `now`).
+  // Deterministic for testing.
+
+  describe('startOfRollingPopularityWindow (§DG v1.1)', () => {
+    it('exposes ROLLING_POPULARITY_WINDOW_DAYS = 30', () => {
+      expect(ROLLING_POPULARITY_WINDOW_DAYS).toBe(30)
+    })
+
+    it('returns exactly 30 days before `now`', () => {
+      const now = new Date('2026-05-23T12:00:00.000Z')
+      const expected = new Date('2026-04-23T12:00:00.000Z')
+      expect(startOfRollingPopularityWindow(now).toISOString()).toBe(expected.toISOString())
+    })
+
+    it('preserves sub-day precision (rolling, not anchored to midnight)', () => {
+      const now = new Date('2026-05-23T17:45:12.123Z')
+      const expected = new Date('2026-04-23T17:45:12.123Z')
+      expect(startOfRollingPopularityWindow(now).toISOString()).toBe(expected.toISOString())
+    })
+
+    it('handles month boundary without calendar-month cliff', () => {
+      // The pre-v1.1 calendar-month implementation would have anchored to
+      // start-of-Apr (2026-04-01T00:00:00Z) for any `now` in May.  The
+      // rolling implementation returns now - 30 days regardless of month.
+      const may1 = new Date('2026-05-01T00:00:00.000Z')
+      const expected = new Date('2026-04-01T00:00:00.000Z')
+      expect(startOfRollingPopularityWindow(may1).toISOString()).toBe(expected.toISOString())
+
+      // On May 15, calendar-month would still anchor to Apr 1.  Rolling
+      // anchors to Apr 15 — 30 days before.
+      const may15 = new Date('2026-05-15T00:00:00.000Z')
+      const rollingMay15 = startOfRollingPopularityWindow(may15)
+      expect(rollingMay15.toISOString()).toBe('2026-04-15T00:00:00.000Z')
+      expect(rollingMay15.toISOString()).not.toBe('2026-04-01T00:00:00.000Z')
+    })
+
+    it('handles year boundary cleanly', () => {
+      const jan5 = new Date('2027-01-05T00:00:00.000Z')
+      const expected = new Date('2026-12-06T00:00:00.000Z')
+      expect(startOfRollingPopularityWindow(jan5).toISOString()).toBe(expected.toISOString())
+    })
+  })
+  ```
+
+- [ ] **Step 2.7: Run the test to verify it fails**
+
+  Run: `npx vitest run tests/api/customer/discovery/popularity-window.test.ts 2>&1 | tail -10`
+
+  Expected: FAIL — `Cannot find module`. Confirms RED.
+
+- [ ] **Step 2.8: Implement the popularity-window helper**
+
+  Create `src/api/customer/discovery/popularityWindow.ts`:
+
+  ```ts
+  // §DG v1.1 spec 2026-05-23-popular-ranking-design.md — rolling popularity
+  // window for Popular + Trending rail inclusion queries.
+  //
+  // Owner-locked at 30 days (Option B from the pre-T1 audit).  Eliminates
+  // the start-of-month cliff the previous calendar-month window had —
+  // popularityScore now slides forward continuously rather than resetting
+  // at 00:00 UTC on the 1st of each month.
+  //
+  // Both rails use the same window.  Trending may switch to a shorter
+  // 7-day rolling window in a follow-up brainstorm once real customer
+  // volume materialises (spec §13 deferred).
+  //
+  // `now` is parameterised for deterministic testing; production callers
+  // pass `new Date()`.
+
+  export const ROLLING_POPULARITY_WINDOW_DAYS = 30
+
+  const MILLIS_PER_DAY = 24 * 60 * 60 * 1000
+
+  export function startOfRollingPopularityWindow(now: Date): Date {
+    return new Date(now.getTime() - ROLLING_POPULARITY_WINDOW_DAYS * MILLIS_PER_DAY)
+  }
+  ```
+
+- [ ] **Step 2.9: Run the test to verify it passes**
+
+  Run: `npx vitest run tests/api/customer/discovery/popularity-window.test.ts 2>&1 | tail -10`
+
+  Expected: PASS — `5 passed (5)`.
+
+- [ ] **Step 2.10: Commit popularityWindow**
+
+  ```bash
+  git add src/api/customer/discovery/popularityWindow.ts tests/api/customer/discovery/popularity-window.test.ts
+  git commit -m "feat(discovery): popularityWindow rolling-30-day helper (§DG v1.1)
+
+  Owner-locked at 30 days (Option B from the pre-T1 audit). Replaces the
+  inherited calendar-month boundary in buildPopularRail + buildTrendingRail
+  inclusion query so popularityScore slides forward continuously rather
+  than resetting at 00:00 UTC on the 1st of each month.
+
+  ROLLING_POPULARITY_WINDOW_DAYS constant + startOfRollingPopularityWindow
+  pure function.  Consumed by both rails in Tasks 4 + 5.
+
+  Spec v1.1: §1 + §5.1 step 2 + §6 (cleanup)."
   ```
 
 ---
@@ -466,13 +588,13 @@ Plan executes on `feature/dg-popular-ranking`, which already carries the §DG sp
 
 ---
 
-## Task 4: `buildPopularRail` refactor + 6 §DG pins
+## Task 4: `buildPopularRail` refactor + 7 §DG pins (§DG-1/2/3/4/5/7/8)
 
 This is the largest task. It refactors the core Popular pipeline AND adds 6 of the 7 §DG test pins.  The remaining 7th pin (§DG-6 Trending) lands in Task 5.
 
 **Files:**
 - Modify: `src/api/customer/discovery/homeRailBuilders.ts` (`buildPopularRail` — full refactor; add private `computePopularityScores` helper above it).
-- Modify: `tests/api/customer/discovery/home-feed-rail-states.test.ts` — 6 new §DG pins (§DG-1 through §DG-5 + §DG-7).
+- Modify: `tests/api/customer/discovery/home-feed-rail-states.test.ts` — 7 new §DG pins (§DG-1/2/3/4/5/7/8). §DG-6 lands in Task 5.
 
 ### Steps
 
@@ -739,20 +861,57 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
       expect(bIdx).toBeLessThan(aIdx)
     }
   })
+
+  it('§DG-8 — rolling 30-day window: redemptions older than 30 days are excluded (v1.1)', { timeout: 30_000 }, async () => {
+    // v1.1 — verifies the rolling window boundary in the integration path.
+    // The unit test (popularity-window.test.ts) covers the helper's pure
+    // math; this pin verifies the Popular ranking honours it end-to-end.
+    //
+    // Setup: 2 London merchants.  MerchantA gets 1 redemption with
+    // `redeemedAt = 35 days ago` (OUTSIDE window).  MerchantB gets 1
+    // redemption with `redeemedAt = 5 days ago` (INSIDE window).  Same
+    // real-shape test user.  Both isTestData=false.
+    //   → A popularityScore = 0 (35 days ago is outside window).
+    //   → B popularityScore = 1.
+    //   → B outranks A within rung.
+    const LONDON = { lat: 51.5074, lng: -0.1278 }
+    const ts = Date.now()
+    const NOW_MS = Date.now()
+    const DAY_MS = 24 * 60 * 60 * 1000
+
+    // [Create merchantA + merchantB at London, both rankable.]
+    // [Create real-shape test user.]
+    // [Create redemption on merchantA with redeemedAt = new Date(NOW_MS - 35*DAY_MS), isTestData=false.]
+    // [Create redemption on merchantB with redeemedAt = new Date(NOW_MS - 5*DAY_MS),  isTestData=false.]
+
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${LONDON.lat}&lng=${LONDON.lng}`,
+    })
+    const body = JSON.parse(res.body)
+
+    const aIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantA.id)
+    const bIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantB.id)
+    expect(bIdx).toBeGreaterThanOrEqual(0)
+    expect(aIdx).toBeGreaterThanOrEqual(0)
+    // B (within-window redemption) MUST outrank A (out-of-window redemption).
+    expect(bIdx).toBeLessThan(aIdx)
+  })
   ```
 
 - [ ] **Step 4.7: Run all new §DG pins to verify they fail**
 
   Run: `npx vitest run tests/api/customer/discovery/home-feed-rail-states.test.ts -t "§DG" 2>&1 | tail -20`
 
-  Expected: 6 tests FAIL (pre-implementation). Some may fail with type errors on `isTestData` (Prisma type doesn't know about the field at fixture creation yet — Step 1 should have regenerated the client, so this should be fine). The actual assertion failures will be about ordering — pre-§DG, the new pins expect ordering that the old implementation can't produce.
+  Expected: 7 tests FAIL (pre-implementation; 6 from Steps 4.2-4.6 + §DG-8 from Step 4.6). Some may fail with type errors on `isTestData` (Prisma type doesn't know about the field at fixture creation yet — Step 1 should have regenerated the client, so this should be fine). The actual assertion failures will be about ordering — pre-§DG, the new pins expect ordering that the old implementation can't produce.
 
-- [ ] **Step 4.8: Implement `computePopularityScores` helper**
+- [ ] **Step 4.8: Implement `computePopularityScores` helper (v1.1 — rolling 30-day window)**
 
   Open `src/api/customer/discovery/homeRailBuilders.ts`. Add a private helper function above `buildPopularRail` (around line 460):
 
   ```ts
   import { QA_ACCOUNT_EMAILS, QA_ACCOUNT_EMAIL_DOMAINS } from './qaAccountFilter'
+  import { startOfRollingPopularityWindow } from './popularityWindow'
 
   // §DG spec §5.1 step 2 — per-merchant popularity score with QA filter.
   // Single aggregate query, returns Map<merchantId, count>.  Both filters
@@ -761,6 +920,10 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
   //   - user.email NOT IN QA_ACCOUNT_EMAILS
   //   - user.email NOT LIKE '%@<qa-domain>' for each QA_ACCOUNT_EMAIL_DOMAINS entry
   //
+  // §DG v1.1: time window is rolling 30 days (windowStart parameter from
+  // startOfRollingPopularityWindow).  Owner-locked at 30 days; eliminates
+  // the start-of-month cliff the previous calendar-month boundary had.
+  //
   // Implementation note: Prisma's groupBy doesn't allow nested-relation
   // filters directly in the where clause for the email-domain check, so
   // we use $queryRaw for the GROUP BY query.  This is one query per
@@ -768,8 +931,8 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
   // Map<merchantId, number>; merchants with zero qualifying redemptions
   // are absent → ranker treats them as score 0.
   async function computePopularityScores(
-    prisma:     PrismaClient,
-    monthStart: Date,
+    prisma:      PrismaClient,
+    windowStart: Date,
   ): Promise<Map<string, number>> {
     const qaEmailsList = QA_ACCOUNT_EMAILS.map((e) => e.toLowerCase())
     // Build the domain-suffix NOT-LIKE clauses.  Each domain becomes
@@ -779,7 +942,7 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
       .join(' AND ')
 
     // NOTE: QA_ACCOUNT_EMAILS is module-level + audited; no SQL injection
-    // surface here.  monthStart is a Date passed safely via parameterised
+    // surface here.  windowStart is a Date passed safely via parameterised
     // binding.
     const rows = await prisma.$queryRawUnsafe<Array<{ merchant_id: string; cnt: bigint }>>(`
       SELECT b."merchantId" AS merchant_id, COUNT(*)::bigint AS cnt
@@ -791,7 +954,7 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
         AND LOWER(u.email) NOT IN (${qaEmailsList.map((_, i) => `$${i + 2}`).join(', ')})
         AND ${domainClauses}
       GROUP BY b."merchantId"
-    `, monthStart, ...qaEmailsList)
+    `, windowStart, ...qaEmailsList)
 
     const out = new Map<string, number>()
     for (const r of rows) out.set(r.merchant_id, Number(r.cnt))
@@ -821,9 +984,9 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
     }) as RankBranchRow[]
     if (allBranches.length === 0) return { branches: [], meta: null }
 
-    // §DG step 2 — per-merchant popularity score (QA-filtered).
-    const monthStart = startOfMonthUTC(new Date())
-    const popularityMap = await computePopularityScores(prisma, monthStart)
+    // §DG step 2 — per-merchant popularity score (QA-filtered, v1.1 rolling 30-day window).
+    const windowStart = startOfRollingPopularityWindow(new Date())
+    const popularityMap = await computePopularityScores(prisma, windowStart)
 
     // §DG step 3a — no-effLoc path. Emit one branch per merchant in
     // popularityScore desc order (zeros allowed; deterministic id tiebreak).
@@ -943,13 +1106,13 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
 
   Run: `npx vitest run tests/api/customer/discovery/home-feed-rail-states.test.ts -t "§DG" 2>&1 | tail -15`
 
-  Expected: 6 §DG pins PASS. Some may have residual issues if fixture-creation field shapes diverge from the real schema (Prisma will complain about missing required fields — fix by aligning with the same fields existing pins in this file already use).
+  Expected: 7 §DG pins PASS (§DG-1/2/3/4/5/7/8). Some may have residual issues if fixture-creation field shapes diverge from the real schema (Prisma will complain about missing required fields — fix by aligning with the same fields existing pins in this file already use).
 
 - [ ] **Step 4.11: Run the full home-feed-rail-states suite for regression check**
 
   Run: `npx vitest run tests/api/customer/discovery/home-feed-rail-states.test.ts 2>&1 | tail -10`
 
-  Expected: ALL existing 16 pins PASS + 6 new §DG pins PASS = 22/22.
+  Expected: ALL existing 16 pins PASS + 7 new §DG pins PASS = 23/23.
 
   If existing Popular/Trending pins break: they likely depend on the old top-30 pre-filter behaviour. Check Task 7 (existing-test audit) for the systematic fix.
 
@@ -957,7 +1120,7 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
 
   ```bash
   git add src/api/customer/discovery/homeRailBuilders.ts tests/api/customer/discovery/home-feed-rail-states.test.ts
-  git commit -m "feat(home): buildPopularRail V3-based ranking + 6 §DG pins (§DG §5.1)
+  git commit -m "feat(home): buildPopularRail V3-based ranking + 7 §DG pins (§DG §5.1, v1.1)
 
   Drops the global top-30 redemption-count pre-filter.  Ranks UK-wide
   active merchant branches via rankBranchesV3 with sortBy='popularity'
@@ -965,15 +1128,17 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
 
   - New computePopularityScores helper: single \$queryRawUnsafe with
     isTestData=false + QA_ACCOUNT_EMAILS NOT IN + domain NOT LIKE filters.
-    Per-merchant aggregate, returns Map<merchantId, count>.
+    Per-merchant aggregate, returns Map<merchantId, count>.  Uses
+    startOfRollingPopularityWindow (v1.1 — 30-day rolling window).
   - buildPopularRail with-effLoc path: V3 + sortBy='popularity'.
   - buildPopularRail no-effLoc path: merchant-id sort by popularity desc,
     QA filter applied.
-  - 6 §DG pins covering: §DG-1 location-relevance, §DG-2 popularity
+  - 7 §DG pins covering: §DG-1 location-relevance, §DG-2 popularity
     tiebreaker, §DG-3 QA email filter, §DG-4 isTestData flag,
-    §DG-5 dormant popularity → distance tiebreak, §DG-7 no-effLoc path.
+    §DG-5 dormant popularity → distance tiebreak, §DG-7 no-effLoc path,
+    §DG-8 rolling 30-day window boundary.
 
-  Spec: §5.1 + §6.2 + §8.1"
+  Spec: §5.1 + §6.2 + §8.1 (v1.1 — rolling window)"
   ```
 
 ---
@@ -1026,10 +1191,14 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
 
   Open `src/api/customer/discovery/homeRailBuilders.ts`. Find the `buildTrendingRail` function (around line 333). Update the inclusion query (currently lines ~343-356) to filter QA:
 
+  Make sure `startOfRollingPopularityWindow` is imported at the top of the file (it should already be imported from Task 4 Step 4.8; if not, add `import { startOfRollingPopularityWindow } from './popularityWindow'`).
+
   ```ts
-  // ── 1. Inclusion: top merchants by current-month redemption count
+  // ── 1. Inclusion: top merchants by recent redemption count
   //    (real-customer redemptions only — §DG QA filter applied).
-  const monthStart = startOfMonthUTC(new Date())
+  //    §DG v1.1: time window is rolling 30 days (same as Popular —
+  //    owner-locked at spec v1.1 to eliminate the start-of-month cliff).
+  const windowStart = startOfRollingPopularityWindow(new Date())
   const qaEmailsList = QA_ACCOUNT_EMAILS.map((e) => e.toLowerCase())
   const domainClauses = QA_ACCOUNT_EMAIL_DOMAINS
     .map((d) => `LOWER(u.email) NOT LIKE '%@${d.toLowerCase()}'`)
@@ -1043,7 +1212,7 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
       AND r."isTestData" = false
       AND LOWER(u.email) NOT IN (${qaEmailsList.map((_, i) => `$${i + 2}`).join(', ')})
       AND ${domainClauses}
-  `, monthStart, ...qaEmailsList)
+  `, windowStart, ...qaEmailsList)
 
   const counts: Record<string, number> = {}
   for (const r of recent) {
@@ -1333,7 +1502,7 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
 
 ---
 
-## Spec self-review (against `docs/superpowers/specs/2026-05-23-popular-ranking-design.md` v1.0)
+## Spec self-review (against `docs/superpowers/specs/2026-05-23-popular-ranking-design.md` v1.1)
 
 **1. Spec coverage:**
 
@@ -1357,10 +1526,14 @@ This is the largest task. It refactors the core Popular pipeline AND adds 6 of t
 | §6.4 QA scripts | Task 6 |
 | §6.5 No upfront seed reset | Implicit — no row-deletion task; audit tool reflects this |
 | §7 Honesty caveat | Task 4.6 §DG-5 |
-| §8.1 7 new pins | Task 4 (6 pins) + Task 5 (1 pin) |
+| §8.1 8 new pins (v1.1) | Task 4 (7 pins — §DG-1/2/3/4/5/7/8) + Task 5 (1 pin — §DG-6) |
 | §8.2 Existing test audit | Task 7 |
 | §9 Customer-app unchanged | Task 8.2 verifies |
-| §12 Deliverables | All 7 items mapped to tasks 1-6 |
+| §12 Deliverables (incl. v1.1 popularityWindow.ts) | All 8 items mapped to tasks 1-6 |
+| **v1.1** rolling-30-day window helper (`popularityWindow.ts`) | Task 2.6-2.10 |
+| **v1.1** Popular uses windowStart from helper | Task 4.8 + 4.9 |
+| **v1.1** Trending uses windowStart from helper | Task 5.3 |
+| **v1.1** §DG-8 window-boundary pin | Task 4.6 (added after §DG-7) |
 
 **No gaps.** Every spec requirement maps to at least one task.
 
@@ -1374,7 +1547,8 @@ Other placeholder checks: no "TBD" / "implement later" / "fill in details" / "Ad
 
 - `RankInputV3.sortBy?: 'distance' | 'quality' | 'popularity'` defined in Task 3.4, used in Tasks 3.5 + 4.9. ✅
 - `RankInputV3.popularityMap?: Map<string, number>` defined in Task 3.4, used in Tasks 3.5 + 4.9. ✅
-- `computePopularityScores(prisma, monthStart): Promise<Map<string, number>>` defined in Task 4.8, used in Task 4.9. ✅
+- `computePopularityScores(prisma, windowStart): Promise<Map<string, number>>` defined in Task 4.8, used in Task 4.9. ✅
+- `startOfRollingPopularityWindow(now): Date` + `ROLLING_POPULARITY_WINDOW_DAYS` constant defined in Task 2.8, used in Tasks 4.9 (Popular) + 5.3 (Trending). ✅
 - `QA_ACCOUNT_EMAILS` + `QA_ACCOUNT_EMAIL_DOMAINS` + `isQaAccountEmail` defined in Task 2.3, used in Tasks 4.8 + 5.3 (raw SQL string interpolation). ✅
 - `VoucherRedemption.isTestData` schema field defined in Task 1.1, used in Tasks 4.8 + 5.3 (Prisma `where` clauses) + Task 6 (QA script `data` objects). ✅
 
