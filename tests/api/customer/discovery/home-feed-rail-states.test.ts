@@ -373,4 +373,49 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
       expect(body.locationContext.source).not.toBe('none')
     }
   })
+
+  it('v1.6 — NBC rails are PARENT-category grouped (Pizza Restaurant + Indian Cafe roll up into Food & Drink, never as separate leaf rails)', { timeout: 30_000 }, async () => {
+    // v1.6 PR #126 device-QA-4 owner direction (2026-05-23): NearbyByCategory
+    // rails group by parent category, not leaf category.  A merchant whose
+    // `primaryCategory` is a subcategory ("Pizza Restaurant", "Nail Salon",
+    // "Barber") should fall under its parent's rail header ("Food & Drink",
+    // "Beauty & Wellness") — the per-tile `BranchTile.merchant.descriptor`
+    // still carries the leaf differentiator.
+    //
+    // The structural pin is: every rail's `category.id` must be a
+    // top-level category (i.e. `parentId === null` in the Category table).
+    // No leaf category should ever appear as a rail header.
+    const HUDDERSFIELD = { lat: 53.6452, lng: -1.7807 }  // dense seed market
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // Hard precondition — seed has Huddersfield supply, so we expect
+    // at least one rail.  If this ever drops to 0 in the seed, the
+    // assertion below is vacuously true; the precondition keeps the
+    // test honest.
+    expect(body.nearbyByCategoryRails.length).toBeGreaterThanOrEqual(1)
+
+    // Resolve each rail's category and confirm it's a top-level row.
+    // We hit the DB directly (test runs against the live test DB) to
+    // verify `parentId === null` for every emitted rail category.
+    const railCategoryIds: string[] = body.nearbyByCategoryRails.map(
+      (r: any) => r.category.id,
+    )
+    const dbCategories = await prisma.category.findMany({
+      where:  { id: { in: railCategoryIds } },
+      select: { id: true, name: true, parentId: true },
+    })
+    const byId = new Map(dbCategories.map((c) => [c.id, c]))
+
+    for (const railId of railCategoryIds) {
+      const row = byId.get(railId)
+      expect(row).toBeDefined()
+      // The load-bearing assertion: rail headers are PARENT categories.
+      expect(row?.parentId).toBeNull()
+    }
+  })
 })

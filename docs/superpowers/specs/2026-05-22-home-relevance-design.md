@@ -1,10 +1,40 @@
 # Home Relevance — Design Spec
 
-**Version:** 1.5 (PR #126 device-QA-3 owner refinement: local-first not local-only — NBC cascade fill + `{Category} on Redeemo` + `<NearbyContextBanner>`)
-**Status:** Implemented in PR #126 (feature/home-relevance) — pending final device-QA + SHA-bound merge
+**Version:** 1.6 (PR #126 device-QA-4 owner direction: parent-category grouping + `homeCategoryRailLabel` + See-all suppression on one-card rails)
+**Status:** Implemented in PR #126 (feature/home-relevance) — pending device-QA-5 + SHA-bound merge
 **Tier:** 3 (new backend contract, new customer-app contract, new locked product principles)
-**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23)
+**Brainstorm:** in-session 2026-05-22 (10-section package + section 11 sticky-controls extension + D1–D12 owner decisions + spec-review fallback note v1.1 + spec-review consistency note v1.2 + device-QA-1 + device-QA-2 owner direction 2026-05-23 + device-QA-3 Halifax direction 2026-05-23 + device-QA-3 refinement "local-first not local-only" 2026-05-23 + device-QA-4 Halifax/Manchester finding "leaf rails feel thin" 2026-05-23)
 **Prior audit:** Explore-agent audit of `getHomeFeed()` + customer-app Home rails + ranking utilities, 2026-05-22
+
+## v1.6 changelog (2026-05-23) — parent-category grouping
+
+PR #126 device-QA-4 finding: v1.5 closed the empty-Home problem, but Halifax/Manchester device QA showed the next-level weakness — leaf-category rails (Nail Salon, Barber, Aesthetics Clinic) frequently had only ONE merchant each, making Home look thin / broken / like Redeemo has one merchant per category. The repeated "See all" chip on one-card rails compounded the misleading visual.
+
+Owner direction (locked): for Home discovery, especially while supply is sparse, category rails group by PARENT category. Cards inside the rail still show the leaf-level descriptor (Nail Salon, Barber, Italian Restaurant) via `BranchTile.merchant.descriptor`. One-card rails hide their See-all chip.
+
+Five changes on top of v1.5:
+
+1. **Parent-category grouping (backend §6.3).** `buildNearbyByCategoryRails` groups both the local-first loop AND the cascade fill by `primaryCategory.parent?.id ?? primaryCategory.id` instead of the leaf `primaryCategoryId`. A merchant whose `primaryCategory` is a subcategory ("Pizza Restaurant", "Barber") falls under its parent's rail header ("Food & Drink", "Beauty & Wellness"); merchants whose `primaryCategory` is already top-level collapse to themselves. `NEARBY_MAX_CATEGORIES = 6` and `NEARBY_CATEGORY_TAKE = 5` stay — caps are now per parent rail. Cascade dedup is JS-side (parent-keyed `usedCategoryIds`) since the legacy SQL `notIn` filter was leaf-keyed.
+
+2. **`homeCategoryRailLabel` display helper (§8.2).** Customer-app helper at `apps/customer-app/src/features/home/utils/homeCategoryRailLabel.ts` produces sentence-case + " picks" so rail headers don't read like a plain duplicate of the top category navigation grid:
+   - "Food & Drink" → "Food & drink picks"
+   - "Beauty & Wellness" → "Beauty & wellness picks"
+   - "Health & Fitness" → "Health & fitness picks"
+   - "Out & About" → "Out & about picks"
+   - "Shopping" → "Shopping picks"
+   Empty / whitespace-only input → defensive fallback to bare "picks".
+
+3. **`{Category} on Redeemo` retired (§8.2).** v1.5's cascade-specific suffix variant is REMOVED. The `<NearbyContextBanner>` already carries the platform-claim message when any rail is cascaded — repeating "on Redeemo" on every rail was redundant. Local + cascade NearbyByCategory rails now share the same label rule (helper-driven). Scope-aware copy still exists on Featured (`Featured on Redeemo` cascade variant unchanged) — only NearbyByCategory rails drop the suffix.
+
+4. **See-all suppression on one-card rails (§8.8).** `<NearbyByCategory>` hides the See-all chip when `rail.branches.length < 2`. With parent grouping a one-card rail genuinely means the parent category has only one merchant within reach, so the chevron promise of more is misleading. Threshold locked at `>= 2`. Header text remains tappable for completeness.
+
+5. **`BranchTile` card descriptor preserved (§9.1).** No card-side wire change required. `BranchTile.merchant` already carries both `primaryCategory` (now the parent) AND `subcategory` AND `descriptor` (the leaf differentiator). Cards inside "Food & drink picks" still render "Italian Restaurant" / "Pizza Place" / "Indian Cafe" as their descriptor — owner direction satisfied.
+
+**Spec sections amended:** §6.3 builder pipeline (parent grouping step) — §7 phrase library (parent variants + retired cascade variant) — §8.2 helper spec — §8.8 dedup table (See-all chip rule).
+
+**Scope discipline (unchanged):** no Campaign / sticky-controls / Map / Search / customer-web / visual redesign. v1.6 is a Home relevance contract amendment only.
+
+**§DD residual after v1.6:** deterministic ordering across cascade pool + interest-based parent ordering (User.interests → weight which parent rails appear first). Both remain Tier 2 brainstorm-first under §DD.
 
 ## v1.5 changelog (2026-05-23) — locked product rule: Home is local-first, not local-only
 
@@ -284,11 +314,11 @@ The `allBranchesInLocality` derivation runs client-side in `<FeaturedCarousel>` 
 
 **Cross-rail invariant:** `trending.meta` and `popular.meta` MUST be mutually exclusive when `source !== 'none'`. At most one of the two rails ever renders in that state. In `source === 'none'` state, Trending is forced null and Popular evaluates independently. Backend asserts this in the response builder.
 
-### 6.3 NearbyByCategory rails (v1.5 amended — local-first not local-only)
+### 6.3 NearbyByCategory rails (v1.6 amended — parent-category grouping)
 
-**Inclusion + cascade (v1.5):**
-1. **Local-first pass** — geographic-catchment merchant pool, bbox-filtered around `effLoc.lat/lng` (`±0.3°`, matching `prisma/profile-nearest-locality-at4.ts` pattern). Pool size: 100. Merchants grouped by `primaryCategoryId`. Per-category: rank via `rankBranchesV3` → strict NEARBY+CITY scope filter (`resolveScopeForHomeRail('nearbyByCategory', ...)`) → append strict-locality tail per §6.4.1 → enrich. Surviving categories render with `meta.scopeExpanded === false` and `<RailHeader>` shows the bare category name (`Restaurants` / `Cafes & Coffee` / `Barber`).
-2. **Cascade fill (v1.5 new — β1 + β5 + β7)** — if the local-first loop produced fewer than `NEARBY_MAX_CATEGORIES` (6) rails, top up with UK-wide platform-fetch. Cascade pool: `prisma.merchant.findMany({ status: ACTIVE, primaryCategoryId NOT IN local-rails, branches.some({ isActive: true }) }, take: 200)`. Same per-category grouping (5 merchants). For each cascade category:
+**Inclusion + cascade (v1.5) + parent-grouping (v1.6):**
+1. **Local-first pass** — geographic-catchment merchant pool, bbox-filtered around `effLoc.lat/lng` (`±0.3°`, matching `prisma/profile-nearest-locality-at4.ts` pattern). Pool size: 100. **Merchants grouped by `primaryCategory.parent?.id ?? primaryCategory.id` (v1.6 — parent rollup; was leaf `primaryCategoryId` in v1.5).** Per-parent-category: rank via `rankBranchesV3` → strict NEARBY+CITY scope filter (`resolveScopeForHomeRail('nearbyByCategory', ...)`) → append strict-locality tail per §6.4.1 → enrich. Surviving parent categories render with `meta.scopeExpanded === false` and `<RailHeader>` applies `homeCategoryRailLabel()` to produce `"{Sentence-cased parent} picks"` (e.g. `Food & drink picks`, `Beauty & wellness picks`). Per-tile descriptor on `BranchTile.merchant.descriptor` continues to carry the leaf differentiator (Italian Restaurant, Pizza Place, Nail Salon, Barber).
+2. **Cascade fill (v1.5 new — β1 + β5 + β7; v1.6 parent-keyed dedup)** — if the local-first loop produced fewer than `NEARBY_MAX_CATEGORIES` (6) rails, top up with UK-wide platform-fetch. **Cascade pool (v1.6): `prisma.merchant.findMany({ status: ACTIVE, branches.some({ isActive: true }) }, take: 200)` — the legacy SQL `primaryCategoryId NOT IN local-rails` filter was leaf-keyed; v1.6 dedup runs JS-side via `usedCategoryIds` (parent-keyed Set) against `railGroupingCategory(merchant)`.** Same per-parent-category grouping (5 merchants). For each cascade category:
    - Rank via `rankBranchesV3` (same params as local).
    - **No scope filter** — all rungs accepted.
    - **Permissive tail** (no strict-locality identity gate per β7 — rail no longer claims locality).
@@ -308,12 +338,13 @@ Pre-v1.5 history: v1.3 used `branch.city === locationCtx.city` string-match (exc
 3. Surviving per-category rails sorted within rung by distance (LOCAL intent default — appropriate for the "near me browse" purpose).
 4. Append non-rankable tail per §6.4 (subject to strict-locality identity gate) only when per-category ranked supply > 0.
 
-**Header copy per category rail:**
-- Supply present → `{Category.name} near you`
-- No supply → rail hidden (per-category)
-- All categories hidden AND effLoc resolved → `<NearbySectionEmpty>` renders (see §8.4)
+**Header copy per category rail (v1.6 — parent-grouped):**
+- Local rail (`meta.scopeExpanded === false`) → `homeCategoryRailLabel(parentName)` → e.g. `Food & drink picks`
+- Cascade rail (`meta.scopeExpanded === true`) → SAME helper output (v1.6 retired the cascade-specific `{Category} on Redeemo` suffix; the `<NearbyContextBanner>` carries the platform-claim message)
+- No supply → rail hidden (per-parent-category)
+- All categories hidden AND effLoc resolved (effectively unreachable post-v1.5 cascade) → `<NearbySectionEmpty>` renders (see §8.4)
 
-**Top-level limit:** existing `slice(0, 6)` categories cap is preserved. After scope filter, the first 6 categories WITH local-tier supply render. If fewer than 6 categories have local-tier supply, fewer rails render — this is correct per P4.
+**Top-level limit:** `NEARBY_MAX_CATEGORIES = 6` parent rails total. `NEARBY_CATEGORY_TAKE = 5` merchants per parent rail. Both caps unchanged in v1.6 — the rollup pulls more variety into each rail rather than producing more rails. If fewer than 6 parents have local-tier supply, cascade fill tops up with cascaded parent rails (still capped at 6 total).
 
 ### 6.4 POSTCODE_CENTROID + NEEDS_REVIEW non-rankable tail (D9) — v1.2 strict-locality gate
 
@@ -387,13 +418,24 @@ This worksheet covers **rail header copy only**. Empty-state copy + section-leve
 | Featured | DISTANT cascade (scopeExpanded=true) | `Featured on Redeemo` | `Here are the closest matches we have` |
 | Trending | NEARBY+CITY supply | `Trending near you` | — |
 | Popular on Redeemo | UK-wide supply (fires when Trending empty OR no-location) | `Popular on Redeemo` | — |
-| NearbyByCategory | Local NEARBY+CITY supply (`meta.scopeExpanded === false`) | `{Category.name}` (bare neutral name — PR #126 fixup `5b21901` dropped the `near you` suffix) | — |
-| NearbyByCategory | Cascaded platform supply (`meta.scopeExpanded === true` — v1.5 β1) | `{Category.name} on Redeemo` | — |
+| NearbyByCategory | Local supply (`meta.scopeExpanded === false`) — v1.6 parent-grouped | `homeCategoryRailLabel(parent.name)` → e.g. `Food & drink picks`, `Beauty & wellness picks` | — |
+| NearbyByCategory | Cascaded supply (`meta.scopeExpanded === true`) — v1.6 same helper output (retired v1.5 `{Category} on Redeemo` suffix) | `homeCategoryRailLabel(parent.name)` (banner carries platform claim) | — |
+
+**`homeCategoryRailLabel` helper (v1.6 — locked):** `apps/customer-app/src/features/home/utils/homeCategoryRailLabel.ts`. Inputs the parent category name; outputs sentence-case + " picks":
+- `Food & Drink` → `Food & drink picks`
+- `Beauty & Wellness` → `Beauty & wellness picks`
+- `Health & Fitness` → `Health & fitness picks`
+- `Out & About` → `Out & about picks`
+- `Shopping` → `Shopping picks`
+- Empty / whitespace input → defensive `picks`
+
+The label rule is identical for local AND cascade rails — the `<NearbyContextBanner>` carries the cascade claim in one place rather than 6× per-rail suffixes. Avoids feeling like a plain duplicate of the top category navigation grid (which renders bare parent names).
 
 **Locked phrase rules:**
 - `near you` appears ONLY when every tile in the rail is NEARBY/CITY tier per `rankBranchesV3` OR passes the §6.4 strict-locality identity gate.
 - `in {City}` is used when `meta.locality.name` is available + supply is NEARBY+CITY tier. Falls back to `near you` if locality name is somehow unavailable (defensive).
-- `on Redeemo` is the canonical "platform-wide" qualifier — used on Featured cascade and on Popular sibling.
+- `on Redeemo` is the canonical "platform-wide" qualifier — used on Featured cascade and on Popular sibling. NearbyByCategory cascade rails do NOT carry this suffix (v1.6 — banner does that work).
+- `picks` is the v1.6 suffix on NearbyByCategory rail labels (parent-grouped). Only applies to `railKind="nearbyByCategory"`.
 - `Here are the closest matches we have` is the canonical subtitle for any cascaded "on Redeemo"-style header on Home (currently used by Featured cascade only).
 - No em dashes in user-facing rail copy (existing standing rule, applies to all copy in this spec).
 - All copy is British English (existing standing rule).
@@ -575,7 +617,9 @@ interface NearbyContextBannerProps {
 
 **Locked owner direction (v1.5 β2 + β3):** banner gives context without making Home feel empty; minimal visual; defers visual design polish to §DE; coexists with the cascade rails it contextualises.
 
-### 8.8 Interaction between fallbacks — dedup rules (v1.2 + v1.5 updated)
+### 8.8 Interaction between fallbacks — dedup rules (v1.2 + v1.5 + v1.6 updated)
+
+**v1.6 — "See all" chip suppression on one-card NearbyByCategory rails (locked):** `<NearbyByCategory>` MUST hide its trailing `See all ›` chip whenever `rail.branches.length < 2`. A one-card rail with a See-all chip implies more merchants behind it; with parent-category grouping a one-card rail genuinely means that parent category has only one merchant within reach. Threshold is locked at `>= 2`; rail header text stays tappable but without the chevron promise.
 
 Hard rules enforced by the customer-app render layer to avoid stacking CTAs (operationalises §8.1 principle 2):
 

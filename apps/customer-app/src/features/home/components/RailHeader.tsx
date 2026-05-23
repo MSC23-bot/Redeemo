@@ -1,6 +1,7 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Text } from '@/design-system/Text'
+import { homeCategoryRailLabel } from '../utils/homeCategoryRailLabel'
 
 type RailMeta = {
   locality:      { id: string; name: string } | null
@@ -45,22 +46,24 @@ export function RailHeader({ fixedCopy, meta, fallbackCopy, subtitle, railKind, 
       return 'Featured near you'
     }
     if (railKind === 'nearbyByCategory' && categoryName) {
-      // PR #126 device-QA fixup (2026-05-23): drop the per-category `near you`
-      // suffix.  Owner direction — repeating `near you` on every category
-      // rail header (e.g. "Restaurant near you", "Cafe & Coffee near you",
-      // "Barber near you") felt clunky.  The nearbyByCategory section as a
-      // whole sits inside the locality-first relevance model, and each tile
-      // carries distance + proximity-band chips, so the rail-level claim is
-      // preserved at the tile level without repeating "near you" six times.
+      // v1.6 (PR #126 device-QA-4 owner direction 2026-05-23): backend now
+      // groups NearbyByCategory rails by PARENT category (e.g. "Food &
+      // Drink") rather than leaf category (e.g. "Pizza Restaurant",
+      // "Indian Cafe").  The per-tile `BranchTile.merchant.descriptor`
+      // still carries the leaf-level differentiator so cards inside the
+      // rail show "Italian Restaurant", "Barber", etc.
       //
-      // v1.5 (PR #126 device-QA-3 owner direction 2026-05-23): when the
-      // category rail has cascaded to platform supply (β1 — backend signals
-      // via meta.scopeExpanded=true), render the platform-honest variant
-      // `{Category} on Redeemo` instead of the bare neutral name.  Mirrors
-      // the Featured cascade framing.  Locality-claim rails (scopeExpanded
-      // === false) continue to use the bare neutral name.
-      if (meta.scopeExpanded) return `${categoryName} on Redeemo`
-      return categoryName
+      // The rail header MUST NOT feel like a plain duplicate of the top
+      // category navigation grid (which uses bare parent names).  Apply
+      // `homeCategoryRailLabel()` to produce sentence-case + " picks":
+      //   "Food & Drink"      → "Food & drink picks"
+      //   "Beauty & Wellness" → "Beauty & wellness picks"
+      //
+      // The cascade-specific `{Category} on Redeemo` variant (v1.5) is
+      // RETIRED — the <NearbyContextBanner> already carries the platform-
+      // claim message when any rail is cascaded.  Local + cascade rails
+      // share the same label rule.
+      return homeCategoryRailLabel(categoryName)
     }
     return fallbackCopy ?? ''
   })()

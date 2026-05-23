@@ -624,14 +624,40 @@ const NEARBY_MERCHANT_POOL_TAKE = 60  // top-level merchant pool size
 
 // Merchant row shape used by the inclusion query — we need enough to fan
 // out to branches with RANK_BRANCH_SELECT, plus primaryCategoryId +
-// primaryCategory for the per-category group + header copy.  Locally
-// declared so the builder doesn't depend on Prisma's generated type for
-// MERCHANT_TILE_SELECT (which carries far more fields than we need here).
+// primaryCategory (with parent) for the per-category group + header copy.
+// Locally declared so the builder doesn't depend on Prisma's generated
+// type for MERCHANT_TILE_SELECT (which carries far more fields than we
+// need here).
+//
+// v1.6 (PR #126 device-QA-4 2026-05-23): grouping is now parent-category
+// based.  `primaryCategory.parent` is the rail header category when the
+// merchant's primaryCategory is a subcategory; falls back to
+// primaryCategory itself when the merchant's primaryCategory is already
+// a top-level category.  The `parent?.id ?? id` collapse happens in
+// the grouping step.
 type NearbyCategoryMerchantRow = {
   id:                string
   businessName:      string
   primaryCategoryId: string | null
-  primaryCategory:   { id: string; name: string } | null
+  primaryCategory:   {
+    id:       string
+    name:     string
+    parentId: string | null
+    parent:   { id: string; name: string } | null
+  } | null
+}
+
+// v1.6 helper — given the merchant row, return the rail-grouping category
+// (parent if subcategory; self if already top-level; null if merchant has
+// no primaryCategory at all).  Used by both the local-first loop and the
+// cascade fill loop so behaviour is identical.
+function railGroupingCategory(
+  m: NearbyCategoryMerchantRow,
+): { id: string; name: string } | null {
+  const pc = m.primaryCategory
+  if (!pc) return null
+  if (pc.parent) return { id: pc.parent.id, name: pc.parent.name }
+  return { id: pc.id, name: pc.name }
 }
 
 /**
@@ -694,7 +720,14 @@ export async function buildNearbyByCategoryRails(
       id:                true,
       businessName:      true,
       primaryCategoryId: true,
-      primaryCategory:   { select: { id: true, name: true } },
+      primaryCategory:   {
+        select: {
+          id:       true,
+          name:     true,
+          parentId: true,
+          parent:   { select: { id: true, name: true } },
+        },
+      },
     },
     take: NEARBY_MERCHANT_POOL_TAKE,
   }) as NearbyCategoryMerchantRow[]
@@ -702,16 +735,24 @@ export async function buildNearbyByCategoryRails(
   // fill (§6.3 step 2) so users with zero merchants in their bbox still
   // see UK-wide cascaded category rails ("local-first, not local-only").
 
-  // ── 2. Group local pool by primaryCategoryId — cap 5 merchants per
-  //    category, cap 6 categories total.  Mirrors legacy ordering:
-  //    first-seen merchant drives the category header (its primaryCategory
-  //    provides id + name).
+  // ── 2. Group local pool by PARENT category id — cap 5 merchants per
+  //    parent rail, cap 6 parent rails total.  v1.6 (PR #126 device-QA-4
+  //    2026-05-23): leaf-category grouping in v1.5 produced one-merchant
+  //    rails like "Nail Salon" / "Barber" / "Aesthetics Clinic" that made
+  //    Home look thin in supply-sparse markets.  Parent grouping rolls
+  //    these into a single dense "Beauty & Wellness" rail; the per-tile
+  //    descriptor on `BranchTile.merchant.descriptor` still carries the
+  //    leaf-level differentiator (Nail Salon, Barber, etc.).
+  //
+  //    Grouping key: `primaryCategory.parent?.id ?? primaryCategory.id`
+  //    handles both subcategory primaries (most merchants) AND merchants
+  //    whose primaryCategory is already top-level (collapsed to self).
   const byCategory: Record<string, NearbyCategoryMerchantRow[]> = {}
   for (const m of merchantPool) {
-    const cat = m.primaryCategoryId
-    if (!cat) continue
-    if (!byCategory[cat]) byCategory[cat] = []
-    if (byCategory[cat].length < NEARBY_CATEGORY_TAKE) byCategory[cat].push(m)
+    const group = railGroupingCategory(m)
+    if (!group) continue
+    if (!byCategory[group.id]) byCategory[group.id] = []
+    if (byCategory[group.id].length < NEARBY_CATEGORY_TAKE) byCategory[group.id].push(m)
   }
   const groupedCategories = Object.entries(byCategory).slice(0, NEARBY_MAX_CATEGORIES)
   // v1.5: again, no early-return — cascade-fill handles the empty case.
@@ -809,10 +850,17 @@ export async function buildNearbyByCategoryRails(
     }
     const enriched = await enrichBranchTiles(prisma, sliced as EnrichBranchInput[], ctx)
 
-    const headerCategory = merchants[0]?.primaryCategory ?? { id: catId, name: '' }
+    // v1.6: header carries the PARENT category (or the merchant's
+    // primaryCategory if it's already top-level).  The customer-app
+    // `<RailHeader>` applies `homeCategoryRailLabel()` to produce the
+    // display copy (e.g. "Food & drink picks").  Fallback to `catId`
+    // when fixture data is incomplete in tests.
+    const firstMerchant  = merchants[0]
+    const headerCategory = firstMerchant ? railGroupingCategory(firstMerchant) : null
+    const railCategory   = headerCategory ?? { id: catId, name: '' }
 
     rails.push({
-      category: { id: headerCategory.id, name: headerCategory.name },
+      category: { id: railCategory.id, name: railCategory.name },
       branches: enriched,
       meta: {
         locality:      locationCtx.locality,
@@ -840,32 +888,44 @@ export async function buildNearbyByCategoryRails(
   // Order is Prisma findMany insertion order (matches local-loop
   // ordering; deterministic ordering is deferred to §DD).
   if (rails.length < NEARBY_MAX_CATEGORIES) {
+    // v1.6: `usedCategoryIds` now contains PARENT category ids (the new
+    // grouping key).  The legacy SQL `notIn` filter was leaf-keyed against
+    // `Merchant.primaryCategoryId` — that no longer matches parent ids, so
+    // dedup moved to the JS grouping step below.  The bbox + active-branch
+    // filters stay in SQL; parent-keyed dedup runs after `railGroupingCategory`.
     const usedCategoryIds = new Set(rails.map(r => r.category.id))
     const remaining       = NEARBY_MAX_CATEGORIES - rails.length
 
     const cascadePool = await prisma.merchant.findMany({
       where: {
-        status:            MerchantStatus.ACTIVE,
-        primaryCategoryId: usedCategoryIds.size > 0
-          ? { notIn: Array.from(usedCategoryIds) }
-          : undefined,
+        status:   MerchantStatus.ACTIVE,
         branches: { some: { isActive: true } },
       },
       select: {
         id:                true,
         businessName:      true,
         primaryCategoryId: true,
-        primaryCategory:   { select: { id: true, name: true } },
+        primaryCategory:   {
+          select: {
+            id:       true,
+            name:     true,
+            parentId: true,
+            parent:   { select: { id: true, name: true } },
+          },
+        },
       },
       take: 200,
     }) as NearbyCategoryMerchantRow[]
 
     const cascadeByCat: Record<string, NearbyCategoryMerchantRow[]> = {}
     for (const m of cascadePool) {
-      const cat = m.primaryCategoryId
-      if (!cat) continue
-      if (!cascadeByCat[cat]) cascadeByCat[cat] = []
-      if (cascadeByCat[cat].length < NEARBY_CATEGORY_TAKE) cascadeByCat[cat].push(m)
+      const group = railGroupingCategory(m)
+      if (!group) continue
+      // v1.6 JS-side dedup: skip merchants whose parent rail is already
+      // filled by the local-first loop.
+      if (usedCategoryIds.has(group.id)) continue
+      if (!cascadeByCat[group.id]) cascadeByCat[group.id] = []
+      if (cascadeByCat[group.id].length < NEARBY_CATEGORY_TAKE) cascadeByCat[group.id].push(m)
     }
     const cascadeCategories = Object.entries(cascadeByCat).slice(0, remaining)
 
@@ -949,10 +1009,13 @@ export async function buildNearbyByCategoryRails(
         }
         const enriched = await enrichBranchTiles(prisma, sliced as EnrichBranchInput[], ctx)
 
-        const headerCategory = merchants[0]?.primaryCategory ?? { id: catId, name: '' }
+        // v1.6: header carries the PARENT category (same rule as local loop).
+        const firstMerchant  = merchants[0]
+        const headerCategory = firstMerchant ? railGroupingCategory(firstMerchant) : null
+        const railCategory   = headerCategory ?? { id: catId, name: '' }
 
         rails.push({
-          category: { id: headerCategory.id, name: headerCategory.name },
+          category: { id: railCategory.id, name: railCategory.name },
           branches: enriched,
           meta: {
             locality:      locationCtx.locality,

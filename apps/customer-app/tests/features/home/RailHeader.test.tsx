@@ -13,16 +13,21 @@ describe('<RailHeader>', () => {
     [{ meta: featuredCascade, railKind: 'featured' as const, subtitle: 'Here are the closest matches we have' }, 'Featured on Redeemo'],
     [{ meta: trendingLocal, fallbackCopy: 'Trending near you' }, 'Trending near you'],
     [{ meta: null, fixedCopy: 'Popular on Redeemo' }, 'Popular on Redeemo'],
-    // PR #126 device-QA fixup (2026-05-23): per-category rails render just
-    // the category name (no `near you` suffix).  See RailHeader.tsx for the
-    // owner direction + rationale.
-    [{ meta: trendingLocal, railKind: 'nearbyByCategory' as const, categoryName: 'Restaurant' }, 'Restaurant'],
-    [{ meta: trendingLocal, railKind: 'nearbyByCategory' as const, categoryName: 'Cafe & Coffee' }, 'Cafe & Coffee'],
-    // v1.5 PR #126 device-QA-3 (β1, 2026-05-23): cascaded category rails
-    // render `{Category} on Redeemo` when meta.scopeExpanded === true.
-    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Restaurant' }, 'Restaurant on Redeemo'],
-    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Cafe & Coffee' }, 'Cafe & Coffee on Redeemo'],
-    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Barber' }, 'Barber on Redeemo'],
+    // v1.6 PR #126 device-QA-4 (2026-05-23): NearbyByCategory rails are
+    // PARENT-category grouped, and the header copy uses `homeCategoryRailLabel`
+    // to produce "{Sentence-cased parent} picks".  The cascade-specific
+    // `{Category} on Redeemo` variant (v1.5) is RETIRED — local + cascade
+    // share the same label rule.  The <NearbyContextBanner> now carries
+    // the platform-claim message instead.
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Food & Drink' },      'Food & drink picks'],
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Beauty & Wellness' }, 'Beauty & wellness picks'],
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Health & Fitness' },  'Health & fitness picks'],
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Out & About' },       'Out & about picks'],
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Shopping' },          'Shopping picks'],
+    // Cascade rails (scopeExpanded=true) use the SAME label rule — no
+    // "on Redeemo" suffix.  The banner does the platform-claim work.
+    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Food & Drink' },      'Food & drink picks'],
+    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Beauty & Wellness' }, 'Beauty & wellness picks'],
     // v1.4 PR #126 device-QA-3 (Featured copy honesty): Featured in {City}
     // is reserved for in-locality supply; CATCHMENT/POST_TOWN tier renders
     // "Featured near {City}".

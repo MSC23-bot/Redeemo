@@ -43,7 +43,16 @@ export function NearbyByCategory({ rails, onBranchPress, onCategoryPress, onFavo
 
   return (
     <View style={{ paddingBottom: 100, gap: spacing[6] }}>
-      {visibleRails.map((rail) => (
+      {visibleRails.map((rail) => {
+        // v1.6 (PR #126 device-QA-4 owner direction 2026-05-23): hide the
+        // "See all" chip on one-card rails.  A single-merchant rail with a
+        // "See all" chip implies more merchants behind it; with parent-
+        // category grouping a one-card rail genuinely means the parent
+        // category only has one merchant nearby, so the chip is misleading.
+        // Threshold locked at >= 2 — the rail header itself stays tappable
+        // for completeness, just without the chevron promise.
+        const showSeeAll = rail.branches.length >= 2
+        return (
         <View key={rail.category.id}>
           {/* Tappable section header (both the title and the See-all chip
               navigate to the same destination) */}
@@ -60,10 +69,12 @@ export function NearbyByCategory({ rails, onBranchPress, onCategoryPress, onFavo
                 categoryName={rail.category.name}
               />
             </View>
-            <View style={styles.seeAllChip}>
-              <Text style={styles.seeAllText}>See all</Text>
-              <ChevronRight size={14} color={color.brandRose} />
-            </View>
+            {showSeeAll ? (
+              <View style={styles.seeAllChip}>
+                <Text style={styles.seeAllText}>See all</Text>
+                <ChevronRight size={14} color={color.brandRose} />
+              </View>
+            ) : null}
           </Pressable>
 
           {/* Horizontal scroll of tiles */}
@@ -85,7 +96,8 @@ export function NearbyByCategory({ rails, onBranchPress, onCategoryPress, onFavo
             ))}
           </ScrollView>
         </View>
-      ))}
+        )
+      })}
     </View>
   )
 }
