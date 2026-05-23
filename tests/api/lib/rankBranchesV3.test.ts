@@ -671,4 +671,20 @@ describe('rankBranchesV3 — sortBy="popularity" (§DG)', () => {
     }))
     expect(tiles.map((t) => t.id)).toEqual(['brn-reg-near', 'brn-reg-far'])
   })
+
+  it('throws when sortBy="popularity" but popularityMap is omitted (caller-error guard)', () => {
+    const branches = [
+      makeBranch({ id: 'brn-throw-test', merchantId: 'mer-throw-test', latitude: 51.811, longitude: -0.1 }),
+    ]
+    expect(() => rankBranchesV3(branches, baseInput({
+      effLoc: fixedEffLoc,
+      ladderProfile: 'MIXED_NORMAL',
+      outgoingCatchmentTargetIds: [],
+      categoryIntent: 'MIXED',
+      targetCount:    20,
+      hardCap:        500,
+      sortBy:         'popularity',
+      // popularityMap intentionally omitted
+    }))).toThrow(/popularityMap/)
+  })
 })

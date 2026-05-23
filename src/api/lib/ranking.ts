@@ -659,7 +659,7 @@ export type RankInputV3 = {
   // sortBy='popularity', intra-rung sort uses popularityMap.get(merchantId)
   // desc (default 0) with distance asc tiebreak. Other rails omit both
   // and inherit categoryIntent-based sort (LOCAL/DESTINATION/MIXED).
-  sortBy?:        'distance' | 'quality' | 'popularity'
+  sortBy?: 'distance' | 'quality' | 'popularity'
   popularityMap?: Map<string, number>
 }
 
@@ -756,6 +756,13 @@ export function rankBranchesV3<B extends RankableBranchInputV3>(
 
   function sortWithinRung(rung: SupplyRung, arr: Collected<B>[]): Collected<B>[] {
     // §DG: sortBy override wins when provided.
+    if (input.sortBy === 'popularity' && !input.popularityMap) {
+      // Caller error: sortBy='popularity' requires a popularityMap.  Silently
+      // falling through to categoryIntent is almost certainly wrong — the
+      // caller explicitly asked for popularity ordering.  Throw loudly so
+      // the bug surfaces immediately.
+      throw new Error('rankBranchesV3: sortBy="popularity" requires popularityMap')
+    }
     if (input.sortBy === 'popularity' && input.popularityMap) {
       return [...arr].sort(makeComparePopularity(input.popularityMap))
     }
