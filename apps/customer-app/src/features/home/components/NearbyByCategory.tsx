@@ -3,18 +3,14 @@ import { View, ScrollView, Pressable, StyleSheet } from 'react-native'
 import { ChevronRight } from 'lucide-react-native'
 import { Text, color, spacing } from '@/design-system'
 import { BranchTile } from '@/features/shared/BranchTile'
-import { BranchTile as BranchTileType } from '@/lib/api/discovery'
+import type { HomeNearbyCategoryRail } from '@/lib/api/discovery'
+import { RailHeader } from './RailHeader'
 
 const TILE_WIDTH = 240
 const TILE_GAP = 12
 
-type CategorySection = {
-  category: { id: string; name: string }
-  branches: BranchTileType[]
-}
-
 type Props = {
-  sections: CategorySection[]
+  rails: HomeNearbyCategoryRail[]
   // Receives branch.id — call site routes to
   // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
   onBranchPress: (branchId: string) => void
@@ -28,30 +24,42 @@ type Props = {
  * full-interaction CategoryResultsScreen at /category/:id where the user
  * picks scope, sort, voucher type, amenities, etc.
  *
- * Per the PR B architectural intent: Home stays a preview surface; filter
- * controls live in CategoryResultsScreen.
+ * Per the Phase E migration: consumes `rails: HomeNearbyCategoryRail[]`
+ * (the new `feed.nearbyByCategoryRails` envelope). Per-category render
+ * uses `<RailHeader railKind="nearbyByCategory">` for conditional copy.
+ * Per-category empty rails are absent from the array in the new contract
+ * (server-side filtering); the silent-hide path (`rail.meta === null`)
+ * remains as a defensive guard.
  */
-export function NearbyByCategory({ sections, onBranchPress, onCategoryPress, onFavourite }: Props) {
-  // Filter out sections with no branches
-  const visibleSections = sections.filter((s) => s.branches.length > 0)
+export function NearbyByCategory({ rails, onBranchPress, onCategoryPress, onFavourite }: Props) {
+  // Filter: per spec §6.3 the server omits empty categories from the
+  // array entirely. The `meta === null` guard is defensive — silently
+  // hide per-category if any future contract drift slips a null-meta
+  // entry through. Empty branches array → also hidden (display-side
+  // guard while the server contract stabilises).
+  const visibleRails = rails.filter((r) => r.meta !== null && r.branches.length > 0)
 
-  if (visibleSections.length === 0) return null
+  if (visibleRails.length === 0) return null
 
   return (
     <View style={{ paddingBottom: 100, gap: spacing[6] }}>
-      {visibleSections.map((section) => (
-        <View key={section.category.id}>
+      {visibleRails.map((rail) => (
+        <View key={rail.category.id}>
           {/* Tappable section header (both the title and the See-all chip
               navigate to the same destination) */}
           <Pressable
-            onPress={() => onCategoryPress(section.category.id)}
+            onPress={() => onCategoryPress(rail.category.id)}
             style={styles.headerRow}
             accessibilityRole="button"
-            accessibilityLabel={`See all ${section.category.name} merchants`}
+            accessibilityLabel={`See all ${rail.category.name} merchants`}
           >
-            <Text variant="heading.sm" style={styles.headerTitle}>
-              {section.category.name} near you
-            </Text>
+            <View style={{ flex: 1 }}>
+              <RailHeader
+                meta={rail.meta}
+                railKind="nearbyByCategory"
+                categoryName={rail.category.name}
+              />
+            </View>
             <View style={styles.seeAllChip}>
               <Text style={styles.seeAllText}>See all</Text>
               <ChevronRight size={14} color={color.brandRose} />
@@ -64,7 +72,7 @@ export function NearbyByCategory({ sections, onBranchPress, onCategoryPress, onF
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
           >
-            {section.branches.map((branch) => (
+            {rail.branches.map((branch) => (
               // Branch-keyed identity (Phase 2.3) — same pattern as
               // FeaturedCarousel + TrendingSection.
               <BranchTile
@@ -87,12 +95,8 @@ const styles = StyleSheet.create({
     flexDirection:    'row',
     alignItems:       'center',
     justifyContent:   'space-between',
-    paddingHorizontal: 18,
+    paddingRight:     18,
     marginBottom:     spacing[3],
-  },
-  headerTitle: {
-    color: color.navy,
-    flex:  1,
   },
   seeAllChip: {
     flexDirection:    'row',

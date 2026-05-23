@@ -13,6 +13,7 @@ import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
 import { PopularSection } from '../components/PopularSection'
 import { NearbyByCategory } from '../components/NearbyByCategory'
+import { NearbySectionEmpty } from '../components/NearbySectionEmpty'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
 
 export function HomeScreen() {
@@ -63,12 +64,26 @@ export function HomeScreen() {
   // rebuild it on every press (closes the code-quality reviewer's Important
   // #5 — `flatMap` allocation per tap).  Rebuilds only when the feed
   // mutates, which is also the only time branch identity could shift.
+  //
+  // Phase E — reads the new `nearbyByCategoryRails` envelope (server-side
+  // scope-filtered) rather than the legacy `nearbyByCategoryBranches`
+  // field.  Backend continues emitting both per the Hard Invariant; the
+  // customer-app reads the new envelope per the Phase G migration.
   const allNearbyBranches = useMemo(
-    () => (feed?.nearbyByCategoryBranches ?? []).flatMap((s) => s.branches),
-    [feed?.nearbyByCategoryBranches],
+    () => (feed?.nearbyByCategoryRails ?? []).flatMap((r) => r.branches),
+    [feed?.nearbyByCategoryRails],
   )
   const onNearbyBranchPress = (branchId: string) =>
     routeToBranch(branchId, allNearbyBranches)
+
+  // Spec §8.8 — render conditional logic.  When per-category rails exist
+  // (length > 0), render the per-category preview rows.  When the array
+  // is empty AND a location is resolved (`source !== 'none'`), surface the
+  // section-level <NearbySectionEmpty> card.  No-location is handled by
+  // <HomeNoLocationBanner> at the top of Home (Phase F) — not by this
+  // section.
+  const hasNearbyRails  = (feed?.nearbyByCategoryRails?.length ?? 0) > 0
+  const showNearbyEmpty = !hasNearbyRails && feed?.locationContext.source !== 'none'
 
   return (
     <View style={styles.container}>
@@ -138,11 +153,14 @@ export function HomeScreen() {
           />
         )}
 
-        <NearbyByCategory
-          sections={feed?.nearbyByCategoryBranches ?? []}
-          onBranchPress={onNearbyBranchPress}
-          onCategoryPress={(id) => router.push(`/category/${id}` as any)}
-        />
+        {hasNearbyRails && (
+          <NearbyByCategory
+            rails={feed!.nearbyByCategoryRails!}
+            onBranchPress={onNearbyBranchPress}
+            onCategoryPress={(id) => router.push(`/category/${id}` as any)}
+          />
+        )}
+        {showNearbyEmpty && <NearbySectionEmpty />}
       </ScrollView>
     </View>
   )
