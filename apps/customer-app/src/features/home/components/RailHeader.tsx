@@ -27,7 +27,16 @@ export function RailHeader({ fixedCopy, meta, fallbackCopy, subtitle, railKind, 
       return 'Featured near you'
     }
     if (railKind === 'nearbyByCategory' && categoryName) {
-      return `${categoryName} near you`
+      // PR #126 device-QA fixup (2026-05-23): drop the per-category `near you`
+      // suffix.  Owner direction — repeating `near you` on every category
+      // rail header (e.g. "Restaurant near you", "Cafe & Coffee near you",
+      // "Barber near you") felt clunky.  The nearbyByCategory section as a
+      // whole sits inside the locality-first relevance model, and each tile
+      // carries distance + proximity-band chips, so the rail-level claim is
+      // preserved at the tile level without repeating "near you" six times.
+      // Future "short-trip away" cascade (deferred — see §DC) can then add
+      // honest tile-level chips without changing this header copy.
+      return categoryName
     }
     return fallbackCopy ?? ''
   })()

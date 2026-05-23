@@ -42,12 +42,14 @@ const rails: HomeNearbyCategoryRail[] = [
 ]
 
 describe('NearbyByCategory (Phase E rails envelope)', () => {
-  it('section header renders literal "{category.name} near you" copy via <RailHeader railKind="nearbyByCategory">', () => {
-    // Phase 2.3 Amendment C pin (Pin #18) preserved through Phase E — the
-    // RailHeader implementation today returns `${categoryName} near you`
-    // when `railKind === 'nearbyByCategory'` and a `categoryName` is
-    // supplied. For a fixture category named "Indian Restaurants" the
-    // header reads the literal phrase "Indian Restaurants near you".
+  it('section header renders the bare category name via <RailHeader railKind="nearbyByCategory">', () => {
+    // PR #126 device-QA fixup (2026-05-23): owner-locked drop of the per-
+    // category `near you` suffix.  Section header now renders just the
+    // category name ("Indian Restaurants") instead of "Indian Restaurants
+    // near you" — the rail's local-claim is carried at the tile level by
+    // distance + proximity-band chips, and repeating `near you` on every
+    // category felt clunky.  See RailHeader.tsx for the full owner
+    // direction + rationale.
     const { getByText } = render(
       <NearbyByCategory
         rails={rails}
@@ -55,7 +57,7 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
         onCategoryPress={jest.fn()}
       />,
     )
-    expect(getByText('Indian Restaurants near you')).toBeTruthy()
+    expect(getByText('Indian Restaurants')).toBeTruthy()
   })
 
   it('fires onBranchPress with the branch.id on tile press (Phase 2.3 branch-identity contract)', () => {
@@ -80,7 +82,7 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
         onCategoryPress={onCategoryPress}
       />,
     )
-    fireEvent.press(getByText('Indian Restaurants near you'))
+    fireEvent.press(getByText('Indian Restaurants'))
     expect(onCategoryPress).toHaveBeenCalledWith('cat-indian-restaurants')
   })
 
