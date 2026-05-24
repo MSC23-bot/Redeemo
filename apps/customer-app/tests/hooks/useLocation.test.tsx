@@ -196,6 +196,48 @@ describe('useUserLocation — §AU dev override mode', () => {
   })
 })
 
+describe('useUserLocation — single-flight request() guard', () => {
+  it('two parallel request() calls share a single in-flight promise (one prompt, one onBeforePrompt)', async () => {
+    mockGetPerms.mockResolvedValue({ status: 'undetermined' })
+    mockReqPerms.mockResolvedValue({ status: 'granted' })
+    mockGetPos.mockResolvedValue({ coords: { latitude: 51.5, longitude: -0.1 } })
+    mockReverseGeocode.mockResolvedValue([])
+    const onBeforePrompt = jest.fn()
+
+    const { result } = renderHook(() => useUserLocation())
+    await waitFor(() => expect(result.current.permission).toBe('undetermined'))
+
+    let p1: Promise<void> | undefined
+    let p2: Promise<void> | undefined
+    await act(async () => {
+      p1 = result.current.request({ onBeforePrompt })
+      p2 = result.current.request({ onBeforePrompt })
+      await Promise.all([p1, p2])
+    })
+
+    expect(onBeforePrompt).toHaveBeenCalledTimes(1)
+    expect(mockReqPerms).toHaveBeenCalledTimes(1)
+  })
+
+  it('a fresh request() AFTER an in-flight call resolves prompts a new native dialog', async () => {
+    mockGetPerms.mockResolvedValue({ status: 'undetermined' })
+    mockReqPerms.mockResolvedValue({ status: 'granted' })
+    mockGetPos.mockResolvedValue({ coords: { latitude: 51.5, longitude: -0.1 } })
+    mockReverseGeocode.mockResolvedValue([])
+
+    const { result } = renderHook(() => useUserLocation())
+    await waitFor(() => expect(result.current.permission).toBe('undetermined'))
+
+    await act(async () => { await result.current.request() })
+    // Permission has flipped to granted; the next request() takes the
+    // already-granted path (no prompt), but it must still resolve fresh
+    // (not return the cached in-flight promise from the first call).
+    mockReqPerms.mockClear()
+    await act(async () => { await result.current.request() })
+    expect(mockReqPerms).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('useUserLocation — back-compat for existing 7 call sites', () => {
   it('exposes { status, location, requestPermission } with the legacy shape', async () => {
     mockGetPerms.mockResolvedValue({ status: 'undetermined' })
