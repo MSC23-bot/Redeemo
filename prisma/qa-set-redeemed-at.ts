@@ -210,6 +210,7 @@ async function main() {
       data:  {
         redeemedAt:  targetRedeemedAt,
         validatedAt: nextValidatedAt,
+        isTestData:  true, // §DG — QA script touches make this test data
       },
     })
 
