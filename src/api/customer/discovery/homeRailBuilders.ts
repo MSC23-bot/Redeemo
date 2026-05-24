@@ -344,6 +344,12 @@ export async function buildTrendingRail(
   //    eliminates the start-of-month cliff the former calendar-month boundary had).
   const windowStart    = startOfRollingPopularityWindow(new Date())
   const qaEmailsList   = QA_ACCOUNT_EMAILS.map((e) => e.toLowerCase())
+  // SQL-SAFETY: the `${d.toLowerCase()}` interpolation below is safe ONLY because
+  // QA_ACCOUNT_EMAIL_DOMAINS is a compile-time constant audited at
+  // src/api/customer/discovery/qaAccountFilter.ts (no runtime user input flows
+  // here).  If a future change makes this list runtime-sourced (e.g. fetched from
+  // DB or env var), the SQL fragment MUST be parameterised — string interpolation
+  // of attacker-controllable values into raw SQL is an injection vector.
   const domainClauses  = QA_ACCOUNT_EMAIL_DOMAINS.length > 0
     ? QA_ACCOUNT_EMAIL_DOMAINS
         .map((d) => `LOWER(u.email) NOT LIKE '%@${d.toLowerCase()}'`)
@@ -489,6 +495,13 @@ async function computePopularityScores(
   // Guard against empty arrays — `AND ` (empty domainClauses) or `NOT IN ()`
   // (empty qaEmailsList) would be SQL syntax errors.  Use `TRUE` as the
   // identity for AND when either list is empty.
+  //
+  // SQL-SAFETY: the `${d.toLowerCase()}` interpolation below is safe ONLY because
+  // QA_ACCOUNT_EMAIL_DOMAINS is a compile-time constant audited at
+  // src/api/customer/discovery/qaAccountFilter.ts (no runtime user input flows
+  // here).  If a future change makes this list runtime-sourced (e.g. fetched from
+  // DB or env var), the SQL fragment MUST be parameterised — string interpolation
+  // of attacker-controllable values into raw SQL is an injection vector.
   const domainClauses = QA_ACCOUNT_EMAIL_DOMAINS.length > 0
     ? QA_ACCOUNT_EMAIL_DOMAINS
         .map((d) => `LOWER(u.email) NOT LIKE '%@${d.toLowerCase()}'`)

@@ -1573,21 +1573,23 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
   await prisma.voucherRedemption.upsert({
     where: { redemptionCode: 'DEMO-COV-VFY-001' },
     update: {
-      isValidated: true,
+      isValidated:  true,
+      isTestData:   true,
       // validatedAt set in `update` so re-runs refresh the timestamp; UI
       // doesn't display this for the verified-badge path but keeping it
       // current avoids stale "validated 6 months ago" data drift.
-      validatedAt: new Date(),
+      validatedAt:  new Date(),
     },
     create: {
-      redemptionCode:  'DEMO-COV-VFY-001',
-      userId:          sarahId,
-      voucherId:       covMainVoucher.id,
-      branchId:        COVELUM_MAIN_BRANCH_ID,
-      isValidated:     true,
-      validatedAt:     new Date(),
+      redemptionCode:   'DEMO-COV-VFY-001',
+      userId:           sarahId,
+      voucherId:        covMainVoucher.id,
+      branchId:         COVELUM_MAIN_BRANCH_ID,
+      isValidated:      true,
+      isTestData:       true,
+      validatedAt:      new Date(),
       validationMethod: 'MANUAL',
-      estimatedSaving: 4.00,
+      estimatedSaving:  4.00,
     },
   })
 
