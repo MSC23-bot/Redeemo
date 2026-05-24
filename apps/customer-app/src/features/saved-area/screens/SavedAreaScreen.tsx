@@ -32,16 +32,16 @@ import { InlineError } from '@/design-system/components/InlineError'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { scale, ms } from '@/design-system/scale'
 import { useMe, meQueryKey } from '@/hooks/useMe'
+import { useUpdateProfile } from '@/hooks/useUpdateProfile'
 import { useUserLocation } from '@/hooks/useLocation'
-import { profileApi } from '@/lib/api/profile'
 
 // ─── helpers (PC2-pattern inline copy, scoped to this surface) ───────────────
 
 // Civil-parish > admin-ward (London) > parliamentary-constituency > admin-
 // district > admin-ward ladder. Mirrors PC2's `pickAreaLabel` — kept inline
-// here to avoid refactoring PC2 into a shared module (Task 7 locked
-// architectural line). Identical behaviour ensures the same user sees the
-// same label whether updating during onboarding or here.
+// here to avoid refactoring PC2 into a shared module. Identical behaviour
+// ensures the same user sees the same label whether updating during
+// onboarding or here.
 function pickAreaLabel(r: {
   parish?: string
   admin_district?: string
@@ -62,6 +62,7 @@ export function SavedAreaScreen() {
   const insets = useSafeAreaInsets()
   const qc = useQueryClient()
   const me = useMe()
+  const updateProfile = useUpdateProfile()
   const loc = useUserLocation()
 
   const profile = me.data
@@ -73,7 +74,7 @@ export function SavedAreaScreen() {
   const [lookupResult, setLookupResult] = useState<LookupResult | null>(null)
   const [lookupError, setLookupError] = useState<string | null>(null)
   const [isLooking, setIsLooking] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
+  const isSaving = updateProfile.isPending
 
   // Track whether we initiated a GPS request from THIS screen so the post-
   // grant effect only fires for our action, not for ambient location state
@@ -170,24 +171,24 @@ export function SavedAreaScreen() {
   async function onSavePostcode() {
     const postcode = (lookupResult?.postcode ?? postcodeInput).trim().toUpperCase()
     if (!postcode) return
-    setIsSaving(true)
-    try {
-      // Postcode-only PATCH per spec §7.2. No lat/lng — GPS coords are NEVER
-      // written to User.postcode.
-      await profileApi.updateProfile({ postcode })
-      // Comprehensive cache invalidation. Predicate matches every key whose
-      // first element is `'discovery'` (catches `['discovery','home',…]`,
-      // `['discovery','search',…]`, in-area, NBC, etc).
-      void qc.invalidateQueries({
-        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'discovery',
-      })
-      void qc.invalidateQueries({ queryKey: meQueryKey })
-      handleBack()
-    } catch {
-      setLookupError('Failed to save postcode. Please try again.')
-    } finally {
-      setIsSaving(false)
-    }
+    // Postcode-only PATCH per spec §7.2. No lat/lng — GPS coords are NEVER
+    // written to User.postcode. `useUpdateProfile` invalidates meQueryKey
+    // automatically; we add the broader Discovery predicate invalidation
+    // so Home/Search/Map/NBC all re-fetch against the new locality.
+    updateProfile.mutate(
+      { postcode },
+      {
+        onSuccess: () => {
+          void qc.invalidateQueries({
+            predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'discovery',
+          })
+          handleBack()
+        },
+        onError: () => {
+          setLookupError('Failed to save postcode. Please try again.')
+        },
+      },
+    )
   }
 
   async function onUseCurrentLocation() {
@@ -196,8 +197,9 @@ export function SavedAreaScreen() {
     // No opts — the LocationPermissionProvider in (app)/_layout supplies the
     // branded pre-permission explainer + recovery sheet via context. On
     // denial the provider auto-fires the recovery sheet; this surface
-    // intentionally does NOT wire its own Modal.
-    await loc.request()
+    // intentionally does NOT wire its own Modal. Defensive catch keeps
+    // the screen alive if an unexpected rejection escapes the provider.
+    try { await loc.request() } catch {}
   }
 
   // ── render ────────────────────────────────────────────────────────────────

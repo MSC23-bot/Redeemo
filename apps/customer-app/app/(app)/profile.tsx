@@ -47,7 +47,7 @@ export default function ProfileScreen() {
         testID="profile-saved-area-link"
         accessibilityRole="button"
         accessibilityLabel={`Saved Area, ${user?.postcode ?? 'Set location'}`}
-        onPress={() => router.push('/saved-area' as never)}
+        onPress={() => router.push('/saved-area' as any)}
         style={({ pressed }) => [styles.savedAreaRow, pressed && styles.savedAreaRowPressed]}
       >
         <View style={styles.savedAreaIconWrap}>
