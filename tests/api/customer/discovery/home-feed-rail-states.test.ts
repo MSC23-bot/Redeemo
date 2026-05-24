@@ -1024,17 +1024,54 @@ describe('Popular rail — §DG location-aware ranking', () => {
   })
 
   it('§DG-5 — dormant popularity (all scores 0) falls through to distance ASC', { timeout: 30_000 }, async () => {
-    // Setup: 2 London merchants, NO redemptions.  Both score=0 → distance
-    // tiebreak applies.  merchantNear (very close to London centre) surfaces
-    // before merchantFar (further from London centre).
-    const LONDON = { lat: 51.5074, lng: -0.1278 }
+    // Setup: 2 fixture merchants at Builth Wells (remote rural Wales),
+    // NO redemptions on either.  V3 ranks by distance ASC tiebreak
+    // because popularityScore=0 for both.
+    //
+    // Concurrency hardening (post-T5 failure audit 2026-05-24):
+    // - LOCATION isolated from London / Colchester / Manchester /
+    //   Huddersfield / Brightlingsea — coords other tests in
+    //   home-feed-* never use.
+    // - From Builth Wells, §DG-5's fixtures are NEARBY-tier (V3 rung 0)
+    //   while all concurrent fixtures (London/etc.) are COUNTRY-tier.
+    // - V3 rung-priority ordering puts NEARBY tiles FIRST regardless of
+    //   how many distant fixtures exist concurrently → §DG-5's 2 tiles
+    //   ALWAYS land at positions 0-1 of popularRail.branches, never
+    //   pushed past POPULAR_TAKE=10.
+    //
+    // Pre-T5-fix this used London coords + assumed POPULAR_TAKE=10 would
+    // always hold §DG-5's 2 + seed London merchants.  In the full
+    // backend suite, concurrent fixtures from home-feed-branches.test.ts
+    // (multi-branch Featured Colchester merchants ranked NEARBY by some
+    // London users via V3's rural density classification — Kennington
+    // localityName has populationTier=UNKNOWN → RURAL → 15-mile NEARBY
+    // radius) pushed §DG-5's farMerchant past position 10 → test failed
+    // with farIdx=-1.
+    const BUILTH_WELLS = { lat: 52.144, lng: -3.401 }
     const ts = Date.now()
 
     const merchantNear = await prisma.merchant.create({
       data: {
         businessName: `dg-p5-near-${ts}`,
         status:       'ACTIVE',
-        branches: { create: [londonBranchData({ lat: 51.5084, lng: -0.1278, name: `dg-p5-near-br-${ts}` })] },
+        branches: { create: [{
+          name:               `dg-p5-near-br-${ts}`,
+          addressLine1:       '1 Test Street',
+          city:               'Builth Wells',
+          postcode:           'LD2 3AA',
+          country:            'GB',
+          latitude:           BUILTH_WELLS.lat,
+          longitude:          BUILTH_WELLS.lng,
+          isActive:           true,
+          locationConfidence: 'MANUALLY_CONFIRMED' as const,
+          localityId:         null,
+          localityName:       null,
+          postTown:           null,
+          ladDistrict:        null,
+          adminCounty:        null,
+          region:             'Wales',
+          locationCountry:    'Wales',
+        }] },
       },
       include: { branches: true },
     })
@@ -1044,7 +1081,24 @@ describe('Popular rail — §DG location-aware ranking', () => {
       data: {
         businessName: `dg-p5-far-${ts}`,
         status:       'ACTIVE',
-        branches: { create: [londonBranchData({ lat: 51.5474, lng: -0.1278, name: `dg-p5-far-br-${ts}` })] },
+        branches: { create: [{
+          name:               `dg-p5-far-br-${ts}`,
+          addressLine1:       '2 Test Street',
+          city:               'Builth Wells',
+          postcode:           'LD2 3AB',
+          country:            'GB',
+          latitude:           52.150,
+          longitude:          -3.380,
+          isActive:           true,
+          locationConfidence: 'MANUALLY_CONFIRMED' as const,
+          localityId:         null,
+          localityName:       null,
+          postTown:           null,
+          ladDistrict:        null,
+          adminCounty:        null,
+          region:             'Wales',
+          locationCountry:    'Wales',
+        }] },
       },
       include: { branches: true },
     })
@@ -1054,7 +1108,7 @@ describe('Popular rail — §DG location-aware ranking', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url:    `/api/v1/customer/home?lat=${LONDON.lat}&lng=${LONDON.lng}`,
+      url:    `/api/v1/customer/home?lat=${BUILTH_WELLS.lat}&lng=${BUILTH_WELLS.lng}`,
     })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
