@@ -63,7 +63,8 @@ export function useUserLocation(): LocationState {
 
     setStatus('loading')
     try {
-      let current: LocationPermission = permission
+      // Fresh probe each call — never branch on stale closure state.
+      let current: LocationPermission = 'undetermined'
       try {
         const probe = await Location.getForegroundPermissionsAsync()
         current = toPermission(probe.status)
@@ -108,7 +109,7 @@ export function useUserLocation(): LocationState {
       setStatus('denied')
       setPermission('unavailable')
     }
-  }, [permission])
+  }, [])
 
   // Legacy alias: existing call sites read `requestPermission()` with
   // no arguments. Delegates to `request()` so the lifecycle stays in
@@ -138,11 +139,9 @@ export function useUserLocation(): LocationState {
       .catch(() => {
         setPermission('unavailable')
       })
-    // Intentionally empty deps: mount-only probe. `request` is
-    // stable enough for this purpose and a deps-driven re-probe
-    // would re-trigger the OS prompt on every permission change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    // Mount-only probe. `request` is stable (deps: []) so this list
+    // is genuinely exhaustive — no eslint disable needed.
+  }, [request])
 
   const coords = location ? { lat: location.lat, lng: location.lng } : null
 

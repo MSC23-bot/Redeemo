@@ -1,8 +1,7 @@
-// Task 4 — useUserLocation permission lifecycle + explainer/recovery
-// hooks. Pins the 4-state `permission` enum, the `request(opts?)`
-// callback wrapping, `openSettings()` cross-platform delegation,
-// dev-override short-circuit, and back-compat with the 7 existing
-// call sites that read only `{ location, requestPermission }`.
+// Pins the 4-state `permission` enum, the `request(opts?)` callback
+// wrapping, `openSettings()` cross-platform delegation, dev-override
+// short-circuit, and back-compat with the existing call sites that
+// read only `{ location, requestPermission }`.
 
 import React from 'react'
 import { renderHook, act, waitFor } from '@testing-library/react-native'
