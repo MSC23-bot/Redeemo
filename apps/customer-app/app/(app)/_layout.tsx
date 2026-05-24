@@ -143,6 +143,7 @@ export default function AppLayout() {
       <Tabs.Screen name="merchant/[id]"   options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="voucher/[id]"    options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="redemption/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="saved-area"      options={{ href: null, tabBarStyle: { display: 'none' } }} />
     </Tabs>
     </LocationPermissionProvider>
   )
