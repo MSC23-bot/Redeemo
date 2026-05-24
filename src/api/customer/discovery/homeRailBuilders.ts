@@ -466,10 +466,20 @@ async function computePopularityScores(
   windowStart: Date,
 ): Promise<Map<string, number>> {
   const qaEmailsList = QA_ACCOUNT_EMAILS.map((e) => e.toLowerCase())
-  // Build the domain-suffix NOT LIKE clauses, one per domain entry.
-  const domainClauses = QA_ACCOUNT_EMAIL_DOMAINS
-    .map((d) => `LOWER(u.email) NOT LIKE '%@${d.toLowerCase()}'`)
-    .join(' AND ')
+  // Build the domain-suffix NOT-LIKE clauses.  Each domain becomes
+  // `LOWER(u.email) NOT LIKE '%@<domain>'`.  Joined with AND.
+  //
+  // Guard against empty arrays — `AND ` (empty domainClauses) or `NOT IN ()`
+  // (empty qaEmailsList) would be SQL syntax errors.  Use `TRUE` as the
+  // identity for AND when either list is empty.
+  const domainClauses = QA_ACCOUNT_EMAIL_DOMAINS.length > 0
+    ? QA_ACCOUNT_EMAIL_DOMAINS
+        .map((d) => `LOWER(u.email) NOT LIKE '%@${d.toLowerCase()}'`)
+        .join(' AND ')
+    : 'TRUE'
+  const emailNotInClause = qaEmailsList.length > 0
+    ? `LOWER(u.email) NOT IN (${qaEmailsList.map((_, i) => `$${i + 2}`).join(', ')})`
+    : 'TRUE'
 
   // Parameter positions: $1 = windowStart, $2..$(n+1) = qaEmailsList.
   const rows = await prisma.$queryRawUnsafe<Array<{ merchant_id: string; cnt: bigint }>>(`
@@ -479,7 +489,7 @@ async function computePopularityScores(
     JOIN "User"              u ON r."userId"   = u.id
     WHERE r."redeemedAt" >= $1
       AND r."isTestData" = false
-      AND LOWER(u.email) NOT IN (${qaEmailsList.map((_, i) => `$${i + 2}`).join(', ')})
+      AND ${emailNotInClause}
       AND ${domainClauses}
     GROUP BY b."merchantId"
   `, windowStart, ...qaEmailsList)

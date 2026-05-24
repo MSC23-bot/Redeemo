@@ -566,14 +566,22 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
 // naming so they sit outside QA_ACCOUNT_EMAILS naturally.  Cleanup via
 // afterEach so the DB returns to a clean state for subsequent pins.
 //
-// Branch location fields are chosen so rankBranchesV3 (MIXED_NORMAL @
-// URBAN, maxRung=REGION) classifies:
-//   London  branch: region='London',    locationCountry='England'  → REGION  (within maxRung)
-//   Manchester branch: region='North West', locationCountry='England' → COUNTRY (beyond maxRung → DROPPED)
+// London effLoc resolves to a RURAL locality (Kennington has
+// populationTier='UNKNOWN' → densityClass='RURAL') → MIXED_NORMAL@RURAL
+// gives nearbyRadius=15mi and maxRung=COUNTRY.  Manchester (COUNTRY
+// rung from London) and Huddersfield (also COUNTRY) PASS the maxRung
+// gate, but V3 sorts by rung ordinal first → London merchants
+// (NEARBY rung, ordinal 0) always precede them in v3.tiles, regardless
+// of within-rung popularity scores.  This is the location-aware
+// mechanism Popular relies on.
 //
-// §DG-1 specifically relies on the maxRung gate to exclude the higher-
-// redemption-count Manchester branch, demonstrating that post-§DG the Popular
-// rail is location-aware (not location-blind).
+// Mutual-exclusion workaround: §DG-1/2/3/4/7/8 fixtures use
+// redeemedAt = 25 days ago (inside Popular's 30-day rolling window,
+// outside the current calendar month that buildTrendingRail's
+// startOfMonthUTC query still covers in T4 — this keeps Trending
+// empty so Popular fires per the §6.2 mutual exclusion).  T5 will
+// switch Trending to the same rolling window and require these
+// fixtures to be redesigned.
 
 describe('Popular rail — §DG location-aware ranking', () => {
   // Track created rows for afterEach cleanup.
@@ -602,12 +610,12 @@ describe('Popular rail — §DG location-aware ranking', () => {
 
   // ── shared branch shape helpers ───────────────────────────────────────────
   // London fixture branches: region='London', locationCountry='England'.
-  // From a London effLoc (MIXED_NORMAL@URBAN, maxRung=REGION), these
-  // branches have a matching region → classify at REGION → included by V3.
+  // From a London effLoc (MIXED_NORMAL@RURAL, maxRung=COUNTRY), these
+  // branches have a matching region → classify at REGION rung → included by V3.
   // All tighter locality fields are null so NEARBY/CATCHMENT/POST_TOWN/LAD/
   // COUNTY don't fire unless the fixture branch is within those thresholds.
   //
-    // IMPORTANT: for §DG Popular-rail pins, fixture redemptions are always dated
+  // IMPORTANT: for §DG Popular-rail pins, fixture redemptions are always dated
   // 25 days ago (or earlier for the §DG-8 window-boundary test).  This keeps
   // them OUTSIDE the Trending builder's `startOfMonthUTC` window while staying
   // INSIDE the Popular rail's rolling 30-day window.  The London user's nearest
@@ -638,8 +646,9 @@ describe('Popular rail — §DG location-aware ranking', () => {
 
   // Manchester fixture branches: region='North West', locationCountry='England'.
   // From a London effLoc, region mismatch → classifies at COUNTRY rung
-  // (England matches locationCountry).  COUNTRY > maxRung=REGION (for
-  // MIXED_NORMAL@URBAN) → dropped by rankBranchesV3's maxRung gate.
+  // (England matches locationCountry).  COUNTRY rung (ordinal 6) PASSES
+  // the maxRung=COUNTRY gate but sorts after all London NEARBY-tier tiles
+  // (ordinal 0) in V3's rung-priority ordering.
   function manchesterBranchData(overrides: { lat: number; lng: number; name: string }) {
     return {
       name:               overrides.name,
@@ -699,16 +708,25 @@ describe('Popular rail — §DG location-aware ranking', () => {
 
   // ─────────────────────────────────────────────────────────────────────────
   it('§DG-1 — London Popular surfaces London-area merchants before non-London top-redeemers', { timeout: 30_000 }, async () => {
-    // Setup: 1 London merchant + branch + 1 Manchester merchant + branch.
-    // Manchester gets 5 real redemptions; London gets 1.  Pre-§DG, the
-    // location-blind pre-filter would surface Manchester first.  Post-§DG,
-    // V3's maxRung gate drops Manchester (COUNTRY > maxRung=REGION for a
-    // London MIXED_NORMAL@URBAN user) → London surfaces; Manchester absent.
+    // Setup: 1 London merchant + 1 Manchester merchant.  Manchester gets
+    // 5 real redemptions; London gets 1.  Pre-§DG, the location-blind
+    // pre-filter would surface Manchester first (5 > 1).  Post-§DG, V3's
+    // rung-priority ordering puts London (NEARBY rung, ordinal 0) before
+    // Manchester (COUNTRY rung, ordinal 6) in v3.tiles — regardless of
+    // within-rung popularity scores.  This is the location-aware mechanism
+    // Popular relies on; the popularity-as-tiebreaker only matters WITHIN
+    // a single rung (covered by §DG-2 with two London merchants).
     //
-    // NOTE: The London user's nearest locality ('Kennington') has
-    // populationTier='UNKNOWN' → densityClass='RURAL' → NEARBY radius=15 miles
-    // (24 140 m).  All fixture redemptions are dated 25 days ago (inside the
-    // 30-day Popular window but OUTSIDE the current calendar month) so
+    // Note: Manchester is NOT dropped by V3's maxRung gate.  London locality
+    // has populationTier=UNKNOWN → RURAL density → maxRung=COUNTRY for
+    // MIXED_NORMAL profile.  Manchester (COUNTRY rung) passes the gate
+    // but lands at rung-priority position 6+ behind all London NEARBY-tier
+    // tiles.  If the seed ever has fewer NEARBY merchants than POPULAR_TAKE,
+    // Manchester could appear in positions 8-10 of Popular but London
+    // would still be FIRST.
+    //
+    // All fixture redemptions are dated 25 days ago (inside the 30-day
+    // Popular window but OUTSIDE the current calendar month) so
     // buildTrendingRail's `startOfMonthUTC` query does NOT pick them up →
     // Trending stays silent → mutual-exclusion allows Popular to fire.
     const LONDON = { lat: 51.5074, lng: -0.1278 }
@@ -772,7 +790,9 @@ describe('Popular rail — §DG location-aware ranking', () => {
     const londonTile = body.popularRail.branches.find((t: any) => t.merchant.id === londonMerchant.id)
     expect(londonTile).toBeDefined()
 
-    // Manchester must NOT appear — V3's maxRung gate drops it for a London user.
+    // Manchester must NOT appear — V3 sorts NEARBY (ordinal 0) before COUNTRY
+    // (ordinal 6), so all POPULAR_TAKE slots are filled by London NEARBY-tier
+    // tiles; Manchester tiles are present in v3.tiles but fall beyond the take limit.
     const manchesterTile = body.popularRail.branches.find((t: any) => t.merchant.id === manchesterMerchant.id)
     expect(manchesterTile).toBeUndefined()
   })
