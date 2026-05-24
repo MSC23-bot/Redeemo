@@ -6,6 +6,8 @@ import React, {
   useRef,
   useState,
 } from 'react'
+import { Linking } from 'react-native'
+import { devLocationOverride } from '@/lib/devLocationOverride'
 import { PrePermissionExplainer } from './PrePermissionExplainer'
 import { LocationRecoverySheet } from './LocationRecoverySheet'
 
@@ -100,12 +102,38 @@ export function LocationPermissionProvider({ children }: Props) {
     r?.()
   }, [])
 
-  // Open settings is delegated by the consumer (the hook) — provider
-  // doesn't import expo's Linking directly. We just dismiss the sheet
-  // here and trust the hook to fire `openSettings()` as part of its
-  // own flow when it kicks off the show.
-  const onOpenSettings = useCallback(() => {
-    dismissRecovery()
+  // Primary CTA of the recovery sheet — spec §6.4.2 locks this to
+  // fire `Linking.openSettings()`. Hook's `openSettings()` is a
+  // separate action surface (Saved Area / Task 7 can call it
+  // directly) and is intentionally NOT routed through here, so we
+  // call `Linking` from the provider.
+  //
+  // Dev-override (§AU) parity: the hook's `openSettings()` no-ops
+  // under the override because there is no real native permission
+  // to toggle; mirror that here so a dev who surfaces the recovery
+  // sheet (unlikely, but possible) gets the same no-op semantics.
+  //
+  // Defensive try/catch + always-dismiss: the Pressable in
+  // `LocationRecoverySheet` invokes this synchronously (no await),
+  // so an unhandled rejection from `Linking.openSettings()` (e.g.
+  // a device with no Settings activity) would bubble out as an
+  // unhandled promise rejection. Swallow + log so the sheet ALWAYS
+  // dismisses cleanly even when the Linking call fails.
+  const onOpenSettings = useCallback(async () => {
+    if (devLocationOverride()) {
+      dismissRecovery()
+      return
+    }
+    try {
+      await Linking.openSettings()
+    } catch {
+      // Defensive — `Linking.openSettings()` can reject if no
+      // Settings activity exists on the device. The sheet still
+      // needs to dismiss; the user can resort to the secondary
+      // "Use saved area" path on a subsequent surface.
+    } finally {
+      dismissRecovery()
+    }
   }, [dismissRecovery])
 
   const value = useMemo<ContextValue>(() => ({ showExplainer, showRecovery }), [showExplainer, showRecovery])

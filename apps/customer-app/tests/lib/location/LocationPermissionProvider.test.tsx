@@ -4,12 +4,37 @@
  * verified separately in tests/hooks/useLocation.test.tsx.
  */
 import React from 'react'
-import { Text, Pressable } from 'react-native'
+import { Text, Pressable, Linking } from 'react-native'
 import { render, fireEvent, act, waitFor } from '@testing-library/react-native'
+
+jest.mock('@/lib/devLocationOverride', () => ({
+  devLocationOverride: jest.fn(),
+}))
+
 import {
   LocationPermissionProvider,
   useLocationPermissionPrompts,
 } from '@/lib/location/LocationPermissionProvider'
+import { devLocationOverride } from '@/lib/devLocationOverride'
+
+const mockOverride = devLocationOverride as jest.Mock
+
+// `Linking.openSettings` is a method on the imported singleton.
+// Spy + restore per test so other suites that share the jest-expo
+// runtime aren't affected.
+let openSettingsSpy: jest.SpyInstance
+
+beforeEach(() => {
+  mockOverride.mockReset()
+  mockOverride.mockReturnValue(null)
+  openSettingsSpy = jest
+    .spyOn(Linking, 'openSettings')
+    .mockResolvedValue(undefined as unknown as void)
+})
+
+afterEach(() => {
+  openSettingsSpy.mockRestore()
+})
 
 function ConsumerHarness({
   onShowExplainerPress,
@@ -183,6 +208,103 @@ describe('LocationPermissionProvider — promise resolution', () => {
     })
 
     await waitFor(() => expect(resolved).toBe(true))
+  })
+})
+
+describe('LocationPermissionProvider — recovery sheet "Open settings" CTA', () => {
+  it('invokes Linking.openSettings exactly once when the primary CTA fires (production mode)', async () => {
+    const { getByLabelText, getByTestId } = render(
+      <LocationPermissionProvider>
+        <ConsumerHarness
+          onShowRecoveryPress={(resolver) => { void resolver() }}
+        />
+      </LocationPermissionProvider>,
+    )
+
+    await act(async () => {
+      fireEvent.press(getByLabelText('show-recovery'))
+    })
+
+    await act(async () => {
+      fireEvent.press(getByTestId('location-recovery-open-settings'))
+    })
+
+    await waitFor(() => expect(openSettingsSpy).toHaveBeenCalledTimes(1))
+  })
+
+  it('still dismisses the sheet after Linking.openSettings resolves', async () => {
+    let resolverPromise: Promise<void> | null = null
+    const { getByLabelText, getByTestId, queryByTestId } = render(
+      <LocationPermissionProvider>
+        <ConsumerHarness
+          onShowRecoveryPress={(resolver) => { resolverPromise = resolver() }}
+        />
+      </LocationPermissionProvider>,
+    )
+
+    act(() => {
+      fireEvent.press(getByLabelText('show-recovery'))
+    })
+    let resolved = false
+    void resolverPromise!.then(() => { resolved = true })
+
+    await act(async () => {
+      fireEvent.press(getByTestId('location-recovery-open-settings'))
+    })
+
+    await waitFor(() => expect(resolved).toBe(true))
+    await waitFor(() => expect(queryByTestId('location-recovery-sheet')).toBeNull())
+  })
+
+  it('still dismisses the sheet even if Linking.openSettings throws (e.g. no Settings activity)', async () => {
+    openSettingsSpy.mockRejectedValueOnce(new Error('no Settings activity'))
+    let resolverPromise: Promise<void> | null = null
+    const { getByLabelText, getByTestId, queryByTestId } = render(
+      <LocationPermissionProvider>
+        <ConsumerHarness
+          onShowRecoveryPress={(resolver) => { resolverPromise = resolver() }}
+        />
+      </LocationPermissionProvider>,
+    )
+
+    act(() => {
+      fireEvent.press(getByLabelText('show-recovery'))
+    })
+    let resolved = false
+    void resolverPromise!.then(() => { resolved = true })
+
+    await act(async () => {
+      fireEvent.press(getByTestId('location-recovery-open-settings'))
+    })
+
+    await waitFor(() => expect(resolved).toBe(true))
+    await waitFor(() => expect(queryByTestId('location-recovery-sheet')).toBeNull())
+  })
+
+  it('does NOT call Linking.openSettings in §AU dev override mode, but still dismisses the sheet', async () => {
+    mockOverride.mockReturnValue({ lat: 53.6458, lng: -1.785 })
+    let resolverPromise: Promise<void> | null = null
+    const { getByLabelText, getByTestId, queryByTestId } = render(
+      <LocationPermissionProvider>
+        <ConsumerHarness
+          onShowRecoveryPress={(resolver) => { resolverPromise = resolver() }}
+        />
+      </LocationPermissionProvider>,
+    )
+
+    act(() => {
+      fireEvent.press(getByLabelText('show-recovery'))
+    })
+    let resolved = false
+    void resolverPromise!.then(() => { resolved = true })
+
+    await act(async () => {
+      fireEvent.press(getByTestId('location-recovery-open-settings'))
+    })
+
+    await waitFor(() => expect(resolved).toBe(true))
+    expect(openSettingsSpy).not.toHaveBeenCalled()
+    expect(queryByTestId('location-recovery-sheet')).toBeNull()
   })
 })
 
