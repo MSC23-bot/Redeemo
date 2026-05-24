@@ -117,7 +117,7 @@ export function LocationPermissionProvider({ children }: Props) {
   // `LocationRecoverySheet` invokes this synchronously (no await),
   // so an unhandled rejection from `Linking.openSettings()` (e.g.
   // a device with no Settings activity) would bubble out as an
-  // unhandled promise rejection. Swallow + log so the sheet ALWAYS
+  // unhandled promise rejection. Swallow so the sheet ALWAYS
   // dismisses cleanly even when the Linking call fails.
   const onOpenSettings = useCallback(async () => {
     if (devLocationOverride()) {
