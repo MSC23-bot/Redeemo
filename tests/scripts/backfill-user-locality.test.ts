@@ -1,20 +1,6 @@
-// tests/scripts/backfill-user-locality.test.ts
-//
-// §DF Task 2 — backfill-user-locality script unit tests.
-//
-// Coverage per spec §9.2:
-//   (a) post-PC2 user no-op (all 4 location fields already populated)
-//   (b) legacy postcode-only user gets populated
-//   (c) seed-style user gets populated
-//   (d) no-postcode user no-op (postcode null, everything else null)
-//   (e) idempotency on re-run (state unchanged after running twice)
-//
-// Fixture discipline:
-//   - All fixture rows prefixed with `BACKFILL-` (emails) or `backfill-test-`
-//     (Locality slugs). afterAll sweeps both prefix classes.
-//   - The seed-guardrail R8 sweep policed via `LEAKED_FIXTURE_PREFIXES`
-//     only covers MERCHANT prefixes; user-email + locality-slug cleanup is
-//     handled directly here.
+// Fixture discipline: emails prefixed `BACKFILL-`, Locality slugs prefixed
+// `backfill-test-`. afterAll sweeps both (seed-guardrail's R8 sweep covers
+// merchant prefixes only — user/locality cleanup is this file's responsibility).
 
 import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -42,9 +28,18 @@ afterAll(async () => {
 })
 
 async function sweepFixtures(): Promise<void> {
-  // Delete users first (FK points at Locality), then locality fixtures.
-  await prisma.user.deleteMany({ where: { email: { startsWith: USER_EMAIL_PREFIX } } })
-  await prisma.locality.deleteMany({ where: { slug: { startsWith: LOCALITY_SLUG_PREFIX } } })
+  // Each delete wrapped so a partial-FK-failure on users doesn't strand
+  // locality fixtures (or vice versa). FK order respected: users first.
+  try {
+    await prisma.user.deleteMany({ where: { email: { startsWith: USER_EMAIL_PREFIX } } })
+  } catch (err) {
+    console.warn('[backfill-user-locality test] user sweep failed:', err)
+  }
+  try {
+    await prisma.locality.deleteMany({ where: { slug: { startsWith: LOCALITY_SLUG_PREFIX } } })
+  } catch (err) {
+    console.warn('[backfill-user-locality test] locality sweep failed:', err)
+  }
 }
 
 // Helper: create a pre-existing Locality for the "already populated" case
@@ -147,13 +142,8 @@ describe('backfillUserLocality', () => {
   })
 
   it('(c) populates seed-style postcode-only user with the same snapshot shape', async () => {
-    // Seed cohort: same state as legacy (postcode + all location fields
-    // NULL) but conceptually a pre-§DF-Task-1 seed account that the seed
-    // script didn't yet enrich. Same behaviour expected — postcode resolves,
-    // full snapshot persists, FK to Locality valid.
-    //
-    // Different postcode from (b) so this exercises a distinct write path
-    // and proves backfill works against more than the single HD1 fixture.
+    // Seed cohort: same state as legacy; distinct postcode proves backfill
+    // works against more than the single HD1 fixture.
     const created = await prisma.user.create({
       data: {
         email: `${USER_EMAIL_PREFIX}seed@x.test`,

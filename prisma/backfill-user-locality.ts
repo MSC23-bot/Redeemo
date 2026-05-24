@@ -1,46 +1,13 @@
-// prisma/backfill-user-locality.ts
-//
-// §DF Task 2 — backfill the `User.localityId / latitude / longitude` core +
-// the full 11-field location snapshot for every user that has a postcode but
-// is missing one or more of the three location-resolver-required fields.
-//
-// Background:
-//   The §DF SAVED_PROFILE branch of `resolveEffectiveLocation` requires all
-//   three: `localityId AND latitude AND longitude`. Three cohorts surface
-//   gaps (spec §8.3):
-//     - Post-PC2 onboarded users — already complete; backfill no-ops.
-//     - Legacy users (pre-PC2 onboarding) — postcode present, lat/lng/
-//       localityId NULL. Backfill closes the gap.
-//     - Seed users — covered by Task 1 (`prisma/seed.ts` enrichment).
-//     - No-postcode users — stay on no-location; backfill is passive.
-//
-// Locked behaviour (per task description "Lock from Task 1's spec-compliance
-// review"): backfill mirrors the production `updateMyProfile` and the seed
-// `resolveCustomerLocation` shape — populates the FULL 11-field snapshot
-// (postcode unchanged; all of latitude / longitude / localityId / postTown /
-// ladDistrict / adminCounty / region / country / locationResolvedAt / city
-// populated from the resolved Locality + postcode snapshot). This keeps the
-// User row's location columns internally consistent and matches what a
-// post-PC2 onboarded user would have.
-//
-// Caveat (spec §8.2): backfill uses postcode-centroid coords from
-// postcodes.io, NOT real address geocoding. Acceptable for Discovery
-// ranking; not for navigation. PC2-onboarded users have the same
-// precision today, so backfilling at this level produces parity rather
-// than degradation.
-//
-// Idempotent: re-running over an already-backfilled user is a no-op (the
-// WHERE clause filters them out).
-//
-// CLI usage:
-//   npx tsx prisma/backfill-user-locality.ts
-//
-// Programmatic usage (tests):
-//   import { backfillUserLocality } from './backfill-user-locality'
-//   const result = await backfillUserLocality(prisma)
+// Backfill the location snapshot for users with a postcode but ≥1 of
+// localityId/latitude/longitude null. Resolver failure on a specific user
+// skips + warns rather than aborting the whole run, so one bad postcode
+// cannot poison a 10k-user batch. Output snapshot shape mirrors
+// updateMyProfile + seed::resolveCustomerLocation so backfilled rows are
+// indistinguishable from PC2-onboarded rows.
 
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { Pool } from 'pg'
 import * as dotenv from 'dotenv'
 import { resolvePostcode } from '../src/api/lib/postcodeResolver'
 import { findOrCreateLocality } from '../src/api/lib/findOrCreateLocality'
@@ -83,8 +50,7 @@ export async function backfillUserLocality(
 
   for (const u of incompleteUsers) {
     if (!u.postcode) {
-      // Defensive — WHERE clause guarantees postcode != null, but TS
-      // narrowing forces an explicit branch.
+      // TS narrowing — WHERE clause already filters null.
       skipped++
       continue
     }
@@ -102,11 +68,6 @@ export async function backfillUserLocality(
 
     const locality = await findOrCreateLocality(prisma, resolved.snapshot)
 
-    // Full 11-field snapshot — mirrors seed.ts::resolveCustomerLocation and
-    // src/api/customer/profile/service.ts::updateMyProfile. Postcode itself
-    // is unchanged (the user-provided value is the input); the canonical-
-    // spacing form from postcodes.io overwrites in case the user typed
-    // "HD11AA" — same behaviour as production.
     await prisma.user.update({
       where: { id: u.id },
       data: {
@@ -120,9 +81,6 @@ export async function backfillUserLocality(
         region:             resolved.snapshot.region,
         country:            resolved.snapshot.country,
         locationResolvedAt: new Date(),
-        // Legacy `city` field — kept aligned with locality name to match
-        // updateMyProfile + seed behaviour (Plan 4 M5 may retire `city`
-        // entirely, at which point this field drops out of the snapshot).
         city:               locality.name,
       },
     })
@@ -136,14 +94,14 @@ export async function backfillUserLocality(
   }
 }
 
-// CLI runner — only fires when this file is invoked directly via tsx.
 if (require.main === module) {
   void (async () => {
     if (!process.env.DATABASE_URL) {
       console.error('[backfill-user-locality] DATABASE_URL not set. Aborting.')
       process.exit(1)
     }
-    const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+    const adapter = new PrismaPg(pool)
     const prisma = new PrismaClient({ adapter })
     try {
       console.log('[backfill-user-locality] starting...')
@@ -154,6 +112,7 @@ if (require.main === module) {
       process.exitCode = 1
     } finally {
       await prisma.$disconnect()
+      await pool.end()
     }
   })()
 }
