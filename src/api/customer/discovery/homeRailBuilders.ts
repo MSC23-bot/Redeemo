@@ -314,12 +314,6 @@ const TRENDING_TAKE = 10
 const POPULAR_TAKE  = 10
 const TOP_MERCHANT_CAP = 30  // Top-N merchants by redemption count (spec §10.4)
 
-function startOfMonthUTC(now: Date): Date {
-  const d = new Date(now.getFullYear(), now.getMonth(), 1)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
 /**
  * Build the Trending rail (spec §6.2).
  *
@@ -344,7 +338,7 @@ export async function buildTrendingRail(
   // ── 1. Inclusion: top merchants by recent redemption count.
   //    §DG QA filter applied — real-customer redemptions only.
   //    §DG v1.1: time window is rolling 30 days (same as Popular —
-  //    eliminates the start-of-month cliff startOfMonthUTC had).
+  //    eliminates the start-of-month cliff the former calendar-month boundary had).
   const windowStart    = startOfRollingPopularityWindow(new Date())
   const qaEmailsList   = QA_ACCOUNT_EMAILS.map((e) => e.toLowerCase())
   const domainClauses  = QA_ACCOUNT_EMAIL_DOMAINS.length > 0

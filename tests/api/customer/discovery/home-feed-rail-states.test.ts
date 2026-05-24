@@ -580,11 +580,18 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
 //   Popular AND applies the same QA filter.  Keeping Trending silent
 //   per pin:
 //
-//   §DG-1: London fixture redemptions use customer@redeemo.com (QA email).
-//          Trending's QA filter excludes → Trending stays silent → Popular
-//          fires.  Popular also excludes the QA email → London score=0,
-//          Manchester score=0; V3 rung-priority still puts London (NEARBY)
-//          before Manchester (COUNTRY).
+//   §DG-1: Trending stays silent via TWO mechanisms:
+//          (a) QA email filter: the London redemption is from customer@redeemo.com
+//              → Trending's inclusion query excludes it → London merchant absent
+//              from top-30 pool → Trending fires no tiles for the London branch.
+//          (b) Scope filter: the Manchester merchant IS in the top-30 pool (5 real
+//              redemptions from a non-QA user) but Manchester is COUNTRY rung from
+//              a London effLoc → Trending's strict NEARBY+CITY scope excludes it
+//              even though it passes the QA filter.
+//          Both (a) and (b) must hold for Trending to stay silent here.
+//          Popular fires; also excludes the QA email → London score=0, Manchester
+//          score=0 both; V3 rung-priority (NEARBY ordinal 0 before COUNTRY ordinal 6)
+//          still surfaces the London merchant first regardless of equal scores.
 //
 //   §DG-2/3/4/8: Manchester fixtures only (COUNTRY rung from London effLoc).
 //          Trending strict scope = NEARBY+CITY; Manchester is COUNTRY →
@@ -596,7 +603,7 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
 //   §DG-6: QA email Trending filter pin (Trending's own QA-filter gate).
 //   §DG-7: effLoc=null → Trending returns early (no location) → Popular fires.
 //   §DG-8: Manchester fixtures (COUNTRY rung). Rolling window boundary tested
-//          with PAST_35 (excluded) vs PAST_25 (included) for Popular score.
+//          with PAST_35 (excluded) vs PAST_5 (included) for Popular score.
 
 describe('Popular rail — §DG location-aware ranking', () => {
   // Track created rows for afterEach cleanup.
@@ -1190,7 +1197,7 @@ describe('Popular rail — §DG location-aware ranking', () => {
     // v1.1 rolling window boundary verification.
     // Setup: 2 UK merchants.
     // MerchantA gets 1 redemption at redeemedAt = 35 days ago (OUTSIDE the
-    // 30-day rolling window → score=0).  MerchantB gets 1 redemption at 25
+    // 30-day rolling window → score=0).  MerchantB gets 1 redemption at 5
     // days ago (INSIDE the window → score=1).  Both real user, isTestData=false.
     // → B outranks A (score=1 vs score=0).
     //
@@ -1237,13 +1244,13 @@ describe('Popular rail — §DG location-aware ranking', () => {
       isTestData: false,
       redeemedAt: new Date(ts - 35 * DAY_MS),
     })
-    // merchantB: 1 redemption 25 days ago (inside 30-day window → score=1).
+    // merchantB: 1 redemption 5 days ago (inside 30-day window → score=1).
     await createRedemption({
       userId:     user.id,
       voucherId:  voucherB.id,
       branchId:   merchantB.branches[0].id,
       isTestData: false,
-      redeemedAt: new Date(ts - 25 * DAY_MS),
+      redeemedAt: new Date(ts - 5 * DAY_MS),
     })
 
     // No lat/lng → effLoc=null → Trending returns early → Popular fires.

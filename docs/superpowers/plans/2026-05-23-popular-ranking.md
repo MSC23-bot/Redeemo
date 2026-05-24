@@ -1553,3 +1553,15 @@ Other placeholder checks: no "TBD" / "implement later" / "fill in details" / "Ad
 - `VoucherRedemption.isTestData` schema field defined in Task 1.1, used in Tasks 4.8 + 5.3 (Prisma `where` clauses) + Task 6 (QA script `data` objects). ✅
 
 **Self-review complete. Plan is ready for execution handoff.**
+
+---
+
+## Deferred follow-ups (post-§DG)
+
+### T5 Minor 2 — DRY refactor of QA filter SQL triple (DEFERRED)
+
+The `qaEmailsList` / `domainClauses` / `emailNotInClause` triple is duplicated inline in both `computePopularityScores` (`homeRailBuilders.ts` Popular path) and `buildTrendingRail`'s inclusion query. This was an acceptable trade-off for shipping §DG: inline duplication is straightforward, readable, and kept the T4/T5 diffs minimal.
+
+**Deferred because:** the duplication is 3 const lines + a SQL fragment. Extracting a shared helper (e.g. `buildQaEmailSqlFilter(paramOffset): { clause: string; params: string[] }`) is a clean follow-up but not load-bearing for §DG correctness. Per plan §11.1, the inline duplication is acceptable for the §DG release.
+
+**Pick up if/when:** the QA filter gains additional dimensions (e.g. domain-level exclusions beyond `@redeemo.dev`, or a configurable exclusion list from the database). At that point, a single extraction point becomes necessary for maintainability. Track as a Tier 0/1 follow-up PR alongside the next backend cleanup cycle.
