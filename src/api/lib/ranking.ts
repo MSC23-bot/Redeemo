@@ -655,6 +655,12 @@ export type RankInputV3 = {
   categoryIntent: CategoryIntent
   targetCount: number
   hardCap: number
+  // §DG spec §5.2(b) — optional sort override for Popular rail. When
+  // sortBy='popularity', intra-rung sort uses popularityMap.get(merchantId)
+  // desc (default 0) with distance asc tiebreak. Other rails omit both
+  // and inherit categoryIntent-based sort (LOCAL/DESTINATION/MIXED).
+  sortBy?: 'distance' | 'quality' | 'popularity'
+  popularityMap?: Map<string, number>
 }
 
 export type RankedBranchTile = {
@@ -734,7 +740,39 @@ export function rankBranchesV3<B extends RankableBranchInputV3>(
     return compareDistance(a, b)
   }
 
+  // §DG: popularity-desc with distance-asc tiebreak. Factory because the
+  // comparator closes over the popularityMap (which is per-call, not module
+  // state). Falls through to compareDistance on tie so the final ordering
+  // matches distance + name + id tiebreaks already established by
+  // compareDistance.
+  function makeComparePopularity(popularityMap: Map<string, number>) {
+    return function comparePopularity(a: Collected<B>, b: Collected<B>): number {
+      const aP = popularityMap.get(a.branch.merchantId) ?? 0
+      const bP = popularityMap.get(b.branch.merchantId) ?? 0
+      if (aP !== bP) return bP - aP  // popularity DESC
+      return compareDistance(a, b)
+    }
+  }
+
   function sortWithinRung(rung: SupplyRung, arr: Collected<B>[]): Collected<B>[] {
+    // §DG: sortBy override wins when provided.
+    if (input.sortBy === 'popularity' && !input.popularityMap) {
+      // Caller error: sortBy='popularity' requires a popularityMap.  Silently
+      // falling through to categoryIntent is almost certainly wrong — the
+      // caller explicitly asked for popularity ordering.  Throw loudly so
+      // the bug surfaces immediately.
+      throw new Error('rankBranchesV3: sortBy="popularity" requires popularityMap')
+    }
+    if (input.sortBy === 'popularity' && input.popularityMap) {
+      return [...arr].sort(makeComparePopularity(input.popularityMap))
+    }
+    if (input.sortBy === 'distance') {
+      return [...arr].sort(compareDistance)
+    }
+    if (input.sortBy === 'quality') {
+      return [...arr].sort(compareQuality)
+    }
+    // No sortBy override → existing categoryIntent behaviour.
     if (categoryIntent === 'LOCAL') {
       return [...arr].sort(compareDistance)
     }

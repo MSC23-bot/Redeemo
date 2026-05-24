@@ -45,6 +45,9 @@ import {
   type HomeNearbyCategoryRail,
   type LocalityRef,
 } from './service'
+import { QA_ACCOUNT_EMAILS, QA_ACCOUNT_EMAIL_DOMAINS } from './qaAccountFilter'
+import { startOfRollingPopularityWindow } from './popularityWindow'
+import { deriveProximityBandFromDistance } from './proximityBand'
 
 // Local rich select — `BRANCH_TILE_SELECT` does not include the ladder
 // identity fields (`ladDistrict / adminCounty / region / locationCountry`)
@@ -228,7 +231,9 @@ export async function buildFeaturedRail(
     branchId:      t.id,
     merchantId:    t.merchantId,
     supplyRung:    t.supplyRung,
-    proximityBand: t.proximityBand,
+    // §DG post-T8 v1.2: derive band from visible distance so the chip matches
+    // the distance shown on the card (unified across all rails).
+    proximityBand: deriveProximityBandFromDistance(t.distanceMetres),
     distance:      t.distanceMetres,
   }))
 
@@ -312,12 +317,6 @@ const TRENDING_TAKE = 10
 const POPULAR_TAKE  = 10
 const TOP_MERCHANT_CAP = 30  // Top-N merchants by redemption count (spec §10.4)
 
-function startOfMonthUTC(now: Date): Date {
-  const d = new Date(now.getFullYear(), now.getMonth(), 1)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
 /**
  * Build the Trending rail (spec §6.2).
  *
@@ -339,16 +338,40 @@ export async function buildTrendingRail(
   // Trending requires an effective location for proximity ranking.
   if (!effLoc) return { branches: [], meta: null }
 
-  // ── 1. Inclusion: top merchants by current-month redemption count.
-  const monthStart = startOfMonthUTC(new Date())
-  const recent = await prisma.voucherRedemption.findMany({
-    where:  { redeemedAt: { gte: monthStart } },
-    select: { branch: { select: { merchantId: true } } },
-  })
+  // ── 1. Inclusion: top merchants by recent redemption count.
+  //    §DG QA filter applied — real-customer redemptions only.
+  //    §DG v1.1: time window is rolling 30 days (same as Popular —
+  //    eliminates the start-of-month cliff the former calendar-month boundary had).
+  const windowStart    = startOfRollingPopularityWindow(new Date())
+  const qaEmailsList   = QA_ACCOUNT_EMAILS.map((e) => e.toLowerCase())
+  // SQL-SAFETY: the `${d.toLowerCase()}` interpolation below is safe ONLY because
+  // QA_ACCOUNT_EMAIL_DOMAINS is a compile-time constant audited at
+  // src/api/customer/discovery/qaAccountFilter.ts (no runtime user input flows
+  // here).  If a future change makes this list runtime-sourced (e.g. fetched from
+  // DB or env var), the SQL fragment MUST be parameterised — string interpolation
+  // of attacker-controllable values into raw SQL is an injection vector.
+  const domainClauses  = QA_ACCOUNT_EMAIL_DOMAINS.length > 0
+    ? QA_ACCOUNT_EMAIL_DOMAINS
+        .map((d) => `LOWER(u.email) NOT LIKE '%@${d.toLowerCase()}'`)
+        .join(' AND ')
+    : 'TRUE'
+  const emailNotInClause = qaEmailsList.length > 0
+    ? `LOWER(u.email) NOT IN (${qaEmailsList.map((_, i) => `$${i + 2}`).join(', ')})`
+    : 'TRUE'
+  const recent = await prisma.$queryRawUnsafe<Array<{ merchant_id: string }>>(`
+    SELECT b."merchantId" AS merchant_id
+    FROM "VoucherRedemption" r
+    JOIN "Branch"            b ON r."branchId" = b.id
+    JOIN "User"              u ON r."userId"   = u.id
+    WHERE r."redeemedAt" >= $1
+      AND r."isTestData" = false
+      AND ${emailNotInClause}
+      AND ${domainClauses}
+  `, windowStart, ...qaEmailsList)
+
   const counts: Record<string, number> = {}
   for (const r of recent) {
-    const id = r.branch.merchantId
-    counts[id] = (counts[id] ?? 0) + 1
+    counts[r.merchant_id] = (counts[r.merchant_id] ?? 0) + 1
   }
   const topMerchantIds = Object.entries(counts)
     .sort(([, a], [, b]) => b - a)
@@ -397,7 +420,9 @@ export async function buildTrendingRail(
     branchId:      t.id,
     merchantId:    t.merchantId,
     supplyRung:    t.supplyRung,
-    proximityBand: t.proximityBand,
+    // §DG post-T8 v1.2: derive band from visible distance so the chip matches
+    // the distance shown on the card (unified across all rails).
+    proximityBand: deriveProximityBandFromDistance(t.distanceMetres),
     distance:      t.distanceMetres,
   }))
 
@@ -443,61 +468,114 @@ export async function buildTrendingRail(
   }
 }
 
+// §DG spec §5.1 step 2 — per-merchant popularity score with QA filter.
+// Single aggregate query via $queryRawUnsafe, returns Map<merchantId, count>.
+// Both filters applied at SQL level:
+//   - VoucherRedemption.isTestData = false
+//   - user.email NOT IN QA_ACCOUNT_EMAILS  (exact match, case-insensitive)
+//   - user.email NOT LIKE '%@<domain>'     (for each QA_ACCOUNT_EMAIL_DOMAINS entry)
+//
+// §DG v1.1: time window is rolling 30 days (windowStart parameter from
+// startOfRollingPopularityWindow).  Owner-locked at 30 days; eliminates
+// the start-of-month cliff the previous calendar-month boundary had.
+//
+// Implementation note: Prisma's groupBy doesn't support nested-relation
+// filters for the email-domain NOT LIKE check, so we use $queryRawUnsafe
+// for the GROUP BY.  One query per Popular call (not N+1).  Returns
+// Map<merchantId, number>; merchants with zero qualifying redemptions
+// are absent → ranker treats them as score 0.
+async function computePopularityScores(
+  prisma:      PrismaClient,
+  windowStart: Date,
+): Promise<Map<string, number>> {
+  const qaEmailsList = QA_ACCOUNT_EMAILS.map((e) => e.toLowerCase())
+  // Build the domain-suffix NOT-LIKE clauses.  Each domain becomes
+  // `LOWER(u.email) NOT LIKE '%@<domain>'`.  Joined with AND.
+  //
+  // Guard against empty arrays — `AND ` (empty domainClauses) or `NOT IN ()`
+  // (empty qaEmailsList) would be SQL syntax errors.  Use `TRUE` as the
+  // identity for AND when either list is empty.
+  //
+  // SQL-SAFETY: the `${d.toLowerCase()}` interpolation below is safe ONLY because
+  // QA_ACCOUNT_EMAIL_DOMAINS is a compile-time constant audited at
+  // src/api/customer/discovery/qaAccountFilter.ts (no runtime user input flows
+  // here).  If a future change makes this list runtime-sourced (e.g. fetched from
+  // DB or env var), the SQL fragment MUST be parameterised — string interpolation
+  // of attacker-controllable values into raw SQL is an injection vector.
+  const domainClauses = QA_ACCOUNT_EMAIL_DOMAINS.length > 0
+    ? QA_ACCOUNT_EMAIL_DOMAINS
+        .map((d) => `LOWER(u.email) NOT LIKE '%@${d.toLowerCase()}'`)
+        .join(' AND ')
+    : 'TRUE'
+  const emailNotInClause = qaEmailsList.length > 0
+    ? `LOWER(u.email) NOT IN (${qaEmailsList.map((_, i) => `$${i + 2}`).join(', ')})`
+    : 'TRUE'
+
+  // Parameter positions: $1 = windowStart, $2..$(n+1) = qaEmailsList.
+  const rows = await prisma.$queryRawUnsafe<Array<{ merchant_id: string; cnt: bigint }>>(`
+    SELECT b."merchantId" AS merchant_id, COUNT(*)::bigint AS cnt
+    FROM "VoucherRedemption" r
+    JOIN "Branch"            b ON r."branchId" = b.id
+    JOIN "User"              u ON r."userId"   = u.id
+    WHERE r."redeemedAt" >= $1
+      AND r."isTestData" = false
+      AND ${emailNotInClause}
+      AND ${domainClauses}
+    GROUP BY b."merchantId"
+  `, windowStart, ...qaEmailsList)
+
+  const out = new Map<string, number>()
+  for (const r of rows) out.set(r.merchant_id, Number(r.cnt))
+  return out
+}
+
 /**
- * Build the Popular rail (spec §6.2).
+ * Build the Popular rail (spec §6.2, §DG §5.1).
  *
  * Two branches:
  *
- *   (a) `effLoc` non-null — UK-wide inclusion query, rank via V3,
- *       permissive tail.  Locality on `meta` is null (rail does not
- *       claim a locality), scope is `platform`.
+ *   (a) `effLoc` non-null — UK-wide active branch inclusion, rank via V3
+ *       with sortBy='popularity' + popularityMap (QA-filtered, rolling
+ *       30-day window).  Permissive tail.  Locality on `meta` is null
+ *       (rail does not claim a locality), scope is `platform`.
  *
- *   (b) `effLoc` null — V3 ranker NOT invoked.  Every tile constructed
- *       with `supplyRung: null, proximityBand: null, distance: null`
- *       per the §6.2 no-location tile contract.  The customer-app
- *       `<PopularSection>` tolerates these nulls and renders the tiles
- *       without distance / proximity chips.
+ *   (b) `effLoc` null — V3 ranker NOT invoked.  Merchants sorted by
+ *       popularityScore desc (same QA filter applied); one branch per
+ *       merchant (deterministic by id).  Every tile constructed with
+ *       `supplyRung: null, proximityBand: null, distance: null`
+ *       per the §6.2 no-location tile contract.
  *
- * Returns `{ branches: [], meta: null }` only when no current-month
- * redemptions exist anywhere (top-merchant list empty) or no active
- * branches under any top merchant.
+ * Returns `{ branches: [], meta: null }` only when no active branches
+ * exist UK-wide.
  */
 export async function buildPopularRail(
   prisma:        PrismaClient,
   effLoc:        EffectiveLocation | null,
   ladderProfile: LadderProfile,
 ): Promise<HomeRail> {
-  // ── 1. Inclusion: top merchants by current-month redemption count
-  //    (same shape as Trending — but no locality filter; UK-wide).
-  const monthStart = startOfMonthUTC(new Date())
-  const recent = await prisma.voucherRedemption.findMany({
-    where:  { redeemedAt: { gte: monthStart } },
-    select: { branch: { select: { merchantId: true } } },
-  })
-  const counts: Record<string, number> = {}
-  for (const r of recent) {
-    const id = r.branch.merchantId
-    counts[id] = (counts[id] ?? 0) + 1
-  }
-  const topMerchantIds = Object.entries(counts)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, TOP_MERCHANT_CAP)
-    .map(([id]) => id)
-  if (topMerchantIds.length === 0) return { branches: [], meta: null }
-
-  // ── 2. Fetch active branches under the top merchants.
+  // ── 1. Inclusion: UK-wide active merchant branches.  §DG drops the legacy
+  //    global top-30 redemption-count pre-filter.  V3's hardCap=500 is the
+  //    upper bound on ranked output.
   const allBranches = await prisma.branch.findMany({
-    where:  { merchantId: { in: topMerchantIds }, isActive: true, merchant: { status: MerchantStatus.ACTIVE } },
+    where:  {
+      isActive: true,
+      merchant: { status: MerchantStatus.ACTIVE },
+    },
     select: RANK_BRANCH_SELECT,
   }) as RankBranchRow[]
   if (allBranches.length === 0) return { branches: [], meta: null }
 
+  // ── 2. §DG step 2 — per-merchant popularity score (QA-filtered, rolling
+  //    30-day window per v1.1 spec).
+  const windowStart   = startOfRollingPopularityWindow(new Date())
+  const popularityMap = await computePopularityScores(prisma, windowStart)
+
   // ── 3. No-location branch (b): emit null-classification tiles.
   //    V3 ranker is NOT invoked because there's no effLoc to rank against.
-  //    Tile order = merchant rank order (most-redeemed first), preserved
-  //    by walking `topMerchantIds` and pulling the first active branch per
-  //    merchant.  This is intentionally a curatorial order — without GPS
-  //    the platform cannot honestly claim "nearby" anything.
+  //    Tile order = popularityScore desc (same QA filter), deterministic
+  //    merchant-id sort as tiebreak.  One branch per merchant to keep the
+  //    rail visually diverse.  Without GPS the platform cannot honestly
+  //    claim "nearby" anything.
   if (!effLoc) {
     const branchesByMerchant = new Map<string, RankBranchRow[]>()
     for (const b of allBranches) {
@@ -505,12 +583,18 @@ export async function buildPopularRail(
       if (list) list.push(b)
       else branchesByMerchant.set(b.merchantId, [b])
     }
+    // Sort merchant ids by popularityScore desc, then by id asc as tiebreak.
+    const merchantIds = [...branchesByMerchant.keys()].sort((a, b) => {
+      const pa = popularityMap.get(a) ?? 0
+      const pb = popularityMap.get(b) ?? 0
+      if (pa !== pb) return pb - pa
+      return a.localeCompare(b)
+    })
     const orderedInputs: EnrichBranchInput[] = []
-    for (const mid of topMerchantIds) {
+    for (const mid of merchantIds) {
       const list = branchesByMerchant.get(mid)
       if (!list || list.length === 0) continue
-      // One branch per merchant to keep the rail visually diverse on the
-      // no-location path.  Pick deterministically by branch id.
+      // Pick one branch per merchant deterministically by branch id.
       const sorted = [...list].sort((a, b) => a.id.localeCompare(b.id))
       const first = sorted[0]
       orderedInputs.push({
@@ -536,12 +620,13 @@ export async function buildPopularRail(
     }
   }
 
-  // ── 4. With-effLoc branch (a): rank via V3, permissive tail.
-  const rankable = allBranches.filter(b =>
+  // ── 4. With-effLoc branch (a): §DG step 3b — rank via V3 with
+  //    sortBy='popularity' + popularityMap.
+  const rankable = allBranches.filter((b) =>
     b.locationConfidence === 'MANUALLY_CONFIRMED'
     || b.locationConfidence === 'ADDRESS_GEOCODED'
   )
-  const nonRankable = allBranches.filter(b =>
+  const nonRankable = allBranches.filter((b) =>
     b.locationConfidence === 'POSTCODE_CENTROID'
     || b.locationConfidence === 'NEEDS_REVIEW'
   )
@@ -554,22 +639,26 @@ export async function buildPopularRail(
         categoryIntent: 'MIXED',
         targetCount:    20,
         hardCap:        500,
+        sortBy:         'popularity',
+        popularityMap,
       })
     : { tiles: [], rungCounts: { ...EMPTY_RUNG_COUNTS } }
 
   // Popular retains every rung (platform-wide).
   const resolution = resolveScopeForHomeRail('popular', v3.rungCounts)
-  const filteredTiles = v3.tiles.filter(t => resolution.retainedRungs.has(t.supplyRung))
+  const filteredTiles = v3.tiles.filter((t) => resolution.retainedRungs.has(t.supplyRung))
 
-  const headInputs: EnrichBranchInput[] = filteredTiles.map(t => ({
+  const headInputs: EnrichBranchInput[] = filteredTiles.map((t) => ({
     branchId:      t.id,
     merchantId:    t.merchantId,
     supplyRung:    t.supplyRung,
-    proximityBand: t.proximityBand,
+    // §DG post-T8 v1.2: derive band from visible distance so the chip matches
+    // the distance shown on the card (unified across all rails).
+    proximityBand: deriveProximityBandFromDistance(t.distanceMetres),
     distance:      t.distanceMetres,
   }))
 
-  const tailCandidates: EnrichBranchInput[] = nonRankable.map(b => {
+  const tailCandidates: EnrichBranchInput[] = nonRankable.map((b) => {
     const exposed = exposeBranchPosition(b)
     void exposed
     return {
@@ -622,32 +711,14 @@ const NEARBY_CATEGORY_TAKE      = 5   // tiles per category
 const NEARBY_MAX_CATEGORIES     = 6   // categories per response
 const NEARBY_MERCHANT_POOL_TAKE = 60  // top-level merchant pool size
 
-// v1.8 (PR #126 device-QA-5 owner direction 2026-05-23) — distance thresholds
-// for deriving a meaningful `proximityBand` on filler tiles.  v1.5 cascade +
-// v1.7 top-up fillers skip the V3 ranker (the maxRung gate would drop them),
-// so they previously emitted `proximityBand: null` → the customer-app
-// <ProximityBandChip> rendered nothing for those tiles.  But fillers are the
-// EXACT tiles where the chip helps users understand WHY a farther merchant
-// is appearing.  v1.8 derives the band from haversine distance using the
-// mapping below (mirrors the semantic intent of the V3 rung-based
-// classification at `ladderProfiles.ts::getProximityBand`):
+// §DG post-T8 v1.2 (PR #127 2026-05-24): proximity-band derivation for filler
+// tiles is now shared with V3-head tiles via
+// `src/api/customer/discovery/proximityBand.ts::deriveProximityBandFromDistance`.
+// The old `deriveFillerProximityBand` + constants have been removed — callers
+// below use `deriveProximityBandFromDistance(distance)` directly via the import
+// at the top of this file.
 //
-//   < 8 mi  (12 875 m)  → IN_YOUR_AREA       — reassuring (green chip)
-//   < 25 mi (40 234 m)  → A_LITTLE_FURTHER   — warm    (amber chip)
-//   >= 25 mi            → NEAREST_ON_REDEEMO — neutral (rose chip)
-//
-// Locked behaviour: NEARBY band is NEVER derived for fillers — by construction
-// the local-first loop exhausted the genuinely NEARBY supply BEFORE fillers
-// were considered, so claiming NEARBY on a filler would be dishonest.
-const PROXIMITY_BAND_IN_AREA_M    = 12_875   // 8 mi  × 1609.344 m/mi rounded
-const PROXIMITY_BAND_SHORT_TRIP_M = 40_234   // 25 mi × 1609.344 m/mi rounded
-
-export function deriveFillerProximityBand(distanceMetres: number | null): ProximityBand | null {
-  if (distanceMetres === null) return null
-  if (distanceMetres < PROXIMITY_BAND_IN_AREA_M)    return 'IN_YOUR_AREA'
-  if (distanceMetres < PROXIMITY_BAND_SHORT_TRIP_M) return 'A_LITTLE_FURTHER'
-  return 'NEAREST_ON_REDEEMO'
-}
+// supplyRung + proximityBand for non-rankable tail tiles stay null (no chip).
 
 // Merchant row shape used by the inclusion query — we need enough to fan
 // out to branches with RANK_BRANCH_SELECT, plus primaryCategoryId +
@@ -843,7 +914,9 @@ export async function buildNearbyByCategoryRails(
       branchId:      t.id,
       merchantId:    t.merchantId,
       supplyRung:    t.supplyRung,
-      proximityBand: t.proximityBand,
+      // §DG post-T8 v1.2: derive band from visible distance so the chip matches
+      // the distance shown on the card (unified across all rails).
+      proximityBand: deriveProximityBandFromDistance(t.distanceMetres),
       distance:      t.distanceMetres,
     }))
 
@@ -1028,7 +1101,7 @@ export async function buildNearbyByCategoryRails(
           // v1.8: derive band from distance so the customer-app chip
           // surfaces "In your area" / "A short trip away" / "Closest match
           // on Redeemo" on top-up fillers (was `null` in v1.7 → chip hidden).
-          proximityBand: deriveFillerProximityBand(distance),
+          proximityBand: deriveProximityBandFromDistance(distance),
           distance,
         })
       }
@@ -1163,7 +1236,7 @@ export async function buildNearbyByCategoryRails(
           // rationale as the v1.7 top-up call site above).  Was `null` in
           // v1.5/v1.6/v1.7 → chip hidden on the EXACT tiles where it'd
           // explain why the merchant is appearing far away.
-          proximityBand: deriveFillerProximityBand(distance),
+          proximityBand: deriveProximityBandFromDistance(distance),
           distance,
         }))
 

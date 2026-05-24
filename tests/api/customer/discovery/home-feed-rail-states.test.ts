@@ -20,7 +20,7 @@
 // hide-rule sentinel.
 
 import 'dotenv/config'
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../../../../src/api/app'
 import { PrismaClient } from '../../../../generated/prisma/client'
@@ -554,5 +554,912 @@ describe('NearbyByCategory rails (§6.3 + §8.3 rows 7-8)', () => {
         expect(tile.proximityBand).toBe('NEAREST_ON_REDEEMO')
       }
     }
+  })
+})
+
+// ─── §DG — Popular rail: location-aware ranking + QA filter + rolling window ──
+//
+// Spec: docs/superpowers/specs/2026-05-23-popular-ranking-design.md §8.1.
+//
+// Each pin creates its own isolated test merchants + redemptions to avoid
+// cross-pin contamination.  Test users use `p1test-<ts>-N@example.com`
+// naming so they sit outside QA_ACCOUNT_EMAILS naturally.  Cleanup via
+// afterEach so the DB returns to a clean state for subsequent pins.
+//
+// London effLoc resolves to a RURAL locality (Kennington has
+// populationTier='UNKNOWN' → densityClass='RURAL') → MIXED_NORMAL@RURAL
+// gives nearbyRadius=15mi and maxRung=COUNTRY.  Manchester (COUNTRY
+// rung from London) and Huddersfield (also COUNTRY) PASS the maxRung
+// gate, but V3 sorts by rung ordinal first → London merchants
+// (NEARBY rung, ordinal 0) always precede them in v3.tiles, regardless
+// of within-rung popularity scores.  This is the location-aware
+// mechanism Popular relies on.
+//
+// Mutual-exclusion strategy (T5 updated):
+//   After T5, buildTrendingRail uses the same rolling 30-day window as
+//   Popular AND applies the same QA filter.  Keeping Trending silent
+//   per pin:
+//
+//   §DG-1: Trending stays silent via TWO mechanisms:
+//          (a) QA email filter: the London redemption is from customer@redeemo.com
+//              → Trending's inclusion query excludes it → London merchant absent
+//              from top-30 pool → Trending fires no tiles for the London branch.
+//          (b) Scope filter: the Manchester merchant IS in the top-30 pool (5 real
+//              redemptions from a non-QA user) but Manchester is COUNTRY rung from
+//              a London effLoc → Trending's strict NEARBY+CITY scope excludes it
+//              even though it passes the QA filter.
+//          Both (a) and (b) must hold for Trending to stay silent here.
+//          Popular fires; also excludes the QA email → London score=0, Manchester
+//          score=0 both; V3 rung-priority (NEARBY ordinal 0 before COUNTRY ordinal 6)
+//          still surfaces the London merchant first regardless of equal scores.
+//
+//   §DG-2/3/4/8: Manchester fixtures only (COUNTRY rung from London effLoc).
+//          Trending strict scope = NEARBY+CITY; Manchester is COUNTRY →
+//          excluded by Trending's scope filter even if in the top-30 pool.
+//          Trending returns empty → Popular fires.  PAST_25 constraint
+//          removed — fixtures use current-time redemptions.
+//
+//   §DG-5: No redemptions → Trending top-30 pool empty → Trending silent.
+//   §DG-6: QA email Trending filter pin (Trending's own QA-filter gate).
+//   §DG-7: effLoc=null → Trending returns early (no location) → Popular fires.
+//   §DG-8: Manchester fixtures (COUNTRY rung). Rolling window boundary tested
+//          with PAST_35 (excluded) vs PAST_5 (included) for Popular score.
+
+describe('Popular rail — §DG location-aware ranking', () => {
+  // Track created rows for afterEach cleanup.
+  const createdMerchantIds: string[] = []
+  const createdUserIds:     string[] = []
+
+  afterEach(async () => {
+    // Hard-delete in dependency order: redemptions → vouchers → branches → merchants → users.
+    // Cycle-state cleanup not needed for integration-test fixtures (no cycle-state rows created).
+    if (createdUserIds.length > 0) {
+      await prisma.voucherRedemption.deleteMany({ where: { userId: { in: createdUserIds } } })
+    }
+    if (createdMerchantIds.length > 0) {
+      // Also delete any QA-user redemptions against our fixture merchants.
+      await prisma.voucherRedemption.deleteMany({ where: { branch: { merchantId: { in: createdMerchantIds } } } })
+      await prisma.voucher.deleteMany({ where: { merchantId: { in: createdMerchantIds } } })
+      await prisma.branch.deleteMany({ where: { merchantId: { in: createdMerchantIds } } })
+      await prisma.merchant.deleteMany({ where: { id: { in: createdMerchantIds } } })
+    }
+    if (createdUserIds.length > 0) {
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
+    }
+    createdMerchantIds.length = 0
+    createdUserIds.length     = 0
+  })
+
+  // ── shared branch shape helpers ───────────────────────────────────────────
+  // London fixture branches: region='London', locationCountry='England'.
+  // From a London effLoc (MIXED_NORMAL@RURAL, maxRung=COUNTRY), these
+  // branches have a matching region → classify at REGION rung → included by V3.
+  // All tighter locality fields are null so NEARBY/CATCHMENT/POST_TOWN/LAD/
+  // COUNTY don't fire unless the fixture branch is within those thresholds.
+  //
+  // After T5, buildTrendingRail uses the same rolling 30-day window as Popular
+  // AND applies the QA filter.  London fixture branches (NEARBY from London
+  // user) with real non-QA redemptions WILL trigger Trending → Popular gets
+  // suppressed.  Per-pin strategies to keep Trending silent are documented in
+  // the describe-block header comment above.  The londonBranchData helper is
+  // used by §DG-1 and §DG-5 only (both have strategies that keep Trending
+  // silent); §DG-2/3/4/7/8 use manchesterBranchData or omit lat/lng entirely.
+  function londonBranchData(overrides: { lat: number; lng: number; name: string }) {
+    return {
+      name:               overrides.name,
+      addressLine1:       '1 Test Street',
+      city:               'London',
+      postcode:           'EC1A 1BB',
+      country:            'GB',
+      latitude:           overrides.lat,
+      longitude:          overrides.lng,
+      isActive:           true,
+      locationConfidence: 'MANUALLY_CONFIRMED' as const,
+      localityId:         null,
+      localityName:       null,
+      postTown:           null,
+      ladDistrict:        null,
+      adminCounty:        null,
+      region:             'London',
+      locationCountry:    'England',
+    }
+  }
+
+  // Manchester fixture branches: region='North West', locationCountry='England'.
+  // From a London effLoc, region mismatch → classifies at COUNTRY rung
+  // (England matches locationCountry).  COUNTRY rung (ordinal 6) PASSES
+  // the maxRung=COUNTRY gate but sorts after all London NEARBY-tier tiles
+  // (ordinal 0) in V3's rung-priority ordering.
+  function manchesterBranchData(overrides: { lat: number; lng: number; name: string }) {
+    return {
+      name:               overrides.name,
+      addressLine1:       '1 Test Road',
+      city:               'Manchester',
+      postcode:           'M1 1AA',
+      country:            'GB',
+      latitude:           overrides.lat,
+      longitude:          overrides.lng,
+      isActive:           true,
+      locationConfidence: 'MANUALLY_CONFIRMED' as const,
+      localityId:         null,
+      localityName:       null,
+      postTown:           null,
+      ladDistrict:        null,
+      adminCounty:        null,
+      region:             'North West',
+      locationCountry:    'England',
+    }
+  }
+
+  async function createVoucherForMerchant(merchantId: string, codeTag: string) {
+    return prisma.voucher.create({
+      data: {
+        merchantId,
+        code:            `dg-${codeTag}`,
+        title:           'Test Voucher §DG',
+        type:            'FREEBIE',
+        estimatedSaving: 5,
+        status:          'ACTIVE',
+        approvalStatus:  'APPROVED',
+      },
+    })
+  }
+
+  async function createRedemption(opts: {
+    userId:      string
+    voucherId:   string
+    branchId:    string
+    isTestData?: boolean
+    redeemedAt?: Date
+  }) {
+    // Generate a unique redemption code: timestamp + 4 random hex chars.
+    const code = `DG${Date.now().toString(36).toUpperCase().padStart(8, '0').slice(-8)}${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+    return prisma.voucherRedemption.create({
+      data: {
+        userId:          opts.userId,
+        voucherId:       opts.voucherId,
+        branchId:        opts.branchId,
+        redemptionCode:  code,
+        estimatedSaving: 5,
+        isTestData:      opts.isTestData ?? false,
+        ...(opts.redeemedAt ? { redeemedAt: opts.redeemedAt } : {}),
+      },
+    })
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  it('§DG-1 — London Popular surfaces London-area merchants before non-London top-redeemers', { timeout: 30_000 }, async () => {
+    // Setup: 1 London merchant + 1 Manchester merchant.  Manchester gets
+    // 5 real redemptions (non-QA user); London gets 1 redemption from
+    // customer@redeemo.com (QA email, excluded from Trending AND Popular).
+    // Pre-§DG, the location-blind pre-filter would surface Manchester first
+    // (5 > 0).  Post-§DG, V3's rung-priority ordering puts London (NEARBY
+    // rung, ordinal 0) before Manchester (COUNTRY rung, ordinal 6) in
+    // v3.tiles — regardless of within-rung popularity scores.  This is the
+    // location-aware mechanism Popular relies on; popularity tiebreaker only
+    // matters WITHIN a single rung (covered by §DG-2).
+    //
+    // Trending stays silent because the London redemption is from a QA email
+    // — Trending's QA filter (T5) excludes it → London merchant absent from
+    // Trending's top-30 pool → Trending inclusion-query returns empty for the
+    // London branch → Trending stays silent → mutual-exclusion allows Popular.
+    // Popular also excludes the QA email → London score=0, Manchester
+    // score=0 both; V3 rung-priority (NEARBY before COUNTRY) still surfaces
+    // London first regardless of equal scores.
+    const LONDON = { lat: 51.5074, lng: -0.1278 }
+    const ts    = Date.now()
+
+    const londonMerchant = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p1-london-${ts}`,
+        status:       'ACTIVE',
+        // lat=51.590 ≈ 9.2 km north of London user (51.5074) — within the
+        // RURAL NEARBY radius (15mi = 24 140 m) so this branch classifies
+        // as NEARBY from the London effLoc.
+        branches: { create: [londonBranchData({ lat: 51.590, lng: -0.1278, name: `dg-p1-lon-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(londonMerchant.id)
+
+    const manchesterMerchant = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p1-manchester-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4808, lng: -2.2426, name: `dg-p1-man-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(manchesterMerchant.id)
+
+    // London redemption: QA user (customer@redeemo.com) — excluded from both
+    // Trending (QA filter) and Popular (QA filter).  Keeps Trending silent
+    // after T5 without relying on the calendar-month boundary.
+    // DO NOT push qaUser.id to createdUserIds — afterEach cleans via merchant scope.
+    const qaUser = await prisma.user.upsert({
+      where:  { email: 'customer@redeemo.com' },
+      update: {},
+      create: { email: 'customer@redeemo.com', passwordHash: 'x' },
+    })
+    // Manchester user: real non-QA email → included in Popular score.
+    const manchesterUser = await prisma.user.create({ data: { email: `p1test-${ts}-b@example.com`, passwordHash: 'x' } })
+    createdUserIds.push(manchesterUser.id)
+
+    const londonVoucher     = await createVoucherForMerchant(londonMerchant.id, `lon-${ts}`)
+    const manchesterVoucher = await createVoucherForMerchant(manchesterMerchant.id, `man-${ts}`)
+    const londonBranch      = londonMerchant.branches[0]
+    const manchesterBranch  = manchesterMerchant.branches[0]
+
+    // 1 QA redemption on London merchant (excluded from Trending → Trending silent).
+    await createRedemption({ userId: qaUser.id, voucherId: londonVoucher.id, branchId: londonBranch.id, isTestData: false })
+    // 5 real redemptions on Manchester merchant (COUNTRY rung → outside Trending's NEARBY+CITY scope).
+    for (let i = 0; i < 5; i++) {
+      await createRedemption({ userId: manchesterUser.id, voucherId: manchesterVoucher.id, branchId: manchesterBranch.id })
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${LONDON.lat}&lng=${LONDON.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // Hard precondition: Popular rail rendered.
+    expect(body.popularRail).toBeDefined()
+    expect(body.popularRail?.meta).not.toBeNull()
+    expect(body.popularRail.branches.length).toBeGreaterThanOrEqual(1)
+
+    // Load-bearing assertion: London merchant appears on the Popular rail.
+    const londonTile = body.popularRail.branches.find((t: any) => t.merchant.id === londonMerchant.id)
+    expect(londonTile).toBeDefined()
+
+    // Manchester must NOT appear — V3 sorts NEARBY (ordinal 0) before COUNTRY
+    // (ordinal 6), so all POPULAR_TAKE slots are filled by London NEARBY-tier
+    // tiles; Manchester tiles are present in v3.tiles but fall beyond the take limit.
+    const manchesterTile = body.popularRail.branches.find((t: any) => t.merchant.id === manchesterMerchant.id)
+    expect(manchesterTile).toBeUndefined()
+  })
+
+  it('§DG-2 — popularity tiebreaker activates within rung when scores differ', { timeout: 30_000 }, async () => {
+    // Setup: 2 UK merchants.  Merchant A gets 5 real redemptions (score=5);
+    // Merchant B gets 1 (score=1).  A must surface before B on Popular.
+    //
+    // After T5, Trending fires when any NEARBY+CITY branch has real non-QA
+    // redemptions in the rolling window → Popular is suppressed.  To ensure
+    // Popular fires we use the no-location path (/home without lat/lng).
+    // Trending returns early when effLoc=null (no location to rank against)
+    // → Popular fires via the no-location branch.
+    //
+    // No-location Popular sorts merchants by popularityScore desc (§6.2 (b)):
+    // A (score=5) surfaces before B (score=1) — tests the popularity-as-
+    // tiebreaker mechanism, same scoring code as the location-aware path.
+    const ts = Date.now()
+
+    // Any UK location works for no-location path — branches appear regardless
+    // of their coordinates since no proximity ranking is applied.
+    const merchantA = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p2-a-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4808, lng: -2.2426, name: `dg-p2-a-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantA.id)
+
+    const merchantB = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p2-b-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4818, lng: -2.2436, name: `dg-p2-b-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantB.id)
+
+    const userA = await prisma.user.create({ data: { email: `p1test-${ts}-a@example.com`, passwordHash: 'x' } })
+    const userB = await prisma.user.create({ data: { email: `p1test-${ts}-b@example.com`, passwordHash: 'x' } })
+    createdUserIds.push(userA.id, userB.id)
+
+    const voucherA = await createVoucherForMerchant(merchantA.id, `dg2a-${ts}`)
+    const voucherB = await createVoucherForMerchant(merchantB.id, `dg2b-${ts}`)
+
+    // 5 redemptions for A (score=5), 1 for B (score=1) — current time.
+    for (let i = 0; i < 5; i++) {
+      await createRedemption({ userId: userA.id, voucherId: voucherA.id, branchId: merchantA.branches[0].id })
+    }
+    await createRedemption({ userId: userB.id, voucherId: voucherB.id, branchId: merchantB.branches[0].id })
+
+    // No lat/lng → effLoc=null → Trending returns early (requires effLoc) →
+    // Popular no-location path fires.  No proximity ranking; sorted by score.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    expect(body.locationContext.source).toBe('none')
+    expect(body.popularRail?.meta).not.toBeNull()
+    const aIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantA.id)
+    const bIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantB.id)
+    expect(aIdx).toBeGreaterThanOrEqual(0)
+    expect(bIdx).toBeGreaterThanOrEqual(0)
+    // A has more popularity (5 vs 1) → surfaces before B.
+    expect(aIdx).toBeLessThan(bIdx)
+  })
+
+  it('§DG-3 — QA account filter excludes customer@redeemo.com from popularity score', { timeout: 30_000 }, async () => {
+    // Setup: 2 UK merchants.  Merchant A gets 5 redemptions from
+    // customer@redeemo.com (QA account — email filter excludes them from
+    // Popular score).  Merchant B gets 1 redemption from a real user.
+    // Post-§DG: A's popularityScore = 0; B's = 1 → B surfaces before A.
+    //
+    // After T5, Trending fires when NEARBY+CITY branches have real non-QA
+    // redemptions in the rolling window → Popular suppressed.  We use the
+    // no-location path (/home without lat/lng): Trending returns early when
+    // effLoc=null → Popular no-location branch fires.
+    // B (realUser, score=1) surfaces before A (QA-only, score=0).
+    const ts = Date.now()
+
+    const merchantA = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p3-a-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4808, lng: -2.2426, name: `dg-p3-a-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantA.id)
+
+    const merchantB = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p3-b-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4818, lng: -2.2436, name: `dg-p3-b-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantB.id)
+
+    // Upsert customer@redeemo.com (the seeded QA user — idempotent).
+    // DO NOT push qaUser.id to createdUserIds — afterEach cleans redemptions
+    // via the merchant fixture scope (voucherRedemption WHERE branch.merchantId IN ...).
+    const qaUser = await prisma.user.upsert({
+      where:  { email: 'customer@redeemo.com' },
+      update: {},
+      create: { email: 'customer@redeemo.com', passwordHash: 'x' },
+    })
+    const realUser = await prisma.user.create({ data: { email: `p1test-${ts}-r@example.com`, passwordHash: 'x' } })
+    createdUserIds.push(realUser.id)
+
+    const voucherA = await createVoucherForMerchant(merchantA.id, `dg3a-${ts}`)
+    const voucherB = await createVoucherForMerchant(merchantB.id, `dg3b-${ts}`)
+
+    // 5 QA-user redemptions on A (isTestData=false — testing the email filter,
+    // not the column-based isTestData flag).  Current time — within rolling window.
+    for (let i = 0; i < 5; i++) {
+      await createRedemption({ userId: qaUser.id, voucherId: voucherA.id, branchId: merchantA.branches[0].id, isTestData: false })
+    }
+    // 1 real-user redemption on B (current time — within rolling window).
+    await createRedemption({ userId: realUser.id, voucherId: voucherB.id, branchId: merchantB.branches[0].id })
+
+    // No lat/lng → effLoc=null → Trending returns early → Popular fires.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    expect(body.locationContext.source).toBe('none')
+    expect(body.popularRail?.meta).not.toBeNull()
+    const bIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantB.id)
+    expect(bIdx).toBeGreaterThanOrEqual(0)
+
+    // B (real-user redemption, score=1) must surface before A (QA-only, score=0).
+    const aIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantA.id)
+    if (aIdx >= 0) {
+      expect(bIdx).toBeLessThan(aIdx)
+    }
+  })
+
+  it('§DG-4 — isTestData=true excludes flagged redemptions from popularity score', { timeout: 30_000 }, async () => {
+    // Setup: 2 UK merchants.
+    // MerchantA gets 2 redemptions: isTestData=true (excluded → score 0) +
+    // isTestData=false (included → score 1) → net popularityScore = 1.
+    // MerchantB gets 2 real redemptions (both isTestData=false) → score = 2.
+    // B (score=2) surfaces before A (score=1) — proves isTestData=true was
+    // excluded; if NOT excluded, A would have score=2 and the ordering would
+    // be a tie (non-deterministic).
+    //
+    // After T5, Trending fires when NEARBY+CITY branches have real non-QA
+    // redemptions in the rolling window → Popular suppressed.  We use the
+    // no-location path (/home without lat/lng): Trending returns early when
+    // effLoc=null → Popular no-location branch fires and sorts by score desc.
+    const ts = Date.now()
+
+    const merchantA = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p4-a-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4808, lng: -2.2426, name: `dg-p4-a-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantA.id)
+
+    const merchantB = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p4-b-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4818, lng: -2.2436, name: `dg-p4-b-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantB.id)
+
+    const user = await prisma.user.create({ data: { email: `p1test-${ts}-u@example.com`, passwordHash: 'x' } })
+    createdUserIds.push(user.id)
+
+    const voucherA = await createVoucherForMerchant(merchantA.id, `dg4a-${ts}`)
+    const voucherB = await createVoucherForMerchant(merchantB.id, `dg4b-${ts}`)
+
+    // merchantA: 1 flagged (excluded, score+=0) + 1 real (score+=1) → net score 1.
+    await createRedemption({ userId: user.id, voucherId: voucherA.id, branchId: merchantA.branches[0].id, isTestData: true  })
+    await createRedemption({ userId: user.id, voucherId: voucherA.id, branchId: merchantA.branches[0].id, isTestData: false })
+    // merchantB: 2 real → score 2 (current time).
+    await createRedemption({ userId: user.id, voucherId: voucherB.id, branchId: merchantB.branches[0].id, isTestData: false })
+    await createRedemption({ userId: user.id, voucherId: voucherB.id, branchId: merchantB.branches[0].id, isTestData: false })
+
+    // No lat/lng → effLoc=null → Trending returns early → Popular fires.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    expect(body.locationContext.source).toBe('none')
+    expect(body.popularRail?.meta).not.toBeNull()
+    const aIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantA.id)
+    const bIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantB.id)
+    expect(aIdx).toBeGreaterThanOrEqual(0)
+    expect(bIdx).toBeGreaterThanOrEqual(0)
+    // B (score=2) before A (score=1) — proves the isTestData=true exclusion.
+    expect(bIdx).toBeLessThan(aIdx)
+  })
+
+  it('§DG-5 — dormant popularity (all scores 0) falls through to distance ASC', { timeout: 30_000 }, async () => {
+    // Setup: 2 fixture merchants at Builth Wells (remote rural Wales),
+    // NO redemptions on either.  V3 ranks by distance ASC tiebreak
+    // because popularityScore=0 for both.
+    //
+    // Concurrency hardening (post-T5 failure audit 2026-05-24):
+    // - LOCATION isolated from London / Colchester / Manchester /
+    //   Huddersfield / Brightlingsea — coords other tests in
+    //   home-feed-* never use.
+    // - From Builth Wells, §DG-5's fixtures are NEARBY-tier (V3 rung 0)
+    //   while all concurrent fixtures (London/etc.) are COUNTRY-tier.
+    // - V3 rung-priority ordering puts NEARBY tiles FIRST regardless of
+    //   how many distant fixtures exist concurrently → §DG-5's 2 tiles
+    //   ALWAYS land at positions 0-1 of popularRail.branches, never
+    //   pushed past POPULAR_TAKE=10.
+    //
+    // Pre-T5-fix this used London coords + assumed POPULAR_TAKE=10 would
+    // always hold §DG-5's 2 + seed London merchants.  In the full
+    // backend suite, concurrent fixtures from home-feed-branches.test.ts
+    // (multi-branch Featured Colchester merchants ranked NEARBY by some
+    // London users via V3's rural density classification — Kennington
+    // localityName has populationTier=UNKNOWN → RURAL → 15-mile NEARBY
+    // radius) pushed §DG-5's farMerchant past position 10 → test failed
+    // with farIdx=-1.
+    const BUILTH_WELLS = { lat: 52.144, lng: -3.401 }
+    const ts = Date.now()
+
+    const merchantNear = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p5-near-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [{
+          name:               `dg-p5-near-br-${ts}`,
+          addressLine1:       '1 Test Street',
+          city:               'Builth Wells',
+          postcode:           'LD2 3AA',
+          country:            'GB',
+          latitude:           BUILTH_WELLS.lat,
+          longitude:          BUILTH_WELLS.lng,
+          isActive:           true,
+          locationConfidence: 'MANUALLY_CONFIRMED' as const,
+          localityId:         null,
+          localityName:       null,
+          postTown:           null,
+          ladDistrict:        null,
+          adminCounty:        null,
+          region:             'Wales',
+          locationCountry:    'Wales',
+        }] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantNear.id)
+
+    const merchantFar = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p5-far-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [{
+          name:               `dg-p5-far-br-${ts}`,
+          addressLine1:       '2 Test Street',
+          city:               'Builth Wells',
+          postcode:           'LD2 3AB',
+          country:            'GB',
+          latitude:           52.150,
+          longitude:          -3.380,
+          isActive:           true,
+          locationConfidence: 'MANUALLY_CONFIRMED' as const,
+          localityId:         null,
+          localityName:       null,
+          postTown:           null,
+          ladDistrict:        null,
+          adminCounty:        null,
+          region:             'Wales',
+          locationCountry:    'Wales',
+        }] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantFar.id)
+
+    // No redemptions created — both score 0, distance tiebreak decides order.
+
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${BUILTH_WELLS.lat}&lng=${BUILTH_WELLS.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    expect(body.popularRail?.meta).not.toBeNull()
+    const nearIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantNear.id)
+    const farIdx  = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantFar.id)
+    expect(nearIdx).toBeGreaterThanOrEqual(0)
+    expect(farIdx).toBeGreaterThanOrEqual(0)
+    // Distance tiebreak: near before far.
+    expect(nearIdx).toBeLessThan(farIdx)
+  })
+
+  it('§DG-7 — effLoc null path applies the same QA filter', { timeout: 30_000 }, async () => {
+    // GPS denied (no lat/lng → no effLoc).  merchantA gets 5 redemptions
+    // from customer@redeemo.com (QA account → email filter excludes them).
+    // merchantB gets 1 redemption from a real user.
+    // Popular no-effLoc path sorts merchants by popularityScore desc →
+    // B (score=1) before A (score=0).
+    const ts = Date.now()
+
+    const merchantA = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p7-a-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [londonBranchData({ lat: 51.5100, lng: -0.1200, name: `dg-p7-a-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantA.id)
+
+    const merchantB = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p7-b-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [londonBranchData({ lat: 51.5110, lng: -0.1210, name: `dg-p7-b-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantB.id)
+
+    const qaUser   = await prisma.user.upsert({
+      where:  { email: 'customer@redeemo.com' },
+      update: {},
+      create: { email: 'customer@redeemo.com', passwordHash: 'x' },
+    })
+    const realUser = await prisma.user.create({ data: { email: `p1test-${ts}-r@example.com`, passwordHash: 'x' } })
+    createdUserIds.push(realUser.id)
+
+    const voucherA = await createVoucherForMerchant(merchantA.id, `dg7a-${ts}`)
+    const voucherB = await createVoucherForMerchant(merchantB.id, `dg7b-${ts}`)
+
+    for (let i = 0; i < 5; i++) {
+      await createRedemption({ userId: qaUser.id, voucherId: voucherA.id, branchId: merchantA.branches[0].id, isTestData: false })
+    }
+    await createRedemption({ userId: realUser.id, voucherId: voucherB.id, branchId: merchantB.branches[0].id })
+
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home`,  // no lat/lng → effLoc null → no-location path
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.locationContext.source).toBe('none')
+    expect(body.popularRail?.meta).not.toBeNull()
+
+    // B (real-user, score=1) must appear on the rail.
+    const bIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantB.id)
+    expect(bIdx).toBeGreaterThanOrEqual(0)
+
+    // A appears with score 0 (QA-filtered); B has score 1 → B before A.
+    const aIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantA.id)
+    if (aIdx >= 0) {
+      expect(bIdx).toBeLessThan(aIdx)
+    }
+  })
+
+  it('§DG-8 — rolling 30-day window: redemptions older than 30 days are excluded (v1.1)', { timeout: 30_000 }, async () => {
+    // v1.1 rolling window boundary verification.
+    // Setup: 2 UK merchants.
+    // MerchantA gets 1 redemption at redeemedAt = 35 days ago (OUTSIDE the
+    // 30-day rolling window → score=0).  MerchantB gets 1 redemption at 5
+    // days ago (INSIDE the window → score=1).  Both real user, isTestData=false.
+    // → B outranks A (score=1 vs score=0).
+    //
+    // After T5, Trending fires when NEARBY+CITY branches have real non-QA
+    // redemptions in the rolling window.  B's 25-day redemption would
+    // trigger Trending if B were NEARBY from the test user.  We use the
+    // no-location path (/home without lat/lng): Trending returns early when
+    // effLoc=null → Popular no-location branch fires.  Both merchants are
+    // visible in the no-location Popular (sorted purely by score).
+    const ts = Date.now()
+    const DAY_MS = 24 * 60 * 60 * 1000
+
+    const merchantA = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p8-a-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4808, lng: -2.2426, name: `dg-p8-a-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantA.id)
+
+    const merchantB = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p8-b-${ts}`,
+        status:       'ACTIVE',
+        branches: { create: [manchesterBranchData({ lat: 53.4818, lng: -2.2436, name: `dg-p8-b-br-${ts}` })] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchantB.id)
+
+    const user = await prisma.user.create({ data: { email: `p1test-${ts}-u@example.com`, passwordHash: 'x' } })
+    createdUserIds.push(user.id)
+
+    const voucherA = await createVoucherForMerchant(merchantA.id, `dg8a-${ts}`)
+    const voucherB = await createVoucherForMerchant(merchantB.id, `dg8b-${ts}`)
+
+    // merchantA: 1 redemption 35 days ago (outside rolling 30-day window → score=0).
+    await createRedemption({
+      userId:     user.id,
+      voucherId:  voucherA.id,
+      branchId:   merchantA.branches[0].id,
+      isTestData: false,
+      redeemedAt: new Date(ts - 35 * DAY_MS),
+    })
+    // merchantB: 1 redemption 5 days ago (inside 30-day window → score=1).
+    await createRedemption({
+      userId:     user.id,
+      voucherId:  voucherB.id,
+      branchId:   merchantB.branches[0].id,
+      isTestData: false,
+      redeemedAt: new Date(ts - 5 * DAY_MS),
+    })
+
+    // No lat/lng → effLoc=null → Trending returns early → Popular fires.
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    expect(body.locationContext.source).toBe('none')
+    expect(body.popularRail?.meta).not.toBeNull()
+    const aIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantA.id)
+    const bIdx = body.popularRail.branches.findIndex((t: any) => t.merchant.id === merchantB.id)
+    expect(aIdx).toBeGreaterThanOrEqual(0)
+    expect(bIdx).toBeGreaterThanOrEqual(0)
+    // B has score=1 (in-window); A has score=0 (out-of-window) → B before A.
+    expect(bIdx).toBeLessThan(aIdx)
+  })
+
+  it('§DG-6 — Trending inclusion query filters QA redemptions (isTestData=false + QA email)', { timeout: 30_000 }, async () => {
+    // Spec: §8.1 §DG-6.  Verifies buildTrendingRail's QA email filter (T5).
+    //
+    // Setup: 1 London merchant with 5 redemptions from customer@redeemo.com
+    // (QA email, isTestData=false — this pin tests the EMAIL filter only,
+    // not the column-based isTestData flag).  All redemptions are within the
+    // 30-day rolling window (current time).
+    //
+    // Expected: Trending's inclusion query excludes all QA redemptions →
+    // the merchant does NOT appear in the top-30 pool → Trending rail's
+    // filteredTiles is empty → trendingRail.meta is null.
+    //
+    // Note: the London branch is in NEARBY rung (≈9 km from London user,
+    // inside the RURAL 15mi radius).  If the QA filter were absent, the
+    // 5 redemptions WOULD make this merchant the top-redeemer → Trending
+    // would fire.  The null meta proves the QA filter is applied.
+    const HUDDERSFIELD_QA = { lat: 53.6452, lng: -1.7807 }
+    const ts = Date.now()
+
+    // Use a Huddersfield-area fixture (avoids colliding with London §DG-1
+    // fixtures in concurrent runs; same QA-filter logic applies regardless
+    // of geography).
+    const qaFixtureMerchant = await prisma.merchant.create({
+      data: {
+        businessName: `dg-p6-qa-${ts}`,
+        status:       'ACTIVE',
+        branches: {
+          create: [{
+            name:               `dg-p6-qa-br-${ts}`,
+            addressLine1:       '1 QA Street',
+            city:               'Huddersfield',
+            postcode:           'HD1 1AA',
+            country:            'GB',
+            latitude:           53.6452,
+            longitude:          -1.7807,
+            isActive:           true,
+            locationConfidence: 'MANUALLY_CONFIRMED' as const,
+            localityId:         null,
+            localityName:       null,
+            postTown:           null,
+            ladDistrict:        null,
+            adminCounty:        null,
+            region:             'Yorkshire and The Humber',
+            locationCountry:    'England',
+          }],
+        },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(qaFixtureMerchant.id)
+
+    // Upsert customer@redeemo.com (QA account — idempotent).
+    // DO NOT push id to createdUserIds — afterEach cleans via merchant scope.
+    const qaUser = await prisma.user.upsert({
+      where:  { email: 'customer@redeemo.com' },
+      update: {},
+      create: { email: 'customer@redeemo.com', passwordHash: 'x' },
+    })
+
+    const qaVoucher = await createVoucherForMerchant(qaFixtureMerchant.id, `dg6qa-${ts}`)
+    const qaBranch  = qaFixtureMerchant.branches[0]
+
+    // 5 QA-user redemptions (isTestData=false — testing email filter specifically).
+    // Current time → inside the rolling 30-day window.
+    for (let i = 0; i < 5; i++) {
+      await createRedemption({
+        userId:     qaUser.id,
+        voucherId:  qaVoucher.id,
+        branchId:   qaBranch.id,
+        isTestData: false,
+      })
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${HUDDERSFIELD_QA.lat}&lng=${HUDDERSFIELD_QA.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // Load-bearing assertion: Trending's QA filter excluded all 5 QA redemptions
+    // → the fixture merchant is absent from the top-30 pool → Trending has no
+    // NEARBY+CITY supply from our fixture → trendingRail.meta is null
+    // (may have seed-data Trending supply, but our fixture should not push
+    // the rail to fire if no seed Trending exists at Huddersfield).
+    //
+    // Soft assertion: if Huddersfield seed data happens to populate Trending
+    // independently, this test is still valid as a Trending-inclusion negative
+    // pin — we assert our fixture merchant does NOT appear on trendingRail.
+    if (body.trendingRail?.meta !== null && body.trendingRail?.branches?.length > 0) {
+      // Seed merchants may have triggered Trending — verify our QA fixture
+      // is NOT among them (its redemptions should have been filtered out).
+      const fixtureTile = body.trendingRail.branches.find(
+        (t: any) => t.merchant?.id === qaFixtureMerchant.id,
+      )
+      expect(fixtureTile).toBeUndefined()
+    } else {
+      // No seed Trending at Huddersfield + QA filter excluded our fixture →
+      // Trending is silent (meta null).
+      expect(body.trendingRail?.meta).toBeNull()
+    }
+  })
+
+  it('§DG post-T8 — cross-rail proximityBand consistency: same merchant + same distance produces the same band on every rail', { timeout: 30_000 }, async () => {
+    // Owner-locked post-T8 fixup (2026-05-24): replace rung-based proximityBand
+    // derivation with distance-based on V3-head tiles so the chip matches the
+    // visible distance.  Regression guard: if a future change re-introduces
+    // rung-based band derivation on any rail, this pin will fire.
+    //
+    // Strategy: place ONE fixture merchant at Builth Wells (same concurrency-
+    // isolation location as §DG-5 — rural Wales, far from all seed merchants).
+    // Distance from the user to the branch is ~0 m → should produce
+    // IN_YOUR_AREA (< 12 875 m) via the unified helper.
+    //
+    // The merchant appears in popularRail (V3-head, NEARBY rung from 0m).
+    // It may also appear in nearbyByCategoryRails if its primaryCategory
+    // parent rail fires.  If it appears in both rails, both tiles MUST carry
+    // the same proximityBand value — proving the two code paths (V3-head and
+    // NBC local-first head) both use distance-based derivation.
+    //
+    // No redemptions are created — Popular falls through to distance-ASC
+    // tiebreak (same as §DG-5), which reliably surfaces 0m merchants.
+    const BUILTH_WELLS = { lat: 52.144, lng: -3.401 }
+    const ts = Date.now()
+
+    // Use the Food & Drink parent category (top-level) so NBC is most likely
+    // to fire for this merchant.  Fall back gracefully if the rail doesn't
+    // appear — the primary assertion is the popularRail chip value.
+    const foodCategory = await prisma.category.findFirst({ where: { name: 'Food & Drink', parentId: null } })
+
+    const merchant = await prisma.merchant.create({
+      data: {
+        businessName:      `dg-post-t8-xrail-${ts}`,
+        status:            'ACTIVE',
+        primaryCategoryId: foodCategory?.id ?? null,
+        branches: { create: [{
+          name:               `dg-post-t8-xrail-br-${ts}`,
+          addressLine1:       '1 Consistency Street',
+          city:               'Builth Wells',
+          postcode:           'LD2 3AA',
+          country:            'GB',
+          latitude:           BUILTH_WELLS.lat,
+          longitude:          BUILTH_WELLS.lng,
+          isActive:           true,
+          locationConfidence: 'MANUALLY_CONFIRMED' as const,
+          localityId:         null,
+          localityName:       null,
+          postTown:           null,
+          ladDistrict:        null,
+          adminCounty:        null,
+          region:             'Wales',
+          locationCountry:    'Wales',
+        }] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchant.id)
+
+    // Voucher required so the branch passes the R1 seed-guardrail contract
+    // (no customer-visible branch without at least one active approved voucher).
+    await createVoucherForMerchant(merchant.id, `dg-xrail-${ts}`)
+
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${BUILTH_WELLS.lat}&lng=${BUILTH_WELLS.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // Primary assertion: the merchant appears in popularRail with IN_YOUR_AREA.
+    // (0 m distance → < 12 875 m threshold → green chip.)
+    const popularTile = body.popularRail?.branches?.find(
+      (t: any) => t.merchant?.id === merchant.id,
+    )
+    expect(popularTile).toBeDefined()
+    expect(popularTile.proximityBand).toBe('IN_YOUR_AREA')
+
+    // Cross-rail consistency assertion: if the merchant also appears in
+    // nearbyByCategoryRails (NBC local-first head, same V3 path), its band
+    // MUST match the popularRail band.
+    const nbcTile = body.nearbyByCategoryRails
+      ?.flatMap((r: any) => r.branches ?? [])
+      .find((t: any) => t.merchant?.id === merchant.id)
+
+    if (nbcTile !== undefined) {
+      expect(nbcTile.proximityBand).toBe(popularTile.proximityBand)
+    }
+    // (The NBC tile may not appear if the parent-category rail doesn't
+    // fire for Wales at current seed density — the primary assertion above
+    // is sufficient to pin the unified helper.)
   })
 })

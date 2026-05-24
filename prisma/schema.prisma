@@ -947,6 +947,15 @@ model VoucherRedemption {
   // rows don't conflict.
   windowStartsAt DateTime?
 
+  // §DG (spec 2026-05-23-popular-ranking-design.md §6.1). True for
+  // redemptions created by QA / test paths — seed data, prisma/qa-*.ts
+  // scripts, integration test fixtures.  Filtered out of Popular ranking
+  // (`buildPopularRail`) + Trending inclusion query (`buildTrendingRail`)
+  // so the popularity signal reflects real customers.  Default false →
+  // every existing row defaults to real-customer; only seed/QA paths
+  // explicitly set true going forward.
+  isTestData       Boolean           @default(false)
+
   user             User                        @relation(fields: [userId], references: [id])
   voucher          Voucher                     @relation(fields: [voucherId], references: [id])
   branch           Branch                      @relation(fields: [branchId], references: [id])
@@ -966,6 +975,7 @@ model VoucherRedemption {
   @@index([redeemedAt])
   @@index([userId, voucherId])
   @@index([redemptionCode])
+  @@index([isTestData])
 }
 
 // ─────────────────────────────────────────
