@@ -1478,8 +1478,10 @@ describe('Popular rail — §DG location-aware ranking', () => {
 // just need a properly-formed JWT containing a `sub` claim. `app.jwt.customer.sign`
 // is the canonical helper (mirrors the unit-style profile.routes.test.ts pattern).
 //
-// Concurrency safety: unique fixture prefixes (`df-<pin>-<ts>`), locations
-// outside the seed (Builth Wells for §DF-7), and per-pin afterEach cleanup.
+// Concurrency safety: unique fixture prefixes (`df-<pin>-<ts>`) and per-pin
+// afterEach cleanup. Pins use Huddersfield/London coords; user fixtures
+// don't create merchants/branches/redemptions so there is no overlap with
+// the §DG describe block's fixture scope.
 
 describe('§DF — effectiveLocation + locationContext envelope (spec §9.1)', () => {
   const createdUserIds: string[] = []
@@ -1546,10 +1548,15 @@ describe('§DF — effectiveLocation + locationContext envelope (spec §9.1)', (
     // GPS wins — wire source collapses to 'coordinates' regardless of
     // saved profile presence.
     expect(body.locationContext.source).toBe('coordinates')
-    // Nearest Locality to the GPS point is in/near London. Tolerate any
-    // greater-London Locality name; the load-bearing part is that it is
-    // NOT 'Huddersfield' (which would prove SAVED_PROFILE leaked through).
+    // Locality is populated AND is DIFFERENT from the user's saved profile
+    // locality. This is the load-bearing precedence assertion: an empty
+    // string or null would NOT satisfy it (would prove the resolver fell
+    // through to SAVED_PROFILE or NULL despite valid GPS coords).
     expect(body.locationContext.locality).not.toBeNull()
+    expect(body.locationContext.locality.id).toEqual(expect.any(String))
+    expect(body.locationContext.locality.id.length).toBeGreaterThan(0)
+    expect(body.locationContext.locality.id).not.toBe(loc.id)
+    // Defensive — SAVED_PROFILE leakage would surface Huddersfield text.
     expect(body.locationContext.city).not.toMatch(/Huddersfield/i)
   })
 
@@ -1684,13 +1691,26 @@ describe('§DF — effectiveLocation + locationContext envelope (spec §9.1)', (
     expect(bodyB.locationContext.source).toBe('profile')
 
     // Same coords → same V3 ranking. Both popularRail outputs must agree on
-    // tile order (merchant.id sequence). If either rail is empty (no
-    // current-month redemptions in Huddersfield catchment), the assertion
-    // is vacuously true — the structural invariant is that the rails do
-    // NOT diverge based on source.
+    // tile order (merchant.id sequence) AND length. Across rails of equal
+    // length, the strict-order equality is the load-bearing invariant.
     const railA = bodyA.popularRail?.branches?.map((t: any) => t.merchant?.id) ?? []
     const railB = bodyB.popularRail?.branches?.map((t: any) => t.merchant?.id) ?? []
+    expect(railA.length).toBe(railB.length)
     expect(railB).toEqual(railA)
+    // Defensive — if BOTH rails are empty (no Huddersfield current-month
+    // redemptions in this DB state), the equality above is vacuously true
+    // and provides zero proof. The full-suite §DG fixtures + seed Karaara
+    // /Pino's typically produce non-empty rails here, but we guard so a
+    // future suite-pruning that wipes those fixtures doesn't silently turn
+    // §DF-4 into a no-op. Fail loudly + direct the maintainer to fix the
+    // upstream fixture rather than the assertion.
+    if (railA.length === 0) {
+      throw new Error(
+        '§DF-4: both Huddersfield popularRail outputs are empty. ' +
+        'Test cannot prove ranking-identity invariant. ' +
+        'Restore Huddersfield current-month redemption fixtures (§DG seed) before relying on this pin.',
+      )
+    }
 
     // Same shape across other rails — at minimum the keys are present in both.
     expect(typeof bodyA.featuredRail).toBe(typeof bodyB.featuredRail)
