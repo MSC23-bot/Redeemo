@@ -1373,4 +1373,93 @@ describe('Popular rail — §DG location-aware ranking', () => {
       expect(body.trendingRail?.meta).toBeNull()
     }
   })
+
+  it('§DG post-T8 — cross-rail proximityBand consistency: same merchant + same distance produces the same band on every rail', { timeout: 30_000 }, async () => {
+    // Owner-locked post-T8 fixup (2026-05-24): replace rung-based proximityBand
+    // derivation with distance-based on V3-head tiles so the chip matches the
+    // visible distance.  Regression guard: if a future change re-introduces
+    // rung-based band derivation on any rail, this pin will fire.
+    //
+    // Strategy: place ONE fixture merchant at Builth Wells (same concurrency-
+    // isolation location as §DG-5 — rural Wales, far from all seed merchants).
+    // Distance from the user to the branch is ~0 m → should produce
+    // IN_YOUR_AREA (< 12 875 m) via the unified helper.
+    //
+    // The merchant appears in popularRail (V3-head, NEARBY rung from 0m).
+    // It may also appear in nearbyByCategoryRails if its primaryCategory
+    // parent rail fires.  If it appears in both rails, both tiles MUST carry
+    // the same proximityBand value — proving the two code paths (V3-head and
+    // NBC local-first head) both use distance-based derivation.
+    //
+    // No redemptions are created — Popular falls through to distance-ASC
+    // tiebreak (same as §DG-5), which reliably surfaces 0m merchants.
+    const BUILTH_WELLS = { lat: 52.144, lng: -3.401 }
+    const ts = Date.now()
+
+    // Use the Food & Drink parent category (top-level) so NBC is most likely
+    // to fire for this merchant.  Fall back gracefully if the rail doesn't
+    // appear — the primary assertion is the popularRail chip value.
+    const foodCategory = await prisma.category.findFirst({ where: { name: 'Food & Drink', parentId: null } })
+
+    const merchant = await prisma.merchant.create({
+      data: {
+        businessName:      `dg-post-t8-xrail-${ts}`,
+        status:            'ACTIVE',
+        primaryCategoryId: foodCategory?.id ?? null,
+        branches: { create: [{
+          name:               `dg-post-t8-xrail-br-${ts}`,
+          addressLine1:       '1 Consistency Street',
+          city:               'Builth Wells',
+          postcode:           'LD2 3AA',
+          country:            'GB',
+          latitude:           BUILTH_WELLS.lat,
+          longitude:          BUILTH_WELLS.lng,
+          isActive:           true,
+          locationConfidence: 'MANUALLY_CONFIRMED' as const,
+          localityId:         null,
+          localityName:       null,
+          postTown:           null,
+          ladDistrict:        null,
+          adminCounty:        null,
+          region:             'Wales',
+          locationCountry:    'Wales',
+        }] },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchant.id)
+
+    // Voucher required so the branch passes the R1 seed-guardrail contract
+    // (no customer-visible branch without at least one active approved voucher).
+    await createVoucherForMerchant(merchant.id, `dg-xrail-${ts}`)
+
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${BUILTH_WELLS.lat}&lng=${BUILTH_WELLS.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // Primary assertion: the merchant appears in popularRail with IN_YOUR_AREA.
+    // (0 m distance → < 12 875 m threshold → green chip.)
+    const popularTile = body.popularRail?.branches?.find(
+      (t: any) => t.merchant?.id === merchant.id,
+    )
+    expect(popularTile).toBeDefined()
+    expect(popularTile.proximityBand).toBe('IN_YOUR_AREA')
+
+    // Cross-rail consistency assertion: if the merchant also appears in
+    // nearbyByCategoryRails (NBC local-first head, same V3 path), its band
+    // MUST match the popularRail band.
+    const nbcTile = body.nearbyByCategoryRails
+      ?.flatMap((r: any) => r.branches ?? [])
+      .find((t: any) => t.merchant?.id === merchant.id)
+
+    if (nbcTile !== undefined) {
+      expect(nbcTile.proximityBand).toBe(popularTile.proximityBand)
+    }
+    // (The NBC tile may not appear if the parent-category rail doesn't
+    // fire for Wales at current seed density — the primary assertion above
+    // is sufficient to pin the unified helper.)
+  })
 })

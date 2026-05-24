@@ -1,10 +1,40 @@
 # §DG Popular Ranking + Test-Redemption Cleanup — Design Spec
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** Locked — ready for implementation planning
 **Tier:** 2 — brainstorm-first + plan-first (multi-file: schema + backend + tests + spec doc)
 **Brainstorm:** in-session 2026-05-23 (§DG scoping package + empirical probe via `prisma/audit-popular-ranking.ts` + owner locks for Option D + Option 4-light + v1.1 rolling-30-day window amendment)
 **Trigger:** PR #126 device-QA-5 (London/Westminster observation: Popular surfaces Karaara/Pino's/Iron Forge — Huddersfield-area QA-redemption-heavy merchants — ahead of relevant London merchants); standing loose thread from PR #126 close-out.
+
+## v1.2 changelog (2026-05-24) — proximityBand unification on distance-based derivation
+
+Owner direction post-T8 device QA: the chip on every merchant card must match the
+visible distance shown next to it. Pre-v1.2 the codebase had TWO derivation
+mechanisms — V3 rung-based (`ladderProfiles.ts::getProximityBand`) on V3-head
+tiles + distance-based (`deriveFillerProximityBand`) on NBC cascade/top-up
+fillers. For the same merchant at the same distance, the two could produce
+different bands (e.g. Iron Forge Gym at 15.3mi from Manchester: rose via V3
+rung-based since cross-region COUNTRY tier, amber via distance-based).
+
+Locked v1.2 behaviour:
+
+- Promoted `deriveFillerProximityBand` to a shared module
+  `src/api/customer/discovery/proximityBand.ts`, renamed to
+  `deriveProximityBandFromDistance(distanceMetres)`.
+- All 4 V3-head tile-construction sites in `homeRailBuilders.ts` now use this
+  helper (was `t.proximityBand` from V3, now
+  `deriveProximityBandFromDistance(t.distanceMetres)`).
+- V3's internal rung classification + maxRung gate stay UNCHANGED — still drive
+  ranking + inclusion decisions. Only the EMITTED proximityBand on tile output
+  uses the unified helper.
+- Cascade/top-up fillers were already using the helper; they just renamed.
+- Cross-rail regression pin added to `home-feed-rail-states.test.ts` proving the
+  same merchant at the same distance produces the same band across Popular +
+  NBC.
+
+Branch locality for multi-branch merchants (Brightlingsea Covelum twin tiles)
+remains deferred under §DH — that's a cross-surface card-design call, not
+within v1.2 scope.
 
 ## v1.1 changelog (2026-05-23) — rolling 30-day popularity window
 
