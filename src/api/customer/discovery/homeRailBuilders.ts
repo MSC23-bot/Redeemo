@@ -341,16 +341,34 @@ export async function buildTrendingRail(
   // Trending requires an effective location for proximity ranking.
   if (!effLoc) return { branches: [], meta: null }
 
-  // ── 1. Inclusion: top merchants by current-month redemption count.
-  const monthStart = startOfMonthUTC(new Date())
-  const recent = await prisma.voucherRedemption.findMany({
-    where:  { redeemedAt: { gte: monthStart } },
-    select: { branch: { select: { merchantId: true } } },
-  })
+  // ── 1. Inclusion: top merchants by recent redemption count.
+  //    §DG QA filter applied — real-customer redemptions only.
+  //    §DG v1.1: time window is rolling 30 days (same as Popular —
+  //    eliminates the start-of-month cliff startOfMonthUTC had).
+  const windowStart    = startOfRollingPopularityWindow(new Date())
+  const qaEmailsList   = QA_ACCOUNT_EMAILS.map((e) => e.toLowerCase())
+  const domainClauses  = QA_ACCOUNT_EMAIL_DOMAINS.length > 0
+    ? QA_ACCOUNT_EMAIL_DOMAINS
+        .map((d) => `LOWER(u.email) NOT LIKE '%@${d.toLowerCase()}'`)
+        .join(' AND ')
+    : 'TRUE'
+  const emailNotInClause = qaEmailsList.length > 0
+    ? `LOWER(u.email) NOT IN (${qaEmailsList.map((_, i) => `$${i + 2}`).join(', ')})`
+    : 'TRUE'
+  const recent = await prisma.$queryRawUnsafe<Array<{ merchant_id: string }>>(`
+    SELECT b."merchantId" AS merchant_id
+    FROM "VoucherRedemption" r
+    JOIN "Branch"            b ON r."branchId" = b.id
+    JOIN "User"              u ON r."userId"   = u.id
+    WHERE r."redeemedAt" >= $1
+      AND r."isTestData" = false
+      AND ${emailNotInClause}
+      AND ${domainClauses}
+  `, windowStart, ...qaEmailsList)
+
   const counts: Record<string, number> = {}
   for (const r of recent) {
-    const id = r.branch.merchantId
-    counts[id] = (counts[id] ?? 0) + 1
+    counts[r.merchant_id] = (counts[r.merchant_id] ?? 0) + 1
   }
   const topMerchantIds = Object.entries(counts)
     .sort(([, a], [, b]) => b - a)
