@@ -17,6 +17,8 @@ import { seedHeuristicCatchmentEdges } from './seed-data/catchment-heuristic'
 import { seedCuratedCatchmentEdges } from './seed-data/catchmentOverrides'
 import { seedMarkets } from './seed-data/markets'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
+import { resolvePostcode } from '../src/api/lib/postcodeResolver'
+import { findOrCreateLocality } from '../src/api/lib/findOrCreateLocality'
 import { DEMO_MERCHANT_ENRICHMENT, DEV_QA_PIN, REAL_MERCHANT_PIN_BRANCH_IDS } from './seed-data/demoMerchantEnrichment'
 import { FEATURED_MERCHANT_FIXTURES, CAMPAIGN_FIXTURES } from './seed-data/homeFeedFixtures'
 
@@ -109,6 +111,60 @@ async function buildBranchLocationSnapshot(branchId: string): Promise<BranchLoca
     region: loc.region,
     locationCountry: loc.country,
     locationResolvedAt: new Date(),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §DF Task 1 — Customer-account postcode + Locality enrichment
+//
+// Seeded customer-role User accounts must ship with postcode + lat/lng +
+// localityId populated so the SAVED_PROFILE branch of resolveEffectiveLocation
+// can fire when device GPS is denied/unavailable. Without this, QA against the
+// seeded customer account sees diminished Home behaviour despite the resolver
+// being wired correctly.
+//
+// Mirrors the production PC2 onboarding pattern in
+// `src/api/customer/profile/service.ts` (resolvePostcode → findOrCreateLocality
+// → snapshot). The resolver hits postcodes.io with a 5s timeout per postcode;
+// failures throw with a clear message so the seed fails fast and loudly
+// rather than silently leaving locations null.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type CustomerLocationSnapshot = {
+  postcode: string
+  latitude: number
+  longitude: number
+  localityId: string
+  postTown: string | null
+  ladDistrict: string
+  adminCounty: string | null
+  region: string | null
+  country: string
+  locationResolvedAt: Date
+  city: string  // legacy alignment, mirrors production updateMyProfile
+}
+
+async function resolveCustomerLocation(rawPostcode: string): Promise<CustomerLocationSnapshot> {
+  const resolved = await resolvePostcode(rawPostcode)
+  if (!resolved.ok) {
+    throw new Error(
+      `resolveCustomerLocation: failed to resolve postcode "${rawPostcode}" — ` +
+      `postcodes.io returned ${resolved.error}. Check network connectivity or pick a different seed postcode.`,
+    )
+  }
+  const locality = await findOrCreateLocality(prisma, resolved.snapshot)
+  return {
+    postcode:           resolved.snapshot.postcode,
+    latitude:           resolved.snapshot.latitude,
+    longitude:          resolved.snapshot.longitude,
+    localityId:         locality.id,
+    postTown:           resolved.snapshot.postTown ?? locality.postTown,
+    ladDistrict:        resolved.snapshot.ladDistrict,
+    adminCounty:        resolved.snapshot.adminCounty,
+    region:             resolved.snapshot.region,
+    country:            resolved.snapshot.country,
+    locationResolvedAt: new Date(),
+    city:               locality.name,
   }
 }
 
@@ -1275,7 +1331,7 @@ const COVELUM_MERCHANT_ID    = 'tax-merchant-covelum-001'
 const COVELUM_MAIN_BRANCH_ID = 'tax-branch-covelum-001'
 const COVELUM_2ND_BRANCH_ID  = 'tax-branch-covelum-002'
 
-async function seedDemoMerchantEnrichment(): Promise<void> {
+async function seedDemoMerchantEnrichment(reviewerLocation: CustomerLocationSnapshot): Promise<void> {
   // ───────────────────────────────────────────────────────────────────
   // 0. Stage 2 enrichment — 9 fake/demo merchants + dev-merchant-001
   //    (partial) + Cohort C real-merchant branch PINs.
@@ -1499,7 +1555,22 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
   for (const r of reviewers) {
     const u = await prisma.user.upsert({
       where:  { email: r.email },
-      update: {},
+      // §DF Task 1 — location fields populated on BOTH update + create so
+      // re-running the seed restores the SAVED_PROFILE-fireable state even
+      // if a prior run / manual edit cleared the columns.
+      update: {
+        postcode:           reviewerLocation.postcode,
+        latitude:           reviewerLocation.latitude,
+        longitude:          reviewerLocation.longitude,
+        localityId:         reviewerLocation.localityId,
+        postTown:           reviewerLocation.postTown,
+        ladDistrict:        reviewerLocation.ladDistrict,
+        adminCounty:        reviewerLocation.adminCounty,
+        region:             reviewerLocation.region,
+        country:            reviewerLocation.country,
+        locationResolvedAt: reviewerLocation.locationResolvedAt,
+        city:               reviewerLocation.city,
+      },
       create: {
         email:            r.email,
         phone:            r.phone,
@@ -1513,6 +1584,18 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
         tutorialSeen:     true,
         tcConsentVersion: '1.0',
         tcConsentAt:      new Date(),
+        // §DF Task 1 — Brightlingsea anchor matches their Covelum review subject.
+        postcode:           reviewerLocation.postcode,
+        latitude:           reviewerLocation.latitude,
+        longitude:          reviewerLocation.longitude,
+        localityId:         reviewerLocation.localityId,
+        postTown:           reviewerLocation.postTown,
+        ladDistrict:        reviewerLocation.ladDistrict,
+        adminCounty:        reviewerLocation.adminCounty,
+        region:             reviewerLocation.region,
+        country:            reviewerLocation.country,
+        locationResolvedAt: reviewerLocation.locationResolvedAt,
+        city:               reviewerLocation.city,
       },
     })
     reviewerIds.push(u.id)
@@ -1833,6 +1916,24 @@ async function main() {
   // ── Active Markets (Plan 4a rollout: Huddersfield Market only as of M1.15) ──
   await seedMarkets(prisma)
 
+  // ── §DF Task 1 — Customer-account location snapshots ──
+  // Resolved ONCE here (after seedLocalities) and threaded into the
+  // customer-role User upserts below so that `resolveEffectiveLocation`'s
+  // SAVED_PROFILE priority-3 branch can fire for QA accounts when device
+  // GPS is denied/unavailable. Hits postcodes.io once per distinct
+  // postcode; throws clearly on resolver failure (see resolveCustomerLocation).
+  //
+  //   - HD1 1AA (Huddersfield) — main QA customer, anchors on the
+  //     8 taxonomy-test merchants in the Huddersfield cluster.
+  //   - CO7 0AY (Brightlingsea) — 4 demo reviewers, anchors them on the
+  //     Covelum branch they review, so verified-review proximity is coherent.
+  const customerLocation = await resolveCustomerLocation('HD1 1AA')
+  const reviewerLocation = await resolveCustomerLocation('CO7 0AY')
+  console.log(
+    `§DF Task 1: resolved customer locations — customer@redeemo.com → ${customerLocation.postcode} ` +
+    `(${customerLocation.city}); reviewers → ${reviewerLocation.postcode} (${reviewerLocation.city})`,
+  )
+
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
   const beautyCatId = topLevelIdByName.get('Beauty & Wellness')
@@ -1938,9 +2039,27 @@ async function main() {
   console.log('Created interests')
 
   // ── Dev customer ──
+  // §DF Task 1 — Huddersfield anchor (HD1 1AA) matches the existing seed
+  // merchant cluster so the SAVED_PROFILE branch of resolveEffectiveLocation
+  // fires with meaningful Home/Discovery supply on this account when GPS is
+  // denied/unavailable. Location populated on BOTH update + create paths so
+  // the QA account is restored to a SAVED_PROFILE-fireable state on every
+  // re-run, even if a prior session cleared the columns.
   const customer = await prisma.user.upsert({
     where: { email: 'customer@redeemo.com' },
-    update: {},
+    update: {
+      postcode:           customerLocation.postcode,
+      latitude:           customerLocation.latitude,
+      longitude:          customerLocation.longitude,
+      localityId:         customerLocation.localityId,
+      postTown:           customerLocation.postTown,
+      ladDistrict:        customerLocation.ladDistrict,
+      adminCounty:        customerLocation.adminCounty,
+      region:             customerLocation.region,
+      country:            customerLocation.country,
+      locationResolvedAt: customerLocation.locationResolvedAt,
+      city:               customerLocation.city,
+    },
     create: {
       email: 'customer@redeemo.com',
       phone: '+447700900001',
@@ -1952,6 +2071,17 @@ async function main() {
       tutorialSeen: true,
       tcConsentVersion: '1.0',
       tcConsentAt: new Date(),
+      postcode:           customerLocation.postcode,
+      latitude:           customerLocation.latitude,
+      longitude:          customerLocation.longitude,
+      localityId:         customerLocation.localityId,
+      postTown:           customerLocation.postTown,
+      ladDistrict:        customerLocation.ladDistrict,
+      adminCounty:        customerLocation.adminCounty,
+      region:             customerLocation.region,
+      country:            customerLocation.country,
+      locationResolvedAt: customerLocation.locationResolvedAt,
+      city:               customerLocation.city,
     },
   })
   console.log('Created dev customer:', customer.email)
@@ -2086,7 +2216,7 @@ async function main() {
   // Runs AFTER taxonomy test merchants so the merchant + its main branch
   // already exist; this layer adds logo / banner / hours / photos / 2nd
   // branch / reviewers / reviews / verified redemption on top.
-  await seedDemoMerchantEnrichment()
+  await seedDemoMerchantEnrichment(reviewerLocation)
 
   // ── Home feed minimum-viable seed (Tier 1, owner-approved 2026-05-21) ──
   // Populates the `FeaturedMerchant` + `Campaign` tables that
