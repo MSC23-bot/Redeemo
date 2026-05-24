@@ -114,22 +114,6 @@ async function buildBranchLocationSnapshot(branchId: string): Promise<BranchLoca
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §DF Task 1 — Customer-account postcode + Locality enrichment
-//
-// Seeded customer-role User accounts must ship with postcode + lat/lng +
-// localityId populated so the SAVED_PROFILE branch of resolveEffectiveLocation
-// can fire when device GPS is denied/unavailable. Without this, QA against the
-// seeded customer account sees diminished Home behaviour despite the resolver
-// being wired correctly.
-//
-// Mirrors the production PC2 onboarding pattern in
-// `src/api/customer/profile/service.ts` (resolvePostcode → findOrCreateLocality
-// → snapshot). The resolver hits postcodes.io with a 5s timeout per postcode;
-// failures throw with a clear message so the seed fails fast and loudly
-// rather than silently leaving locations null.
-// ─────────────────────────────────────────────────────────────────────────────
-
 type CustomerLocationSnapshot = {
   postcode: string
   latitude: number
@@ -1555,9 +1539,8 @@ async function seedDemoMerchantEnrichment(reviewerLocation: CustomerLocationSnap
   for (const r of reviewers) {
     const u = await prisma.user.upsert({
       where:  { email: r.email },
-      // §DF Task 1 — location fields populated on BOTH update + create so
-      // re-running the seed restores the SAVED_PROFILE-fireable state even
-      // if a prior run / manual edit cleared the columns.
+      // Location fields set on BOTH update + create so re-runs restore
+      // SAVED_PROFILE-fireable state even if columns were cleared.
       update: {
         postcode:           reviewerLocation.postcode,
         latitude:           reviewerLocation.latitude,
@@ -1584,7 +1567,6 @@ async function seedDemoMerchantEnrichment(reviewerLocation: CustomerLocationSnap
         tutorialSeen:     true,
         tcConsentVersion: '1.0',
         tcConsentAt:      new Date(),
-        // §DF Task 1 — Brightlingsea anchor matches their Covelum review subject.
         postcode:           reviewerLocation.postcode,
         latitude:           reviewerLocation.latitude,
         longitude:          reviewerLocation.longitude,
@@ -1916,23 +1898,10 @@ async function main() {
   // ── Active Markets (Plan 4a rollout: Huddersfield Market only as of M1.15) ──
   await seedMarkets(prisma)
 
-  // ── §DF Task 1 — Customer-account location snapshots ──
-  // Resolved ONCE here (after seedLocalities) and threaded into the
-  // customer-role User upserts below so that `resolveEffectiveLocation`'s
-  // SAVED_PROFILE priority-3 branch can fire for QA accounts when device
-  // GPS is denied/unavailable. Hits postcodes.io once per distinct
-  // postcode; throws clearly on resolver failure (see resolveCustomerLocation).
-  //
-  //   - HD1 1AA (Huddersfield) — main QA customer, anchors on the
-  //     8 taxonomy-test merchants in the Huddersfield cluster.
-  //   - CO7 0AY (Brightlingsea) — 4 demo reviewers, anchors them on the
-  //     Covelum branch they review, so verified-review proximity is coherent.
+  // Resolved once and threaded into the customer-role upserts so postcodes.io
+  // is hit once per distinct postcode, not once per upsert.
   const customerLocation = await resolveCustomerLocation('HD1 1AA')
   const reviewerLocation = await resolveCustomerLocation('CO7 0AY')
-  console.log(
-    `§DF Task 1: resolved customer locations — customer@redeemo.com → ${customerLocation.postcode} ` +
-    `(${customerLocation.city}); reviewers → ${reviewerLocation.postcode} (${reviewerLocation.city})`,
-  )
 
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
@@ -2039,12 +2008,6 @@ async function main() {
   console.log('Created interests')
 
   // ── Dev customer ──
-  // §DF Task 1 — Huddersfield anchor (HD1 1AA) matches the existing seed
-  // merchant cluster so the SAVED_PROFILE branch of resolveEffectiveLocation
-  // fires with meaningful Home/Discovery supply on this account when GPS is
-  // denied/unavailable. Location populated on BOTH update + create paths so
-  // the QA account is restored to a SAVED_PROFILE-fireable state on every
-  // re-run, even if a prior session cleared the columns.
   const customer = await prisma.user.upsert({
     where: { email: 'customer@redeemo.com' },
     update: {
