@@ -53,6 +53,13 @@ function profileFixture(overrides: Partial<Record<string, unknown>> = {}) {
     addressLine2: null,
     city: null,
     postcode: null,
+    // §DF PR #128 R1-1 prereq — auth store now mirrors saved-postcode
+    // coordinates + locality block into MinimalUser.  Provide nulls
+    // here so the fixture exercises the unset-postcode default.
+    latitude: null,
+    longitude: null,
+    localityId: null,
+    locality: null,
     newsletterConsent: false,
     emailVerified: false,
     phoneVerified: false,

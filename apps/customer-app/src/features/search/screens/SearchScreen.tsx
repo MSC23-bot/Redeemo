@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text } from '@/design-system/Text'
 import { useSearch } from '@/hooks/useSearch'
 import { useUserLocation } from '@/hooks/useLocation'
+import { useMe } from '@/hooks/useMe'
 import { SearchBar } from '../components/SearchBar'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
@@ -115,7 +116,14 @@ export function SearchScreen() {
   // branchMeta).  The pill highlight tracks effectiveScope, NOT requestedScope.
   const [requestedScope, setRequestedScope] = useState<Scope | undefined>(undefined)
   const debouncedQuery = useDebounce(query, 300)
-  const { location } = useUserLocation()
+  const loc = useUserLocation()
+  const { location } = loc
+  // §DF — `useMe()` powers the profile-aware no_location
+  // empty state.  When the user has a saved postcode the empty state
+  // swaps to dual-CTA "searching near saved area" framing instead of
+  // the misleading "Set your area" prompt.
+  const me = useMe()
+  const savedAreaCity = me.data?.locality?.name ?? me.data?.city ?? null
 
   const searchEnabled = debouncedQuery.length >= 1
   const { data, isLoading } = useSearch(
@@ -405,9 +413,30 @@ export function SearchScreen() {
               <TrendingSearches onTagPress={setQuery} />
             </>
           ) : (
+            // §DF — no_location empty state is
+            // now profile-aware.  With a saved postcode: dual CTA
+            // ("Use current location" / "Change saved area") +
+            // "Searching near {city} from your saved postcode" copy.
+            // Without one: original "Set your area" prompt — but the
+            // CTA now routes to `/saved-area`, NOT the old PC2-
+            // address flow (which was the right path pre-§DF v1 when
+            // there was no Saved Area surface).
             <SearchEmptyState
               reason="no_location"
-              onSetArea={() => router.push('/(auth)/profile-completion/address' as any)}
+              savedAreaCity={savedAreaCity}
+              // §DF Round 5 — pass `from=search` so Your Location's
+              // back button returns to Search rather than landing on
+              // Home (tab-stack quirk on Expo Router tabs).
+              onSetArea={() => router.push('/saved-area?from=search' as any)}
+              // §DF Round 5 — secondary CTA label override.  Without
+              // the override, the recovery sheet shows "Use saved
+              // area" which is redundant here (the user is already
+              // using saved area when triggering this CTA from
+              // Search).  "Not now" is the locked Search-context copy.
+              onUseCurrentLocation={() => {
+                void loc.request({ recoveryLabels: { secondary: 'Not now' } })
+              }}
+              onChangeSavedArea={() => router.push('/saved-area?from=search' as any)}
             />
           )}
         </>

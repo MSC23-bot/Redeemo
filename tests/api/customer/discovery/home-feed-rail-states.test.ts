@@ -1463,3 +1463,357 @@ describe('Popular rail — §DG location-aware ranking', () => {
     // is sufficient to pin the unified helper.)
   })
 })
+
+// ─── §DF — Postcode / profile-location fallback resolver semantics ────────────
+//
+// Spec: docs/superpowers/specs/2026-05-24-postcode-profile-fallback-design.md
+//       §9.1 (the 7 pins below) + §4 (resolver) + §5 (wire envelope).
+//
+// The resolver at `src/api/lib/effectiveLocation.ts` was shipped by Plan 4
+// M2.4. §DF locks the locked PLACE_QUERY > GPS > SAVED_PROFILE > null
+// precedence + the wire-envelope mapping at `resolveLocationContext`.
+//
+// Auth pattern: Discovery routes are OPEN scope; `optionalUserId()` decodes
+// the bearer token WITHOUT verifying the signature so the authenticated pins
+// just need a properly-formed JWT containing a `sub` claim. `app.jwt.customer.sign`
+// is the canonical helper (mirrors the unit-style profile.routes.test.ts pattern).
+//
+// Concurrency safety: unique fixture prefixes (`df-<pin>-<ts>`) and per-pin
+// afterEach cleanup. Pins use Huddersfield/London coords; user fixtures
+// don't create merchants/branches/redemptions so there is no overlap with
+// the §DG describe block's fixture scope.
+
+describe('§DF — effectiveLocation + locationContext envelope (spec §9.1)', () => {
+  const createdUserIds: string[] = []
+
+  afterEach(async () => {
+    if (createdUserIds.length > 0) {
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
+      createdUserIds.length = 0
+    }
+  })
+
+  // Sign a JWT for the given userId. Returns a bearer-ready string. The
+  // signature is irrelevant because Discovery uses `optionalUserId()` (decode
+  // without verify); we still use the JWT plugin for shape correctness.
+  function signCustomerToken(userId: string): string {
+    const jwtAny = app.jwt as any
+    return jwtAny.customer.sign(
+      { sub: userId, role: 'customer', deviceId: `df-d-${userId.slice(0, 6)}`, sessionId: `df-s-${userId.slice(0, 6)}` },
+      { expiresIn: '1h' },
+    )
+  }
+
+  // Locate a seed Locality near Huddersfield to attach to backfilled User
+  // fixtures. `findFirst` because slugs change with M1 revisions; identity
+  // tuple (name='Huddersfield', country='England') is stable.
+  async function getHuddersfieldLocality() {
+    const loc = await prisma.locality.findFirst({
+      where: { name: { equals: 'Huddersfield', mode: 'insensitive' }, country: 'England' },
+    })
+    if (!loc) throw new Error('Seed invariant: Huddersfield Locality must exist (ONSPD seed).')
+    return loc
+  }
+
+  it('§DF-1 — GPS coords win over saved profile (locationContext anchors on GPS)', { timeout: 30_000 }, async () => {
+    // Auth user backfilled with Huddersfield profile location. Request carries
+    // London coords (lat=51.5074, lng=-0.1278). Resolver Priority 2 (GPS)
+    // overrides Priority 3 (SAVED_PROFILE) → effLoc.source='GPS' anchored on
+    // London. Wire envelope maps GPS → 'coordinates' + the nearest Locality
+    // for the GPS point (London).
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-1-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     53.6458,
+        longitude:    -1.785,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    const LONDON = { lat: 51.5074, lng: -0.1278 }
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/home?lat=${LONDON.lat}&lng=${LONDON.lng}`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // GPS wins — wire source collapses to 'coordinates' regardless of
+    // saved profile presence.
+    expect(body.locationContext.source).toBe('coordinates')
+    // Locality is populated AND is DIFFERENT from the user's saved profile
+    // locality. This is the load-bearing precedence assertion: an empty
+    // string or null would NOT satisfy it (would prove the resolver fell
+    // through to SAVED_PROFILE or NULL despite valid GPS coords).
+    expect(body.locationContext.locality).not.toBeNull()
+    expect(body.locationContext.locality.id).toEqual(expect.any(String))
+    expect(body.locationContext.locality.id.length).toBeGreaterThan(0)
+    expect(body.locationContext.locality.id).not.toBe(loc.id)
+    // Defensive — SAVED_PROFILE leakage would surface Huddersfield text.
+    expect(body.locationContext.city).not.toMatch(/Huddersfield/i)
+  })
+
+  it('§DF-2 — SAVED_PROFILE resolves when no GPS coords (locationContext anchors on profile)', { timeout: 30_000 }, async () => {
+    // Auth user with full saved profile (postcode + lat/lng + localityId).
+    // Request omits lat/lng. Resolver falls through to Priority 3
+    // (SAVED_PROFILE). Wire envelope maps to source='profile' + the user's
+    // saved Locality.
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-2-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     53.6458,
+        longitude:    -1.785,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/home`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    expect(body.locationContext.source).toBe('profile')
+    expect(body.locationContext.locality).not.toBeNull()
+    expect(body.locationContext.locality.name).toMatch(/Huddersfield/i)
+    expect(body.locationContext.city).toMatch(/Huddersfield/i)
+  })
+
+  it('§DF-3 — PLACE_QUERY beats GPS AND SAVED_PROFILE on /search (effectiveLocality anchors on place)', { timeout: 30_000 }, async () => {
+    // Spec §9.1 Pin §DF-3 lives on the SEARCH endpoint, NOT Home — Home has
+    // no `q` param and never fires PLACE_QUERY (D6 + spec §4.1 Home-specific
+    // note). The locked precedence is observable on /search via
+    // `branchMeta.effectiveLocality` + `branchMeta.searchChip`: when
+    // `q=Manchester` matches a Locality via `tryPlaceMatch`, the resolver
+    // sets `effLoc.source='PLACE_QUERY'` and anchors lat/lng on the place
+    // centroid — overriding both the request's GPS coords AND the User's
+    // saved profile.
+    //
+    // Note on the wire envelope: `locationContext` is a Home-only field
+    // (search response has no `locationContext`). Spec §5.1 says PLACE_QUERY
+    // would collapse to 'coordinates' on Home, but Home never reaches a
+    // PLACE_QUERY today. On /search we observe PLACE_QUERY directly via
+    // `branchMeta.effectiveLocality.name === 'Manchester'`.
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-3-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     53.6458,
+        longitude:    -1.785,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    // GPS coords = Huddersfield. q=Manchester → PLACE_QUERY matches the
+    // Manchester Locality (seeded by ONSPD) and overrides both GPS + SAVED_PROFILE.
+    const HUDDERSFIELD = { lat: 53.6458, lng: -1.785 }
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/search?q=Manchester&lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // Load-bearing assertion: PLACE_QUERY beat GPS — effectiveLocality is
+    // Manchester (the place match), NOT Huddersfield (the GPS nearest) and
+    // NOT the user's saved profile locality (also Huddersfield).
+    expect(body.branchMeta).toBeDefined()
+    expect(body.branchMeta.effectiveLocality).not.toBeNull()
+    expect(body.branchMeta.effectiveLocality.name).toMatch(/Manchester/i)
+    // searchChip.mode='PLACE' confirms `tryPlaceMatch` resolved q to a Locality.
+    expect(body.branchMeta.searchChip).not.toBeNull()
+    expect(body.branchMeta.searchChip.mode).toBe('PLACE')
+    expect(body.branchMeta.searchChip.label).toMatch(/Manchester/i)
+  })
+
+  it('§DF-4 — identical ranking on same coords regardless of source (GPS vs SAVED_PROFILE)', { timeout: 30_000 }, async () => {
+    // Two requests against the SAME coords. Request A: unauthenticated, GPS
+    // coords in URL. Request B: authenticated, no GPS, saved profile carries
+    // the same lat/lng + locality. V3 ranking is source-agnostic — the
+    // resulting popularRail tile order MUST be identical.
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-4-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     53.6458,
+        longitude:    -1.785,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+    const HUDDERSFIELD = { lat: 53.6458, lng: -1.785 }
+
+    // Request A — unauthenticated GPS path. Use no auth header so
+    // `optionalUserId` returns null → resolver Priority 2 (GPS) anchored on
+    // Huddersfield (no SAVED_PROFILE consulted).
+    const resA = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}`,
+    })
+    expect(resA.statusCode).toBe(200)
+    const bodyA = JSON.parse(resA.body)
+    expect(bodyA.locationContext.source).toBe('coordinates')
+
+    // Request B — authenticated no-GPS path. Resolver falls through to
+    // Priority 3 (SAVED_PROFILE) which reads User.lat/lng (= Huddersfield).
+    const resB = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/home`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(resB.statusCode).toBe(200)
+    const bodyB = JSON.parse(resB.body)
+    expect(bodyB.locationContext.source).toBe('profile')
+
+    // Same coords → same V3 ranking. Both popularRail outputs must agree on
+    // tile order (merchant.id sequence) AND length. Across rails of equal
+    // length, the strict-order equality is the load-bearing invariant.
+    const railA = bodyA.popularRail?.branches?.map((t: any) => t.merchant?.id) ?? []
+    const railB = bodyB.popularRail?.branches?.map((t: any) => t.merchant?.id) ?? []
+    expect(railA.length).toBe(railB.length)
+    expect(railB).toEqual(railA)
+    // Defensive — if BOTH rails are empty (no Huddersfield current-month
+    // redemptions in this DB state), the equality above is vacuously true
+    // and provides zero proof. The full-suite §DG fixtures + seed Karaara
+    // /Pino's typically produce non-empty rails here, but we guard so a
+    // future suite-pruning that wipes those fixtures doesn't silently turn
+    // §DF-4 into a no-op. Fail loudly + direct the maintainer to fix the
+    // upstream fixture rather than the assertion.
+    if (railA.length === 0) {
+      throw new Error(
+        '§DF-4: both Huddersfield popularRail outputs are empty. ' +
+        'Test cannot prove ranking-identity invariant. ' +
+        'Restore Huddersfield current-month redemption fixtures (§DG seed) before relying on this pin.',
+      )
+    }
+
+    // Same shape across other rails — at minimum the keys are present in both.
+    expect(typeof bodyA.featuredRail).toBe(typeof bodyB.featuredRail)
+    expect(typeof bodyA.trendingRail).toBe(typeof bodyB.trendingRail)
+  })
+
+  it('§DF-5 — unauthenticated request with no coords falls through to source=none', { timeout: 30_000 }, async () => {
+    // No auth header, no coords. Resolver Priority 4 returns null. Wire
+    // envelope reports source='none'. Existing no-location Home behaviour
+    // is preserved (Trending silent / Popular UK-wide / NBC hidden).
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    expect(body.locationContext.source).toBe('none')
+    expect(body.locationContext.locality).toBeNull()
+    expect(body.locationContext.city).toBeNull()
+  })
+
+  it('§DF-6 — authenticated user with no postcode / no GPS falls through to source=none', { timeout: 30_000 }, async () => {
+    // Auth user with EVERY profile-location field null (postcode, latitude,
+    // longitude, localityId, city). No GPS in request. resolveLocationContext
+    // exhausts both the localityId branch AND the city branch → returns
+    // source='none'. resolveEffectiveLocation also exhausts its three priorities.
+    const ts = Date.now()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-6-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     null,
+        latitude:     null,
+        longitude:    null,
+        localityId:   null,
+        city:         null,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/home`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    expect(body.locationContext.source).toBe('none')
+    expect(body.locationContext.locality).toBeNull()
+    expect(body.locationContext.city).toBeNull()
+  })
+
+  it('§DF-7 — incomplete profile (localityId set, latitude null) — documents §DF-v2-i latent inconsistency', { timeout: 30_000 }, async () => {
+    // Auth user has `localityId` populated but `latitude/longitude` are null.
+    // Per spec §4.4 latent inconsistency note: the two helpers disagree.
+    //
+    //   • `resolveEffectiveLocation` (effectiveLocation.ts:96) requires
+    //     ALL THREE (localityId, latitude, longitude) → falls through to null.
+    //     → Discovery rails behave UK-wide-ish (no V3 location anchor).
+    //
+    //   • `resolveLocationContext` (service.ts:128-145) only requires
+    //     `localityId` → returns source='profile' anchored on the saved Locality.
+    //     → Wire envelope says "we know your area" while the rails behave
+    //     as if we don't.
+    //
+    // This pin asserts CURRENT behaviour so the §DF-v2-i alignment work has
+    // a baseline. If the assertion changes in a future PR, the spec must be
+    // updated atomically with the code change.
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-7-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     null,
+        longitude:    null,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/home`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    // resolveLocationContext returns source='profile' because the localityId
+    // branch fires before the lat/lng check is consulted. This is the
+    // CURRENT behaviour — see spec §4.4 latent inconsistency note + §DF-v2-i
+    // alignment workstream. If §DF-v2-i lands and aligns the two helpers
+    // (e.g. by requiring lat/lng for source='profile' or by falling back to
+    // Locality.centerLat/centerLng in the resolver), this pin must be
+    // updated atomically with that change.
+    expect(body.locationContext.source).toBe('profile')
+    expect(body.locationContext.locality).not.toBeNull()
+    expect(body.locationContext.locality.name).toMatch(/Huddersfield/i)
+  })
+})

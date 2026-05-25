@@ -17,6 +17,7 @@ import { NearbyByCategory } from '../components/NearbyByCategory'
 import { NearbyContextBanner } from '../components/NearbyContextBanner'
 import { NearbySectionEmpty } from '../components/NearbySectionEmpty'
 import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
+import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
 
@@ -168,6 +169,17 @@ export function HomeScreen() {
             <NearbySectionEmpty> + <HomeExploreMore> against ever
             co-mounting with this banner (see derivation above). */}
         {showNoLocationBanner && <HomeNoLocationBanner />}
+
+        {/* Spec §6.2 — saved-area honesty hint mounts at the top of the
+            Home content (flush below safe-area, above Featured rail) when
+            the backend resolved Discovery against the user's SAVED_PROFILE
+            postcode (vs live GPS).  Hidden when source === 'coordinates' or
+            'none'; the component owns its own visibility gating so the
+            mount is unconditional here.  Mutually exclusive with the
+            no-location banner above by construction (the no-location
+            banner requires source === 'none'; the hint requires
+            source === 'profile'). */}
+        {feed && <SavedAreaHonestyHint locationContext={feed.locationContext} />}
 
         {isLoading ? (
           <View style={styles.skeletonRow}>

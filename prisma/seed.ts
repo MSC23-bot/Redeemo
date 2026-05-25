@@ -17,6 +17,8 @@ import { seedHeuristicCatchmentEdges } from './seed-data/catchment-heuristic'
 import { seedCuratedCatchmentEdges } from './seed-data/catchmentOverrides'
 import { seedMarkets } from './seed-data/markets'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
+import type { ResolvedPostcodeSnapshot } from '../src/api/lib/postcodeResolver'
+import { findOrCreateLocality } from '../src/api/lib/findOrCreateLocality'
 import { DEMO_MERCHANT_ENRICHMENT, DEV_QA_PIN, REAL_MERCHANT_PIN_BRANCH_IDS } from './seed-data/demoMerchantEnrichment'
 import { FEATURED_MERCHANT_FIXTURES, CAMPAIGN_FIXTURES } from './seed-data/homeFeedFixtures'
 
@@ -109,6 +111,98 @@ async function buildBranchLocationSnapshot(branchId: string): Promise<BranchLoca
     region: loc.region,
     locationCountry: loc.country,
     locationResolvedAt: new Date(),
+  }
+}
+
+type CustomerLocationSnapshot = {
+  postcode: string
+  latitude: number
+  longitude: number
+  localityId: string
+  postTown: string | null
+  ladDistrict: string
+  adminCounty: string | null
+  region: string | null
+  country: string
+  locationResolvedAt: Date
+  city: string  // legacy alignment, mirrors production updateMyProfile
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixed postcode snapshots for the two demo customers.
+//
+// Why fixed snapshots (rather than calling resolvePostcode()):
+//   1. DETERMINISM. Seed runs identically every time, with no dependency on
+//      postcodes.io uptime, network connectivity, or transient 5xx responses.
+//      `npx prisma db seed` must succeed offline — owner direction post PR #128.
+//   2. SPEED. Skips two HTTPS round-trips on every fresh seed run.
+//   3. STABILITY. ONS postcode centroid data for established postcodes does
+//      not change between OS releases. The values below are the canonical
+//      postcodes.io response captured on 2026-05-24 — they describe physical
+//      reality, not a service response that might drift.
+//
+// To refresh a snapshot (if a postcode is ever re-issued or its admin
+// hierarchy changes after a boundary review):
+//   npx tsx -e "const{resolvePostcode}=require('./src/api/lib/postcodeResolver');resolvePostcode('HD1 1AA').then(r=>console.log(JSON.stringify(r,null,2)))"
+//
+// To add a new demo customer postcode: probe via the command above, then
+// add a new SNAPSHOT_* constant + thread it into the relevant upsert in main().
+//
+// Test data is locked to these two postcodes (HD1 1AA Huddersfield / CO7 0AY
+// Brightlingsea) so a wide range of cross-region scenarios — Plan 4a
+// Huddersfield Market anchor + Tendring (East of England) reviewer — can be
+// exercised without expanding the demo dataset.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SNAPSHOT_HUDDERSFIELD_HD1_1AA: ResolvedPostcodeSnapshot = {
+  postcode: 'HD1 1AA',
+  latitude: 53.648438,
+  longitude: -1.781546,
+  country: 'England',
+  region: 'Yorkshire and The Humber',
+  ladDistrict: 'Kirklees',
+  adminCounty: null,
+  parish: 'Kirklees, unparished area',          // resolves through to constituency via pickRuntimeLocalityName
+  adminWard: 'Newsome',
+  parliamentaryConstituency: 'Huddersfield',
+  postTown: null,
+}
+
+const SNAPSHOT_BRIGHTLINGSEA_CO7_0AY: ResolvedPostcodeSnapshot = {
+  postcode: 'CO7 0AY',
+  latitude: 51.806625,
+  longitude: 1.023294,
+  country: 'England',
+  region: 'East of England',
+  ladDistrict: 'Tendring',
+  adminCounty: 'Essex',
+  parish: 'Brightlingsea',                      // non-unparished → wins pickRuntimeLocalityName
+  adminWard: 'Brightlingsea',
+  parliamentaryConstituency: 'Harwich and North Essex',
+  postTown: null,
+}
+
+async function enrichCustomerLocationFromSnapshot(
+  snap: ResolvedPostcodeSnapshot,
+): Promise<CustomerLocationSnapshot> {
+  // findOrCreateLocality is deterministic — pure DB upsert keyed on
+  // (name, ladDistrict, country). Seeded Localities (e.g. huddersfield,
+  // brightlingsea) match by primary slug; any unseeded postcode would
+  // auto-create a row with needsReview=true. The two snapshots above both
+  // map to seeded Localities under the standard slug rules.
+  const locality = await findOrCreateLocality(prisma, snap)
+  return {
+    postcode:           snap.postcode,
+    latitude:           snap.latitude,
+    longitude:          snap.longitude,
+    localityId:         locality.id,
+    postTown:           snap.postTown ?? locality.postTown,
+    ladDistrict:        snap.ladDistrict,
+    adminCounty:        snap.adminCounty,
+    region:             snap.region,
+    country:            snap.country,
+    locationResolvedAt: new Date(),
+    city:               locality.name,
   }
 }
 
@@ -1275,7 +1369,7 @@ const COVELUM_MERCHANT_ID    = 'tax-merchant-covelum-001'
 const COVELUM_MAIN_BRANCH_ID = 'tax-branch-covelum-001'
 const COVELUM_2ND_BRANCH_ID  = 'tax-branch-covelum-002'
 
-async function seedDemoMerchantEnrichment(): Promise<void> {
+async function seedDemoMerchantEnrichment(reviewerLocation: CustomerLocationSnapshot): Promise<void> {
   // ───────────────────────────────────────────────────────────────────
   // 0. Stage 2 enrichment — 9 fake/demo merchants + dev-merchant-001
   //    (partial) + Cohort C real-merchant branch PINs.
@@ -1499,7 +1593,21 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
   for (const r of reviewers) {
     const u = await prisma.user.upsert({
       where:  { email: r.email },
-      update: {},
+      // Location fields set on BOTH update + create so re-runs restore
+      // SAVED_PROFILE-fireable state even if columns were cleared.
+      update: {
+        postcode:           reviewerLocation.postcode,
+        latitude:           reviewerLocation.latitude,
+        longitude:          reviewerLocation.longitude,
+        localityId:         reviewerLocation.localityId,
+        postTown:           reviewerLocation.postTown,
+        ladDistrict:        reviewerLocation.ladDistrict,
+        adminCounty:        reviewerLocation.adminCounty,
+        region:             reviewerLocation.region,
+        country:            reviewerLocation.country,
+        locationResolvedAt: reviewerLocation.locationResolvedAt,
+        city:               reviewerLocation.city,
+      },
       create: {
         email:            r.email,
         phone:            r.phone,
@@ -1513,6 +1621,17 @@ async function seedDemoMerchantEnrichment(): Promise<void> {
         tutorialSeen:     true,
         tcConsentVersion: '1.0',
         tcConsentAt:      new Date(),
+        postcode:           reviewerLocation.postcode,
+        latitude:           reviewerLocation.latitude,
+        longitude:          reviewerLocation.longitude,
+        localityId:         reviewerLocation.localityId,
+        postTown:           reviewerLocation.postTown,
+        ladDistrict:        reviewerLocation.ladDistrict,
+        adminCounty:        reviewerLocation.adminCounty,
+        region:             reviewerLocation.region,
+        country:            reviewerLocation.country,
+        locationResolvedAt: reviewerLocation.locationResolvedAt,
+        city:               reviewerLocation.city,
       },
     })
     reviewerIds.push(u.id)
@@ -1833,6 +1952,13 @@ async function main() {
   // ── Active Markets (Plan 4a rollout: Huddersfield Market only as of M1.15) ──
   await seedMarkets(prisma)
 
+  // Fixed snapshots threaded into the customer-role upserts. NO postcodes.io
+  // network call at seed time — see the SNAPSHOT_* constants block above for
+  // the determinism rationale + how to refresh values if a postcode's admin
+  // hierarchy ever changes.
+  const customerLocation = await enrichCustomerLocationFromSnapshot(SNAPSHOT_HUDDERSFIELD_HD1_1AA)
+  const reviewerLocation = await enrichCustomerLocationFromSnapshot(SNAPSHOT_BRIGHTLINGSEA_CO7_0AY)
+
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
   const beautyCatId = topLevelIdByName.get('Beauty & Wellness')
@@ -1940,7 +2066,19 @@ async function main() {
   // ── Dev customer ──
   const customer = await prisma.user.upsert({
     where: { email: 'customer@redeemo.com' },
-    update: {},
+    update: {
+      postcode:           customerLocation.postcode,
+      latitude:           customerLocation.latitude,
+      longitude:          customerLocation.longitude,
+      localityId:         customerLocation.localityId,
+      postTown:           customerLocation.postTown,
+      ladDistrict:        customerLocation.ladDistrict,
+      adminCounty:        customerLocation.adminCounty,
+      region:             customerLocation.region,
+      country:            customerLocation.country,
+      locationResolvedAt: customerLocation.locationResolvedAt,
+      city:               customerLocation.city,
+    },
     create: {
       email: 'customer@redeemo.com',
       phone: '+447700900001',
@@ -1952,6 +2090,17 @@ async function main() {
       tutorialSeen: true,
       tcConsentVersion: '1.0',
       tcConsentAt: new Date(),
+      postcode:           customerLocation.postcode,
+      latitude:           customerLocation.latitude,
+      longitude:          customerLocation.longitude,
+      localityId:         customerLocation.localityId,
+      postTown:           customerLocation.postTown,
+      ladDistrict:        customerLocation.ladDistrict,
+      adminCounty:        customerLocation.adminCounty,
+      region:             customerLocation.region,
+      country:            customerLocation.country,
+      locationResolvedAt: customerLocation.locationResolvedAt,
+      city:               customerLocation.city,
     },
   })
   console.log('Created dev customer:', customer.email)
@@ -2086,7 +2235,7 @@ async function main() {
   // Runs AFTER taxonomy test merchants so the merchant + its main branch
   // already exist; this layer adds logo / banner / hours / photos / 2nd
   // branch / reviewers / reviews / verified redemption on top.
-  await seedDemoMerchantEnrichment()
+  await seedDemoMerchantEnrichment(reviewerLocation)
 
   // ── Home feed minimum-viable seed (Tier 1, owner-approved 2026-05-21) ──
   // Populates the `FeaturedMerchant` + `Campaign` tables that

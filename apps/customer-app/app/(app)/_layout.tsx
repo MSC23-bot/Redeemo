@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { resolveRedirect } from '@/lib/routing'
 import { color, spacing } from '@/design-system'
 import { Home, Map, User, PiggyBank } from '@/design-system/icons'
+import { LocationPermissionProvider } from '@/lib/location/LocationPermissionProvider'
 
 function HomeIcon({ focused }: { focused: boolean }) {
   return (
@@ -70,6 +71,12 @@ export default function AppLayout() {
   if (target) return <Redirect href={target as Parameters<typeof Redirect>[0]['href']} />
 
   return (
+    // LocationPermissionProvider mounts the branded pre-permission
+    // explainer + recovery sheets ONCE at the (app) tree root. Every
+    // screen that calls useUserLocation().request() with no opts
+    // inherits them via context — no surface needs to wire its own
+    // Modal. Reusable by Task 7's Saved Area screen.
+    <LocationPermissionProvider>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -136,7 +143,9 @@ export default function AppLayout() {
       <Tabs.Screen name="merchant/[id]"   options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="voucher/[id]"    options={{ href: null, tabBarStyle: { display: 'none' } }} />
       <Tabs.Screen name="redemption/[id]" options={{ href: null, tabBarStyle: { display: 'none' } }} />
+      <Tabs.Screen name="saved-area"      options={{ href: null, tabBarStyle: { display: 'none' } }} />
     </Tabs>
+    </LocationPermissionProvider>
   )
 }
 

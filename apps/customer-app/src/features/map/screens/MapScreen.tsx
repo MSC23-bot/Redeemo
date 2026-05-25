@@ -6,6 +6,7 @@ import { List, Locate, SlidersHorizontal } from 'lucide-react-native'
 import { useRouter } from 'expo-router'
 import { Text, color, spacing, radius, elevation, layer } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
+import { useMe } from '@/hooks/useMe'
 import { useCategories } from '@/hooks/useCategories'
 import { useSearch } from '@/hooks/useSearch'
 import { useInAreaBranches, type BoundingBox } from '../hooks/useInAreaBranches'
@@ -108,17 +109,36 @@ export function MapScreen(_props: Props) {
   const router = useRouter()
   const mapRef = useRef<MapView>(null)
   const locationState = useUserLocation()
+  // §DF — Map locate-me fallback reads the user's saved
+  // profile so the camera can centre on the saved postcode coords when
+  // GPS is unavailable, instead of jumping to LONDON_REGION regardless
+  // of where the user actually lives.
+  const me = useMe()
   const { data: categoriesData } = useCategories()
 
   // ─── Bbox state ────────────────────────────────────────────────────────────
   // `region` is the live camera (offshore detection reads this — no debounce).
   // `queryBbox` is what either hook actually queries against — debounced via
-  // `pendingBboxRef` + `debounceRef` on pan, seeded at mount so the initial
-  // fetch fires before the first user interaction.
+  // `pendingBboxRef` + `debounceRef` on pan.
+  //
+  // §DF device-QA Round 4 — `queryBbox` now seeds as `null` so the
+  // hook's `enabled: bbox !== null` gate defers the initial fetch
+  // until the cascade resolves.  Pre-fix the initial fetch fired with
+  // LONDON_REGION's bbox, returned London merchants, and then the
+  // cascade (GPS/profile) shifted the bbox to e.g. Huddersfield.  With
+  // `placeholderData: keepPreviousData` the London merchants stayed
+  // visible while the Huddersfield refetch was in flight, and the
+  // `animateToRegion` 400ms tween fired `onRegionChangeComplete`
+  // mid-animation, each call rewriting `queryBbox` to a slightly
+  // different floating-point bbox.  Net result: pins didn't reliably
+  // land for the saved-profile centre until the user manually panned.
+  //
+  // With `queryBbox: null` at mount, NO fetch fires until the cascade
+  // effect lands the correct bbox once.  Trade-off: a brief
+  // "no-pins-yet" state during the cascade resolution — covered by the
+  // existing §BH first-fetch loader (`isFetching && branches.length === 0`).
   const [region, setRegion] = useState<Region>(LONDON_REGION)
-  const [queryBbox, setQueryBbox] = useState<BoundingBox | null>(
-    regionToBbox(LONDON_REGION),
-  )
+  const [queryBbox, setQueryBbox] = useState<BoundingBox | null>(null)
   const pendingBboxRef = useRef<BoundingBox | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -255,11 +275,120 @@ export function MapScreen(_props: Props) {
 
   const handleSkipLocation = useCallback(() => {
     setLocationPermissionDismissed(true)
-    // queryBbox is already seeded to LONDON_REGION at mount; this just
-    // keeps API parity with cefaf45 in case the seed is removed.
+    // §DF device-QA Round 4 — `queryBbox` now seeds as null at mount
+    // (defer until cascade resolves). When the user dismisses the
+    // permission prompt without granting AND has no saved profile
+    // coords, fall back to LONDON_REGION so the user sees SOMETHING
+    // rather than a blank map.
     setQueryBbox(regionToBbox(LONDON_REGION))
   }, [])
 
+  // §DF device-QA Round 3 finding — initial camera cascade.
+  //
+  // Pre-fix the Map tab initialised at LONDON_REGION and only updated when
+  // the user tapped the locate-me button.  A Huddersfield user with GPS off
+  // would see London on the map and have to manually re-centre.  The
+  // previous P2 patch only fixed the locate-me BUTTON; the initial mount
+  // wasn't cascading.
+  //
+  // Cascade (mirrors handleRecentre / Discovery behaviour):
+  //   1. GPS coords present → animate to live location.
+  //   2. No GPS but saved-profile lat/lng → animate to saved-postcode coords.
+  //   3. Neither → stay on LONDON_REGION (the prompt UX takes over).
+  //
+  // `initialCentredRef` latches on FIRST successful animate so subsequent
+  // profile updates / GPS state changes don't re-centre while the user is
+  // mid-pan.  If neither data source is available at mount, the ref stays
+  // false so we still react if data arrives later (e.g. user grants GPS
+  // mid-session, or /profile resolves after the cold cache lands).
+  //
+  // Trade-off: brief LONDON_REGION flash before the effect fires while
+  // data loads.  `animateToRegion` runs a 400ms animation so the camera
+  // jump feels intentional rather than a layout glitch.
+  const initialCentredRef = useRef(false)
+  useEffect(() => {
+    if (initialCentredRef.current) return
+
+    // 1. GPS first.
+    if (
+      locationState.status === 'granted' &&
+      locationState.location?.lat != null &&
+      locationState.location?.lng != null
+    ) {
+      initialCentredRef.current = true
+      animateAndQuery({
+        latitude:       locationState.location.lat,
+        longitude:      locationState.location.lng,
+        latitudeDelta:  0.05,
+        longitudeDelta: 0.05,
+      })
+      return
+    }
+
+    // 2. Saved-profile fallback.
+    const lat = me.data?.latitude
+    const lng = me.data?.longitude
+    if (lat != null && lng != null) {
+      initialCentredRef.current = true
+      animateAndQuery({
+        latitude:       lat,
+        longitude:      lng,
+        latitudeDelta:  0.05,
+        longitudeDelta: 0.05,
+      })
+      return
+    }
+
+    // 3. Neither GPS nor saved profile coords.  §DF device-QA Round 4 —
+    //    `queryBbox` now seeds as null at mount, so without this branch
+    //    the screen sits in the §BH loader indefinitely.  Once
+    //    `me.isLoading === false` (the /profile fetch resolved and the
+    //    user genuinely has no saved coords), AND GPS is in a settled
+    //    non-granted status (`denied` | `idle`), fall back to
+    //    LONDON_REGION so the user sees pins somewhere rather than a
+    //    blank map.  The existing LocationPermission sheet still prompts
+    //    the user to enable GPS or set a postcode.
+    if (
+      !me.isLoading &&
+      locationState.status !== 'loading' &&
+      locationState.status !== 'granted'
+    ) {
+      initialCentredRef.current = true
+      animateAndQuery(LONDON_REGION)
+      return
+    }
+  }, [
+    locationState.status,
+    locationState.location?.lat,
+    locationState.location?.lng,
+    me.data?.latitude,
+    me.data?.longitude,
+    me.isLoading,
+    animateAndQuery,
+  ])
+
+  // §DF — locate-me fallback cascade.
+  //
+  //   1. GPS coords present → centre on the live location (existing
+  //      behaviour, unchanged).
+  //   2. GPS unavailable BUT saved-profile lat/lng present → centre on
+  //      the user's saved postcode locality.  Matches the §DF v1
+  //      contract: when GPS is off but a saved postcode exists,
+  //      Discovery + Map both anchor on saved profile rather than
+  //      defaulting to London regardless of where the user lives.
+  //   3. No GPS AND no saved-profile coords → do NOT move the camera.
+  //      The existing "Location is off" UI on Map (LocationPermission
+  //      sheet / empty area state) already prompts the user to enable
+  //      location or set a postcode; silently jumping to London here
+  //      would mask that prompt and confuse users whose saved area is
+  //      elsewhere.  Earlier behaviour fell through to LONDON_REGION
+  //      unconditionally — see device-QA R1-1.
+  const profileLatLng = (() => {
+    const lat = me.data?.latitude
+    const lng = me.data?.longitude
+    if (lat == null || lng == null) return null
+    return { lat, lng }
+  })()
   const handleRecentre = useCallback(() => {
     if (locationState.location) {
       animateAndQuery({
@@ -268,10 +397,16 @@ export function MapScreen(_props: Props) {
         latitudeDelta:  0.05,
         longitudeDelta: 0.05,
       })
-    } else {
-      animateAndQuery(LONDON_REGION)
+    } else if (profileLatLng) {
+      animateAndQuery({
+        latitude:       profileLatLng.lat,
+        longitude:      profileLatLng.lng,
+        latitudeDelta:  0.05,
+        longitudeDelta: 0.05,
+      })
     }
-  }, [locationState.location, animateAndQuery])
+    // else: no-action — see comment above.
+  }, [locationState.location, profileLatLng, animateAndQuery])
 
   const handleCitySelect = useCallback(
     (cityName: string, coords: { lat: number; lng: number }) => {

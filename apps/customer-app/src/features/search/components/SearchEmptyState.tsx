@@ -1,6 +1,7 @@
 import React from 'react'
 import { View, StyleSheet, Pressable } from 'react-native'
 import { Text } from '@/design-system/Text'
+import { MapPinOff } from '@/design-system/icons'
 
 // PR #112 fixup-6.4 (2026-05-20) — owner-locked copy refresh.  All states
 // use Redeemo-persona language: confident, plain-spoken, British English,
@@ -35,11 +36,34 @@ type Props = {
   reason: EmptyStateReason | null | undefined
   query?: string
   /**
-   * Plan 4 M4.6 — only consulted when `reason === 'no_location'`.  The
-   * parent screen routes to the PC2 address completion flow (or its
-   * standalone equivalent).  Component-side this is presentation-only.
+   * Plan 4 M4.6 — only consulted when `reason === 'no_location'` AND
+   * `savedAreaCity` is null.  Parent screen routes to the Saved Area
+   * surface (post-§DF this is `/saved-area`, NOT the PC2-address
+   * flow — see §DF ).  Component-side presentation-only.
    */
   onSetArea?: () => void
+  /**
+   * §DF — profile-aware variant trigger.  When the user
+   * has a saved postcode, the `no_location` empty state must swap to
+   * the dual-CTA "searching near your saved area" framing instead of
+   * the "Set your area" prompt (which is misleading — the user
+   * already HAS a saved area).  Pass the resolved area label
+   * (`locality.name ?? city`) or `null` if no saved area exists.
+   */
+  savedAreaCity?: string | null
+  /**
+   * §DF — fires when the user taps "Use current
+   * location" on the profile-aware variant.  Parent screen wires this
+   * to `useUserLocation().request()`, which routes through the
+   * LocationPermissionProvider explainer + recovery sheets per Task 5.
+   */
+  onUseCurrentLocation?: () => void
+  /**
+   * §DF — fires when the user taps "Change saved area"
+   * on the profile-aware variant.  Parent screen routes to
+   * `/saved-area`.
+   */
+  onChangeSavedArea?: () => void
 }
 
 function trimmed(q?: string): string | null {
@@ -48,10 +72,29 @@ function trimmed(q?: string): string | null {
   return t.length > 0 ? t : null
 }
 
-export function SearchEmptyState({ reason, query, onSetArea }: Props) {
+export function SearchEmptyState({
+  reason,
+  query,
+  onSetArea,
+  savedAreaCity,
+  onUseCurrentLocation,
+  onChangeSavedArea,
+}: Props) {
   if (!reason || reason === 'expanded_to_wider') return null
 
   const q = trimmed(query)
+
+  // §DF — profile-aware variant of the no_location
+  // case.  When the user has a saved postcode, the message + CTAs
+  // change to acknowledge the saved area + offer two productive
+  // actions (enable GPS / change saved area) instead of the
+  // misleading "Set your area" prompt.  Pre-fix the no_location
+  // copy hard-coded the prompt that assumes no saved area, which
+  // was wrong for users who DID have a saved area but were
+  // searching with location off.
+  const isNoLocationWithSavedArea =
+    reason === 'no_location' && !!savedAreaCity
+
   const { title, body } = (() => {
     switch (reason) {
       case 'pre_search':
@@ -60,6 +103,18 @@ export function SearchEmptyState({ reason, query, onSetArea }: Props) {
           body:  'Search restaurants, cafés, salons, gyms and more.',
         }
       case 'no_location':
+        if (isNoLocationWithSavedArea) {
+          // §DF device-QA Round 5 — owner-locked verbatim body refresh.
+          // Round 4 shipped 3 sentences "Location is off. Redeemo is
+          // using your profile location. Turn on location for the most
+          // accurate nearby offers."  Round 5 collapses sentences 1+2
+          // into one and drops "Redeemo is" (app context is implicit).
+          // Title remains "Searching near {city}".
+          return {
+            title: `Searching near ${savedAreaCity}`,
+            body:  "Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers.",
+          }
+        }
         return {
           title: 'Set your area to see offers near you.',
           body:  'We use your area to show offers nearby.',
@@ -93,13 +148,67 @@ export function SearchEmptyState({ reason, query, onSetArea }: Props) {
       style={reason === 'pre_search' ? styles.containerPreSearch : styles.container}
       testID={`search-empty-${reason}`}
     >
+      {/*
+        §DF device-QA Round 5 — owner-locked branded illustration for
+        the `no_location` reason variant ONLY.  A soft cream-tinted
+        circle holds a brand-rose `MapPinOff` icon above the title.
+        Brings the empty state from plain copy to feeling designed
+        without dominating; brand-rose icon stays ≤ 10% screen-area
+        per DESIGN.md.  Applied to BOTH paths (saved-area-present AND
+        no-saved-area).  Other reasons (pre_search / no_uk_supply /
+        none) intentionally keep the existing copy-only layout — they
+        have different intents.
+      */}
+      {reason === 'no_location' && (
+        <View style={styles.illustration} testID="search-empty-no-location-illustration">
+          <View style={styles.illustrationCircle}>
+            <MapPinOff size={28} color="#E20C04" />
+          </View>
+        </View>
+      )}
       <Text style={styles.title} accessibilityRole="header" numberOfLines={2}>
         {title}
       </Text>
       <Text style={styles.body} numberOfLines={2}>
         {body}
       </Text>
-      {reason === 'no_location' && onSetArea && (
+      {/*
+        §DF — dual CTA stack for the profile-aware
+        no_location variant.  "Use current location" routes through
+        the LocationPermissionProvider explainer + recovery sheets.
+        "Change saved area" routes to /saved-area.
+      */}
+      {reason === 'no_location' && isNoLocationWithSavedArea && (
+        <View style={styles.dualCtaStack}>
+          {onUseCurrentLocation && (
+            <Pressable
+              style={styles.setAreaButton}
+              onPress={onUseCurrentLocation}
+              accessibilityRole="button"
+              accessibilityLabel="Use current location"
+              testID="search-empty-no-location-use-current"
+            >
+              <Text style={styles.setAreaButtonText}>Use current location</Text>
+            </Pressable>
+          )}
+          {onChangeSavedArea && (
+            <Pressable
+              style={styles.changeSavedAreaButton}
+              onPress={onChangeSavedArea}
+              accessibilityRole="button"
+              accessibilityLabel="Change your location"
+              testID="search-empty-no-location-change-saved"
+            >
+              {/* §DF device-QA Round 4 — CTA label aligned with the
+                  "Your Location" screen rename.  Was "Change saved
+                  location"; the new label fits the surface identity. */}
+              <Text style={styles.changeSavedAreaButtonText}>Change your location</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+      {/* No-saved-area variant retains the existing single-CTA path. */}
+      {reason === 'no_location' && !isNoLocationWithSavedArea && onSetArea && (
         <Pressable
           style={styles.setAreaButton}
           onPress={onSetArea}
@@ -144,6 +253,26 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign:  'center',
   },
+  // §DF device-QA Round 5 — branded location-off illustration.
+  // Centred horizontally; 64×64 cream-tinted circle (color.surface.tint
+  // = #FEF6F5) with a 1px hairline border (color.border.subtle =
+  // #E5E7EB); brand-rose `MapPinOff` icon 28pt inside.  spacing[5]
+  // gap below before the title.  Reduced-motion safe (no animation).
+  illustration: {
+    alignItems:   'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  illustrationCircle: {
+    width:           64,
+    height:          64,
+    borderRadius:    32,
+    backgroundColor: '#FEF6F5',     // surface.tint
+    borderWidth:     1,
+    borderColor:     '#E5E7EB',     // border.subtle
+    alignItems:      'center',
+    justifyContent:  'center',
+  },
   // Plan 4 M4.6 — small branded CTA for the no_location prompt.
   setAreaButton: {
     marginTop:       16,
@@ -156,6 +285,30 @@ const styles = StyleSheet.create({
     fontSize:    14,               // label.md
     fontFamily:  'Lato-SemiBold',
     color:       '#FFFFFF',
+    textAlign:   'center',
+  },
+  // §DF — dual-CTA stack for the profile-aware
+  // no_location variant.  Vertical stack centred under the body
+  // copy, modest gap so both buttons feel equally weighted.  The
+  // secondary "Change saved area" is a ghost variant so it doesn't
+  // compete with the primary navy "Use current location".
+  dualCtaStack: {
+    marginTop:    16,
+    alignItems:   'center',
+    gap:          10,
+  },
+  changeSavedAreaButton: {
+    paddingHorizontal: 18,
+    paddingVertical:   10,
+    borderRadius:    24,
+    backgroundColor: 'transparent',
+    borderWidth:     1,
+    borderColor:     '#010C35',
+  },
+  changeSavedAreaButtonText: {
+    fontSize:    14,
+    fontFamily:  'Lato-SemiBold',
+    color:       '#010C35',
     textAlign:   'center',
   },
 })

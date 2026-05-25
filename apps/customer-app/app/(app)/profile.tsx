@@ -1,8 +1,9 @@
 import React from 'react'
-import { View, StyleSheet } from 'react-native'
+import { View, Pressable, StyleSheet } from 'react-native'
+import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text, Button, color, spacing, layout, radius } from '@/design-system'
-import { User } from '@/design-system/icons'
+import { User, MapPin, ChevronRight } from '@/design-system/icons'
 import { useAuthStore } from '@/stores/auth'
 
 // Minimal Profile shell: name + email + sign-out. Phase 3C.1h Profile tab
@@ -41,6 +42,25 @@ export default function ProfileScreen() {
           <Text variant="body.sm" color="secondary" numberOfLines={1}>{email}</Text>
         </View>
       </View>
+
+      <Pressable
+        testID="profile-saved-area-link"
+        accessibilityRole="button"
+        accessibilityLabel={`Your Location, ${user?.postcode ?? 'Set location'}`}
+        onPress={() => router.push('/saved-area' as any)}
+        style={({ pressed }) => [styles.savedAreaRow, pressed && styles.savedAreaRowPressed]}
+      >
+        <View style={styles.savedAreaIconWrap}>
+          <MapPin size={18} color={color.brandRose} />
+        </View>
+        <View style={styles.savedAreaText}>
+          <Text variant="label.lg" color="primary">Your Location</Text>
+          <Text variant="body.sm" color="secondary" numberOfLines={1}>
+            {user?.postcode ?? 'Set location'}
+          </Text>
+        </View>
+        <ChevronRight size={18} color={color.text.tertiary} />
+      </Pressable>
 
       <View style={styles.spacer} />
 
@@ -83,6 +103,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   identityText: {
+    flex: 1,
+  },
+  savedAreaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    paddingVertical: spacing[4],
+    paddingHorizontal: spacing[4],
+    marginTop: spacing[4],
+    backgroundColor: color.surface.page,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: color.border.subtle,
+  },
+  savedAreaRowPressed: { opacity: 0.7 },
+  savedAreaIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: color.surface.tint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedAreaText: {
     flex: 1,
   },
   spacer: { flex: 1 },

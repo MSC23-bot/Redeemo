@@ -30,6 +30,13 @@ export type MinimalUser = {
   dateOfBirth: string | null
   gender: string | null
   postcode: string | null
+  // §DF — saved-postcode coordinates + richer
+  // locality block, mirrored into the auth-store snapshot so surfaces
+  // that read `useAuthStore((s) => s.user)` (Profile, Map locate-me
+  // fallback) see them without an extra /profile fetch.
+  latitude: number | null
+  longitude: number | null
+  locality: { id: string; name: string; postTown: string | null; region: string | null } | null
   onboardingCompletedAt: string | null
   subscriptionPromptSeenAt: string | null
 }
@@ -159,6 +166,9 @@ export const useAuthStore = create<State>((set, get) => ({
         dateOfBirth: me.dateOfBirth,
         gender: me.gender,
         postcode: me.postcode,
+        latitude: me.latitude,
+        longitude: me.longitude,
+        locality: me.locality,
         onboardingCompletedAt: me.onboardingCompletedAt,
         subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
       }
@@ -237,6 +247,9 @@ export const useAuthStore = create<State>((set, get) => ({
         dateOfBirth: me.dateOfBirth,
         gender: me.gender,
         postcode: me.postcode,
+        latitude: me.latitude,
+        longitude: me.longitude,
+        locality: me.locality,
         onboardingCompletedAt: me.onboardingCompletedAt,
         subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
       }
@@ -277,6 +290,9 @@ export const useAuthStore = create<State>((set, get) => ({
         dateOfBirth: me.dateOfBirth,
         gender: me.gender,
         postcode: me.postcode,
+        latitude: me.latitude,
+        longitude: me.longitude,
+        locality: me.locality,
         onboardingCompletedAt: me.onboardingCompletedAt,
         subscriptionPromptSeenAt: me.subscriptionPromptSeenAt,
       }
