@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Keyboard,
@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated'
-import { router } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
@@ -85,6 +85,29 @@ export function SavedAreaScreen() {
   // granted (e.g. opened it after using Home/Map).
   const requestedGpsRef = useRef(false)
   const sawCoordsRef = useRef<boolean>(loc.status === 'granted' && !!loc.coords)
+
+  // §DF PR #128 R6 — every fresh Saved Area open MUST start in the choice
+  // state ("Update postcode" / "Use current location"), NOT in the
+  // postcode-edit card.  Pre-fix the local `editing` useState persisted
+  // across `router.back()` because Saved Area is registered as a
+  // `Tabs.Screen` and the screen instance does NOT unmount on navigation —
+  // it survives across visits, so `editing === true` from the previous
+  // visit leaked into the next open.  Owner device-QA Round 2 finding 6.
+  //
+  // useFocusEffect resets the edit-pane state (editing / postcodeInput /
+  // lookupResult / lookupError) on every focus.  Crucially, the GPS
+  // tracking refs (`requestedGpsRef` / `sawCoordsRef`) are NOT reset —
+  // those track the in-session GPS-grant flow and resetting them would
+  // break the post-grant auto-navigate path AND re-fire the auto-navigate
+  // on every focus.
+  useFocusEffect(
+    useCallback(() => {
+      setEditing(false)
+      setPostcodeInput('')
+      setLookupResult(null)
+      setLookupError(null)
+    }, []),
+  )
 
   // ── debounced postcodes.io lookup ─────────────────────────────────────────
   useEffect(() => {
@@ -174,22 +197,42 @@ export function SavedAreaScreen() {
     if (!postcode) return
     // Postcode-only PATCH per spec §7.2. No lat/lng — GPS coords are NEVER
     // written to User.postcode. `useUpdateProfile` invalidates meQueryKey
-    // automatically; we add the broader Discovery predicate invalidation
-    // so Home/Search/Map/NBC all re-fetch against the new locality.
+    // automatically; we add the broader Discovery refetch BEFORE navigating
+    // back so Home/Search/Map/NBC render the new locality immediately rather
+    // than serving a stale cached snapshot while a background refetch lands.
     updateProfile.mutate(
       { postcode },
       {
         onSuccess: async () => {
+          // §DF PR #128 R1-1 prereq + R7 — refresh the auth-store user
+          // snapshot first so Profile (which reads
+          // `useAuthStore((s) => s.user?.postcode)` rather than `useMe()`)
+          // surfaces the new postcode atomically with the back-nav.
+          await useAuthStore.getState().refreshUser()
+          // §DF PR #128 R7 — owner device-QA Round 2 finding 7: after
+          // saving a new postcode, Home rendered the OLD locality in the
+          // honesty hint for several seconds.  Root cause: prior code
+          // called `invalidateQueries` which only marks queries stale —
+          // it does NOT refetch synchronously.  When the user landed on
+          // Home, `useHomeFeed` re-subscribed, served the cached
+          // Brightlingsea data WHILE refetching in the background, and
+          // the user saw stale text for the network round-trip.
+          //
+          // Fix: `refetchQueries` synchronously triggers a refetch for
+          // any active Discovery query AND seeds the cache for inactive
+          // ones.  Await ensures the back-nav lands on a Home with the
+          // fresh locality already rendered.  Belt-and-braces
+          // `invalidateQueries` after handles the case where a Discovery
+          // query had zero subscribers at the time of the refetch call
+          // (refetchQueries with no active subscribers may no-op in some
+          // React Query versions) — that path's next subscriber will see
+          // the stale flag and refetch on mount.
+          await qc.refetchQueries({
+            predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'discovery',
+          })
           void qc.invalidateQueries({
             predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'discovery',
           })
-          // Refresh the auth-store user snapshot so Profile (which reads
-          // `useAuthStore((s) => s.user?.postcode)` rather than `useMe()`)
-          // surfaces the new postcode on the next render. React Query
-          // invalidation alone doesn't refresh the zustand store — they're
-          // two independent state containers. Awaited so the back-nav lands
-          // on a Profile screen with the fresh value already in place.
-          await useAuthStore.getState().refreshUser()
           handleBack()
         },
         onError: () => {
@@ -274,6 +317,21 @@ export function SavedAreaScreen() {
             <Card style={[s.card, { marginTop: spacing[4] }]}>
               <View style={s.field}>
                 <Text variant="label.lg" color="secondary">New postcode</Text>
+                {/*
+                  §DF PR #128 R1-4 — owner device-QA Round 2 finding:
+                  the "New postcode" label alone didn't tell the user
+                  what saving does.  This explanatory line sits ABOVE
+                  the input so the user reads "what this does" before
+                  they read the input affordance.
+                */}
+                <Text
+                  variant="body.sm"
+                  color="secondary"
+                  style={s.helperCopy}
+                  testID="saved-area-helper-copy"
+                >
+                  Update the area we use to show offers when your location is off.
+                </Text>
                 <View style={s.inputContainer}>
                   <TextInput
                     testID="saved-area-postcode-input"
@@ -434,6 +492,12 @@ const s = StyleSheet.create({
     height: 1,
     backgroundColor: color.border.subtle,
     marginVertical: spacing[4],
+  },
+
+  // §DF PR #128 R1-4 — explanatory line above the postcode input.
+  // Tight top gap matches the rest of the field-stack rhythm.
+  helperCopy: {
+    marginTop: spacing[1],
   },
 
   inputContainer: {
