@@ -218,7 +218,7 @@ describe('<SavedAreaScreen>', () => {
     mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
     const { getByText, getByTestId } = renderScreen()
     expect(getByTestId('saved-area-screen')).toBeTruthy()
-    expect(getByText('Saved Location')).toBeTruthy()
+    expect(getByText('Your Location')).toBeTruthy()
     expect(getByText('Current saved postcode')).toBeTruthy()
     expect(getByText('Current locality')).toBeTruthy()
     expect(getByText('Update postcode')).toBeTruthy()

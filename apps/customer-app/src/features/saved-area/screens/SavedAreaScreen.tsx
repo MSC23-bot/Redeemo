@@ -328,7 +328,7 @@ export function SavedAreaScreen() {
             <ArrowLeft size={scale(22)} color={color.text.primary} />
           </Pressable>
           <Text variant="heading.md" align="center" style={{ flex: 1 }}>
-            Saved Location
+            Your Location
           </Text>
           <View style={{ width: 40 }} />
         </View>

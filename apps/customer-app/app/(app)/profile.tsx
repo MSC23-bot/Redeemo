@@ -46,7 +46,7 @@ export default function ProfileScreen() {
       <Pressable
         testID="profile-saved-area-link"
         accessibilityRole="button"
-        accessibilityLabel={`Saved Location, ${user?.postcode ?? 'Set location'}`}
+        accessibilityLabel={`Your Location, ${user?.postcode ?? 'Set location'}`}
         onPress={() => router.push('/saved-area' as any)}
         style={({ pressed }) => [styles.savedAreaRow, pressed && styles.savedAreaRowPressed]}
       >
@@ -54,7 +54,7 @@ export default function ProfileScreen() {
           <MapPin size={18} color={color.brandRose} />
         </View>
         <View style={styles.savedAreaText}>
-          <Text variant="label.lg" color="primary">Saved Location</Text>
+          <Text variant="label.lg" color="primary">Your Location</Text>
           <Text variant="body.sm" color="secondary" numberOfLines={1}>
             {user?.postcode ?? 'Set location'}
           </Text>
