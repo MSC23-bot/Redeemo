@@ -24,12 +24,13 @@ describe('<SearchEmptyState reason="no_location"> profile-aware (§DF PR #128 R2
       const { getByText, queryByText } = render(
         <SearchEmptyState reason="no_location" savedAreaCity="Brightlingsea" />,
       )
-      // §DF device-QA Round 4 — title drops the "from your saved
-      // location" suffix; body now leads with "Location is off."
-      // disclosure and uses "profile location" for clarity.
+      // §DF device-QA Round 5 — body refresh collapses Round 4's 3
+      // sentences into 2.  Title remains "Searching near {city}".
+      // Locked verbatim body:
+      //   "Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers."
       expect(getByText('Searching near Brightlingsea')).toBeTruthy()
       expect(
-        getByText('Location is off. Redeemo is using your profile location. Turn on location for the most accurate nearby offers.'),
+        getByText("Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers."),
       ).toBeTruthy()
       // Locked: must NOT show the "Set your area" prompt — the user
       // already HAS a saved area.
@@ -132,10 +133,11 @@ describe('<SearchEmptyState reason="no_location"> profile-aware (§DF PR #128 R2
       const { getByText } = render(
         <SearchEmptyState reason="no_location" savedAreaCity="Brightlingsea" />,
       )
-      // §DF device-QA Round 4 — title + body copy refreshed.
+      // §DF device-QA Round 5 — body refresh: 2 sentences, locked
+      // verbatim per owner direction.
       const title = getByText('Searching near Brightlingsea').props.children as string
       const body = getByText(
-        'Location is off. Redeemo is using your profile location. Turn on location for the most accurate nearby offers.',
+        "Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers.",
       ).props.children as string
       expect(title).not.toMatch(/—/)
       expect(body).not.toMatch(/—/)
@@ -143,6 +145,41 @@ describe('<SearchEmptyState reason="no_location"> profile-aware (§DF PR #128 R2
       expect((title + body).toLowerCase()).not.toContain('come back')
       expect((title + body).toLowerCase()).not.toContain('check back')
       expect((title + body).toLowerCase()).not.toContain('in the uk')
+    })
+  })
+
+  // §DF PR #128 R5-7 (Round 5) — owner-locked branded location-off
+  // illustration above the title.  Cream-tinted circle holds a
+  // brand-rose `MapPinOff` icon.  Applies to BOTH paths (saved-area-
+  // present AND no-saved-area).  Other reasons (pre_search /
+  // no_uk_supply / none) intentionally keep the existing copy-only
+  // layout — they have different intents.
+  describe('§DF Round 5 location-off illustration', () => {
+    it('renders the illustration mount when reason is no_location with savedAreaCity', () => {
+      const { getByTestId } = render(
+        <SearchEmptyState reason="no_location" savedAreaCity="Brightlingsea" />,
+      )
+      expect(getByTestId('search-empty-no-location-illustration')).toBeTruthy()
+    })
+
+    it('renders the illustration mount when reason is no_location without savedAreaCity', () => {
+      const { getByTestId } = render(<SearchEmptyState reason="no_location" />)
+      expect(getByTestId('search-empty-no-location-illustration')).toBeTruthy()
+    })
+
+    it('does NOT render the illustration for pre_search', () => {
+      const { queryByTestId } = render(<SearchEmptyState reason="pre_search" />)
+      expect(queryByTestId('search-empty-no-location-illustration')).toBeNull()
+    })
+
+    it('does NOT render the illustration for no_uk_supply', () => {
+      const { queryByTestId } = render(<SearchEmptyState reason="no_uk_supply" />)
+      expect(queryByTestId('search-empty-no-location-illustration')).toBeNull()
+    })
+
+    it('does NOT render the illustration for "none"', () => {
+      const { queryByTestId } = render(<SearchEmptyState reason="none" />)
+      expect(queryByTestId('search-empty-no-location-illustration')).toBeNull()
     })
   })
 })

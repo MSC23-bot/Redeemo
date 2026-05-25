@@ -1,6 +1,7 @@
 import React from 'react'
 import { View, StyleSheet, Pressable } from 'react-native'
 import { Text } from '@/design-system/Text'
+import { MapPinOff } from '@/design-system/icons'
 
 // PR #112 fixup-6.4 (2026-05-20) — owner-locked copy refresh.  All states
 // use Redeemo-persona language: confident, plain-spoken, British English,
@@ -103,15 +104,15 @@ export function SearchEmptyState({
         }
       case 'no_location':
         if (isNoLocationWithSavedArea) {
-          // §DF device-QA Round 4 — owner-locked copy refresh.
-          // Title: drop the "from your saved location" suffix — the
-          // body now carries the fallback disclosure explicitly.
-          // Body: 3 sentences, no em dashes, uses "profile location"
-          // to clarify the fallback source comes from the user's
-          // stored profile.
+          // §DF device-QA Round 5 — owner-locked verbatim body refresh.
+          // Round 4 shipped 3 sentences "Location is off. Redeemo is
+          // using your profile location. Turn on location for the most
+          // accurate nearby offers."  Round 5 collapses sentences 1+2
+          // into one and drops "Redeemo is" (app context is implicit).
+          // Title remains "Searching near {city}".
           return {
             title: `Searching near ${savedAreaCity}`,
-            body:  'Location is off. Redeemo is using your profile location. Turn on location for the most accurate nearby offers.',
+            body:  "Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers.",
           }
         }
         return {
@@ -147,6 +148,24 @@ export function SearchEmptyState({
       style={reason === 'pre_search' ? styles.containerPreSearch : styles.container}
       testID={`search-empty-${reason}`}
     >
+      {/*
+        §DF device-QA Round 5 — owner-locked branded illustration for
+        the `no_location` reason variant ONLY.  A soft cream-tinted
+        circle holds a brand-rose `MapPinOff` icon above the title.
+        Brings the empty state from plain copy to feeling designed
+        without dominating; brand-rose icon stays ≤ 10% screen-area
+        per DESIGN.md.  Applied to BOTH paths (saved-area-present AND
+        no-saved-area).  Other reasons (pre_search / no_uk_supply /
+        none) intentionally keep the existing copy-only layout — they
+        have different intents.
+      */}
+      {reason === 'no_location' && (
+        <View style={styles.illustration} testID="search-empty-no-location-illustration">
+          <View style={styles.illustrationCircle}>
+            <MapPinOff size={28} color="#E20C04" />
+          </View>
+        </View>
+      )}
       <Text style={styles.title} accessibilityRole="header" numberOfLines={2}>
         {title}
       </Text>
@@ -233,6 +252,26 @@ const styles = StyleSheet.create({
     color:      '#4B5563',          // text.secondary
     lineHeight: 20,
     textAlign:  'center',
+  },
+  // §DF device-QA Round 5 — branded location-off illustration.
+  // Centred horizontally; 64×64 cream-tinted circle (color.surface.tint
+  // = #FEF6F5) with a 1px hairline border (color.border.subtle =
+  // #E5E7EB); brand-rose `MapPinOff` icon 28pt inside.  spacing[5]
+  // gap below before the title.  Reduced-motion safe (no animation).
+  illustration: {
+    alignItems:   'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  illustrationCircle: {
+    width:           64,
+    height:          64,
+    borderRadius:    32,
+    backgroundColor: '#FEF6F5',     // surface.tint
+    borderWidth:     1,
+    borderColor:     '#E5E7EB',     // border.subtle
+    alignItems:      'center',
+    justifyContent:  'center',
   },
   // Plan 4 M4.6 — small branded CTA for the no_location prompt.
   setAreaButton: {
