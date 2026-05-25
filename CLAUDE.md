@@ -604,6 +604,37 @@ On the project owner's local clone there is a stash labelled `discovery: drop me
 
 **Workspace hygiene gitignored dirs** (still on disk, just not in `git status`): `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`. The last one is 556 MB of brand assets and remains gitignored pending a decision on whether to move to S3/R2 or use Git LFS.
 
+### Phase 3C.1k — §DF Postcode/profile-location fallback v1 (AWAITING MERGE — head `ebcf08c` on `feature/df-postcode-profile-fallback`, PR not yet open)
+
+Tier 2 plan-first customer-app workstream. When live GPS is denied or unavailable, Discovery now resolves against the user's saved profile postcode (server-side `resolveEffectiveLocation` already shipped via Plan 4 M2.4) and a visible honesty hint on Home discloses the fallback source. A dedicated Saved Area sub-screen lets the user update the postcode or grant GPS, with a branded pre-permission explainer + denied/off recovery sheet wrapping every explicit "Use current location" action.
+
+8 implementation tasks (Tasks 1 / 2 / 4 / 5 / 6 / 7 / 9 / 10) + 7 fixup commits + 2 SKIPPED (Tasks 3 + 8 folded into §DF-v2-j per audit Task 0c — backend `locationContext` parity emit + top-of-app `LocationStatusLabel` deferred since 4 endpoints need additive emit, two of which carry `lat`/`lng` propagation plumbing).
+
+What shipped (locked):
+- **Resolver precedence unchanged:** PLACE_QUERY > GPS > SAVED_PROFILE > none, preserved from Plan 4 M2.4. §DF closes the data gap so SAVED_PROFILE can actually fire for seed + legacy users.
+- **Seed (`14a822c`/`1a1a33a`):** `prisma/seed.ts` writes `HD1 1AA` + lat/lng/localityId on `customer@redeemo.com` via `findOrCreateLocality`.
+- **Backfill (`7a7addf`/`95d51e6`):** new `prisma/backfill-user-locality.ts` + tests; idempotent; targets `postcode IS NOT NULL AND (localityId IS NULL OR latitude IS NULL OR longitude IS NULL)`.
+- **Hook consolidation (`1e21a10`/`dc0079e`):** `useUserLocation` extended (audit Task 0a Option A) — 4-state `permission` enum, `coords` alias, `request()` with explainer hook, `openSettings()`, single-flight guard. All 7 pre-existing call sites stay backward-compatible. §AU dev-override preserved. Two-abstraction guardrail confirmed — `useLocationAssist` (PC2 reverse-geocode) untouched.
+- **Pre-permission + recovery (`d2360e2`/`e6a617c`/`e20f87c`):** `apps/customer-app/src/lib/location/{PrePermissionExplainer,LocationRecoverySheet,LocationPermissionProvider}.tsx`. Provider wraps the `(app)` layout. Critical fix `e6a617c` wired the "Open settings" CTA to actually call `Linking.openSettings()`.
+- **Honesty hint (`22ecc39`):** `SavedAreaHonestyHint.tsx` mounted above Featured on Home. Shows only when `locationContext.source === 'profile'`. Cream-tinted, brand-rose hairline, slide-up exit on `source` transition `'profile' → 'coordinates'`.
+- **Saved Area sub-screen + Profile cross-link (`ebf4269`/`fb26105`):** flat route `app/(app)/saved-area.tsx` (audit Task 0b Option A) + `src/features/saved-area/screens/SavedAreaScreen.tsx`. Update-postcode invalidates Discovery + me caches. Use-current-location routes through the consolidated hook + sheets. GPS coords NOT written to `User.postcode` — explicit "Update postcode" is the only mutator.
+- **Backend pins (`0cb19fa`/`19857c7`):** 7 new pins §DF-1..§DF-7 in `tests/api/customer/discovery/home-feed-rail-states.test.ts`. §DF-7 captures the latent §DF-v2-i wire-helper-vs-resolver inconsistency as baseline.
+- **Coverage-gap pins (`ebcf08c`):** customer-app focused suite 78/78 across `tests/hooks/`, `tests/lib/location/`, `tests/features/home/SavedAreaHonestyHint.test.tsx`, `tests/features/saved-area/SavedAreaScreen.test.tsx`.
+
+Test counts at branch tip: customer-app focused jest **78/78** (10 suites, 3.9s); backend `vitest -t "§DF"` **7/7** (49s); customer-app `tsc --noEmit` clean; backend `tsc --noEmit` zero NEW errors (4 pre-existing baseline errors in `tests/api/customer/savings.service.test.ts` lines 84/353/433/473 unchanged).
+
+Carry-over deferred (in `project_deferred_followups_index.md`):
+- **§DF-v2-i** — align `resolveEffectiveLocation` invariants (`localityId AND lat AND lng`) with `resolveLocationContext` (`localityId OR city` text). Latent inconsistency now baselined by §DF-7 pin. Pickup: Tier 1 if device-QA flags `source='profile'` hint while ranking is UK-wide.
+- **§DF-v2-j** — skipped Tasks 3 + 8: backend additive `locationContext` emit on Search / Map / Voucher Detail / Merchant Profile + `lat`/`lng` propagation plumbing + 4 Zod schema extensions + §6.4.3 top-of-app `LocationStatusLabel`. Tier 1 — must ship soon after v1.
+- §DF-v2-a/b/c/d/e/f/g/h — multi-saved-locations, no-postcode Home prompt, aggressive GPS prompt on first open, GPS-vs-postcode reconciliation UI, periodic "is postcode right?" prompt, honesty hint on Search/Map/voucher/merchant, standalone Home-top "Use current location" pill, locality re-resolution job. All in spec §11.
+
+Plan: `docs/superpowers/plans/2026-05-24-postcode-profile-fallback.md` v1.0.
+Spec: `docs/superpowers/specs/2026-05-24-postcode-profile-fallback-design.md` v1.1.
+Audit: `docs/superpowers/audits/2026-05-24-location-hook-audit.md` (Tasks 0a/0b/0c locked decisions).
+Closure memory: `project_df_postcode_profile_fallback_complete.md`.
+Customer-flow doc: `docs/customer-flow-current.md` §13 (saved-area fallback) + §14 (device-QA checklist).
+Customer-flow changelog: `docs/customer-flow-changelog.md` 2026-05-25 entry.
+
 ### 🔲 Next planned work
 
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
@@ -614,8 +645,9 @@ On the project owner's local clone there is a stash labelled `discovery: drop me
    - **Redeemed-state design pass** (Tier 2) — bundles §Q1-Q3 + §Q5 (washed-out coupon hero, REDEEMED stamp on coupon body, dimmed merchant card on Voucher Detail, Settings → Redemption History past-cycle browsing) + §S1-S3 (PIN sheet + success popup + Show-to-Staff design polish). §Q4 (merchant-profile voucher-card treatment) ✅ closed via PR #60 (PR-B, merge `ed01be9`). §S1-S3 partially closed by PR-B's impeccable passes (T8m PIN sheet, T8n SuccessPopup, T8p Show-to-Staff). Remaining §Q1-Q3 + §Q5 + the §S1-S3 polish-not-yet-shipped items are the residual scope of this pass.
    - **Customer name on Show-to-Staff** (§U1) — Tier 1 follow-up, picked up after merchant-portal validation surfaces lock so both sides design together.
 3. **Plan 4 — Location Model UK Enrichment** (Tier 3, brainstorm-first per `project_discovery_sequencing_plan4.md`). Plan 1 + Plan 1.5 + Plan 2 (Home/Search/Categories/Map) all SHIPPED — see Phase 3C.1b above. All precursors met (Karaara Huddersfield seed fixture shipped via PR #77); **brainstorm READY**. Decisions to lock during brainstorm: gazetteer scope (OS Open Names full vs subset), onboarding UX (postcode + map-confirm), CITY-tier ladder thresholds, card display format, migration approach (nullable then required), user-profile parity, postcodes.io vs PAF, optional Tag.label search bundling. Plan 3 (PC3 interests → `Category` migration) stays deferred per `project_pc3_interests_category_migration.md` and should sequence after Plan 4.
-4. **Open follow-ups** — see `project_merchant_profile_ux_refinement_complete.md` for the merchant-profile open list (tap-target A11y, seed enrichment, `closesAt` device-local removal, discovery card ratings via `contextBranchId`).
-5. **Phase 4** — Merchant Portal + Mobile App (queued). See deferred-followups §R4 for the locked architecture (branch-restricted access, per-user capabilities, automated monthly statements). Locked production-resilience standing checklist (memory §W) applies — high-traffic flows + third-party deps need explicit consideration.
+4. **§DF-v2-j follow-up** — must ship soon after §DF v1 merges. Backend additive `locationContext` emit on Search / Map / Voucher Detail / Merchant Profile + `lat`/`lng` propagation plumbing on Voucher Detail + Merchant Profile + 4 customer-app Zod schema extensions + §6.4.3 top-of-app `LocationStatusLabel` component + mount on every Discovery surface. Tier 1.
+5. **Open follow-ups** — see `project_merchant_profile_ux_refinement_complete.md` for the merchant-profile open list (tap-target A11y, seed enrichment, `closesAt` device-local removal, discovery card ratings via `contextBranchId`).
+6. **Phase 4** — Merchant Portal + Mobile App (queued). See deferred-followups §R4 for the locked architecture (branch-restricted access, per-user capabilities, automated monthly statements). Locked production-resilience standing checklist (memory §W) applies — high-traffic flows + third-party deps need explicit consideration.
 
 ### 🔲 Phase 3C — explicitly deferred items
 - **Subscribe purchase flow** — iOS requires Apple IAP (Stripe cannot be used inside iOS app). Android could use Stripe or Google Play Billing. Deferred pending IAP decision. Placeholder screen exists at `subscription-prompt` (renamed from `subscribe-prompt` in PR #5; the locked CTA contract — alert-only premium, stamp+nav free — is preserved).
