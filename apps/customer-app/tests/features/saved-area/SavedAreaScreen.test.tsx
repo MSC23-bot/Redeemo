@@ -730,6 +730,28 @@ describe('<SavedAreaScreen>', () => {
     ).toBeTruthy()
   })
 
+  // §DF PR #128 R6 — owner device-QA Round 6 finding.  The bottom-of-
+  // page caveat ("Used to show nearby offers when location is off.")
+  // duplicates the edit card's helper line ("Update the area we use
+  // to show offers when your location is off."), AND its presence
+  // above the keyboard creates a misleading visual anchor inside the
+  // dead-zone.  Locked behaviour: hide the trailing caveat while the
+  // edit pane is open; restore it the moment the user exits edit
+  // mode.  Silent-regression risk: dropping the `{!editing &&}` gate
+  // would re-introduce the duplicate copy + dead-zone anchor.
+  it('hides the trailing caveat while editing and restores it on Cancel', () => {
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    const { getByText, queryByText } = renderScreen()
+    // Choice state — caveat visible.
+    expect(queryByText('Used to show nearby offers when location is off.')).toBeTruthy()
+    // Enter edit mode.
+    fireEvent.press(getByText('Update postcode'))
+    expect(queryByText('Used to show nearby offers when location is off.')).toBeNull()
+    // Exit edit mode via Cancel — caveat restored.
+    fireEvent.press(getByText('Cancel'))
+    expect(queryByText('Used to show nearby offers when location is off.')).toBeTruthy()
+  })
+
   // postcodes.io returned a non-200 status (postcode not in the index).
   // The error copy is locked; silent regression risk: a refactor that
   // inverts the `json.status === 200` check would turn valid postcodes

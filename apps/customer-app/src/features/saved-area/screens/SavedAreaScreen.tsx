@@ -359,13 +359,23 @@ export function SavedAreaScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
+      {/*
+        §DF device-QA Round 6 — drop `automaticallyAdjustKeyboardInsets`
+        and `contentInsetAdjustmentBehavior="automatic"` so the
+        KeyboardAvoidingView above is the SOLE keyboard-handling
+        mechanism.  When both were active, iOS subtracted the keyboard
+        height twice — once via the ScrollView's contentInset and once
+        via KAV's padding — pushing the edit Card up under the sticky
+        header.  `paddingBottom` trimmed to `insets.bottom` only
+        (dropped the `+ spacing[7]`) to remove the dead-zone above the
+        keyboard; the edit Card's inherent margins provide the
+        breathing room.
+      */}
       <ScrollView
-        contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + spacing[7] }]}
+        contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets={true}
         automaticallyAdjustContentInsets={false}
-        contentInsetAdjustmentBehavior="automatic"
       >
 
         {/*
@@ -543,12 +553,23 @@ export function SavedAreaScreen() {
           when location is off."  Owner-locked replacement drops the
           possessive (the screen is "Your Location"), drops the
           double-"location", and tightens to 8 words.
+
+          §DF device-QA Round 6 — hide the caveat while editing.  The
+          edit card's helper line ("Update the area we use to show
+          offers when your location is off.") already carries the same
+          intent above the input, so leaving this trailing caveat
+          mounted in the keyboard-visible region (a) duplicates the
+          message and (b) anchors the dead-zone above the keyboard.
+          Caveat stays for the choice / read-only state where it
+          explains what saving the area does to the non-editing user.
         */}
-        <View style={s.caveatWrap}>
-          <Text variant="body.sm" color="tertiary" meta align="center">
-            Used to show nearby offers when location is off.
-          </Text>
-        </View>
+        {!editing && (
+          <View style={s.caveatWrap}>
+            <Text variant="body.sm" color="tertiary" meta align="center">
+              Used to show nearby offers when location is off.
+            </Text>
+          </View>
+        )}
 
       </ScrollView>
       </KeyboardAvoidingView>
