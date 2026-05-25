@@ -29,6 +29,18 @@ jest.mock('@/lib/api/profile', () => ({
   },
 }))
 
+// Mock the auth store. The screen's onSavePostcode onSuccess calls
+// `useAuthStore.getState().refreshUser()` after the React Query invalidation
+// and BEFORE `router.back()` — pinning that call order is the regression
+// guard against the silent stale-postcode bug on Profile after a Saved Area
+// update.
+const mockRefreshUser = jest.fn().mockResolvedValue(undefined)
+jest.mock('@/stores/auth', () => ({
+  useAuthStore: {
+    getState: () => ({ refreshUser: (...args: unknown[]) => mockRefreshUser(...args) }),
+  },
+}))
+
 const mockRequest = jest.fn().mockResolvedValue(undefined)
 let mockLocationCoords: { lat: number; lng: number } | null = null
 let mockLocationStatus: 'idle' | 'loading' | 'granted' | 'denied' = 'idle'
@@ -143,6 +155,7 @@ describe('<SavedAreaScreen>', () => {
     mockCanGoBack.mockReturnValue(true)
     mockUseMe.mockReset()
     mockUpdateProfile.mockClear()
+    mockRefreshUser.mockClear()
     mockRequest.mockClear()
     mockLocationCoords = null
     mockLocationStatus = 'idle'
@@ -242,6 +255,86 @@ describe('<SavedAreaScreen>', () => {
     const discoveryCall = findDiscoveryInvalidation(invalidateSpy)
     expect(discoveryCall).toBeDefined()
     expect(mockBack).toHaveBeenCalledTimes(1)
+  })
+
+  // PR #128 §DF review Finding 1 — regression pin against the silent
+  // stale-postcode bug on Profile. Profile reads `useAuthStore.user.postcode`
+  // (zustand), NOT `useMe()` (React Query). Invalidating the React Query
+  // cache alone leaves the auth-store snapshot stale. Fix: call
+  // `useAuthStore.getState().refreshUser()` inside `updateProfile.mutate`'s
+  // onSuccess AFTER the Discovery invalidation and BEFORE `router.back()`,
+  // so the back-nav lands on a Profile with the fresh postcode.
+  it('on successful postcode update, calls refreshUser exactly once with call order: refresh → back', async () => {
+    jest.useFakeTimers()
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({
+        status: 200,
+        result: {
+          postcode: 'SW1A 1AA',
+          parish: 'Westminster',
+          admin_district: 'Westminster',
+          parliamentary_constituency: 'Cities of London and Westminster',
+          region: 'London',
+          country: 'England',
+        },
+      }),
+    })
+    const { getByText, getByTestId, getByLabelText } = renderScreen()
+    fireEvent.press(getByText('Update postcode'))
+    fireEvent.changeText(getByTestId('saved-area-postcode-input'), 'SW1A 1AA')
+    await act(async () => { jest.advanceTimersByTime(700) })
+    jest.useRealTimers()
+    await waitFor(() => expect(getByText('Westminster')).toBeTruthy())
+    await act(async () => {
+      fireEvent.press(getByLabelText('Save postcode'))
+    })
+    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1))
+    // refreshUser fired exactly once.
+    expect(mockRefreshUser).toHaveBeenCalledTimes(1)
+    // Call order: refreshUser BEFORE router.back. invocationCallOrder is a
+    // monotonically increasing global call counter across all jest mocks.
+    const refreshOrder = mockRefreshUser.mock.invocationCallOrder[0]
+    const backOrder = mockBack.mock.invocationCallOrder[0]
+    expect(refreshOrder).toBeDefined()
+    expect(backOrder).toBeDefined()
+    expect(refreshOrder as number).toBeLessThan(backOrder as number)
+  })
+
+  // PR #128 §DF review Finding 1 — corollary pin: refreshUser MUST NOT fire
+  // on the updateProfile failure path. The onError branch only surfaces the
+  // error copy and keeps the user on the surface — the auth store hasn't
+  // changed server-side, so refreshing it would be wasted I/O.
+  it('does NOT call refreshUser when updateProfile rejects', async () => {
+    jest.useFakeTimers()
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({
+        status: 200,
+        result: {
+          postcode: 'SW1A 1AA',
+          parish: 'Westminster',
+          admin_district: 'Westminster',
+          region: 'London',
+          country: 'England',
+        },
+      }),
+    })
+    mockUpdateProfile.mockRejectedValueOnce(new Error('Backend rejected'))
+    const { getByText, getByTestId, getByLabelText } = renderScreen()
+    fireEvent.press(getByText('Update postcode'))
+    fireEvent.changeText(getByTestId('saved-area-postcode-input'), 'SW1A 1AA')
+    await act(async () => { jest.advanceTimersByTime(700) })
+    jest.useRealTimers()
+    await waitFor(() => expect(getByText('Westminster')).toBeTruthy())
+    await act(async () => {
+      fireEvent.press(getByLabelText('Save postcode'))
+    })
+    await waitFor(() => {
+      expect(getByText('Failed to save postcode. Please try again.')).toBeTruthy()
+    })
+    expect(mockRefreshUser).not.toHaveBeenCalled()
+    expect(mockBack).not.toHaveBeenCalled()
   })
 
   it('tapping "Use current location" calls useUserLocation().request() with NO opts', async () => {

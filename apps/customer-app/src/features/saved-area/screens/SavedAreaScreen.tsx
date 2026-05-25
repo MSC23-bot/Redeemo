@@ -34,6 +34,7 @@ import { scale, ms } from '@/design-system/scale'
 import { useMe, meQueryKey } from '@/hooks/useMe'
 import { useUpdateProfile } from '@/hooks/useUpdateProfile'
 import { useUserLocation } from '@/hooks/useLocation'
+import { useAuthStore } from '@/stores/auth'
 
 // ─── helpers (PC2-pattern inline copy, scoped to this surface) ───────────────
 
@@ -178,10 +179,17 @@ export function SavedAreaScreen() {
     updateProfile.mutate(
       { postcode },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
           void qc.invalidateQueries({
             predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'discovery',
           })
+          // Refresh the auth-store user snapshot so Profile (which reads
+          // `useAuthStore((s) => s.user?.postcode)` rather than `useMe()`)
+          // surfaces the new postcode on the next render. React Query
+          // invalidation alone doesn't refresh the zustand store — they're
+          // two independent state containers. Awaited so the back-nav lands
+          // on a Profile screen with the fresh value already in place.
+          await useAuthStore.getState().refreshUser()
           handleBack()
         },
         onError: () => {
