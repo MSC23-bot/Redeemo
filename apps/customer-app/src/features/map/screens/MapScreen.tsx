@@ -6,6 +6,7 @@ import { List, Locate, SlidersHorizontal } from 'lucide-react-native'
 import { useRouter } from 'expo-router'
 import { Text, color, spacing, radius, elevation, layer } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
+import { useMe } from '@/hooks/useMe'
 import { useCategories } from '@/hooks/useCategories'
 import { useSearch } from '@/hooks/useSearch'
 import { useInAreaBranches, type BoundingBox } from '../hooks/useInAreaBranches'
@@ -108,6 +109,11 @@ export function MapScreen(_props: Props) {
   const router = useRouter()
   const mapRef = useRef<MapView>(null)
   const locationState = useUserLocation()
+  // §DF PR #128 R1-1 — Map locate-me fallback reads the user's saved
+  // profile so the camera can centre on the saved postcode coords when
+  // GPS is unavailable, instead of jumping to LONDON_REGION regardless
+  // of where the user actually lives.
+  const me = useMe()
   const { data: categoriesData } = useCategories()
 
   // ─── Bbox state ────────────────────────────────────────────────────────────
@@ -260,6 +266,28 @@ export function MapScreen(_props: Props) {
     setQueryBbox(regionToBbox(LONDON_REGION))
   }, [])
 
+  // §DF PR #128 R1-1 — locate-me fallback cascade.
+  //
+  //   1. GPS coords present → centre on the live location (existing
+  //      behaviour, unchanged).
+  //   2. GPS unavailable BUT saved-profile lat/lng present → centre on
+  //      the user's saved postcode locality.  Matches the §DF v1
+  //      contract: when GPS is off but a saved postcode exists,
+  //      Discovery + Map both anchor on saved profile rather than
+  //      defaulting to London regardless of where the user lives.
+  //   3. No GPS AND no saved-profile coords → do NOT move the camera.
+  //      The existing "Location is off" UI on Map (LocationPermission
+  //      sheet / empty area state) already prompts the user to enable
+  //      location or set a postcode; silently jumping to London here
+  //      would mask that prompt and confuse users whose saved area is
+  //      elsewhere.  Earlier behaviour fell through to LONDON_REGION
+  //      unconditionally — see device-QA R1-1.
+  const profileLatLng = (() => {
+    const lat = me.data?.latitude
+    const lng = me.data?.longitude
+    if (lat == null || lng == null) return null
+    return { lat, lng }
+  })()
   const handleRecentre = useCallback(() => {
     if (locationState.location) {
       animateAndQuery({
@@ -268,10 +296,16 @@ export function MapScreen(_props: Props) {
         latitudeDelta:  0.05,
         longitudeDelta: 0.05,
       })
-    } else {
-      animateAndQuery(LONDON_REGION)
+    } else if (profileLatLng) {
+      animateAndQuery({
+        latitude:       profileLatLng.lat,
+        longitude:      profileLatLng.lng,
+        latitudeDelta:  0.05,
+        longitudeDelta: 0.05,
+      })
     }
-  }, [locationState.location, animateAndQuery])
+    // else: no-action — see comment above.
+  }, [locationState.location, profileLatLng, animateAndQuery])
 
   const handleCitySelect = useCallback(
     (cityName: string, coords: { lat: number; lng: number }) => {
