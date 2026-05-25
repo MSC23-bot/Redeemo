@@ -100,6 +100,13 @@ export function SavedAreaScreen() {
   // those track the in-session GPS-grant flow and resetting them would
   // break the post-grant auto-navigate path AND re-fire the auto-navigate
   // on every focus.
+  //
+  // Scope note: "every fresh open" = focus event (navigation arrival), NOT
+  // AppState background→foreground.  A user mid-edit who backgrounds the
+  // app and resumes keeps their in-progress postcode + lookup intact —
+  // preserving in-progress edits across short backgrounds is friendlier
+  // than wiping them.  If owner direction changes, this becomes a deliberate
+  // §DF-v2 design call rather than a code tweak.
   useFocusEffect(
     useCallback(() => {
       setEditing(false)
