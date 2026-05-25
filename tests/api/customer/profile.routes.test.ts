@@ -97,6 +97,41 @@ describe('customer profile routes', () => {
     expect(JSON.parse(res.body).profileCompleteness).toBe(44)
   })
 
+  // §DF PR #128 R1-1 prereq — additive saved-postcode coordinates +
+  // locality FK now flow through the GET response.  Pin asserts the
+  // route does NOT strip them on serialisation.  Phase 2's Map locate-
+  // me fallback depends on these reaching the client.
+  it('GET /api/v1/customer/profile passes through additive latitude/longitude/localityId/locality', async () => {
+    ;(getCustomerProfile as any).mockResolvedValue({
+      id: 'user-1',
+      firstName: 'Jane',
+      email: 'jane@example.com',
+      city: 'Huddersfield',
+      postcode: 'HD1 1AA',
+      latitude:   53.6458,
+      longitude:  -1.785,
+      localityId: 'loc-huddersfield',
+      locality:   { id: 'loc-huddersfield', name: 'Huddersfield', postTown: 'HUDDERSFIELD', region: 'Yorkshire and The Humber' },
+      profileCompleteness: 100,
+    })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/profile',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.latitude).toBe(53.6458)
+    expect(body.longitude).toBe(-1.785)
+    expect(body.localityId).toBe('loc-huddersfield')
+    expect(body.locality).toEqual({
+      id:       'loc-huddersfield',
+      name:     'Huddersfield',
+      postTown: 'HUDDERSFIELD',
+      region:   'Yorkshire and The Humber',
+    })
+  })
+
   // ── PATCH /api/v1/customer/profile ────────────────────────────────────────
 
   it('PATCH /api/v1/customer/profile returns 401 without token', async () => {
