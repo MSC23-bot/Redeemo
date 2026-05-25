@@ -424,9 +424,19 @@ export function SearchScreen() {
             <SearchEmptyState
               reason="no_location"
               savedAreaCity={savedAreaCity}
-              onSetArea={() => router.push('/saved-area' as any)}
-              onUseCurrentLocation={() => { void loc.request() }}
-              onChangeSavedArea={() => router.push('/saved-area' as any)}
+              // §DF Round 5 — pass `from=search` so Your Location's
+              // back button returns to Search rather than landing on
+              // Home (tab-stack quirk on Expo Router tabs).
+              onSetArea={() => router.push('/saved-area?from=search' as any)}
+              // §DF Round 5 — secondary CTA label override.  Without
+              // the override, the recovery sheet shows "Use saved
+              // area" which is redundant here (the user is already
+              // using saved area when triggering this CTA from
+              // Search).  "Not now" is the locked Search-context copy.
+              onUseCurrentLocation={() => {
+                void loc.request({ recoveryLabels: { secondary: 'Not now' } })
+              }}
+              onChangeSavedArea={() => router.push('/saved-area?from=search' as any)}
             />
           )}
         </>
