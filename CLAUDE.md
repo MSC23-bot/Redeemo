@@ -172,7 +172,7 @@ All models live in `prisma/schema.prisma`. Key relationships:
 
 **Deferred to Phase 6:** Email PIN delivery (Resend not yet integrated — logs placeholder when `branch.email` is set)
 
-**Redemption codes:** `redemptionCode` uses `crypto.randomBytes` — alphanumeric only (A-Za-z0-9), 10 characters. Database `@unique` constraint prevents collisions. Safe for manual staff entry.
+**Redemption codes:** `redemptionCode` uses `crypto.randomBytes` against a 34-char alphabet (A-Z + 0-9 minus O/I), 8 characters, displayed grouped 4+4. Locked in M2 (PR #46). Database `@unique` constraint prevents collisions. Safe for manual staff entry on bills.
 
 ### ✅ Phase 3A — Customer UX Foundations Spec (COMPLETE)
 - Full UX spec covering both customer app (React Native) and customer website (Next.js)
@@ -300,7 +300,7 @@ Test counts at PR #46 merge: backend vitest 483/483; customer-app jest 792/793 (
 Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M2.1 (full as-shipped contract).
 Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §5.5 / §6.7 / §8.9 (shipped-state deltas).
 
-### ✅ Phase 3C.1c (M3) — ShowToStaff + QR + anti-fraud + persisted return-visit (LIVE on `feature/voucher-m3-show-to-staff`, awaiting merge)
+### ✅ Phase 3C.1c (M3) — ShowToStaff + QR + anti-fraud + persisted return-visit (LIVE on origin/main via PR #49)
 
 22 commits across 5 milestones (M3a backend → M3b building blocks → M3c anti-fraud → M3d wiring → M3e docs/spec consistency). Owner-locked decisions D1-D10 + post-implementation owner clarifications all encoded.
 
@@ -354,7 +354,7 @@ What stays deferred from M3:
 Plan: `docs/superpowers/plans/2026-05-08-voucher-detail-m3-show-to-staff.md` (forward-looking) + `2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 (as-shipped).
 Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §7.7 + §8.10 (M3 shipped-state deltas).
 
-### Phase 3C.1c (PR-B) — Customer redemption visual design pass (AWAITING MERGE — head `545882a` on `feature/voucher-pr-b-visual-design-pass`, PR #60)
+### ✅ Phase 3C.1c (PR-B) — Customer redemption visual design pass (LIVE on origin/main via PR #60 merge `ed01be9`)
 
 24 commits on top of the M3 baseline shipping a focused visual + interaction-design pass across five customer-redemption surfaces. Heavy device-QA iteration: T1-T5 (initial implementation) + T8a-T8r (12 device-QA + impeccable rounds). Owner-direction-driven; design-system aligned to PRODUCT.md + DESIGN.md throughout.
 
@@ -442,30 +442,20 @@ Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/me
 - Plans: `docs/superpowers/plans/2026-04-17-merchant-profile.md` (initial), `docs/superpowers/plans/2026-05-04-merchant-profile-ux-refinement.md` (UX refinement)
 - Spec: `docs/superpowers/specs/2026-05-02-branch-aware-merchant-profile-design.md` (branch-aware), `docs/superpowers/specs/2026-05-04-merchant-profile-ux-refinement-design.md` (UX refinement)
 
-### Phase 3C.1e — Subscription Status Integration (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
+### ✅ Phase 3C.1e — Subscription Status Integration (LIVE on origin/main — wired into Voucher Detail M1+ via PR #40 and Merchant Profile via PR #35)
 - `useSubscription()` hook with React Query calling `GET /api/v1/subscription/me`
 - Zod safeParse for graceful null handling (free users)
 - `isSubLoading` flag prevents CTA flash during fetch
 - Wired into MerchantProfileScreen + VoucherDetailScreen
 - ACTIVE/TRIALLING = subscribed; PAST_DUE excluded (backend rejects, user sees subscribe CTA)
 
-### Phase 3C.1f — Savings Tab (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
-- Backend: `validatedAt` added to savings redemptions response + new `GET /api/v1/customer/savings/monthly-detail?month=YYYY-MM` endpoint
-- API client (`src/lib/api/savings.ts`): full typed client with 3 endpoints (summary, redemptions with pagination, monthly-detail)
-- Hooks: `useSavingsSummary`, `useSavingsRedemptions` (infinite query), `useMonthlyDetail`, `useCountUp` (reanimated)
-- Hero: 5-stop gradient, 3-state header (free/subscriber-empty/populated), animated pound count-up
-- Benefit cards: 4 cards (free) / 3 cards (subscriber-empty), FadeInDown entrance
-- Insight cards: 6-month trend bar chart (tappable), top 2 places, category breakdown (animated bars)
-- Month drill-down: 4 states (default/loading/loaded/£0), ViewingChip with spring entrance, InsightSkeleton
-- ROI callout: 4 variants (below-breakeven, monthly multiplier, annual multiplier, promo) with shimmer sweep
-- Redemption history: RedemptionRow with 24h badge logic (show-to-staff/validated/plain), infinite scroll, "You're all caught up" end label
-- SavingsScreen: FlatList + ListHeaderComponent composition, 5 user states (loading/error/free/subscriber-empty/populated), pull-to-refresh
-- Subscription schema: `promoCodeId` added to Zod schema for ROI callout promo detection
-- 264 backend tests passing (vitest). 268 frontend tests passing (jest-expo, 8–10s from Claude Code after environment fix).
+### ✅ Phase 3C.1f — Savings Tab (LIVE on origin/main — PR-A backend SHIPPED PR #104 merge `b148a46` 2026-05-17; PR-B M1 frontend rebaseline SHIPPED PR #105 merge `5e63bef` 2026-05-18)
+- PR-A backend: revision-2 `byBranch` + `TopBranches` contract; multi-branch merchants render as multiple rows; per-entry shape includes `merchantLogoUrl`. Full detail: `~/.claude/projects/.../memory/project_savings_rebaseline_pra_complete.md`.
+- PR-B M1 frontend: customer-app Savings tab + new Redemption Receipt screen at `/(app)/redemption/[id]`. RedemptionRow gains a 4pt voucher-type left stripe (DESIGN.md side-stripe ban explicitly overridden by owner direction, recorded inline). Full detail: `~/.claude/projects/.../memory/project_savings_rebaseline_prb_m1_complete.md`.
 - Spec: `docs/superpowers/specs/2026-04-18-savings-tab-design.md`
 - Plan: `docs/superpowers/plans/2026-04-18-savings-tab.md`
 
-### Phase 3C.1g — Favourites Screen (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
+### Phase 3C.1g — Favourites Screen (implemented on REFERENCE-ONLY `feature/customer-app` branch; awaiting rebaseline PR onto main per surface-by-surface policy)
 - Backend: `listFavouriteMerchants` and `listFavouriteVouchers` enriched with pagination, isOpen, avgRating, reviewCount, voucherCount, maxEstimatedSaving, isRedeemedInCurrentCycle; unavailable items included with status flag; sorted (open-first / suspended-last)
 - API client (`src/lib/api/favourites.ts`): typed client with getMerchants, getVouchers, addMerchant, removeMerchant, addVoucher, removeVoucher
 - Hooks: `useFavouriteMerchants`, `useFavouriteVouchers` (infinite queries), `useRemoveFavourite` (optimistic removal + undo)
@@ -474,7 +464,7 @@ Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/me
 - 23 component tests; 268 total frontend tests passing
 - Plan: `docs/superpowers/plans/2026-04-19-favourites-screen.md`
 
-### Phase 3C.1h — Profile Tab (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
+### Phase 3C.1h — Profile Tab (full surface implemented on REFERENCE-ONLY `feature/customer-app` branch; awaiting rebaseline PR onto main per surface-by-surface policy. Minimal shell SHIPPED via PR #27.)
 - ProfileHeader: completeness bar, initials avatar, subscription badge
 - PersonalInfoSheet: read-only email/phone, editable name/DOB/gender
 - AddressSheet, InterestsSheet, ChangePasswordSheet
@@ -487,7 +477,7 @@ Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/me
 - EAS build config added (eas.json, app.config.ts, expo-build-properties, ITSAppUsesNonExemptEncryption)
 - Pending: device review via EAS build
 
-### Phase 3C.1i — QR Code Rendering (IMPLEMENTED, awaiting page-review lock — branch feature/customer-app)
+### ✅ Phase 3C.1i — QR Code Rendering (LIVE on origin/main via Voucher Detail M3 — PR #49 merge `a80f427`, 2026-05-09)
 - Backend: `GET /api/v1/redemption/me/:code` (customer self-lookup) + `POST /api/v1/redemption/:code/screenshot-flag` (dedup, pre-validation gate)
 - `react-native-qrcode-svg`, `expo-brightness`, `expo-screen-capture`, `expo-blur` installed
 - `formatCode()` + `codeAccessibilityLabel()` helpers (3+3 grouping for 6-char codes)
@@ -647,17 +637,38 @@ Closure memory: `project_df_postcode_profile_fallback_complete.md`.
 Customer-flow doc: `docs/customer-flow-current.md` §13 (saved-area fallback) + §14 (device-QA checklist).
 Customer-flow changelog: `docs/customer-flow-changelog.md` 2026-05-25 entry.
 
+### ✅ Phase 3C.1l — Discovery Rebaseline (branch-first cardinality) + Plan 4 M4 + §CD + §DG (umbrella)
+
+The 5-week burst of Discovery work between 2026-05-19 and 2026-05-24 shipped as 10 stacked PRs on origin/main. Owner-locked branch-first cardinality (one tile per branch instead of one tile per merchant) drove the rebaseline; Plan 4 M4 + §CD voucher search + §DG Popular ranking layered on top.
+
+| PR | Merge | What |
+|---|---|---|
+| #110 | `89dab9e` (2026-05-19) | Discovery Phase 1 backend additive — every endpoint emits both legacy `merchants` AND new `branches`; `rankBranchesV3` |
+| #111 | `7f5f42f` (2026-05-19) | Task 2.1.0 scope parity — `searchBranches` honours scope cascade |
+| #112 | `a1b0f04` (2026-05-20) | Discovery Phase 2.1 Search — branch-first Search end-to-end |
+| #113 | `4a380bd` (2026-05-20) | Discovery Phase 2.2 Map — branch-first pins + carousel + list |
+| #117 | (Phase 2.3 Home, 2026-05-21) | Discovery Phase 2.3 Home — branch-first Home rails |
+| #120 | `eac8acd` (2026-05-21) | Discovery Phase 2.4 Category — branch-first Category |
+| #121 | `a069a2e` (2026-05-21) | Discovery Phase 2.5 tile-rename — shared `<MerchantTile>` → `<BranchTile>` via `git mv` |
+| #122 | `c3fce64` (2026-05-21) | Discovery Phase 3a customer-app cleanup — legacy `MerchantTile` type + dependents removed |
+| #123 | `73b3149` (2026-05-22) | Tier 1 polish (image perf, skeletons, campaign overlay) |
+| #124 | `5dbd3b4` (2026-05-22) | Plan 4 M4 (Search + UX) — branch-first search ladder + scope cascade + place/tag header copy |
+| #125 | `afb7b61` (2026-05-22) | §CD voucher keyword search v1 — voucher.title + voucher.description matching, `matchContext` wire field, "Found in '<title>' voucher" copy |
+| #126 | `c62ec57` (2026-05-23) | Home Relevance v1.3-v1.9 — 7 incremental device-QA-driven fixes (cascade fill, parent-category grouping, thin-supply top-up, semantic chip tinting, banner trigger tightening) |
+| #127 | `d1e07ce` (2026-05-24) | §DG Popular ranking + test-redemption cleanup — drops location-blind top-30 pre-filter, adds `VoucherRedemption.isTestData` + QA email filter, rolling 30-day window, distance-based chip unification |
+
+Phase 3b backend cleanup + Plan 4 M5 cleanup stay DEFERRED, blocked on §CU.1 customer-web branch-first migration (Tier 3 brainstorm-first). Full per-PR detail lives in the corresponding `project_discovery_rebaseline_*_complete.md` + `project_dg_popular_ranking_locked_expectations.md` + `project_deferred_DB_DC_DD_home_relevance_followups.md` memory files.
+
 ### 🔲 Next planned work
 
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
-2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Tracks already shipped: Merchant Profile (PR #35), Voucher Detail M1 (PR #40), M2 (PRs #43-#46), M3 (PR #49), M4 TIME_LIMITED M4a/M4b/M4c/M4d (PRs #64/#65/#66/#68), M5 REUSABLE (PR #72), and **Home / Discovery / Search / Categories / Map (Phase 3C.1b — see the LIVE section above)**. Surfaces still pending:
-   - Phase 3C.1f — Savings tab
-   - Phase 3C.1g — Favourites screen
-   - Phase 3C.1h — Profile tab (full surface; minimal shell shipped via PR #27)
+2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Tracks already shipped: Merchant Profile (PR #35), Voucher Detail M1 (PR #40), M2 (PRs #43-#46), M3 (PR #49), M4 TIME_LIMITED M4a/M4b/M4c/M4d (PRs #64/#65/#66/#68), M5 REUSABLE (PR #72), **Home / Discovery / Search / Categories / Map (Phase 3C.1b)**, **Savings tab (Phase 3C.1f — PRs #104 + #105)**, and **§DF saved-profile location fallback (Phase 3C.1k — PR #128)**. Surfaces still pending rebaseline:
+   - Phase 3C.1g — Favourites screen (full surface)
+   - Phase 3C.1h — Profile tab (full surface; minimal shell on main via PR #27)
    - **Redeemed-state design pass** (Tier 2) — bundles §Q1-Q3 + §Q5 (washed-out coupon hero, REDEEMED stamp on coupon body, dimmed merchant card on Voucher Detail, Settings → Redemption History past-cycle browsing) + §S1-S3 (PIN sheet + success popup + Show-to-Staff design polish). §Q4 (merchant-profile voucher-card treatment) ✅ closed via PR #60 (PR-B, merge `ed01be9`). §S1-S3 partially closed by PR-B's impeccable passes (T8m PIN sheet, T8n SuccessPopup, T8p Show-to-Staff). Remaining §Q1-Q3 + §Q5 + the §S1-S3 polish-not-yet-shipped items are the residual scope of this pass.
    - **Customer name on Show-to-Staff** (§U1) — Tier 1 follow-up, picked up after merchant-portal validation surfaces lock so both sides design together.
-3. **Plan 4 — Location Model UK Enrichment** (Tier 3, brainstorm-first per `project_discovery_sequencing_plan4.md`). Plan 1 + Plan 1.5 + Plan 2 (Home/Search/Categories/Map) all SHIPPED — see Phase 3C.1b above. All precursors met (Karaara Huddersfield seed fixture shipped via PR #77); **brainstorm READY**. Decisions to lock during brainstorm: gazetteer scope (OS Open Names full vs subset), onboarding UX (postcode + map-confirm), CITY-tier ladder thresholds, card display format, migration approach (nullable then required), user-profile parity, postcodes.io vs PAF, optional Tag.label search bundling. Plan 3 (PC3 interests → `Category` migration) stays deferred per `project_pc3_interests_category_migration.md` and should sequence after Plan 4.
-4. **§DF-v2-j follow-up** — must ship soon after §DF v1 merges. Backend additive `locationContext` emit on Search / Map / Voucher Detail / Merchant Profile + `lat`/`lng` propagation plumbing on Voucher Detail + Merchant Profile + 4 customer-app Zod schema extensions + §6.4.3 top-of-app `LocationStatusLabel` component + mount on every Discovery surface. Tier 1.
+3. **Plan 4 — Location Model UK Enrichment** — Plan 4 M1-M4 SHIPPED (M1 PR #81, M2 PR #84, M3 PRs #85/#86/#88/#89, M4 PR #124). Only **M5 cleanup** remains, blocked on §CU.1 customer-web branch-first migration (Tier 3 brainstorm-first). M5 will converge with §CU as a single cleanup PR per `project_discovery_sequencing_plan4.md` + `project_deferred_followups_index.md` §CU. Plan 3 (PC3 interests → `Category` migration) stays deferred per `project_pc3_interests_category_migration.md` and should sequence after Plan 4 M5.
+4. **§DF-v2-j follow-up** — must ship soon after §DF v1 merges. Backend additive `locationContext` emit on Search / Map / Voucher Detail / Merchant Profile + `lat`/`lng` propagation plumbing on Voucher Detail + Merchant Profile + 4 customer-app Zod schema extensions + §6.4.3 top-of-app `LocationStatusLabel` component + mount on every Discovery surface. Tier 1. **Primary next-up workstream candidate per `project_current_state.md`.**
 5. **Open follow-ups** — see `project_merchant_profile_ux_refinement_complete.md` for the merchant-profile open list (tap-target A11y, seed enrichment, `closesAt` device-local removal, discovery card ratings via `contextBranchId`).
 6. **Phase 4** — Merchant Portal + Mobile App (queued). See deferred-followups §R4 for the locked architecture (branch-restricted access, per-user capabilities, automated monthly statements). Locked production-resilience standing checklist (memory §W) applies — high-traffic flows + third-party deps need explicit consideration.
 
