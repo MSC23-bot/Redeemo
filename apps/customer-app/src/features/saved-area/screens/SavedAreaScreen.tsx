@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -200,6 +202,15 @@ export function SavedAreaScreen() {
   }
 
   async function onSavePostcode() {
+    // §DF device-QA Round 3 finding 4 — dismiss the keyboard FIRST so the
+    // Save tap is always processed cleanly.  Pre-fix, with the keyboard
+    // covering the Save button on standard-height phones, taps where Save
+    // visually appeared landed on the keyboard accept region and never
+    // reached this handler.  The KeyboardAvoidingView wrap + `keyboard-
+    // ShouldPersistTaps="handled"` on the ScrollView fix the input reach;
+    // dismissing here also collapses the keyboard immediately so the
+    // user sees the `loading={isSaving}` spinner unobstructed.
+    Keyboard.dismiss()
     const postcode = (lookupResult?.postcode ?? postcodeInput).trim().toUpperCase()
     if (!postcode) return
     // Postcode-only PATCH per spec §7.2. No lat/lng — GPS coords are NEVER
@@ -268,7 +279,7 @@ export function SavedAreaScreen() {
         style={[s.screen, { paddingTop: insets.top + spacing[6] }]}
       >
         <View testID="saved-area-loading" style={s.loadingWrap}>
-          <RedeemoLoader size={32} accessibilityLabel="Loading saved area" />
+          <RedeemoLoader size={32} accessibilityLabel="Loading saved location" />
         </View>
       </View>
     )
@@ -293,12 +304,30 @@ export function SavedAreaScreen() {
             <ArrowLeft size={scale(22)} color={color.text.primary} />
           </Pressable>
           <Text variant="heading.md" align="center" style={{ flex: 1 }}>
-            Saved Area
+            Saved Location
           </Text>
           <View style={{ width: 40 }} />
         </View>
       </View>
 
+      {/*
+        §DF device-QA Round 3 finding 4 — KeyboardAvoidingView wrap so the
+        Save button + foundBanner stay above the keyboard while the user
+        is mid-edit.  Pre-fix the Save button sat below the keyboard's
+        accept region on standard-height phones, making the form appear
+        non-functional.  iOS uses `padding` (system view-port offset);
+        Android handles this natively via `android:windowSoftInputMode`
+        in the manifest, so we pass `undefined` to avoid double-shifting.
+        `keyboardShouldPersistTaps="handled"` on the inner ScrollView
+        keeps the FIRST Save tap working without the user having to tap
+        twice (without this, the first tap dismisses the keyboard and
+        the second tap fires Save).
+      */}
+      <KeyboardAvoidingView
+        style={s.flexFill}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
+      >
       <ScrollView
         contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + spacing[7] }]}
         showsVerticalScrollIndicator={false}
@@ -443,14 +472,15 @@ export function SavedAreaScreen() {
           </View>
         )}
 
-        {/* ── Caveat (verbatim spec §7.1) ───────────────────────────── */}
+        {/* ── Caveat ─────────────────────────────────────────────── */}
         <View style={s.caveatWrap}>
           <Text variant="body.sm" color="tertiary" meta align="center">
-            Your saved postcode helps us show relevant offers when location is off.
+            Your saved location helps us show relevant offers when location is off.
           </Text>
         </View>
 
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   )
 }
@@ -459,6 +489,11 @@ export function SavedAreaScreen() {
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.surface.page },
+
+  // §DF device-QA Round 3 finding 4 — KeyboardAvoidingView wrapper around
+  // the scrollable content.  flex:1 lets the avoiding view consume the
+  // remaining vertical space below the sticky header.
+  flexFill: { flex: 1 },
 
   loadingWrap: {
     flex: 1,

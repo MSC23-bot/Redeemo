@@ -1,5 +1,5 @@
 import React from 'react'
-import { Alert } from 'react-native'
+import { Alert, Keyboard } from 'react-native'
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -218,13 +218,13 @@ describe('<SavedAreaScreen>', () => {
     mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
     const { getByText, getByTestId } = renderScreen()
     expect(getByTestId('saved-area-screen')).toBeTruthy()
-    expect(getByText('Saved Area')).toBeTruthy()
+    expect(getByText('Saved Location')).toBeTruthy()
     expect(getByText('Current saved postcode')).toBeTruthy()
     expect(getByText('Current locality')).toBeTruthy()
     expect(getByText('Update postcode')).toBeTruthy()
     expect(getByText('Use current location')).toBeTruthy()
     expect(
-      getByText('Your saved postcode helps us show relevant offers when location is off.'),
+      getByText('Your saved location helps us show relevant offers when location is off.'),
     ).toBeTruthy()
   })
 
@@ -503,6 +503,60 @@ describe('<SavedAreaScreen>', () => {
     expect(mockBack).not.toHaveBeenCalled()
   })
 
+  // §DF device-QA Round 3 finding 4 — Keyboard.dismiss MUST fire at the
+  // start of onSavePostcode so the keyboard collapses immediately on tap
+  // (so the user sees the `loading` spinner unobstructed AND so the
+  // mutate/back-nav sequence isn't visually competing with the keyboard
+  // teardown).  Crucially, the dismiss must run BEFORE refreshUser /
+  // refetchQueries / handleBack so the UI is in a stable state by the
+  // time the success path navigates away.
+  it('dismisses the keyboard at the START of onSavePostcode (before refreshUser)', async () => {
+    jest.useFakeTimers()
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({
+        status: 200,
+        result: {
+          postcode: 'SW1A 1AA',
+          parish: 'Westminster',
+          admin_district: 'Westminster',
+          region: 'London',
+          country: 'England',
+        },
+      }),
+    })
+    const dismissSpy = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {})
+    const { getByText, getByTestId, getByLabelText } = renderScreen()
+    fireEvent.press(getByText('Update postcode'))
+    fireEvent.changeText(getByTestId('saved-area-postcode-input'), 'SW1A 1AA')
+    await act(async () => { jest.advanceTimersByTime(700) })
+    jest.useRealTimers()
+    await waitFor(() => expect(getByText('Westminster')).toBeTruthy())
+    // Reset the dismiss spy AFTER the lookup pane settled; the
+    // `onSubmitEditing={() => Keyboard.dismiss()}` handler on the input
+    // would have fired too, polluting the call order.  We only care about
+    // the dismiss that fires inside onSavePostcode.
+    dismissSpy.mockClear()
+    await act(async () => {
+      fireEvent.press(getByLabelText('Save postcode'))
+    })
+    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1))
+
+    // Keyboard.dismiss fired at least once on the Save tap.
+    expect(dismissSpy).toHaveBeenCalled()
+
+    // Call order: Keyboard.dismiss BEFORE refreshUser.
+    // invocationCallOrder is a monotonically increasing global counter
+    // across all jest mocks so we can compare across distinct spies.
+    const firstDismissOrder = dismissSpy.mock.invocationCallOrder[0]
+    const refreshOrder = mockRefreshUser.mock.invocationCallOrder[0]
+    expect(firstDismissOrder).toBeDefined()
+    expect(refreshOrder).toBeDefined()
+    expect(firstDismissOrder as number).toBeLessThan(refreshOrder as number)
+
+    dismissSpy.mockRestore()
+  })
+
   it('tapping "Use current location" calls useUserLocation().request() with NO opts', async () => {
     mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
     const { getByText } = renderScreen()
@@ -575,7 +629,7 @@ describe('<SavedAreaScreen>', () => {
     mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
     const { getByText } = renderScreen()
     expect(
-      getByText('Your saved postcode helps us show relevant offers when location is off.'),
+      getByText('Your saved location helps us show relevant offers when location is off.'),
     ).toBeTruthy()
   })
 
@@ -632,7 +686,7 @@ describe('<SavedAreaScreen>', () => {
     // so the navigate-back branch must not fire.
     await act(async () => {})
     // Caveat copy presence confirms the screen is still mounted.
-    expect(getByText('Your saved postcode helps us show relevant offers when location is off.')).toBeTruthy()
+    expect(getByText('Your saved location helps us show relevant offers when location is off.')).toBeTruthy()
     expect(mockBack).not.toHaveBeenCalled()
   })
 
