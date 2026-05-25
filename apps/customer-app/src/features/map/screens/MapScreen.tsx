@@ -119,12 +119,26 @@ export function MapScreen(_props: Props) {
   // ─── Bbox state ────────────────────────────────────────────────────────────
   // `region` is the live camera (offshore detection reads this — no debounce).
   // `queryBbox` is what either hook actually queries against — debounced via
-  // `pendingBboxRef` + `debounceRef` on pan, seeded at mount so the initial
-  // fetch fires before the first user interaction.
+  // `pendingBboxRef` + `debounceRef` on pan.
+  //
+  // §DF device-QA Round 4 — `queryBbox` now seeds as `null` so the
+  // hook's `enabled: bbox !== null` gate defers the initial fetch
+  // until the cascade resolves.  Pre-fix the initial fetch fired with
+  // LONDON_REGION's bbox, returned London merchants, and then the
+  // cascade (GPS/profile) shifted the bbox to e.g. Huddersfield.  With
+  // `placeholderData: keepPreviousData` the London merchants stayed
+  // visible while the Huddersfield refetch was in flight, and the
+  // `animateToRegion` 400ms tween fired `onRegionChangeComplete`
+  // mid-animation, each call rewriting `queryBbox` to a slightly
+  // different floating-point bbox.  Net result: pins didn't reliably
+  // land for the saved-profile centre until the user manually panned.
+  //
+  // With `queryBbox: null` at mount, NO fetch fires until the cascade
+  // effect lands the correct bbox once.  Trade-off: a brief
+  // "no-pins-yet" state during the cascade resolution — covered by the
+  // existing §BH first-fetch loader (`isFetching && branches.length === 0`).
   const [region, setRegion] = useState<Region>(LONDON_REGION)
-  const [queryBbox, setQueryBbox] = useState<BoundingBox | null>(
-    regionToBbox(LONDON_REGION),
-  )
+  const [queryBbox, setQueryBbox] = useState<BoundingBox | null>(null)
   const pendingBboxRef = useRef<BoundingBox | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -261,8 +275,11 @@ export function MapScreen(_props: Props) {
 
   const handleSkipLocation = useCallback(() => {
     setLocationPermissionDismissed(true)
-    // queryBbox is already seeded to LONDON_REGION at mount; this just
-    // keeps API parity with cefaf45 in case the seed is removed.
+    // §DF device-QA Round 4 — `queryBbox` now seeds as null at mount
+    // (defer until cascade resolves). When the user dismisses the
+    // permission prompt without granting AND has no saved profile
+    // coords, fall back to LONDON_REGION so the user sees SOMETHING
+    // rather than a blank map.
     setQueryBbox(regionToBbox(LONDON_REGION))
   }, [])
 
@@ -322,15 +339,31 @@ export function MapScreen(_props: Props) {
       return
     }
 
-    // 3. Neither — stay on LONDON_REGION (initial state).  Do NOT set
-    //    initialCentredRef so a later GPS grant or /profile arrival can
-    //    still drive the cascade.
+    // 3. Neither GPS nor saved profile coords.  §DF device-QA Round 4 —
+    //    `queryBbox` now seeds as null at mount, so without this branch
+    //    the screen sits in the §BH loader indefinitely.  Once
+    //    `me.isLoading === false` (the /profile fetch resolved and the
+    //    user genuinely has no saved coords), AND GPS is in a settled
+    //    non-granted status (`denied` | `idle`), fall back to
+    //    LONDON_REGION so the user sees pins somewhere rather than a
+    //    blank map.  The existing LocationPermission sheet still prompts
+    //    the user to enable GPS or set a postcode.
+    if (
+      !me.isLoading &&
+      locationState.status !== 'loading' &&
+      locationState.status !== 'granted'
+    ) {
+      initialCentredRef.current = true
+      animateAndQuery(LONDON_REGION)
+      return
+    }
   }, [
     locationState.status,
     locationState.location?.lat,
     locationState.location?.lng,
     me.data?.latitude,
     me.data?.longitude,
+    me.isLoading,
     animateAndQuery,
   ])
 

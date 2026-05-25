@@ -135,18 +135,32 @@ describe('<MapScreen> initial camera cascade (§DF device-QA Round 3)', () => {
     expect((region as any).latitude).not.toBeCloseTo(51.5074, 4)
   })
 
-  it('mount with no GPS AND no profile coords → stays on LONDON_REGION (no animate call)', () => {
+  // §DF device-QA Round 4 — when /profile resolves AND the user has
+  // no saved coords AND GPS is denied/idle, the cascade now falls
+  // through to LONDON_REGION so the user sees pins somewhere rather
+  // than a blank map.  Pre-fix the cascade silently no-op'd; combined
+  // with the Round 4 `queryBbox: null` seeding, that left the screen
+  // in the §BH loader indefinitely.
+  it('mount with no GPS AND no profile coords → falls back to LONDON_REGION animate', () => {
     mockState.locationCoords = null
     mockState.meData = { latitude: null, longitude: null }
     render(<MapScreen />, { wrapper })
-    expect(mockAnimateToRegion).not.toHaveBeenCalled()
+    expect(mockAnimateToRegion).toHaveBeenCalledTimes(1)
+    const [region] = mockAnimateToRegion.mock.calls[0]!
+    expect((region as any).latitude).toBeCloseTo(51.5074, 4)   // London
+    expect((region as any).longitude).toBeCloseTo(-0.1278, 4)
   })
 
-  it('mount with no GPS AND no /profile data at all → stays on LONDON_REGION', () => {
+  // §DF device-QA Round 4 — same fall-through path when /profile has
+  // resolved as null (user with no postcode set).  GPS still denied.
+  it('mount with no GPS AND no /profile data at all → falls back to LONDON_REGION animate', () => {
     mockState.locationCoords = null
     mockState.meData = null
     render(<MapScreen />, { wrapper })
-    expect(mockAnimateToRegion).not.toHaveBeenCalled()
+    // me.isLoading is false in the mock, so the fall-through fires.
+    expect(mockAnimateToRegion).toHaveBeenCalledTimes(1)
+    const [region] = mockAnimateToRegion.mock.calls[0]!
+    expect((region as any).latitude).toBeCloseTo(51.5074, 4)   // London
   })
 
   // §DF device-QA Round 3 finding — single-fire latch.  Once the first
