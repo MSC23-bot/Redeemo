@@ -214,17 +214,23 @@ describe('<SavedAreaScreen>', () => {
     jest.restoreAllMocks()
   })
 
-  it('renders header + locked field labels + CTAs + caveat copy verbatim', () => {
+  // §DF device-QA Round 4 — labels swapped from "Current saved
+  // postcode" / "Current locality" form rows to the identity-card
+  // treatment (CURRENT eyebrow + city + postcode underneath).  Caveat
+  // copy refreshed to "Used to show nearby offers when location is
+  // off." (drops the possessive + double-"location").
+  it('renders header + identity-card eyebrow + CTAs + caveat copy verbatim', () => {
     mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
     const { getByText, getByTestId } = renderScreen()
     expect(getByTestId('saved-area-screen')).toBeTruthy()
     expect(getByText('Your Location')).toBeTruthy()
-    expect(getByText('Current saved postcode')).toBeTruthy()
-    expect(getByText('Current locality')).toBeTruthy()
+    // Identity-card mounted and renders the CURRENT eyebrow.
+    expect(getByTestId('saved-area-identity-card')).toBeTruthy()
+    expect(getByText('CURRENT')).toBeTruthy()
     expect(getByText('Update postcode')).toBeTruthy()
     expect(getByText('Use current location')).toBeTruthy()
     expect(
-      getByText('Your saved location helps us show relevant offers when location is off.'),
+      getByText('Used to show nearby offers when location is off.'),
     ).toBeTruthy()
   })
 
@@ -625,11 +631,11 @@ describe('<SavedAreaScreen>', () => {
     }
   })
 
-  it('caveat copy matches spec verbatim', () => {
+  it('caveat copy matches spec verbatim (Round 4 refresh)', () => {
     mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
     const { getByText } = renderScreen()
     expect(
-      getByText('Your saved location helps us show relevant offers when location is off.'),
+      getByText('Used to show nearby offers when location is off.'),
     ).toBeTruthy()
   })
 
@@ -686,7 +692,7 @@ describe('<SavedAreaScreen>', () => {
     // so the navigate-back branch must not fire.
     await act(async () => {})
     // Caveat copy presence confirms the screen is still mounted.
-    expect(getByText('Your saved location helps us show relevant offers when location is off.')).toBeTruthy()
+    expect(getByText('Used to show nearby offers when location is off.')).toBeTruthy()
     expect(mockBack).not.toHaveBeenCalled()
   })
 
@@ -725,5 +731,57 @@ describe('<SavedAreaScreen>', () => {
     })
     // User stays on the surface — no auto-navigate-back on failure.
     expect(mockBack).not.toHaveBeenCalled()
+  })
+
+  // §DF device-QA Round 4 (Phase 4) — centered saving overlay pin.
+  //
+  // At rest the overlay MUST NOT render.  During updateProfile.isPending
+  // the overlay renders with locked copy "Updating your location" +
+  // "This may take a moment."  Silent-regression risk: dropping the
+  // `isSaving &&` gate would leave the overlay rendered forever, OR
+  // a copy refactor could lose either string.
+  it('renders the saving overlay with locked copy while updateProfile is in flight', async () => {
+    jest.useFakeTimers()
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({
+        status: 200,
+        result: {
+          postcode: 'SW1A 1AA',
+          parish: 'Westminster',
+          admin_district: 'Westminster',
+          region: 'London',
+          country: 'England',
+        },
+      }),
+    })
+    // Keep the mutation pending — never resolve.  The overlay should
+    // render once the mutation enters isPending state.
+    let resolvePromise: ((value: unknown) => void) | null = null
+    mockUpdateProfile.mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePromise = resolve }),
+    )
+    const { getByText, getByTestId, getByLabelText, queryByTestId } = renderScreen()
+    // Overlay must NOT render at rest.
+    expect(queryByTestId('saved-area-saving-overlay')).toBeNull()
+
+    fireEvent.press(getByText('Update postcode'))
+    fireEvent.changeText(getByTestId('saved-area-postcode-input'), 'SW1A 1AA')
+    await act(async () => { jest.advanceTimersByTime(700) })
+    jest.useRealTimers()
+    await waitFor(() => expect(getByText('Westminster')).toBeTruthy())
+    await act(async () => {
+      fireEvent.press(getByLabelText('Save postcode'))
+    })
+
+    // Mutation pending — overlay renders.
+    await waitFor(() => expect(queryByTestId('saved-area-saving-overlay')).toBeTruthy())
+    expect(getByText('Updating your location')).toBeTruthy()
+    expect(getByText('This may take a moment.')).toBeTruthy()
+
+    // Cleanup — resolve the pending promise so jest doesn't hang.
+    await act(async () => {
+      resolvePromise?.({ ok: true })
+    })
   })
 })

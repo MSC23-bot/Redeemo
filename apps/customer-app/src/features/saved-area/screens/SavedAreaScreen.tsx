@@ -18,6 +18,8 @@ import {
   Button,
   Card,
   color,
+  elevation,
+  layer,
   layout,
   radius,
   spacing,
@@ -369,18 +371,40 @@ export function SavedAreaScreen() {
         contentInsetAdjustmentBehavior="automatic"
       >
 
-        {/* ── Read-only summary ──────────────────────────────────────── */}
-        <Card style={s.card}>
-          <View style={s.field}>
-            <Text variant="label.md" color="secondary">Current saved postcode</Text>
-            <Text variant="heading.sm" color="primary">{postcodeDisplay}</Text>
+        {/*
+          §DF device-QA Round 4 (Phase 5.4) — identity-card treatment.
+          Replaces the previous two-row form-like summary with ONE
+          identity card so the surface reads as "this is your current
+          state" rather than "these are settings".  Read-only by
+          design (no chevron, no Pressable, no edit affordance) —
+          the Update CTA below carries the change action.
+
+          Locked spec:
+          - cream surface (color.surface.tint) — identity zone.
+          - 1px hairline border (color.border.subtle) — quiet
+            container, no shadow.
+          - 22pt Mustica display.sm for the city name (data is hero).
+          - 11pt CURRENT eyebrow (label.eyebrow + tertiary).
+          - 14pt body.sm postcode below.
+          - 44×44 white circular icon wrap with brand-rose pin.
+
+          Fallback: locality.name first (richer), then city, then
+          'Not set'.  Postcode line suppressed entirely when null.
+        */}
+        <View style={s.identityCard} testID="saved-area-identity-card">
+          <View style={s.identityIconWrap}>
+            <MapPin size={22} color={color.brandRose} />
           </View>
-          <View style={s.fieldDivider} />
-          <View style={s.field}>
-            <Text variant="label.md" color="secondary">Current locality</Text>
-            <Text variant="heading.sm" color="primary">{localityDisplay}</Text>
+          <View style={s.identityText}>
+            <Text variant="label.eyebrow" color="tertiary">CURRENT</Text>
+            <Text variant="display.sm" color="primary">
+              {localityDisplay}
+            </Text>
+            {profile?.postcode ? (
+              <Text variant="body.sm" color="secondary">{profile.postcode}</Text>
+            ) : null}
           </View>
-        </Card>
+        </View>
 
         {/* ── Inline postcode-update pane ────────────────────────────── */}
         {editing ? (
@@ -507,15 +531,56 @@ export function SavedAreaScreen() {
           </View>
         )}
 
-        {/* ── Caveat ─────────────────────────────────────────────── */}
+        {/*
+          §DF device-QA Round 4 (Phase 5.3) — caveat copy refresh.
+          Previous: "Your saved location helps us show relevant offers
+          when location is off."  Owner-locked replacement drops the
+          possessive (the screen is "Your Location"), drops the
+          double-"location", and tightens to 8 words.
+        */}
         <View style={s.caveatWrap}>
           <Text variant="body.sm" color="tertiary" meta align="center">
-            Your saved location helps us show relevant offers when location is off.
+            Used to show nearby offers when location is off.
           </Text>
         </View>
 
       </ScrollView>
       </KeyboardAvoidingView>
+
+      {/*
+        §DF device-QA Round 4 (Phase 4) — centered saving overlay
+        during updateProfile.isPending.  Owner-locked design: dark
+        scrim + white card + RedeemoLoader + "Updating your location"
+        + "This may take a moment."  Animated entrance (FadeIn 200ms)
+        avoids a hard flash on tap; reduced-motion is handled inside
+        RedeemoLoader.  pointerEvents='auto' on the scrim blocks taps
+        on the underlying form so the user can't double-submit or
+        change the screen while save is in flight.
+
+        Sits OUTSIDE the KeyboardAvoidingView so the overlay covers
+        the sticky header too — without that, on a phone where the
+        keyboard was open and pushed the form up, the header would
+        remain interactive while the overlay only covered the
+        scroll-region.
+      */}
+      {isSaving && (
+        <Animated.View
+          entering={FadeInDown.duration(200)}
+          style={s.savingScrim}
+          testID="saved-area-saving-overlay"
+          pointerEvents="auto"
+        >
+          <View style={s.savingCard}>
+            <RedeemoLoader size={48} accessibilityLabel="Updating your location" />
+            <Text variant="heading.md" style={s.savingCopyTitle}>
+              Updating your location
+            </Text>
+            <Text variant="body.sm" color="secondary" style={s.savingCopyBody}>
+              This may take a moment.
+            </Text>
+          </View>
+        </Animated.View>
+      )}
     </View>
   )
 }
@@ -662,5 +727,67 @@ const s = StyleSheet.create({
   caveatWrap: {
     marginTop: spacing[5],
     paddingHorizontal: spacing[3],
+  },
+
+  // §DF device-QA Round 4 (Phase 5.4) — read-only identity card.
+  // Replaces the two-row "Current saved postcode" / "Current locality"
+  // form summary.  Reads as "this is your current state" rather than
+  // a settings panel.  Cream-tinted (color.surface.tint = #FEF6F5)
+  // identity zone, hairline border (no shadow — quiet container),
+  // horizontal flex with icon + text stack.
+  identityCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[4],
+    padding: spacing[5],
+    backgroundColor: color.surface.tint,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: color.border.subtle,
+  },
+  identityIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: color.surface.page,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  identityText: {
+    flex: 1,
+    gap: spacing[1],
+  },
+
+  // §DF device-QA Round 4 (Phase 4) — centered saving overlay.
+  // Scrim blocks taps + dims the screen while updateProfile.isPending.
+  // Card holds the RedeemoLoader + locked copy ("Updating your
+  // location" + "This may take a moment.").  Sits at layer.overlay so
+  // it paints above the sticky header + scrollable content.
+  savingScrim: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: layer.overlay,
+  },
+  savingCard: {
+    minWidth: 240,
+    paddingVertical: spacing[6],
+    paddingHorizontal: spacing[6],
+    backgroundColor: color.surface.page,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    gap: spacing[3],
+    ...elevation.md,
+  },
+  savingCopyTitle: {
+    textAlign: 'center',
+  },
+  savingCopyBody: {
+    textAlign: 'center',
   },
 })
