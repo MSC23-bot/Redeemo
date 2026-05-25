@@ -134,6 +134,14 @@ function profileFixture(overrides: Partial<Record<string, unknown>> = {}) {
     addressLine2: null,
     city: 'Kirklees',
     postcode: 'HD1 1AA',
+    // §DF PR #128 R1-1 prereq — additive saved-postcode coordinates +
+    // locality block.  Fixture defaults reflect a Huddersfield-saved
+    // user; SavedArea tests don't read these directly but downstream
+    // consumers (Map locate-me fallback) depend on the shape.
+    latitude:   53.6458,
+    longitude:  -1.785,
+    localityId: 'loc-huddersfield',
+    locality:   { id: 'loc-huddersfield', name: 'Huddersfield', postTown: 'HUDDERSFIELD', region: 'Yorkshire and The Humber' },
     newsletterConsent: false,
     emailVerified: true,
     phoneVerified: true,
