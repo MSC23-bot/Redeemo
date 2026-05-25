@@ -17,7 +17,7 @@ import { seedHeuristicCatchmentEdges } from './seed-data/catchment-heuristic'
 import { seedCuratedCatchmentEdges } from './seed-data/catchmentOverrides'
 import { seedMarkets } from './seed-data/markets'
 import { recomputeCategoryCounts, recomputeTagCounts } from '../src/api/lib/merchantCount'
-import { resolvePostcode } from '../src/api/lib/postcodeResolver'
+import type { ResolvedPostcodeSnapshot } from '../src/api/lib/postcodeResolver'
 import { findOrCreateLocality } from '../src/api/lib/findOrCreateLocality'
 import { DEMO_MERCHANT_ENRICHMENT, DEV_QA_PIN, REAL_MERCHANT_PIN_BRANCH_IDS } from './seed-data/demoMerchantEnrichment'
 import { FEATURED_MERCHANT_FIXTURES, CAMPAIGN_FIXTURES } from './seed-data/homeFeedFixtures'
@@ -128,25 +128,79 @@ type CustomerLocationSnapshot = {
   city: string  // legacy alignment, mirrors production updateMyProfile
 }
 
-async function resolveCustomerLocation(rawPostcode: string): Promise<CustomerLocationSnapshot> {
-  const resolved = await resolvePostcode(rawPostcode)
-  if (!resolved.ok) {
-    throw new Error(
-      `resolveCustomerLocation: failed to resolve postcode "${rawPostcode}" — ` +
-      `postcodes.io returned ${resolved.error}. Check network connectivity or pick a different seed postcode.`,
-    )
-  }
-  const locality = await findOrCreateLocality(prisma, resolved.snapshot)
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixed postcode snapshots for the two demo customers.
+//
+// Why fixed snapshots (rather than calling resolvePostcode()):
+//   1. DETERMINISM. Seed runs identically every time, with no dependency on
+//      postcodes.io uptime, network connectivity, or transient 5xx responses.
+//      `npx prisma db seed` must succeed offline — owner direction post PR #128.
+//   2. SPEED. Skips two HTTPS round-trips on every fresh seed run.
+//   3. STABILITY. ONS postcode centroid data for established postcodes does
+//      not change between OS releases. The values below are the canonical
+//      postcodes.io response captured on 2026-05-24 — they describe physical
+//      reality, not a service response that might drift.
+//
+// To refresh a snapshot (if a postcode is ever re-issued or its admin
+// hierarchy changes after a boundary review):
+//   npx tsx -e "const{resolvePostcode}=require('./src/api/lib/postcodeResolver');resolvePostcode('HD1 1AA').then(r=>console.log(JSON.stringify(r,null,2)))"
+//
+// To add a new demo customer postcode: probe via the command above, then
+// add a new SNAPSHOT_* constant + thread it into the relevant upsert in main().
+//
+// Test data is locked to these two postcodes (HD1 1AA Huddersfield / CO7 0AY
+// Brightlingsea) so a wide range of cross-region scenarios — Plan 4a
+// Huddersfield Market anchor + Tendring (East of England) reviewer — can be
+// exercised without expanding the demo dataset.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SNAPSHOT_HUDDERSFIELD_HD1_1AA: ResolvedPostcodeSnapshot = {
+  postcode: 'HD1 1AA',
+  latitude: 53.648438,
+  longitude: -1.781546,
+  country: 'England',
+  region: 'Yorkshire and The Humber',
+  ladDistrict: 'Kirklees',
+  adminCounty: null,
+  parish: 'Kirklees, unparished area',          // resolves through to constituency via pickRuntimeLocalityName
+  adminWard: 'Newsome',
+  parliamentaryConstituency: 'Huddersfield',
+  postTown: null,
+}
+
+const SNAPSHOT_BRIGHTLINGSEA_CO7_0AY: ResolvedPostcodeSnapshot = {
+  postcode: 'CO7 0AY',
+  latitude: 51.806625,
+  longitude: 1.023294,
+  country: 'England',
+  region: 'East of England',
+  ladDistrict: 'Tendring',
+  adminCounty: 'Essex',
+  parish: 'Brightlingsea',                      // non-unparished → wins pickRuntimeLocalityName
+  adminWard: 'Brightlingsea',
+  parliamentaryConstituency: 'Harwich and North Essex',
+  postTown: null,
+}
+
+async function enrichCustomerLocationFromSnapshot(
+  snap: ResolvedPostcodeSnapshot,
+): Promise<CustomerLocationSnapshot> {
+  // findOrCreateLocality is deterministic — pure DB upsert keyed on
+  // (name, ladDistrict, country). Seeded Localities (e.g. huddersfield,
+  // brightlingsea) match by primary slug; any unseeded postcode would
+  // auto-create a row with needsReview=true. The two snapshots above both
+  // map to seeded Localities under the standard slug rules.
+  const locality = await findOrCreateLocality(prisma, snap)
   return {
-    postcode:           resolved.snapshot.postcode,
-    latitude:           resolved.snapshot.latitude,
-    longitude:          resolved.snapshot.longitude,
+    postcode:           snap.postcode,
+    latitude:           snap.latitude,
+    longitude:          snap.longitude,
     localityId:         locality.id,
-    postTown:           resolved.snapshot.postTown ?? locality.postTown,
-    ladDistrict:        resolved.snapshot.ladDistrict,
-    adminCounty:        resolved.snapshot.adminCounty,
-    region:             resolved.snapshot.region,
-    country:            resolved.snapshot.country,
+    postTown:           snap.postTown ?? locality.postTown,
+    ladDistrict:        snap.ladDistrict,
+    adminCounty:        snap.adminCounty,
+    region:             snap.region,
+    country:            snap.country,
     locationResolvedAt: new Date(),
     city:               locality.name,
   }
@@ -1898,10 +1952,12 @@ async function main() {
   // ── Active Markets (Plan 4a rollout: Huddersfield Market only as of M1.15) ──
   await seedMarkets(prisma)
 
-  // Resolved once and threaded into the customer-role upserts so postcodes.io
-  // is hit once per distinct postcode, not once per upsert.
-  const customerLocation = await resolveCustomerLocation('HD1 1AA')
-  const reviewerLocation = await resolveCustomerLocation('CO7 0AY')
+  // Fixed snapshots threaded into the customer-role upserts. NO postcodes.io
+  // network call at seed time — see the SNAPSHOT_* constants block above for
+  // the determinism rationale + how to refresh values if a postcode's admin
+  // hierarchy ever changes.
+  const customerLocation = await enrichCustomerLocationFromSnapshot(SNAPSHOT_HUDDERSFIELD_HD1_1AA)
+  const reviewerLocation = await enrichCustomerLocationFromSnapshot(SNAPSHOT_BRIGHTLINGSEA_CO7_0AY)
 
   // Resolve top-level IDs needed for downstream RMV/merchant seeding.
   const foodCatId = topLevelIdByName.get('Food & Drink')
