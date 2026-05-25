@@ -115,18 +115,16 @@ export function SavedAreaHonestyHint({
   // type without a runtime guard.
   const displayName = areaName as string
 
-  // §DF device-QA Round 4 — owner-locked copy refresh.  Round 3
-  // shipped "Location is off — showing offers near {city} from your
-  // saved location."  Two issues: (1) the em dash violated the
-  // DESIGN.md "no em dashes anywhere in UI copy" rule; (2) the
-  // construction read as two clauses awkwardly joined.
-  //
-  // Round 4 locked replacement: "Showing offers near {city} while
-  // location is off."  Single sentence, single use of "location",
-  // 8 words.  The "while location is off" suffix carries the same
-  // disclosure as the previous lead clause without the em dash and
-  // without the awkward two-clause structure.
-  const a11yLabel = `Showing offers near ${displayName} while location is off. Tap to update.`
+  // §DF device-QA Round 5 — owner-locked structural rework.
+  // Round 4 shipped a single sentence "Showing offers near {city}
+  // while location is off."  Owner direction restructured into a
+  // two-line stack with a stronger status title + softer body:
+  //   Title: "Your location is off"
+  //   Body:  "Showing offers near {city} from your profile location."
+  // The "profile location" wording is locked (NOT "saved postcode"
+  // or "saved location") — future-proof so the field can hold
+  // postcode OR a fuller address without renaming the copy.
+  const a11yLabel = `Your location is off. Showing offers near ${displayName} from your profile location. Tap to update.`
 
   return (
     <Animated.View style={animatedStyle}>
@@ -141,8 +139,17 @@ export function SavedAreaHonestyHint({
           <MapPin size={16} color={color.brandRose} strokeWidth={2.2} />
         </View>
         <View style={styles.copyWrap}>
-          <Text style={styles.copy}>
-            Showing offers near <Text style={styles.copyEmphasis}>{displayName}</Text> while location is off.
+          {/*
+            §DF device-QA Round 5 — stacked title + body.  The title
+            carries the status as a navy heading.sm-equivalent; the
+            body sits underneath in body.sm secondary with the city
+            interpolated.  "profile location" wording is owner-locked.
+          */}
+          <Text style={styles.title} testID="saved-area-honesty-hint-title">
+            Your location is off
+          </Text>
+          <Text style={styles.copy} testID="saved-area-honesty-hint-body">
+            Showing offers near <Text style={styles.copyEmphasis}>{displayName}</Text> from your profile location.
           </Text>
         </View>
         <View style={styles.updateWrap}>
@@ -180,7 +187,19 @@ const styles = StyleSheet.create({
   },
   copyWrap: {
     flex: 1,
+    gap:  spacing[1],
   },
+  // §DF Round 5 — status title.  Navy primary, Lato Semibold 16/22
+  // (heading.sm-equivalent), gives the status its weight without
+  // overpowering the cream card.
+  title: {
+    fontSize:   16,
+    lineHeight: 22,
+    fontFamily: 'Lato-SemiBold',
+    color:      color.text.primary,
+  },
+  // §DF Round 5 — body line.  body.sm secondary; the city emphasis
+  // word inside swaps to text-primary semibold for prominence.
   copy: {
     fontSize:   14,
     lineHeight: 20,

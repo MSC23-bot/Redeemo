@@ -50,11 +50,13 @@ describe('<SavedAreaHonestyHint>', () => {
     )
     expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
     expect(getByText(/Huddersfield/)).toBeTruthy()
-    // §DF device-QA Round 4 — copy refreshed to single sentence
-    // "Showing offers near {city} while location is off."  Drops the
-    // Round 3 em-dash separator + double-clause structure.  No em
-    // dashes anywhere in UI copy per DESIGN.md lock 2026-05-02.
-    expect(getByText(/while location is off/)).toBeTruthy()
+    // §DF device-QA Round 5 — owner-locked structural rework.
+    // Round 4 shipped a single sentence; Round 5 stacks the surface
+    // into a status title + body line.  Locked copy:
+    //   Title: "Your location is off"
+    //   Body:  "Showing offers near {city} from your profile location."
+    expect(getByText('Your location is off')).toBeTruthy()
+    expect(getByText(/from your profile location/)).toBeTruthy()
     expect(getByText(/Showing offers near/)).toBeTruthy()
   })
 
@@ -66,7 +68,9 @@ describe('<SavedAreaHonestyHint>', () => {
     )
     expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
     expect(getByText(/Huddersfield/)).toBeTruthy()
-    expect(getByText(/while location is off/)).toBeTruthy()
+    // §DF Round 5 — refreshed structure preserved on the city fallback.
+    expect(getByText('Your location is off')).toBeTruthy()
+    expect(getByText(/from your profile location/)).toBeTruthy()
     expect(getByText(/Showing offers near/)).toBeTruthy()
   })
 
@@ -108,16 +112,34 @@ describe('<SavedAreaHonestyHint>', () => {
     expect(typeof target.props.accessibilityLabel).toBe('string')
     expect(target.props.accessibilityLabel).toMatch(/Huddersfield/)
     expect(target.props.accessibilityLabel).toMatch(/update/i)
-    // §DF device-QA Round 4 — a11y label includes the "while
-    // location is off" disclosure so screen-reader users get the
-    // same fallback context as sighted users.  Copy refreshed from
-    // Round 3's "Location is off — showing offers near…" (em-dash
-    // construction) to a single sentence "Showing offers near
-    // {city} while location is off."
-    expect(target.props.accessibilityLabel).toMatch(/while location is off/i)
+    // §DF device-QA Round 5 — a11y label updated to match the new
+    // stacked title + body structure.  Status framing leads ("Your
+    // location is off"), city context follows ("Showing offers near
+    // {city} from your profile location.").
+    expect(target.props.accessibilityLabel).toMatch(/Your location is off/i)
+    expect(target.props.accessibilityLabel).toMatch(/from your profile location/i)
     expect(target.props.accessibilityLabel).toMatch(/Showing offers near/i)
     // Defensive: no em dashes in the a11y label.
     expect(target.props.accessibilityLabel).not.toMatch(/—/)
+  })
+
+  // §DF Round 5 — pin the stacked structure via separate testID hooks
+  // for title + body.  Silent-regression risk: a refactor that collapses
+  // back to one Text node would lose the typography distinction (title
+  // is heading.sm Lato Semibold 16/22 navy, body is body.sm Lato Regular
+  // 14/20 secondary).
+  it('renders the title and body as separate Text nodes (stacked structure)', () => {
+    const { getByTestId } = render(
+      <SavedAreaHonestyHint
+        locationContext={{
+          source: 'profile',
+          city: 'Kirklees',
+          locality: { id: 'loc-huddersfield', name: 'Huddersfield' },
+        }}
+      />,
+    )
+    expect(getByTestId('saved-area-honesty-hint-title')).toBeTruthy()
+    expect(getByTestId('saved-area-honesty-hint-body')).toBeTruthy()
   })
 
   it('renders the Update label and prefers locality.name over city', () => {
