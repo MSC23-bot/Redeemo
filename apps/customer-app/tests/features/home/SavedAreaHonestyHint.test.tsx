@@ -50,11 +50,12 @@ describe('<SavedAreaHonestyHint>', () => {
     )
     expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
     expect(getByText(/Huddersfield/)).toBeTruthy()
-    // §DF PR #128 R1-2 — copy now leads with "Location is off" GPS
-    // context.  Match against the locked phrasing "from your saved
-    // postcode" (was "based on your saved postcode").
-    expect(getByText(/from your saved location/)).toBeTruthy()
-    expect(getByText(/Location is off/)).toBeTruthy()
+    // §DF device-QA Round 4 — copy refreshed to single sentence
+    // "Showing offers near {city} while location is off."  Drops the
+    // Round 3 em-dash separator + double-clause structure.  No em
+    // dashes anywhere in UI copy per DESIGN.md lock 2026-05-02.
+    expect(getByText(/while location is off/)).toBeTruthy()
+    expect(getByText(/Showing offers near/)).toBeTruthy()
   })
 
   it('falls back to city when locality is null but city is set', () => {
@@ -65,8 +66,8 @@ describe('<SavedAreaHonestyHint>', () => {
     )
     expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
     expect(getByText(/Huddersfield/)).toBeTruthy()
-    expect(getByText(/from your saved location/)).toBeTruthy()
-    expect(getByText(/Location is off/)).toBeTruthy()
+    expect(getByText(/while location is off/)).toBeTruthy()
+    expect(getByText(/Showing offers near/)).toBeTruthy()
   })
 
   it('renders gracefully (hidden) when both locality and city are null', () => {
@@ -106,12 +107,17 @@ describe('<SavedAreaHonestyHint>', () => {
     expect(target.props.accessibilityRole).toBe('button')
     expect(typeof target.props.accessibilityLabel).toBe('string')
     expect(target.props.accessibilityLabel).toMatch(/Huddersfield/)
-    expect(target.props.accessibilityLabel).toMatch(/saved location/i)
     expect(target.props.accessibilityLabel).toMatch(/update/i)
-    // §DF PR #128 R1-2 — a11y label must include the GPS-off context
-    // so screen-reader users get the same "why are we showing the
-    // fallback" disclosure as sighted users see.
-    expect(target.props.accessibilityLabel).toMatch(/Location is off/i)
+    // §DF device-QA Round 4 — a11y label includes the "while
+    // location is off" disclosure so screen-reader users get the
+    // same fallback context as sighted users.  Copy refreshed from
+    // Round 3's "Location is off — showing offers near…" (em-dash
+    // construction) to a single sentence "Showing offers near
+    // {city} while location is off."
+    expect(target.props.accessibilityLabel).toMatch(/while location is off/i)
+    expect(target.props.accessibilityLabel).toMatch(/Showing offers near/i)
+    // Defensive: no em dashes in the a11y label.
+    expect(target.props.accessibilityLabel).not.toMatch(/—/)
   })
 
   it('renders the Update label and prefers locality.name over city', () => {

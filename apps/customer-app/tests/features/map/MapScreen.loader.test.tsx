@@ -79,6 +79,17 @@ jest.mock('@/hooks/useLocation', () => ({
   }),
 }))
 
+// §DF device-QA Round 4 — MapScreen reads `useMe()` to drive the
+// initial-camera cascade.  Default fixture: `meData: null` +
+// `isLoading: false` so the cascade's Branch 3 fall-through (LONDON_REGION)
+// fires.  Tests must also use `locationStatus: 'denied'` (not
+// 'granted') so the Branch 3 fall-through isn't blocked waiting for
+// GPS coords that won't arrive (the mock leaves `location: null`).
+jest.mock('@/hooks/useMe', () => ({
+  useMe: () => ({ data: null, isLoading: false, isError: false }),
+  meQueryKey: ['me'],
+}))
+
 jest.mock('@/hooks/useEligibleAmenities', () => ({
   useEligibleAmenities: () => ({ data: { amenities: [] }, isLoading: false }),
 }))
@@ -104,7 +115,12 @@ describe('MapScreen — §BH first-fetch loader', () => {
     mockState.searchData     = null
     mockState.searchLoading  = false
     mockState.searchFetching = false
-    mockState.locationStatus = 'granted'
+    // §DF device-QA Round 4 — switched from 'granted' to 'denied' so
+    // the Branch 3 fall-through fires (granted + null location blocks
+    // the cascade waiting for GPS coords that won't arrive in the
+    // mock fixture).  Both states skip the LocationPermission
+    // overlay (which renders only on 'idle').
+    mockState.locationStatus = 'denied'
   })
 
   it('shows the loader when merchants empty AND fetching (first-data fetch)', () => {

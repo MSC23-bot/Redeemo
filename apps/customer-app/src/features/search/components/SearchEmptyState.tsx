@@ -103,9 +103,15 @@ export function SearchEmptyState({
         }
       case 'no_location':
         if (isNoLocationWithSavedArea) {
+          // §DF device-QA Round 4 — owner-locked copy refresh.
+          // Title: drop the "from your saved location" suffix — the
+          // body now carries the fallback disclosure explicitly.
+          // Body: 3 sentences, no em dashes, uses "profile location"
+          // to clarify the fallback source comes from the user's
+          // stored profile.
           return {
-            title: `Searching near ${savedAreaCity} from your saved location`,
-            body:  'Turn on location for the most accurate nearby offers, or change your saved location.',
+            title: `Searching near ${savedAreaCity}`,
+            body:  'Location is off. Redeemo is using your profile location. Turn on location for the most accurate nearby offers.',
           }
         }
         return {
@@ -171,10 +177,13 @@ export function SearchEmptyState({
               style={styles.changeSavedAreaButton}
               onPress={onChangeSavedArea}
               accessibilityRole="button"
-              accessibilityLabel="Change saved location"
+              accessibilityLabel="Change your location"
               testID="search-empty-no-location-change-saved"
             >
-              <Text style={styles.changeSavedAreaButtonText}>Change saved location</Text>
+              {/* §DF device-QA Round 4 — CTA label aligned with the
+                  "Your Location" screen rename.  Was "Change saved
+                  location"; the new label fits the surface identity. */}
+              <Text style={styles.changeSavedAreaButtonText}>Change your location</Text>
             </Pressable>
           )}
         </View>

@@ -115,21 +115,18 @@ export function SavedAreaHonestyHint({
   // type without a runtime guard.
   const displayName = areaName as string
 
-  // §DF — owner-locked copy refresh.  Pre-fix copy read
-  // "Showing offers near {city} · based on your saved postcode" — true
-  // but didn't disclose WHY the saved postcode is in play (user GPS is
-  // off).  Owner direction: lead with the "Location is off" context so
-  // the user sees the saved-postcode fallback as a coherent response
-  // to their own permission state, not an arbitrary backend choice.
+  // §DF device-QA Round 4 — owner-locked copy refresh.  Round 3
+  // shipped "Location is off — showing offers near {city} from your
+  // saved location."  Two issues: (1) the em dash violated the
+  // DESIGN.md "no em dashes anywhere in UI copy" rule; (2) the
+  // construction read as two clauses awkwardly joined.
   //
-  // Single-line treatment chosen over the optional two-line variant —
-  // the cream-tinted card visual rhythm holds at one line; adding the
-  // secondary "Turn on location for the most accurate nearby offers."
-  // crowded the card on standard 390pt-wide hero screens.  The
-  // chevron + Update affordance + tap target signal that there's more
-  // (Saved Area lets the user toggle location on); the explanatory
-  // secondary line is unnecessary for the disclosure goal.
-  const a11yLabel = `Location is off. Showing offers near ${displayName} from your saved location. Tap to update.`
+  // Round 4 locked replacement: "Showing offers near {city} while
+  // location is off."  Single sentence, single use of "location",
+  // 8 words.  The "while location is off" suffix carries the same
+  // disclosure as the previous lead clause without the em dash and
+  // without the awkward two-clause structure.
+  const a11yLabel = `Showing offers near ${displayName} while location is off. Tap to update.`
 
   return (
     <Animated.View style={animatedStyle}>
@@ -145,9 +142,7 @@ export function SavedAreaHonestyHint({
         </View>
         <View style={styles.copyWrap}>
           <Text style={styles.copy}>
-            <Text style={styles.copyEmphasis}>Location is off</Text>
-            <Text style={styles.copySeparator}>{' — '}</Text>
-            showing offers near <Text style={styles.copyEmphasis}>{displayName}</Text> from your saved location.
+            Showing offers near <Text style={styles.copyEmphasis}>{displayName}</Text> while location is off.
           </Text>
         </View>
         <View style={styles.updateWrap}>
@@ -195,9 +190,6 @@ const styles = StyleSheet.create({
   copyEmphasis: {
     fontFamily: 'Lato-SemiBold',
     color:      color.text.primary,
-  },
-  copySeparator: {
-    color: color.text.tertiary,
   },
   updateWrap: {
     flexDirection: 'row',

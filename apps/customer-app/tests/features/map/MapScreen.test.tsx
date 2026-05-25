@@ -100,6 +100,16 @@ jest.mock('@/hooks/useLocation', () => ({
   }),
 }))
 
+// §DF device-QA Round 4 — MapScreen now reads `useMe()` to drive the
+// initial-camera cascade (locate-me fallback already required this in
+// Round 3).  Default fixture: `meData: null` + `isLoading: false` so
+// the cascade's Branch 3 fall-through (LONDON_REGION) fires for tests
+// that don't set GPS coords.
+jest.mock('@/hooks/useMe', () => ({
+  useMe: () => ({ data: null, isLoading: false, isError: false }),
+  meQueryKey: ['me'],
+}))
+
 jest.mock('@/hooks/useEligibleAmenities', () => ({
   useEligibleAmenities: () => ({ data: { amenities: [] }, isLoading: false }),
 }))
@@ -124,24 +134,38 @@ describe('MapScreen', () => {
     mockState.inAreaLoading     = false
     mockState.searchData        = null
     mockState.searchLoading     = false
-    mockState.locationStatus    = 'granted'  // skip permission overlay
+    // §DF device-QA Round 4 — switched from 'granted' (which leaves
+    // location: null and would have blocked the new Branch-3 fall-
+    // through) to 'denied'.  Both states skip the LocationPermission
+    // overlay (which renders only on 'idle'); 'denied' additionally
+    // lets the cascade fall through to LONDON_REGION, matching the
+    // pre-Round-4 default behaviour for these tests.
+    mockState.locationStatus    = 'denied'
     mockOnRegionChangeComplete = null
     mockAnimateToRegion.mockClear()
   })
 
-  // ─── Initial bbox seeding (M1 critical fix) ────────────────────────────────
+  // ─── Initial bbox seeding (M1 critical fix; §DF Round 4 update) ────────────
   describe('initial bbox seeding', () => {
-    it('fires the in-area query with a non-null UK bbox on first render — no user interaction', () => {
+    it('fires the in-area query with a non-null UK bbox once the cascade resolves — no user interaction', () => {
+      // §DF device-QA Round 4 — `queryBbox` now seeds as null at mount
+      // (defer until cascade resolves) and the cascade falls through
+      // to LONDON_REGION when no GPS + no profile coords are present.
+      // The FIRST hook call now sees `bbox: null`; the LAST settled
+      // call (post-cascade) carries the LONDON-derived bbox.  We
+      // assert the settled state so the contract guarantee — "an
+      // unfiltered Map mount eventually fetches London merchants for
+      // an anonymous user" — survives.
       render(<MapScreen />, { wrapper })
       expect(mockInAreaCalls.length).toBeGreaterThan(0)
-      const first = mockInAreaCalls[0]!
-      expect(first.bbox).not.toBeNull()
-      expect(first.enabled).toBe(true)
+      const settled = mockInAreaCalls[mockInAreaCalls.length - 1]!
+      expect(settled.bbox).not.toBeNull()
+      expect(settled.enabled).toBe(true)
       // LONDON_REGION-derived bbox — centre ~51.5074, -0.1278, deltas 0.05
-      expect(first.bbox!.minLat).toBeCloseTo(51.4824, 2)
-      expect(first.bbox!.maxLat).toBeCloseTo(51.5324, 2)
-      expect(first.bbox!.minLng).toBeCloseTo(-0.1528, 2)
-      expect(first.bbox!.maxLng).toBeCloseTo(-0.1028, 2)
+      expect(settled.bbox!.minLat).toBeCloseTo(51.4824, 2)
+      expect(settled.bbox!.maxLat).toBeCloseTo(51.5324, 2)
+      expect(settled.bbox!.minLng).toBeCloseTo(-0.1528, 2)
+      expect(settled.bbox!.maxLng).toBeCloseTo(-0.1028, 2)
     })
   })
 
