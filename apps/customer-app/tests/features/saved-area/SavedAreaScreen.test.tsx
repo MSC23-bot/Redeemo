@@ -451,9 +451,14 @@ describe('<SavedAreaScreen>', () => {
     // Call order: refetchQueries BEFORE router.back.  invocationCallOrder
     // is a monotonically increasing global counter across all jest mocks,
     // so comparing across two distinct spies is valid.
+    //
+    // Cast via `unknown` first because RQ7's RefetchQueryFilters typing
+    // doesn't structurally overlap with our lightweight shape — we're
+    // poking at the raw spy-call inputs, NOT calling RQ's API, so the
+    // cast is safe.
     const refetchOrder = (refetchSpy.mock.invocationCallOrder.find((_, i) => {
       const arg = refetchSpy.mock.calls[i]?.[0]
-      const a = arg as { predicate?: (q: { queryKey: unknown[] }) => boolean }
+      const a = arg as unknown as { predicate?: (q: { queryKey: unknown[] }) => boolean }
       return typeof a?.predicate === 'function' && a.predicate({ queryKey: ['discovery'] })
     }))
     const backOrder = mockBack.mock.invocationCallOrder[0]
