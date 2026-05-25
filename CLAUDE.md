@@ -604,11 +604,11 @@ On the project owner's local clone there is a stash labelled `discovery: drop me
 
 **Workspace hygiene gitignored dirs** (still on disk, just not in `git status`): `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`. The last one is 556 MB of brand assets and remains gitignored pending a decision on whether to move to S3/R2 or use Git LFS.
 
-### Phase 3C.1k — §DF Postcode/profile-location fallback v1 (AWAITING MERGE — branch `feature/df-postcode-profile-fallback`; code-tip `ebcf08c` (Task 10), closure-doc `e61957f`; for current head run `git rev-parse feature/df-postcode-profile-fallback`; PR not yet open)
+### ✅ Phase 3C.1k — §DF Postcode/profile-location fallback v1 (SHIPPED 2026-05-25 via PR #128, merge `9e6d878`; final PR head `2ef9a24`; 47 commits / 41 files / +7321 / -77)
 
 Tier 2 plan-first customer-app workstream. When live GPS is denied or unavailable, Discovery now resolves against the user's saved profile postcode (server-side `resolveEffectiveLocation` already shipped via Plan 4 M2.4) and a visible honesty hint on Home discloses the fallback source. A dedicated Saved Area sub-screen lets the user update the postcode or grant GPS, with a branded pre-permission explainer + denied/off recovery sheet wrapping every explicit "Use current location" action.
 
-8 implementation tasks (Tasks 1 / 2 / 4 / 5 / 6 / 7 / 9 / 10) + 7 fixup commits + 2 SKIPPED (Tasks 3 + 8 folded into §DF-v2-j per audit Task 0c — backend `locationContext` parity emit + top-of-app `LocationStatusLabel` deferred since 4 endpoints need additive emit, two of which carry `lat`/`lng` propagation plumbing).
+8 implementation tasks (Tasks 1 / 2 / 4 / 5 / 6 / 7 / 9 / 10) + 7 task-fixup commits + 2 SKIPPED (Tasks 3 + 8 folded into §DF-v2-j per audit Task 0c — backend `locationContext` parity emit + top-of-app `LocationStatusLabel` deferred since 4 endpoints need additive emit, two of which carry `lat`/`lng` propagation plumbing). PLUS 6 device-QA rounds of post-PR-open fixes (Rounds 1-6) covering: refreshUser-after-postcode-save, seed-determinism removal of postcodes.io dependency, profile API lat/lng exposure, Map locate-me cascade + initial-camera cascade + queryBbox-null seed, Home hint copy + structure refresh, Search profile-aware empty state with MapPinOff illustration, "Saved Area" → "Saved Location" → "Your Location" naming rename, recovery sheet secondary-CTA caller override, Saved Area keyboard layout (KAV + identity-card-hide-when-editing + drop-double-keyboard-adjustment), saving overlay during await chain, from-param routing for Search→YourLocation back-nav, and final em-dash sweep per DESIGN.md.
 
 What shipped (locked):
 - **Resolver precedence unchanged:** PLACE_QUERY > GPS > SAVED_PROFILE > none, preserved from Plan 4 M2.4. §DF closes the data gap so SAVED_PROFILE can actually fire for seed + legacy users.
@@ -621,12 +621,24 @@ What shipped (locked):
 - **Backend pins (`0cb19fa`/`19857c7`):** 7 new pins §DF-1..§DF-7 in `tests/api/customer/discovery/home-feed-rail-states.test.ts`. §DF-7 captures the latent §DF-v2-i wire-helper-vs-resolver inconsistency as baseline.
 - **Coverage-gap pins (`ebcf08c`):** customer-app focused suite 78/78 across `tests/hooks/`, `tests/lib/location/`, `tests/features/home/SavedAreaHonestyHint.test.tsx`, `tests/features/saved-area/SavedAreaScreen.test.tsx`.
 
-Test counts at branch tip: customer-app focused jest **78/78** (10 suites, 3.9s); backend `vitest -t "§DF"` **7/7** (49s); customer-app `tsc --noEmit` clean; backend `tsc --noEmit` zero NEW errors (4 pre-existing baseline errors in `tests/api/customer/savings.service.test.ts` lines 84/353/433/473 unchanged).
+Post-PR-open device-QA rounds (Tasks 1-10 above were Task-12-locked; the rounds below are the additional patches owner direction added during review cycles):
+- **Round 1-2 review fixes:** `1c8baaf` refreshUser-after-save · `8ba63c0` seed determinism (fixed snapshots, drop postcodes.io dep at seed time).
+- **Round 3:** `94bcbb1`/`06686f7` backend profile lat/lng/locality · `0975abd` Map locate-me cascade · `697c2d0` Home hint copy GPS-off context · `d746b11`/`bb07aa0` Saved Area helper copy + reset-on-focus + await-refetch · `c7b5963` Search profile-aware empty state + route fix · `c135f0d` task-marker comment scrub across 8 source files.
+- **Round 4:** `1e21a10` "Saved Location" → "Your Location" rename · `8913dd6` centered RedeemoLoader saving overlay + identity-card visual · `697c2d0` em-dash sweep (Home + Search + Saved Area) · `14a3600` Map initial-camera cascade + LONDON_REGION fallback · `75c1612` keyboardVerticalOffset for nav header · `0a1cabc` Round 4 copy + identity-card polish.
+- **Round 5:** `ddb257c` identity-card hide-when-editing + fetchQuery prefetch before back-nav + from-param routing scaffolding · `9624bcb` recovery sheet secondary-CTA caller-override · `0574513` Search wires `?from=search` + "Not now" override · `82ff0af` Home hint title+body stacked structure · `95b432a` Search body 2-sentence refresh + MapPinOff illustration.
+- **Round 6:** `2ef9a24` final keyboard fix — drop double keyboard adjustment + hide redundant trailing caveat when editing.
+
+Test counts at merge tip: customer-app full sweep **~2299/2299** across 234 suites; backend `vitest -t "§DF"` **7/7**; customer-app `tsc --noEmit` clean; backend `tsc --noEmit` zero NEW errors (4 pre-existing baseline errors in `tests/api/customer/savings.service.test.ts` lines 84/353/433/473 unchanged).
 
 Carry-over deferred (in `project_deferred_followups_index.md`):
 - **§DF-v2-i** — align `resolveEffectiveLocation` invariants (`localityId AND lat AND lng`) with `resolveLocationContext` (`localityId OR city` text). Latent inconsistency now baselined by §DF-7 pin. Pickup: Tier 1 if device-QA flags `source='profile'` hint while ranking is UK-wide.
 - **§DF-v2-j** — skipped Tasks 3 + 8: backend additive `locationContext` emit on Search / Map / Voucher Detail / Merchant Profile + `lat`/`lng` propagation plumbing + 4 Zod schema extensions + §6.4.3 top-of-app `LocationStatusLabel`. Tier 1 — must ship soon after v1.
+- **§DF-v2-k** — town/city/place search in Your Location (currently postcode-only). Brainstorm-first. Tier 2.
+- **§DF-v2-l** — Your Location current-postcode card visual polish (Round 4 identity-card largely closed this; residual polish may surface during further device-QA).
+- **§DF-v2-m** — success acknowledgement toast after save (deferred — Round 4 saving overlay + Round 5 fetchQuery were the alternative; toast can layer in if device-QA flags). Tier 1.
+- **§DF-v2-n** — Search place-intent copy refinement (e.g. "Closest matches for London near Brightlingsea" should recognise London as a place). Tier 1-2.
 - §DF-v2-a/b/c/d/e/f/g/h — multi-saved-locations, no-postcode Home prompt, aggressive GPS prompt on first open, GPS-vs-postcode reconciliation UI, periodic "is postcode right?" prompt, honesty hint on Search/Map/voucher/merchant, standalone Home-top "Use current location" pill, locality re-resolution job. All in spec §11.
+- **§DF-web** — customer-website parallel work. Separate Tier 2 workstream per spec §13. Blocked on §BW customer-web test infra.
 
 Plan: `docs/superpowers/plans/2026-05-24-postcode-profile-fallback.md` v1.0.
 Spec: `docs/superpowers/specs/2026-05-24-postcode-profile-fallback-design.md` v1.1.
