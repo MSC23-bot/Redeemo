@@ -604,7 +604,7 @@ On the project owner's local clone there is a stash labelled `discovery: drop me
 
 **Workspace hygiene gitignored dirs** (still on disk, just not in `git status`): `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`. The last one is 556 MB of brand assets and remains gitignored pending a decision on whether to move to S3/R2 or use Git LFS.
 
-### Phase 3C.1k — §DF Postcode/profile-location fallback v1 (AWAITING MERGE — branch head `d5f6111` on `feature/df-postcode-profile-fallback`; code-tip `ebcf08c` (Task 10), closure-doc commit `e61957f`, head-SHA fixup `d5f6111`; PR not yet open)
+### Phase 3C.1k — §DF Postcode/profile-location fallback v1 (AWAITING MERGE — branch `feature/df-postcode-profile-fallback`; code-tip `ebcf08c` (Task 10), closure-doc `e61957f`; for current head run `git rev-parse feature/df-postcode-profile-fallback`; PR not yet open)
 
 Tier 2 plan-first customer-app workstream. When live GPS is denied or unavailable, Discovery now resolves against the user's saved profile postcode (server-side `resolveEffectiveLocation` already shipped via Plan 4 M2.4) and a visible honesty hint on Home discloses the fallback source. A dedicated Saved Area sub-screen lets the user update the postcode or grant GPS, with a branded pre-permission explainer + denied/off recovery sheet wrapping every explicit "Use current location" action.
 
