@@ -48,7 +48,7 @@ export async function getCustomerProfile(prisma: PrismaClient, userId: string) {
       addressLine2: true,
       city: true,
       postcode: true,
-      // §DF PR #128 R1-1 prereq — additive saved-postcode coordinates +
+      // §DF — additive saved-postcode coordinates +
       // locality FK so Map locate-me + future surfaces can centre on
       // the user's saved profile area when GPS is unavailable.  These
       // are nullable; backend already maintains them in lock-step with

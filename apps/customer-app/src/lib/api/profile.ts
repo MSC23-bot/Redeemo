@@ -3,7 +3,7 @@ import { api } from '../api'
 
 const interestSchema = z.object({ id: z.string(), name: z.string() })
 
-// §DF PR #128 R1-1 prereq — Prisma `Decimal` serialises as a string in
+// §DF — Prisma `Decimal` serialises as a string in
 // JSON; the union+transform coerces to number safely.  Mirrors the
 // `subscription.ts:priceGbp` z.coerce.number() pattern (per CLAUDE.md
 // "Frontend — Subscription recognition (impl bug, P1)").  Nullable so
@@ -26,7 +26,7 @@ const profileSchema = z.object({
   addressLine2: z.string().nullable(),
   city: z.string().nullable(),
   postcode: z.string().nullable(),
-  // §DF PR #128 R1-1 prereq — saved-postcode coordinates + locality FK
+  // §DF — saved-postcode coordinates + locality FK
   // so Map locate-me can centre on the user's saved area when GPS is
   // unavailable, and future surfaces can resolve a richer locality
   // label.  All nullable; existing callers reading `{ id, postcode,

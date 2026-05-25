@@ -115,7 +115,7 @@ export function SavedAreaHonestyHint({
   // type without a runtime guard.
   const displayName = areaName as string
 
-  // §DF PR #128 R1-2 — owner-locked copy refresh.  Pre-fix copy read
+  // §DF — owner-locked copy refresh.  Pre-fix copy read
   // "Showing offers near {city} · based on your saved postcode" — true
   // but didn't disclose WHY the saved postcode is in play (user GPS is
   // off).  Owner direction: lead with the "Location is off" context so

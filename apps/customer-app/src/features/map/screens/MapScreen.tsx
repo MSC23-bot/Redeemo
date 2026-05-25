@@ -109,7 +109,7 @@ export function MapScreen(_props: Props) {
   const router = useRouter()
   const mapRef = useRef<MapView>(null)
   const locationState = useUserLocation()
-  // §DF PR #128 R1-1 — Map locate-me fallback reads the user's saved
+  // §DF — Map locate-me fallback reads the user's saved
   // profile so the camera can centre on the saved postcode coords when
   // GPS is unavailable, instead of jumping to LONDON_REGION regardless
   // of where the user actually lives.
@@ -266,7 +266,7 @@ export function MapScreen(_props: Props) {
     setQueryBbox(regionToBbox(LONDON_REGION))
   }, [])
 
-  // §DF PR #128 R1-1 — locate-me fallback cascade.
+  // §DF — locate-me fallback cascade.
   //
   //   1. GPS coords present → centre on the live location (existing
   //      behaviour, unchanged).

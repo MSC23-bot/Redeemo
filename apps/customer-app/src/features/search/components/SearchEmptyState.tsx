@@ -38,11 +38,11 @@ type Props = {
    * Plan 4 M4.6 — only consulted when `reason === 'no_location'` AND
    * `savedAreaCity` is null.  Parent screen routes to the Saved Area
    * surface (post-§DF this is `/saved-area`, NOT the PC2-address
-   * flow — see §DF PR #128 R2-7a).  Component-side presentation-only.
+   * flow — see §DF ).  Component-side presentation-only.
    */
   onSetArea?: () => void
   /**
-   * §DF PR #128 R2-7b — profile-aware variant trigger.  When the user
+   * §DF — profile-aware variant trigger.  When the user
    * has a saved postcode, the `no_location` empty state must swap to
    * the dual-CTA "searching near your saved area" framing instead of
    * the "Set your area" prompt (which is misleading — the user
@@ -51,14 +51,14 @@ type Props = {
    */
   savedAreaCity?: string | null
   /**
-   * §DF PR #128 R2-7b — fires when the user taps "Use current
+   * §DF — fires when the user taps "Use current
    * location" on the profile-aware variant.  Parent screen wires this
    * to `useUserLocation().request()`, which routes through the
    * LocationPermissionProvider explainer + recovery sheets per Task 5.
    */
   onUseCurrentLocation?: () => void
   /**
-   * §DF PR #128 R2-7b — fires when the user taps "Change saved area"
+   * §DF — fires when the user taps "Change saved area"
    * on the profile-aware variant.  Parent screen routes to
    * `/saved-area`.
    */
@@ -83,7 +83,7 @@ export function SearchEmptyState({
 
   const q = trimmed(query)
 
-  // §DF PR #128 R2-7b — profile-aware variant of the no_location
+  // §DF — profile-aware variant of the no_location
   // case.  When the user has a saved postcode, the message + CTAs
   // change to acknowledge the saved area + offer two productive
   // actions (enable GPS / change saved area) instead of the
@@ -148,7 +148,7 @@ export function SearchEmptyState({
         {body}
       </Text>
       {/*
-        §DF PR #128 R2-7b — dual CTA stack for the profile-aware
+        §DF — dual CTA stack for the profile-aware
         no_location variant.  "Use current location" routes through
         the LocationPermissionProvider explainer + recovery sheets.
         "Change saved area" routes to /saved-area.
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     color:       '#FFFFFF',
     textAlign:   'center',
   },
-  // §DF PR #128 R2-7b — dual-CTA stack for the profile-aware
+  // §DF — dual-CTA stack for the profile-aware
   // no_location variant.  Vertical stack centred under the body
   // copy, modest gap so both buttons feel equally weighted.  The
   // secondary "Change saved area" is a ghost variant so it doesn't

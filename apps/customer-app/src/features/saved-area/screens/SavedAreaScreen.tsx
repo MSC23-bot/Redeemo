@@ -86,7 +86,7 @@ export function SavedAreaScreen() {
   const requestedGpsRef = useRef(false)
   const sawCoordsRef = useRef<boolean>(loc.status === 'granted' && !!loc.coords)
 
-  // §DF PR #128 R6 — every fresh Saved Area open MUST start in the choice
+  // §DF — every fresh Saved Area open MUST start in the choice
   // state ("Update postcode" / "Use current location"), NOT in the
   // postcode-edit card.  Pre-fix the local `editing` useState persisted
   // across `router.back()` because Saved Area is registered as a
@@ -204,12 +204,12 @@ export function SavedAreaScreen() {
       { postcode },
       {
         onSuccess: async () => {
-          // §DF PR #128 R1-1 prereq + R7 — refresh the auth-store user
+          // §DF — refresh the auth-store user
           // snapshot first so Profile (which reads
           // `useAuthStore((s) => s.user?.postcode)` rather than `useMe()`)
           // surfaces the new postcode atomically with the back-nav.
           await useAuthStore.getState().refreshUser()
-          // §DF PR #128 R7 — owner device-QA Round 2 finding 7: after
+          // §DF — owner device-QA Round 2 finding 7: after
           // saving a new postcode, Home rendered the OLD locality in the
           // honesty hint for several seconds.  Root cause: prior code
           // called `invalidateQueries` which only marks queries stale —
@@ -318,7 +318,7 @@ export function SavedAreaScreen() {
               <View style={s.field}>
                 <Text variant="label.lg" color="secondary">New postcode</Text>
                 {/*
-                  §DF PR #128 R1-4 — owner device-QA Round 2 finding:
+                  §DF — owner device-QA Round 2 finding:
                   the "New postcode" label alone didn't tell the user
                   what saving does.  This explanatory line sits ABOVE
                   the input so the user reads "what this does" before
@@ -494,7 +494,7 @@ const s = StyleSheet.create({
     marginVertical: spacing[4],
   },
 
-  // §DF PR #128 R1-4 — explanatory line above the postcode input.
+  // §DF — explanatory line above the postcode input.
   // Tight top gap matches the rest of the field-stack rhythm.
   helperCopy: {
     marginTop: spacing[1],

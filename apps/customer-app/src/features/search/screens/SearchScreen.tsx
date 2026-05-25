@@ -118,7 +118,7 @@ export function SearchScreen() {
   const debouncedQuery = useDebounce(query, 300)
   const loc = useUserLocation()
   const { location } = loc
-  // §DF PR #128 R2-7b — `useMe()` powers the profile-aware no_location
+  // §DF — `useMe()` powers the profile-aware no_location
   // empty state.  When the user has a saved postcode the empty state
   // swaps to dual-CTA "searching near saved area" framing instead of
   // the misleading "Set your area" prompt.
@@ -413,7 +413,7 @@ export function SearchScreen() {
               <TrendingSearches onTagPress={setQuery} />
             </>
           ) : (
-            // §DF PR #128 R2-7a + R2-7b — no_location empty state is
+            // §DF — no_location empty state is
             // now profile-aware.  With a saved postcode: dual CTA
             // ("Use current location" / "Change saved area") +
             // "Searching near {city} from your saved postcode" copy.
