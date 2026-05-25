@@ -50,7 +50,11 @@ describe('<SavedAreaHonestyHint>', () => {
     )
     expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
     expect(getByText(/Huddersfield/)).toBeTruthy()
-    expect(getByText(/based on your saved postcode/)).toBeTruthy()
+    // §DF PR #128 R1-2 — copy now leads with "Location is off" GPS
+    // context.  Match against the locked phrasing "from your saved
+    // postcode" (was "based on your saved postcode").
+    expect(getByText(/from your saved postcode/)).toBeTruthy()
+    expect(getByText(/Location is off/)).toBeTruthy()
   })
 
   it('falls back to city when locality is null but city is set', () => {
@@ -61,7 +65,8 @@ describe('<SavedAreaHonestyHint>', () => {
     )
     expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
     expect(getByText(/Huddersfield/)).toBeTruthy()
-    expect(getByText(/based on your saved postcode/)).toBeTruthy()
+    expect(getByText(/from your saved postcode/)).toBeTruthy()
+    expect(getByText(/Location is off/)).toBeTruthy()
   })
 
   it('renders gracefully (hidden) when both locality and city are null', () => {
@@ -103,6 +108,10 @@ describe('<SavedAreaHonestyHint>', () => {
     expect(target.props.accessibilityLabel).toMatch(/Huddersfield/)
     expect(target.props.accessibilityLabel).toMatch(/saved postcode/i)
     expect(target.props.accessibilityLabel).toMatch(/update/i)
+    // §DF PR #128 R1-2 — a11y label must include the GPS-off context
+    // so screen-reader users get the same "why are we showing the
+    // fallback" disclosure as sighted users see.
+    expect(target.props.accessibilityLabel).toMatch(/Location is off/i)
   })
 
   it('renders the Update label and prefers locality.name over city', () => {

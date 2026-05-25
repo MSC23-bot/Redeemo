@@ -115,7 +115,21 @@ export function SavedAreaHonestyHint({
   // type without a runtime guard.
   const displayName = areaName as string
 
-  const a11yLabel = `Showing offers near ${displayName} based on your saved postcode. Tap to update.`
+  // §DF PR #128 R1-2 — owner-locked copy refresh.  Pre-fix copy read
+  // "Showing offers near {city} · based on your saved postcode" — true
+  // but didn't disclose WHY the saved postcode is in play (user GPS is
+  // off).  Owner direction: lead with the "Location is off" context so
+  // the user sees the saved-postcode fallback as a coherent response
+  // to their own permission state, not an arbitrary backend choice.
+  //
+  // Single-line treatment chosen over the optional two-line variant —
+  // the cream-tinted card visual rhythm holds at one line; adding the
+  // secondary "Turn on location for the most accurate nearby offers."
+  // crowded the card on standard 390pt-wide hero screens.  The
+  // chevron + Update affordance + tap target signal that there's more
+  // (Saved Area lets the user toggle location on); the explanatory
+  // secondary line is unnecessary for the disclosure goal.
+  const a11yLabel = `Location is off. Showing offers near ${displayName} from your saved postcode. Tap to update.`
 
   return (
     <Animated.View style={animatedStyle}>
@@ -131,9 +145,9 @@ export function SavedAreaHonestyHint({
         </View>
         <View style={styles.copyWrap}>
           <Text style={styles.copy}>
-            Showing offers near <Text style={styles.copyEmphasis}>{displayName}</Text>
-            <Text style={styles.copySeparator}>{' · '}</Text>
-            based on your saved postcode
+            <Text style={styles.copyEmphasis}>Location is off</Text>
+            <Text style={styles.copySeparator}>{' — '}</Text>
+            showing offers near <Text style={styles.copyEmphasis}>{displayName}</Text> from your saved postcode.
           </Text>
         </View>
         <View style={styles.updateWrap}>
