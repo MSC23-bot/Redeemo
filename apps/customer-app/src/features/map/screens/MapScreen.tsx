@@ -266,6 +266,74 @@ export function MapScreen(_props: Props) {
     setQueryBbox(regionToBbox(LONDON_REGION))
   }, [])
 
+  // §DF device-QA Round 3 finding — initial camera cascade.
+  //
+  // Pre-fix the Map tab initialised at LONDON_REGION and only updated when
+  // the user tapped the locate-me button.  A Huddersfield user with GPS off
+  // would see London on the map and have to manually re-centre.  The
+  // previous P2 patch only fixed the locate-me BUTTON; the initial mount
+  // wasn't cascading.
+  //
+  // Cascade (mirrors handleRecentre / Discovery behaviour):
+  //   1. GPS coords present → animate to live location.
+  //   2. No GPS but saved-profile lat/lng → animate to saved-postcode coords.
+  //   3. Neither → stay on LONDON_REGION (the prompt UX takes over).
+  //
+  // `initialCentredRef` latches on FIRST successful animate so subsequent
+  // profile updates / GPS state changes don't re-centre while the user is
+  // mid-pan.  If neither data source is available at mount, the ref stays
+  // false so we still react if data arrives later (e.g. user grants GPS
+  // mid-session, or /profile resolves after the cold cache lands).
+  //
+  // Trade-off: brief LONDON_REGION flash before the effect fires while
+  // data loads.  `animateToRegion` runs a 400ms animation so the camera
+  // jump feels intentional rather than a layout glitch.
+  const initialCentredRef = useRef(false)
+  useEffect(() => {
+    if (initialCentredRef.current) return
+
+    // 1. GPS first.
+    if (
+      locationState.status === 'granted' &&
+      locationState.location?.lat != null &&
+      locationState.location?.lng != null
+    ) {
+      initialCentredRef.current = true
+      animateAndQuery({
+        latitude:       locationState.location.lat,
+        longitude:      locationState.location.lng,
+        latitudeDelta:  0.05,
+        longitudeDelta: 0.05,
+      })
+      return
+    }
+
+    // 2. Saved-profile fallback.
+    const lat = me.data?.latitude
+    const lng = me.data?.longitude
+    if (lat != null && lng != null) {
+      initialCentredRef.current = true
+      animateAndQuery({
+        latitude:       lat,
+        longitude:      lng,
+        latitudeDelta:  0.05,
+        longitudeDelta: 0.05,
+      })
+      return
+    }
+
+    // 3. Neither — stay on LONDON_REGION (initial state).  Do NOT set
+    //    initialCentredRef so a later GPS grant or /profile arrival can
+    //    still drive the cascade.
+  }, [
+    locationState.status,
+    locationState.location?.lat,
+    locationState.location?.lng,
+    me.data?.latitude,
+    me.data?.longitude,
+    animateAndQuery,
+  ])
+
   // §DF — locate-me fallback cascade.
   //
   //   1. GPS coords present → centre on the live location (existing
