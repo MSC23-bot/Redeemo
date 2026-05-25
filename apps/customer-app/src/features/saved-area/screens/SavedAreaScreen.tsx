@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native'
 import Animated, { FadeInDown, FadeOutUp } from 'react-native-reanimated'
-import { router, useFocusEffect } from 'expo-router'
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
@@ -39,6 +39,8 @@ import { useMe, meQueryKey } from '@/hooks/useMe'
 import { useUpdateProfile } from '@/hooks/useUpdateProfile'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useAuthStore } from '@/stores/auth'
+import { homeFeedQueryKey } from '@/hooks/useHomeFeed'
+import { discoveryApi } from '@/lib/api/discovery'
 
 // ─── helpers (PC2-pattern inline copy, scoped to this surface) ───────────────
 
@@ -72,13 +74,17 @@ export function SavedAreaScreen() {
 
   const profile = me.data
 
-  // §DF device-QA Round 4 — programmatic scroll-to-end belt-and-braces
-  // for the Save/Cancel visibility issue.  Even with the corrected
-  // KeyboardAvoidingView offset, if the user types a postcode then
-  // the lookupResult banner expands the form, the Save button can
-  // briefly sit below the keyboard's fold.  Scrolling to end on
-  // lookupResult arrival pulls Save into view.
-  const scrollRef = useRef<ScrollView>(null)
+  // §DF — `?from=<surface>` URL param drives return navigation.
+  // When Your Location is opened from Search (which is a tab), the
+  // navigation stack can lose its Search frame (tab-default-tab quirk)
+  // and a plain `router.back()` lands the user on Home instead of
+  // Search.  Reading the explicit `from` param closes that loophole.
+  const params = useLocalSearchParams<{ from?: string | string[] }>()
+  const fromParam = (() => {
+    const raw = params?.from
+    if (Array.isArray(raw)) return raw[0] ?? null
+    return typeof raw === 'string' ? raw : null
+  })()
 
   // Inline postcode-lookup pane visibility. Cleaner than a BottomSheet —
   // mirrors PC2's inline approach, single-screen surface, no overlay.
@@ -170,22 +176,6 @@ export function SavedAreaScreen() {
     return () => { clearTimeout(timer); setIsLooking(false) }
   }, [postcodeInput, editing])
 
-  // §DF device-QA Round 4 — auto-scroll-to-end on lookupResult arrival
-  // so the Save button is visible immediately after the lookup banner
-  // animates in.  The KeyboardAvoidingView corrected offset handles
-  // most cases, but on standard-height phones with the keyboard open,
-  // the foundBanner expanding the form can push Save just below the
-  // keyboard's fold.  `requestAnimationFrame` defers the scroll to the
-  // next frame so the foundBanner's FadeInDown animation has laid out.
-  useEffect(() => {
-    if (lookupResult) {
-      const handle = requestAnimationFrame(() => {
-        scrollRef.current?.scrollToEnd({ animated: true })
-      })
-      return () => cancelAnimationFrame(handle)
-    }
-  }, [lookupResult])
-
   // ── post-GPS-grant effect ─────────────────────────────────────────────────
   // Fires when the user tapped "Use current location" AND coords subsequently
   // landed on the hook. Invalidates Discovery + meQueryKey then navigates
@@ -215,7 +205,16 @@ export function SavedAreaScreen() {
   }, [loc.status, loc.coords])
 
   // ── handlers ──────────────────────────────────────────────────────────────
+  // §DF — when Your Location is opened from Search (a tab),
+  // Expo Router's tab navigation can lose the back stack frame and
+  // `router.canGoBack()` returns false, falling through to `router.push('/')`
+  // which dumps the user on Home instead of Search.  The `from` URL param
+  // makes the return target explicit and survives the tab-stack quirk.
   function handleBack() {
+    if (fromParam === 'search') {
+      router.push('/(app)/search' as any)
+      return
+    }
     if (router.canGoBack()) router.back()
     else router.push('/')
   }
@@ -253,29 +252,31 @@ export function SavedAreaScreen() {
           // `useAuthStore((s) => s.user?.postcode)` rather than `useMe()`)
           // surfaces the new postcode atomically with the back-nav.
           await useAuthStore.getState().refreshUser()
-          // §DF — owner device-QA Round 2 finding 7: after
-          // saving a new postcode, Home rendered the OLD locality in the
-          // honesty hint for several seconds.  Root cause: prior code
-          // called `invalidateQueries` which only marks queries stale —
-          // it does NOT refetch synchronously.  When the user landed on
-          // Home, `useHomeFeed` re-subscribed, served the cached
-          // Brightlingsea data WHILE refetching in the background, and
-          // the user saw stale text for the network round-trip.
+          // §DF Round 5 — owner reported the previous
+          // `refetchQueries({ predicate })` chain was still leaving Home
+          // showing OLD locality text for 5-7s after the back-nav.
+          // Root cause: `refetchQueries` on a predicate-match across
+          // INACTIVE queries (Home is unmounted while the user is on
+          // Saved Area) has timing quirks — the promise can resolve
+          // before the cache is committed, AND on re-mount React Query
+          // can momentarily serve the previous response before swapping
+          // in the fresh data.
           //
-          // Fix: `refetchQueries` synchronously triggers a refetch for
-          // any active Discovery query AND seeds the cache for inactive
-          // ones.  Await ensures the back-nav lands on a Home with the
-          // fresh locality already rendered.  Belt-and-braces
-          // `invalidateQueries` after handles the case where a Discovery
-          // query had zero subscribers at the time of the refetch call
-          // (refetchQueries with no active subscribers may no-op in some
-          // React Query versions) — that path's next subscriber will see
-          // the stale flag and refetch on mount.
-          await qc.refetchQueries({
+          // Fix (Round 5): mark all Discovery queries stale via
+          // `invalidateQueries`, then ACTIVELY prefetch the no-coords
+          // Home query via `fetchQuery` — this is the most common
+          // landing because the user just turned off / left their GPS
+          // off to use the saved-area path.  `fetchQuery` populates the
+          // cache for the EXACT query key Home will subscribe to on
+          // re-mount, guaranteeing the back-nav lands on a Home with
+          // fresh data.  The saving overlay carries the visible wait;
+          // owner already accepted the trade-off in Round 4.
+          qc.invalidateQueries({
             predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'discovery',
           })
-          void qc.invalidateQueries({
-            predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'discovery',
+          await qc.fetchQuery({
+            queryKey: homeFeedQueryKey({}),
+            queryFn: () => discoveryApi.getHomeFeed({}),
           })
           handleBack()
         },
@@ -337,32 +338,28 @@ export function SavedAreaScreen() {
       </View>
 
       {/*
-        §DF device-QA Round 4 finding — KeyboardAvoidingView offset.
-        Round 3's offset of 0 was wrong: the screen has a sticky
-        nav-header (appBarHeight 56 + top safe-area inset).  Without
-        accounting for that, iOS computes the padding shift as if the
-        screen begins at viewport-top, leaving the Save/Cancel area
-        still hidden by the keyboard.  Fix: pass `insets.top +
-        layout.appBarHeight` so the avoiding view treats the
-        scroll-region's true top edge as the reference.  Also add
-        `automaticallyAdjustKeyboardInsets` + a programmatic
-        scroll-to-end on `lookupResult` arrival as belt-and-braces so
-        the Save button is visible immediately after the lookup banner
-        animates in.
-
-        Android handles keyboard via `android:windowSoftInputMode`
-        natively; iOS uses the `padding` behavior here.
-        `keyboardShouldPersistTaps="handled"` keeps the FIRST Save tap
-        working — without it, the first tap only dismisses the
-        keyboard and the second tap fires Save.
+        §DF device-QA Round 5 — KeyboardAvoidingView offset reset.
+        Round 4's `insets.top + layout.appBarHeight` offset, combined
+        with a programmatic `scrollToEnd` on `lookupResult`, over-
+        corrected: the form jumped too far up so the identity card +
+        Save/Cancel surfaces both disappeared behind the keyboard.
+        Round 5 simplifies in two ways:
+          1. Hide the identity card while `editing === true` (see
+             the conditional render below).  Removing the read-only
+             summary from the layout gives the form natural room
+             without aggressive auto-scroll.
+          2. Drop the `scrollToEnd` belt-and-braces effect (was at
+             this position pre-Round 5).
+          3. Keep KAV with a simpler offset — just `insets.top` —
+             since the sticky header is INSIDE the avoiding view's
+             reference frame, not outside it.
       */}
       <KeyboardAvoidingView
         style={s.flexFill}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + layout.appBarHeight : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
       <ScrollView
-        ref={scrollRef}
         contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + spacing[7] }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -379,6 +376,13 @@ export function SavedAreaScreen() {
           design (no chevron, no Pressable, no edit affordance) —
           the Update CTA below carries the change action.
 
+          §DF device-QA Round 5 — owner direction: hide the identity
+          card while `editing === true` to give the form room to
+          breathe without aggressive auto-scroll.  The summary is
+          informational; while the user is mid-edit, it's not needed
+          on-screen.  Round 4's `scrollToEnd` over-correction has been
+          dropped together with this conditional.
+
           Locked spec:
           - cream surface (color.surface.tint) — identity zone.
           - 1px hairline border (color.border.subtle) — quiet
@@ -391,20 +395,22 @@ export function SavedAreaScreen() {
           Fallback: locality.name first (richer), then city, then
           'Not set'.  Postcode line suppressed entirely when null.
         */}
-        <View style={s.identityCard} testID="saved-area-identity-card">
-          <View style={s.identityIconWrap}>
-            <MapPin size={22} color={color.brandRose} />
+        {!editing && (
+          <View style={s.identityCard} testID="saved-area-identity-card">
+            <View style={s.identityIconWrap}>
+              <MapPin size={22} color={color.brandRose} />
+            </View>
+            <View style={s.identityText}>
+              <Text variant="label.eyebrow" color="tertiary">CURRENT</Text>
+              <Text variant="display.sm" color="primary">
+                {localityDisplay}
+              </Text>
+              {profile?.postcode ? (
+                <Text variant="body.sm" color="secondary">{profile.postcode}</Text>
+              ) : null}
+            </View>
           </View>
-          <View style={s.identityText}>
-            <Text variant="label.eyebrow" color="tertiary">CURRENT</Text>
-            <Text variant="display.sm" color="primary">
-              {localityDisplay}
-            </Text>
-            {profile?.postcode ? (
-              <Text variant="body.sm" color="secondary">{profile.postcode}</Text>
-            ) : null}
-          </View>
-        </View>
+        )}
 
         {/* ── Inline postcode-update pane ────────────────────────────── */}
         {editing ? (

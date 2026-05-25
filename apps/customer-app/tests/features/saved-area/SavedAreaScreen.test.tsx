@@ -15,6 +15,10 @@ const mockCanGoBack = jest.fn(() => true)
 // future tests that need the on-mount + on-focus reset distinction
 // (currently both fire the same callback, which matches the
 // production behaviour close enough for unit tests).
+// §DF PR #128 R5-3 (Round 5) — `useLocalSearchParams` exposed via a
+// mutable module-scope mock so individual tests can pre-set `?from=`
+// before rendering.  Default is empty params (no `from`).
+let mockSearchParams: Record<string, string | string[]> = {}
 jest.mock('expo-router', () => {
   const ReactLib = require('react')
   return {
@@ -32,6 +36,7 @@ jest.mock('expo-router', () => {
         return typeof cleanup === 'function' ? cleanup : undefined
       }, [cb])
     },
+    useLocalSearchParams: () => mockSearchParams,
   }
 })
 
@@ -45,6 +50,28 @@ const mockUpdateProfile = jest.fn().mockResolvedValue({})
 jest.mock('@/lib/api/profile', () => ({
   profileApi: {
     updateProfile: (...args: unknown[]) => mockUpdateProfile(...args),
+  },
+}))
+
+// §DF PR #128 R5-2 (Round 5) — onSavePostcode now actively prefetches
+// the no-coords Home query via `qc.fetchQuery({ queryFn: () =>
+// discoveryApi.getHomeFeed({}) })` so the back-nav lands on a Home
+// with the fresh cache key populated.  Mock the API so tests don't
+// hit the network; resolve with a minimal home-feed shape (just
+// enough that React Query commits it to the cache without throwing).
+const mockGetHomeFeed = jest.fn().mockResolvedValue({
+  featured:        [],
+  trending:        [],
+  popular:         [],
+  campaigns:       [],
+  categories:      [],
+  picksByCategory: [],
+  meta:            { scope: 'NEARBY', scopeExpanded: false },
+  locationContext: { source: 'profile', city: 'Westminster', locality: null },
+})
+jest.mock('@/lib/api/discovery', () => ({
+  discoveryApi: {
+    getHomeFeed: (...args: unknown[]) => mockGetHomeFeed(...args),
   },
 }))
 
@@ -119,13 +146,21 @@ function renderScreen() {
   // Home with the fresh locality already rendered (was: invalidate-
   // only, which left Home serving stale cache for the network round-
   // trip).  Spy here so tests can pin the call order.
+  //
+  // §DF PR #128 R5-2 (Round 5) — Round 5 replaces `refetchQueries`
+  // with `fetchQuery({ queryKey: ['discovery', 'home', null, null] })`
+  // so the Home cache is populated for the EXACT key Home will
+  // subscribe to on re-mount, eliminating the stale-content flash.
+  // `refetchSpy` retained as a regression guard against the
+  // previous code path; new pin uses `fetchSpy`.
   const refetchSpy = jest.spyOn(client, 'refetchQueries')
+  const fetchSpy = jest.spyOn(client, 'fetchQuery')
   const utils = render(
     <QueryClientProvider client={client}>
       <SavedAreaScreen />
     </QueryClientProvider>,
   )
-  return { ...utils, client, invalidateSpy, refetchSpy }
+  return { ...utils, client, invalidateSpy, refetchSpy, fetchSpy }
 }
 
 // Locate a Discovery-cache invalidation regardless of whether the screen
@@ -145,18 +180,9 @@ function findDiscoveryInvalidation(spy: jest.SpyInstance) {
   })
 }
 
-// §DF PR #128 R7 — same shape as findDiscoveryInvalidation but for
-// refetchQueries.  Used to pin the new refetch-then-back call order.
-function findDiscoveryRefetch(spy: jest.SpyInstance) {
-  return spy.mock.calls.find(([arg]) => {
-    const a = arg as { queryKey?: unknown[]; predicate?: (q: { queryKey: unknown[] }) => boolean }
-    if (Array.isArray(a?.queryKey) && a.queryKey[0] === 'discovery') return true
-    if (typeof a?.predicate === 'function') {
-      try { return a.predicate({ queryKey: ['discovery', 'home', null, null] }) } catch { return false }
-    }
-    return false
-  })
-}
+// §DF PR #128 R5-2 (Round 5) — Round 5 swapped `refetchQueries` for
+// `fetchQuery` so the previous `findDiscoveryRefetch` helper is no
+// longer needed.  Removed to keep the test surface honest.
 
 function profileFixture(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -203,6 +229,9 @@ describe('<SavedAreaScreen>', () => {
     mockUpdateProfile.mockClear()
     mockRefreshUser.mockClear()
     mockRequest.mockClear()
+    mockGetHomeFeed.mockClear()
+    // §DF Round 5 — reset URL params between tests.
+    mockSearchParams = {}
     mockLocationCoords = null
     mockLocationStatus = 'idle'
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -267,6 +296,26 @@ describe('<SavedAreaScreen>', () => {
     mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
     const { getByText, getByTestId } = renderScreen()
     fireEvent.press(getByText('Update postcode'))
+    expect(getByTestId('saved-area-postcode-input')).toBeTruthy()
+  })
+
+  // §DF PR #128 R5-1 (Round 5) — owner direction: hide the identity
+  // card while `editing === true` so the form has natural room and
+  // we don't need aggressive auto-scroll to keep Save visible.
+  // Round 4's `scrollToEnd` over-corrected; Round 5 trades it for a
+  // simpler layout collapse.  Identity card MUST render at rest
+  // (default state) and MUST NOT render while the postcode edit pane
+  // is open.
+  it('identity card renders in the choice state and is hidden while editing', () => {
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    const { getByText, getByTestId, queryByTestId } = renderScreen()
+    // At rest: identity card is mounted.
+    expect(getByTestId('saved-area-identity-card')).toBeTruthy()
+    // Open the edit pane.
+    fireEvent.press(getByText('Update postcode'))
+    // Identity card is now suppressed.
+    expect(queryByTestId('saved-area-identity-card')).toBeNull()
+    // The postcode input is the active surface.
     expect(getByTestId('saved-area-postcode-input')).toBeTruthy()
   })
 
@@ -408,22 +457,23 @@ describe('<SavedAreaScreen>', () => {
     expect(queryAgain('saved-area-postcode-input')).toBeNull()
   })
 
-  // §DF PR #128 R7 — owner device-QA Round 2 finding 7.  Pre-fix
-  // onSavePostcode called `invalidateQueries` only, which marked
-  // Discovery stale but did NOT refetch synchronously.  When the user
-  // landed on Home, `useHomeFeed` re-subscribed, served the cached
-  // OLD-locality data while refetching in the background, and the
-  // user saw stale text for the network round-trip.
+  // §DF PR #128 R5-2 (Round 5) — owner device-QA Round 5 finding.
+  // Round 4 shipped `refetchQueries({ predicate })` BEFORE back-nav,
+  // but Home was still showing OLD locality for 5-7s after save.
+  // Root cause: `refetchQueries` across INACTIVE queries (Home is
+  // unmounted while the user is on Saved Area) has timing quirks —
+  // the promise can resolve before the cache is committed, AND on
+  // re-mount React Query can momentarily serve the previous response
+  // before swapping in fresh data.
   //
-  // Fix: `refetchQueries` BEFORE `handleBack()` triggers a fetch in
-  // the same tick + awaits the response before navigating, so the
-  // back-nav lands on Home with the fresh locality already rendered.
-  // Belt-and-braces `invalidateQueries` after handles any inactive
-  // discovery queries (those will refetch on next subscribe).
+  // Round 5 fix: mark Discovery stale via `invalidateQueries`, then
+  // ACTIVELY prefetch the no-coords Home query via `fetchQuery` so the
+  // EXACT key Home will re-subscribe to is populated before the
+  // back-nav fires.
   //
-  // Pin asserts ordering: refreshUser → refetchQueries → invalidateQueries
-  // → handleBack.
-  it('on successful postcode update, refetchQueries(discovery) runs BEFORE handleBack', async () => {
+  // Pin asserts: fetchQuery fires with the homeFeedQueryKey({}) shape,
+  // calls `discoveryApi.getHomeFeed({})`, and resolves BEFORE handleBack.
+  it('on successful postcode update, fetchQuery(homeFeed) runs BEFORE handleBack', async () => {
     jest.useFakeTimers()
     mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
     ;(global.fetch as jest.Mock).mockResolvedValue({
@@ -439,7 +489,7 @@ describe('<SavedAreaScreen>', () => {
         },
       }),
     })
-    const { getByText, getByTestId, getByLabelText, refetchSpy } = renderScreen()
+    const { getByText, getByTestId, getByLabelText, fetchSpy } = renderScreen()
     fireEvent.press(getByText('Update postcode'))
     fireEvent.changeText(getByTestId('saved-area-postcode-input'), 'SW1A 1AA')
     await act(async () => { jest.advanceTimersByTime(700) })
@@ -450,27 +500,30 @@ describe('<SavedAreaScreen>', () => {
     })
     await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1))
 
-    // Discovery refetch fired exactly once on the success path.
-    const refetchCall = findDiscoveryRefetch(refetchSpy)
-    expect(refetchCall).toBeDefined()
+    // fetchQuery fired with the no-coords Home query key.  Match either
+    // shape: { queryKey: ['discovery', 'home', null, null], queryFn }.
+    const homeFetchCall = fetchSpy.mock.calls.find(([arg]) => {
+      const a = arg as { queryKey?: unknown[] }
+      const k = a?.queryKey
+      return Array.isArray(k) && k[0] === 'discovery' && k[1] === 'home' && k[2] === null && k[3] === null
+    })
+    expect(homeFetchCall).toBeDefined()
 
-    // Call order: refetchQueries BEFORE router.back.  invocationCallOrder
-    // is a monotonically increasing global counter across all jest mocks,
-    // so comparing across two distinct spies is valid.
-    //
-    // Cast via `unknown` first because RQ7's RefetchQueryFilters typing
-    // doesn't structurally overlap with our lightweight shape — we're
-    // poking at the raw spy-call inputs, NOT calling RQ's API, so the
-    // cast is safe.
-    const refetchOrder = (refetchSpy.mock.invocationCallOrder.find((_, i) => {
-      const arg = refetchSpy.mock.calls[i]?.[0]
-      const a = arg as unknown as { predicate?: (q: { queryKey: unknown[] }) => boolean }
-      return typeof a?.predicate === 'function' && a.predicate({ queryKey: ['discovery'] })
-    }))
+    // discoveryApi.getHomeFeed fired exactly once with no coords.
+    expect(mockGetHomeFeed).toHaveBeenCalledTimes(1)
+    expect(mockGetHomeFeed).toHaveBeenCalledWith({})
+
+    // Call order: fetchQuery BEFORE router.back.
+    const fetchOrder = fetchSpy.mock.invocationCallOrder.find((_, i) => {
+      const arg = fetchSpy.mock.calls[i]?.[0]
+      const a = arg as { queryKey?: unknown[] }
+      const k = a?.queryKey
+      return Array.isArray(k) && k[0] === 'discovery' && k[1] === 'home'
+    })
     const backOrder = mockBack.mock.invocationCallOrder[0]
-    expect(refetchOrder).toBeDefined()
+    expect(fetchOrder).toBeDefined()
     expect(backOrder).toBeDefined()
-    expect(refetchOrder as number).toBeLessThan(backOrder as number)
+    expect(fetchOrder as number).toBeLessThan(backOrder as number)
   })
 
   // PR #128 §DF review Finding 1 — corollary pin: refreshUser MUST NOT fire
@@ -571,6 +624,44 @@ describe('<SavedAreaScreen>', () => {
     })
     expect(mockRequest).toHaveBeenCalledTimes(1)
     expect(mockRequest).toHaveBeenCalledWith()
+  })
+
+  // §DF PR #128 R5-3 (Round 5) — back navigation honours the
+  // `?from=search` URL param.  Without this, tab-navigation can lose
+  // the back-stack frame for Search and a plain `router.back()` falls
+  // through to Home (the default tab).  The explicit `from` param
+  // closes the loophole by routing to the Search route directly.
+  describe('back navigation with ?from=search', () => {
+    it('routes to /(app)/search via router.push when fromParam is "search"', () => {
+      mockSearchParams = { from: 'search' }
+      mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+      const { getByLabelText } = renderScreen()
+      fireEvent.press(getByLabelText('Go back'))
+      // router.push fires to the Search route, NOT router.back().
+      expect(mockPush).toHaveBeenCalledWith('/(app)/search')
+      expect(mockBack).not.toHaveBeenCalled()
+    })
+
+    it('uses router.back() by default when no from param is present', () => {
+      mockSearchParams = {}
+      mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+      mockCanGoBack.mockReturnValue(true)
+      const { getByLabelText } = renderScreen()
+      fireEvent.press(getByLabelText('Go back'))
+      expect(mockBack).toHaveBeenCalledTimes(1)
+      // No router.push to /(app)/search.
+      expect(mockPush).not.toHaveBeenCalledWith('/(app)/search')
+    })
+
+    it('falls back to router.push("/") when no from param AND canGoBack is false', () => {
+      mockSearchParams = {}
+      mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+      mockCanGoBack.mockReturnValue(false)
+      const { getByLabelText } = renderScreen()
+      fireEvent.press(getByLabelText('Go back'))
+      expect(mockPush).toHaveBeenCalledWith('/')
+      expect(mockBack).not.toHaveBeenCalled()
+    })
   })
 
   it('successful GPS grant invalidates discovery + meQueryKey + navigates back', async () => {
