@@ -53,7 +53,7 @@ describe('<SavedAreaHonestyHint>', () => {
     // §DF PR #128 R1-2 — copy now leads with "Location is off" GPS
     // context.  Match against the locked phrasing "from your saved
     // postcode" (was "based on your saved postcode").
-    expect(getByText(/from your saved postcode/)).toBeTruthy()
+    expect(getByText(/from your saved location/)).toBeTruthy()
     expect(getByText(/Location is off/)).toBeTruthy()
   })
 
@@ -65,7 +65,7 @@ describe('<SavedAreaHonestyHint>', () => {
     )
     expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
     expect(getByText(/Huddersfield/)).toBeTruthy()
-    expect(getByText(/from your saved postcode/)).toBeTruthy()
+    expect(getByText(/from your saved location/)).toBeTruthy()
     expect(getByText(/Location is off/)).toBeTruthy()
   })
 
@@ -106,7 +106,7 @@ describe('<SavedAreaHonestyHint>', () => {
     expect(target.props.accessibilityRole).toBe('button')
     expect(typeof target.props.accessibilityLabel).toBe('string')
     expect(target.props.accessibilityLabel).toMatch(/Huddersfield/)
-    expect(target.props.accessibilityLabel).toMatch(/saved postcode/i)
+    expect(target.props.accessibilityLabel).toMatch(/saved location/i)
     expect(target.props.accessibilityLabel).toMatch(/update/i)
     // §DF PR #128 R1-2 — a11y label must include the GPS-off context
     // so screen-reader users get the same "why are we showing the

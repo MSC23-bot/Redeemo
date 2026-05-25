@@ -104,8 +104,8 @@ export function SearchEmptyState({
       case 'no_location':
         if (isNoLocationWithSavedArea) {
           return {
-            title: `Searching near ${savedAreaCity} from your saved postcode`,
-            body:  'Turn on location for the most accurate nearby offers, or change your saved area.',
+            title: `Searching near ${savedAreaCity} from your saved location`,
+            body:  'Turn on location for the most accurate nearby offers, or change your saved location.',
           }
         }
         return {
@@ -171,10 +171,10 @@ export function SearchEmptyState({
               style={styles.changeSavedAreaButton}
               onPress={onChangeSavedArea}
               accessibilityRole="button"
-              accessibilityLabel="Change saved area"
+              accessibilityLabel="Change saved location"
               testID="search-empty-no-location-change-saved"
             >
-              <Text style={styles.changeSavedAreaButtonText}>Change saved area</Text>
+              <Text style={styles.changeSavedAreaButtonText}>Change saved location</Text>
             </Pressable>
           )}
         </View>

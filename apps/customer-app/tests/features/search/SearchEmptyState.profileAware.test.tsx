@@ -24,9 +24,9 @@ describe('<SearchEmptyState reason="no_location"> profile-aware (§DF PR #128 R2
       const { getByText, queryByText } = render(
         <SearchEmptyState reason="no_location" savedAreaCity="Brightlingsea" />,
       )
-      expect(getByText('Searching near Brightlingsea from your saved postcode')).toBeTruthy()
+      expect(getByText('Searching near Brightlingsea from your saved location')).toBeTruthy()
       expect(
-        getByText('Turn on location for the most accurate nearby offers, or change your saved area.'),
+        getByText('Turn on location for the most accurate nearby offers, or change your saved location.'),
       ).toBeTruthy()
       // Locked: must NOT show the "Set your area" prompt — the user
       // already HAS a saved area.
@@ -50,7 +50,7 @@ describe('<SearchEmptyState reason="no_location"> profile-aware (§DF PR #128 R2
       expect(useCurrent).toBeTruthy()
       expect(changeSaved).toBeTruthy()
       expect(getByText('Use current location')).toBeTruthy()
-      expect(getByText('Change saved area')).toBeTruthy()
+      expect(getByText('Change saved location')).toBeTruthy()
       // The original "Set my area" CTA (single-button variant) is
       // suppressed when savedAreaCity is set, regardless of whether
       // onSetArea is provided.
@@ -128,10 +128,10 @@ describe('<SearchEmptyState reason="no_location"> profile-aware (§DF PR #128 R2
         <SearchEmptyState reason="no_location" savedAreaCity="Brightlingsea" />,
       )
       const title = getByText(
-        'Searching near Brightlingsea from your saved postcode',
+        'Searching near Brightlingsea from your saved location',
       ).props.children as string
       const body = getByText(
-        'Turn on location for the most accurate nearby offers, or change your saved area.',
+        'Turn on location for the most accurate nearby offers, or change your saved location.',
       ).props.children as string
       expect(title).not.toMatch(/—/)
       expect(body).not.toMatch(/—/)

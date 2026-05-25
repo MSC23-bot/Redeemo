@@ -129,7 +129,7 @@ export function SavedAreaHonestyHint({
   // chevron + Update affordance + tap target signal that there's more
   // (Saved Area lets the user toggle location on); the explanatory
   // secondary line is unnecessary for the disclosure goal.
-  const a11yLabel = `Location is off. Showing offers near ${displayName} from your saved postcode. Tap to update.`
+  const a11yLabel = `Location is off. Showing offers near ${displayName} from your saved location. Tap to update.`
 
   return (
     <Animated.View style={animatedStyle}>
@@ -147,7 +147,7 @@ export function SavedAreaHonestyHint({
           <Text style={styles.copy}>
             <Text style={styles.copyEmphasis}>Location is off</Text>
             <Text style={styles.copySeparator}>{' — '}</Text>
-            showing offers near <Text style={styles.copyEmphasis}>{displayName}</Text> from your saved postcode.
+            showing offers near <Text style={styles.copyEmphasis}>{displayName}</Text> from your saved location.
           </Text>
         </View>
         <View style={styles.updateWrap}>
