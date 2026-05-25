@@ -319,4 +319,98 @@ describe('<SavedAreaScreen>', () => {
       getByText('Your saved postcode helps us show relevant offers when location is off.'),
     ).toBeTruthy()
   })
+
+  // postcodes.io returned a non-200 status (postcode not in the index).
+  // The error copy is locked; silent regression risk: a refactor that
+  // inverts the `json.status === 200` check would turn valid postcodes
+  // into errors AND vice versa.
+  it('renders locked "Postcode not found" copy when postcodes.io returns non-200', async () => {
+    jest.useFakeTimers()
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({ status: 404 }),
+    })
+    const { getByText, getByTestId } = renderScreen()
+    fireEvent.press(getByText('Update postcode'))
+    fireEvent.changeText(getByTestId('saved-area-postcode-input'), 'ZZ99 9ZZ')
+    await act(async () => { jest.advanceTimersByTime(700) })
+    jest.useRealTimers()
+    await waitFor(() => {
+      expect(getByText('Postcode not found. Please check and try again.')).toBeTruthy()
+    })
+  })
+
+  // postcodes.io network reject (offline, DNS fail). Different copy from
+  // the "not found" branch — pin separately so a refactor that collapses
+  // the try/catch into a single error path can't lose either copy.
+  it('renders locked "Unable to look up postcode" copy when fetch rejects', async () => {
+    jest.useFakeTimers()
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    ;(global.fetch as jest.Mock).mockRejectedValue(new Error('Network down'))
+    const { getByText, getByTestId } = renderScreen()
+    fireEvent.press(getByText('Update postcode'))
+    fireEvent.changeText(getByTestId('saved-area-postcode-input'), 'SW1A 1AA')
+    await act(async () => { jest.advanceTimersByTime(700) })
+    jest.useRealTimers()
+    await waitFor(() => {
+      expect(getByText('Unable to look up postcode. Check your connection and try again.')).toBeTruthy()
+    })
+  })
+
+  // `requestedGpsRef` gate (line 142–146 in source): when the screen mounts
+  // with coords ALREADY present (e.g. user opened Saved Area after using
+  // Home/Map which had already populated GPS), the post-grant effect must
+  // NOT auto-navigate the user back. Silent-regression risk: dropping the
+  // gate would bounce the user out of Saved Area the instant the screen
+  // hydrates — breaking the "open Saved Area without losing your place" UX.
+  it('does NOT auto-navigate-back when GPS coords were already present at mount', async () => {
+    mockLocationCoords = { lat: 53.6458, lng: -1.785 }
+    mockLocationStatus = 'granted'
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    const { getByText } = renderScreen()
+    // Render + flush microtasks. The post-grant useEffect runs on mount
+    // but `requestedGpsRef.current` is false (user didn't tap the CTA),
+    // so the navigate-back branch must not fire.
+    await act(async () => {})
+    // Caveat copy presence confirms the screen is still mounted.
+    expect(getByText('Your saved postcode helps us show relevant offers when location is off.')).toBeTruthy()
+    expect(mockBack).not.toHaveBeenCalled()
+  })
+
+  // onSavePostcode `onError` callback (line 187–189 in source): when the
+  // backend updateProfile rejects, the screen surfaces a locked error copy
+  // via `setLookupError`. Silent-regression risk: a refactor of
+  // `useUpdateProfile`'s callback wiring or the `onError` branch could
+  // silently drop the user-visible error surface.
+  it('surfaces locked "Failed to save postcode" copy when updateProfile rejects', async () => {
+    jest.useFakeTimers()
+    mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      json: async () => ({
+        status: 200,
+        result: {
+          postcode: 'SW1A 1AA',
+          parish: 'Westminster',
+          admin_district: 'Westminster',
+          region: 'London',
+          country: 'England',
+        },
+      }),
+    })
+    mockUpdateProfile.mockRejectedValueOnce(new Error('Backend rejected'))
+    const { getByText, getByTestId, getByLabelText } = renderScreen()
+    fireEvent.press(getByText('Update postcode'))
+    fireEvent.changeText(getByTestId('saved-area-postcode-input'), 'SW1A 1AA')
+    await act(async () => { jest.advanceTimersByTime(700) })
+    jest.useRealTimers()
+    await waitFor(() => expect(getByText('Westminster')).toBeTruthy())
+    await act(async () => {
+      fireEvent.press(getByLabelText('Save postcode'))
+    })
+    await waitFor(() => {
+      expect(getByText('Failed to save postcode. Please try again.')).toBeTruthy()
+    })
+    // User stays on the surface — no auto-navigate-back on failure.
+    expect(mockBack).not.toHaveBeenCalled()
+  })
 })

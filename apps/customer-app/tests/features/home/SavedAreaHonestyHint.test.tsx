@@ -119,4 +119,36 @@ describe('<SavedAreaHonestyHint>', () => {
     expect(getByText(/Huddersfield/)).toBeTruthy()
     expect(getByText('Update')).toBeTruthy()
   })
+
+  // The honesty hint's central promise is: it disappears once GPS lands
+  // and Discovery flips `locationContext.source` from 'profile' back to
+  // 'coordinates'. The transition relies on the `wasEligibleRef` /
+  // `mounted` useEffect at line 79 of the component. Reduced-motion
+  // collapses the exit animation to an instant unmount via setMounted
+  // (false). Silent-regression risk: dropping the transition useEffect
+  // would leave the banner mounted forever after a 'profile' → 'coords'
+  // flip, which is the headline UX promise of the surface.
+  it('unmounts when source transitions from profile → coordinates (reduced-motion path)', () => {
+    const { rerender, getByTestId, queryByTestId } = render(
+      <SavedAreaHonestyHint
+        locationContext={{
+          source: 'profile',
+          city: null,
+          locality: { id: 'loc-huddersfield', name: 'Huddersfield' },
+        }}
+      />,
+    )
+    // Steady eligible-state — banner mounted.
+    expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
+
+    // GPS grants → backend flips source to 'coordinates'. Under the
+    // reduced-motion mock at the top of this file, the unmount is
+    // synchronous (no withTiming callback chain).
+    rerender(
+      <SavedAreaHonestyHint
+        locationContext={{ source: 'coordinates', city: 'Huddersfield', locality: null }}
+      />,
+    )
+    expect(queryByTestId('saved-area-honesty-hint')).toBeNull()
+  })
 })

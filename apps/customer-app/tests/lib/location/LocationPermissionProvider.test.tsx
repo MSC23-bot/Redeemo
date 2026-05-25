@@ -308,6 +308,78 @@ describe('LocationPermissionProvider — recovery sheet "Open settings" CTA', ()
   })
 })
 
+describe('LocationPermissionProvider — in-flight resolver chaining', () => {
+  // Two parallel `showExplainer()` calls before the sheet dismisses must
+  // BOTH resolve on the same dismissal — chained via the ref-rewriting
+  // pattern in the provider. Silent-regression risk: a refactor that
+  // overwrites the resolver instead of chaining would leave the first
+  // caller hanging forever and the test suite wouldn't notice without
+  // an explicit await on both promises.
+  it('two parallel showExplainer() calls both resolve on the same dismissal', async () => {
+    const captured: Array<Promise<void>> = []
+    const { getByLabelText, getByTestId } = render(
+      <LocationPermissionProvider>
+        <ConsumerHarness
+          onShowExplainerPress={(resolver) => { captured.push(resolver()) }}
+        />
+      </LocationPermissionProvider>,
+    )
+
+    act(() => {
+      fireEvent.press(getByLabelText('show-explainer'))
+      fireEvent.press(getByLabelText('show-explainer'))
+    })
+    expect(captured).toHaveLength(2)
+
+    let resolvedA = false
+    let resolvedB = false
+    void captured[0]!.then(() => { resolvedA = true })
+    void captured[1]!.then(() => { resolvedB = true })
+
+    await act(async () => {
+      fireEvent.press(getByTestId('pre-permission-explainer-dismiss'))
+    })
+
+    await waitFor(() => {
+      expect(resolvedA).toBe(true)
+      expect(resolvedB).toBe(true)
+    })
+  })
+
+  // Mirror for recovery sheet — same resolver-chaining pattern, same
+  // silent-regression risk.
+  it('two parallel showRecovery() calls both resolve on the same dismissal', async () => {
+    const captured: Array<Promise<void>> = []
+    const { getByLabelText, getByTestId } = render(
+      <LocationPermissionProvider>
+        <ConsumerHarness
+          onShowRecoveryPress={(resolver) => { captured.push(resolver()) }}
+        />
+      </LocationPermissionProvider>,
+    )
+
+    act(() => {
+      fireEvent.press(getByLabelText('show-recovery'))
+      fireEvent.press(getByLabelText('show-recovery'))
+    })
+    expect(captured).toHaveLength(2)
+
+    let resolvedA = false
+    let resolvedB = false
+    void captured[0]!.then(() => { resolvedA = true })
+    void captured[1]!.then(() => { resolvedB = true })
+
+    await act(async () => {
+      fireEvent.press(getByTestId('location-recovery-dismiss'))
+    })
+
+    await waitFor(() => {
+      expect(resolvedA).toBe(true)
+      expect(resolvedB).toBe(true)
+    })
+  })
+})
+
 describe('LocationPermissionProvider — graceful no-provider fallback', () => {
   it('useLocationPermissionPrompts returns no-op actions when no provider is mounted', async () => {
     let captured: { showExplainer?: () => Promise<void>; showRecovery?: () => Promise<void> } = {}

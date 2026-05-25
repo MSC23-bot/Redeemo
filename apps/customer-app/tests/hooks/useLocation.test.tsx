@@ -279,3 +279,49 @@ describe('useUserLocation — back-compat for existing 7 call sites', () => {
     expect(result.current.permission).toBe('unavailable')
   })
 })
+
+describe('useUserLocation — toPermission edge cases', () => {
+  // `toPermission` maps anything that isn't granted/denied/undetermined to
+  // 'unavailable' — iOS can return 'restricted' (parental controls, MDM).
+  // The downstream branch must report permission='unavailable' and status=
+  // 'denied' WITHOUT firing onDenied, because the spec contract is that
+  // onDenied fires only when the user explicitly denied the prompt — not
+  // when the platform rejected the request for a structural reason.
+  it('maps raw "restricted" → permission:unavailable + status:denied, and does NOT fire onDenied', async () => {
+    mockGetPerms.mockResolvedValue({ status: 'undetermined' })
+    mockReqPerms.mockResolvedValue({ status: 'restricted' })
+    const onDenied = jest.fn()
+
+    const { result } = renderHook(() => useUserLocation())
+    await waitFor(() => expect(result.current.permission).toBe('undetermined'))
+    await act(async () => { await result.current.request({ onDenied }) })
+
+    expect(result.current.permission).toBe('unavailable')
+    expect(result.current.status).toBe('denied')
+    expect(onDenied).not.toHaveBeenCalled()
+  })
+
+  // The area-name ladder is `place?.subregion ?? place?.district ?? null`.
+  // Existing tests cover level 1 (subregion set) and the all-null fallback;
+  // pin level 2 (subregion explicitly null, district set) so a refactor that
+  // drops the district fallback can't silently regress the area string.
+  it('falls back to place.district when subregion is null', async () => {
+    mockGetPerms.mockResolvedValue({ status: 'undetermined' })
+    mockReqPerms.mockResolvedValue({ status: 'granted' })
+    mockGetPos.mockResolvedValue({ coords: { latitude: 53.6458, longitude: -1.785 } })
+    mockReverseGeocode.mockResolvedValue([
+      { city: 'Huddersfield', subregion: null, district: 'Kirklees' },
+    ])
+
+    const { result } = renderHook(() => useUserLocation())
+    await waitFor(() => expect(result.current.permission).toBe('undetermined'))
+    await act(async () => { await result.current.request() })
+
+    expect(result.current.location).toEqual({
+      lat: 53.6458,
+      lng: -1.785,
+      area: 'Kirklees',
+      city: 'Huddersfield',
+    })
+  })
+})
