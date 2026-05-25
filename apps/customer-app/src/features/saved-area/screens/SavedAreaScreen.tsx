@@ -70,6 +70,14 @@ export function SavedAreaScreen() {
 
   const profile = me.data
 
+  // §DF device-QA Round 4 — programmatic scroll-to-end belt-and-braces
+  // for the Save/Cancel visibility issue.  Even with the corrected
+  // KeyboardAvoidingView offset, if the user types a postcode then
+  // the lookupResult banner expands the form, the Save button can
+  // briefly sit below the keyboard's fold.  Scrolling to end on
+  // lookupResult arrival pulls Save into view.
+  const scrollRef = useRef<ScrollView>(null)
+
   // Inline postcode-lookup pane visibility. Cleaner than a BottomSheet —
   // mirrors PC2's inline approach, single-screen surface, no overlay.
   const [editing, setEditing] = useState(false)
@@ -159,6 +167,22 @@ export function SavedAreaScreen() {
     }, 600)
     return () => { clearTimeout(timer); setIsLooking(false) }
   }, [postcodeInput, editing])
+
+  // §DF device-QA Round 4 — auto-scroll-to-end on lookupResult arrival
+  // so the Save button is visible immediately after the lookup banner
+  // animates in.  The KeyboardAvoidingView corrected offset handles
+  // most cases, but on standard-height phones with the keyboard open,
+  // the foundBanner expanding the form can push Save just below the
+  // keyboard's fold.  `requestAnimationFrame` defers the scroll to the
+  // next frame so the foundBanner's FadeInDown animation has laid out.
+  useEffect(() => {
+    if (lookupResult) {
+      const handle = requestAnimationFrame(() => {
+        scrollRef.current?.scrollToEnd({ animated: true })
+      })
+      return () => cancelAnimationFrame(handle)
+    }
+  }, [lookupResult])
 
   // ── post-GPS-grant effect ─────────────────────────────────────────────────
   // Fires when the user tapped "Use current location" AND coords subsequently
@@ -311,27 +335,38 @@ export function SavedAreaScreen() {
       </View>
 
       {/*
-        §DF device-QA Round 3 finding 4 — KeyboardAvoidingView wrap so the
-        Save button + foundBanner stay above the keyboard while the user
-        is mid-edit.  Pre-fix the Save button sat below the keyboard's
-        accept region on standard-height phones, making the form appear
-        non-functional.  iOS uses `padding` (system view-port offset);
-        Android handles this natively via `android:windowSoftInputMode`
-        in the manifest, so we pass `undefined` to avoid double-shifting.
-        `keyboardShouldPersistTaps="handled"` on the inner ScrollView
-        keeps the FIRST Save tap working without the user having to tap
-        twice (without this, the first tap dismisses the keyboard and
-        the second tap fires Save).
+        §DF device-QA Round 4 finding — KeyboardAvoidingView offset.
+        Round 3's offset of 0 was wrong: the screen has a sticky
+        nav-header (appBarHeight 56 + top safe-area inset).  Without
+        accounting for that, iOS computes the padding shift as if the
+        screen begins at viewport-top, leaving the Save/Cancel area
+        still hidden by the keyboard.  Fix: pass `insets.top +
+        layout.appBarHeight` so the avoiding view treats the
+        scroll-region's true top edge as the reference.  Also add
+        `automaticallyAdjustKeyboardInsets` + a programmatic
+        scroll-to-end on `lookupResult` arrival as belt-and-braces so
+        the Save button is visible immediately after the lookup banner
+        animates in.
+
+        Android handles keyboard via `android:windowSoftInputMode`
+        natively; iOS uses the `padding` behavior here.
+        `keyboardShouldPersistTaps="handled"` keeps the FIRST Save tap
+        working — without it, the first tap only dismisses the
+        keyboard and the second tap fires Save.
       */}
       <KeyboardAvoidingView
         style={s.flexFill}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + layout.appBarHeight : 0}
       >
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + spacing[7] }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={true}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="automatic"
       >
 
         {/* ── Read-only summary ──────────────────────────────────────── */}
