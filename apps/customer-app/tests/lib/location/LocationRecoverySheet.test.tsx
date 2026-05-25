@@ -69,3 +69,45 @@ describe('LocationRecoverySheet — visuals', () => {
     expect(getByTestId('location-recovery-sheet')).toBeTruthy()
   })
 })
+
+// §DF PR #128 R5-4 (Round 5) — caller-context secondary CTA override.
+// Default label "Use saved area" stays correct in general flows
+// (e.g. invoked from Home / Map), but Search-context invocation needs
+// "Not now" because the user is already using saved area when they
+// trigger the recovery sheet from Search.
+describe('LocationRecoverySheet — §DF Round 5 secondary CTA override', () => {
+  it('renders the default secondary CTA label "Use saved area" when no override is passed', () => {
+    const { getByText, getByTestId } = render(
+      <LocationRecoverySheet visible onOpenSettings={() => {}} onDismiss={() => {}} />,
+    )
+    expect(getByText('Use saved area')).toBeTruthy()
+    expect(getByTestId('location-recovery-dismiss').props.accessibilityLabel).toBe('Use saved area')
+  })
+
+  it('renders the override label when secondaryLabel="Not now" is passed', () => {
+    const { getByText, getByTestId } = render(
+      <LocationRecoverySheet
+        visible
+        onOpenSettings={() => {}}
+        onDismiss={() => {}}
+        secondaryLabel="Not now"
+      />,
+    )
+    expect(getByText('Not now')).toBeTruthy()
+    expect(getByTestId('location-recovery-dismiss').props.accessibilityLabel).toBe('Not now')
+  })
+
+  it('override label fires onDismiss on tap, same as the default label path', () => {
+    const onDismiss = jest.fn()
+    const { getByTestId } = render(
+      <LocationRecoverySheet
+        visible
+        onOpenSettings={() => {}}
+        onDismiss={onDismiss}
+        secondaryLabel="Not now"
+      />,
+    )
+    fireEvent.press(getByTestId('location-recovery-dismiss'))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+})

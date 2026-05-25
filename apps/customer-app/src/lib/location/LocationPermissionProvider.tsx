@@ -33,9 +33,20 @@ import { LocationRecoverySheet } from './LocationRecoverySheet'
 
 type ResolveFn = () => void
 
+/**
+ * §DF Round 5 — caller-context overrides for the recovery sheet.
+ * Surfaces that already have a saved area (e.g. Search) need to override
+ * the secondary CTA label from the default "Use saved area" to "Not now"
+ * because the user IS already using saved area.  Passed via
+ * `useUserLocation().request({ recoveryLabels: { secondary } })`.
+ */
+type ShowRecoveryOptions = {
+  secondaryLabel?: string
+}
+
 type ContextValue = {
   showExplainer: () => Promise<void>
-  showRecovery: () => Promise<void>
+  showRecovery: (opts?: ShowRecoveryOptions) => Promise<void>
 }
 
 // Fallback returned when the hook is consumed outside a provider.
@@ -53,6 +64,9 @@ type Props = { children: React.ReactNode }
 export function LocationPermissionProvider({ children }: Props) {
   const [explainerVisible, setExplainerVisible] = useState(false)
   const [recoveryVisible, setRecoveryVisible] = useState(false)
+  // §DF Round 5 — track the caller-context secondary CTA override for
+  // the recovery sheet.  Null means default ("Use saved area").
+  const [recoverySecondaryLabel, setRecoverySecondaryLabel] = useState<string | undefined>(undefined)
   // Pending resolvers — only one of each sheet can be in-flight at a
   // time (the sheets are modal). A second `showExplainer()` while
   // the first is still visible no-ops and resolves with the original
@@ -76,7 +90,7 @@ export function LocationPermissionProvider({ children }: Props) {
     })
   }, [])
 
-  const showRecovery = useCallback((): Promise<void> => {
+  const showRecovery = useCallback((opts?: ShowRecoveryOptions): Promise<void> => {
     return new Promise<void>((resolve) => {
       if (recoveryResolverRef.current) {
         const prior = recoveryResolverRef.current
@@ -84,6 +98,10 @@ export function LocationPermissionProvider({ children }: Props) {
       } else {
         recoveryResolverRef.current = resolve
       }
+      // §DF Round 5 — set the secondary label override BEFORE the sheet
+      // becomes visible so the first paint uses the right copy.  When
+      // opts is omitted, fall back to undefined (component default).
+      setRecoverySecondaryLabel(opts?.secondaryLabel)
       setRecoveryVisible(true)
     })
   }, [])
@@ -97,6 +115,9 @@ export function LocationPermissionProvider({ children }: Props) {
 
   const dismissRecovery = useCallback(() => {
     setRecoveryVisible(false)
+    // §DF Round 5 — clear the caller-context override so subsequent
+    // (unrelated) showRecovery() calls don't inherit a stale label.
+    setRecoverySecondaryLabel(undefined)
     const r = recoveryResolverRef.current
     recoveryResolverRef.current = null
     r?.()
@@ -150,6 +171,7 @@ export function LocationPermissionProvider({ children }: Props) {
         visible={recoveryVisible}
         onOpenSettings={onOpenSettings}
         onDismiss={dismissRecovery}
+        {...(recoverySecondaryLabel !== undefined ? { secondaryLabel: recoverySecondaryLabel } : {})}
       />
     </LocationPermissionContext.Provider>
   )

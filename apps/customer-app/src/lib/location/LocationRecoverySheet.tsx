@@ -16,6 +16,15 @@ type Props = {
   onOpenSettings: () => void
   /** User picked the secondary CTA or dismissed — stay on saved area. */
   onDismiss: () => void
+  /**
+   * §DF Round 5 — caller-context override for the secondary CTA label.
+   * Default copy "Use saved area" is correct in general flows, but
+   * surfaces like Search (where the user already has a saved area
+   * and just tapped "Use current location") need "Not now" because
+   * the user IS already using saved area.  Provider threads this
+   * through from `useUserLocation().request({ recoveryLabels: { secondary } })`.
+   */
+  secondaryLabel?: string
 }
 
 /**
@@ -32,7 +41,10 @@ type Props = {
  *
  * Copy is locked verbatim by spec; em-dashes intentional.
  */
-export function LocationRecoverySheet({ visible, onOpenSettings, onDismiss }: Props) {
+export function LocationRecoverySheet({ visible, onOpenSettings, onDismiss, secondaryLabel }: Props) {
+  // §DF Round 5 — default to "Use saved area" when caller hasn't
+  // overridden.  Owner-locked variant for Search context is "Not now".
+  const secondaryCtaLabel = secondaryLabel ?? 'Use saved area'
   return (
     <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Location is off">
       <View style={styles.root} testID="location-recovery-sheet">
@@ -58,11 +70,11 @@ export function LocationRecoverySheet({ visible, onOpenSettings, onDismiss }: Pr
         <Pressable
           onPress={() => { lightHaptic(); onDismiss() }}
           accessibilityRole="button"
-          accessibilityLabel="Use saved area"
+          accessibilityLabel={secondaryCtaLabel}
           style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
           testID="location-recovery-dismiss"
         >
-          <Text variant="label.lg" style={styles.secondaryBtnText}>Use saved area</Text>
+          <Text variant="label.lg" style={styles.secondaryBtnText}>{secondaryCtaLabel}</Text>
         </Pressable>
       </View>
     </BottomSheet>

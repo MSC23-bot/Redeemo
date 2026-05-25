@@ -24,6 +24,17 @@ export type LocationPermission =
 export type RequestPermissionOptions = {
   onBeforePrompt?: () => void | Promise<void>
   onDenied?: () => void | Promise<void>
+  /**
+   * §DF Round 5 — caller-context overrides for the recovery sheet
+   * surfaced when permission is denied.  Threaded through to the
+   * provider's `showRecovery()` so the secondary CTA label can be
+   * varied per surface.  Default is "Use saved area"; Search context
+   * overrides to "Not now" because the user is already using saved
+   * area when triggering that CTA.  Only consulted when `onDenied`
+   * is NOT explicitly overridden — explicit `onDenied` fully replaces
+   * the provider-default recovery flow.
+   */
+  recoveryLabels?: { secondary?: string }
 }
 
 export type LocationState = {
@@ -70,8 +81,19 @@ export function useUserLocation(): LocationState {
     // Backward-compat with Task 4's API — consumers that already
     // pass opts keep working; new consumers get the branded sheets
     // for free via the provider.
+    //
+    // §DF Round 5 — when caller passes `recoveryLabels` AND no explicit
+    // `onDenied` override, bind the labels into the default recovery
+    // call so the provider's sheet renders the right secondary copy.
+    // Explicit `onDenied` fully replaces the provider-default flow so
+    // labels are intentionally ignored on that path.
     const onBeforePrompt = opts?.onBeforePrompt ?? showExplainer
-    const onDenied = opts?.onDenied ?? showRecovery
+    const onDenied = opts?.onDenied ?? (() => {
+      const secondary = opts?.recoveryLabels?.secondary
+      return secondary !== undefined
+        ? showRecovery({ secondaryLabel: secondary })
+        : showRecovery()
+    })
 
     const run = async (): Promise<void> => {
       // §AU local-dev-only override: short-circuits prompt + reverse
