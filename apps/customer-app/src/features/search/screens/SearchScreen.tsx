@@ -5,7 +5,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text } from '@/design-system/Text'
 import { useSearch } from '@/hooks/useSearch'
 import { useUserLocation } from '@/hooks/useLocation'
-import { useMe } from '@/hooks/useMe'
+// §DF-v2-j Task 10 — top-of-screen location identity affordance + the
+// canonical source for SearchEmptyState.savedAreaCity.  Both flow from
+// searchResponse.locationContext now; the previous useMe() derivation
+// of savedAreaCity is retired (see commit message + inline note below).
+import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
 import { SearchBar } from '../components/SearchBar'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
@@ -118,12 +122,17 @@ export function SearchScreen() {
   const debouncedQuery = useDebounce(query, 300)
   const loc = useUserLocation()
   const { location } = loc
-  // §DF — `useMe()` powers the profile-aware no_location
-  // empty state.  When the user has a saved postcode the empty state
-  // swaps to dual-CTA "searching near saved area" framing instead of
-  // the misleading "Set your area" prompt.
-  const me = useMe()
-  const savedAreaCity = me.data?.locality?.name ?? me.data?.city ?? null
+  // §DF-v2-j Task 10 (2026-05-26) — `savedAreaCity` now derives from the
+  // wire envelope (`data?.locationContext`) populated by the /search
+  // route handler (Task 4).  The previous useMe() derivation
+  // (`me.data?.locality?.name ?? me.data?.city`) is retired: the user-
+  // context resolution is owned by `resolveLocationContext` on the
+  // backend, so there's no value recomputing it on the client.  This
+  // also retires the §DF v1 helper comment about useMe powering
+  // profile-aware empty states — same product behaviour now flows
+  // through the unified envelope.
+  //
+  // Derivation lives AFTER the useSearch call below (depends on `data`).
 
   const searchEnabled = debouncedQuery.length >= 1
   const { data, isLoading } = useSearch(
@@ -143,6 +152,15 @@ export function SearchScreen() {
   // fix, Spec §3.3).  The legacy `merchants` arm is still on the wire for
   // surfaces that haven't migrated yet (Home / Category / Map).
   const branches: BranchTile[] = data?.branches ?? []
+  // §DF-v2-j Task 10 — single source of truth for both
+  // <LocationStatusLabel> + <SearchEmptyState savedAreaCity={…}>.
+  // Falls back to locality.name when city is null (keeps the original
+  // §DF v1 ladder: prefer locality.name → city → null).  When the
+  // searchResponse is undefined (cold-cache / pre-data fetch) this
+  // remains null — same behaviour as the retired useMe() derivation
+  // during its own loading window.
+  const locationContext = data?.locationContext
+  const savedAreaCity = locationContext?.city ?? locationContext?.locality?.name ?? null
   const showTrending = !searchEnabled
   const showLoading = searchEnabled && isLoading
   const showResults = searchEnabled && !isLoading
@@ -382,6 +400,16 @@ export function SearchScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
+      {/* §DF-v2-j Task 10 — strip-variant <LocationStatusLabel>
+          mounted IMMEDIATELY above the SearchBar row per spec §8.2.
+          Reads `data?.locationContext` (the same envelope feeding
+          savedAreaCity below).  Renders null during the React Query
+          loading window per §LSL-7. */}
+      <LocationStatusLabel
+        variant="strip"
+        locationContext={locationContext}
+      />
+
       <SearchBar
         value={query}
         onChangeText={setQuery}
