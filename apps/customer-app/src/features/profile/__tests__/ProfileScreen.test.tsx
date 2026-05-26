@@ -1,11 +1,3 @@
-/**
- * Smoke test for the app/(app)/profile.tsx route file.
- * The full ProfileScreen surface is tested in:
- *   src/features/profile/__tests__/ProfileScreen.test.tsx
- *
- * This test just validates that the route re-exports ProfileScreen and that
- * the screen renders when the user is signed in.
- */
 import React from 'react'
 import { render, screen } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -14,32 +6,36 @@ jest.mock('@/hooks/useMe', () => ({
   useMe: jest.fn(() => ({
     data: {
       id: 'u1',
-      firstName: 'Ada',
-      lastName: 'Lovelace',
-      email: 'ada@example.com',
-      phoneNumber: '+447700900000',
-      dob: '1990-01-01',
-      gender: 'female',
+      firstName: 'Alice',
+      lastName: 'Smith',
+      email: 'alice@example.com',
+      phoneNumber: '+441234567890',
+      dob: null,
+      gender: null,
       addressLine1: null,
       addressLine2: null,
       city: null,
-      postcode: 'SW1A 1AA',
+      postcode: null,
       latitude: null,
       longitude: null,
       localityId: null,
       locality: null,
       profileImageUrl: null,
-      profileCompleteness: 80,
+      profileCompleteness: 60,
       newsletterConsent: false,
       interests: [],
-      onboardingCompletedAt: '2026-04-23T00:00:00.000Z',
+      onboardingCompletedAt: '2026-01-01',
     },
     isLoading: false,
   })),
 }))
 
 jest.mock('@/hooks/useSubscription', () => ({
-  useSubscription: jest.fn(() => ({ subscription: null, isSubscribed: false, isSubLoading: false })),
+  useSubscription: jest.fn(() => ({
+    subscription: null,
+    isSubscribed: false,
+    isSubLoading: false,
+  })),
 }))
 
 jest.mock('@/hooks/useUpdateAvatar', () => ({
@@ -142,16 +138,23 @@ function renderWithClient(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
 }
 
-import ProfileScreen from '@/../app/(app)/profile'
+import { ProfileScreen } from '../screens/ProfileScreen'
 
-describe('ProfileScreen (route smoke test)', () => {
-  it('renders the signed-in user name', () => {
+describe('ProfileScreen', () => {
+  it('renders the profile header with user name', () => {
     renderWithClient(<ProfileScreen />)
-    expect(screen.getByText('Ada Lovelace')).toBeTruthy()
+    expect(screen.getByText('Alice Smith')).toBeTruthy()
   })
 
-  it('renders the Sign out row', () => {
+  it('renders My Account section', () => {
+    renderWithClient(<ProfileScreen />)
+    expect(screen.getByText('My Account')).toBeTruthy()
+    expect(screen.getByText('Personal info')).toBeTruthy()
+  })
+
+  it('renders Sign out and Delete account rows', () => {
     renderWithClient(<ProfileScreen />)
     expect(screen.getByText('Sign out')).toBeTruthy()
+    expect(screen.getByText('Delete account')).toBeTruthy()
   })
 })
