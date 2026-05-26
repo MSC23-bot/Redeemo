@@ -150,3 +150,91 @@ describe('§DF-v2-j-S — /api/v1/customer/search locationContext emit', () => {
     expect(body.locationContext.locality).toBeNull()
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// §DF-v2-j-I — In-area (/api/v1/customer/discovery/in-area)
+// ────────────────────────────────────────────────────────────────────────────
+describe('§DF-v2-j-I — /api/v1/customer/discovery/in-area locationContext emit', () => {
+  const createdUserIds: string[] = []
+  afterEach(async () => {
+    if (createdUserIds.length > 0) {
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
+      createdUserIds.length = 0
+    }
+  })
+
+  it('§DF-v2-j-I1 — GPS coords present → source=coordinates', { timeout: 30_000 }, async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/discovery/in-area?${UK_BBOX}&lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body).toHaveProperty('locationContext')
+    expect(body.locationContext.source).toBe('coordinates')
+  })
+
+  it('§DF-v2-j-I2 — auth user with full profile → source=profile', { timeout: 30_000 }, async () => {
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-v2-j-i-i2-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     HUDDERSFIELD.lat,
+        longitude:    HUDDERSFIELD.lng,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/discovery/in-area?${UK_BBOX}`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.locationContext.source).toBe('profile')
+    expect(body.locationContext.locality?.name).toMatch(/Huddersfield/i)
+  })
+
+  it('§DF-v2-j-I5 — unauthenticated, no coords → source=none', { timeout: 30_000 }, async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/discovery/in-area?${UK_BBOX}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.locationContext.source).toBe('none')
+  })
+
+  it('§DF-v2-j-I7 — auth user with incomplete profile → source=none', { timeout: 30_000 }, async () => {
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-v2-j-i-i7-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     null,
+        longitude:    null,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/discovery/in-area?${UK_BBOX}`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.locationContext.source).toBe('none')
+    expect(body.locationContext.locality).toBeNull()
+  })
+})

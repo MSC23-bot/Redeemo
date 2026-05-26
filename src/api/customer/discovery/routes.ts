@@ -241,6 +241,13 @@ export async function discoveryRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: { code: 'INVALID_BBOX', message: 'minLat/minLng must be ≤ maxLat/maxLng' } })
     }
     const userId = optionalUserId(req)
+    // §DF-v2-j Task 5 — route-level `locationContext` resolution.  Note
+    // that this describes the USER's effective location identity — it is
+    // intentionally separate from `meta.effectiveLocality` (the viewport
+    // locality the map is panned to) per spec D10.  Both fields ride the
+    // same response payload; consumers read whichever they need.
+    const ctx             = await resolveLocationContext(app.prisma, userId, query.lat ?? null, query.lng ?? null)
+    const locationContext = toLocationContextWire(ctx)
     // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
     // `branches` field additively alongside the legacy `merchants` field.
     // In-area has no `totalBranches` (no pagination — Map shows all pins in
@@ -267,7 +274,8 @@ export async function discoveryRoutes(app: FastifyInstance) {
     ])
     return reply.send({
       ...merchantResult,
-      branches: branchResult.branches,
+      branches:        branchResult.branches,
+      locationContext, // §DF-v2-j additive (user-context, NOT viewport — viewport stays on meta.effectiveLocality per D10)
     })
   })
 
