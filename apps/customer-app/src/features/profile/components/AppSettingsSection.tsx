@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
-import { Switch, Linking } from 'react-native'
+import { Switch } from 'react-native'
 import * as Location from 'expo-location'
-import { useFocusEffect } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { MapPin } from '@/design-system/icons'
 import { ProfileSectionCard } from './ProfileSectionCard'
 import { ProfileRow } from './ProfileRow'
@@ -80,7 +80,7 @@ export function AppSettingsSection() {
       <ProfileRow
         label="Location access"
         preview={locationLabel[locationStatus] ?? 'Not set'}
-        onPress={() => { void Linking.openSettings() }}
+        onPress={() => router.push('/saved-area' as any)}
         leftIcon={<MapPin size={16} color="rgba(1,12,53,0.4)" />}
       />
     </ProfileSectionCard>
