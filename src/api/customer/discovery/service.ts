@@ -99,19 +99,50 @@ function hasExactPosition(b: {
     && b.latitude !== null && b.longitude !== null
 }
 
+/**
+ * Resolved user-context location envelope returned by
+ * `resolveLocationContext`.  Route handlers strip to the 3-field wire shape
+ * `{ city, source, locality }` before injecting into response payloads — the
+ * `lat`/`lng` fields are internal-only (used by ranking helpers).
+ *
+ * Exported alongside `resolveLocationContext` per §DF-v2-j Task 0 audit
+ * acceptance criteria §8.7 + §8.8 — route handlers (Tasks 2 / 4 / 5 / 6)
+ * import this type when they thread the resolved value into services.
+ */
+export type LocationContext = {
+  locality: { id: string; name: string } | null
+  city:     string | null
+  lat:      number | null
+  lng:      number | null
+  source:   'coordinates' | 'profile' | 'none'
+}
+
 // Location context helper — resolves what location label + source to return
-// Priority: live coordinates > stored profile locality > stored profile city > none
+// Priority: live coordinates > stored profile (full identity) > none
 //
 // Phase D (§BB / D8 fix, 2026-05-22): GPS callers now resolve to the nearest
 // Locality via `findNearestLocality`, so `locationCtx.city` is populated for
 // the new Trending + Popular rail builders (and for the legacy
 // NearbyByCategory code path during the interim Phase D → Phase E window).
-async function resolveLocationContext(
+//
+// §DF-v2-i (2026-05-26): the `source='profile'` branch now requires ALL
+// THREE of User.localityId + User.latitude + User.longitude — matches
+// `resolveEffectiveLocation`'s SAVED_PROFILE invariant.  The previous loose
+// fallback where `User.city` text alone (or `localityId` without lat/lng)
+// produced `source='profile'` has been removed.  Pre-PC2 users with only a
+// free-text city see `source='none'` and a "Set location" prompt; cohort is
+// near-empty after the §DF v1 backfill.
+//
+// Exported per §DF-v2-j Task 0 audit acceptance criteria §8.7 so the route
+// handlers in Tasks 2 / 4 / 5 / 6 can resolve the envelope once at the route
+// boundary and inject into response payloads.  Wire-shape strip happens at
+// the route handler, not in this helper.
+export async function resolveLocationContext(
   prisma: PrismaClient,
   userId: string | null,
   lat: number | null,
   lng: number | null,
-): Promise<{ locality: { id: string; name: string } | null; city: string | null; lat: number | null; lng: number | null; source: 'coordinates' | 'profile' | 'none' }> {
+): Promise<LocationContext> {
   if (lat !== null && lng !== null) {
     const nearest = await findNearestLocality(prisma, lat, lng)
     if (nearest) {
@@ -128,23 +159,24 @@ async function resolveLocationContext(
   if (userId) {
     const user = await prisma.user.findUnique({
       where:  { id: userId },
-      select: { city: true, localityId: true },
+      select: { latitude: true, longitude: true, localityId: true },
     })
-    if (user?.localityId) {
+    // §DF-v2-i tightened invariant: source='profile' requires ALL THREE of
+    // localityId + latitude + longitude.  Matches `resolveEffectiveLocation`'s
+    // SAVED_PROFILE branch (effectiveLocation.ts:59-108).  Removes the previous
+    // loose paths that returned source='profile' on (a) localityId without
+    // lat/lng or (b) User.city text alone.  Locked baseline: helper-level pins
+    // §DF-v2-i-U1..U4 + route-level pin §DF-7v2i.
+    if (
+      user?.localityId &&
+      user.latitude  !== null &&
+      user.longitude !== null
+    ) {
       const loc = await prisma.locality.findUnique({
         where:  { id: user.localityId },
         select: { id: true, name: true },
       })
       if (loc) return { locality: loc, city: loc.name, lat: null, lng: null, source: 'profile' }
-    }
-    if (user?.city) {
-      const loc = await prisma.locality.findFirst({
-        where:  { name: { equals: user.city, mode: 'insensitive' } },
-        select: { id: true, name: true },
-      })
-      if (loc) return { locality: loc, city: loc.name, lat: null, lng: null, source: 'profile' }
-      // Fall back to the legacy `city` text label if no Locality row matches.
-      return { locality: null, city: user.city, lat: null, lng: null, source: 'profile' }
     }
   }
   return { locality: null, city: null, lat: null, lng: null, source: 'none' }

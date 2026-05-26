@@ -1766,27 +1766,32 @@ describe('§DF — effectiveLocation + locationContext envelope (spec §9.1)', (
     expect(body.locationContext.city).toBeNull()
   })
 
-  it('§DF-7 — incomplete profile (localityId set, latitude null) — documents §DF-v2-i latent inconsistency', { timeout: 30_000 }, async () => {
-    // Auth user has `localityId` populated but `latitude/longitude` are null.
-    // Per spec §4.4 latent inconsistency note: the two helpers disagree.
+  it('§DF-7v2i — incomplete profile (localityId set, latitude null) → source=none AND no effective location anchor', { timeout: 30_000 }, async () => {
+    // §DF-v2-i atomic post-fix lock (renamed from §DF-7).  The two helpers
+    // now AGREE for this combination:
     //
-    //   • `resolveEffectiveLocation` (effectiveLocation.ts:96) requires
-    //     ALL THREE (localityId, latitude, longitude) → falls through to null.
-    //     → Discovery rails behave UK-wide-ish (no V3 location anchor).
+    //   • `resolveEffectiveLocation` (effectiveLocation.ts:59-108) requires
+    //     ALL THREE (localityId, latitude, longitude) → returns null →
+    //     Discovery rails behave UK-wide (no V3 location anchor).
     //
-    //   • `resolveLocationContext` (service.ts:128-145) only requires
-    //     `localityId` → returns source='profile' anchored on the saved Locality.
-    //     → Wire envelope says "we know your area" while the rails behave
-    //     as if we don't.
+    //   • `resolveLocationContext` (service.ts:140-167, post-§DF-v2-i)
+    //     requires the SAME three fields → returns source='none'.
     //
-    // This pin asserts CURRENT behaviour so the §DF-v2-i alignment work has
-    // a baseline. If the assertion changes in a future PR, the spec must be
-    // updated atomically with the code change.
+    // Wire envelope is honest about identity: when the rails can't anchor on
+    // the saved profile, the envelope says 'none' so the customer-app
+    // <LocationStatusLabel> surfaces a "Set location ›" affordance instead
+    // of lying with "Using profile location · X".
+    //
+    // Atomic with helper-level pins §DF-v2-i-U1..U4 in
+    // resolveLocationContext.test.ts.  If a future PR loosens the helper
+    // (e.g. introduces a Locality.centerLat fallback for users with
+    // localityId-only), THIS pin must be updated atomically AND the spec
+    // §4.1 invariant table must be revised.
     const ts  = Date.now()
     const loc = await getHuddersfieldLocality()
     const user = await prisma.user.create({
       data: {
-        email:        `df-7-${ts}@x.test`,
+        email:        `df-7v2i-${ts}@x.test`,
         passwordHash: 'x',
         postcode:     'HD1 1AA',
         latitude:     null,
@@ -1805,15 +1810,9 @@ describe('§DF — effectiveLocation + locationContext envelope (spec §9.1)', (
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
 
-    // resolveLocationContext returns source='profile' because the localityId
-    // branch fires before the lat/lng check is consulted. This is the
-    // CURRENT behaviour — see spec §4.4 latent inconsistency note + §DF-v2-i
-    // alignment workstream. If §DF-v2-i lands and aligns the two helpers
-    // (e.g. by requiring lat/lng for source='profile' or by falling back to
-    // Locality.centerLat/centerLng in the resolver), this pin must be
-    // updated atomically with that change.
-    expect(body.locationContext.source).toBe('profile')
-    expect(body.locationContext.locality).not.toBeNull()
-    expect(body.locationContext.locality.name).toMatch(/Huddersfield/i)
+    // Tightened wire envelope post-§DF-v2-i.
+    expect(body.locationContext.source).toBe('none')
+    expect(body.locationContext.locality).toBeNull()
+    expect(body.locationContext.city).toBeNull()
   })
 })
