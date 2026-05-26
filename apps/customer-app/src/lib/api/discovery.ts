@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { api } from '../api'
+// §DF-v2-j Task 3 hoist (2026-05-26) — `locationContextSchema` moved to
+// the shared file so all Discovery surface schemas can share one definition.
+// `LocationContext` type re-exported below so existing consumers
+// (e.g. `SavedAreaHonestyHint`) keep working without import-path churn.
+import { locationContextSchema } from './shared/location'
+export type { LocationContext } from './shared/location'
 
 // ─── Plan 1.5 contract types ──────────────────────────────────────────────────
 //
@@ -186,18 +192,8 @@ const eligibleAmenitySchema = z.object({
 })
 export type EligibleAmenity = z.infer<typeof eligibleAmenitySchema>
 
-const locationContextSchema = z.object({
-  // Phase B.2 (Home Relevance, 2026-05-22) — additive `locality` on the
-  // location context envelope. Backend resolves the user's primary
-  // discovery locality via `resolveEffectiveLocation`; the rail-level
-  // `homeRailMetaSchema.locality` is the per-rail value (may differ
-  // from this top-level when cascade promotes a rail beyond local).
-  // `.optional()` so legacy responses (pre-Phase B) still parse.
-  locality: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
-  city:   z.string().nullable(),
-  source: z.enum(['coordinates', 'profile', 'none']),
-})
-export type LocationContext = z.infer<typeof locationContextSchema>
+// `locationContextSchema` + `LocationContext` hoisted to ./shared/location
+// per §DF-v2-j Task 3.  See imports at the top of this file.
 
 // Campaign tile shape on the home feed. `bannerImageUrl` matches the Prisma
 // Campaign field (NOT the older `bannerUrl` PR #4 invented). gradientStart/
