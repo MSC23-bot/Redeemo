@@ -20,6 +20,11 @@ import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
+// §DF-v2-j Task 9 — top-of-screen location identity affordance.  Per
+// spec §8.1 + owner D6: this mounts ALONGSIDE <SavedAreaHonestyHint>,
+// never replacing it.  Label = compact identity-at-a-glance; hint =
+// caveat + Update affordance.  Both coexist when source='profile'.
+import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
 
 // Bottom tab bar is `position: 'absolute'` with `height: 80` per the (app)
 // Tabs layout (see `apps/customer-app/app/(app)/_layout.tsx`). ScrollView
@@ -162,6 +167,20 @@ export function HomeScreen() {
           {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
           onSearchPress={() => router.push('/search' as any)}
           onFilterPress={() => {}}
+        />
+
+        {/* §DF-v2-j Task 9 — strip-variant <LocationStatusLabel> mounted
+            IMMEDIATELY above the no-location / saved-area banner slot
+            per spec §8.1.  Reads the SAME feed.locationContext envelope
+            <SavedAreaHonestyHint> consumes below — D6 lock: both
+            coexist, label = compact identity, hint = caveat + Update.
+            Loading window: `feed?.locationContext` is undefined while
+            the React Query data is in flight; the component renders
+            null in that state (§LSL-7 pin).  Scrolls with content (NOT
+            sticky) per spec §8.1. */}
+        <LocationStatusLabel
+          variant="strip"
+          locationContext={feed?.locationContext}
         />
 
         {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
