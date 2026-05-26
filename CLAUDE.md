@@ -659,7 +659,7 @@ The 5-week burst of Discovery work between 2026-05-19 and 2026-05-24 shipped as 
 
 Phase 3b backend cleanup + Plan 4 M5 cleanup stay DEFERRED, blocked on §CU.1 customer-web branch-first migration (Tier 3 brainstorm-first). Full per-PR detail lives in the corresponding `project_discovery_rebaseline_*_complete.md` + `project_dg_popular_ranking_locked_expectations.md` + `project_deferred_DB_DC_DD_home_relevance_followups.md` memory files.
 
-### 🚧 Phase 3C.1m — locationContext parity + top-of-app status label (§DF-v2-j + §DF-v2-i) — AWAITING MERGE (PR # TBD)
+### ✅ Phase 3C.1m — locationContext parity + top-of-app status label (§DF-v2-j + §DF-v2-i) — SHIPPED 2026-05-26 (PR #131 merge `877a32f`; final fixup head `ca888b0`; 19 commits / 30 files / +5,662 / −136)
 
 Tier 2 plan-first. Bundles §DF-v2-i (tighten `resolveLocationContext` invariants to match `resolveEffectiveLocation`'s SAVED_PROFILE branch — `localityId + latitude + longitude` ALL required for `source='profile'`) with §DF-v2-j (parity emit on Search / Map / Merchant Profile + new `<LocationStatusLabel>` component mounted on Home / Search / Map).
 
@@ -692,9 +692,19 @@ Carry-over deferred (new):
 
 - **§DF-v2-o** — Voucher Detail location-context awareness. Plumb `lat`/`lng` on `/api/v1/customer/vouchers/:id`, emit envelope, decide on `<LocationStatusLabel>` mount. Tier 1-2. Pickup trigger: Voucher Detail consumer needs location-awareness.
 
+**Shipped-state addendum:** 3 owner-led device-QA rounds + 1 pre-merge fixup round shaped the final code:
+
+- **Round 1** — Home `flush` prop (drops cream pill chrome); Search idle envelope fallback via `useMe()` (idle-state-only, owner-locked plan amendment); Map permission overlay gate; Map chip `flex:1` → `flexShrink:1` fix; Your Location v1 invariants documented (§15.6 in customer-flow-current).
+- **Round 2** — Home `marginTop: -spacing[3]` to absorb HomeHeader's bottom padding; Search label conditional on `showResults && branches.length > 0` (hide in idle/empty/loading per owner — empty-state copy carries identity); SearchEmptyState copy refresh ("Your location is turned off" / "Turn it on").
+- **Round 3** — Structural: `<LocationStatusLabel>` moved INSIDE `<HomeHeader>` at the same `marginTop: spacing[1]=4pt` rhythm as the GPS-on row. Standalone strip mount retired. `§LSL-Home-inside-header` pin locks the placement.
+- **PR #131 fixup** — Search synthesis tightened to mirror §DF-v2-i exactly (`localityId + latitude + longitude` all three required, no `me.data.city` text fallback); Map overlay gate aligned to the same complete-profile predicate; `/search` + `/discovery/in-area` route-level `resolveLocationContext` parallelized into the existing `Promise.all`.
+
+Final test counts at merge: backend §DF-v2-j + §DF-v2-i pins 16/16; customer-app focused 4-suite gate 36/36; customer-app full impacted-surface sweep 408/408 across 58 files; both tsc gates clean.
+
 Spec: `docs/superpowers/specs/2026-05-26-locationcontext-parity-design.md` v1.1.
 Plan: `docs/superpowers/plans/2026-05-26-locationcontext-parity.md`.
 Audit: `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md`.
+QA: `docs/superpowers/qa/2026-05-26-locationcontext-parity-device-qa.md` (3 device-QA rounds + 1 pre-merge fixup round).
 
 ### 🔲 Next planned work
 
