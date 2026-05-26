@@ -121,6 +121,13 @@ export async function discoveryRoutes(app: FastifyInstance) {
   app.get('/api/v1/customer/search', async (req: FastifyRequest, reply) => {
     const params = searchQuery.parse(req.query)
     const userId = optionalUserId(req)
+    // §DF-v2-j Task 4 — route-level `locationContext` resolution (variant
+    // (a) per Task 0 audit).  Resolve once, strip to the 3-field wire
+    // envelope, inject at the response root.  Pure service helpers
+    // (searchMerchants / searchBranches) stay free of `FastifyRequest`
+    // and free of `locationContext` concerns.
+    const ctx             = await resolveLocationContext(app.prisma, userId, params.lat ?? null, params.lng ?? null)
+    const locationContext = toLocationContextWire(ctx)
     const [merchantResult, branchResult] = await Promise.all([
       searchMerchants(app.prisma, { ...params, userId }),
       searchBranches(app.prisma, { ...params, userId }),
@@ -137,6 +144,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
       branches:      branchResult.branches,
       totalBranches: branchResult.totalBranches,
       branchMeta:    branchResult.meta,
+      locationContext, // §DF-v2-j additive
     })
   })
 
