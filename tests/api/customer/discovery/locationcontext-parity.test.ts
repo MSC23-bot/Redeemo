@@ -238,3 +238,109 @@ describe('§DF-v2-j-I — /api/v1/customer/discovery/in-area locationContext emi
     expect(body.locationContext.locality).toBeNull()
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// §DF-v2-j-M — Merchant Profile (/api/v1/customer/merchants/:id)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Per spec D5 — Merchant Profile receives the additive emit even though
+// no customer-app UI mounts <LocationStatusLabel> on this surface in v2-j
+// (per D4).  Future consumers (e.g. a future "nearby merchants" rail)
+// inherit the field without a backend change.
+describe('§DF-v2-j-M — /api/v1/customer/merchants/:id locationContext emit', () => {
+  const createdUserIds: string[] = []
+  afterEach(async () => {
+    if (createdUserIds.length > 0) {
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
+      createdUserIds.length = 0
+    }
+  })
+
+  async function pickActiveMerchantId(): Promise<string> {
+    const m = await prisma.merchant.findFirst({
+      where:  { status: 'ACTIVE' },
+      select: { id: true },
+    })
+    if (!m) throw new Error('Seed invariant: at least one ACTIVE merchant must exist for §DF-v2-j-M pins.')
+    return m.id
+  }
+
+  it('§DF-v2-j-M1 — GPS coords present → source=coordinates', { timeout: 30_000 }, async () => {
+    const merchantId = await pickActiveMerchantId()
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/merchants/${merchantId}?lat=${HUDDERSFIELD.lat}&lng=${HUDDERSFIELD.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body).toHaveProperty('locationContext')
+    expect(body.locationContext.source).toBe('coordinates')
+  })
+
+  it('§DF-v2-j-M2 — auth user with full profile → source=profile', { timeout: 30_000 }, async () => {
+    const merchantId = await pickActiveMerchantId()
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-v2-j-m-m2-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     HUDDERSFIELD.lat,
+        longitude:    HUDDERSFIELD.lng,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/merchants/${merchantId}`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.locationContext.source).toBe('profile')
+    expect(body.locationContext.locality?.name).toMatch(/Huddersfield/i)
+  })
+
+  it('§DF-v2-j-M5 — unauthenticated, no coords → source=none', { timeout: 30_000 }, async () => {
+    const merchantId = await pickActiveMerchantId()
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/merchants/${merchantId}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.locationContext.source).toBe('none')
+  })
+
+  it('§DF-v2-j-M7 — auth user with incomplete profile → source=none', { timeout: 30_000 }, async () => {
+    const merchantId = await pickActiveMerchantId()
+    const ts  = Date.now()
+    const loc = await getHuddersfieldLocality()
+    const user = await prisma.user.create({
+      data: {
+        email:        `df-v2-j-m-m7-${ts}@x.test`,
+        passwordHash: 'x',
+        postcode:     'HD1 1AA',
+        latitude:     null,
+        longitude:    null,
+        localityId:   loc.id,
+      },
+    })
+    createdUserIds.push(user.id)
+    const token = signCustomerToken(user.id)
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/customer/merchants/${merchantId}`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.locationContext.source).toBe('none')
+    expect(body.locationContext.locality).toBeNull()
+  })
+})

@@ -71,12 +71,21 @@ export async function discoveryRoutes(app: FastifyInstance) {
     const { id } = idParam.parse(req.params)
     const { lat, lng, branch } = locationQuery.parse(req.query)
     const userId = optionalUserId(req)
+    // §DF-v2-j Task 6 — route-level `locationContext` resolution.  Per
+    // spec D5: Merchant Profile receives the additive emit even though
+    // <LocationStatusLabel> is NOT mounted on this surface in v2-j (D4
+    // lock).  Future consumers (e.g. a future "nearby merchants" rail)
+    // inherit the field without a backend change.  Spread merges
+    // collision-free — `getCustomerMerchant` does not return a
+    // `locationContext` key.
+    const ctx             = await resolveLocationContext(app.prisma, userId, lat ?? null, lng ?? null)
+    const locationContext = toLocationContextWire(ctx)
     const merchant = await getCustomerMerchant(app.prisma, id, userId, {
       lat: lat ?? undefined,
       lng: lng ?? undefined,
       branchId: branch,
     })
-    return reply.send(merchant)
+    return reply.send({ ...merchant, locationContext })
   })
 
   // GET /api/v1/customer/merchants/:id/branches — branch list for redemption selector (no auth)
