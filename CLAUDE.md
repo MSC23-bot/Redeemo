@@ -464,18 +464,58 @@ Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/me
 - 23 component tests; 268 total frontend tests passing
 - Plan: `docs/superpowers/plans/2026-04-19-favourites-screen.md`
 
-### Phase 3C.1h — Profile Tab (full surface implemented on REFERENCE-ONLY `feature/customer-app` branch; awaiting rebaseline PR onto main per surface-by-surface policy. Minimal shell SHIPPED via PR #27.)
-- ProfileHeader: completeness bar, initials avatar, subscription badge
-- PersonalInfoSheet: read-only email/phone, editable name/DOB/gender
-- AddressSheet, InterestsSheet, ChangePasswordSheet
-- SubscriptionManagementSheet with cancel flow
-- NotificationsSection: live email toggle + push stub
-- AppSettingsSection: haptics, reduce motion, location access
-- RedeemoSection: become merchant, request merchant, rate app, share
-- GetHelpModal: ticket list, ticket detail, new ticket form
-- SupportLegalSection, DeleteAccountFlow (2-stage OTP-gated deletion)
-- EAS build config added (eas.json, app.config.ts, expo-build-properties, ITSAppUsesNonExemptEncryption)
-- Pending: device review via EAS build
+### ✅ Phase 3C.1h — Profile Tab Sub-PR 1 (frontend port) — LIVE on origin/main 2026-05-26 (PR #133 merge `9484a84`)
+
+19 commits / 37 files / 4 review-and-fixup rounds. Full Profile surface ported from REFERENCE-ONLY `feature/customer-app` onto current `main` (which now includes §DF v1 saved-profile location + §DF-v2-j locationContext parity). Replaces the minimal Profile shell from PR #27.
+
+What shipped:
+
+- **Components:** ProfileHeader (completeness bar driven by `profile.profileCompleteness`, initials avatar, subscription badge), PersonalInfoSheet (read-only email/phone, editable name/DOB/gender), AddressSheet, InterestsSheet, ChangePasswordSheet, SubscriptionManagementSheet (cancel flow via live `useCancelSubscription` → `subscriptionApi.cancel`), NotificationsSection (live `newsletterConsent` toggle invalidating `meQueryKey` from `@/hooks/useMe`), AppSettingsSection (haptics, reduce motion, Location-access row routes to `/saved-area` — owner-confirmed direction, not `Linking.openSettings()`), RedeemoSection (Become a Merchant → external `LINKS.merchantPortal` URL per owner-confirmed M2; Request a Merchant → Sub-PR 2 stub), SupportLegalSection (opens GetHelpModal Sub-PR 2 stub + Terms/Privacy/FAQ external links), DeleteAccountFlow (2-stage OTP-gated deletion).
+- **Hooks:** `useCancelSubscription` (React Query mutation invalidating `['subscription']`), `useDeleteAccount` (state machine `warning`→`otp`→`done` with token-threaded `verifyOtp(): Promise<string | null>` + `confirmDelete(overrideToken?)` to avoid stale-closure on `actionToken`; post-deletion 2.5s `router.replace` setTimeout cleared on unmount via useRef cleanup), `useReduceMotion`.
+- **Screen:** `ProfileScreen` orchestrator with safe-area-aware ScrollView padding (`paddingTop: insets.top + 16`, `paddingBottom: insets.bottom + 100` for absolute tab bar clearance — matches PR #27 shell pattern). 3 MB avatar upload cap.
+- **Route:** `app/(app)/profile.tsx` becomes a 3-line re-export of `ProfileScreen`. The tab-bar entry from PR #27 carries forward unchanged.
+- **New constants:** `apps/customer-app/src/lib/constants/supportTopics.ts`.
+- **Tests:** 15 suites / 47 tests under `apps/customer-app/src/features/profile/__tests__/` + `apps/customer-app/tests/app/profile.test.tsx`. Key pins: DeleteAccountFlow regression for the stale-closure bug (drives OTP input + asserts `deleteAccount` called with token from `verifyOtp`); NotificationsSection `meQueryKey` invalidation pin via `jest.spyOn(client, 'invalidateQueries')`; GetHelpModal 3-pin stub contract (behavioural / no-op-on-false / rising-edge-guard / static-source seam for Sub-PR 2); AppSettingsSection `/saved-area` routing pin.
+
+### Intentional Sub-PR 1 stubs (matched to SubscribePromptScreen SSO pattern)
+
+- **`GetHelpModal`** — fires `Alert.alert("Coming soon", "In-app support is coming in a future update.")` on `visible=true` rising edge.
+- **`RequestMerchantSheet`** — fires `Alert.alert("Coming soon", "Merchant requests are coming in a future update.")` on `visible=true` rising edge.
+
+Both stubs use a `fired` ref to guarantee at-most-once-per-rising-edge semantics (resets when `visible` flips false). Without the ref, a parent re-render that swaps the `onDismiss` identity while `visible` stays true would re-run the effect and surface a duplicate Coming Soon popup.
+
+### Locked product/code invariants (do not regress — pinned by tests)
+
+1. **2-stage OTP-gated delete-account** — never collapse to single-tap.
+2. **Token threading on delete-account** — `verifyOtp` returns `Promise<string | null>`; `confirmDelete` accepts `overrideToken?: string`. Reverting to `if (actionToken) await confirmDelete()` reintroduces the stale-closure bug — `DeleteAccountFlow.test.tsx` regression pin will fail.
+3. **NotificationsSection invalidates `meQueryKey`** (the `['me']` key from `@/hooks/useMe`), NOT `['profile']`. Pinned by `NotificationsSection.test.tsx`.
+4. **AppSettingsSection Location-access row** routes to `/saved-area` (in-app Your Location screen from §DF v1), NOT `Linking.openSettings()`. Pinned by `AppSettingsSection.test.tsx`.
+5. **Become a Merchant** opens `LINKS.merchantPortal` external URL (owner-confirmed). In-app Merchant Request flow ships in Sub-PR 2.
+6. **Fired-ref guard on stub modals** — `GetHelpModal` + `RequestMerchantSheet` fire Alert at most once per rising edge of `visible`. Pinned by `GetHelpModal.test.tsx`.
+7. **Safe-area-aware ScrollView padding** on `ProfileScreen`. Must NOT regress to plain `padding: 16`.
+8. **Ownership boundary** — Profile work stays in `apps/customer-app/src/features/profile/**`, `apps/customer-app/app/(app)/profile.tsx`, `apps/customer-app/src/lib/constants/supportTopics.ts`, and `apps/customer-app/tests/app/profile.test.tsx`.
+
+### Deferred — Sub-PR 2 (Tier 3, brainstorm-first)
+
+Backend for the two stubs. Trigger to pick up: support-ticket or merchant-request need surfaces in user/QA traction.
+
+- New Prisma models: `SupportTicket` + `MerchantRequest` (+ migration). Owner direction needed on field shape (ticket categories / priority / SLA / merchant-request fields).
+- New customer routes: `customer/support/tickets` (list / detail / create) + `customer/merchant-requests` (create).
+- Customer-app: new `lib/api/support.ts` + `lib/api/merchant-requests.ts` clients; hooks `useSupportTickets` / `useCreateTicket` / `useMerchantRequest`; flip the 3 GetHelpModal stub pins; swap RedeemoSection inline Alert for real RequestMerchantSheet.
+- Per locked operating model: Sub-PR 2 needs `superpowers:brainstorming` → spec → plan before implementation. Do NOT start without owner direction.
+
+### Minor follow-ups from Sub-PR 1 reviews (deferred to Tier 1 or Sub-PR 2)
+
+- Inline structural interest types in `ProfileScreen.tsx` → import `Interest` from `@/lib/api/profile`.
+- `formatDate` allocates `Intl.DateTimeFormat` per call → hoist to module scope.
+- `GetHelpModal.test.tsx` static-source pin could use a clearer Sub-PR 2 disposition comment.
+- Dead `dob` mock field in `tests/app/profile.test.tsx` (real schema uses `dateOfBirth`).
+- ProfileScreen returns `null` while loading → skeleton/spinner UI is post-launch polish.
+
+EAS build config (`eas.json`, `app.config.ts`, `expo-build-properties`) was deliberately NOT ported in Sub-PR 1 per the plan's out-of-scope section.
+
+Plan: `docs/superpowers/plans/2026-05-27-profile-tab-rebaseline.md`.
+Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_profile_tab_rebaseline_complete.md` — read this before any change to the Profile surface.
 
 ### ✅ Phase 3C.1i — QR Code Rendering (LIVE on origin/main via Voucher Detail M3 — PR #49 merge `a80f427`, 2026-05-09)
 - Backend: `GET /api/v1/redemption/me/:code` (customer self-lookup) + `POST /api/v1/redemption/:code/screenshot-flag` (dedup, pre-validation gate)
@@ -709,9 +749,9 @@ QA: `docs/superpowers/qa/2026-05-26-locationcontext-parity-device-qa.md` (3 devi
 ### 🔲 Next planned work
 
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
-2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Tracks already shipped: Merchant Profile (PR #35), Voucher Detail M1 (PR #40), M2 (PRs #43-#46), M3 (PR #49), M4 TIME_LIMITED M4a/M4b/M4c/M4d (PRs #64/#65/#66/#68), M5 REUSABLE (PR #72), **Home / Discovery / Search / Categories / Map (Phase 3C.1b)**, **Savings tab (Phase 3C.1f — PRs #104 + #105)**, and **§DF saved-profile location fallback (Phase 3C.1k — PR #128)**. Surfaces still pending rebaseline:
-   - Phase 3C.1g — Favourites screen (full surface)
-   - Phase 3C.1h — Profile tab (full surface; minimal shell on main via PR #27)
+2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Tracks already shipped: Merchant Profile (PR #35), Voucher Detail M1 (PR #40), M2 (PRs #43-#46), M3 (PR #49), M4 TIME_LIMITED M4a/M4b/M4c/M4d (PRs #64/#65/#66/#68), M5 REUSABLE (PR #72), **Home / Discovery / Search / Categories / Map (Phase 3C.1b)**, **Savings tab (Phase 3C.1f — PRs #104 + #105)**, **§DF saved-profile location fallback (Phase 3C.1k — PR #128)**, and **Profile tab Sub-PR 1 frontend port (Phase 3C.1h — PR #133)**. Surfaces still pending rebaseline:
+   - **Phase 3C.1g — Favourites screen** (full surface). Tier 2 — blocked on the branch-level scope rework: the `feature/customer-app` reference implementation is merchant-level, but Favourites is locked at branch-level since 2026-05-03 (see `project_favourites_scope_branch_level.md`). Needs Path C brainstorm-first before subagent dispatch.
+   - **Sub-PR 2 — Profile tab backend** (SupportTicket + MerchantRequest Prisma + customer routes + customer-app client/hooks; flip the 3 GetHelpModal stub pins; swap RedeemoSection inline Alert for real RequestMerchantSheet). Tier 3, brainstorm-first. Trigger to pick up: user/QA traction surfaces support-ticket or merchant-request need.
    - **Redeemed-state design pass** (Tier 2) — bundles §Q1-Q3 + §Q5 (washed-out coupon hero, REDEEMED stamp on coupon body, dimmed merchant card on Voucher Detail, Settings → Redemption History past-cycle browsing) + §S1-S3 (PIN sheet + success popup + Show-to-Staff design polish). §Q4 (merchant-profile voucher-card treatment) ✅ closed via PR #60 (PR-B, merge `ed01be9`). §S1-S3 partially closed by PR-B's impeccable passes (T8m PIN sheet, T8n SuccessPopup, T8p Show-to-Staff). Remaining §Q1-Q3 + §Q5 + the §S1-S3 polish-not-yet-shipped items are the residual scope of this pass.
    - **Customer name on Show-to-Staff** (§U1) — Tier 1 follow-up, picked up after merchant-portal validation surfaces lock so both sides design together.
 3. **Plan 4 — Location Model UK Enrichment** — Plan 4 M1-M4 SHIPPED (M1 PR #81, M2 PR #84, M3 PRs #85/#86/#88/#89, M4 PR #124). Only **M5 cleanup** remains, blocked on §CU.1 customer-web branch-first migration (Tier 3 brainstorm-first). M5 will converge with §CU as a single cleanup PR per `project_discovery_sequencing_plan4.md` + `project_deferred_followups_index.md` §CU. Plan 3 (PC3 interests → `Category` migration) stays deferred per `project_pc3_interests_category_migration.md` and should sequence after Plan 4 M5.
