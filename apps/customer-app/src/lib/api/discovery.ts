@@ -361,6 +361,12 @@ const searchResponseSchema = z.object({
   branches:      z.array(branchTileSchema).optional(),
   totalBranches: z.number().optional(),
   branchMeta:    discoveryMetaSchema.optional(),
+  // §DF-v2-j Task 7 (2026-05-26) — additive locationContext emit landed
+  // backend-side in Task 4.  `.optional()` during the rollout window so
+  // any cold-cache / pre-deploy responses still parse.  Task 10 consumes
+  // this on SearchScreen to drive <LocationStatusLabel> + retires the
+  // existing client-side savedAreaCity derivation.
+  locationContext: locationContextSchema.optional(),
 })
 export type SearchResponse = z.infer<typeof searchResponseSchema>
 
@@ -378,6 +384,12 @@ const categoryMerchantsResponseSchema = z.object({
   branches:      z.array(branchTileSchema),
   totalBranches: z.number(),
   branchMeta:    discoveryMetaSchema.optional(),
+  // §DF-v2-j Task 7 (2026-05-26) — forward-compat additive field.
+  // Backend does NOT yet emit `locationContext` on /categories/:id/merchants
+  // (out of scope for this PR per audit §9).  `.optional()` keeps the
+  // schema future-proof so a later backend emit doesn't require a
+  // customer-app schema change.
+  locationContext: locationContextSchema.optional(),
 })
 export type CategoryMerchantsResponse = z.infer<typeof categoryMerchantsResponseSchema>
 
@@ -391,6 +403,13 @@ const inAreaResponseSchema = z.object({
   // reads `branches` only post Phase 2.2).
   meta:      inAreaMetaSchema,
   branches:  z.array(branchTileSchema).optional(),
+  // §DF-v2-j Task 7 (2026-05-26) — additive user-context envelope.
+  // Backend emit landed in Task 5.  Per spec D10 + audit §4 (the in-area
+  // route note): `locationContext` describes the USER's effective
+  // location identity; `meta.effectiveLocality` (above) describes the
+  // panned-to viewport.  The two fields are intentionally separate —
+  // consumers read whichever they need.  `.optional()` during rollout.
+  locationContext: locationContextSchema.optional(),
 })
 export type InAreaResponse = z.infer<typeof inAreaResponseSchema>
 
