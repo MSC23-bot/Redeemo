@@ -87,12 +87,17 @@ jest.mock('@/hooks/useCategories', () => ({
   }),
 }))
 
+// Per-test override for useUserLocation's `status` field so pins can
+// exercise the showLocationPermission gate's actual branches (the
+// gate requires status === 'idle' to fire).  Default 'granted'
+// preserves the existing §LSL-Map pin's setup.
+const mockLocationStatusRef = { current: 'granted' as 'idle' | 'granted' | 'denied' | 'loading' }
 jest.mock('@/hooks/useLocation', () => ({
   useUserLocation: () => ({
     location:          { lat: 53.6458, lng: -1.785, area: null, city: null },
     coords:            { lat: 53.6458, lng: -1.785 },
-    status:            'granted',
-    permission:        'denied', // saved-profile fallback (Tracks §DF-v2-i tightened invariant)
+    status:            mockLocationStatusRef.current,
+    permission:        'denied',
     request:           jest.fn(),
     requestPermission: jest.fn(),
     openSettings:      jest.fn(),
@@ -111,8 +116,17 @@ jest.mock('expo-router', () => ({
 // to gate the showLocationPermission overlay (skipped when the user
 // has saved-profile coords).  Mock useMe with a holder so the new pin
 // can swap in profile coords without rewriting the factory.
+// PR #131 pre-merge fix #2 (2026-05-26) — Map's permission-overlay
+// gate now reads `localityId + latitude + longitude` (mirrors
+// §DF-v2-i exactly).  Extend the mock to expose all three so the
+// pin can pin both the complete-profile happy path AND the negative
+// case where lat/lng exist without localityId.
 const mockMeRef = {
-  current: null as null | { latitude: number | null; longitude: number | null },
+  current: null as null | {
+    latitude:   number | null
+    longitude:  number | null
+    localityId: string | null
+  },
 }
 jest.mock('@/hooks/useMe', () => ({
   useMe: () => ({ data: mockMeRef.current }),
@@ -120,7 +134,8 @@ jest.mock('@/hooks/useMe', () => ({
 }))
 
 beforeEach(() => {
-  mockMeRef.current = null
+  mockMeRef.current             = null
+  mockLocationStatusRef.current = 'granted'
 })
 
 import { MapScreen } from '@/features/map/screens/MapScreen'
@@ -158,8 +173,8 @@ describe('§DF-v2-j Task 11 — MapScreen mounts <LocationStatusLabel variant=ch
     expect(getByText('Map centred near Huddersfield')).toBeTruthy()
   })
 
-  // Round 1 device-QA item 3 regression pin.
-  it('§LSL-Map-permission-overlay-skip — Map does NOT show the blocking "Enable Location" overlay when the user has saved-profile coords', () => {
+  // Round 1 device-QA item 3 regression pin (extended in PR #131 fix #2).
+  it('§LSL-Map-permission-overlay-skip — Map does NOT show the blocking "Enable Location" overlay when the user has a COMPLETE saved profile (localityId + lat + lng) AND GPS is idle', () => {
     // Owner-reported bug: profile-location users (Brightlingsea
     // backfilled per §DF v1) were being blocked by the
     // "Find merchants near you / Enable Location / Browse without
@@ -167,7 +182,19 @@ describe('§DF-v2-j Task 11 — MapScreen mounts <LocationStatusLabel variant=ch
     // `showLocationPermission` is gated on the ABSENCE of saved-
     // profile coords too — users with NEITHER GPS NOR saved profile
     // still see the overlay (kept for the genuine no-location case).
-    mockMeRef.current = { latitude: 51.825, longitude: 1.027 } // Brightlingsea-ish
+    //
+    // PR #131 pre-merge fix #2 — the gate now requires ALL THREE of
+    // localityId + latitude + longitude (mirrors §DF-v2-i exactly).
+    // Test sets status='idle' so the gate's `status === 'idle'`
+    // first arm actually fires — otherwise the gate short-circuits
+    // before the profile predicate is evaluated, making the test
+    // pass for the wrong reason.
+    mockLocationStatusRef.current = 'idle'
+    mockMeRef.current = {
+      latitude:   51.825,
+      longitude:  1.027,
+      localityId: 'l-brightlingsea',
+    }
 
     const { queryByText, getByTestId } = render(<MapScreen />, { wrapper })
 
@@ -179,5 +206,25 @@ describe('§DF-v2-j Task 11 — MapScreen mounts <LocationStatusLabel variant=ch
     // Chip (the post-overlay location identity affordance) IS visible
     // — Map opened directly into the user's profile-bbox experience.
     expect(getByTestId('location-status-label')).toBeTruthy()
+  })
+
+  // PR #131 pre-merge fix #2 (2026-05-26) — §DF-v2-i alignment
+  // negative pin.  Lat/lng without a localityId is an incomplete
+  // profile post-§DF-v2-i; backend `resolveLocationContext` returns
+  // `source='none'` for this cohort, so Map must NOT suppress the
+  // overlay (the user IS a true no-location user from backend's POV).
+  it('§LSL-Map-permission-overlay-shown-when-localityId-missing — Map DOES show the overlay when lat/lng exist but localityId is null AND GPS is idle', () => {
+    mockLocationStatusRef.current = 'idle'
+    mockMeRef.current = {
+      latitude:   51.825,
+      longitude:  1.027,
+      localityId: null, // ← incomplete profile per §DF-v2-i
+    }
+
+    const { getByText } = render(<MapScreen />, { wrapper })
+
+    // Overlay copy MUST be visible — user is treated as no-location,
+    // matching backend `source='none'` for the same fixture shape.
+    expect(getByText('Find merchants near you')).toBeTruthy()
   })
 })

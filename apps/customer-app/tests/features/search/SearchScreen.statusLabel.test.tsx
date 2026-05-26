@@ -77,10 +77,20 @@ jest.mock('expo-router', () => ({
 // the §LSL-Search-idle pin can assert the synthesized profile
 // envelope flows through to <LocationStatusLabel> + savedAreaCity
 // before any search has fired.
+// PR #131 pre-merge fix #1 (2026-05-26) — the §DF-v2-i alignment
+// tightens SearchScreen's profile-envelope synthesis to require
+// `localityId + latitude + longitude` all three (mirrors backend
+// exactly).  Extend the mock to expose all the fields the synthesis
+// now reads so we can pin both the happy path (complete profile)
+// and the negative cases (city-text-only, locality-only without
+// lat/lng).
 const mockMeRef = {
   current: null as null | {
-    locality: { id: string; name: string; postTown: string | null; region: string | null } | null
-    city:     string | null
+    locality:   { id: string; name: string; postTown: string | null; region: string | null } | null
+    localityId: string | null
+    latitude:   number | null
+    longitude:  number | null
+    city:       string | null
   },
 }
 jest.mock('@/hooks/useMe', () => ({
@@ -177,14 +187,18 @@ describe('§DF-v2-j Task 10 + Round 2 — SearchScreen mounts <LocationStatusLab
 
   // Round 2 device-QA item 2 regression pin (reframed from Round 1).
   it('§LSL-Search-idle-no-label — label is HIDDEN in idle state EVEN when the user has a profile location (Round 2 product decision: empty-state copy carries the location identity in idle/empty states)', () => {
-    // Profile-location user, no search typed: the label MUST NOT
-    // render at the top of Search.  The profile-aware empty state
-    // ("Searching near Brightlingsea ...") carries the location copy
-    // when relevant; the top-strip would be redundant chrome.
+    // Profile-location user (complete profile), no search typed: the
+    // label MUST NOT render at the top of Search.  The profile-aware
+    // empty state ("Searching near Brightlingsea ...") carries the
+    // location copy when relevant; the top-strip would be redundant
+    // chrome.
     mockState.locationContext = null
     mockMeRef.current = {
-      locality: { id: 'l-brightlingsea', name: 'Brightlingsea', postTown: 'Colchester', region: 'England' },
-      city:     null,
+      locality:   { id: 'l-brightlingsea', name: 'Brightlingsea', postTown: 'Colchester', region: 'England' },
+      localityId: 'l-brightlingsea',
+      latitude:   51.8255,
+      longitude:  1.0273,
+      city:       null,
     }
     const { queryByTestId } = render(<SearchScreen />, { wrapper })
     expect(queryByTestId('location-status-label')).toBeNull()
@@ -195,15 +209,20 @@ describe('§DF-v2-j Task 10 + Round 2 — SearchScreen mounts <LocationStatusLab
   // drives the city when data.locationContext happens to be
   // undefined (forward-compat: backend response shape shouldn't
   // break the label).
-  it('§LSL-Search-results-with-synth — label renders in results state with profile-synthesized envelope when data.locationContext is undefined', async () => {
+  it('§LSL-Search-results-with-synth — label renders in results state with profile-synthesized envelope when data.locationContext is undefined AND profile is complete (localityId + lat + lng)', async () => {
     mockState.locationContext = null // backend didn't send envelope
     mockState.branches = [{
       id: 'b1', branchName: 'Sea View', branchLocalityId: 'l-brightlingsea',
       branchLocalityName: 'Brightlingsea', merchant: { id: 'm1', businessName: 'Test' },
     } as any]
+    // Complete profile — all three of localityId + latitude + longitude
+    // satisfy the §DF-v2-i alignment predicate (PR #131 fix #1).
     mockMeRef.current = {
-      locality: { id: 'l-brightlingsea', name: 'Brightlingsea', postTown: 'Colchester', region: 'England' },
-      city:     null,
+      locality:   { id: 'l-brightlingsea', name: 'Brightlingsea', postTown: 'Colchester', region: 'England' },
+      localityId: 'l-brightlingsea',
+      latitude:   51.8255,
+      longitude:  1.0273,
+      city:       null,
     }
 
     const { getByPlaceholderText, getByTestId } = render(<SearchScreen />, { wrapper })
@@ -212,5 +231,58 @@ describe('§DF-v2-j Task 10 + Round 2 — SearchScreen mounts <LocationStatusLab
     await waitFor(() => expect(getByTestId('location-status-label')).toBeTruthy())
     const city = getByTestId('location-status-city')
     expect(city.props.children).toBe('Brightlingsea')
+  })
+
+  // PR #131 pre-merge fix #1 (2026-05-26) — §DF-v2-i alignment pins.
+  // Owner-locked: SearchScreen's profile-envelope synthesis MUST
+  // mirror backend EXACTLY.  Pre-fix the synth fired when EITHER
+  // locality OR city was set, which let users with partial profiles
+  // see profile-location UI on Search while backend routes correctly
+  // returned `source='none'` for the same cohort.
+  it('§LSL-Search-synth-city-text-only — city-text-only profile (no localityId / lat / lng) does NOT synthesize source=profile; label stays hidden', async () => {
+    mockState.locationContext = null
+    mockState.branches = [{
+      id: 'b1', branchName: 'Sea View', branchLocalityId: 'l-brightlingsea',
+      branchLocalityName: 'Brightlingsea', merchant: { id: 'm1', businessName: 'Test' },
+    } as any]
+    mockMeRef.current = {
+      locality:   null,
+      localityId: null,
+      latitude:   null,
+      longitude:  null,
+      city:       'Brightlingsea', // user has a free-text city ONLY
+    }
+
+    const { getByPlaceholderText, queryByTestId } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'cafe')
+
+    // Even in results state, the synthesis returns undefined (city
+    // text alone is insufficient post-§DF-v2-i alignment), so the
+    // label MUST stay hidden — matches backend `source='none'` for
+    // this same fixture shape.
+    expect(queryByTestId('location-status-label')).toBeNull()
+  })
+
+  it('§LSL-Search-synth-locality-only — locality set but lat/lng null does NOT synthesize source=profile; label stays hidden', async () => {
+    mockState.locationContext = null
+    mockState.branches = [{
+      id: 'b1', branchName: 'Sea View', branchLocalityId: 'l-brightlingsea',
+      branchLocalityName: 'Brightlingsea', merchant: { id: 'm1', businessName: 'Test' },
+    } as any]
+    mockMeRef.current = {
+      locality:   { id: 'l-brightlingsea', name: 'Brightlingsea', postTown: 'Colchester', region: 'England' },
+      localityId: 'l-brightlingsea',
+      latitude:   null,   // ← incomplete profile per §DF-v2-i
+      longitude:  null,
+      city:       null,
+    }
+
+    const { getByPlaceholderText, queryByTestId } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'cafe')
+
+    // Backend's `resolveLocationContext` would return `source='none'`
+    // for this user (§DF-v2-i-U3 pin).  The Search synthesis MUST
+    // match — no profile envelope, label hidden.
+    expect(queryByTestId('location-status-label')).toBeNull()
   })
 })

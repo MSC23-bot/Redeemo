@@ -135,12 +135,19 @@ export async function discoveryRoutes(app: FastifyInstance) {
     // envelope, inject at the response root.  Pure service helpers
     // (searchMerchants / searchBranches) stay free of `FastifyRequest`
     // and free of `locationContext` concerns.
-    const ctx             = await resolveLocationContext(app.prisma, userId, params.lat ?? null, params.lng ?? null)
-    const locationContext = toLocationContextWire(ctx)
-    const [merchantResult, branchResult] = await Promise.all([
+    //
+    // PR #131 pre-merge fix #3 (2026-05-26) — parallelize the resolve
+    // into Promise.all alongside the existing service calls.  Pre-fix
+    // the resolve was serial BEFORE the Promise.all, costing ~10-30ms
+    // of wall-time per request.  All three calls are now independent
+    // DB reads, so they run concurrently against the same Prisma
+    // connection pool.
+    const [ctx, merchantResult, branchResult] = await Promise.all([
+      resolveLocationContext(app.prisma, userId, params.lat ?? null, params.lng ?? null),
       searchMerchants(app.prisma, { ...params, userId }),
       searchBranches(app.prisma, { ...params, userId }),
     ])
+    const locationContext = toLocationContextWire(ctx)
     // PR-2 device-QA fix (2026-05-19) — emit `branchMeta` as a separate
     // field alongside the legacy `...merchantResult` spread so consumers
     // reading `branches[]` can also read branch-aligned counts +
@@ -255,15 +262,19 @@ export async function discoveryRoutes(app: FastifyInstance) {
     // intentionally separate from `meta.effectiveLocality` (the viewport
     // locality the map is panned to) per spec D10.  Both fields ride the
     // same response payload; consumers read whichever they need.
-    const ctx             = await resolveLocationContext(app.prisma, userId, query.lat ?? null, query.lng ?? null)
-    const locationContext = toLocationContextWire(ctx)
+    //
+    // PR #131 pre-merge fix #3 (2026-05-26) — parallelized with the
+    // existing in-area service calls.  Same rationale as /search: the
+    // three reads are independent so we run them concurrently against
+    // the Prisma pool, saving ~10-30ms of wall-time per request.
     // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
     // `branches` field additively alongside the legacy `merchants` field.
     // In-area has no `totalBranches` (no pagination — Map shows all pins in
     // the viewport up to `limit`). Consumers continue reading legacy until
     // Phase 2 surface PRs migrate individually.
     const bbox = { minLat: query.minLat, maxLat: query.maxLat, minLng: query.minLng, maxLng: query.maxLng }
-    const [merchantResult, branchResult] = await Promise.all([
+    const [ctx, merchantResult, branchResult] = await Promise.all([
+      resolveLocationContext(app.prisma, userId, query.lat ?? null, query.lng ?? null),
       getInAreaMerchants(app.prisma, {
         bbox,
         categoryId: query.categoryId,
@@ -281,6 +292,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
         limit:      query.limit,
       }),
     ])
+    const locationContext = toLocationContextWire(ctx)
     return reply.send({
       ...merchantResult,
       branches:        branchResult.branches,

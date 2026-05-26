@@ -188,14 +188,32 @@ export function SearchScreen() {
   const responseLocationContext  = data?.locationContext
   const profileLocationContext: LocationContext | undefined = (() => {
     if (responseLocationContext) return undefined // response wins; no synth needed
+    // §DF-v2-i alignment (PR #131 pre-merge fix #1) — mirror backend
+    // EXACTLY: `source='profile'` requires ALL THREE of localityId +
+    // latitude + longitude.  Pre-fix the synth was looser
+    // (`locality || city`) which meant a city-text-only or
+    // locality-only profile saw the profile-location UI on Search
+    // even though backend correctly returned `source='none'` for the
+    // same cohort.  The looseness made Search drift from the locked
+    // §DF-v2-i invariant.  Now: complete-profile-only synthesis;
+    // city-text alone never synthesizes.
+    const hasCompleteSavedProfile =
+      me.data?.localityId != null
+      && me.data?.latitude  != null
+      && me.data?.longitude != null
+    if (!hasCompleteSavedProfile) return undefined
     // Profile.locality has 4 fields (id / name / postTown / region);
     // LocationContext.locality has 2 (id / name).  Narrow the shape
     // here so the synthesized envelope matches the wire schema.
     const locality = me.data?.locality
       ? { id: me.data.locality.id, name: me.data.locality.name }
       : null
-    const city = locality?.name ?? me.data?.city ?? null
-    if (!locality && !city) return undefined
+    // City derives from the joined locality.name only.  Backend behaves
+    // identically — the `User.city` text field is NEVER used as the
+    // profile city after §DF-v2-i.  Fallback to null if locality
+    // wasn't joined (defensive); label renders "Using profile
+    // location" (D8 fallback) for that edge.
+    const city = locality?.name ?? null
     return { source: 'profile', city, locality }
   })()
   const locationContext = responseLocationContext ?? profileLocationContext

@@ -32,12 +32,20 @@ import type { LocationContext } from '@/lib/api/shared/location'
  *
  * Tap target: every renderable state routes to `/saved-area`.
  *
- * Variant (spec §7.3 + amendment 5):
- *   - `strip` (default) → Home + Search — full-width row, bottom hairline only.
- *   - `chip`            → Map           — pill-shaped overlay with subtle
- *                                          elevation, positioned by the
- *                                          mount parent (the chip itself is
- *                                          layout-agnostic).
+ * Variant (spec §7.3 + amendment 5; final shipped state):
+ *   - `strip` (default) → consumed by:
+ *       • Search — mounted below <SearchBar> ONLY when results render
+ *         (Task 13 Round 2: hidden in idle / empty / loading where
+ *         <SearchEmptyState> copy already carries the location
+ *         identity).  Default chrome (cream tint + bottom hairline).
+ *       • Home — mounted INSIDE <HomeHeader>'s left column at the
+ *         GPS-row rhythm (Task 13 Round 3) with `flush=true` so the
+ *         cream chrome is dropped and the label sits inline with the
+ *         existing greeting + location row.
+ *   - `chip`            → Map — pill-shaped overlay floating above the
+ *                                map view; positioned by the mount
+ *                                parent (the chip itself is layout-
+ *                                agnostic).
  *
  * Owner-locked copy migration: ALL `source='profile'` text uses "profile
  * location" wording (NOT "saved area" / "saved location").  See D8 in
@@ -60,16 +68,14 @@ export type LocationStatusLabelProps = {
   // `undefined`, so the union opt-out is required.
   locationContext?: LocationContext | undefined
   variant?:         LocationStatusLabelVariant | undefined
-  // Task 13 Round 1 device-QA item 1 (2026-05-26) — Home mount felt
-  // like a "detached strip" because the strip variant's cream-tint
-  // background + bottom hairline created visual segmentation under
-  // <HomeHeader> (which has no own bottom divider).  `flush=true`
-  // drops the chrome (transparent background, no border, content-
-  // width) so the label feels like part of HomeHeader's existing
-  // location-row rhythm.  Search keeps `flush=false` (default) because
-  // it's the topmost element above SearchBar with no surrounding
-  // header — the cream pill is the right visual identity there.
-  // Chip variant ignores this prop (chip styling is unchanged).
+  // `flush=true` drops the strip variant's cream-tint background +
+  // bottom hairline so the label can sit inline with a parent
+  // component's existing layout rhythm (Task 13 Round 3 — Home uses
+  // this to render the label inside HomeHeader's location-row slot
+  // next to the greeting).  Search uses `flush=false` (default) so
+  // the cream pill chrome demarcates the label as its own banner
+  // above the results below.  Chip variant ignores this prop (chip
+  // styling is unchanged).
   flush?:           boolean | undefined
 }
 

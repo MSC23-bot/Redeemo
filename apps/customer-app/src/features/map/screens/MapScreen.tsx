@@ -255,14 +255,25 @@ export function MapScreen(_props: Props) {
   // their saved-profile bbox (initial-camera cascade at L335 already
   // handles this), so the blocking "Enable Location / Browse without
   // location" overlay is misleading + intrusive.  Gate it on the
-  // absence of saved-profile coords too.  Users with NEITHER GPS NOR
-  // a saved profile still see the overlay.
-  const hasSavedProfileCoords =
-    me.data?.latitude != null && me.data?.longitude != null
+  // absence of a complete saved profile too.  Users with NEITHER GPS
+  // NOR a complete saved profile still see the overlay.
+  //
+  // PR #131 pre-merge fix #2 (2026-05-26) — align with §DF-v2-i:
+  // mirror backend EXACTLY by requiring localityId + latitude +
+  // longitude all three.  Pre-fix the gate read only lat/lng — a
+  // user with lat/lng but missing localityId would have been
+  // suppressed from the overlay even though backend
+  // `resolveLocationContext` returns `source='none'` for them (and
+  // discovery rails fall back to UK-wide).  Now Map's overlay gate
+  // matches the backend's profile-completeness predicate.
+  const hasCompleteSavedProfile =
+    me.data?.localityId != null
+    && me.data?.latitude  != null
+    && me.data?.longitude != null
   const showLocationPermission =
     !locationPermissionDismissed
     && locationState.status === 'idle'
-    && !hasSavedProfileCoords
+    && !hasCompleteSavedProfile
 
   // ─── Bbox handlers ─────────────────────────────────────────────────────────
   const handleRegionChangeComplete = useCallback((newRegion: Region) => {

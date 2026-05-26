@@ -591,3 +591,115 @@ D6 coexistence preserved: `<SavedAreaHonestyHint>` continues to mount BELOW the 
 **Device-only:** Pending owner re-QA on Brightlingsea / Round 3.
 
 **Pre-PR-opening gate:** AWAITING owner final re-QA. Round 3 is one structural change (label moves into HomeHeader); the new `§LSL-Home-inside-header` pin locks the placement so future contributors can't drift it back to a standalone strip.
+
+---
+
+## §11. PR #131 pre-merge fixup round — independent-review findings
+
+**Date:** 2026-05-26 (PR opened; owner ran an independent review before approving merge).
+
+Three small fixups requested before merge approval. All three patched + pinned; one stale docblock cleanup applied; round-N annotation cleanup deferred post-merge per owner direction.
+
+### 11.1 Fix #1 — Search idle synthesis tightened to mirror §DF-v2-i
+
+**Finding (⚠️ alignment bug):** SearchScreen's `useMe()`-driven idle-state fallback synthesized `source='profile'` when EITHER `me.data.locality` OR `me.data.city` was set. Backend §DF-v2-i requires ALL THREE of `localityId + latitude + longitude` for `source='profile'`. The asymmetry meant Search could show profile-location UI for cohorts that backend routes correctly treat as `source='none'` (e.g. pre-PC2 users with `User.city` text but no localityId/lat/lng).
+
+**Fix:** Synth predicate tightened to mirror backend exactly:
+
+```typescript
+const hasCompleteSavedProfile =
+  me.data?.localityId != null
+  && me.data?.latitude  != null
+  && me.data?.longitude != null
+if (!hasCompleteSavedProfile) return undefined
+```
+
+City derivation also tightened — no longer falls back to `me.data.city` text alone. City comes from the joined `me.data.locality.name`, defaulting to null if locality wasn't joined (defensive — label renders "Using profile location" per the D8 fallback).
+
+**Pins added / updated:**
+
+- §LSL-Search-idle-no-label / §LSL-Search-results-with-synth — existing pins extended to set `localityId + latitude + longitude` on the mock so they still pass against the tightened predicate.
+- NEW §LSL-Search-synth-city-text-only — city-text-only profile (no locality / lat / lng) does NOT synthesize; label stays hidden even in results state.
+- NEW §LSL-Search-synth-locality-only — locality set but lat/lng null does NOT synthesize. Matches backend §DF-v2-i-U3 (incomplete profile → `source='none'`).
+
+**Status:** ✅ PATCHED — code change in `src/features/search/screens/SearchScreen.tsx`.
+
+### 11.2 Fix #2 — Map permission gate aligned to same complete-profile predicate
+
+**Finding (⚠️ alignment bug):** Map's `showLocationPermission` gate suppressed the overlay when `latitude + longitude` were present — but Backend `resolveLocationContext` requires `localityId` too. A user with lat/lng but no localityId would skip the overlay (Map opens directly) but backend routes return `source='none'` — discovery rails fall back to UK-wide. Mismatched UX vs backend semantics.
+
+**Fix:** Map's `hasSavedProfileCoords` renamed to `hasCompleteSavedProfile`, gates on all three fields:
+
+```typescript
+const hasCompleteSavedProfile =
+  me.data?.localityId != null
+  && me.data?.latitude  != null
+  && me.data?.longitude != null
+```
+
+**Pins added / updated:**
+
+- §LSL-Map-permission-overlay-skip — existing pin extended to set `localityId` + `status: 'idle'` (the previous mock used `status: 'granted'` which short-circuited the gate before the profile predicate fired — making the test pass for the wrong reason).
+- NEW §LSL-Map-permission-overlay-shown-when-localityId-missing — lat/lng without localityId DOES show the overlay (matches backend `source='none'` for the same cohort).
+
+**Status:** ✅ PATCHED — code change in `src/features/map/screens/MapScreen.tsx`.
+
+### 11.3 Fix #3 — Parallelize route-level `resolveLocationContext` on `/search` + `/discovery/in-area`
+
+**Finding (⚠️ performance):** Both routes resolved `locationContext` BEFORE the existing `Promise.all([searchMerchants, searchBranches])` (or `[getInAreaMerchants, getInAreaBranches]`) parallel fan-out. The 1-2 DB reads ran serially, adding ~10-30ms wall-time per request.
+
+**Fix:** Folded the resolve into the same `Promise.all`:
+
+```typescript
+const [ctx, merchantResult, branchResult] = await Promise.all([
+  resolveLocationContext(app.prisma, userId, params.lat ?? null, params.lng ?? null),
+  searchMerchants(app.prisma, { ...params, userId }),
+  searchBranches(app.prisma, { ...params, userId }),
+])
+const locationContext = toLocationContextWire(ctx)
+```
+
+Same pattern applied to `/discovery/in-area`. `/home` + `/merchants/:id` retain the sequential resolve — both call a SINGLE service (not parallel), so there's no concurrent arm to fold into.
+
+**Pin coverage:** the existing 12 §DF-v2-j-S/I/M integration pins exercise both routes against real Neon — confirmed 16/16 pass post-parallelization (route observable behaviour unchanged; only wall-time improved).
+
+**Status:** ✅ PATCHED — code change in `src/api/customer/discovery/routes.ts`.
+
+### 11.4 Stale docblock cleanup in `LocationStatusLabel.tsx` (cleanup, non-blocking)
+
+**Finding:** Two docblock sections referenced pre-Round-2/3 state — claimed strip is "Home + Search" without describing the post-Round-3 split where Home consumes via HomeHeader, and described Search as the topmost element above SearchBar when Round 2 actually moved it below.
+
+**Fix:** Refreshed both docblocks to describe the final shipped state. Round-N annotation cleanup deferred to a post-merge follow-up per owner direction.
+
+**Status:** ✅ PATCHED — code change in `src/lib/location/LocationStatusLabel.tsx` (docblock only).
+
+### 11.5 Items deferred per owner direction
+
+- **SearchScreen synthesis useMemo** — Claude's self-review suggested `useMemo` to prevent the IIFE running on every render. Per owner: "not a merge blocker, can be deferred if the synthesis predicate is fixed". The predicate IS fixed in fix #1; useMemo not added in this round.
+- **Round-N annotation cleanup** — Per owner: post-merge cleanup unless a comment is actively misleading. The §11.4 docblock refresh covers the actively-misleading ones; remaining `// Task 13 Round N` markers are factual + load-bearing for the QA history. Deferred.
+
+---
+
+## §12. PR #131 fixup-round gate summary
+
+**Simulator / unit-level:** ✅ PASS
+
+- Focused 4-suite gate (LSL component + Search status label + SearchEmptyState profileAware + MapScreen status label): **36/36 PASS** (+3 new pins from fix #1 + fix #2 negative cases; +1 reframed existing pin).
+- Customer-app full impacted-surface sweep (Home + Search + Map + lib, 58 files): **408/408 PASS** (was 405; +3 new pins).
+- Backend §DF-v2-j parity + §DF-v2-i unit pins (`locationcontext-parity.test.ts` + `resolveLocationContext.test.ts`): **16/16 PASS**.
+- customer-app `tsc --noEmit`: exit 0 clean.
+- backend `tsc --noEmit`: 0 new errors (4 pre-existing CLAUDE.md-documented baseline only).
+
+**Behaviour change scope (front + back):**
+
+| Surface | Pre-fixup | Post-fixup |
+|---|---|---|
+| Search idle (city-text-only profile) | Showed profile-aware empty state (synthesized `source='profile'`) | Shows no-location empty state ("Set your area") — matches backend `source='none'` |
+| Search idle (locality without lat/lng) | Showed profile-aware empty state | Shows no-location empty state — matches backend §DF-v2-i-U3 |
+| Search idle (complete profile) | Showed profile-aware empty state | Unchanged ✅ |
+| Map overlay (lat/lng without localityId) | Hidden (Map opens directly) | Visible — matches backend's no-location treatment |
+| Map overlay (complete profile) | Hidden | Unchanged ✅ |
+| `/search` route wall-time | resolve → Promise.all (~+10-30ms) | resolve IN Promise.all (saved ~10-30ms) |
+| `/discovery/in-area` route wall-time | Same pre-fix pattern | Same post-fix pattern |
+
+**Pre-PR-merge gate:** AWAITING owner approval. The 3 alignment fixes close the front-end / back-end behaviour gap; the parallelization fix is a Pareto improvement with no observable behaviour change.
