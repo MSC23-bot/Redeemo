@@ -7,6 +7,7 @@ import {
   getCampaignMerchants, getCampaignBranches,
   getCategoryMerchants, getCategoryBranches,
   getInAreaMerchants, getInAreaBranches,
+  resolveLocationContext, toLocationContextWire,
 } from './service'
 import { getEligibleAmenitiesForSubcategory } from '../../lib/amenity'
 import { optionalUserId } from '../plugin'
@@ -51,11 +52,15 @@ export async function discoveryRoutes(app: FastifyInstance) {
       lng: z.coerce.number().optional(),
     }).parse(req.query)
     const userId = optionalUserId(req)
-    const feed = await getHomeFeed(app.prisma, {
-      userId,
-      lat: query.lat ?? null,
-      lng: query.lng ?? null,
-    })
+    const lat    = query.lat ?? null
+    const lng    = query.lng ?? null
+    // §DF-v2-j Task 2 — route-level `locationContext` resolution (variant
+    // (a) per `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md`).
+    // Resolve once, strip to the 3-field wire envelope, then thread into
+    // `getHomeFeed`.  The service no longer resolves internally.
+    const ctx             = await resolveLocationContext(app.prisma, userId, lat, lng)
+    const locationContext = toLocationContextWire(ctx)
+    const feed = await getHomeFeed(app.prisma, { userId, lat, lng, locationContext })
     return reply.send(feed)
   })
 

@@ -36,10 +36,24 @@ import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { getHomeFeed } from '../../../../src/api/customer/discovery/service'
+import { getHomeFeed, resolveLocationContext, toLocationContextWire } from '../../../../src/api/customer/discovery/service'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma  = new PrismaClient({ adapter })
+
+// §DF-v2-j Task 2 — mirror of the `/home` route handler's resolve + strip
+// for direct service-call tests.  Production code path is in
+// `src/api/customer/discovery/routes.ts`; this helper exists so the suite's
+// 5 direct `getHomeFeed` invocations don't repeat the boilerplate.
+async function homeFeedAt(lat: number | null, lng: number | null, userId: string | null = null) {
+  const ctx = await resolveLocationContext(prisma, userId, lat, lng)
+  return getHomeFeed(prisma, {
+    userId,
+    lat,
+    lng,
+    locationContext: toLocationContextWire(ctx),
+  })
+}
 
 const FIXTURE_PREFIX = 'rbl-home-gate-'
 
@@ -310,11 +324,7 @@ const TEST_TIMEOUT_MS = 30_000
 
 describe('Strict-locality identity gate — Featured local state (§6.4.1)', () => {
   it('passes via branch.localityId === effLoc.locality.id → tail tile surfaces in featuredRail', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    HUDDERSFIELD.lat,
-      lng:    HUDDERSFIELD.lng,
-    }) as any
+    const feed = await homeFeedAt(HUDDERSFIELD.lat, HUDDERSFIELD.lng) as any
     // Sanity — we expect the rail in local-claim state because the anchor
     // rankable branch provides NEARBY supply.  If the seed-level Bristol/
     // Huddersfield supply happens to cascade the rail, the strict gate is
@@ -326,31 +336,19 @@ describe('Strict-locality identity gate — Featured local state (§6.4.1)', () 
   }, TEST_TIMEOUT_MS)
 
   it('passes via branch.localityName case-insensitive', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    HUDDERSFIELD.lat,
-      lng:    HUDDERSFIELD.lng,
-    }) as any
+    const feed = await homeFeedAt(HUDDERSFIELD.lat, HUDDERSFIELD.lng) as any
     const ids = (feed.featuredRail.branches as any[]).map(t => t.id)
     expect(ids).toContain(TAIL_NAME_BRANCH_ID)
   }, TEST_TIMEOUT_MS)
 
   it('passes via branch.postTown case-insensitive', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    HUDDERSFIELD.lat,
-      lng:    HUDDERSFIELD.lng,
-    }) as any
+    const feed = await homeFeedAt(HUDDERSFIELD.lat, HUDDERSFIELD.lng) as any
     const ids = (feed.featuredRail.branches as any[]).map(t => t.id)
     expect(ids).toContain(TAIL_POSTTOWN_BRANCH_ID)
   }, TEST_TIMEOUT_MS)
 
   it('fails all three identity checks → tail tile EXCLUDED from local-claim rail', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    HUDDERSFIELD.lat,
-      lng:    HUDDERSFIELD.lng,
-    }) as any
+    const feed = await homeFeedAt(HUDDERSFIELD.lat, HUDDERSFIELD.lng) as any
     // Only meaningful in local-claim state.  If cascade somehow fires
     // (no local supply anywhere — unlikely given the anchor branch but
     // skip the assertion if so), the permissive tail would let the
@@ -368,11 +366,7 @@ describe('Strict-locality identity gate — Featured local state (§6.4.1)', () 
     // The seed does not GUARANTEE cascade fires here, so we assert
     // conditionally: when cascade fires, the Leeds-identity tail branch
     // (which would fail strict gate) MUST surface.
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    BRISTOL.lat,
-      lng:    BRISTOL.lng,
-    }) as any
+    const feed = await homeFeedAt(BRISTOL.lat, BRISTOL.lng) as any
     expect(feed.featuredRail).toBeDefined()
     if (feed.featuredRail?.meta?.scopeExpanded === true) {
       const ids = (feed.featuredRail.branches as any[]).map(t => t.id)
