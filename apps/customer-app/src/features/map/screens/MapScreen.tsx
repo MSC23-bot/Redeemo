@@ -249,8 +249,20 @@ export function MapScreen(_props: Props) {
 
   const categories = categoriesData?.categories ?? []
 
+  // Task 13 Round 1 device-QA item 3 (2026-05-26) — a user with a saved
+  // profile location (postcode → lat/lng/localityId backfilled per §DF
+  // v1) is NOT a true no-location user.  The Map can open directly in
+  // their saved-profile bbox (initial-camera cascade at L335 already
+  // handles this), so the blocking "Enable Location / Browse without
+  // location" overlay is misleading + intrusive.  Gate it on the
+  // absence of saved-profile coords too.  Users with NEITHER GPS NOR
+  // a saved profile still see the overlay.
+  const hasSavedProfileCoords =
+    me.data?.latitude != null && me.data?.longitude != null
   const showLocationPermission =
-    !locationPermissionDismissed && locationState.status === 'idle'
+    !locationPermissionDismissed
+    && locationState.status === 'idle'
+    && !hasSavedProfileCoords
 
   // ─── Bbox handlers ─────────────────────────────────────────────────────────
   const handleRegionChangeComplete = useCallback((newRegion: Region) => {

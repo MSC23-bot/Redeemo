@@ -60,6 +60,17 @@ export type LocationStatusLabelProps = {
   // `undefined`, so the union opt-out is required.
   locationContext?: LocationContext | undefined
   variant?:         LocationStatusLabelVariant | undefined
+  // Task 13 Round 1 device-QA item 1 (2026-05-26) — Home mount felt
+  // like a "detached strip" because the strip variant's cream-tint
+  // background + bottom hairline created visual segmentation under
+  // <HomeHeader> (which has no own bottom divider).  `flush=true`
+  // drops the chrome (transparent background, no border, content-
+  // width) so the label feels like part of HomeHeader's existing
+  // location-row rhythm.  Search keeps `flush=false` (default) because
+  // it's the topmost element above SearchBar with no surrounding
+  // header — the cream pill is the right visual identity there.
+  // Chip variant ignores this prop (chip styling is unchanged).
+  flush?:           boolean | undefined
 }
 
 // Internal derived state.  The state machine is exhaustive — every
@@ -99,6 +110,7 @@ export function deriveLocationStatusState(
 export function LocationStatusLabel({
   locationContext,
   variant = 'strip',
+  flush = false,
 }: LocationStatusLabelProps): React.ReactElement | null {
   const router = useRouter()
   const { permission } = useUserLocation()
@@ -137,7 +149,17 @@ export function LocationStatusLabel({
     }
   })()
 
-  const containerStyle = variant === 'chip' ? styles.chip : styles.strip
+  // Task 13 Round 1 item 1 — `flush=true` on the strip variant drops
+  // the cream background + bottom hairline + full-width container, so
+  // the label can sit inline under <HomeHeader> without feeling like a
+  // detached strip.  Chip variant ignores `flush` (its own styling is
+  // unchanged).
+  const containerStyle =
+    variant === 'chip'
+      ? styles.chip
+      : flush
+        ? styles.stripFlush
+        : styles.strip
 
   return (
     <Pressable
@@ -182,7 +204,7 @@ export function LocationStatusLabel({
 }
 
 const styles = StyleSheet.create({
-  // Strip variant (Home + Search) — full-width row, bottom hairline only.
+  // Strip variant (Search default) — full-width row, bottom hairline only.
   // Spec §7.3 strip.  No border radius; no elevation; sits as an in-flow
   // row that scrolls with content (the parent owns vertical placement).
   strip: {
@@ -193,6 +215,22 @@ const styles = StyleSheet.create({
     backgroundColor:   color.surface.tint,
     borderBottomWidth: 1,
     borderBottomColor: color.border.subtle,
+    borderRadius:      0,
+    justifyContent:    'center',
+  },
+  // Task 13 Round 1 item 1 — strip "flush" sub-style used by Home so
+  // the label feels like part of <HomeHeader>'s location-row rhythm
+  // instead of a detached cream strip lower down on the screen.
+  // Transparent background, no border, smaller height + tighter
+  // vertical padding.  Full width preserved so the tap target spans
+  // the row's horizontal width (matches the rest of HomeHeader).
+  stripFlush: {
+    width:             '100%',
+    paddingHorizontal: 18,        // matches HomeHeader.paddingHorizontal
+    paddingTop:        0,         // sit flush against HomeHeader's bottom padding
+    paddingBottom:     spacing[1],
+    backgroundColor:   'transparent',
+    borderBottomWidth: 0,
     borderRadius:      0,
     justifyContent:    'center',
   },
@@ -221,8 +259,17 @@ const styles = StyleSheet.create({
     alignItems:    'center',
     gap:           spacing[2],
   },
+  // Task 13 Round 1 item 4 — `flex: 1` collapses to 0 width inside an
+  // intrinsic-sized parent (the chip variant is `alignSelf: 'center'`
+  // with no explicit width).  Result: chip rendered as an icon-only
+  // pill because the text wrapper claimed zero remaining space.  Drop
+  // `flex: 1` and let the text size to its natural content width;
+  // strip variants (width: 100%) still render the same because the
+  // parent has plenty of horizontal space.  `flexShrink: 1` keeps the
+  // text shrinking via numberOfLines={1} ellipsis when the chip ever
+  // gets squeezed (e.g. very long city names on small phones).
   copyWrap: {
-    flex: 1,
+    flexShrink: 1,
   },
   // §7.3 — city emphasis: when source='profile' the city renders in
   // Lato-Semibold inline override (parent label.md keeps the size +

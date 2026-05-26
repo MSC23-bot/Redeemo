@@ -72,6 +72,22 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({}),
 }))
 
+// Task 13 Round 1 item 2 — useMe is now the IDLE-STATE fallback for
+// the location envelope.  Mock it with a Huddersfield-profile shape so
+// the §LSL-Search-idle pin can assert the synthesized profile
+// envelope flows through to <LocationStatusLabel> + savedAreaCity
+// before any search has fired.
+const mockMeRef = {
+  current: null as null | {
+    locality: { id: string; name: string; postTown: string | null; region: string | null } | null
+    city:     string | null
+  },
+}
+jest.mock('@/hooks/useMe', () => ({
+  useMe: () => ({ data: mockMeRef.current }),
+  meQueryKey: () => ['me'],
+}))
+
 import { SearchScreen } from '@/features/search/screens/SearchScreen'
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -97,6 +113,7 @@ async function typeAndSettle(getByPlaceholderText: any, term: string) {
 beforeEach(() => {
   mockState.branches        = []
   mockState.locationContext = null
+  mockMeRef.current         = null
 })
 
 describe('§DF-v2-j Task 10 — SearchScreen mounts <LocationStatusLabel variant=strip>', () => {
@@ -134,12 +151,35 @@ describe('§DF-v2-j Task 10 — SearchScreen mounts <LocationStatusLabel variant
     expect(text.props.children).toBe('Using current location')
   })
 
-  it('§LSL-Search-loading — label renders null during pre-search (data undefined → envelope undefined)', () => {
-    // Before any text is typed, useSearch returns `data: undefined` (the
-    // `enabled` arm is false).  The envelope is therefore undefined and
-    // the label renders null per §LSL-7.
+  it('§LSL-Search-loading — label renders null during pre-search when user ALSO has no profile (no envelope + no useMe fallback)', () => {
+    // Before any text is typed AND no profile location: useSearch
+    // returns `data: undefined`, useMe returns null profile, so the
+    // envelope is undefined → label renders null per §LSL-7.
     mockState.locationContext = null
+    mockMeRef.current         = null
     const { queryByTestId } = render(<SearchScreen />, { wrapper })
     expect(queryByTestId('location-status-label')).toBeNull()
+  })
+
+  // Round 1 device-QA item 2 regression pin.
+  it('§LSL-Search-idle — pre-search idle state synthesizes a profile envelope from useMe so the label + savedAreaCity see the user\'s saved location', () => {
+    // The owner-reported bug: an authenticated user with a saved
+    // Brightlingsea postcode was seeing the no-location empty state +
+    // missing status label on Search before typing.  Round 1 fix:
+    // useMe is the strict-fallback when data?.locationContext is
+    // undefined.  Authoritative envelope still wins once a search
+    // runs.
+    mockState.locationContext = null // no search has fired yet
+    mockMeRef.current = {
+      locality: { id: 'l-brightlingsea', name: 'Brightlingsea', postTown: 'Colchester', region: 'England' },
+      city:     null,
+    }
+
+    const { getByTestId } = render(<SearchScreen />, { wrapper })
+    // Label is mounted with the synthesized profile envelope.
+    expect(getByTestId('location-status-label')).toBeTruthy()
+    // City emphasis derives from useMe.data.locality.name.
+    const city = getByTestId('location-status-city')
+    expect(city.props.children).toBe('Brightlingsea')
   })
 })

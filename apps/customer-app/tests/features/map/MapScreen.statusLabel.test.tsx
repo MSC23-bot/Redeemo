@@ -107,6 +107,22 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
 }))
 
+// Task 13 Round 1 item 3 — MapScreen reads `me.data?.latitude/longitude`
+// to gate the showLocationPermission overlay (skipped when the user
+// has saved-profile coords).  Mock useMe with a holder so the new pin
+// can swap in profile coords without rewriting the factory.
+const mockMeRef = {
+  current: null as null | { latitude: number | null; longitude: number | null },
+}
+jest.mock('@/hooks/useMe', () => ({
+  useMe: () => ({ data: mockMeRef.current }),
+  meQueryKey: () => ['me'],
+}))
+
+beforeEach(() => {
+  mockMeRef.current = null
+})
+
 import { MapScreen } from '@/features/map/screens/MapScreen'
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -140,5 +156,28 @@ describe('§DF-v2-j Task 11 — MapScreen mounts <LocationStatusLabel variant=ch
     //    fields are SEMANTICALLY separate (user-context vs viewport-
     //    locality) and visually distinct.
     expect(getByText('Map centred near Huddersfield')).toBeTruthy()
+  })
+
+  // Round 1 device-QA item 3 regression pin.
+  it('§LSL-Map-permission-overlay-skip — Map does NOT show the blocking "Enable Location" overlay when the user has saved-profile coords', () => {
+    // Owner-reported bug: profile-location users (Brightlingsea
+    // backfilled per §DF v1) were being blocked by the
+    // "Find merchants near you / Enable Location / Browse without
+    // location" overlay before the map could open.  Round 1 fix:
+    // `showLocationPermission` is gated on the ABSENCE of saved-
+    // profile coords too — users with NEITHER GPS NOR saved profile
+    // still see the overlay (kept for the genuine no-location case).
+    mockMeRef.current = { latitude: 51.825, longitude: 1.027 } // Brightlingsea-ish
+
+    const { queryByText, getByTestId } = render(<MapScreen />, { wrapper })
+
+    // Overlay text MUST NOT be visible.  The "Find merchants near you"
+    // heading + "Enable Location" CTA are the strings the user sees.
+    expect(queryByText('Find merchants near you')).toBeNull()
+    expect(queryByText('Enable Location')).toBeNull()
+
+    // Chip (the post-overlay location identity affordance) IS visible
+    // — Map opened directly into the user's profile-bbox experience.
+    expect(getByTestId('location-status-label')).toBeTruthy()
   })
 })

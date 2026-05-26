@@ -10,6 +10,18 @@ import { useUserLocation } from '@/hooks/useLocation'
 // searchResponse.locationContext now; the previous useMe() derivation
 // of savedAreaCity is retired (see commit message + inline note below).
 import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
+// Task 13 Round 1 device-QA item 2 (2026-05-26) — `useMe()` re-introduced
+// as the IDLE-STATE fallback only.  Owner-locked plan amendment:
+// `data?.locationContext` is undefined before any search has fired
+// (the cold-cache / no-debounced-query window), so the empty state +
+// status label couldn't see the user's saved profile location.  The
+// authoritative envelope (response) still wins once a search runs;
+// useMe is the strict-fallback for the pre-search window only.  This
+// is NOT a return of the duplicated derivation the original Task 10
+// retired — that was the SOLE source of savedAreaCity.  Here useMe
+// only fills the gap when `data.locationContext` is undefined.
+import { useMe } from '@/hooks/useMe'
+import type { LocationContext } from '@/lib/api/shared/location'
 import { SearchBar } from '../components/SearchBar'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
@@ -152,14 +164,41 @@ export function SearchScreen() {
   // fix, Spec §3.3).  The legacy `merchants` arm is still on the wire for
   // surfaces that haven't migrated yet (Home / Category / Map).
   const branches: BranchTile[] = data?.branches ?? []
-  // §DF-v2-j Task 10 — single source of truth for both
-  // <LocationStatusLabel> + <SearchEmptyState savedAreaCity={…}>.
-  // Falls back to locality.name when city is null (keeps the original
-  // §DF v1 ladder: prefer locality.name → city → null).  When the
-  // searchResponse is undefined (cold-cache / pre-data fetch) this
-  // remains null — same behaviour as the retired useMe() derivation
-  // during its own loading window.
-  const locationContext = data?.locationContext
+  // §DF-v2-j Task 10 + Task 13 Round 1 item 2 — best-known location
+  // context for both <LocationStatusLabel> + <SearchEmptyState
+  // savedAreaCity={…}>.  Resolution ladder (first match wins):
+  //
+  //   1. data.locationContext  — authoritative (backend resolved against
+  //      effective location).  Fires once a search has run; undefined
+  //      during the pre-search idle window AND while data is loading.
+  //   2. profile-synthesized envelope — when useMe carries
+  //      locality / city we synthesize a `source='profile'` context so
+  //      the idle Search screen knows the user has a saved profile and
+  //      shows the profile-aware empty state + label copy instead of
+  //      the misleading "Set your area" prompt.  This is the smallest
+  //      safe fallback per owner-locked Task 13 item 2 amendment.
+  //   3. undefined — the no-profile + no-search initial state.  Label
+  //      renders null (§LSL-7); <SearchEmptyState> uses the original
+  //      "Set your area" CTA.
+  //
+  // The authoritative envelope still wins the moment a search runs, so
+  // the `<LocationStatusLabel>` flips to source='coordinates' / 'none'
+  // as appropriate without further changes.
+  const me                       = useMe()
+  const responseLocationContext  = data?.locationContext
+  const profileLocationContext: LocationContext | undefined = (() => {
+    if (responseLocationContext) return undefined // response wins; no synth needed
+    // Profile.locality has 4 fields (id / name / postTown / region);
+    // LocationContext.locality has 2 (id / name).  Narrow the shape
+    // here so the synthesized envelope matches the wire schema.
+    const locality = me.data?.locality
+      ? { id: me.data.locality.id, name: me.data.locality.name }
+      : null
+    const city = locality?.name ?? me.data?.city ?? null
+    if (!locality && !city) return undefined
+    return { source: 'profile', city, locality }
+  })()
+  const locationContext = responseLocationContext ?? profileLocationContext
   const savedAreaCity = locationContext?.city ?? locationContext?.locality?.name ?? null
   const showTrending = !searchEnabled
   const showLoading = searchEnabled && isLoading

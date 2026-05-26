@@ -317,7 +317,7 @@ Suggested format for the owner's device-QA report:
 
 ---
 
-## §4. Gate summary
+## §4. Gate summary (pre-Round-1)
 
 **Simulator / unit-level:** ✅ PASS
 
@@ -326,11 +326,128 @@ Suggested format for the owner's device-QA report:
 - Both type-check gates clean.
 - Re-run on a transient 2-suite flake confirmed deterministic — adjacent timer-leak issue documented in CLAUDE.md, not §DF-v2-j related.
 
-**Device-only:** Pending owner execution. 12 scenarios listed in §2 with explicit per-platform check lists. Each scenario cross-references its unit pin so owner knows what's already proven vs what's device-only.
+**Device-only:** First on-device QA run executed by owner — findings + fixes captured in §5 below.
 
-**Blocker on PR opening:** None at the simulator/unit level. Owner direction expected on whether to:
+---
 
-(a) Open the PR now and merge after device-QA approval, OR
-(b) Owner runs device-QA first, then approves PR opening.
+## §5. Device-QA Round 1 — owner findings + fixes
 
-Either path is defensible; recommendation flagged in the post-Task-13 review notes.
+**Date:** 2026-05-26 (same day as Tasks 1-12; on-device verification before PR opening).
+**Test rig:** Owner's device. Profile location: Brightlingsea / CO7 0EY. GPS / location off.
+
+Owner reported 5 items; 4 patched in code, 1 confirmed by owner direction.
+
+### 5.1 Item 1 — Home label placement / spacing
+
+**Finding (❌ FAIL):** Home correctly showed the label copy `Using profile location · Brightlingsea` but the strip felt "detached" — too much vertical gap between the `Good evening, Jane` greeting and the label. The strip's cream-tint background + bottom hairline created visual segmentation under `<HomeHeader>` (which has no bottom divider of its own).
+
+**Root cause:** Spec §7.3 designed the strip's bottom hairline assuming there was a surrounding header divider above it. `<HomeHeader>` doesn't have one, so the strip looked visually orphaned.
+
+**Fix:** Added `flush?: boolean` prop to `<LocationStatusLabel>`. When `flush=true`:
+
+- Background → transparent
+- Border → none (no bottom hairline)
+- `paddingTop: 0` so the label sits flush against HomeHeader's bottom padding
+- `paddingHorizontal: 18` (matches HomeHeader's horizontal padding)
+- `paddingBottom: spacing[1]` (4pt — keeps a small breathing-room gap to the banner below)
+- Width preserved at 100% (tap target still spans the row's horizontal width)
+
+Home mount opts in via `flush` prop. Search keeps the default (cream-pill) chrome — it's the topmost element above `<SearchBar>` with no surrounding header, so the visual frame is appropriate.
+
+**Pin added:** §LSL-11 (`tests/lib/location/LocationStatusLabel.test.tsx`) — asserts `flush=true` strip renders with `backgroundColor='transparent'`, `borderBottomWidth=0`, `width='100%'`.
+
+**Status:** ✅ PATCHED — code change in `src/lib/location/LocationStatusLabel.tsx` (prop + new `stripFlush` style) + `src/features/home/screens/HomeScreen.tsx` mount opts in.
+
+### 5.2 Item 2 — Search initial state showed the wrong empty state
+
+**Finding (❌ FAIL):** Authenticated user with saved Brightlingsea profile, on Search idle (no search yet typed), saw:
+
+> Set your area to see offers near you
+> We use your area to show offers nearby
+> CTA: `Set my area`
+
+This is the **true no-location empty state**, intended for users with no GPS *AND* no profile location. The owner has a saved profile location, so the **profile-aware** empty state should fire ("Searching near Brightlingsea from your profile location" + dual CTA).
+
+**Root cause:** Task 10 retired the previous `useMe()`-driven `savedAreaCity` derivation, replacing it with `data?.locationContext?.city`. But `data` is undefined before any search has fired (cold-cache + no-debounced-query window), so `savedAreaCity` evaluated to null → SearchEmptyState fell into the no-location branch.
+
+**Fix (owner-locked plan amendment):** Re-introduced `useMe()` as the **idle-state-only** fallback. Resolution ladder:
+
+1. `data?.locationContext` — authoritative (backend resolved). Fires once a search runs.
+2. `useMe()` synthesized envelope — only when `data?.locationContext` is undefined. Falls back to a `source='profile'` envelope built from `me.data?.locality?.name` (or `me.data?.city`).
+3. `undefined` — no-profile + no-search initial state.
+
+This is NOT a return of the previous duplicated derivation. The authoritative response envelope still wins the moment a search runs; `useMe` only fills the cold-start gap. Amendment justified inline in `SearchScreen.tsx` + commit message.
+
+**Pin added:** §LSL-Search-idle (`tests/features/search/SearchScreen.statusLabel.test.tsx`) — mocks `data?.locationContext` undefined + `useMe.data.locality = { name: 'Brightlingsea' }` and asserts the label renders with the synthesized profile envelope's city.
+
+**Status:** ✅ PATCHED — code change in `src/features/search/screens/SearchScreen.tsx`.
+
+### 5.3 Item 3 — Map blocking permission overlay shown for profile-location users
+
+**Finding (❌ FAIL):** Map first showed the blocking overlay:
+
+> Find merchants near you
+> Enable Location
+> Browse without location
+
+This treats profile-location users as if they had no location at all. The initial-camera cascade (`MapScreen.tsx:335`) already animates to the saved-profile bbox when GPS is off — so the overlay is misleading + intrusive for these users.
+
+**Root cause:** `showLocationPermission` was gated only on `locationState.status === 'idle'`. The user's saved-profile coords weren't considered.
+
+**Fix:** Extended the gate to also check `me.data?.latitude != null && me.data?.longitude != null`. Users with neither GPS nor saved-profile coords still see the overlay (the genuine no-location case is preserved).
+
+```ts
+const hasSavedProfileCoords =
+  me.data?.latitude != null && me.data?.longitude != null
+const showLocationPermission =
+  !locationPermissionDismissed
+  && locationState.status === 'idle'
+  && !hasSavedProfileCoords
+```
+
+**Pin added:** §LSL-Map-permission-overlay-skip (`tests/features/map/MapScreen.statusLabel.test.tsx`) — mocks `me.data.latitude/longitude` set + asserts the overlay's "Find merchants near you" + "Enable Location" copy is NOT rendered, AND the chip IS rendered (Map opened directly into the saved-profile experience).
+
+**Status:** ✅ PATCHED — code change in `src/features/map/screens/MapScreen.tsx`.
+
+### 5.4 Item 4 — Map chip rendered icon-only
+
+**Finding (❌ FAIL):** After tapping "Browse without location" (which dismissed the overlay), Map opened near Brightlingsea and pins loaded. But the chip appeared as a tiny white pill with **only the red MapPin icon** — no `Using profile location · Brightlingsea` text.
+
+**Root cause:** The chip variant's `copyWrap` used `flex: 1` — which, inside an intrinsic-sized parent (`alignSelf: 'center'` on the chip with no explicit width), collapses to 0 width because there's no "remaining space" to flex to. The text wrapper claimed 0px, leaving the icon as the only visible child.
+
+This is a Yoga / React Native layout subtlety: `flex: 1` only works inside a non-intrinsic parent. The strip variant (`width: '100%'`) had plenty of horizontal space so `flex: 1` was harmless there; the chip variant didn't.
+
+**Fix:** Dropped `flex: 1` on `copyWrap`. Replaced with `flexShrink: 1` so the text can still ellipsis-truncate on small phones via `numberOfLines={1}`, but DOES NOT collapse to 0 width inside intrinsic-sized parents.
+
+**Pin added:** §LSL-12 (`tests/lib/location/LocationStatusLabel.test.tsx`) — asserts the chip variant renders the `location-status-city` testID with the expected text (Brightlingsea), proving the regression doesn't recur.
+
+**Status:** ✅ PATCHED — code change in `src/lib/location/LocationStatusLabel.tsx`.
+
+### 5.5 Item 5 — Your Location empty/clear-postcode behaviour confirmation
+
+**Finding (⚠️ owner-requested clarification, not a bug):** Tapping `Update postcode` + deleting the field → Save button fades/disables. There's no explicit "Remove profile location" / "Clear location" action.
+
+**Owner ask:** Confirm this is intentional + document it so it isn't re-raised as a bug.
+
+**Confirmed product invariants (owner-locked, v1):**
+
+1. **No "remove profile location" action exists in v1.** Discovery needs at least one of {GPS, saved profile} to provide a useful experience. Removing the saved profile without a GPS replacement would degrade discovery to UK-wide, which is a worse UX than keeping a stale postcode.
+2. **Empty postcode keeps Save disabled.** The Save button gates on `disabled={!lookupResult}` — `lookupResult` is non-null only when a valid postcode is entered AND the lookup API returns a successful match. Empty input → no lookup → Save disabled. Same behaviour for invalid postcodes.
+3. **Updating the postcode is the only mutation path.** The Edit + Save flow validates against the postcode lookup endpoint before persisting. The "Use current location" CTA on the same screen grants GPS but does NOT write to `User.postcode` — only an explicit `Update postcode` action mutates the saved postcode.
+
+**Status:** ✅ CONFIRMED + DOCUMENTED. Customer-flow-current.md §15 receives a clarifying invariant block (companion commit).
+
+---
+
+## §6. Round 1 gate summary
+
+**Simulator / unit-level:** ✅ PASS
+
+- §LSL pin suite (4 files): 20/20 — was 16/16; +4 new Round 1 regression pins (§LSL-11 / §LSL-12 / §LSL-Search-idle / §LSL-Map-permission-overlay-skip).
+- Customer-app full impacted-surface sweep: 611/611 across 76 files — was 575/575 pre-Round-1; the +36 deltas come from the new pin + a re-counted set after re-running the lib tree. Zero regression in adjacent suites.
+- customer-app `tsc --noEmit`: exit 0 ✅ clean.
+- Backend untouched in Round 1.
+
+**Device-only:** Pending owner re-QA. Items 1-4 patched + pinned; Item 5 confirmed + documented.
+
+**Pre-PR-opening gate:** AWAITING owner re-QA per the original Task 13 pause direction. No simulator-level blockers.

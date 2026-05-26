@@ -509,7 +509,17 @@ Locked separation (NEVER collapse, NEVER reuse):
 
 Both fields ride the same `/discovery/in-area` response payload. Both render simultaneously when both resolve. Pinned by §LSL-Map: when `meta.effectiveLocality === Huddersfield` AND `locationContext.locality === Huddersfield`, BOTH "Using profile location · Huddersfield" AND "Map centred near Huddersfield" appear on screen at once.
 
-### 15.6 Voucher Detail — deferred to §DF-v2-o
+### 15.6 Your Location — locked v1 product invariants
+
+Task 13 Round 1 device-QA confirmation (2026-05-26):
+
+1. **No "remove profile location" / "clear postcode" action in v1.** Discovery requires at least one of {GPS, saved profile} to provide a useful experience. Removing the saved profile without a GPS replacement would degrade discovery to UK-wide. Future versions may add a clear-location action if multi-saved-locations (§DF-v2-a) or a richer location-management UX ships.
+2. **Empty postcode keeps Save disabled.** The Save button is gated on `disabled={!lookupResult}` ([`SavedAreaScreen.tsx`](../apps/customer-app/src/features/saved-area/screens/SavedAreaScreen.tsx) — Edit + Save flow). `lookupResult` is non-null only when a valid postcode is entered AND the postcode-lookup endpoint returns a successful match. Empty + invalid input both keep Save disabled.
+3. **Updating the postcode is the only postcode-mutation path.** The `Use current location` CTA on the Your Location screen grants GPS but does NOT write to `User.postcode` — only an explicit `Update postcode` flow with a successful lookup persists the postcode + locality + lat/lng.
+
+These invariants are intentional — please do not re-raise them as bugs unless the v2 multi-saved-location workstream (§DF-v2-a) revisits them.
+
+### 15.7 Voucher Detail — deferred to §DF-v2-o
 
 Voucher Detail is the one Discovery surface deliberately excluded from §DF-v2-j. The route currently has no `lat`/`lng` query plumbing, no schema field, and no client-side consumer for location context. Plumbing all three for a future-flagged value isn't justified without a real consumer.
 

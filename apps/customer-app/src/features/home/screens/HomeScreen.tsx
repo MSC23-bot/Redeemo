@@ -177,9 +177,18 @@ export function HomeScreen() {
             Loading window: `feed?.locationContext` is undefined while
             the React Query data is in flight; the component renders
             null in that state (§LSL-7 pin).  Scrolls with content (NOT
-            sticky) per spec §8.1. */}
+            sticky) per spec §8.1.
+
+            Task 13 Round 1 device-QA item 1 (2026-05-26) — `flush=true`
+            drops the strip variant's cream tint + bottom border + width
+            chrome so the label feels inline with <HomeHeader>'s
+            existing greeting + location row rather than a detached
+            cream strip lower down.  Search keeps the default
+            (non-flush) chrome since it's the topmost element above
+            <SearchBar> with no surrounding header. */}
         <LocationStatusLabel
           variant="strip"
+          flush
           locationContext={feed?.locationContext}
         />
 
