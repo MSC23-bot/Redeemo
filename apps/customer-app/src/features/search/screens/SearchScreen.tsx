@@ -5,7 +5,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text } from '@/design-system/Text'
 import { useSearch } from '@/hooks/useSearch'
 import { useUserLocation } from '@/hooks/useLocation'
+// §DF-v2-j Task 10 — top-of-screen location identity affordance + the
+// canonical source for SearchEmptyState.savedAreaCity.  Both flow from
+// searchResponse.locationContext now; the previous useMe() derivation
+// of savedAreaCity is retired (see commit message + inline note below).
+import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
+// Task 13 Round 1 device-QA item 2 (2026-05-26) — `useMe()` re-introduced
+// as the IDLE-STATE fallback only.  Owner-locked plan amendment:
+// `data?.locationContext` is undefined before any search has fired
+// (the cold-cache / no-debounced-query window), so the empty state +
+// status label couldn't see the user's saved profile location.  The
+// authoritative envelope (response) still wins once a search runs;
+// useMe is the strict-fallback for the pre-search window only.  This
+// is NOT a return of the duplicated derivation the original Task 10
+// retired — that was the SOLE source of savedAreaCity.  Here useMe
+// only fills the gap when `data.locationContext` is undefined.
 import { useMe } from '@/hooks/useMe'
+import type { LocationContext } from '@/lib/api/shared/location'
 import { SearchBar } from '../components/SearchBar'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
@@ -118,12 +134,17 @@ export function SearchScreen() {
   const debouncedQuery = useDebounce(query, 300)
   const loc = useUserLocation()
   const { location } = loc
-  // §DF — `useMe()` powers the profile-aware no_location
-  // empty state.  When the user has a saved postcode the empty state
-  // swaps to dual-CTA "searching near saved area" framing instead of
-  // the misleading "Set your area" prompt.
-  const me = useMe()
-  const savedAreaCity = me.data?.locality?.name ?? me.data?.city ?? null
+  // §DF-v2-j Task 10 (2026-05-26) — `savedAreaCity` now derives from the
+  // wire envelope (`data?.locationContext`) populated by the /search
+  // route handler (Task 4).  The previous useMe() derivation
+  // (`me.data?.locality?.name ?? me.data?.city`) is retired: the user-
+  // context resolution is owned by `resolveLocationContext` on the
+  // backend, so there's no value recomputing it on the client.  This
+  // also retires the §DF v1 helper comment about useMe powering
+  // profile-aware empty states — same product behaviour now flows
+  // through the unified envelope.
+  //
+  // Derivation lives AFTER the useSearch call below (depends on `data`).
 
   const searchEnabled = debouncedQuery.length >= 1
   const { data, isLoading } = useSearch(
@@ -143,6 +164,60 @@ export function SearchScreen() {
   // fix, Spec §3.3).  The legacy `merchants` arm is still on the wire for
   // surfaces that haven't migrated yet (Home / Category / Map).
   const branches: BranchTile[] = data?.branches ?? []
+  // §DF-v2-j Task 10 + Task 13 Round 1 item 2 — best-known location
+  // context for both <LocationStatusLabel> + <SearchEmptyState
+  // savedAreaCity={…}>.  Resolution ladder (first match wins):
+  //
+  //   1. data.locationContext  — authoritative (backend resolved against
+  //      effective location).  Fires once a search has run; undefined
+  //      during the pre-search idle window AND while data is loading.
+  //   2. profile-synthesized envelope — when useMe carries
+  //      locality / city we synthesize a `source='profile'` context so
+  //      the idle Search screen knows the user has a saved profile and
+  //      shows the profile-aware empty state + label copy instead of
+  //      the misleading "Set your area" prompt.  This is the smallest
+  //      safe fallback per owner-locked Task 13 item 2 amendment.
+  //   3. undefined — the no-profile + no-search initial state.  Label
+  //      renders null (§LSL-7); <SearchEmptyState> uses the original
+  //      "Set your area" CTA.
+  //
+  // The authoritative envelope still wins the moment a search runs, so
+  // the `<LocationStatusLabel>` flips to source='coordinates' / 'none'
+  // as appropriate without further changes.
+  const me                       = useMe()
+  const responseLocationContext  = data?.locationContext
+  const profileLocationContext: LocationContext | undefined = (() => {
+    if (responseLocationContext) return undefined // response wins; no synth needed
+    // §DF-v2-i alignment (PR #131 pre-merge fix #1) — mirror backend
+    // EXACTLY: `source='profile'` requires ALL THREE of localityId +
+    // latitude + longitude.  Pre-fix the synth was looser
+    // (`locality || city`) which meant a city-text-only or
+    // locality-only profile saw the profile-location UI on Search
+    // even though backend correctly returned `source='none'` for the
+    // same cohort.  The looseness made Search drift from the locked
+    // §DF-v2-i invariant.  Now: complete-profile-only synthesis;
+    // city-text alone never synthesizes.
+    const hasCompleteSavedProfile =
+      me.data?.localityId != null
+      && me.data?.latitude  != null
+      && me.data?.longitude != null
+    if (!hasCompleteSavedProfile) return undefined
+    // Profile.locality has 4 fields (id / name / postTown / region);
+    // LocationContext.locality has 2 (id / name).  Narrow the shape
+    // here so the synthesized envelope matches the wire schema.
+    const locality = me.data?.locality
+      ? { id: me.data.locality.id, name: me.data.locality.name }
+      : null
+    // City derives from the joined locality.name only.  Backend behaves
+    // identically — the `User.city` text field is NEVER used as the
+    // profile city after §DF-v2-i.  Fallback to null if locality
+    // wasn't joined (defensive); label renders "Using profile
+    // location" (D8 fallback) for that edge.
+    const city = locality?.name ?? null
+    return { source: 'profile', city, locality }
+  })()
+  const locationContext = responseLocationContext ?? profileLocationContext
+  const savedAreaCity = locationContext?.city ?? locationContext?.locality?.name ?? null
   const showTrending = !searchEnabled
   const showLoading = searchEnabled && isLoading
   const showResults = searchEnabled && !isLoading
@@ -380,6 +455,19 @@ export function SearchScreen() {
       : `${stem} for "${debouncedQuery}"`
   })()
 
+  // Task 13 Round 2 item 2 (2026-05-26) — owner reported the top-of-
+  // screen label felt redundant in idle + empty states because the
+  // empty-state copy ALREADY surfaces the profile-location context
+  // ("Searching near Brightlingsea from your profile location" +
+  // dual CTA).  Owner direction: hide the label in idle/empty states
+  // and keep it ONLY when results are visible — that's the state
+  // where the results header ("Closest matches for query") provides
+  // no location anchor and the label is genuinely value-add.
+  // Repositioned below SearchBar (was: above) so the input stays the
+  // top-of-screen primary element + the label sits as a contextual
+  // banner for the results below.
+  const showStatusLabel = showResults && branches.length > 0
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
       <SearchBar
@@ -389,6 +477,18 @@ export function SearchScreen() {
         autoFocus
         placeholder="Search merchants..."
       />
+
+      {/* §DF-v2-j Task 10 + Task 13 Round 2 item 2 — strip mounted
+          below SearchBar, ONLY when results are visible.  Idle /
+          empty / loading states get cleaner top chrome; the empty
+          state's own profile-location copy carries the location
+          identity in those windows. */}
+      {showStatusLabel && (
+        <LocationStatusLabel
+          variant="strip"
+          locationContext={locationContext}
+        />
+      )}
 
       {showTrending && (
         <>

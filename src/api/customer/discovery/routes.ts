@@ -7,6 +7,7 @@ import {
   getCampaignMerchants, getCampaignBranches,
   getCategoryMerchants, getCategoryBranches,
   getInAreaMerchants, getInAreaBranches,
+  resolveLocationContext, toLocationContextWire,
 } from './service'
 import { getEligibleAmenitiesForSubcategory } from '../../lib/amenity'
 import { optionalUserId } from '../plugin'
@@ -51,11 +52,15 @@ export async function discoveryRoutes(app: FastifyInstance) {
       lng: z.coerce.number().optional(),
     }).parse(req.query)
     const userId = optionalUserId(req)
-    const feed = await getHomeFeed(app.prisma, {
-      userId,
-      lat: query.lat ?? null,
-      lng: query.lng ?? null,
-    })
+    const lat    = query.lat ?? null
+    const lng    = query.lng ?? null
+    // §DF-v2-j Task 2 — route-level `locationContext` resolution (variant
+    // (a) per `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md`).
+    // Resolve once, strip to the 3-field wire envelope, then thread into
+    // `getHomeFeed`.  The service no longer resolves internally.
+    const ctx             = await resolveLocationContext(app.prisma, userId, lat, lng)
+    const locationContext = toLocationContextWire(ctx)
+    const feed = await getHomeFeed(app.prisma, { userId, lat, lng, locationContext })
     return reply.send(feed)
   })
 
@@ -66,12 +71,21 @@ export async function discoveryRoutes(app: FastifyInstance) {
     const { id } = idParam.parse(req.params)
     const { lat, lng, branch } = locationQuery.parse(req.query)
     const userId = optionalUserId(req)
+    // §DF-v2-j Task 6 — route-level `locationContext` resolution.  Per
+    // spec D5: Merchant Profile receives the additive emit even though
+    // <LocationStatusLabel> is NOT mounted on this surface in v2-j (D4
+    // lock).  Future consumers (e.g. a future "nearby merchants" rail)
+    // inherit the field without a backend change.  Spread merges
+    // collision-free — `getCustomerMerchant` does not return a
+    // `locationContext` key.
+    const ctx             = await resolveLocationContext(app.prisma, userId, lat ?? null, lng ?? null)
+    const locationContext = toLocationContextWire(ctx)
     const merchant = await getCustomerMerchant(app.prisma, id, userId, {
       lat: lat ?? undefined,
       lng: lng ?? undefined,
       branchId: branch,
     })
-    return reply.send(merchant)
+    return reply.send({ ...merchant, locationContext })
   })
 
   // GET /api/v1/customer/merchants/:id/branches — branch list for redemption selector (no auth)
@@ -116,10 +130,24 @@ export async function discoveryRoutes(app: FastifyInstance) {
   app.get('/api/v1/customer/search', async (req: FastifyRequest, reply) => {
     const params = searchQuery.parse(req.query)
     const userId = optionalUserId(req)
-    const [merchantResult, branchResult] = await Promise.all([
+    // §DF-v2-j Task 4 — route-level `locationContext` resolution (variant
+    // (a) per Task 0 audit).  Resolve once, strip to the 3-field wire
+    // envelope, inject at the response root.  Pure service helpers
+    // (searchMerchants / searchBranches) stay free of `FastifyRequest`
+    // and free of `locationContext` concerns.
+    //
+    // PR #131 pre-merge fix #3 (2026-05-26) — parallelize the resolve
+    // into Promise.all alongside the existing service calls.  Pre-fix
+    // the resolve was serial BEFORE the Promise.all, costing ~10-30ms
+    // of wall-time per request.  All three calls are now independent
+    // DB reads, so they run concurrently against the same Prisma
+    // connection pool.
+    const [ctx, merchantResult, branchResult] = await Promise.all([
+      resolveLocationContext(app.prisma, userId, params.lat ?? null, params.lng ?? null),
       searchMerchants(app.prisma, { ...params, userId }),
       searchBranches(app.prisma, { ...params, userId }),
     ])
+    const locationContext = toLocationContextWire(ctx)
     // PR-2 device-QA fix (2026-05-19) — emit `branchMeta` as a separate
     // field alongside the legacy `...merchantResult` spread so consumers
     // reading `branches[]` can also read branch-aligned counts +
@@ -132,6 +160,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
       branches:      branchResult.branches,
       totalBranches: branchResult.totalBranches,
       branchMeta:    branchResult.meta,
+      locationContext, // §DF-v2-j additive
     })
   })
 
@@ -228,13 +257,24 @@ export async function discoveryRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: { code: 'INVALID_BBOX', message: 'minLat/minLng must be ≤ maxLat/maxLng' } })
     }
     const userId = optionalUserId(req)
+    // §DF-v2-j Task 5 — route-level `locationContext` resolution.  Note
+    // that this describes the USER's effective location identity — it is
+    // intentionally separate from `meta.effectiveLocality` (the viewport
+    // locality the map is panned to) per spec D10.  Both fields ride the
+    // same response payload; consumers read whichever they need.
+    //
+    // PR #131 pre-merge fix #3 (2026-05-26) — parallelized with the
+    // existing in-area service calls.  Same rationale as /search: the
+    // three reads are independent so we run them concurrently against
+    // the Prisma pool, saving ~10-30ms of wall-time per request.
     // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
     // `branches` field additively alongside the legacy `merchants` field.
     // In-area has no `totalBranches` (no pagination — Map shows all pins in
     // the viewport up to `limit`). Consumers continue reading legacy until
     // Phase 2 surface PRs migrate individually.
     const bbox = { minLat: query.minLat, maxLat: query.maxLat, minLng: query.minLng, maxLng: query.maxLng }
-    const [merchantResult, branchResult] = await Promise.all([
+    const [ctx, merchantResult, branchResult] = await Promise.all([
+      resolveLocationContext(app.prisma, userId, query.lat ?? null, query.lng ?? null),
       getInAreaMerchants(app.prisma, {
         bbox,
         categoryId: query.categoryId,
@@ -252,9 +292,11 @@ export async function discoveryRoutes(app: FastifyInstance) {
         limit:      query.limit,
       }),
     ])
+    const locationContext = toLocationContextWire(ctx)
     return reply.send({
       ...merchantResult,
-      branches: branchResult.branches,
+      branches:        branchResult.branches,
+      locationContext, // §DF-v2-j additive (user-context, NOT viewport — viewport stays on meta.effectiveLocality per D10)
     })
   })
 

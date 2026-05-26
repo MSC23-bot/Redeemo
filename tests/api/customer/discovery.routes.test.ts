@@ -21,6 +21,23 @@ vi.mock('../../../src/api/customer/discovery/service', () => ({
   getCategoryBranches:         vi.fn(),
   getInAreaMerchants:          vi.fn(),
   getInAreaBranches:           vi.fn(),
+  // §DF-v2-j Tasks 2 / 4 / 5 / 6 — route handlers for /home, /search,
+  // /discovery/in-area and /merchants/:id now resolve locationContext at
+  // the route boundary.  Mock both helpers so the routes don't hit
+  // `undefined is not a function` and 500.  Default returns the
+  // "no location" envelope so existing tests that don't care about the
+  // envelope continue to pass.  vi.clearAllMocks (afterEach) preserves
+  // these implementations between tests; per-test overrides via
+  // `vi.mocked(resolveLocationContext).mockResolvedValueOnce(...)` still
+  // work for tests that need a specific envelope.
+  resolveLocationContext:      vi.fn().mockResolvedValue({
+    locality: null, city: null, lat: null, lng: null, source: 'none',
+  }),
+  toLocationContextWire:       vi.fn((ctx: any) => ({
+    city:     ctx?.city ?? null,
+    source:   ctx?.source ?? 'none',
+    locality: ctx?.locality ?? null,
+  })),
 }))
 
 vi.mock('../../../src/api/lib/amenity', () => ({
@@ -188,7 +205,14 @@ describe('discovery routes', () => {
       url: '/api/v1/customer/home?lat=51.5&lng=-0.1',
     })
 
-    expect(getHomeFeed).toHaveBeenCalledWith(expect.anything(), { userId: null, lat: 51.5, lng: -0.1 })
+    // §DF-v2-j Task 2 — getHomeFeed now also receives a `locationContext`
+    // field threaded from the route handler.  Loosen the strict-match to
+    // objectContaining so the new field doesn't trip the existing
+    // lat/lng-routing assertion.
+    expect(getHomeFeed).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: null, lat: 51.5, lng: -0.1 }),
+    )
   })
 
   // ────────────────────────────────────────────────

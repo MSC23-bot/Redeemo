@@ -659,6 +659,43 @@ The 5-week burst of Discovery work between 2026-05-19 and 2026-05-24 shipped as 
 
 Phase 3b backend cleanup + Plan 4 M5 cleanup stay DEFERRED, blocked on §CU.1 customer-web branch-first migration (Tier 3 brainstorm-first). Full per-PR detail lives in the corresponding `project_discovery_rebaseline_*_complete.md` + `project_dg_popular_ranking_locked_expectations.md` + `project_deferred_DB_DC_DD_home_relevance_followups.md` memory files.
 
+### 🚧 Phase 3C.1m — locationContext parity + top-of-app status label (§DF-v2-j + §DF-v2-i) — AWAITING MERGE (PR # TBD)
+
+Tier 2 plan-first. Bundles §DF-v2-i (tighten `resolveLocationContext` invariants to match `resolveEffectiveLocation`'s SAVED_PROFILE branch — `localityId + latitude + longitude` ALL required for `source='profile'`) with §DF-v2-j (parity emit on Search / Map / Merchant Profile + new `<LocationStatusLabel>` component mounted on Home / Search / Map).
+
+Owner-locked product copy: "Using profile location · {city}" / "Using profile location" / "No GPS · Set location ›" / "Set location ›" — the "saved area" / "saved location" vocabulary is fully retired across label, honesty hint, Your Location screen, and any future surface.
+
+Locked decisions inherited from spec §3 (D1-D11):
+
+- **D1** — bundle §DF-v2-i with §DF-v2-j atomically; ship §DF-v2-i first as Task 1 prerequisite.
+- **D2/Q1** — `<LocationStatusLabel>` lives at `apps/customer-app/src/lib/location/LocationStatusLabel.tsx`.
+- **D3/Q2** — `permission='unavailable'` renders same as `'denied'` (`No GPS · Set location ›`).
+- **D4/Q3a** — Voucher Detail + Merchant Profile do NOT mount the label.
+- **D5/Q3b** — Merchant Profile DOES emit the envelope additively (forward-compat); Voucher Detail entirely deferred to §DF-v2-o.
+- **D6/Q4** — Home keeps BOTH `<LocationStatusLabel>` (compact identity) AND `<SavedAreaHonestyHint>` (caveat + Update); they NEVER collapse.
+- **D7/Q5** — request-scope uniqueness for `resolveLocationContext` satisfied by construction (variant (a) route-level resolve); no standalone memo helper built.
+- **D8/Q6** — fallback copy when `source='profile'` and `city===null` defensive: `"Using profile location"` (no city suffix); owner-locked migration away from "saved area" / "saved location" wording.
+- **D9** — `locationContextSchema` hoisted to `apps/customer-app/src/lib/api/shared/location.ts`; consumed by `discovery.ts` + `merchant.ts`; `voucher.ts` deliberately untouched.
+- **D10** — Map keeps `meta.effectiveLocality` (viewport-context) AND `locationContext` (user-context) SEPARATE; pinned by §LSL-Map test.
+- **D11** — Voucher Detail deferred entirely to new follow-up §DF-v2-o.
+
+What ships (13 commits ahead of main):
+
+- 4 backend route emits — `/home` (migration), `/search`, `/discovery/in-area`, `/merchants/:id`. Pure service helpers stay free of `FastifyRequest`.
+- New helper exports — `resolveLocationContext`, `LocationContext`, `LocationContextWire`, `toLocationContextWire`.
+- New customer-app shared schema — `apps/customer-app/src/lib/api/shared/location.ts`.
+- New customer-app component — `<LocationStatusLabel>` with strip + chip variants.
+- 3 surface mounts — HomeScreen (strip, above honesty hint slot), SearchScreen (strip, above SearchBar + retired `useMe()`-driven `savedAreaCity`), MapScreen (chip, top of safe-area band).
+- 32 new backend pins (4 helper unit + 12 route integration + atomic §DF-7v2i rename) + 11 component pins + 5 surface integration pins.
+
+Carry-over deferred (new):
+
+- **§DF-v2-o** — Voucher Detail location-context awareness. Plumb `lat`/`lng` on `/api/v1/customer/vouchers/:id`, emit envelope, decide on `<LocationStatusLabel>` mount. Tier 1-2. Pickup trigger: Voucher Detail consumer needs location-awareness.
+
+Spec: `docs/superpowers/specs/2026-05-26-locationcontext-parity-design.md` v1.1.
+Plan: `docs/superpowers/plans/2026-05-26-locationcontext-parity.md`.
+Audit: `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md`.
+
 ### 🔲 Next planned work
 
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.

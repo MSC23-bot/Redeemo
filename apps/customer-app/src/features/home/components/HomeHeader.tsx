@@ -2,6 +2,15 @@ import React from 'react'
 import { View, TouchableOpacity } from 'react-native'
 import { Search, SlidersHorizontal, Bell, MapPin } from 'lucide-react-native'
 import { Text, color, spacing, radius } from '@/design-system'
+// Task 13 Round 3 (2026-05-26) — owner-locked: the Home location-
+// status affordance must sit at the SAME visual rhythm as the
+// existing GPS-on location row (marginTop: spacing[1]=4pt below the
+// greeting), NOT as a separate strip below HomeHeader.  Mount the
+// label INSIDE HomeHeader's left column so it occupies the
+// header's natural location-row slot.  Standalone mount on
+// HomeScreen is retired.
+import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
+import type { LocationContext } from '@/lib/api/shared/location'
 
 type Props = {
   firstName: string | null
@@ -11,6 +20,12 @@ type Props = {
   onSearchPress: () => void
   onFilterPress: () => void
   onNotificationPress?: () => void
+  // Task 13 Round 3 — `locationContext` from the Home feed envelope.
+  // HomeHeader renders <LocationStatusLabel> in its location-row slot
+  // when GPS-on `area/city` are absent AND a context is provided.
+  // Undefined during the React Query loading window — the label
+  // gracefully renders null in that state per §LSL-7.
+  locationContext?: LocationContext | undefined
 }
 
 function getGreeting(): string {
@@ -24,6 +39,7 @@ export function HomeHeader({
   firstName,
   area,
   city,
+  locationContext,
   avatarUrl,
   onSearchPress,
   onFilterPress,
@@ -35,10 +51,19 @@ export function HomeHeader({
   const locationParts = [area, city].filter(Boolean)
   const locationLabel = locationParts.join(', ')
 
+  // Task 13 Round 3 — the LocationStatusLabel takes the GPS-row
+  // slot when GPS-derived area/city aren't available AND the feed
+  // provided a locationContext.  When GPS-on, the existing
+  // area/city row wins (locked existing behaviour).  When both are
+  // absent (no GPS + undefined locationContext during loading),
+  // neither row renders.
+  const showStatusLabel = !showLocation && locationContext !== undefined
+
   const avatarLetter = firstName ? firstName.charAt(0).toUpperCase() : '?'
 
   return (
     <View
+      testID="home-header"
       style={{
         paddingHorizontal: 18,
         paddingVertical: spacing[3],
@@ -60,6 +85,15 @@ export function HomeHeader({
               >
                 {locationLabel}
               </Text>
+            </View>
+          )}
+          {showStatusLabel && (
+            <View style={{ marginTop: spacing[1] }}>
+              <LocationStatusLabel
+                variant="strip"
+                flush
+                locationContext={locationContext}
+              />
             </View>
           )}
         </View>

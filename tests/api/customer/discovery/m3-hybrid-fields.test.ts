@@ -26,7 +26,7 @@ import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { searchMerchants, getHomeFeed } from '../../../../src/api/customer/discovery/service'
+import { searchMerchants, getHomeFeed, resolveLocationContext, toLocationContextWire } from '../../../../src/api/customer/discovery/service'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
@@ -193,7 +193,15 @@ describe('M3a hybrid contract — legacy + V2 fields side-by-side', () => {
 
 describe('M3a hybrid — getHomeFeed wires V2 fields onto tiles (shape preserved)', () => {
   it('home response keeps the existing top-level shape (no fields removed)', async () => {
-    const home = await getHomeFeed(prisma, { userId: null, lat: HUDDERSFIELD.lat, lng: HUDDERSFIELD.lng }) as any
+    // §DF-v2-j Task 2 — route-level resolve + strip mirrored for direct
+    // service-call tests.  Production path uses the `/home` route handler.
+    const ctx  = await resolveLocationContext(prisma, null, HUDDERSFIELD.lat, HUDDERSFIELD.lng)
+    const home = await getHomeFeed(prisma, {
+      userId:          null,
+      lat:             HUDDERSFIELD.lat,
+      lng:             HUDDERSFIELD.lng,
+      locationContext: toLocationContextWire(ctx),
+    }) as any
     // M3a-era top-level keys MUST still exist (no field removed). The
     // Discovery Rebaseline Phase 1 Task 1.7 PR (Spec §1.5) additionally
     // appends three NEW branch-themed keys (`featuredBranches`,
@@ -211,7 +219,14 @@ describe('M3a hybrid — getHomeFeed wires V2 fields onto tiles (shape preserved
   }, 30_000)
 
   it('home tiles carry the additive M3 V2 fields, and at least one tile is V2-classified', async () => {
-    const home = await getHomeFeed(prisma, { userId: null, lat: HUDDERSFIELD.lat, lng: HUDDERSFIELD.lng })
+    // §DF-v2-j Task 2 — direct service-call mirror of the route handler.
+    const ctx  = await resolveLocationContext(prisma, null, HUDDERSFIELD.lat, HUDDERSFIELD.lng)
+    const home = await getHomeFeed(prisma, {
+      userId:          null,
+      lat:             HUDDERSFIELD.lat,
+      lng:             HUDDERSFIELD.lng,
+      locationContext: toLocationContextWire(ctx),
+    })
 
     // Across ALL home tiles in ALL three collections (featured /
     // trending / nearbyByCategory), every tile must carry the four

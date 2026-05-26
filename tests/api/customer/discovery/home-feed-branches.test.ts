@@ -27,10 +27,23 @@ import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { getHomeFeed } from '../../../../src/api/customer/discovery/service'
+import { getHomeFeed, resolveLocationContext, toLocationContextWire } from '../../../../src/api/customer/discovery/service'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma  = new PrismaClient({ adapter })
+
+// §DF-v2-j Task 2 — mirror of the `/home` route handler's resolve + strip
+// for direct service-call tests.  Production path is in
+// `src/api/customer/discovery/routes.ts`.
+async function homeFeedAt(lat: number | null, lng: number | null, userId: string | null = null) {
+  const ctx = await resolveLocationContext(prisma, userId, lat, lng)
+  return getHomeFeed(prisma, {
+    userId,
+    lat,
+    lng,
+    locationContext: toLocationContextWire(ctx),
+  })
+}
 
 const FIXTURE_PREFIX = 'rbl-1-7-'
 
@@ -200,11 +213,7 @@ const TEST_TIMEOUT_MS = 30_000
 
 describe('Discovery Rebaseline Phase 1 — getHomeFeed (branch-themed additive fields)', () => {
   it('response carries BOTH legacy merchant-themed fields AND the new branch-themed fields', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    COLCHESTER.lat,
-      lng:    COLCHESTER.lng,
-    }) as any
+    const feed = await homeFeedAt(COLCHESTER.lat, COLCHESTER.lng) as any
 
     // Legacy fields preserved.
     expect(feed).toHaveProperty('locationContext')
@@ -227,11 +236,7 @@ describe('Discovery Rebaseline Phase 1 — getHomeFeed (branch-themed additive f
   }, TEST_TIMEOUT_MS)
 
   it('a multi-branch Featured merchant fans out to multiple `featuredBranches` tiles (Spec §5.2 interim)', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    COLCHESTER.lat,
-      lng:    COLCHESTER.lng,
-    }) as any
+    const feed = await homeFeedAt(COLCHESTER.lat, COLCHESTER.lng) as any
 
     // Sanity: the fixture merchant must appear in legacy `featured`.
     const legacyHit = feed.featured.find((m: any) => m.id === MULTI_MERCHANT_ID)
@@ -258,11 +263,7 @@ describe('Discovery Rebaseline Phase 1 — getHomeFeed (branch-themed additive f
   }, TEST_TIMEOUT_MS)
 
   it('NO `campaignBranches` field at the home feed level — campaigns are banner-level, not a tile list', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    COLCHESTER.lat,
-      lng:    COLCHESTER.lng,
-    }) as any
+    const feed = await homeFeedAt(COLCHESTER.lat, COLCHESTER.lng) as any
 
     expect(feed).not.toHaveProperty('campaignBranches')
     // `campaigns` (banner-level) is still present — UNCHANGED.
@@ -275,11 +276,7 @@ describe('Discovery Rebaseline Phase 1 — getHomeFeed (branch-themed additive f
   // every Home rail's tile shape, but no prior pin asserts the SUM-rounded
   // value lands on merchant grouping for a multi-voucher Home merchant.
   it('multi-voucher Home merchant tiles carry the rounded sum of estimatedSaving on `merchant.totalEstimatedSaving`', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    COLCHESTER.lat,
-      lng:    COLCHESTER.lng,
-    }) as any
+    const feed = await homeFeedAt(COLCHESTER.lat, COLCHESTER.lng) as any
 
     const branchTilesForMerchant = (feed.featuredBranches as any[])
       .filter(t => t.merchant?.id === MULTI_MERCHANT_ID)
@@ -299,11 +296,7 @@ describe('Discovery Rebaseline Phase 1 — getHomeFeed (branch-themed additive f
   }, TEST_TIMEOUT_MS)
 
   it('legacy `featured: MerchantTile[]` shape is unchanged — entries are merchant-shaped, not branch-shaped', async () => {
-    const feed = await getHomeFeed(prisma, {
-      userId: null,
-      lat:    COLCHESTER.lat,
-      lng:    COLCHESTER.lng,
-    }) as any
+    const feed = await homeFeedAt(COLCHESTER.lat, COLCHESTER.lng) as any
 
     const legacyHit = feed.featured.find((m: any) => m.id === MULTI_MERCHANT_ID)
     expect(legacyHit).toBeDefined()

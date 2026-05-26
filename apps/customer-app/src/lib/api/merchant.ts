@@ -9,6 +9,11 @@ import {
   availabilityWindowSchema,
   windowOccurrenceSchema,
 } from './voucher'
+// §DF-v2-j Task 7 (2026-05-26) — additive locationContext field on the
+// Merchant Profile wire payload (backend emit landed in Task 6).
+// `.optional()` during rollout window.  Voucher Detail (voucher.ts) is
+// intentionally NOT a consumer — deferred to §DF-v2-o per spec D11.
+import { locationContextSchema } from './shared/location'
 
 // Shape served by `GET /api/v1/customer/merchants/:id`. Generated server-side
 // in `src/api/customer/discovery/service.ts:getCustomerMerchant`. Field
@@ -253,6 +258,13 @@ const merchantProfileSchema = z.object({
   // fallbackReason is 'all-suspended' (every branch is suspended).
   selectedBranch:               selectedBranchSchema.nullable(),
   selectedBranchFallbackReason: fallbackReasonSchema,
+
+  // §DF-v2-j Task 7 (2026-05-26) — additive user-context envelope.
+  // Backend emit landed in Task 6.  Per spec D4: this surface does NOT
+  // mount <LocationStatusLabel> in v2-j, but the field rides the wire
+  // so future consumers (e.g. a "nearby merchants" rail) inherit it
+  // without a backend change.  `.optional()` during rollout window.
+  locationContext:              locationContextSchema.optional(),
 })
 export type MerchantProfile = z.infer<typeof merchantProfileSchema>
 

@@ -20,6 +20,12 @@ import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
+// §DF-v2-j Task 9 → Task 13 Round 3 (2026-05-26) — top-of-screen
+// location identity is now rendered INSIDE <HomeHeader> via its
+// `locationContext` prop (the standalone <LocationStatusLabel>
+// import that lived here in Round 1+2 is retired).  D6 coexistence
+// preserved: <SavedAreaHonestyHint> still surfaces the caveat +
+// Update affordance below the header when source='profile'.
 
 // Bottom tab bar is `position: 'absolute'` with `height: 80` per the (app)
 // Tabs layout (see `apps/customer-app/app/(app)/_layout.tsx`). ScrollView
@@ -155,11 +161,25 @@ export function HomeScreen() {
           { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
+        {/* Task 13 Round 3 (2026-05-26) — the LocationStatusLabel is
+            now rendered INSIDE <HomeHeader> at the same visual rhythm
+            as the GPS-on location row (marginTop: spacing[1]=4pt
+            below the greeting).  HomeHeader receives the
+            `locationContext` prop and decides between (a) the GPS-on
+            area/city text row, (b) the LocationStatusLabel, or
+            (c) neither.  The previous standalone mount below
+            HomeHeader (Round 1 + Round 2 location) is retired —
+            owner-locked Round 3 product decision: the label must
+            feel like the normal GPS/location line, not a detached
+            banner.  <SavedAreaHonestyHint> below remains unchanged
+            (D6 coexistence preserved — the hint still surfaces the
+            caveat + Update affordance when source='profile'). */}
         <HomeHeader
           firstName={me?.firstName ?? null}
           area={location?.area ?? null}
           city={location?.city ?? null}
           {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
+          {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
           onSearchPress={() => router.push('/search' as any)}
           onFilterPress={() => {}}
         />

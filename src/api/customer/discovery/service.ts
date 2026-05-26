@@ -99,19 +99,85 @@ function hasExactPosition(b: {
     && b.latitude !== null && b.longitude !== null
 }
 
+/**
+ * Resolved user-context location envelope returned by
+ * `resolveLocationContext`.  Internal-to-the-service shape — carries both
+ * the wire-facing fields (city / source / locality) AND the ranking-facing
+ * fields (lat / lng) used by Discovery enrichment helpers.
+ *
+ * Exported alongside `resolveLocationContext` per §DF-v2-j Task 0 audit
+ * acceptance criteria §8.7 + §8.8 — route handlers (Tasks 2 / 4 / 5 / 6)
+ * import this type when they call the resolver, then strip to
+ * `LocationContextWire` via `toLocationContextWire` before injecting into
+ * response payloads OR threading into services.
+ */
+export type LocationContext = {
+  locality: { id: string; name: string } | null
+  city:     string | null
+  lat:      number | null
+  lng:      number | null
+  source:   'coordinates' | 'profile' | 'none'
+}
+
+/**
+ * The 3-field wire envelope shape that rides on Discovery response payloads
+ * (Home / Search / In-area / Merchant Profile) and that services receive
+ * when route handlers thread the resolved value forward.
+ *
+ * Mirrors the customer-app Zod schema at
+ * `apps/customer-app/src/lib/api/discovery.ts:189` (`locationContextSchema`).
+ *
+ * The `lat` / `lng` fields are intentionally stripped at the route boundary
+ * — they're ranking-internal concerns that the service receives separately
+ * via the route handler's raw `lat` / `lng` args (which carry the original
+ * input coords, gated on `source === 'coordinates'` inside the service).
+ */
+export type LocationContextWire = {
+  locality: { id: string; name: string } | null
+  city:     string | null
+  source:   'coordinates' | 'profile' | 'none'
+}
+
+/**
+ * Strip the 5-field internal `LocationContext` down to the 3-field wire
+ * envelope.  Pure function.  Called by route handlers (Tasks 2 / 4 / 5 / 6)
+ * right after `resolveLocationContext` returns, then the stripped value
+ * goes BOTH into the response payload AND into the service's options arg.
+ *
+ * Centralising the strip here keeps wire-shape drift contained to one site;
+ * each route handler is one line of `toLocationContextWire(ctx)` instead of
+ * 4 inline literals that could diverge.
+ */
+export function toLocationContextWire(ctx: LocationContext): LocationContextWire {
+  return { city: ctx.city, source: ctx.source, locality: ctx.locality }
+}
+
 // Location context helper — resolves what location label + source to return
-// Priority: live coordinates > stored profile locality > stored profile city > none
+// Priority: live coordinates > stored profile (full identity) > none
 //
 // Phase D (§BB / D8 fix, 2026-05-22): GPS callers now resolve to the nearest
 // Locality via `findNearestLocality`, so `locationCtx.city` is populated for
 // the new Trending + Popular rail builders (and for the legacy
 // NearbyByCategory code path during the interim Phase D → Phase E window).
-async function resolveLocationContext(
+//
+// §DF-v2-i (2026-05-26): the `source='profile'` branch now requires ALL
+// THREE of User.localityId + User.latitude + User.longitude — matches
+// `resolveEffectiveLocation`'s SAVED_PROFILE invariant.  The previous loose
+// fallback where `User.city` text alone (or `localityId` without lat/lng)
+// produced `source='profile'` has been removed.  Pre-PC2 users with only a
+// free-text city see `source='none'` and a "Set location" prompt; cohort is
+// near-empty after the §DF v1 backfill.
+//
+// Exported per §DF-v2-j Task 0 audit acceptance criteria §8.7 so the route
+// handlers in Tasks 2 / 4 / 5 / 6 can resolve the envelope once at the route
+// boundary and inject into response payloads.  Wire-shape strip happens at
+// the route handler, not in this helper.
+export async function resolveLocationContext(
   prisma: PrismaClient,
   userId: string | null,
   lat: number | null,
   lng: number | null,
-): Promise<{ locality: { id: string; name: string } | null; city: string | null; lat: number | null; lng: number | null; source: 'coordinates' | 'profile' | 'none' }> {
+): Promise<LocationContext> {
   if (lat !== null && lng !== null) {
     const nearest = await findNearestLocality(prisma, lat, lng)
     if (nearest) {
@@ -128,23 +194,24 @@ async function resolveLocationContext(
   if (userId) {
     const user = await prisma.user.findUnique({
       where:  { id: userId },
-      select: { city: true, localityId: true },
+      select: { latitude: true, longitude: true, localityId: true },
     })
-    if (user?.localityId) {
+    // §DF-v2-i tightened invariant: source='profile' requires ALL THREE of
+    // localityId + latitude + longitude.  Matches `resolveEffectiveLocation`'s
+    // SAVED_PROFILE branch (effectiveLocation.ts:59-108).  Removes the previous
+    // loose paths that returned source='profile' on (a) localityId without
+    // lat/lng or (b) User.city text alone.  Locked baseline: helper-level pins
+    // §DF-v2-i-U1..U4 + route-level pin §DF-7v2i.
+    if (
+      user?.localityId &&
+      user.latitude  !== null &&
+      user.longitude !== null
+    ) {
       const loc = await prisma.locality.findUnique({
         where:  { id: user.localityId },
         select: { id: true, name: true },
       })
       if (loc) return { locality: loc, city: loc.name, lat: null, lng: null, source: 'profile' }
-    }
-    if (user?.city) {
-      const loc = await prisma.locality.findFirst({
-        where:  { name: { equals: user.city, mode: 'insensitive' } },
-        select: { id: true, name: true },
-      })
-      if (loc) return { locality: loc, city: loc.name, lat: null, lng: null, source: 'profile' }
-      // Fall back to the legacy `city` text label if no Locality row matches.
-      return { locality: null, city: user.city, lat: null, lng: null, source: 'profile' }
     }
   }
   return { locality: null, city: null, lat: null, lng: null, source: 'none' }
@@ -1420,11 +1487,31 @@ export type HomeNearbyCategoryRail = {
 
 export async function getHomeFeed(
   prisma: PrismaClient,
-  options: { userId: string | null; lat: number | null; lng: number | null },
+  options: {
+    userId:          string | null
+    lat:             number | null
+    lng:             number | null
+    locationContext: LocationContextWire
+  },
 ) {
   const now = new Date()
-  const { userId, lat, lng } = options
-  const locationCtx = await resolveLocationContext(prisma, userId, lat, lng)
+  const { userId, lat, lng, locationContext: locationCtx } = options
+  // §DF-v2-j Task 2 — `locationContext` is now resolved by the `/home` route
+  // handler and threaded into this service via options.  The service no
+  // longer calls `resolveLocationContext` itself; the route handler owns
+  // the resolution + wire-shape strip (variant (a) per
+  // `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md`).
+  //
+  // The wire envelope carries only `{ city, source, locality }`.  The
+  // ranking-facing `lat`/`lng` arrive via the raw `options.lat`/`lng` args
+  // (passed straight through by the route handler).  The two values agree
+  // 1:1 with the pre-§DF-v2-j `locationCtx.lat`/`lng` invariant ONLY when
+  // `source === 'coordinates'` — the helper used to return null for
+  // lat/lng on the profile + none branches, so we mirror that gating
+  // explicitly here.  All downstream ranking sites read `effectiveLat`
+  // / `effectiveLng` instead of the raw inputs.
+  const effectiveLat = locationCtx.source === 'coordinates' ? lat : null
+  const effectiveLng = locationCtx.source === 'coordinates' ? lng : null
 
   // Featured merchants — active FeaturedMerchant records within date range
   const featuredRows = await prisma.featuredMerchant.findMany({
@@ -1488,7 +1575,7 @@ export async function getHomeFeed(
   })
 
   // Nearby by category — MANDATORY: single query — do NOT loop per category
-  const nearbyMerchantsRaw = locationCtx.city || (locationCtx.lat !== null)
+  const nearbyMerchantsRaw = locationCtx.city || (effectiveLat !== null)
     ? await prisma.merchant.findMany({
         where: {
           status: MerchantStatus.ACTIVE,
@@ -1521,13 +1608,13 @@ export async function getHomeFeed(
     }))
 
   const [enrichedFeatured, enrichedTrending] = await Promise.all([
-    enrichMerchantTiles(prisma, featured as any, { lat: locationCtx.lat, lng: locationCtx.lng, userId }),
-    enrichMerchantTiles(prisma, trending as any, { lat: locationCtx.lat, lng: locationCtx.lng, userId }),
+    enrichMerchantTiles(prisma, featured as any, { lat: effectiveLat, lng: effectiveLng, userId }),
+    enrichMerchantTiles(prisma, trending as any, { lat: effectiveLat, lng: effectiveLng, userId }),
   ])
 
   // Enrich all nearbyByCategory merchants in a single batch (one groupBy + one findMany total)
   const allNearbyMerchants = nearbyByCategory.flatMap(item => item.merchants)
-  const allNearbyEnriched = await enrichMerchantTiles(prisma, allNearbyMerchants as any, { lat: locationCtx.lat, lng: locationCtx.lng, userId })
+  const allNearbyEnriched = await enrichMerchantTiles(prisma, allNearbyMerchants as any, { lat: effectiveLat, lng: effectiveLng, userId })
   const enrichedById = Object.fromEntries(allNearbyEnriched.map(m => [m.id, m]))
   const enrichedNearby = nearbyByCategory.map(item => ({
     category: item.category,
@@ -1716,8 +1803,8 @@ export async function getHomeFeed(
           'MIXED_NORMAL',
           {
             city:     locationCtx.city,
-            lat:      locationCtx.lat,
-            lng:      locationCtx.lng,
+            lat:      effectiveLat,
+            lng:      effectiveLng,
             locality: homeV2EffLoc
               ? { id: homeV2EffLoc.locality.id, name: homeV2EffLoc.locality.name }
               : null,
@@ -1747,7 +1834,10 @@ export async function getHomeFeed(
     trendingRail.branches.length > 0 ? trendingRail.branches : popularRail.branches
 
   return {
-    locationContext: { city: locationCtx.city, source: locationCtx.source, locality: locationCtx.locality },
+    // §DF-v2-j Task 2: passthrough — `locationCtx` IS the wire envelope now
+    // (3-field shape received from the `/home` route handler).  Identity
+    // preserved by the route-level resolve + `toLocationContextWire` strip.
+    locationContext: locationCtx,
     featured: enrichedFeatured.map(t => mergeV2FieldsOntoTile(t, homeV2TileById)),
     trending: enrichedTrending.map(t => mergeV2FieldsOntoTile(t, homeV2TileById)),
     campaigns,

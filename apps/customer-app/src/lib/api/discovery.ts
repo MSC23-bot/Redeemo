@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { api } from '../api'
+// §DF-v2-j Task 3 hoist (2026-05-26) — `locationContextSchema` moved to
+// the shared file so all Discovery surface schemas can share one definition.
+// `LocationContext` type re-exported below so existing consumers
+// (e.g. `SavedAreaHonestyHint`) keep working without import-path churn.
+import { locationContextSchema } from './shared/location'
+export type { LocationContext } from './shared/location'
 
 // ─── Plan 1.5 contract types ──────────────────────────────────────────────────
 //
@@ -186,18 +192,8 @@ const eligibleAmenitySchema = z.object({
 })
 export type EligibleAmenity = z.infer<typeof eligibleAmenitySchema>
 
-const locationContextSchema = z.object({
-  // Phase B.2 (Home Relevance, 2026-05-22) — additive `locality` on the
-  // location context envelope. Backend resolves the user's primary
-  // discovery locality via `resolveEffectiveLocation`; the rail-level
-  // `homeRailMetaSchema.locality` is the per-rail value (may differ
-  // from this top-level when cascade promotes a rail beyond local).
-  // `.optional()` so legacy responses (pre-Phase B) still parse.
-  locality: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
-  city:   z.string().nullable(),
-  source: z.enum(['coordinates', 'profile', 'none']),
-})
-export type LocationContext = z.infer<typeof locationContextSchema>
+// `locationContextSchema` + `LocationContext` hoisted to ./shared/location
+// per §DF-v2-j Task 3.  See imports at the top of this file.
 
 // Campaign tile shape on the home feed. `bannerImageUrl` matches the Prisma
 // Campaign field (NOT the older `bannerUrl` PR #4 invented). gradientStart/
@@ -365,6 +361,12 @@ const searchResponseSchema = z.object({
   branches:      z.array(branchTileSchema).optional(),
   totalBranches: z.number().optional(),
   branchMeta:    discoveryMetaSchema.optional(),
+  // §DF-v2-j Task 7 (2026-05-26) — additive locationContext emit landed
+  // backend-side in Task 4.  `.optional()` during the rollout window so
+  // any cold-cache / pre-deploy responses still parse.  Task 10 consumes
+  // this on SearchScreen to drive <LocationStatusLabel> + retires the
+  // existing client-side savedAreaCity derivation.
+  locationContext: locationContextSchema.optional(),
 })
 export type SearchResponse = z.infer<typeof searchResponseSchema>
 
@@ -382,6 +384,12 @@ const categoryMerchantsResponseSchema = z.object({
   branches:      z.array(branchTileSchema),
   totalBranches: z.number(),
   branchMeta:    discoveryMetaSchema.optional(),
+  // §DF-v2-j Task 7 (2026-05-26) — forward-compat additive field.
+  // Backend does NOT yet emit `locationContext` on /categories/:id/merchants
+  // (out of scope for this PR per audit §9).  `.optional()` keeps the
+  // schema future-proof so a later backend emit doesn't require a
+  // customer-app schema change.
+  locationContext: locationContextSchema.optional(),
 })
 export type CategoryMerchantsResponse = z.infer<typeof categoryMerchantsResponseSchema>
 
@@ -395,6 +403,13 @@ const inAreaResponseSchema = z.object({
   // reads `branches` only post Phase 2.2).
   meta:      inAreaMetaSchema,
   branches:  z.array(branchTileSchema).optional(),
+  // §DF-v2-j Task 7 (2026-05-26) — additive user-context envelope.
+  // Backend emit landed in Task 5.  Per spec D10 + audit §4 (the in-area
+  // route note): `locationContext` describes the USER's effective
+  // location identity; `meta.effectiveLocality` (above) describes the
+  // panned-to viewport.  The two fields are intentionally separate —
+  // consumers read whichever they need.  `.optional()` during rollout.
+  locationContext: locationContextSchema.optional(),
 })
 export type InAreaResponse = z.infer<typeof inAreaResponseSchema>
 

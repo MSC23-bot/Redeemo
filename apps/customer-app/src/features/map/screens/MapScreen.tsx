@@ -26,6 +26,12 @@ import { useToast } from '@/design-system'
 import { geocodeCity } from '@/lib/geocoding'
 import type { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { mapDataView } from '../utils/mapDataView'
+// §DF-v2-j Task 11 — chip-variant location identity affordance.  Mounted
+// at the TOP of the safe-area band (spec §8.3) ABOVE the SearchBar.
+// Visually + semantically distinct from <ViewportLocalityBadge> per D10
+// lock: chip = user-context identity (stays put as the map pans);
+// badge = viewport locality (updates with pan).
+import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
 
 const LONDON_REGION: Region = {
   latitude:       51.5074,
@@ -243,8 +249,31 @@ export function MapScreen(_props: Props) {
 
   const categories = categoriesData?.categories ?? []
 
+  // Task 13 Round 1 device-QA item 3 (2026-05-26) — a user with a saved
+  // profile location (postcode → lat/lng/localityId backfilled per §DF
+  // v1) is NOT a true no-location user.  The Map can open directly in
+  // their saved-profile bbox (initial-camera cascade at L335 already
+  // handles this), so the blocking "Enable Location / Browse without
+  // location" overlay is misleading + intrusive.  Gate it on the
+  // absence of a complete saved profile too.  Users with NEITHER GPS
+  // NOR a complete saved profile still see the overlay.
+  //
+  // PR #131 pre-merge fix #2 (2026-05-26) — align with §DF-v2-i:
+  // mirror backend EXACTLY by requiring localityId + latitude +
+  // longitude all three.  Pre-fix the gate read only lat/lng — a
+  // user with lat/lng but missing localityId would have been
+  // suppressed from the overlay even though backend
+  // `resolveLocationContext` returns `source='none'` for them (and
+  // discovery rails fall back to UK-wide).  Now Map's overlay gate
+  // matches the backend's profile-completeness predicate.
+  const hasCompleteSavedProfile =
+    me.data?.localityId != null
+    && me.data?.latitude  != null
+    && me.data?.longitude != null
   const showLocationPermission =
-    !locationPermissionDismissed && locationState.status === 'idle'
+    !locationPermissionDismissed
+    && locationState.status === 'idle'
+    && !hasCompleteSavedProfile
 
   // ─── Bbox handlers ─────────────────────────────────────────────────────────
   const handleRegionChangeComplete = useCallback((newRegion: Region) => {
@@ -587,6 +616,27 @@ export function MapScreen(_props: Props) {
       </MapView>
 
       <SafeAreaView style={styles.topOverlay} pointerEvents="box-none">
+        {/* §DF-v2-j Task 11 — chip-variant <LocationStatusLabel> mounted
+            at the TOP of the safe-area band per spec §8.3.  Reads the
+            unified `data?.locationContext` envelope — both /search and
+            /discovery/in-area emit it (Tasks 4 + 5).  Stays put as the
+            map pans below (user-context identity, NOT viewport).
+            Hidden during onboarding overlay + interactive
+            LocationSearch dropdown to avoid visual conflict with the
+            primary input states; offshore camera does NOT suppress
+            the chip (user identity is still meaningful when the map
+            is over water — the chip points the user back to Your
+            Location).  D10 lock preserved: <ViewportLocalityBadge>
+            stays in its own row below this overlay region. */}
+        {!showLocationPermission && !showLocationSearch && (
+          <View style={styles.statusLabelRow} pointerEvents="box-none">
+            <LocationStatusLabel
+              variant="chip"
+              locationContext={data?.locationContext}
+            />
+          </View>
+        )}
+
         <View style={styles.searchContainer} pointerEvents="box-none">
           <SearchBar
             value={searchQuery}
@@ -765,6 +815,15 @@ const styles = StyleSheet.create({
     right:    0,
     zIndex:   layer.sticky,
     gap:      0,
+  },
+  // §DF-v2-j Task 11 — chip row sits at the very top of the safe-area
+  // band, centered horizontally.  `pointerEvents="box-none"` on the JSX
+  // lets map gestures pass through everywhere EXCEPT the chip itself
+  // (the chip's own Pressable captures its tap target).
+  statusLabelRow: {
+    paddingTop:        spacing[1],  // 4pt below safe-area top
+    paddingHorizontal: spacing[4],
+    alignItems:        'center',
   },
   searchContainer: {
     paddingTop:    spacing[2],

@@ -428,6 +428,113 @@ Capture command + outcome inline at the PR. Tick alongside the device-QA boxes.
 
 ---
 
+## 15. Location context parity + top-of-app status label (§DF-v2-j + §DF-v2-i) — AWAITING MERGE
+
+Closes the locationContext parity gap left by §DF v1: every Discovery surface (Home / Search / Map / Merchant Profile) now emits the same wire envelope, the `source='profile'` invariant is tightened so it never lies about the rails' anchor, and a top-of-app `<LocationStatusLabel>` gives Home / Search / Map a unified location-identity affordance. Bundled atomically with §DF-v2-i so the parity emit doesn't amplify a known-broken state.
+
+Status: implemented end-to-end on `feature/locationcontext-parity`; PR not yet open. Once it lands on `main`, drop the "AWAITING MERGE" callout in §15's heading and bump the doc's `Last verified` date.
+
+Authority: spec `docs/superpowers/specs/2026-05-26-locationcontext-parity-design.md` v1.1, plan `docs/superpowers/plans/2026-05-26-locationcontext-parity.md`, audit `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md` (Task 0 variant-(a) lock).
+
+### 15.1 §DF-v2-i — tightened `source='profile'` invariant
+
+`resolveLocationContext` ([`src/api/customer/discovery/service.ts`](../src/api/customer/discovery/service.ts)) now requires ALL THREE of `User.localityId + User.latitude + User.longitude` to return `source='profile'`. Matches `resolveEffectiveLocation`'s SAVED_PROFILE branch (§13.1 invariant). The previous loose paths — `localityId` without lat/lng, OR `User.city` text alone — are removed.
+
+Atomic test pin: §DF-7 (the route-level baseline that documented the pre-fix divergence) renamed to **§DF-7v2i** with flipped assertions — same fixture (user has `localityId` set, `lat/lng` null) now resolves to `source='none'` + `locality=null` + `city=null` on the wire envelope. Plus 4 new helper unit pins (§DF-v2-i-U1..U4) at `tests/api/customer/discovery/resolveLocationContext.test.ts`.
+
+Affected cohort post-§DF v1 backfill: only pre-PC2 users with a free-text `city` value but no postcode/locality/coords. They see `source='none'` + a "Set location ›" prompt and tap to set a real postcode.
+
+### 15.2 Parity emit — `locationContext` on every Discovery surface
+
+Route handlers (`/search`, `/discovery/in-area`, `/merchants/:id` plus the already-shipped `/home`) resolve `locationContext` once via the exported `resolveLocationContext`, strip to the 3-field wire envelope via `toLocationContextWire`, and inject at the response root. Pure service helpers (`searchMerchants`, `searchBranches`, `getInAreaMerchants`, `getInAreaBranches`, `getCustomerMerchant`) stay free of `FastifyRequest` and free of `locationContext` concerns — the lock from the Task 0 audit's variant (a).
+
+Wire envelope (unchanged from §DF v1 §13.2):
+
+```ts
+locationContext: {
+  city: string | null              // e.g. "Huddersfield"
+  source: 'coordinates' | 'profile' | 'none'
+  locality: { id: string; name: string } | null
+}
+```
+
+Customer-app schema additions (`apps/customer-app/src/lib/api/discovery.ts` + `merchant.ts`): `searchResponseSchema`, `inAreaResponseSchema`, `categoryMerchantsResponseSchema`, `merchantProfileSchema` each gain `locationContext: locationContextSchema.optional()`. All four import from the new shared file `apps/customer-app/src/lib/api/shared/location.ts` (Task 3 hoist target). `voucher.ts` is intentionally untouched — Voucher Detail location-context awareness is deferred to §DF-v2-o.
+
+Backend integration pins (12 new, 4 per endpoint) at `tests/api/customer/discovery/locationcontext-parity.test.ts`: §DF-v2-j-S{1,2,5,7} Search, §DF-v2-j-I{1,2,5,7} In-area, §DF-v2-j-M{1,2,5,7} Merchant Profile.
+
+### 15.3 `<LocationStatusLabel>` — top-of-app status component
+
+New component at `apps/customer-app/src/lib/location/LocationStatusLabel.tsx`. Compact location-identity affordance mounted on Home / Search / Map. Tap routes to `/saved-area` in every renderable state. Reads `permission` from `useUserLocation()` internally — consumers don't thread the hook through.
+
+State matrix (locked):
+
+| `locationContext.source` | `permission` (from `useUserLocation`) | Label rendered |
+|---|---|---|
+| `'coordinates'` | any | `Using current location` |
+| `'profile'` + city | any | `Using profile location · {city}` (city in Lato-Semibold) |
+| `'profile'` + city null (defensive) | any | `Using profile location` (D8 fallback) |
+| `'none'` | `'denied'` or `'unavailable'` | `No GPS · Set location ›` (MapPinOff icon + chevron) |
+| `'none'` | `'undetermined'` | `Set location ›` |
+| `'none'` | `'granted'` (granted-without-coords edge) | `Set location ›` (until coords arrive) |
+| `undefined` (loading / unauth) | any | renders null |
+
+Owner-locked copy migration: ALL `source='profile'` UX uses "**profile location**" wording (NEVER "saved area" / "saved location"). Applies to the label, the §6.4 Home honesty hint, the Your Location screen, and any future surface.
+
+Component-level pins (11 total) at `tests/lib/location/LocationStatusLabel.test.tsx` — §LSL-1..§LSL-10 covering the state matrix + variant container shapes + the granted-without-coords edge case (§LSL-6b).
+
+### 15.4 Variant mounts — strip on Home + Search, chip on Map
+
+| Surface | Variant | Mount placement |
+|---|---|---|
+| Home — [`HomeScreen.tsx`](../apps/customer-app/src/features/home/screens/HomeScreen.tsx) | `strip` | IMMEDIATELY above the existing `<HomeNoLocationBanner>` / `<SavedAreaHonestyHint>` slot. Coexists with the honesty hint per D6 — label = compact identity, hint = caveat + Update affordance. Both render when `source='profile'`. |
+| Search — [`SearchScreen.tsx`](../apps/customer-app/src/features/search/screens/SearchScreen.tsx) | `strip` | IMMEDIATELY above the `<SearchBar>` row. The retired `useMe()`-driven `savedAreaCity` derivation now reads from the response envelope (`data?.locationContext?.city ?? locality?.name`). `<SearchEmptyState>` prop contract unchanged — only the source of `savedAreaCity` changed. |
+| Map — [`MapScreen.tsx`](../apps/customer-app/src/features/map/screens/MapScreen.tsx) | `chip` | Inside the SafeAreaView `topOverlay` band, as the FIRST child above the `searchContainer`. Hidden during the LocationPermission onboarding overlay + the interactive LocationSearch dropdown. Offshore camera does NOT suppress the chip (user identity is still meaningful when the map is over water). |
+| Voucher Detail | (NOT MOUNTED) | Per D4 — deferred to §DF-v2-o. |
+| Merchant Profile | (NOT MOUNTED) | Per D4 — deferred to §DF-v2-o. The backend emit DOES ship in this PR (Task 6) so future consumers inherit the field without a backend change. |
+
+Strip-variant styling (locked): full-width row, 36pt height, cream surface tint, 1px hairline border on the BOTTOM edge only. No border radius; no elevation.
+
+Chip-variant styling (locked): pill shape (`borderRadius: 9999`), 32pt height, shrink-to-content width, translucent cream background (`rgba(254, 246, 245, 0.96)`), full 1px hairline border on ALL sides, subtle elevation (`elevation.sm`). Positioning (top + alignSelf) is the mount parent's job — the chip itself is layout-agnostic.
+
+Surface integration pins: §LSL-Home (Home), §LSL-Search × 3 (Search profile + coordinates + loading), §LSL-Map (Map + D10 coexistence with `<ViewportLocalityBadge>`).
+
+### 15.5 Map `locationContext` vs `meta.effectiveLocality` — D10 lock
+
+Locked separation (NEVER collapse, NEVER reuse):
+
+| Field | Semantics | What it changes with |
+|---|---|---|
+| `locationContext` (chip — user-context) | The user's effective location identity. "You're using profile location · Huddersfield." | The user's GPS permission state + saved profile — independent of the map's pan position. |
+| `meta.effectiveLocality` (`<ViewportLocalityBadge>` — viewport-context) | The locality the panned-to viewport currently sits in. "Map centred near Huddersfield." | The user's pan / zoom — independent of the user's GPS / saved profile. |
+
+Both fields ride the same `/discovery/in-area` response payload. Both render simultaneously when both resolve. Pinned by §LSL-Map: when `meta.effectiveLocality === Huddersfield` AND `locationContext.locality === Huddersfield`, BOTH "Using profile location · Huddersfield" AND "Map centred near Huddersfield" appear on screen at once.
+
+### 15.6 Your Location — locked v1 product invariants
+
+Task 13 Round 1 device-QA confirmation (2026-05-26):
+
+1. **No "remove profile location" / "clear postcode" action in v1.** Discovery requires at least one of {GPS, saved profile} to provide a useful experience. Removing the saved profile without a GPS replacement would degrade discovery to UK-wide. Future versions may add a clear-location action if multi-saved-locations (§DF-v2-a) or a richer location-management UX ships.
+2. **Empty postcode keeps Save disabled.** The Save button is gated on `disabled={!lookupResult}` ([`SavedAreaScreen.tsx`](../apps/customer-app/src/features/saved-area/screens/SavedAreaScreen.tsx) — Edit + Save flow). `lookupResult` is non-null only when a valid postcode is entered AND the postcode-lookup endpoint returns a successful match. Empty + invalid input both keep Save disabled.
+3. **Updating the postcode is the only postcode-mutation path.** The `Use current location` CTA on the Your Location screen grants GPS but does NOT write to `User.postcode` — only an explicit `Update postcode` flow with a successful lookup persists the postcode + locality + lat/lng.
+
+These invariants are intentional — please do not re-raise them as bugs unless the v2 multi-saved-location workstream (§DF-v2-a) revisits them.
+
+### 15.7 Voucher Detail — deferred to §DF-v2-o
+
+Voucher Detail is the one Discovery surface deliberately excluded from §DF-v2-j. The route currently has no `lat`/`lng` query plumbing, no schema field, and no client-side consumer for location context. Plumbing all three for a future-flagged value isn't justified without a real consumer.
+
+**§DF-v2-o** (new follow-up, filed by this spec) will pick up:
+
+- Backend `/api/v1/customer/vouchers/:id` accepts optional `lat` / `lng` query params.
+- `getCustomerVoucher` accepts `opts: { lat?, lng? }` and resolves `locationContext`.
+- Customer-app `voucher.ts::voucherApi.getVoucher` threads caller coords.
+- The shared client schema at [`apps/customer-app/src/lib/api/shared/location.ts`](../apps/customer-app/src/lib/api/shared/location.ts) is future-proof — §DF-v2-o imports from there without further refactor.
+- Decision: whether to mount `<LocationStatusLabel>` on Voucher Detail (re-opens the D4 lock).
+
+Pickup trigger: when a Voucher Detail consumer needs location-awareness (e.g. estimated drive time, branches nearest you, or a label-on-detail product decision).
+
+---
+
 ## Living-doc maintenance
 
 This document represents the **current state of `main`** for the listed surfaces. It must be kept in sync with code, not version-stamped.
@@ -440,6 +547,7 @@ This document represents the **current state of `main`** for the listed surfaces
 - A new surface lands on `main` (add it to the "represented" list at the top + a new section for its behaviour).
 - An existing surface's user-visible behaviour changes (re-write the section + add a changelog entry).
 - §13 saved-area fallback resolver precedence changes, the honesty hint render gate changes, the Saved Area sub-screen flows change, the consolidated location hook contract changes, or any §DF-v2-* item ships (§DF-v2-j shipping in particular will move the top-of-app status label + non-Home locationContext emit out of "deferred").
+- §15 status-label state matrix changes, the strip vs chip variant boundaries shift, the D10 separation between `locationContext` and `meta.effectiveLocality` is reconsidered, the §DF-v2-i tightened invariant is loosened (e.g. a Locality.centerLat fallback is introduced for users with localityId-only), or §DF-v2-o lands on Voucher Detail.
 
 The companion [`customer-flow-changelog.md`](customer-flow-changelog.md) is the auditable history. Every code change that touches the surfaces above must add a dated entry.
 
