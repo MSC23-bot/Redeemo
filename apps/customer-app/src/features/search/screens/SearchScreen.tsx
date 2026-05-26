@@ -437,18 +437,21 @@ export function SearchScreen() {
       : `${stem} for "${debouncedQuery}"`
   })()
 
+  // Task 13 Round 2 item 2 (2026-05-26) — owner reported the top-of-
+  // screen label felt redundant in idle + empty states because the
+  // empty-state copy ALREADY surfaces the profile-location context
+  // ("Searching near Brightlingsea from your profile location" +
+  // dual CTA).  Owner direction: hide the label in idle/empty states
+  // and keep it ONLY when results are visible — that's the state
+  // where the results header ("Closest matches for query") provides
+  // no location anchor and the label is genuinely value-add.
+  // Repositioned below SearchBar (was: above) so the input stays the
+  // top-of-screen primary element + the label sits as a contextual
+  // banner for the results below.
+  const showStatusLabel = showResults && branches.length > 0
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
-      {/* §DF-v2-j Task 10 — strip-variant <LocationStatusLabel>
-          mounted IMMEDIATELY above the SearchBar row per spec §8.2.
-          Reads `data?.locationContext` (the same envelope feeding
-          savedAreaCity below).  Renders null during the React Query
-          loading window per §LSL-7. */}
-      <LocationStatusLabel
-        variant="strip"
-        locationContext={locationContext}
-      />
-
       <SearchBar
         value={query}
         onChangeText={setQuery}
@@ -456,6 +459,18 @@ export function SearchScreen() {
         autoFocus
         placeholder="Search merchants..."
       />
+
+      {/* §DF-v2-j Task 10 + Task 13 Round 2 item 2 — strip mounted
+          below SearchBar, ONLY when results are visible.  Idle /
+          empty / loading states get cleaner top chrome; the empty
+          state's own profile-location copy carries the location
+          identity in those windows. */}
+      {showStatusLabel && (
+        <LocationStatusLabel
+          variant="strip"
+          locationContext={locationContext}
+        />
+      )}
 
       {showTrending && (
         <>

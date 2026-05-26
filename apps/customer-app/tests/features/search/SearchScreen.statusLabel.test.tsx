@@ -116,32 +116,46 @@ beforeEach(() => {
   mockMeRef.current         = null
 })
 
-describe('§DF-v2-j Task 10 — SearchScreen mounts <LocationStatusLabel variant=strip>', () => {
-  it('§LSL-Search — strip label renders with the searchResponse.locationContext envelope (source=profile + Huddersfield)', async () => {
+describe('§DF-v2-j Task 10 + Round 2 — SearchScreen mounts <LocationStatusLabel variant=strip> ONLY when results are visible', () => {
+  // Round 2 item 2 — owner reported the top-of-screen label was
+  // redundant in idle + empty states (the empty-state copy already
+  // says "Searching near {city}").  Owner-locked direction: hide
+  // the label in idle/empty/loading; show it only when results are
+  // populated.  Tests below reflect the new conditional mount.
+
+  it('§LSL-Search — strip label renders with the searchResponse.locationContext envelope (source=profile + Huddersfield) when results are visible', async () => {
     mockState.locationContext = {
       source:   'profile',
       city:     'Huddersfield',
       locality: { id: 'l-huddersfield', name: 'Huddersfield' },
     }
-    mockState.branches = []
+    // Round 2: branches non-empty so showResults && branches.length > 0
+    // mount-condition triggers.
+    mockState.branches = [{
+      id: 'b1', branchName: 'Town Centre', branchLocalityId: 'l-huddersfield',
+      branchLocalityName: 'Huddersfield', merchant: { id: 'm1', businessName: 'Test' },
+    } as any]
 
     const { getByPlaceholderText, getByTestId } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText, 'cafe')
 
-    // 1. Label is mounted.
+    // 1. Label is mounted in the results state.
     await waitFor(() => expect(getByTestId('location-status-label')).toBeTruthy())
     // 2. Copy derived from the wire envelope (no client-side derivation).
     const city = getByTestId('location-status-city')
     expect(city.props.children).toBe('Huddersfield')
   })
 
-  it('§LSL-Search-coordinates — strip label renders "Using current location" when source=coordinates', async () => {
+  it('§LSL-Search-coordinates — strip label renders "Using current location" when source=coordinates AND results are visible', async () => {
     mockState.locationContext = {
       source:   'coordinates',
       city:     'London',
       locality: { id: 'l-london', name: 'London' },
     }
-    mockState.branches = []
+    mockState.branches = [{
+      id: 'b1', branchName: 'City', branchLocalityId: 'l-london',
+      branchLocalityName: 'London', merchant: { id: 'm1', businessName: 'Test' },
+    } as any]
 
     const { getByPlaceholderText, getByTestId } = render(<SearchScreen />, { wrapper })
     await typeAndSettle(getByPlaceholderText, 'cafe')
@@ -151,34 +165,51 @@ describe('§DF-v2-j Task 10 — SearchScreen mounts <LocationStatusLabel variant
     expect(text.props.children).toBe('Using current location')
   })
 
-  it('§LSL-Search-loading — label renders null during pre-search when user ALSO has no profile (no envelope + no useMe fallback)', () => {
-    // Before any text is typed AND no profile location: useSearch
-    // returns `data: undefined`, useMe returns null profile, so the
-    // envelope is undefined → label renders null per §LSL-7.
+  it('§LSL-Search-loading — label renders null during pre-search (no search has fired yet)', () => {
+    // Before any text is typed: useSearch returns data: undefined, so
+    // showResults is false → label hidden by the Round 2 conditional
+    // mount AND by §LSL-7 component-level null-on-undefined.
     mockState.locationContext = null
     mockMeRef.current         = null
     const { queryByTestId } = render(<SearchScreen />, { wrapper })
     expect(queryByTestId('location-status-label')).toBeNull()
   })
 
-  // Round 1 device-QA item 2 regression pin.
-  it('§LSL-Search-idle — pre-search idle state synthesizes a profile envelope from useMe so the label + savedAreaCity see the user\'s saved location', () => {
-    // The owner-reported bug: an authenticated user with a saved
-    // Brightlingsea postcode was seeing the no-location empty state +
-    // missing status label on Search before typing.  Round 1 fix:
-    // useMe is the strict-fallback when data?.locationContext is
-    // undefined.  Authoritative envelope still wins once a search
-    // runs.
-    mockState.locationContext = null // no search has fired yet
+  // Round 2 device-QA item 2 regression pin (reframed from Round 1).
+  it('§LSL-Search-idle-no-label — label is HIDDEN in idle state EVEN when the user has a profile location (Round 2 product decision: empty-state copy carries the location identity in idle/empty states)', () => {
+    // Profile-location user, no search typed: the label MUST NOT
+    // render at the top of Search.  The profile-aware empty state
+    // ("Searching near Brightlingsea ...") carries the location copy
+    // when relevant; the top-strip would be redundant chrome.
+    mockState.locationContext = null
+    mockMeRef.current = {
+      locality: { id: 'l-brightlingsea', name: 'Brightlingsea', postTown: 'Colchester', region: 'England' },
+      city:     null,
+    }
+    const { queryByTestId } = render(<SearchScreen />, { wrapper })
+    expect(queryByTestId('location-status-label')).toBeNull()
+  })
+
+  // Round 2 device-QA item 2 — positive pin: label DOES render in
+  // results state, AND the synthesized-from-useMe envelope still
+  // drives the city when data.locationContext happens to be
+  // undefined (forward-compat: backend response shape shouldn't
+  // break the label).
+  it('§LSL-Search-results-with-synth — label renders in results state with profile-synthesized envelope when data.locationContext is undefined', async () => {
+    mockState.locationContext = null // backend didn't send envelope
+    mockState.branches = [{
+      id: 'b1', branchName: 'Sea View', branchLocalityId: 'l-brightlingsea',
+      branchLocalityName: 'Brightlingsea', merchant: { id: 'm1', businessName: 'Test' },
+    } as any]
     mockMeRef.current = {
       locality: { id: 'l-brightlingsea', name: 'Brightlingsea', postTown: 'Colchester', region: 'England' },
       city:     null,
     }
 
-    const { getByTestId } = render(<SearchScreen />, { wrapper })
-    // Label is mounted with the synthesized profile envelope.
-    expect(getByTestId('location-status-label')).toBeTruthy()
-    // City emphasis derives from useMe.data.locality.name.
+    const { getByPlaceholderText, getByTestId } = render(<SearchScreen />, { wrapper })
+    await typeAndSettle(getByPlaceholderText, 'cafe')
+
+    await waitFor(() => expect(getByTestId('location-status-label')).toBeTruthy())
     const city = getByTestId('location-status-city')
     expect(city.props.children).toBe('Brightlingsea')
   })

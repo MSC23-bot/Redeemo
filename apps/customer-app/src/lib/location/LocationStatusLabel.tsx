@@ -224,11 +224,20 @@ const styles = StyleSheet.create({
   // Transparent background, no border, smaller height + tighter
   // vertical padding.  Full width preserved so the tap target spans
   // the row's horizontal width (matches the rest of HomeHeader).
+  //
+  // Task 13 Round 2 item 1 (2026-05-26) — owner reported the strip
+  // still felt detached after Round 1; root cause was HomeHeader's
+  // own `paddingVertical: spacing[3]=12pt` leaving a 12pt visible gap
+  // between the greeting baseline and the label.  `marginTop:
+  // -spacing[3]` absorbs that whole gap so the label sits at the
+  // same rhythm HomeHeader uses for its own GPS-on location row
+  // (which is `marginTop: spacing[1]=4pt` from the greeting).
   stripFlush: {
     width:             '100%',
-    paddingHorizontal: 18,        // matches HomeHeader.paddingHorizontal
-    paddingTop:        0,         // sit flush against HomeHeader's bottom padding
-    paddingBottom:     spacing[1],
+    marginTop:         -spacing[3], // pull up into HomeHeader's bottom padding
+    paddingHorizontal: 18,          // matches HomeHeader.paddingHorizontal
+    paddingTop:        0,
+    paddingBottom:     spacing[2],  // leaves 8pt before the next element below
     backgroundColor:   'transparent',
     borderBottomWidth: 0,
     borderRadius:      0,

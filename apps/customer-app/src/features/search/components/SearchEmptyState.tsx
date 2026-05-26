@@ -110,9 +110,14 @@ export function SearchEmptyState({
           // accurate nearby offers."  Round 5 collapses sentences 1+2
           // into one and drops "Redeemo is" (app context is implicit).
           // Title remains "Searching near {city}".
+          //
+          // Task 13 Round 2 item 3 (2026-05-26) — owner copy refresh:
+          // "Location is off" → "Your location is turned off" (warmer
+          // phrasing).  "Turn on location" → "Turn it on" (avoids
+          // repeating "location").  No em-dashes.
           return {
             title: `Searching near ${savedAreaCity}`,
-            body:  "Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers.",
+            body:  "Your location is turned off, so we're using your profile location. Turn it on for the most accurate nearby offers.",
           }
         }
         return {

@@ -27,10 +27,10 @@ describe('<SearchEmptyState reason="no_location"> profile-aware (§DF PR #128 R2
       // §DF device-QA Round 5 — body refresh collapses Round 4's 3
       // sentences into 2.  Title remains "Searching near {city}".
       // Locked verbatim body:
-      //   "Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers."
+      //   "Your location is turned off, so we're using your profile location. Turn it on for the most accurate nearby offers."
       expect(getByText('Searching near Brightlingsea')).toBeTruthy()
       expect(
-        getByText("Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers."),
+        getByText("Your location is turned off, so we're using your profile location. Turn it on for the most accurate nearby offers."),
       ).toBeTruthy()
       // Locked: must NOT show the "Set your area" prompt — the user
       // already HAS a saved area.
@@ -137,7 +137,7 @@ describe('<SearchEmptyState reason="no_location"> profile-aware (§DF PR #128 R2
       // verbatim per owner direction.
       const title = getByText('Searching near Brightlingsea').props.children as string
       const body = getByText(
-        "Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers.",
+        "Your location is turned off, so we're using your profile location. Turn it on for the most accurate nearby offers.",
       ).props.children as string
       expect(title).not.toMatch(/—/)
       expect(body).not.toMatch(/—/)

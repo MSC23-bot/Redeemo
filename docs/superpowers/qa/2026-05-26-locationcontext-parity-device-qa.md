@@ -451,3 +451,86 @@ This is a Yoga / React Native layout subtlety: `flex: 1` only works inside a non
 **Device-only:** Pending owner re-QA. Items 1-4 patched + pinned; Item 5 confirmed + documented.
 
 **Pre-PR-opening gate:** AWAITING owner re-QA per the original Task 13 pause direction. No simulator-level blockers.
+
+---
+
+## §7. Device-QA Round 2 — owner findings + fixes
+
+**Date:** 2026-05-26 (post-Round-1 device re-QA).
+**Test rig:** Owner's device. Profile location: Brightlingsea. GPS / location off.
+
+**Round 1 outcomes (closed):**
+
+- Item 2 (Search idle empty state) ✅ now recognises profile location.
+- Item 3 (Map permission overlay) ✅ Map opens directly in profile bbox.
+- Item 4 (Map chip icon-only) ✅ chip now renders `Using profile location · Brightlingsea`.
+- Item 5 (Your Location empty-postcode invariants) ✅ confirmed.
+
+**Remaining items + 1 new item:**
+
+### 7.1 Round 2 item 1 — Home label still felt detached
+
+**Finding (⚠️ FAIL — Round 1 fix insufficient):** Round 1's `flush` prop dropped the cream pill chrome but the label still felt too far below `Good evening, Jane`. The remaining gap was HomeHeader's own `paddingVertical: spacing[3]=12pt` — the label sat 12pt below the header's content baseline, vs the GPS-on rhythm where the location row sits 4pt below the greeting.
+
+**Fix:** Added `marginTop: -spacing[3]` (-12pt) to the `stripFlush` style. The label is now pulled up into HomeHeader's bottom padding zone so the visible distance from `Good evening, Jane` to `Using profile location · Brightlingsea` matches the GPS-on rhythm (HomeHeader's existing `marginTop: spacing[1]=4pt` location row).
+
+**Updated pin:** §LSL-11 — asserts `marginTop === -12` on the flush container.
+
+**Status:** ✅ PATCHED — code change in `src/lib/location/LocationStatusLabel.tsx` (`stripFlush` style only).
+
+### 7.2 Round 2 item 2 — Search top label felt redundant in idle / empty state
+
+**Finding (⚠️ FAIL):** In Search idle state, owner saw BOTH:
+
+- Top strip label: `Using profile location · Brightlingsea`
+- Empty-state title + body: `Searching near Brightlingsea` + supporting copy
+
+That's two overlapping signals carrying the same information. Owner direction: hide the label when the empty state's profile-aware copy is doing the same job; keep it only when results are visible (the results header `Closest matches for query` doesn't mention location).
+
+**Fix:** Conditional mount — `showStatusLabel = showResults && branches.length > 0`. The label is now mounted ONLY in the results state:
+
+- Idle / trending state → no label (clean SearchBar at top + trending pills below).
+- Loading state → no label.
+- Empty-results state → no label (empty-state copy carries the location identity).
+- Has-results state → label appears between SearchBar and the results header.
+
+Repositioned BELOW SearchBar (was: above) so SearchBar remains the stable top-of-screen primary input and the label acts as a contextual banner over the results.
+
+**Pin updates / new pins:**
+
+- §LSL-Search + §LSL-Search-coordinates: updated to include `mockState.branches = [...]` (Round 2 requires populated branches to trigger the mount condition).
+- §LSL-Search-idle (Round 1) → reframed to §LSL-Search-idle-no-label: asserts the label is HIDDEN in idle state even when the user has a profile location.
+- New positive pin §LSL-Search-results-with-synth: asserts the label DOES render in results state with the synthesized-from-useMe envelope when `data.locationContext` is undefined (forward-compat).
+
+**Status:** ✅ PATCHED — code change in `src/features/search/screens/SearchScreen.tsx` (conditional mount + repositioned below SearchBar).
+
+### 7.3 Round 2 item 3 — Search empty-state copy refresh
+
+**Finding (⚠️ owner copy preference, not a bug):** Existing body copy `Location is off, so we're using your profile location. Turn on location for the most accurate nearby offers.` Owner direction: warmer phrasing (`Your location is turned off`) + avoid repeating "location" (`Turn it on`). No em-dashes.
+
+**Fix:** Body refresh to `Your location is turned off, so we're using your profile location. Turn it on for the most accurate nearby offers.` Title `Searching near {city}` unchanged.
+
+**Pin updates:** existing §DF Round 5 verbatim assertions in `SearchEmptyState.profileAware.test.tsx` updated to the new copy. No new pin needed — the locked-verbatim-copy assertion + the existing "no em-dashes" assertion both protect the new wording.
+
+**Status:** ✅ PATCHED — code change in `src/features/search/components/SearchEmptyState.tsx`.
+
+### 7.4 Round 2 item 4 — Map confirmed clean
+
+Owner confirmed Round 1's Map chip fix resolved the icon-only render. Chip now shows `Using profile location · Brightlingsea`. ViewportLocalityBadge remains semantically separate (`Map centred near Brightlingsea`). No additional Map regression observed.
+
+**Status:** ✅ NO CHANGE — Round 1 patch holds.
+
+---
+
+## §8. Round 2 gate summary
+
+**Simulator / unit-level:** ✅ PASS
+
+- Focused 5-suite gate (LSL component + 3 surface integrations + SearchEmptyState profile-aware): 34/34 PASS (after Round 2 test updates).
+- Customer-app full impacted-surface sweep (Home + Search + Map + lib): 404/404 across 58 suites.
+- customer-app `tsc --noEmit`: exit 0 clean.
+- Backend untouched in Round 2.
+
+**Device-only:** Pending owner re-QA on Brightlingsea / Round 2.
+
+**Pre-PR-opening gate:** AWAITING owner re-QA. No simulator-level blockers. Round 2 makes 3 small surgical changes — none affect the locked product invariants from spec §3 (D1-D11) or any test pin outside the §LSL family + SearchEmptyState.profileAware.
