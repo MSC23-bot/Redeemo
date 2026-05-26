@@ -5,6 +5,7 @@ import {
 import * as ImagePicker from 'expo-image-picker'
 import { useQueryClient } from '@tanstack/react-query'
 import { router } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ProfileHeader } from '../components/ProfileHeader'
 import { ProfileSectionCard } from '../components/ProfileSectionCard'
 import { ProfileRow } from '../components/ProfileRow'
@@ -36,6 +37,7 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 export function ProfileScreen() {
+  const insets = useSafeAreaInsets()
   const { data: profile, isLoading: profileLoading } = useMe()
   const { subscription } = useSubscription()
   const { mutate: updateAvatar, isPending: avatarUploading } = useUpdateAvatar()
@@ -104,7 +106,16 @@ export function ProfileScreen() {
   const addressPreview = [profile.city, profile.postcode].filter(Boolean).join(', ') || undefined
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[
+        styles.content,
+        // Safe-area-aware top inset (clears notch/status bar) + bottom inset
+        // plus ~100pt clearance for the absolute tab bar so the last row
+        // (Sign out / Delete account / version stamp) can scroll into view.
+        { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 100 },
+      ]}
+    >
       <ProfileHeader
         profile={profile}
         subscription={sub ?? undefined}
@@ -235,7 +246,10 @@ export function ProfileScreen() {
 
 const styles = StyleSheet.create({
   screen:         { flex: 1, backgroundColor: '#FAF8F5' },
-  content:        { padding: 16, paddingBottom: 40 },
+  // Top + bottom paddings are applied inline using safe-area insets; this
+  // base style only sets horizontal padding so the inline values are the
+  // single source of vertical truth.
+  content:        { paddingHorizontal: 16 },
   comingSoonPill: { backgroundColor: '#F3F4F6', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   comingSoonText: { fontSize: 10, color: '#9CA3AF', fontWeight: '500' },
   version:        { fontSize: 12, color: 'rgba(1,12,53,0.35)', textAlign: 'center', marginTop: 8, marginBottom: 16 },

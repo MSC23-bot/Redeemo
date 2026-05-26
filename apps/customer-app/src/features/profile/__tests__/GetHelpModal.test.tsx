@@ -46,6 +46,19 @@ describe('GetHelpModal (Sub-PR 1 stub)', () => {
     expect(onDismiss).not.toHaveBeenCalled()
   })
 
+  // Rising-edge guard: a parent re-render that swaps the onDismiss
+  // identity while visible stays true must NOT re-fire the alert. Without
+  // the fired-ref guard the effect's onDismiss dep would re-run and
+  // surface a duplicate "Coming soon" popup.
+  it('does not re-fire the alert when only onDismiss identity changes while visible stays true', () => {
+    const dismiss1 = jest.fn()
+    const dismiss2 = jest.fn()
+    const { rerender } = render(<GetHelpModal visible onDismiss={dismiss1} />)
+    expect(alertSpy).toHaveBeenCalledTimes(1)
+    rerender(<GetHelpModal visible onDismiss={dismiss2} />)
+    expect(alertSpy).toHaveBeenCalledTimes(1)
+  })
+
   // Sub-PR 2 seam — when the real support-ticket hook lands, this test will
   // fail and force Sub-PR 2 to delete it intentionally as part of the flip.
   it('imports no support-ticket API or hook (Sub-PR 2 seam)', () => {

@@ -4,6 +4,7 @@ import { ProfileSectionCard } from './ProfileSectionCard'
 import { ProfileRow } from './ProfileRow'
 import { profileApi } from '@/lib/api/profile'
 import { useQueryClient } from '@tanstack/react-query'
+import { meQueryKey } from '@/hooks/useMe'
 
 interface Props {
   newsletterConsent: boolean
@@ -19,7 +20,10 @@ export function NotificationsSection({ newsletterConsent, userId }: Props) {
     setConsent(value) // optimistic
     try {
       await profileApi.updateProfile({ newsletterConsent: value })
-      queryClient.invalidateQueries({ queryKey: ['profile'] })
+      // Invalidate the canonical profile cache key (['me']) so ProfileScreen
+      // re-fetches and the toggle reflects on subsequent reads. Previously
+      // invalidated ['profile'], which is a stale key — useMe uses meQueryKey.
+      queryClient.invalidateQueries({ queryKey: meQueryKey })
     } catch {
       setConsent(prev) // rollback
     }

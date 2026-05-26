@@ -43,12 +43,14 @@ function OtpInput({ onComplete }: { onComplete: (code: string) => void }) {
 }
 
 export function DeleteAccountFlow({ visible, onDismiss }: Props) {
-  const { stage, setStage, error, loading, sendOtp, verifyOtp, confirmDelete, actionToken } =
+  const { stage, setStage, error, loading, sendOtp, verifyOtp, confirmDelete } =
     useDeleteAccount()
 
+  // Thread the token returned by verifyOtp directly into confirmDelete to
+  // avoid the React stale-closure trap on actionToken. See useDeleteAccount.
   const handleOtpComplete = async (code: string) => {
-    await verifyOtp(code)
-    if (actionToken) await confirmDelete()
+    const token = await verifyOtp(code)
+    if (token) await confirmDelete(token)
   }
 
   return (
