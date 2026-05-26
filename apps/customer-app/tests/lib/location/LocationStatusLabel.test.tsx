@@ -231,7 +231,7 @@ it('§LSL-10 — variant=chip → chip container shape (pill radius, full border
 // Task 13 Round 1 device-QA regression pins
 // ────────────────────────────────────────────────────────────────────────────
 
-it('§LSL-11 — variant=strip + flush=true → flush container (transparent bg, no bottom border, negative top margin to absorb HomeHeader\'s bottom padding)', () => {
+it('§LSL-11 — variant=strip + flush=true → flush container (transparent bg, no bottom border, no own paddings — parent owns positioning)', () => {
   mockPermissionRef.current = 'granted'
   const { getByTestId } = render(
     <LocationStatusLabel
@@ -242,16 +242,15 @@ it('§LSL-11 — variant=strip + flush=true → flush container (transparent bg,
   )
   const label   = getByTestId('location-status-label')
   const flatten = flattenStyle(label.props.style)
-  // Round 1 item 1 — flush drops cream tint + bottom hairline so the
-  // label sits inline under <HomeHeader>.
+  // Round 3 — flush strips the cream-pill chrome AND drops its own
+  // padding/margin so the parent (HomeHeader's location-row slot)
+  // owns positioning.  Width 100% preserved so the tap target spans
+  // the parent column.
   expect(flatten.backgroundColor).toBe('transparent')
   expect(flatten.borderBottomWidth).toBe(0)
-  // Width still 100% (the row spans the screen for tap-target reach).
   expect(flatten.width).toBe('100%')
-  // Round 2 item 1 — negative top margin pulls the label up into
-  // HomeHeader's bottom padding zone, matching the GPS-on location-
-  // row rhythm.  spacing[3] === 12.
-  expect(flatten.marginTop).toBe(-12)
+  expect(flatten.paddingHorizontal).toBe(0)
+  expect(flatten.paddingVertical).toBe(0)
 })
 
 it('§LSL-12 — chip variant copyWrap does NOT use flex:1 (Round 1 item 4 regression — flex:1 collapsed text to 0 width inside intrinsic-sized chip)', () => {

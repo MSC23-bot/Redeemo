@@ -20,11 +20,12 @@ import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
-// §DF-v2-j Task 9 — top-of-screen location identity affordance.  Per
-// spec §8.1 + owner D6: this mounts ALONGSIDE <SavedAreaHonestyHint>,
-// never replacing it.  Label = compact identity-at-a-glance; hint =
-// caveat + Update affordance.  Both coexist when source='profile'.
-import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
+// §DF-v2-j Task 9 → Task 13 Round 3 (2026-05-26) — top-of-screen
+// location identity is now rendered INSIDE <HomeHeader> via its
+// `locationContext` prop (the standalone <LocationStatusLabel>
+// import that lived here in Round 1+2 is retired).  D6 coexistence
+// preserved: <SavedAreaHonestyHint> still surfaces the caveat +
+// Update affordance below the header when source='profile'.
 
 // Bottom tab bar is `position: 'absolute'` with `height: 80` per the (app)
 // Tabs layout (see `apps/customer-app/app/(app)/_layout.tsx`). ScrollView
@@ -160,36 +161,27 @@ export function HomeScreen() {
           { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
+        {/* Task 13 Round 3 (2026-05-26) — the LocationStatusLabel is
+            now rendered INSIDE <HomeHeader> at the same visual rhythm
+            as the GPS-on location row (marginTop: spacing[1]=4pt
+            below the greeting).  HomeHeader receives the
+            `locationContext` prop and decides between (a) the GPS-on
+            area/city text row, (b) the LocationStatusLabel, or
+            (c) neither.  The previous standalone mount below
+            HomeHeader (Round 1 + Round 2 location) is retired —
+            owner-locked Round 3 product decision: the label must
+            feel like the normal GPS/location line, not a detached
+            banner.  <SavedAreaHonestyHint> below remains unchanged
+            (D6 coexistence preserved — the hint still surfaces the
+            caveat + Update affordance when source='profile'). */}
         <HomeHeader
           firstName={me?.firstName ?? null}
           area={location?.area ?? null}
           city={location?.city ?? null}
           {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
+          {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
           onSearchPress={() => router.push('/search' as any)}
           onFilterPress={() => {}}
-        />
-
-        {/* §DF-v2-j Task 9 — strip-variant <LocationStatusLabel> mounted
-            IMMEDIATELY above the no-location / saved-area banner slot
-            per spec §8.1.  Reads the SAME feed.locationContext envelope
-            <SavedAreaHonestyHint> consumes below — D6 lock: both
-            coexist, label = compact identity, hint = caveat + Update.
-            Loading window: `feed?.locationContext` is undefined while
-            the React Query data is in flight; the component renders
-            null in that state (§LSL-7 pin).  Scrolls with content (NOT
-            sticky) per spec §8.1.
-
-            Task 13 Round 1 device-QA item 1 (2026-05-26) — `flush=true`
-            drops the strip variant's cream tint + bottom border + width
-            chrome so the label feels inline with <HomeHeader>'s
-            existing greeting + location row rather than a detached
-            cream strip lower down.  Search keeps the default
-            (non-flush) chrome since it's the topmost element above
-            <SearchBar> with no surrounding header. */}
-        <LocationStatusLabel
-          variant="strip"
-          flush
-          locationContext={feed?.locationContext}
         />
 
         {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the

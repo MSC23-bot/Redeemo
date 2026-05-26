@@ -218,30 +218,23 @@ const styles = StyleSheet.create({
     borderRadius:      0,
     justifyContent:    'center',
   },
-  // Task 13 Round 1 item 1 — strip "flush" sub-style used by Home so
-  // the label feels like part of <HomeHeader>'s location-row rhythm
-  // instead of a detached cream strip lower down on the screen.
-  // Transparent background, no border, smaller height + tighter
-  // vertical padding.  Full width preserved so the tap target spans
-  // the row's horizontal width (matches the rest of HomeHeader).
-  //
-  // Task 13 Round 2 item 1 (2026-05-26) — owner reported the strip
-  // still felt detached after Round 1; root cause was HomeHeader's
-  // own `paddingVertical: spacing[3]=12pt` leaving a 12pt visible gap
-  // between the greeting baseline and the label.  `marginTop:
-  // -spacing[3]` absorbs that whole gap so the label sits at the
-  // same rhythm HomeHeader uses for its own GPS-on location row
-  // (which is `marginTop: spacing[1]=4pt` from the greeting).
+  // Task 13 Round 3 (2026-05-26) — strip "flush" sub-style used by
+  // <HomeHeader> when it renders the label in its own location-row
+  // slot (next to the greeting).  Parent provides positioning via
+  // `marginTop: spacing[1]=4pt` (matching HomeHeader's GPS-on row
+  // rhythm) and the column's `flex: 1` width, so flush style only
+  // strips the cream-pill chrome from the default strip variant.
+  // No negative margin (Round 2's outside-HomeHeader workaround is
+  // retired); no horizontal padding (parent column's paddingHorizontal
+  // owns it).
   stripFlush: {
     width:             '100%',
-    marginTop:         -spacing[3], // pull up into HomeHeader's bottom padding
-    paddingHorizontal: 18,          // matches HomeHeader.paddingHorizontal
-    paddingTop:        0,
-    paddingBottom:     spacing[2],  // leaves 8pt before the next element below
+    paddingHorizontal: 0,
+    paddingVertical:   0,
     backgroundColor:   'transparent',
     borderBottomWidth: 0,
     borderRadius:      0,
-    justifyContent:    'center',
+    justifyContent:    'flex-start',
   },
   // Chip variant (Map) — pill-shaped overlay floating over the map view.
   // Spec §7.3 chip.  Subtle cream tint over a translucent base gives

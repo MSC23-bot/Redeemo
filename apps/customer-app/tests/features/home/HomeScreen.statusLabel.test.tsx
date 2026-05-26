@@ -14,7 +14,7 @@
  *     a replacement.
  */
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render, within } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { HomeScreen } from '@/features/home/screens/HomeScreen'
@@ -97,7 +97,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
-describe('§DF-v2-j Task 9 — HomeScreen mounts <LocationStatusLabel variant=strip>', () => {
+describe('§DF-v2-j Task 9 + Task 13 Round 3 — HomeScreen mounts <LocationStatusLabel variant=strip> INSIDE HomeHeader', () => {
   it('§LSL-Home — strip label renders alongside SavedAreaHonestyHint (D6 coexistence) when source=profile', () => {
     const { getByTestId } = render(<HomeScreen />, { wrapper })
     // 1. Label is mounted.
@@ -115,5 +115,22 @@ describe('§DF-v2-j Task 9 — HomeScreen mounts <LocationStatusLabel variant=st
     //    source='profile' + city resolves.  The label is NOT a
     //    replacement; both surface different affordances.
     expect(getByTestId('saved-area-honesty-hint')).toBeTruthy()
+  })
+
+  // Round 3 device-QA regression pin — placement invariant.
+  it('§LSL-Home-inside-header — label is rendered INSIDE <HomeHeader>, NOT as a standalone strip below it (Round 3 owner-locked product decision: label must sit at HomeHeader\'s GPS-row rhythm, not as a detached banner)', () => {
+    const { getByTestId } = render(<HomeScreen />, { wrapper })
+    // The HomeHeader root view carries `testID="home-header"`.  The
+    // label MUST be a descendant of that root — proves the Round 3
+    // placement (inside HomeHeader's left column, next to the
+    // greeting) cannot drift back to the standalone strip mount that
+    // shipped in Round 1+2.
+    const header = getByTestId('home-header')
+    const labelInsideHeader = within(header).getByTestId('location-status-label')
+    expect(labelInsideHeader).toBeTruthy()
+    // City emphasis still applied — flush variant doesn't strip the
+    // typography contract from §LSL-2.
+    const city = within(header).getByTestId('location-status-city')
+    expect(city.props.children).toBe('Huddersfield')
   })
 })

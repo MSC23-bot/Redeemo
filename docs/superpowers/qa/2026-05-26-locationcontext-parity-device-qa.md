@@ -534,3 +534,60 @@ Owner confirmed Round 1's Map chip fix resolved the icon-only render. Chip now s
 **Device-only:** Pending owner re-QA on Brightlingsea / Round 2.
 
 **Pre-PR-opening gate:** AWAITING owner re-QA. No simulator-level blockers. Round 2 makes 3 small surgical changes — none affect the locked product invariants from spec §3 (D1-D11) or any test pin outside the §LSL family + SearchEmptyState.profileAware.
+
+---
+
+## §9. Device-QA Round 3 — owner findings + fixes
+
+**Date:** 2026-05-26 (post-Round-2 device re-QA).
+**Test rig:** Owner's device. Profile location: Brightlingsea. GPS / location off.
+
+**Round 2 outcomes (closed):**
+
+- Search idle profile recognition ✅
+- Search results behaviour ✅
+- Map profile-location chip + pins + viewport badge ✅
+- Your Location empty-postcode / disabled-save behaviour ✅
+
+**Remaining item before PR opening:**
+
+### 9.1 Round 3 item 1 — Home label still felt detached
+
+**Finding (⚠️ FAIL — Round 2 fix insufficient):** After Round 2's `marginTop: -spacing[3]` (-12pt) absorption of HomeHeader's bottom padding, the label still felt too far below the greeting on-device. Owner direction: stop iterating on spacing tweaks and MOVE THE LABEL into HomeHeader so it occupies the same location-row slot as the existing GPS-on row, not a separate strip below.
+
+**Fix (owner-locked structural change):** HomeHeader now accepts a `locationContext?: LocationContext | undefined` prop. The location-row slot inside HomeHeader's left column (next to the greeting) renders one of:
+
+1. **GPS-on (existing behaviour):** when `area || city` resolves from `useUserLocation`, the existing MapPin + locationLabel row renders at `marginTop: spacing[1]=4pt`. Unchanged.
+2. **GPS-off + locationContext present:** the LocationStatusLabel (flush variant) renders in the same slot at the same `marginTop: spacing[1]=4pt`. This is the new Round 3 branch.
+3. **GPS-off + no locationContext:** nothing renders. Unchanged.
+
+HomeScreen no longer mounts `<LocationStatusLabel>` as a standalone child below HomeHeader. Round 1's `flush` prop + Round 2's `marginTop: -spacing[3]` workaround are retired — the label is now genuinely INSIDE HomeHeader's natural rhythm.
+
+`stripFlush` style simplified: dropped the negative `marginTop`, the `paddingHorizontal: 18` (HomeHeader's column owns it), and the `paddingBottom: spacing[2]`. Flush is now a clean "strip but transparent + no chrome" variant for inside-parent mounting.
+
+**Pin updates:**
+
+- §LSL-11 updated — drops the obsolete `marginTop === -12` assertion; now asserts `paddingHorizontal === 0` + `paddingVertical === 0` (parent owns positioning).
+- §LSL-Home preserved — still asserts the label is mounted on HomeScreen with the correct copy.
+- New pin §LSL-Home-inside-header — uses `within(getByTestId('home-header')).getByTestId('location-status-label')` to assert the label is a descendant of HomeHeader. Prevents Round 1/2 standalone-strip drift.
+
+**Status:** ✅ PATCHED — code changes in `src/features/home/components/HomeHeader.tsx` (new prop + slot logic) + `src/features/home/screens/HomeScreen.tsx` (drop standalone mount + pass `locationContext` to HomeHeader) + `src/lib/location/LocationStatusLabel.tsx` (simplified `stripFlush` style).
+
+**Architecture note:** HomeHeader now has a one-way dependency on `LocationStatusLabel` + `LocationContext` type. This is a reasonable coupling — HomeHeader's purpose is the page header chrome, and the location-row slot is part of that chrome. The dependency is contained (no transitive imports surface elsewhere). No new test infrastructure needed; existing snapshot of `<HomeHeader>` is unchanged on the GPS-on path.
+
+D6 coexistence preserved: `<SavedAreaHonestyHint>` continues to mount BELOW the header (unchanged from Round 1+2). Label = compact identity inside the header. Hint = caveat + Update affordance below.
+
+---
+
+## §10. Round 3 gate summary
+
+**Simulator / unit-level:** ✅ PASS
+
+- Focused gate (LSL component + full Home suite, 19 files): 116/116 PASS (+1 new pin §LSL-Home-inside-header).
+- Customer-app full impacted-surface sweep (Home + Search + Map + lib, 58 files): 405/405 PASS (was 404/404; +1 for the new pin).
+- customer-app `tsc --noEmit`: exit 0 clean.
+- Backend untouched in Round 3.
+
+**Device-only:** Pending owner re-QA on Brightlingsea / Round 3.
+
+**Pre-PR-opening gate:** AWAITING owner final re-QA. Round 3 is one structural change (label moves into HomeHeader); the new `§LSL-Home-inside-header` pin locks the placement so future contributors can't drift it back to a standalone strip.
