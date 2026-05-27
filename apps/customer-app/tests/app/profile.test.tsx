@@ -64,6 +64,7 @@ jest.mock('@/lib/storage', () => ({
 
 jest.mock('@/features/profile/hooks/useReduceMotion', () => ({
   useReduceMotion: jest.fn(() => false),
+  useOsReduceMotion: jest.fn(() => false),
 }))
 
 jest.mock('expo-location', () => ({

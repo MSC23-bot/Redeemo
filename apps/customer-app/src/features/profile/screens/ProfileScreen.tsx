@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   ScrollView, View, Text, StyleSheet, Alert,
 } from 'react-native'
@@ -24,7 +24,6 @@ import { useMe } from '@/hooks/useMe'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useUpdateAvatar } from '@/hooks/useUpdateAvatar'
 import { useAuthStore } from '@/stores/auth'
-import { prefsStorage } from '@/lib/storage'
 import type { SupportTopic } from '@/lib/constants/supportTopics'
 
 type SheetName =
@@ -48,11 +47,6 @@ export function ProfileScreen() {
   const [helpVisible, setHelpVisible] = useState(false)
   const [helpTopic, setHelpTopic] = useState<SupportTopic | undefined>(undefined)
   const [helpMessage, setHelpMessage] = useState<string | undefined>(undefined)
-
-  const [deviceName, setDeviceName] = useState<string | null>(null)
-  useEffect(() => {
-    prefsStorage.get<string>('redeemo:deviceName').then(setDeviceName)
-  }, [])
 
   const handleAvatarPress = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -106,16 +100,23 @@ export function ProfileScreen() {
   const addressPreview = [profile.city, profile.postcode].filter(Boolean).join(', ') || undefined
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        styles.content,
-        // Safe-area-aware top inset (clears notch/status bar) + bottom inset
-        // plus ~100pt clearance for the absolute tab bar so the last row
-        // (Sign out / Delete account / version stamp) can scroll into view.
-        { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 100 },
-      ]}
-    >
+    // Outer View carries the safe-area top inset + page bg colour. The
+    // ScrollView sits BELOW the status area / Dynamic Island, bounded by
+    // this wrapper, so content can never scroll behind native iOS chrome.
+    // Pre-fix the ScrollView extended to the device top and content slid
+    // behind the notch / Dynamic Island when scrolled — visible bug
+    // reported during PR #133 device QA.
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          // Bottom: device safe-area + 100pt clearance for the absolute
+          // tab bar so the last row (Sign out / Delete / version) can
+          // scroll into view.
+          { paddingBottom: insets.bottom + 100 },
+        ]}
+      >
       <ProfileHeader
         profile={profile}
         subscription={sub ?? undefined}
@@ -144,17 +145,12 @@ export function ProfileScreen() {
           label="Change password"
           onPress={() => setOpenSheet('change-password')}
         />
-        <ProfileRow
-          label="Active session"
-          preview={deviceName ? `Signed in on ${deviceName}` : 'Signed in on this device'}
-          disabled
-        />
       </ProfileSectionCard>
 
       <ProfileSectionCard title="Subscription">
         {sub ? (
           <ProfileRow
-            label={`${sub.plan.name} · £${sub.plan.priceGbp.toFixed(2)}${priceSuffix}`}
+            label={`${sub.plan.name} Plan · £${sub.plan.priceGbp.toFixed(2)}${priceSuffix}`}
             isFirst
             preview={subPreview}
             onPress={() => setOpenSheet('subscription')}
@@ -240,16 +236,22 @@ export function ProfileScreen() {
         {...(helpTopic !== undefined ? { initialTopic: helpTopic } : {})}
         {...(helpMessage !== undefined ? { initialMessage: helpMessage } : {})}
       />
-    </ScrollView>
+      </ScrollView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  // Outer View: page bg + safe-area top inset is applied inline. The bg
+  // colour occludes the status bar area with the page colour so content
+  // never visually bleeds behind the notch / Dynamic Island.
   screen:         { flex: 1, backgroundColor: '#FAF8F5' },
-  // Top + bottom paddings are applied inline using safe-area insets; this
-  // base style only sets horizontal padding so the inline values are the
-  // single source of vertical truth.
-  content:        { paddingHorizontal: 16 },
+  // ScrollView: transparent (inherits page bg) so the wrapper bg shows
+  // through during pull-to-refresh overscroll.
+  scroll:         { flex: 1, backgroundColor: 'transparent' },
+  // Content padding: horizontal + top only. Bottom inset + tab-bar
+  // clearance are applied inline.
+  content:        { paddingHorizontal: 16, paddingTop: 16 },
   comingSoonPill: { backgroundColor: '#F3F4F6', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   comingSoonText: { fontSize: 10, color: '#9CA3AF', fontWeight: '500' },
   version:        { fontSize: 12, color: 'rgba(1,12,53,0.35)', textAlign: 'center', marginTop: 8, marginBottom: 16 },
