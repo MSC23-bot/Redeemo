@@ -52,4 +52,42 @@ describe('useUpdateAvatar', () => {
     // Restore the original auth store state.
     useAuthStore.setState(originalState)
   })
+
+  // Codex review #3 hardening pin: even when refreshUser throws (network
+  // blip, auth-refresh edge case), the React Query invalidation MUST
+  // still fire so the Profile header refetches. The invalidate sits in
+  // a `finally` block; this test asserts that contract.
+  it('still invalidates meQueryKey when refreshUser throws (Codex #3 hardening)', async () => {
+    (profileApi.updateProfile as jest.Mock).mockResolvedValue({
+      id: 'u1',
+      profileImageUrl: 'data:image/jpeg;base64,Zm9v',
+    })
+
+    const refreshUserError = new Error('refresh blew up')
+    const refreshUserSpy = jest.fn().mockRejectedValue(refreshUserError)
+    const originalState = useAuthStore.getState()
+    useAuthStore.setState({ ...originalState, refreshUser: refreshUserSpy })
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useUpdateAvatar(), { wrapper })
+
+    await act(async () => {
+      result.current.mutate('data:image/jpeg;base64,Zm9v')
+    })
+
+    // refreshUser was attempted and threw — but invalidate STILL fired
+    // because it's in the finally block. Pre-fix, the await refreshUser
+    // throw would propagate before the invalidate line ran, stranding
+    // the Profile cache stale.
+    await waitFor(() => expect(refreshUserSpy).toHaveBeenCalledTimes(1))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: meQueryKey })
+
+    useAuthStore.setState(originalState)
+  })
 })

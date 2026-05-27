@@ -84,6 +84,29 @@ describe('AppSettingsSection', () => {
     expect(sw.props.disabled).toBe(true)
   })
 
+  // Codex review #2 regression pin: OS on + in-app motionScale=1 ALSO
+  // locks the toggle. The switch reads ON (because the effective
+  // value `motionScale === 0 || osReduceMotion` is true via the OS
+  // signal), but the user cannot toggle it OFF in-app — the OS is
+  // forcing it. Pre-tightening, this case left the switch
+  // interactive: tap-off would call setMotionScale(1) which is a
+  // no-op (already 1), so the switch visually snapped back and felt
+  // stuck. Lock now engages on osReduceMotion alone, regardless of
+  // the in-app motionScale value.
+  it('LOCKS the reduce-motion toggle when OS is on even if in-app motionScale is 1 (Codex #2)', () => {
+    mockAuthState.motionScale = 1
+    ;(useOsReduceMotion as jest.Mock).mockReturnValue(true)
+    render(<AppSettingsSection />)
+    const sw = screen.getByRole('switch', { name: /reduce motion/i })
+    expect(sw.props.value).toBe(true)
+    expect(sw.props.disabled).toBe(true)
+    // Defensive: even if a synthetic valueChange fires through the
+    // disabled switch, the lock guard inside onValueChange prevents
+    // setMotionScale from being called.
+    fireEvent(sw, 'valueChange', false)
+    expect(setMotionScaleMock).not.toHaveBeenCalled()
+  })
+
   it('shows the Location row with the friendly user-facing label "Location"', () => {
     render(<AppSettingsSection />)
     // Profile Stabilisation Hotfix — was "Location access". The "access"

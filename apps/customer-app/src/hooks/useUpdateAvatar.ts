@@ -18,9 +18,19 @@ export function useUpdateAvatar() {
     // (since auth-store has its own refresh paths) but Profile header was
     // stuck on the cached initials avatar until the next manual refresh.
     // Mirrors the SavedAreaScreen.onSavePostcode dual-sync pattern.
+    //
+    // Codex review #3 hardening: the meQueryKey invalidation runs in a
+    // `finally` block so it ALWAYS fires even if refreshUser() throws
+    // (network blip, auth-refresh edge case, etc.). Without the finally,
+    // a refreshUser failure would strand the Profile cache stale —
+    // ProfileHeader would never refetch and the user would see the old
+    // avatar until they navigated away and back.
     onSuccess: async () => {
-      await useAuthStore.getState().refreshUser()
-      void qc.invalidateQueries({ queryKey: meQueryKey })
+      try {
+        await useAuthStore.getState().refreshUser()
+      } finally {
+        void qc.invalidateQueries({ queryKey: meQueryKey })
+      }
     },
   })
 }

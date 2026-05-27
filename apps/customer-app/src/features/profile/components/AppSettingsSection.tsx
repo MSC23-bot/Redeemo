@@ -54,12 +54,15 @@ export function AppSettingsSection() {
   const osReduceMotion = useOsReduceMotion()
   const locationStatus = useLocationStatus()
 
-  // Lock engages ONLY when the OS is forcing reduce motion AND the in-app
-  // toggle is also on. (Both true = "the OS is overriding; you can't turn
-  // it off from here, change it in OS Settings".) Pre-fix the OS-only
-  // signal was the combined hook, so toggling in-app made the lock
-  // self-engage and trap the user — pinned by AppSettingsSection.test.tsx.
-  const isReduceMotionLocked = osReduceMotion && motionScale === 0
+  // Lock engages WHENEVER the OS is forcing reduce motion, regardless of
+  // the in-app motionScale. Reasoning: when the OS is reduce-motion-on,
+  // the effective reduce-motion is ON system-wide and the in-app toggle
+  // cannot override it. Letting the user tap the switch creates a "stuck
+  // ON" feel — the switch flips visually then snaps back because the
+  // effective value (`motionScale === 0 || osReduceMotion`) is still
+  // true. Locking the switch surfaces the constraint honestly ("change
+  // this in OS Settings"). Pinned by AppSettingsSection.test.tsx.
+  const isReduceMotionLocked = osReduceMotion
 
   return (
     <ProfileSectionCard title="App Settings">
