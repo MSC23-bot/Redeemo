@@ -14,11 +14,39 @@ interface Props {
   uploading?: boolean
 }
 
-function completenessToTip(pct: number): string | null {
-  if (pct >= 100) return null
-  if (pct >= 80) return 'Almost there — add your profile photo to complete your profile'
-  if (pct >= 40) return 'Add your address and interests to improve your recommendations'
-  return 'Add your date of birth, address, and interests to unlock more personalised deals'
+// Field-aware tip: walks the live profile for actually-missing fields
+// rather than picking copy from a static completeness-percentage tier.
+// Pre-fix the tip was hardcoded to mention "profile photo" at the 80%+
+// tier; adding a photo without bumping `profileCompleteness` past the
+// tier left stale "add your profile photo" copy on-screen.
+//
+// Order matters — `missing` is iterated in declaration order, so the
+// first item lands in the prominent "Almost there" slot when only one
+// field remains, and the joined list flows naturally in the multi-
+// missing variants. Date of birth / address / interests stay ahead of
+// profile photo so the recommendations-driving fields nudge first.
+function completenessToTip(profile: Profile): string | null {
+  if (profile.profileCompleteness >= 100) return null
+
+  const missing: string[] = []
+  if (!profile.dateOfBirth) missing.push('date of birth')
+  if (!profile.addressLine1 || !profile.postcode) missing.push('address')
+  if (!profile.interests || profile.interests.length === 0) missing.push('interests')
+  if (!profile.profileImageUrl) missing.push('profile photo')
+
+  // Defensive: backend says <100% but every client-visible field is set
+  // — render nothing rather than stale generic copy.
+  if (missing.length === 0) return null
+
+  if (missing.length === 1) {
+    return `Almost there. Add your ${missing[0]} to complete your profile.`
+  }
+  if (missing.length === 2) {
+    return `Add your ${missing[0]} and ${missing[1]} to improve your recommendations.`
+  }
+  const last = missing[missing.length - 1]
+  const rest = missing.slice(0, -1).join(', ')
+  return `Add your ${rest}, and ${last} to unlock more personalised deals.`
 }
 
 function badgeText(status: string | undefined): { text: string; variant: 'active' | 'cancelled' | 'amber' } | null {
@@ -40,7 +68,7 @@ function Initials({ name }: { name: string }) {
 }
 
 export function ProfileHeader({ profile, subscription, onAvatarPress, uploading }: Props) {
-  const tip = completenessToTip(profile.profileCompleteness)
+  const tip = completenessToTip(profile)
   const badge = badgeText(subscription?.status)
   const progressWidth = useSharedValue(0)
   const progressStyle = useAnimatedStyle(() => ({ width: `${progressWidth.value}%` }))

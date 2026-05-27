@@ -1,5 +1,6 @@
 import React from 'react'
 import { View, TouchableOpacity } from 'react-native'
+import { Image } from 'expo-image'
 import { Search, SlidersHorizontal, Bell, MapPin } from 'lucide-react-native'
 import { Text, color, spacing, radius } from '@/design-system'
 // Task 13 Round 3 (2026-05-26) — owner-locked: the Home location-
@@ -147,8 +148,15 @@ export function HomeHeader({
             </TouchableOpacity>
           )}
 
-          {/* Avatar circle */}
+          {/* Avatar circle — Image when avatarUrl present, initial
+              fallback otherwise. Pre-fix the avatar always rendered the
+              initial: the `avatarUrl` prop was plumbed through from
+              HomeScreen but the render branch was never built, so users
+              who uploaded a profile photo still saw the navy "J" circle
+              on Home. Mirrors the ProfileHeader image pattern (expo-image
+              with `contentFit="cover"` + circular borderRadius). */}
           <View
+            testID="home-header-avatar"
             style={{
               width: 32,
               height: 32,
@@ -156,14 +164,26 @@ export function HomeHeader({
               backgroundColor: color.navy,
               alignItems: 'center',
               justifyContent: 'center',
+              overflow: 'hidden',
             }}
           >
-            <Text
-              variant="label.md"
-              style={{ color: '#FFFFFF', fontSize: 14, lineHeight: 14 }}
-            >
-              {avatarLetter}
-            </Text>
+            {avatarUrl ? (
+              <Image
+                testID="home-header-avatar-image"
+                source={{ uri: avatarUrl }}
+                style={{ width: 32, height: 32, borderRadius: 16 }}
+                contentFit="cover"
+                accessibilityLabel="Profile photo"
+              />
+            ) : (
+              <Text
+                testID="home-header-avatar-initial"
+                variant="label.md"
+                style={{ color: '#FFFFFF', fontSize: 14, lineHeight: 14 }}
+              >
+                {avatarLetter}
+              </Text>
+            )}
           </View>
         </View>
       </View>

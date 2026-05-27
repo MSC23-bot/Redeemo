@@ -649,8 +649,22 @@ describe('<SavedAreaScreen>', () => {
       const { getByLabelText } = renderScreen()
       fireEvent.press(getByLabelText('Go back'))
       expect(mockBack).toHaveBeenCalledTimes(1)
-      // No router.push to /(app)/search.
+      // No router.push to /(app)/search or /(app)/profile.
       expect(mockPush).not.toHaveBeenCalledWith('/(app)/search')
+      expect(mockPush).not.toHaveBeenCalledWith('/(app)/profile')
+    })
+
+    // Profile Stabilisation Hotfix — mirrors the ?from=search pattern.
+    // Profile → Your Location → Back was landing on Home because Profile
+    // is a tab and the back stack frame is the tab-default. Explicit
+    // ?from=profile makes the return target deterministic.
+    it('routes to /(app)/profile via router.push when fromParam is "profile"', () => {
+      mockSearchParams = { from: 'profile' }
+      mockUseMe.mockReturnValue({ data: profileFixture(), isLoading: false, isError: false })
+      const { getByLabelText } = renderScreen()
+      fireEvent.press(getByLabelText('Go back'))
+      expect(mockPush).toHaveBeenCalledWith('/(app)/profile')
+      expect(mockBack).not.toHaveBeenCalled()
     })
 
     it('falls back to router.push("/") when no from param AND canGoBack is false', () => {

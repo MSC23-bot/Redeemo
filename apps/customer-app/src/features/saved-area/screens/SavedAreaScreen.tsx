@@ -210,9 +210,17 @@ export function SavedAreaScreen() {
   // `router.canGoBack()` returns false, falling through to `router.push('/')`
   // which dumps the user on Home instead of Search.  The `from` URL param
   // makes the return target explicit and survives the tab-stack quirk.
+  //
+  // Profile stabilisation hotfix — `from=profile` added so the same
+  // loophole closes for Profile → Your Location → Back. Pre-fix, pressing
+  // Back from Your Location landed the user on Home instead of Profile.
   function handleBack() {
     if (fromParam === 'search') {
       router.push('/(app)/search' as any)
+      return
+    }
+    if (fromParam === 'profile') {
+      router.push('/(app)/profile' as any)
       return
     }
     if (router.canGoBack()) router.back()

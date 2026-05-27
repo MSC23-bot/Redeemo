@@ -60,6 +60,7 @@ jest.mock('@/lib/storage', () => ({
 
 jest.mock('@/features/profile/hooks/useReduceMotion', () => ({
   useReduceMotion: jest.fn(() => false),
+  useOsReduceMotion: jest.fn(() => false),
 }))
 
 jest.mock('expo-location', () => ({
@@ -156,5 +157,35 @@ describe('ProfileScreen', () => {
     renderWithClient(<ProfileScreen />)
     expect(screen.getByText('Sign out')).toBeTruthy()
     expect(screen.getByText('Delete account')).toBeTruthy()
+  })
+
+  // Profile Stabilisation Hotfix #6 — Active session row removed.
+  // Disabled/non-actionable rows look broken on device. Smallest safe
+  // v1: drop the row. A real "Devices & Sessions" sheet can ship as a
+  // separate workstream (Profile Polish Batch or post-launch).
+  it('does NOT render the Active session row (removed in stabilisation hotfix)', () => {
+    renderWithClient(<ProfileScreen />)
+    expect(screen.queryByText('Active session')).toBeNull()
+    expect(screen.queryByText(/Signed in on/i)).toBeNull()
+  })
+
+  // Profile Stabilisation Hotfix #7 — minimal clarity tweak on the
+  // subscription label. Was "Monthly · £6.99/mo"; now "Monthly Plan ·
+  // £6.99/mo" so the plan type reads explicitly. Deeper UX deferred to
+  // Profile Polish Batch.
+  it('renders subscription label with "Plan" suffix when subscription is active', () => {
+    const { useSubscription } = require('@/hooks/useSubscription')
+    ;(useSubscription as jest.Mock).mockReturnValueOnce({
+      subscription: {
+        status: 'ACTIVE',
+        plan: { name: 'Monthly', priceGbp: 6.99, billingInterval: 'MONTHLY' },
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: '2026-06-26T00:00:00.000Z',
+      },
+      isSubscribed: true,
+      isSubLoading: false,
+    })
+    renderWithClient(<ProfileScreen />)
+    expect(screen.getByText(/Monthly Plan/i)).toBeTruthy()
   })
 })
