@@ -12,6 +12,22 @@
 
 ---
 
+## Code snippets in this plan are ILLUSTRATIVE
+
+The TypeScript snippets in M1 and M2 task steps illustrate INTENT (what the code should do, what fields belong on which structs, what error codes to throw). They are NOT copy-paste templates.
+
+The implementer MUST follow the existing repo style in place at implementation time. In particular:
+
+- **Backend service functions take `prisma: PrismaClient` as their first parameter.** Every existing function in `src/api/customer/favourites/service.ts` follows this pattern (e.g. `addFavouriteMerchant(prisma, userId, merchantId)`). New `addFavouriteBranch` etc. MUST match — do not introduce a top-level singleton import.
+- **Error throws use `new AppError('CODE')` from `src/api/shared/errors`**, not `new ApiError(...)`. The HTTP status is mapped via the AppError code, not passed inline.
+- **Typed Prisma errors caught via `Prisma.PrismaClientKnownRequestError`** with the relevant `.code` discriminator (`P2002` for unique violation, `P2025` for not-found). Mirror the existing `addFavouriteMerchant` try/catch.
+- **Imports use the established relative paths** in this repo (e.g. `'../../../../generated/prisma/client'` from inside `src/api/customer/favourites/service.ts`), not aliases.
+- **Customer-app hooks, components, and screens follow the patterns already established** in adjacent features (Profile, Savings, Voucher Detail) — Zod parse-at-API-boundary, React Query keys, design-system imports, etc.
+
+If any snippet conflicts with the existing repo pattern, **the repo pattern wins**. Match-then-deviate is wrong here.
+
+---
+
 ## Milestones
 
 | Milestone | Scope | Approximate task count | Review checkpoint |
@@ -296,41 +312,56 @@ git commit -m "feat(favourites): backfill script FavouriteMerchant → Favourite
 - Create: `tests/api/customer/favourites/branches.routes.test.ts`
 - Create: `tests/api/customer/favourites/branches.service.test.ts`
 
-- [ ] **Step 3.1** — In `service.ts`, add `addFavouriteBranch(userId, branchId)`:
+- [ ] **Step 3.1** — In `service.ts`, add `addFavouriteBranch` (mirror the existing `addFavouriteMerchant` signature + pattern — `prisma: PrismaClient` as first param, `AppError` for typed errors, `Prisma.PrismaClientKnownRequestError` for the catch):
 
 ```ts
-export async function addFavouriteBranch(userId: string, branchId: string) {
+// ILLUSTRATIVE — match the exact import + signature style of the existing
+// addFavouriteMerchant in the same file. See "Code snippets are
+// ILLUSTRATIVE" note at the top of this plan.
+export async function addFavouriteBranch(
+  prisma: PrismaClient,
+  userId: string,
+  branchId: string,
+) {
   const branch = await prisma.branch.findUnique({
     where: { id: branchId },
     select: { id: true, status: true, merchant: { select: { status: true } } },
   })
-  if (!branch) throw new ApiError('BRANCH_NOT_FOUND', 404)
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
   if (branch.status !== 'ACTIVE' || branch.merchant.status !== 'ACTIVE') {
-    throw new ApiError('BRANCH_NOT_FOUND', 404)
+    throw new AppError('BRANCH_NOT_FOUND')
   }
   try {
     return await prisma.favouriteBranch.create({
       data: { userId, branchId },
       select: { id: true, branchId: true, createdAt: true },
     })
-  } catch (e: any) {
-    if (e.code === 'P2002') throw new ApiError('ALREADY_FAVOURITED', 409)
+  } catch (e: unknown) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      throw new AppError('ALREADY_FAVOURITED')
+    }
     throw e
   }
 }
 ```
 
-- [ ] **Step 3.2** — Add `removeFavouriteBranch(userId, branchId)`:
+- [ ] **Step 3.2** — Add `removeFavouriteBranch` (mirror existing `removeFavouriteMerchant`):
 
 ```ts
-export async function removeFavouriteBranch(userId: string, branchId: string) {
+export async function removeFavouriteBranch(
+  prisma: PrismaClient,
+  userId: string,
+  branchId: string,
+) {
   try {
     await prisma.favouriteBranch.delete({
       where: { userId_branchId: { userId, branchId } },
     })
     return { success: true }
-  } catch (e: any) {
-    if (e.code === 'P2025') throw new ApiError('FAVOURITE_NOT_FOUND', 404)
+  } catch (e: unknown) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+      throw new AppError('FAVOURITE_NOT_FOUND')
+    }
     throw e
   }
 }
@@ -394,10 +425,18 @@ const URGENT_THRESHOLD_MS = 60 * 60_000
   - Request page 2 (limit 20) → remaining items in priority order.
   - Pin: across both pages, the global priority ordering holds. **Regression pin against re-introducing page-local sort.**
 
-- [ ] **Step 4.5** — Write `vouchers.threshold-parity.test.ts`:
-  - Read the backend `URGENT_THRESHOLD_MS` value via a small exported reference (or read the file content via `fs` and grep for the literal `60 * 60_000`).
-  - Assert it equals `60 * 60_000`.
-  - Include a comment referencing the customer-app constants.
+- [ ] **Step 4.5** — Write `vouchers.threshold-parity.test.ts`. **Preferred implementation: exported backend constant.**
+
+  Prefer this approach if it can be done cleanly:
+  - Export `URGENT_THRESHOLD_MS` from a small backend constants module (e.g. `src/api/customer/favourites/constants.ts`) OR re-export from `src/api/customer/favourites/service.ts` if exporting from the service file is idiomatic in the existing codebase.
+  - The pin imports the exported constant directly and asserts `URGENT_THRESHOLD_MS === 60 * 60_000`.
+  - The exported constant's JSDoc includes the cross-reference to the customer-app constants and the Gate H 2026-05-11 lock attribution.
+
+  Fall back to a static-source pin (read the source file via `fs.readFileSync` and assert the literal `60 * 60_000`) only if:
+  - Exporting the constant creates awkward coupling (e.g. the service file already exports a large surface and a new constants module would feel out-of-place for one number), AND
+  - The static-source pin is annotated with a leading comment explaining: (a) why the exported-constant approach was rejected, (b) what fragility this static pin introduces (file moves break the glob), and (c) under what future condition the pin should be refactored to an exported-constant pin instead.
+
+  Either way, the assertion is the same: the backend constant value MUST equal `60 * 60_000` (the Gate H 2026-05-11 lock). The test name + JSDoc must reference the customer-app constants in `apps/customer-app/src/features/voucher/hooks/useTimeLimited.ts` and `apps/customer-app/src/features/merchant/utils/voucherCardSort.ts` so a future contributor reading the failing test understands the full parity chain.
 
 - [ ] **Step 4.6** — Type-check + run pins:
 
@@ -578,9 +617,11 @@ git commit -m "chore(favourites): backend test sweep — keep merchant-level pin
 
 ---
 
-### Task M1.9 — Run backfill in dev + verify
+### Task M1.9 — Run backfill in dev/local + CLI verification
 
-This is a one-shot operation, not a code change.
+**Scope: dev / local Neon branch ONLY.** This task is part of the M1 implementation pipeline and exercises the script against the developer's local Neon database. Production backfill (if ever needed — pre-launch context means there are no real users to migrate today) is explicitly OUT OF SCOPE here. If production migration becomes necessary later, it must be a separate owner-approved deployment runbook authored at that time. Do NOT export this step into a production runbook from the plan.
+
+This is a one-shot operation, not a code change. **CLI-only verification — do NOT use Prisma Studio.**
 
 - [ ] **Step 9.1** — Dry-run:
 
@@ -588,25 +629,47 @@ This is a one-shot operation, not a code change.
 npx tsx prisma/backfill-favourite-branches.ts --dry-run
 ```
 
-Expected output: summary of what WOULD be inserted. Inspect the counts.
+Expected output: summary of what WOULD be inserted. Inspect the counts. Confirm `inserted + skippedAlreadyFavourited + skippedNoMainBranch + skippedInactiveMerchant` sums to the total `FavouriteMerchant` row count.
 
-- [ ] **Step 9.2** — Run for real (after dry-run inspection):
+- [ ] **Step 9.2** — Pre-run baseline count (so the post-run delta is verifiable):
+
+```bash
+npx tsx -e "import { PrismaClient } from './generated/prisma/client'; const p = new PrismaClient(); p.favouriteBranch.count().then(n => { console.log('pre-run FavouriteBranch rows:', n); return p.\$disconnect() })"
+```
+
+Record the number. On a fresh dev DB this should be 0.
+
+- [ ] **Step 9.3** — Run for real:
 
 ```bash
 npx tsx prisma/backfill-favourite-branches.ts
 ```
 
-- [ ] **Step 9.3** — Verify in Prisma Studio or via query:
+- [ ] **Step 9.4** — Post-run count verification:
 
 ```bash
-npx prisma studio
-# Or:
-echo "SELECT COUNT(*) FROM \"FavouriteBranch\";" | psql $DATABASE_URL
+npx tsx -e "import { PrismaClient } from './generated/prisma/client'; const p = new PrismaClient(); p.favouriteBranch.count().then(n => { console.log('post-run FavouriteBranch rows:', n); return p.\$disconnect() })"
 ```
 
-Expected: matches the inserted count from the script summary.
+Expected: `(post-run count) − (pre-run count) === inserted` from the script summary in Step 9.3.
 
-- [ ] **Step 9.4** — Spot-check: pick a user known to have favourited a multi-branch merchant. Confirm only the main branch was inserted, not all branches.
+- [ ] **Step 9.5** — Idempotency check — re-run the script:
+
+```bash
+npx tsx prisma/backfill-favourite-branches.ts
+```
+
+Expected: `inserted = 0`, `skippedAlreadyFavourited` equals the previous run's `inserted`. Row count unchanged.
+
+- [ ] **Step 9.6** — Spot-check a multi-branch merchant case via CLI:
+
+```bash
+npx tsx -e "import { PrismaClient } from './generated/prisma/client'; const p = new PrismaClient(); (async () => { const m = await p.merchant.findFirst({ where: { branches: { some: { isMainBranch: true } } }, select: { id: true, businessName: true, branches: { select: { id: true, isMainBranch: true } } } }); console.log(JSON.stringify(m, null, 2)); const favs = await p.favouriteBranch.findMany({ where: { branchId: { in: m.branches.map(b => b.id) } }, select: { branchId: true, userId: true } }); console.log('FavouriteBranch rows for this merchant:', favs); await p.\$disconnect() })()"
+```
+
+Inspect the output and confirm: any `FavouriteBranch` row for this merchant references the branch where `isMainBranch=true`, never a secondary branch.
+
+- [ ] **Step 9.7** — Document the local run output (pre-run count, post-run count, script summary, idempotency-run summary) in the M1 checkpoint message to the owner for review.
 
 ---
 
