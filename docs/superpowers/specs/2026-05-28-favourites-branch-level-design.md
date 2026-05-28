@@ -4,8 +4,8 @@
 |---|---|
 | **Phase** | 3C.1g (customer-app surface rebaseline + backend additive) |
 | **Tier** | 3 (schema change + backend contract + multi-file customer-app rework + data migration) |
-| **Status** | Locked design — awaiting plan-doc + implementation |
-| **Owner approval** | 2026-05-28 Q1-Q10 + expanded v1 scope |
+| **Status** | **v1.1** — locked design with owner amendments; awaiting plan doc + implementation |
+| **Owner approval** | 2026-05-28 Q1-Q10 + expanded v1 scope + v1.1 amendments (global voucher sort + `<FavouriteHeart>` shared component) |
 | **Brainstorm prep** | Conversation transcript 2026-05-28 (audit + expanded brainstorm) |
 | **Supersedes** | Reference-branch Favourites implementation (`feature/customer-app` — NEVER merged; presentational chrome salvageable, data layer rejected) |
 | **Closes deferred** | §CI (search-card heart branch-level), §O4 (Voucher Detail heart wiring), §AS partial (customer-app side; customer-web remains separate workstream) |
@@ -55,28 +55,28 @@ The voucher state pill on the Favourites Vouchers card MUST match the pill rende
 
 ## 3. Heart entry points (locked contract)
 
-12 surfaces. Every consumer goes through `useFavourite()` directly with the correct discriminator. Parent-wired callback patterns that skip invalidation are removed (closes the Home rail inconsistency identified in audit §Anything-surprising).
+12 surfaces. Every heart UI is rendered via the **shared `<FavouriteHeart>` component** (§7.2.1). The component owns the `useFavourite()` hook call, animation, accessibility, and cache invalidation. Consumers pass in entity + id + visual tone. This is the locked architecture — no consumer calls `useFavourite()` inline; no parent-wired callback patterns. Closes the Home rail inconsistency identified in the audit.
 
-| # | Surface | Entity | ID source | Hook call | Invalidates immediately | Eventually consistent |
+| # | Surface | Entity | ID source | Rendered as | Invalidates immediately | Eventually consistent |
 |---|---|---|---|---|---|---|
-| 1 | Search results (`<SearchResultItem>` over `<BranchTile>`) | branch | `branch.id` | `useFavourite({ type: 'branch', id: branch.id, initialIsFavourited })` | `['favouriteBranches']` | search query |
+| 1 | Search results (`<SearchResultItem>` over `<BranchTile>`) | branch | `branch.id` | `<FavouriteHeart entity="branch" id={branch.id} initialIsFavourited={tile.isFavourited} />` | `['favouriteBranches']` | search query |
 | 2 | Home Featured rail (`<FeaturedCarousel>` → `<BranchTile>`) | branch | `branch.id` | same | `['favouriteBranches']` | home feed query |
 | 3 | Home Trending rail (`<TrendingSection>` → `<BranchTile>`) | branch | `branch.id` | same | `['favouriteBranches']` | home feed query |
 | 4 | Home Popular rail (`<PopularSection>` → `<BranchTile>`) | branch | `branch.id` | same | `['favouriteBranches']` | home feed query |
 | 5 | Home NearbyByCategory rail (`<NearbyByCategory>` → `<BranchTile>`) | branch | `branch.id` | same | `['favouriteBranches']` | home feed query |
 | 6 | Map carousel + list (`<MapBranchTile>`) | branch | `branch.id` | same | `['favouriteBranches']` | map in-area query |
 | 7 | Category results (`CategoryMerchantsScreen` → `<BranchTile>`) | branch | `branch.id` | same | `['favouriteBranches']` | category query |
-| 8 | Merchant Profile hero (`<HeroSection>`) | branch | **`selectedBranch.id`** (resolved from `?branch=` URL param via `useBranchSelection()`) | `useFavourite({ type: 'branch', id: selectedBranch.id, initialIsFavourited: selectedBranch.isFavourited })` | `['favouriteBranches']`, `['merchantProfile', merchantId, branchId]` | none |
-| 9 | Merchant Profile voucher cards (`<VoucherCard>`) | voucher | `voucher.id` | `useFavourite({ type: 'voucher', id: voucher.id, initialIsFavourited })` | `['favouriteVouchers']`, `['merchantProfile', merchantId, branchId]` | none |
-| 10 | Voucher Detail (`<CouponHeader>` nav row) | voucher | `voucher.id` | `useFavourite({ type: 'voucher', id: voucher.id, initialIsFavourited: voucher.isFavourited })` | `['favouriteVouchers']`, `['voucher', voucherId]` | none |
-| 11 | Favourites tab → Places card (`<BranchFavCard>`) | branch | `branch.id` | swipe-to-remove → `useFavouriteBranches` mutation | `['favouriteBranches']` | discovery surfaces |
-| 12 | Favourites tab → Vouchers card (`<VoucherFavCard>`) | voucher | `voucher.id` | swipe-to-remove → `useFavouriteVouchers` mutation | `['favouriteVouchers']` | discovery surfaces |
+| 8 | Merchant Profile hero (`<HeroSection>`) | branch | **`selectedBranch.id`** (resolved from `?branch=` URL param via `useBranchSelection()`) | `<FavouriteHeart entity="branch" id={selectedBranch.id} initialIsFavourited={selectedBranch.isFavourited} contextualQueryKey={['merchantProfile', merchantId, branchId]} />` | `['favouriteBranches']`, `['merchantProfile', merchantId, branchId]` | none |
+| 9 | Merchant Profile voucher cards (`<VoucherCard>`) | voucher | `voucher.id` | `<FavouriteHeart entity="voucher" id={voucher.id} initialIsFavourited={voucher.isFavourited} contextualQueryKey={['merchantProfile', merchantId, branchId]} />` | `['favouriteVouchers']`, `['merchantProfile', merchantId, branchId]` | none |
+| 10 | Voucher Detail (`<CouponHeader>` nav row) | voucher | `voucher.id` | `<FavouriteHeart entity="voucher" id={voucher.id} initialIsFavourited={voucher.isFavourited} contextualQueryKey={['voucher', voucherId]} />` | `['favouriteVouchers']`, `['voucher', voucherId]` | none |
+| 11 | Favourites tab → Places card (`<BranchFavCard>`) | branch | `branch.id` | (no heart; the card represents the favourite by definition) — swipe-to-remove → `useRemoveFavourite('branch')` | `['favouriteBranches']` | discovery surfaces |
+| 12 | Favourites tab → Vouchers card (`<VoucherFavCard>`) | voucher | `voucher.id` | (no heart) — swipe-to-remove → `useRemoveFavourite('voucher')` | `['favouriteVouchers']` | discovery surfaces |
 
 Invariants:
-- Entry points 1-7 all consume the shared `<BranchTile>` primitive. The heart-state interface is uniform.
-- Entry point 8 is **load-bearing for the branch-level lock**. The branch picker must re-evaluate the heart icon state when the user switches branches.
-- Entry point 10 closes §O4 (replaces the `Alert.alert('Coming next milestone')` stub at `VoucherDetailScreen.tsx:1005`).
-- Entry points 11 + 12 are the source-of-truth lists; always fresh by construction.
+- Entry points 1-7 all consume the shared `<BranchTile>` primitive, which renders `<FavouriteHeart>` internally. The heart-state interface is uniform.
+- Entry point 8 is **load-bearing for the branch-level lock**. The branch picker must re-evaluate `<FavouriteHeart>` 's `id` and `initialIsFavourited` props when the user switches branches.
+- Entry point 10 closes §O4 (replaces the `Alert.alert('Coming next milestone')` stub at `VoucherDetailScreen.tsx:1005` with `<FavouriteHeart entity="voucher" ...>`).
+- Entry points 11 + 12 are source-of-truth list rows; they do not render `<FavouriteHeart>` because the card's existence IS the favourite signal. Removal goes through swipe + `useRemoveFavourite()`, NOT through `<FavouriteHeart>`'s toggle.
 
 ## 4. Branch-level place favourite invariants
 
@@ -190,16 +190,31 @@ Error contract:
 
 - `addFavouriteBranch(userId, branchId)` — mirror of `addFavouriteMerchant`. Validates branch exists + active. Throws on P2002.
 - `removeFavouriteBranch(userId, branchId)` — mirror of `removeFavouriteMerchant`. Throws on P2025.
-- `listFavouriteBranches(userId, page, limit)` — paginated list. Enrichment per item:
+- `listFavouriteBranches(userId, page, limit)` — paginated list. **Sorts globally before paginating** (the user's full favourite-branches set is enriched, sorted, then sliced). Enrichment per item:
   - branch: `id`, `name`, `slug`, `addressLine1`, `city`, `postcode`, `latitude`, `longitude` (gated by `Branch.locationConfidence` redaction contract per `project_location_confidence_redaction_contract.md`)
   - parent merchant: `id`, `businessName`, `tradingName`, `logo`, `status`
   - opening hours → `isOpen` computed
   - active+approved vouchers on parent merchant → `voucherCount`, `maxEstimatedSaving`
   - ratings aggregated at this branch (NOT merchant rollup) per the `contextBranchId` rating direction
   - `isUnavailable`: branch suspended OR merchant suspended (or both)
-  - Sort: `isUnavailable` last, then `isOpen` first within available, then `favouritedAt desc`
-  - Pagination: offset-based (matches existing pattern). Pagination cursor migration is part of §W standing concern, not this rework.
+  - **Global sort key**: `(isUnavailable asc, isOpen desc, favouritedAt desc)` — unavailable last, then open-first within available, then by recency. Computed across the FULL user-scoped set before pagination.
+  - **Pagination**: offset-based (matches existing pattern). Cursor migration is the §W standing concern, not this rework.
   - Returns `{ items, total, page, limit }`.
+
+- `listFavouriteVouchers(userId, page, limit)` — **AMENDED v1.1**: paginated list with **globally correct Smart 7-bucket sort**. The previous implementation returned rows by `favouritedAt desc` and relied on client-side sort, which is broken across pages (an urgent voucher on page 2 can appear below normal vouchers on page 1). The new implementation:
+
+  1. Fetch ALL `FavouriteVoucher` rows for `userId` (no LIMIT yet).
+  2. Bulk-enrich each row: voucher + parent merchant + `UserVoucherCycleState` + subscription cycle anchor + expiry + TL availability window + REUSABLE cooldown state. Single bulk query per join, not per row.
+  3. For each row, compute `priorityBucket: 1..7` using the **same priority logic as `voucherCardPriority(voucher, now)`** from `apps/customer-app/src/features/merchant/utils/voucherCardSort.ts`. Backend implementation MUST use the same `URGENT_THRESHOLD_MS = 60 * 60_000` constant (the locked Gate H 2026-05-11 threshold). Pin to keep the customer-app and backend constants in sync (see §13).
+  4. **Global sort key**: `(priorityBucket asc, favouritedAt desc)`. Secondary smart sort within buckets (e.g., closer-to-closing urgent first) is deferred to v2 polish.
+  5. Apply pagination via `skip` / `take` to the sorted list.
+  6. Return `{ items, total, page, limit }` — items already in correct render order.
+
+  **Cost model**: `O(N)` enrichment per request where N = user's total favourite-vouchers count. For realistic upper bounds (N ≤ 200 per user), this is roughly 50-100ms additional per request. Acceptable for the Favourites surface (not a hot-path). If real-world N grows beyond expectations, a 30s per-user sort-cache or a denormalised `priorityBucket` column on `FavouriteVoucher` is a v2 optimisation.
+
+  **`now` semantics**: backend uses request-time `now` for priority computation. Sort result is a snapshot at request time. A voucher whose state transitions mid-page-fetch (e.g., TL window closes while user scrolls) won't re-sort until the next refetch. Acceptable for v1.
+
+  **Client-side sorting on the Vouchers tab is FORBIDDEN.** Pages must be rendered in the order the server returns them. Test pin enforces this (§14).
 
 ### 6.4 Wire contract changes (additive)
 
@@ -267,6 +282,8 @@ interface UseFavouriteOptions {
   type: FavouriteEntity
   id: string
   initialIsFavourited: boolean
+  /** Optional additional cache key to invalidate alongside the list key. */
+  contextualQueryKey?: readonly unknown[]
 }
 
 interface UseFavouriteReturn {
@@ -284,8 +301,54 @@ export function useFavourite(options: UseFavouriteOptions): UseFavouriteReturn
   - `type === 'branch'` → invalidate `['favouriteBranches']`.
   - `type === 'voucher'` → invalidate `['favouriteVouchers']`.
   - `type === 'merchant'` → invalidate `['favouriteMerchants']` (transition path).
-  - Plus the per-call contextual cache key if the consumer passes it (e.g. `['merchantProfile', merchantId, branchId]` from `<HeroSection>`).
-- Heart icon respects `useReduceMotion()`: scale animation skipped on reduce-motion-on, colour flip only.
+  - Plus the per-call contextual cache key if the consumer passes it (e.g. `['merchantProfile', merchantId, branchId]` from `<HeroSection>`, `['voucher', voucherId]` from `<CouponHeader>`).
+- The hook is NOT called inline by surface consumers. It is called ONLY by the shared `<FavouriteHeart>` component (see §7.2.1) or by `useRemoveFavourite` (see §7.3 — Favourites tab swipe-to-remove path).
+
+### 7.2.1 `<FavouriteHeart>` shared component — locked architecture
+
+The canonical heart UI. Owns the `useFavourite()` hook call, animation, accessibility, and cache invalidation. **All 10 surface consumers in §3 entry points 1-10 render this component.** No surface calls `useFavourite()` directly.
+
+```ts
+// apps/customer-app/src/features/favourites/components/FavouriteHeart.tsx
+interface FavouriteHeartProps {
+  /** Which kind of entity this heart toggles. */
+  entity: 'branch' | 'voucher'
+  /** ID of the entity (branch.id for 'branch', voucher.id for 'voucher'). */
+  id: string
+  /** Server-emitted starting state. */
+  initialIsFavourited: boolean
+  /** Visual variant for the heart icon — colour scheme + stroke. */
+  tone?: 'on-light' | 'on-dark' | 'on-gradient'  // default 'on-light'
+  /** Override icon size. */
+  size?: number  // default 24
+  /** Suppresses interactivity + dims. Used by Voucher Detail redeemed-state hero. */
+  disabled?: boolean
+  /** Additional cache key to invalidate alongside the list key. */
+  contextualQueryKey?: readonly unknown[]
+  /** Optional testID for E2E targeting. */
+  testID?: string
+}
+
+export function FavouriteHeart(props: FavouriteHeartProps): JSX.Element
+```
+
+**Invariants:**
+
+- Internally calls `useFavourite({ type: props.entity, id: props.id, initialIsFavourited: props.initialIsFavourited, contextualQueryKey: props.contextualQueryKey })`.
+- Renders a `<Pressable>` with the Lucide `Heart` icon. Filled when `isFavourited === true`, outlined otherwise. Colour driven by `tone` prop.
+- On press: calls `toggle()`. Scale animation 1.0 → 1.15 → 1.0 over 200ms ease-out + colour transition 150ms. Skipped under `useReduceMotion()` (colour-only flip).
+- Accessibility label: `"Remove from favourites"` when `isFavourited === true`, `"Add to favourites"` when false. Locale-stable English copy for v1.
+- `disabled={true}`: renders at 60% opacity, no `onPress`, accessibility label suffixed with " (disabled)".
+- Pessimistic flip — visual state advances only after backend success. Loading state can dim slightly during the mutation (visual polish; not a hard contract).
+
+**Salvage from reference branch:** none — this is new code. The Lucide `Heart` icon is already in the design-system barrel (`@/design-system/icons`). Component lives in `features/favourites/components/` because favourites is the primary owner of the contract; other features cross-import it (existing customer-app cross-feature import pattern).
+
+**Why a shared component vs each surface calling the hook directly:**
+
+- Single source of truth for cache invalidation logic — no risk of one surface forgetting the contextual key.
+- Animation + reduce-motion + a11y all centralised — no drift between surfaces.
+- `<BranchTile>` renders `<FavouriteHeart entity="branch" id={branch.id} ...>` instead of having the heart UI duplicated inside `<BranchTile>` itself. Rails don't pass `onFavourite` callbacks at all.
+- Closes the Home rail invalidation inconsistency identified in the audit by construction — there is no way to consume the heart visual without going through the hook.
 
 ### 7.3 List hooks — NEW
 
@@ -313,20 +376,22 @@ export function useRemoveFavourite(type: 'branch' | 'voucher'): {
 
 ### 7.4 Heart-consumer migration map
 
-The rework cuts over 10 existing call sites. The change in each is a discriminator swap from `'merchant'` to `'branch'` and an ID source change from `branch.merchant.id` to `branch.id`.
+The rework cuts over 10 existing call sites. In each, the surface stops calling `useFavourite()` directly (or stops passing `onFavourite` callbacks) and instead renders the shared `<FavouriteHeart>` component (§7.2.1) with the correct `entity` + `id` props. The pre-existing heart UI (inline icons, parent-wired callbacks) is REPLACED by `<FavouriteHeart>`.
 
 | File | Pre | Post |
 |---|---|---|
-| `apps/customer-app/src/features/search/components/SearchResultItem.tsx` | `useFavourite('merchant', tile.merchant.id, tile.isFavourited)` | `useFavourite('branch', tile.id, tile.isFavourited)` |
-| `apps/customer-app/src/features/home/components/FeaturedCarousel.tsx` | parent-wired `onFavourite` callback (no invalidate) | direct `useFavourite('branch', tile.id, tile.isFavourited)` per tile |
-| `apps/customer-app/src/features/home/components/TrendingSection.tsx` | same | same |
+| `apps/customer-app/src/shared/BranchTile.tsx` (the shared primitive) | renders inline `Heart` icon + accepts `onFavourite` callback prop | renders `<FavouriteHeart entity="branch" id={tile.id} initialIsFavourited={tile.isFavourited} tone="on-gradient" />`. Drop the `onFavourite` callback prop. |
+| `apps/customer-app/src/features/search/components/SearchResultItem.tsx` | inline `useFavourite('merchant', tile.merchant.id, ...)` + custom heart UI | render `<FavouriteHeart entity="branch" id={tile.id} initialIsFavourited={tile.isFavourited} tone="on-light" />` |
+| `apps/customer-app/src/features/home/components/FeaturedCarousel.tsx` | parent-wired `onFavourite` callback (no invalidate) → BranchTile | drop the `onFavourite` callback; BranchTile owns its own heart now via FavouriteHeart |
+| `apps/customer-app/src/features/home/components/TrendingSection.tsx` | same | same — drop the callback |
 | `apps/customer-app/src/features/home/components/PopularSection.tsx` | same | same |
 | `apps/customer-app/src/features/home/components/NearbyByCategory.tsx` | same | same |
-| `apps/customer-app/src/features/map/components/MapBranchTile.tsx` | parent-wired | direct `useFavourite('branch', tile.id, tile.isFavourited)` |
-| `apps/customer-app/src/features/merchant/components/HeroSection.tsx` | `useFavourite('merchant', merchant.id, merchant.isFavourited)` | `useFavourite('branch', selectedBranch.id, selectedBranch.isFavourited)` |
-| `apps/customer-app/src/features/merchant/components/VoucherCard.tsx` (heart top-right) | parent-wired (caller pattern) | direct `useFavourite('voucher', voucher.id, voucher.isFavourited)` |
-| `apps/customer-app/src/features/voucher/components/CouponHeader.tsx` + `VoucherDetailScreen.tsx:1005` | stub `Alert('Coming next milestone')` | `useFavourite('voucher', voucher.id, voucher.isFavourited)` — **§O4 closure** |
-| `apps/customer-app/src/features/home/components/<rail>.tsx` (any other rail using BranchTile) | parent-wired | direct hook on the tile |
+| `apps/customer-app/src/features/map/components/MapBranchTile.tsx` | parent-wired callback | use BranchTile's FavouriteHeart (or render FavouriteHeart directly if MapBranchTile doesn't use BranchTile) |
+| `apps/customer-app/src/features/merchant/components/HeroSection.tsx` | `useFavourite('merchant', merchant.id, merchant.isFavourited)` + custom heart UI | render `<FavouriteHeart entity="branch" id={selectedBranch.id} initialIsFavourited={selectedBranch.isFavourited} tone="on-dark" contextualQueryKey={['merchantProfile', merchantId, branchId]} />` |
+| `apps/customer-app/src/features/merchant/components/VoucherCard.tsx` (heart top-right) | parent-wired callback + custom heart UI | render `<FavouriteHeart entity="voucher" id={voucher.id} initialIsFavourited={voucher.isFavourited} tone="on-gradient" contextualQueryKey={['merchantProfile', merchantId, branchId]} />` |
+| `apps/customer-app/src/features/voucher/components/CouponHeader.tsx` + `VoucherDetailScreen.tsx:1005` | stub `Alert('Coming next milestone')` | render `<FavouriteHeart entity="voucher" id={voucher.id} initialIsFavourited={voucher.isFavourited} tone="on-dark" contextualQueryKey={['voucher', voucherId]} disabled={isRedeemedThisCycle} />` — **§O4 closure** |
+
+After this migration, **the only place `useFavourite()` is called inline (not via `<FavouriteHeart>`) is the Favourites tab's `useRemoveFavourite()` swipe-to-remove path** (see §7.3) — there the trigger is a swipe gesture, not a heart-icon press, so the shared component doesn't fit. The list hooks invalidate the correct cache directly.
 
 ### 7.5 Favourites screen architecture (NEW)
 
@@ -337,9 +402,10 @@ src/features/favourites/
 ├── screens/
 │   └── FavouritesScreen.tsx          // orchestrator: tab state, scroll behaviour, pull-to-refresh
 ├── components/
+│   ├── FavouriteHeart.tsx            // SHARED canonical heart — used by every surface (BranchTile, HeroSection, VoucherCard, CouponHeader)
 │   ├── FavouritesHeader.tsx          // tab switcher (Places · 12 / Vouchers · 8)
-│   ├── BranchFavCard.tsx             // single Places card
-│   ├── VoucherFavCard.tsx            // single Vouchers card (wraps existing VoucherCard chrome where possible)
+│   ├── BranchFavCard.tsx             // single Places card (no FavouriteHeart — swipe-to-remove instead)
+│   ├── VoucherFavCard.tsx            // single Vouchers card (renders state pill via existing VoucherCardStatePill; no FavouriteHeart — swipe-to-remove)
 │   ├── SwipeToRemove.tsx             // pan-responder gesture wrapper
 │   ├── UndoToast.tsx                 // 4s undo with countdown bar
 │   ├── FavouritesEmptyState.tsx      // per-tab empty state
@@ -348,9 +414,11 @@ src/features/favourites/
 │   ├── useFavouriteBranches.ts
 │   ├── useFavouriteVouchers.ts
 │   └── useRemoveFavourite.ts
-└── utils/
-    └── voucherFavouriteSort.ts       // RE-EXPORTS the existing voucherCardPriority + URGENT_THRESHOLD_MS
 ```
+
+`<FavouriteHeart>` is the load-bearing locked architecture (§7.2.1). It is cross-imported by `src/shared/BranchTile.tsx`, `src/features/merchant/components/HeroSection.tsx`, `src/features/merchant/components/VoucherCard.tsx`, `src/features/voucher/components/CouponHeader.tsx`. Cross-feature imports follow the existing customer-app pattern (e.g. how `useReduceMotion` from `features/profile` is imported across the app).
+
+**Note on `voucherFavouriteSort.ts`**: removed from v1.0 plan. Per the v1.1 amendment, the Vouchers tab sort is computed by the BACKEND (§6.3 `listFavouriteVouchers`). The customer-app renders pages in server-returned order. No client-side sort utility is needed. The `URGENT_THRESHOLD_MS` + `voucherCardPriority` from `features/merchant/utils/voucherCardSort.ts` remain the source of truth for the per-card state pill rendering, and the backend's priority logic MUST stay in sync with them (test pin §13).
 
 Route: `app/(app)/favourites.tsx` — 3-line re-export of `<FavouritesScreen>`.
 
@@ -381,38 +449,26 @@ Heart icon for the tab from `@/design-system/icons` (existing `Heart` lucide imp
 
 ### 7.7 §O4 closure — Voucher Detail heart wiring
 
-At `apps/customer-app/src/features/voucher/screens/VoucherDetailScreen.tsx:1005`, replace:
+`<CouponHeader>` currently accepts `isFavourited` + `onFav` props from `<VoucherDetailScreen>`. The screen's `handleFav` is a stub:
 
 ```tsx
-// Before
+// Before — VoucherDetailScreen.tsx:1005
 const handleFav = () => {
   Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
 }
 ```
 
-with:
-
-```tsx
-// After
-const { isFavourited, toggle, isLoading } = useFavourite({
-  type: 'voucher',
-  id: voucherId,
-  initialIsFavourited: voucher?.isFavourited ?? false,
-})
-const handleFav = () => { toggle() }
-```
-
-The existing `<CouponHeader>` already accepts `isFavourited` + `onFav` props; just wire them through.
+Post-rework: drop the `isFavourited` + `onFav` props from `<CouponHeader>`. Instead, `<CouponHeader>` renders `<FavouriteHeart entity="voucher" id={voucher.id} initialIsFavourited={voucher.isFavourited} tone="on-dark" contextualQueryKey={['voucher', voucherId]} disabled={isRedeemedThisCycle} />` in its nav row. No `handleFav` stub; the shared component owns the toggle. The `disabled` prop preserves the existing PR-B redeemed-state hero behaviour (the heart dims to match the washed-out hero).
 
 Read `voucher.isFavourited` from the new additive wire field on `getCustomerVoucher` (see §6.4). Customer-app Zod schema in `apps/customer-app/src/lib/api/voucher.ts` extends `voucherDetailSchema` with `isFavourited: z.boolean()`.
 
-### 7.8 Home rail invalidation fix (consistency)
+### 7.8 Home rail invalidation fix — closed by `<FavouriteHeart>` architecture
 
-Pre-rework: `FeaturedCarousel`, `TrendingSection`, `PopularSection`, `NearbyByCategory` pass an `onFavourite` callback to their `<BranchTile>` children. The parents don't invalidate. Tapping a heart on Home toggles UI state locally but doesn't invalidate `['favouriteBranches']`. Result: navigate to Favourites tab → stale.
+Pre-rework: `FeaturedCarousel`, `TrendingSection`, `PopularSection`, `NearbyByCategory` passed an `onFavourite` callback to their `<BranchTile>` children. The parents didn't invalidate `['favouriteBranches']`. Tapping a heart on Home toggled UI state locally but the Favourites tab stayed stale until a manual refetch.
 
-Post-rework: each `<BranchTile>` calls `useFavourite('branch', tile.id, tile.isFavourited)` internally OR the rail component renders the heart and calls the hook directly. **Decision**: BranchTile renders the heart and calls the hook internally. This centralises the contract in one component used across 7 surfaces. Rails no longer pass `onFavourite`.
+Post-rework: `<BranchTile>` renders `<FavouriteHeart entity="branch" id={tile.id} initialIsFavourited={tile.isFavourited} />` internally (§7.2.1 + §7.4). The `onFavourite` callback prop is dropped from `<BranchTile>`'s interface. By construction, there is no way to consume the heart visual without going through `<FavouriteHeart>`, which owns the hook + invalidation.
 
-Trade-off: this couples BranchTile to React Query. Acceptable — BranchTile is already coupled to the discovery wire shape (`isFavourited` is part of its prop schema), so the data dependency is symmetrical.
+This is the locked architectural fix for the inconsistency — no per-rail change required beyond dropping the now-unused `onFavourite` callback prop and the parent-side handler.
 
 ## 8. Places tab — full specification
 
@@ -484,21 +540,27 @@ Per the §5.2 state machine. The 9 states map to existing pill components. Card 
 - States 3 (REUSABLE cooldown), 5 (TL outside window): 75%
 - States 4 (redeemed-this-cycle), 6, 7 (unavailable, expired): 75% + overprint or greyscale
 
-### 9.3 Sort (locked Smart 7-bucket per Q8)
+### 9.3 Sort — AMENDED v1.1 (locked Smart 7-bucket, computed SERVER-side, globally sorted then paginated)
 
 ```
-1. Urgent (TL inside window, <60min) — by remaining time asc
-2. Active + available (incl. REUSABLE available) — by favouritedAt desc
-3. REUSABLE cooldown — by availableAgainAt asc
-4. Redeemed this cycle (non-REUSABLE) — by cycle-reset date asc
-5. TIME_LIMITED outside window — by next-opening asc
-6. Unavailable — by favouritedAt desc
-7. Expired — by favouritedAt desc
+1. Urgent (TL inside window, <60min)
+2. Active + available (incl. REUSABLE available)
+3. REUSABLE cooldown
+4. Redeemed this cycle (non-REUSABLE)
+5. TIME_LIMITED outside window
+6. Unavailable
+7. Expired
 ```
 
-Within each priority bucket, secondary sort by `favouritedAt desc`.
+Sort key per row: `(priorityBucket asc, favouritedAt desc)`. Secondary smart-sort within a bucket (e.g., closer-to-closing urgent first) is deferred to v2 polish.
 
-Sort is computed CLIENT-side in `voucherFavouriteSort.ts` from server-emitted state fields. Server returns rows in `favouritedAt desc` order; client applies the 7-bucket priority. **This MUST reuse `voucherCardPriority` from `apps/customer-app/src/features/merchant/utils/voucherCardSort.ts`.** Single source of truth.
+**Sort is computed by the BACKEND** in `listFavouriteVouchers` (§6.3). The backend enriches the FULL user-scoped favourite-vouchers set, sorts globally by priority bucket, then paginates. Pages are returned in correct render order. The client does NOT sort.
+
+**Why this is the locked design (v1.1 amendment):** the v1.0 client-side sort approach was globally incorrect across pages — an urgent voucher on page 2 could appear below normal vouchers on page 1 because the client only has page-local visibility. Server-side global sort is the correctness-preserving option.
+
+**Source-of-truth constants:** the backend's priority computation MUST consume the same `URGENT_THRESHOLD_MS = 60 * 60_000` value as the customer-app constants in `useTimeLimited.ts` and `voucherCardSort.ts` (the locked Gate H 2026-05-11 threshold). Backend implementation hardcodes the constant with an inline comment cross-referencing the customer-app constants. Test pin §13 enforces the threshold parity across backend + customer-app.
+
+**Client rendering invariant:** the Vouchers tab `<FlatList>` renders rows in server-returned order. Any attempt to re-sort client-side (e.g., a future contributor adding a memoised sort over the pages) is a regression. Test pin §14 enforces this.
 
 ### 9.4 Empty state
 
@@ -556,7 +618,9 @@ Reduce-motion source: existing `useReduceMotion()` from `apps/customer-app/src/f
 | File | Coverage |
 |---|---|
 | `tests/api/customer/favourites/branches.routes.test.ts` (NEW) | POST/DELETE/GET routes. ALREADY_FAVOURITED. FAVOURITE_NOT_FOUND. BRANCH_NOT_FOUND on inactive branch. Pagination. |
-| `tests/api/customer/favourites/branches.service.test.ts` (NEW) | `listFavouriteBranches` enrichment — isOpen / voucherCount / maxEstimatedSaving / ratings keyed on branch / isUnavailable / sort order with mixed-state fixtures. |
+| `tests/api/customer/favourites/branches.service.test.ts` (NEW) | `listFavouriteBranches` enrichment — isOpen / voucherCount / maxEstimatedSaving / ratings keyed on branch / isUnavailable / global sort order across multiple pages with mixed-state fixtures. |
+| `tests/api/customer/favourites/vouchers.global-sort.test.ts` (NEW — v1.1) | Pin the AMENDED global sort: fixture with 25+ favourite vouchers spanning all 7 priority buckets across multiple pages. Assert page 1 contains the lowest-priority-bucket items (urgent first) regardless of `favouritedAt`. Assert that an urgent voucher favourited last appears above a non-urgent voucher favourited first. **Regression pin against re-introducing the page-local sort bug.** |
+| `tests/api/customer/favourites/vouchers.threshold-parity.test.ts` (NEW — v1.1) | Pin that the backend's `URGENT_THRESHOLD_MS` constant used by `listFavouriteVouchers` priority computation equals `60 * 60_000` (the Gate H 2026-05-11 locked threshold). Inline comment + code-level cross-reference to `apps/customer-app/src/features/merchant/utils/voucherCardSort.ts`. |
 | `tests/api/customer/discovery/branch-tile-isFavourited.test.ts` (NEW or extension) | Pin that `BranchTile.isFavourited` is now keyed on `branch.id` lookup against `FavouriteBranch`. Regression pin against accidental revert to merchant-keyed lookup. |
 | `tests/api/customer/merchant/isFavourited-additive.test.ts` (NEW or extension) | Pin that `selectedBranch.isFavourited` AND `merchant.isFavourited` BOTH emit during transition. `branches[i].isFavourited` emits on the branches array. |
 | `tests/api/customer/voucher/isFavourited-additive.test.ts` (NEW) | Pin that `getCustomerVoucher` emits `voucher.isFavourited`. (Closes §O4 contract gap.) |
@@ -566,17 +630,18 @@ Reduce-motion source: existing `useReduceMotion()` from `apps/customer-app/src/f
 
 | File | Coverage |
 |---|---|
-| `apps/customer-app/tests/hooks/useFavourite.test.tsx` (EXTENSION) | New `'branch'` discriminator. New invalidation paths. Pessimistic toggle still correct under all 3 discriminators. |
+| `apps/customer-app/tests/hooks/useFavourite.test.tsx` (EXTENSION) | New `'branch'` discriminator. New `contextualQueryKey` option. New invalidation paths. Pessimistic toggle still correct under all 3 discriminators. |
 | `apps/customer-app/tests/lib/api/favourites.test.ts` (NEW) | Zod schemas for branches list + items + voucher list parity. Add/remove/get parity. |
+| `apps/customer-app/src/features/favourites/__tests__/FavouriteHeart.test.tsx` (NEW — v1.1) | `<FavouriteHeart>` contract. `entity="branch"` toggles via `useFavourite('branch', id, ...)`. `entity="voucher"` toggles via `useFavourite('voucher', id, ...)`. `contextualQueryKey` passes through. `disabled={true}` suppresses press + dims. Reduce-motion: colour-flip only. A11y label switches on `isFavourited`. **Regression pin against any consumer calling `useFavourite()` inline instead of via `<FavouriteHeart>`** (grep-based static pin in CI or a code-search test asserting the only `useFavourite()` call sites are `<FavouriteHeart>` and `useRemoveFavourite()`). |
 | `apps/customer-app/src/features/favourites/__tests__/FavouritesScreen.test.tsx` (NEW) | Tab switch. Default tab. URL `?tab=` param. Pull-to-refresh fires invalidate. Empty state per tab. Skeleton on cold cache. |
-| `apps/customer-app/src/features/favourites/__tests__/BranchFavCard.test.tsx` (NEW) | Default state. Unavailable state. Heart-tap → remove flow. Card-tap → navigates to `/(app)/merchant/[id]?branch=<id>&from=favourites`. |
-| `apps/customer-app/src/features/favourites/__tests__/VoucherFavCard.test.tsx` (NEW) | All 9 voucher states render correctly. State pill reuses `<VoucherCardStatePill>`. Card-tap → navigates to `/(app)/voucher/[id]?from=favourites`. |
-| `apps/customer-app/src/features/favourites/__tests__/voucherFavouriteSort.test.ts` (NEW) | Sort priority matrix. Regression pin: imports `URGENT_THRESHOLD_MS` from the EXISTING constant location. Sort matches Merchant Profile sort for the same voucher / same `now`. |
+| `apps/customer-app/src/features/favourites/__tests__/BranchFavCard.test.tsx` (NEW) | Default state. Unavailable state. Swipe-to-remove flow. Card-tap → navigates to `/(app)/merchant/[id]?branch=<id>&from=favourites`. No `<FavouriteHeart>` on the card. |
+| `apps/customer-app/src/features/favourites/__tests__/VoucherFavCard.test.tsx` (NEW) | All 9 voucher states render correctly. State pill reuses `<VoucherCardStatePill>`. Card-tap → navigates to `/(app)/voucher/[id]?from=favourites`. No `<FavouriteHeart>` on the card. |
+| `apps/customer-app/src/features/favourites/__tests__/vouchers-server-sort.test.tsx` (NEW — v1.1) | Pin that the Vouchers tab `<FlatList>` renders rows in the order the server returned. Mock the API to return a deliberately-non-favouritedAt-sorted page; assert the FlatList renders rows in that exact order. **Regression pin against re-introducing client-side sort.** |
 | `apps/customer-app/src/features/favourites/__tests__/useRemoveFavourite.test.tsx` (NEW) | Optimistic remove. 4s undo restores. Timeout fires DELETE. DELETE error rolls back + shows error toast. |
-| `apps/customer-app/tests/features/voucher/voucher-detail-favourite.test.tsx` (NEW) | Pin §O4 closure: Voucher Detail heart tap calls `useFavourite('voucher', ...)` and NOT `Alert.alert`. Regression pin against revert to stub. |
-| `apps/customer-app/tests/features/home/home-rail-favourite-invalidation.test.tsx` (NEW or extension) | Pin that heart-tap on Home rails invalidates `['favouriteBranches']`. Regression pin against re-introducing the parent-callback no-invalidate pattern. |
-| `apps/customer-app/tests/features/merchant/hero-favourite-branch-switch.test.tsx` (NEW or extension) | Pin that switching branches in the picker re-evaluates the heart icon state. Pin that the toggle calls `useFavourite('branch', selectedBranch.id, ...)`. |
-| `apps/customer-app/tests/features/search/SearchResultItem.test.tsx` (UPDATE) | Update §CI pin: heart now calls `useFavourite('branch', tile.id, ...)` not `useFavourite('merchant', tile.merchant.id, ...)`. |
+| `apps/customer-app/tests/features/voucher/voucher-detail-favourite.test.tsx` (NEW) | Pin §O4 closure: `<CouponHeader>` renders `<FavouriteHeart entity="voucher" id={voucherId} ...>`. Tapping it calls `useFavourite('voucher', ...)`. NOT `Alert.alert`. Regression pin against revert to stub. |
+| `apps/customer-app/tests/features/home/home-rail-favourite-invalidation.test.tsx` (NEW or extension) | Pin that heart-tap on a Home rail BranchTile invalidates `['favouriteBranches']`. By construction this should be impossible to regress (BranchTile renders FavouriteHeart internally), but the pin guards against future refactors that bypass the component. |
+| `apps/customer-app/tests/features/merchant/hero-favourite-branch-switch.test.tsx` (NEW or extension) | Pin that switching branches in the picker passes a new `id` + `initialIsFavourited` to `<FavouriteHeart>`. Heart visual re-evaluates on prop change. |
+| `apps/customer-app/tests/features/search/SearchResultItem.test.tsx` (UPDATE) | Update §CI pin: `SearchResultItem` renders `<FavouriteHeart entity="branch" id={tile.id} ...>`, not `useFavourite('merchant', tile.merchant.id, ...)` inline. |
 
 ## 15. Transition + deprecation plan
 
@@ -634,8 +699,10 @@ Cleanup PR sequencing: ship v1 → device-QA → stabilisation hotfix if needed 
 | Backend / customer-app wire-shape drift mid-cutover | Strict additive contract: emit new fields alongside old ones. Customer-app cut over per consumer. Cleanup PR removes the old field only after v1 stabilises. |
 | Cross-surface stale `isFavourited` after toggle | Documented eventual consistency model (§10). Favourites tab is source of truth. Discovery refreshes on focus / pull-to-refresh. |
 | Reference-branch code reuse drift | Salvage ONLY presentational chrome (FavouritesEmptyState, FavouritesSkeleton, SwipeToRemove gesture, UndoToast, tab header). Data layer is new code. Strict ownership boundary in plan doc. |
-| Home rail invalidation inconsistency reintroduced | Pin: `home-rail-favourite-invalidation.test.tsx` ensures BranchTile internally calls `useFavourite`. Regression pin against parent-callback pattern. |
-| Voucher state machine on Favourites Vouchers diverges from Merchant Profile | Single source of truth: import `URGENT_THRESHOLD_MS` + `voucherCardPriority` + `<VoucherCardStatePill>` directly. Pin: `voucherFavouriteSort.test.ts` asserts identity of constants. |
+| Home rail invalidation inconsistency reintroduced | By construction: `<BranchTile>` renders `<FavouriteHeart>` internally; the heart hook + invalidation are NOT consumer-side. Pin: `home-rail-favourite-invalidation.test.tsx` guards against future refactors that bypass `<FavouriteHeart>`. |
+| Voucher state machine on Favourites Vouchers diverges from Merchant Profile | Single source of truth: import `<VoucherCardStatePill>` directly. Backend priority computation in `listFavouriteVouchers` MUST hardcode the same `URGENT_THRESHOLD_MS = 60 * 60_000` as customer-app `voucherCardSort.ts` / `useTimeLimited.ts`. Pin: `vouchers.threshold-parity.test.ts` (backend) asserts constant value. |
+| Vouchers tab globally-incorrect sort across pages (v1.0 design bug) | **CLOSED in v1.1**: backend computes priority + globally sorts + paginates. Client renders pages in server-returned order. Pin: `vouchers.global-sort.test.ts` (backend) + `vouchers-server-sort.test.tsx` (customer-app). |
+| Consumer accidentally calls `useFavourite()` inline instead of via `<FavouriteHeart>` | Pin: `FavouriteHeart.test.tsx` includes a static-source pin asserting the ONLY `useFavourite()` call sites in `apps/customer-app/src/` are `<FavouriteHeart>` (the canonical owner) and `useRemoveFavourite` (the swipe path). Any new inline call site fires the test. |
 | §O4 stub silently re-introduced (back to `Alert("Coming next milestone")`) | Pin: `voucher-detail-favourite.test.tsx` asserts the heart calls `useFavourite('voucher')`, not Alert. |
 | Branch picker switch on Merchant Profile leaves heart state stale | Pin: `hero-favourite-branch-switch.test.tsx` asserts heart state re-evaluates on branch picker confirm. |
 | Backfill runs in production without dry-run validation first | `--dry-run` flag mandatory in deploy runbook. Plan doc enforces the dry-run-first step. |
@@ -669,17 +736,18 @@ When this spec moves to plan + implementation, the following deferred-followups 
 **Locked here (spec authority):**
 
 - Product principles (branch-level + voucher-level + removal semantics + eventual consistency).
-- Heart entry points table + per-surface cache contract.
+- Heart entry points table + per-surface cache contract (all via `<FavouriteHeart>`).
+- `<FavouriteHeart>` shared component contract — props, tone variants, animation, a11y, invalidation. v1.1 amendment.
 - Voucher state machine + 9-state matrix.
-- Sort logic (Places + Vouchers).
+- Sort logic (Places: SQL global sort on `(isUnavailable, isOpen, favouritedAt)`. Vouchers: BACKEND-computed Smart 7-bucket global sort + pagination. **No client-side sort on Vouchers.** v1.1 amendment.) |
 - Backend schema (FavouriteBranch table shape, indexes, constraints).
 - Backend route shapes + error codes.
 - Wire-shape additive transition (`selectedBranch.isFavourited`, `branches[i].isFavourited`, `voucher.isFavourited` all new; `merchant.isFavourited` kept additive).
 - Backfill strategy (main-branch only, idempotent, dry-run-able).
-- Customer-app hook discriminator extension contract.
+- Customer-app hook discriminator extension contract + `contextualQueryKey` option.
 - Tab-bar order.
 - Empty state + skeleton + undo + motion contracts.
-- Test regression pin matrix (file paths + coverage scope).
+- Test regression pin matrix (file paths + coverage scope) — includes v1.1 pins for `<FavouriteHeart>` contract + global voucher sort + threshold parity.
 - Transition + cleanup PR scoping.
 - Out-of-scope list.
 
