@@ -129,19 +129,32 @@ The Vouchers tab card MUST surface the full state machine. Sources of truth (do 
 | **Expired** | `voucher.status === 'EXPIRED'` OR `voucher.expiryDate < now` | Greyed card. "Expired" pill. CTA disabled. | `<VoucherCardStatePill state="expired" />` | 7 |
 | **Free-user locked** | user has no active subscription | Standard styling overlaid with the subscribe-affordance pattern (existing). Tap → `SubscriptionPromptModal` flow. | inherits per-state pill above | sort uses underlying state |
 
-### 5.3 Threshold + sort constants (single source of truth)
+### 5.3 Threshold + state-pill constants — sort owner vs display owner
+
+Per v1.1, the Vouchers tab sort is computed BY THE BACKEND in `listFavouriteVouchers` (see §6.3 + §9.3). The customer-app Favourites tab does NOT compute the sort and does NOT directly own the sort priority logic.
+
+Two layers, two owners:
+
+**(a) Sort priority — backend-owned.** `listFavouriteVouchers` computes `priorityBucket: 1..7` per row using a backend implementation of the same Smart 7-bucket logic that exists on the customer-app side. The backend MUST hardcode `URGENT_THRESHOLD_MS = 60 * 60_000` (the Gate H 2026-05-11 lock) with an inline comment cross-referencing the customer-app constants. Backend sorts globally by `(priorityBucket asc, favouritedAt desc)` then paginates. The customer-app Vouchers tab renders pages in server-returned order.
+
+**(b) Per-card state pill — customer-app-owned, unchanged.** Each Vouchers tab card renders its state pill via the existing `<VoucherCardStatePill>` component (`apps/customer-app/src/features/merchant/components/VoucherCardStatePill.tsx`). That component derives its variant from the customer-app constants:
 
 ```ts
-// EXISTING — do NOT duplicate. Re-import on the Favourites side.
+// EXISTING — DO NOT duplicate. Customer-app side, for per-card display only.
 // apps/customer-app/src/features/voucher/hooks/useTimeLimited.ts
 export const URGENT_THRESHOLD_MS = 60 * 60_000  // OWNER LOCKED Gate H 2026-05-11
 
 // apps/customer-app/src/features/merchant/utils/voucherCardSort.ts
 export const URGENT_THRESHOLD_MS = 60 * 60_000  // OWNER LOCKED Gate H 2026-05-11
-// + the existing 7-bucket voucherCardPriority(voucher, now) helper
+// + the existing 7-bucket voucherCardPriority(voucher, now) helper used for
+// per-card display logic and by the Merchant Profile sort.
 ```
 
-Favourites Vouchers tab reuses these. **It is a regression** if the Favourites sort threshold diverges from the Merchant Profile sort threshold.
+**Parity invariant (load-bearing):** the backend's `URGENT_THRESHOLD_MS` MUST equal these customer-app constants. If they drift, a voucher could land in the backend's bucket 1 (urgent) and the customer-app's state pill could render bucket 2 (active) — a visible UX contradiction.
+
+Parity is enforced by `tests/api/customer/favourites/vouchers.threshold-parity.test.ts` (§13) which pins the backend constant value to `60 * 60_000` with an inline comment referencing the customer-app constant location.
+
+**It is a regression** if (a) the backend sort threshold diverges from the customer-app pill threshold, OR (b) the customer-app Favourites Vouchers tab starts computing the sort client-side, OR (c) the customer-app reimplements its own copy of the priority logic separate from the existing `voucherCardPriority(voucher, now)`.
 
 ### 5.4 Tap behaviour
 
