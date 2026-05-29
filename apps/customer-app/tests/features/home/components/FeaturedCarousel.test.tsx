@@ -1,8 +1,19 @@
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { FeaturedCarousel } from '@/features/home/components/FeaturedCarousel'
 import type { HomeRail, HomeRailMeta } from '@/lib/api/discovery'
 import { makeBranchTile } from '../../../fixtures/branchTile'
+
+// Phase 3C.1g M2.7 — embedded `<BranchTile>` renders `<FavouriteHeart>`
+// which needs a `<QueryClientProvider>` in scope.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+  return rtlRender(node, { wrapper: Wrapper })
+}
 
 // v1.4 (PR #126 device-QA-3, 2026-05-23): branches now pass the §6.4.1
 // strict-locality identity ladder against the test meta below — sets

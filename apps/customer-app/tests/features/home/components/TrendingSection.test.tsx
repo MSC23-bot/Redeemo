@@ -1,8 +1,20 @@
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TrendingSection } from '@/features/home/components/TrendingSection'
 import type { HomeRail, HomeRailMeta } from '@/lib/api/discovery'
 import { makeBranchTile } from '../../../fixtures/branchTile'
+
+// Phase 3C.1g M2.7 — embedded `<BranchTile>` renders `<FavouriteHeart>`
+// which needs a `<QueryClientProvider>` in scope.  Wrap render here so
+// existing test bodies stay untouched.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+  return rtlRender(node, { wrapper: Wrapper })
+}
 
 const branches = [
   makeBranchTile({
