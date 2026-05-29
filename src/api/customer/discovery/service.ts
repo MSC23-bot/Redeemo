@@ -1336,8 +1336,7 @@ async function enrichBranchTiles(
 ): Promise<BranchTile[]> {
   if (inputs.length === 0) return []
 
-  const branchIds   = inputs.map(i => i.branchId)
-  const merchantIds = Array.from(new Set(inputs.map(i => i.merchantId)))
+  const branchIds = inputs.map(i => i.branchId)
 
   // 1. Bulk fetch branches (with merchant + grouping fields pre-joined).
   //    Must complete first — call 4 (redundant highlights) needs the
@@ -1370,14 +1369,18 @@ async function enrichBranchTiles(
           _count: { id: true },
         })
       : Promise.resolve([] as Array<{ branchId: string | null; _avg: { rating: number | null }; _count: { id: number } }>),
-    // 3. Favourites — merchant-keyed wire under Rev-2 §7 decision #13.
-    //    Every branch tile of the same merchant shares isFavourited.
-    ctx.userId && merchantIds.length > 0
-      ? prisma.favouriteMerchant.findMany({
-          where:  { userId: ctx.userId, merchantId: { in: merchantIds } },
-          select: { merchantId: true },
+    // 3. Favourites — BRANCH-keyed under Phase 3C.1g spec §6.4 (locked
+    //    2026-05-03 branch-as-primary-unit principle). Per-branch
+    //    isFavourited replaces the prior merchant-keyed lookup; sibling
+    //    branches of the same merchant no longer share the heart state.
+    //    The cleanup PR removes the FavouriteMerchant model + routes
+    //    once the customer-app cut-over has stabilised.
+    ctx.userId && branchIds.length > 0
+      ? prisma.favouriteBranch.findMany({
+          where:  { userId: ctx.userId, branchId: { in: branchIds } },
+          select: { branchId: true },
         })
-      : Promise.resolve([] as Array<{ merchantId: string }>),
+      : Promise.resolve([] as Array<{ branchId: string }>),
     // 4. Redundant-highlight rules per subcategory — mirrors enrichMerchantTiles
     //    (service.ts:640-661). Group by subcategoryId so each per-branch call
     //    below can look up its own redundant set in O(1).
@@ -1397,8 +1400,8 @@ async function enrichBranchTiles(
     ratingByBranch.set(r.branchId, { avg, count: r._count.id })
   }
 
-  const favouritedMerchantSet = new Set<string>()
-  for (const f of favs) favouritedMerchantSet.add(f.merchantId)
+  const favouritedBranchSet = new Set<string>()
+  for (const f of favs) favouritedBranchSet.add(f.branchId)
 
   const redundantBySubcat = new Map<string, Set<string>>()
   for (const r of redundantRows) {
@@ -1425,7 +1428,7 @@ async function enrichBranchTiles(
     tiles.push(enrichBranchTile(branch, {
       input,
       rating:       ratingByBranch.get(branch.id),
-      isFavourited: favouritedMerchantSet.has(branch.merchant.id),
+      isFavourited: favouritedBranchSet.has(branch.id),
       redundantSet,
       // §CD v1 — voucher matchContext context (only set by searchBranches).
       ...(ctx.matchContextQuery !== undefined ? { matchContextQuery: ctx.matchContextQuery } : {}),
