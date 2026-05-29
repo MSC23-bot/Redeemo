@@ -33,7 +33,6 @@ import { DirectionsSheet } from '../components/DirectionsSheet'
 import { HoursPreviewSheet } from '../components/HoursPreviewSheet'
 import { SuspendedBranchBanner } from '../components/SuspendedBranchBanner'
 import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
-import { useFavourite } from '@/hooks/useFavourite'
 import { deriveInitialOpenWriteFor } from '../utils/initialOpenWriteFor'
 import { useUserLocation } from '@/hooks/useLocation'
 import { MerchantHeadline } from '../components/MerchantHeadline'
@@ -184,11 +183,11 @@ export function MerchantProfileScreen({ id }: Props) {
     }
   }, [merchant?.selectedBranch?.id, merchant?.selectedBranchFallbackReason, reconcile])
 
-  const favourite = useFavourite({
-    type:                'merchant',
-    id:                  merchant?.id ?? '',
-    initialIsFavourited: merchant?.isFavourited ?? false,
-  })
+  // Phase 3C.1g M2.9 — merchant-level `useFavourite()` retired.  The
+  // hero heart is now branch-keyed and lives inside `<HeroNav>` →
+  // `<FavouriteHeart>`, driven by `selectedBranch.id` +
+  // `selectedBranch.isFavourited`.  Sibling branches of the same
+  // merchant carry independent heart states (spec §4).
 
   // URL params read FIRST so the activeTab initialiser below can
   // honour `?tab=reviews` on cold-mount.  Hoisted here from its
@@ -979,8 +978,9 @@ export function MerchantProfileScreen({ id }: Props) {
           taps in non-button areas pass through to the ScrollView's
           pan-gesture detector for normal scrolling. */}
       <HeroNav
-        isFavourited={favourite.isFavourited}
-        onToggleFavourite={favourite.toggle}
+        branchId={merchant?.selectedBranch?.id ?? ''}
+        branchIsFavourited={merchant?.selectedBranch?.isFavourited ?? false}
+        merchantId={merchant?.id ?? ''}
         onShare={handleShare}
         scrollY={scrollY}
         topOffset={sbbHeight}

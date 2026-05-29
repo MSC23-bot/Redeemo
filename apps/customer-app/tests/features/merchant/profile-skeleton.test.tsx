@@ -29,9 +29,12 @@ const initialMetrics = {
 // pass; spacer is a no-op test-id placeholder.
 jest.mock('@/features/merchant/components/HeroSection', () => ({
   HeroBackdrop: () => null,
-  HeroNav: ({ isFavourited }: { isFavourited: boolean }) => {
+  // Phase 3C.1g M2.9 — HeroNav contract is now branch-keyed
+  // (branchIsFavourited / branchId / merchantId).  Surface the same
+  // HERO_FAV probe driven by the renamed prop.
+  HeroNav: ({ branchIsFavourited }: { branchIsFavourited: boolean }) => {
     const { Text } = require('react-native')
-    return <Text>HERO_FAV={String(isFavourited)}</Text>
+    return <Text>HERO_FAV={String(branchIsFavourited)}</Text>
   },
   HeroBannerSpacer: () => {
     const { View } = require('react-native')
@@ -269,6 +272,8 @@ const selectedBranchFixture = {
   distance: 1500, isOpenNow: true,
   avgRating: 4.5, reviewCount: 12,
   myReview: null,
+  // Phase 3C.1g M2.9 — selectedBranch.isFavourited drives the hero heart.
+  isFavourited: false,
 }
 
 const merchant = {
