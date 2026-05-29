@@ -2,12 +2,11 @@ import React, { useCallback } from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { SvgXml } from 'react-native-svg'
-import { Heart, ArrowRight } from 'lucide-react-native'
+import { ArrowRight } from 'lucide-react-native'
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSequence,
   Easing,
 } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
@@ -17,6 +16,7 @@ import type { VoucherType } from '@/lib/api/redemption'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 import { VoucherCardRedeemedStamp } from './VoucherCardRedeemedStamp'
 import { VoucherCardStatePill } from './VoucherCardStatePill'
+import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 
 // Round 5 §32: dial colour back up. The owner shared a §22-era
 // screenshot as the colour reference and wanted the energy
@@ -145,9 +145,13 @@ type Props = {
    * PR #35) when callers haven't plumbed the flag yet.
    */
   isRedeemed?: boolean
-  isFavourited: boolean
   onPress: () => void
-  onToggleFavourite: () => void
+  // Phase 3C.1g M2.9a — branch-keyed heart contract.  `merchantId` +
+  // `branchId` drive the `<FavouriteHeart>` contextualQueryKey so a
+  // successful toggle invalidates the merchant-profile screen cache
+  // alongside the favourites list.
+  merchantId: string
+  branchId:   string
   /**
    * Reference instant used by the TIME_LIMITED state pill (M4c Gate J)
    * for bucketing active/urgent/outside-window copy and the stale-payload
@@ -159,8 +163,9 @@ type Props = {
 
 const PRESS_IN_MS  = 100
 const PRESS_OUT_MS = 160
-const HEART_UP_MS  = 120
-const HEART_DN_MS  = 200
+// Phase 3C.1g M2.9a — HEART_UP_MS / HEART_DN_MS removed alongside the
+// retired `handleFav` callback.  Heart animation now owned by
+// `<FavouriteHeart>` (spec §7.2.1, 1.0 → 1.15 → 1.0 over 200ms).
 
 // Smart £ formatting:
 //   Whole pounds → "£5"     (no decimals)
@@ -183,7 +188,7 @@ const REDEEMO_R_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080
   <polygon fill="#FFFFFF" points="487.2 818.12 244.4 994.7 245.05 681.39 487.2 818.12"/>
 </svg>`
 
-export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress, onToggleFavourite, now }: Props) {
+export function VoucherCard({ voucher, isRedeemed = false, onPress, merchantId, branchId, now }: Props) {
   // M4c Gate J: TIME_LIMITED outside-window cards drop to 75% opacity
   // (locked spec §6.1 / §6.3 — distinct from the redeemed-state cream-
   // tint overlay). Active/urgent/redeemed cards stay at full opacity.
@@ -241,13 +246,9 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
   const accent    = gradient[1]
 
   const cardScale  = useSharedValue(1)
-  const heartScale = useSharedValue(1)
 
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: cardScale.value }],
-  }))
-  const heartAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: heartScale.value }],
   }))
 
   const handlePressIn = useCallback(() => {
@@ -271,16 +272,9 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
     onPress()
   }, [onPress])
 
-  const handleFav = useCallback(() => {
-    lightHaptic()
-    if (motionScale !== 0) {
-      heartScale.value = withSequence(
-        withTiming(1.25, { duration: HEART_UP_MS, easing: Easing.bezier(0.16, 1, 0.3, 1) }),
-        withTiming(1.0,  { duration: HEART_DN_MS, easing: Easing.bezier(0.16, 1, 0.3, 1) }),
-      )
-    }
-    onToggleFavourite()
-  }, [heartScale, motionScale, onToggleFavourite])
+  // Phase 3C.1g M2.9a — `handleFav` + `heartScale` + `heartAnimatedStyle`
+  // dropped.  `<FavouriteHeart>` owns its own scale animation
+  // (1.0 → 1.15 → 1.0 over 200ms, gated on useReduceMotion) per spec §7.2.1.
 
   const expiryLabel = voucher.expiryDate
     ? `Expires ${new Date(voucher.expiryDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
@@ -456,38 +450,28 @@ export function VoucherCard({ voucher, isRedeemed = false, isFavourited, onPress
             {hasStatePill ? (
               <View style={styles.topRightStack}>
                 <VoucherCardStatePill voucher={voucher} now={referenceNow} />
-                <Animated.View style={[heartAnimatedStyle, styles.stackedHeartWrap]}>
-                  <Pressable
-                    onPress={handleFav}
-                    style={styles.favBtn}
-                    accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-                    hitSlop={10}
-                  >
-                    <Heart
-                      size={18}
-                      color={isFavourited ? '#FFFFFF' : 'rgba(255,255,255,0.75)'}
-                      fill={isFavourited ? '#FFF' : 'none'}
-                      strokeWidth={2.2}
-                    />
-                  </Pressable>
-                </Animated.View>
+                <View style={styles.stackedHeartWrap}>
+                  <FavouriteHeart
+                    entity="voucher"
+                    id={voucher.id}
+                    initialIsFavourited={voucher.isFavourited}
+                    tone="on-gradient"
+                    size={18}
+                    contextualQueryKey={['merchantProfile', merchantId, branchId]}
+                    testID={`voucher-card-${voucher.id}-heart`}
+                  />
+                </View>
               </View>
             ) : (
-              <Animated.View style={heartAnimatedStyle}>
-                <Pressable
-                  onPress={handleFav}
-                  style={styles.favBtn}
-                  accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-                  hitSlop={10}
-                >
-                  <Heart
-                    size={18}
-                    color={isFavourited ? '#FFFFFF' : 'rgba(255,255,255,0.75)'}
-                    fill={isFavourited ? '#FFF' : 'none'}
-                    strokeWidth={2.2}
-                  />
-                </Pressable>
-              </Animated.View>
+              <FavouriteHeart
+                entity="voucher"
+                id={voucher.id}
+                initialIsFavourited={voucher.isFavourited}
+                tone="on-gradient"
+                size={18}
+                contextualQueryKey={['merchantProfile', merchantId, branchId]}
+                testID={`voucher-card-${voucher.id}-heart`}
+              />
             )}
           </View>
 

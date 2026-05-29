@@ -1,7 +1,19 @@
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { VoucherCard } from '@/features/merchant/components/VoucherCard'
 import type { MerchantVoucher } from '@/lib/api/merchant'
+
+// Phase 3C.1g M2.9a — VoucherCard embeds `<FavouriteHeart>` which
+// calls `useFavourite()` → `useQueryClient()`.  Wrap render here so
+// existing test bodies stay untouched.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+  return rtlRender(node, { wrapper: Wrapper })
+}
 
 /**
  * PR-B T5 (§Q4 fold-in) — VoucherCard redeemed-state visual variant.
@@ -52,9 +64,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(getByTestId('voucher-card-redeemed-stamp')).toBeTruthy()
@@ -68,9 +80,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(queryByTestId('voucher-card-redeemed-stamp')).toBeNull()
@@ -82,9 +94,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         // intentionally omitted isRedeemed — should default to false
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(queryByTestId('voucher-card-redeemed-stamp')).toBeNull()
@@ -96,9 +108,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(getByTestId('voucher-card-already-redeemed-label')).toBeTruthy()
@@ -110,9 +122,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(queryByTestId('voucher-card-already-redeemed-label')).toBeNull()
@@ -124,9 +136,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     // The cream-tint overlay marks the muted-saturation cue.
@@ -148,9 +160,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(queryByTestId('voucher-card-redeemed-overlay')).toBeNull()
@@ -161,9 +173,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk({ type: 'FREEBIE' })}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     // Type chip text renders at full readable opacity per brief
@@ -183,9 +195,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     // Title + description still render with their existing
@@ -209,9 +221,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={onPress}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     // Accessibility label includes the redeemed suffix —
@@ -232,9 +244,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     const stamp = getByTestId('voucher-card-redeemed-stamp')
@@ -264,9 +276,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     const stamp = getByTestId('voucher-card-redeemed-stamp')
@@ -303,9 +315,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     const title = getByText('Free Filter Coffee with Any Thali')
@@ -343,9 +355,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         <VoucherCard
           voucher={mk()}
           isRedeemed={true}
-          isFavourited={false}
+          merchantId="m-1"
           onPress={() => {}}
-          onToggleFavourite={() => {}}
+          branchId="b-1"
         />,
       )
       const text = getByText('Voucher Redeemed')
@@ -376,9 +388,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         <VoucherCard
           voucher={mk()}
           isRedeemed={true}
-          isFavourited={false}
+          merchantId="m-1"
           onPress={() => {}}
-          onToggleFavourite={() => {}}
+          branchId="b-1"
         />,
       )
       const stamp = getByTestId('voucher-card-redeemed-stamp')
@@ -417,9 +429,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         <VoucherCard
           voucher={mk()}
           isRedeemed={true}
-          isFavourited={false}
+          merchantId="m-1"
           onPress={() => {}}
-          onToggleFavourite={() => {}}
+          branchId="b-1"
         />,
       )
       const flat = (n: any): Record<string, unknown> => {
@@ -466,9 +478,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         <VoucherCard
           voucher={mk()}
           isRedeemed={false}
-          isFavourited={false}
+          merchantId="m-1"
           onPress={() => {}}
-          onToggleFavourite={() => {}}
+          branchId="b-1"
         />,
       )
       // Active card: the flat-shadow style is NOT applied; the §38
@@ -497,9 +509,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         <VoucherCard
           voucher={mk()}
           isRedeemed={true}
-          isFavourited={false}
+          merchantId="m-1"
           onPress={() => {}}
-          onToggleFavourite={() => {}}
+          branchId="b-1"
         />,
       )
       const redeemedOuter = findOuter()
@@ -518,9 +530,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         <VoucherCard
           voucher={mk()}
           isRedeemed={true}
-          isFavourited={false}
+          merchantId="m-1"
           onPress={() => {}}
-          onToggleFavourite={() => {}}
+          branchId="b-1"
         />,
       )
       const overlay = getByTestId('voucher-card-redeemed-overlay')
@@ -539,9 +551,9 @@ describe('VoucherCard — redeemed-state variant (PR-B T5, §Q4)', () => {
         <VoucherCard
           voucher={mk()}
           isRedeemed={false}
-          isFavourited={false}
+          merchantId="m-1"
           onPress={() => {}}
-          onToggleFavourite={() => {}}
+          branchId="b-1"
         />,
       )
       expect(queryByTestId('voucher-card-redeemed-stamp')).toBeNull()

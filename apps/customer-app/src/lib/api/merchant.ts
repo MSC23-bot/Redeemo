@@ -113,6 +113,12 @@ const merchantVoucherSchema = z.object({
   reusableState: z.object({ availableAgainAt: z.string().nullable() })
     .nullable()
     .optional(),
+  // Phase 3C.1g M2.9a — per-voucher heart state on Merchant Profile.
+  // Drives the voucher card's <FavouriteHeart entity="voucher">.  False
+  // for guests; true when the calling user has favourited the voucher.
+  // `.optional().default(false)` for backward compat with cached
+  // responses from before the M2.9a backend emit.
+  isFavourited: z.boolean().optional().default(false),
 })
 export type MerchantVoucher = z.infer<typeof merchantVoucherSchema>
 // Exposed for testing only — same pattern as _voucherDetailSchemaForTests

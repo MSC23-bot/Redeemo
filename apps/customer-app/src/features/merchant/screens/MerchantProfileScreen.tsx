@@ -749,11 +749,11 @@ export function MerchantProfileScreen({ id }: Props) {
         : v.isRedeemedThisCycle))
       .map(v => v.id),
   )
-  // Per-voucher favourites placeholder.  cefaf45 documented this as
-  // TODO until the merchant detail endpoint surfaces favourited per
-  // voucher.  Out of scope for PR-B; the favouritedVoucherIds Set
-  // stays empty (existing behaviour preserved).
-  const favouritedVoucherIds = new Set<string>()
+  // Phase 3C.1g M2.9a — the favouritedVoucherIds Set placeholder is
+  // gone.  Per-voucher heart state now flows through the
+  // `voucher.isFavourited` field on the M2.9a additive
+  // `/merchants/:id` payload; `<FavouriteHeart>` inside
+  // `<VoucherCard>` reads it directly.
 
   const handleWebsite = () => {
     const url = sb.websiteUrl ?? merchant.websiteUrl
@@ -905,11 +905,12 @@ export function MerchantProfileScreen({ id }: Props) {
             <VouchersTab
               vouchers={sortedVouchers}
               redeemedVoucherIds={redeemedVoucherIds}
-              favouritedVoucherIds={favouritedVoucherIds}
               onVoucherPress={handleVoucherPress}
               branchShortName={branchShortName(sb.name)}
               isMultiBranch={isMultiBranch}
               switchTrigger={sb.id}
+              merchantId={merchant.id}
+              branchId={sb.id}
             />
           )}
           {activeTab === 'about' && (

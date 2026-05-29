@@ -11,7 +11,7 @@
 
 import 'dotenv/config'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { PrismaClient, MerchantStatus, LocationConfidence } from '../../../generated/prisma/client'
+import { PrismaClient, MerchantStatus, LocationConfidence, VoucherStatus, ApprovalStatus, VoucherType } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { getCustomerMerchant } from '../../../src/api/customer/discovery/service'
 
@@ -38,11 +38,17 @@ async function sweepFixtures(): Promise<void> {
   await tryDelete('favouriteBranch', () => prisma.favouriteBranch.deleteMany({
     where: { user: { email: { startsWith: USER_EMAIL_PREFIX } } },
   }))
+  await tryDelete('favouriteVoucher', () => prisma.favouriteVoucher.deleteMany({
+    where: { user: { email: { startsWith: USER_EMAIL_PREFIX } } },
+  }))
   await tryDelete('favouriteMerchant', () => prisma.favouriteMerchant.deleteMany({
     where: { user: { email: { startsWith: USER_EMAIL_PREFIX } } },
   }))
   await tryDelete('user', () => prisma.user.deleteMany({
     where: { email: { startsWith: USER_EMAIL_PREFIX } },
+  }))
+  await tryDelete('voucher', () => prisma.voucher.deleteMany({
+    where: { merchant: { businessName: { startsWith: MERCHANT_NAME_PREFIX } } },
   }))
   await tryDelete('branch', () => prisma.branch.deleteMany({
     where: { merchant: { businessName: { startsWith: MERCHANT_NAME_PREFIX } } },
@@ -50,6 +56,21 @@ async function sweepFixtures(): Promise<void> {
   await tryDelete('merchant', () => prisma.merchant.deleteMany({
     where: { businessName: { startsWith: MERCHANT_NAME_PREFIX } },
   }))
+}
+
+async function createVoucher(merchantId: string, slug: string): Promise<{ id: string }> {
+  return prisma.voucher.create({
+    data: {
+      merchantId,
+      code:            `${MERCHANT_NAME_PREFIX}v-${slug}`,
+      type:            VoucherType.DISCOUNT_FIXED,
+      title:           `Voucher ${slug}`,
+      estimatedSaving: 10,
+      status:          VoucherStatus.ACTIVE,
+      approvalStatus:  ApprovalStatus.APPROVED,
+    },
+    select: { id: true },
+  })
 }
 
 async function createBranch(merchantId: string, slug: string, isMain = false): Promise<{ id: string }> {
@@ -128,5 +149,57 @@ describe('getCustomerMerchant — per-branch isFavourited (Phase 3C.1g M1.6)', (
     expect(result.isFavourited).toBe(false)
     expect(result.selectedBranch?.isFavourited).toBe(false)
     expect(result.branches.every((b: any) => b.isFavourited === false)).toBe(true)
+  })
+
+  // M2.9a (Phase 3C.1g) — per-voucher isFavourited on the merchant-
+  // profile voucher list.  Closes the spec §6.4 gap surfaced during
+  // M2.9 (VoucherCard had no source for voucher.isFavourited until
+  // this additive emit landed).
+
+  it('M2.9a — voucher.isFavourited is TRUE for favourited vouchers, FALSE for the rest', async () => {
+    const user = await prisma.user.create({
+      data: { email: `${USER_EMAIL_PREFIX}voucher-fav@x.test` },
+      select: { id: true },
+    })
+    const merchant = await prisma.merchant.create({
+      data: { businessName: `${MERCHANT_NAME_PREFIX}voucher-fav`, status: MerchantStatus.ACTIVE },
+      select: { id: true },
+    })
+    // Must have a main branch so selectedBranch resolves cleanly.
+    await createBranch(merchant.id, 'voucher-fav-main', true)
+
+    const voucherA = await createVoucher(merchant.id, 'A')
+    const voucherB = await createVoucher(merchant.id, 'B')
+    const voucherC = await createVoucher(merchant.id, 'C')
+
+    // User favourites A + C, but NOT B.
+    await prisma.favouriteVoucher.create({
+      data: { userId: user.id, voucherId: voucherA.id },
+    })
+    await prisma.favouriteVoucher.create({
+      data: { userId: user.id, voucherId: voucherC.id },
+    })
+
+    const result: any = await getCustomerMerchant(prisma, merchant.id, user.id, {})
+
+    const byId = new Map(result.vouchers.map((v: any) => [v.id, v]))
+    expect((byId.get(voucherA.id) as any)?.isFavourited).toBe(true)
+    expect((byId.get(voucherB.id) as any)?.isFavourited).toBe(false)
+    expect((byId.get(voucherC.id) as any)?.isFavourited).toBe(true)
+  })
+
+  it('M2.9a — guest (userId=null) — every per-voucher isFavourited is false', async () => {
+    const merchant = await prisma.merchant.create({
+      data: { businessName: `${MERCHANT_NAME_PREFIX}voucher-guest`, status: MerchantStatus.ACTIVE },
+      select: { id: true },
+    })
+    await createBranch(merchant.id, 'voucher-guest-main', true)
+    await createVoucher(merchant.id, 'guest-A')
+    await createVoucher(merchant.id, 'guest-B')
+
+    const result: any = await getCustomerMerchant(prisma, merchant.id, null, {})
+
+    expect(result.vouchers.length).toBe(2)
+    expect(result.vouchers.every((v: any) => v.isFavourited === false)).toBe(true)
   })
 })

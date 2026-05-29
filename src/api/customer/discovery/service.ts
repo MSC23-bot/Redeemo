@@ -2208,6 +2208,25 @@ export async function getCustomerMerchant(
     }
   }
 
+  // M2.9a (Phase 3C.1g) — per-voucher isFavourited on /merchants/:id
+  // voucher cards.  One bulk FavouriteVoucher lookup keyed on this
+  // merchant's voucher ids; emitted on each enriched voucher below.
+  // Guests (userId=null) and merchants with no vouchers skip the
+  // query — the empty Set falls through to `isFavourited: false`.
+  //
+  // Wire-shape parity with the existing voucher detail emit
+  // (getCustomerVoucher → voucher.isFavourited).  Closes the spec
+  // §6.4 row that asserted the field was "already emitted via
+  // existing voucher card payload" but actually wasn't.
+  const favouritedVoucherIdSet = new Set<string>()
+  if (userId && merchant.vouchers.length > 0) {
+    const favs = await prisma.favouriteVoucher.findMany({
+      where:  { userId, voucherId: { in: merchant.vouchers.map((v: any) => v.id) } },
+      select: { voucherId: true },
+    })
+    for (const f of favs) favouritedVoucherIdSet.add(f.voucherId)
+  }
+
   // M4a-5: Batched (voucherId → most-recent redeemedAt) lookup for the
   // TIME_LIMITED redeemedWindow derivation.  ONE Prisma groupBy for the
   // whole voucher list — locked "no N+1" contract.  Returns an empty
@@ -2268,6 +2287,10 @@ export async function getCustomerMerchant(
         v.type === 'TIME_LIMITED' || v.type === 'REUSABLE'
           ? false
           : redeemedVoucherIdSet.has(v.id),
+      // M2.9a (Phase 3C.1g) — per-voucher heart state driving the
+      // merchant-profile voucher card's <FavouriteHeart>.  Guests +
+      // non-favourited users emit false (empty Set).
+      isFavourited: favouritedVoucherIdSet.has(v.id),
       // M4a-5: TIME_LIMITED state ([] / null for non-TIME_LIMITED).
       availabilityWindows: tlPayload.availabilityWindows,
       currentWindow:       tlPayload.currentWindow,

@@ -232,12 +232,20 @@ describe('FavouriteHeart — static-source pin (locked invariant)', () => {
     const ALLOWLIST = new Set([
       'features/favourites/components/FavouriteHeart.tsx',
       'hooks/useFavourite.ts',
-      // Transition-period surface consumers — swap to <FavouriteHeart>
-      // in M2.7-M2.10.  Listed explicitly so the pin tracks the
-      // migration without false negatives.
-      // M2.8 dropped SearchResultItem.
-      'features/merchant/screens/MerchantProfileScreen.tsx',
-      'features/merchant/components/VouchersTab.tsx',
+      // Phase 3C.1g M2.9a — allowlist now down to the canonical 2
+      // entries.  All transition-period consumers
+      // (SearchResultItem / MerchantProfileScreen / VouchersTab)
+      // have been retired:
+      //   - M2.8 dropped SearchResultItem.
+      //   - M2.9   dropped MerchantProfileScreen (merchant-level
+      //            useFavourite retired; hero heart owned by
+      //            <FavouriteHeart> via HeroNav).
+      //   - M2.9a  dropped VouchersTab (VoucherCardWrapper retired;
+      //            <VoucherCard> owns the heart via
+      //            <FavouriteHeart entity="voucher">).
+      //
+      // A new inline `useFavourite()` import anywhere outside the
+      // canonical 2 entries fails this pin.
     ])
 
     function walk(dir: string, acc: string[]): string[] {
