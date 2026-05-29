@@ -1,5 +1,6 @@
 import React from 'react'
 import { render, fireEvent, act } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { VoucherDetailScreen } from '@/features/voucher/screens/VoucherDetailScreen'
 
@@ -160,7 +161,15 @@ const initialMetrics = {
 }
 
 function wrap(ui: React.ReactElement) {
-  return render(<SafeAreaProvider initialMetrics={initialMetrics}>{ui}</SafeAreaProvider>)
+  // Phase 3C.1g M2.10 — QueryClientProvider added so CouponHeader's
+  // embedded `<FavouriteHeart>` can call `useFavourite()`.  Mocked
+  // useRedeem + useCustomerVoucher keep query traffic off the wire.
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  return render(
+    <SafeAreaProvider initialMetrics={initialMetrics}>
+      <QueryClientProvider client={qc}>{ui}</QueryClientProvider>
+    </SafeAreaProvider>,
+  )
 }
 
 beforeEach(() => {

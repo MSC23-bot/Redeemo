@@ -1001,9 +1001,13 @@ export function VoucherDetailScreen() {
     router.replace('/(app)/' as never)
   }, [router, params.from, params.returnMerchantId, params.branch, params.tab, changedBranchOnVoucherId])
 
-  const handleFav = useCallback(() => {
-    Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
-  }, [])
+  // Phase 3C.1g M2.10 — §O4 closure.  The `handleFav` Alert stub
+  // is gone.  CouponHeader now embeds `<FavouriteHeart>` which calls
+  // `useFavourite({ type: 'voucher', ... })` on press, fires the
+  // real POST/DELETE, and invalidates both `['favouriteVouchers']`
+  // (list cache) and the `['voucher', voucherId]` contextualQueryKey
+  // so this screen refetches the voucher and re-syncs the heart on
+  // navigation.
 
   const handleShare = useCallback(() => {
     Alert.alert('Coming next milestone', 'Voucher share ships in M2.')
@@ -1483,8 +1487,9 @@ export function VoucherDetailScreen() {
                 insetTop={insets.top}
                 onBack={handleBack}
                 onShare={handleShare}
-                onFav={handleFav}
-                isFavourited={voucher.isFavourited}
+                voucherId={voucher.id}
+                voucherIsFavourited={voucher.isFavourited}
+                isRedeemedThisCycle={voucher.isRedeemedThisCycle}
                 scrollY={scrollY}
                 fadeStart={FADE_START}
                 fadeEnd={FADE_END}
