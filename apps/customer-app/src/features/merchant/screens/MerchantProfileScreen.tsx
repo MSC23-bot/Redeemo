@@ -185,9 +185,9 @@ export function MerchantProfileScreen({ id }: Props) {
   }, [merchant?.selectedBranch?.id, merchant?.selectedBranchFallbackReason, reconcile])
 
   const favourite = useFavourite({
-    type: 'merchant',
-    id: merchant?.id ?? '',
-    isFavourited: merchant?.isFavourited ?? false,
+    type:                'merchant',
+    id:                  merchant?.id ?? '',
+    initialIsFavourited: merchant?.isFavourited ?? false,
   })
 
   // URL params read FIRST so the activeTab initialiser below can

@@ -197,9 +197,9 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
   // flips on success).  Heart tap stops event propagation so the card
   // press handler doesn't fire.
   const favourite = useFavourite({
-    type:         'merchant',
-    id:           tile.merchant.id,
-    isFavourited: tile.isFavourited,
+    type:                'merchant',
+    id:                  tile.merchant.id,
+    initialIsFavourited: tile.isFavourited,
   })
 
   return (

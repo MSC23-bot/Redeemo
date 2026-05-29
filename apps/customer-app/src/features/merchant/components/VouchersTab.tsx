@@ -108,7 +108,7 @@ function VoucherCardWrapper({ voucher, isRedeemed, isFavourited: initialFav, onP
   isFavourited: boolean
   onPress: () => void
 }) {
-  const fav = useFavourite({ type: 'voucher', id: voucher.id, isFavourited: initialFav })
+  const fav = useFavourite({ type: 'voucher', id: voucher.id, initialIsFavourited: initialFav })
 
   return (
     <VoucherCard
