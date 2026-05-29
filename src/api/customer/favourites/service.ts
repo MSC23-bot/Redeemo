@@ -1,10 +1,29 @@
 import {
-  PrismaClient, Prisma, MerchantStatus, VoucherStatus, ApprovalStatus,
+  PrismaClient, Prisma, MerchantStatus, VoucherStatus, ApprovalStatus, VoucherType,
 } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { isOpenNow } from '../../shared/isOpenNow'
 import { getCurrentCycleWindow } from '../../subscription/cycle'
 import { exposeBranchPosition } from '../discovery/service'
+import { getCurrentWindowOccurrence } from '../../shared/voucherAvailability'
+import { computeAvailableAgainAt } from '../../redemption/reusable'
+
+/**
+ * TIME_LIMITED urgency threshold — 60 minutes.
+ *
+ * OWNER LOCKED Gate H 2026-05-11 — product-wide threshold across:
+ *   - Voucher Detail `useTimeLimited` (apps/customer-app/src/features/voucher/hooks/useTimeLimited.ts)
+ *   - Merchant Profile voucher card sort (apps/customer-app/src/features/merchant/utils/voucherCardSort.ts)
+ *   - Voucher state pill component
+ *
+ * Drift between this backend constant and the customer-app constants
+ * produces visible UX contradictions (a card in sort bucket 1 rendering
+ * an "Active" pill, etc.). Parity is pinned by
+ * `tests/api/customer/favourites.vouchers.threshold-parity.test.ts`.
+ *
+ * Supersedes spec §6.2's older <30 min wording.
+ */
+export const URGENT_THRESHOLD_MS = 60 * 60_000
 
 export async function addFavouriteMerchant(prisma: PrismaClient, userId: string, merchantId: string) {
   try {
@@ -169,13 +188,82 @@ export async function removeFavouriteVoucher(prisma: PrismaClient, userId: strin
   }
 }
 
+/**
+ * Compute the Smart 7-bucket priority for a single favourited voucher row
+ * (spec §9.3 — locked v1.1).
+ *
+ *   1. Urgent — TL inside its current window with < URGENT_THRESHOLD_MS remaining
+ *   2. Active + available (TL active, REUSABLE available, non-TL not redeemed)
+ *   3. REUSABLE in cooldown
+ *   4. Non-TL non-REUSABLE redeemed-this-cycle
+ *   5. TIME_LIMITED outside window (no live current occurrence)
+ *   6. Unavailable (voucher status / approval / merchant.status not active)
+ *   7. Expired
+ *
+ * Pure: no DB I/O. Callers pre-fetch the per-row inputs.
+ */
+function computeVoucherPriorityBucket(input: {
+  type: VoucherType
+  status: VoucherStatus
+  approvalStatus: ApprovalStatus
+  merchantStatus: MerchantStatus
+  expiryDate: Date | null
+  cooldownSeconds: number | null
+  availabilityWindows: Array<{ dayOfWeek: number; openTime: string; closeTime: string }>
+  redeemedThisCycle: boolean
+  lastRedeemedAt: Date | null
+  now: Date
+}): 1 | 2 | 3 | 4 | 5 | 6 | 7 {
+  const {
+    type, status, approvalStatus, merchantStatus, expiryDate,
+    cooldownSeconds, availabilityWindows, redeemedThisCycle, lastRedeemedAt, now,
+  } = input
+
+  // Bucket 7 — expired is the terminal state regardless of everything else.
+  if (expiryDate && expiryDate.getTime() <= now.getTime()) return 7
+
+  // Bucket 6 — voucher or merchant is inactive / pending.
+  const voucherActive = status === VoucherStatus.ACTIVE && approvalStatus === ApprovalStatus.APPROVED
+  const merchantActive = merchantStatus === MerchantStatus.ACTIVE
+  if (!voucherActive || !merchantActive) return 6
+
+  // Bucket 1 / 2 / 5 — TIME_LIMITED gating.
+  if (type === VoucherType.TIME_LIMITED) {
+    const currentWindow = getCurrentWindowOccurrence(availabilityWindows, now)
+    if (currentWindow) {
+      const remaining = currentWindow.endsAt.getTime() - now.getTime()
+      if (remaining > 0) {
+        return remaining < URGENT_THRESHOLD_MS ? 1 : 2
+      }
+      // Stale: endsAt is in the past (fixture in-window then now drifted past).
+      // Fall through to bucket 5 so the row is not labelled live.
+    }
+    return 5
+  }
+
+  // Bucket 2 / 3 — REUSABLE cooldown gating.
+  if (type === VoucherType.REUSABLE) {
+    const availableAgainAt = computeAvailableAgainAt(lastRedeemedAt, { cooldownSeconds })
+    if (availableAgainAt && availableAgainAt.getTime() > now.getTime()) return 3
+    return 2
+  }
+
+  // Bucket 2 / 4 — non-TL non-REUSABLE.
+  if (redeemedThisCycle) return 4
+  return 2
+}
+
 export async function listFavouriteVouchers(
   prisma: PrismaClient,
   userId: string,
-  opts: { page: number; limit: number },
+  opts: { page: number; limit: number; now?: Date },
 ) {
   const { page, limit } = opts
   const skip = (page - 1) * limit
+  // `now` is the only intentional test seam — the integration test pins
+  // it to a known mid-afternoon UK time so the TL urgent / active /
+  // outside-window fixtures don't drift across CI clock-of-day.
+  const now = opts.now ?? new Date()
 
   const subscription = await prisma.subscription.findUnique({
     where: { userId },
@@ -183,32 +271,47 @@ export async function listFavouriteVouchers(
   })
   let cycleStart: Date | null = null
   if (subscription?.cycleAnchorDate) {
-    const window = getCurrentCycleWindow(subscription.cycleAnchorDate)
+    const window = getCurrentCycleWindow(subscription.cycleAnchorDate, now)
     cycleStart = window.cycleStart
   }
 
-  const [rows, total] = await Promise.all([
-    prisma.favouriteVoucher.findMany({
-      where: { userId },
-      select: {
-        createdAt: true,
-        voucher: {
-          select: {
-            id: true, title: true, type: true, estimatedSaving: true,
-            description: true, expiryDate: true,
-            status: true, approvalStatus: true,
-            merchant: {
-              select: { id: true, businessName: true, logoUrl: true, status: true },
-            },
+  // Spec §6.3 — fetch ALL rows for this user (no LIMIT). Sort happens
+  // in JS after the per-row priority bucket is computed; the page slice
+  // is the LAST step. This is the only correctness-preserving option
+  // given an N-keyed global sort; spec §6.3 "Cost model" caps real-world
+  // N ≤ 200 per user and accepts the per-request enrichment overhead.
+  const rows = await prisma.favouriteVoucher.findMany({
+    where: { userId },
+    select: {
+      createdAt: true,
+      voucher: {
+        select: {
+          id: true, title: true, type: true, estimatedSaving: true,
+          description: true, expiryDate: true,
+          status: true, approvalStatus: true,
+          // cooldownSeconds — REUSABLE priority-bucket input only.
+          // D19 lock: never exposed on the customer payload (stripped below).
+          cooldownSeconds: true,
+          // availabilityWindows — TL priority-bucket input only. Not
+          // exposed on the per-row payload (kept inline; the Voucher
+          // Detail surface owns the full TL window shape).
+          availabilityWindows: {
+            select: { dayOfWeek: true, openTime: true, closeTime: true },
+          },
+          merchant: {
+            select: { id: true, businessName: true, logoUrl: true, status: true },
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.favouriteVoucher.count({ where: { userId } }),
-  ])
+    },
+    // Stable secondary sort within priority buckets.
+    orderBy: { createdAt: 'desc' },
+  })
+  const total = rows.length
 
   const voucherIds = rows.map(r => r.voucher.id)
+
+  // Per-cycle redemption set (drives bucket 4 for non-TL non-REUSABLE rows).
   const cycleStates = cycleStart && voucherIds.length > 0
     ? await prisma.userVoucherCycleState.findMany({
         where: {
@@ -222,11 +325,44 @@ export async function listFavouriteVouchers(
     : []
   const redeemedSet = new Set(cycleStates.map(s => s.voucherId))
 
+  // Last-redemption batch (drives REUSABLE cooldown — bucket 3 / bucket 2).
+  // Constrained to REUSABLE voucher ids so the groupBy stays tight.
+  const reusableVoucherIds = rows
+    .filter(r => r.voucher.type === VoucherType.REUSABLE)
+    .map(r => r.voucher.id)
+  const lastRedemptionMap = new Map<string, Date>()
+  if (reusableVoucherIds.length > 0) {
+    const lastRedRows = await prisma.voucherRedemption.groupBy({
+      by: ['voucherId'],
+      where: { userId, voucherId: { in: reusableVoucherIds } },
+      _max: { redeemedAt: true },
+    })
+    for (const r of lastRedRows) {
+      if (r._max.redeemedAt) lastRedemptionMap.set(r.voucherId, r._max.redeemedAt)
+    }
+  }
+
   const enriched = rows.map(r => {
     const v = r.voucher
     const voucherActive  = v.status === VoucherStatus.ACTIVE && v.approvalStatus === ApprovalStatus.APPROVED
     const merchantActive = v.merchant.status === MerchantStatus.ACTIVE
     const isUnavailable  = !voucherActive || !merchantActive
+    const redeemedThisCycle = redeemedSet.has(v.id)
+    const lastRedeemedAt = lastRedemptionMap.get(v.id) ?? null
+
+    const priorityBucket = computeVoucherPriorityBucket({
+      type:               v.type,
+      status:             v.status,
+      approvalStatus:     v.approvalStatus,
+      merchantStatus:     v.merchant.status,
+      expiryDate:         v.expiryDate ?? null,
+      cooldownSeconds:    v.cooldownSeconds ?? null,
+      availabilityWindows: v.availabilityWindows ?? [],
+      redeemedThisCycle,
+      lastRedeemedAt,
+      now,
+    })
+
     return {
       id:                       v.id,
       title:                    v.title,
@@ -236,19 +372,20 @@ export async function listFavouriteVouchers(
       expiresAt:                v.expiryDate ?? null,
       status:                   v.status,
       approvalStatus:           v.approvalStatus,
-      isRedeemedInCurrentCycle: redeemedSet.has(v.id),
+      isRedeemedInCurrentCycle: redeemedThisCycle,
       merchant:                 v.merchant,
       favouritedAt:             r.createdAt,
       isUnavailable,
+      priorityBucket,
     }
   })
 
-  const sorted = enriched.sort((a, b) => {
-    if (a.isUnavailable !== b.isUnavailable) return a.isUnavailable ? 1 : -1
-    return 0
-  })
+  // Global sort: priority bucket asc, then favouritedAt desc (rows were
+  // pre-ordered by createdAt desc — Array.prototype.sort is stable since
+  // ES2019, so the within-bucket order is preserved).
+  enriched.sort((a, b) => a.priorityBucket - b.priorityBucket)
 
-  const items = sorted.slice(skip, skip + limit)
+  const items = enriched.slice(skip, skip + limit)
   return { items, total, page, limit }
 }
 
