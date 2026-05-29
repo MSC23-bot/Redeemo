@@ -146,6 +146,10 @@ const branchTileSchema = z.object({
   // picker rows + Other Locations cards can compute real smart-status text
   // and the HoursPreviewSheet can show the correct branch's full week.
   openingHours: z.array(openingHourEntrySchema),
+  // Phase 3C.1g M1.6 (additive) — per-branch heart state.  Drives the
+  // `<FavouriteHeart>` on every branch tile + picker row.  Sibling
+  // branches of the same merchant carry independent values.
+  isFavourited: z.boolean(),
 })
 export type BranchTile = z.infer<typeof branchTileSchema>
 // Alias kept for cefaf45 component imports during M2 salvage. New code
@@ -200,6 +204,10 @@ const selectedBranchSchema = z.object({
   avgRating:    z.number().nullable(),
   reviewCount:  z.number().int().min(0),
   myReview:     reviewSchema.nullable(),
+  // Phase 3C.1g M1.6 (additive) — per-branch heart state for the
+  // resolved selected branch.  Switching branch in the picker swaps
+  // this value so the hero heart re-evaluates per spec §4.3.
+  isFavourited: z.boolean(),
 })
 export type SelectedBranch = z.infer<typeof selectedBranchSchema>
 
