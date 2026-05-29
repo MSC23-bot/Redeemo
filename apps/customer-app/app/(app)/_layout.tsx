@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useAuthStore } from '@/stores/auth'
 import { resolveRedirect } from '@/lib/routing'
 import { color, spacing } from '@/design-system'
-import { Home, Map, User, PiggyBank } from '@/design-system/icons'
+import { Home, Map, User, PiggyBank, Heart } from '@/design-system/icons'
 import { LocationPermissionProvider } from '@/lib/location/LocationPermissionProvider'
 
 function HomeIcon({ focused }: { focused: boolean }) {
@@ -22,6 +22,15 @@ function MapIcon({ focused }: { focused: boolean }) {
     <View style={styles.iconWrapper}>
       {focused && <View style={styles.activeDot} />}
       <Map size={22} color={color.onBrand} style={{ opacity: focused ? 1 : 0.55 }} />
+    </View>
+  )
+}
+
+function FavouritesIcon({ focused }: { focused: boolean }) {
+  return (
+    <View style={styles.iconWrapper}>
+      {focused && <View style={styles.activeDot} />}
+      <Heart size={22} color={color.onBrand} style={{ opacity: focused ? 1 : 0.55 }} />
     </View>
   )
 }
@@ -115,6 +124,13 @@ export default function AppLayout() {
         options={{
           title: 'Map',
           tabBarIcon: ({ focused }) => <MapIcon focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="favourites"
+        options={{
+          title: 'Favourites',
+          tabBarIcon: ({ focused }) => <FavouritesIcon focused={focused} />,
         }}
       />
       <Tabs.Screen
