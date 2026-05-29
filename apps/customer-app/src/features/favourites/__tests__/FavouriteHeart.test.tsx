@@ -218,16 +218,18 @@ describe('FavouriteHeart — accessibility labels', () => {
 describe('FavouriteHeart — static-source pin (locked invariant)', () => {
   it('useFavourite() is imported by ONLY the canonical components', () => {
     // Walk `apps/customer-app/src` and find every file that imports
-    // `useFavourite`.  After M2.3 the allowlist is `FavouriteHeart.tsx`
-    // and `useFavourite.ts` itself (the export).  M2.4 adds
-    // `useRemoveFavourite.ts`.  M2.7-M2.10 swap surface consumers
-    // (SearchResultItem, MerchantProfileScreen, VouchersTab) for
-    // `<FavouriteHeart>`, so they drop off this list — at which point
-    // the cleanup PR will remove the merchant discriminator entirely.
+    // `useFavourite`.  Locked spec §7.2.1 invariant: the hook is
+    // called ONLY from `<FavouriteHeart>` + `useFavourite.ts` itself
+    // (the export).  `useRemoveFavourite.ts` (M2.4 swipe-to-remove
+    // path on the Favourites tab) deliberately does NOT use the
+    // hook — it talks to `favouritesApi.removeBranch` / `removeVoucher`
+    // directly so the optimistic list-cache UI happens in the
+    // InfiniteData splice path, not via the hook's pessimistic-with-
+    // onSuccess state.
     //
-    // This pin asserts NO NEW out-of-allowlist callers sneak in.  It
-    // intentionally lists the IN-FLIGHT M2.3 state — the M2.4 commit
-    // updates the allowlist when `useRemoveFavourite` lands.
+    // This pin asserts NO out-of-allowlist callers sneak in.  A new
+    // inline `useFavourite()` import anywhere in `apps/customer-app/src`
+    // outside the 2 canonical entries below fails this assertion.
     const srcDir = path.resolve(__dirname, '../../../../src')
     const ALLOWLIST = new Set([
       'features/favourites/components/FavouriteHeart.tsx',
