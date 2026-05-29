@@ -908,9 +908,14 @@ async function enrichMerchantTiles(
 //     branchLatitude, etc.).
 //   - `merchant` is the GROUPING container (id, businessName, primaryCategory,
 //     etc.), populated once per branch tile from the joined merchant.
-//   - `isFavourited` is merchant-keyed per Rev-2 §7 decision #13 — every branch
-//     tile of the same merchant shares the same value. Forward-compat with the
-//     eventual branch-keyed favourites contract (wire field stays unchanged).
+//   - `isFavourited` is BRANCH-keyed under Phase 3C.1g (locked
+//     2026-05-03 branch-as-primary-unit principle).  Driven by
+//     `FavouriteBranch.branchId` — sibling branches of the same
+//     merchant carry independent heart states.  The wire field name
+//     is unchanged from the Rev-2 §7 #13 design; only the source-of-
+//     truth table flipped.  `FavouriteMerchant` is kept additively
+//     through v1 for the customer-app cut-over and retires in the
+//     cleanup PR.
 //   - `closesAtLocal` is null in Phase 1 — `isOpenNow` (src/api/shared/isOpenNow.ts)
 //     does not return close-time. PR-0.5 gate resolved by reusing the existing
 //     helper; extending its signature is out of scope for PR-1.
