@@ -1985,7 +1985,8 @@ export async function getCustomerMerchant(
   const avgRating   = totalCount > 0 ? Math.round((totalRating / totalCount) * 10) / 10 : null
   const reviewCount = totalCount
 
-  // isFavourited — optional-auth pattern: token decoded (not verified), not a security boundary
+  // isFavourited — optional-auth pattern: token decoded (not verified), not a security boundary.
+  // Merchant-level (kept additively through Phase 3C.1g v1 — cleanup PR removes it).
   let isFavourited = false
   if (userId) {
     const fav = await prisma.favouriteMerchant.findUnique({
@@ -1993,6 +1994,20 @@ export async function getCustomerMerchant(
       select: { id: true },
     })
     isFavourited = fav !== null
+  }
+
+  // M1.6 — Phase 3C.1g branch-keyed isFavourited.  Bulk-load the user's
+  // FavouriteBranch rows for THIS merchant's branches in one query, then
+  // thread the boolean onto `selectedBranch` + each `branches[]` entry
+  // below.  Mirrors enrichBranchTiles' per-tile contract: sibling
+  // branches no longer inherit a single shared heart state.
+  const favouritedBranchSet = new Set<string>()
+  if (userId && merchant.branches.length > 0) {
+    const favBranches = await prisma.favouriteBranch.findMany({
+      where:  { userId, branchId: { in: merchant.branches.map((b: any) => b.id) } },
+      select: { branchId: true },
+    })
+    for (const f of favBranches) favouritedBranchSet.add(f.branchId)
   }
 
   // Legacy distance/nearest — computed from activeBranches only
@@ -2145,6 +2160,8 @@ export async function getCustomerMerchant(
     avgRating:   ratingByBranch[selectedBranchRaw.id]?.avgRating   ?? null,
     reviewCount: ratingByBranch[selectedBranchRaw.id]?.reviewCount ?? 0,
     myReview,
+    // M1.6 — per-branch heart state for the SELECTED branch.
+    isFavourited: favouritedBranchSet.has(selectedBranchRaw.id),
   } : null
 
   // PR-B T8a (§Q4 wiring): compute the per-voucher redeemed-this-
@@ -2300,6 +2317,8 @@ export async function getCustomerMerchant(
       isOpenNow:   isOpenNow(b.openingHours),
       avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
       reviewCount: ratingByBranch[b.id]?.reviewCount ?? 0,
+      // M1.6 — per-branch heart state for each branch in the picker.
+      isFavourited: favouritedBranchSet.has(b.id),
       // Task 1 — Merchant Profile UX refinement: per-branch openingHours so
       // picker rows + Other Locations cards + HoursPreviewSheet can render
       // real smart-status text and full week schedules for non-current
