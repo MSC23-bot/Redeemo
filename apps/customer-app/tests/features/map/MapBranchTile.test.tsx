@@ -6,9 +6,19 @@
 // branch identity naturally (no adapter required).
 
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MapBranchTile } from '@/features/map/components/MapBranchTile'
 import { makeBranchTile } from '../../fixtures/branchTile'
+
+// Phase 3C.1g M2.7/M2.8 — MapBranchTile composes the shared `<BranchTile>`
+// which renders `<FavouriteHeart>`; the heart calls `useFavourite()` →
+// `useQueryClient()`.  Wrap render here so existing test bodies stay
+// untouched.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  return rtlRender(<QueryClientProvider client={qc}>{node}</QueryClientProvider>)
+}
 
 const mockBranchA = makeBranchTile({
   id:              'brn-bella-soho',

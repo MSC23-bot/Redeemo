@@ -235,7 +235,7 @@ describe('FavouriteHeart — static-source pin (locked invariant)', () => {
       // Transition-period surface consumers — swap to <FavouriteHeart>
       // in M2.7-M2.10.  Listed explicitly so the pin tracks the
       // migration without false negatives.
-      'features/search/components/SearchResultItem.tsx',
+      // M2.8 dropped SearchResultItem.
       'features/merchant/screens/MerchantProfileScreen.tsx',
       'features/merchant/components/VouchersTab.tsx',
     ])
