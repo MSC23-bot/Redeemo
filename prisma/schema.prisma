@@ -10,8 +10,9 @@
 //   ├── Subscription (1:1)                — one active subscription at a time
 //   ├── VoucherRedemption (1:many)        — events of redeeming vouchers
 //   ├── UserVoucherCycleState (1:many)    — monthly cycle state per voucher
-//   ├── FavouriteMerchant (1:many)
+//   ├── FavouriteMerchant (1:many)        — DEPRECATED — kept during Phase 3C.1g transition; removed in cleanup PR
 //   ├── FavouriteVoucher (1:many)
+//   ├── FavouriteBranch (1:many)          — Phase 3C.1g locked product principle (branch-level favourites)
 //   ├── Review (1:many)                   — reviews are on branches
 //   ├── Notification (1:many)
 //   ├── CommunicationLog (1:many)
@@ -25,7 +26,8 @@
 //   │     ├── BranchPhoto
 //   │     ├── BranchAmenity → Amenity
 //   │     ├── VoucherRedemption           — where the redemption happened
-//   │     └── Review                      — reviews are per branch
+//   │     ├── Review                      — reviews are per branch
+//   │     └── FavouriteBranch (1:many)    — branch-level favourites (Phase 3C.1g)
 //   ├── Voucher (1:many)                  — vouchers belong to merchant,
 //   │                                        redeemable at any branch
 //   ├── MerchantDocument (1:many)
@@ -150,6 +152,7 @@ model User {
   reviewHelpfuls             ReviewHelpful[]
   favouriteMerchants         FavouriteMerchant[]
   favouriteVouchers          FavouriteVoucher[]
+  favouriteBranches          FavouriteBranch[]
   notifications              Notification[]
   communications             CommunicationLog[]
   redemptionScreenshotEvents RedemptionScreenshotEvent[]
@@ -473,6 +476,7 @@ model Branch {
   redemptions  VoucherRedemption[]
   reviews      Review[]
   pendingEdits BranchPendingEdit[]
+  favouritedBy FavouriteBranch[]
 
   @@index([merchantId])
   @@index([latitude, longitude])
@@ -1253,6 +1257,20 @@ model FavouriteVoucher {
 
   @@unique([userId, voucherId])
   @@index([userId])
+}
+
+model FavouriteBranch {
+  id        String   @id @default(uuid())
+  userId    String
+  branchId  String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([userId])
+  @@index([branchId])
 }
 
 // ─────────────────────────────────────────
