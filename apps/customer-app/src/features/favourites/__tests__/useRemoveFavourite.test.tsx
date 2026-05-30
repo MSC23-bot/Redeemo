@@ -493,3 +493,137 @@ describe('useRemoveFavourite — §W6.5 multi-pending removals', () => {
     expect(result.current.isPending).toBe(false)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────
+// §W6.7 — Wave 6.7 optimistic cross-surface cache patch
+// ─────────────────────────────────────────────────────────────────
+//
+// Owner-reported on Wave 6.6 ship: removing Iron Forge Gym + a few
+// other merchants from Favourites left their Home rail hearts
+// FILLED for ~minutes (backend home-feed refetch is 12-15s per
+// request on dev/Neon).  Wave 6.7 closes the gap by synchronously
+// flipping isFavourited=false on every cached discovery / merchant-
+// profile tile for the removed row, the moment remove() is invoked
+// — BEFORE the 4s undo window even starts.  Undo + DELETE-error
+// rollback revert the patch.  Multi-remove patches ALL removed
+// rows independently (not just the most recent).
+describe('useRemoveFavourite — §W6.7 optimistic cross-surface patch', () => {
+  // Seed a Home discovery cache with the three branches that a
+  // typical favourites-tab remove would also be on a Home rail.
+  function seedHomeDiscovery(qc: QueryClient, branches: Array<{ id: string; isFavourited: boolean }>) {
+    qc.setQueryData(['discovery', 'home', 53.6, -1.8], {
+      featured: { branches },
+    })
+  }
+  function readHomeFavMap(qc: QueryClient): Record<string, boolean> {
+    const data = qc.getQueryData<{ featured: { branches: Array<{ id: string; isFavourited: boolean }> } }>(
+      ['discovery', 'home', 53.6, -1.8],
+    )
+    if (!data) return {}
+    return Object.fromEntries(data.featured.branches.map(b => [b.id, b.isFavourited]))
+  }
+
+  it('§W6.7-1: single remove() flips matching tile in cached [discovery] query SYNCHRONOUSLY (no network wait)', () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'iron-forge' }, { id: 'b' }])
+    seedHomeDiscovery(qc, [
+      { id: 'iron-forge', isFavourited: true },
+      { id: 'b',          isFavourited: true },
+    ])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'iron-forge' }) })
+
+    // Synchronous patch — Home rail heart for iron-forge is now
+    // empty, no network has been called yet (4s undo window
+    // hasn't elapsed).
+    expect(readHomeFavMap(qc)).toEqual({ 'iron-forge': false, b: true })
+    expect(mockRemoveBranch).not.toHaveBeenCalled()
+  })
+
+  it('§W6.7-2: multi-remove patches ALL removed rows in the discovery cache (not just the most recent)', () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'iron-forge' }, { id: 'lemieux' }, { id: 'old-foundry' }, { id: 'kovalam' }])
+    seedHomeDiscovery(qc, [
+      { id: 'iron-forge',  isFavourited: true },
+      { id: 'lemieux',     isFavourited: true },
+      { id: 'old-foundry', isFavourited: true },
+      { id: 'kovalam',     isFavourited: true },
+    ])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'iron-forge'  }) })
+    act(() => { result.current.remove({ id: 'lemieux'     }) })
+    act(() => { result.current.remove({ id: 'old-foundry' }) })
+
+    // All three removed rows flipped to false synchronously;
+    // kovalam (untouched) stays true.  Wave 6.5 single-slot
+    // bug regression: pre-W6.5 only the MOST RECENT row would
+    // have shown the toast — pre-W6.7 only the MOST RECENT row
+    // would have had its cross-surface heart patched.  Both
+    // bugs are independent — this pin locks the W6.7 fix.
+    expect(readHomeFavMap(qc)).toEqual({
+      'iron-forge':  false,
+      'lemieux':     false,
+      'old-foundry': false,
+      'kovalam':     true,
+    })
+  })
+
+  it('§W6.7-3: undo() reverts the optimistic cross-surface patch for the last-removed row', () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'iron-forge' }])
+    seedHomeDiscovery(qc, [{ id: 'iron-forge', isFavourited: true }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'iron-forge' }) })
+    expect(readHomeFavMap(qc)).toEqual({ 'iron-forge': false })
+
+    act(() => { result.current.undo() })
+
+    // Heart flipped back to filled — same render tick as the
+    // splice restoration into the favourites list cache.
+    expect(readHomeFavMap(qc)).toEqual({ 'iron-forge': true })
+  })
+
+  it('§W6.7-4: DELETE backend error rollback reverts the optimistic cross-surface patch', async () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'iron-forge' }])
+    seedHomeDiscovery(qc, [{ id: 'iron-forge', isFavourited: true }])
+    mockRemoveBranch.mockRejectedValueOnce(new Error('boom'))
+
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'iron-forge' }) })
+    expect(readHomeFavMap(qc)).toEqual({ 'iron-forge': false })
+
+    // Advance past the 4s undo window so the DELETE fires +
+    // rejects + rolls back.
+    await act(async () => { jest.advanceTimersByTime(4_100); await Promise.resolve() })
+
+    await waitFor(() => { expect(result.current.error).toBeTruthy() })
+
+    // Rollback restores the cross-surface heart to filled.
+    expect(readHomeFavMap(qc)).toEqual({ 'iron-forge': true })
+  })
+
+  it('§W6.7-5: voucher entity patches the [voucher] cache too', () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedVouchers(qc, [{ id: 'v-bogo' }])
+    qc.setQueryData(['voucher', 'v-bogo'], { id: 'v-bogo', isFavourited: true, title: 'BOGO' })
+    qc.setQueryData(['discovery', 'home'], {
+      // Voucher payloads can appear in cached discovery responses
+      // too (e.g. featured-vouchers rail in some surfaces).
+      featuredVouchers: [{ id: 'v-bogo', isFavourited: true }],
+    })
+
+    const { result } = renderHook(() => useRemoveFavourite<Row>('voucher'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'v-bogo' }) })
+
+    const v = qc.getQueryData<{ isFavourited: boolean }>(['voucher', 'v-bogo'])
+    const d = qc.getQueryData<{ featuredVouchers: Array<{ id: string; isFavourited: boolean }> }>(['discovery', 'home'])
+    expect(v?.isFavourited).toBe(false)
+    expect(d?.featuredVouchers[0]?.isFavourited).toBe(false)
+  })
+})

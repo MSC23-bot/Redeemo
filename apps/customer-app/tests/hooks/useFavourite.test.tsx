@@ -502,4 +502,152 @@ describe('useFavourite', () => {
     })
     expect(result.current.isFavourited).toBe(true)
   })
+
+  // ─────────────────────────────────────────────────────────
+  // §W6.7 — Wave 6.7 optimistic cross-surface cache patch
+  // ─────────────────────────────────────────────────────────
+  //
+  // Owner-reported symptom on Wave 6.6 ship: Home rail hearts
+  // showed stale state for ~minutes after favourites mutated
+  // elsewhere (backend home-feed refetch on dev/Neon takes 12-15s
+  // per request).  Wave 6.7 closes the perceived-latency gap by
+  // synchronously patching every cached discovery / merchant-
+  // profile / voucher query at the moment the heart flips,
+  // BEFORE the network DELETE/POST round-trip starts.
+  //
+  // The mock useQueryClient wrap pattern shipped in §M2.2 above
+  // (`wrapWithSpy` / `getSpyClient`) is re-used here so each
+  // pin can pre-seed a cache, fire the toggle, and assert the
+  // cached payload mutated synchronously.
+  describe('§W6.7 — optimistic cross-surface cache patch', () => {
+    /**
+     * Helper — set up a QueryClient pre-seeded with a Home discovery
+     * cache entry containing one branch tile.  Returns the client +
+     * a reader for the tile's current isFavourited value.  Used by
+     * every §W6.7 pin to avoid repeating the dance.
+     */
+    function seedHomeBranch(initial: boolean): {
+      qc:   QueryClient
+      read: () => boolean | undefined
+    } {
+      const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+      qc.setQueryData(['discovery', 'home', 53.6, -1.8], {
+        featured: { branches: [{ id: 'iron-forge', name: 'Iron Forge', isFavourited: initial }] },
+      })
+      const read = () => qc.getQueryData<{ featured: { branches: Array<{ id: string; isFavourited: boolean }> } }>(
+        ['discovery', 'home', 53.6, -1.8],
+      )?.featured.branches[0]?.isFavourited
+      return { qc, read }
+    }
+
+    function wrapWithExplicitClient(qc: QueryClient) {
+      return function Wrap({ children }: { children: React.ReactNode }) {
+        return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      }
+    }
+
+    it('branch ADD: flips matching tile in cached [discovery] query SYNCHRONOUSLY in onMutate (asserted INSIDE the api.post mock body, before the network resolves)', async () => {
+      const { qc, read } = seedHomeBranch(false)
+
+      let isFavWhenNetworkFired: boolean | undefined
+      ;(api.post as jest.Mock).mockImplementationOnce(() => {
+        // The api.post call is invoked AFTER React Query's onMutate
+        // runs (in the mutation pipeline).  At this exact moment
+        // the synchronous optimistic patch has already executed.
+        isFavWhenNetworkFired = read()
+        return Promise.resolve({ ok: true })
+      })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'branch', id: 'iron-forge', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      expect(isFavWhenNetworkFired).toBe(true)
+      expect(read()).toBe(true)
+    })
+
+    it('branch REMOVE: flips matching tile in cached [discovery] query SYNCHRONOUSLY in onMutate (asserted INSIDE the api.del mock body)', async () => {
+      const { qc, read } = seedHomeBranch(true)
+
+      let isFavWhenNetworkFired: boolean | undefined
+      ;(api.del as jest.Mock).mockImplementationOnce(() => {
+        isFavWhenNetworkFired = read()
+        return Promise.resolve({ ok: true })
+      })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'branch', id: 'iron-forge', initialIsFavourited: true }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      expect(isFavWhenNetworkFired).toBe(false)
+      expect(read()).toBe(false)
+    })
+
+    it('branch ADD generic error: REVERTS the optimistic cross-surface patch alongside the local flip', async () => {
+      const { qc, read } = seedHomeBranch(false)
+      ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'branch', id: 'iron-forge', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => {
+        await expect(result.current.toggle()).rejects.toThrow('boom')
+      })
+
+      expect(result.current.isFavourited).toBe(false)
+      expect(read()).toBe(false)
+    })
+
+    it('voucher ADD: ALSO flips matching tile in cached [voucher] query (scope: voucher entity touches voucher caches)', async () => {
+      const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+      qc.setQueryData(['voucher', 'v-bogo'], { id: 'v-bogo', isFavourited: false, title: 'BOGO Sundays' })
+
+      ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'voucher', id: 'v-bogo', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      const next = qc.getQueryData<{ isFavourited: boolean }>(['voucher', 'v-bogo'])
+      expect(next?.isFavourited).toBe(true)
+    })
+
+    it('merchant entity (legacy): does NOT crash + does NOT touch discovery caches (no cross-surface tiles for legacy entity)', async () => {
+      const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+      qc.setQueryData(['discovery', 'home'], {
+        // A tile that LOOKS like it should match — but since
+        // legacy 'merchant' entity is no longer used in
+        // branch-first discovery, no optimistic patch fires.
+        featured: { branches: [{ id: 'm1', isFavourited: false }] },
+      })
+
+      ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      // The cache is invalidated post-success (which would refetch
+      // in real usage), but in the test environment with no
+      // queryFn, the cached payload remains at its original value.
+      // The synchronous optimistic patch never fired for the
+      // legacy 'merchant' entity, so the tile stays false here.
+      const next = qc.getQueryData<{ featured: { branches: Array<{ id: string; isFavourited: boolean }> } }>(['discovery', 'home'])
+      expect(next?.featured.branches[0]?.isFavourited).toBe(false)
+    })
+  })
 })

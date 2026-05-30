@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import {
+  applyOptimisticFavouriteToDiscoveryCache,
+  type FavouriteEntityType,
+} from '@/features/favourites/lib/optimisticCachePatch'
 
 /**
  * Phase 3C.1g M2.2 — `useFavourite` is the canonical favourite-toggle
@@ -154,6 +158,16 @@ export function useFavourite({
     queryClient.invalidateQueries({ queryKey: ['voucher'] })
   }
 
+  // Wave 6.7 (2026-05-31) — only branch + voucher have cross-surface
+  // tiles in discovery / merchant-profile / voucher caches.  The
+  // legacy 'merchant' discriminator pre-dates branch-first cardinality
+  // and has no matching tiles to patch — fall through to invalidate-
+  // only (existing behaviour).
+  const supportsOptimisticPatch = type === 'branch' || type === 'voucher'
+  const patchEntity: FavouriteEntityType | null = supportsOptimisticPatch
+    ? (type as FavouriteEntityType)
+    : null
+
   const addMutation = useMutation({
     mutationFn: () => api.post(endpoint, undefined),
     onMutate: () => {
@@ -161,6 +175,13 @@ export function useFavourite({
       // heart must feel instant; the pessimistic path was visibly
       // sluggish on a real device.
       setIsFavourited(true)
+      // Wave 6.7 (2026-05-31) — synchronous cross-surface cache
+      // patch so Home rail tiles / Map carousel / Search results /
+      // Category results / Merchant Profile voucher cards all flip
+      // their heart in the same render tick.  No network wait.
+      if (patchEntity !== null) {
+        applyOptimisticFavouriteToDiscoveryCache(queryClient, patchEntity, id, true)
+      }
     },
     onSuccess: () => {
       invalidateOnSuccess()
@@ -175,6 +196,10 @@ export function useFavourite({
         return
       }
       setIsFavourited(false)
+      // Wave 6.7 — revert the optimistic cross-surface patch too.
+      if (patchEntity !== null) {
+        applyOptimisticFavouriteToDiscoveryCache(queryClient, patchEntity, id, false)
+      }
     },
   })
 
@@ -182,6 +207,9 @@ export function useFavourite({
     mutationFn: () => api.del(endpoint),
     onMutate: () => {
       setIsFavourited(false)
+      if (patchEntity !== null) {
+        applyOptimisticFavouriteToDiscoveryCache(queryClient, patchEntity, id, false)
+      }
     },
     onSuccess: () => {
       invalidateOnSuccess()
@@ -192,6 +220,10 @@ export function useFavourite({
         return
       }
       setIsFavourited(true)
+      // Wave 6.7 — revert the optimistic cross-surface patch too.
+      if (patchEntity !== null) {
+        applyOptimisticFavouriteToDiscoveryCache(queryClient, patchEntity, id, true)
+      }
     },
   })
 

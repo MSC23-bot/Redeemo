@@ -23,6 +23,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { favouritesApi, type FavouriteBranchesResponse, type FavouriteVouchersResponse } from '@/lib/api/favourites'
+import { applyOptimisticFavouriteToDiscoveryCache } from '@/features/favourites/lib/optimisticCachePatch'
 
 const UNDO_WINDOW_MS = 4_000
 
@@ -191,6 +192,10 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
     } catch (err) {
       // DELETE failed — roll back the cache splice + surface the error.
       restore(spliced.pageIndex, spliced.rowIndex, spliced.row)
+      // Wave 6.7 — revert the optimistic cross-surface patch too,
+      // so Home rail / Map / Search / Category hearts for this row
+      // flip back to filled on rollback.
+      applyOptimisticFavouriteToDiscoveryCache(queryClient, entity, rowId, true)
       setError(err)
     } finally {
       dropPending(rowId)
@@ -204,6 +209,18 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
     if (!spliced) return
 
     setError(null)
+
+    // Wave 6.7 (2026-05-31) — synchronously flip isFavourited=false
+    // on every cached discovery / merchant-profile / voucher tile
+    // for this row.  Owner-reported symptom (multi-remove from
+    // Favourites): Iron Forge Gym kept showing a filled heart on
+    // the Home rail for tens of seconds because the backend
+    // refetch (via fireDeleteFor.invalidateQueries) was slow on
+    // the dev/Neon stack.  Patching the cache here removes the
+    // wait entirely — the heart flips in the same render tick.
+    // Each pending row patches independently, so multi-remove
+    // patches ALL removed rows (not only the most recent).
+    applyOptimisticFavouriteToDiscoveryCache(queryClient, entity, row.id, false)
 
     const timer = setTimeout(() => {
       // Drop the unhandled-promise; `fireDeleteFor`'s own finally
@@ -220,7 +237,7 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
     pendingMap.current.set(row.id, { ...spliced, timer, rowId: row.id })
     insertionRef.current = [...insertionRef.current.filter(id => id !== row.id), row.id]
     setPendingCount(c => c + 1)
-  }, [fireDeleteFor])
+  }, [fireDeleteFor, queryClient, entity])
 
   const undo = useCallback(() => {
     // Wave 6.5 — undo targets the MOST RECENTLY added pending row
@@ -234,8 +251,12 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
     if (!p) return
     clearTimeout(p.timer)
     restore(p.pageIndex, p.rowIndex, p.row)
+    // Wave 6.7 — revert the optimistic cross-surface patch so the
+    // heart flips back to filled on the same discovery surfaces
+    // that we flipped to empty in `remove()` above.
+    applyOptimisticFavouriteToDiscoveryCache(queryClient, entity, lastId, true)
     dropPending(lastId)
-  }, [dropPending])
+  }, [dropPending, queryClient, entity])
 
   const flushPending = useCallback(async (): Promise<void> => {
     // Wave 6.5 — fire DELETEs for ALL pending rows in parallel.
