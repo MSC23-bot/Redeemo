@@ -458,3 +458,105 @@ describe('VoucherDetailScreen — §W6-#1 handleMerchantTap propagation', () => 
     expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1')
   })
 })
+
+// ── §W6.1 Device-QA R1 Wave 6.1 (2026-05-30) ─────────────────────────
+//
+// Owner re-QA after Wave 6 confirmed handleMerchantTap fix but flagged
+// "Please inspect EVERY Voucher Detail path that pushes to Merchant
+// Profile, not only the back-route builder."  Two more paths surfaced:
+//   • handleReviewPromptPress — fires when the user taps the Review
+//     Prompt card on a redeemed-this-cycle Voucher Detail.
+//   • SuccessPopup `onRateReview` — fires when the user taps "Rate &
+//     Review" on the just-redeemed SuccessPopup.
+// Both pushed to MP > Reviews > openWriteReview with NO `from` token,
+// so back from the rebuilt-after-scrub MP fell through to Tabs default
+// (Home) — same regression class as the merchant-row tap fixed in
+// Wave 6.  Fix: same nestedFrom propagation logic inlined at both
+// sites.  Integration pin below covers handleReviewPromptPress (the
+// surface is mountable in jest); SuccessPopup CTA is covered by the
+// shared pattern + dev verification (would require a heavier
+// useRedeem mock to drive the popup state).
+describe('VoucherDetailScreen — §W6.1 handleReviewPromptPress propagation', () => {
+  it('chain A — Rate&Review prompt pushes /(app)/merchant/[id] with params.from = "favourites" when params.from = "favourites"', () => {
+    mockParams = { id: 'v1', from: 'favourites' }
+    mockVoucherData = {
+      ...baseVoucher(),
+      isRedeemedThisCycle: true,
+      lastRedemption: {
+        code:        'A7K2P9X4',
+        redeemedAt:  '2026-05-30T10:00:00.000Z',
+        isValidated: false,
+        validatedAt: null,
+        branch:      { id: 'b1', name: 'CorrectSB' },
+      },
+    }
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('voucher-detail-review-prompt-cta'))
+    expect(mockPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathname: '/(app)/merchant/[id]',
+        params: expect.objectContaining({
+          id:              'm1',
+          branch:          'b1',
+          tab:             'reviews',
+          openWriteReview: '1',
+          from:            'favourites',
+        }),
+      }),
+    )
+  })
+
+  it('chain B — Rate&Review prompt pushes with params.from = "favourites" via merchantFrom propagation', () => {
+    mockParams = {
+      id:               'v1',
+      from:             'merchant',
+      returnMerchantId: 'm1',
+      branch:           'b1',
+      merchantFrom:     'favourites',
+    }
+    mockVoucherData = {
+      ...baseVoucher(),
+      isRedeemedThisCycle: true,
+      lastRedemption: {
+        code:        'A7K2P9X4',
+        redeemedAt:  '2026-05-30T10:00:00.000Z',
+        isValidated: false,
+        validatedAt: null,
+        branch:      { id: 'b1', name: 'CorrectSB' },
+      },
+    }
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('voucher-detail-review-prompt-cta'))
+    expect(mockPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({ from: 'favourites' }),
+      }),
+    )
+  })
+
+  it('non-favourites entry — Rate&Review prompt push omits the `from` param (defensive)', () => {
+    mockParams = {
+      id:               'v1',
+      from:             'merchant',
+      returnMerchantId: 'm1',
+      branch:           'b1',
+      // merchantFrom intentionally absent
+    }
+    mockVoucherData = {
+      ...baseVoucher(),
+      isRedeemedThisCycle: true,
+      lastRedemption: {
+        code:        'A7K2P9X4',
+        redeemedAt:  '2026-05-30T10:00:00.000Z',
+        isValidated: false,
+        validatedAt: null,
+        branch:      { id: 'b1', name: 'CorrectSB' },
+      },
+    }
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByTestId('voucher-detail-review-prompt-cta'))
+    const pushed = (mockPush.mock.calls[0]?.[0]) as { params: Record<string, unknown> } | undefined
+    expect(pushed?.params).toBeDefined()
+    expect(pushed?.params.from).toBeUndefined()
+  })
+})

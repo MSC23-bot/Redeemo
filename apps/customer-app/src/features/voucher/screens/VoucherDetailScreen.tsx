@@ -882,6 +882,20 @@ export function VoucherDetailScreen() {
     // optional redemption id.  Conditional spread (vs assigning
     // undefined) keeps the typed-route tagged-union happy under
     // exactOptionalPropertyTypes.
+    //
+    // Device-QA R1 Wave 6.1 (2026-05-30) — propagate the Favourites
+    // origin via `from`.  Same chain logic as `handleMerchantTap`:
+    // either the user entered Voucher Detail direct from Favourites
+    // (params.from === 'favourites') OR via a Merchant Profile that
+    // was itself reached from Favourites (params.merchantFrom ===
+    // 'favourites' — Wave 3 §R4 propagation).  The Wave 5 #1 fix on
+    // Merchant Profile's openWriteReview scrub preserves this `from`
+    // through the URL rebuild, so back from the re-mounted Merchant
+    // Profile returns to Favourites.
+    const nestedFrom =
+      params.from === 'favourites' || params.merchantFrom === 'favourites'
+        ? 'favourites'
+        : null
     router.push({
       pathname: '/(app)/merchant/[id]',
       params: {
@@ -892,9 +906,10 @@ export function VoucherDetailScreen() {
         ...(reviewPromptContext.redemptionId
           ? { fromRedemption: reviewPromptContext.redemptionId }
           : {}),
+        ...(nestedFrom ? { from: nestedFrom } : {}),
       },
     })
-  }, [reviewPromptContext, voucher, router])
+  }, [reviewPromptContext, voucher, router, params.from, params.merchantFrom])
 
   // ── Screen-capture protection on Voucher Detail ─────────────────────
   //
@@ -2111,6 +2126,16 @@ export function VoucherDetailScreen() {
             ? {
                 onRateReview: () => {
                   setSuccessPopup(null)
+                  // Device-QA R1 Wave 6.1 (2026-05-30) — propagate
+                  // Favourites origin through the SuccessPopup
+                  // Rate&Review path so back from MP > Reviews
+                  // returns to Favourites instead of Tabs default
+                  // (Home).  Same nestedFrom logic as
+                  // handleMerchantTap + handleReviewPromptPress.
+                  const nestedFrom =
+                    params.from === 'favourites' || params.merchantFrom === 'favourites'
+                      ? 'favourites'
+                      : null
                   router.push({
                     pathname: '/(app)/merchant/[id]',
                     params: {
@@ -2119,6 +2144,7 @@ export function VoucherDetailScreen() {
                       tab:             'reviews',
                       openWriteReview: '1',
                       fromRedemption:  successPopup.id,
+                      ...(nestedFrom ? { from: nestedFrom } : {}),
                     },
                   })
                 },
