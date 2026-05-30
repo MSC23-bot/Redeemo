@@ -17,11 +17,15 @@ interface Props {
   testID?: string
 }
 
+// Device-QA R1 (2026-05-30): user-facing copy uses "Merchants", not
+// "Places".  Internal tab discriminator (`'places' | 'vouchers'`) stays
+// as `'places'` to avoid churn on URL params, query keys and tests —
+// only the visible strings change.
 const COPY: Record<FavouritesTab, { headline: string; body: string; cta: string }> = {
   places: {
-    headline: 'No places saved yet',
-    body:     'Save places you want to visit by tapping the heart on any merchant.',
-    cta:      'Discover places',
+    headline: 'No merchants saved yet',
+    body:     'Save merchants you want to visit by tapping the heart on any branch.',
+    cta:      'Discover merchants',
   },
   vouchers: {
     headline: 'No vouchers saved yet',

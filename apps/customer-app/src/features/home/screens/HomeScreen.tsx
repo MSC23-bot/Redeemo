@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { color, spacing } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useHomeFeed } from '@/hooks/useHomeFeed'
@@ -46,6 +46,25 @@ export function HomeScreen() {
   )
   const { data: categoriesData } = useCategories()
   const [refreshing, setRefreshing] = useState(false)
+  const scrollViewRef = useRef<ScrollView>(null)
+  const { scrollTop } = useLocalSearchParams<{ scrollTop?: string }>()
+
+  // Device-QA R1 (2026-05-30) — Favourites empty-state CTA + any
+  // other surface that wants to "land on Home at the top of the
+  // feed" can push `/(app)/?scrollTop=1`.  We honour the marker on
+  // mount AND on every focus (e.g. tab-bar switch back), then scrub
+  // the param so a later back-nav or refresh doesn't re-trigger.
+  // The previous behaviour restored Home's prior scroll position,
+  // which left the user landing mid-feed after tapping "Discover
+  // merchants" from an empty Favourites tab.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (scrollTop === '1') {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: false })
+        router.setParams({ scrollTop: undefined })
+      }
+    }, [scrollTop, router])
+  )
 
   const onRefresh = async () => {
     setRefreshing(true)
@@ -154,6 +173,7 @@ export function HomeScreen() {
   return (
     <View style={styles.container}>
       <ScrollView
+        ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
         contentContainerStyle={[

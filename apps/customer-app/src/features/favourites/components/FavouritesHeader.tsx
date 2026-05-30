@@ -1,8 +1,10 @@
 /**
- * Phase 3C.1g M2.5 — Favourites tab header with Places / Vouchers
+ * Phase 3C.1g M2.5 — Favourites tab header with Merchants / Vouchers
  * switcher + counts.
  *
- * Spec §8 + §9 — copy is "Places · N" / "Vouchers · M".
+ * Device-QA R1 (2026-05-30): user-facing copy reads "Merchants · N"
+ * (was "Places · N" per spec §8).  Internal `'places'` tab
+ * discriminator unchanged for URL / cache / test stability.
  */
 
 import React from 'react'
@@ -25,7 +27,7 @@ export function FavouritesHeader({ activeTab, placesCount, vouchersCount, onTabC
       <Text variant="display.sm" style={styles.title}>Favourites</Text>
       <View style={styles.tabs}>
         <TabButton
-          label="Places"
+          label="Merchants"
           count={placesCount}
           active={activeTab === 'places'}
           onPress={() => onTabChange('places')}

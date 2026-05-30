@@ -131,7 +131,7 @@ export function FavouritesScreen(): React.ReactElement {
       }
       ListEmptyComponent={branchesQuery.isLoading
         ? <FavouritesSkeleton />
-        : <FavouritesEmptyState tab="places" onCta={() => router.push('/(app)/')} />
+        : <FavouritesEmptyState tab="places" onCta={() => router.push({ pathname: '/(app)', params: { scrollTop: '1' } })} />
       }
       ListFooterComponent={
         branchesQuery.isFetchingNextPage

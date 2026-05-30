@@ -46,8 +46,17 @@ export function SwipeToRemove({ onRemove, testID, children }: Props): React.Reac
 
   const panResponder = useRef(
     PanResponder.create({
+      // Device-QA R1 (2026-05-30): tightened gesture claim so the
+      // parent FlatList's pull-to-refresh isn't intercepted on a
+      // populated Places tab.  The old rule was
+      // `|dx| > 8 && |dy| < 12`, which on a real device frequently
+      // claimed during the first frame of an initial diagonal-down
+      // pull because the X delta crossed 8pt before the Y delta
+      // crossed 12pt.  New rule: require the gesture to be CLEARLY
+      // horizontal — `|dx| > 12` AND `|dx| > |dy| * 1.5` — so a
+      // dominantly-vertical pull always reaches the FlatList.
       onMoveShouldSetPanResponder: (_evt, gesture) =>
-        Math.abs(gesture.dx) > 8 && Math.abs(gesture.dy) < 12,
+        Math.abs(gesture.dx) > 12 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
       onPanResponderMove: (_evt, gesture) => {
         const next = Math.max(Math.min(gesture.dx + (isOpen.current ? -REMOVE_AFFORDANCE_WIDTH : 0), 0), -REMOVE_AFFORDANCE_WIDTH)
         translateX.setValue(next)

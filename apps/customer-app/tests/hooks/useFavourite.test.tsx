@@ -6,20 +6,18 @@ import { useFavourite } from '@/hooks/useFavourite'
 
 // Covers plan §12's "favourite-toggle" requirement.
 //
-// Implementation note: useFavourite is **pessimistic-with-onSuccess** — state
-// only advances after the API resolves successfully. On failure, state never
-// advances at all (so there's nothing to roll back, the prior value is just
-// retained). The plan's "optimistic + rollback" wording predated the salvaged
-// hook; the tests below assert the *actual* observable behaviour:
-//   - success path: state transitions on resolve
-//   - failure path: state stays at the prior value (mutation throws, state
-//     never advanced — equivalent to a rollback from the consumer's view)
-// Switching to a truly optimistic implementation (advance immediately, revert
-// on error) is a deliberate behaviour change and is left as a follow-up.
-//
 // Phase 3C.1g M2.2 — the hook gained a third 'branch' discriminator and
 // the optional `contextualQueryKey` for per-screen contextual invalidation.
 // The prop name on the input shape is `initialIsFavourited` (spec §7.2).
+//
+// Device-QA R1 (2026-05-30) — owner-direction shipped the optimistic
+// rewrite: state flips synchronously in `onMutate`, success invalidates,
+// generic errors REVERT, and STALE-STATE codes
+// (ALREADY_FAVOURITED on POST / FAVOURITE_NOT_FOUND on DELETE) keep the
+// optimistic flip AND invalidate caches.  The successful-path + generic-
+// failure tests below are still correct under the new contract because
+// the FINAL state matches in both directions; the new §R1 pins below
+// lock the stale-code reconcile branch explicitly.
 
 jest.spyOn(api, 'post')
 jest.spyOn(api, 'del')
@@ -73,7 +71,10 @@ describe('useFavourite', () => {
     expect(result.current.isFavourited).toBe(false)
   })
 
-  it('failure: if the add API rejects, isFavourited stays false (state never advances)', async () => {
+  it('failure: if the add API rejects with a generic error, isFavourited reverts to false', async () => {
+    // Device-QA R1: state flips to true optimistically inside onMutate,
+    // then reverts to false in onError because the error code is not
+    // one of the stale-state codes (ALREADY_FAVOURITED).
     ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('boom'))
     const { result } = renderHook(
       () => useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: false }),
@@ -85,7 +86,9 @@ describe('useFavourite', () => {
     expect(result.current.isFavourited).toBe(false)
   })
 
-  it('failure: if the remove API rejects, isFavourited stays true (state never advances)', async () => {
+  it('failure: if the remove API rejects with a generic error, isFavourited reverts to true', async () => {
+    // Device-QA R1: state flips to false optimistically, then reverts
+    // because the error is not FAVOURITE_NOT_FOUND.
     ;(api.del as jest.Mock).mockRejectedValueOnce(new Error('boom'))
     const { result } = renderHook(
       () => useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: true }),
@@ -189,7 +192,9 @@ describe('useFavourite', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contextKey })
   })
 
-  it('M2.2 — contextualQueryKey is NOT invalidated on failure (state never advanced)', async () => {
+  it('M2.2 — contextualQueryKey is NOT invalidated on a generic failure (state reverts)', async () => {
+    // Device-QA R1: generic error → revert path → invalidate is NOT
+    // called.  Stale-state codes are pinned separately in §R1 below.
     ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('boom'))
     const contextKey: readonly unknown[] = ['merchantProfile', 'm1']
     const { result } = renderHook(
@@ -208,5 +213,68 @@ describe('useFavourite', () => {
       await expect(result.current.toggle()).rejects.toThrow('boom')
     })
     expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  // ── §R1 Device-QA R1 (2026-05-30) — stale-state reconcile path ────────
+  //
+  // The backend surfaces ALREADY_FAVOURITED on POST and FAVOURITE_NOT_FOUND
+  // on DELETE when the toggle target is already in the desired state
+  // (e.g. a stale cached row that the user double-tapped, or another
+  // device that flipped the state first).  The hook treats these as
+  // SILENT successes — the optimistic flip stands, both cache keys
+  // invalidate so other views reconcile, and the global MutationCache
+  // toast is suppressed via the errors.ts `surface: 'silent'` mapping.
+
+  it('§R1 — ALREADY_FAVOURITED keeps the optimistic add AND invalidates both keys', async () => {
+    const staleErr = Object.assign(new Error('already favourited'), { code: 'ALREADY_FAVOURITED' })
+    ;(api.post as jest.Mock).mockRejectedValueOnce(staleErr)
+    const contextKey: readonly unknown[] = ['merchantProfile', 'm1', 'b1']
+    const { result } = renderHook(
+      () => useFavourite({
+        type:                'branch',
+        id:                  'b1',
+        initialIsFavourited: false,
+        contextualQueryKey:  contextKey,
+      }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('already favourited')
+    })
+
+    // Optimistic flip stands.
+    expect(result.current.isFavourited).toBe(true)
+    // Both list + contextual keys invalidate so stale screens reconcile.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteBranches'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contextKey })
+  })
+
+  it('§R1 — FAVOURITE_NOT_FOUND keeps the optimistic remove AND invalidates both keys', async () => {
+    const staleErr = Object.assign(new Error('not found'), { code: 'FAVOURITE_NOT_FOUND' })
+    ;(api.del as jest.Mock).mockRejectedValueOnce(staleErr)
+    const contextKey: readonly unknown[] = ['voucher', 'v1']
+    const { result } = renderHook(
+      () => useFavourite({
+        type:                'voucher',
+        id:                  'v1',
+        initialIsFavourited: true,
+        contextualQueryKey:  contextKey,
+      }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('not found')
+    })
+
+    // Optimistic flip stands — server already has it un-favourited.
+    expect(result.current.isFavourited).toBe(false)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteVouchers'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contextKey })
   })
 })

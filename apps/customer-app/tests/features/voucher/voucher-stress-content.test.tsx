@@ -75,7 +75,6 @@ describe('CouponHeader — long titles and descriptions don\'t overlap save badg
     onShare: jest.fn(),
     voucherId: 'v-1',
     voucherIsFavourited: false,
-    isRedeemedThisCycle: false,
   }
 
   it('renders without crashing for very long title', () => {
@@ -117,7 +116,6 @@ describe('CouponHeader — save badge adapts to large amounts', () => {
     onShare: jest.fn(),
     voucherId: 'v-1',
     voucherIsFavourited: false,
-    isRedeemedThisCycle: false,
   }
 
   it.each([
@@ -162,7 +160,6 @@ describe('CouponHeader — dimmed prop applies to visual layer ONLY, never the n
     onShare: jest.fn(),
     voucherId: 'v-1',
     voucherIsFavourited: false,
-    isRedeemedThisCycle: false,
   }
 
   function flat(node: any): Record<string, any> {

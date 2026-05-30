@@ -211,13 +211,18 @@ export function HeroNav({
             <Share2 size={18} color="#FFF" />
           </Pressable>
           {/* Phase 3C.1g M2.9 — shared FavouriteHeart owns the heart.
-              Wrapped in the existing frosted-glass chrome; favActive
-              backdrop highlight tracks the server-emitted state
-              (resolves on contextualQueryKey invalidation after a
-              successful toggle). */}
-          <View
-            style={[styles.frostedBtn, branchIsFavourited && styles.favActive]}
-          >
+              Wrapped in the frosted-glass chrome.
+
+              Device-QA R1 (2026-05-30): dropped the `branchIsFavourited
+              && styles.favActive` backdrop tint.  The container tint
+              tracked the server-emitted `branchIsFavourited` prop and
+              only updated AFTER the contextualQueryKey refetch landed
+              — so on tap the heart icon snapped via the FavouriteHeart
+              optimistic flip while the surrounding rose-tinted
+              backdrop lagged 200-400ms behind, producing a visible
+              two-phase render.  The brand-rose-filled heart icon is
+              sufficient signal on a dark frosted button. */}
+          <View style={styles.frostedBtn}>
             <FavouriteHeart
               entity="branch"
               id={branchId}

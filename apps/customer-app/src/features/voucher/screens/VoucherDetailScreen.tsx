@@ -1489,7 +1489,6 @@ export function VoucherDetailScreen() {
                 onShare={handleShare}
                 voucherId={voucher.id}
                 voucherIsFavourited={voucher.isFavourited}
-                isRedeemedThisCycle={voucher.isRedeemedThisCycle}
                 scrollY={scrollY}
                 fadeStart={FADE_START}
                 fadeEnd={FADE_END}

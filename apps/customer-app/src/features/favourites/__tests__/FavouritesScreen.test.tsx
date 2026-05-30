@@ -164,13 +164,16 @@ describe('FavouritesScreen — tab routing', () => {
 })
 
 describe('FavouritesScreen — header counts', () => {
-  it('header shows "Places · N" + "Vouchers · M" labels driven by `total`', () => {
+  it('header shows "Merchants · N" + "Vouchers · M" labels driven by `total`', () => {
+    // Device-QA R1 (2026-05-30): user-facing copy reads "Merchants",
+    // not the spec §8 "Places".  Internal tab key stays 'places' for
+    // URL / cache stability.
     const { getByLabelText } = mountWithData({
       branches: [makeBranch('b-1'), makeBranch('b-2')],
       vouchers: [makeVoucher('v-1')],
       tab: 'places',
     })
-    expect(getByLabelText('Places · 2')).toBeTruthy()
+    expect(getByLabelText('Merchants · 2')).toBeTruthy()
     expect(getByLabelText('Vouchers · 1')).toBeTruthy()
   })
 })

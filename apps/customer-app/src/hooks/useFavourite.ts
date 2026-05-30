@@ -20,9 +20,23 @@ import { api } from '@/lib/api'
  *                    Kept for the v1 transition only; retires alongside
  *                    the backend route in the cleanup PR.
  *
- * Pessimistic-with-onSuccess: state advances only after the API
- * resolves.  On failure the prior value is retained (no rollback needed
- * because state never advanced).
+ * Device-QA R1 deviation from the spec §7.2 "pessimistic-with-onSuccess"
+ * locked invariant: owner-direction (2026-05-30) switches to OPTIMISTIC
+ * toggle because the pessimistic delay felt sluggish on device and
+ * compounded a two-phase backdrop render (icon snaps first, container
+ * highlight followed on cache refetch).  New contract:
+ *
+ *   1. Tap → `setIsFavourited` flips immediately (optimistic).
+ *   2. POST/DELETE fires under the hood.
+ *   3. On success → invalidate caches.  State already matches.
+ *   4. On STALE-STATE error (POST→ALREADY_FAVOURITED, DELETE→
+ *      FAVOURITE_NOT_FOUND): the server already has the desired state.
+ *      Keep the optimistic flip, invalidate caches so other screens
+ *      reconcile, and SILENCE the global MutationCache toast (these
+ *      codes are surface='silent' in errors.ts).
+ *   5. On any other error → revert the optimistic flip.  Global
+ *      MutationCache toast surfaces the generic "Something went
+ *      wrong" copy.
  *
  * `contextualQueryKey` — additional cache key to invalidate alongside
  * the list key.  Drives the per-screen contextual invalidation pattern
@@ -59,6 +73,21 @@ const LIST_QUERY_KEY: Record<FavouriteEntity, readonly unknown[]> = {
   merchant: ['favouriteMerchants'],
 }
 
+/**
+ * Stale-state codes the backend surfaces when the toggle target is
+ * already in the desired state.  Treated as silent success — the
+ * optimistic flip stands and the cache invalidation still fires so
+ * stale views elsewhere reconcile.
+ */
+function isStaleAddCode(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null | undefined)?.code
+  return code === 'ALREADY_FAVOURITED'
+}
+function isStaleRemoveCode(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null | undefined)?.code
+  return code === 'FAVOURITE_NOT_FOUND'
+}
+
 export function useFavourite({
   type,
   id,
@@ -83,17 +112,42 @@ export function useFavourite({
 
   const addMutation = useMutation({
     mutationFn: () => api.post(endpoint, undefined),
-    onSuccess: () => {
+    onMutate: () => {
+      // Optimistic flip.  Owner-direction Device-QA R1 (2026-05-30):
+      // heart must feel instant; the pessimistic path was visibly
+      // sluggish on a real device.
       setIsFavourited(true)
+    },
+    onSuccess: () => {
       invalidateOnSuccess()
+    },
+    onError: (err) => {
+      if (isStaleAddCode(err)) {
+        // Server already has it favourited — desired state matches.
+        // Keep the optimistic flip + invalidate so other views
+        // reconcile.  The global MutationCache toast is silenced via
+        // the errors.ts surface='silent' mapping (matched by code).
+        invalidateOnSuccess()
+        return
+      }
+      setIsFavourited(false)
     },
   })
 
   const removeMutation = useMutation({
     mutationFn: () => api.del(endpoint),
-    onSuccess: () => {
+    onMutate: () => {
       setIsFavourited(false)
+    },
+    onSuccess: () => {
       invalidateOnSuccess()
+    },
+    onError: (err) => {
+      if (isStaleRemoveCode(err)) {
+        invalidateOnSuccess()
+        return
+      }
+      setIsFavourited(true)
     },
   })
 

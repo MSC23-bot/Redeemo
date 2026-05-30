@@ -27,7 +27,6 @@ const BASE_PROPS = {
   // `onFav` / `isFavourited` to the FavouriteHeart-driven shape.
   voucherId:           'v-1',
   voucherIsFavourited: false,
-  isRedeemedThisCycle: false,
 }
 
 describe('CouponHeader — statusBlock slot + TL description suppression (M4d Task C.1)', () => {

@@ -9,9 +9,20 @@ export function getQueryClient(): QueryClient {
     queryClient = new QueryClient({
       // Last-resort error surface for any mutation that doesn't handle errors
       // locally (PC1/PC2/PC3 profile saves currently rely on this).
+      //
+      // Phase 3C.1g Device-QA R1 (2026-05-30): honour `surface: 'silent'`
+      // from `mapError()` so codes like SESSION_EXPIRED / SESSION_REPLACED
+      // (already 'silent') and the new ALREADY_FAVOURITED /
+      // FAVOURITE_NOT_FOUND stale-state codes don't double-toast over the
+      // local handler in `useFavourite`.  Without this gate, every stale
+      // heart tap surfaced a generic "Something went wrong" toast — the
+      // hook reconciled the cache cleanly underneath but the toast still
+      // confused the user.
       mutationCache: new MutationCache({
         onError: (error) => {
-          emitToast(mapError(error).message, 'danger')
+          const mapped = mapError(error)
+          if (mapped.surface === 'silent') return
+          emitToast(mapped.message, 'danger')
         },
       }),
     })

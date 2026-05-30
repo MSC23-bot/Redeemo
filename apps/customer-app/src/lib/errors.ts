@@ -40,6 +40,16 @@ const TABLE: Record<string, Omit<MappedError, 'code'>> = {
   REVIEW_NOT_FOUND:           { message: "We couldn't find that review. It may have been removed.", surface: 'toast', retryable: false },
   REVIEW_NOT_OWNED:           { message: 'You can only edit or delete your own reviews.',          surface: 'toast', retryable: false },
 
+  // Favourites stale-state codes — Phase 3C.1g Device-QA R1.
+  // These fire when the local state is out of sync with the server (e.g.
+  // user favourited on one surface, came back to a stale view that still
+  // shows unfavourited, tapped again).  The hook reconciles state
+  // silently; the global MutationCache toast must NOT surface a "Something
+  // went wrong" copy for what is essentially a no-op.  surface='silent'
+  // is respected by the global handler in `query-client.ts`.
+  ALREADY_FAVOURITED:         { message: '',                                                       surface: 'silent',   retryable: false },
+  FAVOURITE_NOT_FOUND:        { message: '',                                                       surface: 'silent',   retryable: false },
+
   // Transport
   RATE_LIMITED:               { message: 'Too many attempts. Please wait a moment and try again.', surface: 'toast', retryable: false },
   NETWORK_ERROR:              { message: 'Connection lost. Check your network.',                surface: 'toast',    retryable: true  },

@@ -3,13 +3,18 @@
  *
  * Before M2.10, Voucher Detail's CouponHeader heart was wired to a
  * `handleFav` stub that fired `Alert.alert('Coming next milestone',
- * ...)` — visible UX regression vs every other surface where the
- * heart actually worked.  After M2.10, CouponHeader embeds
- * `<FavouriteHeart entity="voucher" id={voucher.id}
- *   initialIsFavourited={voucher.isFavourited} tone="on-dark"
- *   contextualQueryKey={['voucher', voucherId]}
- *   disabled={isRedeemedThisCycle} />` and pressing it fires the
- * real POST to `/api/v1/customer/favourites/vouchers/:id`.
+ * ...)`.  M2.10 replaced it with a real `<FavouriteHeart entity=
+ * "voucher" id={voucher.id} initialIsFavourited={voucher.isFavourited}
+ * tone="on-dark" contextualQueryKey={['voucher', voucherId]} />`.
+ *
+ * Device-QA R1 (2026-05-30) follow-up: the original M2.10 contract
+ * also passed `disabled={isRedeemedThisCycle}` on the heart, blocking
+ * favourite toggles on redeemed vouchers.  Owner direction: a user
+ * must still be able to MANAGE favourites on a redeemed voucher (only
+ * the redemption flow is locked, not the favourite toggle).  The
+ * `disabled` prop was dropped from the call site and the
+ * `isRedeemedThisCycle` prop was removed from `CouponHeader`'s Props.
+ * The pin in this file was updated accordingly.
  *
  * This pin asserts the closure: the heart is rendered as a child of
  * CouponHeader (`testID="voucher-detail-favourite"`) AND pressing it
@@ -35,7 +40,6 @@ const initialMetrics = {
 function renderCouponHeader(props: {
   voucherId?:           string
   voucherIsFavourited?: boolean
-  isRedeemedThisCycle?: boolean
 }) {
   const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
   function Wrapper({ children }: { children: React.ReactNode }) {
@@ -58,7 +62,6 @@ function renderCouponHeader(props: {
         onShare={() => {}}
         voucherId={props.voucherId ?? 'v-1'}
         voucherIsFavourited={props.voucherIsFavourited ?? false}
-        isRedeemedThisCycle={props.isRedeemedThisCycle ?? false}
         scrollY={scrollY}
       />
     )
@@ -87,15 +90,20 @@ describe('CouponHeader — §O4 heart closure (Phase 3C.1g M2.10)', () => {
     })
   })
 
-  it('disabled=true (isRedeemedThisCycle) suppresses press', async () => {
-    const { getByTestId } = renderCouponHeader({
-      voucherId:           'v-1',
-      isRedeemedThisCycle: true,
-    })
+  it('Device-QA R1: redeemed-this-cycle does NOT suppress heart press', async () => {
+    // Owner direction (2026-05-30): a user must still be able to
+    // MANAGE favourites on a redeemed voucher.  The original M2.10
+    // contract that disabled the heart on redeemed-this-cycle has
+    // been retired — the `isRedeemedThisCycle` prop is gone, and the
+    // heart toggles unconditionally on this surface.  Pinning the
+    // post-fix behaviour to catch a future regression.
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { getByTestId } = renderCouponHeader({ voucherId: 'v-1' })
     await act(async () => { fireEvent.press(getByTestId('voucher-detail-favourite')) })
 
-    expect(api.post).not.toHaveBeenCalled()
-    expect(api.del).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/api/v1/customer/favourites/vouchers/v-1', undefined)
+    })
   })
 
   it('a11y label flips on initial state', () => {
@@ -121,7 +129,6 @@ describe('CouponHeader — §O4 heart closure (Phase 3C.1g M2.10)', () => {
                 onShare={() => {}}
                 voucherId="v-1"
                 voucherIsFavourited={true}
-                isRedeemedThisCycle={false}
                 scrollY={scrollY}
               />
             )

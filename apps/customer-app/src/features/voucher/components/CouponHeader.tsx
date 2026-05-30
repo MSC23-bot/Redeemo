@@ -39,7 +39,12 @@ type Props = {
   // pattern.
   voucherId:             string
   voucherIsFavourited:   boolean
-  isRedeemedThisCycle:   boolean
+  // Device-QA R1 (2026-05-30): `isRedeemedThisCycle` prop removed.
+  // The original M2.10 contract disabled the heart on a redeemed-
+  // this-cycle voucher, but owner direction is that a user must
+  // still be able to MANAGE favourites on a redeemed voucher — only
+  // the redemption flow is locked, not the favourite toggle.  The
+  // FavouriteHeart now toggles unconditionally on this surface.
   /**
    * Driven by the parent screen's `useAnimatedScrollHandler`. The
    * hero NavRow opacity is interpolated INVERSELY to the
@@ -135,7 +140,6 @@ export function CouponHeader({
   onShare,
   voucherId,
   voucherIsFavourited,
-  isRedeemedThisCycle,
   scrollY,
   fadeStart,
   fadeEnd,
@@ -252,7 +256,6 @@ export function CouponHeader({
               initialIsFavourited={voucherIsFavourited}
               tone="on-dark"
               size={19}
-              disabled={isRedeemedThisCycle}
               contextualQueryKey={['voucher', voucherId]}
               testID="voucher-detail-favourite"
             />
