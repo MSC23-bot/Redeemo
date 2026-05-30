@@ -12,7 +12,7 @@
  * sort.  Pinned by `vouchers-server-sort.test.tsx`.
  */
 
-import React, { useMemo, useCallback, useState } from 'react'
+import React, { useMemo, useCallback, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -101,7 +101,7 @@ export function FavouritesScreen(): React.ReactElement {
     setUndoMessage(null)
   }, [removeVoucher])
 
-  // Wave 6.3 #1 (locked 2026-05-30) — flush pending DELETEs on blur.
+  // Wave 6.3 / 6.4 — flush pending DELETEs on blur.
   //
   // Owner-reported symptom: user removes the last favourited merchant
   // / voucher + immediately taps "Discover merchants" → Home shows
@@ -116,14 +116,34 @@ export function FavouritesScreen(): React.ReactElement {
   // fires the cross-surface invalidations.  By the time the user is
   // on Home, the cache is refetching with the correct backend state.
   //
-  // Idempotent: safe no-op when no removal is pending.
+  // Wave 6.4-D (2026-05-30) CRITICAL FIX — useFocusEffect deps were
+  // `[removeBranch, removeVoucher]` but those objects' identity
+  // changes on every render (the hook returns a fresh object each
+  // call).  That made useFocusEffect's cleanup fire on EVERY
+  // re-render, not just on actual blur — so the moment the user
+  // tapped Remove + the optimistic splice triggered a re-render,
+  // `flushPending()` ran immediately and the 4-second undo window
+  // collapsed to whatever the API call latency was (~1s).  Owner-
+  // reported symptom: "the merchant gets removed way quicker than
+  // the [undo countdown] bar… for a second or so, then it disappears
+  // again."
+  //
+  // Fix: stash the latest `flushPending` callbacks in refs (which
+  // never change identity) and pass an EMPTY deps array to
+  // useFocusEffect so it only fires on real focus/blur transitions.
+  // Refs update synchronously every render so the closure always
+  // calls the freshest function, but the effect itself is stable.
+  const flushBranchPendingRef  = useRef(removeBranch.flushPending)
+  const flushVoucherPendingRef = useRef(removeVoucher.flushPending)
+  flushBranchPendingRef.current  = removeBranch.flushPending
+  flushVoucherPendingRef.current = removeVoucher.flushPending
   useFocusEffect(
     useCallback(() => {
       return () => {
-        void removeBranch.flushPending()
-        void removeVoucher.flushPending()
+        void flushBranchPendingRef.current()
+        void flushVoucherPendingRef.current()
       }
-    }, [removeBranch, removeVoucher])
+    }, [])
   )
 
   // Surface backend errors via the generic toast so the screen stays

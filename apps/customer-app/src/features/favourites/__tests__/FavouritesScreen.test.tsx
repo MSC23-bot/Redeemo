@@ -283,4 +283,59 @@ describe('FavouritesScreen — §W6.3 flushPending on blur', () => {
     expect(flushBranches).toHaveBeenCalledTimes(1)
     expect(flushVouchers).toHaveBeenCalledTimes(1)
   })
+
+  // ── §W6.4-D (2026-05-30) — useFocusEffect deps stability ────────────
+  //
+  // Owner-reported symptom on Wave 6.3 ship: undo countdown bar
+  // disappears in ~1 second instead of the 4-second window — the
+  // remove fires too quickly and the user can't read or undo.
+  //
+  // Root cause: pre-Wave-6.4-D the FavouritesScreen useFocusEffect
+  // deps were `[removeBranch, removeVoucher]`.  Those are the
+  // objects returned by `useRemoveFavourite()` — which builds a
+  // fresh object on every render.  So the deps changed on every
+  // re-render, useFocusEffect treated each as a blur+focus cycle,
+  // and `flushPending()` fired immediately on the optimistic-splice
+  // re-render (long before the 4s timer).
+  //
+  // Fix: stash `flushPending` callbacks in refs, pass EMPTY deps
+  // to useFocusEffect so it only fires on real focus/blur.
+  it('§W6.4-D — useFocusEffect cleanup fires ONLY on unmount, NOT on every render', () => {
+    const flushBranches = jest.fn(() => Promise.resolve())
+    const flushVouchers = jest.fn(() => Promise.resolve())
+    let call = 0
+    mockUseRemoveFavourite.mockImplementation(() => {
+      call += 1
+      const flush = call % 2 === 1 ? flushBranches : flushVouchers
+      // Fresh object identity on every call — same as the real
+      // hook.  Pre-Wave-6.4-D this would trigger the cleanup
+      // every render.
+      return { remove: jest.fn(), undo: jest.fn(), flushPending: flush, isPending: false, error: null, clearError: jest.fn() }
+    })
+    mockUseFavouriteBranches.mockReturnValue({
+      data: { pages: [{ items: [], total: 0, page: 1, limit: 20 }] },
+      isLoading: false, isRefetching: false, isFetchingNextPage: false,
+      hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
+    })
+    mockUseFavouriteVouchers.mockReturnValue({
+      data: { pages: [{ items: [], total: 0, page: 1, limit: 20 }] },
+      isLoading: false, isRefetching: false, isFetchingNextPage: false,
+      hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
+    })
+    mockUseLocalSearchParams.mockReturnValue({ tab: 'places' })
+
+    const { rerender, unmount } = render(<FavouritesScreen />)
+    // Force several re-renders — none should trigger the cleanup
+    // (flushPending).  Pre-Wave-6.4-D this would fire 3+ times.
+    rerender(<FavouritesScreen />)
+    rerender(<FavouritesScreen />)
+    rerender(<FavouritesScreen />)
+    expect(flushBranches).not.toHaveBeenCalled()
+    expect(flushVouchers).not.toHaveBeenCalled()
+
+    // Now unmount — cleanup fires exactly once.
+    unmount()
+    expect(flushBranches).toHaveBeenCalledTimes(1)
+    expect(flushVouchers).toHaveBeenCalledTimes(1)
+  })
 })

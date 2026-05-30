@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { color, spacing } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useHomeFeed } from '@/hooks/useHomeFeed'
@@ -64,6 +65,32 @@ export function HomeScreen() {
         router.setParams({ scrollTop: undefined })
       }
     }, [scrollTop, router])
+  )
+
+  // Wave 6.4-C (2026-05-30) — invalidate discovery on focus so the
+  // Home rail reconciles whenever the user returns to this tab,
+  // closing the flushPending → navigation race for stale Home
+  // hearts.
+  //
+  // Owner-reported symptom: remove all favourites → optimistic empty
+  // state renders → tap "Discover merchants" → Home shows the still-
+  // favourited heart for the just-removed merchant.  Wave 6.3's
+  // flushPending on FavouritesScreen blur fires the DELETE +
+  // invalidate BEFORE Home renders, but invalidate's
+  // `refetchType: 'active'` default only refetches queries with
+  // currently-active observers.  If Home was previously visited but
+  // is no longer the active tab, expo-router may keep its queries
+  // alive (active) OR may have unmounted them depending on the
+  // navigator's lazy/unmountOnBlur settings.  Forcing an invalidate
+  // on Home focus is a small, reliable backstop that doesn't
+  // increase network calls in the steady state (staleTime is
+  // already 60s, so the immediate refetch is just earlier than
+  // it would naturally fire).
+  const queryClient = useQueryClient()
+  useFocusEffect(
+    React.useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ['discovery'] })
+    }, [queryClient])
   )
 
   const onRefresh = async () => {

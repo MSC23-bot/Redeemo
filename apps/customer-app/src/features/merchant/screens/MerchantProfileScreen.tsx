@@ -111,6 +111,34 @@ type Props = { id: string | undefined }
 
 export function MerchantProfileScreen({ id }: Props) {
 
+  // Device-QA R1 Wave 6.4 (2026-05-30) — focus-tracking guard.
+  //
+  // Owner-reported symptom: user navigates Favourites > MP > Voucher
+  // Detail > merchant logo tap → MP2 mounts (no `branch` param) →
+  // back to Favourites.  Then 3-4 seconds later (matching the cold-
+  // backend merchant fetch RTT) Favourites flips back to MP without
+  // user input.  Tapping Back lands on Home.
+  //
+  // Root cause: this screen's `reconcile` useEffect (line 178) and
+  // the two URL-scrub effects (lines 437 + 463) fire `router.replace`
+  // when the merchant data updates.  Because expo-router Tabs keep
+  // background tabs MOUNTED, those effects continue to fire after the
+  // user has navigated away.  `router.replace` operates on the
+  // CURRENT route — which is now Favourites, NOT MP — so Favourites
+  // gets replaced with MP, yanking the user back.
+  //
+  // Fix: gate every `router.replace` call inside this screen on
+  // `isFocusedRef.current`.  useFocusEffect flips the ref on focus
+  // and clears it on blur.  Background re-renders no longer hijack
+  // the user's current route.
+  const isFocusedRef = useRef(false)
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true
+      return () => { isFocusedRef.current = false }
+    }, [])
+  )
+
   // URL ↔ branch selection (P2.3). `branchId` from `?branch=`; `select`
   // pushes a new branch via router.replace; `reconcile` aligns the URL
   // with whatever the server resolved (cold-open or fallback path).
@@ -176,6 +204,10 @@ export function MerchantProfileScreen({ id }: Props) {
   // prior URL was already correct for the prior data — there's nothing to
   // reconcile against.
   useEffect(() => {
+    // Wave 6.4 guard — only reconcile when this screen is focused.
+    // Background-tab refetches must NOT mutate the URL or expo-router
+    // will yank the user from whatever tab they're currently on.
+    if (!isFocusedRef.current) return
     if (
       merchant?.selectedBranch?.id &&
       merchant.selectedBranchFallbackReason !== 'used-candidate'
@@ -422,6 +454,8 @@ export function MerchantProfileScreen({ id }: Props) {
     if (!autoOpenConsumed) return
     if (!initialOpenWriteFor) return
     if (!merchantId) return
+    // Wave 6.4 guard — see isFocusedRef setup at top of component.
+    if (!isFocusedRef.current) return
     setOpenWriteScrubbed(true)
     const enc = encodeURIComponent
     const tab = typeof screenParams.tab === 'string' ? screenParams.tab : 'reviews'
@@ -444,6 +478,11 @@ export function MerchantProfileScreen({ id }: Props) {
     if (branchChangedToastFired) return
     if (branchChangedParam !== '1') return
     if (!merchant || !branchId) return
+    // Wave 6.4 guard — see isFocusedRef setup at top of component.
+    // Without this, a background-tab refetch with the branchChanged=1
+    // residue could re-fire the scrub + replace, yanking the user
+    // back to MP.
+    if (!isFocusedRef.current) return
     const newBranchName = merchant.branches.find(b => b.id === branchId)?.name
     if (!newBranchName) return
 
