@@ -28,7 +28,6 @@ import { BranchFavCard } from '../components/BranchFavCard'
 import { VoucherFavCard } from '../components/VoucherFavCard'
 import { FavouritesEmptyState } from '../components/FavouritesEmptyState'
 import { FavouritesSkeleton } from '../components/FavouritesSkeleton'
-import { SwipeToRemove } from '../components/SwipeToRemove'
 import { UndoToast } from '../components/UndoToast'
 import { useFavouriteBranches } from '../hooks/useFavouriteBranches'
 import { useFavouriteVouchers } from '../hooks/useFavouriteVouchers'
@@ -116,13 +115,12 @@ export function FavouritesScreen(): React.ReactElement {
       data={branches}
       keyExtractor={(row) => row.id}
       renderItem={({ item }) => (
-        <SwipeToRemove onRemove={() => handleRemoveBranch(item)} testID={`branch-card-${item.id}-swipe`}>
-          <BranchFavCard
-            row={item}
-            onPress={() => router.push(`/(app)/merchant/${item.merchant.id}?branch=${item.id}&from=favourites`)}
-            testID={`branch-card-${item.id}`}
-          />
-        </SwipeToRemove>
+        <BranchFavCard
+          row={item}
+          onPress={() => router.push(`/(app)/merchant/${item.merchant.id}?branch=${item.id}&from=favourites`)}
+          onRemove={() => handleRemoveBranch(item)}
+          testID={`branch-card-${item.id}`}
+        />
       )}
       onEndReached={() => branchesQuery.hasNextPage && !branchesQuery.isFetchingNextPage && branchesQuery.fetchNextPage()}
       onEndReachedThreshold={0.5}
@@ -148,13 +146,12 @@ export function FavouritesScreen(): React.ReactElement {
       data={vouchers}
       keyExtractor={(row) => row.id}
       renderItem={({ item }) => (
-        <SwipeToRemove onRemove={() => handleRemoveVoucher(item)} testID={`voucher-card-${item.id}-swipe`}>
-          <VoucherFavCard
-            row={item}
-            onPress={() => router.push(`/(app)/voucher/${item.id}?from=favourites`)}
-            testID={`voucher-card-${item.id}`}
-          />
-        </SwipeToRemove>
+        <VoucherFavCard
+          row={item}
+          onPress={() => router.push(`/(app)/voucher/${item.id}?from=favourites`)}
+          onRemove={() => handleRemoveVoucher(item)}
+          testID={`voucher-card-${item.id}`}
+        />
       )}
       onEndReached={() => vouchersQuery.hasNextPage && !vouchersQuery.isFetchingNextPage && vouchersQuery.fetchNextPage()}
       onEndReachedThreshold={0.5}

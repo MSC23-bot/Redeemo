@@ -2,24 +2,33 @@
  * Phase 3C.1g M2.5 — `<BranchFavCard>` (Places tab card).
  *
  * Spec §8.1 — card chrome.  Tap → `/(app)/merchant/[id]?branch=<branchId>&from=favourites`.
- * No `<FavouriteHeart>` on the card (swipe-to-remove is the removal path
- * on the Favourites tab; the heart only appears on Discovery surfaces).
+ * No `<FavouriteHeart>` on the card (the Discovery-surface heart is the
+ * add path; removal lives on the card itself).
+ *
+ * Device-QA R1 Wave 2 (2026-05-30) — removal affordance is now a small
+ * visible Trash icon button at the top-right corner of the card.  The
+ * previous swipe-to-remove gesture was too eager (revealed during
+ * vertical scroll) and not discoverable.  Owner-direction: "reliability
+ * beats cleverness" — a visible button is both unambiguous and
+ * accessible.  When `onRemove` is omitted the button is not rendered
+ * (preserves callers that only need a read-only card).
  */
 
 import React from 'react'
 import { Image, Pressable, StyleSheet, View } from 'react-native'
 import { Text } from '@/design-system/Text'
 import { color, elevation, radius, spacing } from '@/design-system/tokens'
-import { MapPin } from '@/design-system/icons'
+import { MapPin, Trash2 } from '@/design-system/icons'
 import type { FavouriteBranchItem } from '@/lib/api/favourites'
 
 interface Props {
-  row:      FavouriteBranchItem
-  onPress:  () => void
-  testID?:  string
+  row:       FavouriteBranchItem
+  onPress:   () => void
+  onRemove?: () => void
+  testID?:   string
 }
 
-export function BranchFavCard({ row, onPress, testID }: Props): React.ReactElement {
+export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.ReactElement {
   const { merchant, name, city, postcode, isOpen, isUnavailable, voucherCount } = row
 
   const statusLabel = isUnavailable
@@ -75,6 +84,20 @@ export function BranchFavCard({ row, onPress, testID }: Props): React.ReactEleme
           )}
         </View>
       </View>
+      {onRemove && (
+        <Pressable
+          onPress={onRemove}
+          // 36x36 hit area, 18pt glyph — matches material/iOS
+          // recommended minimum tap target without crowding the card.
+          style={({ pressed }) => [styles.removeBtn, pressed && styles.removeBtnPressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${merchant.businessName} from favourites`}
+          testID={testID ? `${testID}-remove` : 'branch-fav-card-remove'}
+          hitSlop={8}
+        >
+          <Trash2 size={18} color={color.text.tertiary} strokeWidth={1.8} />
+        </Pressable>
+      )}
     </Pressable>
   )
 }
@@ -156,5 +179,19 @@ const styles = StyleSheet.create({
   },
   voucherCount: {
     color: color.text.secondary,
+  },
+  removeBtn: {
+    position:        'absolute',
+    top:             spacing[2],
+    right:           spacing[2],
+    width:           36,
+    height:          36,
+    borderRadius:    18,
+    alignItems:      'center',
+    justifyContent:  'center',
+    backgroundColor: color.surface.subtle,
+  },
+  removeBtnPressed: {
+    opacity: 0.6,
   },
 })

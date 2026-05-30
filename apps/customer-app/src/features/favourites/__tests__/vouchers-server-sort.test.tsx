@@ -96,11 +96,11 @@ describe('FavouritesScreen — server-sort invariant (spec §9.3)', () => {
     })
 
     const { getAllByTestId } = render(<FavouritesScreen />)
-    // Anchor the regex to end-of-id so the SwipeToRemove wrapper
-    // (`voucher-card-<id>-swipe`) + its inner Remove button
-    // (`voucher-card-<id>-swipe-remove`) don't bleed into the match
-    // set.  The bare card testID is the only thing whose locked order
-    // matters for the spec §9.3 server-sort invariant.
+    // Anchor the regex to end-of-id so the inner Remove button
+    // (`voucher-card-<id>-remove`, added in Device-QA R1 Wave 2) doesn't
+    // bleed into the match set.  The bare card testID is the only thing
+    // whose locked order matters for the spec §9.3 server-sort
+    // invariant.
     const cards = getAllByTestId(/^voucher-card-v-[A-Z]+$/)
     const orderedIds = cards.map(node => (node.props.testID as string).replace('voucher-card-', ''))
 

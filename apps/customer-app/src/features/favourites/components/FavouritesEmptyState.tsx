@@ -24,7 +24,7 @@ interface Props {
 const COPY: Record<FavouritesTab, { headline: string; body: string; cta: string }> = {
   places: {
     headline: 'No merchants saved yet',
-    body:     'Save merchants you want to visit by tapping the heart on any branch.',
+    body:     'Save merchants you want to visit by tapping the heart on any merchant.',
     cta:      'Discover merchants',
   },
   vouchers: {

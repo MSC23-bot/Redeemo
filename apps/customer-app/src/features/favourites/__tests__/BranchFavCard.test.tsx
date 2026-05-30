@@ -93,4 +93,38 @@ describe('BranchFavCard', () => {
     )
     expect(getByText('Location unavailable')).toBeTruthy()
   })
+
+  // §R2 — Device-QA R1 Wave 2 (2026-05-30) — visible Remove button.
+  // Replaces the deleted SwipeToRemove gesture.  When `onRemove` is
+  // passed, a Trash icon button is rendered at the top-right; tapping
+  // it fires `onRemove` without bubbling to the card's `onPress`.
+  describe('§R2 — visible Remove button', () => {
+    it('renders the Remove button only when onRemove is provided', () => {
+      const { queryByTestId, rerender } = render(
+        <BranchFavCard row={makeRow()} onPress={jest.fn()} testID="card" />
+      )
+      expect(queryByTestId('card-remove')).toBeNull()
+
+      rerender(<BranchFavCard row={makeRow()} onPress={jest.fn()} onRemove={jest.fn()} testID="card" />)
+      expect(queryByTestId('card-remove')).toBeTruthy()
+    })
+
+    it('Remove button press calls onRemove (not onPress)', () => {
+      const onPress  = jest.fn()
+      const onRemove = jest.fn()
+      const { getByTestId } = render(
+        <BranchFavCard row={makeRow()} onPress={onPress} onRemove={onRemove} testID="card" />
+      )
+      fireEvent.press(getByTestId('card-remove'))
+      expect(onRemove).toHaveBeenCalledTimes(1)
+      expect(onPress).not.toHaveBeenCalled()
+    })
+
+    it('Remove button accessibility label names the merchant', () => {
+      const { getByLabelText } = render(
+        <BranchFavCard row={makeRow()} onPress={jest.fn()} onRemove={jest.fn()} testID="card" />
+      )
+      expect(getByLabelText('Remove Iron Forge Gym from favourites')).toBeTruthy()
+    })
+  })
 })

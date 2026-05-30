@@ -69,14 +69,31 @@ describe('buildReturnUrl — pure URL construction', () => {
     expect(buildReturnUrl({ from: 'merchant', returnMerchantId: 'm1' })).toBeNull()
   })
 
-  it('returns null when from is not "merchant" (defends against future origin tokens)', () => {
+  it('returns null when from is an unrecognised origin token (defends against future tokens)', () => {
     expect(
-      buildReturnUrl({ from: 'discovery', returnMerchantId: 'm1', branch: 'b1' }),
+      buildReturnUrl({ from: 'someUnknownOrigin', returnMerchantId: 'm1', branch: 'b1' }),
     ).toBeNull()
   })
 
   it('returns null for an empty params object', () => {
     expect(buildReturnUrl({})).toBeNull()
+  })
+
+  // ── §R3 Device-QA R1 Wave 2 (2026-05-30) — favourites origin ────────
+  // Vouchers tab on Favourites pushes `?from=favourites`.  Voucher
+  // Detail's back-nav must return to /(app)/favourites?tab=vouchers
+  // rather than fall through to router.back() (which on a Tabs surface
+  // restores the previously-active tab — usually Home).
+  describe('§R3 — from=favourites origin (Device-QA R1 Wave 2)', () => {
+    it('returns the Favourites > Vouchers URL when from=favourites', () => {
+      expect(buildReturnUrl({ from: 'favourites' })).toBe('/(app)/favourites?tab=vouchers')
+    })
+
+    it('does NOT require branch / returnMerchantId for the favourites branch (favourites are merchant/voucher-scoped, not branch-scoped on the back URL)', () => {
+      expect(
+        buildReturnUrl({ from: 'favourites', returnMerchantId: 'm1', branch: 'b1' }),
+      ).toBe('/(app)/favourites?tab=vouchers')
+    })
   })
 })
 

@@ -109,3 +109,34 @@ describe('VoucherFavCard — tap + saving copy', () => {
     expect(queryByText(/Save up to/)).toBeNull()
   })
 })
+
+// §R2 — Device-QA R1 Wave 2 (2026-05-30) — visible Remove button.
+describe('VoucherFavCard — §R2 visible Remove button', () => {
+  it('renders the Remove button only when onRemove is provided', () => {
+    const { queryByTestId, rerender } = render(
+      <VoucherFavCard row={makeRow()} onPress={jest.fn()} testID="vcard" />,
+    )
+    expect(queryByTestId('vcard-remove')).toBeNull()
+
+    rerender(<VoucherFavCard row={makeRow()} onPress={jest.fn()} onRemove={jest.fn()} testID="vcard" />)
+    expect(queryByTestId('vcard-remove')).toBeTruthy()
+  })
+
+  it('Remove button press calls onRemove (not onPress)', () => {
+    const onPress  = jest.fn()
+    const onRemove = jest.fn()
+    const { getByTestId } = render(
+      <VoucherFavCard row={makeRow()} onPress={onPress} onRemove={onRemove} testID="vcard" />,
+    )
+    fireEvent.press(getByTestId('vcard-remove'))
+    expect(onRemove).toHaveBeenCalledTimes(1)
+    expect(onPress).not.toHaveBeenCalled()
+  })
+
+  it('Remove button accessibility label names the voucher title', () => {
+    const { getByLabelText } = render(
+      <VoucherFavCard row={makeRow()} onPress={jest.fn()} onRemove={jest.fn()} testID="vcard" />,
+    )
+    expect(getByLabelText('Remove BOGO Coffee from favourites')).toBeTruthy()
+  })
+})

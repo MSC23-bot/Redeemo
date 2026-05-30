@@ -163,6 +163,16 @@ export function buildReturnUrl(params: {
     if (params.branchChanged) url += '&branchChanged=1'
     return url
   }
+  // Phase 3C.1g Device-QA R1 Wave 2 (2026-05-30) — voucher cards on
+  // the Favourites tab push `?from=favourites`; back from Voucher
+  // Detail must return to Favourites > Vouchers, not the Tabs
+  // default (which on a Tabs surface restores Home).  Vouchers is the
+  // only Favourites entry path for voucher detail (the Places tab
+  // routes to Merchant Profile), so hardcoding `tab=vouchers` is
+  // safe.
+  if (params.from === 'favourites') {
+    return '/(app)/favourites?tab=vouchers'
+  }
   return null
 }
 

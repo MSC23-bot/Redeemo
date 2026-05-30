@@ -3,8 +3,13 @@
  *
  * Spec §9.1 — voucher state pill rendering driven by `priorityBucket`
  * (server-computed M1.4) + `isUnavailable`.  Tap →
- * `/(app)/voucher/[id]?from=favourites`.  No `<FavouriteHeart>` on
- * the card; swipe-to-remove is the removal path.
+ * `/(app)/voucher/[id]?from=favourites`.
+ *
+ * Removal: Device-QA R1 Wave 2 (2026-05-30) replaced the swipe-to-
+ * remove gesture with a visible Trash icon button (see
+ * `<BranchFavCard>` for the matching change + rationale).  On the
+ * voucher card the trash sits on a semi-transparent dark circle so it
+ * reads against any per-type gradient.
  *
  * State pill mapping (spec §9.3 buckets → display chip):
  *   1 → "Urgent · ends soon"   (TL <60 min remaining)
@@ -27,12 +32,14 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
 import { color, elevation, radius, spacing } from '@/design-system/tokens'
+import { Trash2 } from '@/design-system/icons'
 import type { FavouriteVoucherItem } from '@/lib/api/favourites'
 
 interface Props {
-  row:      FavouriteVoucherItem
-  onPress:  () => void
-  testID?:  string
+  row:       FavouriteVoucherItem
+  onPress:   () => void
+  onRemove?: () => void
+  testID?:   string
 }
 
 type Bucket = 1 | 2 | 3 | 4 | 5 | 6 | 7
@@ -59,7 +66,7 @@ const BUCKET_TONE: Record<Bucket, { bg: string; fg: string }> = {
 
 const DIMMED_BUCKETS = new Set<Bucket>([3, 4, 5, 6, 7])
 
-export function VoucherFavCard({ row, onPress, testID }: Props): React.ReactElement {
+export function VoucherFavCard({ row, onPress, onRemove, testID }: Props): React.ReactElement {
   const bucket = row.priorityBucket as Bucket
   const tone   = BUCKET_TONE[bucket] ?? BUCKET_TONE[2]
   const label  = BUCKET_COPY[bucket] ?? BUCKET_COPY[2]
@@ -104,6 +111,18 @@ export function VoucherFavCard({ row, onPress, testID }: Props): React.ReactElem
           </Text>
         </View>
       </LinearGradient>
+      {onRemove && (
+        <Pressable
+          onPress={onRemove}
+          style={({ pressed }) => [styles.removeBtn, pressed && styles.removeBtnPressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${row.title} from favourites`}
+          testID={testID ? `${testID}-remove` : 'voucher-fav-card-remove'}
+          hitSlop={8}
+        >
+          <Trash2 size={18} color="#FFFFFF" strokeWidth={1.8} />
+        </Pressable>
+      )}
     </Pressable>
   )
 }
@@ -148,5 +167,19 @@ const styles = StyleSheet.create({
     paddingVertical:   2,
     borderRadius:      999,
     overflow:          'hidden',
+  },
+  removeBtn: {
+    position:        'absolute',
+    top:             spacing[2],
+    right:           spacing[2],
+    width:           36,
+    height:          36,
+    borderRadius:    18,
+    alignItems:      'center',
+    justifyContent:  'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.32)',
+  },
+  removeBtnPressed: {
+    opacity: 0.6,
   },
 })
