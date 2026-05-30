@@ -339,3 +339,131 @@ describe('FavouritesScreen — §W6.3 flushPending on blur', () => {
     expect(flushVouchers).toHaveBeenCalledTimes(1)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────
+// §P2 (Codex review 2026-05-31, PR #137) — entity-tied undo
+// ─────────────────────────────────────────────────────────────────
+//
+// Owner re-QA on Wave 6.7 ship: tapping Undo on the toast after
+// switching tabs called the WRONG entity's undo handler.  Pre-§P2
+// the screen dispatched `onUndo={activeTab === 'places' ?
+// handleUndoBranch : handleUndoVoucher}` — so remove-merchant +
+// switch-to-vouchers + tap-Undo called handleUndoVoucher (which
+// no-ops on the branch entity).  The merchant did NOT restore.
+//
+// Fix: store the entity alongside the message in `undoState`, and
+// dispatch undo by the stored entity rather than the active tab.
+describe('FavouritesScreen — §P2 entity-tied undo (Codex review fix)', () => {
+  // Helper: drive the remove + tab-switch + undo sequence under a
+  // controlled mock that swaps branch/voucher hook returns by call
+  // order and exposes their undo spies for assertions.
+  function mountWithSwitchableRemoveHooks(opts: { initialTab: 'places' | 'vouchers' }) {
+    const branchUndo  = jest.fn()
+    const voucherUndo = jest.fn()
+    const branchRemove  = jest.fn()
+    const voucherRemove = jest.fn()
+    let call = 0
+    mockUseRemoveFavourite.mockImplementation(() => {
+      call += 1
+      // FavouritesScreen calls useRemoveFavourite('branch') first,
+      // then useRemoveFavourite('voucher'), and re-calls in the
+      // same order on every render.  isPending=true on BOTH so
+      // the screen's auto-clear conditional (`undoState && !
+      // removeBranch.isPending && !removeVoucher.isPending`)
+      // does NOT fire — keeps the UndoToast on screen across the
+      // tab switch so we can drive the Undo press.
+      return call % 2 === 1
+        ? { remove: branchRemove,  undo: branchUndo,  flushPending: jest.fn(() => Promise.resolve()), isPending: true, error: null, clearError: jest.fn() }
+        : { remove: voucherRemove, undo: voucherUndo, flushPending: jest.fn(() => Promise.resolve()), isPending: true, error: null, clearError: jest.fn() }
+    })
+    mockUseFavouriteBranches.mockReturnValue({
+      data: { pages: [{ items: [makeBranch('iron-forge')], total: 1, page: 1, limit: 20 }] },
+      isLoading: false, isRefetching: false, isFetchingNextPage: false,
+      hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
+    })
+    mockUseFavouriteVouchers.mockReturnValue({
+      data: { pages: [{ items: [makeVoucher('v-bogo')], total: 1, page: 1, limit: 20 }] },
+      isLoading: false, isRefetching: false, isFetchingNextPage: false,
+      hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
+    })
+    // Drive tab from a mutable holder so setParams flips reflect
+    // in the next render.
+    let currentTab = opts.initialTab
+    mockUseLocalSearchParams.mockImplementation(() => ({ tab: currentTab }))
+    mockSetParams.mockImplementation((next: { tab?: string }) => {
+      if (next.tab === 'places' || next.tab === 'vouchers') currentTab = next.tab
+    })
+
+    const utils = render(<FavouritesScreen />)
+    return { ...utils, branchRemove, branchUndo, voucherRemove, voucherUndo }
+  }
+
+  it('§P2-1 remove merchant on Places → switch to Vouchers → tap Undo → MERCHANT undo fires (NOT voucher undo)', () => {
+    const { getByTestId, getByLabelText, branchRemove, branchUndo, voucherUndo } = mountWithSwitchableRemoveHooks({ initialTab: 'places' })
+
+    // Remove the merchant row.
+    fireEvent.press(getByTestId('branch-card-iron-forge-remove'))
+    expect(branchRemove).toHaveBeenCalledTimes(1)
+
+    // User switches tabs while the toast is still visible.
+    fireEvent.press(getByTestId('favourites-tab-vouchers'))
+
+    // Tap Undo on the still-visible toast.
+    fireEvent.press(getByLabelText('Undo'))
+
+    // Branch undo fires; voucher undo MUST NOT have been called.
+    expect(branchUndo).toHaveBeenCalledTimes(1)
+    expect(voucherUndo).not.toHaveBeenCalled()
+  })
+
+  it('§P2-2 remove voucher on Vouchers → switch to Merchants → tap Undo → VOUCHER undo fires (NOT merchant undo)', () => {
+    const { getByTestId, getByLabelText, voucherRemove, voucherUndo, branchUndo } = mountWithSwitchableRemoveHooks({ initialTab: 'vouchers' })
+
+    fireEvent.press(getByTestId('voucher-card-v-bogo-remove'))
+    expect(voucherRemove).toHaveBeenCalledTimes(1)
+
+    fireEvent.press(getByTestId('favourites-tab-places'))
+
+    fireEvent.press(getByLabelText('Undo'))
+
+    expect(voucherUndo).toHaveBeenCalledTimes(1)
+    expect(branchUndo).not.toHaveBeenCalled()
+  })
+
+  it('§P2-3 undo toast still clears after the 4s window settles (no entity assigned → onUndo no-op safe)', () => {
+    // Drive the screen with both hooks returning isPending=false
+    // (i.e. AFTER the 4s undo window has fired and the per-row
+    // splice has been DELETEd).  The clearance condition is
+    // `undoState && !removeBranch.isPending && !removeVoucher.isPending`
+    // — toast hides on the next render.
+    const branchUndo  = jest.fn()
+    const voucherUndo = jest.fn()
+    let call = 0
+    mockUseRemoveFavourite.mockImplementation(() => {
+      call += 1
+      return call % 2 === 1
+        ? { remove: jest.fn(), undo: branchUndo,  flushPending: jest.fn(() => Promise.resolve()), isPending: false, error: null, clearError: jest.fn() }
+        : { remove: jest.fn(), undo: voucherUndo, flushPending: jest.fn(() => Promise.resolve()), isPending: false, error: null, clearError: jest.fn() }
+    })
+    mockUseFavouriteBranches.mockReturnValue({
+      data: { pages: [{ items: [makeBranch('iron-forge')], total: 1, page: 1, limit: 20 }] },
+      isLoading: false, isRefetching: false, isFetchingNextPage: false,
+      hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
+    })
+    mockUseFavouriteVouchers.mockReturnValue({
+      data: { pages: [{ items: [], total: 0, page: 1, limit: 20 }] },
+      isLoading: false, isRefetching: false, isFetchingNextPage: false,
+      hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
+    })
+    mockUseLocalSearchParams.mockReturnValue({ tab: 'places' })
+
+    const { queryByTestId } = render(<FavouritesScreen />)
+
+    // No remove fired — toast should not be visible.
+    expect(queryByTestId('undo-toast')).toBeNull()
+
+    // And neither undo handler should have run.
+    expect(branchUndo).not.toHaveBeenCalled()
+    expect(voucherUndo).not.toHaveBeenCalled()
+  })
+})

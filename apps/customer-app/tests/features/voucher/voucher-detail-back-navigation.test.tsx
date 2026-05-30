@@ -420,8 +420,26 @@ describe('VoucherDetailScreen — handleBack via URL params', () => {
 // Fix: `handleMerchantTap` now appends `?from=favourites` to the push
 // URL whenever EITHER `params.from === 'favourites'` (direct chain)
 // OR `params.merchantFrom === 'favourites'` (Wave 3 propagated chain).
-describe('VoucherDetailScreen — §W6-#1 handleMerchantTap propagation', () => {
-  it('chain A (Favourites > Vouchers > Voucher Detail) — pushes merchant URL with ?from=favourites', () => {
+describe('VoucherDetailScreen — §W6-#1 + §P1 handleMerchantTap propagation', () => {
+  // §P1 (Codex review 2026-05-31, PR #137) — Wave 6 only propagated
+  // `from`.  Codex flagged that branch-level favourites also need the
+  // BRANCH context to thread through the push, otherwise MP cold-
+  // resolves another branch via nearest-GPS / main-branch fallback.
+  // New URL shape (when branch is known) is
+  // `/(app)/merchant/<id>?branch=<branchId>&from=favourites`.  The
+  // branch param threads through INDEPENDENTLY of the from token —
+  // non-favourites paths also benefit (and never carry from=favourites).
+  //
+  // Branch source = three-tier priority (matches `redeem.getBranchId`
+  // + `<BranchPickerSheet currentBranchId>`):
+  //   1. pickerConfirmedBranchId (in-session picker confirm)
+  //   2. branchIdParam            (URL `?branch=<id>`)
+  //   3. selectedBranch?.id       (server-resolved cold-open fallback)
+  //
+  // baseMerchant.selectedBranch.id = 'b1' (fixture line ~275); so any
+  // chain that doesn't set URL `branch` still resolves to 'b1' via
+  // cold-open fallback.
+  it('chain A (Favourites > Vouchers > Voucher Detail) — pushes merchant URL with branch=b1 (cold-open fallback) + from=favourites', () => {
     mockParams = {
       id:   'v1',
       from: 'favourites',
@@ -429,10 +447,10 @@ describe('VoucherDetailScreen — §W6-#1 handleMerchantTap propagation', () => 
     const { getByLabelText } = wrap(<VoucherDetailScreen />)
     // baseMerchant.businessName = "The Coffee House" — no descriptor.
     fireEvent.press(getByLabelText('The Coffee House'))
-    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1?from=favourites')
+    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&from=favourites')
   })
 
-  it('chain B (Favourites > Merchants > Merchant Profile > Voucher Detail) — pushes merchant URL with ?from=favourites via merchantFrom propagation', () => {
+  it('chain B (Favourites > Merchants > Merchant Profile > Voucher Detail) — pushes merchant URL with branch=b1 (URL branch wins) + from=favourites via merchantFrom propagation', () => {
     mockParams = {
       id:               'v1',
       from:             'merchant',
@@ -442,10 +460,10 @@ describe('VoucherDetailScreen — §W6-#1 handleMerchantTap propagation', () => 
     }
     const { getByLabelText } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getByLabelText('The Coffee House'))
-    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1?from=favourites')
+    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&from=favourites')
   })
 
-  it('non-favourites entry — pushes bare merchant URL (no from token)', () => {
+  it('non-favourites entry — pushes merchant URL with branch=b1 (URL branch wins) but NO from token', () => {
     mockParams = {
       id:               'v1',
       from:             'merchant',
@@ -456,10 +474,10 @@ describe('VoucherDetailScreen — §W6-#1 handleMerchantTap propagation', () => 
     }
     const { getByLabelText } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getByLabelText('The Coffee House'))
-    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1')
+    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1')
   })
 
-  it('unrecognised merchantFrom value — pushes bare merchant URL (defensive: only "favourites" propagates in v1)', () => {
+  it('unrecognised merchantFrom value — pushes merchant URL with branch=b1 but NO from token (defensive: only "favourites" propagates in v1)', () => {
     mockParams = {
       id:               'v1',
       from:             'merchant',
@@ -469,8 +487,19 @@ describe('VoucherDetailScreen — §W6-#1 handleMerchantTap propagation', () => 
     }
     const { getByLabelText } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getByLabelText('The Coffee House'))
-    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1')
+    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1')
   })
+
+  // §P1 no-branch-resolution case is guarded at the implementation
+  // level by `if (branchForPush) qsParts.push(...)` — without a
+  // resolvable branch (picker/URL/selectedBranch all null) the URL
+  // is `/(app)/merchant/<id>` with no junk `branch=undefined` segment.
+  // An explicit test pin for this state would require driving the
+  // merchant query into a no-active-branches fixture which renders
+  // the branch-error UI (not the MerchantRow), so the assertion
+  // cannot be reached.  The guard is small + obviously correct; the
+  // four pins above + the optional-chain in source are sufficient
+  // coverage.
 })
 
 // ── §W6.1 Device-QA R1 Wave 6.1 (2026-05-30) ─────────────────────────

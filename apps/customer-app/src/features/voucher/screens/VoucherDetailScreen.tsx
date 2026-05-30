@@ -1155,10 +1155,30 @@ export function VoucherDetailScreen() {
         params.from === 'favourites' || params.merchantFrom === 'favourites'
           ? 'favourites'
           : null
-      const qs = nestedFrom ? `?from=${encodeURIComponent(nestedFrom)}` : ''
+      // Code-review fix (Codex 2026-05-31, PR #137 P1) — also thread
+      // the branch context into the push so Merchant Profile reopens
+      // on the SAME branch the user was viewing on Voucher Detail
+      // (branch-level favourites contract — Phase 3C.1g).  Without
+      // this, MP cold-resolves another branch via nearest-GPS /
+      // main-branch fallback and the user lands on a sibling
+      // branch's tabs.  Uses the identical three-tier display-branch
+      // resolver as `redeem.getBranchId` + `<BranchPickerSheet
+      // currentBranchId>`:
+      //   1. pickerConfirmedBranchId — picker-confirmed in-session
+      //   2. branchIdParam            — URL `?branch=<id>`
+      //   3. selectedBranch?.id       — server-resolved cold-open
+      // The branch query param is independent of `nestedFrom` —
+      // non-favourites paths (e.g. came-from-merchant chain) STILL
+      // benefit from branch-context preservation, so it threads
+      // through regardless of the from token.
+      const branchForPush = pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id ?? null
+      const qsParts: string[] = []
+      if (branchForPush) qsParts.push(`branch=${encodeURIComponent(branchForPush)}`)
+      if (nestedFrom)    qsParts.push(`from=${encodeURIComponent(nestedFrom)}`)
+      const qs = qsParts.length > 0 ? `?${qsParts.join('&')}` : ''
       router.push(`/(app)/merchant/${voucher.merchant.id}${qs}` as never)
     }
-  }, [router, voucher, merchant, params.from, params.merchantFrom])
+  }, [router, voucher, merchant, params.from, params.merchantFrom, pickerConfirmedBranchId, branchIdParam, selectedBranch])
 
   // ── M2 Section B: useRedeem mutation ─────────────────────────────────
   // Three-tier branch source priority — read AT MUTATION TIME:

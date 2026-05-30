@@ -121,12 +121,11 @@ export function FavouriteHeart({
       )
     }
     void toggle().catch(() => {
-      // useFavourite is pessimistic-with-onSuccess: the rejected
-      // mutation never advances state, so there's nothing to roll
-      // back.  Swallow the error here so a transient network blip on
-      // a heart tap doesn't surface an unhandled promise rejection;
-      // the consumer screen can still surface its own toast via the
-      // hook's `isLoading` and the next list refetch.
+      // useFavourite is optimistic with rollback-on-error (Device-QA R1
+      // W4 + W6.7): the hook itself reverts local state AND the cross-
+      // surface cache patch when the mutation rejects.  Swallow here so
+      // a transient network blip on a heart tap doesn't surface an
+      // unhandled promise rejection at the React Native runtime layer.
     })
   }, [disabled, isLoading, reduceMotion, scale, toggle])
 

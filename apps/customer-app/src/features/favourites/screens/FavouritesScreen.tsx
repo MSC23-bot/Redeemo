@@ -79,27 +79,48 @@ export function FavouritesScreen(): React.ReactElement {
   const removeBranch  = useRemoveFavourite<FavouriteBranchItem>('branch')
   const removeVoucher = useRemoveFavourite<FavouriteVoucherItem>('voucher')
 
-  const [undoMessage, setUndoMessage] = useState<string | null>(null)
+  // §P2 (Codex review 2026-05-31, PR #137) — undo MUST target the
+  // removed ENTITY, not whichever tab is currently visible.  Pre-§P2
+  // the screen stored `undoMessage: string | null` and dispatched
+  // `onUndo={activeTab === 'places' ? handleUndoBranch : handleUndoVoucher}`.
+  // That broke this scenario: user removes a merchant, switches to
+  // Vouchers while the 4s undo toast is still up, taps Undo — the
+  // voucher undo handler fires and the merchant is NOT restored.
+  // Fix: store the entity alongside the message so undo dispatches
+  // by the removed-row's identity, regardless of the active tab.
+  type UndoState = { message: string; entity: 'branch' | 'voucher' }
+  const [undoState, setUndoState] = useState<UndoState | null>(null)
 
   const handleRemoveBranch = useCallback((row: FavouriteBranchItem) => {
     removeBranch.remove(row)
-    setUndoMessage(`Removed ${row.merchant.businessName}`)
+    setUndoState({ message: `Removed ${row.merchant.businessName}`, entity: 'branch' })
   }, [removeBranch])
 
   const handleRemoveVoucher = useCallback((row: FavouriteVoucherItem) => {
     removeVoucher.remove(row)
-    setUndoMessage(`Removed ${row.title}`)
+    setUndoState({ message: `Removed ${row.title}`, entity: 'voucher' })
   }, [removeVoucher])
 
   const handleUndoBranch = useCallback(() => {
     removeBranch.undo()
-    setUndoMessage(null)
+    setUndoState(null)
   }, [removeBranch])
 
   const handleUndoVoucher = useCallback(() => {
     removeVoucher.undo()
-    setUndoMessage(null)
+    setUndoState(null)
   }, [removeVoucher])
+
+  // §P2 — dispatch undo by the stored entity, NOT by the current
+  // tab.  This is the one-line behavioural lock that closes the
+  // tab-switch-mid-undo bug.
+  const handleUndo = useCallback(() => {
+    if (undoState?.entity === 'branch') {
+      handleUndoBranch()
+    } else if (undoState?.entity === 'voucher') {
+      handleUndoVoucher()
+    }
+  }, [undoState, handleUndoBranch, handleUndoVoucher])
 
   // Wave 6.3 / 6.4 — flush pending DELETEs on blur.
   //
@@ -156,8 +177,8 @@ export function FavouritesScreen(): React.ReactElement {
 
   // Clear the undo toast banner once the parent timer fires (isPending
   // flips back to false) AND no new row is pending.
-  if (undoMessage && !removeBranch.isPending && !removeVoucher.isPending) {
-    setUndoMessage(null)
+  if (undoState && !removeBranch.isPending && !removeVoucher.isPending) {
+    setUndoState(null)
   }
 
   const placesView = (
@@ -232,9 +253,11 @@ export function FavouritesScreen(): React.ReactElement {
       />
       {activeTab === 'places' ? placesView : vouchersView}
       <UndoToast
-        visible={Boolean(undoMessage)}
-        message={undoMessage ?? ''}
-        onUndo={activeTab === 'places' ? handleUndoBranch : handleUndoVoucher}
+        visible={Boolean(undoState)}
+        message={undoState?.message ?? ''}
+        // §P2 — `handleUndo` dispatches on the stored entity, NOT the
+        // current activeTab.  See the §P2 comment block on undoState.
+        onUndo={handleUndo}
         // Wave 5 #4 — sit ABOVE the 80pt absolute-positioned bottom
         // tab bar.  Pre-Wave-5 the toast rendered at the default
         // 20pt-from-bottom and was fully obscured by the tab bar.
