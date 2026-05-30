@@ -238,6 +238,78 @@ describe('useRemoveFavourite — timeout fires DELETE', () => {
   })
 })
 
+// ── §W6.3 Wave 6.3 (2026-05-30) — flushPending() ─────────────────────
+//
+// Owner-reported symptom: user removes the last favourited merchant +
+// immediately taps "Discover merchants" → Home shows the still-
+// favourited heart because the 4s undo-window timer hasn't fired
+// yet, so the DELETE hasn't reached the backend and the discovery /
+// merchantProfile / voucher caches haven't been invalidated.
+//
+// Fix: new `flushPending()` cancels the timer, calls the DELETE
+// immediately, and resolves once invalidation has fired.
+// `FavouritesScreen` calls it from `useFocusEffect` cleanup so the
+// blur (user navigating away) deterministically flushes pending
+// removals.
+describe('useRemoveFavourite — §W6.3 flushPending()', () => {
+  it('flushPending fires the DELETE immediately (no 4s wait) + invalidates the same caches', async () => {
+    mockRemoveBranch.mockResolvedValueOnce(undefined)
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }])
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    // DO NOT advance timers — flushPending must fire WITHOUT waiting
+    // for the 4s undo window.
+    expect(mockRemoveBranch).not.toHaveBeenCalled()
+
+    await act(async () => { await result.current.flushPending() })
+
+    expect(mockRemoveBranch).toHaveBeenCalledWith('a')
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteBranches'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  it('flushPending is a safe no-op when no removal is pending', async () => {
+    const { Wrapper } = makeWrapper()
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    // No remove() called — flushPending should resolve cleanly + not
+    // touch the backend.
+    await act(async () => { await result.current.flushPending() })
+    expect(mockRemoveBranch).not.toHaveBeenCalled()
+  })
+
+  it('flushPending followed by the 4s timer does NOT double-fire the DELETE', async () => {
+    mockRemoveBranch.mockResolvedValueOnce(undefined)
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    await act(async () => { await result.current.flushPending() })
+
+    // Advance the 4s timer AFTER flush — the original setTimeout was
+    // cleared so the DELETE must NOT fire again.
+    await act(async () => { jest.advanceTimersByTime(4_000) })
+    expect(mockRemoveBranch).toHaveBeenCalledTimes(1)
+  })
+
+  it('flushPending works for the voucher entity too', async () => {
+    mockRemoveVoucher.mockResolvedValueOnce(undefined)
+    const { qc, Wrapper } = makeWrapper()
+    seedVouchers(qc, [{ id: 'v1' }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('voucher'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'v1' }) })
+    await act(async () => { await result.current.flushPending() })
+    expect(mockRemoveVoucher).toHaveBeenCalledWith('v1')
+  })
+})
+
 describe('useRemoveFavourite — DELETE error rollback', () => {
   it('restores the row to its original index and exposes `error` on DELETE rejection', async () => {
     const boom = new Error('boom')

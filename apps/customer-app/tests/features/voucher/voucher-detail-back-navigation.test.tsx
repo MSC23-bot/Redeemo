@@ -159,11 +159,12 @@ describe('buildReturnUrl — pure URL construction', () => {
 // ── Integration tests — screen + handleBack wiring ────────────────────
 
 let mockParams: Record<string, string | undefined> = { id: 'v1' }
-const mockReplace = jest.fn()
-const mockBack    = jest.fn()
-const mockPush    = jest.fn()
+const mockReplace    = jest.fn()
+const mockBack       = jest.fn()
+const mockPush       = jest.fn()
+const mockNavigate   = jest.fn()
 const mockDismissAll = jest.fn()
-const mockCanGoBack = jest.fn(() => true)
+const mockCanGoBack  = jest.fn(() => true)
 
 jest.mock('expo-router', () => {
   const React = require('react')
@@ -173,9 +174,14 @@ jest.mock('expo-router', () => {
       replace:    mockReplace,
       push:       mockPush,
       back:       mockBack,
-      // Device-QA R1 Wave 6.2 (2026-05-30) — handleBack now calls
-      // dismissAll() before replace() to clear any tab-stack
-      // residue that triggers expo-router's tab reconciliation.
+      // Device-QA R1 Wave 6.3 (2026-05-30) — handleBack now uses
+      // `router.navigate(target)` (expo-router 6 cross-tab API).
+      // The Wave 6.2 dismissAll path was abandoned because it
+      // dispatched the unsupported POP_TO_TOP action on our
+      // Tabs-root navigator (LogBox warning).  Mock still includes
+      // dismissAll so the §W6.3 regression pins can assert it is
+      // NOT called.
+      navigate:   mockNavigate,
       dismissAll: mockDismissAll,
       canGoBack:  mockCanGoBack,
     }),
@@ -307,6 +313,7 @@ beforeEach(() => {
   mockReplace.mockClear()
   mockBack.mockClear()
   mockDismissAll.mockClear()
+  mockNavigate.mockClear()
   mockPush.mockClear()
   mockCanGoBack.mockReset().mockReturnValue(true)
   ;(globalThis as any).__voucherProfileMock__.data       = baseMerchant()
@@ -315,7 +322,7 @@ beforeEach(() => {
 })
 
 describe('VoucherDetailScreen — handleBack via URL params', () => {
-  it('1. with full return params + voucher LOADED → router.replace to merchant + branch + vouchers tab', () => {
+  it('1. with full return params + voucher LOADED → router.navigate to merchant + branch + vouchers tab (Wave 6.3: navigate, not replace)', () => {
     mockParams = {
       id: 'v1',
       from: 'merchant',
@@ -327,11 +334,11 @@ describe('VoucherDetailScreen — handleBack via URL params', () => {
     // Two "Go back" buttons exist: hero NavRow + CollapsedHeader.
     // Tap the hero one (first match) — both are wired to handleBack.
     fireEvent.press(getAllByLabelText('Go back')[0])
-    expect(mockReplace).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
+    expect(mockNavigate).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
     expect(mockBack).not.toHaveBeenCalled()
   })
 
-  it('2. with full return params + voucher STILL LOADING → router.replace still works (back must NOT depend on voucher load)', () => {
+  it('2. with full return params + voucher STILL LOADING → router.navigate still works (back must NOT depend on voucher load)', () => {
     mockParams = {
       id: 'v1',
       from: 'merchant',
@@ -344,10 +351,10 @@ describe('VoucherDetailScreen — handleBack via URL params', () => {
     // Loading state renders FallbackNav (one back button).
     expect(getByTestId('voucher-detail-loading')).toBeTruthy()
     fireEvent.press(getAllByLabelText('Go back')[0])
-    expect(mockReplace).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
+    expect(mockNavigate).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
   })
 
-  it('3. with full return params + voucher ERRORED → router.replace still works', () => {
+  it('3. with full return params + voucher ERRORED → router.navigate still works', () => {
     mockParams = {
       id: 'v1',
       from: 'merchant',
@@ -363,7 +370,7 @@ describe('VoucherDetailScreen — handleBack via URL params', () => {
     // handleBack — tap the first (top-nav) to mirror the user's
     // primary back tap.
     fireEvent.press(getAllByLabelText('Go back')[0])
-    expect(mockReplace).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
+    expect(mockNavigate).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
   })
 
   it('4. without return params + canGoBack=true → router.back() is used', () => {
@@ -372,6 +379,7 @@ describe('VoucherDetailScreen — handleBack via URL params', () => {
     const { getAllByLabelText } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getAllByLabelText('Go back')[0])
     expect(mockBack).toHaveBeenCalled()
+    expect(mockNavigate).not.toHaveBeenCalled()
     expect(mockReplace).not.toHaveBeenCalled()
   })
 
@@ -394,7 +402,7 @@ describe('VoucherDetailScreen — handleBack via URL params', () => {
     }
     const { getAllByLabelText } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getAllByLabelText('Go back')[0])
-    expect(mockReplace).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
+    expect(mockNavigate).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
   })
 })
 
@@ -540,34 +548,24 @@ describe('VoucherDetailScreen — §W6.1 handleReviewPromptPress propagation', (
     )
   })
 
-  // ── §W6.2 (2026-05-30) — handleBack calls dismissAll + replace ─────
-  // Root cause for owner's "lands on Favourites for 5s then auto-
-  // redirect to Home" symptom: pre-Wave-6.2 the back path used
-  // `router.replace(returnUrl)` alone for tab destinations.  When the
-  // current stack has prior pushes (Favourites > MP > VoucherDetail >
-  // MP), replacing the top entry leaves the intermediate stack in
-  // place and expo-router's tab reconciliation pops the replaced
-  // entry after a delay → user lands on the default active tab
-  // (Home).  Fix: `router.dismissAll()` clears the intermediate
-  // stack BEFORE `router.replace(returnUrl)` activates the tab.
-  it('§W6.2 — handleBack from favourites chain calls router.dismissAll() BEFORE router.replace()', () => {
+  // ── §W6.3 (2026-05-30) — handleBack uses router.navigate ─────
+  //
+  // Wave 6.2's `dismissAll + replace` pair dispatched POP_TO_TOP
+  // (a Stack-only action) on our Tabs-root navigator, surfacing a
+  // LogBox console error.  Wave 6.3 uses `router.navigate(target)`
+  // — the expo-router 6 recommended programmatic cross-tab API.
+  // See `navigateBackTo` docstring for the full root-cause history.
+  it('§W6.3 — handleBack from favourites chain calls router.navigate (NOT dismissAll, NOT replace) — POP_TO_TOP regression fix', () => {
     mockParams = { id: 'v1', from: 'favourites' }
     const { getAllByLabelText } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getAllByLabelText('Go back')[0])
-    expect(mockDismissAll).toHaveBeenCalledTimes(1)
-    expect(mockReplace).toHaveBeenCalledWith('/(app)/favourites?tab=vouchers')
-    // dismissAll fires FIRST so the stack is clean before the tab
-    // activation lands.  Order check via call invocation order.
-    expect(mockDismissAll.mock.invocationCallOrder[0]).toBeLessThan(
-      mockReplace.mock.invocationCallOrder[0]!,
-    )
+    expect(mockNavigate).toHaveBeenCalledWith('/(app)/favourites?tab=vouchers')
+    // Regression pin — POP_TO_TOP was the device-QA blocker.
+    expect(mockDismissAll).not.toHaveBeenCalled()
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 
-  it('§W6.2 — handleBack to merchant URL (non-tab) ALSO calls dismissAll + replace (uniform behaviour)', () => {
-    // Defensive: even stack-screen targets (merchant URL) go through
-    // dismissAll first.  Safe no-op when no pushed entries exist;
-    // avoids tab-on-stack residue if the user navigated through
-    // multiple nested merchant pages.
+  it('§W6.3 — handleBack to merchant URL (non-tab) ALSO uses router.navigate (uniform behaviour)', () => {
     mockParams = {
       id:               'v1',
       from:             'merchant',
@@ -576,8 +574,9 @@ describe('VoucherDetailScreen — §W6.1 handleReviewPromptPress propagation', (
     }
     const { getAllByLabelText } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getAllByLabelText('Go back')[0])
-    expect(mockDismissAll).toHaveBeenCalledTimes(1)
-    expect(mockReplace).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
+    expect(mockNavigate).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
+    expect(mockDismissAll).not.toHaveBeenCalled()
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 
   it('non-favourites entry — Rate&Review prompt push omits the `from` param (defensive)', () => {

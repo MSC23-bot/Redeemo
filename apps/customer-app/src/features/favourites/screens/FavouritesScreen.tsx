@@ -20,7 +20,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { color, spacing } from '@/design-system/tokens'
 import { FavouritesHeader, type FavouritesTab } from '../components/FavouritesHeader'
@@ -100,6 +100,31 @@ export function FavouritesScreen(): React.ReactElement {
     removeVoucher.undo()
     setUndoMessage(null)
   }, [removeVoucher])
+
+  // Wave 6.3 #1 (locked 2026-05-30) — flush pending DELETEs on blur.
+  //
+  // Owner-reported symptom: user removes the last favourited merchant
+  // / voucher + immediately taps "Discover merchants" → Home shows
+  // the still-favourited heart because the 4s undo-window timer
+  // hadn't fired yet, so the DELETE hadn't reached the backend AND
+  // the discovery / merchantProfile / voucher caches hadn't been
+  // invalidated.  When the user lands on Home, useHomeFeed returns
+  // the cached (stale) tile with isFavourited=true.
+  //
+  // Fix: on screen blur, fire `flushPending()` on both removal hooks
+  // — this cancels the 4s timer + immediately calls the DELETE +
+  // fires the cross-surface invalidations.  By the time the user is
+  // on Home, the cache is refetching with the correct backend state.
+  //
+  // Idempotent: safe no-op when no removal is pending.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        void removeBranch.flushPending()
+        void removeVoucher.flushPending()
+      }
+    }, [removeBranch, removeVoucher])
+  )
 
   // Surface backend errors via the generic toast so the screen stays
   // calm.  Error is cleared after one render cycle.

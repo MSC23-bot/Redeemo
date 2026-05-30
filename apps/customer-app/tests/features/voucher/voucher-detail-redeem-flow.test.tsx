@@ -79,7 +79,8 @@ let mockParams: Record<string, string | undefined> = { id: 'v1' }
 const mockPush = jest.fn()
 const mockReplace = jest.fn()
 const mockBack = jest.fn()
-const mockDismissAll = jest.fn()  // Wave 6.2 (2026-05-30) — handleBack now calls dismissAll() before replace()
+const mockDismissAll = jest.fn()  // Wave 6.2 historical (dropped) — kept on the mock so §W6.3 regression pins can assert it is NOT called.
+const mockNavigate   = jest.fn()  // Wave 6.3 (2026-05-30) — handleBack now uses router.navigate (POP_TO_TOP regression fix)
 jest.mock('expo-router', () => {
   const React = require('react')
   return {
@@ -87,6 +88,7 @@ jest.mock('expo-router', () => {
     useRouter: () => ({
       push: mockPush, replace: mockReplace, back: mockBack,
       dismissAll: mockDismissAll,
+      navigate:   mockNavigate,
       canGoBack: () => true,
     }),
     useFocusEffect: (effect: () => void | (() => void)) => {
@@ -236,6 +238,7 @@ beforeEach(() => {
   mockReplace.mockClear()
   mockBack.mockClear()
   mockDismissAll.mockClear()
+  mockNavigate.mockClear()
   ;(redemptionApi.redeem as jest.Mock).mockReset()
   ;(redemptionApi.getMyRedemption as jest.Mock).mockReset()
   ;(redemptionApi.listMyRedemptions as jest.Mock).mockReset()
@@ -1752,7 +1755,9 @@ describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent bra
     // Pre-fix the back URL could carry branch=b1 (stale URL) +
     // branchChanged=1 (toast fires) — toast says "now viewing B2"
     // while the screen actually returned to B1. Pin both halves.
-    const backCalls = (mockReplace as jest.Mock).mock.calls
+    // Wave 6.3 (2026-05-30) — handleBack now uses router.navigate
+    // (not router.replace) per the POP_TO_TOP regression fix.
+    const backCalls = (mockNavigate as jest.Mock).mock.calls
       .map(([url]) => String(url))
       .filter((url) => url.includes('/(app)/merchant/'))
     expect(backCalls.length).toBeGreaterThan(0)
@@ -1796,7 +1801,8 @@ describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent bra
     fireEvent.press(getByTestId('branch-picker-confirm'))
     fireEvent.press(getByLabelText('Go back'))
 
-    const backCalls = (mockReplace as jest.Mock).mock.calls
+    // Wave 6.3 — handleBack uses router.navigate (not replace).
+    const backCalls = (mockNavigate as jest.Mock).mock.calls
       .map(([url]) => String(url))
       .filter((url) => url.includes('/(app)/merchant/'))
     const backUrl = backCalls[backCalls.length - 1]
@@ -1818,10 +1824,9 @@ describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent bra
 
     const { getByLabelText } = wrap(<VoucherDetailScreen />)
     fireEvent.press(getByLabelText('Go back'))
-    // Some replace call happened (returning to merchant), but it
-    // does NOT include the branchChanged flag.
-    expect(mockReplace).toHaveBeenCalled()
-    const calls = (mockReplace as jest.Mock).mock.calls
+    // Wave 6.3 — handleBack uses router.navigate.
+    expect(mockNavigate).toHaveBeenCalled()
+    const calls = (mockNavigate as jest.Mock).mock.calls
     expect(calls.every(([url]) => !String(url).includes('branchChanged'))).toBe(true)
   })
 
@@ -1847,7 +1852,10 @@ describe('Voucher Detail M2 — branchChanged return-URL flag (issue: silent bra
     fireEvent.press(getByTestId('branch-picker-confirm'))
 
     fireEvent.press(getByLabelText('Go back'))
-    const calls = (mockReplace as jest.Mock).mock.calls
+    // Wave 6.3 — handleBack uses router.navigate.  picker confirm
+    // also fires router.replace (independent code path); we filter
+    // to the merchant-target navigate calls only.
+    const calls = (mockNavigate as jest.Mock).mock.calls
     expect(calls.every(([url]) => !String(url).includes('branchChanged'))).toBe(true)
   })
 })

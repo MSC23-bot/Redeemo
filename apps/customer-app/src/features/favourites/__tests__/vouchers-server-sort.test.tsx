@@ -45,6 +45,10 @@ jest.mock('../hooks/useRemoveFavourite', () => ({
 jest.mock('expo-router', () => ({
   useRouter:            () => mockUseRouter(),
   useLocalSearchParams: () => mockUseLocalSearchParams(),
+  // Wave 6.3 (2026-05-30) — FavouritesScreen uses useFocusEffect
+  // for blur-time flushPending wiring.  No-op mock keeps this
+  // sort-invariant test focused on its assertion.
+  useFocusEffect:       jest.fn(),
 }))
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),

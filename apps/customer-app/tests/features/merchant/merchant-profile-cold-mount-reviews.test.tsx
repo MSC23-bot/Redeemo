@@ -178,9 +178,16 @@ jest.mock('expo-router', () => {
   const React = require('react')
   return {
     router: {
-      back:    jest.fn(),
-      push:    jest.fn(),
-      replace: jest.fn((input: any) => mockApplyRouterReplace(input)),
+      back:       jest.fn(),
+      push:       jest.fn(),
+      replace:    jest.fn((input: any) => mockApplyRouterReplace(input)),
+      // Wave 6.3 (2026-05-30) — HeroSection.onBack uses
+      // router.navigate (NOT push/replace) per the POP_TO_TOP
+      // regression fix.  Stub provided so the scrub-path tests below
+      // continue to assert ONLY on the openWriteReview / branchChanged
+      // rebuilds (which use router.replace).
+      navigate:   jest.fn(),
+      dismissAll: jest.fn(),
     },
     useLocalSearchParams: () => {
       // Subscribe to mockParams changes so the consumer re-renders

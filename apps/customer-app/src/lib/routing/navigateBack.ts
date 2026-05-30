@@ -1,42 +1,48 @@
 /**
- * Phase 3C.1g Device-QA R1 Wave 6.2 (2026-05-30) — back-navigation
- * helper that survives expo-router's tab reconciliation.
+ * Phase 3C.1g Device-QA R1 Wave 6.3 (2026-05-30) — back-navigation
+ * helper that activates the target tab cleanly under expo-router 6's
+ * Tabs navigator.
  *
- * Owner-reported symptom: after deep nested navigation
- * (Favourites > Merchant Profile > Voucher Detail > Merchant
- * Profile), tapping Back on the inner Merchant Profile sometimes
- * landed on the correct surface (Favourites) for ~5 seconds, then
- * auto-redirected to Home with no user input.  On the SECOND
- * attempt the auto-redirect was instant.
+ * Owner-reported symptom history:
+ *   - Wave 6 (router.push) → "lands on Favourites for ~5s then auto-
+ *     redirects to Home".  Root cause: push added a new entry on top
+ *     of the active tab, expo-router reconciled the bogus "Tab.Screen
+ *     pushed onto a Tabs root" entry and popped back to the default
+ *     active tab.
+ *   - Wave 6.2 (router.dismissAll + router.replace) → LogBox console
+ *     error "The action 'POP_TO_TOP' was not handled by any
+ *     navigator. Is there any screen to go back to?".  Root cause:
+ *     dismissAll dispatches POP_TO_TOP, which is a Stack-only action.
+ *     Our (app) layout is `<Tabs>` with all routes as direct
+ *     `Tabs.Screen` siblings (merchant/[id], voucher/[id], etc. are
+ *     hidden tabs via `href: null`).  There is NO inner Stack to pop
+ *     — POP_TO_TOP has no handler and React Navigation logs the
+ *     warning.  The subsequent `router.replace` ran but the tab
+ *     activation still drifted to Home in some cases.
  *
- * Root cause: `router.push(target)` for a TAB destination (e.g.
- * `/(app)/favourites`) on a deep stack pushed the tab URL ONTO the
- * existing stack instead of activating the underlying tab.  Expo-
- * router then reconciled this bogus "tab inside stack" entry and
- * popped back to the default active tab (Home) after a delay.  The
- * shallow case (Favourites > MP > Back) avoided the symptom only
- * because the stack was small enough to reconcile cleanly.
+ * Wave 6.3 fix — `router.navigate(href)`:
  *
- * Fix pattern:
- *   1. `router.dismissAll()` — pops every screen pushed on top of
- *      the tab base.  Safe no-op when no pushed entries exist.
- *   2. `router.replace(target)` — swaps the now-base tab entry's
- *      URL with the destination, preserving any query params
- *      (`?from=…`, `?q=…`, `?tab=vouchers`, etc.).
+ *   - For a registered Tabs.Screen target (any /(app)/<segment>),
+ *     navigate dispatches a Tab.Navigate action.  This is the
+ *     expo-router 6 recommended programmatic cross-tab API.
+ *   - Smart algorithm: if the target is already in the navigation
+ *     history (e.g. user came from Favourites tab earlier), pop
+ *     back to it cleanly.  Otherwise push a fresh entry.
+ *   - Does NOT dispatch POP_TO_TOP — no LogBox warning.
+ *   - Preserves the target URL's query params (`?from=…`, `?q=…`,
+ *     `?tab=vouchers`, etc.) — same as replace's behaviour.
  *
- * Both APIs are expo-router 6 standard.  Used by:
+ * Used by:
  *   - `MerchantProfileScreen` HeroSection onBack (Favourites /
  *     Search / Map / Home / Category back chains).
  *   - `VoucherDetailScreen` handleBack (Favourites direct chain +
- *     merchant chain — same dismissAll+replace pair).
+ *     merchant chain).
  */
 
 type MinRouter = {
-  dismissAll: () => void
-  replace:    (href: never) => void
+  navigate: (href: never) => void
 }
 
 export function navigateBackTo(router: MinRouter, target: string): void {
-  router.dismissAll()
-  router.replace(target as never)
+  router.navigate(target as never)
 }

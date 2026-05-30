@@ -33,10 +33,23 @@ jest.mock('../hooks/useFavouriteVouchers', () => ({
 jest.mock('../hooks/useRemoveFavourite', () => ({
   useRemoveFavourite: (...args: unknown[]) => mockUseRemoveFavourite(...args),
 }))
-jest.mock('expo-router', () => ({
-  useRouter:            () => ({ push: mockPush, setParams: mockSetParams, replace: jest.fn(), back: jest.fn() }),
-  useLocalSearchParams: () => mockUseLocalSearchParams(),
-}))
+jest.mock('expo-router', () => {
+  // Inline `require('react')` so the mock factory has no out-of-scope
+  // identifier complaints from jest's hoist-safety rule.
+  const ReactInner = require('react') as typeof import('react')
+  return {
+    useRouter:            () => ({ push: mockPush, setParams: mockSetParams, replace: jest.fn(), back: jest.fn(), navigate: jest.fn() }),
+    useLocalSearchParams: () => mockUseLocalSearchParams(),
+    // Wave 6.3 (2026-05-30) — FavouritesScreen calls
+    // useFocusEffect to wire blur-time flush of pending DELETEs.
+    // Mock fires the effect synchronously on mount + invokes the
+    // returned cleanup on unmount (mirrors production focus/blur
+    // semantics for jest).
+    useFocusEffect: (cb: () => undefined | (() => void)) => {
+      ReactInner.useEffect(() => cb(), [cb])
+    },
+  }
+})
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
 }))
@@ -123,7 +136,14 @@ function mountWithData({
     hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
   })
   mockUseRemoveFavourite.mockReturnValue({
-    remove: jest.fn(), undo: jest.fn(), isPending: false, error: null, clearError: jest.fn(),
+    remove: jest.fn(),
+    undo: jest.fn(),
+    // Wave 6.3 (2026-05-30) — FavouritesScreen useFocusEffect
+    // cleanup calls flushPending() on both branches + vouchers
+    // hooks.  Mock returns a resolved Promise so the cleanup
+    // doesn't dangle.
+    flushPending: jest.fn(() => Promise.resolve()),
+    isPending: false, error: null, clearError: jest.fn(),
   })
   mockUseLocalSearchParams.mockReturnValue({ tab })
 
@@ -218,5 +238,49 @@ describe('FavouritesScreen — row tap routing (locked branch-attribution per sp
     })
     fireEvent.press(getByTestId('voucher-card-v-7'))
     expect(mockPush).toHaveBeenCalledWith('/(app)/voucher/v-7?from=favourites')
+  })
+})
+
+// ── §W6.3 (2026-05-30) — blur-time flushPending wiring ───────────────
+//
+// Owner-reported symptom: user removes the last favourited merchant +
+// immediately taps "Discover merchants" → Home shows the still-
+// favourited heart because the 4s undo-window timer hasn't fired yet.
+// Fix: FavouritesScreen calls `useRemoveFavourite.flushPending()` on
+// useFocusEffect cleanup so blur (navigation away from the screen)
+// deterministically flushes any pending DELETEs.
+describe('FavouritesScreen — §W6.3 flushPending on blur', () => {
+  it('calls flushPending on BOTH branches + vouchers hooks when the screen unmounts (blur)', () => {
+    const flushBranches = jest.fn(() => Promise.resolve())
+    const flushVouchers = jest.fn(() => Promise.resolve())
+    // useRemoveFavourite is called with 'branch' first, then 'voucher'
+    // in FavouritesScreen.  We can't trivially branch the mock by
+    // call args without more harness, so we make the mock return
+    // different stubs in call order.
+    let call = 0
+    mockUseRemoveFavourite.mockImplementation(() => {
+      call += 1
+      const flush = call === 1 ? flushBranches : flushVouchers
+      return { remove: jest.fn(), undo: jest.fn(), flushPending: flush, isPending: false, error: null, clearError: jest.fn() }
+    })
+    mockUseFavouriteBranches.mockReturnValue({
+      data: { pages: [{ items: [], total: 0, page: 1, limit: 20 }] },
+      isLoading: false, isRefetching: false, isFetchingNextPage: false,
+      hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
+    })
+    mockUseFavouriteVouchers.mockReturnValue({
+      data: { pages: [{ items: [], total: 0, page: 1, limit: 20 }] },
+      isLoading: false, isRefetching: false, isFetchingNextPage: false,
+      hasNextPage: false, fetchNextPage: jest.fn(), refetch: jest.fn(),
+    })
+    mockUseLocalSearchParams.mockReturnValue({ tab: 'places' })
+
+    const { unmount } = render(<FavouritesScreen />)
+    // Trigger blur — in our mocked useFocusEffect, the cleanup fires
+    // on unmount.
+    unmount()
+
+    expect(flushBranches).toHaveBeenCalledTimes(1)
+    expect(flushVouchers).toHaveBeenCalledTimes(1)
   })
 })

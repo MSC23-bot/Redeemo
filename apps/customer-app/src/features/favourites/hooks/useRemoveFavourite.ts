@@ -37,6 +37,10 @@ interface FavouriteRowLike { id: string }
 
 interface PendingRemoval<T extends FavouriteRowLike> {
   row:        T
+  // Wave 6.3 — `rowId` cached on the pending record so flushPending
+  // can re-invoke the DELETE without re-reading `row.id` from a
+  // potentially-stale outer closure.
+  rowId:      string
   pageIndex:  number
   rowIndex:   number
   timer:      ReturnType<typeof setTimeout>
@@ -47,6 +51,23 @@ export interface UseRemoveFavouriteReturn<T extends FavouriteRowLike> {
   remove:    (row: T) => void
   /** Cancel the pending DELETE + restore the row to its original index. */
   undo:      () => void
+  /**
+   * Wave 6.3 (2026-05-30) — fire the pending DELETE immediately
+   * (clearing its 4s undo-window timer) and return a Promise that
+   * resolves once invalidation has fired.  Callers use this when
+   * the screen is about to lose focus / unmount so the backend
+   * mutation + cross-surface cache invalidation reach the rest of
+   * the app before the user lands on another tab.
+   *
+   * Owner-reported symptom (pre-Wave-6.3): user removes the last
+   * favourited merchant + immediately taps "Discover merchants" →
+   * Home tab shows the still-favourited heart because the 4s timer
+   * hasn't fired yet, so the DELETE hasn't been issued and the
+   * discovery cache hasn't been invalidated.
+   *
+   * Safe no-op when no removal is pending.
+   */
+  flushPending: () => Promise<void>
   /** True while a removal is pending (between `remove()` and timeout fire / undo). */
   isPending: boolean
   /** Last DELETE error (rolled-back removal).  Null when no error pending. */
@@ -107,6 +128,48 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
 
   const clearError = useCallback(() => setError(null), [])
 
+  // Wave 6.3 — fire-the-DELETE body extracted so both `setTimeout`
+  // (4s undo-window expiry) AND `flushPending()` (caller-driven
+  // immediate fire) share one implementation.
+  const fireDeleteFor = useCallback(async (
+    rowId: string,
+    spliced: { pageIndex: number; rowIndex: number; row: T },
+  ): Promise<void> => {
+    try {
+      if (entity === 'branch')  await favouritesApi.removeBranch(rowId)
+      else                       await favouritesApi.removeVoucher(rowId)
+      // Backend confirmed the removal.  Reconcile the favourites
+      // list (the source of truth for the Favourites tab) PLUS
+      // every cross-surface cache that renders an isFavourited
+      // flag for this entity so the heart state aligns on next
+      // focus.
+      //
+      // Phase 3C.1g Device-QA R1 Wave 3 (2026-05-30) — finding
+      // #15 (Merchant Profile voucher card heart stale after
+      // Favourites > Vouchers removal) + #14 (Home rail heart
+      // stale after Favourites > Merchants removal).  Same broad
+      // prefix invalidation pattern as `useFavourite` so the
+      // round-trip is symmetric: add anywhere → see everywhere,
+      // remove anywhere → see everywhere.
+      //
+      // Wave 4 #21 (2026-05-30): added ['voucher'] so removing a
+      // voucher from Favourites also flips the cached Voucher
+      // Detail isFavourited flag.  Mirrors `useFavourite`'s broad
+      // invalidations exactly.
+      queryClient.invalidateQueries({ queryKey })
+      queryClient.invalidateQueries({ queryKey: ['merchantProfile'] })
+      queryClient.invalidateQueries({ queryKey: ['discovery'] })
+      queryClient.invalidateQueries({ queryKey: ['voucher'] })
+    } catch (err) {
+      // DELETE failed — roll back the cache splice + surface the error.
+      restore(spliced.pageIndex, spliced.rowIndex, spliced.row)
+      setError(err)
+    } finally {
+      pending.current = null
+      setIsPending(false)
+    }
+  }, [entity, queryClient, queryKey])
+
   const remove = useCallback((row: T) => {
     // Splice optimistically.  Bail out if the row isn't found in the
     // cache (defensive — e.g. cache was refetched mid-swipe).
@@ -116,44 +179,14 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
     setIsPending(true)
     setError(null)
 
-    const timer = setTimeout(async () => {
-      try {
-        if (entity === 'branch')  await favouritesApi.removeBranch(row.id)
-        else                       await favouritesApi.removeVoucher(row.id)
-        // Backend confirmed the removal.  Reconcile the favourites
-        // list (the source of truth for the Favourites tab) PLUS
-        // every cross-surface cache that renders an isFavourited
-        // flag for this entity so the heart state aligns on next
-        // focus.
-        //
-        // Phase 3C.1g Device-QA R1 Wave 3 (2026-05-30) — finding
-        // #15 (Merchant Profile voucher card heart stale after
-        // Favourites > Vouchers removal) + #14 (Home rail heart
-        // stale after Favourites > Merchants removal).  Same broad
-        // prefix invalidation pattern as `useFavourite` so the
-        // round-trip is symmetric: add anywhere → see everywhere,
-        // remove anywhere → see everywhere.
-        //
-        // Wave 4 #21 (2026-05-30): added ['voucher'] so removing a
-        // voucher from Favourites also flips the cached Voucher
-        // Detail isFavourited flag.  Mirrors `useFavourite`'s broad
-        // invalidations exactly.
-        queryClient.invalidateQueries({ queryKey })
-        queryClient.invalidateQueries({ queryKey: ['merchantProfile'] })
-        queryClient.invalidateQueries({ queryKey: ['discovery'] })
-        queryClient.invalidateQueries({ queryKey: ['voucher'] })
-      } catch (err) {
-        // DELETE failed — roll back the cache splice + surface the error.
-        restore(spliced.pageIndex, spliced.rowIndex, spliced.row)
-        setError(err)
-      } finally {
-        pending.current = null
-        setIsPending(false)
-      }
+    const timer = setTimeout(() => {
+      // Drop the unhandled-promise; `fireDeleteFor`'s own finally
+      // block handles rollback + state.
+      void fireDeleteFor(row.id, spliced)
     }, UNDO_WINDOW_MS)
 
-    pending.current = { ...spliced, timer }
-  }, [entity, queryClient, queryKey])
+    pending.current = { ...spliced, timer, rowId: row.id }
+  }, [fireDeleteFor])
 
   const undo = useCallback(() => {
     const p = pending.current
@@ -164,5 +197,16 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
     setIsPending(false)
   }, [])
 
-  return { remove, undo, isPending, error, clearError }
+  const flushPending = useCallback(async (): Promise<void> => {
+    const p = pending.current
+    if (!p) return
+    // Cancel the 4s timer + fire the DELETE immediately.  Caller
+    // (typically `FavouritesScreen` useFocusEffect cleanup) awaits
+    // so the invalidate fires before the user lands on the next
+    // tab.
+    clearTimeout(p.timer)
+    await fireDeleteFor(p.rowId, { pageIndex: p.pageIndex, rowIndex: p.rowIndex, row: p.row })
+  }, [fireDeleteFor])
+
+  return { remove, undo, flushPending, isPending, error, clearError }
 }
