@@ -502,8 +502,16 @@ export async function listFavouriteBranches(
 
     const activeVouchers      = m.vouchers
     const voucherCount        = activeVouchers.length
-    const maxEstimatedSaving  = activeVouchers.length > 0
-      ? Math.max(...activeVouchers.map(v => Number(v.estimatedSaving)))
+    const savings             = activeVouchers.map(v => Number(v.estimatedSaving)).filter(n => !isNaN(n))
+    const maxEstimatedSaving  = savings.length > 0 ? Math.max(...savings) : 0
+    // Wave 4 #3 (locked 2026-05-30) — additive `totalEstimatedSaving`
+    // matches the Search / BranchTile semantics: "Save £X across N
+    // vouchers" (sum of all active voucher estimatedSavings).  Same
+    // float-arith-drift guard as `enrichBranchTile` — round to whole
+    // pence.  `maxEstimatedSaving` stays unchanged so any other
+    // consumer of the favourites payload reads the same value.
+    const totalEstimatedSaving = savings.length > 0
+      ? Math.round(savings.reduce((a, b) => a + b, 0) * 100) / 100
       : 0
 
     const rb = ratingByBranch[b.id]
@@ -540,6 +548,7 @@ export async function listFavouriteBranches(
       // Aggregates.
       voucherCount,
       maxEstimatedSaving,
+      totalEstimatedSaving,
       avgRating,
       reviewCount,
       isOpen,

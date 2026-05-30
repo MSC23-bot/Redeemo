@@ -1783,6 +1783,7 @@ export async function getHomeFeed(
   const [featuredRail, trendingRail, nbcRails] = await Promise.all([
     buildFeaturedRail(
       prisma,
+      userId,
       homeV2EffLoc,
       'MIXED_NORMAL',
       {
@@ -1795,6 +1796,7 @@ export async function getHomeFeed(
     homeV2EffLoc
       ? buildTrendingRail(
           prisma,
+          userId,
           homeV2EffLoc,
           'MIXED_NORMAL',
           {
@@ -1807,6 +1809,7 @@ export async function getHomeFeed(
     homeV2EffLoc
       ? buildNearbyByCategoryRails(
           prisma,
+          userId,
           homeV2EffLoc,
           'MIXED_NORMAL',
           {
@@ -1825,7 +1828,7 @@ export async function getHomeFeed(
   // location.  When Trending fired, Popular stays silent — the
   // mutual-exclusion contract guarantees they never both populate.
   const popularRail: HomeRail = (trendingRail.meta === null || !homeV2EffLoc)
-    ? await buildPopularRail(prisma, homeV2EffLoc, 'MIXED_NORMAL')
+    ? await buildPopularRail(prisma, userId, homeV2EffLoc, 'MIXED_NORMAL')
     : { branches: [], meta: null }
 
   // Defensive server-side invariant — should be unreachable given the

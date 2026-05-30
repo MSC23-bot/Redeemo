@@ -31,6 +31,9 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
 import { color, elevation, radius, spacing } from '@/design-system/tokens'
 import { Star, Trash2 } from '@/design-system/icons'
+import { haversineMetres } from '@/design-system/utils/haversine'
+import { formatDistance } from '@/design-system/utils/formatters'
+import { useUserLocation } from '@/hooks/useLocation'
 import type { FavouriteBranchItem } from '@/lib/api/favourites'
 
 interface Props {
@@ -54,13 +57,30 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
     city,
     postcode,
     addressLine1,
+    latitude,
+    longitude,
     isOpen,
     isUnavailable,
     voucherCount,
     maxEstimatedSaving,
+    totalEstimatedSaving,
     avgRating,
     reviewCount,
   } = row
+
+  // Wave 4 #4 (2026-05-30) — client-side distance using the existing
+  // `useUserLocation` + the lat/lng on the favourites payload.  No
+  // backend change required; lat/lng is already redacted on
+  // POSTCODE_CENTROID branches so `haversineMetres` returns null and
+  // the distance pill is suppressed automatically.
+  const { location } = useUserLocation()
+  const distanceMetres = haversineMetres(
+    location?.lat,
+    location?.lng,
+    latitude,
+    longitude,
+  )
+  const distanceLabel = formatDistance(distanceMetres)
 
   const statusLabel = isUnavailable
     ? 'Unavailable'
@@ -84,10 +104,22 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
   const cuisineOrCategory = merchant.primaryCategory?.name ?? null
   const areaLine = [city, postcode].filter(Boolean).join(', ')
 
-  // Smart £ format — whole pounds drop the trailing .00 so the chip
-  // reads as "Save up to £25" not "Save up to £25.00".
-  const savingLabel = maxEstimatedSaving > 0
-    ? `Save up to £${Number.isInteger(maxEstimatedSaving) ? maxEstimatedSaving : maxEstimatedSaving.toFixed(2)}`
+  // Wave 4 #3 (locked 2026-05-30) — Save semantics aligned with
+  // Search/BranchTile: copy is "Save £X across N vouchers" using
+  // `totalEstimatedSaving` (sum of all active voucher savings).
+  // `maxEstimatedSaving` is preserved on the payload but no longer
+  // drives the visible chip — it was misleading on multi-voucher
+  // merchants (Covelum's 6 vouchers totaled £38.50 but the chip
+  // showed only £8.50).  Smart £ format — whole pounds drop the
+  // trailing .00.
+  const savingEffective = totalEstimatedSaving > 0 ? totalEstimatedSaving : maxEstimatedSaving
+  const savingFormatted = savingEffective > 0
+    ? `£${Number.isInteger(savingEffective) ? savingEffective : savingEffective.toFixed(2)}`
+    : null
+  const savingLabel = savingFormatted !== null
+    ? voucherCount > 1
+      ? `Save ${savingFormatted} across ${voucherCount} vouchers`
+      : `Save ${savingFormatted}`
     : null
 
   return (
@@ -174,13 +206,30 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
           <Text variant="label.md" style={[styles.statusPill, statusStyle]}>
             {statusLabel}
           </Text>
+          {/* Wave 4 #4 — distance pill (client-computed via haversine).
+              Suppressed when lat/lng are missing on either side OR when
+              the branch's position was redacted upstream
+              (POSTCODE_CENTROID etc.). */}
+          {distanceLabel && (
+            <Text
+              variant="label.md"
+              style={[styles.statusPill, styles.distancePill]}
+              testID={testID ? `${testID}-distance-pill` : 'branch-fav-card-distance-pill'}
+            >
+              {distanceLabel}
+            </Text>
+          )}
           {voucherCount > 0 && (
             <Text variant="label.md" style={[styles.statusPill, styles.voucherCountPill]}>
               {voucherCount} {voucherCount === 1 ? 'voucher' : 'vouchers'}
             </Text>
           )}
           {savingLabel && (
-            <Text variant="label.md" style={[styles.statusPill, styles.savingPill]}>
+            <Text
+              variant="label.md"
+              style={[styles.statusPill, styles.savingPill]}
+              testID={testID ? `${testID}-saving-pill` : 'branch-fav-card-saving-pill'}
+            >
               {savingLabel}
             </Text>
           )}
@@ -318,5 +367,9 @@ const styles = StyleSheet.create({
   savingPill: {
     backgroundColor: '#DCFCE7',
     color:           color.savingsGreen,
+  },
+  distancePill: {
+    backgroundColor: color.surface.subtle,
+    color:           color.text.secondary,
   },
 })

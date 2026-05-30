@@ -22,6 +22,18 @@ import { render, fireEvent } from '@testing-library/react-native'
 import { BranchFavCard } from '../components/BranchFavCard'
 import type { FavouriteBranchItem } from '@/lib/api/favourites'
 
+// Wave 4 #4 (2026-05-30) — distance is computed client-side via
+// `useUserLocation`.  Mock the hook so tests can exercise the
+// has-location and no-location branches deterministically.
+jest.mock('@/hooks/useLocation', () => ({
+  useUserLocation: jest.fn(),
+}))
+import { useUserLocation } from '@/hooks/useLocation'
+const mockUseUserLocation = useUserLocation as jest.MockedFunction<typeof useUserLocation>
+beforeEach(() => {
+  mockUseUserLocation.mockReturnValue({ location: null } as ReturnType<typeof useUserLocation>)
+})
+
 function makeRow(overrides: Partial<FavouriteBranchItem> = {}): FavouriteBranchItem {
   const base: FavouriteBranchItem = {
     id:                 'br-1',
@@ -43,13 +55,14 @@ function makeRow(overrides: Partial<FavouriteBranchItem> = {}): FavouriteBranchI
       status:          'ACTIVE',
       primaryCategory: { id: 'cat-1', name: 'Gym' },
     },
-    voucherCount:       3,
-    maxEstimatedSaving: 25,
-    avgRating:          4.2,
-    reviewCount:        17,
-    isOpen:             true,
-    isUnavailable:      false,
-    favouritedAt:       '2026-05-29T10:00:00.000Z',
+    voucherCount:        3,
+    maxEstimatedSaving:  25,
+    totalEstimatedSaving: 38.5,
+    avgRating:           4.2,
+    reviewCount:         17,
+    isOpen:              true,
+    isUnavailable:       false,
+    favouritedAt:        '2026-05-29T10:00:00.000Z',
   }
   return { ...base, ...overrides }
 }
@@ -149,25 +162,60 @@ describe('BranchFavCard — pills (Wave 3 §20)', () => {
     expect(queryByText(/voucher/)).toBeNull()
   })
 
-  it('renders the "Save up to £X" pill when maxEstimatedSaving > 0 (whole pounds drop .00)', () => {
+  // ── Wave 4 #3 — Save semantics aligned with Search/BranchTile ────────
+  it('Wave 4 #3 — renders "Save £X across N vouchers" when totalEstimatedSaving > 0 and voucherCount > 1', () => {
     const { getByText } = render(
-      <BranchFavCard row={makeRow({ maxEstimatedSaving: 25 })} onPress={jest.fn()} testID="card" />
+      <BranchFavCard
+        row={makeRow({ totalEstimatedSaving: 38.5, maxEstimatedSaving: 8.5, voucherCount: 6 })}
+        onPress={jest.fn()}
+        testID="card"
+      />
     )
-    expect(getByText('Save up to £25')).toBeTruthy()
+    expect(getByText('Save £38.50 across 6 vouchers')).toBeTruthy()
   })
 
-  it('renders pennies on the saving pill when not whole pounds', () => {
+  it('Wave 4 #3 — single-voucher branch reads "Save £X" without the "across" suffix', () => {
     const { getByText } = render(
-      <BranchFavCard row={makeRow({ maxEstimatedSaving: 12.5 })} onPress={jest.fn()} testID="card" />
+      <BranchFavCard
+        row={makeRow({ totalEstimatedSaving: 5, maxEstimatedSaving: 5, voucherCount: 1 })}
+        onPress={jest.fn()}
+        testID="card"
+      />
     )
-    expect(getByText('Save up to £12.50')).toBeTruthy()
+    expect(getByText('Save £5')).toBeTruthy()
   })
 
-  it('omits the saving pill when maxEstimatedSaving === 0', () => {
+  it('Wave 4 #3 — whole pounds drop the trailing .00', () => {
+    const { getByText } = render(
+      <BranchFavCard
+        row={makeRow({ totalEstimatedSaving: 25, maxEstimatedSaving: 25, voucherCount: 3 })}
+        onPress={jest.fn()}
+        testID="card"
+      />
+    )
+    expect(getByText('Save £25 across 3 vouchers')).toBeTruthy()
+  })
+
+  it('Wave 4 #3 — falls back to maxEstimatedSaving when totalEstimatedSaving is 0 (pre-Wave-4 cached payloads)', () => {
+    const { getByText } = render(
+      <BranchFavCard
+        row={makeRow({ totalEstimatedSaving: 0, maxEstimatedSaving: 12.5, voucherCount: 1 })}
+        onPress={jest.fn()}
+        testID="card"
+      />
+    )
+    expect(getByText('Save £12.50')).toBeTruthy()
+  })
+
+  it('omits the saving pill when both totalEstimatedSaving and maxEstimatedSaving are 0', () => {
     const { queryByText } = render(
-      <BranchFavCard row={makeRow({ maxEstimatedSaving: 0 })} onPress={jest.fn()} testID="card" />
+      <BranchFavCard
+        row={makeRow({ totalEstimatedSaving: 0, maxEstimatedSaving: 0 })}
+        onPress={jest.fn()}
+        testID="card"
+      />
     )
-    expect(queryByText(/Save up to/)).toBeNull()
+    expect(queryByText(/Save/)).toBeNull()
   })
 
   it('renders rating chip when avgRating + reviewCount > 0 are both present', () => {
@@ -182,6 +230,49 @@ describe('BranchFavCard — pills (Wave 3 §20)', () => {
       <BranchFavCard row={makeRow({ avgRating: null, reviewCount: 0 })} onPress={jest.fn()} testID="card" />
     )
     expect(queryByText(/\(\d+\)/)).toBeNull()
+  })
+})
+
+// ── Wave 4 #4 — distance pill (client-side haversine) ─────────────────
+describe('BranchFavCard — Wave 4 #4 distance pill', () => {
+  it('renders the distance pill when useUserLocation has coords AND the branch has lat/lng', () => {
+    mockUseUserLocation.mockReturnValue({
+      location: { lat: 51.5, lng: -0.1 },
+    } as ReturnType<typeof useUserLocation>)
+    const { getByTestId } = render(
+      <BranchFavCard
+        row={makeRow({ latitude: 51.6, longitude: -0.2 })}
+        onPress={jest.fn()}
+        testID="card"
+      />
+    )
+    expect(getByTestId('card-distance-pill')).toBeTruthy()
+  })
+
+  it('omits the distance pill when useUserLocation has no coords (GPS off)', () => {
+    mockUseUserLocation.mockReturnValue({ location: null } as ReturnType<typeof useUserLocation>)
+    const { queryByTestId } = render(
+      <BranchFavCard
+        row={makeRow({ latitude: 51.6, longitude: -0.2 })}
+        onPress={jest.fn()}
+        testID="card"
+      />
+    )
+    expect(queryByTestId('card-distance-pill')).toBeNull()
+  })
+
+  it('omits the distance pill when the branch lat/lng are null (POSTCODE_CENTROID redaction)', () => {
+    mockUseUserLocation.mockReturnValue({
+      location: { lat: 51.5, lng: -0.1 },
+    } as ReturnType<typeof useUserLocation>)
+    const { queryByTestId } = render(
+      <BranchFavCard
+        row={makeRow({ latitude: null, longitude: null })}
+        onPress={jest.fn()}
+        testID="card"
+      />
+    )
+    expect(queryByTestId('card-distance-pill')).toBeNull()
   })
 })
 

@@ -133,9 +133,15 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
         // prefix invalidation pattern as `useFavourite` so the
         // round-trip is symmetric: add anywhere → see everywhere,
         // remove anywhere → see everywhere.
+        //
+        // Wave 4 #21 (2026-05-30): added ['voucher'] so removing a
+        // voucher from Favourites also flips the cached Voucher
+        // Detail isFavourited flag.  Mirrors `useFavourite`'s broad
+        // invalidations exactly.
         queryClient.invalidateQueries({ queryKey })
         queryClient.invalidateQueries({ queryKey: ['merchantProfile'] })
         queryClient.invalidateQueries({ queryKey: ['discovery'] })
+        queryClient.invalidateQueries({ queryKey: ['voucher'] })
       } catch (err) {
         // DELETE failed — roll back the cache splice + surface the error.
         restore(spliced.pageIndex, spliced.rowIndex, spliced.row)

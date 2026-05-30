@@ -97,9 +97,21 @@ export function useFavourite({
   const [isFavourited, setIsFavourited] = useState(initialIsFavourited)
   const queryClient = useQueryClient()
 
+  // Device-QA R1 Wave 4 (2026-05-30) — defensive sync hardening per
+  // owner direction.  The effect deps are now `[type, id,
+  // initialIsFavourited]` (was only `[initialIsFavourited]`) so a
+  // mounted hook whose parent SWAPS the identity (e.g. swiping
+  // between voucher cards on Merchant Profile that reuse the same
+  // FavouriteHeart instance position) re-seeds local state from the
+  // NEW server-emitted value instead of carrying the prior entity's
+  // optimistic flip.  The single-prop variant covered the steady-
+  // state refetch case correctly; the broadened deps close the
+  // identity-swap edge case as well.  (Owner referred to this prop
+  // as `entity` — it's destructured here as `type` per the existing
+  // UseFavouriteOptions shape; same value, the discriminator.)
   useEffect(() => {
     setIsFavourited(initialIsFavourited)
-  }, [initialIsFavourited])
+  }, [type, id, initialIsFavourited])
 
   const endpoint = `/api/v1/customer/favourites/${PATH_SEGMENT[type]}/${id}`
 
@@ -128,8 +140,18 @@ export function useFavourite({
     //   voucher cards in sync without requiring each caller to pass
     //   a contextualQueryKey (defence-in-depth on top of the
     //   explicit per-surface key).
+    //
+    // - ['voucher'] (Wave 4 #21 — locked 2026-05-30) prefix-matches
+    //   every voucher-detail cache entry (['voucher', voucherId]).
+    //   Without it, Voucher Detail stays stale after a heart flip
+    //   that originated elsewhere (e.g. user favourites a voucher on
+    //   Voucher Detail, returns to Merchant Profile, unfavourites the
+    //   voucher card heart; next tap to re-open Voucher Detail still
+    //   reads the cached payload with isFavourited=true).  Owner
+    //   device-QA scenario verbatim — confirms the systemic audit.
     queryClient.invalidateQueries({ queryKey: ['discovery'] })
     queryClient.invalidateQueries({ queryKey: ['merchantProfile'] })
+    queryClient.invalidateQueries({ queryKey: ['voucher'] })
   }
 
   const addMutation = useMutation({

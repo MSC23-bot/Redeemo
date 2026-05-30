@@ -354,5 +354,152 @@ describe('useFavourite', () => {
 
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['discovery'] })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  // ── §R6 Wave 4 #21 (2026-05-30) — ['voucher'] prefix invalidation ────
+  //
+  // Owner device-QA scenario: favourite a voucher from Voucher Detail,
+  // return to Merchant Profile (heart filled there), unfavourite from
+  // the voucher card heart, re-open Voucher Detail.  Pre-Wave-4 the
+  // Voucher Detail cache (['voucher', voucherId]) stayed stale and
+  // showed the filled heart again.  After Wave 4 every
+  // useFavourite success / silent-reconcile path invalidates the
+  // ['voucher'] prefix so the next refetch lands with the correct
+  // server-side isFavourited.
+  it('§R6 — voucher add success invalidates [\'voucher\'] prefix', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'voucher', id: 'v1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  it('§R6 — voucher remove success invalidates [\'voucher\'] prefix', async () => {
+    ;(api.del as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'voucher', id: 'v1', initialIsFavourited: true }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  it('§R6 — branch toggle ALSO invalidates [\'voucher\'] prefix (defence-in-depth — symmetric round-trip)', async () => {
+    // Owner's audit requires that a branch flip propagates through
+    // every cache that might surface a voucher heart (e.g. Voucher
+    // Detail's payload-embedded merchant heart, if any future surface
+    // joins the voucher and the merchant heart state).  Cheap to
+    // invalidate broadly; cheaper than diagnosing another stale-state
+    // bug later.
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  // ── §R7 Wave 4 (2026-05-30) — initialIsFavourited prop-sync ──────────
+  //
+  // Owner direction (Wave 4 #1, #2, #21): when a parent refetches and
+  // re-renders FavouriteHeart with a NEW initialIsFavourited, the
+  // hook's local state MUST sync to that new value.  This protects
+  // every cross-surface scenario (Home rail refetch after Merchant
+  // Profile favourite; Voucher Detail re-mount after Merchant Profile
+  // unfavourite; etc.).  Pin the false→true direction, the true→false
+  // direction, AND the load-bearing "mid-optimistic-flip without prop
+  // change preserves the optimistic state" path so a routine parent
+  // re-render doesn't clobber an in-flight optimistic flip.
+
+  it('§R7 — rerender false→true syncs the hook state to true (after server refetch)', async () => {
+    const { result, rerender } = renderHook(
+      ({ initial }: { initial: boolean }) =>
+        useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: initial }),
+      { wrapper: wrap, initialProps: { initial: false } },
+    )
+    expect(result.current.isFavourited).toBe(false)
+    rerender({ initial: true })
+    await waitFor(() => expect(result.current.isFavourited).toBe(true))
+  })
+
+  it('§R7 — rerender true→false syncs the hook state to false (after server refetch)', async () => {
+    const { result, rerender } = renderHook(
+      ({ initial }: { initial: boolean }) =>
+        useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: initial }),
+      { wrapper: wrap, initialProps: { initial: true } },
+    )
+    expect(result.current.isFavourited).toBe(true)
+    rerender({ initial: false })
+    await waitFor(() => expect(result.current.isFavourited).toBe(false))
+  })
+
+  it('§R7 — entity OR id swap re-syncs from the new initialIsFavourited (identity-swap edge case)', async () => {
+    // Mount on entity=branch id=b1 with initialIsFavourited=true.
+    // Parent later swaps the mounted heart's identity to id=b2 with
+    // initialIsFavourited=false (e.g. card swiped within a horizontal
+    // rail that reuses the same FavouriteHeart instance position).
+    // The Wave-4 broadened deps [entity, id, initialIsFavourited]
+    // make the useEffect re-fire on the id change, re-seeding state
+    // from the new initial value.
+    const { result, rerender } = renderHook(
+      ({ id, initial }: { id: string; initial: boolean }) =>
+        useFavourite({ type: 'branch', id, initialIsFavourited: initial }),
+      { wrapper: wrap, initialProps: { id: 'b1', initial: true } },
+    )
+    expect(result.current.isFavourited).toBe(true)
+    rerender({ id: 'b2', initial: false })
+    await waitFor(() => expect(result.current.isFavourited).toBe(false))
+  })
+
+  it('§R7 — optimistic flip is NOT clobbered by a parent re-render with unchanged initialIsFavourited', async () => {
+    // Critical pin: mid-mutation, if the parent re-renders for any
+    // unrelated reason (e.g. sibling state change) with the SAME
+    // initialIsFavourited it had before, the useEffect must NOT fire
+    // (deps unchanged) and the optimistic state must hold until the
+    // mutation resolves or rejects.
+    let resolveAdd: () => void = () => {}
+    ;(api.post as jest.Mock).mockReturnValueOnce(new Promise<{ ok: true }>((res) => {
+      resolveAdd = () => res({ ok: true })
+    }))
+    const { result, rerender } = renderHook(
+      ({ initial }: { initial: boolean }) =>
+        useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: initial }),
+      { wrapper: wrap, initialProps: { initial: false } },
+    )
+
+    let togglePromise: Promise<void> = Promise.resolve()
+    act(() => {
+      togglePromise = result.current.toggle()
+    })
+    // Optimistic flip should have happened immediately.
+    expect(result.current.isFavourited).toBe(true)
+
+    // Parent re-renders with the SAME initial prop — useEffect deps
+    // unchanged → effect must NOT fire → optimistic state holds.
+    rerender({ initial: false })
+    expect(result.current.isFavourited).toBe(true)
+
+    // Resolve the in-flight mutation and drain the promise.
+    await act(async () => {
+      resolveAdd()
+      await togglePromise
+    })
+    expect(result.current.isFavourited).toBe(true)
   })
 })

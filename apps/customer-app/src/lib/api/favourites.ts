@@ -60,6 +60,13 @@ const favouriteBranchItemSchema = z.object({
   merchant:            favouriteBranchMerchantSchema,
   voucherCount:        z.number(),
   maxEstimatedSaving:  z.number(),
+  // Wave 4 #3 (added 2026-05-30) — additive total across all active
+  // vouchers.  Matches Search / BranchTile semantics so the
+  // Favourites > Merchants card can render "Save £X across N vouchers"
+  // instead of just the single-voucher max.
+  // `.optional().default(0)` for backward compat with cached responses
+  // from before this field landed.
+  totalEstimatedSaving: z.number().optional().default(0),
   avgRating:           z.number().nullable(),
   reviewCount:         z.number(),
   isOpen:              z.boolean(),

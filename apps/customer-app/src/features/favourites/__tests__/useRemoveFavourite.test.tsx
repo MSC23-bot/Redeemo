@@ -203,6 +203,39 @@ describe('useRemoveFavourite — timeout fires DELETE', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
   })
+
+  // ── §R6 Wave 4 #21 (2026-05-30) — ['voucher'] prefix invalidation ────
+  // Symmetric with `useFavourite` §R6: removing a voucher from the
+  // Favourites tab MUST also invalidate the ['voucher'] cache so the
+  // Voucher Detail surface refetches the correct isFavourited flag on
+  // next focus.
+  it('§R6 — after a successful voucher DELETE, also invalidates [\'voucher\'] prefix', async () => {
+    mockRemoveVoucher.mockResolvedValueOnce(undefined)
+    const { qc, Wrapper } = makeWrapper()
+    seedVouchers(qc, [{ id: 'v1' }])
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useRemoveFavourite<Row>('voucher'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'v1' }) })
+    await act(async () => { jest.advanceTimersByTime(4_000) })
+
+    await waitFor(() => expect(mockRemoveVoucher).toHaveBeenCalledWith('v1'))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  it('§R6 — after a successful branch DELETE, also invalidates [\'voucher\'] prefix (defence-in-depth)', async () => {
+    mockRemoveBranch.mockResolvedValueOnce(undefined)
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }])
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    await act(async () => { jest.advanceTimersByTime(4_000) })
+
+    await waitFor(() => expect(mockRemoveBranch).toHaveBeenCalledWith('a'))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
 })
 
 describe('useRemoveFavourite — DELETE error rollback', () => {

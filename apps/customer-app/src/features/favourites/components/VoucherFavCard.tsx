@@ -39,7 +39,7 @@
  */
 
 import React from 'react'
-import { Pressable, StyleSheet, View } from 'react-native'
+import { Image, Pressable, StyleSheet, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
 import { color, radius, elevation, spacing } from '@/design-system/tokens'
@@ -139,14 +139,46 @@ export function VoucherFavCard({ row, onPress, onRemove, testID }: Props): React
           )}
         </View>
 
-        {/* Body — title, merchant, saving */}
+        {/* Body — merchant row (logo + name), title, optional
+            description, saving.  Wave 4 #6 (2026-05-30) added the
+            merchant logo + description block so the card surfaces
+            every field the owner-locked content list calls for. */}
         <View style={styles.body}>
+          <View style={styles.merchantRow}>
+            {row.merchant.logoUrl ? (
+              <Image
+                source={{ uri: row.merchant.logoUrl }}
+                style={styles.merchantLogo}
+                accessibilityLabel=""
+                testID={testID ? `${testID}-merchant-logo` : 'voucher-fav-card-merchant-logo'}
+              />
+            ) : (
+              <View
+                style={[styles.merchantLogo, styles.merchantLogoFallback]}
+                testID={testID ? `${testID}-merchant-logo-fallback` : 'voucher-fav-card-merchant-logo-fallback'}
+              >
+                <Text variant="label.md" style={{ color: typeFg }}>
+                  {row.merchant.businessName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <Text variant="body.sm" numberOfLines={1} style={styles.merchant}>
+              {row.merchant.businessName}
+            </Text>
+          </View>
           <Text variant="display.sm" numberOfLines={2} style={[styles.title, { color: typeFg }]}>
             {row.title}
           </Text>
-          <Text variant="body.sm" numberOfLines={1} style={styles.merchant}>
-            {row.merchant.businessName}
-          </Text>
+          {row.description && row.description.trim().length > 0 && (
+            <Text
+              variant="body.sm"
+              numberOfLines={2}
+              style={styles.description}
+              testID={testID ? `${testID}-description` : 'voucher-fav-card-description'}
+            >
+              {row.description}
+            </Text>
+          )}
           {row.estimatedSaving > 0 && (
             <Text variant="display.md" style={[styles.saving, { color: typeFg }]}>
               {`Save up to £${Number.isInteger(row.estimatedSaving) ? row.estimatedSaving : row.estimatedSaving.toFixed(2)}`}
@@ -220,11 +252,32 @@ const styles = StyleSheet.create({
   body: {
     gap: spacing[1],
   },
+  merchantRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           spacing[2],
+    marginBottom:  spacing[1],
+  },
+  merchantLogo: {
+    width:           28,
+    height:          28,
+    borderRadius:    6,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+  },
+  merchantLogoFallback: {
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
   title: {
     letterSpacing: -0.3,
   },
   merchant: {
     color: color.text.secondary,
+    flex:  1,
+  },
+  description: {
+    color:      color.text.secondary,
+    marginTop:  2,
   },
   saving: {
     marginTop:     spacing[1],

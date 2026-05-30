@@ -65,13 +65,14 @@ function makeBranch(id: string, overrides: Partial<FavouriteBranchItem> = {}): F
       status:          'ACTIVE',
       primaryCategory: null,
     },
-    voucherCount:       0,
-    maxEstimatedSaving: 0,
-    avgRating:          null,
-    reviewCount:        0,
-    isOpen:             true,
-    isUnavailable:      false,
-    favouritedAt:       '2026-05-29T10:00:00.000Z',
+    voucherCount:        0,
+    maxEstimatedSaving:  0,
+    totalEstimatedSaving: 0,  // Wave 4 #3 — additive field on FavouriteBranchItem
+    avgRating:           null,
+    reviewCount:         0,
+    isOpen:              true,
+    isUnavailable:       false,
+    favouritedAt:        '2026-05-29T10:00:00.000Z',
     ...overrides,
   }
 }

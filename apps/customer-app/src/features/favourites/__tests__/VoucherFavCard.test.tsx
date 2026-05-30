@@ -165,6 +165,59 @@ describe('VoucherFavCard — Wave 3 §20 type pill + CTA', () => {
   })
 })
 
+// ── Wave 4 #6 — merchant logo + description ──────────────────────────
+describe('VoucherFavCard — Wave 4 #6 merchant logo + description', () => {
+  it('renders the merchant logo image when merchant.logoUrl is present', () => {
+    const { getByTestId, queryByTestId } = render(
+      <VoucherFavCard
+        row={makeRow({ merchant: { id: 'm', businessName: 'Roast Co', logoUrl: 'https://cdn/x.jpg', status: 'ACTIVE' } })}
+        onPress={jest.fn()}
+        testID="vcard"
+      />,
+    )
+    expect(getByTestId('vcard-merchant-logo')).toBeTruthy()
+    expect(queryByTestId('vcard-merchant-logo-fallback')).toBeNull()
+  })
+
+  it('renders an initial-letter logo fallback when merchant.logoUrl is null', () => {
+    const { getByTestId, queryByTestId } = render(
+      <VoucherFavCard
+        row={makeRow({ merchant: { id: 'm', businessName: 'Roast Co', logoUrl: null, status: 'ACTIVE' } })}
+        onPress={jest.fn()}
+        testID="vcard"
+      />,
+    )
+    expect(getByTestId('vcard-merchant-logo-fallback')).toBeTruthy()
+    expect(queryByTestId('vcard-merchant-logo')).toBeNull()
+  })
+
+  it('renders the voucher description when present + non-whitespace', () => {
+    const { getByTestId, getByText } = render(
+      <VoucherFavCard
+        row={makeRow({ description: 'Two coffees for the price of one, every morning.' })}
+        onPress={jest.fn()}
+        testID="vcard"
+      />,
+    )
+    expect(getByTestId('vcard-description')).toBeTruthy()
+    expect(getByText('Two coffees for the price of one, every morning.')).toBeTruthy()
+  })
+
+  it('omits the description block when description is null', () => {
+    const { queryByTestId } = render(
+      <VoucherFavCard row={makeRow({ description: null })} onPress={jest.fn()} testID="vcard" />,
+    )
+    expect(queryByTestId('vcard-description')).toBeNull()
+  })
+
+  it('omits the description block when description is whitespace-only (defensive)', () => {
+    const { queryByTestId } = render(
+      <VoucherFavCard row={makeRow({ description: '   ' })} onPress={jest.fn()} testID="vcard" />,
+    )
+    expect(queryByTestId('vcard-description')).toBeNull()
+  })
+})
+
 // §R2 — Device-QA R1 Wave 2 (2026-05-30) — visible Remove button.
 describe('VoucherFavCard — §R2 visible Remove button', () => {
   it('renders the Remove button only when onRemove is provided', () => {
