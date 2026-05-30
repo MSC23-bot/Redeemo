@@ -110,6 +110,61 @@ describe('VoucherFavCard — tap + saving copy', () => {
   })
 })
 
+// ── Wave 3 §20 — type pill + Redeem/View CTA ──────────────────────────
+describe('VoucherFavCard — Wave 3 §20 type pill + CTA', () => {
+  it('renders the voucher-type pill alongside the body', () => {
+    // BOGO → "Buy one, get one free" (canonical voucherTypeLabel).
+    const { getByText, getByTestId } = render(
+      <VoucherFavCard row={makeRow({ type: 'BOGO' })} onPress={jest.fn()} testID="vcard" />,
+    )
+    expect(getByTestId('vcard-type-pill')).toBeTruthy()
+    expect(getByText('Buy one, get one free')).toBeTruthy()
+  })
+
+  it('renders the type pill for REUSABLE vouchers', () => {
+    const { getByText } = render(
+      <VoucherFavCard row={makeRow({ type: 'REUSABLE', priorityBucket: 3 })} onPress={jest.fn()} testID="vcard" />,
+    )
+    expect(getByText('Reusable')).toBeTruthy()
+  })
+
+  it('CTA is "Redeem" on buckets 1 and 2 (urgent / available)', () => {
+    const { getByText: g1 } = render(
+      <VoucherFavCard row={makeRow({ priorityBucket: 1 })} onPress={jest.fn()} testID="vcard" />,
+    )
+    expect(g1('Redeem')).toBeTruthy()
+
+    const { getByText: g2 } = render(
+      <VoucherFavCard row={makeRow({ priorityBucket: 2 })} onPress={jest.fn()} testID="vcard2" />,
+    )
+    expect(g2('Redeem')).toBeTruthy()
+  })
+
+  it('CTA is "View" on buckets 3, 4, 5 (cooldown / redeemed / outside window)', () => {
+    const buckets: (3 | 4 | 5)[] = [3, 4, 5]
+    buckets.forEach((b, i) => {
+      const { getByText } = render(
+        <VoucherFavCard row={makeRow({ priorityBucket: b })} onPress={jest.fn()} testID={`vcard-${i}`} />,
+      )
+      expect(getByText('View')).toBeTruthy()
+    })
+  })
+
+  it('CTA is HIDDEN on terminal buckets 6 (unavailable) and 7 (expired)', () => {
+    const { queryByText: q6, queryByTestId: t6 } = render(
+      <VoucherFavCard row={makeRow({ priorityBucket: 6, isUnavailable: true })} onPress={jest.fn()} testID="vcard6" />,
+    )
+    expect(t6('vcard6-cta')).toBeNull()
+    expect(q6('Redeem')).toBeNull()
+    expect(q6('View')).toBeNull()
+
+    const { queryByTestId: t7 } = render(
+      <VoucherFavCard row={makeRow({ priorityBucket: 7 })} onPress={jest.fn()} testID="vcard7" />,
+    )
+    expect(t7('vcard7-cta')).toBeNull()
+  })
+})
+
 // §R2 — Device-QA R1 Wave 2 (2026-05-30) — visible Remove button.
 describe('VoucherFavCard — §R2 visible Remove button', () => {
   it('renders the Remove button only when onRemove is provided', () => {

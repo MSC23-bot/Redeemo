@@ -5,34 +5,47 @@
  * (server-computed M1.4) + `isUnavailable`.  Tap →
  * `/(app)/voucher/[id]?from=favourites`.
  *
- * Removal: Device-QA R1 Wave 2 (2026-05-30) replaced the swipe-to-
- * remove gesture with a visible Trash icon button (see
- * `<BranchFavCard>` for the matching change + rationale).  On the
- * voucher card the trash sits on a semi-transparent dark circle so it
- * reads against any per-type gradient.
+ * Device-QA R1 Wave 3 (2026-05-30) finding #20 — surgical v1 card
+ * upgrade.  Layout now matches the voucher-card visual language used
+ * on Merchant Profile / Voucher Detail hero:
+ *
+ *   ┌─────────────────────────────────┐
+ *   │ ▓▓▓ per-type gradient ▓▓▓       │
+ *   │ [Type pill]               [Trash]│
+ *   │                                 │
+ *   │ Voucher title (display.sm)      │
+ *   │ Merchant name                   │
+ *   │ Save up to £X.XX (display.md)   │
+ *   │                                 │
+ *   │ [State pill]            [View →]│ ← CTA only for bucket 1/2
+ *   └─────────────────────────────────┘
+ *
+ * Removal: visible Trash button at top-right (Device-QA R1 Wave 2 lock —
+ * replaces the deleted swipe-to-remove gesture).
  *
  * State pill mapping (spec §9.3 buckets → display chip):
- *   1 → "Urgent · ends soon"   (TL <60 min remaining)
- *   2 → "Available"            (active + redeemable)
- *   3 → "Cooldown"             (REUSABLE in cooldown)
- *   4 → "Redeemed this cycle"  (non-TL non-REUSABLE)
- *   5 → "Outside window"       (TL outside its window)
- *   6 → "Unavailable"          (merchant/voucher status not active)
- *   7 → "Expired"              (expiryDate ≤ now)
+ *   1 → "Urgent · ends soon"   (TL <60 min remaining)  → CTA "Redeem →"
+ *   2 → "Available"            (active + redeemable)    → CTA "Redeem →"
+ *   3 → "Cooldown"             (REUSABLE in cooldown)   → CTA "View →"
+ *   4 → "Redeemed this cycle"  (non-TL non-REUSABLE)    → CTA "View →"
+ *   5 → "Outside window"       (TL outside its window)  → CTA "View →"
+ *   6 → "Unavailable"          (merchant/voucher inactive) → no CTA
+ *   7 → "Expired"              (expiryDate ≤ now)       → no CTA
  *
- * Display copy intentionally minimal — VoucherCard's richer pill lives
- * on Discovery/Merchant Profile and reads voucher-specific state we
- * don't carry on the favourites list payload.  The Favourites tab
- * surfaces a "what state is this in" hint only; deep state lives on
- * Voucher Detail.
+ * Scope guard (per owner-locked Wave 3 #20): reuses the existing
+ * `color.voucher.gradientByType` + `badgeTextByType` palettes and the
+ * canonical `voucherTypeLabel()` helper from `voucher/utils`.  No new
+ * design-system tokens.
  */
 
 import React from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Text } from '@/design-system/Text'
-import { color, elevation, radius, spacing } from '@/design-system/tokens'
-import { Trash2 } from '@/design-system/icons'
+import { color, radius, elevation, spacing } from '@/design-system/tokens'
+import { ArrowRight, Trash2 } from '@/design-system/icons'
+import { voucherTypeLabel } from '@/features/voucher/utils/voucherTheme'
+import type { VoucherType } from '@/lib/api/voucher'
 import type { FavouriteVoucherItem } from '@/lib/api/favourites'
 
 interface Props {
@@ -66,6 +79,15 @@ const BUCKET_TONE: Record<Bucket, { bg: string; fg: string }> = {
 
 const DIMMED_BUCKETS = new Set<Bucket>([3, 4, 5, 6, 7])
 
+// Buckets 6/7 are terminal (merchant/voucher dead) — no CTA at all.
+// Buckets 1/2 fast-path to Redeem; 3/4/5 land on View (Voucher Detail
+// surfaces the proper state + any next-action affordance).
+const NO_CTA_BUCKETS = new Set<Bucket>([6, 7])
+
+function ctaLabel(bucket: Bucket): string {
+  return bucket === 1 || bucket === 2 ? 'Redeem' : 'View'
+}
+
 export function VoucherFavCard({ row, onPress, onRemove, testID }: Props): React.ReactElement {
   const bucket = row.priorityBucket as Bucket
   const tone   = BUCKET_TONE[bucket] ?? BUCKET_TONE[2]
@@ -77,6 +99,10 @@ export function VoucherFavCard({ row, onPress, onRemove, testID }: Props): React
 
   const typeFg = color.voucher.badgeTextByType[row.type as keyof typeof color.voucher.badgeTextByType]
     ?? color.voucher.badgeTextByType.DISCOUNT_FIXED
+
+  const typeLabelText = voucherTypeLabel(row.type as VoucherType)
+
+  const showCta = !NO_CTA_BUCKETS.has(bucket)
 
   return (
     <Pressable
@@ -92,6 +118,28 @@ export function VoucherFavCard({ row, onPress, onRemove, testID }: Props): React
         end={{ x: 1, y: 1 }}
         style={styles.gradient}
       >
+        {/* Top row — type pill on the left, Remove trash on the right */}
+        <View style={styles.topRow}>
+          <View style={styles.typePill} testID={testID ? `${testID}-type-pill` : 'voucher-fav-card-type-pill'}>
+            <Text variant="label.md" style={[styles.typePillText, { color: typeFg }]}>
+              {typeLabelText}
+            </Text>
+          </View>
+          {onRemove && (
+            <Pressable
+              onPress={onRemove}
+              style={({ pressed }) => [styles.removeBtn, pressed && styles.removeBtnPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${row.title} from favourites`}
+              testID={testID ? `${testID}-remove` : 'voucher-fav-card-remove'}
+              hitSlop={8}
+            >
+              <Trash2 size={18} color="#FFFFFF" strokeWidth={1.8} />
+            </Pressable>
+          )}
+        </View>
+
+        {/* Body — title, merchant, saving */}
         <View style={styles.body}>
           <Text variant="display.sm" numberOfLines={2} style={[styles.title, { color: typeFg }]}>
             {row.title}
@@ -101,28 +149,26 @@ export function VoucherFavCard({ row, onPress, onRemove, testID }: Props): React
           </Text>
           {row.estimatedSaving > 0 && (
             <Text variant="display.md" style={[styles.saving, { color: typeFg }]}>
-              {`Save up to £${row.estimatedSaving.toFixed(2)}`}
+              {`Save up to £${Number.isInteger(row.estimatedSaving) ? row.estimatedSaving : row.estimatedSaving.toFixed(2)}`}
             </Text>
           )}
         </View>
-        <View style={styles.statusRow}>
-          <Text variant="label.md" style={[styles.statusPill, { backgroundColor: tone.bg, color: tone.fg }]}>
+
+        {/* Bottom row — state pill + CTA */}
+        <View style={styles.bottomRow}>
+          <Text variant="label.md" style={[styles.statePill, { backgroundColor: tone.bg, color: tone.fg }]}>
             {label}
           </Text>
+          {showCta && (
+            <View style={styles.ctaPill} testID={testID ? `${testID}-cta` : 'voucher-fav-card-cta'}>
+              <Text variant="label.md" style={[styles.ctaText, { color: typeFg }]}>
+                {ctaLabel(bucket)}
+              </Text>
+              <ArrowRight size={14} color={typeFg} strokeWidth={2.2} />
+            </View>
+          )}
         </View>
       </LinearGradient>
-      {onRemove && (
-        <Pressable
-          onPress={onRemove}
-          style={({ pressed }) => [styles.removeBtn, pressed && styles.removeBtnPressed]}
-          accessibilityRole="button"
-          accessibilityLabel={`Remove ${row.title} from favourites`}
-          testID={testID ? `${testID}-remove` : 'voucher-fav-card-remove'}
-          hitSlop={8}
-        >
-          <Trash2 size={18} color="#FFFFFF" strokeWidth={1.8} />
-        </Pressable>
-      )}
     </Pressable>
   )
 }
@@ -139,11 +185,37 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   cardPressed: {
-    opacity: 0.85,
+    opacity: 0.92,
   },
   gradient: {
     padding: spacing[4],
-    gap:     spacing[2],
+    gap:     spacing[3],
+  },
+  topRow: {
+    flexDirection:  'row',
+    alignItems:     'flex-start',
+    justifyContent: 'space-between',
+  },
+  typePill: {
+    paddingHorizontal: spacing[2],
+    paddingVertical:   2,
+    backgroundColor:   'rgba(255, 255, 255, 0.78)',
+    borderRadius:      999,
+    overflow:          'hidden',
+  },
+  typePillText: {
+    fontWeight: '600',
+  },
+  removeBtn: {
+    width:           36,
+    height:          36,
+    borderRadius:    18,
+    alignItems:      'center',
+    justifyContent:  'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.32)',
+  },
+  removeBtnPressed: {
+    opacity: 0.6,
   },
   body: {
     gap: spacing[1],
@@ -158,28 +230,28 @@ const styles = StyleSheet.create({
     marginTop:     spacing[1],
     letterSpacing: -0.5,
   },
-  statusRow: {
-    flexDirection: 'row',
-    marginTop:     spacing[1],
+  bottomRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    gap:            spacing[2],
   },
-  statusPill: {
+  statePill: {
     paddingHorizontal: spacing[2],
     paddingVertical:   2,
     borderRadius:      999,
     overflow:          'hidden',
   },
-  removeBtn: {
-    position:        'absolute',
-    top:             spacing[2],
-    right:           spacing[2],
-    width:           36,
-    height:          36,
-    borderRadius:    18,
-    alignItems:      'center',
-    justifyContent:  'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.32)',
+  ctaPill: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               4,
+    paddingHorizontal: spacing[3],
+    paddingVertical:   6,
+    backgroundColor:   'rgba(255, 255, 255, 0.92)',
+    borderRadius:      999,
   },
-  removeBtnPressed: {
-    opacity: 0.6,
+  ctaText: {
+    fontWeight: '700',
   },
 })
