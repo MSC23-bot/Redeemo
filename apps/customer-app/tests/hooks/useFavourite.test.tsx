@@ -623,6 +623,66 @@ describe('useFavourite', () => {
       expect(next?.isFavourited).toBe(true)
     })
 
+    // §W6.8 voucher parity (no implementation change in W6.8 — this
+    // pin locks the cross-surface bidirectional symmetry explicitly
+    // per owner ask).
+    //
+    // SCENARIO A (favourite from Voucher Detail → MP voucher card
+    // flips immediately): a useFavourite({type:'voucher'}) toggle
+    // call patches both ['voucher', ...] AND ['merchantProfile', ...]
+    // caches.  The walker reaches into the MP cache's vouchers[]
+    // array and flips the matching tile.
+    //
+    // SCENARIO B (favourite from MP voucher card → Voucher Detail
+    // flips immediately): exact same code path — useFavourite
+    // ({type:'voucher'}) doesn't know or care which surface
+    // invoked it.  The patch hits both cache prefixes regardless.
+    //
+    // One pin exercises both symmetrically since the implementation
+    // doesn't distinguish caller; the patch is to cache prefixes,
+    // not to the invoking screen.
+    it('§W6.8 voucher cross-surface symmetry: a single toggle patches BOTH [voucher] AND [merchantProfile] vouchers[] caches', async () => {
+      const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+      // Pre-seed the voucher detail cache (Scenario A starting
+      // point) AND the MP cache (Scenario B starting point) — the
+      // patch should flip BOTH regardless of where the toggle
+      // originated.
+      qc.setQueryData(['voucher', 'v-bogo'], {
+        id:           'v-bogo',
+        title:        'BOGO Sundays',
+        isFavourited: false,
+      })
+      qc.setQueryData(['merchantProfile', 'm-iron-forge', { branchId: 'b-main' }], {
+        merchant: { id: 'm-iron-forge' },
+        vouchers: [
+          { id: 'v-bogo',  isFavourited: false, title: 'BOGO Sundays' },
+          { id: 'v-spend', isFavourited: false, title: 'Spend & Save' },
+        ],
+        branches: [{ id: 'b-main', isFavourited: false }],
+      })
+
+      ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'voucher', id: 'v-bogo', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      // Voucher Detail cache flipped (Scenario B receiving end).
+      const vd = qc.getQueryData<{ isFavourited: boolean }>(['voucher', 'v-bogo'])
+      expect(vd?.isFavourited).toBe(true)
+
+      // Merchant Profile vouchers[] cache flipped for v-bogo;
+      // v-spend (untouched) stays false (Scenario A receiving end).
+      const mp = qc.getQueryData<{ vouchers: Array<{ id: string; isFavourited: boolean }> }>(
+        ['merchantProfile', 'm-iron-forge', { branchId: 'b-main' }],
+      )
+      expect(mp?.vouchers.find(v => v.id === 'v-bogo')?.isFavourited).toBe(true)
+      expect(mp?.vouchers.find(v => v.id === 'v-spend')?.isFavourited).toBe(false)
+    })
+
     it('merchant entity (legacy): does NOT crash + does NOT touch discovery caches (no cross-surface tiles for legacy entity)', async () => {
       const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
       qc.setQueryData(['discovery', 'home'], {

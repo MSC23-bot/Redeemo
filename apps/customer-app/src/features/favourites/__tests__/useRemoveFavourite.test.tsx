@@ -627,3 +627,143 @@ describe('useRemoveFavourite — §W6.7 optimistic cross-surface patch', () => {
     expect(d?.featuredVouchers[0]?.isFavourited).toBe(false)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────
+// §W6.8 — Wave 6.8 voucher parity pins (no implementation change;
+// these are EXPLICIT coverage pins per owner ask).
+// ─────────────────────────────────────────────────────────────────
+//
+// Owner ask on Wave 6.7 re-QA acceptance: confirm voucher
+// optimistic cross-surface patching covers ALL voucher-heart
+// surfaces (not only Voucher Detail).  The Wave 6.7 implementation
+// already does this — the helper key set for voucher entity is
+// `[['discovery'], ['merchantProfile'], ['voucher']]` and the
+// walker is shape-agnostic so it flips voucher tiles inside the
+// Merchant Profile `vouchers[]` array AND the root of any cached
+// voucher-detail payload.  Wave 6.8 ships ZERO implementation
+// changes; these pins lock the voucher parity contract explicitly:
+//
+//   §W6.8-1: voucher remove from Favourites flips matching tile
+//            inside Merchant Profile vouchers[] cache
+//   §W6.8-2: voucher multi-remove patches ALL removed voucher IDs
+//            across Merchant Profile vouchers[] + voucher detail
+//            caches (not just the most recent)
+//   §W6.8-3: undo restores voucher tile across MP + voucher detail
+//   §W6.8-4: rollback on DELETE error restores voucher tile across
+//            MP + voucher detail
+describe('useRemoveFavourite — §W6.8 voucher cross-surface parity', () => {
+  type MPCache = {
+    merchant: { id: string }
+    vouchers: Array<{ id: string; isFavourited: boolean; title: string }>
+    branches: Array<{ id: string; isFavourited: boolean }>
+  }
+
+  function seedMpCache(qc: QueryClient, vouchers: Array<{ id: string; isFavourited: boolean; title: string }>) {
+    qc.setQueryData<MPCache>(
+      ['merchantProfile', 'm-iron-forge', { branchId: 'b-main' }],
+      {
+        merchant: { id: 'm-iron-forge' },
+        vouchers,
+        branches: [{ id: 'b-main', isFavourited: false }],
+      },
+    )
+  }
+  function readMpVouchers(qc: QueryClient): Record<string, boolean> {
+    const data = qc.getQueryData<MPCache>(['merchantProfile', 'm-iron-forge', { branchId: 'b-main' }])
+    if (!data) return {}
+    return Object.fromEntries(data.vouchers.map(v => [v.id, v.isFavourited]))
+  }
+  function readVoucherDetail(qc: QueryClient, id: string): boolean | undefined {
+    return qc.getQueryData<{ isFavourited: boolean }>(['voucher', id])?.isFavourited
+  }
+
+  it('§W6.8-1: voucher remove from Favourites flips matching tile inside MerchantProfile vouchers[] cache SYNCHRONOUSLY', () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedVouchers(qc, [{ id: 'v-bogo' }])
+    seedMpCache(qc, [
+      { id: 'v-bogo',   isFavourited: true,  title: 'BOGO Sundays' },
+      { id: 'v-spend',  isFavourited: false, title: 'Spend & Save' },
+    ])
+
+    const { result } = renderHook(() => useRemoveFavourite<Row>('voucher'), { wrapper: Wrapper })
+    act(() => { result.current.remove({ id: 'v-bogo' }) })
+
+    // MP voucher-card heart for v-bogo flips immediately; the
+    // other voucher in the same MP cache is untouched.
+    expect(readMpVouchers(qc)).toEqual({ 'v-bogo': false, 'v-spend': false })
+  })
+
+  it('§W6.8-2: voucher multi-remove patches ALL removed voucher IDs across MP + voucher detail caches', () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedVouchers(qc, [{ id: 'v-bogo' }, { id: 'v-spend' }, { id: 'v-freebie' }, { id: 'v-package' }])
+    seedMpCache(qc, [
+      { id: 'v-bogo',    isFavourited: true, title: 'BOGO' },
+      { id: 'v-spend',   isFavourited: true, title: 'Spend' },
+      { id: 'v-freebie', isFavourited: true, title: 'Freebie' },
+      { id: 'v-package', isFavourited: true, title: 'Package' },
+    ])
+    // Each voucher also has its own voucher-detail cache entry.
+    qc.setQueryData(['voucher', 'v-bogo'],    { id: 'v-bogo',    isFavourited: true })
+    qc.setQueryData(['voucher', 'v-spend'],   { id: 'v-spend',   isFavourited: true })
+    qc.setQueryData(['voucher', 'v-freebie'], { id: 'v-freebie', isFavourited: true })
+    qc.setQueryData(['voucher', 'v-package'], { id: 'v-package', isFavourited: true })
+
+    const { result } = renderHook(() => useRemoveFavourite<Row>('voucher'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'v-bogo'    }) })
+    act(() => { result.current.remove({ id: 'v-spend'   }) })
+    act(() => { result.current.remove({ id: 'v-freebie' }) })
+
+    // All three removed voucher IDs flipped across BOTH the MP
+    // vouchers[] cache AND each voucher detail cache.  v-package
+    // (not removed) stays favourited everywhere.
+    expect(readMpVouchers(qc)).toEqual({
+      'v-bogo':    false,
+      'v-spend':   false,
+      'v-freebie': false,
+      'v-package': true,
+    })
+    expect(readVoucherDetail(qc, 'v-bogo')).toBe(false)
+    expect(readVoucherDetail(qc, 'v-spend')).toBe(false)
+    expect(readVoucherDetail(qc, 'v-freebie')).toBe(false)
+    expect(readVoucherDetail(qc, 'v-package')).toBe(true)
+  })
+
+  it('§W6.8-3: undo() restores voucher tile across MP + voucher detail caches', () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedVouchers(qc, [{ id: 'v-bogo' }])
+    seedMpCache(qc, [{ id: 'v-bogo', isFavourited: true, title: 'BOGO' }])
+    qc.setQueryData(['voucher', 'v-bogo'], { id: 'v-bogo', isFavourited: true, title: 'BOGO' })
+
+    const { result } = renderHook(() => useRemoveFavourite<Row>('voucher'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'v-bogo' }) })
+    expect(readMpVouchers(qc)).toEqual({ 'v-bogo': false })
+    expect(readVoucherDetail(qc, 'v-bogo')).toBe(false)
+
+    act(() => { result.current.undo() })
+
+    expect(readMpVouchers(qc)).toEqual({ 'v-bogo': true })
+    expect(readVoucherDetail(qc, 'v-bogo')).toBe(true)
+  })
+
+  it('§W6.8-4: DELETE-error rollback restores voucher tile across MP + voucher detail caches', async () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedVouchers(qc, [{ id: 'v-bogo' }])
+    seedMpCache(qc, [{ id: 'v-bogo', isFavourited: true, title: 'BOGO' }])
+    qc.setQueryData(['voucher', 'v-bogo'], { id: 'v-bogo', isFavourited: true, title: 'BOGO' })
+    mockRemoveVoucher.mockRejectedValueOnce(new Error('boom'))
+
+    const { result } = renderHook(() => useRemoveFavourite<Row>('voucher'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'v-bogo' }) })
+    expect(readMpVouchers(qc)).toEqual({ 'v-bogo': false })
+    expect(readVoucherDetail(qc, 'v-bogo')).toBe(false)
+
+    await act(async () => { jest.advanceTimersByTime(4_100); await Promise.resolve() })
+    await waitFor(() => { expect(result.current.error).toBeTruthy() })
+
+    expect(readMpVouchers(qc)).toEqual({ 'v-bogo': true })
+    expect(readVoucherDetail(qc, 'v-bogo')).toBe(true)
+  })
+})
