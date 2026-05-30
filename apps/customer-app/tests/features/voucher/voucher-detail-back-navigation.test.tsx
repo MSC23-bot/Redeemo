@@ -391,3 +391,70 @@ describe('VoucherDetailScreen — handleBack via URL params', () => {
     expect(mockReplace).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
   })
 })
+
+// ── §W6-#1 Device-QA R1 Wave 6 (2026-05-30) ──────────────────────────
+//
+// Owner-reported blocker: when the user reached Voucher Detail via a
+// Favourites chain (either Favourites > Vouchers > Voucher Detail OR
+// Favourites > Merchants > Merchant Profile > Voucher Detail), tapping
+// the merchant row on Voucher Detail pushed a bare merchant URL with
+// no `?from=…` token.  When the user then tapped Back on that Merchant
+// Profile, `resolveBackNavigation` had no origin to honour and fell
+// through to the Tabs default (Home) instead of returning to
+// Favourites.
+//
+// Fix: `handleMerchantTap` now appends `?from=favourites` to the push
+// URL whenever EITHER `params.from === 'favourites'` (direct chain)
+// OR `params.merchantFrom === 'favourites'` (Wave 3 propagated chain).
+describe('VoucherDetailScreen — §W6-#1 handleMerchantTap propagation', () => {
+  it('chain A (Favourites > Vouchers > Voucher Detail) — pushes merchant URL with ?from=favourites', () => {
+    mockParams = {
+      id:   'v1',
+      from: 'favourites',
+    }
+    const { getByLabelText } = wrap(<VoucherDetailScreen />)
+    // baseMerchant.businessName = "The Coffee House" — no descriptor.
+    fireEvent.press(getByLabelText('The Coffee House'))
+    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1?from=favourites')
+  })
+
+  it('chain B (Favourites > Merchants > Merchant Profile > Voucher Detail) — pushes merchant URL with ?from=favourites via merchantFrom propagation', () => {
+    mockParams = {
+      id:               'v1',
+      from:             'merchant',
+      returnMerchantId: 'm1',
+      branch:           'b1',
+      merchantFrom:     'favourites',
+    }
+    const { getByLabelText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByLabelText('The Coffee House'))
+    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1?from=favourites')
+  })
+
+  it('non-favourites entry — pushes bare merchant URL (no from token)', () => {
+    mockParams = {
+      id:               'v1',
+      from:             'merchant',
+      returnMerchantId: 'm1',
+      branch:           'b1',
+      // merchantFrom intentionally absent — covers Home / Search /
+      // Map / Category origins that don't propagate today.
+    }
+    const { getByLabelText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByLabelText('The Coffee House'))
+    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1')
+  })
+
+  it('unrecognised merchantFrom value — pushes bare merchant URL (defensive: only "favourites" propagates in v1)', () => {
+    mockParams = {
+      id:               'v1',
+      from:             'merchant',
+      returnMerchantId: 'm1',
+      branch:           'b1',
+      merchantFrom:     'someUnknownOrigin',
+    }
+    const { getByLabelText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getByLabelText('The Coffee House'))
+    expect(mockPush).toHaveBeenCalledWith('/(app)/merchant/m1')
+  })
+})

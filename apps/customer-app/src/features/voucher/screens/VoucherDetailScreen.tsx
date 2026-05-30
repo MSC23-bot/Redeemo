@@ -1120,9 +1120,29 @@ export function VoucherDetailScreen() {
 
   const handleMerchantTap = useCallback(() => {
     if (voucher && merchant) {
-      router.push(`/(app)/merchant/${voucher.merchant.id}` as never)
+      // Device-QA R1 Wave 6 (2026-05-30) — finding #1.  When the user
+      // taps the merchant row on Voucher Detail, the resulting
+      // Merchant Profile push needs to carry the Favourites origin
+      // so the back-chain still resolves to Favourites instead of
+      // the Tabs default (Home).  Two entry chains both surface as
+      // `favourites`:
+      //   (A) Favourites > Vouchers > Voucher Detail
+      //       → params.from === 'favourites'
+      //   (B) Favourites > Merchants > Merchant Profile > Voucher
+      //       Detail → params.from === 'merchant'
+      //                AND params.merchantFrom === 'favourites'
+      //         (Wave 3 §R4 propagation contract)
+      // Only `'favourites'` is recognised in v1 — search / map /
+      // category / home don't currently surface a merchant-tap from
+      // voucher detail in a chain that needs propagation.
+      const nestedFrom =
+        params.from === 'favourites' || params.merchantFrom === 'favourites'
+          ? 'favourites'
+          : null
+      const qs = nestedFrom ? `?from=${encodeURIComponent(nestedFrom)}` : ''
+      router.push(`/(app)/merchant/${voucher.merchant.id}${qs}` as never)
     }
-  }, [router, voucher, merchant])
+  }, [router, voucher, merchant, params.from, params.merchantFrom])
 
   // ── M2 Section B: useRedeem mutation ─────────────────────────────────
   // Three-tier branch source priority — read AT MUTATION TIME:
