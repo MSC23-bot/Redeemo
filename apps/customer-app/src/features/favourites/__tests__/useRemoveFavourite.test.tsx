@@ -342,3 +342,154 @@ describe('useRemoveFavourite — DELETE error rollback', () => {
     expect(result.current.error).toBeNull()
   })
 })
+
+// ── §W6.5 (2026-05-31) — multi-pending removals ─────────────────────
+//
+// Owner-reported symptom on Wave 6.4 ship: removing 2-3 merchants /
+// vouchers in quick succession showed only the FIRST toast + the
+// rest were silently removed.  Root cause: pre-Wave-6.5
+// `pending.current` was a single ref — each new `remove()` overwrote
+// the previous record, the FIRST timer's `setIsPending(false)` in
+// the finally block prematurely cleared the screen-level
+// `undoMessage`, and items 2+ DELETEd silently.
+//
+// Fix: `pendingMap` (rowId → PendingRemoval) + `pendingCount`
+// state.  isPending stays true until EVERY pending DELETE
+// finishes.  `undo()` targets the most-recently-added entry
+// (matches the toast the user is currently looking at).
+// `flushPending()` fires all in parallel.
+describe('useRemoveFavourite — §W6.5 multi-pending removals', () => {
+  it('§W6.5-1: two concurrent removes both fire DELETE after their respective timers', async () => {
+    mockRemoveBranch
+      .mockResolvedValueOnce(undefined)  // for 'a'
+      .mockResolvedValueOnce(undefined)  // for 'b'
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }, { id: 'b' }, { id: 'c' }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    act(() => { result.current.remove({ id: 'b' }) })
+
+    // Cache shows both removed optimistically.
+    expect(getBranches(qc).map(r => r.id)).toEqual(['c'])
+    // isPending stays true while EITHER timer is still pending.
+    expect(result.current.isPending).toBe(true)
+
+    // Fire timers.
+    await act(async () => { jest.advanceTimersByTime(4_000) })
+
+    // BOTH DELETEs fired — pre-Wave-6.5 only 'b' would have fired
+    // because 'a' overwrote pending.current.
+    await waitFor(() => expect(mockRemoveBranch).toHaveBeenCalledTimes(2))
+    expect(mockRemoveBranch).toHaveBeenCalledWith('a')
+    expect(mockRemoveBranch).toHaveBeenCalledWith('b')
+    // isPending falls to false only AFTER both DELETEs finish.
+    await waitFor(() => expect(result.current.isPending).toBe(false))
+  })
+
+  it('§W6.5-2: isPending stays true between the first and last timer fire (toast must NOT disappear early)', async () => {
+    mockRemoveBranch
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => new Promise(resolve => setTimeout(resolve, 1000)))  // 'b' DELETE hangs 1s
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }, { id: 'b' }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    act(() => { result.current.remove({ id: 'b' }) })
+    expect(result.current.isPending).toBe(true)
+
+    // Fire timers.  'a' resolves immediately, 'b' takes 1s more.
+    await act(async () => { jest.advanceTimersByTime(4_000) })
+    // After 'a' resolves, isPending should STILL be true because
+    // 'b' is mid-flight.  Pre-Wave-6.5 this would have flipped
+    // false the moment 'a' finished.
+    expect(result.current.isPending).toBe(true)
+
+    // Now let 'b' resolve.
+    await act(async () => { jest.advanceTimersByTime(1_000) })
+    await waitFor(() => expect(result.current.isPending).toBe(false))
+  })
+
+  it('§W6.5-3: undo() targets the MOST RECENTLY removed row (LIFO)', async () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }, { id: 'b' }, { id: 'c' }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    act(() => { result.current.remove({ id: 'b' }) })
+    expect(getBranches(qc).map(r => r.id)).toEqual(['c'])
+
+    // Undo restores 'b' (most recent), 'a' stays pending.
+    act(() => { result.current.undo() })
+    expect(getBranches(qc).map(r => r.id)).toEqual(['b', 'c'])
+    expect(result.current.isPending).toBe(true)
+
+    // Another undo restores 'a'.
+    act(() => { result.current.undo() })
+    expect(getBranches(qc).map(r => r.id)).toEqual(['a', 'b', 'c'])
+    expect(result.current.isPending).toBe(false)
+
+    // Extra undo is a no-op (defensive).
+    act(() => { result.current.undo() })
+    expect(getBranches(qc).map(r => r.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('§W6.5-4: undone row does NOT fire DELETE when its timer would have fired', async () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }, { id: 'b' }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    act(() => { result.current.remove({ id: 'b' }) })
+
+    // Undo most recent ('b').  Only 'a' should DELETE on timer.
+    act(() => { result.current.undo() })
+    mockRemoveBranch.mockResolvedValueOnce(undefined)
+    await act(async () => { jest.advanceTimersByTime(4_000) })
+    await waitFor(() => expect(mockRemoveBranch).toHaveBeenCalledWith('a'))
+    expect(mockRemoveBranch).not.toHaveBeenCalledWith('b')
+    expect(mockRemoveBranch).toHaveBeenCalledTimes(1)
+  })
+
+  it('§W6.5-5: flushPending fires ALL pending DELETEs in parallel', async () => {
+    mockRemoveBranch
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }, { id: 'b' }, { id: 'c' }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    act(() => { result.current.remove({ id: 'b' }) })
+    act(() => { result.current.remove({ id: 'c' }) })
+
+    expect(mockRemoveBranch).not.toHaveBeenCalled()
+    await act(async () => { await result.current.flushPending() })
+
+    // All three DELETEs fired without waiting for the 4s timers.
+    expect(mockRemoveBranch).toHaveBeenCalledTimes(3)
+    expect(mockRemoveBranch).toHaveBeenCalledWith('a')
+    expect(mockRemoveBranch).toHaveBeenCalledWith('b')
+    expect(mockRemoveBranch).toHaveBeenCalledWith('c')
+    expect(result.current.isPending).toBe(false)
+  })
+
+  it('§W6.5-6: removing the same rowId twice keeps a single pending entry (defensive)', () => {
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }, { id: 'b' }])
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    // After first remove, row 'a' is gone from cache — second
+    // splice('a') returns null and the second remove() bails
+    // early.  Net effect: still one pending entry for 'a'.
+    act(() => { result.current.remove({ id: 'a' }) })
+
+    // Undo restores 'a' once.  No double-restoration.
+    act(() => { result.current.undo() })
+    expect(getBranches(qc).map(r => r.id)).toEqual(['a', 'b'])
+    expect(result.current.isPending).toBe(false)
+  })
+})

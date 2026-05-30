@@ -80,9 +80,26 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
   entity: EntityType,
 ): UseRemoveFavouriteReturn<T> {
   const queryClient = useQueryClient()
-  const pending     = useRef<PendingRemoval<T> | null>(null)
-  const [isPending, setIsPending] = useState(false)
-  const [error,     setError]     = useState<unknown>(null)
+  // Wave 6.5 (2026-05-31) — `pending` is now a Map keyed by rowId,
+  // not a single-slot ref.  Owner-reported symptom: removing 2-3
+  // merchants/vouchers in quick succession showed only the FIRST
+  // toast + the rest were silently removed.  Root cause: the old
+  // single-slot `pending.current` was overwritten by each new
+  // `remove()` call; when the FIRST timer fired, its `finally`
+  // ran `setIsPending(false)`, which prematurely cleared
+  // `undoMessage` on the screen (the screen's clear-condition is
+  // `undoMessage && !isPending`).  Items 2+ then DELETEd silently
+  // ~500ms apart with no visible toast.  The map supports per-row
+  // timers + per-row rollback; isPending is now derived from
+  // count > 0 so it stays true until EVERY pending DELETE
+  // resolves.  `insertionOrder` preserves the order rows were
+  // removed so `undo()` correctly targets the MOST RECENT one
+  // (the toast the user is currently looking at).
+  const pendingMap   = useRef(new Map<string, PendingRemoval<T>>())
+  const insertionRef = useRef<string[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
+  const isPending = pendingCount > 0
+  const [error, setError] = useState<unknown>(null)
 
   const queryKey:  readonly unknown[] = entity === 'branch'
     ? ['favouriteBranches']
@@ -128,6 +145,17 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
 
   const clearError = useCallback(() => setError(null), [])
 
+  // Helper: drop a rowId from the Map + insertion order + decrement
+  // count.  Used by every terminal path (timer fire success/error,
+  // undo, flushPending).
+  const dropPending = useCallback((rowId: string): void => {
+    if (pendingMap.current.has(rowId)) {
+      pendingMap.current.delete(rowId)
+      insertionRef.current = insertionRef.current.filter(id => id !== rowId)
+      setPendingCount(c => Math.max(0, c - 1))
+    }
+  }, [])
+
   // Wave 6.3 — fire-the-DELETE body extracted so both `setTimeout`
   // (4s undo-window expiry) AND `flushPending()` (caller-driven
   // immediate fire) share one implementation.
@@ -165,10 +193,9 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
       restore(spliced.pageIndex, spliced.rowIndex, spliced.row)
       setError(err)
     } finally {
-      pending.current = null
-      setIsPending(false)
+      dropPending(rowId)
     }
-  }, [entity, queryClient, queryKey])
+  }, [entity, queryClient, queryKey, dropPending])
 
   const remove = useCallback((row: T) => {
     // Splice optimistically.  Bail out if the row isn't found in the
@@ -176,7 +203,6 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
     const spliced = splice(row.id)
     if (!spliced) return
 
-    setIsPending(true)
     setError(null)
 
     const timer = setTimeout(() => {
@@ -185,27 +211,46 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
       void fireDeleteFor(row.id, spliced)
     }, UNDO_WINDOW_MS)
 
-    pending.current = { ...spliced, timer, rowId: row.id }
+    // Wave 6.5 — add to per-row Map + track insertion order.
+    // Multiple concurrent pending removals each get their own
+    // timer, splice record, and rollback path.  isPending stays
+    // true until ALL have fired (count > 0), so the screen-level
+    // undo toast doesn't prematurely hide when the FIRST timer
+    // fires.
+    pendingMap.current.set(row.id, { ...spliced, timer, rowId: row.id })
+    insertionRef.current = [...insertionRef.current.filter(id => id !== row.id), row.id]
+    setPendingCount(c => c + 1)
   }, [fireDeleteFor])
 
   const undo = useCallback(() => {
-    const p = pending.current
+    // Wave 6.5 — undo targets the MOST RECENTLY added pending row
+    // (the one whose toast the user is currently looking at).
+    // Older pending removals stay pending until their own timers
+    // fire OR another flushPending call.
+    const order = insertionRef.current
+    if (order.length === 0) return
+    const lastId = order[order.length - 1]!
+    const p = pendingMap.current.get(lastId)
     if (!p) return
     clearTimeout(p.timer)
     restore(p.pageIndex, p.rowIndex, p.row)
-    pending.current = null
-    setIsPending(false)
-  }, [])
+    dropPending(lastId)
+  }, [dropPending])
 
   const flushPending = useCallback(async (): Promise<void> => {
-    const p = pending.current
-    if (!p) return
-    // Cancel the 4s timer + fire the DELETE immediately.  Caller
-    // (typically `FavouritesScreen` useFocusEffect cleanup) awaits
-    // so the invalidate fires before the user lands on the next
-    // tab.
-    clearTimeout(p.timer)
-    await fireDeleteFor(p.rowId, { pageIndex: p.pageIndex, rowIndex: p.rowIndex, row: p.row })
+    // Wave 6.5 — fire DELETEs for ALL pending rows in parallel.
+    // Caller (typically `FavouritesScreen` useFocusEffect cleanup)
+    // awaits so the invalidates reach React Query before the user
+    // lands on the next tab.  Snapshot the entries first so
+    // dropPending in each `fireDeleteFor`'s finally doesn't
+    // mutate the array we're iterating.
+    const entries: Array<{ rowId: string; spliced: { pageIndex: number; rowIndex: number; row: T } }> = []
+    pendingMap.current.forEach((p, rowId) => {
+      clearTimeout(p.timer)
+      entries.push({ rowId, spliced: { pageIndex: p.pageIndex, rowIndex: p.rowIndex, row: p.row } })
+    })
+    if (entries.length === 0) return
+    await Promise.all(entries.map(e => fireDeleteFor(e.rowId, e.spliced)))
   }, [fireDeleteFor])
 
   return { remove, undo, flushPending, isPending, error, clearError }

@@ -56,6 +56,16 @@ export function UndoToast({
   const ty           = useRef(new Animated.Value(60)).current
   const progress     = useRef(new Animated.Value(0)).current
 
+  // Wave 6.5 (2026-05-31) — `message` added to deps so the countdown
+  // bar restarts when the user removes another favourite while a
+  // previous toast is still up.  Pre-Wave-6.5 the animation only
+  // re-ran when `visible` flipped — sequential removals (toast
+  // already visible) would silently swap the message text with the
+  // bar continuing from its prior position.  Owner-reported
+  // symptom: "if I remove two or three merchants at the same time
+  // … only one Toast pops up, and the rest gets removed."  Now
+  // each new message resets the bar to 0 and animates fresh,
+  // giving every removal its own visible acknowledgement.
   useEffect(() => {
     if (visible) {
       Animated.timing(ty, {
@@ -77,7 +87,7 @@ export function UndoToast({
         useNativeDriver: true,
       }).start()
     }
-  }, [visible, duration, reduceMotion, ty, progress])
+  }, [visible, message, duration, reduceMotion, ty, progress])
 
   if (!visible) return null
 
