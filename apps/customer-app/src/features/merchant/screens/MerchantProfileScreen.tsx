@@ -41,6 +41,7 @@ import { BranchSwitchToast } from '../components/BranchSwitchToast'
 import { branchShortName } from '../utils/branchShortName'
 import { sortMerchantVouchers } from '../utils/voucherCardSort'
 import { resolveBackNavigation } from '../utils/resolveBackNavigation'
+import { navigateBackTo } from '@/lib/routing/navigateBack'
 
 function buildBranchLine(branch: { city: string | null; name: string }): string | null {
   // Pass 1 fallback: city when available, else strip-prefix the branch name.
@@ -1024,7 +1025,13 @@ export function MerchantProfileScreen({ id }: Props) {
                 ...(typeof screenParams.categoryId === 'string' ? { categoryId: screenParams.categoryId } : {}),
               },
             )
-            return target ? () => router.push(target as any) : undefined
+            if (!target) return undefined
+            // Device-QA R1 Wave 6.2 (2026-05-30) — root-cause fix for
+            // the owner-reported "first time lands on Favourites for
+            // ~5s then auto-redirects to Home; second time goes
+            // directly to Home" symptom.  See `navigateBackTo` for
+            // the full dismiss+replace rationale.
+            return () => navigateBackTo(router, target)
           })()
         }
       />

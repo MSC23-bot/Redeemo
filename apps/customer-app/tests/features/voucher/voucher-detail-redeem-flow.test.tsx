@@ -79,12 +79,14 @@ let mockParams: Record<string, string | undefined> = { id: 'v1' }
 const mockPush = jest.fn()
 const mockReplace = jest.fn()
 const mockBack = jest.fn()
+const mockDismissAll = jest.fn()  // Wave 6.2 (2026-05-30) — handleBack now calls dismissAll() before replace()
 jest.mock('expo-router', () => {
   const React = require('react')
   return {
     useLocalSearchParams: () => mockParams,
     useRouter: () => ({
       push: mockPush, replace: mockReplace, back: mockBack,
+      dismissAll: mockDismissAll,
       canGoBack: () => true,
     }),
     useFocusEffect: (effect: () => void | (() => void)) => {
@@ -233,6 +235,7 @@ beforeEach(() => {
   mockPush.mockClear()
   mockReplace.mockClear()
   mockBack.mockClear()
+  mockDismissAll.mockClear()
   ;(redemptionApi.redeem as jest.Mock).mockReset()
   ;(redemptionApi.getMyRedemption as jest.Mock).mockReset()
   ;(redemptionApi.listMyRedemptions as jest.Mock).mockReset()

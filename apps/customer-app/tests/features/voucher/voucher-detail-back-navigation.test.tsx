@@ -162,6 +162,7 @@ let mockParams: Record<string, string | undefined> = { id: 'v1' }
 const mockReplace = jest.fn()
 const mockBack    = jest.fn()
 const mockPush    = jest.fn()
+const mockDismissAll = jest.fn()
 const mockCanGoBack = jest.fn(() => true)
 
 jest.mock('expo-router', () => {
@@ -169,10 +170,14 @@ jest.mock('expo-router', () => {
   return {
     useLocalSearchParams: () => mockParams,
     useRouter: () => ({
-      replace: mockReplace,
-      push:    mockPush,
-      back:    mockBack,
-      canGoBack: mockCanGoBack,
+      replace:    mockReplace,
+      push:       mockPush,
+      back:       mockBack,
+      // Device-QA R1 Wave 6.2 (2026-05-30) — handleBack now calls
+      // dismissAll() before replace() to clear any tab-stack
+      // residue that triggers expo-router's tab reconciliation.
+      dismissAll: mockDismissAll,
+      canGoBack:  mockCanGoBack,
     }),
     // Defer the effect to commit phase (via useEffect) so it can
     // call setState without triggering a render-phase loop.
@@ -301,6 +306,7 @@ beforeEach(() => {
   mockSubLoading     = false
   mockReplace.mockClear()
   mockBack.mockClear()
+  mockDismissAll.mockClear()
   mockPush.mockClear()
   mockCanGoBack.mockReset().mockReturnValue(true)
   ;(globalThis as any).__voucherProfileMock__.data       = baseMerchant()
@@ -532,6 +538,46 @@ describe('VoucherDetailScreen — §W6.1 handleReviewPromptPress propagation', (
         params: expect.objectContaining({ from: 'favourites' }),
       }),
     )
+  })
+
+  // ── §W6.2 (2026-05-30) — handleBack calls dismissAll + replace ─────
+  // Root cause for owner's "lands on Favourites for 5s then auto-
+  // redirect to Home" symptom: pre-Wave-6.2 the back path used
+  // `router.replace(returnUrl)` alone for tab destinations.  When the
+  // current stack has prior pushes (Favourites > MP > VoucherDetail >
+  // MP), replacing the top entry leaves the intermediate stack in
+  // place and expo-router's tab reconciliation pops the replaced
+  // entry after a delay → user lands on the default active tab
+  // (Home).  Fix: `router.dismissAll()` clears the intermediate
+  // stack BEFORE `router.replace(returnUrl)` activates the tab.
+  it('§W6.2 — handleBack from favourites chain calls router.dismissAll() BEFORE router.replace()', () => {
+    mockParams = { id: 'v1', from: 'favourites' }
+    const { getAllByLabelText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getAllByLabelText('Go back')[0])
+    expect(mockDismissAll).toHaveBeenCalledTimes(1)
+    expect(mockReplace).toHaveBeenCalledWith('/(app)/favourites?tab=vouchers')
+    // dismissAll fires FIRST so the stack is clean before the tab
+    // activation lands.  Order check via call invocation order.
+    expect(mockDismissAll.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReplace.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('§W6.2 — handleBack to merchant URL (non-tab) ALSO calls dismissAll + replace (uniform behaviour)', () => {
+    // Defensive: even stack-screen targets (merchant URL) go through
+    // dismissAll first.  Safe no-op when no pushed entries exist;
+    // avoids tab-on-stack residue if the user navigated through
+    // multiple nested merchant pages.
+    mockParams = {
+      id:               'v1',
+      from:             'merchant',
+      returnMerchantId: 'm1',
+      branch:           'b1',
+    }
+    const { getAllByLabelText } = wrap(<VoucherDetailScreen />)
+    fireEvent.press(getAllByLabelText('Go back')[0])
+    expect(mockDismissAll).toHaveBeenCalledTimes(1)
+    expect(mockReplace).toHaveBeenCalledWith('/(app)/merchant/m1?branch=b1&tab=vouchers')
   })
 
   it('non-favourites entry — Rate&Review prompt push omits the `from` param (defensive)', () => {

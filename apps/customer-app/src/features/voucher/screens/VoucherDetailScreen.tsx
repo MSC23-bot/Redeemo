@@ -18,6 +18,7 @@ import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useMerchantProfile } from '@/features/merchant/hooks/useMerchantProfile'
+import { navigateBackTo } from '@/lib/routing/navigateBack'
 import { useCustomerVoucher } from '../hooks/useCustomerVoucher'
 import { useTimeLimited } from '../hooks/useTimeLimited'
 import { useReusable } from '../hooks/useReusable'
@@ -1038,10 +1039,10 @@ export function VoucherDetailScreen() {
       merchantFrom:     params.merchantFrom,
     })
     if (returnUrl) {
-      // router.replace ensures Voucher Detail leaves the stack
-      // cleanly (rather than push, which would stack on top of the
-      // existing stack and require two backs).
-      router.replace(returnUrl as never)
+      // Device-QA R1 Wave 6.2 (2026-05-30) — dismissAll + replace
+      // pair survives expo-router's tab reconciliation on deep
+      // nested stacks.  See `navigateBackTo` for the full rationale.
+      navigateBackTo(router, returnUrl)
       return
     }
     if (router.canGoBack()) {
