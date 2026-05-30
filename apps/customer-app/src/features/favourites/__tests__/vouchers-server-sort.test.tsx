@@ -36,7 +36,11 @@ jest.mock('../hooks/useFavouriteVouchers', () => ({
   useFavouriteVouchers: (...args: unknown[]) => mockUseFavouriteVouchers(...args),
 }))
 jest.mock('../hooks/useRemoveFavourite', () => ({
-  useRemoveFavourite: (...args: unknown[]) => mockUseRemoveFavourite(...args),
+  // The real hook is generic over `T extends FavouriteRowLike` but the
+  // factory's return shape never reads its T arg.  Calling the mock
+  // 0-arg keeps `tsc --noEmit` clean under the generic signature; no
+  // test in this file asserts call args on this mock.
+  useRemoveFavourite: () => mockUseRemoveFavourite(),
 }))
 jest.mock('expo-router', () => ({
   useRouter:            () => mockUseRouter(),

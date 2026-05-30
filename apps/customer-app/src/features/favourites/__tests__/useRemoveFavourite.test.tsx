@@ -161,6 +161,48 @@ describe('useRemoveFavourite — timeout fires DELETE', () => {
 
     await waitFor(() => expect(mockRemoveVoucher).toHaveBeenCalledWith('v1'))
   })
+
+  // ── §R5 Device-QA R1 Wave 3 (2026-05-30) — cross-surface invalidation ──
+  //
+  // Finding #15: removing a voucher via the Favourites tab left the
+  // matching voucher card on Merchant Profile still showing a filled
+  // heart.  After the backend DELETE confirms, the hook now invalidates
+  // both `['merchantProfile']` (broad — every merchant+branch variation)
+  // and `['discovery']` (Home rail + Map + Search + Category) on top of
+  // its own list key.  Symmetric with the `useFavourite` cross-surface
+  // invalidation added the same wave (see useFavourite §R5).
+
+  it('§R5 — after a successful branch DELETE, invalidates [\'merchantProfile\'] AND [\'discovery\'] on top of the list key', async () => {
+    mockRemoveBranch.mockResolvedValueOnce(undefined)
+    const { qc, Wrapper } = makeWrapper()
+    seedBranches(qc, [{ id: 'a' }])
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useRemoveFavourite<Row>('branch'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'a' }) })
+    await act(async () => { jest.advanceTimersByTime(4_000) })
+
+    await waitFor(() => expect(mockRemoveBranch).toHaveBeenCalledWith('a'))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteBranches'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+  })
+
+  it('§R5 — after a successful voucher DELETE, invalidates [\'merchantProfile\'] AND [\'discovery\'] on top of the list key', async () => {
+    mockRemoveVoucher.mockResolvedValueOnce(undefined)
+    const { qc, Wrapper } = makeWrapper()
+    seedVouchers(qc, [{ id: 'v1' }])
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useRemoveFavourite<Row>('voucher'), { wrapper: Wrapper })
+
+    act(() => { result.current.remove({ id: 'v1' }) })
+    await act(async () => { jest.advanceTimersByTime(4_000) })
+
+    await waitFor(() => expect(mockRemoveVoucher).toHaveBeenCalledWith('v1'))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteVouchers'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+  })
 })
 
 describe('useRemoveFavourite — DELETE error rollback', () => {

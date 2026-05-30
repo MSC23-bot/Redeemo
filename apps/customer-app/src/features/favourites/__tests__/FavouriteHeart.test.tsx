@@ -4,7 +4,9 @@
  * Covers the locked invariants from spec §7.2.1:
  *   - Calls `useFavourite()` with the right discriminator + ID +
  *     contextualQueryKey.
- *   - Tone variants render with the expected stroke/fill combos.
+ *   - All tones render the unified brand-rose stroke + brand-rose
+ *     active fill (Wave 3 §17 — pre-R3 white-on-dark and white-on-
+ *     gradient variants are retired).
  *   - Disabled state suppresses press + dims via opacity.
  *   - Reduce-motion path skips the scale animation (colour-only flip).
  *   - Accessibility label switches on `isFavourited`.
@@ -117,39 +119,57 @@ describe('FavouriteHeart — useFavourite plumbing', () => {
   })
 })
 
-describe('FavouriteHeart — tone variants', () => {
-  it("tone='on-light' default: stroke = brand-rose, fill = 'none' when not favourited", () => {
+// ── Device-QA R1 Wave 3 (2026-05-30) — finding #17 unified colour ────
+//
+// Locked product principle: ALL surfaces render brand-rose for both
+// stroke and (when favourited) fill.  The `tone` prop stays in the API
+// for forward compat + future contrast tweaks but no longer changes
+// the glyph colour.  Owner direction: "make heart state visually
+// coherent across surfaces."
+//
+// The pre-Wave-3 white-on-dark and white-on-gradient variants are
+// retired.  See the in-component docstring on `toneColours` for the
+// full rationale.
+describe('FavouriteHeart — unified brand-rose colour (Wave 3 §17)', () => {
+  it("default tone (on-light) inactive: brand-rose stroke, no fill", () => {
     render(<FavouriteHeart entity="branch" id="b-1" initialIsFavourited={false} testID="heart" />)
     expect(mockHeartRender).toHaveBeenLastCalledWith(
       expect.objectContaining({ color: '#E20C04', fill: 'none' }),
     )
   })
 
-  it("tone='on-light' active: fill = brand-rose when favourited", () => {
+  it("default tone active: brand-rose stroke + brand-rose fill", () => {
     render(<FavouriteHeart entity="branch" id="b-1" initialIsFavourited={true} testID="heart" />)
     expect(mockHeartRender).toHaveBeenLastCalledWith(
       expect.objectContaining({ color: '#E20C04', fill: '#E20C04' }),
     )
   })
 
-  it("tone='on-dark' inactive: white stroke, no fill", () => {
+  it("tone='on-dark' inactive: brand-rose stroke (NOT white — retired)", () => {
     render(<FavouriteHeart entity="branch" id="b-1" initialIsFavourited={false} tone="on-dark" testID="heart" />)
     expect(mockHeartRender).toHaveBeenLastCalledWith(
-      expect.objectContaining({ color: '#FFFFFF', fill: 'none' }),
+      expect.objectContaining({ color: '#E20C04', fill: 'none' }),
     )
   })
 
-  it("tone='on-dark' active: white stroke + brand-rose fill", () => {
+  it("tone='on-dark' active: brand-rose stroke + brand-rose fill (NOT white stroke — retired)", () => {
     render(<FavouriteHeart entity="branch" id="b-1" initialIsFavourited={true} tone="on-dark" testID="heart" />)
     expect(mockHeartRender).toHaveBeenLastCalledWith(
-      expect.objectContaining({ color: '#FFFFFF', fill: '#E20C04' }),
+      expect.objectContaining({ color: '#E20C04', fill: '#E20C04' }),
     )
   })
 
-  it("tone='on-gradient' active: white stroke + white fill", () => {
+  it("tone='on-gradient' active: brand-rose stroke + brand-rose fill (NOT white-on-white — retired)", () => {
     render(<FavouriteHeart entity="voucher" id="v-1" initialIsFavourited={true} tone="on-gradient" testID="heart" />)
     expect(mockHeartRender).toHaveBeenLastCalledWith(
-      expect.objectContaining({ color: '#FFFFFF', fill: '#FFFFFF' }),
+      expect.objectContaining({ color: '#E20C04', fill: '#E20C04' }),
+    )
+  })
+
+  it("tone='on-gradient' inactive: brand-rose outline, no fill", () => {
+    render(<FavouriteHeart entity="voucher" id="v-1" initialIsFavourited={false} tone="on-gradient" testID="heart" />)
+    expect(mockHeartRender).toHaveBeenLastCalledWith(
+      expect.objectContaining({ color: '#E20C04', fill: 'none' }),
     )
   })
 

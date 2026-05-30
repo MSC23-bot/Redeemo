@@ -41,6 +41,7 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   currentWindow: null,
   nextWindow: null,
   redeemedWindow: null,
+  isFavourited: false,  // Phase 3C.1g M2.9a — added to MerchantVoucher.
   ...overrides,
 })
 

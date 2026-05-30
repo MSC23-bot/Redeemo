@@ -108,6 +108,28 @@ export function useFavourite({
     if (contextualQueryKey) {
       queryClient.invalidateQueries({ queryKey: contextualQueryKey })
     }
+    // Phase 3C.1g Device-QA R1 Wave 3 (2026-05-30) — finding #14.
+    // Broad cross-surface invalidation so every other screen that
+    // renders an isFavourited heart for this entity reconciles on
+    // next focus.
+    //
+    // - ['discovery'] prefix-matches Home feed
+    //   (['discovery', 'home', lat, lng]), Map
+    //   (['discovery', 'in-area-branches', params]), Search
+    //   (['discovery', 'search', params]) and Category
+    //   (['discovery', 'category-merchants', id, params]).  Toggling
+    //   a heart on the Merchant Profile must flip the same branch's
+    //   tile on Home etc; before this, those surfaces only refetched
+    //   on their own staleTime or after a manual pull-to-refresh.
+    //
+    // - ['merchantProfile'] prefix-matches every merchant+branch
+    //   variation of the profile cache, so the Voucher Detail's
+    //   add-from-CouponHeader path keeps the merchant-profile
+    //   voucher cards in sync without requiring each caller to pass
+    //   a contextualQueryKey (defence-in-depth on top of the
+    //   explicit per-surface key).
+    queryClient.invalidateQueries({ queryKey: ['discovery'] })
+    queryClient.invalidateQueries({ queryKey: ['merchantProfile'] })
   }
 
   const addMutation = useMutation({

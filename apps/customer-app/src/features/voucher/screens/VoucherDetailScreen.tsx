@@ -155,12 +155,27 @@ export function buildReturnUrl(params: {
    * when the chip + band are off-screen below the fold.
    */
   branchChanged?: boolean
+  /**
+   * Device-QA R1 Wave 3 (2026-05-30) — finding #16.  When the user
+   * came to voucher detail VIA a merchant page that itself was
+   * reached from another surface (e.g. Favourites), Merchant Profile
+   * stamps that origin onto the voucher URL as `merchantFrom`.  On
+   * the return-to-merchant path we propagate it back as `from` so
+   * `resolveBackNavigation` on the rebuilt merchant page can pop one
+   * more level (merchant → favourites) instead of falling through
+   * to the Tabs default (Home).  Only `'favourites'` is recognised
+   * in v1 — the other origin tokens (search / map / category / home)
+   * don't currently nest a voucher entry from merchant in a way that
+   * needs propagation.
+   */
+  merchantFrom?: string | undefined
 }): string | null {
   if (params.from === 'merchant' && params.returnMerchantId && params.branch) {
     const enc = encodeURIComponent
     const tab = params.tab ?? 'vouchers'
     let url = `/(app)/merchant/${enc(params.returnMerchantId)}?branch=${enc(params.branch)}&tab=${enc(tab)}`
     if (params.branchChanged) url += '&branchChanged=1'
+    if (params.merchantFrom === 'favourites') url += '&from=favourites'
     return url
   }
   // Phase 3C.1g Device-QA R1 Wave 2 (2026-05-30) — voucher cards on
@@ -192,6 +207,15 @@ export function VoucherDetailScreen() {
      * remains visible and tappable; only the auto-modal is gated.
      */
     suppressSubscribePrompt?: string
+    /**
+     * Phase 3C.1g Device-QA R1 Wave 3 (2026-05-30) — finding #16.
+     * Captures the origin surface of the merchant page that the user
+     * came from before landing on voucher detail.  `buildReturnUrl`
+     * re-emits this as `from=<merchantFrom>` on the return-to-merchant
+     * URL so the back-chain Voucher → Merchant → <merchantFrom>
+     * preserves origin.
+     */
+    merchantFrom?: string
   }>()
   const voucherId = typeof params.id === 'string' ? params.id : undefined
   const branchIdParam = typeof params.branch === 'string' ? params.branch : undefined
@@ -996,6 +1020,7 @@ export function VoucherDetailScreen() {
       branch:           returnBranch,
       tab:              params.tab,
       branchChanged:    changedBranchOnVoucherId !== null,
+      merchantFrom:     params.merchantFrom,
     })
     if (returnUrl) {
       // router.replace ensures Voucher Detail leaves the stack
@@ -1009,7 +1034,7 @@ export function VoucherDetailScreen() {
       return
     }
     router.replace('/(app)/' as never)
-  }, [router, params.from, params.returnMerchantId, params.branch, params.tab, changedBranchOnVoucherId])
+  }, [router, params.from, params.returnMerchantId, params.branch, params.tab, params.merchantFrom, changedBranchOnVoucherId])
 
   // Phase 3C.1g M2.10 — §O4 closure.  The `handleFav` Alert stub
   // is gone.  CouponHeader now embeds `<FavouriteHeart>` which calls

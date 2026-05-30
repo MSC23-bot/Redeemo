@@ -277,4 +277,82 @@ describe('useFavourite', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteVouchers'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contextKey })
   })
+
+  // ── §R5 Device-QA R1 Wave 3 (2026-05-30) — cross-surface invalidation ──
+  //
+  // Findings #14 (Home rail heart stale after Merchant-Profile favourite)
+  // and #15 (Merchant Profile voucher card heart stale after Favourites
+  // removal) both stem from the hook only invalidating its OWN list
+  // key + optional contextualQueryKey.  Toggling a heart anywhere now
+  // additionally invalidates broad prefixes `['discovery']` (catches
+  // Home / Map / Search / Category) and `['merchantProfile']` (catches
+  // every merchant+branch variation).  Defence-in-depth on top of
+  // contextualQueryKey, not a replacement.
+
+  it('§R5 — add success invalidates [\'discovery\'] AND [\'merchantProfile\'] (broad cross-surface reconcile)', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteBranches'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+  })
+
+  it('§R5 — remove success invalidates [\'discovery\'] AND [\'merchantProfile\']', async () => {
+    ;(api.del as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'voucher', id: 'v1', initialIsFavourited: true }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteVouchers'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+  })
+
+  it('§R5 — stale-state reconcile path STILL invalidates the broad keys (silent success === full reconcile)', async () => {
+    const staleErr = Object.assign(new Error('already favourited'), { code: 'ALREADY_FAVOURITED' })
+    ;(api.post as jest.Mock).mockRejectedValueOnce(staleErr)
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('already favourited')
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+  })
+
+  it('§R5 — generic error revert path does NOT invalidate the broad keys (no false reconcile)', async () => {
+    ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('500'))
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('500')
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+  })
 })

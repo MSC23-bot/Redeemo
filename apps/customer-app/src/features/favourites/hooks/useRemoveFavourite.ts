@@ -120,9 +120,22 @@ export function useRemoveFavourite<T extends FavouriteRowLike>(
       try {
         if (entity === 'branch')  await favouritesApi.removeBranch(row.id)
         else                       await favouritesApi.removeVoucher(row.id)
-        // Backend rejected the row — but it's already gone from cache.
-        // Invalidate so the list refetches and aligns with the server.
+        // Backend confirmed the removal.  Reconcile the favourites
+        // list (the source of truth for the Favourites tab) PLUS
+        // every cross-surface cache that renders an isFavourited
+        // flag for this entity so the heart state aligns on next
+        // focus.
+        //
+        // Phase 3C.1g Device-QA R1 Wave 3 (2026-05-30) — finding
+        // #15 (Merchant Profile voucher card heart stale after
+        // Favourites > Vouchers removal) + #14 (Home rail heart
+        // stale after Favourites > Merchants removal).  Same broad
+        // prefix invalidation pattern as `useFavourite` so the
+        // round-trip is symmetric: add anywhere → see everywhere,
+        // remove anywhere → see everywhere.
         queryClient.invalidateQueries({ queryKey })
+        queryClient.invalidateQueries({ queryKey: ['merchantProfile'] })
+        queryClient.invalidateQueries({ queryKey: ['discovery'] })
       } catch (err) {
         // DELETE failed — roll back the cache splice + surface the error.
         restore(spliced.pageIndex, spliced.rowIndex, spliced.row)

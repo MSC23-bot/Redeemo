@@ -95,6 +95,65 @@ describe('buildReturnUrl — pure URL construction', () => {
       ).toBe('/(app)/favourites?tab=vouchers')
     })
   })
+
+  // ── §R4 Device-QA R1 Wave 3 (2026-05-30) — merchantFrom propagation ──
+  // When the user reaches voucher detail VIA a Merchant Profile that
+  // was itself reached from Favourites, Merchant Profile stamps
+  // `merchantFrom=favourites` on the voucher URL.  Voucher Detail's
+  // return-to-merchant URL must rewrite this as `from=favourites` so
+  // `resolveBackNavigation` on the rebuilt merchant page can pop one
+  // more level (merchant → favourites).
+  describe('§R4 — merchantFrom propagation (Device-QA R1 Wave 3)', () => {
+    it('appends &from=favourites when merchantFrom=favourites is passed', () => {
+      expect(
+        buildReturnUrl({
+          from:             'merchant',
+          returnMerchantId: 'm1',
+          branch:           'b1',
+          merchantFrom:     'favourites',
+        }),
+      ).toBe('/(app)/merchant/m1?branch=b1&tab=vouchers&from=favourites')
+    })
+
+    it('does NOT append &from= when merchantFrom is undefined (existing behaviour preserved)', () => {
+      expect(
+        buildReturnUrl({
+          from:             'merchant',
+          returnMerchantId: 'm1',
+          branch:           'b1',
+        }),
+      ).toBe('/(app)/merchant/m1?branch=b1&tab=vouchers')
+    })
+
+    it('does NOT append &from= for unrecognised merchantFrom values (defensive — only "favourites" propagates in v1)', () => {
+      expect(
+        buildReturnUrl({
+          from:             'merchant',
+          returnMerchantId: 'm1',
+          branch:           'b1',
+          merchantFrom:     'someUnknownOrigin',
+        }),
+      ).toBe('/(app)/merchant/m1?branch=b1&tab=vouchers')
+    })
+
+    it('coexists with branchChanged=1 — both flags can appear', () => {
+      expect(
+        buildReturnUrl({
+          from:             'merchant',
+          returnMerchantId: 'm1',
+          branch:           'b1',
+          branchChanged:    true,
+          merchantFrom:     'favourites',
+        }),
+      ).toBe('/(app)/merchant/m1?branch=b1&tab=vouchers&branchChanged=1&from=favourites')
+    })
+
+    it('is ignored on the from=favourites branch (favourites→voucher direct entry doesn\'t chain through a merchant)', () => {
+      expect(
+        buildReturnUrl({ from: 'favourites', merchantFrom: 'favourites' }),
+      ).toBe('/(app)/favourites?tab=vouchers')
+    })
+  })
 })
 
 // ── Integration tests — screen + handleBack wiring ────────────────────

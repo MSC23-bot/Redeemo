@@ -22,6 +22,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { Heart } from '@/design-system/icons'
+import { color } from '@/design-system/tokens'
 import { useFavourite } from '@/hooks/useFavourite'
 import { useReduceMotion } from '@/features/profile/hooks/useReduceMotion'
 
@@ -47,41 +48,37 @@ export interface FavouriteHeartProps {
 }
 
 /**
- * Visual tone table.
+ * Visual tone — colour contract (Device-QA R1 Wave 3 finding #17, locked 2026-05-30).
  *
- * - `on-light`    — for surfaces with a light/white background.  Brand-
- *                   rose stroke; brand-rose fill when active.
- * - `on-dark`     — for surfaces with a dark background (merchant hero,
- *                   voucher detail nav row).  White stroke; brand-rose
- *                   fill when active so the active state still pops on
- *                   a dark backdrop.  Container is expected to provide
- *                   any translucent "frosted" backing (Pressable here
- *                   stays transparent so this component composes inside
- *                   existing frosted/glass buttons).
- * - `on-gradient` — for surfaces sitting on the brand gradient (voucher
- *                   cards in Merchant Profile, branch tiles in
- *                   Discovery).  White stroke; white fill when active —
- *                   reads as ink-on-colour without competing with the
- *                   underlying gradient.
+ * Across all surfaces the heart is rendered in the brand-rose colour:
+ *   - Unfavourited → brand-rose stroke, no fill.
+ *   - Favourited   → brand-rose stroke AND brand-rose fill.
+ * The owner-locked product principle is "make heart state visually
+ * coherent across surfaces" — so the `tone` prop no longer changes the
+ * heart colour.  It still exists in the API for forward compat AND for
+ * consumers to declare which surface family they sit on; future
+ * iterations may use it to add a subtle inner backdrop circle for
+ * extra contrast on saturated gradients without changing call sites.
+ *
+ * Why no white variants any more (pre-R3 behaviour, retired):
+ *   - on-dark used to be `stroke: '#FFFFFF'` + brand-rose active fill.
+ *     White outlines on dark/grey circles read as "neutral chrome" not
+ *     "tap me to save".  Owner direction: red outline carries the brand
+ *     intent + matches the filled-red active state for a clear
+ *     unfavourited→favourited transition.
+ *   - on-gradient used to be `stroke: '#FFFFFF' + fill: '#FFFFFF'` — a
+ *     filled-white heart on a coloured gradient looked decorative, not
+ *     stateful.  Filled red is the unambiguous "saved" signal.
+ *
+ * Container chrome (the circular backdrop visible on Map cards, voucher
+ * gradient cards, Merchant Profile hero, etc.) stays the consumer's
+ * responsibility — those wrappers already provide contrast against the
+ * surface and the new brand-rose glyph sits cleanly inside them.
  */
-function toneColours(tone: FavouriteHeartTone, isFavourited: boolean): { stroke: string; fill: string } {
-  switch (tone) {
-    case 'on-dark':
-      return {
-        stroke: '#FFFFFF',
-        fill:   isFavourited ? '#E20C04' : 'none',
-      }
-    case 'on-gradient':
-      return {
-        stroke: '#FFFFFF',
-        fill:   isFavourited ? '#FFFFFF' : 'none',
-      }
-    case 'on-light':
-    default:
-      return {
-        stroke: '#E20C04',
-        fill:   isFavourited ? '#E20C04' : 'none',
-      }
+function toneColours(_tone: FavouriteHeartTone, isFavourited: boolean): { stroke: string; fill: string } {
+  return {
+    stroke: color.brandRose,
+    fill:   isFavourited ? color.brandRose : 'none',
   }
 }
 
@@ -104,11 +101,15 @@ export function FavouriteHeart({
   const reduceMotion = useReduceMotion()
   const scale = useSharedValue(1)
 
+  // Spread-conditionally so `exactOptionalPropertyTypes: true` doesn't
+  // complain about passing `undefined` for an optional-but-not-undefined
+  // prop on UseFavouriteOptions.  When the consumer didn't pass a
+  // contextual key, omit the property entirely.
   const { isFavourited, toggle, isLoading } = useFavourite({
     type:                entity,
     id,
     initialIsFavourited,
-    contextualQueryKey,
+    ...(contextualQueryKey !== undefined ? { contextualQueryKey } : {}),
   })
 
   const handlePress = useCallback(() => {

@@ -547,8 +547,23 @@ export function MerchantProfileScreen({ id }: Props) {
       `tab=vouchers`,
     ]
     if (sbId) qs.unshift(`branch=${enc(sbId)}`)
+    // Phase 3C.1g Device-QA R1 Wave 3 (2026-05-30) — finding #16.
+    // Propagate the merchant's OWN `?from=<origin>` token through to
+    // voucher detail so the back-chain Voucher → Merchant → <origin>
+    // preserves where the user came from (e.g. Favourites).  Voucher
+    // Detail's `buildReturnUrl` rebuilds the merchant URL with
+    // `&from=<merchantFrom>` so resolveBackNavigation on the returned
+    // merchant page knows which surface to back-pop to.  Only the
+    // recognised origin tokens flow through; anything else is dropped
+    // defensively (favouritesonly origin needs propagation in v1; the
+    // others — search / map / category / home — already work without
+    // chaining because their merchant pages aren't a nested entry
+    // point).
+    if (screenParams.from === 'favourites') {
+      qs.push(`merchantFrom=favourites`)
+    }
     router.push(`/voucher/${enc(voucherId)}?${qs.join('&')}` as never)
-  }, [branchId, merchant])
+  }, [branchId, merchant, screenParams.from])
 
   // Round 6 follow-up: screen-wide dim+restore pulse on branch
   // switch. Owner flagged that the previous tab-content settle
