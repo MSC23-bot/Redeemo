@@ -35,6 +35,12 @@ import { useRemoveFavourite } from '../hooks/useRemoveFavourite'
 import { emitToast } from '@/design-system/motion/Toast'
 import type { FavouriteBranchItem, FavouriteVoucherItem } from '@/lib/api/favourites'
 
+// Wave 5 #4 (locked 2026-05-30) — matches the absolute bottom Tabs bar
+// height set in `app/(app)/_layout.tsx` (consistent with `HomeScreen`'s
+// `TAB_BAR_HEIGHT`).  Drives the UndoToast bottomOffset below so the
+// toast renders ABOVE the tab bar instead of behind it.
+const TAB_BAR_HEIGHT = 80
+
 function normaliseTab(raw: unknown): FavouritesTab {
   return raw === 'vouchers' ? 'vouchers' : 'places'
 }
@@ -184,6 +190,10 @@ export function FavouritesScreen(): React.ReactElement {
         visible={Boolean(undoMessage)}
         message={undoMessage ?? ''}
         onUndo={activeTab === 'places' ? handleUndoBranch : handleUndoVoucher}
+        // Wave 5 #4 — sit ABOVE the 80pt absolute-positioned bottom
+        // tab bar.  Pre-Wave-5 the toast rendered at the default
+        // 20pt-from-bottom and was fully obscured by the tab bar.
+        bottomOffset={insets.bottom + TAB_BAR_HEIGHT + spacing[3]}
       />
     </View>
   )

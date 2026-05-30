@@ -28,6 +28,17 @@ interface Props {
   onUndo:    () => void
   /** Duration in ms — must equal the parent's undo window (4000ms). */
   duration?: number
+  /**
+   * Wave 5 #4 (locked 2026-05-30) — distance from the screen bottom.
+   * Defaults to `spacing[5]` (20pt) which is fine on full-screen
+   * surfaces.  Surfaces that sit under an absolute-positioned bottom
+   * tab bar (e.g. Favourites — tab bar is 80pt over the layout) MUST
+   * pass `bottomOffset: insets.bottom + TAB_BAR_HEIGHT + spacing[3]`
+   * so the toast renders ABOVE the tab bar.  Pre-Wave-5 the toast
+   * sat at 20pt and was completely hidden by the 80pt tab bar — owner
+   * reported "no visible confirmation".
+   */
+  bottomOffset?: number
   testID?:   string
 }
 
@@ -38,6 +49,7 @@ export function UndoToast({
   message,
   onUndo,
   duration = DEFAULT_DURATION_MS,
+  bottomOffset,
   testID,
 }: Props): React.ReactElement | null {
   const reduceMotion = useReduceMotion()
@@ -73,7 +85,11 @@ export function UndoToast({
 
   return (
     <Animated.View
-      style={[styles.container, { transform: [{ translateY: ty }] }]}
+      style={[
+        styles.container,
+        bottomOffset !== undefined ? { bottom: bottomOffset } : null,
+        { transform: [{ translateY: ty }] },
+      ]}
       pointerEvents="box-none"
       testID={testID ?? 'undo-toast'}
     >

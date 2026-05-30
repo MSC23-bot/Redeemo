@@ -93,6 +93,22 @@ jest.mock('@/features/merchant/components/ReviewsTab', () => {
   return {
     ReviewsTab: (props: any) => {
       mockReviewsTabRenderSpy(props)
+      // Wave 5 #1 — mirror the production ReviewsTab handshake: when
+      // `initialOpenWriteFor` arrives non-null, fire
+      // `onAutoOpenConsumed` after mount.  Pre-Wave-5 the mock
+      // skipped this and the parent's scrub effect's
+      // `if (!autoOpenConsumed) return` gate stayed closed — fine
+      // for the pre-Wave-5 tests (they didn't assert post-scrub URL
+      // state) but blocked the §W5-#1 from-preservation pin below
+      // because the rebuild never fired.  The pre-Wave-5 "scrub
+      // fires after consume" test (now updated to a positive
+      // post-consume assertion) also benefits — same wiring,
+      // identical to production.
+      React.useEffect(() => {
+        if (props.initialOpenWriteFor && typeof props.onAutoOpenConsumed === 'function') {
+          props.onAutoOpenConsumed()
+        }
+      }, [props.initialOpenWriteFor?.branchId, props.initialOpenWriteFor?.redemptionId, props.onAutoOpenConsumed])
       return (
         <View accessibilityLabel="reviews-tab">
           <Text testID="reviews-tab-prop-snapshot">
@@ -426,5 +442,64 @@ describe('MerchantProfileScreen — cold-mount with Rate & Review URL (T16 devic
       ([props]) => props.initialOpenWriteFor?.redemptionId === 'red-2',
     )
     expect(sawRed2).toBe(true)
+  })
+
+  // ── §W5-#1 Device-QA R1 Wave 5 (2026-05-30) — from-preservation ──────
+  // Owner-reported: after the openWriteReview scrub fires on a
+  // Merchant Profile that was entered with `?from=favourites`, the
+  // back-nav fell through to Home because the rebuilt URL dropped
+  // `from=favourites`.  After the Wave 5 #1 fix the rebuilder
+  // appends `&from=<screenParams.from>` so the origin survives the
+  // scrub.
+  it('§W5-#1 — openWriteReview scrub preserves `from=favourites` on the rebuilt URL', async () => {
+    mockParams = {
+      branch:           'b1',
+      tab:              'reviews',
+      openWriteReview:  '1',
+      fromRedemption:   'red-1',
+      from:             'favourites',
+    }
+    getProfileSpy.mockResolvedValue(makeMerchant() as any)
+
+    const { findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
+    await findByLabelText('reviews-tab')
+
+    // Wait for the scrub to fire.  router.replace was called with the
+    // rebuilt URL; the mock applies it to `mockParams` synchronously
+    // (mockApplyRouterReplace).
+    const { waitFor } = require('@testing-library/react-native')
+    await waitFor(() => {
+      expect(mockParams.openWriteReview).toBeUndefined()
+    })
+
+    // The scrub MUST have preserved `from=favourites` — that's the
+    // load-bearing assertion for Wave 5 #1.  Pre-Wave-5 this was
+    // undefined because the rebuilder only kept branch + tab.
+    expect(mockParams.from).toBe('favourites')
+    // Sanity: branch + tab still preserved.
+    expect(mockParams.branch).toBe('b1')
+    expect(mockParams.tab).toBe('reviews')
+  })
+
+  it('§W5-#1 — branchChanged scrub preserves `from=favourites` on the rebuilt URL', async () => {
+    mockParams = {
+      branch:           'b1',
+      tab:              'vouchers',
+      branchChanged:    '1',
+      from:             'favourites',
+    }
+    getProfileSpy.mockResolvedValue(makeMerchant() as any)
+
+    const { findByLabelText } = wrap(<MerchantProfileScreen id="m1" />)
+    await findByLabelText('vouchers-tab')
+
+    const { waitFor } = require('@testing-library/react-native')
+    await waitFor(() => {
+      expect(mockParams.branchChanged).toBeUndefined()
+    })
+
+    expect(mockParams.from).toBe('favourites')
+    expect(mockParams.branch).toBe('b1')
+    expect(mockParams.tab).toBe('vouchers')
   })
 })

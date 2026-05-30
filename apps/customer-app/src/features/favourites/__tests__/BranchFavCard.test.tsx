@@ -68,13 +68,15 @@ function makeRow(overrides: Partial<FavouriteBranchItem> = {}): FavouriteBranchI
 }
 
 describe('BranchFavCard — body content', () => {
-  it('renders merchant name + cuisine/category + area line + open pill', () => {
-    const { getByText, getByLabelText } = render(
+  it('renders merchant name + cuisine/category + area line + open pill (Wave 5 #2 — postcode dropped)', () => {
+    const { getByText, queryByText, getByLabelText } = render(
       <BranchFavCard row={makeRow()} onPress={jest.fn()} testID="card" />
     )
     expect(getByText('Iron Forge Gym')).toBeTruthy()
     expect(getByText('Gym')).toBeTruthy()                       // cuisine/category
-    expect(getByText(/Marsden, HD7 6EZ/)).toBeTruthy()           // area line
+    // Wave 5 #2 — area line shows locality/city ONLY, no postcode.
+    expect(getByText(/Marsden/)).toBeTruthy()
+    expect(queryByText(/HD7 6EZ/)).toBeNull()
     expect(getByText('Open now')).toBeTruthy()
     // a11y label combines merchant + branch subtitle + status + voucher count
     expect(
@@ -82,14 +84,12 @@ describe('BranchFavCard — body content', () => {
     ).toBeTruthy()
   })
 
-  it('omits the area line when city + postcode are both null', () => {
+  it('omits the area line when city is null (Wave 5 #2 — postcode dropped means city alone drives it)', () => {
     const { queryByText } = render(
-      <BranchFavCard row={makeRow({ city: null, postcode: null })} onPress={jest.fn()} testID="card" />
+      <BranchFavCard row={makeRow({ city: null, postcode: 'HD7 6EZ' })} onPress={jest.fn()} testID="card" />
     )
-    // Pre-Wave-3 the card rendered the literal "Location unavailable"
-    // fallback string.  The Wave-3 card simply omits the area line when
-    // both fields are missing.
     expect(queryByText('Location unavailable')).toBeNull()
+    expect(queryByText(/HD7 6EZ/)).toBeNull()
   })
 
   it('renders Closed pill when isOpen=false (and not unavailable)', () => {
@@ -162,20 +162,25 @@ describe('BranchFavCard — pills (Wave 3 §20)', () => {
     expect(queryByText(/voucher/)).toBeNull()
   })
 
-  // ── Wave 4 #3 — Save semantics aligned with Search/BranchTile ────────
-  it('Wave 4 #3 — renders "Save £X across N vouchers" when totalEstimatedSaving > 0 and voucherCount > 1', () => {
-    const { getByText } = render(
+  // ── Wave 4 #3 + Wave 5 #3 — Save semantics ─────────────────────────
+  // Wave 5 #3 — chip reads "Save £X" (no "across N vouchers" suffix);
+  // sibling voucher-count pill already shows the count.
+  it('Wave 5 #3 — multi-voucher branch reads "Save £X" only (no "across N vouchers" duplication)', () => {
+    const { getByText, queryByText } = render(
       <BranchFavCard
         row={makeRow({ totalEstimatedSaving: 38.5, maxEstimatedSaving: 8.5, voucherCount: 6 })}
         onPress={jest.fn()}
         testID="card"
       />
     )
-    expect(getByText('Save £38.50 across 6 vouchers')).toBeTruthy()
+    expect(getByText('Save £38.50')).toBeTruthy()
+    expect(queryByText(/across/)).toBeNull()
+    // Sibling voucher-count pill carries the "6 vouchers" copy.
+    expect(getByText('6 vouchers')).toBeTruthy()
   })
 
-  it('Wave 4 #3 — single-voucher branch reads "Save £X" without the "across" suffix', () => {
-    const { getByText } = render(
+  it('Wave 5 #3 — single-voucher branch reads "Save £X"', () => {
+    const { getByText, queryByText } = render(
       <BranchFavCard
         row={makeRow({ totalEstimatedSaving: 5, maxEstimatedSaving: 5, voucherCount: 1 })}
         onPress={jest.fn()}
@@ -183,6 +188,7 @@ describe('BranchFavCard — pills (Wave 3 §20)', () => {
       />
     )
     expect(getByText('Save £5')).toBeTruthy()
+    expect(queryByText(/across/)).toBeNull()
   })
 
   it('Wave 4 #3 — whole pounds drop the trailing .00', () => {
@@ -193,7 +199,7 @@ describe('BranchFavCard — pills (Wave 3 §20)', () => {
         testID="card"
       />
     )
-    expect(getByText('Save £25 across 3 vouchers')).toBeTruthy()
+    expect(getByText('Save £25')).toBeTruthy()
   })
 
   it('Wave 4 #3 — falls back to maxEstimatedSaving when totalEstimatedSaving is 0 (pre-Wave-4 cached payloads)', () => {

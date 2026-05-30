@@ -424,13 +424,19 @@ export function MerchantProfileScreen({ id }: Props) {
     setOpenWriteScrubbed(true)
     const enc = encodeURIComponent
     const tab = typeof screenParams.tab === 'string' ? screenParams.tab : 'reviews'
+    // Wave 5 #1 (locked 2026-05-30) — preserve `?from=<origin>` (e.g.
+    // `from=favourites`) across the auto-open scrub.  Pre-Wave-5 this
+    // rebuilder dropped every param except branch + tab, so the user
+    // landed on a Merchant Profile that had no back-context and the
+    // hero Back button fell through to the Tabs default (Home).
+    const fromSuffix = typeof screenParams.from === 'string' ? `&from=${enc(screenParams.from)}` : ''
     const branchPart = initialOpenWriteFor.branchId
-      ? `?branch=${enc(initialOpenWriteFor.branchId)}&tab=${enc(tab)}`
-      : `?tab=${enc(tab)}`
+      ? `?branch=${enc(initialOpenWriteFor.branchId)}&tab=${enc(tab)}${fromSuffix}`
+      : `?tab=${enc(tab)}${fromSuffix}`
     router.replace(
       `/(app)/merchant/${enc(merchantId)}${branchPart}` as never,
     )
-  }, [autoOpenConsumed, initialOpenWriteFor, openWriteScrubbed, merchantId, screenParams.tab])
+  }, [autoOpenConsumed, initialOpenWriteFor, openWriteScrubbed, merchantId, screenParams.tab, screenParams.from])
 
   const branchChangedParam = screenParams.branchChanged
   useEffect(() => {
@@ -445,14 +451,19 @@ export function MerchantProfileScreen({ id }: Props) {
 
     // Scrub `branchChanged=1` from the URL — keep the rest. The route
     // path is /(app)/merchant/<id>; query is `branch=<id>&tab=<id>`.
+    // Wave 5 #1 (locked 2026-05-30) — also preserve `from=<origin>` so
+    // the back-chain Voucher Detail → (rebuilt) Merchant Profile →
+    // Favourites stays intact after a mid-flow branch change.  The
+    // rebuilder dropped every non-branch/tab param pre-Wave-5.
     if (merchantId) {
       const enc = encodeURIComponent
       const tab = typeof screenParams.tab === 'string' ? screenParams.tab : 'vouchers'
+      const fromSuffix = typeof screenParams.from === 'string' ? `&from=${enc(screenParams.from)}` : ''
       router.replace(
-        `/(app)/merchant/${enc(merchantId)}?branch=${enc(branchId)}&tab=${enc(tab)}` as never,
+        `/(app)/merchant/${enc(merchantId)}?branch=${enc(branchId)}&tab=${enc(tab)}${fromSuffix}` as never,
       )
     }
-  }, [branchChangedParam, branchChangedToastFired, merchant, branchId, merchantId, screenParams.tab])
+  }, [branchChangedParam, branchChangedToastFired, merchant, branchId, merchantId, screenParams.tab, screenParams.from])
 
   // §N11 prefetch — warm sibling-branch merchant-profile queries when
   // the user opens the Branches tab. Caps at 5 nearest active non-

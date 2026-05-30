@@ -102,24 +102,26 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
     : (addressLine1 ?? null)
 
   const cuisineOrCategory = merchant.primaryCategory?.name ?? null
-  const areaLine = [city, postcode].filter(Boolean).join(', ')
+  // Wave 5 #2 (locked 2026-05-30) — area line is just the locality/
+  // city now.  Postcode pre-Wave-5 made the card meta line read
+  // "Indian Restaurant · Colchester, CO1 1JN" — owner direction is
+  // cleaner locality-only display.  Postcode is still on the
+  // payload + may surface elsewhere (e.g. directions sheet); we
+  // just drop it from this card's meta line.
+  void postcode  // retained on the destructure for forward-compat
+  const areaLine = city ?? null
 
-  // Wave 4 #3 (locked 2026-05-30) — Save semantics aligned with
-  // Search/BranchTile: copy is "Save £X across N vouchers" using
-  // `totalEstimatedSaving` (sum of all active voucher savings).
-  // `maxEstimatedSaving` is preserved on the payload but no longer
-  // drives the visible chip — it was misleading on multi-voucher
-  // merchants (Covelum's 6 vouchers totaled £38.50 but the chip
-  // showed only £8.50).  Smart £ format — whole pounds drop the
-  // trailing .00.
+  // Wave 4 #3 + Wave 5 #3 (locked 2026-05-30) — Save semantics:
+  // uses `totalEstimatedSaving` (sum across all active vouchers),
+  // not `maxEstimatedSaving` (which was misleading on multi-voucher
+  // merchants — Covelum's 6 vouchers totaled £38.50 but the chip
+  // pre-Wave-4 showed only £8.50).  Wave 5 #3 owner direction:
+  // chip reads just "Save £X" — DON'T append "across N vouchers"
+  // because the sibling voucher-count pill already shows that.
+  // Smart £ format — whole pounds drop the trailing .00.
   const savingEffective = totalEstimatedSaving > 0 ? totalEstimatedSaving : maxEstimatedSaving
-  const savingFormatted = savingEffective > 0
-    ? `£${Number.isInteger(savingEffective) ? savingEffective : savingEffective.toFixed(2)}`
-    : null
-  const savingLabel = savingFormatted !== null
-    ? voucherCount > 1
-      ? `Save ${savingFormatted} across ${voucherCount} vouchers`
-      : `Save ${savingFormatted}`
+  const savingLabel = savingEffective > 0
+    ? `Save £${Number.isInteger(savingEffective) ? savingEffective : savingEffective.toFixed(2)}`
     : null
 
   return (
