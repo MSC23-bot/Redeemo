@@ -86,11 +86,25 @@ export function HomeScreen() {
   // increase network calls in the steady state (staleTime is
   // already 60s, so the immediate refetch is just earlier than
   // it would naturally fire).
+  // Wave 6.6 (2026-05-31) — owner-reported on Wave 6.5 ship:
+  // "minutes" of stale Home rail hearts after favourites mutated
+  // elsewhere.  Wave 6.4-C alone fired `invalidateQueries` on focus
+  // which marks queries stale + refetches ACTIVE observers — but
+  // expo-router Tabs' focus / mount timing can leave the Home
+  // query in a transient state where invalidate sees no active
+  // observer + no refetch fires.  Then the cache stays stale
+  // indefinitely until something else triggers a refetch.
+  //
+  // Belt-and-braces: also call `refetch()` directly on the Home
+  // query.  refetch() always fires regardless of observer state.
+  // The invalidate still runs first so sibling discovery queries
+  // (Map, Search, Category) also get refreshed.
   const queryClient = useQueryClient()
   useFocusEffect(
     React.useCallback(() => {
       queryClient.invalidateQueries({ queryKey: ['discovery'] })
-    }, [queryClient])
+      void refetch()
+    }, [queryClient, refetch])
   )
 
   const onRefresh = async () => {
