@@ -133,4 +133,147 @@ describe('BranchTile — §DH branch locality in info row', () => {
     // bug if the conditional were collapsed wrongly in future.
     expect(queryByLabelText(/, , /)).toBeNull()
   })
+
+  // §DH-realistic (added 2026-05-31 from owner's PR #139 diagnostic
+  // ask) — drive `<BranchTile>` through the EXPORTED
+  // `homeFeedResponseSchema` parse path, not just the synthesized
+  // `makeBranchTile` fixture.  This proves:
+  //   1. The customer-app schema does NOT silently strip the three
+  //      locality wire fields if the backend emits them.
+  //   2. The parsed branch object reaches `<BranchTile>` with the
+  //      locality fields intact.
+  //   3. End-to-end render pipeline (realistic JSON wire payload →
+  //      Zod parse → React props → DOM text) renders the locality.
+  //
+  // Backend `branch-tile-contract.test.ts` proves the wire emits the
+  // three fields populated from real seeded Covelum-like fixtures
+  // (added §DH asserts in the same PR).  This pin closes the
+  // customer-app side of the end-to-end story so a future change to
+  // the customer-app Zod schema can't silently drop these fields
+  // without a test failing.
+  it('§DH-realistic — drives <BranchTile> from an actual homeFeedResponseSchema.parse() result (proves JSON → Zod → props → render)', () => {
+    const { homeFeedResponseSchema } = require('@/lib/api/discovery') as typeof import('@/lib/api/discovery')
+
+    // Realistic Home feed wire payload — shape mirrors what the live
+    // /api/v1/customer/home endpoint emits for the seeded Covelum-
+    // Brightlingsea branch.  Only the minimal fields needed for
+    // schema validation + this assertion are populated; the rest
+    // default to schema-allowed null / 0 / [].
+    const wireJson = {
+      locationContext: { source: 'coordinates', city: 'Brightlingsea', localityId: null },
+      campaigns:       [],
+      featuredBranches: [{
+        id:                       'tax-branch-covelum-001',
+        branchName:               'Brightlingsea',
+        branchLocalityId:         'loc-brightlingsea',
+        branchLocalityName:       'Brightlingsea',      // §DH primary
+        branchPostTown:           'Brightlingsea',      // §DH secondary
+        branchCity:               'Brightlingsea',      // §DH tertiary
+        branchLatitude:           51.8066,
+        branchLongitude:          1.0231,
+        branchLocationConfidence: 'MANUALLY_CONFIRMED',
+        isOpenNow:                true,
+        closesAtLocal:            null,
+        distance:                 0,
+        distanceMetres:           0,
+        isFavourited:             false,
+        avgRating:                4.3,
+        reviewCount:              7,
+        supplyRung:               'NEARBY',
+        proximityBand:            'IN_YOUR_AREA',
+        matchContext:             null,
+        merchant: {
+          id:                   'tax-merchant-covelum-001',
+          businessName:         'Covelum Restaurant',
+          tradingName:          'Covelum',
+          logoUrl:              null,
+          bannerUrl:            null,
+          primaryCategory:      { id: 'cat-food', name: 'Food & Drink', parentId: null, pinColour: null },
+          primaryDescriptorTag: null,
+          subcategory:          null,
+          descriptor:           'Indian Restaurant',
+          highlights:           [],
+          voucherCount:         6,
+          maxEstimatedSaving:   9,
+          totalEstimatedSaving: 9,
+        },
+      }],
+      trendingBranches:         [],
+      nearbyByCategoryBranches: [],
+    }
+
+    // Parse via the EXPORTED customer-app schema — fails loudly if
+    // the schema rejects the realistic payload OR strips locality.
+    const parsed = homeFeedResponseSchema.parse(wireJson)
+    const branch = parsed.featuredBranches[0]!
+
+    // Sanity: the parse round-trip preserved all three locality fields.
+    expect(branch.branchLocalityName).toBe('Brightlingsea')
+    expect(branch.branchPostTown).toBe('Brightlingsea')
+    expect(branch.branchCity).toBe('Brightlingsea')
+
+    // End-to-end render — feed the parsed branch through the same
+    // `<BranchTile>` consumed by Home Featured / Trending / Popular /
+    // NBC / Category / Map carousel.
+    const { getByText, getByLabelText } = render(<BranchTile branch={branch} onPress={() => {}} />)
+    expect(getByText(/^Brightlingsea · Indian Restaurant/)).toBeTruthy()
+    expect(getByLabelText('Covelum Restaurant, Brightlingsea, Indian Restaurant')).toBeTruthy()
+  })
+
+  // Sibling pin for the Colchester case — confirms two-branch
+  // disambiguation works end-to-end through the parse pipeline.
+  it('§DH-realistic — Covelum Colchester realistic payload renders "Colchester · …" through the same pipeline', () => {
+    const { homeFeedResponseSchema } = require('@/lib/api/discovery') as typeof import('@/lib/api/discovery')
+
+    const wireJson = {
+      locationContext: { source: 'coordinates', city: 'Brightlingsea', localityId: null },
+      campaigns:       [],
+      featuredBranches: [],
+      trendingBranches: [{
+        id:                       'tax-branch-covelum-002',
+        branchName:               'Colchester',
+        branchLocalityId:         'loc-colchester',
+        branchLocalityName:       'Colchester',
+        branchPostTown:           'Colchester',
+        branchCity:               'Colchester',
+        branchLatitude:           51.8859,
+        branchLongitude:          0.9035,
+        branchLocationConfidence: 'MANUALLY_CONFIRMED',
+        isOpenNow:                true,
+        closesAtLocal:            null,
+        distance:                 12070,
+        distanceMetres:           12070,
+        isFavourited:             false,
+        avgRating:                5,
+        reviewCount:              1,
+        supplyRung:               'CATCHMENT',
+        proximityBand:            'IN_YOUR_AREA',
+        matchContext:             null,
+        merchant: {
+          id:                   'tax-merchant-covelum-001',
+          businessName:         'Covelum Restaurant',
+          tradingName:          'Covelum',
+          logoUrl:              null,
+          bannerUrl:            null,
+          primaryCategory:      { id: 'cat-food', name: 'Food & Drink', parentId: null, pinColour: null },
+          primaryDescriptorTag: null,
+          subcategory:          null,
+          descriptor:           'Indian Restaurant',
+          highlights:           [],
+          voucherCount:         6,
+          maxEstimatedSaving:   9,
+          totalEstimatedSaving: 9,
+        },
+      }],
+      nearbyByCategoryBranches: [],
+    }
+
+    const parsed = homeFeedResponseSchema.parse(wireJson)
+    const branch = parsed.trendingBranches[0]!
+
+    const { getByText } = render(<BranchTile branch={branch} onPress={() => {}} />)
+    // Confirms the canonical owner-flagged "two Covelum cards on the
+    // same rail" scenario renders disambiguated locality on EACH card.
+    expect(getByText(/^Colchester · Indian Restaurant/)).toBeTruthy()
+  })
 })

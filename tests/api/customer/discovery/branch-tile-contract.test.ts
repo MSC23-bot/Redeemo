@@ -90,6 +90,16 @@ async function createCovelumLikeFixture() {
     [COVELUM_BRANCH_A_ID, BRIGHTLINGSEA, 'Brightlingsea'],
     [COVELUM_BRANCH_B_ID, COLCHESTER,    'Colchester'],
   ] as const) {
+    // §DH locality fix-up (2026-05-31, PR #139 diagnostic) — populate
+    // BOTH `localityName` AND `postTown` AND `city` on the fixture so
+    // the test pins below can prove that all three denormalised
+    // locality columns flow through `enrichBranchTile` onto the wire.
+    // Pre-§DH only `city` was set on the fixture, so the existing
+    // `branchCity` assert covered the column it happened to populate;
+    // `branchLocalityName` + `branchPostTown` were silently null on
+    // the fixture row and the test couldn't have caught a backend
+    // builder dropping those fields.  This is the regression-class
+    // gap §DH closes — see body asserts below.
     await prisma.branch.upsert({
       where: { id: branchId },
       create: {
@@ -100,7 +110,9 @@ async function createCovelumLikeFixture() {
         name:               `${FIXTURE_PREFIX}Covelum — ${city}`,
         isMainBranch:       branchId === COVELUM_BRANCH_A_ID,
         addressLine1:       '1 Test St',
-        city,
+        localityName:       city, // §DH — primary wire field
+        postTown:           city, // §DH — secondary wire field
+        city,                     // §DH — tertiary wire field
         postcode:           'CO1 1AA',
         country:            'GB',
         latitude:           coords.lat,
@@ -111,6 +123,8 @@ async function createCovelumLikeFixture() {
       update: {
         merchantId:         COVELUM_MERCHANT_ID,
         name:               `${FIXTURE_PREFIX}Covelum — ${city}`,
+        localityName:       city, // §DH
+        postTown:           city, // §DH
         city,
         latitude:           coords.lat,
         longitude:          coords.lng,
@@ -384,6 +398,22 @@ describe('Discovery Rebaseline Phase 1 — branch-first BranchTile contract', ()
     // Branch-scoped city denormalised columns.
     expect(a.branchCity).toBe('Brightlingsea')
     expect(b.branchCity).toBe('Colchester')
+
+    // §DH (2026-05-31) — locality + post-town denormalised columns
+    // MUST also flow through `enrichBranchTile` onto the wire.  Pin
+    // added in PR #139 to close the regression-class gap that the
+    // pre-§DH assert block above (branchCity only) couldn't catch:
+    // if a future change to `enrichBranchTile` or
+    // `BRANCH_TILE_SELECT` silently drops `branch.localityName` or
+    // `branch.postTown`, this assert fails.  The customer-app
+    // `<BranchTile>` consumes these via the fallback chain
+    // `branchLocalityName ?? branchPostTown ?? branchCity ?? ''` —
+    // dropping the first two would silently downgrade the rendered
+    // locality on tiles where city happens to be null.
+    expect(a.branchLocalityName).toBe('Brightlingsea')
+    expect(b.branchLocalityName).toBe('Colchester')
+    expect(a.branchPostTown).toBe('Brightlingsea')
+    expect(b.branchPostTown).toBe('Colchester')
   })
 
   it('POSTCODE_CENTROID branch redacts lat/lng while preserving locationConfidence', async () => {
