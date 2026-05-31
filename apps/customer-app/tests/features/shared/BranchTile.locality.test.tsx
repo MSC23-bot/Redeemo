@@ -10,9 +10,12 @@
  * Wire fallback per the backend `branchTileSchema`:
  *   branchLocalityName > branchPostTown > branchCity
  *
- * Locality renders FIRST in the info row so the eye lands on it
- * immediately.  Pure presentation change — wire fields were already
- * exposed by Plan 4 M1; this just consumes them.
+ * Order: descriptor → locality → distance.  Owner-locked rationale
+ * (refined post-device-QA 2026-05-31): the category/subcategory
+ * descriptor tells users WHAT the place is; the locality
+ * DISAMBIGUATES which branch when the merchant has multiple;
+ * distance comes last.  Pure presentation change — wire fields were
+ * already exposed by Plan 4 M1; this just consumes them.
  *
  * `<BranchTile>` is the shared card across Home Featured / Trending /
  * Popular / NearbyByCategory + Search results + Map carousel (via
@@ -42,12 +45,12 @@ describe('BranchTile — §DH branch locality in info row', () => {
       merchant:           { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
     })
     const { getByText, queryByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    // Locality at the front of the info row; primary wire field
-    // wins over the lower-precedence fallbacks.
-    expect(getByText(/Brightlingsea · Italian Restaurant · 1\.2 miles away/)).toBeTruthy()
+    // Locality renders after the descriptor in the info row; primary
+    // wire field wins over the lower-precedence fallbacks.
+    expect(getByText(/Italian Restaurant · Brightlingsea · 1\.2 miles away/)).toBeTruthy()
     // Defensive: the lower-precedence fallbacks must NOT also appear.
-    expect(queryByText(/Colchester · /)).toBeNull()
-    expect(queryByText(/Essex · /)).toBeNull()
+    expect(queryByText(/· Colchester ·/)).toBeNull()
+    expect(queryByText(/· Essex ·/)).toBeNull()
   })
 
   it('falls back to branchPostTown when branchLocalityName is null', () => {
@@ -59,8 +62,8 @@ describe('BranchTile — §DH branch locality in info row', () => {
       merchant:           { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
     })
     const { getByText, queryByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    expect(getByText(/Colchester · Italian Restaurant · 1\.5 miles away/)).toBeTruthy()
-    expect(queryByText(/Essex · /)).toBeNull()
+    expect(getByText(/Italian Restaurant · Colchester · 1\.5 miles away/)).toBeTruthy()
+    expect(queryByText(/· Essex ·/)).toBeNull()
   })
 
   it('falls back to branchCity when branchLocalityName + branchPostTown are both null', () => {
@@ -72,7 +75,7 @@ describe('BranchTile — §DH branch locality in info row', () => {
       merchant:           { businessName: 'Iron Forge Gym', descriptor: 'Gym' },
     })
     const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    expect(getByText(/Manchester · Gym · 0\.5 miles away/)).toBeTruthy()
+    expect(getByText(/Gym · Manchester · 0\.5 miles away/)).toBeTruthy()
   })
 
   it('all three locality fields null → no locality prefix + NO double-separator junk in the info row', () => {
@@ -94,19 +97,19 @@ describe('BranchTile — §DH branch locality in info row', () => {
     expect(queryByText(/branchLocalityName/)).toBeNull()
   })
 
-  it('locality renders BEFORE descriptor + distance (order-of-elements pin)', () => {
-    // The eye should land on the locality first when scanning a rail
-    // of cards from the same merchant — locality at the FRONT of the
-    // info row, not at the end.
+  it('order: descriptor → locality → distance (full-string anchor)', () => {
+    // Owner-locked rationale (refined 2026-05-31): descriptor LEADS
+    // because the category tells users WHAT the place is; locality
+    // FOLLOWS as the multi-branch disambiguator; distance comes
+    // LAST.  Anchor on the full string so any reordering surfaces
+    // here.
     const tile = makeBranchTile({
       branchLocalityName: 'Brightlingsea',
       distance:           1609,
       merchant:           { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
     })
     const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    // Anchor on the full string to lock the ORDER of locality →
-    // descriptor → distance.  Reordering would surface here.
-    expect(getByText('Brightlingsea · Italian Restaurant · 1.0 miles away')).toBeTruthy()
+    expect(getByText('Italian Restaurant · Brightlingsea · 1.0 miles away')).toBeTruthy()
   })
 
   it('accessibility label includes locality when present (screen-reader disambiguation)', () => {
@@ -116,7 +119,10 @@ describe('BranchTile — §DH branch locality in info row', () => {
       merchant:           { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
     })
     const { getByLabelText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    expect(getByLabelText('Covelum, Brightlingsea, Italian Restaurant')).toBeTruthy()
+    // A11y label mirrors the visual order: businessName, descriptor,
+    // locality.  Screen-reader users hear merchant identity first,
+    // then category, then disambiguating locality.
+    expect(getByLabelText('Covelum, Italian Restaurant, Brightlingsea')).toBeTruthy()
   })
 
   it('accessibility label omits the locality segment cleanly when all wire fields are null', () => {
@@ -216,8 +222,8 @@ describe('BranchTile — §DH branch locality in info row', () => {
     // `<BranchTile>` consumed by Home Featured / Trending / Popular /
     // NBC / Category / Map carousel.
     const { getByText, getByLabelText } = render(<BranchTile branch={branch} onPress={() => {}} />)
-    expect(getByText(/^Brightlingsea · Indian Restaurant/)).toBeTruthy()
-    expect(getByLabelText('Covelum Restaurant, Brightlingsea, Indian Restaurant')).toBeTruthy()
+    expect(getByText(/^Indian Restaurant · Brightlingsea/)).toBeTruthy()
+    expect(getByLabelText('Covelum Restaurant, Indian Restaurant, Brightlingsea')).toBeTruthy()
   })
 
   // Sibling pin for the Colchester case — confirms two-branch
@@ -273,7 +279,8 @@ describe('BranchTile — §DH branch locality in info row', () => {
 
     const { getByText } = render(<BranchTile branch={branch} onPress={() => {}} />)
     // Confirms the canonical owner-flagged "two Covelum cards on the
-    // same rail" scenario renders disambiguated locality on EACH card.
-    expect(getByText(/^Colchester · Indian Restaurant/)).toBeTruthy()
+    // same rail" scenario renders disambiguated locality on EACH card
+    // (descriptor → locality → distance order).
+    expect(getByText(/^Indian Restaurant · Colchester/)).toBeTruthy()
   })
 })

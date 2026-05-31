@@ -62,25 +62,35 @@ export function BranchTile({
   // when present; fall back to the category name. Avoids showing just
   // "Restaurant" on a merchant tagged as Italian.
   const labelText = branch.merchant.descriptor ?? branch.merchant.primaryCategory?.name ?? ''
-  // §DH Tier 1 always-show (locked 2026-05-31 after PR #137) — surface
+  // §DH Tier 1 always-show (locked 2026-05-31 after PR #137; order
+  // refined post-device-QA 2026-05-31 per owner direction) — surface
   // branch locality in the info row so multi-branch merchants are
   // distinguishable when the same merchant surfaces twice on the same
   // rail (canonical case: Covelum Brightlingsea vs Covelum Colchester
   // on the Brightlingsea Featured rail).  Wire fallback per the
   // backend `branchTileSchema`: branchLocalityName > branchPostTown >
-  // branchCity.  Rendered FIRST in the info row so the eye lands on
-  // the locality immediately when scanning a rail; the existing
-  // `numberOfLines={1}` on the info Text truncates on overflow (a
-  // typical "Brightlingsea · Italian Restaurant · 1.2 miles away"
-  // line fits the standard tile width).  Also threaded into the
-  // accessibility label for screen-reader disambiguation.  Pure
-  // presentation change — wire fields were already exposed by Plan 4
-  // M1; no backend / schema / other-component touchpoints.
+  // branchCity.
+  //
+  // Order: descriptor → locality → distance.  Owner-locked rationale:
+  // the category/subcategory descriptor tells users WHAT the place
+  // is; the locality DISAMBIGUATES which branch when the merchant has
+  // multiple; distance comes last.  Reads more naturally (e.g.
+  // "Italian Restaurant · Brightlingsea · 1.2 miles away") while
+  // still solving the multi-branch identity problem.  Pre-refinement
+  // ordering put locality FIRST — readable, but the descriptor is
+  // higher-signal so it should lead.
+  //
+  // `numberOfLines={1}` on the info Text truncates on overflow; the
+  // typical "Italian Restaurant · Brightlingsea · 1.2 miles away"
+  // line fits the standard tile width.  Accessibility label mirrors
+  // the visual order.  Pure presentation change — wire fields were
+  // already exposed by Plan 4 M1; no backend / schema / other-
+  // component touchpoints.
   const localityStr = branch.branchLocalityName ?? branch.branchPostTown ?? branch.branchCity ?? ''
-  const infoText = [localityStr, labelText, distanceStr].filter(Boolean).join(' · ')
+  const infoText = [labelText, localityStr, distanceStr].filter(Boolean).join(' · ')
 
   const accessibilityLabel = localityStr
-    ? `${branch.merchant.businessName}, ${localityStr}, ${labelText}`
+    ? `${branch.merchant.businessName}, ${labelText}, ${localityStr}`
     : `${branch.merchant.businessName}, ${labelText}`
 
   return (
