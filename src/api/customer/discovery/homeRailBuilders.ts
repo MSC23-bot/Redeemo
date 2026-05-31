@@ -150,6 +150,7 @@ function toRankInput(b: RankBranchRow): RankableBranchInputV3 {
  */
 export async function buildFeaturedRail(
   prisma:        PrismaClient,
+  userId:        string | null,
   effLoc:        EffectiveLocation | null,
   ladderProfile: LadderProfile,
   locationCtx:   { locality: LocalityRef | null },
@@ -274,8 +275,13 @@ export async function buildFeaturedRail(
   const sliced = tailed.slice(0, FEATURED_TAKE)
 
   // ── 7. Enrich into BranchTile[].
+  // Device-QA R1 Wave 4 (2026-05-30) #1 root-cause fix: previously
+  // userId was hardcoded to null, so `enrichBranchTiles`' branch-keyed
+  // favourites lookup never fired and every Home rail tile shipped
+  // `isFavourited: false` regardless of the user's actual favourites.
+  // Now the caller threads the authenticated userId through.
   const ctx: EnrichBranchCtx = {
-    userId: null,
+    userId,
     lat:    effLoc.lat,
     lng:    effLoc.lng,
   }
@@ -331,6 +337,7 @@ const TOP_MERCHANT_CAP = 30  // Top-N merchants by redemption count (spec §10.4
  */
 export async function buildTrendingRail(
   prisma:        PrismaClient,
+  userId:        string | null,
   effLoc:        EffectiveLocation | null,
   ladderProfile: LadderProfile,
   locationCtx:   { locality: LocalityRef | null },
@@ -450,8 +457,10 @@ export async function buildTrendingRail(
   const sliced = tailed.slice(0, TRENDING_TAKE)
 
   // ── 7. Enrich into BranchTile[].
+  // Wave-4 #1 — userId threaded through so branch-keyed favourites
+  // populate per-tile isFavourited (was hardcoded null → always false).
   const ctx: EnrichBranchCtx = {
-    userId: null,
+    userId,
     lat:    effLoc.lat,
     lng:    effLoc.lng,
   }
@@ -550,6 +559,7 @@ async function computePopularityScores(
  */
 export async function buildPopularRail(
   prisma:        PrismaClient,
+  userId:        string | null,
   effLoc:        EffectiveLocation | null,
   ladderProfile: LadderProfile,
 ): Promise<HomeRail> {
@@ -607,7 +617,9 @@ export async function buildPopularRail(
       if (orderedInputs.length >= POPULAR_TAKE) break
     }
 
-    const ctx: EnrichBranchCtx = { userId: null, lat: null, lng: null }
+    // Wave-4 #1 — userId threaded through so the no-effLoc Popular
+    // branch (UK-wide) also honours the user's branch favourites.
+    const ctx: EnrichBranchCtx = { userId, lat: null, lng: null }
     const enriched = await enrichBranchTiles(prisma, orderedInputs, ctx)
     return {
       branches: enriched,
@@ -673,8 +685,9 @@ export async function buildPopularRail(
   const tailed = appendPermissiveTail(headInputs, tailCandidates)
   const sliced = tailed.slice(0, POPULAR_TAKE)
 
+  // Wave-4 #1 — userId threaded through for the located Popular path.
   const ctx: EnrichBranchCtx = {
-    userId: null,
+    userId,
     lat:    effLoc.lat,
     lng:    effLoc.lng,
   }
@@ -775,6 +788,7 @@ function railGroupingCategory(
  */
 export async function buildNearbyByCategoryRails(
   prisma:        PrismaClient,
+  userId:        string | null,
   effLoc:        EffectiveLocation,
   ladderProfile: LadderProfile,
   locationCtx:   { city: string | null; lat: number | null; lng: number | null; locality: LocalityRef | null },
@@ -943,8 +957,9 @@ export async function buildNearbyByCategoryRails(
     const tailed = appendStrictLocalityTail(headInputs, tailCandidates, effLoc)
     const sliced = tailed.slice(0, NEARBY_CATEGORY_TAKE)
 
+    // Wave-4 #1 — userId threaded through for per-category Nearby-By-Category.
     const ctx: EnrichBranchCtx = {
-      userId: null,
+      userId,
       lat:    effLoc.lat,
       lng:    effLoc.lng,
     }
@@ -1108,8 +1123,9 @@ export async function buildNearbyByCategoryRails(
 
       if (fillerInputs.length === 0) continue
 
+      // Wave-4 #1 — userId threaded through for NBC filler path.
       const ctx: EnrichBranchCtx = {
-        userId: null,
+        userId,
         lat:    effLoc.lat,
         lng:    effLoc.lng,
       }
@@ -1257,8 +1273,9 @@ export async function buildNearbyByCategoryRails(
         const sliced = tailed.slice(0, NEARBY_CATEGORY_TAKE)
         if (sliced.length === 0) continue
 
+        // Wave-4 #1 — userId threaded through for NBC permissive-tail path.
         const ctx: EnrichBranchCtx = {
-          userId: null,
+          userId,
           lat:    effLoc.lat,
           lng:    effLoc.lng,
         }

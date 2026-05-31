@@ -1,7 +1,25 @@
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent, act, waitFor } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import { VoucherCard } from '@/features/merchant/components/VoucherCard'
 import type { MerchantVoucher } from '@/lib/api/merchant'
+
+// Phase 3C.1g M2.9a — VoucherCard embeds `<FavouriteHeart>` which
+// calls `useFavourite()` → `useQueryClient()`.  Wrap render here so
+// existing test bodies stay untouched.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+  return rtlRender(node, { wrapper: Wrapper })
+}
+
+jest.spyOn(api, 'post')
+beforeEach(() => {
+  ;(api.post as jest.Mock).mockReset()
+})
 
 // Round 5 §24: type labels updated to full-readable sentence-case
 // per the user's brief — "Buy one, get one free", "Package deal",
@@ -23,6 +41,7 @@ const mk = (overrides?: Partial<MerchantVoucher>): MerchantVoucher => ({
   currentWindow: null,
   nextWindow: null,
   redeemedWindow: null,
+  isFavourited: false,  // Phase 3C.1g M2.9a — added to MerchantVoucher.
   ...overrides,
 })
 
@@ -32,9 +51,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     // Type label rendered in a horizontal pill (no longer rotated).
@@ -53,9 +72,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
       <VoucherCard
         voucher={mk({ estimatedSaving: 5 })}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(getByText('£5')).toBeTruthy()
@@ -67,9 +86,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
       <VoucherCard
         voucher={mk({ estimatedSaving: 2.5 })}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(getByText('£2.50')).toBeTruthy()
@@ -80,9 +99,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(getByText('Redeem')).toBeTruthy()
@@ -103,9 +122,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={true}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(queryByText('Redeem')).toBeNull()
@@ -124,9 +143,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
       <VoucherCard
         voucher={mk()}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={onPress}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     // a11y label uses the sentence-case label.
@@ -134,20 +153,32 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
     expect(onPress).toHaveBeenCalledTimes(1)
   })
 
-  it('fires onToggleFavourite when heart tapped (not card onPress)', () => {
+  it('fires api.post (NOT card onPress) when the heart is tapped (M2.9a)', async () => {
+    // Phase 3C.1g M2.9a — `<VoucherCard>` no longer accepts an
+    // `onToggleFavourite` callback.  Heart is owned by
+    // `<FavouriteHeart>` which calls `useFavourite('voucher', ...)`
+    // directly.  Pin: pressing the heart fires `api.post` to the
+    // voucher-favourites endpoint AND does NOT bubble up to card
+    // onPress.
     const onPress = jest.fn()
-    const onToggleFavourite = jest.fn()
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
     const { getByLabelText } = render(
       <VoucherCard
         voucher={mk()}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
+        branchId="b-1"
         onPress={onPress}
-        onToggleFavourite={onToggleFavourite}
       />,
     )
-    fireEvent.press(getByLabelText('Add to favourites'))
-    expect(onToggleFavourite).toHaveBeenCalledTimes(1)
+    await act(async () => { fireEvent.press(getByLabelText('Add to favourites')) })
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(
+        expect.stringMatching(/\/api\/v1\/customer\/favourites\/vouchers\//),
+        undefined,
+      )
+    })
+    expect(onPress).not.toHaveBeenCalled()
   })
 
   it('renders the correct sentence-case label per voucher type', () => {
@@ -166,9 +197,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
         <VoucherCard
           voucher={mk({ type: t.type })}
           isRedeemed={false}
-          isFavourited={false}
+          merchantId="m-1"
           onPress={() => {}}
-          onToggleFavourite={() => {}}
+          branchId="b-1"
         />,
       )
       expect(getByText(t.label)).toBeTruthy()
@@ -180,9 +211,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
       <VoucherCard
         voucher={mk({ expiryDate: '2026-12-28T00:00:00.000Z' })}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(getByText(/Expires 28 Dec/)).toBeTruthy()
@@ -193,9 +224,9 @@ describe('VoucherCard — round 5 §24 brand-R coupon ticket', () => {
       <VoucherCard
         voucher={mk({ expiryDate: null })}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
       />,
     )
     expect(getByText('No expiry')).toBeTruthy()
@@ -226,9 +257,9 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       <VoucherCard
         voucher={mk({ type: 'TIME_LIMITED', ...overrides })}
         isRedeemed={isRedeemed}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
         now={now}
       />,
     )
@@ -384,9 +415,9 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       <VoucherCard
         voucher={mk({ type: 'BOGO' })}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
         now={new Date('2026-05-11T11:00:00Z')}
       />,
     )
@@ -476,9 +507,9 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       <VoucherCard
         voucher={mk({ type: 'BOGO', expiryDate: null })}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
         now={new Date('2026-05-11T11:00:00Z')}
       />,
     )
@@ -563,9 +594,9 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       <VoucherCard
         voucher={mk({ type: 'BOGO' })}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
         now={new Date('2026-05-11T11:00:00Z')}
       />,
     )
@@ -612,9 +643,9 @@ describe('VoucherCard — REUSABLE state pill (M5)', () => {
       <VoucherCard
         voucher={mk({ type: 'REUSABLE', ...overrides })}
         isRedeemed={false}
-        isFavourited={false}
+        merchantId="m-1"
         onPress={() => {}}
-        onToggleFavourite={() => {}}
+        branchId="b-1"
         now={now}
       />,
     )

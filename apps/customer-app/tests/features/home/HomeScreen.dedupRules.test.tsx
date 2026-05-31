@@ -47,7 +47,9 @@ jest.mock('@/hooks/useMe', () => ({
 }))
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter:            () => ({ push: jest.fn(), setParams: jest.fn() }),
+  useLocalSearchParams: () => ({}),
+  useFocusEffect:       jest.fn(),
 }))
 
 // Per-test override surface.  The `useHomeFeed` mock factory reads

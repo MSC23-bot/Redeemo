@@ -17,6 +17,14 @@
  *
  * See: `src/features/merchant/utils/voucherCardSort.ts` for the util,
  * spec §6.3 for the locked bucket order.
+ *
+ * Phase 3C.1g M2.9a — `VoucherCardWrapper` retired.  The wrapper used
+ * to host a `useFavourite('voucher', ...)` call so the per-card heart
+ * could toggle.  After M2.9a the heart is owned by `<FavouriteHeart>`
+ * inside `<VoucherCard>` itself (spec §7.2.1), and the voucher's
+ * heart state comes from the new `voucher.isFavourited` field on the
+ * `/merchants/:id` payload (M2.9a additive backend emit).  The wrapper
+ * is no longer needed; `<VoucherCard>` mounts directly here.
  */
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
@@ -25,13 +33,11 @@ import { Text } from '@/design-system/Text'
 import { spacing } from '@/design-system/tokens'
 import { VoucherCard } from './VoucherCard'
 import { VoucherContextLabel } from './VoucherContextLabel'
-import { useFavourite } from '@/hooks/useFavourite'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 
 type Props = {
   vouchers: MerchantVoucher[]
   redeemedVoucherIds: Set<string>
-  favouritedVoucherIds: Set<string>
   onVoucherPress: (voucherId: string) => void
   /** Short name of the selected branch (from branchShortName()). */
   branchShortName: string
@@ -39,9 +45,21 @@ type Props = {
   isMultiBranch:   boolean
   /** Change to fire the fade animation — pass selectedBranch.id. */
   switchTrigger?:  string | null
+  /** Phase 3C.1g M2.9a — drives `<FavouriteHeart>` contextualQueryKey. */
+  merchantId:      string
+  branchId:        string
 }
 
-export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds, onVoucherPress, branchShortName, isMultiBranch, switchTrigger }: Props) {
+export function VouchersTab({
+  vouchers,
+  redeemedVoucherIds,
+  onVoucherPress,
+  branchShortName,
+  isMultiBranch,
+  switchTrigger,
+  merchantId,
+  branchId,
+}: Props) {
   if (vouchers.length === 0) {
     return (
       <View style={styles.empty}>
@@ -89,35 +107,17 @@ export function VouchersTab({ vouchers, redeemedVoucherIds, favouritedVoucherIds
             the OS reports reduced-motion. */}
         {sorted.map((v, i) => (
           <Animated.View key={v.id} entering={FadeInDown.delay(i * 60).duration(280)}>
-            <VoucherCardWrapper
+            <VoucherCard
               voucher={v}
               isRedeemed={redeemedVoucherIds.has(v.id)}
-              isFavourited={favouritedVoucherIds.has(v.id)}
               onPress={() => onVoucherPress(v.id)}
+              merchantId={merchantId}
+              branchId={branchId}
             />
           </Animated.View>
         ))}
       </View>
     </>
-  )
-}
-
-function VoucherCardWrapper({ voucher, isRedeemed, isFavourited: initialFav, onPress }: {
-  voucher: MerchantVoucher
-  isRedeemed: boolean
-  isFavourited: boolean
-  onPress: () => void
-}) {
-  const fav = useFavourite({ type: 'voucher', id: voucher.id, isFavourited: initialFav })
-
-  return (
-    <VoucherCard
-      voucher={voucher}
-      isRedeemed={isRedeemed}
-      isFavourited={fav.isFavourited}
-      onPress={onPress}
-      onToggleFavourite={fav.toggle}
-    />
   )
 }
 

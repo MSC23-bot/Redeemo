@@ -1,7 +1,21 @@
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render as rtlRender } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { VoucherDetailScreen } from '@/features/voucher/screens/VoucherDetailScreen'
+
+// Phase 3C.1g M2.10 — CouponHeader embeds `<FavouriteHeart>` which
+// calls `useFavourite()` → `useQueryClient()`.  Wrap render here so
+// the existing test bodies stay untouched.  useCustomerVoucher /
+// useRedeem are already mocked above so the QueryClient doesn't
+// re-introduce real-network behaviour.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+  return rtlRender(node, { wrapper: Wrapper })
+}
 
 // State-machine + branch-attribution tests for VoucherDetailScreen.
 // These pin the 12-state derivation the orchestrator implements +

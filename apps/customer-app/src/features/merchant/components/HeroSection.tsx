@@ -4,11 +4,12 @@ import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ArrowLeft, Share2, Heart, TrendingUp, Award } from 'lucide-react-native'
+import { ArrowLeft, Share2, TrendingUp, Award } from 'lucide-react-native'
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
 import { spacing } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
+import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 
 /**
  * Banner height in points — the in-flow `<HeroBannerSpacer>` reserves
@@ -133,11 +134,18 @@ export function HeroBackdrop({
 }
 
 type NavProps = {
-  isFavourited: boolean
-  onToggleFavourite: () => void
-  onShare: () => void
-  scrollY: SharedValue<number>
-  topOffset?: number
+  // Phase 3C.1g M2.9 — heart is now branch-keyed via shared
+  // `<FavouriteHeart>` (spec §3 entry point #9 + §7.2.1).  The parent
+  // (MerchantProfileScreen) hands the resolved selected branch id +
+  // its server-emitted heart state down here so the heart UI is
+  // intrinsic to the hero — no more `useFavourite()` round-trip
+  // through the screen.
+  branchId:             string
+  branchIsFavourited:   boolean
+  merchantId:           string
+  onShare:              () => void
+  scrollY:              SharedValue<number>
+  topOffset?:           number
   // PR #112 fixup-6 (2026-05-20) — Search→Merchant→back routes through a
   // custom handler so the user returns to Search with their query
   // preserved.  When absent, the back button falls back to `router.back()`.
@@ -163,7 +171,8 @@ type NavProps = {
  *     row stays anchored at the top.
  */
 export function HeroNav({
-  isFavourited, onToggleFavourite, onShare,
+  branchId, branchIsFavourited, merchantId,
+  onShare,
   scrollY, topOffset = 0,
   onBack,
 }: NavProps) {
@@ -201,14 +210,29 @@ export function HeroNav({
           >
             <Share2 size={18} color="#FFF" />
           </Pressable>
-          <Pressable
-            onPress={() => { lightHaptic(); onToggleFavourite() }}
-            style={[styles.frostedBtn, isFavourited && styles.favActive]}
-            accessibilityRole="button"
-            accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-          >
-            <Heart size={18} color="#FFF" fill={isFavourited ? '#E20C04' : 'none'} />
-          </Pressable>
+          {/* Phase 3C.1g M2.9 — shared FavouriteHeart owns the heart.
+              Wrapped in the frosted-glass chrome.
+
+              Device-QA R1 (2026-05-30): dropped the `branchIsFavourited
+              && styles.favActive` backdrop tint.  The container tint
+              tracked the server-emitted `branchIsFavourited` prop and
+              only updated AFTER the contextualQueryKey refetch landed
+              — so on tap the heart icon snapped via the FavouriteHeart
+              optimistic flip while the surrounding rose-tinted
+              backdrop lagged 200-400ms behind, producing a visible
+              two-phase render.  The brand-rose-filled heart icon is
+              sufficient signal on a dark frosted button. */}
+          <View style={styles.frostedBtn}>
+            <FavouriteHeart
+              entity="branch"
+              id={branchId}
+              initialIsFavourited={branchIsFavourited}
+              tone="on-dark"
+              size={18}
+              contextualQueryKey={['merchantProfile', merchantId, branchId]}
+              testID="merchant-hero-favourite"
+            />
+          </View>
         </View>
       </View>
     </Animated.View>

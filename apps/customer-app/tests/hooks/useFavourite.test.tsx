@@ -6,16 +6,18 @@ import { useFavourite } from '@/hooks/useFavourite'
 
 // Covers plan §12's "favourite-toggle" requirement.
 //
-// Implementation note: useFavourite is **pessimistic-with-onSuccess** — state
-// only advances after the API resolves successfully. On failure, state never
-// advances at all (so there's nothing to roll back, the prior value is just
-// retained). The plan's "optimistic + rollback" wording predated the salvaged
-// hook; the tests below assert the *actual* observable behaviour:
-//   - success path: state transitions on resolve
-//   - failure path: state stays at the prior value (mutation throws, state
-//     never advanced — equivalent to a rollback from the consumer's view)
-// Switching to a truly optimistic implementation (advance immediately, revert
-// on error) is a deliberate behaviour change and is left as a follow-up.
+// Phase 3C.1g M2.2 — the hook gained a third 'branch' discriminator and
+// the optional `contextualQueryKey` for per-screen contextual invalidation.
+// The prop name on the input shape is `initialIsFavourited` (spec §7.2).
+//
+// Device-QA R1 (2026-05-30) — owner-direction shipped the optimistic
+// rewrite: state flips synchronously in `onMutate`, success invalidates,
+// generic errors REVERT, and STALE-STATE codes
+// (ALREADY_FAVOURITED on POST / FAVOURITE_NOT_FOUND on DELETE) keep the
+// optimistic flip AND invalidate caches.  The successful-path + generic-
+// failure tests below are still correct under the new contract because
+// the FINAL state matches in both directions; the new §R1 pins below
+// lock the stale-code reconcile branch explicitly.
 
 jest.spyOn(api, 'post')
 jest.spyOn(api, 'del')
@@ -23,6 +25,20 @@ jest.spyOn(api, 'del')
 function wrap({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+}
+
+// Test helper for M2.2 contextualQueryKey pins — wraps with a QueryClient
+// whose `invalidateQueries` can be spied on so the test can assert both
+// invalidations fire.
+function wrapWithSpy({ children }: { children: React.ReactNode }) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  ;(wrapWithSpy as unknown as { __lastClient?: QueryClient }).__lastClient = qc
+  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+}
+function getSpyClient(): QueryClient {
+  const c = (wrapWithSpy as unknown as { __lastClient?: QueryClient }).__lastClient
+  if (!c) throw new Error('wrapWithSpy not used yet')
+  return c
 }
 
 describe('useFavourite', () => {
@@ -34,7 +50,7 @@ describe('useFavourite', () => {
   it('flips to favourited after a successful add', async () => {
     ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
     const { result } = renderHook(
-      () => useFavourite({ type: 'merchant', id: 'm1', isFavourited: false }),
+      () => useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: false }),
       { wrapper: wrap },
     )
     expect(result.current.isFavourited).toBe(false)
@@ -46,7 +62,7 @@ describe('useFavourite', () => {
   it('flips to NOT favourited after a successful remove', async () => {
     ;(api.del as jest.Mock).mockResolvedValueOnce({ ok: true })
     const { result } = renderHook(
-      () => useFavourite({ type: 'merchant', id: 'm1', isFavourited: true }),
+      () => useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: true }),
       { wrapper: wrap },
     )
     expect(result.current.isFavourited).toBe(true)
@@ -55,10 +71,13 @@ describe('useFavourite', () => {
     expect(result.current.isFavourited).toBe(false)
   })
 
-  it('failure: if the add API rejects, isFavourited stays false (state never advances)', async () => {
+  it('failure: if the add API rejects with a generic error, isFavourited reverts to false', async () => {
+    // Device-QA R1: state flips to true optimistically inside onMutate,
+    // then reverts to false in onError because the error code is not
+    // one of the stale-state codes (ALREADY_FAVOURITED).
     ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('boom'))
     const { result } = renderHook(
-      () => useFavourite({ type: 'merchant', id: 'm1', isFavourited: false }),
+      () => useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: false }),
       { wrapper: wrap },
     )
     await act(async () => {
@@ -67,10 +86,12 @@ describe('useFavourite', () => {
     expect(result.current.isFavourited).toBe(false)
   })
 
-  it('failure: if the remove API rejects, isFavourited stays true (state never advances)', async () => {
+  it('failure: if the remove API rejects with a generic error, isFavourited reverts to true', async () => {
+    // Device-QA R1: state flips to false optimistically, then reverts
+    // because the error is not FAVOURITE_NOT_FOUND.
     ;(api.del as jest.Mock).mockRejectedValueOnce(new Error('boom'))
     const { result } = renderHook(
-      () => useFavourite({ type: 'merchant', id: 'm1', isFavourited: true }),
+      () => useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: true }),
       { wrapper: wrap },
     )
     await act(async () => {
@@ -82,7 +103,7 @@ describe('useFavourite', () => {
   it('uses the voucher endpoint when type is voucher', async () => {
     ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
     const { result } = renderHook(
-      () => useFavourite({ type: 'voucher', id: 'v1', isFavourited: false }),
+      () => useFavourite({ type: 'voucher', id: 'v1', initialIsFavourited: false }),
       { wrapper: wrap },
     )
     await act(async () => { await result.current.toggle() })
@@ -92,11 +113,601 @@ describe('useFavourite', () => {
   it('re-syncs when the parent prop changes', async () => {
     const { result, rerender } = renderHook(
       ({ initial }: { initial: boolean }) =>
-        useFavourite({ type: 'merchant', id: 'm1', isFavourited: initial }),
+        useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: initial }),
       { wrapper: wrap, initialProps: { initial: false } },
     )
     expect(result.current.isFavourited).toBe(false)
     rerender({ initial: true })
     await waitFor(() => expect(result.current.isFavourited).toBe(true))
+  })
+
+  // ── Phase 3C.1g M2.2 — branch discriminator + contextualQueryKey ──────
+
+  it('M2.2 — branch discriminator: POSTs to /favourites/branches/:id and invalidates favouriteBranches', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(api.post).toHaveBeenCalledWith('/api/v1/customer/favourites/branches/b1', undefined)
+    expect(result.current.isFavourited).toBe(true)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteBranches'] })
+  })
+
+  it('M2.2 — branch discriminator: DELETEs to /favourites/branches/:id when removing', async () => {
+    ;(api.del as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: true }),
+      { wrapper: wrap },
+    )
+    await act(async () => { await result.current.toggle() })
+    expect(api.del).toHaveBeenCalledWith('/api/v1/customer/favourites/branches/b1')
+    expect(result.current.isFavourited).toBe(false)
+  })
+
+  it('M2.2 — contextualQueryKey is invalidated alongside the list key on add success', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const contextKey: readonly unknown[] = ['merchantProfile', 'm1', 'b1']
+    const { result } = renderHook(
+      () => useFavourite({
+        type:                'branch',
+        id:                  'b1',
+        initialIsFavourited: false,
+        contextualQueryKey:  contextKey,
+      }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteBranches'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contextKey })
+  })
+
+  it('M2.2 — contextualQueryKey is invalidated alongside the list key on remove success', async () => {
+    ;(api.del as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const contextKey: readonly unknown[] = ['voucher', 'v1']
+    const { result } = renderHook(
+      () => useFavourite({
+        type:                'voucher',
+        id:                  'v1',
+        initialIsFavourited: true,
+        contextualQueryKey:  contextKey,
+      }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteVouchers'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contextKey })
+  })
+
+  it('M2.2 — contextualQueryKey is NOT invalidated on a generic failure (state reverts)', async () => {
+    // Device-QA R1: generic error → revert path → invalidate is NOT
+    // called.  Stale-state codes are pinned separately in §R1 below.
+    ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const contextKey: readonly unknown[] = ['merchantProfile', 'm1']
+    const { result } = renderHook(
+      () => useFavourite({
+        type:                'branch',
+        id:                  'b1',
+        initialIsFavourited: false,
+        contextualQueryKey:  contextKey,
+      }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('boom')
+    })
+    expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  // ── §R1 Device-QA R1 (2026-05-30) — stale-state reconcile path ────────
+  //
+  // The backend surfaces ALREADY_FAVOURITED on POST and FAVOURITE_NOT_FOUND
+  // on DELETE when the toggle target is already in the desired state
+  // (e.g. a stale cached row that the user double-tapped, or another
+  // device that flipped the state first).  The hook treats these as
+  // SILENT successes — the optimistic flip stands, both cache keys
+  // invalidate so other views reconcile, and the global MutationCache
+  // toast is suppressed via the errors.ts `surface: 'silent'` mapping.
+
+  it('§R1 — ALREADY_FAVOURITED keeps the optimistic add AND invalidates both keys', async () => {
+    const staleErr = Object.assign(new Error('already favourited'), { code: 'ALREADY_FAVOURITED' })
+    ;(api.post as jest.Mock).mockRejectedValueOnce(staleErr)
+    const contextKey: readonly unknown[] = ['merchantProfile', 'm1', 'b1']
+    const { result } = renderHook(
+      () => useFavourite({
+        type:                'branch',
+        id:                  'b1',
+        initialIsFavourited: false,
+        contextualQueryKey:  contextKey,
+      }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('already favourited')
+    })
+
+    // Optimistic flip stands.
+    expect(result.current.isFavourited).toBe(true)
+    // Both list + contextual keys invalidate so stale screens reconcile.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteBranches'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contextKey })
+  })
+
+  it('§R1 — FAVOURITE_NOT_FOUND keeps the optimistic remove AND invalidates both keys', async () => {
+    const staleErr = Object.assign(new Error('not found'), { code: 'FAVOURITE_NOT_FOUND' })
+    ;(api.del as jest.Mock).mockRejectedValueOnce(staleErr)
+    const contextKey: readonly unknown[] = ['voucher', 'v1']
+    const { result } = renderHook(
+      () => useFavourite({
+        type:                'voucher',
+        id:                  'v1',
+        initialIsFavourited: true,
+        contextualQueryKey:  contextKey,
+      }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('not found')
+    })
+
+    // Optimistic flip stands — server already has it un-favourited.
+    expect(result.current.isFavourited).toBe(false)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteVouchers'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contextKey })
+  })
+
+  // ── §R5 Device-QA R1 Wave 3 (2026-05-30) — cross-surface invalidation ──
+  //
+  // Findings #14 (Home rail heart stale after Merchant-Profile favourite)
+  // and #15 (Merchant Profile voucher card heart stale after Favourites
+  // removal) both stem from the hook only invalidating its OWN list
+  // key + optional contextualQueryKey.  Toggling a heart anywhere now
+  // additionally invalidates broad prefixes `['discovery']` (catches
+  // Home / Map / Search / Category) and `['merchantProfile']` (catches
+  // every merchant+branch variation).  Defence-in-depth on top of
+  // contextualQueryKey, not a replacement.
+
+  it('§R5 — add success invalidates [\'discovery\'] AND [\'merchantProfile\'] (broad cross-surface reconcile)', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteBranches'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+  })
+
+  it('§R5 — remove success invalidates [\'discovery\'] AND [\'merchantProfile\']', async () => {
+    ;(api.del as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'voucher', id: 'v1', initialIsFavourited: true }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['favouriteVouchers'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+  })
+
+  it('§R5 — stale-state reconcile path STILL invalidates the broad keys (silent success === full reconcile)', async () => {
+    const staleErr = Object.assign(new Error('already favourited'), { code: 'ALREADY_FAVOURITED' })
+    ;(api.post as jest.Mock).mockRejectedValueOnce(staleErr)
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('already favourited')
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+  })
+
+  it('§R5 — generic error revert path does NOT invalidate the broad keys (no false reconcile)', async () => {
+    ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('500'))
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => {
+      await expect(result.current.toggle()).rejects.toThrow('500')
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['merchantProfile'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  // ── §R6 Wave 4 #21 (2026-05-30) — ['voucher'] prefix invalidation ────
+  //
+  // Owner device-QA scenario: favourite a voucher from Voucher Detail,
+  // return to Merchant Profile (heart filled there), unfavourite from
+  // the voucher card heart, re-open Voucher Detail.  Pre-Wave-4 the
+  // Voucher Detail cache (['voucher', voucherId]) stayed stale and
+  // showed the filled heart again.  After Wave 4 every
+  // useFavourite success / silent-reconcile path invalidates the
+  // ['voucher'] prefix so the next refetch lands with the correct
+  // server-side isFavourited.
+  it('§R6 — voucher add success invalidates [\'voucher\'] prefix', async () => {
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'voucher', id: 'v1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  it('§R6 — voucher remove success invalidates [\'voucher\'] prefix', async () => {
+    ;(api.del as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'voucher', id: 'v1', initialIsFavourited: true }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  it('§R6 — branch toggle ALSO invalidates [\'voucher\'] prefix (defence-in-depth — symmetric round-trip)', async () => {
+    // Owner's audit requires that a branch flip propagates through
+    // every cache that might surface a voucher heart (e.g. Voucher
+    // Detail's payload-embedded merchant heart, if any future surface
+    // joins the voucher and the merchant heart state).  Cheap to
+    // invalidate broadly; cheaper than diagnosing another stale-state
+    // bug later.
+    ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { result } = renderHook(
+      () => useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: false }),
+      { wrapper: wrapWithSpy },
+    )
+    const qc = getSpyClient()
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['voucher'] })
+  })
+
+  // ── §R7 Wave 4 (2026-05-30) — initialIsFavourited prop-sync ──────────
+  //
+  // Owner direction (Wave 4 #1, #2, #21): when a parent refetches and
+  // re-renders FavouriteHeart with a NEW initialIsFavourited, the
+  // hook's local state MUST sync to that new value.  This protects
+  // every cross-surface scenario (Home rail refetch after Merchant
+  // Profile favourite; Voucher Detail re-mount after Merchant Profile
+  // unfavourite; etc.).  Pin the false→true direction, the true→false
+  // direction, AND the load-bearing "mid-optimistic-flip without prop
+  // change preserves the optimistic state" path so a routine parent
+  // re-render doesn't clobber an in-flight optimistic flip.
+
+  it('§R7 — rerender false→true syncs the hook state to true (after server refetch)', async () => {
+    const { result, rerender } = renderHook(
+      ({ initial }: { initial: boolean }) =>
+        useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: initial }),
+      { wrapper: wrap, initialProps: { initial: false } },
+    )
+    expect(result.current.isFavourited).toBe(false)
+    rerender({ initial: true })
+    await waitFor(() => expect(result.current.isFavourited).toBe(true))
+  })
+
+  it('§R7 — rerender true→false syncs the hook state to false (after server refetch)', async () => {
+    const { result, rerender } = renderHook(
+      ({ initial }: { initial: boolean }) =>
+        useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: initial }),
+      { wrapper: wrap, initialProps: { initial: true } },
+    )
+    expect(result.current.isFavourited).toBe(true)
+    rerender({ initial: false })
+    await waitFor(() => expect(result.current.isFavourited).toBe(false))
+  })
+
+  it('§R7 — entity OR id swap re-syncs from the new initialIsFavourited (identity-swap edge case)', async () => {
+    // Mount on entity=branch id=b1 with initialIsFavourited=true.
+    // Parent later swaps the mounted heart's identity to id=b2 with
+    // initialIsFavourited=false (e.g. card swiped within a horizontal
+    // rail that reuses the same FavouriteHeart instance position).
+    // The Wave-4 broadened deps [entity, id, initialIsFavourited]
+    // make the useEffect re-fire on the id change, re-seeding state
+    // from the new initial value.
+    const { result, rerender } = renderHook(
+      ({ id, initial }: { id: string; initial: boolean }) =>
+        useFavourite({ type: 'branch', id, initialIsFavourited: initial }),
+      { wrapper: wrap, initialProps: { id: 'b1', initial: true } },
+    )
+    expect(result.current.isFavourited).toBe(true)
+    rerender({ id: 'b2', initial: false })
+    await waitFor(() => expect(result.current.isFavourited).toBe(false))
+  })
+
+  it('§R7 — optimistic flip is NOT clobbered by a parent re-render with unchanged initialIsFavourited', async () => {
+    // Critical pin: mid-mutation, if the parent re-renders for any
+    // unrelated reason (e.g. sibling state change) with the SAME
+    // initialIsFavourited it had before, the useEffect must NOT fire
+    // (deps unchanged) and the optimistic state must hold until the
+    // mutation resolves or rejects.
+    let resolveAdd: () => void = () => {}
+    ;(api.post as jest.Mock).mockReturnValueOnce(new Promise<{ ok: true }>((res) => {
+      resolveAdd = () => res({ ok: true })
+    }))
+    const { result, rerender } = renderHook(
+      ({ initial }: { initial: boolean }) =>
+        useFavourite({ type: 'branch', id: 'b1', initialIsFavourited: initial }),
+      { wrapper: wrap, initialProps: { initial: false } },
+    )
+
+    let togglePromise: Promise<void> = Promise.resolve()
+    act(() => {
+      togglePromise = result.current.toggle()
+    })
+    // Optimistic flip should have happened immediately.
+    expect(result.current.isFavourited).toBe(true)
+
+    // Parent re-renders with the SAME initial prop — useEffect deps
+    // unchanged → effect must NOT fire → optimistic state holds.
+    rerender({ initial: false })
+    expect(result.current.isFavourited).toBe(true)
+
+    // Resolve the in-flight mutation and drain the promise.
+    await act(async () => {
+      resolveAdd()
+      await togglePromise
+    })
+    expect(result.current.isFavourited).toBe(true)
+  })
+
+  // ─────────────────────────────────────────────────────────
+  // §W6.7 — Wave 6.7 optimistic cross-surface cache patch
+  // ─────────────────────────────────────────────────────────
+  //
+  // Owner-reported symptom on Wave 6.6 ship: Home rail hearts
+  // showed stale state for ~minutes after favourites mutated
+  // elsewhere (backend home-feed refetch on dev/Neon takes 12-15s
+  // per request).  Wave 6.7 closes the perceived-latency gap by
+  // synchronously patching every cached discovery / merchant-
+  // profile / voucher query at the moment the heart flips,
+  // BEFORE the network DELETE/POST round-trip starts.
+  //
+  // The mock useQueryClient wrap pattern shipped in §M2.2 above
+  // (`wrapWithSpy` / `getSpyClient`) is re-used here so each
+  // pin can pre-seed a cache, fire the toggle, and assert the
+  // cached payload mutated synchronously.
+  describe('§W6.7 — optimistic cross-surface cache patch', () => {
+    /**
+     * Helper — set up a QueryClient pre-seeded with a Home discovery
+     * cache entry containing one branch tile.  Returns the client +
+     * a reader for the tile's current isFavourited value.  Used by
+     * every §W6.7 pin to avoid repeating the dance.
+     */
+    function seedHomeBranch(initial: boolean): {
+      qc:   QueryClient
+      read: () => boolean | undefined
+    } {
+      const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+      qc.setQueryData(['discovery', 'home', 53.6, -1.8], {
+        featured: { branches: [{ id: 'iron-forge', name: 'Iron Forge', isFavourited: initial }] },
+      })
+      const read = () => qc.getQueryData<{ featured: { branches: Array<{ id: string; isFavourited: boolean }> } }>(
+        ['discovery', 'home', 53.6, -1.8],
+      )?.featured.branches[0]?.isFavourited
+      return { qc, read }
+    }
+
+    function wrapWithExplicitClient(qc: QueryClient) {
+      return function Wrap({ children }: { children: React.ReactNode }) {
+        return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      }
+    }
+
+    it('branch ADD: flips matching tile in cached [discovery] query SYNCHRONOUSLY in onMutate (asserted INSIDE the api.post mock body, before the network resolves)', async () => {
+      const { qc, read } = seedHomeBranch(false)
+
+      let isFavWhenNetworkFired: boolean | undefined
+      ;(api.post as jest.Mock).mockImplementationOnce(() => {
+        // The api.post call is invoked AFTER React Query's onMutate
+        // runs (in the mutation pipeline).  At this exact moment
+        // the synchronous optimistic patch has already executed.
+        isFavWhenNetworkFired = read()
+        return Promise.resolve({ ok: true })
+      })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'branch', id: 'iron-forge', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      expect(isFavWhenNetworkFired).toBe(true)
+      expect(read()).toBe(true)
+    })
+
+    it('branch REMOVE: flips matching tile in cached [discovery] query SYNCHRONOUSLY in onMutate (asserted INSIDE the api.del mock body)', async () => {
+      const { qc, read } = seedHomeBranch(true)
+
+      let isFavWhenNetworkFired: boolean | undefined
+      ;(api.del as jest.Mock).mockImplementationOnce(() => {
+        isFavWhenNetworkFired = read()
+        return Promise.resolve({ ok: true })
+      })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'branch', id: 'iron-forge', initialIsFavourited: true }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      expect(isFavWhenNetworkFired).toBe(false)
+      expect(read()).toBe(false)
+    })
+
+    it('branch ADD generic error: REVERTS the optimistic cross-surface patch alongside the local flip', async () => {
+      const { qc, read } = seedHomeBranch(false)
+      ;(api.post as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'branch', id: 'iron-forge', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => {
+        await expect(result.current.toggle()).rejects.toThrow('boom')
+      })
+
+      expect(result.current.isFavourited).toBe(false)
+      expect(read()).toBe(false)
+    })
+
+    it('voucher ADD: ALSO flips matching tile in cached [voucher] query (scope: voucher entity touches voucher caches)', async () => {
+      const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+      qc.setQueryData(['voucher', 'v-bogo'], { id: 'v-bogo', isFavourited: false, title: 'BOGO Sundays' })
+
+      ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'voucher', id: 'v-bogo', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      const next = qc.getQueryData<{ isFavourited: boolean }>(['voucher', 'v-bogo'])
+      expect(next?.isFavourited).toBe(true)
+    })
+
+    // §W6.8 voucher parity (no implementation change in W6.8 — this
+    // pin locks the cross-surface bidirectional symmetry explicitly
+    // per owner ask).
+    //
+    // SCENARIO A (favourite from Voucher Detail → MP voucher card
+    // flips immediately): a useFavourite({type:'voucher'}) toggle
+    // call patches both ['voucher', ...] AND ['merchantProfile', ...]
+    // caches.  The walker reaches into the MP cache's vouchers[]
+    // array and flips the matching tile.
+    //
+    // SCENARIO B (favourite from MP voucher card → Voucher Detail
+    // flips immediately): exact same code path — useFavourite
+    // ({type:'voucher'}) doesn't know or care which surface
+    // invoked it.  The patch hits both cache prefixes regardless.
+    //
+    // One pin exercises both symmetrically since the implementation
+    // doesn't distinguish caller; the patch is to cache prefixes,
+    // not to the invoking screen.
+    it('§W6.8 voucher cross-surface symmetry: a single toggle patches BOTH [voucher] AND [merchantProfile] vouchers[] caches', async () => {
+      const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+      // Pre-seed the voucher detail cache (Scenario A starting
+      // point) AND the MP cache (Scenario B starting point) — the
+      // patch should flip BOTH regardless of where the toggle
+      // originated.
+      qc.setQueryData(['voucher', 'v-bogo'], {
+        id:           'v-bogo',
+        title:        'BOGO Sundays',
+        isFavourited: false,
+      })
+      qc.setQueryData(['merchantProfile', 'm-iron-forge', { branchId: 'b-main' }], {
+        merchant: { id: 'm-iron-forge' },
+        vouchers: [
+          { id: 'v-bogo',  isFavourited: false, title: 'BOGO Sundays' },
+          { id: 'v-spend', isFavourited: false, title: 'Spend & Save' },
+        ],
+        branches: [{ id: 'b-main', isFavourited: false }],
+      })
+
+      ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'voucher', id: 'v-bogo', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      // Voucher Detail cache flipped (Scenario B receiving end).
+      const vd = qc.getQueryData<{ isFavourited: boolean }>(['voucher', 'v-bogo'])
+      expect(vd?.isFavourited).toBe(true)
+
+      // Merchant Profile vouchers[] cache flipped for v-bogo;
+      // v-spend (untouched) stays false (Scenario A receiving end).
+      const mp = qc.getQueryData<{ vouchers: Array<{ id: string; isFavourited: boolean }> }>(
+        ['merchantProfile', 'm-iron-forge', { branchId: 'b-main' }],
+      )
+      expect(mp?.vouchers.find(v => v.id === 'v-bogo')?.isFavourited).toBe(true)
+      expect(mp?.vouchers.find(v => v.id === 'v-spend')?.isFavourited).toBe(false)
+    })
+
+    it('merchant entity (legacy): does NOT crash + does NOT touch discovery caches (no cross-surface tiles for legacy entity)', async () => {
+      const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+      qc.setQueryData(['discovery', 'home'], {
+        // A tile that LOOKS like it should match — but since
+        // legacy 'merchant' entity is no longer used in
+        // branch-first discovery, no optimistic patch fires.
+        featured: { branches: [{ id: 'm1', isFavourited: false }] },
+      })
+
+      ;(api.post as jest.Mock).mockResolvedValueOnce({ ok: true })
+
+      const { result } = renderHook(
+        () => useFavourite({ type: 'merchant', id: 'm1', initialIsFavourited: false }),
+        { wrapper: wrapWithExplicitClient(qc) },
+      )
+
+      await act(async () => { await result.current.toggle() })
+
+      // The cache is invalidated post-success (which would refetch
+      // in real usage), but in the test environment with no
+      // queryFn, the cached payload remains at its original value.
+      // The synchronous optimistic patch never fired for the
+      // legacy 'merchant' entity, so the tile stays false here.
+      const next = qc.getQueryData<{ featured: { branches: Array<{ id: string; isFavourited: boolean }> } }>(['discovery', 'home'])
+      expect(next?.featured.branches[0]?.isFavourited).toBe(false)
+    })
   })
 })

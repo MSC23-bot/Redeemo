@@ -76,7 +76,13 @@ jest.mock('@/hooks/useMe', () => ({
 }))
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter:            () => ({ push: jest.fn(), setParams: jest.fn() }),
+  useLocalSearchParams: () => ({}),
+  // Device-QA R1 (2026-05-30) — HomeScreen now uses `useFocusEffect`
+  // to read the `?scrollTop=1` marker from FavouritesScreen's empty-
+  // state CTA.  Provide a no-op for tests that don't exercise the
+  // scroll-reset path.
+  useFocusEffect:       jest.fn(),
 }))
 
 function wrapper({ children }: { children: React.ReactNode }) {

@@ -113,6 +113,12 @@ const merchantVoucherSchema = z.object({
   reusableState: z.object({ availableAgainAt: z.string().nullable() })
     .nullable()
     .optional(),
+  // Phase 3C.1g M2.9a — per-voucher heart state on Merchant Profile.
+  // Drives the voucher card's <FavouriteHeart entity="voucher">.  False
+  // for guests; true when the calling user has favourited the voucher.
+  // `.optional().default(false)` for backward compat with cached
+  // responses from before the M2.9a backend emit.
+  isFavourited: z.boolean().optional().default(false),
 })
 export type MerchantVoucher = z.infer<typeof merchantVoucherSchema>
 // Exposed for testing only — same pattern as _voucherDetailSchemaForTests
@@ -146,6 +152,10 @@ const branchTileSchema = z.object({
   // picker rows + Other Locations cards can compute real smart-status text
   // and the HoursPreviewSheet can show the correct branch's full week.
   openingHours: z.array(openingHourEntrySchema),
+  // Phase 3C.1g M1.6 (additive) — per-branch heart state.  Drives the
+  // `<FavouriteHeart>` on every branch tile + picker row.  Sibling
+  // branches of the same merchant carry independent values.
+  isFavourited: z.boolean(),
 })
 export type BranchTile = z.infer<typeof branchTileSchema>
 // Alias kept for cefaf45 component imports during M2 salvage. New code
@@ -200,6 +210,10 @@ const selectedBranchSchema = z.object({
   avgRating:    z.number().nullable(),
   reviewCount:  z.number().int().min(0),
   myReview:     reviewSchema.nullable(),
+  // Phase 3C.1g M1.6 (additive) — per-branch heart state for the
+  // resolved selected branch.  Switching branch in the picker swaps
+  // this value so the hero heart re-evaluates per spec §4.3.
+  isFavourited: z.boolean(),
 })
 export type SelectedBranch = z.infer<typeof selectedBranchSchema>
 

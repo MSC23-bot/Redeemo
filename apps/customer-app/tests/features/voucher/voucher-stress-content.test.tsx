@@ -1,9 +1,21 @@
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render as rtlRender } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CouponHeader } from '@/features/voucher/components/CouponHeader'
 import { CollapsedHeader } from '@/features/voucher/components/CollapsedHeader'
 import { CouponBodyCard } from '@/features/voucher/components/CouponBody'
 import { MerchantRow } from '@/features/voucher/components/MerchantRow'
+
+// Phase 3C.1g M2.10 — CouponHeader embeds `<FavouriteHeart>` which
+// calls `useFavourite()` → `useQueryClient()`.  Wrap render here so
+// existing test bodies stay untouched.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+  return rtlRender(node, { wrapper: Wrapper })
+}
 
 // PR #40 round 7 — stress-test variable voucher content.
 //
@@ -61,8 +73,8 @@ describe('CouponHeader — long titles and descriptions don\'t overlap save badg
     insetTop: 59,
     onBack:  jest.fn(),
     onShare: jest.fn(),
-    onFav:   jest.fn(),
-    isFavourited: false,
+    voucherId: 'v-1',
+    voucherIsFavourited: false,
   }
 
   it('renders without crashing for very long title', () => {
@@ -102,8 +114,8 @@ describe('CouponHeader — save badge adapts to large amounts', () => {
     insetTop: 59,
     onBack:  jest.fn(),
     onShare: jest.fn(),
-    onFav:   jest.fn(),
-    isFavourited: false,
+    voucherId: 'v-1',
+    voucherIsFavourited: false,
   }
 
   it.each([
@@ -146,8 +158,8 @@ describe('CouponHeader — dimmed prop applies to visual layer ONLY, never the n
     insetTop: 59,
     onBack:  jest.fn(),
     onShare: jest.fn(),
-    onFav:   jest.fn(),
-    isFavourited: false,
+    voucherId: 'v-1',
+    voucherIsFavourited: false,
   }
 
   function flat(node: any): Record<string, any> {
@@ -195,8 +207,11 @@ describe('CouponHeader — dimmed prop applies to visual layer ONLY, never the n
     }
   })
 
-  it('dimmed=true — favourite button keeps full opacity when isFavourited toggles', () => {
-    const { getByLabelText } = render(<CouponHeader {...baseProps} dimmed isFavourited />)
+  it('dimmed=true — favourite button keeps full opacity when voucherIsFavourited toggles', () => {
+    // Phase 3C.1g M2.10 — old `isFavourited` prop is now
+    // `voucherIsFavourited`.  Heart label still flips via the same
+    // FavouriteHeart a11y contract.
+    const { getByLabelText } = render(<CouponHeader {...baseProps} dimmed voucherIsFavourited />)
     let n: any = getByLabelText('Remove from favourites')
     while (n) {
       expect(flat(n).opacity).not.toBe(0.55)

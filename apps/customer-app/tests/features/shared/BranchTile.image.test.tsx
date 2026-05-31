@@ -11,9 +11,19 @@
 // pin protects the placeholder + transition behaviour across all 5 surfaces.
 
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render as rtlRender } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BranchTile } from '@/features/shared/BranchTile'
 import { makeBranchTile } from '../../fixtures/branchTile'
+
+// Phase 3C.1g M2.7 — `<BranchTile>` now renders `<FavouriteHeart>`
+// which calls `useFavourite()` → `useQueryClient()`.  Every render
+// must run inside a `<QueryClientProvider>`; intercept `render` here
+// so the existing test bodies stay untouched.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  return rtlRender(<QueryClientProvider client={qc}>{node}</QueryClientProvider>)
+}
 
 describe('BranchTile — image render (§CV Phase A)', () => {
   it('banner uses expo-image with the bannerUrl source when set', () => {

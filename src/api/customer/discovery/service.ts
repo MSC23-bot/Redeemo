@@ -908,9 +908,14 @@ async function enrichMerchantTiles(
 //     branchLatitude, etc.).
 //   - `merchant` is the GROUPING container (id, businessName, primaryCategory,
 //     etc.), populated once per branch tile from the joined merchant.
-//   - `isFavourited` is merchant-keyed per Rev-2 §7 decision #13 — every branch
-//     tile of the same merchant shares the same value. Forward-compat with the
-//     eventual branch-keyed favourites contract (wire field stays unchanged).
+//   - `isFavourited` is BRANCH-keyed under Phase 3C.1g (locked
+//     2026-05-03 branch-as-primary-unit principle).  Driven by
+//     `FavouriteBranch.branchId` — sibling branches of the same
+//     merchant carry independent heart states.  The wire field name
+//     is unchanged from the Rev-2 §7 #13 design; only the source-of-
+//     truth table flipped.  `FavouriteMerchant` is kept additively
+//     through v1 for the customer-app cut-over and retires in the
+//     cleanup PR.
 //   - `closesAtLocal` is null in Phase 1 — `isOpenNow` (src/api/shared/isOpenNow.ts)
 //     does not return close-time. PR-0.5 gate resolved by reusing the existing
 //     helper; extending its signature is out of scope for PR-1.
@@ -1336,8 +1341,7 @@ async function enrichBranchTiles(
 ): Promise<BranchTile[]> {
   if (inputs.length === 0) return []
 
-  const branchIds   = inputs.map(i => i.branchId)
-  const merchantIds = Array.from(new Set(inputs.map(i => i.merchantId)))
+  const branchIds = inputs.map(i => i.branchId)
 
   // 1. Bulk fetch branches (with merchant + grouping fields pre-joined).
   //    Must complete first — call 4 (redundant highlights) needs the
@@ -1370,14 +1374,18 @@ async function enrichBranchTiles(
           _count: { id: true },
         })
       : Promise.resolve([] as Array<{ branchId: string | null; _avg: { rating: number | null }; _count: { id: number } }>),
-    // 3. Favourites — merchant-keyed wire under Rev-2 §7 decision #13.
-    //    Every branch tile of the same merchant shares isFavourited.
-    ctx.userId && merchantIds.length > 0
-      ? prisma.favouriteMerchant.findMany({
-          where:  { userId: ctx.userId, merchantId: { in: merchantIds } },
-          select: { merchantId: true },
+    // 3. Favourites — BRANCH-keyed under Phase 3C.1g spec §6.4 (locked
+    //    2026-05-03 branch-as-primary-unit principle). Per-branch
+    //    isFavourited replaces the prior merchant-keyed lookup; sibling
+    //    branches of the same merchant no longer share the heart state.
+    //    The cleanup PR removes the FavouriteMerchant model + routes
+    //    once the customer-app cut-over has stabilised.
+    ctx.userId && branchIds.length > 0
+      ? prisma.favouriteBranch.findMany({
+          where:  { userId: ctx.userId, branchId: { in: branchIds } },
+          select: { branchId: true },
         })
-      : Promise.resolve([] as Array<{ merchantId: string }>),
+      : Promise.resolve([] as Array<{ branchId: string }>),
     // 4. Redundant-highlight rules per subcategory — mirrors enrichMerchantTiles
     //    (service.ts:640-661). Group by subcategoryId so each per-branch call
     //    below can look up its own redundant set in O(1).
@@ -1397,8 +1405,8 @@ async function enrichBranchTiles(
     ratingByBranch.set(r.branchId, { avg, count: r._count.id })
   }
 
-  const favouritedMerchantSet = new Set<string>()
-  for (const f of favs) favouritedMerchantSet.add(f.merchantId)
+  const favouritedBranchSet = new Set<string>()
+  for (const f of favs) favouritedBranchSet.add(f.branchId)
 
   const redundantBySubcat = new Map<string, Set<string>>()
   for (const r of redundantRows) {
@@ -1425,7 +1433,7 @@ async function enrichBranchTiles(
     tiles.push(enrichBranchTile(branch, {
       input,
       rating:       ratingByBranch.get(branch.id),
-      isFavourited: favouritedMerchantSet.has(branch.merchant.id),
+      isFavourited: favouritedBranchSet.has(branch.id),
       redundantSet,
       // §CD v1 — voucher matchContext context (only set by searchBranches).
       ...(ctx.matchContextQuery !== undefined ? { matchContextQuery: ctx.matchContextQuery } : {}),
@@ -1775,6 +1783,7 @@ export async function getHomeFeed(
   const [featuredRail, trendingRail, nbcRails] = await Promise.all([
     buildFeaturedRail(
       prisma,
+      userId,
       homeV2EffLoc,
       'MIXED_NORMAL',
       {
@@ -1787,6 +1796,7 @@ export async function getHomeFeed(
     homeV2EffLoc
       ? buildTrendingRail(
           prisma,
+          userId,
           homeV2EffLoc,
           'MIXED_NORMAL',
           {
@@ -1799,6 +1809,7 @@ export async function getHomeFeed(
     homeV2EffLoc
       ? buildNearbyByCategoryRails(
           prisma,
+          userId,
           homeV2EffLoc,
           'MIXED_NORMAL',
           {
@@ -1817,7 +1828,7 @@ export async function getHomeFeed(
   // location.  When Trending fired, Popular stays silent — the
   // mutual-exclusion contract guarantees they never both populate.
   const popularRail: HomeRail = (trendingRail.meta === null || !homeV2EffLoc)
-    ? await buildPopularRail(prisma, homeV2EffLoc, 'MIXED_NORMAL')
+    ? await buildPopularRail(prisma, userId, homeV2EffLoc, 'MIXED_NORMAL')
     : { branches: [], meta: null }
 
   // Defensive server-side invariant — should be unreachable given the
@@ -1982,7 +1993,8 @@ export async function getCustomerMerchant(
   const avgRating   = totalCount > 0 ? Math.round((totalRating / totalCount) * 10) / 10 : null
   const reviewCount = totalCount
 
-  // isFavourited — optional-auth pattern: token decoded (not verified), not a security boundary
+  // isFavourited — optional-auth pattern: token decoded (not verified), not a security boundary.
+  // Merchant-level (kept additively through Phase 3C.1g v1 — cleanup PR removes it).
   let isFavourited = false
   if (userId) {
     const fav = await prisma.favouriteMerchant.findUnique({
@@ -1990,6 +2002,20 @@ export async function getCustomerMerchant(
       select: { id: true },
     })
     isFavourited = fav !== null
+  }
+
+  // M1.6 — Phase 3C.1g branch-keyed isFavourited.  Bulk-load the user's
+  // FavouriteBranch rows for THIS merchant's branches in one query, then
+  // thread the boolean onto `selectedBranch` + each `branches[]` entry
+  // below.  Mirrors enrichBranchTiles' per-tile contract: sibling
+  // branches no longer inherit a single shared heart state.
+  const favouritedBranchSet = new Set<string>()
+  if (userId && merchant.branches.length > 0) {
+    const favBranches = await prisma.favouriteBranch.findMany({
+      where:  { userId, branchId: { in: merchant.branches.map((b: any) => b.id) } },
+      select: { branchId: true },
+    })
+    for (const f of favBranches) favouritedBranchSet.add(f.branchId)
   }
 
   // Legacy distance/nearest — computed from activeBranches only
@@ -2142,6 +2168,8 @@ export async function getCustomerMerchant(
     avgRating:   ratingByBranch[selectedBranchRaw.id]?.avgRating   ?? null,
     reviewCount: ratingByBranch[selectedBranchRaw.id]?.reviewCount ?? 0,
     myReview,
+    // M1.6 — per-branch heart state for the SELECTED branch.
+    isFavourited: favouritedBranchSet.has(selectedBranchRaw.id),
   } : null
 
   // PR-B T8a (§Q4 wiring): compute the per-voucher redeemed-this-
@@ -2181,6 +2209,25 @@ export async function getCustomerMerchant(
       })
       redeemedVoucherIdSet = new Set(cycleStates.map(s => s.voucherId))
     }
+  }
+
+  // M2.9a (Phase 3C.1g) — per-voucher isFavourited on /merchants/:id
+  // voucher cards.  One bulk FavouriteVoucher lookup keyed on this
+  // merchant's voucher ids; emitted on each enriched voucher below.
+  // Guests (userId=null) and merchants with no vouchers skip the
+  // query — the empty Set falls through to `isFavourited: false`.
+  //
+  // Wire-shape parity with the existing voucher detail emit
+  // (getCustomerVoucher → voucher.isFavourited).  Closes the spec
+  // §6.4 row that asserted the field was "already emitted via
+  // existing voucher card payload" but actually wasn't.
+  const favouritedVoucherIdSet = new Set<string>()
+  if (userId && merchant.vouchers.length > 0) {
+    const favs = await prisma.favouriteVoucher.findMany({
+      where:  { userId, voucherId: { in: merchant.vouchers.map((v: any) => v.id) } },
+      select: { voucherId: true },
+    })
+    for (const f of favs) favouritedVoucherIdSet.add(f.voucherId)
   }
 
   // M4a-5: Batched (voucherId → most-recent redeemedAt) lookup for the
@@ -2243,6 +2290,10 @@ export async function getCustomerMerchant(
         v.type === 'TIME_LIMITED' || v.type === 'REUSABLE'
           ? false
           : redeemedVoucherIdSet.has(v.id),
+      // M2.9a (Phase 3C.1g) — per-voucher heart state driving the
+      // merchant-profile voucher card's <FavouriteHeart>.  Guests +
+      // non-favourited users emit false (empty Set).
+      isFavourited: favouritedVoucherIdSet.has(v.id),
       // M4a-5: TIME_LIMITED state ([] / null for non-TIME_LIMITED).
       availabilityWindows: tlPayload.availabilityWindows,
       currentWindow:       tlPayload.currentWindow,
@@ -2297,6 +2348,8 @@ export async function getCustomerMerchant(
       isOpenNow:   isOpenNow(b.openingHours),
       avgRating:   ratingByBranch[b.id]?.avgRating   ?? null,
       reviewCount: ratingByBranch[b.id]?.reviewCount ?? 0,
+      // M1.6 — per-branch heart state for each branch in the picker.
+      isFavourited: favouritedBranchSet.has(b.id),
       // Task 1 — Merchant Profile UX refinement: per-branch openingHours so
       // picker rows + Other Locations cards + HoursPreviewSheet can render
       // real smart-status text and full week schedules for non-current

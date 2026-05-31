@@ -33,7 +33,6 @@ import { DirectionsSheet } from '../components/DirectionsSheet'
 import { HoursPreviewSheet } from '../components/HoursPreviewSheet'
 import { SuspendedBranchBanner } from '../components/SuspendedBranchBanner'
 import { AllBranchesUnavailable } from '../components/AllBranchesUnavailable'
-import { useFavourite } from '@/hooks/useFavourite'
 import { deriveInitialOpenWriteFor } from '../utils/initialOpenWriteFor'
 import { useUserLocation } from '@/hooks/useLocation'
 import { MerchantHeadline } from '../components/MerchantHeadline'
@@ -42,6 +41,7 @@ import { BranchSwitchToast } from '../components/BranchSwitchToast'
 import { branchShortName } from '../utils/branchShortName'
 import { sortMerchantVouchers } from '../utils/voucherCardSort'
 import { resolveBackNavigation } from '../utils/resolveBackNavigation'
+import { navigateBackTo } from '@/lib/routing/navigateBack'
 
 function buildBranchLine(branch: { city: string | null; name: string }): string | null {
   // Pass 1 fallback: city when available, else strip-prefix the branch name.
@@ -111,6 +111,34 @@ type Props = { id: string | undefined }
 
 export function MerchantProfileScreen({ id }: Props) {
 
+  // Device-QA R1 Wave 6.4 (2026-05-30) — focus-tracking guard.
+  //
+  // Owner-reported symptom: user navigates Favourites > MP > Voucher
+  // Detail > merchant logo tap → MP2 mounts (no `branch` param) →
+  // back to Favourites.  Then 3-4 seconds later (matching the cold-
+  // backend merchant fetch RTT) Favourites flips back to MP without
+  // user input.  Tapping Back lands on Home.
+  //
+  // Root cause: this screen's `reconcile` useEffect (line 178) and
+  // the two URL-scrub effects (lines 437 + 463) fire `router.replace`
+  // when the merchant data updates.  Because expo-router Tabs keep
+  // background tabs MOUNTED, those effects continue to fire after the
+  // user has navigated away.  `router.replace` operates on the
+  // CURRENT route — which is now Favourites, NOT MP — so Favourites
+  // gets replaced with MP, yanking the user back.
+  //
+  // Fix: gate every `router.replace` call inside this screen on
+  // `isFocusedRef.current`.  useFocusEffect flips the ref on focus
+  // and clears it on blur.  Background re-renders no longer hijack
+  // the user's current route.
+  const isFocusedRef = useRef(false)
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true
+      return () => { isFocusedRef.current = false }
+    }, [])
+  )
+
   // URL ↔ branch selection (P2.3). `branchId` from `?branch=`; `select`
   // pushes a new branch via router.replace; `reconcile` aligns the URL
   // with whatever the server resolved (cold-open or fallback path).
@@ -176,6 +204,10 @@ export function MerchantProfileScreen({ id }: Props) {
   // prior URL was already correct for the prior data — there's nothing to
   // reconcile against.
   useEffect(() => {
+    // Wave 6.4 guard — only reconcile when this screen is focused.
+    // Background-tab refetches must NOT mutate the URL or expo-router
+    // will yank the user from whatever tab they're currently on.
+    if (!isFocusedRef.current) return
     if (
       merchant?.selectedBranch?.id &&
       merchant.selectedBranchFallbackReason !== 'used-candidate'
@@ -184,11 +216,11 @@ export function MerchantProfileScreen({ id }: Props) {
     }
   }, [merchant?.selectedBranch?.id, merchant?.selectedBranchFallbackReason, reconcile])
 
-  const favourite = useFavourite({
-    type: 'merchant',
-    id: merchant?.id ?? '',
-    isFavourited: merchant?.isFavourited ?? false,
-  })
+  // Phase 3C.1g M2.9 — merchant-level `useFavourite()` retired.  The
+  // hero heart is now branch-keyed and lives inside `<HeroNav>` →
+  // `<FavouriteHeart>`, driven by `selectedBranch.id` +
+  // `selectedBranch.isFavourited`.  Sibling branches of the same
+  // merchant carry independent heart states (spec §4).
 
   // URL params read FIRST so the activeTab initialiser below can
   // honour `?tab=reviews` on cold-mount.  Hoisted here from its
@@ -422,22 +454,35 @@ export function MerchantProfileScreen({ id }: Props) {
     if (!autoOpenConsumed) return
     if (!initialOpenWriteFor) return
     if (!merchantId) return
+    // Wave 6.4 guard — see isFocusedRef setup at top of component.
+    if (!isFocusedRef.current) return
     setOpenWriteScrubbed(true)
     const enc = encodeURIComponent
     const tab = typeof screenParams.tab === 'string' ? screenParams.tab : 'reviews'
+    // Wave 5 #1 (locked 2026-05-30) — preserve `?from=<origin>` (e.g.
+    // `from=favourites`) across the auto-open scrub.  Pre-Wave-5 this
+    // rebuilder dropped every param except branch + tab, so the user
+    // landed on a Merchant Profile that had no back-context and the
+    // hero Back button fell through to the Tabs default (Home).
+    const fromSuffix = typeof screenParams.from === 'string' ? `&from=${enc(screenParams.from)}` : ''
     const branchPart = initialOpenWriteFor.branchId
-      ? `?branch=${enc(initialOpenWriteFor.branchId)}&tab=${enc(tab)}`
-      : `?tab=${enc(tab)}`
+      ? `?branch=${enc(initialOpenWriteFor.branchId)}&tab=${enc(tab)}${fromSuffix}`
+      : `?tab=${enc(tab)}${fromSuffix}`
     router.replace(
       `/(app)/merchant/${enc(merchantId)}${branchPart}` as never,
     )
-  }, [autoOpenConsumed, initialOpenWriteFor, openWriteScrubbed, merchantId, screenParams.tab])
+  }, [autoOpenConsumed, initialOpenWriteFor, openWriteScrubbed, merchantId, screenParams.tab, screenParams.from])
 
   const branchChangedParam = screenParams.branchChanged
   useEffect(() => {
     if (branchChangedToastFired) return
     if (branchChangedParam !== '1') return
     if (!merchant || !branchId) return
+    // Wave 6.4 guard — see isFocusedRef setup at top of component.
+    // Without this, a background-tab refetch with the branchChanged=1
+    // residue could re-fire the scrub + replace, yanking the user
+    // back to MP.
+    if (!isFocusedRef.current) return
     const newBranchName = merchant.branches.find(b => b.id === branchId)?.name
     if (!newBranchName) return
 
@@ -446,14 +491,19 @@ export function MerchantProfileScreen({ id }: Props) {
 
     // Scrub `branchChanged=1` from the URL — keep the rest. The route
     // path is /(app)/merchant/<id>; query is `branch=<id>&tab=<id>`.
+    // Wave 5 #1 (locked 2026-05-30) — also preserve `from=<origin>` so
+    // the back-chain Voucher Detail → (rebuilt) Merchant Profile →
+    // Favourites stays intact after a mid-flow branch change.  The
+    // rebuilder dropped every non-branch/tab param pre-Wave-5.
     if (merchantId) {
       const enc = encodeURIComponent
       const tab = typeof screenParams.tab === 'string' ? screenParams.tab : 'vouchers'
+      const fromSuffix = typeof screenParams.from === 'string' ? `&from=${enc(screenParams.from)}` : ''
       router.replace(
-        `/(app)/merchant/${enc(merchantId)}?branch=${enc(branchId)}&tab=${enc(tab)}` as never,
+        `/(app)/merchant/${enc(merchantId)}?branch=${enc(branchId)}&tab=${enc(tab)}${fromSuffix}` as never,
       )
     }
-  }, [branchChangedParam, branchChangedToastFired, merchant, branchId, merchantId, screenParams.tab])
+  }, [branchChangedParam, branchChangedToastFired, merchant, branchId, merchantId, screenParams.tab, screenParams.from])
 
   // §N11 prefetch — warm sibling-branch merchant-profile queries when
   // the user opens the Branches tab. Caps at 5 nearest active non-
@@ -548,8 +598,23 @@ export function MerchantProfileScreen({ id }: Props) {
       `tab=vouchers`,
     ]
     if (sbId) qs.unshift(`branch=${enc(sbId)}`)
+    // Phase 3C.1g Device-QA R1 Wave 3 (2026-05-30) — finding #16.
+    // Propagate the merchant's OWN `?from=<origin>` token through to
+    // voucher detail so the back-chain Voucher → Merchant → <origin>
+    // preserves where the user came from (e.g. Favourites).  Voucher
+    // Detail's `buildReturnUrl` rebuilds the merchant URL with
+    // `&from=<merchantFrom>` so resolveBackNavigation on the returned
+    // merchant page knows which surface to back-pop to.  Only the
+    // recognised origin tokens flow through; anything else is dropped
+    // defensively (favouritesonly origin needs propagation in v1; the
+    // others — search / map / category / home — already work without
+    // chaining because their merchant pages aren't a nested entry
+    // point).
+    if (screenParams.from === 'favourites') {
+      qs.push(`merchantFrom=favourites`)
+    }
     router.push(`/voucher/${enc(voucherId)}?${qs.join('&')}` as never)
-  }, [branchId, merchant])
+  }, [branchId, merchant, screenParams.from])
 
   // Round 6 follow-up: screen-wide dim+restore pulse on branch
   // switch. Owner flagged that the previous tab-content settle
@@ -750,11 +815,11 @@ export function MerchantProfileScreen({ id }: Props) {
         : v.isRedeemedThisCycle))
       .map(v => v.id),
   )
-  // Per-voucher favourites placeholder.  cefaf45 documented this as
-  // TODO until the merchant detail endpoint surfaces favourited per
-  // voucher.  Out of scope for PR-B; the favouritedVoucherIds Set
-  // stays empty (existing behaviour preserved).
-  const favouritedVoucherIds = new Set<string>()
+  // Phase 3C.1g M2.9a — the favouritedVoucherIds Set placeholder is
+  // gone.  Per-voucher heart state now flows through the
+  // `voucher.isFavourited` field on the M2.9a additive
+  // `/merchants/:id` payload; `<FavouriteHeart>` inside
+  // `<VoucherCard>` reads it directly.
 
   const handleWebsite = () => {
     const url = sb.websiteUrl ?? merchant.websiteUrl
@@ -906,11 +971,12 @@ export function MerchantProfileScreen({ id }: Props) {
             <VouchersTab
               vouchers={sortedVouchers}
               redeemedVoucherIds={redeemedVoucherIds}
-              favouritedVoucherIds={favouritedVoucherIds}
               onVoucherPress={handleVoucherPress}
               branchShortName={branchShortName(sb.name)}
               isMultiBranch={isMultiBranch}
               switchTrigger={sb.id}
+              merchantId={merchant.id}
+              branchId={sb.id}
             />
           )}
           {activeTab === 'about' && (
@@ -979,8 +1045,9 @@ export function MerchantProfileScreen({ id }: Props) {
           taps in non-button areas pass through to the ScrollView's
           pan-gesture detector for normal scrolling. */}
       <HeroNav
-        isFavourited={favourite.isFavourited}
-        onToggleFavourite={favourite.toggle}
+        branchId={merchant?.selectedBranch?.id ?? ''}
+        branchIsFavourited={merchant?.selectedBranch?.isFavourited ?? false}
+        merchantId={merchant?.id ?? ''}
         onShare={handleShare}
         scrollY={scrollY}
         topOffset={sbbHeight}
@@ -997,7 +1064,13 @@ export function MerchantProfileScreen({ id }: Props) {
                 ...(typeof screenParams.categoryId === 'string' ? { categoryId: screenParams.categoryId } : {}),
               },
             )
-            return target ? () => router.push(target as any) : undefined
+            if (!target) return undefined
+            // Device-QA R1 Wave 6.2 (2026-05-30) — root-cause fix for
+            // the owner-reported "first time lands on Favourites for
+            // ~5s then auto-redirects to Home; second time goes
+            // directly to Home" symptom.  See `navigateBackTo` for
+            // the full dismiss+replace rationale.
+            return () => navigateBackTo(router, target)
           })()
         }
       />

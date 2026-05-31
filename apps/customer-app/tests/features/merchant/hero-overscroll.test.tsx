@@ -1,5 +1,6 @@
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render as rtlRender } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useSharedValue } from 'react-native-reanimated'
 import {
@@ -8,6 +9,19 @@ import {
   HeroBannerSpacer,
   HERO_HEIGHT,
 } from '@/features/merchant/components/HeroSection'
+
+// Phase 3C.1g M2.9 — HeroNav now renders `<FavouriteHeart>` which
+// needs a `<QueryClientProvider>` in scope.  Pass the provider via
+// rtl's `wrapper` option so `rerender(...)` also runs inside it —
+// critical for the heart-label-flip test that re-renders with a
+// flipped `fav` prop.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+  return rtlRender(node, { wrapper: Wrapper })
+}
 
 // expo-router ships ESM-only on jest in this project; mock just the
 // surface HeroNav uses. The back button reads `useRouter().back`
@@ -122,10 +136,14 @@ describe('Hero header components (M1.1 — split + parallax zoom)', () => {
   describe('HeroNav', () => {
     function Wrapper(props: { fav?: boolean; topOffset?: number }) {
       const scrollY = useSharedValue(0)
+      // Phase 3C.1g M2.9 — props renamed to the branch-keyed contract
+      // (branchId / branchIsFavourited / merchantId).  `fav` continues
+      // to drive the heart state via `branchIsFavourited`.
       const baseProps = {
-        isFavourited: props.fav ?? false,
-        onToggleFavourite: () => {},
-        onShare: () => {},
+        branchId:           'br-test',
+        branchIsFavourited: props.fav ?? false,
+        merchantId:         'm-test',
+        onShare:            () => {},
         scrollY,
       }
       return props.topOffset === undefined

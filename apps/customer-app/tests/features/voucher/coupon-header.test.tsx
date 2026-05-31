@@ -1,7 +1,19 @@
 import React from 'react'
 import { Text, View } from 'react-native'
-import { render } from '@testing-library/react-native'
+import { render as rtlRender } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CouponHeader } from '@/features/voucher/components/CouponHeader'
+
+// Phase 3C.1g M2.10 — CouponHeader embeds `<FavouriteHeart>` which
+// needs a `<QueryClientProvider>` in scope.  Wrap render here so
+// existing test bodies stay untouched.
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  }
+  return rtlRender(node, { wrapper: Wrapper })
+}
 
 const BASE_PROPS = {
   type: 'BOGO' as const,
@@ -11,8 +23,10 @@ const BASE_PROPS = {
   insetTop: 0,
   onBack: jest.fn(),
   onShare: jest.fn(),
-  onFav: jest.fn(),
-  isFavourited: false,
+  // Phase 3C.1g M2.10 — branch-keyed contract; props renamed from
+  // `onFav` / `isFavourited` to the FavouriteHeart-driven shape.
+  voucherId:           'v-1',
+  voucherIsFavourited: false,
 }
 
 describe('CouponHeader — statusBlock slot + TL description suppression (M4d Task C.1)', () => {

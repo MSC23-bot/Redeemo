@@ -30,8 +30,11 @@ type Props = {
    * the `?branch=${id}&from=map` URL contract.
    */
   onBranchPress: (branchId: string) => void
-  onFavourite?: (id: string) => void
 }
+
+// Phase 3C.1g M2.8 — `onFavourite` removed from MapBranchTile + the
+// pass-through to `<BranchTile>`.  The heart is now owned by
+// `<FavouriteHeart>` inside the shared `<BranchTile>` (M2.7).
 
 export function MapBranchTile({
   branches,
@@ -39,7 +42,6 @@ export function MapBranchTile({
   onClose,
   onIndexChange,
   onBranchPress,
-  onFavourite,
 }: Props) {
   const translateY = useRef(new Animated.Value(300)).current
   const scrollRef = useRef<ScrollView>(null)
@@ -96,7 +98,6 @@ export function MapBranchTile({
             <BranchTile
               branch={branch}
               onPress={onBranchPress}
-              {...(onFavourite ? { onFavourite } : {})}
               width={TILE_WIDTH}
             />
           </View>

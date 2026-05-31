@@ -18,6 +18,7 @@ import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useMerchantProfile } from '@/features/merchant/hooks/useMerchantProfile'
+import { navigateBackTo } from '@/lib/routing/navigateBack'
 import { useCustomerVoucher } from '../hooks/useCustomerVoucher'
 import { useTimeLimited } from '../hooks/useTimeLimited'
 import { useReusable } from '../hooks/useReusable'
@@ -155,13 +156,38 @@ export function buildReturnUrl(params: {
    * when the chip + band are off-screen below the fold.
    */
   branchChanged?: boolean
+  /**
+   * Device-QA R1 Wave 3 (2026-05-30) — finding #16.  When the user
+   * came to voucher detail VIA a merchant page that itself was
+   * reached from another surface (e.g. Favourites), Merchant Profile
+   * stamps that origin onto the voucher URL as `merchantFrom`.  On
+   * the return-to-merchant path we propagate it back as `from` so
+   * `resolveBackNavigation` on the rebuilt merchant page can pop one
+   * more level (merchant → favourites) instead of falling through
+   * to the Tabs default (Home).  Only `'favourites'` is recognised
+   * in v1 — the other origin tokens (search / map / category / home)
+   * don't currently nest a voucher entry from merchant in a way that
+   * needs propagation.
+   */
+  merchantFrom?: string | undefined
 }): string | null {
   if (params.from === 'merchant' && params.returnMerchantId && params.branch) {
     const enc = encodeURIComponent
     const tab = params.tab ?? 'vouchers'
     let url = `/(app)/merchant/${enc(params.returnMerchantId)}?branch=${enc(params.branch)}&tab=${enc(tab)}`
     if (params.branchChanged) url += '&branchChanged=1'
+    if (params.merchantFrom === 'favourites') url += '&from=favourites'
     return url
+  }
+  // Phase 3C.1g Device-QA R1 Wave 2 (2026-05-30) — voucher cards on
+  // the Favourites tab push `?from=favourites`; back from Voucher
+  // Detail must return to Favourites > Vouchers, not the Tabs
+  // default (which on a Tabs surface restores Home).  Vouchers is the
+  // only Favourites entry path for voucher detail (the Places tab
+  // routes to Merchant Profile), so hardcoding `tab=vouchers` is
+  // safe.
+  if (params.from === 'favourites') {
+    return '/(app)/favourites?tab=vouchers'
   }
   return null
 }
@@ -182,6 +208,15 @@ export function VoucherDetailScreen() {
      * remains visible and tappable; only the auto-modal is gated.
      */
     suppressSubscribePrompt?: string
+    /**
+     * Phase 3C.1g Device-QA R1 Wave 3 (2026-05-30) — finding #16.
+     * Captures the origin surface of the merchant page that the user
+     * came from before landing on voucher detail.  `buildReturnUrl`
+     * re-emits this as `from=<merchantFrom>` on the return-to-merchant
+     * URL so the back-chain Voucher → Merchant → <merchantFrom>
+     * preserves origin.
+     */
+    merchantFrom?: string
   }>()
   const voucherId = typeof params.id === 'string' ? params.id : undefined
   const branchIdParam = typeof params.branch === 'string' ? params.branch : undefined
@@ -848,6 +883,20 @@ export function VoucherDetailScreen() {
     // optional redemption id.  Conditional spread (vs assigning
     // undefined) keeps the typed-route tagged-union happy under
     // exactOptionalPropertyTypes.
+    //
+    // Device-QA R1 Wave 6.1 (2026-05-30) — propagate the Favourites
+    // origin via `from`.  Same chain logic as `handleMerchantTap`:
+    // either the user entered Voucher Detail direct from Favourites
+    // (params.from === 'favourites') OR via a Merchant Profile that
+    // was itself reached from Favourites (params.merchantFrom ===
+    // 'favourites' — Wave 3 §R4 propagation).  The Wave 5 #1 fix on
+    // Merchant Profile's openWriteReview scrub preserves this `from`
+    // through the URL rebuild, so back from the re-mounted Merchant
+    // Profile returns to Favourites.
+    const nestedFrom =
+      params.from === 'favourites' || params.merchantFrom === 'favourites'
+        ? 'favourites'
+        : null
     router.push({
       pathname: '/(app)/merchant/[id]',
       params: {
@@ -858,9 +907,10 @@ export function VoucherDetailScreen() {
         ...(reviewPromptContext.redemptionId
           ? { fromRedemption: reviewPromptContext.redemptionId }
           : {}),
+        ...(nestedFrom ? { from: nestedFrom } : {}),
       },
     })
-  }, [reviewPromptContext, voucher, router])
+  }, [reviewPromptContext, voucher, router, params.from, params.merchantFrom])
 
   // ── Screen-capture protection on Voucher Detail ─────────────────────
   //
@@ -986,12 +1036,13 @@ export function VoucherDetailScreen() {
       branch:           returnBranch,
       tab:              params.tab,
       branchChanged:    changedBranchOnVoucherId !== null,
+      merchantFrom:     params.merchantFrom,
     })
     if (returnUrl) {
-      // router.replace ensures Voucher Detail leaves the stack
-      // cleanly (rather than push, which would stack on top of the
-      // existing stack and require two backs).
-      router.replace(returnUrl as never)
+      // Device-QA R1 Wave 6.2 (2026-05-30) — dismissAll + replace
+      // pair survives expo-router's tab reconciliation on deep
+      // nested stacks.  See `navigateBackTo` for the full rationale.
+      navigateBackTo(router, returnUrl)
       return
     }
     if (router.canGoBack()) {
@@ -999,11 +1050,15 @@ export function VoucherDetailScreen() {
       return
     }
     router.replace('/(app)/' as never)
-  }, [router, params.from, params.returnMerchantId, params.branch, params.tab, changedBranchOnVoucherId])
+  }, [router, params.from, params.returnMerchantId, params.branch, params.tab, params.merchantFrom, changedBranchOnVoucherId])
 
-  const handleFav = useCallback(() => {
-    Alert.alert('Coming next milestone', 'Voucher favourite toggle ships in M2.')
-  }, [])
+  // Phase 3C.1g M2.10 — §O4 closure.  The `handleFav` Alert stub
+  // is gone.  CouponHeader now embeds `<FavouriteHeart>` which calls
+  // `useFavourite({ type: 'voucher', ... })` on press, fires the
+  // real POST/DELETE, and invalidates both `['favouriteVouchers']`
+  // (list cache) and the `['voucher', voucherId]` contextualQueryKey
+  // so this screen refetches the voucher and re-syncs the heart on
+  // navigation.
 
   const handleShare = useCallback(() => {
     Alert.alert('Coming next milestone', 'Voucher share ships in M2.')
@@ -1081,9 +1136,49 @@ export function VoucherDetailScreen() {
 
   const handleMerchantTap = useCallback(() => {
     if (voucher && merchant) {
-      router.push(`/(app)/merchant/${voucher.merchant.id}` as never)
+      // Device-QA R1 Wave 6 (2026-05-30) — finding #1.  When the user
+      // taps the merchant row on Voucher Detail, the resulting
+      // Merchant Profile push needs to carry the Favourites origin
+      // so the back-chain still resolves to Favourites instead of
+      // the Tabs default (Home).  Two entry chains both surface as
+      // `favourites`:
+      //   (A) Favourites > Vouchers > Voucher Detail
+      //       → params.from === 'favourites'
+      //   (B) Favourites > Merchants > Merchant Profile > Voucher
+      //       Detail → params.from === 'merchant'
+      //                AND params.merchantFrom === 'favourites'
+      //         (Wave 3 §R4 propagation contract)
+      // Only `'favourites'` is recognised in v1 — search / map /
+      // category / home don't currently surface a merchant-tap from
+      // voucher detail in a chain that needs propagation.
+      const nestedFrom =
+        params.from === 'favourites' || params.merchantFrom === 'favourites'
+          ? 'favourites'
+          : null
+      // Code-review fix (Codex 2026-05-31, PR #137 P1) — also thread
+      // the branch context into the push so Merchant Profile reopens
+      // on the SAME branch the user was viewing on Voucher Detail
+      // (branch-level favourites contract — Phase 3C.1g).  Without
+      // this, MP cold-resolves another branch via nearest-GPS /
+      // main-branch fallback and the user lands on a sibling
+      // branch's tabs.  Uses the identical three-tier display-branch
+      // resolver as `redeem.getBranchId` + `<BranchPickerSheet
+      // currentBranchId>`:
+      //   1. pickerConfirmedBranchId — picker-confirmed in-session
+      //   2. branchIdParam            — URL `?branch=<id>`
+      //   3. selectedBranch?.id       — server-resolved cold-open
+      // The branch query param is independent of `nestedFrom` —
+      // non-favourites paths (e.g. came-from-merchant chain) STILL
+      // benefit from branch-context preservation, so it threads
+      // through regardless of the from token.
+      const branchForPush = pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id ?? null
+      const qsParts: string[] = []
+      if (branchForPush) qsParts.push(`branch=${encodeURIComponent(branchForPush)}`)
+      if (nestedFrom)    qsParts.push(`from=${encodeURIComponent(nestedFrom)}`)
+      const qs = qsParts.length > 0 ? `?${qsParts.join('&')}` : ''
+      router.push(`/(app)/merchant/${voucher.merchant.id}${qs}` as never)
     }
-  }, [router, voucher, merchant])
+  }, [router, voucher, merchant, params.from, params.merchantFrom, pickerConfirmedBranchId, branchIdParam, selectedBranch])
 
   // ── M2 Section B: useRedeem mutation ─────────────────────────────────
   // Three-tier branch source priority — read AT MUTATION TIME:
@@ -1483,8 +1578,8 @@ export function VoucherDetailScreen() {
                 insetTop={insets.top}
                 onBack={handleBack}
                 onShare={handleShare}
-                onFav={handleFav}
-                isFavourited={voucher.isFavourited}
+                voucherId={voucher.id}
+                voucherIsFavourited={voucher.isFavourited}
                 scrollY={scrollY}
                 fadeStart={FADE_START}
                 fadeEnd={FADE_END}
@@ -2052,6 +2147,16 @@ export function VoucherDetailScreen() {
             ? {
                 onRateReview: () => {
                   setSuccessPopup(null)
+                  // Device-QA R1 Wave 6.1 (2026-05-30) — propagate
+                  // Favourites origin through the SuccessPopup
+                  // Rate&Review path so back from MP > Reviews
+                  // returns to Favourites instead of Tabs default
+                  // (Home).  Same nestedFrom logic as
+                  // handleMerchantTap + handleReviewPromptPress.
+                  const nestedFrom =
+                    params.from === 'favourites' || params.merchantFrom === 'favourites'
+                      ? 'favourites'
+                      : null
                   router.push({
                     pathname: '/(app)/merchant/[id]',
                     params: {
@@ -2060,6 +2165,7 @@ export function VoucherDetailScreen() {
                       tab:             'reviews',
                       openWriteReview: '1',
                       fromRedemption:  successPopup.id,
+                      ...(nestedFrom ? { from: nestedFrom } : {}),
                     },
                   })
                 },

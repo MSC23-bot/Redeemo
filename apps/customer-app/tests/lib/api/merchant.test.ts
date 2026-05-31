@@ -84,6 +84,8 @@ const fullProfile = {
     avgRating:    4.5,
     reviewCount:  12,
     openingHours: [],
+    // Phase 3C.1g M2.1 — per-branch heart state required by branchTileSchema.
+    isFavourited: false,
   }],
   // P2.1 fields — required by the updated schema. fullProfile includes a
   // valid selectedBranch so existing tests continue to pass. The three new
@@ -114,6 +116,8 @@ const fullProfile = {
     avgRating:    4.5,
     reviewCount:  12,
     myReview:     null,
+    // Phase 3C.1g M2.1 — selectedBranch.isFavourited required.
+    isFavourited: false,
   },
   selectedBranchFallbackReason: 'no-candidate',
 }
@@ -243,6 +247,8 @@ describe('merchantApi.getProfile', () => {
     avgRating: 4.5,
     reviewCount: 12,
     myReview: null,
+    // Phase 3C.1g M2.1 — selectedBranch.isFavourited required.
+    isFavourited: false,
   }
 
   it('parses selectedBranch alongside merchant', async () => {

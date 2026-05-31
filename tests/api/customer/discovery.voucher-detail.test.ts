@@ -289,6 +289,42 @@ describe('getCustomerVoucher — guest (userId null)', () => {
   })
 })
 
+// Phase 3C.1g M1.7 — positive-case pin for the per-voucher heart state.
+// `voucher.isFavourited` ships in the customer voucher payload today,
+// driven by the user's FavouriteVoucher row.  The cleanup PR retires
+// the legacy merchant-level isFavourited (FavouriteMerchant) and
+// rewrites the discovery enrichment to be branch-keyed; this pin is
+// the regression catch so the cleanup PR doesn't also accidentally
+// drop the voucher-level field.
+describe('getCustomerVoucher — voucher.isFavourited (Phase 3C.1g M1.7)', () => {
+  it('returns isFavourited:true when the user has a FavouriteVoucher row', async () => {
+    const prisma = makePrisma()
+    prisma.subscription.findUnique.mockResolvedValue(null)
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+    prisma.favouriteVoucher.findUnique.mockResolvedValue({ id: 'fav-1' })
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    expect(result.isFavourited).toBe(true)
+    // Belt-and-braces: the cleanup PR's grep for `favouriteMerchant` must
+    // NOT incidentally touch the voucher-level lookup. Confirms the
+    // intended query was the (userId, voucherId) compound key.
+    expect(prisma.favouriteVoucher.findUnique).toHaveBeenCalledWith({
+      where: { userId_voucherId: { userId: USER_ID, voucherId: VOUCHER_ID } },
+      select: { id: true },
+    })
+  })
+
+  it('returns isFavourited:false when the user has NOT favourited this voucher', async () => {
+    const prisma = makePrisma()
+    prisma.subscription.findUnique.mockResolvedValue(null)
+    prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
+    prisma.favouriteVoucher.findUnique.mockResolvedValue(null)
+
+    const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
+    expect(result.isFavourited).toBe(false)
+  })
+})
+
 // availableAgainAt — computed from getCurrentCycleWindow().cycleEnd for
 // ACTIVE/TRIALLING subscribers. Frontend uses this in two places: the
 // pre-redemption "Renews on <date>" copy and the post-redemption

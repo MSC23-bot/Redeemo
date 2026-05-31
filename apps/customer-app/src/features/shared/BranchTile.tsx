@@ -2,10 +2,11 @@ import React from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Heart, X } from 'lucide-react-native'
+import { X } from 'lucide-react-native'
 import { Text, color, radius, spacing, elevation } from '@/design-system'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { ProximityBandChip } from '@/design-system/components/ProximityBandChip'
+import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { formatDistance as formatDistanceShared } from '@/design-system/utils/formatters'
 import { SavePill } from './SavePill'
@@ -36,17 +37,21 @@ function formatDistance(metres: number | null): string {
 type Props = {
   branch: BranchTileType
   onPress: (id: string) => void
-  onFavourite?: (id: string) => void
   showFeaturedBadge?: boolean
   showClose?: boolean
   onClose?: () => void
   width?: number
 }
 
+// Phase 3C.1g M2.7 — the `onFavourite?: (id) => void` callback prop
+// is GONE.  Hearts now route entirely through `<FavouriteHeart>` (spec
+// §7.2.1) which calls `useFavourite()` internally + invalidates the
+// `['favouriteBranches']` cache key on success.  Rails / list parents
+// no longer participate in heart wiring.
+
 export function BranchTile({
   branch,
   onPress,
-  onFavourite,
   showFeaturedBadge,
   showClose,
   onClose,
@@ -100,20 +105,17 @@ export function BranchTile({
           </LinearGradient>
         )}
 
-        {/* Favourite heart */}
-        {onFavourite && (
-          <Pressable
-            onPress={() => onFavourite(branch.id)}
-            accessibilityLabel={branch.isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-            style={styles.heartButton}
-          >
-            <Heart
-              size={16}
-              color="#FFFFFF"
-              fill={branch.isFavourited ? '#FFFFFF' : 'transparent'}
-            />
-          </Pressable>
-        )}
+        {/* Favourite heart — M2.7 routes through shared component. */}
+        <View style={styles.heartButton}>
+          <FavouriteHeart
+            entity="branch"
+            id={branch.id}
+            initialIsFavourited={branch.isFavourited}
+            tone="on-gradient"
+            size={16}
+            testID={`branch-tile-${branch.id}-heart`}
+          />
+        </View>
 
         {/* Close button (Map tile) */}
         {showClose && onClose && (

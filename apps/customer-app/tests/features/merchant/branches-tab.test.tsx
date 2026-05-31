@@ -9,6 +9,7 @@ const mk = (id: string, name: string, isActive = true): BranchTile => ({
   latitude: null, longitude: null, phone: '+44', email: null,
   distance: null, isOpenNow: true, avgRating: null, reviewCount: 0,
   openingHours: [],  // Task 1 made this required on BranchTile.
+  isFavourited: false,  // Phase 3C.1g M1 added this required field.
 })
 
 const noop = () => {}

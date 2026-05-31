@@ -9,6 +9,9 @@ vi.mock('../../../src/api/customer/favourites/service', () => ({
   addFavouriteVoucher:     vi.fn(),
   removeFavouriteVoucher:  vi.fn(),
   listFavouriteVouchers:   vi.fn(),
+  addFavouriteBranch:      vi.fn(),
+  removeFavouriteBranch:   vi.fn(),
+  listFavouriteBranches:   vi.fn(),
 }))
 
 vi.mock('../../../src/api/customer/discovery/service', () => ({
@@ -49,6 +52,9 @@ import {
   addFavouriteVoucher,
   removeFavouriteVoucher,
   listFavouriteVouchers,
+  addFavouriteBranch,
+  removeFavouriteBranch,
+  listFavouriteBranches,
 } from '../../../src/api/customer/favourites/service'
 
 describe('customer favourites routes', () => {
@@ -60,6 +66,7 @@ describe('customer favourites routes', () => {
     app.decorate('prisma', {
       favouriteMerchant: { create: vi.fn(), delete: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
       favouriteVoucher:  { create: vi.fn(), delete: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
+      favouriteBranch:   { create: vi.fn(), delete: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
       auditLog:          { create: vi.fn().mockResolvedValue({}) },
     } as any)
     app.decorate('redis', {
@@ -252,5 +259,103 @@ describe('customer favourites routes', () => {
     })
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body).error.code).toBe('FAVOURITE_NOT_FOUND')
+  })
+
+  // ───────────────────────────────────────────────────────────────────
+  // Phase 3C.1g — branch-level favourites.  Routes mirror the merchant
+  // pattern; service is fully mocked at this layer (real-DB enrichment
+  // coverage lives in favourites.branches.service.test.ts).
+  // ───────────────────────────────────────────────────────────────────
+
+  it('GET /api/v1/customer/favourites/branches returns 401 without token', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/customer/favourites/branches' })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('POST /api/v1/customer/favourites/branches/:branchId returns 201', async () => {
+    ;(addFavouriteBranch as any).mockResolvedValue({ id: 'fav-b-1', branchId: 'b1' })
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/customer/favourites/branches/b1',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('POST /api/v1/customer/favourites/branches/:branchId returns 409 when already favourited', async () => {
+    const { AppError } = await import('../../../src/api/shared/errors')
+    ;(addFavouriteBranch as any).mockRejectedValue(new AppError('ALREADY_FAVOURITED'))
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/customer/favourites/branches/b1',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('ALREADY_FAVOURITED')
+  })
+
+  it('DELETE /api/v1/customer/favourites/branches/:branchId returns 200', async () => {
+    ;(removeFavouriteBranch as any).mockResolvedValue({ success: true })
+    const res = await app.inject({
+      method: 'DELETE', url: '/api/v1/customer/favourites/branches/b1',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('DELETE /api/v1/customer/favourites/branches/:branchId returns 404 when not found', async () => {
+    const { AppError } = await import('../../../src/api/shared/errors')
+    ;(removeFavouriteBranch as any).mockRejectedValue(new AppError('FAVOURITE_NOT_FOUND'))
+    const res = await app.inject({
+      method: 'DELETE', url: '/api/v1/customer/favourites/branches/b1',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body).error.code).toBe('FAVOURITE_NOT_FOUND')
+  })
+
+  it('GET /api/v1/customer/favourites/branches returns 200 with enriched paginated payload', async () => {
+    const enrichedBranch = {
+      id: 'b1', name: 'Brightlingsea', isMainBranch: false,
+      addressLine1: '1 High St', addressLine2: null, city: 'Brightlingsea', postcode: 'CO7 0AY',
+      latitude: null, longitude: null, locationConfidence: 'POSTCODE_CENTROID',
+      merchant: {
+        id: 'm1', businessName: 'Covelum', tradingName: null,
+        logoUrl: null, bannerUrl: null, status: 'ACTIVE',
+        primaryCategory: { id: 'cat-1', name: 'Food & Drink' },
+      },
+      voucherCount: 2, maxEstimatedSaving: 10.00,
+      avgRating: 4.7, reviewCount: 9,
+      isOpen: true, isUnavailable: false,
+      favouritedAt: '2026-04-02T11:00:00.000Z',
+    }
+    ;(listFavouriteBranches as any).mockResolvedValue({
+      items: [enrichedBranch], total: 1, page: 1, limit: 20,
+    })
+    const res = await app.inject({
+      method: 'GET', url: '/api/v1/customer/favourites/branches?page=1&limit=20',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].name).toBe('Brightlingsea')
+    expect(body.items[0].voucherCount).toBe(2)
+    expect(body.items[0].merchant.businessName).toBe('Covelum')
+    // Pin the redaction contract: POSTCODE_CENTROID returns null coords.
+    expect(body.items[0].latitude).toBeNull()
+    expect(body.items[0].longitude).toBeNull()
+    expect(body.items[0].locationConfidence).toBe('POSTCODE_CENTROID')
+    expect(body.total).toBe(1)
+  })
+
+  it('GET /api/v1/customer/favourites/branches uses default page=1 limit=20', async () => {
+    ;(listFavouriteBranches as any).mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 })
+    const res = await app.inject({
+      method: 'GET', url: '/api/v1/customer/favourites/branches',
+      headers: { authorization: `Bearer ${customerToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.page).toBe(1)
+    expect(body.limit).toBe(20)
   })
 })

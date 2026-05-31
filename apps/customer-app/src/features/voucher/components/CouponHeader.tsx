@@ -3,7 +3,7 @@ import { View, Pressable, StyleSheet, Platform } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { BlurView } from 'expo-blur'
 import {
-  ArrowLeft, Heart, Share2, Tag, Gift, Percent, Clock, Package, RefreshCw, Coins,
+  ArrowLeft, Share2, Tag, Gift, Percent, Clock, Package, RefreshCw, Coins,
 } from 'lucide-react-native'
 import Animated, {
   useAnimatedStyle,
@@ -16,6 +16,7 @@ import { Text } from '@/design-system/Text'
 import { lightHaptic } from '@/design-system/haptics'
 import type { VoucherType } from '@/lib/api/voucher'
 import { voucherGradient, voucherTypeLabel, formatPounds } from '../utils/voucherTheme'
+import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 
 type Props = {
   type: VoucherType
@@ -31,8 +32,19 @@ type Props = {
    */
   onBack:  () => void
   onShare: () => void
-  onFav:   () => void
-  isFavourited: boolean
+  // Phase 3C.1g M2.10 — §O4 closure.  Heart is now owned by the
+  // shared `<FavouriteHeart>` (spec §7.2.1).  CouponHeader plumbs
+  // the voucher id + server-emitted heart state + redeemed-this-
+  // cycle flag (drives `disabled`) instead of the legacy callback
+  // pattern.
+  voucherId:             string
+  voucherIsFavourited:   boolean
+  // Device-QA R1 (2026-05-30): `isRedeemedThisCycle` prop removed.
+  // The original M2.10 contract disabled the heart on a redeemed-
+  // this-cycle voucher, but owner direction is that a user must
+  // still be able to MANAGE favourites on a redeemed voucher — only
+  // the redemption flow is locked, not the favourite toggle.  The
+  // FavouriteHeart now toggles unconditionally on this surface.
   /**
    * Driven by the parent screen's `useAnimatedScrollHandler`. The
    * hero NavRow opacity is interpolated INVERSELY to the
@@ -126,8 +138,8 @@ export function CouponHeader({
   insetTop,
   onBack,
   onShare,
-  onFav,
-  isFavourited,
+  voucherId,
+  voucherIsFavourited,
   scrollY,
   fadeStart,
   fadeEnd,
@@ -222,17 +234,32 @@ export function CouponHeader({
           <FrostedNavButton onPress={onShare} accessibilityLabel="Share voucher">
             <Share2 size={19} color={WHITE} strokeWidth={2.2} />
           </FrostedNavButton>
-          <FrostedNavButton
-            onPress={onFav}
-            accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-          >
-            <Heart
+          {/* Phase 3C.1g M2.10 — §O4 closure.  Heart now goes through
+              shared `<FavouriteHeart>` so the toggle actually fires
+              the POST/DELETE (was an `Alert("Coming next milestone")`
+              stub before).  Disabled in the redeemed-this-cycle state
+              per spec §5.4 / §7.2.1.
+
+              We render the frosted chrome here directly instead of
+              `<FrostedNavButton>` so the FavouriteHeart's internal
+              Pressable owns the press (a nested-Pressable wouldn't
+              forward the tap correctly). */}
+          <View style={styles.navBtn}>
+            {Platform.OS === 'android' ? (
+              <View style={[StyleSheet.absoluteFillObject, styles.navBtnFallback]} />
+            ) : (
+              <BlurView intensity={32} tint="dark" style={StyleSheet.absoluteFillObject} />
+            )}
+            <FavouriteHeart
+              entity="voucher"
+              id={voucherId}
+              initialIsFavourited={voucherIsFavourited}
+              tone="on-dark"
               size={19}
-              color={WHITE}
-              fill={isFavourited ? WHITE : 'none'}
-              strokeWidth={2.2}
+              contextualQueryKey={['voucher', voucherId]}
+              testID="voucher-detail-favourite"
             />
-          </FrostedNavButton>
+          </View>
         </View>
       </Animated.View>
 

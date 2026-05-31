@@ -1,10 +1,9 @@
 import React from 'react'
-import { View, TouchableOpacity, Pressable, StyleSheet, Image } from 'react-native'
+import { View, TouchableOpacity, StyleSheet, Image } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Heart } from '@/design-system/icons'
 import { Text } from '@/design-system/Text'
 import { formatDistance, formatGbp } from '@/design-system/utils/formatters'
-import { useFavourite } from '@/hooks/useFavourite'
+import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 import { BranchTile } from '@/lib/api/discovery'
 import type { ProximityBand } from '@/lib/api/discovery'
 
@@ -191,16 +190,11 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
     }
   }
 
-  // PR #112 fixup-6 (2026-05-20) — owner-locked: heart icon on the
-  // SearchResultItem, wired to the merchant favourite mutation via
-  // `useFavourite`.  Optimistic UI is built into the hook (local state
-  // flips on success).  Heart tap stops event propagation so the card
-  // press handler doesn't fire.
-  const favourite = useFavourite({
-    type:         'merchant',
-    id:           tile.merchant.id,
-    isFavourited: tile.isFavourited,
-  })
+  // Phase 3C.1g M2.8 — heart now branch-keyed via shared
+  // `<FavouriteHeart>` (spec §7.2.1) instead of an inline
+  // `useFavourite()` call.  Spec §3 entry-point #1 (Search result):
+  // entity='branch', id=tile.id.  Sibling branches of the same
+  // merchant carry independent heart states.
 
   return (
     <TouchableOpacity
@@ -277,22 +271,16 @@ export function SearchResultItem({ tile, query, onPress }: Props) {
           (no proximity row) gain extra bottom padding rather than collapsing
           into a shorter tile. */}
       <View style={styles.right}>
-        <Pressable
-          onPress={(e) => { e.stopPropagation(); favourite.toggle() }}
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={favourite.isFavourited ? 'Remove from favourites' : 'Add to favourites'}
-          accessibilityState={{ selected: favourite.isFavourited }}
-          style={styles.heartBtn}
-          testID="search-result-favourite"
-        >
-          <Heart
+        <View style={styles.heartBtn}>
+          <FavouriteHeart
+            entity="branch"
+            id={tile.id}
+            initialIsFavourited={tile.isFavourited}
+            tone="on-light"
             size={20}
-            color={favourite.isFavourited ? '#E20C04' : '#9CA3AF'}
-            fill={favourite.isFavourited ? '#E20C04' : 'transparent'}
-            strokeWidth={2}
+            testID="search-result-favourite"
           />
-        </Pressable>
+        </View>
         {showBadge && (
           <View style={styles.saveBadge}>
             {savingHeadline && (
