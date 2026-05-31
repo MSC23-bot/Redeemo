@@ -455,14 +455,68 @@ Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/me
 - Spec: `docs/superpowers/specs/2026-04-18-savings-tab-design.md`
 - Plan: `docs/superpowers/plans/2026-04-18-savings-tab.md`
 
-### Phase 3C.1g — Favourites Screen (implemented on REFERENCE-ONLY `feature/customer-app` branch; awaiting rebaseline PR onto main per surface-by-surface policy)
-- Backend: `listFavouriteMerchants` and `listFavouriteVouchers` enriched with pagination, isOpen, avgRating, reviewCount, voucherCount, maxEstimatedSaving, isRedeemedInCurrentCycle; unavailable items included with status flag; sorted (open-first / suspended-last)
-- API client (`src/lib/api/favourites.ts`): typed client with getMerchants, getVouchers, addMerchant, removeMerchant, addVoucher, removeVoucher
-- Hooks: `useFavouriteMerchants`, `useFavouriteVouchers` (infinite queries), `useRemoveFavourite` (optimistic removal + undo)
-- Components: FavouritesHeader (gradient, tab switcher with counts), MerchantFavCard, VoucherFavCard (pastel gradient per type), SwipeToRemove, NudgeBanner (free user subscribe prompt), FavouritesEmptyState (floating heart + discover CTA), FavouritesSkeleton
-- FavouritesScreen: FlatList + swipe-to-remove, undo toast, pull-to-refresh, infinite scroll, tab persistence
-- 23 component tests; 268 total frontend tests passing
-- Plan: `docs/superpowers/plans/2026-04-19-favourites-screen.md`
+### ✅ Phase 3C.1g — Favourites tab (branch-level) — LIVE on origin/main 2026-05-31 (PR #137 merge `b529ba5`)
+
+42 commits / 95 files / +12,255 / −416. Tier 2 plan-first rebaseline of the Favourites surface from REFERENCE-ONLY `feature/customer-app` onto current `main`, with locked branch-level cardinality (heart = branch, not merchant; vouchers stay voucher-keyed per Phase 3C.1g spec §6.4 + `project_favourites_scope_branch_level.md` 2026-05-03).
+
+**Backend additive (no breaking changes):**
+- `FavouriteBranch` Prisma model + migration (`20260529094849_favourite_branch_additive`). Legacy `FavouriteMerchant` model deliberately preserved through v1 — retirement is a follow-up cleanup PR.
+- Idempotent backfill script `prisma/backfill-favourite-branches.ts` (main-branch only, P2002-safe, dry-run flag, parameterised on `prisma` for tests).
+- Customer routes + service: `POST/DELETE /customer/favourites/branches/:branchId` + `GET /customer/favourites/branches` (paginated, branch-keyed ratings, `exposeBranchPosition` redaction).
+- **`listFavouriteVouchers` Smart 7-bucket global sort** (spec §9.3 v1.1): Urgent TL < URGENT_THRESHOLD_MS / Active+available / REUSABLE cooldown / non-TL non-REUSABLE redeemed-this-cycle / TL outside window / Unavailable / Expired. `URGENT_THRESHOLD_MS = 60min` exported as a backend constant; pinned by `favourites.vouchers.threshold-parity.test.ts` against the customer-app `useTimeLimited` + `voucherCardSort` mirrors.
+- **`enrichBranchTiles` flipped from merchant-keyed → branch-keyed `isFavourited`** under Phase 3C.1g §6.4. Sibling branches of the same merchant carry independent heart states. Wire field name unchanged (Rev-2 §7 #13 forward-compat); only the source-of-truth table flipped (`FavouriteBranch.branchId`).
+- **`userId` threading through `homeRailBuilders.ts`** — fixes the Wave 4 systemic bug where Home rails hardcoded `userId: null` (every tile shipped `isFavourited: false` regardless of user state). Now explicitly threaded into `buildFeaturedRail` / `buildTrendingRail` / `buildPopularRail` / `buildNearbyByCategoryRails`.
+
+**Customer-app surface:**
+- `app/(app)/favourites.tsx` + `src/features/favourites/screens/FavouritesScreen.tsx` (new): header with tab switcher + counts, swipe-to-remove + 4s undo toast, infinite query, empty state, free-user nudge.
+- `<FavouriteHeart>` (M2.3) — canonical shared heart component; every surface entry point (Home rails, Search, Map carousel, Merchant Profile hero + voucher cards + branch cards, Voucher Detail, Favourites tab) routes through it instead of calling `useFavourite()` directly.
+- `BranchFavCard` (replaces reference branch's merchant card) + `VoucherFavCard` preserved-and-retuned.
+- `useRemoveFavourite` — Map-based per-row pending (W6.5), `flushPending()` on blur (W6.3), entity-tied undo (P2 below).
+- **Cross-surface optimistic heart sync (W6.7 + W6.8)** — `src/features/favourites/lib/optimisticCachePatch.ts`. `deepPatchTilesById` immutable recursive walker + `applyOptimisticFavouriteToDiscoveryCache(qc, entity, id, value)` helper. Synchronously flips matching tiles in cached `['discovery']` / `['merchantProfile']` (branch) + `['voucher']` (voucher) queries the instant a heart toggles — eliminates backend-RTT wait. Backend invalidate/refetch still runs as reconciliation. Walker pinned by 16 unit tests; W6.7+W6.8 cross-surface contract pinned by 10 hook tests + 1 cross-surface-symmetry pin.
+
+**Device-QA R1 wave-by-wave summary (W1 → W6.8 + P1/P2/I1 review fixes):**
+- W1-W3: surface bring-up; tab counts, empty states, swipe gestures, undo bar visibility.
+- W4: systemic heart-state consistency (root cause = `userId: null` hardcode); `useFavourite` identity-swap edge case on parent re-renders.
+- W5: back-routing through Favourites; undo toast above absolute tab bar.
+- W6 → W6.4: nested back navigation chain (multiple root causes: URL param drops in `useBranchSelection`; POP_TO_TOP `dismissAll` Stack-only action into Tabs root; MP background-tab effects re-firing; `useFocusEffect` deps instability collapsing undo timer to ~1s).
+- W6.5: multi-pending removal (`Map<rowId, PendingRemoval>` with insertion-order LIFO undo).
+- W6.6: HomeScreen explicit `refetch()` alongside `invalidateQueries(['discovery'])` belt-and-braces.
+- W6.7: optimistic cross-surface cache patch (eliminates stale-heart UX).
+- W6.8: voucher parity pins (tests-only, no impl change) — locks Voucher Detail ↔ MP voucher card symmetry, voucher multi-remove, voucher undo, voucher rollback.
+- **P1 (Codex review)**: `handleMerchantTap` on Voucher Detail now threads branch context via 3-tier resolver (`pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id`). URL: `/(app)/merchant/<id>?branch=<branchId>&from=favourites`. Branch param flows independently of the `from` token; non-favourites chains also benefit.
+- **P2 (Codex review)**: `FavouritesScreen` undo state now `{ message; entity: 'branch' \| 'voucher' }` — `handleUndo` dispatches on stored entity, not active tab. Closes the cross-tab-mid-undo bug where switching tabs while the toast was up routed undo to the wrong hook.
+- **I1**: stale `pessimistic-with-onSuccess` comment in `FavouriteHeart.tsx` swapped to `optimistic with rollback-on-error (W4 + W6.7)`.
+
+**Locked product/code invariants (do NOT regress — pinned by tests):**
+1. **Branch-level Favourites cardinality** — heart taps favourite the SELECTED branch, not the merchant. Different branches of the same merchant favourite independently. `enrichBranchTiles` queries `FavouriteBranch.branchId IN (...)`; sibling branches carry independent state.
+2. **Smart 7-bucket sort applied BEFORE pagination** in `listFavouriteVouchers`; documented cap N ≤ 200 per user per spec §6.3 cost model.
+3. **`URGENT_THRESHOLD_MS = 60min` parity** — drift between backend + customer-app constants caught by `favourites.vouchers.threshold-parity.test.ts`.
+4. **Cross-surface optimistic patch covers `['discovery']` + `['merchantProfile']` (branch) + `['voucher']` (voucher)** — does NOT touch `['favouriteBranches']` / `['favouriteVouchers']` (the favourites-list caches own splice/restore via useRemoveFavourite).
+5. **Walker `id+isFavourited:boolean` discriminator** — prevents accidentally creating the field on objects that never had it (e.g. merchant sub-objects with colliding ids but no `isFavourited` field).
+6. **`useFavourite` is optimistic with rollback-on-error** — not pessimistic-with-onSuccess (W4 deviation from spec §7.2 locked). Stale-state error codes (ALREADY_FAVOURITED on POST / FAVOURITE_NOT_FOUND on DELETE) keep the optimistic flip + invalidate.
+7. **Entity-tied undo** — `undoState: { entity }` drives `onUndo` dispatch, NOT `activeTab`. Reverting to tab-keyed dispatch reintroduces the cross-tab-mid-undo bug (pinned by §P2-1 + §P2-2).
+8. **`handleMerchantTap` branch threading** — URL push from Voucher Detail merchant-row MUST include `branch=` query param when any of the 3-tier resolver fires. Pinned by §W6-#1 + §P1 pins in `voucher-detail-back-navigation.test.tsx`.
+9. **`exposeBranchPosition` redaction** correctly applied on the new `listFavouriteBranches` payload (locked Plan 4 standing contract).
+10. **Branch-keyed ratings** in `listFavouriteBranches` (per `contextBranchId` standing direction — ratings on a branch surface belong to that branch, not the merchant rollup).
+
+**Carry-over deferred (NOT in PR #137 — tracked in `project_deferred_followups_index.md`):**
+- **Legacy `FavouriteMerchant` cleanup PR** (`§FAV.1`) — remove Prisma model + routes + service paths after v1 soaks. Trigger: 2-4 weeks post-merge, no rollback needed.
+- **Favourites Polish Batch** (Tier 2 brainstorm-first — `project_favourites_polish_batch_deferred.md`). Hierarchy / spacing / illustrations / motion / card visuals / possible Remove-confirmation UX.
+- **Home card locality polish** (Tier 1 — `project_home_card_locality_deferred.md`). Shared `<BranchTile>` should surface branch locality/town when profile-location/GPS-off is the source.
+- **Customer-web branch-first migration** (§CU.1 — Tier 3 brainstorm-first). Customer-web still consumes legacy `merchants` field from discovery; blocks §CU.1 + Plan 4 M5 + Discovery Phase 3b backend cleanup convergence.
+- **Minor code-review carry-overs**: branch-list row cap doc note; `openingHours as any` cast cleanup; `<FavouriteHeart>` `tone` prop unused (forward-compat); legacy `'merchant'` entity discriminator on `useFavourite` (retires with §FAV.1); backfill `skippedInactiveMerchant` re-runnability note in script header.
+
+**Verification at PR #137 merge:**
+- Customer-app full jest: **2590 / 2590** across 269 suites (+26 §W6.7 + 5 §W6.8 + 8 P1/P2 review-fix pins)
+- Customer-app `tsc --noEmit`: **0 errors**
+- Backend full vitest: all green pre-W6.6 (W6.6 → P1/P2/I1 are customer-app-only)
+- Backend `tsc --noEmit`: zero new errors (4 pre-existing baseline errors in `tests/api/customer/savings.service.test.ts` documented in CLAUDE.md remain)
+- Owner smoke re-QA: ✅ branch-preserving merchant-row, cross-tab Undo both directions, no POP_TO_TOP, no red screens, cross-surface heart agreement
+- Codex launch review: ✅ delta `d384078..35242e8` reviewed; 30/30 + 33/33 pins green; non-failing `act(...)` warning from location-permission probes is not a merge blocker
+
+Plan: `docs/superpowers/plans/2026-05-28-favourites-branch-level.md`.
+Spec: `docs/superpowers/specs/2026-05-28-favourites-branch-level-design.md`.
+Closure memory: `project_favourites_branch_level_complete.md`.
 
 ### ✅ Phase 3C.1h — Profile Tab Sub-PR 1 (frontend port) — LIVE on origin/main 2026-05-26 (PR #133 merge `9484a84`)
 
@@ -765,8 +819,7 @@ QA: `docs/superpowers/qa/2026-05-26-locationcontext-parity-device-qa.md` (3 devi
 ### 🔲 Next planned work
 
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
-2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Tracks already shipped: Merchant Profile (PR #35), Voucher Detail M1 (PR #40), M2 (PRs #43-#46), M3 (PR #49), M4 TIME_LIMITED M4a/M4b/M4c/M4d (PRs #64/#65/#66/#68), M5 REUSABLE (PR #72), **Home / Discovery / Search / Categories / Map (Phase 3C.1b)**, **Savings tab (Phase 3C.1f — PRs #104 + #105)**, **§DF saved-profile location fallback (Phase 3C.1k — PR #128)**, and **Profile tab Sub-PR 1 frontend port (Phase 3C.1h — PR #133)**. Surfaces still pending rebaseline:
-   - **Phase 3C.1g — Favourites screen** (full surface). Tier 2 — blocked on the branch-level scope rework: the `feature/customer-app` reference implementation is merchant-level, but Favourites is locked at branch-level since 2026-05-03 (see `project_favourites_scope_branch_level.md`). Needs Path C brainstorm-first before subagent dispatch.
+2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Tracks already shipped: Merchant Profile (PR #35), Voucher Detail M1 (PR #40), M2 (PRs #43-#46), M3 (PR #49), M4 TIME_LIMITED M4a/M4b/M4c/M4d (PRs #64/#65/#66/#68), M5 REUSABLE (PR #72), **Home / Discovery / Search / Categories / Map (Phase 3C.1b)**, **Savings tab (Phase 3C.1f — PRs #104 + #105)**, **§DF saved-profile location fallback (Phase 3C.1k — PR #128)**, **Profile tab Sub-PR 1 frontend port (Phase 3C.1h — PR #133)**, and **Favourites tab branch-level (Phase 3C.1g — PR #137, merge `b529ba5`, 2026-05-31)**. Surfaces still pending rebaseline:
    - **Sub-PR 2 — Profile tab backend** (SupportTicket + MerchantRequest Prisma + customer routes + customer-app client/hooks; flip the 3 GetHelpModal stub pins; swap RedeemoSection inline Alert for real RequestMerchantSheet). Tier 3, brainstorm-first. Trigger to pick up: user/QA traction surfaces support-ticket or merchant-request need.
    - **Profile Polish Batch** (Tier 2 brainstorm-first — see `project_profile_polish_batch_deferred.md`). Bounded visual + UX refinement bundle for Profile: subscription card visual redesign (plan-tier hierarchy, upgrade/change-plan UX), skeleton/loading UI, bottom-sheet UX refresh, card visuals + typography + icons + illustrations, Delete Account placement reconsidered, Active Session sheet if reintroduced, Settings → Redemption History past-cycle surface (pairs with the Redeemed-state design pass). Trigger: device QA after PR #135 (the Stabilisation Hotfix) surfaces these as next-priority OR explicit owner direction.
    - **Redeemed-state design pass** (Tier 2) — bundles §Q1-Q3 + §Q5 (washed-out coupon hero, REDEEMED stamp on coupon body, dimmed merchant card on Voucher Detail, Settings → Redemption History past-cycle browsing) + §S1-S3 (PIN sheet + success popup + Show-to-Staff design polish). §Q4 (merchant-profile voucher-card treatment) ✅ closed via PR #60 (PR-B, merge `ed01be9`). §S1-S3 partially closed by PR-B's impeccable passes (T8m PIN sheet, T8n SuccessPopup, T8p Show-to-Staff). Remaining §Q1-Q3 + §Q5 + the §S1-S3 polish-not-yet-shipped items are the residual scope of this pass.
