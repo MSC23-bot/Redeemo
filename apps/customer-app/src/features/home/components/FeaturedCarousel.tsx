@@ -6,7 +6,10 @@ import { DotIndicator } from '@/features/shared/DotIndicator'
 import type { HomeRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
 
-const TILE_WIDTH = 260
+// Batch 1B Tier 3 (2026-06-01) — wider hero tile (260→284) for a more
+// premium, less "underscaled" Featured rail. snapToInterval below reads
+// TILE_WIDTH so the snap follows automatically.
+const TILE_WIDTH = 284
 const TILE_GAP = 12
 const AUTO_SCROLL_INTERVAL = 10000
 

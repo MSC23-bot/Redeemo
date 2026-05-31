@@ -20,7 +20,9 @@ import type { HomeRail } from '@/lib/api/discovery'
 // this to enforce the trending↔popular swap (which fires when
 // `feed.trendingRail.meta` is null).
 
-const TILE_WIDTH = 240
+// Batch 1B Tier 3 (2026-06-01) — wider tile (240→268) for a more premium
+// card scale, matching Popular + NearbyByCategory.
+const TILE_WIDTH = 268
 const TILE_GAP   = 12
 
 type Props = {

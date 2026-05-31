@@ -6,7 +6,9 @@ import { BranchTile } from '@/features/shared/BranchTile'
 import type { HomeNearbyCategoryRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
 
-const TILE_WIDTH = 240
+// Batch 1B Tier 3 (2026-06-01) — wider tile (240→268) for a more premium
+// card scale, matching Popular + Trending.
+const TILE_WIDTH = 268
 const TILE_GAP = 12
 
 type Props = {

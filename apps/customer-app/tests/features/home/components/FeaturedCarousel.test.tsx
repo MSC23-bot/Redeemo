@@ -123,20 +123,20 @@ describe('FeaturedCarousel (Phase C.6 — featuredRail envelope)', () => {
     expect(onBranchPress).toHaveBeenCalledWith('brn-pizza-1')
   })
 
-  it('renders distance via the shared formatDistance helper (§BY Pin #12)', () => {
-    // Phase 2.3 §BY regression pin — Home tiles must source their
-    // distance string from the shared `formatDistance` helper, NEVER
-    // inline.  Fixture branches have `distance: 800` and `distance: 1200`
-    // metres.  Shared helper output (locked miles-only contract):
-    //   800m  → "0.5 miles away"
-    //   1200m → "0.7 miles away"
+  it('renders distance via the shared compact formatter (§BY Pin #12)', () => {
+    // Phase 2.3 §BY regression pin — Home tiles must source their distance
+    // string from a shared formatter, NEVER inline. Batch 1B Tier 3 switched
+    // the shared `<BranchTile>` to the COMPACT form (formatDistanceCompact).
+    // Fixture branches have `distance: 800` and `distance: 1200` metres:
+    //   800m  → "0.5 mi"
+    //   1200m → "0.7 mi"
     // If a future regression introduced inline metres formatting (e.g.
     // "800m") on the Home carousel, these assertions would fail.
     const { getByText } = render(
       <FeaturedCarousel rail={makeRail(branches)} onBranchPress={jest.fn()} />,
     )
-    expect(getByText(/0\.5 miles away/)).toBeTruthy()
-    expect(getByText(/0\.7 miles away/)).toBeTruthy()
+    expect(getByText(/0\.5 mi/)).toBeTruthy()
+    expect(getByText(/0\.7 mi/)).toBeTruthy()
   })
 
   it('renders one tile per branch for a multi-branch Featured merchant (Covelum fan-out)', () => {

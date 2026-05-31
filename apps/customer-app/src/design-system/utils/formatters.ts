@@ -77,3 +77,33 @@ export function formatDistance(metres: number | null | undefined): string | null
   const miles = metres / 1609.34
   return `${miles.toFixed(1)} miles away`
 }
+
+/**
+ * Compact distance variant — Batch 1B Tier 3 (2026-06-01, owner direction).
+ *
+ *   null  → null (caller hides)
+ *   any m → `{miles.toFixed(1)} mi`
+ *
+ * Used ONLY by the dense shared `<BranchTile>` card (Home rails / Map
+ * carousel / Category results), whose info hierarchy splits onto two
+ * lines: `descriptor · locality` then `distance · proximity`.  The
+ * compact "mi" keeps the distance·proximity line short enough that the
+ * proximity clause is never tail-truncated — even for the longest band
+ * label ("Nearest match on Redeemo") on the narrowest rail card.
+ *
+ * Deliberately distinct from `formatDistance` (long-form "X miles away"),
+ * which the roomier single-line `<SearchResultItem>` keeps using.  The
+ * two surfaces intentionally diverge on distance copy per owner direction;
+ * do NOT collapse them without a fresh design decision.
+ *
+ * Examples:
+ *   formatDistanceCompact(null) → null
+ *   formatDistanceCompact(276)  → '0.2 mi'
+ *   formatDistanceCompact(1609) → '1.0 mi'
+ *   formatDistanceCompact(8200) → '5.1 mi'
+ */
+export function formatDistanceCompact(metres: number | null | undefined): string | null {
+  if (metres === null || metres === undefined) return null
+  const miles = metres / 1609.34
+  return `${miles.toFixed(1)} mi`
+}

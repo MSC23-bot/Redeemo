@@ -1,16 +1,14 @@
-// PR-3 fixup-1 (2026-05-20) — Codex #2 regression pin.
+// Batch 1B Tier 3 (2026-06-01) — the shared `<BranchTile>` switched from the
+// long-form "X miles away" (formatDistance) to the COMPACT "X mi"
+// (formatDistanceCompact) on the dedicated line 2 of the two-line info
+// hierarchy. The compact form keeps line 2 (`distance · proximity`) short
+// enough that the proximity clause never tail-truncates.
 //
-// The shared `<BranchTile>` is consumed by Home Featured / Trending /
-// NearbyByCategory, Search Category Results, AND the Map carousel (via
-// `MapBranchTile`).  Before this fix, the local helper
-// rendered `${Math.round(metres)}m` for sub-1km (e.g. "500m") and
-// `${miles.toFixed(1)} mi` for >=1km (e.g. "1.2 mi").  Search-side
-// `<SearchResultItem>` rendered "miles away" via the shared
-// `formatDistance` helper (PR #112 fixup-6 lock).
-//
-// This pin locks the unified miles-only copy on the shared
-// `<BranchTile>` — sub-1-mile distances now render as
-// "0.3 miles away", NEVER as "500m" or " mi".
+// This pin locks the compact format on `<BranchTile>`:
+//   - sub-1-mile  → "0.2 mi"   (NEVER bare metres "276m")
+//   - >1km        → "5.1 mi"
+//   - NEVER the long-form "X miles away" (that stays on <SearchResultItem>)
+//   - still miles-only, never metres (preserves the single-unit trust rule)
 
 import React from 'react'
 import { render as rtlRender } from '@testing-library/react-native'
@@ -18,16 +16,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BranchTile } from '@/features/shared/BranchTile'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
-// Phase 3C.1g M2.7 — `<BranchTile>` now renders `<FavouriteHeart>`
-// which needs a `<QueryClientProvider>` in scope.  Wrap render here
-// so the existing distance-format pins below stay untouched.
 function render(node: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
   return rtlRender(<QueryClientProvider client={qc}>{node}</QueryClientProvider>)
 }
 
-describe('BranchTile — shared distance formatter (Codex #2)', () => {
-  it('sub-1-mile distance renders as "0.X miles away" — NEVER bare metres', () => {
+describe('BranchTile — compact distance formatter (Batch 1B Tier 3)', () => {
+  it('sub-1-mile distance renders as "0.X mi" — NEVER bare metres, NEVER long-form', () => {
     const tile = makeBranchTile({
       id:       'brn-close',
       distance: 276, // ~0.2 miles
@@ -36,13 +31,13 @@ describe('BranchTile — shared distance formatter (Codex #2)', () => {
     const { getByText, queryByText } = render(
       <BranchTile branch={tile} onPress={() => {}} />,
     )
-    expect(getByText(/0\.2 miles away/)).toBeTruthy()
-    // Negative pins — the old local formatter would have emitted "276m".
-    expect(queryByText(/276m/)).toBeNull()
-    expect(queryByText(/ mi$/)).toBeNull()
+    expect(getByText('0.2 mi')).toBeTruthy()
+    // Negative pins:
+    expect(queryByText(/276m/)).toBeNull()        // never bare metres
+    expect(queryByText(/miles away/)).toBeNull()  // long-form stays on <SearchResultItem>
   })
 
-  it('>1km distance renders as "X.X miles away" — NOT the old " mi" suffix', () => {
+  it('>1km distance renders as "X.X mi" — compact, not long-form', () => {
     const tile = makeBranchTile({
       id:       'brn-far',
       distance: 8200, // ~5.1 miles
@@ -51,12 +46,11 @@ describe('BranchTile — shared distance formatter (Codex #2)', () => {
     const { getByText, queryByText } = render(
       <BranchTile branch={tile} onPress={() => {}} />,
     )
-    expect(getByText(/5\.1 miles away/)).toBeTruthy()
-    expect(queryByText(/5\.1 mi$/)).toBeNull()
-    expect(queryByText(/5\.1 mi\b(?! away)/)).toBeNull()
+    expect(getByText('5.1 mi')).toBeTruthy()
+    expect(queryByText(/miles away/)).toBeNull()
   })
 
-  it('null distance renders empty (no "0 miles away" placeholder)', () => {
+  it('null distance renders empty (no "0 mi" / "0 miles" placeholder)', () => {
     const tile = makeBranchTile({
       id:       'brn-unknown',
       distance: null,
@@ -65,8 +59,26 @@ describe('BranchTile — shared distance formatter (Codex #2)', () => {
     const { queryByText } = render(
       <BranchTile branch={tile} onPress={() => {}} />,
     )
-    // No distance text rendered at all.  The info line may still
-    // contain the descriptor / category name but no "miles away".
-    expect(queryByText(/miles away/)).toBeNull()
+    // No distance text rendered at all. The info hierarchy may still show
+    // the descriptor / locality on line 1 but no "mi" on line 2.
+    expect(queryByText(/\bmi\b/)).toBeNull()
+    expect(queryByText(/miles/)).toBeNull()
+  })
+
+  it('null distance + non-null proximityBand renders proximity clause on line 2 without orphan separator', () => {
+    const tile = makeBranchTile({
+      id:            'brn-no-dist-with-band',
+      distance:      null,
+      proximityBand: 'IN_YOUR_AREA',
+      merchant:      { businessName: 'Just Round The Corner', descriptor: 'Café' },
+    })
+    const { getByText, queryByText } = render(
+      <BranchTile branch={tile} onPress={() => {}} />,
+    )
+    // Line 1 descriptor + line 2 proximity clause; no orphan separator.
+    expect(getByText('Café')).toBeTruthy()
+    expect(getByText('In your area')).toBeTruthy()
+    expect(queryByText(/· ·/)).toBeNull()
+    expect(queryByText(/^ · /)).toBeNull()
   })
 })

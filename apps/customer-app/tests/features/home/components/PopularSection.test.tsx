@@ -117,14 +117,16 @@ describe('<PopularSection>', () => {
         },
       }),
     ]
-    const { getByText } = render(
+    const { getByText, getAllByText } = render(
       <PopularSection rail={makeRail(branches)} onBranchPress={jest.fn()} />,
     )
-    // The shared formatDistance helper (locked miles-only contract) renders
-    // 1200m → "0.7 miles away".
-    expect(getByText(/0\.7 miles away/)).toBeTruthy()
-    // ProximityBandChip surfaces "In your area" for IN_YOUR_AREA tiles.
-    expect(getByText('In your area')).toBeTruthy()
+    // Batch 1B Tier 3 — the shared <BranchTile> renders the COMPACT
+    // distance via formatDistanceCompact: 1200m → "0.7 mi" on info line 2.
+    expect(getByText(/0\.7 mi/)).toBeTruthy()
+    // Batch 1B: 'In your area' now renders as the inline proximity clause
+    // inside the BranchTile info line. The standalone ProximityBandChip is
+    // retired. Pin assertion: exactly ONE Text node contains the string.
+    expect(getAllByText('In your area')).toHaveLength(1)
   })
 
   it('returns null when rail.meta is null (silent hide per §11.6)', () => {

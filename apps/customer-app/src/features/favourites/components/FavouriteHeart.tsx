@@ -23,6 +23,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { Heart } from '@/design-system/icons'
 import { color } from '@/design-system/tokens'
+import { lightHaptic, haptics } from '@/design-system/haptics'
 import { useFavourite } from '@/hooks/useFavourite'
 import { useReduceMotion } from '@/features/profile/hooks/useReduceMotion'
 
@@ -82,11 +83,14 @@ function toneColours(_tone: FavouriteHeartTone, isFavourited: boolean): { stroke
   }
 }
 
-// Spec §7.2.1 — 1.0 → 1.15 → 1.0 over 200ms total, ease-out.  Each leg
-// is half the total duration; reduce-motion users skip the animation
-// entirely (colour-only flip).
-const POP_PEAK   = 1.15
-const POP_HALF_MS = 100
+// Spec §10.3 — ADD: 1.0 → 1.15 → 1.0 (320ms spring-equivalent split per leg).
+// REMOVE: 1.0 → 0.92 → 1.0 (200ms ease-out split per leg). Reduce-motion
+// skips both animations but haptics still fire (haptics are a separate
+// accessibility channel and not gated by Reduce Motion in this codebase).
+const ADD_PEAK         = 1.15
+const ADD_HALF_MS      = 160
+const REMOVE_TROUGH    = 0.92
+const REMOVE_HALF_MS   = 100
 
 export function FavouriteHeart({
   entity,
@@ -114,11 +118,27 @@ export function FavouriteHeart({
 
   const handlePress = useCallback(() => {
     if (disabled || isLoading) return
+    // Resolve the intent BEFORE toggle() flips local state. isFavourited
+    // here is the pre-toggle value (the hook exposes the same value via
+    // its initialIsFavourited / mutation-pre-state contract).
+    const isAdding = !isFavourited
+    if (isAdding) {
+      lightHaptic()
+    } else {
+      void haptics.selection()
+    }
     if (!reduceMotion) {
-      scale.value = withSequence(
-        withTiming(POP_PEAK, { duration: POP_HALF_MS, easing: Easing.out(Easing.quad) }),
-        withTiming(1,        { duration: POP_HALF_MS, easing: Easing.out(Easing.quad) }),
-      )
+      if (isAdding) {
+        scale.value = withSequence(
+          withTiming(ADD_PEAK, { duration: ADD_HALF_MS, easing: Easing.out(Easing.cubic) }),
+          withTiming(1,        { duration: ADD_HALF_MS, easing: Easing.out(Easing.cubic) }),
+        )
+      } else {
+        scale.value = withSequence(
+          withTiming(REMOVE_TROUGH, { duration: REMOVE_HALF_MS, easing: Easing.out(Easing.quad) }),
+          withTiming(1,             { duration: REMOVE_HALF_MS, easing: Easing.out(Easing.quad) }),
+        )
+      }
     }
     void toggle().catch(() => {
       // useFavourite is optimistic with rollback-on-error (Device-QA R1
@@ -127,7 +147,7 @@ export function FavouriteHeart({
       // a transient network blip on a heart tap doesn't surface an
       // unhandled promise rejection at the React Native runtime layer.
     })
-  }, [disabled, isLoading, reduceMotion, scale, toggle])
+  }, [disabled, isLoading, isFavourited, reduceMotion, scale, toggle])
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -140,7 +160,7 @@ export function FavouriteHeart({
       <Pressable
         onPress={handlePress}
         disabled={disabled}
-        hitSlop={10}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         accessibilityRole="button"
         accessibilityLabel={isFavourited ? 'Remove from favourites' : 'Add to favourites'}
         accessibilityState={{ disabled }}

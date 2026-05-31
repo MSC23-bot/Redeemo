@@ -4,6 +4,25 @@ import { Text } from '../Text'
 import { color, radius, spacing } from '../tokens'
 import type { ProximityBand } from '@/lib/api/discovery'
 
+/**
+ * Batch 1B (2026-06-01) status: this component is no longer mounted by
+ * <BranchTile>. The same per-band copy and the same semantic colour
+ * mapping are now rendered as a nested <Text> child INSIDE the
+ * BranchTile info line so the chip surface area shrinks to typography
+ * weight. The component file stays exported for any future Discovery
+ * surface that wants a standalone chip treatment (Search results,
+ * Merchant Profile branches tab, etc.) and its standalone unit tests
+ * at tests/design-system/components/ProximityBandChip.test.tsx remain
+ * green.
+ *
+ * Active JSX mounts as of 2026-06-01: zero.
+ *
+ * A static-source meta-pin at tests/_meta/proximity-chip-no-jsx-
+ * consumers.test.ts enforces zero JSX mounts; if a future surface
+ * needs the standalone chip, allowlist that file in the meta-pin
+ * AND document the surface here.
+ */
+
 // ─── Plan 4 M3.6 — ProximityBandChip ──────────────────────────────────────────
 //
 // Passive label that explains, in human-friendly copy, why a merchant tile
@@ -116,6 +135,7 @@ export function ProximityBandChip({ band, accessibilityLabel }: ProximityBandChi
   if (label === null || variant === null) return null
   return (
     <View
+      testID="proximity-band-chip"
       accessible
       accessibilityRole="text"
       accessibilityLabel={accessibilityLabel ?? label}

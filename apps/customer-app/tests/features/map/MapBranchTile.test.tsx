@@ -212,7 +212,7 @@ describe('MapBranchTile', () => {
         businessName: 'In Your Area Cafe',
       },
     })
-    const { getByText } = render(
+    const { getByText, getAllByText } = render(
       <MapBranchTile
         branches={[tile]}
         activeIndex={0}
@@ -222,6 +222,10 @@ describe('MapBranchTile', () => {
       />,
     )
     expect(getByText('In Your Area Cafe')).toBeTruthy()
-    expect(getByText('In your area')).toBeTruthy()
+    // Batch 1B: 'In your area' inline clause inside info-line Text node.
+    // Case-sensitive exact match still distinguishes from 'In Your Area Cafe'
+    // (merchant name). Defence-in-depth: assert single render so a future
+    // regression that double-renders both chip + inline would fail loudly.
+    expect(getAllByText('In your area')).toHaveLength(1)
   })
 })

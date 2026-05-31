@@ -11,7 +11,7 @@ export function SavePill({ amount }: { amount: number | null }) {
       end={{ x: 1, y: 1 }}
       style={{ borderRadius: radius.pill, paddingHorizontal: spacing[2], paddingVertical: 2 }}
     >
-      <Text variant="label.md" style={{ color: '#047857', fontFamily: 'Lato-Bold', fontSize: 10 }}>
+      <Text variant="label.md" style={{ color: '#047857', fontFamily: 'Lato-SemiBold', fontSize: 11 }}>
         Save up to £{Math.round(amount)}
       </Text>
     </LinearGradient>

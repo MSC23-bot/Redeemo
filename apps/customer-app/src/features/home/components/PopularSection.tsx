@@ -23,7 +23,9 @@ import { RailHeader } from './RailHeader'
 // Carousel chrome mirrors `<TrendingSection>` (horizontal ScrollView, same
 // tile width + gap).
 
-const TILE_WIDTH = 240
+// Batch 1B Tier 3 (2026-06-01) — wider tile (240→268), matching Trending +
+// NearbyByCategory, for a more premium card scale.
+const TILE_WIDTH = 268
 const TILE_GAP   = 12
 
 type Props = {
