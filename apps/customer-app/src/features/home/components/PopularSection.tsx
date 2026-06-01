@@ -4,6 +4,7 @@ import { spacing } from '@/design-system'
 import { BranchTile } from '@/features/shared/BranchTile'
 import type { HomeRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
+import { SectionBand } from './SectionBand'
 
 // Task D.4 — Spec §11.7.
 //
@@ -43,8 +44,15 @@ export function PopularSection({ rail, onBranchPress, onFavourite }: Props) {
   if (!rail.meta || branches.length === 0) return null
 
   return (
-    <View>
-      <RailHeader fixedCopy="Popular on Redeemo" meta={rail.meta} />
+    // Batch 2 M4 — warm-tint "happening now" band (spec §9.5) + brand-coral
+    // live dot + subtitle, matching <TrendingSection>.
+    <SectionBand variant="warm" testID="popular-band">
+      <RailHeader
+        fixedCopy="Popular on Redeemo"
+        meta={rail.meta}
+        trendingMark
+        subtitle="Most-redeemed near you"
+      />
 
       <View style={{ marginTop: spacing[3] }} />
 
@@ -65,6 +73,6 @@ export function PopularSection({ rail, onBranchPress, onFavourite }: Props) {
           />
         ))}
       </ScrollView>
-    </View>
+    </SectionBand>
   )
 }

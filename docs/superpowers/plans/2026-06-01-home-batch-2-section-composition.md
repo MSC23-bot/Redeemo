@@ -174,6 +174,20 @@ Category grid / View All / receiving surface / illustrations (Batch 4); `<HomeCh
 
 ---
 
+## 9.1 Deferred product follow-up — Search / results filtering (owner note, 2026-06-01)
+
+Batch 2 M2 removes the **dead** HomeHeader Filter button (it shipped a no-op handler). This is correct for Home — Home is a curated discovery surface, not a filterable results list.
+
+**Filtering is NOT being removed from the product.** Owner direction: real filtering belongs inside **Search / results discovery**, most likely as an affordance **within or adjacent to the search bar** (and/or on the Category results surface). This is a deferred follow-up:
+
+- **Do NOT** re-add the HomeHeader filter.
+- **Do NOT** implement Search filtering as part of Batch 2.
+- Pick up as a dedicated **Search-filtering workstream** (Tier 2, brainstorm-first) when search / results UX is next revisited.
+
+Also recorded in the cross-cutting deferred index (`project_deferred_followups_index.md`, §HF).
+
+---
+
 ## 10. Definition of done
 
 - M1–M6 implemented; each milestone reviewed.

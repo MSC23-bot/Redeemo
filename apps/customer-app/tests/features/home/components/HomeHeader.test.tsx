@@ -1,18 +1,18 @@
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render, fireEvent } from '@testing-library/react-native'
 import { HomeHeader } from '@/features/home/components/HomeHeader'
 
 describe('HomeHeader', () => {
   it('renders greeting with first name', () => {
     const { getByText } = render(
-      <HomeHeader firstName="Shebin" area="Shoreditch" city="London" onSearchPress={jest.fn()} onFilterPress={jest.fn()} />
+      <HomeHeader firstName="Shebin" area="Shoreditch" city="London" onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
     )
     expect(getByText(/Shebin/)).toBeTruthy()
   })
 
   it('renders location label', () => {
     const { getByText } = render(
-      <HomeHeader firstName="Shebin" area="Shoreditch" city="London" onSearchPress={jest.fn()} onFilterPress={jest.fn()} />
+      <HomeHeader firstName="Shebin" area="Shoreditch" city="London" onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
     )
     expect(getByText(/Shoreditch/)).toBeTruthy()
   })
@@ -20,20 +20,33 @@ describe('HomeHeader', () => {
   it('shows morning greeting before noon', () => {
     jest.spyOn(Date.prototype, 'getHours').mockReturnValue(9)
     const { getByText } = render(
-      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onFilterPress={jest.fn()} />
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
     )
     expect(getByText(/morning/)).toBeTruthy()
     jest.restoreAllMocks()
   })
 
-  // Profile Stabilisation Hotfix — avatar render pin.
-  // Pre-fix HomeHeader accepted the avatarUrl prop but the render branch
-  // was never built; the avatar circle always showed the firstName
-  // initial. Users who uploaded a profile photo still saw the navy "J"
-  // circle on Home. The fix wires expo-image's <Image> into the avatar
-  // circle when avatarUrl is provided, falling back to the initial only
-  // when avatarUrl is null/undefined.
+  // Batch 2 M2 — dead Filter button removed (spec §9.1; it had a no-op handler).
+  it('does NOT render a Filter button (Batch 2 M2 removal)', () => {
+    const { queryByLabelText } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    expect(queryByLabelText('Filter')).toBeNull()
+  })
 
+  // Batch 2 M2 — avatar is tappable and routes to Profile (parent owns routing).
+  it('avatar is tappable, exposes the Profile label, and fires onAvatarPress', () => {
+    const onAvatarPress = jest.fn()
+    const { getByTestId, getByLabelText } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={onAvatarPress} />
+    )
+    expect(getByLabelText('Profile')).toBeTruthy()
+    fireEvent.press(getByTestId('home-header-avatar'))
+    expect(onAvatarPress).toHaveBeenCalledTimes(1)
+  })
+
+  // Profile Stabilisation Hotfix — avatar render pin (preserved through Batch 2 M2).
+  // The avatarUrl image branch must survive the tappable/gradient rework.
   it('renders the profile photo when avatarUrl is provided (not the initial)', () => {
     const { queryByTestId } = render(
       <HomeHeader
@@ -42,7 +55,7 @@ describe('HomeHeader', () => {
         city={null}
         avatarUrl="data:image/jpeg;base64,Zm9v"
         onSearchPress={jest.fn()}
-        onFilterPress={jest.fn()}
+        onAvatarPress={jest.fn()}
       />
     )
     expect(queryByTestId('home-header-avatar-image')).toBeTruthy()
@@ -57,7 +70,7 @@ describe('HomeHeader', () => {
         city={null}
         avatarUrl={null}
         onSearchPress={jest.fn()}
-        onFilterPress={jest.fn()}
+        onAvatarPress={jest.fn()}
       />
     )
     expect(queryByTestId('home-header-avatar-image')).toBeNull()
@@ -72,7 +85,7 @@ describe('HomeHeader', () => {
         area={null}
         city={null}
         onSearchPress={jest.fn()}
-        onFilterPress={jest.fn()}
+        onAvatarPress={jest.fn()}
       />
     )
     expect(queryByTestId('home-header-avatar-image')).toBeNull()

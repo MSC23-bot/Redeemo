@@ -242,7 +242,7 @@ export function HomeScreen() {
           {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
           {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
           onSearchPress={() => router.push('/search' as any)}
-          onFilterPress={() => {}}
+          onAvatarPress={() => router.push('/profile' as any)}
         />
 
         {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
@@ -341,8 +341,13 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    // Batch 2 M1 (2026-06-01) — page paint fixed to white (surface.page).
+    // The cream wash is no longer the page background; per Composition B
+    // (spec §4) the warmth now lives in the section bands (Featured cream
+    // identity band + Popular/Trending warm-tint band), so the page itself
+    // is white and the bands read as distinct zones against it.
     flex: 1,
-    backgroundColor: '#FFF9F5',
+    backgroundColor: color.surface.page,
   },
   scroll: {
     paddingTop: 60,

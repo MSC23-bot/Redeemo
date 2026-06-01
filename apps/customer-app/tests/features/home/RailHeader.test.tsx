@@ -43,4 +43,15 @@ describe('<RailHeader>', () => {
     const { getByText } = render(<RailHeader meta={featuredCascade} railKind="featured" subtitle="Here are the closest matches we have" />)
     expect(getByText('Here are the closest matches we have')).toBeTruthy()
   })
+
+  // Batch 2 M4 — additive trending-mark slot for Popular/Trending (spec §9.5).
+  it('renders the brand-coral trending flame when trendingMark is set', () => {
+    const { getByTestId } = render(<RailHeader meta={null} fixedCopy="Popular on Redeemo" trendingMark />)
+    expect(getByTestId('rail-trending-mark')).toBeTruthy()
+  })
+
+  it('does NOT render the trending mark by default (Featured / NBC rails)', () => {
+    const { queryByTestId } = render(<RailHeader meta={null} fixedCopy="Popular on Redeemo" />)
+    expect(queryByTestId('rail-trending-mark')).toBeNull()
+  })
 })

@@ -5,6 +5,7 @@ import { BranchTile } from '@/features/shared/BranchTile'
 import { DotIndicator } from '@/features/shared/DotIndicator'
 import type { HomeRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
+import { SectionBand } from './SectionBand'
 
 // Batch 1B Tier 3 (2026-06-01) — wider hero tile (260→284) for a more
 // premium, less "underscaled" Featured rail. snapToInterval below reads
@@ -75,7 +76,8 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
   }, [rail.meta?.locality, rail.meta?.scopeExpanded, branches])
 
   return (
-    <View>
+    // Batch 2 M3 — full-bleed cream identity band (Composition B §9.4).
+    <SectionBand variant="cream" testID="featured-band">
       {/* Conditional-copy header per spec §7 + §11.1 */}
       <RailHeader
         meta={rail.meta}
@@ -123,6 +125,6 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
       {branches.length > 1 && (
         <DotIndicator count={branches.length} activeIndex={activeIndex} />
       )}
-    </View>
+    </SectionBand>
   )
 }

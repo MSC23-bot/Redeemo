@@ -1,10 +1,10 @@
 import React from 'react'
 import { View, ScrollView } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
-import { Flame } from 'lucide-react-native'
-import { Text, color, spacing } from '@/design-system'
+import { spacing } from '@/design-system'
 import { BranchTile } from '@/features/shared/BranchTile'
 import type { HomeRail } from '@/lib/api/discovery'
+import { RailHeader } from './RailHeader'
+import { SectionBand } from './SectionBand'
 
 // Task D.4 — Spec §11.7.
 //
@@ -39,29 +39,21 @@ export function TrendingSection({ rail, onBranchPress, onFavourite }: Props) {
   if (!rail.meta || branches.length === 0) return null
 
   return (
-    <LinearGradient
-      colors={['#FFF7ED', '#FEF3C7']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={{ paddingVertical: spacing[5] }}
-    >
-      {/* Section header */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems:    'center',
-          paddingHorizontal: 18,
-          marginBottom: spacing[3],
-        }}
-      >
-        <Flame size={16} color="#EA580C" fill="#EA580C" />
-        <Text
-          variant="heading.sm"
-          style={{ color: color.navy, marginLeft: spacing[1] }}
-        >
-          Trending near you
-        </Text>
-      </View>
+    // Batch 2 M4 — warm-tint "happening now" band (spec §9.5), replacing the
+    // off-palette amber gradient. Header unified on <RailHeader> (Mustica
+    // 20pt) with the animated brand-coral trending flame + subtitle, matching
+    // <PopularSection> — whichever rail wins the slot reads identically. The
+    // old bespoke STATIC amber Flame + heading.sm header is retired in favour
+    // of the Mustica title + the in-motion <TrendingFlame> mark.
+    <SectionBand variant="warm" testID="trending-band">
+      <RailHeader
+        fixedCopy="Trending near you"
+        meta={rail.meta}
+        trendingMark
+        subtitle="Catching on this week"
+      />
+
+      <View style={{ marginTop: spacing[3] }} />
 
       {/* Horizontal scroll of tiles */}
       <ScrollView
@@ -81,6 +73,6 @@ export function TrendingSection({ rail, onBranchPress, onFavourite }: Props) {
           />
         ))}
       </ScrollView>
-    </LinearGradient>
+    </SectionBand>
   )
 }

@@ -98,6 +98,13 @@ describe('FeaturedCarousel (Phase C.6 — featuredRail envelope)', () => {
     expect(getAllByText('FEATURED')).toHaveLength(2)
   })
 
+  it('Batch 2 M3 — wraps the rail in the full-bleed cream identity band', () => {
+    const { getByTestId } = render(
+      <FeaturedCarousel rail={makeRail(branches)} onBranchPress={jest.fn()} />,
+    )
+    expect(getByTestId('featured-band')).toBeTruthy()
+  })
+
   it('returns null when branches array is empty', () => {
     const { toJSON } = render(
       <FeaturedCarousel rail={makeRail([])} onBranchPress={jest.fn()} />,

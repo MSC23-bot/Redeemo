@@ -64,6 +64,29 @@ describe('<PopularSection>', () => {
     expect(getByText('Popular on Redeemo')).toBeTruthy()
   })
 
+  it('Batch 2 M4 — renders inside the warm-tint band with a trending flame + subtitle', () => {
+    const branches = [
+      makeBranchTile({
+        id:         'brn-pop-band',
+        branchName: 'Soho',
+        merchant: {
+          id:                   'm-pop-band',
+          businessName:         'Band Cafe',
+          primaryCategory:      { id: 'c1', name: 'Food & Drink', parentId: null },
+          voucherCount:         1,
+          maxEstimatedSaving:   5,
+          totalEstimatedSaving: 5,
+        },
+      }),
+    ]
+    const { getByTestId, getByText } = render(
+      <PopularSection rail={makeRail(branches)} onBranchPress={jest.fn()} />,
+    )
+    expect(getByTestId('popular-band')).toBeTruthy()
+    expect(getByTestId('rail-trending-mark')).toBeTruthy()
+    expect(getByText('Most-redeemed near you')).toBeTruthy()
+  })
+
   it('with null rung/band/distance tiles → tiles render WITHOUT distance/proximity chip', () => {
     const branches = [
       makeBranchTile({

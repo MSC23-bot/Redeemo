@@ -1,6 +1,8 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Text } from '@/design-system/Text'
+import { color } from '@/design-system'
+import { TrendingFlame } from '@/design-system/motion/TrendingFlame'
 import { homeCategoryRailLabel } from '../utils/homeCategoryRailLabel'
 
 type RailMeta = {
@@ -26,9 +28,16 @@ export interface RailHeaderProps {
   // Undefined / null falls back to the in-locality framing for backward
   // compatibility with tests + non-Featured rails.
   allBranchesInLocality?: boolean | null
+  // Batch 2 M4 — animated brand-coral "trending" flame before the title for
+  // the Popular / Trending "happening now" rails (spec §9.5): an ICON in
+  // motion (<TrendingFlame>), deliberately NOT a pulse/dot (the pulse is used
+  // widely elsewhere in the app and wouldn't read as distinctively
+  // "trending" here). Reduced-motion-safe (static flame when reduce-motion
+  // is on).
+  trendingMark?: boolean
 }
 
-export function RailHeader({ fixedCopy, meta, fallbackCopy, subtitle, railKind, categoryName, allBranchesInLocality }: RailHeaderProps) {
+export function RailHeader({ fixedCopy, meta, fallbackCopy, subtitle, railKind, categoryName, allBranchesInLocality, trendingMark }: RailHeaderProps) {
   const title = (() => {
     if (fixedCopy) return fixedCopy
     if (!meta) return fallbackCopy ?? ''
@@ -70,7 +79,12 @@ export function RailHeader({ fixedCopy, meta, fallbackCopy, subtitle, railKind, 
 
   return (
     <View style={styles.row}>
-      <Text style={styles.title}>{title}</Text>
+      <View style={styles.titleRow}>
+        {trendingMark ? (
+          <TrendingFlame color={color.brandCoral} size={16} style={styles.trendingMark} testID="rail-trending-mark" />
+        ) : null}
+        <Text style={styles.title}>{title}</Text>
+      </View>
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
     </View>
   )
@@ -78,6 +92,8 @@ export function RailHeader({ fixedCopy, meta, fallbackCopy, subtitle, railKind, 
 
 const styles = StyleSheet.create({
   row:      { paddingHorizontal: 18, paddingTop: 12 },
+  titleRow:     { flexDirection: 'row', alignItems: 'center' },
+  trendingMark: { marginRight: 8 },
   title:    { fontSize: 20, fontFamily: 'MusticaPro-Semibold', color: '#010C35' },
   subtitle: { fontSize: 13, fontFamily: 'Lato-Regular',         color: '#6B7280', marginTop: 2 },
 })
