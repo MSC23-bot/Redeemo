@@ -1,6 +1,7 @@
 import React from 'react'
 import { View, Pressable, StyleSheet, type StyleProp, type ViewStyle, type TextStyle } from 'react-native'
 import { Text, color, spacing, radius } from '@/design-system'
+import { FadeIn } from '@/design-system/motion/FadeIn'
 
 /**
  * Batch 3 (2026-06-01) — the single Home chrome-card primitive (spec §9.8).
@@ -137,7 +138,12 @@ export function HomeChromeCard({
   }
 
   // banner / empty / note — column: [icon?] [title?] [body] [actions?].
+  // Batch 5 §10.7 — these ease in (translateY -12→0, opacity 0→1, 220ms). The
+  // hint returns ABOVE without this entry: it's exit-only per §DF, with its own
+  // Animated.View wrapper in SavedAreaHonestyHint. Reduced-motion-safe (FadeIn
+  // collapses to duration 0 via useMotionScale).
   return (
+    <FadeIn y={-12} duration={220}>
     <View testID={testID} style={[cardStyle, align === 'center' && styles.alignCenter]}>
       {icon ? <View style={styles.iconWrap}>{icon}</View> : null}
       {title ? <Text style={styles.title}>{title}</Text> : null}
@@ -166,6 +172,7 @@ export function HomeChromeCard({
         </View>
       ) : null}
     </View>
+    </FadeIn>
   )
 }
 

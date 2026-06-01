@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { View, ScrollView } from 'react-native'
 import { spacing } from '@/design-system'
+import { FadeInDown } from '@/design-system/motion/FadeIn'
 import { BranchTile } from '@/features/shared/BranchTile'
 import { DotIndicator } from '@/features/shared/DotIndicator'
 import type { HomeRail } from '@/lib/api/discovery'
@@ -106,19 +107,28 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
           startAutoScroll()
         }}
       >
-        {branches.map((branch) => (
+        {branches.map((branch, i) => {
           // Branch-keyed identity (Phase 2.3) — two branches of the same
           // merchant render as TWO distinct carousel tiles per the locked
           // §M one-pin-per-branch principle.
-          <BranchTile
-            key={branch.id}
-            branch={branch}
-            onPress={onBranchPress}
-            {...(onFavourite ? { onFavourite } : {})}
-            showFeaturedBadge
-            width={TILE_WIDTH}
-          />
-        ))}
+          const tile = (
+            <BranchTile
+              key={branch.id}
+              branch={branch}
+              onPress={onBranchPress}
+              {...(onFavourite ? { onFavourite } : {})}
+              showFeaturedBadge
+              width={TILE_WIDTH}
+            />
+          )
+          // Batch 5 §10.1 — first 4 tiles fade-up in sequence (50ms each),
+          // first-mount only (rail renders only when data exists; FadeInDown
+          // animates once per mounted tile; stable branch.id keys mean an
+          // in-place refetch does not re-stagger). Reduced-motion-safe.
+          return i < 4
+            ? <FadeInDown key={branch.id} delay={i * 50}>{tile}</FadeInDown>
+            : tile
+        })}
       </ScrollView>
 
       {/* Dot indicator */}

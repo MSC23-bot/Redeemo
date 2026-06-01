@@ -21,6 +21,9 @@ import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
+import { FadeIn } from '@/design-system/motion/FadeIn'
+import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
+import { haptics } from '@/design-system/haptics'
 // §DF-v2-j Task 9 → Task 13 Round 3 (2026-05-26) — top-of-screen
 // location identity is now rendered INSIDE <HomeHeader> via its
 // `locationContext` prop (the standalone <LocationStatusLabel>
@@ -108,6 +111,9 @@ export function HomeScreen() {
   )
 
   const onRefresh = async () => {
+    // Batch 5 §10.5 (F4-c) — medium-impact haptic on the refresh trigger
+    // (guarded by the global haptics-enabled flag).
+    haptics.touch.medium()
     setRefreshing(true)
     await refetch()
     setRefreshing(false)
@@ -222,6 +228,18 @@ export function HomeScreen() {
           { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
+        {/* Batch 5 §10.5 (F4-c) — branded RedeemoLoader R-moment while
+            refreshing. The native RefreshControl above owns the pull +
+            trigger; this is the brand beat at the top of the feed.
+            Reduced-motion-safe (RedeemoLoader renders static under
+            reduce-motion). Placement vs the system spinner is a device-QA
+            tuning item (plan §9). */}
+        {refreshing ? (
+          <View style={styles.refreshBrand}>
+            <RedeemoLoader size="sm" />
+          </View>
+        ) : null}
+
         {/* Task 13 Round 3 (2026-05-26) — the LocationStatusLabel is
             now rendered INSIDE <HomeHeader> at the same visual rhythm
             as the GPS-on location row (marginTop: spacing[1]=4pt
@@ -267,10 +285,17 @@ export function HomeScreen() {
             <SkeletonTile width={300} />
           </View>
         ) : (
-          <CampaignCarousel
-            campaigns={feed?.campaigns ?? []}
-            onCampaignPress={(_id) => {}}
-          />
+          // Batch 5 §10.1 — campaign carousel fades in (opacity-only) once
+          // loaded. Reduced-motion-safe: FadeIn collapses to duration 0 via
+          // useMotionScale. (Skeleton→content §10.6 is realised as this
+          // content-fade-in; SkeletonToContent's absolute skeleton can't
+          // reserve height for Home's loading-conditional rails.)
+          <FadeIn duration={200}>
+            <CampaignCarousel
+              campaigns={feed?.campaigns ?? []}
+              onCampaignPress={(_id) => {}}
+            />
+          </FadeIn>
         )}
 
         {categoriesData?.categories && (
@@ -357,5 +382,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 18,
     gap: 12,
+  },
+  refreshBrand: {
+    alignItems: 'center',
+    paddingVertical: spacing[2],
   },
 })

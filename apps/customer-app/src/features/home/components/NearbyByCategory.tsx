@@ -2,6 +2,7 @@ import React from 'react'
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native'
 import { ChevronRight } from 'lucide-react-native'
 import { Text, color, spacing } from '@/design-system'
+import { FadeInDown } from '@/design-system/motion/FadeIn'
 import { BranchTile } from '@/features/shared/BranchTile'
 import type { HomeNearbyCategoryRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
@@ -85,17 +86,24 @@ export function NearbyByCategory({ rails, onBranchPress, onCategoryPress, onFavo
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
           >
-            {rail.branches.map((branch) => (
+            {rail.branches.map((branch, i) => {
               // Branch-keyed identity (Phase 2.3) — same pattern as
               // FeaturedCarousel + TrendingSection.
-              <BranchTile
-                key={branch.id}
-                branch={branch}
-                onPress={onBranchPress}
-                {...(onFavourite ? { onFavourite } : {})}
-                width={TILE_WIDTH}
-              />
-            ))}
+              const tile = (
+                <BranchTile
+                  key={branch.id}
+                  branch={branch}
+                  onPress={onBranchPress}
+                  {...(onFavourite ? { onFavourite } : {})}
+                  width={TILE_WIDTH}
+                />
+              )
+              // Batch 5 §10.1 — first 4 tiles per rail stagger-fade-up,
+              // first-mount only. Subtle (only ~2 tiles visible per rail).
+              return i < 4
+                ? <FadeInDown key={branch.id} delay={i * 50}>{tile}</FadeInDown>
+                : tile
+            })}
           </ScrollView>
         </View>
         )
