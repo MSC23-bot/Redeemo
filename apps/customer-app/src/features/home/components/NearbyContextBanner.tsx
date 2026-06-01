@@ -11,20 +11,14 @@
 //   "We're still growing in {City}.  Here are the closest category
 //    matches on Redeemo."
 //
-// Defensive fallback when `cityName` is null drops the leading clause
-// entirely.  In practice the banner only fires when effLoc resolved (so
-// a populated locality is expected), but defensive coding mirrors the
-// pattern from <NearbySectionEmpty>.
+// Defensive fallback when `cityName` is null drops the leading clause.
 //
-// Visual baseline — intentionally minimal per β3: "Keep this minimal.
-// Prefer adapting/reusing the existing nearby empty-state area rather
-// than adding a big new visual system."  Same warm-tinted card surface +
-// hairline border as <NearbySectionEmpty>, smaller padding, no CTAs.
-// §DE (deferred) will revisit the design polish.
+// Batch 3 (2026-06-01) — now renders through the shared <HomeChromeCard>
+// `note` variant (white surface + neutral hairline, body 14/20). Copy +
+// testID unchanged.
 
 import React from 'react'
-import { View, StyleSheet } from 'react-native'
-import { Text, color, spacing, radius } from '@/design-system'
+import { HomeChromeCard } from './HomeChromeCard'
 
 interface NearbyContextBannerProps {
   cityName?: string | null
@@ -34,29 +28,5 @@ export function NearbyContextBanner({ cityName }: NearbyContextBannerProps = {})
   const message = cityName
     ? `We're still growing in ${cityName}. Here are the closest category matches on Redeemo.`
     : `Here are the closest category matches on Redeemo.`
-  return (
-    <View style={styles.card} testID="home-nearby-context-banner">
-      <Text style={styles.body}>{message}</Text>
-    </View>
-  )
+  return <HomeChromeCard variant="note" body={message} testID="home-nearby-context-banner" />
 }
-
-const styles = StyleSheet.create({
-  card: {
-    marginHorizontal:  18,
-    marginTop:         spacing[2],
-    marginBottom:      spacing[2],
-    paddingVertical:   spacing[3],
-    paddingHorizontal: spacing[4],
-    backgroundColor:   color.surface.tint,
-    borderRadius:      radius.md,
-    borderWidth:       1,
-    borderColor:       color.border.subtle,
-  },
-  body: {
-    fontSize:   13,
-    fontFamily: 'Lato-Regular',
-    color:      color.text.secondary,
-    lineHeight: 18,
-  },
-})
