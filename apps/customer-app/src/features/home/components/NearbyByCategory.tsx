@@ -1,12 +1,17 @@
 import React from 'react'
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native'
-import { ChevronRight } from 'lucide-react-native'
+import { ChevronRight } from '@/design-system/icons'
 import { Text, color, spacing } from '@/design-system'
-import { BranchTile } from '@/features/shared/BranchTile'
+import { FadeInDown } from '@/design-system/motion/FadeIn'
+import { NearbyCard, NEARBY_CARD_WIDTH } from './NearbyCard'
 import type { HomeNearbyCategoryRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
 
-const TILE_WIDTH = 240
+// 2026-06-03 — owner direction: the Nearby rails use a bespoke <NearbyCard>
+// (landscape, name-beside-logo on the banner). It differs from Popular/Trending
+// by STYLE + SHAPE (wider-than-tall vs portrait), and is wider than the Popular
+// rail card but NOT full-width so the next card peeks (rail reads scrollable).
+const TILE_WIDTH = NEARBY_CARD_WIDTH
 const TILE_GAP = 12
 
 type Props = {
@@ -15,7 +20,6 @@ type Props = {
   // /merchant/${branch.merchant.id}?branch=${branchId}&from=home.
   onBranchPress: (branchId: string) => void
   onCategoryPress: (categoryId: string) => void
-  onFavourite?: (id: string) => void
 }
 
 /**
@@ -31,7 +35,7 @@ type Props = {
  * (server-side filtering); the silent-hide path (`rail.meta === null`)
  * remains as a defensive guard.
  */
-export function NearbyByCategory({ rails, onBranchPress, onCategoryPress, onFavourite }: Props) {
+export function NearbyByCategory({ rails, onBranchPress, onCategoryPress }: Props) {
   // Filter: per spec §6.3 the server omits empty categories from the
   // array entirely. The `meta === null` guard is defensive — silently
   // hide per-category if any future contract drift slips a null-meta
@@ -42,7 +46,7 @@ export function NearbyByCategory({ rails, onBranchPress, onCategoryPress, onFavo
   if (visibleRails.length === 0) return null
 
   return (
-    <View style={{ paddingBottom: 100, gap: spacing[6] }}>
+    <View style={{ paddingBottom: 100, gap: spacing[7] }}>
       {visibleRails.map((rail) => {
         // v1.6 (PR #126 device-QA-4 owner direction 2026-05-23): hide the
         // "See all" chip on one-card rails.  A single-merchant rail with a
@@ -72,28 +76,33 @@ export function NearbyByCategory({ rails, onBranchPress, onCategoryPress, onFavo
             {showSeeAll ? (
               <View style={styles.seeAllChip}>
                 <Text style={styles.seeAllText}>See all</Text>
-                <ChevronRight size={14} color={color.brandRose} />
+                <ChevronRight size={18} color={color.brandCoral} />
               </View>
             ) : null}
           </Pressable>
 
-          {/* Horizontal scroll of tiles */}
+          {/* Horizontal scroll of cards. No vertical padding (matches the
+              Popular/Trending rail) so there is no gap below the card. */}
           <ScrollView
             horizontal
+            // No removeClippedSubviews: the card logo/name straddles the banner
+            // seam (absolute), which Android mis-clips once a card is partly
+            // off-screen.
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
           >
-            {rail.branches.map((branch) => (
+            {rail.branches.map((branch, i) => {
               // Branch-keyed identity (Phase 2.3) — same pattern as
-              // FeaturedCarousel + TrendingSection.
-              <BranchTile
-                key={branch.id}
-                branch={branch}
-                onPress={onBranchPress}
-                {...(onFavourite ? { onFavourite } : {})}
-                width={TILE_WIDTH}
-              />
-            ))}
+              // FeaturedCarousel + PopularSection.
+              const tile = (
+                <NearbyCard key={branch.id} branch={branch} onPress={onBranchPress} width={TILE_WIDTH} />
+              )
+              // Batch 5 §10.1 — first 4 tiles per rail stagger-fade-up,
+              // first-mount only.
+              return i < 4
+                ? <FadeInDown key={branch.id} delay={i * 50}>{tile}</FadeInDown>
+                : tile
+            })}
           </ScrollView>
         </View>
         )
@@ -108,7 +117,7 @@ const styles = StyleSheet.create({
     alignItems:       'center',
     justifyContent:   'space-between',
     paddingRight:     18,
-    marginBottom:     spacing[3],
+    marginBottom:     spacing[4],
   },
   seeAllChip: {
     flexDirection:    'row',
@@ -118,8 +127,8 @@ const styles = StyleSheet.create({
     paddingLeft:      spacing[2],
   },
   seeAllText: {
-    fontSize:   12,
+    fontSize:   14,
     fontFamily: 'Lato-SemiBold',
-    color:      color.brandRose,
+    color:      color.brandCoral,
   },
 })

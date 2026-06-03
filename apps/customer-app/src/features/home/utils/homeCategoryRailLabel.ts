@@ -9,17 +9,22 @@
 // "{Category} on Redeemo" variant (v1.5) is RETIRED — the <NearbyContextBanner>
 // already carries the platform-claim message.
 //
+// 2026-06-03 (owner direction): the category NAME is title-cased ("Food &
+// Drink", not "Food & drink") so it reads as a proper category label; only the
+// soft " picks" suffix stays lowercase (and is rendered muted by RailHeader).
+//
 // Examples:
-//   "Food & Drink"      → "Food & drink picks"
-//   "Beauty & Wellness" → "Beauty & wellness picks"
-//   "Health & Fitness"  → "Health & fitness picks"
-//   "Out & About"       → "Out & about picks"
+//   "Food & Drink"      → "Food & Drink picks"
+//   "Beauty & Wellness" → "Beauty & Wellness picks"
+//   "Health & Fitness"  → "Health & Fitness picks"
+//   "Out & About"       → "Out & About picks"
 //   "Shopping"          → "Shopping picks"
 
 export function homeCategoryRailLabel(parentName: string): string {
   const trimmed = parentName.trim()
   if (trimmed.length === 0) return 'picks'
-  const lower        = trimmed.toLowerCase()
-  const sentenceCase = lower.charAt(0).toUpperCase() + lower.slice(1)
-  return `${sentenceCase} picks`
+  // Lowercase then capitalise the first letter of each word → robust title case
+  // for clean / lowercase / uppercase inputs alike.
+  const titleCased = trimmed.toLowerCase().replace(/(^|\s)([a-z])/g, (_m, sp, c) => sp + c.toUpperCase())
+  return `${titleCased} picks`
 }

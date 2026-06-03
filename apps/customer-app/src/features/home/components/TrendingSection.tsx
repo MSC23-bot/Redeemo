@@ -1,10 +1,11 @@
 import React from 'react'
 import { View, ScrollView } from 'react-native'
-import { LinearGradient } from 'expo-linear-gradient'
-import { Flame } from 'lucide-react-native'
-import { Text, color, spacing } from '@/design-system'
-import { BranchTile } from '@/features/shared/BranchTile'
+import { spacing } from '@/design-system'
+import { FadeInDown } from '@/design-system/motion/FadeIn'
+import { PopularCard, RAIL_TILE_WIDTH } from './PopularCard'
 import type { HomeRail } from '@/lib/api/discovery'
+import { RailHeader } from './RailHeader'
+import { SectionBand } from './SectionBand'
 
 // Task D.4 — Spec §11.7.
 //
@@ -20,7 +21,8 @@ import type { HomeRail } from '@/lib/api/discovery'
 // this to enforce the trending↔popular swap (which fires when
 // `feed.trendingRail.meta` is null).
 
-const TILE_WIDTH = 240
+// Shared rail-card width (see RAIL_TILE_WIDTH) — identical to Popular + Nearby.
+const TILE_WIDTH = RAIL_TILE_WIDTH
 const TILE_GAP   = 12
 
 type Props = {
@@ -31,54 +33,53 @@ type Props = {
   onFavourite?:  (id: string) => void
 }
 
-export function TrendingSection({ rail, onBranchPress, onFavourite }: Props) {
+export function TrendingSection({ rail, onBranchPress }: Props) {
   const branches = rail.branches
 
   if (!rail.meta || branches.length === 0) return null
 
   return (
-    <LinearGradient
-      colors={['#FFF7ED', '#FEF3C7']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={{ paddingVertical: spacing[5] }}
-    >
-      {/* Section header */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems:    'center',
-          paddingHorizontal: 18,
-          marginBottom: spacing[3],
-        }}
-      >
-        <Flame size={16} color="#EA580C" fill="#EA580C" />
-        <Text
-          variant="heading.sm"
-          style={{ color: color.navy, marginLeft: spacing[1] }}
-        >
-          Trending near you
-        </Text>
-      </View>
+    // Batch 2 M4 — warm-tint "happening now" band (spec §9.5), replacing the
+    // off-palette amber gradient. Header unified on <RailHeader> (Mustica
+    // 20pt) with the animated brand-coral trending flame + subtitle, matching
+    // <PopularSection> — whichever rail wins the slot reads identically. The
+    // old bespoke STATIC amber Flame + heading.sm header is retired in favour
+    // of the Mustica title + the in-motion <TrendingFlame> mark.
+    <SectionBand variant="warm" testID="trending-band">
+      <RailHeader
+        fixedCopy="Trending near you"
+        meta={rail.meta}
+        trendingMark
+        subtitle="Catching on this week"
+      />
+
+      <View style={{ marginTop: spacing[3] }} />
 
       {/* Horizontal scroll of tiles */}
       <ScrollView
         horizontal
+        // No removeClippedSubviews: the card logo straddles the banner seam
+        // (absolute), which Android mis-clips once a card is partly off-screen.
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
       >
-        {branches.map((branch) => (
+        {branches.map((branch, i) => {
           // Branch-keyed identity (Phase 2.3) — same pattern as
           // FeaturedCarousel.
-          <BranchTile
-            key={branch.id}
-            branch={branch}
-            onPress={onBranchPress}
-            {...(onFavourite ? { onFavourite } : {})}
-            width={TILE_WIDTH}
-          />
-        ))}
+          const tile = (
+            <PopularCard
+              key={branch.id}
+              branch={branch}
+              onPress={onBranchPress}
+              width={TILE_WIDTH}
+            />
+          )
+          // Batch 5 §10.1 — first 4 tiles stagger-fade-up, first-mount only.
+          return i < 4
+            ? <FadeInDown key={branch.id} delay={i * 50}>{tile}</FadeInDown>
+            : tile
+        })}
       </ScrollView>
-    </LinearGradient>
+    </SectionBand>
   )
 }

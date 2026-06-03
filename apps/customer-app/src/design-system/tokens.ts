@@ -13,6 +13,12 @@ export const color = {
   },
   surface: {
     page: '#FFFFFF',
+    // Warm brand cream Home body (2026-06-03) — the SAME cream the auth /
+    // onboarding screens use (#FFF9F5), so the whole app shares one light,
+    // close-to-white, faintly-rose surface. White cards read via their own
+    // border + shadow. Only the Popular/Trending <SectionBand> goes deeper to
+    // highlight that section; Featured + the rest sit on this body.
+    body: '#FFF9F5',
     tint: '#FEF6F5',
     neutral: '#F8F9FA',
     subtle: '#F3F4F6',

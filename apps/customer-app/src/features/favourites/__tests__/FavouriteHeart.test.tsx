@@ -62,13 +62,23 @@ jest.mock('react-native-reanimated', () => {
   return {
     __esModule: true,
     default: { View },
-    Easing: { out: () => 'ease-out' },
+    Easing: { out: () => 'ease-out', cubic: 'cubic', quad: 'quad' },
     useSharedValue: (v: number) => ({ value: v }),
     useAnimatedStyle: () => ({}),
     withSequence: (...args: unknown[]) => { mockWithSequenceCalls(args); return args },
     withTiming:   (target: number) => target,
   }
 })
+
+const mockLightHaptic     = jest.fn()
+const mockSelectionHaptic = jest.fn()
+jest.mock('@/design-system/haptics', () => ({
+  __esModule: true,
+  lightHaptic: () => mockLightHaptic(),
+  haptics: {
+    selection: () => mockSelectionHaptic(),
+  },
+}))
 
 import { FavouriteHeart } from '../components/FavouriteHeart'
 
@@ -78,6 +88,8 @@ beforeEach(() => {
   mockUseFavourite.mockReset()
   mockHeartRender.mockReset()
   mockWithSequenceCalls.mockReset()
+  mockLightHaptic.mockReset()
+  mockSelectionHaptic.mockReset()
   mockReduceMotionValue = false
 })
 
@@ -293,5 +305,60 @@ describe('FavouriteHeart — static-source pin (locked invariant)', () => {
       }
     }
     expect(violations).toEqual([])
+  })
+})
+
+describe('FavouriteHeart — Batch 1B hitSlop + split haptic/animation (spec §10.3 + §11.1)', () => {
+  it('hitSlop is the Batch 1B locked 12-per-side object form', () => {
+    const { getByTestId } = render(
+      <FavouriteHeart entity="branch" id="b-1" initialIsFavourited={false} testID="heart" />,
+    )
+    expect(getByTestId('heart').props.hitSlop).toEqual({ top: 12, bottom: 12, left: 12, right: 12 })
+  })
+
+  it('effective tap target is at least 44pt on each axis (28pt visual + 12pt slop = 52pt)', () => {
+    const visual    = 28
+    const slop      = { top: 12, bottom: 12, left: 12, right: 12 }
+    const onYAxis   = visual + slop.top  + slop.bottom
+    const onXAxis   = visual + slop.left + slop.right
+    expect(onYAxis).toBeGreaterThanOrEqual(44)
+    expect(onXAxis).toBeGreaterThanOrEqual(44)
+  })
+
+  it('ADD path (initially unfavourited) press fires lightHaptic() exactly once', () => {
+    const { getByTestId } = render(
+      <FavouriteHeart entity="branch" id="b-1" initialIsFavourited={false} testID="heart" />,
+    )
+    fireEvent.press(getByTestId('heart'))
+    expect(mockLightHaptic).toHaveBeenCalledTimes(1)
+    expect(mockSelectionHaptic).not.toHaveBeenCalled()
+  })
+
+  it('REMOVE path (initially favourited) press fires haptics.selection() exactly once', () => {
+    const { getByTestId } = render(
+      <FavouriteHeart entity="branch" id="b-1" initialIsFavourited={true} testID="heart" />,
+    )
+    fireEvent.press(getByTestId('heart'))
+    expect(mockSelectionHaptic).toHaveBeenCalledTimes(1)
+    expect(mockLightHaptic).not.toHaveBeenCalled()
+  })
+
+  it('disabled press does NOT fire any haptic', () => {
+    const { getByTestId } = render(
+      <FavouriteHeart entity="branch" id="b-1" initialIsFavourited={false} disabled testID="heart" />,
+    )
+    fireEvent.press(getByTestId('heart'))
+    expect(mockLightHaptic).not.toHaveBeenCalled()
+    expect(mockSelectionHaptic).not.toHaveBeenCalled()
+  })
+
+  it('reduce-motion press still fires the per-direction haptic but skips withSequence', () => {
+    mockReduceMotionValue = true
+    const { getByTestId } = render(
+      <FavouriteHeart entity="branch" id="b-1" initialIsFavourited={false} testID="heart" />,
+    )
+    fireEvent.press(getByTestId('heart'))
+    expect(mockLightHaptic).toHaveBeenCalledTimes(1)
+    expect(mockWithSequenceCalls).not.toHaveBeenCalled()
   })
 })

@@ -22,8 +22,9 @@
 
 import React from 'react'
 import { act, render } from '@testing-library/react-native'
-import { processColor } from 'react-native'
+import { processColor, StyleSheet } from 'react-native'
 import { CampaignCarousel } from '@/features/home/components/CampaignCarousel'
+import { radius } from '@/design-system'
 import type { CampaignTile } from '@/lib/api/discovery'
 
 const baseCampaign: CampaignTile = {
@@ -217,5 +218,14 @@ describe('CampaignCarousel — bannerImageUrl render (§CN)', () => {
     expect(getByText('Summer Sips')).toBeTruthy()
     expect(getByText('Cool drinks')).toBeTruthy()
     expect(getByText('Learn More')).toBeTruthy()
+  })
+
+  it('Batch 2 M5 — CTA pill uses radius.md (12), not radius.pill', () => {
+    const { getByLabelText } = render(
+      <CampaignCarousel campaigns={[baseCampaign]} onCampaignPress={() => {}} />,
+    )
+    const flat = StyleSheet.flatten(getByLabelText('Learn More').props.style)
+    expect(flat.borderRadius).toBe(radius.md)
+    expect(flat.borderRadius).not.toBe(radius.pill)
   })
 })

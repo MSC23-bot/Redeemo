@@ -64,6 +64,29 @@ describe('<PopularSection>', () => {
     expect(getByText('Popular on Redeemo')).toBeTruthy()
   })
 
+  it('Batch 2 M4 — renders inside the warm-tint band with a trending flame + subtitle', () => {
+    const branches = [
+      makeBranchTile({
+        id:         'brn-pop-band',
+        branchName: 'Soho',
+        merchant: {
+          id:                   'm-pop-band',
+          businessName:         'Band Cafe',
+          primaryCategory:      { id: 'c1', name: 'Food & Drink', parentId: null },
+          voucherCount:         1,
+          maxEstimatedSaving:   5,
+          totalEstimatedSaving: 5,
+        },
+      }),
+    ]
+    const { getByTestId, getByText } = render(
+      <PopularSection rail={makeRail(branches)} onBranchPress={jest.fn()} />,
+    )
+    expect(getByTestId('popular-band')).toBeTruthy()
+    expect(getByTestId('rail-trending-mark')).toBeTruthy()
+    expect(getByText('Most-redeemed near you')).toBeTruthy()
+  })
+
   it('with null rung/band/distance tiles → tiles render WITHOUT distance/proximity chip', () => {
     const branches = [
       makeBranchTile({
@@ -117,14 +140,16 @@ describe('<PopularSection>', () => {
         },
       }),
     ]
-    const { getByText } = render(
+    const { getByText, queryByText } = render(
       <PopularSection rail={makeRail(branches)} onBranchPress={jest.fn()} />,
     )
-    // The shared formatDistance helper (locked miles-only contract) renders
-    // 1200m → "0.7 miles away".
-    expect(getByText(/0\.7 miles away/)).toBeTruthy()
-    // ProximityBandChip surfaces "In your area" for IN_YOUR_AREA tiles.
-    expect(getByText('In your area')).toBeTruthy()
+    // 2026-06-03 — Popular/Trending now use <PopularCard>: compact distance via
+    // formatDistanceCompact (1200m → "0.7 mi") in the where line.
+    expect(getByText(/0\.7 mi/)).toBeTruthy()
+    // Proximity ("In your area") is intentionally DROPPED from the discovery
+    // card — it's redundant with the shown distance + the "near you" section
+    // context. (queryByText null is also asserted in the meta-row test above.)
+    expect(queryByText('In your area')).toBeNull()
   })
 
   it('returns null when rail.meta is null (silent hide per §11.6)', () => {

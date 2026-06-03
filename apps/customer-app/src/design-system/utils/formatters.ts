@@ -29,6 +29,23 @@ export function formatGbp(amount: number | null | undefined): string | null {
 }
 
 /**
+ * Compact GBP — like formatGbp but DROPS trailing pence when the amount is a
+ * whole pound (owner direction 2026-06-03: "if it's round to the pound we don't
+ * need the two decimals; only show decimals if there's pence"). For display in
+ * hero positions (the Home saving amount) where "£44" reads cleaner than
+ * "£44.00" but "£25.95" must keep its pence.
+ *
+ *   formatGbpCompact(44)    → '£44'
+ *   formatGbpCompact(25.95) → '£25.95'
+ *   formatGbpCompact(8.5)   → '£8.50'
+ *   formatGbpCompact(null)  → null
+ */
+export function formatGbpCompact(amount: number | null | undefined): string | null {
+  if (amount === null || amount === undefined) return null
+  return Number.isInteger(amount) ? `£${amount}` : `£${amount.toFixed(2)}`
+}
+
+/**
  * Voucher-count formatter — singular vs plural copy.
  *
  * Owner-locked PR #112 device-QA fix (2026-05-19): the Search card's
@@ -76,4 +93,34 @@ export function formatDistance(metres: number | null | undefined): string | null
   if (metres === null || metres === undefined) return null
   const miles = metres / 1609.34
   return `${miles.toFixed(1)} miles away`
+}
+
+/**
+ * Compact distance variant — Batch 1B Tier 3 (2026-06-01, owner direction).
+ *
+ *   null  → null (caller hides)
+ *   any m → `{miles.toFixed(1)} mi`
+ *
+ * Used ONLY by the dense shared `<BranchTile>` card (Home rails / Map
+ * carousel / Category results), whose info hierarchy splits onto two
+ * lines: `descriptor · locality` then `distance · proximity`.  The
+ * compact "mi" keeps the distance·proximity line short enough that the
+ * proximity clause is never tail-truncated — even for the longest band
+ * label ("Nearest match on Redeemo") on the narrowest rail card.
+ *
+ * Deliberately distinct from `formatDistance` (long-form "X miles away"),
+ * which the roomier single-line `<SearchResultItem>` keeps using.  The
+ * two surfaces intentionally diverge on distance copy per owner direction;
+ * do NOT collapse them without a fresh design decision.
+ *
+ * Examples:
+ *   formatDistanceCompact(null) → null
+ *   formatDistanceCompact(276)  → '0.2 mi'
+ *   formatDistanceCompact(1609) → '1.0 mi'
+ *   formatDistanceCompact(8200) → '5.1 mi'
+ */
+export function formatDistanceCompact(metres: number | null | undefined): string | null {
+  if (metres === null || metres === undefined) return null
+  const miles = metres / 1609.34
+  return `${miles.toFixed(1)} mi`
 }

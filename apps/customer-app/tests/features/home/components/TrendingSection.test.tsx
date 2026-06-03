@@ -56,6 +56,15 @@ describe('TrendingSection (Task D.4 — rail: HomeRail envelope)', () => {
     expect(getByText('Trending near you')).toBeTruthy()
   })
 
+  it('Batch 2 M4 — renders inside the warm-tint band with a trending flame + subtitle', () => {
+    const { getByTestId, getByText } = render(
+      <TrendingSection rail={makeRail(branches)} onBranchPress={jest.fn()} />,
+    )
+    expect(getByTestId('trending-band')).toBeTruthy()
+    expect(getByTestId('rail-trending-mark')).toBeTruthy()
+    expect(getByText('Catching on this week')).toBeTruthy()
+  })
+
   it('fires onBranchPress with the branch.id on tile press (Phase 2.3 branch-identity contract)', () => {
     const onBranchPress = jest.fn()
     const { getByText } = render(

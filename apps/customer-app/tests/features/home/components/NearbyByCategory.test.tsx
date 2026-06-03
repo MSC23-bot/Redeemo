@@ -60,7 +60,7 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
     // + " picks" so the rail header does not feel like a duplicate of the
     // top category navigation grid.  Fixture above carries "Indian
     // Restaurants" as a stand-in parent name → expected display is
-    // "Indian restaurants picks".
+    // "Indian Restaurants picks".
     const { getByText } = render(
       <NearbyByCategory
         rails={rails}
@@ -68,7 +68,7 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
         onCategoryPress={jest.fn()}
       />,
     )
-    expect(getByText('Indian restaurants picks')).toBeTruthy()
+    expect(getByText('Indian Restaurants picks')).toBeTruthy()
   })
 
   it('fires onBranchPress with the branch.id on tile press (Phase 2.3 branch-identity contract)', () => {
@@ -84,6 +84,39 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
     expect(onBranchPress).toHaveBeenCalledWith('brn-curry-1')
   })
 
+  it('renders ALL branches a rail carries, up to the 10-per-category cap (no client-side slice)', () => {
+    // The per-category cap is server-side (NEARBY_CATEGORY_TAKE=10, raised from
+    // 5). The client must render every branch the rail returns — it must NOT
+    // re-slice the row to 5.
+    const tenBranchRail: HomeNearbyCategoryRail[] = [
+      {
+        category: { id: 'cat-cap', name: 'Food & Drink' },
+        branches: Array.from({ length: 10 }, (_, i) =>
+          makeBranchTile({
+            id: `brn-cap-${i}`,
+            branchName: `Cap Branch ${i}`,
+            distance: 500 + i * 100,
+            merchant: {
+              id: `m-cap-${i}`,
+              businessName: `Cap Merchant ${i}`,
+              primaryCategory: { id: 'cat-cap', name: 'Food & Drink', parentId: null },
+              voucherCount: 1,
+              maxEstimatedSaving: 5,
+              totalEstimatedSaving: 5,
+            },
+          }),
+        ),
+        meta: { locality: { id: 'l1', name: 'Huddersfield' }, scope: 'city', scopeExpanded: false, rungCounts: {} },
+      },
+    ]
+    const { getByText } = render(
+      <NearbyByCategory rails={tenBranchRail} onBranchPress={jest.fn()} onCategoryPress={jest.fn()} />,
+    )
+    for (let i = 0; i < 10; i++) {
+      expect(getByText(`Cap Merchant ${i}`)).toBeTruthy()
+    }
+  })
+
   it('fires onCategoryPress with the category.id on header press (existing nav contract preserved)', () => {
     const onCategoryPress = jest.fn()
     const { getByText } = render(
@@ -93,10 +126,10 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
         onCategoryPress={onCategoryPress}
       />,
     )
-    // v1.6: rail label is now "Indian restaurants picks" (parent-style
+    // v1.6: rail label is now "Indian Restaurants picks" (parent-style
     // labelling) — but the press still resolves to the underlying
     // rail.category.id, not the leaf merchant name.
-    fireEvent.press(getByText('Indian restaurants picks'))
+    fireEvent.press(getByText('Indian Restaurants picks'))
     expect(onCategoryPress).toHaveBeenCalledWith('cat-indian-restaurants')
   })
 
@@ -151,7 +184,7 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
         onCategoryPress={jest.fn()}
       />,
     )
-    expect(getByText('Food & drink picks')).toBeTruthy()
+    expect(getByText('Food & Drink picks')).toBeTruthy()
     // Negative pin: the retired v1.5 "on Redeemo" suffix must NOT appear.
     expect(queryByText('Food & Drink on Redeemo')).toBeNull()
   })

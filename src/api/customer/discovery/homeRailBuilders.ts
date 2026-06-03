@@ -716,13 +716,20 @@ export async function buildPopularRail(
 //
 // Inclusion order mirrors the legacy implementation (60-merchant bulk fetch
 // keyed off locationCtx.city when available, falling back to a coordinate-
-// only branch query when only lat/lng is known).  Cap: 5 merchants per
+// only branch query when only lat/lng is known).  Cap: 10 merchants per
 // category, 6 categories total.  Each category fan-out covers every active
 // branch under those merchants (mirrors the Featured/Trending fan-out).
 
-const NEARBY_CATEGORY_TAKE      = 5   // tiles per category
+const NEARBY_CATEGORY_TAKE      = 10  // tiles per category (was 5; owner direction 2026-06-04)
 const NEARBY_MAX_CATEGORIES     = 6   // categories per response
-const NEARBY_MERCHANT_POOL_TAKE = 60  // top-level merchant pool size
+// Pool size = NEARBY_MAX_CATEGORIES × NEARBY_CATEGORY_TAKE (6 × 10 = 60): the
+// exact ceiling needed for every kept category to fill to the cap. A single
+// dense category reaches 10 comfortably (the pool can hold up to 60 of one
+// category before bucketing). In a dense market with >6 categories or >60
+// merchants inside the bbox, the per-category fill can fall short of 10 because
+// the bucketing spreads the 60 across more categories than the 6 kept — bump
+// this (e.g. to 120 for 2× headroom) if dense-market rails under-fill in QA.
+const NEARBY_MERCHANT_POOL_TAKE = 60  // top-level merchant pool size (6 × cap)
 
 // §DG post-T8 v1.2 (PR #127 2026-05-24): proximity-band derivation for filler
 // tiles is now shared with V3-head tiles via
@@ -847,7 +854,7 @@ export async function buildNearbyByCategoryRails(
   // fill (§6.3 step 2) so users with zero merchants in their bbox still
   // see UK-wide cascaded category rails ("local-first, not local-only").
 
-  // ── 2. Group local pool by PARENT category id — cap 5 merchants per
+  // ── 2. Group local pool by PARENT category id — cap 10 merchants per
   //    parent rail, cap 6 parent rails total.  v1.6 (PR #126 device-QA-4
   //    2026-05-23): leaf-category grouping in v1.5 produced one-merchant
   //    rails like "Nail Salon" / "Barber" / "Aesthetics Clinic" that made
@@ -1000,7 +1007,7 @@ export async function buildNearbyByCategoryRails(
   //
   // Rule:
   //   - Only top up rails with `0 < branches.length < NEARBY_CATEGORY_TAKE`.
-  //   - Rails at the cap (5) get nothing.
+  //   - Rails at the cap (10) get nothing.
   //   - Rails with zero local supply get the existing cascade-fill (Step 5
   //     below), which creates a NEW pure-cascade rail with scopeExpanded=true.
   //   - Filler ordering: distance-ASC across the entire eligible pool;

@@ -1,13 +1,20 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react'
-import { View, ScrollView } from 'react-native'
+import { View, ScrollView, StyleSheet, useWindowDimensions } from 'react-native'
 import { spacing } from '@/design-system'
-import { BranchTile } from '@/features/shared/BranchTile'
+import { FadeInDown } from '@/design-system/motion/FadeIn'
+import { FeaturedHeroCard } from './FeaturedHeroCard'
 import { DotIndicator } from '@/features/shared/DotIndicator'
 import type { HomeRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
 
-const TILE_WIDTH = 260
+// 2026-06-02 design pass — Featured is paid placement, so it must stand out.
+// The hero tile is now near-full-width with a deliberate PEEK of the next
+// card so users see there's more to scroll (reinforcing the existing
+// auto-scroll). Width = screenW − leftPad(18) − gap(12) − peek(28); the 28pt
+// reveal of card N+1 is the scroll affordance. snapToInterval reads the
+// computed width so the snap follows automatically.
 const TILE_GAP = 12
+const HERO_PEEK = 28
 const AUTO_SCROLL_INTERVAL = 10000
 
 type Props = {
@@ -18,12 +25,16 @@ type Props = {
   onFavourite?: (id: string) => void
 }
 
-export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
+export function FeaturedCarousel({ rail, onBranchPress }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   const scrollRef = useRef<ScrollView>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const branches = rail.branches
+
+  const { width: screenW } = useWindowDimensions()
+  // Near-full-width hero with a 28pt peek of the next card (see HERO_PEEK note).
+  const TILE_WIDTH = screenW - 18 - TILE_GAP - HERO_PEEK
 
   const startAutoScroll = useCallback(() => {
     if (branches.length <= 1) return
@@ -37,7 +48,7 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
         return next
       })
     }, AUTO_SCROLL_INTERVAL)
-  }, [branches.length])
+  }, [branches.length, TILE_WIDTH])
 
   useEffect(() => {
     startAutoScroll()
@@ -45,9 +56,6 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
       if (timerRef.current) clearInterval(timerRef.current)
     }
   }, [startAutoScroll])
-
-  // Phase C §11.6 — hide rail silently when meta is null OR no branches.
-  if (!rail.meta || branches.length === 0) return null
 
   // PR #126 device-QA Halifax fixup (2026-05-23): determine whether the
   // Featured rail's NEARBY+CITY supply is genuinely IN the locality (every
@@ -59,6 +67,8 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
   // Ignored when scopeExpanded is true (cascade copy "Featured on Redeemo"
   // already overrides locality framing).  Returns null when locality is
   // null (defensive — RailHeader falls back to "Featured near you").
+  // MUST run BEFORE the early return below — a hook called after a
+  // conditional return breaks react-hooks/rules-of-hooks.
   const allBranchesInLocality = useMemo<boolean | null>(() => {
     if (!rail.meta?.locality) return null
     if (rail.meta.scopeExpanded) return null
@@ -71,8 +81,14 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
     )
   }, [rail.meta?.locality, rail.meta?.scopeExpanded, branches])
 
+  // Phase C §11.6 — hide rail silently when meta is null OR no branches.
+  if (!rail.meta || branches.length === 0) return null
+
   return (
-    <View>
+    // 2026-06-03 — Featured sits on the plain body (owner: NO band for Featured;
+    // it stands out via the editorial hero card itself). Only Popular/Trending
+    // get a highlighted band.
+    <View style={styles.section} testID="featured-band">
       {/* Conditional-copy header per spec §7 + §11.1 */}
       <RailHeader
         meta={rail.meta}
@@ -101,19 +117,26 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
           startAutoScroll()
         }}
       >
-        {branches.map((branch) => (
+        {branches.map((branch, i) => {
           // Branch-keyed identity (Phase 2.3) — two branches of the same
           // merchant render as TWO distinct carousel tiles per the locked
           // §M one-pin-per-branch principle.
-          <BranchTile
-            key={branch.id}
-            branch={branch}
-            onPress={onBranchPress}
-            {...(onFavourite ? { onFavourite } : {})}
-            showFeaturedBadge
-            width={TILE_WIDTH}
-          />
-        ))}
+          const tile = (
+            <FeaturedHeroCard
+              key={branch.id}
+              branch={branch}
+              onPress={onBranchPress}
+              width={TILE_WIDTH}
+            />
+          )
+          // Batch 5 §10.1 — first 4 tiles fade-up in sequence (50ms each),
+          // first-mount only (rail renders only when data exists; FadeInDown
+          // animates once per mounted tile; stable branch.id keys mean an
+          // in-place refetch does not re-stagger). Reduced-motion-safe.
+          return i < 4
+            ? <FadeInDown key={branch.id} delay={i * 50}>{tile}</FadeInDown>
+            : tile
+        })}
       </ScrollView>
 
       {/* Dot indicator */}
@@ -123,3 +146,8 @@ export function FeaturedCarousel({ rail, onBranchPress, onFavourite }: Props) {
     </View>
   )
 }
+
+const styles = StyleSheet.create({
+  // Vertical rhythm now that Featured has no band — mirrors the old band padding.
+  section: { paddingTop: spacing[2], paddingBottom: spacing[5] },
+})

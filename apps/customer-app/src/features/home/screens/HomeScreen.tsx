@@ -1,5 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
+import { useSharedValue } from 'react-native-reanimated' // scroll-collapse signal for the Explore capsule chips
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,7 +11,6 @@ import { useCategories } from '@/hooks/useCategories'
 import { useMe } from '@/hooks/useMe'
 import { HomeHeader } from '../components/HomeHeader'
 import { CampaignCarousel } from '../components/CampaignCarousel'
-import { CategoryGrid } from '../components/CategoryGrid'
 import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
 import { PopularSection } from '../components/PopularSection'
@@ -20,7 +20,13 @@ import { NearbySectionEmpty } from '../components/NearbySectionEmpty'
 import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
+import { HomeCategoryGrid } from '../components/HomeCategoryGrid'
+import { useScrollActivity } from '../hooks/useScrollActivity'
+import { resolveCategoryRoute } from '@/features/shared/categorySlug'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
+import { FadeIn } from '@/design-system/motion/FadeIn'
+import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
+import { haptics } from '@/design-system/haptics'
 // §DF-v2-j Task 9 → Task 13 Round 3 (2026-05-26) — top-of-screen
 // location identity is now rendered INSIDE <HomeHeader> via its
 // `locationContext` prop (the standalone <LocationStatusLabel>
@@ -47,7 +53,16 @@ export function HomeScreen() {
   )
   const { data: categoriesData } = useCategories()
   const [refreshing, setRefreshing] = useState(false)
+  // Bumped once the first load completes and again on every pull-to-refresh —
+  // drives the Explore-capsule intro demo so it replays on each refresh.
+  const [demoToken, setDemoToken] = useState(0)
+  const playedInitialDemo = useRef(false)
   const scrollViewRef = useRef<ScrollView>(null)
+  const exploreCollapse = useSharedValue(0) // bumped on scroll start to collapse any open Explore chip
+  // Owns the global scrollActivity flag (pauses looping animations while the
+  // feed moves) with a debounced stop + a blur/unmount reset so leaving Home
+  // mid-fling can't strand the flag at 1 and freeze animations app-wide.
+  const scroll = useScrollActivity()
   const { scrollTop } = useLocalSearchParams<{ scrollTop?: string }>()
 
   // Device-QA R1 (2026-05-30) — Favourites empty-state CTA + any
@@ -108,10 +123,23 @@ export function HomeScreen() {
   )
 
   const onRefresh = async () => {
+    // Batch 5 §10.5 (F4-c) — medium-impact haptic on the refresh trigger
+    // (guarded by the global haptics-enabled flag).
+    haptics.touch.medium()
     setRefreshing(true)
     await refetch()
     setRefreshing(false)
+    setDemoToken((t) => t + 1) // replay the Explore-capsule intro on each refresh
   }
+
+  // Play the intro once the first load completes; per-refresh replays come from
+  // onRefresh above.
+  useEffect(() => {
+    if (!isLoading && !playedInitialDemo.current) {
+      playedInitialDemo.current = true
+      setDemoToken((t) => t + 1)
+    }
+  }, [isLoading])
 
   // Phase 2.3 — Home tile tap routes carry both the merchant id (route
   // path) AND the branch id (`?branch=` for Merchant Profile attribution)
@@ -216,12 +244,39 @@ export function HomeScreen() {
       <ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
+        // Pause looping animations while the feed is moving (begin → 1) and
+        // resume once it's fully stopped — dozens of per-frame animation updates
+        // were starving the scroll of frames. `useScrollActivity` owns the
+        // global flag on the UI thread (no re-renders), debounces the stop so
+        // loops never resume mid-fling, and resets it on blur/unmount.
+        //
+        // NOTE: `removeClippedSubviews` was removed here and on the horizontal
+        // rails — it mis-clips the new absolutely-positioned / protruding card
+        // elements (rail logos straddling the banner seam, category-card 3D
+        // illustrations) on Android, and the scroll-pause above is the primary
+        // UI-thread saving. Re-add behind device QA if a perf need is proven.
+        onScrollBeginDrag={() => { exploreCollapse.value += 1; scroll.onScrollBeginDrag() }}
+        onMomentumScrollBegin={scroll.onMomentumScrollBegin}
+        onScrollEndDrag={scroll.onScrollEndDrag}
+        onMomentumScrollEnd={scroll.onMomentumScrollEnd}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
         contentContainerStyle={[
           styles.scroll,
           { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
+        {/* Batch 5 §10.5 (F4-c) — branded RedeemoLoader R-moment while
+            refreshing. The native RefreshControl above owns the pull +
+            trigger; this is the brand beat at the top of the feed.
+            Reduced-motion-safe (RedeemoLoader renders static under
+            reduce-motion). Placement vs the system spinner is a device-QA
+            tuning item (plan §9). */}
+        {refreshing ? (
+          <View style={styles.refreshBrand}>
+            <RedeemoLoader size="md" />
+          </View>
+        ) : null}
+
         {/* Task 13 Round 3 (2026-05-26) — the LocationStatusLabel is
             now rendered INSIDE <HomeHeader> at the same visual rhythm
             as the GPS-on location row (marginTop: spacing[1]=4pt
@@ -242,7 +297,7 @@ export function HomeScreen() {
           {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
           {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
           onSearchPress={() => router.push('/search' as any)}
-          onFilterPress={() => {}}
+          onAvatarPress={() => router.push('/profile' as any)}
         />
 
         {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
@@ -267,19 +322,41 @@ export function HomeScreen() {
             <SkeletonTile width={300} />
           </View>
         ) : (
-          <CampaignCarousel
-            campaigns={feed?.campaigns ?? []}
-            onCampaignPress={(_id) => {}}
-          />
+          // Batch 5 §10.1 — campaign carousel fades in (opacity-only) once
+          // loaded. Reduced-motion-safe: FadeIn collapses to duration 0 via
+          // useMotionScale. (Skeleton→content §10.6 is realised as this
+          // content-fade-in; SkeletonToContent's absolute skeleton can't
+          // reserve height for Home's loading-conditional rails.)
+          <FadeIn duration={200}>
+            <CampaignCarousel
+              campaigns={feed?.campaigns ?? []}
+              onCampaignPress={(_id) => {}}
+            />
+          </FadeIn>
         )}
 
-        {categoriesData?.categories && (
-          <CategoryGrid
-            categories={categoriesData.categories}
-            onCategoryPress={(id) => router.push(`/category/${id}` as any)}
-            onMorePress={() => router.push('/categories' as any)}
-          />
-        )}
+        {/* Curated six top-level category cards + Explore-all capsule. */}
+        <HomeCategoryGrid
+          demoToken={demoToken}
+          collapseSignal={exploreCollapse}
+          onCategoryPress={(slug) => {
+            // Curated cards carry a canonical slug (not a display name), mapped
+            // to the backend Category by slug so a rename / casing / localization
+            // change can't silently misroute (resolveCategoryRoute is pure +
+            // unit-tested). Unresolved (not loaded yet, or no match) intentionally
+            // routes to the all-categories list with a dev warning rather than
+            // pretending the specific category opened.
+            const target = resolveCategoryRoute(slug, categoriesData?.categories)
+            if (target.kind === 'category') {
+              router.push({ pathname: '/category/[id]', params: { id: target.id } })
+              return
+            }
+            if (target.reason === 'unresolved' && __DEV__) {
+              console.warn(`[HomeScreen] category slug "${target.slug}" not resolvable — routing to /categories`)
+            }
+            router.push('/categories' as any)
+          }}
+        />
 
         {isLoading ? (
           <View style={styles.skeletonRow}>
@@ -341,8 +418,13 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    // 2026-06-03 background system — ONE consistent light warm body throughout
+    // (close to white, brand red-orange hue family). Sections are highlighted by
+    // going DEEPER than this body, not lighter: Featured is the deepest warm
+    // zone, Popular/Trending a mid warm-gold zone, Nearby sits on the plain body.
+    // White cards float on all of it. See <SectionBand>.
     flex: 1,
-    backgroundColor: '#FFF9F5',
+    backgroundColor: color.surface.body,
   },
   scroll: {
     paddingTop: 60,
@@ -352,5 +434,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 18,
     gap: 12,
+  },
+  refreshBrand: {
+    alignItems: 'center',
+    paddingVertical: spacing[2],
   },
 })

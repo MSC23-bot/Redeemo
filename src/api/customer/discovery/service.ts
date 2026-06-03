@@ -1599,7 +1599,12 @@ export async function getHomeFeed(
       })
     : []
 
-  // Group by primaryCategoryId in JS — up to 6 categories, up to 5 merchants each
+  // Group by primaryCategoryId in JS — up to 6 categories, up to 5 merchants each.
+  // NOTE: this is the LEGACY merchant-keyed `nearbyByCategory` field. The
+  // customer-app renders the branch-first `nearbyByCategoryRails` instead
+  // (capped at NEARBY_CATEGORY_TAKE=10 in homeRailBuilders.ts as of 2026-06-04).
+  // This legacy path is intentionally left at 5 — it is not what the app shows,
+  // and raising it would change the deprecated field customer-web still reads.
   const byCategory: Record<string, typeof nearbyMerchantsRaw> = {}
   for (const m of nearbyMerchantsRaw) {
     const cat = (m as any).primaryCategoryId

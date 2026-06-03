@@ -191,7 +191,9 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
                   backgroundColor: '#FFFFFF',
                   paddingHorizontal: spacing[4],
                   paddingVertical: spacing[2],
-                  borderRadius: radius.pill,
+                  // Batch 2 M5 — CTA pill radius.pill → radius.md (spec §9.2;
+                  // corrects the button-radius-rule violation).
+                  borderRadius: radius.md,
                 }}
                 accessibilityLabel={campaign.ctaText ?? 'Learn More'}
               >
@@ -212,7 +214,7 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
                 testID={`campaign-tile-${campaign.id}`}
                 style={{
                   width: BANNER_WIDTH,
-                  minHeight: 140,
+                  minHeight: 156,
                   borderRadius: radius.lg,
                   padding: spacing[5],
                   justifyContent: 'flex-end',
@@ -262,7 +264,7 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
               end={{ x: 1, y: 1 }}
               style={{
                 width: BANNER_WIDTH,
-                minHeight: 140,
+                minHeight: 156,
                 borderRadius: radius.lg,
                 padding: spacing[5],
                 justifyContent: 'flex-end',

@@ -5,6 +5,7 @@
 
 import {
   formatDistance,
+  formatDistanceCompact,
   formatGbp,
   formatVoucherCount,
 } from '@/design-system/utils/formatters'
@@ -120,5 +121,34 @@ describe('formatDistance', () => {
     expect(formatDistance(50)).not.toMatch(/metres/)
     expect(formatDistance(276)).not.toMatch(/metres/)
     expect(formatDistance(499)).not.toMatch(/metres/)
+  })
+})
+
+describe('formatDistanceCompact', () => {
+  // Batch 1B Tier 3 (2026-06-01) — compact "X mi" variant for the dense
+  // shared <BranchTile> card. Same miles-only maths as formatDistance, but
+  // short suffix so the line-2 `distance · proximity` never truncates.
+
+  it('returns null for null / undefined', () => {
+    expect(formatDistanceCompact(null)).toBeNull()
+    expect(formatDistanceCompact(undefined)).toBeNull()
+  })
+
+  it('formats sub-1-mile distances in miles: 276 → "0.2 mi"', () => {
+    expect(formatDistanceCompact(276)).toBe('0.2 mi')
+  })
+
+  it('formats the 1-mile mark: 1609 → "1.0 mi"', () => {
+    expect(formatDistanceCompact(1609)).toBe('1.0 mi')
+  })
+
+  it('formats multi-mile: 8200 → "5.1 mi"', () => {
+    expect(formatDistanceCompact(8200)).toBe('5.1 mi')
+  })
+
+  it('negative pins — never long-form "miles away", never metres', () => {
+    expect(formatDistanceCompact(276)).not.toMatch(/miles away/)
+    expect(formatDistanceCompact(8200)).not.toMatch(/miles away/)
+    expect(formatDistanceCompact(50)).not.toMatch(/metres/)
   })
 })

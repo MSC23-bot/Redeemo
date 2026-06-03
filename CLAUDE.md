@@ -816,6 +816,14 @@ Plan: `docs/superpowers/plans/2026-05-26-locationcontext-parity.md`.
 Audit: `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md`.
 QA: `docs/superpowers/qa/2026-05-26-locationcontext-parity-device-qa.md` (3 device-QA rounds + 1 pre-merge fixup round).
 
+### 🚧 Home Visual System Redesign — Batches 1B–5 + motion/gradient/scroll pass (LOCAL / UNCOMMITTED, 1–3 June 2026)
+
+A multi-batch premium redesign of the Home screen on branch `feature/home-batch-1b-card-chip`. Batches 1B / 2 / 3 / 5 are **committed** (`a2d00a8` BranchTile hierarchy / `514bc24` section composition / `fd74c4e` chrome cards / `93ec8c7` page-load motion + branded refresh). **Batch 4's implementation (illustrated 2-col category grid + Explore capsule + All-Categories re-skin, incl. ~46 untracked assets) and the entire 2026-06-03 motion/gradient/scroll pass are UNCOMMITTED (working-tree only)** — NOT pushed, NO PR. Checkpoint (full sweep + baseline-lint cleanup + asset tracking) is the pending pre-PR step.
+
+**📑 Single consolidated rebuildable reference (read this first):** `docs/superpowers/plans/2026-06-03-home-visual-system-as-built-reference.md`. Per-pass detail: the 5 batch plans `docs/superpowers/plans/2026-06-01-home-*.md` + `2026-06-03-home-motion-gradient-scroll-pass.md`. Spec: `docs/superpowers/specs/2026-06-01-home-visual-system-design.md`. Tracker: deferred-index **§HC** (+ §HC.7 for the June-3 pass). Closure memory: `project_home_visual_system_redesign.md`. (`2026-06-01-home-visual-system-workflow-checklist.md` is a NON-canonical tombstone.)
+
+Headline: illustrated category cards (Model-A — app draws card + radial gradient + designer icon + Mustica label; `ElementCluster` overlays transparent 1254² 3D PNGs) + brand red→orange gradient iconography on every rail glyph (`BrandGradientGlyph` SVG mask/fill, no masked-view dep) + per-icon LOOPING rail motions + a spinning gradient Featured star (`RailIconMotion`) + open-dot live pulse (`LiveStatusDot`) + a one-time Explore-capsule intro demo (`demoToken`) + the SectionBand warm peach + dual-edge glow + a **scroll-performance fix** (pause all loops during scroll via the global `scrollActivity` flag + per-component `useAnimatedReaction`). New card archetypes: `FeaturedHeroCard` (editorial hero), `NearbyCard` (landscape browse), `PopularCard` (shared Popular/Trending rail card). Reduce-motion CANCELLATION fixed; DETECTION is open (**§RM**). Other open follow-ups: collapsing sticky Home header (designed, separate PR) + bottom-nav redesign (separate PR) + chip light/deep colour lock + `category-illustrations/` ~16 MB LFS/CDN decision.
+
 ### 🔲 Next planned work
 
 1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.

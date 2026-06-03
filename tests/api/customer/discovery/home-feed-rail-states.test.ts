@@ -1816,3 +1816,75 @@ describe('§DF — effectiveLocation + locationContext envelope (spec §9.1)', (
     expect(body.locationContext.city).toBeNull()
   })
 })
+
+// ─── NearbyByCategory per-category cap (NEARBY_CATEGORY_TAKE) ──────────────
+// Owner direction 2026-06-04: the per-category cap was raised 5 → 10. This pins
+// that a single dense category can now surface up to 10 branches on Home.
+describe('NearbyByCategory rail — per-category cap (NEARBY_CATEGORY_TAKE = 10)', () => {
+  const createdMerchantIds: string[] = []
+  afterEach(async () => {
+    if (createdMerchantIds.length > 0) {
+      await prisma.branch.deleteMany({ where: { merchantId: { in: createdMerchantIds } } })
+      await prisma.merchant.deleteMany({ where: { id: { in: createdMerchantIds } } })
+      createdMerchantIds.length = 0
+    }
+  })
+
+  it('a single dense category returns up to 10 branches (was capped at 5)', { timeout: 30_000 }, async () => {
+    // Isolated effLoc — Builth Wells (mid-Wales) resolves to a locality (the
+    // §DG-5 popular-rail test relies on the same) yet has no seed/other-fixture
+    // merchants in its bbox, so the NearbyByCategory pool is exactly our
+    // fixtures (deterministic count) and they classify NEARBY-tier.
+    const REMOTE = { lat: 52.144, lng: -3.401 } // Builth Wells, mid-Wales
+    const ts = Date.now()
+
+    // Real top-level category → its parent is null, so railGroupingCategory
+    // groups these merchants into the Food & Drink rail itself.
+    const cat = await prisma.category.findFirst({ where: { name: 'Food & Drink', parentId: null } })
+    expect(cat).not.toBeNull()
+
+    // 12 ACTIVE merchants in that category, each one active branch within ~1.2km
+    // of REMOTE (all NEARBY tier). 12 > the cap, so the rail must slice to it.
+    for (let i = 0; i < 12; i++) {
+      const m = await prisma.merchant.create({
+        data: {
+          businessName:      `nbc-cap-${ts}-${i}`,
+          status:            'ACTIVE',
+          primaryCategoryId: cat!.id,
+          branches: { create: [{
+            name:               `nbc-cap-br-${ts}-${i}`,
+            addressLine1:       `${i} Test Street`,
+            city:               'Builth Wells',
+            postcode:           'LD2 3AA',
+            country:            'GB',
+            latitude:           REMOTE.lat + i * 0.001,
+            longitude:          REMOTE.lng + i * 0.001,
+            isActive:           true,
+            locationConfidence: 'MANUALLY_CONFIRMED' as const,
+            localityId:         null,
+            localityName:       null,
+            postTown:           null,
+            ladDistrict:        null,
+            adminCounty:        null,
+            region:             'Wales',
+            locationCountry:    'Wales',
+          }] },
+        },
+        include: { branches: true },
+      })
+      createdMerchantIds.push(m.id)
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url:    `/api/v1/customer/home?lat=${REMOTE.lat}&lng=${REMOTE.lng}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    const rail = body.nearbyByCategoryRails?.find((r: any) => r.category.id === cat!.id)
+    expect(rail).toBeTruthy()
+    expect(rail.branches.length).toBeGreaterThan(5) // would be exactly 5 under the old cap
+    expect(rail.branches.length).toBe(10)           // exactly the new cap
+  })
+})
