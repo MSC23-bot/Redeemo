@@ -11,28 +11,39 @@ function render(node: React.ReactElement) {
 }
 
 describe('BranchTile typography promotion (spec §9.7)', () => {
-  it('merchant name renders at 18pt Lato-SemiBold (Batch 1B Tier 3 promotion)', () => {
+  it('merchant name renders at 17pt Lato-Bold (premium v3 — confident name)', () => {
     const tile = makeBranchTile({
       merchant: { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
     })
     const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
     const nameNode = getByText('Covelum')
     const flat = StyleSheet.flatten(nameNode.props.style)
-    expect(flat.fontSize).toBe(18)
-    expect(flat.fontFamily).toBe('Lato-SemiBold')
+    expect(flat.fontSize).toBe(17)
+    expect(flat.fontFamily).toBe('Lato-Bold')
   })
 
-  it('info line 1 (descriptor · locality) renders at 13pt Lato-Regular', () => {
+  it('descriptor line renders at 13pt Lato-Medium (premium v3 — quieter under the bold name)', () => {
     const tile = makeBranchTile({
       branchLocalityName: 'Brightlingsea',
       distance:           1609,
       merchant:           { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
     })
     const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    // Anchor on info line 1 (descriptor · locality) — its own Text node,
-    // distinct from the merchant name and the line-2 distance/proximity.
-    const infoNode = getByText('Italian Restaurant · Brightlingsea')
-    const flat = StyleSheet.flatten(infoNode.props.style)
+    const descriptorNode = getByText('Italian Restaurant')
+    const flat = StyleSheet.flatten(descriptorNode.props.style)
+    expect(flat.fontSize).toBe(13)
+    expect(flat.fontFamily).toBe('Lato-Medium')
+  })
+
+  it('where line (Layout C line 2) renders "locality · distance" at 13pt Lato-Regular', () => {
+    const tile = makeBranchTile({
+      branchLocalityName: 'Brightlingsea',
+      distance:           1609,
+      merchant:           { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
+    })
+    const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
+    const whereNode = getByText('Brightlingsea · 1.0 mi')
+    const flat = StyleSheet.flatten(whereNode.props.style)
     expect(flat.fontSize).toBe(13)
     expect(flat.fontFamily).toBe('Lato-Regular')
   })

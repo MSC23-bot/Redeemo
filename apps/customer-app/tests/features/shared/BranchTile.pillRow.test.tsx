@@ -3,6 +3,7 @@ import { render as rtlRender } from '@testing-library/react-native'
 import { StyleSheet } from 'react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BranchTile } from '@/features/shared/BranchTile'
+import { color } from '@/design-system'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
 function render(node: React.ReactElement) {
@@ -10,24 +11,27 @@ function render(node: React.ReactElement) {
   return rtlRender(<QueryClientProvider client={qc}>{node}</QueryClientProvider>)
 }
 
-describe('BranchTile pill row (Batch 1B)', () => {
-  it('renders VoucherCountPill + SavePill when both have content', () => {
+// 2026-06-02 premium v2 — the voucher/save PILLS are gone. The value is a
+// single line: "Save up to £X" (savings-green, bold) + voucher count (navy,
+// prominent — the count is an important message, not grey chrome).
+describe('BranchTile value line', () => {
+  it('renders save (green, bold) + voucher count (navy) when both have content', () => {
     const tile = makeBranchTile({
-      proximityBand:  'IN_YOUR_AREA',
-      distance:       500,
-      merchant: {
-        businessName:       'Covelum',
-        descriptor:         'Italian Restaurant',
-        voucherCount:       3,
-        maxEstimatedSaving: 9,
-      },
+      proximityBand: 'IN_YOUR_AREA',
+      distance:      500,
+      merchant: { businessName: 'Covelum', descriptor: 'Italian Restaurant', voucherCount: 3, maxEstimatedSaving: 9 },
     })
     const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    expect(getByText('3 vouchers')).toBeTruthy()
-    expect(getByText('Save up to £9')).toBeTruthy()
+    const save = getByText('Save up to £9')
+    expect(StyleSheet.flatten(save.props.style).fontSize).toBe(15)
+    expect(StyleSheet.flatten(save.props.style).fontFamily).toBe('Lato-Bold')
+    expect(StyleSheet.flatten(save.props.style).color).toBe('#15803D')
+    const count = getByText('3 vouchers')
+    expect(StyleSheet.flatten(count.props.style).color).toBe(color.text.primary)
+    expect(StyleSheet.flatten(count.props.style).fontFamily).toBe('Lato-SemiBold')
   })
 
-  it('renders only VoucherCountPill when maxEstimatedSaving is null', () => {
+  it('renders the voucher count alone when maxEstimatedSaving is null', () => {
     const tile = makeBranchTile({
       merchant: { businessName: 'Covelum', voucherCount: 3, maxEstimatedSaving: null },
     })
@@ -36,19 +40,19 @@ describe('BranchTile pill row (Batch 1B)', () => {
     expect(queryByText(/Save up to/)).toBeNull()
   })
 
-  it('hides VoucherCountPill when count is 0 (null-guard)', () => {
-    const tile = makeBranchTile({ merchant: { businessName: 'No Vouchers', voucherCount: 0 } })
+  it('renders no count when voucherCount is 0', () => {
+    const tile = makeBranchTile({ merchant: { businessName: 'No Vouchers', voucherCount: 0, maxEstimatedSaving: null } })
     const { queryByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
     expect(queryByText(/voucher/)).toBeNull()
   })
 
-  it('NEVER renders the ProximityBandChip element inside the tile (proximity moved to info line)', () => {
-    const tile = makeBranchTile({ proximityBand: 'IN_YOUR_AREA' })
-    const { queryByTestId } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    expect(queryByTestId('proximity-band-chip')).toBeNull()
+  it('singular "1 voucher" copy', () => {
+    const tile = makeBranchTile({ merchant: { businessName: 'Covelum', voucherCount: 1, maxEstimatedSaving: null } })
+    const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
+    expect(getByText('1 voucher')).toBeTruthy()
   })
 
-  it('NEVER renders the ProximityBandChip for any band value', () => {
+  it('NEVER renders the retired ProximityBandChip element', () => {
     const bands = ['NEARBY', 'IN_YOUR_AREA', 'A_LITTLE_FURTHER', 'NEAREST_ON_REDEEMO'] as const
     for (const band of bands) {
       const tile = makeBranchTile({ proximityBand: band })
@@ -57,83 +61,35 @@ describe('BranchTile pill row (Batch 1B)', () => {
     }
   })
 
-  it('pill-row style includes flexWrap:"wrap" so Dynamic Type Largest wraps gracefully', () => {
-    const tile = makeBranchTile({ merchant: { businessName: 'Covelum', voucherCount: 3, maxEstimatedSaving: 9 } })
-    const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    // Walk up the rendered React tree from the VoucherCountPill text node
-    // until we hit a host View whose style declares `flexDirection: 'row'`
-    // — that's the pillRow. RNTL 13.x exposes forwardRef + wrapper layers
-    // as separate parents (Text-wrapper, DS-Text, View-host, View-wrapper,
-    // VoucherCountPill, View-host pillRow, View-wrapper pillRow), so a
-    // fixed-depth walk is fragile; we search by style instead.
-    const pillText = getByText('3 vouchers')
-    let cur: any = pillText.parent
-    let pillRow: any = null
-    for (let i = 0; i < 12 && cur; i++) {
-      const flat = StyleSheet.flatten(cur.props?.style)
-      if (flat && flat.flexDirection === 'row' && flat.gap === 6) {
-        pillRow = cur
-        break
-      }
-      cur = cur.parent
-    }
-    expect(pillRow).not.toBeNull()
-    const flat = StyleSheet.flatten(pillRow.props.style)
-    expect(flat.flexWrap).toBe('wrap')
-  })
-
-  it('card style does NOT include overflow:"hidden" so a wrapped pill row second-row is not clipped', () => {
+  it('card style does NOT include overflow:"hidden" so content is never clipped', () => {
     const tile = makeBranchTile({ merchant: { businessName: 'Covelum', voucherCount: 3 } })
     const { getByLabelText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    // The labelled element is the inner Pressable from PressableScale; its
-    // outer Animated.View carries the card style. Walk up until we hit a
-    // node whose style declares the card backgroundColor white + borderRadius.
-    const labelled = getByLabelText(/^Covelum/)
-    let cur: any = labelled
-    let cardStyleNode: any = null
+    let cur: any = getByLabelText(/^Covelum/)
+    let cardNode: any = null
     for (let i = 0; i < 8 && cur; i++) {
       const flat = StyleSheet.flatten(cur.props?.style)
       if (flat && flat.backgroundColor === '#FFFFFF' && typeof flat.borderRadius === 'number') {
-        cardStyleNode = cur
+        cardNode = cur
         break
       }
       cur = cur.parent
     }
-    expect(cardStyleNode).not.toBeNull()
-    const flat = StyleSheet.flatten(cardStyleNode.props.style)
-    expect(flat.overflow).not.toBe('hidden')
+    expect(cardNode).not.toBeNull()
+    expect(StyleSheet.flatten(cardNode.props.style).overflow).not.toBe('hidden')
   })
 
-  it('VoucherCountPill text uses 11pt Lato-SemiBold (locked §9.7)', () => {
-    const tile = makeBranchTile({ merchant: { voucherCount: 3 } })
-    const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    const flat = StyleSheet.flatten(getByText('3 vouchers').props.style)
-    expect(flat.fontSize).toBe(11)
-    expect(flat.fontFamily).toBe('Lato-SemiBold')
+  it('rating renders right-aligned in content — value 13pt Lato-Bold, count 11pt', () => {
+    const tile = makeBranchTile({ avgRating: 4.5, reviewCount: 12, merchant: { businessName: 'Covelum' } })
+    const { getByText, getByTestId } = render(<BranchTile branch={tile} onPress={() => {}} />)
+    expect(getByTestId('branch-tile-rating')).toBeTruthy()
+    expect(StyleSheet.flatten(getByText('4.5').props.style).fontSize).toBe(13)
+    expect(StyleSheet.flatten(getByText('4.5').props.style).fontFamily).toBe('Lato-Bold')
+    expect(StyleSheet.flatten(getByText('(12)').props.style).fontSize).toBe(11)
   })
 
-  it('SavePill text uses 11pt Lato-SemiBold (locked §9.7)', () => {
-    const tile = makeBranchTile({ merchant: { voucherCount: 3, maxEstimatedSaving: 9 } })
-    const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    const flat = StyleSheet.flatten(getByText('Save up to £9').props.style)
-    expect(flat.fontSize).toBe(11)
-    expect(flat.fontFamily).toBe('Lato-SemiBold')
-  })
-
-  it('StarRating renders rating at 13pt + count at 11pt (Star size=14 pinned in standalone StarRating.test.tsx)', () => {
-    const tile = makeBranchTile({
-      avgRating:   4.5,
-      reviewCount: 12,
-      merchant:    { businessName: 'Covelum' },
-    })
-    const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
-    const ratingFlat = StyleSheet.flatten(getByText('4.5').props.style)
-    expect(ratingFlat.fontSize).toBe(13)
-    const countFlat  = StyleSheet.flatten(getByText('(12)').props.style)
-    expect(countFlat.fontSize).toBe(11)
-    // Star icon size=14 assertion lives in tests/features/shared/StarRating.test.tsx
-    // — uses testID='star-rating-icon' on the Star JSX element. Keeping the
-    // size pin in the standalone suite avoids coupling BranchTile's composition
-    // tests to lucide-react-native's forwardRef internals.
+  it('rating is suppressed when avgRating is null', () => {
+    const tile = makeBranchTile({ avgRating: null, merchant: { businessName: 'Covelum' } })
+    const { queryByTestId } = render(<BranchTile branch={tile} onPress={() => {}} />)
+    expect(queryByTestId('branch-tile-rating')).toBeNull()
   })
 })

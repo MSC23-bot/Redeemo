@@ -2,7 +2,7 @@ import React from 'react'
 import { View, ScrollView } from 'react-native'
 import { spacing } from '@/design-system'
 import { FadeInDown } from '@/design-system/motion/FadeIn'
-import { BranchTile } from '@/features/shared/BranchTile'
+import { PopularCard, RAIL_TILE_WIDTH } from './PopularCard'
 import type { HomeRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
 import { SectionBand } from './SectionBand'
@@ -25,9 +25,9 @@ import { SectionBand } from './SectionBand'
 // Carousel chrome mirrors `<TrendingSection>` (horizontal ScrollView, same
 // tile width + gap).
 
-// Batch 1B Tier 3 (2026-06-01) — wider tile (240→268), matching Trending +
-// NearbyByCategory, for a more premium card scale.
-const TILE_WIDTH = 268
+// Shared rail-card width (see RAIL_TILE_WIDTH). Popular / Trending / Nearby all
+// match; Featured hero is the one larger exception.
+const TILE_WIDTH = RAIL_TILE_WIDTH
 const TILE_GAP   = 12
 
 type Props = {
@@ -38,7 +38,7 @@ type Props = {
   onFavourite?:  (id: string) => void
 }
 
-export function PopularSection({ rail, onBranchPress, onFavourite }: Props) {
+export function PopularSection({ rail, onBranchPress }: Props) {
   const branches = rail.branches
 
   // §11.6 — silent hide when meta is null OR no branches.
@@ -59,6 +59,7 @@ export function PopularSection({ rail, onBranchPress, onFavourite }: Props) {
 
       <ScrollView
         horizontal
+        removeClippedSubviews
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
       >
@@ -66,11 +67,10 @@ export function PopularSection({ rail, onBranchPress, onFavourite }: Props) {
           // Branch-keyed identity (Phase 2.3) — same pattern as
           // FeaturedCarousel + TrendingSection.
           const tile = (
-            <BranchTile
+            <PopularCard
               key={branch.id}
               branch={branch}
               onPress={onBranchPress}
-              {...(onFavourite ? { onFavourite } : {})}
               width={TILE_WIDTH}
             />
           )

@@ -1,10 +1,17 @@
-# Home Batch 4 — Category illustration grid (Model A: app-built cards + transparent illustration layers)
+# Home Batch 4 — Category illustration grid
 
-**Status:** Owner decisions **LOCKED** (2026-06-01, see §13). Plan committable now; **Batch 4 implementation is gated until the Batch 5 code commit (`93ec8c7`) is landed AND the owner explicitly approves** — do not start implementation yet.
+**Status:** Owner decisions **LOCKED** (2026-06-01, see §13). Plan committed. Batch 5 code has since landed, and Batch 4 is now in active implementation/trial. Keep this plan and the canonical deferred / follow-up index aligned with the current active state.
 **Tier:** 2 (Home surface rebuild + asset wiring). Per locked **D-supply**: if the categories endpoint lacks per-context supply data, Batch 4 ships **enabled-only** rendering for v1 (frontend) + records a supply-endpoint follow-up — it does **NOT** auto-escalate to a backend / Tier-3 change.
 **Spec:** `docs/superpowers/specs/2026-06-01-home-visual-system-design.md` — §5 (six Home cards), §6 (illustration system), §7 (View All capsule, Option A), §8 (receiving surface + supply-aware rule), §11 (a11y / Dynamic Type), §15 F2/F3 (illustration briefs).
 **Visual target:** `apps/customer-app/assets/Generated image 1.png` (locked reference). The app-rendered cards must match it as closely as possible, but with **Redeemo native brand typography + app-rendered text/icons**.
-**Sequence:** Batch 4 of the 5-batch programme. Was blocked on illustrations — now unblocked. Stacks on the local branch after `78e4a89` (Batch 5 plan) / the Batch 5 code commit once it lands. **Not pushed, no PR.**
+**Sequence:** Batch 4 of the 5-batch programme. Was blocked on illustrations — now unblocked. Stacks on the local branch after the Batch 5 code commit. **Not pushed, no PR.**
+
+> **Drift note, 2026-06-02:** This plan originally locked Model A for both Home and the receiving surface. The implementation direction has since split:
+>
+> - **Home six cards:** still use a Model-A-style composition, but with designer-supplied image icons plus separate 3D element PNGs positioned in app code.
+> - **All-categories receiving surface:** now uses regenerated full card-base PNGs (`1200×414`, RGBA, transparent outside the card / soft shadow / slight 3D bleed, no text or icon baked in), with the app overlaying designer icons + live labels.
+>
+> Treat this drift note as the current correction to the original plan. The older sections below remain useful for rationale and guardrails, but should not override the updated asset contract. Any remaining gates or deferred items should be mirrored into the canonical deferred / follow-up index so there is only one durable tracker.
 
 ---
 
@@ -214,3 +221,71 @@ If M0 finds the categories endpoint lacks reliable per-context supply data, v1 s
 - No category-count copy; protrusion + shadows render uncut; Dynamic Type + VoiceOver correct (Model A live text).
 - Batch 1B/2/3/5 surfaces unchanged.
 - Committed as its own commit. **No push, no PR until owner approves.**
+
+---
+
+## 17. As-shipped — productionised implementation model (2026-06-02)
+
+This section reconciles the plan with what was actually built once the visual trial
+was approved and productionised. Where it conflicts with §0–§16 above, **this section
+and the canonical deferred / follow-up index (§HC) win** (the older sections remain valid
+as rationale/guardrails). The remaining PR gates live in **§HC** of the deferred index;
+the retired `*-home-visual-system-workflow-checklist.md` is a tombstone redirect, not a tracker.
+
+### 17.1 Components (final)
+
+- **Home six cards + Explore capsule** → `apps/customer-app/src/features/home/components/HomeCategoryGrid.tsx`.
+  Renamed from the trial `CategoryGridPoc`; the `*TrialCard` components became `*Card`;
+  TEMP comments and the empty `PLACEHOLDERS`/`PlaceholderTile` scaffolding were removed.
+  Exported symbol: `HomeCategoryGrid({ onCategoryPress, collapseSignal })`.
+- The old SVG/inline `CategoryGrid.tsx` (+ its isolated `CategoryGrid.test.tsx`) was the
+  pre-trial grid path and is now **deleted** — it was dead (imported but never rendered).
+- **All-categories receiving surface** → `apps/customer-app/src/features/search/screens/AllCategoriesScreen.tsx`,
+  route `/(app)/categories`. Single-column list of designer **card-base PNGs** with the
+  app overlaying the icon + live label; rows route to `/category/[id]`.
+
+### 17.2 Model is split (not pure Model A)
+
+- **Home cards:** app draws card + radial gradient + designer image icon + Mustica label;
+  separate transparent 3D element PNGs are overlaid via `ElementCluster` sub-pixel placement.
+  Icons are **designer image assets**, not Lucide (supersedes §4/§M1's "Lucide icon").
+- **All-categories:** full **card-base PNG** per row (gradient + 3D + soft shadow baked in,
+  `1200×414`, ~2.9:1, transparent L/R margin), rendered `contentFit="contain"` (no clipping).
+
+### 17.3 Asset contract (load-bearing — verified present 2026-06-02)
+
+| Dir | Used by | Files | Notes |
+|---|---|---|---|
+| `assets/category-card-bases/view-all/` | AllCategoriesScreen | 11 / 11 used | one `<slug>-card-base.png` per top-level category |
+| `assets/category-icons/all/` | AllCategoriesScreen + Explore chips | 10 used | `unmapped-screenshot-icon.png` present but **unused** (do not force onto Health & Medical) |
+| `assets/category-icons/home/` | HomeCategoryGrid | 6 / 6 used | |
+| `assets/category-illustrations/<slug>/` | HomeCategoryGrid | 20 used / 25 present | 5 decluttered elements unused (see 17.5) |
+
+All 46 referenced assets confirmed on disk. Asset dirs are still **untracked (`??`)** — tracking
+is the remaining pre-commit step (owner decision; no commit yet).
+
+### 17.4 Unresolved (carried forward, must resolve before PR)
+
+- **Health & Medical icon** — no confirmed asset; both surfaces draw a temporary `+` placeholder
+  cross. `unmapped-screenshot-icon.png` must **not** be silently mapped in (owner direction).
+- **Explore-capsule extra-category chip colours** (Travel/Family/Auto/Pets/Medical) are **approximate**
+  and need locking or documenting before PR.
+
+### 17.5 Scrap / unused assets (do NOT stage unless intentionally kept as source material)
+
+- Unused illustration elements (decluttered out of the cards, ~3.7 MB):
+  `beauty-wellness/spa-stones.png`, `food-drink/sushi-roll.png`,
+  `home-local-services/folded-cloth.png`, `out-about/tree.png`, `shopping/cardboard-parcel.png`.
+- Reference/scrap dirs unreferenced by code: `assets/category-trial/` (1 file, 388 KB),
+  `assets/category-reference-crops-v2/` (17 files, 1.9 MB), stray `assets/Generated image 1.png` (2.0 MB).
+- **Git-size flag:** `category-illustrations/` is ~16 MB (25 PNGs, several ≈0.7–1.0 MB). Acceptable-in-Git
+  vs LFS/CDN is an open §10 follow-up; not a blocker for this PR.
+
+### 17.6 Tests (as-shipped)
+
+- `tests/features/home/components/HomeCategoryGrid.test.tsx` — 6 card-press → `onCategoryPress(name)`
+  pins + all-six-render + Explore capsule → `onCategoryPress('Explore all categories')`.
+- `tests/features/search/AllCategoriesScreen.test.tsx` — existing render/filter pins + row→`/category/[id]`
+  routing + Health & Medical placeholder-branch render+route.
+- Old `CategoryGrid.test.tsx` deleted with its component.
+- Verified 2026-06-02: focused trio 17/17; Home + Search sweep **304/304** across 43 suites; `tsc --noEmit` clean.

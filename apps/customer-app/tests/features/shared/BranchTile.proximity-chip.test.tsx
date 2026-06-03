@@ -30,24 +30,24 @@ describe('BranchTile — proximity clause wiring (Batch 1B inline-clause replace
     expect(queryByTestId('proximity-band-chip')).toBeNull()
   })
 
-  it('renders "A short trip away" inline when proximityBand is A_LITTLE_FURTHER', () => {
+  it('renders "Short trip" inline when proximityBand is A_LITTLE_FURTHER', () => {
     const tile = makeBranchTile({
       proximityBand: 'A_LITTLE_FURTHER',
       merchant:      { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
     })
     const { getByText, queryByText, queryByTestId } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
-    expect(getByText('A short trip away')).toBeTruthy()
+    expect(getByText('Short trip')).toBeTruthy()
     expect(queryByText('A little further')).toBeNull()  // pre-fixup-3 wording
     expect(queryByTestId('proximity-band-chip')).toBeNull()
   })
 
-  it('renders "Nearest match on Redeemo" inline when proximityBand is NEAREST_ON_REDEEMO', () => {
+  it('renders "Nearest match" inline when proximityBand is NEAREST_ON_REDEEMO', () => {
     const tile = makeBranchTile({
       proximityBand: 'NEAREST_ON_REDEEMO',
       merchant:      { businessName: 'Covelum', descriptor: 'Italian Restaurant' },
     })
     const { getByText, queryByText, queryByTestId } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
-    expect(getByText('Nearest match on Redeemo')).toBeTruthy()
+    expect(getByText('Nearest match')).toBeTruthy()
     expect(queryByText('Nearest on Redeemo')).toBeNull()        // pre-fixup-2 wording
     expect(queryByText('Closest match on Redeemo')).toBeNull()  // v1.7/v1.8 transitional copy
     expect(queryByTestId('proximity-band-chip')).toBeNull()
@@ -60,8 +60,8 @@ describe('BranchTile — proximity clause wiring (Batch 1B inline-clause replace
     })
     const { queryByText, queryByTestId } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A short trip away')).toBeNull()
-    expect(queryByText('Nearest match on Redeemo')).toBeNull()
+    expect(queryByText('Short trip')).toBeNull()
+    expect(queryByText('Nearest match')).toBeNull()
     expect(queryByTestId('proximity-band-chip')).toBeNull()
   })
 
@@ -72,15 +72,15 @@ describe('BranchTile — proximity clause wiring (Batch 1B inline-clause replace
     })
     const { queryByText } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A short trip away')).toBeNull()
-    expect(queryByText('Nearest match on Redeemo')).toBeNull()
+    expect(queryByText('Short trip')).toBeNull()
+    expect(queryByText('Nearest match')).toBeNull()
   })
 
   it('renders no proximity copy when proximityBand is absent (pre-M3 response)', () => {
     const tile = makeBranchTile()  // fixture default has proximityBand:null
     const { queryByText } = render(<BranchTile branch={tile} onPress={jest.fn()} />)
     expect(queryByText('In your area')).toBeNull()
-    expect(queryByText('A short trip away')).toBeNull()
-    expect(queryByText('Nearest match on Redeemo')).toBeNull()
+    expect(queryByText('Short trip')).toBeNull()
+    expect(queryByText('Nearest match')).toBeNull()
   })
 })

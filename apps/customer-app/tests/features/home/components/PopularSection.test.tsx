@@ -140,16 +140,16 @@ describe('<PopularSection>', () => {
         },
       }),
     ]
-    const { getByText, getAllByText } = render(
+    const { getByText, queryByText } = render(
       <PopularSection rail={makeRail(branches)} onBranchPress={jest.fn()} />,
     )
-    // Batch 1B Tier 3 — the shared <BranchTile> renders the COMPACT
-    // distance via formatDistanceCompact: 1200m → "0.7 mi" on info line 2.
+    // 2026-06-03 — Popular/Trending now use <PopularCard>: compact distance via
+    // formatDistanceCompact (1200m → "0.7 mi") in the where line.
     expect(getByText(/0\.7 mi/)).toBeTruthy()
-    // Batch 1B: 'In your area' now renders as the inline proximity clause
-    // inside the BranchTile info line. The standalone ProximityBandChip is
-    // retired. Pin assertion: exactly ONE Text node contains the string.
-    expect(getAllByText('In your area')).toHaveLength(1)
+    // Proximity ("In your area") is intentionally DROPPED from the discovery
+    // card — it's redundant with the shown distance + the "near you" section
+    // context. (queryByText null is also asserted in the meta-row test above.)
+    expect(queryByText('In your area')).toBeNull()
   })
 
   it('returns null when rail.meta is null (silent hide per §11.6)', () => {

@@ -1,5 +1,7 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
+import { useSharedValue } from 'react-native-reanimated' // scroll-collapse signal for the Explore capsule chips
+import { scrollActivity } from '@/design-system/motion/scrollActivity'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,7 +12,6 @@ import { useCategories } from '@/hooks/useCategories'
 import { useMe } from '@/hooks/useMe'
 import { HomeHeader } from '../components/HomeHeader'
 import { CampaignCarousel } from '../components/CampaignCarousel'
-import { CategoryGrid } from '../components/CategoryGrid'
 import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
 import { PopularSection } from '../components/PopularSection'
@@ -20,6 +21,7 @@ import { NearbySectionEmpty } from '../components/NearbySectionEmpty'
 import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
+import { HomeCategoryGrid } from '../components/HomeCategoryGrid'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
 import { FadeIn } from '@/design-system/motion/FadeIn'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
@@ -50,7 +52,14 @@ export function HomeScreen() {
   )
   const { data: categoriesData } = useCategories()
   const [refreshing, setRefreshing] = useState(false)
+  // Bumped once the first load completes and again on every pull-to-refresh —
+  // drives the Explore-capsule intro demo so it replays on each refresh.
+  const [demoToken, setDemoToken] = useState(0)
+  const playedInitialDemo = useRef(false)
   const scrollViewRef = useRef<ScrollView>(null)
+  const exploreCollapse = useSharedValue(0) // bumped on scroll start to collapse any open Explore chip
+  const momentumRef = useRef(false) // true once momentum scroll has begun (for the resume-on-stop logic)
+  const scrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { scrollTop } = useLocalSearchParams<{ scrollTop?: string }>()
 
   // Device-QA R1 (2026-05-30) — Favourites empty-state CTA + any
@@ -117,7 +126,17 @@ export function HomeScreen() {
     setRefreshing(true)
     await refetch()
     setRefreshing(false)
+    setDemoToken((t) => t + 1) // replay the Explore-capsule intro on each refresh
   }
+
+  // Play the intro once the first load completes; per-refresh replays come from
+  // onRefresh above.
+  useEffect(() => {
+    if (!isLoading && !playedInitialDemo.current) {
+      playedInitialDemo.current = true
+      setDemoToken((t) => t + 1)
+    }
+  }, [isLoading])
 
   // Phase 2.3 — Home tile tap routes carry both the merchant id (route
   // path) AND the branch id (`?branch=` for Merchant Profile attribution)
@@ -222,6 +241,26 @@ export function HomeScreen() {
       <ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
+        // Perf: detach off-screen sections (category grid, lower rails) so their
+        // SVG gradients, soft shadows and continuous animations stop compositing
+        // while scrolled past — they were all staying live on this non-virtualised
+        // feed and starving the UI thread of frames.
+        removeClippedSubviews
+        // Pause looping animations while the feed is moving (begin → 1) and
+        // resume once it's fully stopped (momentum end, or drag-end with no
+        // momentum) — dozens of per-frame animation updates were starving the
+        // scroll of frames. Runs on the UI thread; no re-renders.
+        onScrollBeginDrag={() => {
+          exploreCollapse.value += 1
+          if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current)
+          momentumRef.current = false
+          scrollActivity.value = 1
+        }}
+        onMomentumScrollBegin={() => { momentumRef.current = true }}
+        onScrollEndDrag={() => {
+          scrollEndTimerRef.current = setTimeout(() => { if (!momentumRef.current) scrollActivity.value = 0 }, 80)
+        }}
+        onMomentumScrollEnd={() => { momentumRef.current = false; scrollActivity.value = 0 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
         contentContainerStyle={[
           styles.scroll,
@@ -236,7 +275,7 @@ export function HomeScreen() {
             tuning item (plan §9). */}
         {refreshing ? (
           <View style={styles.refreshBrand}>
-            <RedeemoLoader size="sm" />
+            <RedeemoLoader size="md" />
           </View>
         ) : null}
 
@@ -298,13 +337,21 @@ export function HomeScreen() {
           </FadeIn>
         )}
 
-        {categoriesData?.categories && (
-          <CategoryGrid
-            categories={categoriesData.categories}
-            onCategoryPress={(id) => router.push(`/category/${id}` as any)}
-            onMorePress={() => router.push('/categories' as any)}
-          />
-        )}
+        {/* Curated six top-level category cards + Explore-all capsule. */}
+        <HomeCategoryGrid
+          demoToken={demoToken}
+          collapseSignal={exploreCollapse}
+          onCategoryPress={(name) => {
+            // 'Explore all categories' → all-categories surface; else the named
+            // category → its results screen (mapped to the backend id by name).
+            if (name === 'Explore all categories') {
+              router.push('/categories' as any)
+              return
+            }
+            const cat = categoriesData?.categories?.find((c) => c.name === name)
+            router.push((cat ? `/category/${cat.id}` : '/categories') as any)
+          }}
+        />
 
         {isLoading ? (
           <View style={styles.skeletonRow}>
@@ -366,13 +413,13 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    // Batch 2 M1 (2026-06-01) — page paint fixed to white (surface.page).
-    // The cream wash is no longer the page background; per Composition B
-    // (spec §4) the warmth now lives in the section bands (Featured cream
-    // identity band + Popular/Trending warm-tint band), so the page itself
-    // is white and the bands read as distinct zones against it.
+    // 2026-06-03 background system — ONE consistent light warm body throughout
+    // (close to white, brand red-orange hue family). Sections are highlighted by
+    // going DEEPER than this body, not lighter: Featured is the deepest warm
+    // zone, Popular/Trending a mid warm-gold zone, Nearby sits on the plain body.
+    // White cards float on all of it. See <SectionBand>.
     flex: 1,
-    backgroundColor: color.surface.page,
+    backgroundColor: color.surface.body,
   },
   scroll: {
     paddingTop: 60,

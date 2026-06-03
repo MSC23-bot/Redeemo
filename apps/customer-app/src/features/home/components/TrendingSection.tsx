@@ -2,7 +2,7 @@ import React from 'react'
 import { View, ScrollView } from 'react-native'
 import { spacing } from '@/design-system'
 import { FadeInDown } from '@/design-system/motion/FadeIn'
-import { BranchTile } from '@/features/shared/BranchTile'
+import { PopularCard, RAIL_TILE_WIDTH } from './PopularCard'
 import type { HomeRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
 import { SectionBand } from './SectionBand'
@@ -21,9 +21,8 @@ import { SectionBand } from './SectionBand'
 // this to enforce the trending↔popular swap (which fires when
 // `feed.trendingRail.meta` is null).
 
-// Batch 1B Tier 3 (2026-06-01) — wider tile (240→268) for a more premium
-// card scale, matching Popular + NearbyByCategory.
-const TILE_WIDTH = 268
+// Shared rail-card width (see RAIL_TILE_WIDTH) — identical to Popular + Nearby.
+const TILE_WIDTH = RAIL_TILE_WIDTH
 const TILE_GAP   = 12
 
 type Props = {
@@ -34,7 +33,7 @@ type Props = {
   onFavourite?:  (id: string) => void
 }
 
-export function TrendingSection({ rail, onBranchPress, onFavourite }: Props) {
+export function TrendingSection({ rail, onBranchPress }: Props) {
   const branches = rail.branches
 
   if (!rail.meta || branches.length === 0) return null
@@ -59,6 +58,7 @@ export function TrendingSection({ rail, onBranchPress, onFavourite }: Props) {
       {/* Horizontal scroll of tiles */}
       <ScrollView
         horizontal
+        removeClippedSubviews
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
       >
@@ -66,11 +66,10 @@ export function TrendingSection({ rail, onBranchPress, onFavourite }: Props) {
           // Branch-keyed identity (Phase 2.3) — same pattern as
           // FeaturedCarousel.
           const tile = (
-            <BranchTile
+            <PopularCard
               key={branch.id}
               branch={branch}
               onPress={onBranchPress}
-              {...(onFavourite ? { onFavourite } : {})}
               width={TILE_WIDTH}
             />
           )

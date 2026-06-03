@@ -19,15 +19,15 @@ describe('<RailHeader>', () => {
     // `{Category} on Redeemo` variant (v1.5) is RETIRED — local + cascade
     // share the same label rule.  The <NearbyContextBanner> now carries
     // the platform-claim message instead.
-    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Food & Drink' },      'Food & drink picks'],
-    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Beauty & Wellness' }, 'Beauty & wellness picks'],
-    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Health & Fitness' },  'Health & fitness picks'],
-    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Out & About' },       'Out & about picks'],
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Food & Drink' },      'Food & Drink picks'],
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Beauty & Wellness' }, 'Beauty & Wellness picks'],
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Health & Fitness' },  'Health & Fitness picks'],
+    [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Out & About' },       'Out & About picks'],
     [{ meta: trendingLocal,   railKind: 'nearbyByCategory' as const, categoryName: 'Shopping' },          'Shopping picks'],
     // Cascade rails (scopeExpanded=true) use the SAME label rule — no
     // "on Redeemo" suffix.  The banner does the platform-claim work.
-    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Food & Drink' },      'Food & drink picks'],
-    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Beauty & Wellness' }, 'Beauty & wellness picks'],
+    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Food & Drink' },      'Food & Drink picks'],
+    [{ meta: featuredCascade, railKind: 'nearbyByCategory' as const, categoryName: 'Beauty & Wellness' }, 'Beauty & Wellness picks'],
     // v1.4 PR #126 device-QA-3 (Featured copy honesty): Featured in {City}
     // is reserved for in-locality supply; CATCHMENT/POST_TOWN tier renders
     // "Featured near {City}".
@@ -53,5 +53,16 @@ describe('<RailHeader>', () => {
   it('does NOT render the trending mark by default (Featured / NBC rails)', () => {
     const { queryByTestId } = render(<RailHeader meta={null} fixedCopy="Popular on Redeemo" />)
     expect(queryByTestId('rail-trending-mark')).toBeNull()
+  })
+
+  // 2026-06-03 — Featured rails get a star mark (consistent with flame + cat icons).
+  it('renders the Featured star mark on featured rails', () => {
+    const { getByTestId } = render(<RailHeader meta={featuredLocal} railKind="featured" />)
+    expect(getByTestId('rail-featured-mark')).toBeTruthy()
+  })
+
+  it('does NOT render the Featured star on non-featured rails', () => {
+    const { queryByTestId } = render(<RailHeader meta={trendingLocal} railKind="nearbyByCategory" categoryName="Food & Drink" />)
+    expect(queryByTestId('rail-featured-mark')).toBeNull()
   })
 })

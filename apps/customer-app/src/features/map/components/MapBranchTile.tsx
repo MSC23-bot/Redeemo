@@ -98,6 +98,7 @@ export function MapBranchTile({
             <BranchTile
               branch={branch}
               onPress={onBranchPress}
+              size="standard"
               width={TILE_WIDTH}
             />
           </View>

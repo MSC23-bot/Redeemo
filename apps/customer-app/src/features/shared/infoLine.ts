@@ -1,38 +1,28 @@
 /**
- * Batch 1B Tier 3 (2026-06-01) — pure-function composition helper for the
- * shared <BranchTile> info hierarchy.
+ * Pure-function composition helper for the shared <BranchTile> info hierarchy.
  *
- * Layout B (owner-locked 2026-06-01 device-QA direction): the info area
- * splits onto TWO lines beneath the merchant name —
+ * Layout C (2026-06-02 design pass) — the info area reads as THREE lines
+ * beneath the merchant name, so location stops looking like a run-on:
  *
- *   line 1 (primary):   `descriptor · locality`   e.g. "Indian Restaurant · Brightlingsea"
- *   line 2 (distance + proximity): `distance · proximity`  e.g. "0.4 mi · In your area"
+ *   line 1 (descriptor):  what it is        e.g. "Indian Restaurant"
+ *   line 2 (where):       locality · distance, with a pin icon (rendered by
+ *                         the consumer)      e.g. "◎ Brightlingsea · 0.4 mi"
+ *   line 3 (proximity):   the per-band clause, carrying its semantic colour
+ *                         (rendered by the consumer)  e.g. "In your area"
  *
- * Returns:
- *   - primary:   a single string composed of [descriptor, locality] joined
- *     by ` · ` (Unicode middot U+00B7), empty segments dropped via
- *     `.filter(Boolean)` so there are no orphan separators.
- *   - distance:  the compact distance string ("0.4 mi") passed through, or
- *     '' when unknown. Rendered as the leading segment of line 2.
- *   - proximity: the per-band human-friendly clause OR null for NEARBY /
- *     null / undefined / unknown bands. Returned separately so the consumer
- *     can render it as a nested <Text> child carrying the band-specific
- *     semantic colour (sage / amber / brand-rose per PR #126 v1.8 lock).
+ * Returns the atomic parts so the consumer can render the pin icon inline on
+ * line 2 and apply the band colour to line 3:
+ *   - descriptor: the category/subcategory descriptor, or '' when unknown.
+ *   - locality:   the branch locality string, or '' when unknown.
+ *   - distance:   the compact distance ("0.4 mi"), or '' when unknown.
+ *   - proximity:  the per-band human clause, or null for NEARBY / null / unknown.
  *
- * WHY two lines (replaces the Batch-1B single-line compose): on the dense
- * fixed-width rail cards, `descriptor · locality` alone consumes ~85–100%
- * of the line, so a single-line `descriptor · locality · distance ·
- * proximity` always tail-truncated the proximity clause (the highest-value
- * semantic) right off-screen. Splitting distance + proximity onto their
- * own short line guarantees the proximity clause is always visible and
- * sits visually adjacent to the distance it qualifies. The compact "mi"
- * distance (see `formatDistanceCompact`) keeps line 2 short enough that
- * even "Nearest match on Redeemo" never truncates.
- *
- * Each line is rendered `numberOfLines={1}`; line 1 may still tail-ellipsis
- * a very long descriptor/locality, but that NEVER starves line 2 — distance
- * and proximity live on their own protected line. The §DH descriptor →
- * locality composition order is the locked product-rule baseline.
+ * WHY three lines (replaces the Layout-B two-line `descriptor · locality` /
+ * `distance · proximity`): welding the descriptor to the locality with a
+ * middot read as a run-on and buried the "where". Giving the descriptor,
+ * the location (locality + distance, with a pin), and the proximity clause
+ * each their own line makes the hierarchy legible — what it is, where it is,
+ * how near. Each line is rendered `numberOfLines={1}` by the consumer.
  */
 
 import type { ProximityBand } from '@/lib/api/discovery'
@@ -45,9 +35,10 @@ export type InfoLineInput = {
 }
 
 export type InfoLineOutput = {
-  primary:   string
-  distance:  string
-  proximity: string | null
+  descriptor: string
+  locality:   string
+  distance:   string
+  proximity:  string | null
 }
 
 const BAND_LABEL: Record<ProximityBand, string | null> = {
@@ -58,8 +49,19 @@ const BAND_LABEL: Record<ProximityBand, string | null> = {
 }
 
 export function composeInfoLine(input: InfoLineInput): InfoLineOutput {
-  const primary   = [input.descriptor, input.locality].filter(Boolean).join(' · ')
-  const distance  = input.distance
-  const proximity = input.band == null ? null : BAND_LABEL[input.band] ?? null
-  return { primary, distance, proximity }
+  return {
+    descriptor: input.descriptor,
+    locality:   input.locality,
+    distance:   input.distance,
+    proximity:  input.band == null ? null : BAND_LABEL[input.band] ?? null,
+  }
+}
+
+/**
+ * Joins the location line (locality + distance) with a middot, dropping empty
+ * segments so there are no orphan separators. The consumer renders the pin
+ * icon before this string. Exposed for the consumer + unit tests.
+ */
+export function composeWhereLine(locality: string, distance: string): string {
+  return [locality, distance].filter(Boolean).join(' · ')
 }

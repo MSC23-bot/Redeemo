@@ -34,6 +34,8 @@ jest.mock('react-native-reanimated', () => {
       createAnimatedComponent: (C: React.ComponentType<unknown>) => C,
     },
     useSharedValue: (v: unknown) => ({ value: v }),
+    // Imperative shared value (module-level singletons, e.g. scrollActivity).
+    makeMutable: (v: unknown) => ({ value: v }),
     useAnimatedStyle: () => ({}),
     useDerivedValue: (fn: () => unknown) => ({ value: fn() }),
     withTiming: (v: unknown) => v,

@@ -60,7 +60,7 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
     // + " picks" so the rail header does not feel like a duplicate of the
     // top category navigation grid.  Fixture above carries "Indian
     // Restaurants" as a stand-in parent name → expected display is
-    // "Indian restaurants picks".
+    // "Indian Restaurants picks".
     const { getByText } = render(
       <NearbyByCategory
         rails={rails}
@@ -68,7 +68,7 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
         onCategoryPress={jest.fn()}
       />,
     )
-    expect(getByText('Indian restaurants picks')).toBeTruthy()
+    expect(getByText('Indian Restaurants picks')).toBeTruthy()
   })
 
   it('fires onBranchPress with the branch.id on tile press (Phase 2.3 branch-identity contract)', () => {
@@ -93,10 +93,10 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
         onCategoryPress={onCategoryPress}
       />,
     )
-    // v1.6: rail label is now "Indian restaurants picks" (parent-style
+    // v1.6: rail label is now "Indian Restaurants picks" (parent-style
     // labelling) — but the press still resolves to the underlying
     // rail.category.id, not the leaf merchant name.
-    fireEvent.press(getByText('Indian restaurants picks'))
+    fireEvent.press(getByText('Indian Restaurants picks'))
     expect(onCategoryPress).toHaveBeenCalledWith('cat-indian-restaurants')
   })
 
@@ -151,7 +151,7 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
         onCategoryPress={jest.fn()}
       />,
     )
-    expect(getByText('Food & drink picks')).toBeTruthy()
+    expect(getByText('Food & Drink picks')).toBeTruthy()
     // Negative pin: the retired v1.5 "on Redeemo" suffix must NOT appear.
     expect(queryByText('Food & Drink on Redeemo')).toBeNull()
   })

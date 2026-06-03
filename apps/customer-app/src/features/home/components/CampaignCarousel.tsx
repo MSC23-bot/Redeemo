@@ -214,7 +214,7 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
                 testID={`campaign-tile-${campaign.id}`}
                 style={{
                   width: BANNER_WIDTH,
-                  minHeight: 140,
+                  minHeight: 156,
                   borderRadius: radius.lg,
                   padding: spacing[5],
                   justifyContent: 'flex-end',
@@ -264,7 +264,7 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
               end={{ x: 1, y: 1 }}
               style={{
                 width: BANNER_WIDTH,
-                minHeight: 140,
+                minHeight: 156,
                 borderRadius: radius.lg,
                 padding: spacing[5],
                 justifyContent: 'flex-end',
