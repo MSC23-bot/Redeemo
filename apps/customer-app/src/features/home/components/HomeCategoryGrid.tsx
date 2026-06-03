@@ -6,6 +6,7 @@ import Animated, { useSharedValue, useAnimatedStyle, useAnimatedReaction, withTi
 import { Text } from '@/design-system'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { haptics } from '@/design-system/haptics'
+import { EXPLORE_ALL_SLUG } from '@/features/shared/categorySlug'
 
 /**
  * Home category grid — the curated six top-level category cards (2 cols × 3
@@ -502,23 +503,25 @@ function ExploreCategoriesCard({ w, onPress, collapseSignal, demoToken }: { w: n
   )
 }
 
-export function HomeCategoryGrid({ onCategoryPress, collapseSignal, demoToken }: { onCategoryPress?: (name: string) => void; collapseSignal?: SharedValue<number>; demoToken?: number }) {
+export function HomeCategoryGrid({ onCategoryPress, collapseSignal, demoToken }: { onCategoryPress?: (slug: string) => void; collapseSignal?: SharedValue<number>; demoToken?: number }) {
   const { width } = useWindowDimensions()
   const tileW = (width - H_PAD * 2 - GAP) / 2
   const tileH = tileW / ASPECT
+  // Curated cards emit a CANONICAL SLUG (matching categorySlug(backendName)),
+  // not a display name, so HomeScreen maps them to a backend Category by slug.
   return (
     <View>
       <View style={[styles.grid, { paddingHorizontal: H_PAD, gap: GAP }]}>
-        <FoodCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('Food & Drink')} />
-        <BeautyCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('Beauty & Wellness')} />
-        <HealthCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('Health & Fitness')} />
-        <OutAboutCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('Out & About')} />
-        <ShoppingCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('Shopping')} />
-        <HomeServicesCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('Home & Local Services')} />
+        <FoodCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('food-drink')} />
+        <BeautyCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('beauty-wellness')} />
+        <HealthCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('health-fitness')} />
+        <OutAboutCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('out-about')} />
+        <ShoppingCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('shopping')} />
+        <HomeServicesCard w={tileW} h={tileH} onPress={() => onCategoryPress?.('home-local-services')} />
       </View>
       {/* Explore all categories — bridge into the full category surface */}
       <View style={{ paddingHorizontal: H_PAD, marginTop: 16 }}>
-        <ExploreCategoriesCard w={width - H_PAD * 2} collapseSignal={collapseSignal} demoToken={demoToken} onPress={() => onCategoryPress?.('Explore all categories')} />
+        <ExploreCategoriesCard w={width - H_PAD * 2} collapseSignal={collapseSignal} demoToken={demoToken} onPress={() => onCategoryPress?.(EXPLORE_ALL_SLUG)} />
       </View>
     </View>
   )

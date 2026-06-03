@@ -59,7 +59,9 @@ export function PopularSection({ rail, onBranchPress }: Props) {
 
       <ScrollView
         horizontal
-        removeClippedSubviews
+        // No removeClippedSubviews: PopularCard's logo straddles the banner
+        // seam (absolute), which Android mis-clips once a card is partly
+        // off-screen, blanking the logo. See HomeScreen scroll-pause note.
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
       >

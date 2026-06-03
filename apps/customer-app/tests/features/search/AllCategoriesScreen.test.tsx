@@ -12,7 +12,9 @@ jest.mock('@/hooks/useCategories', () => ({
       // M4 per owner decision #5.
       { id: 'c1', name: 'Food & Drink',    iconUrl: null, pinColour: '#E65100', pinIcon: null, parentId: null,  merchantCountByCity: { London: 12 }, intentType: 'LOCAL' },
       { id: 'c2', name: 'Beauty',          iconUrl: null, pinColour: '#E91E8C', pinIcon: null, parentId: null,  merchantCountByCity: { London: 8 },  intentType: 'LOCAL' },
-      // Health & Medical has no confirmed icon → exercises the placeholder-cross branch.
+      // Health & Medical is a MAPPED category (real card-base + glyph) — it does
+      // NOT exercise a placeholder branch. (Corrected: only the unmapped Family &
+      // Kids glyph is a placeholder, tracked as a documented non-blocking follow-up.)
       { id: 'c3', name: 'Health & Medical', iconUrl: null, pinColour: '#2FA39B', pinIcon: null, parentId: null,  merchantCountByCity: { London: 4 },  intentType: 'LOCAL' },
       // Subcategory — should NOT appear on the AllCategoriesScreen list
       { id: 's1', name: 'Italian',         iconUrl: null, pinColour: null,      pinIcon: null, parentId: 'c1' },
@@ -66,9 +68,12 @@ describe('AllCategoriesScreen', () => {
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/category/[id]', params: { id: 'c1' } })
   })
 
-  it('renders Health & Medical (placeholder-icon branch) and still routes', () => {
-    // No confirmed health-medical icon → AllCategoriesScreen draws the '+'
-    // placeholder cross. It must render and route without crashing.
+  it('renders a mapped category (Health & Medical) and routes by slug', () => {
+    // Health & Medical has a real card-base + glyph; it renders and routes like
+    // any mapped category. (The "placeholder-cross branch" framing was stale —
+    // the cross only renders for a slug with a card-base but no glyph, which the
+    // 11 same-keyed maps never produce; the real placeholder is the family-kids
+    // glyph asset, a documented follow-up.)
     const { getByText, getByLabelText } = render(<AllCategoriesScreen />, { wrapper })
     expect(getByText('Health & Medical')).toBeTruthy()
     fireEvent.press(getByLabelText('Health & Medical category'))

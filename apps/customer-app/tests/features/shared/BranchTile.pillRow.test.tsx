@@ -46,6 +46,33 @@ describe('BranchTile value line', () => {
     expect(queryByText(/voucher/)).toBeNull()
   })
 
+  it('renders a sub-£1 saving with pence, never "Save up to £0"', () => {
+    const tile = makeBranchTile({
+      merchant: { businessName: 'Penny Saver', voucherCount: 2, maxEstimatedSaving: 0.4 },
+    })
+    const { getByText, queryByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
+    expect(getByText('Save up to £0.40')).toBeTruthy()
+    expect(queryByText('Save up to £0')).toBeNull()
+  })
+
+  it('renders a whole-pound saving compactly (no trailing .00)', () => {
+    const tile = makeBranchTile({
+      merchant: { businessName: 'Round Pound', voucherCount: 1, maxEstimatedSaving: 44 },
+    })
+    const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)
+    expect(getByText('Save up to £44')).toBeTruthy()
+  })
+
+  it('collapses the value row entirely when there is no saving, no voucher count and no proximity', () => {
+    const tile = makeBranchTile({
+      proximityBand: 'NEARBY', // BAND_META.NEARBY is null → no proximity chip
+      merchant: { businessName: 'Bare Tile', voucherCount: 0, maxEstimatedSaving: null },
+    })
+    const { queryByTestId } = render(<BranchTile branch={tile} onPress={() => {}} />)
+    expect(queryByTestId('branch-tile-value')).toBeNull()
+    expect(queryByTestId('branch-tile-proximity')).toBeNull()
+  })
+
   it('singular "1 voucher" copy', () => {
     const tile = makeBranchTile({ merchant: { businessName: 'Covelum', voucherCount: 1, maxEstimatedSaving: null } })
     const { getByText } = render(<BranchTile branch={tile} onPress={() => {}} />)

@@ -8,7 +8,7 @@ import { PressableScale } from '@/design-system/motion/PressableScale'
 import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import type { ProximityBand } from '@/lib/api/discovery'
-import { formatDistanceCompact } from '@/design-system/utils/formatters'
+import { formatDistanceCompact, formatGbpCompact } from '@/design-system/utils/formatters'
 import { composeInfoLine, composeWhereLine } from './infoLine'
 
 // 2026-06-02 premium card v3 (impeccable + emil-design-eng craft pass).
@@ -54,7 +54,11 @@ export function BranchTile({
   showClose,
   onClose,
   width,
-  size = 'compact',
+  // Default 'standard' (not 'compact'): the only caller that omits size is
+  // CategoryResultsScreen, and 'compact' silently shrank its result tiles vs
+  // the pre-redesign card. Map passes 'standard' explicitly; Featured passes
+  // 'hero'. No caller relies on a 'compact' default.
+  size = 'standard',
 }: Props) {
   const bannerHeight = BANNER_HEIGHT[size]
   const logoSize = LOGO_SIZE[size]
@@ -76,6 +80,10 @@ export function BranchTile({
 
   const saveAmount = branch.merchant.maxEstimatedSaving
   const showSave = saveAmount !== null && saveAmount > 0
+  // formatGbpCompact keeps pence for sub-pound savings (£0.40, not a rounded
+  // "£0") and drops them for whole pounds (£44). A positive saving below £0.50
+  // previously rendered the nonsensical "Save up to £0" via Math.round.
+  const saveLabel = showSave ? formatGbpCompact(saveAmount) : null
   const voucherCount = branch.merchant.voucherCount
   const countLabel = voucherCount === 1 ? '1 voucher' : `${voucherCount} vouchers`
 
@@ -199,24 +207,33 @@ export function BranchTile({
           </View>
         </View>
 
-        {/* Row 4 — value line (left) + proximity (right). */}
-        <View style={styles.valueRow}>
-          <Text style={styles.value} numberOfLines={1} testID="branch-tile-value">
-            {showSave ? (
-              <>
-                <Text style={styles.valueSave}>Save up to £{Math.round(saveAmount as number)}</Text>
-                {voucherCount > 0 ? <Text style={styles.valueSep}>{'  ·  '}</Text> : null}
-              </>
-            ) : null}
-            {voucherCount > 0 ? <Text style={styles.valueCount}>{countLabel}</Text> : null}
-          </Text>
-          {band && (
-            <View style={styles.metaRight} testID="branch-tile-proximity">
-              <View style={[styles.dot, { backgroundColor: band.fg }]} />
-              <Text style={[styles.proximityLabel, { color: band.fg }]} numberOfLines={1}>{band.label}</Text>
-            </View>
-          )}
-        </View>
+        {/* Row 4 — value line (left) + proximity (right). Rendered only when
+            there is actual content: a no-saving + no-voucher + no-proximity
+            tile used to reserve a blank minHeight gap here. */}
+        {(showSave || voucherCount > 0 || band) && (
+          <View style={styles.valueRow}>
+            {showSave || voucherCount > 0 ? (
+              <Text style={styles.value} numberOfLines={1} testID="branch-tile-value">
+                {saveLabel ? (
+                  <>
+                    <Text style={styles.valueSave}>Save up to {saveLabel}</Text>
+                    {voucherCount > 0 ? <Text style={styles.valueSep}>{'  ·  '}</Text> : null}
+                  </>
+                ) : null}
+                {voucherCount > 0 ? <Text style={styles.valueCount}>{countLabel}</Text> : null}
+              </Text>
+            ) : (
+              // proximity-only row: spacer keeps the chip right-aligned.
+              <View style={styles.valueSpacer} />
+            )}
+            {band && (
+              <View style={styles.metaRight} testID="branch-tile-proximity">
+                <View style={[styles.dot, { backgroundColor: band.fg }]} />
+                <Text style={[styles.proximityLabel, { color: band.fg }]} numberOfLines={1}>{band.label}</Text>
+              </View>
+            )}
+          </View>
+        )}
       </View>
     </PressableScale>
   )
@@ -294,4 +311,5 @@ const styles = StyleSheet.create({
   valueSave: { color: '#15803D', fontFamily: 'Lato-Bold', fontSize: 15, letterSpacing: -0.1 },
   valueSep: { color: color.text.tertiary, fontFamily: 'Lato-Regular', fontSize: 13 },
   valueCount: { color: color.text.primary, fontFamily: 'Lato-SemiBold', fontSize: 13 },
+  valueSpacer: { flex: 1 },
 })

@@ -52,4 +52,17 @@ describe('FeaturedHeroCard (editorial hero)', () => {
     fireEvent.press(getByLabelText(/^Pinos/))
     expect(onPress).toHaveBeenCalledWith('brn-1')
   })
+
+  it('marks the "View offers" CTA decorative (visual cue only; the card is the press target)', () => {
+    const tile = makeBranchTile({ merchant: { businessName: 'Pinos', descriptor: 'Italian Restaurant', voucherCount: 2, maxEstimatedSaving: 5 } })
+    const { queryByText, getByTestId } = render(<FeaturedHeroCard branch={tile} onPress={() => {}} />)
+    // Hidden from the accessibility tree → default (a11y-aware) queries don't
+    // surface "View offers" as separate screen-reader noise.
+    expect(queryByText('View offers')).toBeNull()
+    // ...achieved by the decorative props on the CTA wrapper (found only when
+    // hidden elements are explicitly included).
+    const cta = getByTestId('featured-hero-cta', { includeHiddenElements: true })
+    expect(cta.props.accessibilityElementsHidden).toBe(true)
+    expect(cta.props.importantForAccessibility).toBe('no-hide-descendants')
+  })
 })

@@ -170,8 +170,16 @@ export function FeaturedHeroCard({
           ) : <View style={styles.saving} />}
 
           {/* CTA affordance — the paid Featured slot gets a clear next step;
-              fills the space the rating left when it moved up to the banner. */}
-          <View style={styles.cta}>
+              fills the space the rating left when it moved up to the banner.
+              It is a VISUAL cue only (the whole card is the press target), so
+              it is marked decorative: a screen reader announces the card's
+              merchant label once, not a separate dangling "View offers". */}
+          <View
+            testID="featured-hero-cta"
+            style={styles.cta}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
             <Text style={styles.ctaText}>View offers</Text>
             <ChevronRight size={16} color={color.navy} />
           </View>

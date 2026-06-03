@@ -85,7 +85,9 @@ export function NearbyByCategory({ rails, onBranchPress, onCategoryPress }: Prop
               Popular/Trending rail) so there is no gap below the card. */}
           <ScrollView
             horizontal
-            removeClippedSubviews
+            // No removeClippedSubviews: the card logo/name straddles the banner
+            // seam (absolute), which Android mis-clips once a card is partly
+            // off-screen.
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 18, gap: TILE_GAP }}
           >

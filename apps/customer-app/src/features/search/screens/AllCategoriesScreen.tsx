@@ -8,6 +8,7 @@ import { Text, PressableScale, color, spacing } from '@/design-system'
 import { ArrowLeft } from '@/design-system/icons'
 import { FadeIn, FadeInDown } from '@/design-system/motion/FadeIn'
 import { useCategories } from '@/hooks/useCategories'
+import { categorySlug } from '@/features/shared/categorySlug'
 import { Category } from '@/lib/api/discovery'
 
 // ── Card-base + icon assets, keyed by category slug ─────────────────────────
@@ -27,7 +28,12 @@ const CARD_BASES: Record<string, number> = {
   'auto-garage': require('../../../../assets/category-card-bases/view-all/auto-garage-card-base.png'),
   'pet-services': require('../../../../assets/category-card-bases/view-all/pet-services-card-base.png'),
 }
-// All 11 categories now have a confirmed glyph (padded originals in `all/`).
+// Padded white glyphs (originals in `all/`). NOTE: `family-kids` is still the
+// unmapped placeholder (a generic screenshot icon), pending a designer-supplied
+// Family & Kids glyph at assets/category-icons/all/family-kids-icon.png. This is
+// a documented non-blocking follow-up — do NOT fabricate one. The row still
+// renders the real family card-base behind it, so only the small overlaid glyph
+// is generic.
 const CAT_ICONS: Record<string, number | null> = {
   'food-drink': require('../../../../assets/category-icons/all/food-drink-icon.png'),
   'beauty-wellness': require('../../../../assets/category-icons/all/beauty-wellness-icon.png'),
@@ -42,9 +48,6 @@ const CAT_ICONS: Record<string, number | null> = {
   'pet-services': require('../../../../assets/category-icons/all/pet-services-icon.png'),
 }
 
-// "Food & Drink" → "food-drink", "Home & Local Services" → "home-local-services"
-const toSlug = (name: string) =>
-  name.toLowerCase().replace(/ & /g, ' ').trim().replace(/\s+/g, '-')
 
 const CARD_ASPECT = 1200 / 414 // 2.8986
 const CORE_INSET = 26 / 1200 // transparent L/R margin fraction (soft shadow)
@@ -112,7 +115,7 @@ export function AllCategoriesScreen() {
           { paddingTop: 16, paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
         renderItem={({ item, index }) => {
-          const slug = toSlug(item.name)
+          const slug = categorySlug(item.name)
           const cardBase = CARD_BASES[slug]
           const icon = CAT_ICONS[slug]
           return (

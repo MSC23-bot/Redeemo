@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
 import { useSharedValue } from 'react-native-reanimated' // scroll-collapse signal for the Explore capsule chips
-import { scrollActivity } from '@/design-system/motion/scrollActivity'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -22,6 +21,8 @@ import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { HomeCategoryGrid } from '../components/HomeCategoryGrid'
+import { useScrollActivity } from '../hooks/useScrollActivity'
+import { resolveCategoryRoute } from '@/features/shared/categorySlug'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
 import { FadeIn } from '@/design-system/motion/FadeIn'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
@@ -58,8 +59,10 @@ export function HomeScreen() {
   const playedInitialDemo = useRef(false)
   const scrollViewRef = useRef<ScrollView>(null)
   const exploreCollapse = useSharedValue(0) // bumped on scroll start to collapse any open Explore chip
-  const momentumRef = useRef(false) // true once momentum scroll has begun (for the resume-on-stop logic)
-  const scrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Owns the global scrollActivity flag (pauses looping animations while the
+  // feed moves) with a debounced stop + a blur/unmount reset so leaving Home
+  // mid-fling can't strand the flag at 1 and freeze animations app-wide.
+  const scroll = useScrollActivity()
   const { scrollTop } = useLocalSearchParams<{ scrollTop?: string }>()
 
   // Device-QA R1 (2026-05-30) — Favourites empty-state CTA + any
@@ -241,26 +244,21 @@ export function HomeScreen() {
       <ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
-        // Perf: detach off-screen sections (category grid, lower rails) so their
-        // SVG gradients, soft shadows and continuous animations stop compositing
-        // while scrolled past — they were all staying live on this non-virtualised
-        // feed and starving the UI thread of frames.
-        removeClippedSubviews
         // Pause looping animations while the feed is moving (begin → 1) and
-        // resume once it's fully stopped (momentum end, or drag-end with no
-        // momentum) — dozens of per-frame animation updates were starving the
-        // scroll of frames. Runs on the UI thread; no re-renders.
-        onScrollBeginDrag={() => {
-          exploreCollapse.value += 1
-          if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current)
-          momentumRef.current = false
-          scrollActivity.value = 1
-        }}
-        onMomentumScrollBegin={() => { momentumRef.current = true }}
-        onScrollEndDrag={() => {
-          scrollEndTimerRef.current = setTimeout(() => { if (!momentumRef.current) scrollActivity.value = 0 }, 80)
-        }}
-        onMomentumScrollEnd={() => { momentumRef.current = false; scrollActivity.value = 0 }}
+        // resume once it's fully stopped — dozens of per-frame animation updates
+        // were starving the scroll of frames. `useScrollActivity` owns the
+        // global flag on the UI thread (no re-renders), debounces the stop so
+        // loops never resume mid-fling, and resets it on blur/unmount.
+        //
+        // NOTE: `removeClippedSubviews` was removed here and on the horizontal
+        // rails — it mis-clips the new absolutely-positioned / protruding card
+        // elements (rail logos straddling the banner seam, category-card 3D
+        // illustrations) on Android, and the scroll-pause above is the primary
+        // UI-thread saving. Re-add behind device QA if a perf need is proven.
+        onScrollBeginDrag={() => { exploreCollapse.value += 1; scroll.onScrollBeginDrag() }}
+        onMomentumScrollBegin={scroll.onMomentumScrollBegin}
+        onScrollEndDrag={scroll.onScrollEndDrag}
+        onMomentumScrollEnd={scroll.onMomentumScrollEnd}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
         contentContainerStyle={[
           styles.scroll,
@@ -341,15 +339,22 @@ export function HomeScreen() {
         <HomeCategoryGrid
           demoToken={demoToken}
           collapseSignal={exploreCollapse}
-          onCategoryPress={(name) => {
-            // 'Explore all categories' → all-categories surface; else the named
-            // category → its results screen (mapped to the backend id by name).
-            if (name === 'Explore all categories') {
-              router.push('/categories' as any)
+          onCategoryPress={(slug) => {
+            // Curated cards carry a canonical slug (not a display name), mapped
+            // to the backend Category by slug so a rename / casing / localization
+            // change can't silently misroute (resolveCategoryRoute is pure +
+            // unit-tested). Unresolved (not loaded yet, or no match) intentionally
+            // routes to the all-categories list with a dev warning rather than
+            // pretending the specific category opened.
+            const target = resolveCategoryRoute(slug, categoriesData?.categories)
+            if (target.kind === 'category') {
+              router.push({ pathname: '/category/[id]', params: { id: target.id } })
               return
             }
-            const cat = categoriesData?.categories?.find((c) => c.name === name)
-            router.push((cat ? `/category/${cat.id}` : '/categories') as any)
+            if (target.reason === 'unresolved' && __DEV__) {
+              console.warn(`[HomeScreen] category slug "${target.slug}" not resolvable — routing to /categories`)
+            }
+            router.push('/categories' as any)
           }}
         />
 
