@@ -277,8 +277,10 @@ function HomeServicesCard({ w, h, onPress }: { w: number; h: number; onPress?: (
 // rose→coral arrow CTA (view all). Each extra category keeps its own hue but is
 // rendered with the SAME radial-gradient recipe + tonal range (light → deep) as
 // the six Home category cards, so the chips read as one family (owner direction
-// 2026-06-03). All five have a confirmed icon (Health & Medical added the same
-// day). light/deep are APPROXIMATE pending a confirmed allocation.
+// 2026-06-03). Four have a real glyph (Travel / Auto / Pets / Health & Medical);
+// Family & Kids still points at the unmapped-screenshot placeholder file, pending
+// a designer-supplied glyph (icon-completeness follow-up). light/deep are
+// APPROXIMATE pending a confirmed allocation.
 const EXPLORE_CHIPS = [
   { key: 'travel',  label: 'Travel',  light: '#E6BC78', deep: '#9C7330', icon: require('../../../../assets/category-icons/all/travel-hotels-icon.png') as number | null },
   { key: 'family',  label: 'Family',  light: '#F2928C', deep: '#CB4B4B', icon: require('../../../../assets/category-icons/all/family-kids-icon.png') as number | null },
@@ -379,7 +381,10 @@ function ExploreChip({
         {item.icon ? (
           <Image source={item.icon} style={styles.exChipImg} contentFit="contain" pointerEvents="none" />
         ) : (
-          // TEMP placeholder cross for Health & Medical (no confirmed icon)
+          // Defensive placeholder cross if a chip's icon is ever null. None are
+          // today: Health & Medical has a real glyph, and Family & Kids points at
+          // the (non-null) unmapped-screenshot placeholder file — so this branch
+          // is currently unreached.
           <Svg width={20} height={20}>
             <Path d="M10 4 L10 16 M4 10 L16 10" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round" />
           </Svg>
