@@ -38,6 +38,10 @@ describe('PopularCard (Popular/Trending discovery card)', () => {
     expect(queryByText('£26')).toBeNull()
     // Count is NEVER truncated (the "2 vou…" bug).
     expect(getByText('across 3 vouchers')).toBeTruthy()
+    // Option B copy (2026-06-04): total value uses "Save … across N vouchers",
+    // NOT "Save up to" (which is reserved for a single voucher's max).
+    expect(getByText('Save')).toBeTruthy()
+    expect(queryByText(/Save up to/)).toBeNull()
   })
 
   it('a long locality does NOT eat the distance — distance is a pinned node', () => {

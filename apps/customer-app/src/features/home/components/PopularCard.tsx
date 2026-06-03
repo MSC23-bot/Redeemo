@@ -138,7 +138,11 @@ export function PopularCard({
         {/* Saving — stacked; compact money (drops .00 on whole pounds). */}
         {(showSave || count > 0) && (
           <View style={styles.saving} testID="popular-card-value">
-            {showSave ? <Text style={styles.savingLabel}>Save up to</Text> : null}
+            {/* "Save" (not "Save up to"): totalEstimatedSaving across the
+                merchant's vouchers; "across N vouchers" below makes it explicit.
+                "Save up to £X" is reserved for a single voucher's max
+                (BranchTile / Search). Owner-locked 2026-06-04. */}
+            {showSave ? <Text style={styles.savingLabel}>Save</Text> : null}
             <View style={styles.savingValueRow}>
               {showSave ? <Text style={styles.savingAmount}>{formatGbpCompact(save) ?? ''}</Text> : null}
               {count > 0 ? (

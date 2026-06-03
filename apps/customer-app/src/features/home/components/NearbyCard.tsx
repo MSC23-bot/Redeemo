@@ -158,7 +158,11 @@ export function NearbyCard({
             Mustica-green value, "across N vouchers" connected to it. */}
         {(showSave || count > 0) && (
           <View style={styles.saving} testID="nearby-card-value">
-            {showSave ? <Text style={styles.savingLabel}>Save up to</Text> : null}
+            {/* "Save" (not "Save up to"): totalEstimatedSaving across the
+                merchant's vouchers; "across N vouchers" below makes it explicit.
+                "Save up to £X" is reserved for a single voucher's max
+                (BranchTile / Search). Owner-locked 2026-06-04. */}
+            {showSave ? <Text style={styles.savingLabel}>Save</Text> : null}
             <View style={styles.savingValueRow}>
               {showSave ? <Text style={styles.savingAmount}>{formatGbpCompact(save) ?? ''}</Text> : null}
               {count > 0 ? (

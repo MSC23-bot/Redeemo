@@ -25,6 +25,10 @@ describe('FeaturedHeroCard (editorial hero)', () => {
     expect(getByText('£25.95')).toBeTruthy()
     expect(queryByText('£25')).toBeNull()
     expect(getByText('across 3 vouchers')).toBeTruthy()
+    // Option B copy (2026-06-04): total value uses "Save … across N vouchers",
+    // NOT "Save up to" (reserved for a single voucher's max).
+    expect(getByText('Save')).toBeTruthy()
+    expect(queryByText(/Save up to/)).toBeNull()
     expect(getByText('Open')).toBeTruthy()
   })
 

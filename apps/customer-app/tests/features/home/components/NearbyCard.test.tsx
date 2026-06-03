@@ -35,6 +35,10 @@ describe('NearbyCard (name-on-banner browse card)', () => {
     expect(queryByText('£11.95')).toBeNull()
     expect(queryByText('£26')).toBeNull()
     expect(getByText(/3 vouchers/)).toBeTruthy() // inline "· 3 vouchers"
+    // Option B copy (2026-06-04): total value uses "Save … across N vouchers",
+    // NOT "Save up to" (reserved for a single voucher's max).
+    expect(getByText('Save')).toBeTruthy()
+    expect(queryByText(/Save up to/)).toBeNull()
   })
 
   it('open/closed is its own element (beside the subcategory), separate from the location text', () => {

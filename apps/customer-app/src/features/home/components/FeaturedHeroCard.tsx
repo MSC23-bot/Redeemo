@@ -157,7 +157,11 @@ export function FeaturedHeroCard({
         <View style={styles.dealRow}>
           {(showSave || count > 0) ? (
             <View style={styles.saving} testID="featured-hero-value">
-              {showSave ? <Text style={styles.savingLabel}>Save up to</Text> : null}
+              {/* "Save" (not "Save up to"): this is totalEstimatedSaving across
+                  all the merchant's vouchers, and "across N vouchers" below makes
+                  the total explicit. "Save up to £X" is reserved for a single
+                  voucher's max (BranchTile / Search). Owner-locked 2026-06-04. */}
+              {showSave ? <Text style={styles.savingLabel}>Save</Text> : null}
               <View style={styles.savingValueRow}>
                 {showSave ? <Text style={styles.savingAmount}>{formatGbpCompact(save) ?? ''}</Text> : null}
                 {count > 0 ? (
@@ -247,7 +251,7 @@ const styles = StyleSheet.create({
   dealRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   // The saving is the hero. Stacked so the £ amount (Mustica Pro, the brand
   // display face) LEADS its own value line instead of floating mid-sentence:
-  //   Save up to            <- quiet label
+  //   Save                  <- quiet label (total across vouchers, no "up to")
   //   £24  across N vouchers <- amount anchors the line, context trails it
   saving: { flex: 1, gap: 1 },
   savingLabel: { fontSize: 13, lineHeight: 17, fontFamily: 'Lato-Medium', color: color.text.secondary },
