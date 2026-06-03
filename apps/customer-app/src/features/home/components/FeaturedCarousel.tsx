@@ -57,9 +57,6 @@ export function FeaturedCarousel({ rail, onBranchPress }: Props) {
     }
   }, [startAutoScroll])
 
-  // Phase C §11.6 — hide rail silently when meta is null OR no branches.
-  if (!rail.meta || branches.length === 0) return null
-
   // PR #126 device-QA Halifax fixup (2026-05-23): determine whether the
   // Featured rail's NEARBY+CITY supply is genuinely IN the locality (every
   // visible branch passes the strict-locality identity ladder from
@@ -70,6 +67,8 @@ export function FeaturedCarousel({ rail, onBranchPress }: Props) {
   // Ignored when scopeExpanded is true (cascade copy "Featured on Redeemo"
   // already overrides locality framing).  Returns null when locality is
   // null (defensive — RailHeader falls back to "Featured near you").
+  // MUST run BEFORE the early return below — a hook called after a
+  // conditional return breaks react-hooks/rules-of-hooks.
   const allBranchesInLocality = useMemo<boolean | null>(() => {
     if (!rail.meta?.locality) return null
     if (rail.meta.scopeExpanded) return null
@@ -81,6 +80,9 @@ export function FeaturedCarousel({ rail, onBranchPress }: Props) {
       b.branchPostTown?.toLowerCase()     === targetLower
     )
   }, [rail.meta?.locality, rail.meta?.scopeExpanded, branches])
+
+  // Phase C §11.6 — hide rail silently when meta is null OR no branches.
+  if (!rail.meta || branches.length === 0) return null
 
   return (
     // 2026-06-03 — Featured sits on the plain body (owner: NO band for Featured;

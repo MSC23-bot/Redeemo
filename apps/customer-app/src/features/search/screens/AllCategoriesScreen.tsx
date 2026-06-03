@@ -3,9 +3,9 @@ import { View, FlatList, StyleSheet, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
-import { ArrowLeft } from 'lucide-react-native'
 import Svg, { Path } from 'react-native-svg'
 import { Text, PressableScale, color, spacing } from '@/design-system'
+import { ArrowLeft } from '@/design-system/icons'
 import { FadeIn, FadeInDown } from '@/design-system/motion/FadeIn'
 import { useCategories } from '@/hooks/useCategories'
 import { Category } from '@/lib/api/discovery'
@@ -77,7 +77,7 @@ export function AllCategoriesScreen() {
   const router = useRouter()
   const { width: screenW } = useWindowDimensions()
   const insets = useSafeAreaInsets()
-  const { data, isLoading } = useCategories()
+  const { data } = useCategories()
 
   // Supply-aware rule (already agreed): top-level categories only; HIDDEN
   // filtering is deliberately out-of-scope (locked 2026-05-21 — see discovery.ts).
@@ -118,7 +118,7 @@ export function AllCategoriesScreen() {
           return (
             <FadeInDown delay={index < STAGGER_VISIBLE ? index * STAGGER_STEP : 0}>
               <PressableScale
-                onPress={() => router.push(`/category/${item.id}` as any)}
+                onPress={() => router.push({ pathname: '/category/[id]', params: { id: item.id } })}
                 hapticStyle="light"
                 accessibilityRole="button"
                 accessibilityLabel={`${item.name} category`}

@@ -63,7 +63,7 @@ describe('AllCategoriesScreen', () => {
   it('row press routes to /category/[id]', () => {
     const { getByLabelText } = render(<AllCategoriesScreen />, { wrapper })
     fireEvent.press(getByLabelText('Food & Drink category'))
-    expect(mockPush).toHaveBeenCalledWith('/category/c1')
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/category/[id]', params: { id: 'c1' } })
   })
 
   it('renders Health & Medical (placeholder-icon branch) and still routes', () => {
@@ -72,6 +72,6 @@ describe('AllCategoriesScreen', () => {
     const { getByText, getByLabelText } = render(<AllCategoriesScreen />, { wrapper })
     expect(getByText('Health & Medical')).toBeTruthy()
     fireEvent.press(getByLabelText('Health & Medical category'))
-    expect(mockPush).toHaveBeenCalledWith('/category/c3')
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/category/[id]', params: { id: 'c3' } })
   })
 })
