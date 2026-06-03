@@ -84,6 +84,39 @@ describe('NearbyByCategory (Phase E rails envelope)', () => {
     expect(onBranchPress).toHaveBeenCalledWith('brn-curry-1')
   })
 
+  it('renders ALL branches a rail carries, up to the 10-per-category cap (no client-side slice)', () => {
+    // The per-category cap is server-side (NEARBY_CATEGORY_TAKE=10, raised from
+    // 5). The client must render every branch the rail returns — it must NOT
+    // re-slice the row to 5.
+    const tenBranchRail: HomeNearbyCategoryRail[] = [
+      {
+        category: { id: 'cat-cap', name: 'Food & Drink' },
+        branches: Array.from({ length: 10 }, (_, i) =>
+          makeBranchTile({
+            id: `brn-cap-${i}`,
+            branchName: `Cap Branch ${i}`,
+            distance: 500 + i * 100,
+            merchant: {
+              id: `m-cap-${i}`,
+              businessName: `Cap Merchant ${i}`,
+              primaryCategory: { id: 'cat-cap', name: 'Food & Drink', parentId: null },
+              voucherCount: 1,
+              maxEstimatedSaving: 5,
+              totalEstimatedSaving: 5,
+            },
+          }),
+        ),
+        meta: { locality: { id: 'l1', name: 'Huddersfield' }, scope: 'city', scopeExpanded: false, rungCounts: {} },
+      },
+    ]
+    const { getByText } = render(
+      <NearbyByCategory rails={tenBranchRail} onBranchPress={jest.fn()} onCategoryPress={jest.fn()} />,
+    )
+    for (let i = 0; i < 10; i++) {
+      expect(getByText(`Cap Merchant ${i}`)).toBeTruthy()
+    }
+  })
+
   it('fires onCategoryPress with the category.id on header press (existing nav contract preserved)', () => {
     const onCategoryPress = jest.fn()
     const { getByText } = render(
