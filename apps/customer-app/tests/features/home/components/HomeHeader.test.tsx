@@ -91,4 +91,31 @@ describe('HomeHeader', () => {
     expect(queryByTestId('home-header-avatar-image')).toBeNull()
     expect(queryByTestId('home-header-avatar-initial')).toBeTruthy()
   })
+
+  // PR A (sticky header) — Option A expanded layout adds a full-width
+  // tap-through search bar in place of the old top-right search icon.
+  it('renders the full-width search bar (Option A)', () => {
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    expect(getByTestId('home-search-bar')).toBeTruthy()
+  })
+
+  it('search bar tap fires onSearchPress', () => {
+    const onSearchPress = jest.fn()
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={onSearchPress} onAvatarPress={jest.fn()} />
+    )
+    fireEvent.press(getByTestId('home-search-bar'))
+    expect(onSearchPress).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports its height via onHeightChange (drives fadeEndY)', () => {
+    const onHeightChange = jest.fn()
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} onHeightChange={onHeightChange} />
+    )
+    fireEvent(getByTestId('home-header'), 'layout', { nativeEvent: { layout: { height: 180 } } })
+    expect(onHeightChange).toHaveBeenCalledWith(180)
+  })
 })
