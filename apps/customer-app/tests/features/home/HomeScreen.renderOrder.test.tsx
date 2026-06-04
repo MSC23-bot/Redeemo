@@ -176,4 +176,10 @@ describe('HomeScreen render order (§8.8)', () => {
     expect(queryByTestId('home-nearby-section-empty')).toBeNull()
     expect(queryByTestId('home-explore-more')).toBeNull()
   })
+
+  // PR A — the pinned sticky/collapsing header mounts as a sibling of the feed.
+  it('mounts the pinned collapsed header', async () => {
+    const { getByTestId } = render(<HomeScreen />, { wrapper })
+    await waitFor(() => expect(getByTestId('home-collapsed-header')).toBeTruthy())
+  })
 })

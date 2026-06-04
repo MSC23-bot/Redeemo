@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
-import { useSharedValue } from 'react-native-reanimated' // scroll-collapse signal for the Explore capsule chips
+import { View, RefreshControl, StyleSheet } from 'react-native'
+import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,6 +10,7 @@ import { useHomeFeed } from '@/hooks/useHomeFeed'
 import { useCategories } from '@/hooks/useCategories'
 import { useMe } from '@/hooks/useMe'
 import { HomeHeader } from '../components/HomeHeader'
+import { HomeCollapsedHeader } from '../components/HomeCollapsedHeader'
 import { CampaignCarousel } from '../components/CampaignCarousel'
 import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
@@ -57,7 +58,13 @@ export function HomeScreen() {
   // drives the Explore-capsule intro demo so it replays on each refresh.
   const [demoToken, setDemoToken] = useState(0)
   const playedInitialDemo = useRef(false)
-  const scrollViewRef = useRef<ScrollView>(null)
+  const scrollViewRef = useAnimatedRef<Animated.ScrollView>()
+  // PR A — UI-thread scroll offset drives the collapsed-header fade; fadeEndY
+  // is the expanded header height (captured via onLayout) so the compact bar
+  // reaches full opacity right as the expanded header scrolls away.
+  const scrollY = useScrollViewOffset(scrollViewRef)
+  const [headerHeight, setHeaderHeight] = useState(0)
+  const fadeEndY = Math.max(headerHeight - 12, 1)
   const exploreCollapse = useSharedValue(0) // bumped on scroll start to collapse any open Explore chip
   // Owns the global scrollActivity flag (pauses looping animations while the
   // feed moves) with a debounced stop + a blur/unmount reset so leaving Home
@@ -241,7 +248,7 @@ export function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView
+      <Animated.ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
         // Pause looping animations while the feed is moving (begin → 1) and
@@ -298,6 +305,7 @@ export function HomeScreen() {
           {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
           onSearchPress={() => router.push('/search' as any)}
           onAvatarPress={() => router.push('/profile' as any)}
+          onHeightChange={setHeaderHeight}
         />
 
         {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
@@ -411,7 +419,22 @@ export function HomeScreen() {
             <NearbySectionEmpty> (showExploreMore guards on
             !showNearbySectionEmpty). */}
         {showExploreMore && <HomeExploreMore />}
-      </ScrollView>
+      </Animated.ScrollView>
+
+      {/* PR A — pinned compact header; fades in over the expanded header as
+          the feed scrolls. Sibling of the ScrollView so it sits above the
+          feed content (its own zIndex + absolute top:0). */}
+      <HomeCollapsedHeader
+        scrollY={scrollY}
+        fadeEndY={fadeEndY}
+        firstName={me?.firstName ?? null}
+        area={location?.area ?? null}
+        city={location?.city ?? null}
+        {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
+        {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
+        onSearchPress={() => router.push('/search' as any)}
+        onAvatarPress={() => router.push('/profile' as any)}
+      />
     </View>
   )
 }

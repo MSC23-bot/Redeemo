@@ -102,16 +102,20 @@ function wrapper({ children }: { children: React.ReactNode }) {
 describe('§DF-v2-j Task 9 + Task 13 Round 3 — HomeScreen mounts <LocationStatusLabel variant=strip> INSIDE HomeHeader', () => {
   it('§LSL-Home — strip label renders alongside SavedAreaHonestyHint (D6 coexistence) when source=profile', () => {
     const { getByTestId } = render(<HomeScreen />, { wrapper })
-    // 1. Label is mounted.
-    const label = getByTestId('location-status-label')
+    // 1. Label is mounted INSIDE the expanded HomeHeader. (PR A sticky
+    //    header: the pinned HomeCollapsedHeader ALSO renders a location
+    //    label via the shared HomeHeaderLocation, so scope these assertions
+    //    to the home-header subtree to target the expanded one specifically.)
+    const header = getByTestId('home-header')
+    const label = within(header).getByTestId('location-status-label')
     expect(label).toBeTruthy()
     // 2. Label rendered the "Using profile location · Huddersfield" copy
     //    derived from feed.locationContext (no duplicate client-side
     //    derivation in HomeScreen — confirms the surface reads the
     //    envelope directly).
-    const text = getByTestId('location-status-text')
+    const text = within(header).getByTestId('location-status-text')
     expect(text).toBeTruthy()
-    const city = getByTestId('location-status-city')
+    const city = within(header).getByTestId('location-status-city')
     expect(city.props.children).toBe('Huddersfield')
     // 3. D6 coexistence: SavedAreaHonestyHint MUST also be mounted when
     //    source='profile' + city resolves.  The label is NOT a
