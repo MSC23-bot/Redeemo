@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { View, FlatList, StyleSheet, Keyboard } from 'react-native'
-import { useRouter, useLocalSearchParams } from 'expo-router'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { View, FlatList, StyleSheet, Keyboard, TextInput } from 'react-native'
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text } from '@/design-system/Text'
 import { useSearch } from '@/hooks/useSearch'
@@ -116,6 +116,18 @@ function effectiveScopeFromMetaCascadedScope(
 export function SearchScreen() {
   const router  = useRouter()
   const insets  = useSafeAreaInsets()
+  // Keyboard-on-tap (owner direction 2026-06-05): raise the keyboard whenever
+  // Search gains focus — including tab-to-tab re-entry where the screen stays
+  // mounted and a one-shot `autoFocus` wouldn't re-fire. The short delay lets
+  // the navigation transition settle so iOS reliably raises the keyboard
+  // (focusing mid-transition silently no-ops).
+  const searchInputRef = useRef<TextInput>(null)
+  useFocusEffect(
+    useCallback(() => {
+      const t = setTimeout(() => searchInputRef.current?.focus(), 350)
+      return () => clearTimeout(t)
+    }, []),
+  )
   // PR #112 fixup-6 (2026-05-20) — accept `?q=` on the URL so users
   // returning from a merchant page (with `from=search&q=<query>`) land
   // back on Search with their typed query restored.  Lazy initialiser
@@ -471,10 +483,10 @@ export function SearchScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
       <SearchBar
+        ref={searchInputRef}
         value={query}
         onChangeText={setQuery}
         onCancel={handleCancel}
-        autoFocus
         placeholder="Search merchants..."
       />
 

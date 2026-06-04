@@ -28,6 +28,9 @@ type Props = {
   // can compute `fadeEndY` for the collapsed-header fade. Optional so the
   // component is still usable standalone (e.g. in unit tests).
   onHeightChange?: (height: number) => void
+  // Tapping the GPS-on location row routes to the Your Location screen
+  // (parent owns routing). Passed through to <HomeHeaderLocation>.
+  onLocationPress?: (() => void) | undefined
 }
 
 function getGreeting(): string {
@@ -50,7 +53,7 @@ function getGreeting(): string {
  */
 export function HomeHeader({
   firstName, area, city, locationContext, avatarUrl,
-  onSearchPress, onAvatarPress, onNotificationPress, onHeightChange,
+  onSearchPress, onAvatarPress, onNotificationPress, onHeightChange, onLocationPress,
 }: Props) {
   const greeting = getGreeting()
   const displayName = firstName ?? 'there'
@@ -72,7 +75,7 @@ export function HomeHeader({
             {greeting}, {displayName}
           </Text>
           <View style={styles.locationRow}>
-            <HomeHeaderLocation area={area} city={city} locationContext={locationContext} />
+            <HomeHeaderLocation area={area} city={city} locationContext={locationContext} onPress={onLocationPress} />
           </View>
         </View>
 
@@ -84,7 +87,7 @@ export function HomeHeader({
             accessibilityRole="button"
             style={styles.chromeBtn}
           >
-            <Bell size={20} color={color.navy} />
+            <Bell size={18} color={color.brandRose} />
           </TouchableOpacity>
 
           {/* Avatar — tappable, routes to the Profile tab via onAvatarPress
@@ -159,17 +162,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing[2],
   },
-  // Shared chrome button (bell) — warm cream-rose surface + subtle hairline so
-  // it reads as a defined control, not a floating glyph, on the cream header.
+  // Bell — matches the collapsed search icon: warm cream-rose surface,
+  // brand-rose hairline + glyph, soft lift, rounded square (36×36).
   chromeBtn: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 12,
     backgroundColor: color.surface.tint,
     borderWidth: 1,
-    borderColor: color.border.subtle,
+    borderColor: 'rgba(226,12,4,0.12)', // brand-rose hairline
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: color.navy,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   avatar: {
     width: 36,

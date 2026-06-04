@@ -35,12 +35,16 @@ function ClearIcon() {
   )
 }
 
-export function SearchBar({ value, onChangeText, onCancel, onSubmitEditing, autoFocus, placeholder = 'Search merchants...' }: Props) {
+export const SearchBar = React.forwardRef<TextInput, Props>(function SearchBar(
+  { value, onChangeText, onCancel, onSubmitEditing, autoFocus, placeholder = 'Search merchants...' },
+  ref,
+) {
   return (
     <View style={styles.container}>
       <View style={styles.inputWrapper}>
         <SearchIcon />
         <TextInput
+          ref={ref}
           value={value}
           onChangeText={onChangeText}
           onSubmitEditing={onSubmitEditing}
@@ -71,7 +75,7 @@ export function SearchBar({ value, onChangeText, onCancel, onSubmitEditing, auto
       )}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   // PR #112 fixup-4 (2026-05-19) — owner-direction brand polish.

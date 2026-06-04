@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { View, RefreshControl, StyleSheet, Alert } from 'react-native'
-import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
+import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset, useAnimatedStyle, interpolate, Extrapolation } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -66,6 +66,13 @@ export function HomeScreen() {
   const [headerHeight, setHeaderHeight] = useState(0)
   const fadeEndY = Math.max(headerHeight - 12, 1)
   const exploreCollapse = useSharedValue(0) // bumped on scroll start to collapse any open Explore chip
+  // Fade the expanded header OUT as it scrolls (opacity only — NO height
+  // animation per interaction-design / ui-ux-pro-max), synced with
+  // <HomeCollapsedHeader> fading IN, so the two layers never ghost through each
+  // other during the cross-fade.
+  const expandedHeaderStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.value, [0, Math.max(fadeEndY - 50, 1)], [1, 0], Extrapolation.CLAMP),
+  }))
   // Owns the global scrollActivity flag (pauses looping animations while the
   // feed moves) with a debounced stop + a blur/unmount reset so leaving Home
   // mid-fling can't strand the flag at 1 and freeze animations app-wide.
@@ -251,6 +258,11 @@ export function HomeScreen() {
   const handleNotificationPress = () =>
     Alert.alert('Coming soon', 'Notifications are coming in a future update.')
 
+  // Tapping the header location (GPS-on row or profile label) opens the Your
+  // Location screen so the user can update their postcode or switch to current
+  // location. Matches <LocationStatusLabel>'s own /saved-area routing.
+  const handleLocationPress = () => router.push('/saved-area' as any)
+
   return (
     <View style={styles.container}>
       <Animated.ScrollView
@@ -304,17 +316,20 @@ export function HomeScreen() {
             banner.  <SavedAreaHonestyHint> below remains unchanged
             (D6 coexistence preserved — the hint still surfaces the
             caveat + Update affordance when source='profile'). */}
-        <HomeHeader
-          firstName={me?.firstName ?? null}
-          area={location?.area ?? null}
-          city={location?.city ?? null}
-          {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
-          {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
-          onSearchPress={() => router.push('/search' as any)}
-          onAvatarPress={() => router.push('/profile' as any)}
-          onNotificationPress={handleNotificationPress}
-          onHeightChange={setHeaderHeight}
-        />
+        <Animated.View style={expandedHeaderStyle}>
+          <HomeHeader
+            firstName={me?.firstName ?? null}
+            area={location?.area ?? null}
+            city={location?.city ?? null}
+            {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
+            {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
+            onSearchPress={() => router.push('/search' as any)}
+            onAvatarPress={() => router.push('/profile' as any)}
+            onNotificationPress={handleNotificationPress}
+            onHeightChange={setHeaderHeight}
+            onLocationPress={handleLocationPress}
+          />
+        </Animated.View>
 
         {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
             user has no resolvable location.  Dedup invariant guards
@@ -448,6 +463,7 @@ export function HomeScreen() {
         onSearchPress={() => router.push('/search' as any)}
         onAvatarPress={() => router.push('/profile' as any)}
         onNotificationPress={handleNotificationPress}
+        onLocationPress={handleLocationPress}
       />
     </View>
   )

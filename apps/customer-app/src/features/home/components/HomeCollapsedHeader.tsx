@@ -14,7 +14,7 @@ import { Text, color, elevation, useMotionScale } from '@/design-system'
 import { HomeHeaderLocation } from './HomeHeaderLocation'
 import type { LocationContext } from '@/lib/api/shared/location'
 
-export const COMPACT_BAR_HEIGHT = 52
+export const COMPACT_BAR_HEIGHT = 46
 const FADE_WINDOW = 60
 
 type Props = {
@@ -30,6 +30,9 @@ type Props = {
   onSearchPress: () => void
   onAvatarPress: () => void
   onNotificationPress?: () => void
+  // Tapping the GPS-on location row routes to the Your Location screen
+  // (parent owns routing). Passed through to <HomeHeaderLocation>.
+  onLocationPress?: (() => void) | undefined
 }
 
 /**
@@ -55,7 +58,7 @@ type Props = {
  */
 export function HomeCollapsedHeader({
   scrollY, fadeEndY, firstName, area, city, avatarUrl, locationContext,
-  onSearchPress, onAvatarPress, onNotificationPress,
+  onSearchPress, onAvatarPress, onNotificationPress, onLocationPress,
 }: Props) {
   const insets = useSafeAreaInsets()
   const reduced = useMotionScale() === 0
@@ -97,7 +100,7 @@ export function HomeCollapsedHeader({
 
       <View style={styles.row}>
         <View style={styles.location}>
-          <HomeHeaderLocation area={area} city={city} locationContext={locationContext} />
+          <HomeHeaderLocation area={area} city={city} locationContext={locationContext} size="md" onPress={onLocationPress} />
         </View>
 
         <Pressable
@@ -119,7 +122,7 @@ export function HomeCollapsedHeader({
           hitSlop={6}
           style={({ pressed }) => [styles.bellBtn, pressed && styles.pressed]}
         >
-          <Bell size={18} color={color.navy} />
+          <Bell size={18} color={color.brandRose} />
         </Pressable>
 
         <Pressable
@@ -174,15 +177,15 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  // Compact form of the expanded search bar — warm cream-rose surface (NOT
-  // stark white) + brand-rose hairline + brand-rose glyph.
+  // Uniform icon button shared by search + bell — warm cream-rose surface,
+  // brand-rose hairline + glyph, soft lift, rounded square (36×36).
   searchBtn: {
-    width: 40,
+    width: 36,
     height: 36,
     borderRadius: 12,
     backgroundColor: color.surface.tint,
     borderWidth: 1,
-    borderColor: 'rgba(226,12,4,0.12)', // brand-rose hairline (matches the expanded bar)
+    borderColor: 'rgba(226,12,4,0.12)', // brand-rose hairline
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: color.navy,
@@ -191,17 +194,20 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
-  // Notification bell — same warm surface, neutral hairline + navy glyph so it
-  // reads as a secondary control distinct from the brand-rose search.
   bellBtn: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 12,
     backgroundColor: color.surface.tint,
     borderWidth: 1,
-    borderColor: color.border.subtle,
+    borderColor: 'rgba(226,12,4,0.12)', // brand-rose hairline
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: color.navy,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   pressed: {
     transform: [{ scale: 0.96 }],

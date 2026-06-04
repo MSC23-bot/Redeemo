@@ -81,6 +81,7 @@ jest.mock('@/hooks/useLocation', () => ({
 }))
 
 jest.mock('expo-router', () => ({
+  useFocusEffect: jest.fn(),
   useRouter:            () => ({ push: jest.fn(), back: jest.fn() }),
   // PR #112 fixup-6 — SearchScreen reads URL params for the q-preserve flow.
   useLocalSearchParams: () => ({}),
