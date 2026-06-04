@@ -86,7 +86,7 @@ export function HomeScreen() {
         scrollViewRef.current?.scrollTo({ y: 0, animated: false })
         router.setParams({ scrollTop: undefined })
       }
-    }, [scrollTop, router])
+    }, [scrollTop, router, scrollViewRef])
   )
 
   // Wave 6.4-C (2026-05-30) — invalidate discovery on focus so the
