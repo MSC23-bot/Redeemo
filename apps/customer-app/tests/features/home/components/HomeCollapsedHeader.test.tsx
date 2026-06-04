@@ -20,6 +20,7 @@ const baseProps = {
   city: 'London',
   onSearchPress: jest.fn(),
   onAvatarPress: jest.fn(),
+  onNotificationPress: jest.fn(),
 }
 
 describe('HomeCollapsedHeader', () => {
@@ -29,6 +30,7 @@ describe('HomeCollapsedHeader', () => {
     const { getByTestId, getByText } = render(<HomeCollapsedHeader {...baseProps} />)
     expect(getByTestId('home-collapsed-header')).toBeTruthy()
     expect(getByTestId('home-collapsed-search')).toBeTruthy()
+    expect(getByTestId('home-collapsed-bell')).toBeTruthy()
     expect(getByTestId('home-collapsed-avatar')).toBeTruthy()
     expect(getByText('Shoreditch, London')).toBeTruthy()
   })
@@ -36,8 +38,10 @@ describe('HomeCollapsedHeader', () => {
   it('search + avatar fire their handlers', () => {
     const { getByTestId } = render(<HomeCollapsedHeader {...baseProps} />)
     fireEvent.press(getByTestId('home-collapsed-search'))
+    fireEvent.press(getByTestId('home-collapsed-bell'))
     fireEvent.press(getByTestId('home-collapsed-avatar'))
     expect(baseProps.onSearchPress).toHaveBeenCalledTimes(1)
+    expect(baseProps.onNotificationPress).toHaveBeenCalledTimes(1)
     expect(baseProps.onAvatarPress).toHaveBeenCalledTimes(1)
   })
 })

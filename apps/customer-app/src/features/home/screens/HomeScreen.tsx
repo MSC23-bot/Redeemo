@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { View, RefreshControl, StyleSheet } from 'react-native'
+import { View, RefreshControl, StyleSheet, Alert } from 'react-native'
 import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
@@ -246,6 +246,11 @@ export function HomeScreen() {
     (feed?.nearbyByCategoryRails ?? []).every(r => r.meta?.scopeExpanded === true)
   const showNearbyContextBanner = hasNearbyRails && allRailsAreCascaded
 
+  // Notifications system isn't built yet (Phase 6) — surface a Coming Soon
+  // stub matching the app's SSO / GetHelp convention until it ships.
+  const handleNotificationPress = () =>
+    Alert.alert('Coming soon', 'Notifications are coming in a future update.')
+
   return (
     <View style={styles.container}>
       <Animated.ScrollView
@@ -269,7 +274,9 @@ export function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
         contentContainerStyle={[
           styles.scroll,
-          { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
+          // Safe-area-aware top inset so the greeting clears the Dynamic
+          // Island / notch on every device (was a fixed 60).
+          { paddingTop: insets.top + spacing[2], paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
         {/* Batch 5 §10.5 (F4-c) — branded RedeemoLoader R-moment while
@@ -305,6 +312,7 @@ export function HomeScreen() {
           {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
           onSearchPress={() => router.push('/search' as any)}
           onAvatarPress={() => router.push('/profile' as any)}
+          onNotificationPress={handleNotificationPress}
           onHeightChange={setHeaderHeight}
         />
 
@@ -421,6 +429,11 @@ export function HomeScreen() {
         {showExploreMore && <HomeExploreMore />}
       </Animated.ScrollView>
 
+      {/* Always-opaque status-bar mask: the expanded greeting/location scroll
+          UNDER this, never under the Dynamic Island / time. Above the feed,
+          below the collapsed header. */}
+      <View pointerEvents="none" style={[styles.statusBarMask, { height: insets.top }]} />
+
       {/* PR A — pinned compact header; fades in over the expanded header as
           the feed scrolls. Sibling of the ScrollView so it sits above the
           feed content (its own zIndex + absolute top:0). */}
@@ -434,6 +447,7 @@ export function HomeScreen() {
         {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
         onSearchPress={() => router.push('/search' as any)}
         onAvatarPress={() => router.push('/profile' as any)}
+        onNotificationPress={handleNotificationPress}
       />
     </View>
   )
@@ -450,8 +464,15 @@ const styles = StyleSheet.create({
     backgroundColor: color.surface.body,
   },
   scroll: {
-    paddingTop: 60,
     gap: spacing[5],
+  },
+  statusBarMask: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: color.surface.body,
+    zIndex: 19,
   },
   skeletonRow: {
     flexDirection: 'row',

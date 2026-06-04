@@ -118,4 +118,22 @@ describe('HomeHeader', () => {
     fireEvent(getByTestId('home-header'), 'layout', { nativeEvent: { layout: { height: 180 } } })
     expect(onHeightChange).toHaveBeenCalledWith(180)
   })
+
+  // PR A device-QA — notification bell present in the expanded header.
+  it('renders the notification bell and fires onNotificationPress', () => {
+    const onNotificationPress = jest.fn()
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} onNotificationPress={onNotificationPress} />
+    )
+    fireEvent.press(getByTestId('home-header-bell'))
+    expect(onNotificationPress).toHaveBeenCalledTimes(1)
+  })
+
+  it('bell renders even without a handler (no crash)', () => {
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    expect(getByTestId('home-header-bell')).toBeTruthy()
+    fireEvent.press(getByTestId('home-header-bell')) // no-op, must not throw
+  })
 })

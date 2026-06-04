@@ -3,7 +3,7 @@ import { View, Pressable, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Search } from '@/design-system/icons'
+import { Search, Bell } from '@/design-system/icons'
 import Animated, {
   useAnimatedStyle,
   interpolate,
@@ -29,6 +29,7 @@ type Props = {
   locationContext?: LocationContext | undefined
   onSearchPress: () => void
   onAvatarPress: () => void
+  onNotificationPress?: () => void
 }
 
 /**
@@ -37,24 +38,24 @@ type Props = {
  * slab: a warm cream identity-zone gradient (#FFF9F5 -> #FCF0E5) carries the
  * brand, a navy-tinted elevation.md shadow + bottom hairline lift it off the
  * scrolling content, and the search affordance is the compact form of the
- * expanded search bar (white surface, brand-rose hairline + glyph) rather
- * than a bare floating icon. Opacity interpolates 0->1 over the last
+ * expanded search bar (warm cream-rose surface, brand-rose hairline + glyph)
+ * rather than a bare floating icon. Opacity interpolates 0->1 over the last
  * FADE_WINDOW px before `fadeEndY`, on the UI thread.
+ *
+ * The status-bar safe-area zone is masked separately (HomeScreen owns an
+ * always-opaque mask), so the expanded greeting scrolls UNDER opaque chrome,
+ * never under the Dynamic Island / time.
  *
  * Reduced motion (useMotionScale()===0): binary opacity switch at fadeEndY.
  * The fade is gesture-driven so it is RM-safe either way; the binary branch
  * honours the locked Decision #3 for when detection is reliable (§RM).
  *
  * pointerEvents="box-none": the container passes taps through; only the
- * search affordance + avatar receive them (matches merchant/CollapsedHeader).
- * At the very top the collapsed avatar overlaps the expanded avatar (same
- * onAvatarPress); the collapsed search/location footprint over the greeting
- * is the same minor tradeoff the merchant header accepts — flagged for
- * device QA, with an isCollapsed gate as the follow-up if it feels odd.
+ * search / bell / avatar children receive them (matches merchant/CollapsedHeader).
  */
 export function HomeCollapsedHeader({
   scrollY, fadeEndY, firstName, area, city, avatarUrl, locationContext,
-  onSearchPress, onAvatarPress,
+  onSearchPress, onAvatarPress, onNotificationPress,
 }: Props) {
   const insets = useSafeAreaInsets()
   const reduced = useMotionScale() === 0
@@ -111,6 +112,17 @@ export function HomeCollapsedHeader({
         </Pressable>
 
         <Pressable
+          onPress={() => onNotificationPress?.()}
+          testID="home-collapsed-bell"
+          accessibilityRole="button"
+          accessibilityLabel="Notifications"
+          hitSlop={6}
+          style={({ pressed }) => [styles.bellBtn, pressed && styles.pressed]}
+        >
+          <Bell size={18} color={color.navy} />
+        </Pressable>
+
+        <Pressable
           onPress={onAvatarPress}
           testID="home-collapsed-avatar"
           accessibilityRole="button"
@@ -126,7 +138,7 @@ export function HomeCollapsedHeader({
               end={{ x: 1, y: 1 }}
               style={styles.avatarImg}
             >
-              <Text variant="label.md" style={{ color: '#FFFFFF', fontSize: 15, lineHeight: 15 }}>
+              <Text variant="label.md" style={styles.avatarInitial}>
                 {avatarLetter}
               </Text>
             </LinearGradient>
@@ -156,19 +168,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 18,
-    gap: 12,
+    gap: 10,
   },
   location: {
     flex: 1,
     minWidth: 0,
   },
-  // Compact form of the expanded search bar (white + brand-rose hairline +
-  // brand-rose glyph), NOT a bare floating circle.
+  // Compact form of the expanded search bar — warm cream-rose surface (NOT
+  // stark white) + brand-rose hairline + brand-rose glyph.
   searchBtn: {
     width: 40,
     height: 36,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: color.surface.tint,
     borderWidth: 1,
     borderColor: 'rgba(226,12,4,0.12)', // brand-rose hairline (matches the expanded bar)
     alignItems: 'center',
@@ -178,6 +190,18 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
+  },
+  // Notification bell — same warm surface, neutral hairline + navy glyph so it
+  // reads as a secondary control distinct from the brand-rose search.
+  bellBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: color.surface.tint,
+    borderWidth: 1,
+    borderColor: color.border.subtle,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pressed: {
     transform: [{ scale: 0.96 }],
@@ -194,5 +218,10 @@ const styles = StyleSheet.create({
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarInitial: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 15,
   },
 })
