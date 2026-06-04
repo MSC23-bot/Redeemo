@@ -3,14 +3,14 @@ import { View, Pressable, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Search } from 'lucide-react-native'
+import { Search } from '@/design-system/icons'
 import Animated, {
   useAnimatedStyle,
   interpolate,
   Extrapolation,
   type SharedValue,
 } from 'react-native-reanimated'
-import { Text, color, useMotionScale } from '@/design-system'
+import { Text, color, elevation, useMotionScale } from '@/design-system'
 import { HomeHeaderLocation } from './HomeHeaderLocation'
 import type { LocationContext } from '@/lib/api/shared/location'
 
@@ -33,20 +33,24 @@ type Props = {
 
 /**
  * Pinned compact Home header (PR A). Absolutely-positioned sibling of the
- * feed ScrollView (top of the z-stack), with its own warm background +
- * safe-area top spacer. Opacity interpolates 0→1 over the last FADE_WINDOW
- * px before `fadeEndY`, on the UI thread — mirrors merchant/CollapsedHeader.
+ * feed ScrollView (top of the z-stack). It is brand chrome, not a generic
+ * slab: a warm cream identity-zone gradient (#FFF9F5 -> #FCF0E5) carries the
+ * brand, a navy-tinted elevation.md shadow + bottom hairline lift it off the
+ * scrolling content, and the search affordance is the compact form of the
+ * expanded search bar (white surface, brand-rose hairline + glyph) rather
+ * than a bare floating icon. Opacity interpolates 0->1 over the last
+ * FADE_WINDOW px before `fadeEndY`, on the UI thread.
  *
  * Reduced motion (useMotionScale()===0): binary opacity switch at fadeEndY.
  * The fade is gesture-driven so it is RM-safe either way; the binary branch
  * honours the locked Decision #3 for when detection is reliable (§RM).
  *
  * pointerEvents="box-none": the container passes taps through; only the
- * search icon + avatar receive them (matches merchant/CollapsedHeader). At
- * the very top the collapsed avatar overlaps the expanded avatar (same
- * onAvatarPress); the collapsed search icon's invisible footprint over the
- * greeting is the same minor tradeoff the merchant header accepts — flagged
- * for device QA, with an isCollapsed gate as the follow-up if it feels odd.
+ * search affordance + avatar receive them (matches merchant/CollapsedHeader).
+ * At the very top the collapsed avatar overlaps the expanded avatar (same
+ * onAvatarPress); the collapsed search/location footprint over the greeting
+ * is the same minor tradeoff the merchant header accepts — flagged for
+ * device QA, with an isCollapsed gate as the follow-up if it feels odd.
  */
 export function HomeCollapsedHeader({
   scrollY, fadeEndY, firstName, area, city, avatarUrl, locationContext,
@@ -80,6 +84,16 @@ export function HomeCollapsedHeader({
         containerStyle,
       ]}
     >
+      {/* Warm identity-zone gradient — subtle deepening toward the content
+          edge so the bar reads as brand chrome, not a white slab. */}
+      <LinearGradient
+        colors={['#FFF9F5', '#FCF0E5']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
       <View style={styles.row}>
         <View style={styles.location}>
           <HomeHeaderLocation area={area} city={city} locationContext={locationContext} />
@@ -91,9 +105,9 @@ export function HomeCollapsedHeader({
           accessibilityRole="button"
           accessibilityLabel="Search"
           hitSlop={6}
-          style={styles.iconBtn}
+          style={({ pressed }) => [styles.searchBtn, pressed && styles.pressed]}
         >
-          <Search size={20} color={color.navy} />
+          <Search size={18} color={color.brandRose} />
         </Pressable>
 
         <Pressable
@@ -101,7 +115,7 @@ export function HomeCollapsedHeader({
           testID="home-collapsed-avatar"
           accessibilityRole="button"
           accessibilityLabel="Profile"
-          style={styles.avatar}
+          style={({ pressed }) => [styles.avatar, pressed && styles.pressed]}
         >
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatarImg} contentFit="cover" />
@@ -129,16 +143,13 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: color.surface.body,
+    backgroundColor: color.surface.body, // cream base (carries the navy shadow)
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.border.subtle,
     zIndex: 20,
-    // soft elevation — fades in with the container opacity
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    // Navy-tinted lift so the pinned chrome reads as "above" the content
+    // scrolling beneath it (DESIGN.md elevation.md — sticky chrome).
+    ...elevation.md,
   },
   row: {
     flex: 1,
@@ -151,13 +162,26 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  iconBtn: {
-    width: 36,
+  // Compact form of the expanded search bar (white + brand-rose hairline +
+  // brand-rose glyph), NOT a bare floating circle.
+  searchBtn: {
+    width: 40,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: color.surface.neutral,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(226,12,4,0.12)', // brand-rose hairline (matches the expanded bar)
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: color.navy,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  pressed: {
+    transform: [{ scale: 0.96 }],
+    opacity: 0.95,
   },
   avatar: {
     width: 36,

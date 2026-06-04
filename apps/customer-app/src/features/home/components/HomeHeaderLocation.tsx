@@ -1,6 +1,6 @@
 import React from 'react'
 import { View } from 'react-native'
-import { MapPin } from 'lucide-react-native'
+import { MapPin } from '@/design-system/icons'
 import { Text, color } from '@/design-system'
 import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
 import type { LocationContext } from '@/lib/api/shared/location'
