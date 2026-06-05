@@ -907,3 +907,36 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ## ⏸ PAUSE — owner approval required
 
 Per the Tier 2 standing rule and the owner's instruction, **do not begin implementation.** This plan + the spec are written (uncommitted on `main`'s working tree until Task 0). Await owner review and approval of the plan before executing any task.
+
+---
+
+## ✅ As-built addendum (executed 2026-06-04 → 2026-06-05, branch `feature/home-sticky-header`)
+
+The plan above (PR A — sticky/collapsing header) was executed, then **extended by owner device-QA direction into a full brand-coloured Home header redesign**. This is the **intended Home header design (NOT a trial).** All on `feature/home-sticky-header` (off `main`, which already includes §HC Home Visual System PR #140 — so no Home-Visual-System conflict). **Not pushed / not merged to main.**
+
+### Commits (off `main`)
+- `e822dcc` … `45315d5` — PR A core: shared `HomeHeaderLocation` + `HomeSearchBar` + pinned `HomeCollapsedHeader` (scrollY-driven) + Option A `HomeHeader` + wiring + the Search-untouched static guardrail. Two-layer opacity cross-fade; **no height animation**.
+- `9d248b9` — **tappable location** (header location → `/saved-area`, switch-cue chevron), **keyboard-on-tap search** (`SearchScreen` `useFocusEffect` + `SearchBar` `forwardRef`; 7 SearchScreen test mocks declare `useFocusEffect`), larger pinned location + shorter compact bar, synced fade-out fixing collapse ghosting.
+- `6bb8478` — **brand-coloured header** (final; details below).
+
+### Brand-coloured header — as shipped on branch
+- **Surface:** brand red→orange **radial** gradient (organic, no axis), reddish with a small orange hint in the glow (`#F24E2C → #BE0A03`), via `react-native-svg` (`HeaderRadialGradient`, shared by expanded + collapsed; collapsed uses the category-card recipe `cx 70% cy 16% r 82%`). Header height measured (onLayout) to size the radial; `EXPANDED_HEADER_TOP = #BE0A03` is the 1-frame fallback.
+- **Covers from y=0** (Savings-hero pattern): the header bakes its own `paddingTop: insets.top` and the gradient fills the status-bar inset → no cream gap. `HomeScreen` content `paddingTop: 0` + `contentInsetAdjustmentBehavior="never"` + `automaticallyAdjustContentInsets={false}` stop the iOS double-inset.
+- **Wave bottom edge:** single smooth peach wave (`HomeHeaderWave`, Path filled `color.surface.body`) into the body, with a **gaussian-blurred** (`Filter` + `FeGaussianBlur`) warm stroke tracing the curve for a smooth even shadow that lifts the header off the body.
+- **Content colours:** greeting + location + status label in warm off-white `#FFF3EC` (`ON_BRAND_TEXT`); frosted translucent-white bell; white-ringed avatar; **cream search bar kept**. `HomeHeaderLocation` + `LocationStatusLabel` gained a `tone: 'onBrand'` prop (Search / Map never pass it → unchanged there).
+- **Collapse timing (the key fix):** the header **content** fades fast inside `HomeHeader` (`scrollY`-driven, gone by `insets.top+35`) while the radial background + wave keep scrolling, so the red covers the top the whole way; the collapsed bar hands over at `fadeEndY = insets.top + 80` (was the full tall header height → long dead zone). `FADE_WINDOW = 45`.
+- **No status-bar stripe:** the separate status-bar mask was removed — the header's own radial covers the status bar through the scroll, and the collapsed bar after.
+- **Overscroll anchor / break at the wave:** the header counter-translates against overscroll (`translateY: Math.min(scrollY, 0)`) so it stays pinned and the body pulls away **at the wave** (no red stripe above).
+- **Shadows:** blurred wave shadow (expanded) + warm `#6E1A0A` drop shadow on the collapsed bar's bottom edge.
+- `HomeHeader` now uses `useSafeAreaInsets`; `HomeHeader.test.tsx` wrapped in a `SafeAreaProvider`.
+
+### Verification at `6bb8478`
+tsc clean; **497/497** jest across `home` + `search` + `lib/location` + `map`. No new test pins for the brand-specific behaviour (timing / radial / anchor / shadows) — see follow-ups.
+
+### Follow-ups → deferred-index **§HSH**
+1. Pull-to-refresh "break at the wave" with the branded Redeemo R loader dropped into the gap (native refresh works; the in-content loader vs the anchored header is unresolved).
+2. Android QA for the `FeGaussianBlur` wave shadow (verified iOS; Android svg-filter rendering can differ — fallback = stacked-band approximation).
+3. Test pins for the brand-header behaviour before merge (content-fade timing, `fadeEndY` collapse, overscroll anchor, on-brand tone).
+4. Merge-to-main = full Tier 2 (review + device-QA matrix + spec/plan reconcile).
+5. Reduce-motion: collapse/fade/anchor are scroll-position-driven (RM-safe by construction); collapsed bar keeps its explicit `useMotionScale` branch — verify on device.
+6. Location-truth on the now-tappable header location → **§DF-v2-p** (GPS-on shows profile postcode; Your Location screen GPS-on affordances).
