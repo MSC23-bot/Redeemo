@@ -179,7 +179,11 @@ describe('HomeScreen render order (§8.8)', () => {
 
   // PR A — the pinned sticky/collapsing header mounts as a sibling of the feed.
   it('mounts the pinned collapsed header', async () => {
+    // Review fix: at scroll-top the bar is hidden (pointerEvents none +
+    // accessibility-hidden) until the feed scrolls, but it still mounts.
     const { getByTestId } = render(<HomeScreen />, { wrapper })
-    await waitFor(() => expect(getByTestId('home-collapsed-header')).toBeTruthy())
+    await waitFor(() =>
+      expect(getByTestId('home-collapsed-header', { includeHiddenElements: true })).toBeTruthy(),
+    )
   })
 })

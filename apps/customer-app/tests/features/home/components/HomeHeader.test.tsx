@@ -123,15 +123,6 @@ describe('HomeHeader', () => {
     expect(onSearchPress).toHaveBeenCalledTimes(1)
   })
 
-  it('reports its height via onHeightChange (drives fadeEndY)', () => {
-    const onHeightChange = jest.fn()
-    const { getByTestId } = render(
-      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} onHeightChange={onHeightChange} />
-    )
-    fireEvent(getByTestId('home-header'), 'layout', { nativeEvent: { layout: { height: 180 } } })
-    expect(onHeightChange).toHaveBeenCalledWith(180)
-  })
-
   // PR A device-QA — notification bell present in the expanded header.
   it('renders the notification bell and fires onNotificationPress', () => {
     const onNotificationPress = jest.fn()

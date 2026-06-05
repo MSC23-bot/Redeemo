@@ -21,6 +21,10 @@ type Props = {
   // 'onBrand' renders white content for the brand-coloured header surface
   // (brand-header redesign). Threaded into <LocationStatusLabel> too.
   tone?: 'default' | 'onBrand'
+  // testID for the tappable location button. Defaults to the expanded-header
+  // id; the collapsed bar passes a distinct id so the two location buttons are
+  // individually addressable (they both mount on Home at once).
+  testID?: string
 }
 
 /**
@@ -32,7 +36,7 @@ type Props = {
  *   2. no GPS, context provided → <LocationStatusLabel> strip (self-routing)
  *   3. neither (loading) → null
  */
-export function HomeHeaderLocation({ area, city, locationContext, size = 'sm', onPress, tone = 'default' }: Props) {
+export function HomeHeaderLocation({ area, city, locationContext, size = 'sm', onPress, tone = 'default', testID = 'home-header-location-button' }: Props) {
   const showLocation = area !== null || city !== null
   const showStatusLabel = !showLocation && locationContext !== undefined
   const onBrand = tone === 'onBrand'
@@ -65,7 +69,7 @@ export function HomeHeaderLocation({ area, city, locationContext, size = 'sm', o
           onPress={onPress}
           accessibilityRole="button"
           accessibilityLabel="Change location"
-          testID="home-header-location-button"
+          testID={testID}
           hitSlop={8}
           style={({ pressed }) => [{ alignSelf: 'flex-start' }, pressed ? { opacity: 0.7 } : null]}
         >

@@ -15,12 +15,17 @@ const scrollY = { value: 0 } as unknown as SharedValue<number>
 const baseProps = {
   scrollY,
   fadeEndY: 120,
+  // Review fix: `active` gates pointer events + a11y exposure. Default to the
+  // shown state for the render/handler assertions below; the gate itself is
+  // pinned in its own test.
+  active: true,
   firstName: 'Shebin',
   area: 'Shoreditch',
   city: 'London',
   onSearchPress: jest.fn(),
   onAvatarPress: jest.fn(),
   onNotificationPress: jest.fn(),
+  onLocationPress: jest.fn(),
 }
 
 describe('HomeCollapsedHeader', () => {
@@ -32,6 +37,9 @@ describe('HomeCollapsedHeader', () => {
     expect(getByTestId('home-collapsed-search')).toBeTruthy()
     expect(getByTestId('home-collapsed-bell')).toBeTruthy()
     expect(getByTestId('home-collapsed-avatar')).toBeTruthy()
+    // Review fix: the collapsed location button carries a DISTINCT testID so it
+    // doesn't collide with the expanded header's button.
+    expect(getByTestId('home-collapsed-location-button')).toBeTruthy()
     expect(getByText('Shoreditch, London')).toBeTruthy()
   })
 
@@ -43,5 +51,21 @@ describe('HomeCollapsedHeader', () => {
     expect(baseProps.onSearchPress).toHaveBeenCalledTimes(1)
     expect(baseProps.onNotificationPress).toHaveBeenCalledTimes(1)
     expect(baseProps.onAvatarPress).toHaveBeenCalledTimes(1)
+  })
+
+  // Review fix — the pinned bar overlaps the expanded header's top band, so
+  // while hidden it must NOT be touch-live or screen-reader-visible.
+  it('gates pointer events + accessibility on `active`', () => {
+    const hidden = render(<HomeCollapsedHeader {...baseProps} active={false} />)
+    const hiddenBar = hidden.getByTestId('home-collapsed-header', { includeHiddenElements: true })
+    expect(hiddenBar.props.pointerEvents).toBe('none')
+    expect(hiddenBar.props.accessibilityElementsHidden).toBe(true)
+    expect(hiddenBar.props.importantForAccessibility).toBe('no-hide-descendants')
+
+    const shown = render(<HomeCollapsedHeader {...baseProps} active />)
+    const shownBar = shown.getByTestId('home-collapsed-header')
+    expect(shownBar.props.pointerEvents).toBe('box-none')
+    expect(shownBar.props.accessibilityElementsHidden).toBe(false)
+    expect(shownBar.props.importantForAccessibility).toBe('auto')
   })
 })

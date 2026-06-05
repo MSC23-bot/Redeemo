@@ -37,10 +37,6 @@ type Props = {
   // through to <HomeHeaderLocation> which renders <LocationStatusLabel> when
   // GPS-on `area/city` are absent AND a context is provided.
   locationContext?: LocationContext | undefined
-  // PR A (sticky header) — reports the rendered header height so HomeScreen
-  // can compute `fadeEndY` for the collapsed-header fade. Optional so the
-  // component is still usable standalone (e.g. in unit tests).
-  onHeightChange?: (height: number) => void
   // Tapping the GPS-on location row routes to the Your Location screen
   // (parent owns routing). Passed through to <HomeHeaderLocation>.
   onLocationPress?: (() => void) | undefined
@@ -75,7 +71,7 @@ function getGreeting(): string {
  */
 export function HomeHeader({
   firstName, area, city, locationContext, avatarUrl,
-  onSearchPress, onAvatarPress, onNotificationPress, onHeightChange, onLocationPress, scrollY,
+  onSearchPress, onAvatarPress, onNotificationPress, onLocationPress, scrollY,
 }: Props) {
   const insets = useSafeAreaInsets()
   const { width: winW } = useWindowDimensions()
@@ -94,9 +90,9 @@ export function HomeHeader({
   const avatarLetter = firstName ? firstName.charAt(0).toUpperCase() : '?'
 
   const handleLayout = (e: LayoutChangeEvent) => {
-    const h = e.nativeEvent.layout.height
-    setHeaderH(h)
-    onHeightChange?.(h)
+    // Drives the radial gradient's height only (the collapse threshold is a
+    // device-tuned constant in HomeScreen, not derived from this measurement).
+    setHeaderH(e.nativeEvent.layout.height)
   }
 
   return (
@@ -203,11 +199,12 @@ export function HomeHeader({
 
 const styles = StyleSheet.create({
   root: {
-    // Brand base (= gradient top colour) — also the seam colour shared with the
-    // pinned status-bar mask in HomeScreen. paddingBottom leaves room for the
-    // wave PLUS a band of red below the search bar (owner direction: more red
-    // before the wave). Horizontal padding lives on `inner` so the gradient +
-    // wave span edge-to-edge.
+    // Brand base (= gradient top colour); a 1-frame fallback behind the radial
+    // until onLayout measures the height. There is no separate status-bar mask —
+    // the header's own radial fills the status-bar inset. paddingBottom leaves
+    // room for the wave PLUS a band of red below the search bar (owner
+    // direction: more red before the wave). Horizontal padding lives on `inner`
+    // so the gradient + wave span edge-to-edge.
     backgroundColor: EXPANDED_HEADER_TOP,
     paddingBottom: WAVE_HEIGHT + spacing[5],
   },

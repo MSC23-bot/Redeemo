@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { View, FlatList, StyleSheet, Keyboard, TextInput } from 'react-native'
-import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router'
+import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text } from '@/design-system/Text'
 import { useSearch } from '@/hooks/useSearch'
@@ -23,6 +23,7 @@ import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
 import { useMe } from '@/hooks/useMe'
 import type { LocationContext } from '@/lib/api/shared/location'
 import { SearchBar } from '../components/SearchBar'
+import { useAutofocusKeyboard } from '../hooks/useAutofocusKeyboard'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
 import { SearchEmptyState } from '../components/SearchEmptyState'
@@ -118,16 +119,10 @@ export function SearchScreen() {
   const insets  = useSafeAreaInsets()
   // Keyboard-on-tap (owner direction 2026-06-05): raise the keyboard whenever
   // Search gains focus — including tab-to-tab re-entry where the screen stays
-  // mounted and a one-shot `autoFocus` wouldn't re-fire. The short delay lets
-  // the navigation transition settle so iOS reliably raises the keyboard
-  // (focusing mid-transition silently no-ops).
+  // mounted and a one-shot `autoFocus` wouldn't re-fire. Bounded-retry focus
+  // (review fix) so a slow nav transition can't swallow a single attempt.
   const searchInputRef = useRef<TextInput>(null)
-  useFocusEffect(
-    useCallback(() => {
-      const t = setTimeout(() => searchInputRef.current?.focus(), 350)
-      return () => clearTimeout(t)
-    }, []),
-  )
+  useAutofocusKeyboard(searchInputRef)
   // PR #112 fixup-6 (2026-05-20) — accept `?q=` on the URL so users
   // returning from a merchant page (with `from=search&q=<query>`) land
   // back on Search with their typed query restored.  Lazy initialiser

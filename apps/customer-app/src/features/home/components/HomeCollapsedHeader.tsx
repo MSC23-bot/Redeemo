@@ -16,7 +16,9 @@ import { HeaderRadialGradient, type RadialStop } from './HomeHeaderWave'
 import type { LocationContext } from '@/lib/api/shared/location'
 
 export const COMPACT_BAR_HEIGHT = 50
-const FADE_WINDOW = 45
+// Exported so HomeScreen can derive the touch/accessibility `active` threshold
+// from the SAME fade window the opacity uses (no magic-number drift).
+export const FADE_WINDOW = 45
 
 // Collapsed-bar surface — the SAME radial gradient recipe as the Home category
 // cards (cx 70% cy 16% r 82%, light→deep), tuned to a REDDISH brand tone (owner
@@ -33,6 +35,15 @@ type Props = {
   scrollY: SharedValue<number>
   /** Scroll Y at which the collapsed bar reaches full opacity (captured via onLayout). */
   fadeEndY: number
+  /**
+   * Whether the collapsed bar is currently shown (HomeScreen drives this off
+   * the scroll offset). Gates BOTH pointer events and accessibility exposure:
+   * while false the bar is visually hidden at the top of the feed, so its
+   * controls must not be touch-live or screen-reader-visible (otherwise they
+   * shadow the expanded header's greeting/search row). See the component
+   * docstring.
+   */
+  active: boolean
   firstName: string | null
   area: string | null
   city: string | null
@@ -48,27 +59,34 @@ type Props = {
 
 /**
  * Pinned compact Home header (PR A). Absolutely-positioned sibling of the
- * feed ScrollView (top of the z-stack). It is brand chrome, not a generic
- * slab: a warm cream identity-zone gradient (#FFF9F5 -> #FCF0E5) carries the
- * brand, a navy-tinted elevation.md shadow + bottom hairline lift it off the
- * scrolling content, and the search affordance is the compact form of the
- * expanded search bar (warm cream-rose surface, brand-rose hairline + glyph)
- * rather than a bare floating icon. Opacity interpolates 0->1 over the last
- * FADE_WINDOW px before `fadeEndY`, on the UI thread.
+ * feed ScrollView (top of the z-stack). It is brand chrome: a REDDISH brand
+ * radial gradient (COLLAPSED_STOPS #EF4338 -> #BE0A03, the same category-card
+ * recipe as the expanded header) with frosted translucent-white icon buttons,
+ * a warm drop shadow + bottom hairline lifting it off the scrolling content.
+ * Opacity interpolates 0->1 over the last FADE_WINDOW px before `fadeEndY`,
+ * on the UI thread.
  *
- * The status-bar safe-area zone is masked separately (HomeScreen owns an
- * always-opaque mask), so the expanded greeting scrolls UNDER opaque chrome,
- * never under the Dynamic Island / time.
+ * The header's own opaque radial covers the status-bar safe-area zone once it
+ * has faded in, so the expanded greeting scrolls UNDER brand chrome, never
+ * under the Dynamic Island / time. (There is no separate HomeScreen mask — the
+ * expanded header's own radial covers the inset before the handover.)
  *
  * Reduced motion (useMotionScale()===0): binary opacity switch at fadeEndY.
  * The fade is gesture-driven so it is RM-safe either way; the binary branch
  * honours the locked Decision #3 for when detection is reliable (§RM).
  *
- * pointerEvents="box-none": the container passes taps through; only the
- * search / bell / avatar children receive them (matches merchant/CollapsedHeader).
+ * Touch / accessibility gate (`active`, review fix): the bar's controls overlap
+ * the expanded header's top band, so while the bar is hidden (scrolled to the
+ * top) its children must NOT be touch-live or screen-reader-visible — otherwise
+ * an invisible location/search/bell/avatar shadows the expanded greeting (a tap
+ * on the greeting would route to /saved-area, and VoiceOver would announce the
+ * hidden controls). HomeScreen passes `active` (true once the bar is shown):
+ * the container is `pointerEvents="none"` + accessibility-hidden until then,
+ * and `pointerEvents="box-none"` (children-only taps, matches
+ * merchant/CollapsedHeader) once active.
  */
 export function HomeCollapsedHeader({
-  scrollY, fadeEndY, firstName, area, city, avatarUrl, locationContext,
+  scrollY, fadeEndY, active, firstName, area, city, avatarUrl, locationContext,
   onSearchPress, onAvatarPress, onNotificationPress, onLocationPress,
 }: Props) {
   const insets = useSafeAreaInsets()
@@ -92,7 +110,17 @@ export function HomeCollapsedHeader({
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      // Review fix: only intercept taps once the bar is actually shown.
+      // While hidden at the top of the feed (`!active`) the container ignores
+      // touches entirely, so its opacity-0 children can't shadow the expanded
+      // header's greeting/search row. When shown, box-none passes through to
+      // the children only.
+      pointerEvents={active ? 'box-none' : 'none'}
+      // Review fix: hide the hidden bar's controls from screen readers while
+      // the expanded header is active, so VoiceOver/TalkBack don't announce a
+      // duplicate (invisible) location/search/bell/avatar set.
+      accessibilityElementsHidden={!active}
+      importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
       testID="home-collapsed-header"
       style={[
         styles.container,
@@ -114,7 +142,7 @@ export function HomeCollapsedHeader({
 
       <View style={styles.row}>
         <View style={styles.location}>
-          <HomeHeaderLocation area={area} city={city} locationContext={locationContext} size="md" onPress={onLocationPress} tone="onBrand" />
+          <HomeHeaderLocation area={area} city={city} locationContext={locationContext} size="md" onPress={onLocationPress} tone="onBrand" testID="home-collapsed-location-button" />
         </View>
 
         <Pressable

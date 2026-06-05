@@ -99,17 +99,32 @@ describe('HomeScreen brand header — routing + affordances (§HSH.3)', () => {
   })
 
   it('header location tap routes to the Your Location screen (/saved-area)', () => {
-    // The location row renders in BOTH the expanded header and the pinned
-    // collapsed bar (shared <HomeHeaderLocation>); both wire to the same
-    // handler. Press the first (expanded) — it must route to /saved-area.
-    const { getAllByTestId } = render(<HomeScreen />, { wrapper })
-    fireEvent.press(getAllByTestId('home-header-location-button')[0])
+    // Review fix: the expanded header's location button now carries a UNIQUE
+    // testID (the collapsed bar's is `home-collapsed-location-button`), so we
+    // address it directly instead of getAllByTestId(...)[0].
+    const { getByTestId } = render(<HomeScreen />, { wrapper })
+    fireEvent.press(getByTestId('home-header-location-button'))
     expect(mockPush).toHaveBeenCalledWith('/saved-area')
   })
 
   it('mounts the pinned collapsed brand header', async () => {
+    // Review fix: at scroll-top the collapsed bar is mounted but hidden
+    // (pointerEvents none + accessibility-hidden) until the feed scrolls.
     const { getByTestId } = render(<HomeScreen />, { wrapper })
-    await waitFor(() => expect(getByTestId('home-collapsed-header')).toBeTruthy())
+    await waitFor(() =>
+      expect(getByTestId('home-collapsed-header', { includeHiddenElements: true })).toBeTruthy(),
+    )
+  })
+
+  // Review fix — the collapsed bar's controls must not shadow the expanded
+  // header at the top of the feed. HomeScreen drives `active` off the scroll
+  // offset (false until the feed scrolls), so at scroll-top the pinned bar is
+  // not touch-live and is hidden from screen readers.
+  it('collapsed brand header is not touch-live or screen-reader-visible at the top of the feed', () => {
+    const { getByTestId } = render(<HomeScreen />, { wrapper })
+    const bar = getByTestId('home-collapsed-header', { includeHiddenElements: true })
+    expect(bar.props.pointerEvents).toBe('none')
+    expect(bar.props.accessibilityElementsHidden).toBe(true)
   })
 
   it('renders NO Filter affordance on Home', () => {

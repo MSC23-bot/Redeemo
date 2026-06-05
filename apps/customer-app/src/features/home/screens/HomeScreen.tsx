@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { View, RefreshControl, StyleSheet, Alert } from 'react-native'
-import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset, useAnimatedStyle } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
+import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset, useAnimatedStyle, useAnimatedReaction, runOnJS } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,7 +10,7 @@ import { useHomeFeed } from '@/hooks/useHomeFeed'
 import { useCategories } from '@/hooks/useCategories'
 import { useMe } from '@/hooks/useMe'
 import { HomeHeader } from '../components/HomeHeader'
-import { HomeCollapsedHeader } from '../components/HomeCollapsedHeader'
+import { HomeCollapsedHeader, FADE_WINDOW } from '../components/HomeCollapsedHeader'
 import { CampaignCarousel } from '../components/CampaignCarousel'
 import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
@@ -75,6 +75,22 @@ export function HomeScreen() {
   const expandedHeaderStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: Math.min(scrollY.value, 0) }],
   }))
+  // Review fix: the pinned collapsed bar overlaps the expanded header's top
+  // band, so it must only be touch-live + screen-reader-visible once it is
+  // actually shown — otherwise its opacity-0 controls shadow the expanded
+  // greeting/search row (tap → wrong route; VoiceOver → duplicate controls).
+  // Track that as JS state off the UI-thread scroll offset, flipping at the
+  // SAME point the bar starts fading in (`fadeEndY - FADE_WINDOW`) so the gate
+  // lines up with the visual. We only setState on the boolean transition, so
+  // this stays off the per-frame path.
+  const [headerCollapsed, setHeaderCollapsed] = useState(false)
+  useAnimatedReaction(
+    () => scrollY.value >= fadeEndY - FADE_WINDOW,
+    (isActive, prev) => {
+      if (isActive !== prev) runOnJS(setHeaderCollapsed)(isActive)
+    },
+    [fadeEndY],
+  )
   // Owns the global scrollActivity flag (pauses looping animations while the
   // feed moves) with a debounced stop + a blur/unmount reset so leaving Home
   // mid-fling can't strand the flag at 1 and freeze animations app-wide.
@@ -460,6 +476,7 @@ export function HomeScreen() {
       <HomeCollapsedHeader
         scrollY={scrollY}
         fadeEndY={fadeEndY}
+        active={headerCollapsed}
         firstName={me?.firstName ?? null}
         area={location?.area ?? null}
         city={location?.city ?? null}
