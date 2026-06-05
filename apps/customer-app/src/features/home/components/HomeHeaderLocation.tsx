@@ -3,6 +3,7 @@ import { View, Pressable } from 'react-native'
 import { MapPin, ChevronDown } from '@/design-system/icons'
 import { Text, color } from '@/design-system'
 import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
+import { ON_BRAND_TEXT } from './HomeHeaderWave'
 import type { LocationContext } from '@/lib/api/shared/location'
 
 type Props = {
@@ -17,6 +18,9 @@ type Props = {
   // profile <LocationStatusLabel> branch already routes to /saved-area on its
   // own, so it ignores onPress.
   onPress?: (() => void) | undefined
+  // 'onBrand' renders white content for the brand-coloured header surface
+  // (brand-header redesign). Threaded into <LocationStatusLabel> too.
+  tone?: 'default' | 'onBrand'
 }
 
 /**
@@ -28,27 +32,30 @@ type Props = {
  *   2. no GPS, context provided → <LocationStatusLabel> strip (self-routing)
  *   3. neither (loading) → null
  */
-export function HomeHeaderLocation({ area, city, locationContext, size = 'sm', onPress }: Props) {
+export function HomeHeaderLocation({ area, city, locationContext, size = 'sm', onPress, tone = 'default' }: Props) {
   const showLocation = area !== null || city !== null
   const showStatusLabel = !showLocation && locationContext !== undefined
+  const onBrand = tone === 'onBrand'
 
   if (showLocation) {
     const locationLabel = [area, city].filter(Boolean).join(', ')
-    const iconSize    = size === 'md' ? 15 : 13
-    const chevronSize = size === 'md' ? 16 : 14
+    const iconSize     = size === 'md' ? 15 : 13
+    const chevronSize  = size === 'md' ? 16 : 14
+    const pinColor     = onBrand ? ON_BRAND_TEXT : color.brandRose
+    const chevronColor = onBrand ? ON_BRAND_TEXT : color.text.tertiary
     const content = (
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <MapPin size={iconSize} color={color.brandRose} strokeWidth={2.2} />
+        <MapPin size={iconSize} color={pinColor} strokeWidth={2.2} />
         <Text
           variant={size === 'md' ? 'body.md' : 'body.sm'}
           color="secondary"
-          style={{ marginLeft: 5, marginRight: onPress ? 3 : 0 }}
+          style={[{ marginLeft: 5, marginRight: onPress ? 3 : 0 }, onBrand ? { color: ON_BRAND_TEXT } : null]}
           numberOfLines={1}
         >
           {locationLabel}
         </Text>
         {onPress ? (
-          <ChevronDown size={chevronSize} color={color.text.tertiary} strokeWidth={2.2} />
+          <ChevronDown size={chevronSize} color={chevronColor} strokeWidth={2.2} />
         ) : null}
       </View>
     )
@@ -69,7 +76,7 @@ export function HomeHeaderLocation({ area, city, locationContext, size = 'sm', o
     return content
   }
   if (showStatusLabel) {
-    return <LocationStatusLabel variant="strip" flush locationContext={locationContext} />
+    return <LocationStatusLabel variant="strip" flush locationContext={locationContext} tone={tone} />
   }
   return null
 }

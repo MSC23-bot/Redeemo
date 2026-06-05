@@ -77,6 +77,10 @@ export type LocationStatusLabelProps = {
   // above the results below.  Chip variant ignores this prop (chip
   // styling is unchanged).
   flush?:           boolean | undefined
+  // 'onBrand' renders white content for a brand-coloured surface (Home
+  // brand-header redesign, 2026-06-05). Default keeps the brand-rose treatment;
+  // Search / Map never pass it, so their appearance is unchanged.
+  tone?:            'default' | 'onBrand' | undefined
 }
 
 // Internal derived state.  The state machine is exhaustive — every
@@ -117,6 +121,7 @@ export function LocationStatusLabel({
   locationContext,
   variant = 'strip',
   flush = false,
+  tone = 'default',
 }: LocationStatusLabelProps): React.ReactElement | null {
   const router = useRouter()
   const { permission } = useUserLocation()
@@ -126,6 +131,14 @@ export function LocationStatusLabel({
 
   const showChevron = state.kind === 'no-gps' || state.kind === 'undetermined'
   const Icon = state.kind === 'no-gps' ? MapPinOff : MapPin
+
+  // Brand-header redesign: white content on the brand surface; default unchanged.
+  const onBrand = tone === 'onBrand'
+  // Warm off-white (mirrors ON_BRAND_TEXT in HomeHeaderWave; hardcoded here to
+  // avoid a features/home import from lib/location).
+  const iconColor = onBrand ? '#FFF3EC' : color.brandRose
+  const labelColorStyle = onBrand ? { color: '#FFF3EC' } : undefined
+  const chevColor = onBrand ? '#FFF3EC' : color.text.tertiary
 
   // Visible label text — single string per state so test pins can
   // assert `text.props.children` directly without array-of-false dancing
@@ -178,19 +191,19 @@ export function LocationStatusLabel({
       <View style={styles.row}>
         <Icon
           size={14}
-          color={color.brandRose}
+          color={iconColor}
           strokeWidth={2.2}
         />
         <View style={styles.copyWrap}>
           {state.kind === 'profile-with-city' ? (
-            <Text variant="label.md" numberOfLines={1} testID="location-status-text">
+            <Text variant="label.md" style={labelColorStyle} numberOfLines={1} testID="location-status-text">
               Using profile location ·{' '}
-              <Text variant="label.md" style={styles.cityEmphasis} testID="location-status-city">
+              <Text variant="label.md" style={onBrand ? [styles.cityEmphasis, labelColorStyle] : styles.cityEmphasis} testID="location-status-city">
                 {state.city}
               </Text>
             </Text>
           ) : (
-            <Text variant="label.md" numberOfLines={1} testID="location-status-text">
+            <Text variant="label.md" style={labelColorStyle} numberOfLines={1} testID="location-status-text">
               {labelText}
             </Text>
           )}
@@ -199,7 +212,7 @@ export function LocationStatusLabel({
           <View testID="location-status-chevron">
             <ChevronRight
               size={14}
-              color={color.text.tertiary}
+              color={chevColor}
               strokeWidth={2.2}
             />
           </View>

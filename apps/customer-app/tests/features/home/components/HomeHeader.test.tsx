@@ -1,6 +1,19 @@
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent } from '@testing-library/react-native'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { HomeHeader } from '@/features/home/components/HomeHeader'
+
+// HomeHeader now uses useSafeAreaInsets (it bakes in its own status-bar inset so
+// the gradient covers from y=0), so every render needs a SafeAreaProvider.
+// Shadow `render` to auto-wrap with fixed metrics.
+const SAFE_AREA_METRICS = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 47, right: 0, bottom: 34, left: 0 },
+}
+function SafeAreaWrapper({ children }: { children: React.ReactNode }) {
+  return <SafeAreaProvider initialMetrics={SAFE_AREA_METRICS}>{children}</SafeAreaProvider>
+}
+const render = (ui: React.ReactElement) => rtlRender(ui, { wrapper: SafeAreaWrapper })
 
 describe('HomeHeader', () => {
   it('renders greeting with first name', () => {

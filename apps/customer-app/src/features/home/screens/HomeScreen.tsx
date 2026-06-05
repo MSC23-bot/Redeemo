@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { View, RefreshControl, StyleSheet, Alert } from 'react-native'
-import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset, useAnimatedStyle, interpolate, Extrapolation } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
+import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset, useAnimatedStyle } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -59,19 +59,21 @@ export function HomeScreen() {
   const [demoToken, setDemoToken] = useState(0)
   const playedInitialDemo = useRef(false)
   const scrollViewRef = useAnimatedRef<Animated.ScrollView>()
-  // PR A — UI-thread scroll offset drives the collapsed-header fade; fadeEndY
-  // is the expanded header height (captured via onLayout) so the compact bar
-  // reaches full opacity right as the expanded header scrolls away.
+  // PR A — UI-thread scroll offset drives the collapsed-header fade.
   const scrollY = useScrollViewOffset(scrollViewRef)
-  const [headerHeight, setHeaderHeight] = useState(0)
-  const fadeEndY = Math.max(headerHeight - 12, 1)
+  // Collapse threshold (owner direction 2026-06-05): the compact bar hands over
+  // once the header CONTENT has faded (it fades inside <HomeHeader> by
+  // ~insets.top+35), NOT after the whole tall header scrolls away — that delay
+  // was the dead zone. Tied to insets so it adapts per device.
+  const fadeEndY = insets.top + 80
   const exploreCollapse = useSharedValue(0) // bumped on scroll start to collapse any open Explore chip
-  // Fade the expanded header OUT as it scrolls (opacity only — NO height
-  // animation per interaction-design / ui-ux-pro-max), synced with
-  // <HomeCollapsedHeader> fading IN, so the two layers never ghost through each
-  // other during the cross-fade.
+  // The header CONTENT fade now lives INSIDE <HomeHeader> (so the radial
+  // background + wave keep scrolling under the collapsed bar — no dead zone).
+  // Here we only ANCHOR the header during overscroll (pull-down): translate it
+  // UP by the overscroll amount so it stays pinned at the top while the body
+  // pulls away from the WAVE. Zero during normal downward scroll.
   const expandedHeaderStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [0, Math.max(fadeEndY - 50, 1)], [1, 0], Extrapolation.CLAMP),
+    transform: [{ translateY: Math.min(scrollY.value, 0) }],
   }))
   // Owns the global scrollActivity flag (pauses looping animations while the
   // feed moves) with a debounced stop + a blur/unmount reset so leaving Home
@@ -268,6 +270,11 @@ export function HomeScreen() {
       <Animated.ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
+        // Brand-header redesign: stop iOS from auto-adding the safe-area inset (it
+        // double-inset the content, leaving a cream gap below the status bar
+        // that's invisible on a cream header but a white break on a red one).
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
         // Pause looping animations while the feed is moving (begin → 1) and
         // resume once it's fully stopped — dozens of per-frame animation updates
         // were starving the scroll of frames. `useScrollActivity` owns the
@@ -286,9 +293,12 @@ export function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
         contentContainerStyle={[
           styles.scroll,
-          // Safe-area-aware top inset so the greeting clears the Dynamic
-          // Island / notch on every device (was a fixed 60).
-          { paddingTop: insets.top + spacing[2], paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
+          // Brand-header redesign: header covers from y=0 (Savings-hero pattern).
+          // <HomeHeader> bakes in its own `paddingTop: insets.top` and its
+          // gradient fills the status-bar inset, so the scroll content starts at
+          // 0 here and there is no cream gap. The inset props above stop iOS
+          // double-insetting on top of this.
+          { paddingTop: 0, paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
         {/* Batch 5 §10.5 (F4-c) — branded RedeemoLoader R-moment while
@@ -326,8 +336,8 @@ export function HomeScreen() {
             onSearchPress={() => router.push('/search' as any)}
             onAvatarPress={() => router.push('/profile' as any)}
             onNotificationPress={handleNotificationPress}
-            onHeightChange={setHeaderHeight}
             onLocationPress={handleLocationPress}
+            scrollY={scrollY}
           />
         </Animated.View>
 
@@ -444,11 +454,6 @@ export function HomeScreen() {
         {showExploreMore && <HomeExploreMore />}
       </Animated.ScrollView>
 
-      {/* Always-opaque status-bar mask: the expanded greeting/location scroll
-          UNDER this, never under the Dynamic Island / time. Above the feed,
-          below the collapsed header. */}
-      <View pointerEvents="none" style={[styles.statusBarMask, { height: insets.top }]} />
-
       {/* PR A — pinned compact header; fades in over the expanded header as
           the feed scrolls. Sibling of the ScrollView so it sits above the
           feed content (its own zIndex + absolute top:0). */}
@@ -481,14 +486,6 @@ const styles = StyleSheet.create({
   },
   scroll: {
     gap: spacing[5],
-  },
-  statusBarMask: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: color.surface.body,
-    zIndex: 19,
   },
   skeletonRow: {
     flexDirection: 'row',
