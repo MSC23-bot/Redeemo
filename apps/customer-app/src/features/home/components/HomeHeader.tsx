@@ -109,6 +109,7 @@ export function HomeHeader({
           header including the status-bar inset zone (header reaches y=0, so no
           separate top block is needed). */}
       <HeaderRadialGradient
+        testID="home-header-radial"
         width={winW}
         height={headerH}
         gid="home-header-grad"

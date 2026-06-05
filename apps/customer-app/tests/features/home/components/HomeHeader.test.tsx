@@ -149,4 +149,20 @@ describe('HomeHeader', () => {
     expect(getByTestId('home-header-bell')).toBeTruthy()
     fireEvent.press(getByTestId('home-header-bell')) // no-op, must not throw
   })
+
+  // §HSH.3 (pre-PR hardening) — the brand-coloured header surface mounts.
+  it('mounts the brand peach wave bottom edge', () => {
+    const { getByTestId } = render(
+      <HomeHeader firstName="Mark" area="Zone 69" city="Doha" onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    expect(getByTestId('home-header-wave')).toBeTruthy()
+  })
+
+  it('mounts the brand radial surface once the header is measured', () => {
+    const { getByTestId } = render(
+      <HomeHeader firstName="Mark" area="Zone 69" city="Doha" onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    fireEvent(getByTestId('home-header'), 'layout', { nativeEvent: { layout: { height: 240 } } })
+    expect(getByTestId('home-header-radial')).toBeTruthy()
+  })
 })

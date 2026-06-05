@@ -29,6 +29,7 @@ export function HeaderRadialGradient({
   cy,
   r,
   stops,
+  testID,
 }: {
   width: number
   height: number
@@ -37,10 +38,11 @@ export function HeaderRadialGradient({
   cy: string
   r: string
   stops: ReadonlyArray<RadialStop>
+  testID?: string
 }) {
   if (width <= 0 || height <= 0) return null
   return (
-    <Svg width={width} height={height} style={StyleSheet.absoluteFill} pointerEvents="none">
+    <Svg width={width} height={height} style={StyleSheet.absoluteFill} pointerEvents="none" {...(testID ? { testID } : {})}>
       <Defs>
         <RadialGradient id={gid} cx={cx} cy={cy} r={r}>
           {stops.map((s) => (
@@ -59,6 +61,7 @@ export function HomeHeaderWave() {
   const { width } = useWindowDimensions()
   return (
     <Svg
+      testID="home-header-wave"
       width={width}
       height={WAVE_HEIGHT}
       viewBox="0 0 300 74"
