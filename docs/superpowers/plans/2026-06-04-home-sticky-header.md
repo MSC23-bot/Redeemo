@@ -912,7 +912,7 @@ Per the Tier 2 standing rule and the owner's instruction, **do not begin impleme
 
 ## ✅ As-built addendum (executed 2026-06-04 → 2026-06-05, branch `feature/home-sticky-header`)
 
-The plan above (PR A — sticky/collapsing header) was executed, then **extended by owner device-QA direction into a full brand-coloured Home header redesign**. This is the **intended Home header design (NOT a trial).** All on `feature/home-sticky-header` (off `main`, which already includes §HC Home Visual System PR #140 — so no Home-Visual-System conflict). **Pushed + DRAFT PR #142** (base `main`); **iOS device QA passed 2026-06-06** (see Device QA below); **not merged, not yet marked ready-for-review.**
+The plan above (PR A — sticky/collapsing header) was executed, then **extended by owner device-QA direction into a full brand-coloured Home header redesign**. This is the **intended Home header design (NOT a trial).** All on `feature/home-sticky-header` (off `main`, which already includes §HC Home Visual System PR #140 — so no Home-Visual-System conflict). **✅ MERGED to `main` via PR #142** (merge commit `fe8e22e`, 2026-06-06; branch retained on origin); **iOS device QA passed 2026-06-06** (see Device QA below); a multi-agent /code-review fix pass landed pre-merge at `6ba07fc` (collapsed-header pointer/a11y gate + Search focus bounded-retry hook + `onHeightChange`/comment/testID cleanup).
 
 ### Commits (off `main`)
 - `e822dcc` … `45315d5` — PR A core: shared `HomeHeaderLocation` + `HomeSearchBar` + pinned `HomeCollapsedHeader` (scrollY-driven) + Option A `HomeHeader` + wiring + the Search-untouched static guardrail. Two-layer opacity cross-fade; **no height animation**.
