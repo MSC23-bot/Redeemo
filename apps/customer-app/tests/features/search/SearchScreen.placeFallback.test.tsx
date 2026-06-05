@@ -102,6 +102,7 @@ jest.mock('@/hooks/useLocation', () => ({
 }))
 
 jest.mock('expo-router', () => ({
+  useFocusEffect: jest.fn(),
   useRouter:            () => ({ push: jest.fn(), back: jest.fn() }),
   useLocalSearchParams: () => ({}),
 }))

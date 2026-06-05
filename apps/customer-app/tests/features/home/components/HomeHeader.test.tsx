@@ -1,6 +1,19 @@
 import React from 'react'
-import { render, fireEvent } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent } from '@testing-library/react-native'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { HomeHeader } from '@/features/home/components/HomeHeader'
+
+// HomeHeader now uses useSafeAreaInsets (it bakes in its own status-bar inset so
+// the gradient covers from y=0), so every render needs a SafeAreaProvider.
+// Shadow `render` to auto-wrap with fixed metrics.
+const SAFE_AREA_METRICS = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 47, right: 0, bottom: 34, left: 0 },
+}
+function SafeAreaWrapper({ children }: { children: React.ReactNode }) {
+  return <SafeAreaProvider initialMetrics={SAFE_AREA_METRICS}>{children}</SafeAreaProvider>
+}
+const render = (ui: React.ReactElement) => rtlRender(ui, { wrapper: SafeAreaWrapper })
 
 describe('HomeHeader', () => {
   it('renders greeting with first name', () => {
@@ -90,5 +103,57 @@ describe('HomeHeader', () => {
     )
     expect(queryByTestId('home-header-avatar-image')).toBeNull()
     expect(queryByTestId('home-header-avatar-initial')).toBeTruthy()
+  })
+
+  // PR A (sticky header) — Option A expanded layout adds a full-width
+  // tap-through search bar in place of the old top-right search icon.
+  it('renders the full-width search bar (Option A)', () => {
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    expect(getByTestId('home-search-bar')).toBeTruthy()
+  })
+
+  it('search bar tap fires onSearchPress', () => {
+    const onSearchPress = jest.fn()
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={onSearchPress} onAvatarPress={jest.fn()} />
+    )
+    fireEvent.press(getByTestId('home-search-bar'))
+    expect(onSearchPress).toHaveBeenCalledTimes(1)
+  })
+
+  // PR A device-QA — notification bell present in the expanded header.
+  it('renders the notification bell and fires onNotificationPress', () => {
+    const onNotificationPress = jest.fn()
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} onNotificationPress={onNotificationPress} />
+    )
+    fireEvent.press(getByTestId('home-header-bell'))
+    expect(onNotificationPress).toHaveBeenCalledTimes(1)
+  })
+
+  it('bell renders even without a handler (no crash)', () => {
+    const { getByTestId } = render(
+      <HomeHeader firstName="Shebin" area={null} city={null} onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    expect(getByTestId('home-header-bell')).toBeTruthy()
+    fireEvent.press(getByTestId('home-header-bell')) // no-op, must not throw
+  })
+
+  // §HSH.3 (pre-PR hardening) — the brand-coloured header surface mounts.
+  it('mounts the brand peach wave bottom edge', () => {
+    const { getByTestId } = render(
+      <HomeHeader firstName="Mark" area="Zone 69" city="Doha" onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    expect(getByTestId('home-header-wave')).toBeTruthy()
+  })
+
+  it('mounts the brand radial surface once the header is measured', () => {
+    const { getByTestId } = render(
+      <HomeHeader firstName="Mark" area="Zone 69" city="Doha" onSearchPress={jest.fn()} onAvatarPress={jest.fn()} />
+    )
+    fireEvent(getByTestId('home-header'), 'layout', { nativeEvent: { layout: { height: 240 } } })
+    expect(getByTestId('home-header-radial')).toBeTruthy()
   })
 })

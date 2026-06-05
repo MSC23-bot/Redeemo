@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { View, ScrollView, RefreshControl, StyleSheet } from 'react-native'
-import { useSharedValue } from 'react-native-reanimated' // scroll-collapse signal for the Explore capsule chips
+import { View, RefreshControl, StyleSheet, Alert } from 'react-native'
+import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset, useAnimatedStyle, useAnimatedReaction, runOnJS } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,6 +10,7 @@ import { useHomeFeed } from '@/hooks/useHomeFeed'
 import { useCategories } from '@/hooks/useCategories'
 import { useMe } from '@/hooks/useMe'
 import { HomeHeader } from '../components/HomeHeader'
+import { HomeCollapsedHeader, FADE_WINDOW } from '../components/HomeCollapsedHeader'
 import { CampaignCarousel } from '../components/CampaignCarousel'
 import { FeaturedCarousel } from '../components/FeaturedCarousel'
 import { TrendingSection } from '../components/TrendingSection'
@@ -57,8 +58,39 @@ export function HomeScreen() {
   // drives the Explore-capsule intro demo so it replays on each refresh.
   const [demoToken, setDemoToken] = useState(0)
   const playedInitialDemo = useRef(false)
-  const scrollViewRef = useRef<ScrollView>(null)
+  const scrollViewRef = useAnimatedRef<Animated.ScrollView>()
+  // PR A — UI-thread scroll offset drives the collapsed-header fade.
+  const scrollY = useScrollViewOffset(scrollViewRef)
+  // Collapse threshold (owner direction 2026-06-05): the compact bar hands over
+  // once the header CONTENT has faded (it fades inside <HomeHeader> by
+  // ~insets.top+35), NOT after the whole tall header scrolls away — that delay
+  // was the dead zone. Tied to insets so it adapts per device.
+  const fadeEndY = insets.top + 80
   const exploreCollapse = useSharedValue(0) // bumped on scroll start to collapse any open Explore chip
+  // The header CONTENT fade now lives INSIDE <HomeHeader> (so the radial
+  // background + wave keep scrolling under the collapsed bar — no dead zone).
+  // Here we only ANCHOR the header during overscroll (pull-down): translate it
+  // UP by the overscroll amount so it stays pinned at the top while the body
+  // pulls away from the WAVE. Zero during normal downward scroll.
+  const expandedHeaderStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: Math.min(scrollY.value, 0) }],
+  }))
+  // Review fix: the pinned collapsed bar overlaps the expanded header's top
+  // band, so it must only be touch-live + screen-reader-visible once it is
+  // actually shown — otherwise its opacity-0 controls shadow the expanded
+  // greeting/search row (tap → wrong route; VoiceOver → duplicate controls).
+  // Track that as JS state off the UI-thread scroll offset, flipping at the
+  // SAME point the bar starts fading in (`fadeEndY - FADE_WINDOW`) so the gate
+  // lines up with the visual. We only setState on the boolean transition, so
+  // this stays off the per-frame path.
+  const [headerCollapsed, setHeaderCollapsed] = useState(false)
+  useAnimatedReaction(
+    () => scrollY.value >= fadeEndY - FADE_WINDOW,
+    (isActive, prev) => {
+      if (isActive !== prev) runOnJS(setHeaderCollapsed)(isActive)
+    },
+    [fadeEndY],
+  )
   // Owns the global scrollActivity flag (pauses looping animations while the
   // feed moves) with a debounced stop + a blur/unmount reset so leaving Home
   // mid-fling can't strand the flag at 1 and freeze animations app-wide.
@@ -79,7 +111,7 @@ export function HomeScreen() {
         scrollViewRef.current?.scrollTo({ y: 0, animated: false })
         router.setParams({ scrollTop: undefined })
       }
-    }, [scrollTop, router])
+    }, [scrollTop, router, scrollViewRef])
   )
 
   // Wave 6.4-C (2026-05-30) — invalidate discovery on focus so the
@@ -239,11 +271,26 @@ export function HomeScreen() {
     (feed?.nearbyByCategoryRails ?? []).every(r => r.meta?.scopeExpanded === true)
   const showNearbyContextBanner = hasNearbyRails && allRailsAreCascaded
 
+  // Notifications system isn't built yet (Phase 6) — surface a Coming Soon
+  // stub matching the app's SSO / GetHelp convention until it ships.
+  const handleNotificationPress = () =>
+    Alert.alert('Coming soon', 'Notifications are coming in a future update.')
+
+  // Tapping the header location (GPS-on row or profile label) opens the Your
+  // Location screen so the user can update their postcode or switch to current
+  // location. Matches <LocationStatusLabel>'s own /saved-area routing.
+  const handleLocationPress = () => router.push('/saved-area' as any)
+
   return (
     <View style={styles.container}>
-      <ScrollView
+      <Animated.ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
+        // Brand-header redesign: stop iOS from auto-adding the safe-area inset (it
+        // double-inset the content, leaving a cream gap below the status bar
+        // that's invisible on a cream header but a white break on a red one).
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
         // Pause looping animations while the feed is moving (begin → 1) and
         // resume once it's fully stopped — dozens of per-frame animation updates
         // were starving the scroll of frames. `useScrollActivity` owns the
@@ -262,7 +309,12 @@ export function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
         contentContainerStyle={[
           styles.scroll,
-          { paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
+          // Brand-header redesign: header covers from y=0 (Savings-hero pattern).
+          // <HomeHeader> bakes in its own `paddingTop: insets.top` and its
+          // gradient fills the status-bar inset, so the scroll content starts at
+          // 0 here and there is no cream gap. The inset props above stop iOS
+          // double-insetting on top of this.
+          { paddingTop: 0, paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
         {/* Batch 5 §10.5 (F4-c) — branded RedeemoLoader R-moment while
@@ -290,15 +342,20 @@ export function HomeScreen() {
             banner.  <SavedAreaHonestyHint> below remains unchanged
             (D6 coexistence preserved — the hint still surfaces the
             caveat + Update affordance when source='profile'). */}
-        <HomeHeader
-          firstName={me?.firstName ?? null}
-          area={location?.area ?? null}
-          city={location?.city ?? null}
-          {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
-          {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
-          onSearchPress={() => router.push('/search' as any)}
-          onAvatarPress={() => router.push('/profile' as any)}
-        />
+        <Animated.View style={expandedHeaderStyle}>
+          <HomeHeader
+            firstName={me?.firstName ?? null}
+            area={location?.area ?? null}
+            city={location?.city ?? null}
+            {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
+            {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
+            onSearchPress={() => router.push('/search' as any)}
+            onAvatarPress={() => router.push('/profile' as any)}
+            onNotificationPress={handleNotificationPress}
+            onLocationPress={handleLocationPress}
+            scrollY={scrollY}
+          />
+        </Animated.View>
 
         {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
             user has no resolvable location.  Dedup invariant guards
@@ -411,7 +468,25 @@ export function HomeScreen() {
             <NearbySectionEmpty> (showExploreMore guards on
             !showNearbySectionEmpty). */}
         {showExploreMore && <HomeExploreMore />}
-      </ScrollView>
+      </Animated.ScrollView>
+
+      {/* PR A — pinned compact header; fades in over the expanded header as
+          the feed scrolls. Sibling of the ScrollView so it sits above the
+          feed content (its own zIndex + absolute top:0). */}
+      <HomeCollapsedHeader
+        scrollY={scrollY}
+        fadeEndY={fadeEndY}
+        active={headerCollapsed}
+        firstName={me?.firstName ?? null}
+        area={location?.area ?? null}
+        city={location?.city ?? null}
+        {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
+        {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
+        onSearchPress={() => router.push('/search' as any)}
+        onAvatarPress={() => router.push('/profile' as any)}
+        onNotificationPress={handleNotificationPress}
+        onLocationPress={handleLocationPress}
+      />
     </View>
   )
 }
@@ -427,7 +502,6 @@ const styles = StyleSheet.create({
     backgroundColor: color.surface.body,
   },
   scroll: {
-    paddingTop: 60,
     gap: spacing[5],
   },
   skeletonRow: {

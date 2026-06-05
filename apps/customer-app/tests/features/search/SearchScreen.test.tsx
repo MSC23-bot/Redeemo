@@ -225,6 +225,7 @@ const mockRouterPush = jest.fn()
 // a fresh entry; tests that need a restored-q can override `mockUrlParams`.
 const mockUrlParams: Record<string, string> = {}
 jest.mock('expo-router', () => ({
+  useFocusEffect: jest.fn(),
   useRouter:             () => ({ push: mockRouterPush, back: jest.fn() }),
   useLocalSearchParams:  () => ({ ...mockUrlParams }),
 }))

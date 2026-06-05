@@ -27,7 +27,14 @@ jest.mock('react-native-reanimated', () => {
     default: {
       View: React.forwardRef((p: object, r: unknown) => React.createElement(View, { ...p, ref: r })),
       Text: React.forwardRef((p: object, r: unknown) => React.createElement(View, { ...p, ref: r })),
-      ScrollView: React.forwardRef((p: object, r: unknown) => React.createElement(View, { ...p, ref: r })),
+      ScrollView: React.forwardRef((p: object, r: React.Ref<unknown>) => {
+        // Expose scrollTo/scrollToEnd so screens that imperatively call
+        // scrollViewRef.current?.scrollTo (e.g. HomeScreen's ?scrollTop=1
+        // reset) don't throw under the plain View stub. On device the real
+        // Animated.ScrollView ref forwards these from the inner ScrollView.
+        React.useImperativeHandle(r, () => ({ scrollTo: () => {}, scrollToEnd: () => {} }), [])
+        return React.createElement(View, p)
+      }),
       // RNGH calls Animated.createAnimatedComponent() at module-load time to
       // wrap its gesture detector. Stub returns the component unchanged so
       // tests that import gesture-handler don't crash on load.
@@ -37,6 +44,12 @@ jest.mock('react-native-reanimated', () => {
     // Imperative shared value (module-level singletons, e.g. scrollActivity).
     makeMutable: (v: unknown) => ({ value: v }),
     useAnimatedStyle: () => ({}),
+    // Scroll-linked offset hooks (PR A sticky Home header). useAnimatedRef
+    // returns a ref object React mutates on mount; useScrollViewOffset returns
+    // a static shared value (worklets don't run under jest, so the collapse
+    // fade is device-QA-verified, not unit-asserted).
+    useAnimatedRef: () => ({ current: null }),
+    useScrollViewOffset: () => ({ value: 0 }),
     useDerivedValue: (fn: () => unknown) => ({ value: fn() }),
     withTiming: (v: unknown) => v,
     withSpring: (v: unknown) => v,

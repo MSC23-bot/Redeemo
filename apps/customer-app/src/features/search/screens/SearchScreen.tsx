@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { View, FlatList, StyleSheet, Keyboard } from 'react-native'
+import { View, FlatList, StyleSheet, Keyboard, TextInput } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Text } from '@/design-system/Text'
@@ -23,6 +23,7 @@ import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
 import { useMe } from '@/hooks/useMe'
 import type { LocationContext } from '@/lib/api/shared/location'
 import { SearchBar } from '../components/SearchBar'
+import { useAutofocusKeyboard } from '../hooks/useAutofocusKeyboard'
 import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
 import { SearchEmptyState } from '../components/SearchEmptyState'
@@ -116,6 +117,12 @@ function effectiveScopeFromMetaCascadedScope(
 export function SearchScreen() {
   const router  = useRouter()
   const insets  = useSafeAreaInsets()
+  // Keyboard-on-tap (owner direction 2026-06-05): raise the keyboard whenever
+  // Search gains focus — including tab-to-tab re-entry where the screen stays
+  // mounted and a one-shot `autoFocus` wouldn't re-fire. Bounded-retry focus
+  // (review fix) so a slow nav transition can't swallow a single attempt.
+  const searchInputRef = useRef<TextInput>(null)
+  useAutofocusKeyboard(searchInputRef)
   // PR #112 fixup-6 (2026-05-20) — accept `?q=` on the URL so users
   // returning from a merchant page (with `from=search&q=<query>`) land
   // back on Search with their typed query restored.  Lazy initialiser
@@ -471,10 +478,10 @@ export function SearchScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
       <SearchBar
+        ref={searchInputRef}
         value={query}
         onChangeText={setQuery}
         onCancel={handleCancel}
-        autoFocus
         placeholder="Search merchants..."
       />
 
