@@ -912,12 +912,14 @@ Per the Tier 2 standing rule and the owner's instruction, **do not begin impleme
 
 ## ✅ As-built addendum (executed 2026-06-04 → 2026-06-05, branch `feature/home-sticky-header`)
 
-The plan above (PR A — sticky/collapsing header) was executed, then **extended by owner device-QA direction into a full brand-coloured Home header redesign**. This is the **intended Home header design (NOT a trial).** All on `feature/home-sticky-header` (off `main`, which already includes §HC Home Visual System PR #140 — so no Home-Visual-System conflict). **Not pushed / not merged to main.**
+The plan above (PR A — sticky/collapsing header) was executed, then **extended by owner device-QA direction into a full brand-coloured Home header redesign**. This is the **intended Home header design (NOT a trial).** All on `feature/home-sticky-header` (off `main`, which already includes §HC Home Visual System PR #140 — so no Home-Visual-System conflict). **Pushed + DRAFT PR #142** (base `main`); **iOS device QA passed 2026-06-06** (see Device QA below); **not merged, not yet marked ready-for-review.**
 
 ### Commits (off `main`)
 - `e822dcc` … `45315d5` — PR A core: shared `HomeHeaderLocation` + `HomeSearchBar` + pinned `HomeCollapsedHeader` (scrollY-driven) + Option A `HomeHeader` + wiring + the Search-untouched static guardrail. Two-layer opacity cross-fade; **no height animation**.
 - `9d248b9` — **tappable location** (header location → `/saved-area`, switch-cue chevron), **keyboard-on-tap search** (`SearchScreen` `useFocusEffect` + `SearchBar` `forwardRef`; 7 SearchScreen test mocks declare `useFocusEffect`), larger pinned location + shorter compact bar, synced fade-out fixing collapse ghosting.
 - `6bb8478` — **brand-coloured header** (final; details below).
+- `9debee1` — docs: as-built addendum (this section).
+- `4bbbe8e` — **§HSH.3 brand-header test pins** (wave + radial surface mount, collapsed mount on scroll, search→`/search`, header-location→`/saved-area`, no-Filter affordance).
 
 ### Brand-coloured header — as shipped on branch
 - **Surface:** brand red→orange **radial** gradient (organic, no axis), reddish with a small orange hint in the glow (`#F24E2C → #BE0A03`), via `react-native-svg` (`HeaderRadialGradient`, shared by expanded + collapsed; collapsed uses the category-card recipe `cx 70% cy 16% r 82%`). Header height measured (onLayout) to size the radial; `EXPANDED_HEADER_TOP = #BE0A03` is the 1-frame fallback.
@@ -930,13 +932,16 @@ The plan above (PR A — sticky/collapsing header) was executed, then **extended
 - **Shadows:** blurred wave shadow (expanded) + warm `#6E1A0A` drop shadow on the collapsed bar's bottom edge.
 - `HomeHeader` now uses `useSafeAreaInsets`; `HomeHeader.test.tsx` wrapped in a `SafeAreaProvider`.
 
-### Verification at `6bb8478`
-tsc clean; **497/497** jest across `home` + `search` + `lib/location` + `map`. No new test pins for the brand-specific behaviour (timing / radial / anchor / shadows) — see follow-ups.
+### Verification at `4bbbe8e` (branch tip)
+tsc clean; **503/503** jest across `home` + `search` + `lib/location` + `map` (`6bb8478` was 497/497; +6 §HSH.3 brand-header pins added at `4bbbe8e`). `SearchScreen` 45/45. Lint on touched files: 0 new errors (baseline-only: `tokens/no-raw-tokens` in HomeScreen/SearchScreen screen-style blocks + 1 pre-existing `as any` route cast in LocationStatusLabel).
+
+### Device QA — iOS (2026-06-06): ✅ PASSED
+On-device iOS QA on the owner's available device: **expanded header, collapse transition, collapsed header, search tap, location tap, and avatar behaviour all look normal.** **Reduce-motion NOT tested** — known §RM detection/toggle issues; kept as the non-blocking §HSH.5 / §RM follow-up and explicitly NOT fixed in this PR. **Android `FeGaussianBlur` QA still untested** — non-blocking §HSH.2 follow-up. Pull-to-refresh branded wave-loader stays deferred (§HSH.1).
 
 ### Follow-ups → deferred-index **§HSH**
 1. Pull-to-refresh "break at the wave" with the branded Redeemo R loader dropped into the gap (native refresh works; the in-content loader vs the anchored header is unresolved).
-2. Android QA for the `FeGaussianBlur` wave shadow (verified iOS; Android svg-filter rendering can differ — fallback = stacked-band approximation).
-3. Test pins for the brand-header behaviour before merge (content-fade timing, `fadeEndY` collapse, overscroll anchor, on-brand tone).
-4. Merge-to-main = full Tier 2 (review + device-QA matrix + spec/plan reconcile).
-5. Reduce-motion: collapse/fade/anchor are scroll-position-driven (RM-safe by construction); collapsed bar keeps its explicit `useMotionScale` branch — verify on device.
+2. Android QA for the `FeGaussianBlur` wave shadow (verified iOS; Android svg-filter rendering can differ — fallback = stacked-band approximation). **Non-blocking** (iOS QA passed 2026-06-06).
+3. ✅ **DONE** (`4bbbe8e`, §HSH.3) — brand-header test pins: wave + radial surface mount, collapsed mount on scroll, search→`/search`, header-location→`/saved-area`, no-Filter affordance.
+4. Merge-to-main = full Tier 2 (review + device-QA matrix + spec/plan reconcile). iOS device-QA leg ✅ done 2026-06-06; Android + reduce-motion legs are tracked non-blocking follow-ups (§HSH.2, §HSH.5/§RM).
+5. Reduce-motion: collapse/fade/anchor are scroll-position-driven (RM-safe by construction); collapsed bar keeps its explicit `useMotionScale` branch. **NOT tested in this PR** — known §RM detection/toggle issues; stays non-blocking, verify once §RM is resolved.
 6. Location-truth on the now-tappable header location → **§DF-v2-p** (GPS-on shows profile postcode; Your Location screen GPS-on affordances).
