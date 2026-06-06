@@ -1,10 +1,12 @@
-// Pins the bottom-tab LABEL configuration so labels can't silently regress to
-// hidden/untinted. Renders the (app) layout with a captured Tabs mock and reads
-// back the screenOptions + per-screen titles.
+// Pins the bottom-tab wiring so labels can't silently regress. Each visible tab
+// renders via a custom <BrandedTabButton> (which draws the icon + the label —
+// the default react-navigation item clips the label to nothing in our 80px
+// bar). Renders the (app) layout with a captured Tabs mock and reads back the
+// per-screen options + the bar footprint.
 
 type Captured = {
   screenOptions?: Record<string, unknown>
-  screens: Array<{ name: string; options?: { title?: string } }>
+  screens: Array<{ name: string; options?: { title?: string; tabBarButton?: unknown } }>
 }
 const mockCaptured: Captured = { screens: [] }
 
@@ -19,7 +21,13 @@ jest.mock('expo-router', () => {
     mockCaptured.screenOptions = screenOptions
     return children
   }
-  Tabs.Screen = ({ name, options }: { name: string; options: { title?: string } }) => {
+  Tabs.Screen = ({
+    name,
+    options,
+  }: {
+    name: string
+    options: { title?: string; tabBarButton?: unknown }
+  }) => {
     mockCaptured.screens.push({ name, options })
     return null
   }
@@ -57,28 +65,22 @@ jest.mock('@/stores/auth', () => ({
 import React from 'react'
 import { render } from '@testing-library/react-native'
 import AppLayout from '@/../app/(app)/_layout'
-import { NAV_INK, NAV_ACTIVE_INK } from '@/features/navigation/navTokens'
 
-describe('(app) tab bar — label configuration', () => {
+const VISIBLE_TABS = ['index', 'map', 'favourites', 'savings', 'profile']
+
+describe('(app) tab bar — label wiring', () => {
   beforeAll(() => {
     render(React.createElement(AppLayout))
   })
 
-  it('labels are enabled (tabBarShowLabel: true, not false)', () => {
-    expect(mockCaptured.screenOptions?.tabBarShowLabel).toBe(true)
+  it('every visible tab renders via a custom tabBarButton (draws icon + label)', () => {
+    for (const name of VISIBLE_TABS) {
+      const screen = mockCaptured.screens.find((s) => s.name === name)
+      expect(typeof screen?.options?.tabBarButton).toBe('function')
+    }
   })
 
-  it('active label = brand red, inactive label = warm navy ink', () => {
-    expect(mockCaptured.screenOptions?.tabBarActiveTintColor).toBe(NAV_ACTIVE_INK)
-    expect(mockCaptured.screenOptions?.tabBarInactiveTintColor).toBe(NAV_INK)
-  })
-
-  it('label style declares an explicit lineHeight (so labels are not clipped)', () => {
-    const labelStyle = mockCaptured.screenOptions?.tabBarLabelStyle as { lineHeight?: number }
-    expect(typeof labelStyle.lineHeight).toBe('number')
-  })
-
-  it('all five visible tabs carry a title (the label text)', () => {
+  it('all five visible tabs carry a title (a11y + label source)', () => {
     const titleFor = (name: string) =>
       mockCaptured.screens.find((s) => s.name === name)?.options?.title
     expect(titleFor('index')).toBe('Home')
@@ -86,5 +88,10 @@ describe('(app) tab bar — label configuration', () => {
     expect(titleFor('favourites')).toBe('Favourites')
     expect(titleFor('savings')).toBe('Savings')
     expect(titleFor('profile')).toBe('Profile')
+  })
+
+  it('keeps the 80px bar footprint', () => {
+    const tabBarStyle = mockCaptured.screenOptions?.tabBarStyle as { height?: number }
+    expect(tabBarStyle.height).toBe(80)
   })
 })

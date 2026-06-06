@@ -1,17 +1,13 @@
 import React from 'react'
 import { Redirect, Tabs, useSegments } from 'expo-router'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuthStore } from '@/stores/auth'
 import { resolveRedirect } from '@/lib/routing'
-import { spacing } from '@/design-system'
 import { LocationPermissionProvider } from '@/lib/location/LocationPermissionProvider'
 import { BrandedTabShelf } from '@/features/navigation/BrandedTabShelf'
-import { BrandedTabIcon } from '@/features/navigation/BrandedTabIcon'
-import { NAV_LABEL_FONT_SIZE, NAV_LABEL_LINE_HEIGHT, NAV_LABEL_TRACKING, NAV_INK, NAV_ACTIVE_INK } from '@/features/navigation/navTokens'
+import { BrandedTabButton } from '@/features/navigation/BrandedTabButton'
 
 export default function AppLayout() {
   const segments = useSegments() as string[]
-  const insets = useSafeAreaInsets()
   const status = useAuthStore((s) => s.status)
   const user = useAuthStore((s) => s.user)
   const segment = segments.slice(1).join('/')
@@ -49,8 +45,9 @@ export default function AppLayout() {
         // Calm branded SHELF nav (Option B, 2026-06-06). NON-floating, full-width,
         // SAME 80px footprint + bottom positioning as before — only the
         // presentation changes: a warm off-white shelf (<BrandedTabShelf>)
-        // replaces the red gradient, brand colour lives ONLY on the active tab.
-        // Routes/order/hidden/detail-hide are untouched.
+        // replaces the red gradient. Each visible tab renders via a custom
+        // <BrandedTabButton> (icon + label + brand active state) — see that
+        // component for WHY the default tab item can't show the label here.
         tabBarStyle: {
           position: 'absolute',
           bottom: 0,
@@ -62,41 +59,27 @@ export default function AppLayout() {
           backgroundColor: 'transparent',
         },
         tabBarBackground: () => <BrandedTabShelf />,
-        // Labels ON (the original red nav was icon-only; labels are the
-        // improvement). Active = AA-safe brand red, inactive = WARM navy-ink —
-        // applied to BOTH the label (here) and the icon (BrandedTabIcon), so
-        // they stay consistent.
-        tabBarShowLabel: true,
-        tabBarActiveTintColor: NAV_ACTIVE_INK,
-        tabBarInactiveTintColor: NAV_INK,
-        tabBarLabelStyle: { fontFamily: 'Lato-Medium', fontSize: NAV_LABEL_FONT_SIZE, lineHeight: NAV_LABEL_LINE_HEIGHT, letterSpacing: NAV_LABEL_TRACKING },
-        // Safe-area-aware bottom padding clears the home indicator while leaving
-        // room for the 20px icon + label in the 80px bar (the old fixed spacing[7]
-        // was too tall and squeezed the label out). On non-notch devices the
-        // spacing[3] floor keeps the bar off the very bottom edge. paddingTop
-        // reserves room for the active indicator capsule.
-        tabBarItemStyle: { paddingTop: spacing[2], paddingBottom: Math.max(insets.bottom, spacing[3]) },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => <BrandedTabIcon name="home" focused={focused} />,
+          tabBarButton: (props) => <BrandedTabButton {...props} name="home" label="Home" />,
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
           title: 'Map',
-          tabBarIcon: ({ focused }) => <BrandedTabIcon name="map" focused={focused} />,
+          tabBarButton: (props) => <BrandedTabButton {...props} name="map" label="Map" />,
         }}
       />
       <Tabs.Screen
         name="favourites"
         options={{
           title: 'Favourites',
-          tabBarIcon: ({ focused }) => <BrandedTabIcon name="favourites" focused={focused} />,
+          tabBarButton: (props) => <BrandedTabButton {...props} name="favourites" label="Favourites" />,
         }}
       />
       <Tabs.Screen
@@ -105,14 +88,14 @@ export default function AppLayout() {
           title: 'Savings',
           // Owner-locked: wallet metaphor (cleaner than the piggy bank); the
           // bespoke Redeemo wallet glyph lives in icons/navIconPaths `savings`.
-          tabBarIcon: ({ focused }) => <BrandedTabIcon name="savings" focused={focused} />,
+          tabBarButton: (props) => <BrandedTabButton {...props} name="savings" label="Savings" />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ focused }) => <BrandedTabIcon name="profile" focused={focused} />,
+          tabBarButton: (props) => <BrandedTabButton {...props} name="profile" label="Profile" />,
         }}
       />
       {/* Hide non-tab routes from auto-discovery so they don't appear as default
