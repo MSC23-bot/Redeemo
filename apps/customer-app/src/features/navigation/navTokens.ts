@@ -29,8 +29,12 @@ export const NAV_ICON_SIZE = 20
  *  scales with the icon's viewBox). Round caps/joins give the friendly feel. */
 export const NAV_OUTLINE_STROKE = 2
 
-/** Tab label type. */
+/** Tab label type. An EXPLICIT lineHeight is load-bearing: without it RN uses
+ *  Lato's default ~1.5x line box (~16px at 11pt), which pushes icon + label
+ *  past the ~38px content budget on notch devices and clips the label to
+ *  near-invisibility. 14 clears the 'g' descender (Savings) while fitting. */
 export const NAV_LABEL_FONT_SIZE = 11
+export const NAV_LABEL_LINE_HEIGHT = 14
 export const NAV_LABEL_TRACKING = 0.1
 
 /** Small rounded brand-gradient active indicator (capsule) above the active icon. */

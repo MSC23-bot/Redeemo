@@ -7,7 +7,7 @@ import { spacing } from '@/design-system'
 import { LocationPermissionProvider } from '@/lib/location/LocationPermissionProvider'
 import { BrandedTabShelf } from '@/features/navigation/BrandedTabShelf'
 import { BrandedTabIcon } from '@/features/navigation/BrandedTabIcon'
-import { NAV_LABEL_FONT_SIZE, NAV_LABEL_TRACKING, NAV_INK, NAV_ACTIVE_INK } from '@/features/navigation/navTokens'
+import { NAV_LABEL_FONT_SIZE, NAV_LABEL_LINE_HEIGHT, NAV_LABEL_TRACKING, NAV_INK, NAV_ACTIVE_INK } from '@/features/navigation/navTokens'
 
 export default function AppLayout() {
   const segments = useSegments() as string[]
@@ -69,7 +69,7 @@ export default function AppLayout() {
         tabBarShowLabel: true,
         tabBarActiveTintColor: NAV_ACTIVE_INK,
         tabBarInactiveTintColor: NAV_INK,
-        tabBarLabelStyle: { fontFamily: 'Lato-Medium', fontSize: NAV_LABEL_FONT_SIZE, letterSpacing: NAV_LABEL_TRACKING },
+        tabBarLabelStyle: { fontFamily: 'Lato-Medium', fontSize: NAV_LABEL_FONT_SIZE, lineHeight: NAV_LABEL_LINE_HEIGHT, letterSpacing: NAV_LABEL_TRACKING },
         // Safe-area-aware bottom padding clears the home indicator while leaving
         // room for the 20px icon + label in the 80px bar (the old fixed spacing[7]
         // was too tall and squeezed the label out). On non-notch devices the
