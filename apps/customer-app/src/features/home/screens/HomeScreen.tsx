@@ -307,6 +307,14 @@ export function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      {/* §HSH.1 fix — branded refresh loader, rendered BEFORE the ScrollView so
+          it sits BEHIND the feed (the campaign banner / content cover it as they
+          scroll over its spot, fixing the overlap). It still shows through the
+          transparent gap that opens on pull; the absolute header (zIndex 10)
+          hides the top of its travel so it emerges from beneath the header.
+          Reveals on pull (UI-thread, tracks the finger), spins while loading,
+          retracts when done. */}
+      <HomeRefreshLoader scrollY={scrollY} refreshing={refreshing} seamY={seamY} />
       <Animated.ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
@@ -472,13 +480,6 @@ export function HomeScreen() {
             !showNearbySectionEmpty). */}
         {showExploreMore && <HomeExploreMore />}
       </Animated.ScrollView>
-
-      {/* §HSH.1 fix — branded refresh loader. Absolute overlay resting just
-          below the header on the body surface; reveals on pull (UI-thread,
-          tracks the finger), holds + spins while loading, retracts when done.
-          zIndex 3: above the feed, BELOW the expanded header (10) so it emerges
-          from beneath it, and below the collapsed bar (20). */}
-      <HomeRefreshLoader scrollY={scrollY} refreshing={refreshing} seamY={seamY} />
 
       {/* §HSH.1 fix — expanded header as an ABSOLUTE overlay (was the first
           scroll child). Pinned at the top so a pull-to-refresh overscroll can

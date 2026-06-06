@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { StyleSheet } from 'react-native'
 import Animated, {
   useSharedValue,
+  useDerivedValue,
   useAnimatedStyle,
   useAnimatedReaction,
   runOnJS,
@@ -24,6 +25,14 @@ const PULL_REVEAL_PX = 70
 const SLIDE_FROM = -14
 const HOLD_IN_MS = 180
 const RETRACT_MS = 240
+// Pull distance (px) mapped to how far the dots wind, and how many turns. The
+// dots rotate clockwise in proportion to the pull (the user is in control); once
+// a refresh fires RedeemoLoader's own continuous orbit takes over. Range runs
+// past PULL_REVEAL_PX so the dots keep winding as you pull on toward the native
+// trigger threshold. PULL_TURNS = 2/3 lands the 3 dots on a symmetric position
+// (they sit at 0, 1/3, 2/3) so the hand-off to the continuous orbit is seamless.
+const ROTATION_RANGE_PX = 130
+const PULL_TURNS = 2 / 3
 
 type Props = {
   /** UI-thread scroll offset (negative on iOS overscroll/pull; ~0 on Android). */
@@ -93,6 +102,17 @@ export function HomeRefreshLoader({ scrollY, refreshing, seamY }: Props) {
     return () => clearTimeout(t)
   }, [refreshing, reduce, hold])
 
+  // Pull-driven dot rotation: the user winds the dots clockwise in proportion to
+  // the pull (in control). 0 under reduced motion. Once a refresh fires we stop
+  // feeding this and let RedeemoLoader's own continuous orbit take over (its
+  // withRepeat lives in the design-system motion layer). PULL_TURNS = 2/3 leaves
+  // the dots on a symmetric position so that hand-off is seamless.
+  const pullPhase = useDerivedValue(() =>
+    reduce
+      ? 0
+      : interpolate(-scrollY.value, [PULL_START_PX, ROTATION_RANGE_PX], [0, PULL_TURNS], Extrapolation.CLAMP),
+  )
+
   const animatedStyle = useAnimatedStyle(() => {
     const pull = reduce
       ? 0
@@ -123,10 +143,17 @@ export function HomeRefreshLoader({ scrollY, refreshing, seamY }: Props) {
       pointerEvents="none"
       style={[styles.overlay, { top: seamY }, animatedStyle]}
     >
-      {/* The dots only ORBIT once a refresh is actually running. During the pull
-          (and the retract) the R is revealed but STATIC, so a small pull that
-          won't trigger a refresh doesn't look like it's already loading. */}
-      <RedeemoLoader size="md" accessibilityLabel="Refreshing" animating={refreshing} />
+      {/* Dot rotation: while pulling we feed `pullPhase` so the user winds the
+          dots clockwise in proportion to the pull (in control); once refreshing
+          we drop the external phase and `animating` lets RedeemoLoader's own
+          continuous orbit take over. A small pull that won't trigger a refresh
+          therefore never looks like it's already loading. */}
+      <RedeemoLoader
+        size="md"
+        accessibilityLabel="Refreshing"
+        animating={refreshing}
+        {...(refreshing ? {} : { phase: pullPhase })}
+      />
     </Animated.View>
   )
 }
@@ -137,8 +164,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    // Behind the header (header zIndex 10) so it emerges from beneath the header,
-    // but above the scrolling feed content.
-    zIndex: 3,
+    // zIndex 0 + rendered before the ScrollView → it sits BEHIND the feed, so the
+    // campaign banner / content cover it as they scroll over its spot, and it
+    // only shows through the transparent gap that opens on pull. (The header,
+    // zIndex 10, still hides the top of its travel so it emerges from beneath.)
+    zIndex: 0,
   },
 })
