@@ -24,7 +24,6 @@ import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { HomeCategoryGrid } from '../components/HomeCategoryGrid'
 import { HomeRefreshLoader } from '../components/HomeRefreshLoader'
-import { WAVE_HEIGHT } from '../components/HomeHeaderWave'
 import { useScrollActivity } from '../hooks/useScrollActivity'
 import { resolveCategoryRoute } from '@/features/shared/categorySlug'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
@@ -58,14 +57,22 @@ export function HomeScreen() {
   const { data: categoriesData } = useCategories()
   const [refreshing, setRefreshing] = useState(false)
   // §HSH.1 — measured header height (reported by <HomeHeader onHeightChange>),
-  // used to place the branded wave-seam refresh loader. The expanded header sits
-  // at the top of the screen when scrollY <= 0 (the only time refresh shows), so
-  // its on-screen bottom ≈ headerHeight; subtract the wave band to land in the
-  // seam. Stays 0 until the header is measured — <HomeRefreshLoader> renders
-  // nothing while seamY === 0 (seam-height guard).
+  // used to place the branded refresh loader just BELOW the header. Captured
+  // ONCE: the setter is a no-op when the height hasn't meaningfully changed, so a
+  // stable re-measure can never trigger an extra HomeScreen re-render mid-scroll
+  // (which would reflow the feed and twitch the header). The header height is
+  // fixed, so this settles to a single value after the first layout.
   const [headerHeight, setHeaderHeight] = useState(0)
-  const REFRESH_SEAM_OFFSET = WAVE_HEIGHT
-  const seamY = Math.max(0, headerHeight - REFRESH_SEAM_OFFSET)
+  const handleHeaderHeight = React.useCallback((h: number) => {
+    setHeaderHeight((prev) => (Math.abs(prev - h) > 0.5 ? h : prev))
+  }, [])
+  // Loader Y: just BELOW the header's bottom edge, on the body surface, so it
+  // reads as emerging from beneath the header. It must NOT sit on the red
+  // header/wave — the loader's R is brand-red and would be invisible there
+  // (and look clipped at the seam). Stays 0 until measured so
+  // <HomeRefreshLoader>'s seam-height guard suppresses any pre-layout flash.
+  const REFRESH_LOADER_GAP = spacing[3]
+  const seamY = headerHeight > 0 ? headerHeight + REFRESH_LOADER_GAP : 0
   // Bumped once the first load completes and again on every pull-to-refresh —
   // drives the Explore-capsule intro demo so it replays on each refresh.
   const [demoToken, setDemoToken] = useState(0)
@@ -372,7 +379,7 @@ export function HomeScreen() {
             onAvatarPress={() => router.push('/profile' as any)}
             onNotificationPress={handleNotificationPress}
             onLocationPress={handleLocationPress}
-            onHeightChange={setHeaderHeight}
+            onHeightChange={handleHeaderHeight}
             scrollY={scrollY}
           />
         </Animated.View>

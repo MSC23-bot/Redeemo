@@ -1,4 +1,5 @@
 import React from 'react'
+import { StyleSheet } from 'react-native'
 import { render, fireEvent, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -147,6 +148,13 @@ describe('HomeScreen — §HSH.1 refresh', () => {
 
     // ENTER: loader visible while the refetch promise is pending.
     await waitFor(() => expect(getByTestId('home-refresh-loader')).toBeTruthy(), WAIT)
+
+    // Position pin (device-QA fix): the loader sits BELOW the header bottom
+    // (measured height 320), on the body surface — NOT on the red header/wave
+    // (where the brand-red R is invisible / looks clipped at the seam). Catches a
+    // regression back to `headerHeight - WAVE_HEIGHT` (276 < 320).
+    const top = StyleSheet.flatten(getByTestId('home-refresh-loader').props.style).top as number
+    expect(top).toBeGreaterThan(320)
 
     // EXIT: resolve the refetch → refreshing clears → loader gone.
     resolveRefetch()
