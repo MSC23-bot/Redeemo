@@ -33,6 +33,9 @@ type Props = {
   // Notification bell — parent owns the handler (HomeScreen wires it). The
   // bell always renders; it is a no-op if no handler is provided.
   onNotificationPress?: () => void
+  // §HSH.1 — report the measured header height so HomeScreen can place the
+  // wave-seam refresh loader at the bottom edge of the brand wave.
+  onHeightChange?: (height: number) => void
   // Task 13 Round 3 — `locationContext` from the Home feed envelope, passed
   // through to <HomeHeaderLocation> which renders <LocationStatusLabel> when
   // GPS-on `area/city` are absent AND a context is provided.
@@ -71,7 +74,7 @@ function getGreeting(): string {
  */
 export function HomeHeader({
   firstName, area, city, locationContext, avatarUrl,
-  onSearchPress, onAvatarPress, onNotificationPress, onLocationPress, scrollY,
+  onSearchPress, onAvatarPress, onNotificationPress, onLocationPress, onHeightChange, scrollY,
 }: Props) {
   const insets = useSafeAreaInsets()
   const { width: winW } = useWindowDimensions()
@@ -90,9 +93,13 @@ export function HomeHeader({
   const avatarLetter = firstName ? firstName.charAt(0).toUpperCase() : '?'
 
   const handleLayout = (e: LayoutChangeEvent) => {
-    // Drives the radial gradient's height only (the collapse threshold is a
-    // device-tuned constant in HomeScreen, not derived from this measurement).
-    setHeaderH(e.nativeEvent.layout.height)
+    // Drives the radial gradient's height (the collapse threshold is a
+    // device-tuned constant in HomeScreen, not derived from this measurement)
+    // AND reports the height up so HomeScreen can place the wave-seam refresh
+    // loader at the bottom edge of the brand wave (§HSH.1).
+    const h = e.nativeEvent.layout.height
+    setHeaderH(h)
+    onHeightChange?.(h)
   }
 
   return (

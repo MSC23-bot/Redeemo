@@ -156,4 +156,24 @@ describe('HomeHeader', () => {
     fireEvent(getByTestId('home-header'), 'layout', { nativeEvent: { layout: { height: 240 } } })
     expect(getByTestId('home-header-radial')).toBeTruthy()
   })
+
+  // §HSH.1 — the header reports its measured height so HomeScreen can place the
+  // wave-seam refresh loader at the bottom edge of the brand wave.
+  it('reports its measured height via onHeightChange', () => {
+    const onHeightChange = jest.fn()
+    const { getByTestId } = render(
+      <HomeHeader
+        firstName="Mark"
+        area="Zone 69"
+        city="Doha"
+        onSearchPress={jest.fn()}
+        onAvatarPress={jest.fn()}
+        onHeightChange={onHeightChange}
+      />
+    )
+    fireEvent(getByTestId('home-header'), 'layout', {
+      nativeEvent: { layout: { height: 320, width: 390, x: 0, y: 0 } },
+    })
+    expect(onHeightChange).toHaveBeenCalledWith(320)
+  })
 })
