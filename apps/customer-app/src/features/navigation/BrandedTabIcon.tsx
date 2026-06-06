@@ -4,8 +4,10 @@ import Svg, { Path } from 'react-native-svg'
 import { LinearGradient } from 'expo-linear-gradient'
 import { color } from '@/design-system'
 import { BrandGradientVector } from '@/design-system/components/BrandGradientGlyph'
-import { TAB_GLYPHS } from './tabGlyphs'
+import { TAB_GLYPHS_OUTLINE, TAB_GLYPHS_FILLED, TAB_GLYPH_VIEWBOX } from './tabGlyphs'
 import { NAV_INK, NAV_ICON_SIZE, NAV_INDICATOR_W, NAV_INDICATOR_H } from './navTokens'
+
+const DEFAULT_VIEWBOX = '0 0 24 24'
 
 type Props = {
   focused: boolean
@@ -14,46 +16,49 @@ type Props = {
 }
 
 /**
- * Bottom-nav tab icon on the calm branded shelf.
+ * Bottom-nav tab icon on the calm branded shelf — classic outline→filled state.
  *
- * Both states render the SAME filled glyph at the SAME size (NAV_ICON_SIZE) in a
- * fixed-size slot — only the FILL changes. So a tab can never change shape OR
- * size when tapped (an outline→filled swap can't, because a lucide outline and a
- * filled glyph render at different optical sizes):
- *   • Inactive → warm navy-ink fill.
- *   • Active   → red→orange brand-gradient fill + a small gradient indicator
- *                capsule above it.
+ * Inactive and active use the SAME Material icon in two weights, rendered in a
+ * fixed-size slot through the SAME per-icon viewBox, so a tab keeps its metaphor
+ * AND its optical size between states — only the weight/fill changes:
+ *   • Inactive → Material OUTLINE glyph, warm-ink fill. Light, secondary.
+ *   • Active   → Material FILLED glyph, brand-gradient fill + a small gradient
+ *                indicator capsule above it. Richer, stronger.
  * The LABEL (active brand-red / inactive warm-ink) is rendered by
  * react-navigation's slot. Static (no motion); press feedback lands in M3.
  */
 export function BrandedTabIcon({ focused, name }: Props) {
-  const glyph = TAB_GLYPHS[name]
-  if (!glyph) return <View style={styles.icon} testID={`branded-tab-icon-${name}`} />
+  const outline = TAB_GLYPHS_OUTLINE[name]
+  const filled = TAB_GLYPHS_FILLED[name]
+  const viewBox = TAB_GLYPH_VIEWBOX[name] ?? DEFAULT_VIEWBOX
+
   return (
     <View style={styles.icon} testID={`branded-tab-icon-${name}`}>
       {focused ? (
-        <>
-          <LinearGradient
-            colors={[color.brandRose, color.brandCoral]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.indicator}
-            testID={`branded-tab-indicator-${name}`}
-          />
-          <View testID={`branded-tab-glyph-${name}`}>
-            <BrandGradientVector path={glyph} size={NAV_ICON_SIZE} />
-          </View>
-        </>
-      ) : (
+        filled ? (
+          <>
+            <LinearGradient
+              colors={[color.brandRose, color.brandCoral]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.indicator}
+              testID={`branded-tab-indicator-${name}`}
+            />
+            <View testID={`branded-tab-glyph-${name}`}>
+              <BrandGradientVector path={filled} size={NAV_ICON_SIZE} viewBox={viewBox} />
+            </View>
+          </>
+        ) : null
+      ) : outline ? (
         <Svg
           width={NAV_ICON_SIZE}
           height={NAV_ICON_SIZE}
-          viewBox="0 0 24 24"
-          testID={`branded-tab-ink-${name}`}
+          viewBox={viewBox}
+          testID={`branded-tab-outline-${name}`}
         >
-          <Path d={glyph} fill={NAV_INK} />
+          <Path d={outline} fill={NAV_INK} />
         </Svg>
-      )}
+      ) : null}
     </View>
   )
 }

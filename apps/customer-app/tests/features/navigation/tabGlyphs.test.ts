@@ -1,23 +1,33 @@
-import { TAB_GLYPHS } from '@/features/navigation/tabGlyphs'
+import {
+  TAB_GLYPHS_OUTLINE,
+  TAB_GLYPHS_FILLED,
+  TAB_GLYPH_VIEWBOX,
+} from '@/features/navigation/tabGlyphs'
 
-// The active glyph for each tab must be the FILLED TWIN of its inactive lucide
-// metaphor — never a different object. The map tab is the one that regressed in
-// device QA (a location PIN, which reads as "Location", not "Map"), so it gets
-// an explicit regression lock here.
+// Inactive (outline) and active (filled) are the SAME Material icon in two
+// weights — same metaphor, same silhouette. These pins guard the two things
+// device QA caught: a metaphor swap (map became a location PIN) and weight
+// drift (a tab missing one of its two weights).
 
+const TABS = ['home', 'map', 'favourites', 'savings', 'profile']
 const OLD_MAP_PIN =
   'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'
 
-describe('TAB_GLYPHS (active filled twin per tab)', () => {
-  it('defines a non-empty glyph for every visible tab', () => {
-    for (const name of ['home', 'map', 'favourites', 'savings', 'profile']) {
-      const glyph = TAB_GLYPHS[name]
-      expect(typeof glyph).toBe('string')
-      expect((glyph ?? '').length).toBeGreaterThan(0)
+describe('TAB_GLYPHS outline/filled pairs', () => {
+  it('every tab has both an outline and a filled weight + a viewBox', () => {
+    for (const name of TABS) {
+      expect((TAB_GLYPHS_OUTLINE[name] ?? '').length).toBeGreaterThan(0)
+      expect((TAB_GLYPHS_FILLED[name] ?? '').length).toBeGreaterThan(0)
+      expect((TAB_GLYPH_VIEWBOX[name] ?? '').length).toBeGreaterThan(0)
     }
   })
 
-  it('map glyph is a folded map, NOT a location pin (metaphor lock)', () => {
-    expect(TAB_GLYPHS.map).not.toBe(OLD_MAP_PIN)
+  it('outline and filled cover exactly the same tabs (no weight missing)', () => {
+    expect(Object.keys(TAB_GLYPHS_OUTLINE).sort()).toEqual(Object.keys(TAB_GLYPHS_FILLED).sort())
+  })
+
+  it('map is a folded map in BOTH weights, never a location pin', () => {
+    expect(TAB_GLYPHS_OUTLINE.map).not.toBe(OLD_MAP_PIN)
+    expect(TAB_GLYPHS_FILLED.map).not.toBe(OLD_MAP_PIN)
   })
 })
