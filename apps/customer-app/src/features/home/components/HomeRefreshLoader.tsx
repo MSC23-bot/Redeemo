@@ -1,71 +1,81 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { StyleSheet } from 'react-native'
 import Animated, {
+  useSharedValue,
   useAnimatedStyle,
-  useAnimatedReaction,
-  runOnJS,
-  type SharedValue,
+  withTiming,
+  interpolate,
+  Easing,
 } from 'react-native-reanimated'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useMotionScale } from '@/design-system/useMotionScale'
 
-// Overscroll px before the loader mounts on iOS (scrollY goes negative on pull).
-const PULL_START_PX = 6
-// Overscroll px at which the loader reaches full opacity/scale.
-const PULL_REVEAL_PX = 64
+// Enter slightly faster-settling, exit quicker (exit < enter reads responsive).
+const ENTER_MS = 300
+const EXIT_MS = 200
+// The loader starts tucked UP toward the header and settles DOWN to its resting
+// spot, so it reads as emerging from beneath the header. Retracts upward on exit.
+const SLIDE_FROM = -14
 
 type Props = {
-  /** UI-thread scroll offset (negative on iOS overscroll; ~0 on Android). */
-  scrollY: SharedValue<number>
   /** True while the refetch is in flight (native RefreshControl owns the trigger). */
   refreshing: boolean
-  /** Absolute screen Y of the wave seam (HomeScreen passes headerHeight - WAVE_HEIGHT).
-   *  0 until the header is measured — the component renders NOTHING until seamY > 0
-   *  (seam-height guard, prevents a first-frame flash at top:0 if a refresh fires
-   *  before layout). */
+  /** Absolute screen Y of the loader's resting spot (HomeScreen passes the body
+   *  surface just below the header). 0 until the header is measured — the
+   *  component renders NOTHING until seamY > 0 (seam-height guard, prevents a
+   *  pre-layout flash at the top of the screen if a refresh fires before layout). */
   seamY: number
 }
 
 /**
- * Branded wave-seam refresh loader (§HSH.1). An absolute overlay owned by
- * HomeScreen (sibling of the ScrollView, like HomeCollapsedHeader). The header +
- * wave stay anchored on pull (HomeScreen's expandedHeaderStyle); this reveals the
- * Redeemo R in the gap that opens below the wave.
+ * Branded refresh loader (§HSH.1). An absolute overlay owned by HomeScreen
+ * (sibling of the ScrollView, like HomeCollapsedHeader), resting just BELOW the
+ * header on the body surface. It is driven ENTIRELY by `refreshing` — no
+ * scroll-linked reaction, so nothing re-renders during the pull gesture itself
+ * (that churn twitched the header). When a refresh triggers it animates in from
+ * beneath the header (fade + slide-down + scale), holds + spins while loading,
+ * then retracts upward and unmounts when the refetch resolves.
  *
- * iOS (motion on): mounts as soon as the user pulls past PULL_START_PX and the
- *   opacity/scale track the pull depth, then hold at full while `refreshing`.
- * Android (scrollY stays >= 0) + reduced motion: simple show/hide tied to
- *   `refreshing` only — RedeemoLoader is already static under reduced motion.
- *
+ * Reduced motion (useMotionScale()===0): instant show/hide, no slide/scale.
  * pointerEvents="none" so it never blocks touches.
  */
-export function HomeRefreshLoader({ scrollY, refreshing, seamY }: Props) {
+export function HomeRefreshLoader({ refreshing, seamY }: Props) {
   const reduce = useMotionScale() === 0
-  const [pulling, setPulling] = useState(false)
+  const progress = useSharedValue(0)
+  // Kept mounted through the exit animation, then unmounted (so the retract
+  // motion can play before the loader leaves the tree).
+  const [mounted, setMounted] = useState(false)
 
-  // Flip a JS `pulling` flag when the user overscrolls past the start threshold.
-  // On Android scrollY never goes below 0, so this stays false there by nature.
-  useAnimatedReaction(
-    () => scrollY.value < -PULL_START_PX,
-    (active, prev) => {
-      if (active !== prev) runOnJS(setPulling)(active)
-    },
-  )
+  useEffect(() => {
+    if (refreshing) {
+      setMounted(true)
+      progress.value = reduce
+        ? 1
+        : withTiming(1, { duration: ENTER_MS, easing: Easing.out(Easing.cubic) })
+      return
+    }
+    // Not refreshing: if it was never shown there is nothing to retract.
+    if (!mounted) return
+    if (reduce) {
+      progress.value = 0
+      setMounted(false)
+      return
+    }
+    progress.value = withTiming(0, { duration: EXIT_MS, easing: Easing.in(Easing.cubic) })
+    const t = setTimeout(() => setMounted(false), EXIT_MS)
+    return () => clearTimeout(t)
+  }, [refreshing, reduce, mounted, progress])
 
-  const animatedStyle = useAnimatedStyle(() => {
-    if (reduce) return { opacity: refreshing ? 1 : 0 }
-    const p = Math.min(Math.max(-scrollY.value / PULL_REVEAL_PX, 0), 1)
-    const o = refreshing ? 1 : p
-    return { opacity: o, transform: [{ scale: 0.8 + 0.2 * o }] }
-  })
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [
+      { translateY: interpolate(progress.value, [0, 1], [SLIDE_FROM, 0]) },
+      { scale: interpolate(progress.value, [0, 1], [0.85, 1]) },
+    ],
+  }))
 
-  // Seam-height guard (`seamY > 0`): never render at top:0 before HomeHeader has
-  // been measured — prevents a first-frame flash at the top of the screen if a
-  // refresh fires before layout. Combined with: mount only when there's
-  // something to show — during refetch, or (iOS, motion on) while actively
-  // pulling. Reduced motion ignores the pull (show/hide only).
-  const show = seamY > 0 && (refreshing || (pulling && !reduce))
-  if (!show) return null
+  // Seam-height guard (`seamY > 0`): never render before HomeHeader is measured.
+  if (seamY <= 0 || !mounted) return null
 
   return (
     <Animated.View

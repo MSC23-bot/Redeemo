@@ -302,6 +302,12 @@ export function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      {/* §HSH.1 — brand backdrop behind the status-bar zone. The scrolling
+          header normally covers the top, but during the pull-to-refresh
+          content-hold the header can shift by a frame; this guarantees the
+          exposed strip reads brand-red, never a white/peach flash. It sits
+          BEHIND the ScrollView (the collapsed header, zIndex 20, stays above). */}
+      <View pointerEvents="none" style={[styles.statusBarBackdrop, { height: insets.top }]} />
       <Animated.ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
@@ -497,11 +503,12 @@ export function HomeScreen() {
         {showExploreMore && <HomeExploreMore />}
       </Animated.ScrollView>
 
-      {/* §HSH.1 — branded wave-seam refresh loader. Absolute overlay; reveals
-          the Redeemo R in the gap that opens below the wave on pull (iOS) and
-          holds during refetch. Show/hide only on Android + reduced motion.
-          Sits below the collapsed header so the compact bar stays on top. */}
-      <HomeRefreshLoader scrollY={scrollY} refreshing={refreshing} seamY={seamY} />
+      {/* §HSH.1 — branded refresh loader. Absolute overlay resting just below
+          the header on the body surface; driven by `refreshing` only (no
+          scroll-linked churn). Animates in from beneath the header, holds +
+          spins while loading, retracts when done. Sits below the collapsed
+          header so the compact bar stays on top. */}
+      <HomeRefreshLoader refreshing={refreshing} seamY={seamY} />
 
       {/* PR A — pinned compact header; fades in over the expanded header as
           the feed scrolls. Sibling of the ScrollView so it sits above the
@@ -541,5 +548,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 18,
     gap: 12,
+  },
+  // §HSH.1 — brand-red fill behind the status-bar zone so a frame-lag during
+  // the pull-to-refresh content-hold can never expose a white/peach strip at the
+  // very top. Brand red (not the header's exact deep base, but indistinguishable
+  // for a transient frame). Absolute + behind the ScrollView.
+  statusBarBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: color.brandRose,
   },
 })
