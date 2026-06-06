@@ -117,7 +117,10 @@ export function HomeRefreshLoader({ scrollY, refreshing, seamY }: Props) {
       pointerEvents="none"
       style={[styles.overlay, { top: seamY }, animatedStyle]}
     >
-      <RedeemoLoader size="md" accessibilityLabel="Refreshing" />
+      {/* The dots only ORBIT once a refresh is actually running. During the pull
+          (and the retract) the R is revealed but STATIC, so a small pull that
+          won't trigger a refresh doesn't look like it's already loading. */}
+      <RedeemoLoader size="md" accessibilityLabel="Refreshing" animating={refreshing} />
     </Animated.View>
   )
 }

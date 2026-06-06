@@ -82,9 +82,17 @@ type Props = {
    * "Looking up postcode").
    */
   accessibilityLabel?: string
+  /**
+   * Whether the orbit animation runs. Defaults to `true`. Set to
+   * `false` to render the dots in their STATIC rest positions (no
+   * orbiting) — e.g. a pull-to-refresh indicator that should only
+   * spin once the refresh actually fires, not while the user is still
+   * pulling. Re-enabling restarts the orbit from the rest position.
+   */
+  animating?: boolean
 }
 
-export function RedeemoLoader({ size = 'md', accessibilityLabel = 'Loading' }: Props) {
+export function RedeemoLoader({ size = 'md', accessibilityLabel = 'Loading', animating = true }: Props) {
   const motionScale = useMotionScale()
 
   const px = typeof size === 'number' ? size : SIZES[size]
@@ -95,7 +103,13 @@ export function RedeemoLoader({ size = 'md', accessibilityLabel = 'Loading' }: P
   const phase = useSharedValue(0)
 
   useEffect(() => {
-    if (motionScale === 0) return
+    // Static rest when reduced motion is on OR the caller paused it: hold the
+    // dots at phase 0 (their 0°/120°/240° rest positions), no orbit.
+    if (motionScale === 0 || !animating) {
+      cancelAnimation(phase)
+      phase.value = 0
+      return
+    }
     phase.value = withRepeat(
       withTiming(1, { duration: CYCLE_DURATION_MS, easing: Easing.linear }),
       -1,
@@ -103,7 +117,7 @@ export function RedeemoLoader({ size = 'md', accessibilityLabel = 'Loading' }: P
     )
     return () => cancelAnimation(phase)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [motionScale])
+  }, [motionScale, animating])
 
   return (
     <View
