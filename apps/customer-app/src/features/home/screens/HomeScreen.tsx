@@ -23,11 +23,12 @@ import { HomeNoLocationBanner } from '../components/HomeNoLocationBanner'
 import { SavedAreaHonestyHint } from '../components/SavedAreaHonestyHint'
 import { HomeExploreMore } from '../components/HomeExploreMore'
 import { HomeCategoryGrid } from '../components/HomeCategoryGrid'
+import { HomeRefreshLoader } from '../components/HomeRefreshLoader'
+import { WAVE_HEIGHT } from '../components/HomeHeaderWave'
 import { useScrollActivity } from '../hooks/useScrollActivity'
 import { resolveCategoryRoute } from '@/features/shared/categorySlug'
 import { SkeletonTile } from '@/features/shared/SkeletonTile'
 import { FadeIn } from '@/design-system/motion/FadeIn'
-import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { haptics } from '@/design-system/haptics'
 // §DF-v2-j Task 9 → Task 13 Round 3 (2026-05-26) — top-of-screen
 // location identity is now rendered INSIDE <HomeHeader> via its
@@ -56,6 +57,15 @@ export function HomeScreen() {
   )
   const { data: categoriesData } = useCategories()
   const [refreshing, setRefreshing] = useState(false)
+  // §HSH.1 — measured header height (reported by <HomeHeader onHeightChange>),
+  // used to place the branded wave-seam refresh loader. The expanded header sits
+  // at the top of the screen when scrollY <= 0 (the only time refresh shows), so
+  // its on-screen bottom ≈ headerHeight; subtract the wave band to land in the
+  // seam. Stays 0 until the header is measured — <HomeRefreshLoader> renders
+  // nothing while seamY === 0 (seam-height guard).
+  const [headerHeight, setHeaderHeight] = useState(0)
+  const REFRESH_SEAM_OFFSET = WAVE_HEIGHT
+  const seamY = Math.max(0, headerHeight - REFRESH_SEAM_OFFSET)
   // Bumped once the first load completes and again on every pull-to-refresh —
   // drives the Explore-capsule intro demo so it replays on each refresh.
   const [demoToken, setDemoToken] = useState(0)
@@ -308,7 +318,21 @@ export function HomeScreen() {
         onMomentumScrollBegin={scroll.onMomentumScrollBegin}
         onScrollEndDrag={scroll.onScrollEndDrag}
         onMomentumScrollEnd={scroll.onMomentumScrollEnd}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={color.brandRose} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            // §HSH.1 — iOS reads tintColor: 'transparent' hides the native
+            // spinner so the branded <HomeRefreshLoader> at the wave seam is the
+            // only indicator. Android ignores tintColor and reads colors +
+            // progressBackgroundColor → a branded Material circle (brand-rose arc
+            // on the WARM body surface, not the default white), so it reads
+            // intentional alongside the seam R loader.
+            tintColor="transparent"
+            colors={[color.brandRose]}
+            progressBackgroundColor={color.surface.body}
+          />
+        }
         contentContainerStyle={[
           styles.scroll,
           // Brand-header redesign: header covers from y=0 (Savings-hero pattern).
@@ -319,17 +343,10 @@ export function HomeScreen() {
           { paddingTop: 0, paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
-        {/* Batch 5 §10.5 (F4-c) — branded RedeemoLoader R-moment while
-            refreshing. The native RefreshControl above owns the pull +
-            trigger; this is the brand beat at the top of the feed.
-            Reduced-motion-safe (RedeemoLoader renders static under
-            reduce-motion). Placement vs the system spinner is a device-QA
-            tuning item (plan §9). */}
-        {refreshing ? (
-          <View style={styles.refreshBrand}>
-            <RedeemoLoader size="md" />
-          </View>
-        ) : null}
+        {/* §HSH.1 — the branded refresh beat moved OUT of the scroll content to
+            an absolute <HomeRefreshLoader> overlay mounted below, so it reveals
+            at the wave seam on pull (iOS) instead of pushing the feed down. The
+            old above-header refreshBrand loader is removed (no duplicate). */}
 
         {/* Task 13 Round 3 (2026-05-26) — the LocationStatusLabel is
             now rendered INSIDE <HomeHeader> at the same visual rhythm
@@ -355,6 +372,7 @@ export function HomeScreen() {
             onAvatarPress={() => router.push('/profile' as any)}
             onNotificationPress={handleNotificationPress}
             onLocationPress={handleLocationPress}
+            onHeightChange={setHeaderHeight}
             scrollY={scrollY}
           />
         </Animated.View>
@@ -472,6 +490,12 @@ export function HomeScreen() {
         {showExploreMore && <HomeExploreMore />}
       </Animated.ScrollView>
 
+      {/* §HSH.1 — branded wave-seam refresh loader. Absolute overlay; reveals
+          the Redeemo R in the gap that opens below the wave on pull (iOS) and
+          holds during refetch. Show/hide only on Android + reduced motion.
+          Sits below the collapsed header so the compact bar stays on top. */}
+      <HomeRefreshLoader scrollY={scrollY} refreshing={refreshing} seamY={seamY} />
+
       {/* PR A — pinned compact header; fades in over the expanded header as
           the feed scrolls. Sibling of the ScrollView so it sits above the
           feed content (its own zIndex + absolute top:0). */}
@@ -510,9 +534,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 18,
     gap: 12,
-  },
-  refreshBrand: {
-    alignItems: 'center',
-    paddingVertical: spacing[2],
   },
 })
