@@ -86,13 +86,18 @@ export function HomeScreen() {
   // was the dead zone. Tied to insets so it adapts per device.
   const fadeEndY = insets.top + 80
   const exploreCollapse = useSharedValue(0) // bumped on scroll start to collapse any open Explore chip
-  // The header CONTENT fade now lives INSIDE <HomeHeader> (so the radial
-  // background + wave keep scrolling under the collapsed bar — no dead zone).
-  // Here we only ANCHOR the header during overscroll (pull-down): translate it
-  // UP by the overscroll amount so it stays pinned at the top while the body
-  // pulls away from the WAVE. Zero during normal downward scroll.
-  const expandedHeaderStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: Math.min(scrollY.value, 0) }],
+  // §HSH.1 fix — the expanded header is now an ABSOLUTE overlay (not a scroll
+  // child), so it is physically PINNED at the top: during a pull-to-refresh
+  // overscroll it cannot move, which removes the twitch. Previously the header
+  // was a scroll child kept in place by a `translateY: min(scrollY,0)` worklet
+  // that COMPENSATED for the rubber-band — but `useScrollViewOffset` lags the
+  // native overscroll by a frame, so the compensation couldn't keep up and the
+  // header briefly dropped (the twitch + white flash). As an absolute overlay we
+  // only need to SCROLL IT AWAY on downward scroll: translate up by the scroll
+  // amount (clamped at >= 0 so overscroll leaves it pinned at translateY 0). The
+  // content has a matching paddingTop, so header + content move up in lock-step.
+  const headerTranslateStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.max(scrollY.value, 0) }],
   }))
   // Review fix: the pinned collapsed bar overlaps the expanded header's top
   // band, so it must only be touch-live + screen-reader-visible once it is
@@ -302,12 +307,6 @@ export function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* §HSH.1 — brand backdrop behind the status-bar zone. The scrolling
-          header normally covers the top, but during the pull-to-refresh
-          content-hold the header can shift by a frame; this guarantees the
-          exposed strip reads brand-red, never a white/peach flash. It sits
-          BEHIND the ScrollView (the collapsed header, zIndex 20, stays above). */}
-      <View pointerEvents="none" style={[styles.statusBarBackdrop, { height: insets.top }]} />
       <Animated.ScrollView
         ref={scrollViewRef}
         showsVerticalScrollIndicator={false}
@@ -348,47 +347,18 @@ export function HomeScreen() {
         }
         contentContainerStyle={[
           styles.scroll,
-          // Brand-header redesign: header covers from y=0 (Savings-hero pattern).
-          // <HomeHeader> bakes in its own `paddingTop: insets.top` and its
-          // gradient fills the status-bar inset, so the scroll content starts at
-          // 0 here and there is no cream gap. The inset props above stop iOS
-          // double-insetting on top of this.
-          { paddingTop: 0, paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
+          // §HSH.1 fix — the expanded header is now an absolute overlay (see the
+          // headerTranslateStyle note), so the scroll content reserves its space
+          // with a matching paddingTop = measured header height. The header still
+          // covers from y=0 (Savings-hero pattern; it bakes in its own
+          // paddingTop: insets.top), so there is no cream gap at the top.
+          { paddingTop: headerHeight, paddingBottom: insets.bottom + TAB_BAR_HEIGHT + SCROLL_BOTTOM_GUTTER },
         ]}
       >
-        {/* §HSH.1 — the branded refresh beat moved OUT of the scroll content to
-            an absolute <HomeRefreshLoader> overlay mounted below, so it reveals
-            at the wave seam on pull (iOS) instead of pushing the feed down. The
-            old above-header refreshBrand loader is removed (no duplicate). */}
-
-        {/* Task 13 Round 3 (2026-05-26) — the LocationStatusLabel is
-            now rendered INSIDE <HomeHeader> at the same visual rhythm
-            as the GPS-on location row (marginTop: spacing[1]=4pt
-            below the greeting).  HomeHeader receives the
-            `locationContext` prop and decides between (a) the GPS-on
-            area/city text row, (b) the LocationStatusLabel, or
-            (c) neither.  The previous standalone mount below
-            HomeHeader (Round 1 + Round 2 location) is retired —
-            owner-locked Round 3 product decision: the label must
-            feel like the normal GPS/location line, not a detached
-            banner.  <SavedAreaHonestyHint> below remains unchanged
-            (D6 coexistence preserved — the hint still surfaces the
-            caveat + Update affordance when source='profile'). */}
-        <Animated.View style={expandedHeaderStyle}>
-          <HomeHeader
-            firstName={me?.firstName ?? null}
-            area={location?.area ?? null}
-            city={location?.city ?? null}
-            {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
-            {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
-            onSearchPress={() => router.push('/search' as any)}
-            onAvatarPress={() => router.push('/profile' as any)}
-            onNotificationPress={handleNotificationPress}
-            onLocationPress={handleLocationPress}
-            onHeightChange={handleHeaderHeight}
-            scrollY={scrollY}
-          />
-        </Animated.View>
+        {/* §HSH.1 fix — the expanded <HomeHeader> moved OUT of the scroll
+            content to an absolute overlay below (so it is physically pinned and
+            cannot twitch during a pull-to-refresh overscroll). The scroll
+            content reserves its space via contentContainerStyle paddingTop. */}
 
         {/* Spec §8.8 — banner mounts ABOVE campaign carousel when the
             user has no resolvable location.  Dedup invariant guards
@@ -503,12 +473,36 @@ export function HomeScreen() {
         {showExploreMore && <HomeExploreMore />}
       </Animated.ScrollView>
 
-      {/* §HSH.1 — branded refresh loader. Absolute overlay resting just below
-          the header on the body surface; driven by `refreshing` only (no
-          scroll-linked churn). Animates in from beneath the header, holds +
-          spins while loading, retracts when done. Sits below the collapsed
-          header so the compact bar stays on top. */}
-      <HomeRefreshLoader refreshing={refreshing} seamY={seamY} />
+      {/* §HSH.1 fix — branded refresh loader. Absolute overlay resting just
+          below the header on the body surface; reveals on pull (UI-thread,
+          tracks the finger), holds + spins while loading, retracts when done.
+          zIndex 3: above the feed, BELOW the expanded header (10) so it emerges
+          from beneath it, and below the collapsed bar (20). */}
+      <HomeRefreshLoader scrollY={scrollY} refreshing={refreshing} seamY={seamY} />
+
+      {/* §HSH.1 fix — expanded header as an ABSOLUTE overlay (was the first
+          scroll child). Pinned at the top so a pull-to-refresh overscroll can
+          never move it (no transform-lag twitch); it only translates UP to
+          scroll away on downward scroll (headerTranslateStyle). Touches are
+          gated off once collapsed so it never shadows the feed / collapsed bar. */}
+      <Animated.View
+        pointerEvents={headerCollapsed ? 'none' : 'box-none'}
+        style={[styles.expandedHeader, headerTranslateStyle]}
+      >
+        <HomeHeader
+          firstName={me?.firstName ?? null}
+          area={location?.area ?? null}
+          city={location?.city ?? null}
+          {...(me?.profileImageUrl !== undefined ? { avatarUrl: me.profileImageUrl } : {})}
+          {...(feed?.locationContext ? { locationContext: feed.locationContext } : {})}
+          onSearchPress={() => router.push('/search' as any)}
+          onAvatarPress={() => router.push('/profile' as any)}
+          onNotificationPress={handleNotificationPress}
+          onLocationPress={handleLocationPress}
+          onHeightChange={handleHeaderHeight}
+          scrollY={scrollY}
+        />
+      </Animated.View>
 
       {/* PR A — pinned compact header; fades in over the expanded header as
           the feed scrolls. Sibling of the ScrollView so it sits above the
@@ -549,15 +543,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 12,
   },
-  // §HSH.1 — brand-red fill behind the status-bar zone so a frame-lag during
-  // the pull-to-refresh content-hold can never expose a white/peach strip at the
-  // very top. Brand red (not the header's exact deep base, but indistinguishable
-  // for a transient frame). Absolute + behind the ScrollView.
-  statusBarBackdrop: {
+  // §HSH.1 fix — the expanded header as an absolute overlay pinned at the top.
+  // zIndex 10: above the feed + refresh loader (3), below the collapsed bar (20).
+  expandedHeader: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: color.brandRose,
+    zIndex: 10,
   },
 })
