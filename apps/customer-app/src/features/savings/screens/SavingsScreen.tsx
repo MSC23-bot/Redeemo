@@ -623,6 +623,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Lato-SemiBold',
   },
   listContent: {
-    paddingBottom: layout.tabBarHeight + 20,
+    // Clear the absolute bottom nav (layout.bottomNavHeight) + a gutter. Was
+    // `layout.tabBarHeight (64) + 20 = 84`, which clipped the last row under the
+    // 90px nav. The nav height already includes the safe-area inset, so no extra
+    // insets.bottom is needed here.
+    paddingBottom: layout.bottomNavHeight + 20,
   },
 })

@@ -5,6 +5,7 @@ import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import Svg, { Path } from 'react-native-svg'
 import { Text, PressableScale, color, spacing } from '@/design-system'
+import { layout } from '@/design-system/tokens'
 import { ArrowLeft } from '@/design-system/icons'
 import { FadeIn, FadeInDown } from '@/design-system/motion/FadeIn'
 import { useCategories } from '@/hooks/useCategories'
@@ -67,7 +68,8 @@ function PlaceholderCross({ size }: { size: number }) {
 }
 
 // /categories is a tab screen WITH the tab bar visible → clear it at the bottom.
-const TAB_BAR_HEIGHT = 80
+// Sourced from the shared token so it tracks the nav height (was a hardcoded 80).
+const TAB_BAR_HEIGHT = layout.bottomNavHeight
 const SCROLL_BOTTOM_GUTTER = 24
 
 // Entrance choreography: cascade only the first screenful of rows. Rows beyond

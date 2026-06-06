@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { color, spacing } from '@/design-system'
+import { layout } from '@/design-system/tokens'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useHomeFeed } from '@/hooks/useHomeFeed'
 import { useCategories } from '@/hooks/useCategories'
@@ -35,13 +36,14 @@ import { haptics } from '@/design-system/haptics'
 // preserved: <SavedAreaHonestyHint> still surfaces the caveat +
 // Update affordance below the header when source='profile'.
 
-// Bottom tab bar is `position: 'absolute'` with `height: 80` per the (app)
-// Tabs layout (see `apps/customer-app/app/(app)/_layout.tsx`). ScrollView
-// content must clear that height + the device safe-area inset + a small
-// breathing-room margin so the last child (e.g. <NearbySectionEmpty> CTAs
+// Bottom tab bar is `position: 'absolute'` with height `layout.bottomNavHeight`
+// per the (app) Tabs layout (see `apps/customer-app/app/(app)/_layout.tsx`).
+// ScrollView content must clear that height + the device safe-area inset + a
+// small breathing-room margin so the last child (e.g. <NearbySectionEmpty> CTAs
 // or <HomeExploreMore> button) is comfortably reachable without iOS
 // rubber-band bounce. PR #126 device-QA A — owner direction 2026-05-23.
-const TAB_BAR_HEIGHT       = 80
+// Sourced from the shared token so it tracks the nav height (was a hardcoded 80).
+const TAB_BAR_HEIGHT       = layout.bottomNavHeight
 const SCROLL_BOTTOM_GUTTER  = 24
 
 export function HomeScreen() {
