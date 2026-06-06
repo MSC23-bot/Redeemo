@@ -82,9 +82,25 @@ type Props = {
    * "Looking up postcode").
    */
   accessibilityLabel?: string
+  /**
+   * Whether the orbit animation runs. Defaults to `true`. Set to
+   * `false` to render the dots in their STATIC rest positions (no
+   * orbiting) — e.g. a pull-to-refresh indicator that should only
+   * spin once the refresh actually fires, not while the user is still
+   * pulling. Re-enabling restarts the orbit from the rest position.
+   * Ignored when `phase` is supplied (the caller drives rotation).
+   */
+  animating?: boolean
+  /**
+   * Optional externally-driven orbit phase (0..1 = one full turn; values wrap).
+   * When supplied, the caller owns rotation entirely (e.g. a pull-to-refresh
+   * indicator whose dots wind with the pull distance, then spin continuously
+   * once refreshing) and the internal orbit/`animating` logic is bypassed.
+   */
+  phase?: SharedValue<number>
 }
 
-export function RedeemoLoader({ size = 'md', accessibilityLabel = 'Loading' }: Props) {
+export function RedeemoLoader({ size = 'md', accessibilityLabel = 'Loading', animating = true, phase: externalPhase }: Props) {
   const motionScale = useMotionScale()
 
   const px = typeof size === 'number' ? size : SIZES[size]
@@ -92,18 +108,27 @@ export function RedeemoLoader({ size = 'md', accessibilityLabel = 'Loading' }: P
   const orbitRadius = px * 0.44
   const dotRadius = Math.max(2, px * 0.05)
 
-  const phase = useSharedValue(0)
+  const internalPhase = useSharedValue(0)
+  const phase = externalPhase ?? internalPhase
 
   useEffect(() => {
-    if (motionScale === 0) return
-    phase.value = withRepeat(
+    // Caller-driven phase: the internal orbit is bypassed entirely.
+    if (externalPhase) return
+    // Static rest when reduced motion is on OR the caller paused it: hold the
+    // dots at phase 0 (their 0°/120°/240° rest positions), no orbit.
+    if (motionScale === 0 || !animating) {
+      cancelAnimation(internalPhase)
+      internalPhase.value = 0
+      return
+    }
+    internalPhase.value = withRepeat(
       withTiming(1, { duration: CYCLE_DURATION_MS, easing: Easing.linear }),
       -1,
       false,
     )
-    return () => cancelAnimation(phase)
+    return () => cancelAnimation(internalPhase)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [motionScale])
+  }, [motionScale, animating, externalPhase])
 
   return (
     <View
