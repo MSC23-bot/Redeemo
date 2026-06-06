@@ -1,30 +1,41 @@
 import React from 'react'
-import { View, StyleSheet } from 'react-native'
+import { StyleSheet } from 'react-native'
 import { render } from '@testing-library/react-native'
 import { BrandedTabIcon } from '@/features/navigation/BrandedTabIcon'
-import { NAV_INK } from '@/features/navigation/navTokens'
+import { NAV_ICON_SIZE } from '@/features/navigation/navTokens'
 
-const INK = NAV_INK // warm ink for the inactive outline icon
-
-// Probe records its received `color` into a queryable style (the inactive outline).
-const ProbeIcon = ({ color }: { color?: string; size?: number; strokeWidth?: number }) => (
-  <View testID="probe" style={{ borderColor: color }} />
-)
-const probeColor = (node: { props: { style: unknown } }): string =>
-  (StyleSheet.flatten(node.props.style) as { borderColor?: string }).borderColor ?? ''
-
-describe('BrandedTabIcon (M2 — gradient glyph + indicator)', () => {
-  it('active: gradient-fill glyph + brand indicator, NOT the outline icon', () => {
-    const { getByTestId, queryByTestId } = render(<BrandedTabIcon Icon={ProbeIcon} name="home" focused />)
+describe('BrandedTabIcon (filled twin — same glyph + size both states)', () => {
+  it('active: gradient glyph + indicator capsule, no ink fill', () => {
+    const { getByTestId, queryByTestId } = render(<BrandedTabIcon name="home" focused />)
     expect(getByTestId('branded-tab-indicator-home')).toBeTruthy()
     expect(getByTestId('branded-tab-glyph-home')).toBeTruthy()
-    expect(queryByTestId('probe')).toBeNull() // outline icon not used when active
+    expect(queryByTestId('branded-tab-ink-home')).toBeNull()
   })
 
-  it('inactive: warm-ink outline icon, no glyph, no indicator', () => {
-    const { getByTestId, queryByTestId } = render(<BrandedTabIcon Icon={ProbeIcon} name="map" focused={false} />)
-    expect(queryByTestId('branded-tab-indicator-map')).toBeNull()
+  it('inactive: ink-filled glyph, no gradient glyph, no indicator', () => {
+    const { getByTestId, queryByTestId } = render(<BrandedTabIcon name="map" focused={false} />)
+    expect(getByTestId('branded-tab-ink-map')).toBeTruthy()
     expect(queryByTestId('branded-tab-glyph-map')).toBeNull()
-    expect(probeColor(getByTestId('probe'))).toBe(INK)
+    expect(queryByTestId('branded-tab-indicator-map')).toBeNull()
+  })
+
+  it('inactive icon renders at NAV_ICON_SIZE (same nominal size as the active glyph)', () => {
+    const { getByTestId } = render(<BrandedTabIcon name="favourites" focused={false} />)
+    expect(getByTestId('branded-tab-ink-favourites').props.width).toBe(NAV_ICON_SIZE)
+  })
+
+  it('icon slot is the SAME fixed size in both states — active never shrinks', () => {
+    const flatten = (node: { props: { style: unknown } }) =>
+      StyleSheet.flatten(node.props.style) as { width?: number; height?: number }
+    const active = render(<BrandedTabIcon name="profile" focused />)
+    const inactive = render(<BrandedTabIcon name="profile" focused={false} />)
+    expect(flatten(active.getByTestId('branded-tab-icon-profile'))).toMatchObject({
+      width: NAV_ICON_SIZE,
+      height: NAV_ICON_SIZE,
+    })
+    expect(flatten(inactive.getByTestId('branded-tab-icon-profile'))).toMatchObject({
+      width: NAV_ICON_SIZE,
+      height: NAV_ICON_SIZE,
+    })
   })
 })

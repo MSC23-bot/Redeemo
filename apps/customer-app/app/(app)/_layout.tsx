@@ -3,12 +3,11 @@ import { Redirect, Tabs, useSegments } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuthStore } from '@/stores/auth'
 import { resolveRedirect } from '@/lib/routing'
-import { color, spacing } from '@/design-system'
-import { Home, Map, User, Wallet, Heart } from '@/design-system/icons'
+import { spacing } from '@/design-system'
 import { LocationPermissionProvider } from '@/lib/location/LocationPermissionProvider'
 import { BrandedTabShelf } from '@/features/navigation/BrandedTabShelf'
 import { BrandedTabIcon } from '@/features/navigation/BrandedTabIcon'
-import { NAV_LABEL_FONT_SIZE, NAV_LABEL_TRACKING, NAV_INK } from '@/features/navigation/navTokens'
+import { NAV_LABEL_FONT_SIZE, NAV_LABEL_TRACKING, NAV_INK, NAV_ACTIVE_INK } from '@/features/navigation/navTokens'
 
 export default function AppLayout() {
   const segments = useSegments() as string[]
@@ -63,53 +62,57 @@ export default function AppLayout() {
           backgroundColor: 'transparent',
         },
         tabBarBackground: () => <BrandedTabShelf />,
-        // Labels ON (the tight fixed padding was hiding them); active = brand-red,
-        // inactive = WARM-ink — applied to BOTH the label (here) and the icon
-        // (BrandedTabIcon), so they stay consistent.
+        // Labels ON (the original red nav was icon-only; labels are the
+        // improvement). Active = AA-safe brand red, inactive = WARM navy-ink —
+        // applied to BOTH the label (here) and the icon (BrandedTabIcon), so
+        // they stay consistent.
         tabBarShowLabel: true,
-        tabBarActiveTintColor: color.brandRose,
+        tabBarActiveTintColor: NAV_ACTIVE_INK,
         tabBarInactiveTintColor: NAV_INK,
         tabBarLabelStyle: { fontFamily: 'Lato-Medium', fontSize: NAV_LABEL_FONT_SIZE, letterSpacing: NAV_LABEL_TRACKING },
         // Safe-area-aware bottom padding clears the home indicator while leaving
-        // room for icon + label in the 80px bar (the old fixed spacing[7] was too
-        // tall and squeezed the label out). paddingTop keeps room for the indicator.
-        tabBarItemStyle: { paddingTop: spacing[2], paddingBottom: Math.max(insets.bottom, spacing[2]) },
+        // room for the 20px icon + label in the 80px bar (the old fixed spacing[7]
+        // was too tall and squeezed the label out). On non-notch devices the
+        // spacing[3] floor keeps the bar off the very bottom edge. paddingTop
+        // reserves room for the active indicator capsule.
+        tabBarItemStyle: { paddingTop: spacing[2], paddingBottom: Math.max(insets.bottom, spacing[3]) },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => <BrandedTabIcon Icon={Home} name="home" focused={focused} />,
+          tabBarIcon: ({ focused }) => <BrandedTabIcon name="home" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
           title: 'Map',
-          tabBarIcon: ({ focused }) => <BrandedTabIcon Icon={Map} name="map" focused={focused} />,
+          tabBarIcon: ({ focused }) => <BrandedTabIcon name="map" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="favourites"
         options={{
           title: 'Favourites',
-          tabBarIcon: ({ focused }) => <BrandedTabIcon Icon={Heart} name="favourites" focused={focused} />,
+          tabBarIcon: ({ focused }) => <BrandedTabIcon name="favourites" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="savings"
         options={{
           title: 'Savings',
-          // Owner-locked: Wallet (cleaner than the piggy bank).
-          tabBarIcon: ({ focused }) => <BrandedTabIcon Icon={Wallet} name="savings" focused={focused} />,
+          // Owner-locked: wallet metaphor (cleaner than the piggy bank); the
+          // filled wallet glyph lives in tabGlyphs under `savings`.
+          tabBarIcon: ({ focused }) => <BrandedTabIcon name="savings" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ focused }) => <BrandedTabIcon Icon={User} name="profile" focused={focused} />,
+          tabBarIcon: ({ focused }) => <BrandedTabIcon name="profile" focused={focused} />,
         }}
       />
       {/* Hide non-tab routes from auto-discovery so they don't appear as default
