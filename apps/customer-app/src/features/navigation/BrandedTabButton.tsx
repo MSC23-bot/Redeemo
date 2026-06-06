@@ -1,7 +1,6 @@
 import React from 'react'
 import { Pressable, Text, View, StyleSheet } from 'react-native'
 import type { AccessibilityState, GestureResponderEvent, StyleProp, ViewStyle } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { spacing } from '@/design-system'
 import { BrandedTabIcon } from './BrandedTabIcon'
 import type { NavIconName } from './icons/navIconPaths'
@@ -21,17 +20,30 @@ import {
  * bar that has already given ~34px to the home-indicator inset, that fixed
  * wrapper consumes the entire content area and the label gets 0px of room (it
  * renders but is clipped to nothing). Rendering our own 20px icon + our own
- * label with sane padding fits both comfortably in the same 80px footprint.
+ * label fits both comfortably in the same 80px footprint.
+ *
+ * Vertical positioning: react-navigation's bar ALREADY reserves the bottom
+ * safe-area inset (it applies paddingBottom: insets.bottom to the bar), so the
+ * item area is already clear of the home indicator. We must NOT add the inset
+ * again here or the content rides up to the top — we just centre the icon +
+ * label in the item area (small paddingTop keeps the active indicator capsule,
+ * which sits just above the icon, from clipping at the top edge).
  *
  * Route/press semantics are preserved — onPress/onLongPress/accessibility are
- * forwarded straight through from react-navigation. (M3 will add press scale +
- * haptics here.)
+ * forwarded straight through. (M3 will add press scale + haptics here.)
  */
 type Props = {
   /** Tab id — bespoke icon name + testID suffix, e.g. 'home'. */
   name: NavIconName
   /** Visible label text, e.g. 'Home'. */
   label: string
+  /**
+   * Focus flag. react-navigation v7 passes the active state to a custom
+   * `tabBarButton` as `aria-selected` (NOT accessibilityState.selected — reading
+   * that left every tab stuck inactive). `accessibilityState` is kept as a
+   * defensive fallback in case a future version switches.
+   */
+  'aria-selected'?: boolean | undefined
   accessibilityState?: AccessibilityState | undefined
   accessibilityLabel?: string | undefined
   testID?: string | undefined
@@ -43,6 +55,7 @@ type Props = {
 export function BrandedTabButton({
   name,
   label,
+  'aria-selected': ariaSelected,
   accessibilityState,
   accessibilityLabel,
   testID,
@@ -50,21 +63,20 @@ export function BrandedTabButton({
   onLongPress,
   style,
 }: Props) {
-  const insets = useSafeAreaInsets()
-  const focused = accessibilityState?.selected === true
+  const focused = ariaSelected === true || accessibilityState?.selected === true
 
   return (
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
       accessibilityRole="button"
-      accessibilityState={accessibilityState}
+      accessibilityState={{ selected: focused }}
       accessibilityLabel={accessibilityLabel}
       testID={testID}
       // `style` from react-navigation carries the per-item flex (equal width);
-      // styles.pressable then NEUTRALISES its default padding and sets our own,
-      // safe-area-aware padding so the cell clears the home indicator.
-      style={[style, styles.pressable, { paddingBottom: Math.max(insets.bottom, spacing[3]) }]}
+      // styles.pressable NEUTRALISES its default padding and centres our content
+      // in the item area (which is already inset-clear — see the note above).
+      style={[style, styles.pressable]}
     >
       <View style={styles.content}>
         <BrandedTabIcon name={name} focused={focused} />
@@ -83,7 +95,7 @@ const styles = StyleSheet.create({
   pressable: {
     flex: 1,
     padding: 0,
-    paddingTop: spacing[2],
+    paddingTop: spacing[1],
     alignItems: 'center',
     justifyContent: 'center',
   },

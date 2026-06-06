@@ -6,6 +6,8 @@
 // The nav keeps the existing 80px footprint + bottom positioning (defined in
 // _layout) — these are the shelf/label/indicator/icon treatment values.
 
+import { color } from '@/design-system'
+
 /** Warm light-PEACH shelf surface (owner: pure white read too stark / iOS-default).
  *  A premium warm shelf sitting between the red header and the cream body — light
  *  and calm, never red, quieter than the header. */
@@ -13,9 +15,11 @@ export const NAV_SHELF_BG = '#FCEFE6'
 /** Faint warm/brand-tinted top hairline (ties the shelf to the header). */
 export const NAV_HAIRLINE = 'rgba(190,10,3,0.14)'
 
-/** Inactive icon + label — warm navy-CHARCOAL (owner: not brown-grey, not cool
- *  blue). ~10:1 on the peach shelf. */
-export const NAV_INK = '#3A3C49'
+/** Inactive icon + label — the brand SECONDARY colour (navy #010C35). Active
+ *  still out-emphasises it via the filled gradient icon + the indicator capsule
+ *  + the brand-red label + the outline→filled weight jump, so navy here reads as
+ *  the calm secondary state, not competing with active. ~17:1 on the peach. */
+export const NAV_INK = color.navy
 /** Active LABEL — a slightly deeper brand red than brandRose so 11px label text
  *  clears WCAG AA (4.5:1) on the peach shelf; harmonises with the brand-gradient
  *  glyph + indicator above it. (brandRose #E20C04 is only ~3.6:1 at this size.) */
