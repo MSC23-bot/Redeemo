@@ -58,6 +58,7 @@ jest.mock('@/stores/auth', () => ({
 import React from 'react'
 import { render } from '@testing-library/react-native'
 import AppLayout from '@/../app/(app)/_layout'
+import { NAV_BAR_HEIGHT } from '@/features/navigation/navTokens'
 
 const VISIBLE_TABS = ['index', 'map', 'favourites', 'savings', 'profile']
 const HIDDEN_ROUTES = ['search', 'categories', 'category/[id]', 'merchant/[id]', 'voucher/[id]', 'redemption/[id]', 'saved-area']
@@ -103,8 +104,8 @@ describe('(app) tab bar — config pins', () => {
     }
   })
 
-  it('keeps the 80px bar footprint', () => {
+  it('bar height is driven by the NAV_BAR_HEIGHT token', () => {
     const tabBarStyle = mockCaptured.screenOptions?.tabBarStyle as { height?: number }
-    expect(tabBarStyle.height).toBe(80)
+    expect(tabBarStyle.height).toBe(NAV_BAR_HEIGHT)
   })
 })

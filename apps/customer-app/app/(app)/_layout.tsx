@@ -5,6 +5,7 @@ import { resolveRedirect } from '@/lib/routing'
 import { LocationPermissionProvider } from '@/lib/location/LocationPermissionProvider'
 import { BrandedTabShelf } from '@/features/navigation/BrandedTabShelf'
 import { BrandedTabButton } from '@/features/navigation/BrandedTabButton'
+import { NAV_BAR_HEIGHT } from '@/features/navigation/navTokens'
 
 export default function AppLayout() {
   const segments = useSegments() as string[]
@@ -43,17 +44,17 @@ export default function AppLayout() {
       screenOptions={{
         headerShown: false,
         // Calm branded SHELF nav (Option B, 2026-06-06). NON-floating, full-width,
-        // SAME 80px footprint + bottom positioning as before — only the
-        // presentation changes: a warm off-white shelf (<BrandedTabShelf>)
-        // replaces the red gradient. Each visible tab renders via a custom
-        // <BrandedTabButton> (icon + label + brand active state) — see that
-        // component for WHY the default tab item can't show the label here.
+        // bottom positioning as before — the presentation is a warm off-white
+        // shelf (<BrandedTabShelf>) instead of the red gradient. Each visible tab
+        // renders via a custom <BrandedTabButton> (icon + label + brand active
+        // state) — see that component for WHY the default tab item can't show the
+        // label here. Height is NAV_BAR_HEIGHT (nudged up from 80 per owner).
         tabBarStyle: {
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          height: 80,
+          height: NAV_BAR_HEIGHT,
           borderTopWidth: 0,
           elevation: 0,
           backgroundColor: 'transparent',

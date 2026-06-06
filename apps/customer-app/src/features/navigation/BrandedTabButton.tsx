@@ -110,6 +110,8 @@ export function BrandedTabButton({
         <BrandedTabIcon name={name} focused={focused} />
         <Text
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
           style={[styles.label, { color: focused ? NAV_ACTIVE_INK : NAV_INK }]}
         >
           {label}
@@ -123,7 +125,9 @@ const styles = StyleSheet.create({
   pressable: {
     flex: 1,
     padding: 0,
-    paddingTop: spacing[1],
+    // A touch more top room than the bottom so the active indicator capsule
+    // (which sits just above the icon) has clearance from the bar's top edge.
+    paddingTop: spacing[2],
     alignItems: 'center',
     justifyContent: 'center',
   },
