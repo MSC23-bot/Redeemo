@@ -22,7 +22,7 @@ import {
 } from 'react-native'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { color, spacing } from '@/design-system/tokens'
+import { color, spacing, layout } from '@/design-system/tokens'
 import { FavouritesHeader, type FavouritesTab } from '../components/FavouritesHeader'
 import { BranchFavCard } from '../components/BranchFavCard'
 import { VoucherFavCard } from '../components/VoucherFavCard'
@@ -38,8 +38,9 @@ import type { FavouriteBranchItem, FavouriteVoucherItem } from '@/lib/api/favour
 // Wave 5 #4 (locked 2026-05-30) — matches the absolute bottom Tabs bar
 // height set in `app/(app)/_layout.tsx` (consistent with `HomeScreen`'s
 // `TAB_BAR_HEIGHT`).  Drives the UndoToast bottomOffset below so the
-// toast renders ABOVE the tab bar instead of behind it.
-const TAB_BAR_HEIGHT = 80
+// toast renders ABOVE the tab bar instead of behind it. Sourced from the
+// shared token so it tracks the nav height (was a hardcoded 80).
+const TAB_BAR_HEIGHT = layout.bottomNavHeight
 
 function normaliseTab(raw: unknown): FavouritesTab {
   return raw === 'vouchers' ? 'vouchers' : 'places'

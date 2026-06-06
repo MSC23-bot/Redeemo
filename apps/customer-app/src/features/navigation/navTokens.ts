@@ -6,12 +6,14 @@
 // The nav keeps the existing 80px footprint + bottom positioning (defined in
 // _layout) — these are the shelf/label/indicator/icon treatment values.
 
-import { color } from '@/design-system/tokens'
+import { color, layout } from '@/design-system/tokens'
 
 /** Bar height. Nudged up from the original 80 (owner: "a little bit bigger") so
  *  the larger icon + label + indicator get more breathing room and don't hug the
- *  top edge. react-navigation reserves the safe-area inset on top of this. */
-export const NAV_BAR_HEIGHT = 90
+ *  top edge. react-navigation reserves the safe-area inset on top of this.
+ *  Sourced from the shared `layout.bottomNavHeight` so the nav AND the tab
+ *  screens' bottom clearance stay in lockstep (single source of truth). */
+export const NAV_BAR_HEIGHT = layout.bottomNavHeight
 
 /** Warm light-PEACH shelf surface (owner: pure white read too stark / iOS-default).
  *  A premium warm shelf sitting between the red header and the cream body — light

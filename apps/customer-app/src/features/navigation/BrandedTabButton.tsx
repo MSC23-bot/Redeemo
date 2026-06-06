@@ -1,5 +1,5 @@
 import React from 'react'
-import { Pressable, Text, StyleSheet } from 'react-native'
+import { Pressable, Text, StyleSheet, Platform } from 'react-native'
 import type { AccessibilityState, GestureResponderEvent, StyleProp, ViewStyle } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring } from 'react-native-reanimated'
 import { spacing, motion } from '@/design-system/tokens'
@@ -97,7 +97,11 @@ export function BrandedTabButton({
       onLongPress={onLongPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      accessibilityRole="button"
+      // Match react-navigation's default tab button: iOS announces "button"
+      // (its accessibilityLabel already reads "<label>, tab, N of M"), Android
+      // uses the "tab" role for proper tab semantics. Selected state +
+      // forwarded accessibilityLabel are preserved below.
+      accessibilityRole={Platform.select({ ios: 'button', default: 'tab' })}
       accessibilityState={{ selected: focused }}
       accessibilityLabel={accessibilityLabel}
       testID={testID}

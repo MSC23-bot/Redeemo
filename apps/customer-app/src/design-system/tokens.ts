@@ -110,7 +110,11 @@ export const layer = { base: 0, raised: 1, sticky: 10, appBar: 20, tabBar: 20, s
 
 export const opacity = { disabled: 0.4, pressed: 0.85, overlay: 0.55, subtle: 0.72, full: 1 } as const
 
-export const layout = { screenPaddingH: 20, tabBarHeight: 64, appBarHeight: 56, minTouchTarget: 44, screenPaddingHNarrow: 18 } as const
+// `bottomNavHeight` is the actual customer bottom-nav bar height (the calm
+// branded shelf) — the single source for both the nav itself (NAV_BAR_HEIGHT)
+// and the tab screens' bottom clearance. `tabBarHeight` (64) is a legacy value
+// still used by detail screens where the nav is hidden; leave it as-is.
+export const layout = { screenPaddingH: 20, tabBarHeight: 64, bottomNavHeight: 90, appBarHeight: 56, minTouchTarget: 44, screenPaddingHNarrow: 18 } as const
 
 export type TypographyVariant = {
   fontFamily: 'MusticaPro-SemiBold' | 'Lato-Regular' | 'Lato-Medium' | 'Lato-SemiBold' | 'Lato-Bold'

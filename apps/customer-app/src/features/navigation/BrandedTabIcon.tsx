@@ -21,7 +21,8 @@ type Props = {
  *   • Active   → brand-gradient FILLED glyph + a small gradient indicator
  *                capsule above it. Richer, stronger.
  * The LABEL (active brand-red / inactive warm-ink) is rendered by
- * react-navigation's slot. Static (no motion); press feedback lands in M3.
+ * <BrandedTabButton> (the tab cell), which also handles the press feedback
+ * (scale + haptic). This component is just the icon + active indicator.
  */
 export function BrandedTabIcon({ focused, name }: Props) {
   return (
