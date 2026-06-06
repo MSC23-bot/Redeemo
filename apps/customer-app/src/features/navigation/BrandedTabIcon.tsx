@@ -1,35 +1,65 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 import { color } from '@/design-system'
-import { NAV_INK } from './navTokens'
+import { BrandGradientVector } from '@/design-system/components/BrandGradientGlyph'
+import { TAB_GLYPHS } from './tabGlyphs'
+import { NAV_INK, NAV_INDICATOR_W, NAV_INDICATOR_H } from './navTokens'
 
 type IconComponent = React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>
 
 type Props = {
   Icon: IconComponent
   focused: boolean
-  /** Stable id for testIDs + (M2) glyph lookup, e.g. 'home'. */
+  /** Stable id for testIDs + glyph lookup, e.g. 'home'. */
   name: string
 }
 
 /**
  * Bottom-nav tab icon on the calm branded shelf. The LABEL is rendered by
- * react-navigation's own slot (active brand-red / inactive warm-ink via the
- * tint colours) so icon ↔ label stay consistent — fixing the old inconsistency.
+ * react-navigation's slot (active brand-red / inactive warm-ink via the tint
+ * colours) so icon ↔ label stay consistent.
  *
- * M1 (this version): lucide OUTLINE icon — warm-ink when inactive, brand-red
- * when active. The gradient-filled active glyph + the small brand-gradient
- * active indicator land in M2; press feedback + crossfade motion in M3.
+ * M2 — the active tab is the ONLY brand moment, kept subtle:
+ *   • Active   → red→orange gradient-FILLED glyph (BrandGradientVector) + a
+ *                small brand-gradient INDICATOR pill above it.
+ *   • Inactive → lucide OUTLINE icon in warm-ink.
+ * Static (no motion). Press feedback + crossfade land in M3.
  */
 export function BrandedTabIcon({ Icon, focused, name }: Props) {
-  const tint = focused ? color.brandRose : NAV_INK
+  const glyph = TAB_GLYPHS[name]
   return (
     <View style={styles.icon} testID={`branded-tab-icon-${name}`}>
-      <Icon size={22} color={tint} strokeWidth={focused ? 2.4 : 2} />
+      {focused ? (
+        <LinearGradient
+          colors={[color.brandRose, color.brandCoral]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.indicator}
+          testID={`branded-tab-indicator-${name}`}
+        />
+      ) : null}
+
+      {focused && glyph ? (
+        <View style={styles.glyph} testID={`branded-tab-glyph-${name}`}>
+          <BrandGradientVector path={glyph} size={22} />
+        </View>
+      ) : (
+        <Icon size={22} color={NAV_INK} strokeWidth={2} />
+      )}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   icon: { alignItems: 'center', justifyContent: 'center' },
+  // Small brand-gradient pill above the active icon (replaces the old white dot).
+  indicator: {
+    position: 'absolute',
+    top: -8,
+    width: NAV_INDICATOR_W,
+    height: NAV_INDICATOR_H,
+    borderRadius: NAV_INDICATOR_H / 2,
+  },
+  glyph: { alignItems: 'center', justifyContent: 'center' },
 })
