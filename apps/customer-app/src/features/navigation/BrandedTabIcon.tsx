@@ -53,13 +53,18 @@ export function BrandedTabIcon({ Icon, focused, name }: Props) {
 
 const styles = StyleSheet.create({
   icon: { alignItems: 'center', justifyContent: 'center' },
-  // Small brand-gradient pill above the active icon (replaces the old white dot).
+  // Small brand-gradient pill above the active icon — richer than a bare dot:
+  // closer to the icon (less detached) + a soft brand glow.
   indicator: {
     position: 'absolute',
-    top: -8,
+    top: -5,
     width: NAV_INDICATOR_W,
     height: NAV_INDICATOR_H,
     borderRadius: NAV_INDICATOR_H / 2,
+    shadowColor: color.brandRose,
+    shadowOpacity: 0.45,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
   },
   glyph: { alignItems: 'center', justifyContent: 'center' },
 })

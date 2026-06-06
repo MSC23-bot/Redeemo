@@ -1,5 +1,6 @@
 import React from 'react'
 import { Redirect, Tabs, useSegments } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuthStore } from '@/stores/auth'
 import { resolveRedirect } from '@/lib/routing'
 import { color, spacing } from '@/design-system'
@@ -7,10 +8,11 @@ import { Home, Map, User, Wallet, Heart } from '@/design-system/icons'
 import { LocationPermissionProvider } from '@/lib/location/LocationPermissionProvider'
 import { BrandedTabShelf } from '@/features/navigation/BrandedTabShelf'
 import { BrandedTabIcon } from '@/features/navigation/BrandedTabIcon'
-import { NAV_LABEL_FONT_SIZE, NAV_LABEL_TRACKING } from '@/features/navigation/navTokens'
+import { NAV_LABEL_FONT_SIZE, NAV_LABEL_TRACKING, NAV_INK } from '@/features/navigation/navTokens'
 
 export default function AppLayout() {
   const segments = useSegments() as string[]
+  const insets = useSafeAreaInsets()
   const status = useAuthStore((s) => s.status)
   const user = useAuthStore((s) => s.user)
   const segment = segments.slice(1).join('/')
@@ -61,12 +63,17 @@ export default function AppLayout() {
           backgroundColor: 'transparent',
         },
         tabBarBackground: () => <BrandedTabShelf />,
-        // Active = brand-red, inactive = warm-ink — applied to BOTH the label
-        // (here) and the icon (BrandedTabIcon), so they stay consistent.
+        // Labels ON (the tight fixed padding was hiding them); active = brand-red,
+        // inactive = WARM-ink — applied to BOTH the label (here) and the icon
+        // (BrandedTabIcon), so they stay consistent.
+        tabBarShowLabel: true,
         tabBarActiveTintColor: color.brandRose,
-        tabBarInactiveTintColor: color.text.secondary,
+        tabBarInactiveTintColor: NAV_INK,
         tabBarLabelStyle: { fontFamily: 'Lato-Medium', fontSize: NAV_LABEL_FONT_SIZE, letterSpacing: NAV_LABEL_TRACKING },
-        tabBarItemStyle: { paddingTop: spacing[2], paddingBottom: spacing[7] },
+        // Safe-area-aware bottom padding clears the home indicator while leaving
+        // room for icon + label in the 80px bar (the old fixed spacing[7] was too
+        // tall and squeezed the label out). paddingTop keeps room for the indicator.
+        tabBarItemStyle: { paddingTop: spacing[2], paddingBottom: Math.max(insets.bottom, spacing[2]) },
       }}
     >
       <Tabs.Screen

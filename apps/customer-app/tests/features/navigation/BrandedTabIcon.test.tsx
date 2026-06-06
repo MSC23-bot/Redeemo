@@ -2,8 +2,9 @@ import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { render } from '@testing-library/react-native'
 import { BrandedTabIcon } from '@/features/navigation/BrandedTabIcon'
+import { NAV_INK } from '@/features/navigation/navTokens'
 
-const INK = '#4B5563' // NAV_INK / color.text.secondary
+const INK = NAV_INK // warm ink for the inactive outline icon
 
 // Probe records its received `color` into a queryable style (the inactive outline).
 const ProbeIcon = ({ color }: { color?: string; size?: number; strokeWidth?: number }) => (
