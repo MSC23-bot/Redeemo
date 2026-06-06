@@ -106,7 +106,16 @@ function measureHeader(getByTestId: (id: string) => unknown) {
   })
 }
 
+// HomeScreen renders the full feed tree, so each waitFor poll re-renders a heavy
+// component. Under saturated parallel jest workers the unmount can be observed
+// later than the 1000ms default — give the async assertions generous headroom so
+// the suite is robust under load (it passes well under this in practice).
+const WAIT = { timeout: 5000 } as const
+
 beforeEach(() => {
+  // Defensive: guarantee real timers even if a sibling suite sharing this worker
+  // left fake timers installed — waitFor below relies on real-timer polling.
+  jest.useRealTimers()
   mockRefetch.mockReset().mockResolvedValue(undefined)
   mockMediumHaptic.mockReset()
 })
@@ -137,11 +146,11 @@ describe('HomeScreen — §HSH.1 refresh', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1)
 
     // ENTER: loader visible while the refetch promise is pending.
-    await waitFor(() => expect(getByTestId('home-refresh-loader')).toBeTruthy())
+    await waitFor(() => expect(getByTestId('home-refresh-loader')).toBeTruthy(), WAIT)
 
     // EXIT: resolve the refetch → refreshing clears → loader gone.
     resolveRefetch()
-    await waitFor(() => expect(queryByTestId('home-refresh-loader')).toBeNull())
+    await waitFor(() => expect(queryByTestId('home-refresh-loader')).toBeNull(), WAIT)
   })
 
   // AMENDMENT 4 — no fake historical testID. Assert exactly ONE RedeemoLoader
@@ -155,12 +164,12 @@ describe('HomeScreen — §HSH.1 refresh', () => {
     measureHeader(getByTestId)
     getRefreshControl(UNSAFE_root).props.onRefresh()
 
-    await waitFor(() => expect(getByTestId('home-refresh-loader')).toBeTruthy())
+    await waitFor(() => expect(getByTestId('home-refresh-loader')).toBeTruthy(), WAIT)
     expect(UNSAFE_getAllByType(RedeemoLoader)).toHaveLength(1) // seam loader only; no above-header one
 
     // Drain the refetch so the trailing setRefreshing(false)/setDemoToken updates
     // flush inside act (no dangling state warning / cross-test bleed).
     resolveRefetch()
-    await waitFor(() => expect(queryByTestId('home-refresh-loader')).toBeNull())
+    await waitFor(() => expect(queryByTestId('home-refresh-loader')).toBeNull(), WAIT)
   })
 })
