@@ -104,7 +104,7 @@ export default function AppLayout() {
         options={{
           title: 'Savings',
           // Owner-locked: wallet metaphor (cleaner than the piggy bank); the
-          // filled wallet glyph lives in tabGlyphs under `savings`.
+          // bespoke Redeemo wallet glyph lives in icons/navIconPaths `savings`.
           tabBarIcon: ({ focused }) => <BrandedTabIcon name="savings" focused={focused} />,
         }}
       />

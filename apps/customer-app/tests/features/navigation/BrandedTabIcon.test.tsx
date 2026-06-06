@@ -21,10 +21,10 @@ describe('BrandedTabIcon (outline inactive → filled active, same size)', () =>
     expect(queryByTestId('branded-tab-indicator-map')).toBeNull()
   })
 
-  it('inactive outline is filled with the warm-ink colour', () => {
+  it('inactive outline is STROKED with the warm-ink colour (not fill)', () => {
     const { UNSAFE_getByProps } = render(<BrandedTabIcon name="favourites" focused={false} />)
-    // The single <Path> inside the inactive outline carries the ink fill.
-    expect(UNSAFE_getByProps({ fill: NAV_INK })).toBeTruthy()
+    const path = UNSAFE_getByProps({ stroke: NAV_INK })
+    expect(path.props.fill).toBe('none')
   })
 
   it('icon slot is the SAME fixed size in both states — active never shrinks', () => {

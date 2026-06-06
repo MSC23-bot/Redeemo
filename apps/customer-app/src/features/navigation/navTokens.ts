@@ -25,6 +25,10 @@ export const NAV_ACTIVE_INK = '#BE0A03'
  *  comfortably in the 80px bar once the safe-area inset is reserved below. */
 export const NAV_ICON_SIZE = 20
 
+/** Stroke width for the inactive outline glyph (authored on the 24 grid;
+ *  scales with the icon's viewBox). Round caps/joins give the friendly feel. */
+export const NAV_OUTLINE_STROKE = 2
+
 /** Tab label type. */
 export const NAV_LABEL_FONT_SIZE = 11
 export const NAV_LABEL_TRACKING = 0.1
