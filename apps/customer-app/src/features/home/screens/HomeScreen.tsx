@@ -67,11 +67,14 @@ export function HomeScreen() {
     setHeaderHeight((prev) => (Math.abs(prev - h) > 0.5 ? h : prev))
   }, [])
   // Loader Y: just BELOW the header's bottom edge, on the body surface, so it
-  // reads as emerging from beneath the header. It must NOT sit on the red
-  // header/wave — the loader's R is brand-red and would be invisible there
-  // (and look clipped at the seam). Stays 0 until measured so
-  // <HomeRefreshLoader>'s seam-height guard suppresses any pre-layout flash.
-  const REFRESH_LOADER_GAP = spacing[3]
+  // reads as emerging from beneath the header. The gap is kept small so the
+  // loader sits HIGH in the refresh-hold opening, leaving clear space between its
+  // bottom and the first content row (campaign banner / categories) — together
+  // with the trimmed loader size, gap + size stays well under the native
+  // refresh-hold height so the bottom dot never touches the content below.
+  // Stays 0 until measured so <HomeRefreshLoader>'s seam-height guard suppresses
+  // any pre-layout flash.
+  const REFRESH_LOADER_GAP = spacing[2]
   const seamY = headerHeight > 0 ? headerHeight + REFRESH_LOADER_GAP : 0
   // Bumped once the first load completes and again on every pull-to-refresh —
   // drives the Explore-capsule intro demo so it replays on each refresh.

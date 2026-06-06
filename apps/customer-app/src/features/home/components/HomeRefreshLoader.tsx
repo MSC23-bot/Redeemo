@@ -25,6 +25,10 @@ const PULL_REVEAL_PX = 70
 const SLIDE_FROM = -14
 const HOLD_IN_MS = 180
 const RETRACT_MS = 240
+// Loader diameter. Slightly under the design-system `md` (48) so that
+// REFRESH_LOADER_GAP + LOADER_SIZE stays well below the native refresh-hold
+// height, leaving clear space between the bottom dot and the first content row.
+const LOADER_SIZE = 40
 // Pull distance (px) mapped to how far the dots wind, and how many turns. The
 // dots rotate clockwise in proportion to the pull (the user is in control); once
 // a refresh fires RedeemoLoader's own continuous orbit takes over. Range runs
@@ -149,7 +153,7 @@ export function HomeRefreshLoader({ scrollY, refreshing, seamY }: Props) {
           continuous orbit take over. A small pull that won't trigger a refresh
           therefore never looks like it's already loading. */}
       <RedeemoLoader
-        size="md"
+        size={LOADER_SIZE}
         accessibilityLabel="Refreshing"
         animating={refreshing}
         {...(refreshing ? {} : { phase: pullPhase })}
