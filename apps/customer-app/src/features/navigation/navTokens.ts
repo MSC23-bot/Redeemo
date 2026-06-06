@@ -6,7 +6,7 @@
 // The nav keeps the existing 80px footprint + bottom positioning (defined in
 // _layout) — these are the shelf/label/indicator/icon treatment values.
 
-import { color } from '@/design-system'
+import { color } from '@/design-system/tokens'
 
 /** Warm light-PEACH shelf surface (owner: pure white read too stark / iOS-default).
  *  A premium warm shelf sitting between the red header and the cream body — light

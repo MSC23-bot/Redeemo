@@ -1,7 +1,10 @@
 import React from 'react'
-import { Pressable, Text, View, StyleSheet } from 'react-native'
+import { Pressable, Text, StyleSheet } from 'react-native'
 import type { AccessibilityState, GestureResponderEvent, StyleProp, ViewStyle } from 'react-native'
-import { spacing } from '@/design-system'
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring } from 'react-native-reanimated'
+import { spacing, motion } from '@/design-system/tokens'
+import { useMotionScale } from '@/design-system/useMotionScale'
+import { lightHaptic } from '@/design-system/haptics'
 import { BrandedTabIcon } from './BrandedTabIcon'
 import type { NavIconName } from './icons/navIconPaths'
 import {
@@ -29,9 +32,17 @@ import {
  * label in the item area (small paddingTop keeps the active indicator capsule,
  * which sits just above the icon, from clipping at the top edge).
  *
- * Route/press semantics are preserved — onPress/onLongPress/accessibility are
- * forwarded straight through. (M3 will add press scale + haptics here.)
+ * Focus: react-navigation v7 passes the active flag as `aria-selected`.
+ *
+ * Motion (M3): a subtle press scale (0.96 in, spring back) + a light haptic on
+ * press. The scale is gated on useMotionScale() — reduced motion disables it
+ * entirely (press becomes instant); the haptic still fires (it self-guards on
+ * the user's haptics-enabled setting, which is separate from motion). No idle
+ * animation. Route/press semantics are preserved — onPress/onLongPress are
+ * forwarded straight through.
  */
+const PRESS_SCALE = 0.96
+
 type Props = {
   /** Tab id — bespoke icon name + testID suffix, e.g. 'home'. */
   name: NavIconName
@@ -64,11 +75,28 @@ export function BrandedTabButton({
   style,
 }: Props) {
   const focused = ariaSelected === true || accessibilityState?.selected === true
+  const motionScale = useMotionScale()
+  const scale = useSharedValue(1)
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }))
+
+  const handlePressIn = () => {
+    if (motionScale === 1) {
+      scale.value = withTiming(PRESS_SCALE, { duration: motion.duration.xfast })
+    }
+    lightHaptic()
+  }
+  const handlePressOut = () => {
+    if (motionScale === 1) {
+      scale.value = withSpring(1, { damping: 18, stiffness: 260 })
+    }
+  }
 
   return (
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       accessibilityRole="button"
       accessibilityState={{ selected: focused }}
       accessibilityLabel={accessibilityLabel}
@@ -78,7 +106,7 @@ export function BrandedTabButton({
       // in the item area (which is already inset-clear — see the note above).
       style={[style, styles.pressable]}
     >
-      <View style={styles.content}>
+      <Animated.View style={[styles.content, animatedStyle]}>
         <BrandedTabIcon name={name} focused={focused} />
         <Text
           numberOfLines={1}
@@ -86,7 +114,7 @@ export function BrandedTabButton({
         >
           {label}
         </Text>
-      </View>
+      </Animated.View>
     </Pressable>
   )
 }

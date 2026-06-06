@@ -1,7 +1,7 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import { color } from '@/design-system'
+import { color } from '@/design-system/tokens'
 import { NavGlyph } from './icons/NavGlyph'
 import type { NavIconName } from './icons/navIconPaths'
 import { NAV_ICON_SIZE, NAV_INDICATOR_W, NAV_INDICATOR_H } from './navTokens'
