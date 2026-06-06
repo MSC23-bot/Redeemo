@@ -98,10 +98,16 @@ export function HomeRefreshLoader({ scrollY, refreshing, seamY }: Props) {
       ? 0
       : interpolate(-scrollY.value, [PULL_START_PX, PULL_REVEAL_PX], [0, 1], Extrapolation.CLAMP)
     const o = reduce ? (refreshing ? 1 : 0) : Math.max(pull, hold.value)
+    // Anchor to the header: travel UP with it on downward scroll (the SAME
+    // -max(scrollY,0) the header uses), so during a refresh the loader scrolls
+    // away with the header instead of floating mid-screen, and returns at the
+    // top. On pull (scrollY < 0) this term is 0, so it reveals at the seam.
+    const scrollAwayY = -Math.max(scrollY.value, 0)
+    const revealY = interpolate(o, [0, 1], [SLIDE_FROM, 0])
     return {
       opacity: o,
       transform: [
-        { translateY: interpolate(o, [0, 1], [SLIDE_FROM, 0]) },
+        { translateY: revealY + scrollAwayY },
         { scale: interpolate(o, [0, 1], [0.85, 1]) },
       ],
     }
