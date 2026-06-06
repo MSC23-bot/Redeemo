@@ -33,8 +33,12 @@ const LOADER_SIZE = 40
 // dots rotate clockwise in proportion to the pull (the user is in control); once
 // a refresh fires RedeemoLoader's own continuous orbit takes over. Range runs
 // past PULL_REVEAL_PX so the dots keep winding as you pull on toward the native
-// trigger threshold. PULL_TURNS = 2/3 lands the 3 dots on a symmetric position
-// (they sit at 0, 1/3, 2/3) so the hand-off to the continuous orbit is seamless.
+// trigger threshold. PULL_TURNS = 2/3 is chosen because a 2/3 turn maps the 3
+// dots (at 0, 1/3, 2/3) onto a symmetric position, so a pull that reaches the
+// full range hands off to the continuous orbit with no visible jump. The native
+// trigger can fire at a shorter pull, in which case the dots are mid-range at
+// hand-off and there's a small rotation step — this value minimises/softens that
+// transition, it does not guarantee zero jump for every pull distance.
 const ROTATION_RANGE_PX = 130
 const PULL_TURNS = 2 / 3
 
@@ -78,11 +82,15 @@ export function HomeRefreshLoader({ scrollY, refreshing, seamY }: Props) {
   // Mount as soon as the user pulls past the start threshold. runOnJS re-renders
   // THIS component only (not HomeScreen), so the pull gesture stays jank-free.
   // On Android scrollY never goes below 0, so this stays false there by nature.
+  // Under reduced motion the pull reveal is disabled entirely (show/hide is tied
+  // to `refreshing` only), so the reaction stays inert — it never mounts an
+  // invisible loader during overscroll.
   useAnimatedReaction(
-    () => scrollY.value < -PULL_START_PX,
+    () => !reduce && scrollY.value < -PULL_START_PX,
     (active, prev) => {
       if (active !== prev) runOnJS(setPulling)(active)
     },
+    [reduce],
   )
 
   useEffect(() => {
@@ -109,8 +117,9 @@ export function HomeRefreshLoader({ scrollY, refreshing, seamY }: Props) {
   // Pull-driven dot rotation: the user winds the dots clockwise in proportion to
   // the pull (in control). 0 under reduced motion. Once a refresh fires we stop
   // feeding this and let RedeemoLoader's own continuous orbit take over (its
-  // withRepeat lives in the design-system motion layer). PULL_TURNS = 2/3 leaves
-  // the dots on a symmetric position so that hand-off is seamless.
+  // withRepeat lives in the design-system motion layer). PULL_TURNS = 2/3 softens
+  // the hand-off (a full-range pull lands the dots on a symmetric position); a
+  // shorter native trigger leaves a small rotation step (see the const note).
   const pullPhase = useDerivedValue(() =>
     reduce
       ? 0
