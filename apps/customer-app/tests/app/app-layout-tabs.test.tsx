@@ -1,12 +1,11 @@
-// Pins the bottom-tab wiring so labels can't silently regress. Each visible tab
-// renders via a custom <BrandedTabButton> (which draws the icon + the label —
-// the default react-navigation item clips the label to nothing in our 80px
-// bar). Renders the (app) layout with a captured Tabs mock and reads back the
-// per-screen options + the bar footprint.
+// Config pins for the bottom-tab nav. Renders the (app) layout with a captured
+// Tabs mock and locks the structural contract so the nav can't silently
+// regress: visible tabs + order, hidden href:null routes, detail routes hiding
+// the bar, per-tab custom button + title, and the 80px footprint.
 
 type Captured = {
   screenOptions?: Record<string, unknown>
-  screens: Array<{ name: string; options?: { title?: string; tabBarButton?: unknown } }>
+  screens: Array<{ name: string; options: Record<string, unknown> }>
 }
 const mockCaptured: Captured = { screens: [] }
 
@@ -21,13 +20,7 @@ jest.mock('expo-router', () => {
     mockCaptured.screenOptions = screenOptions
     return children
   }
-  Tabs.Screen = ({
-    name,
-    options,
-  }: {
-    name: string
-    options: { title?: string; tabBarButton?: unknown }
-  }) => {
+  Tabs.Screen = ({ name, options }: { name: string; options: Record<string, unknown> }) => {
     mockCaptured.screens.push({ name, options })
     return null
   }
@@ -67,27 +60,47 @@ import { render } from '@testing-library/react-native'
 import AppLayout from '@/../app/(app)/_layout'
 
 const VISIBLE_TABS = ['index', 'map', 'favourites', 'savings', 'profile']
+const HIDDEN_ROUTES = ['search', 'categories', 'category/[id]', 'merchant/[id]', 'voucher/[id]', 'redemption/[id]', 'saved-area']
+// Detail routes additionally hide the tab bar while open.
+const DETAIL_ROUTES = ['merchant/[id]', 'voucher/[id]', 'redemption/[id]', 'saved-area']
 
-describe('(app) tab bar — label wiring', () => {
+const screen = (name: string) => mockCaptured.screens.find((s) => s.name === name)
+
+describe('(app) tab bar — config pins', () => {
   beforeAll(() => {
     render(React.createElement(AppLayout))
   })
 
-  it('every visible tab renders via a custom tabBarButton (draws icon + label)', () => {
+  it('declares the visible tabs + every route in the exact expected order', () => {
+    expect(mockCaptured.screens.map((s) => s.name)).toEqual([...VISIBLE_TABS, ...HIDDEN_ROUTES])
+  })
+
+  it('every visible tab renders via a custom tabBarButton (draws icon + label) with a title', () => {
+    const expectedTitles: Record<string, string> = {
+      index: 'Home',
+      map: 'Map',
+      favourites: 'Favourites',
+      savings: 'Savings',
+      profile: 'Profile',
+    }
     for (const name of VISIBLE_TABS) {
-      const screen = mockCaptured.screens.find((s) => s.name === name)
-      expect(typeof screen?.options?.tabBarButton).toBe('function')
+      const s = screen(name)
+      expect(typeof s?.options.tabBarButton).toBe('function')
+      expect(s?.options.title).toBe(expectedTitles[name])
     }
   })
 
-  it('all five visible tabs carry a title (a11y + label source)', () => {
-    const titleFor = (name: string) =>
-      mockCaptured.screens.find((s) => s.name === name)?.options?.title
-    expect(titleFor('index')).toBe('Home')
-    expect(titleFor('map')).toBe('Map')
-    expect(titleFor('favourites')).toBe('Favourites')
-    expect(titleFor('savings')).toBe('Savings')
-    expect(titleFor('profile')).toBe('Profile')
+  it('hidden routes are href:null (not shown as tabs)', () => {
+    for (const name of HIDDEN_ROUTES) {
+      expect(screen(name)?.options.href).toBeNull()
+    }
+  })
+
+  it('detail routes hide the tab bar while open', () => {
+    for (const name of DETAIL_ROUTES) {
+      const tabBarStyle = screen(name)?.options.tabBarStyle as { display?: string } | undefined
+      expect(tabBarStyle?.display).toBe('none')
+    }
   })
 
   it('keeps the 80px bar footprint', () => {

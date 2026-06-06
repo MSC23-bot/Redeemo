@@ -2,10 +2,16 @@ import React from 'react'
 import { StyleSheet } from 'react-native'
 import { render, fireEvent } from '@testing-library/react-native'
 import { BrandedTabButton } from '@/features/navigation/BrandedTabButton'
-import { NAV_INK, NAV_ACTIVE_INK } from '@/features/navigation/navTokens'
+import {
+  NAV_INK,
+  NAV_ACTIVE_INK,
+  NAV_LABEL_FONT_SIZE,
+  NAV_LABEL_LINE_HEIGHT,
+} from '@/features/navigation/navTokens'
 
-const colorOf = (node: { props: { style: unknown } }) =>
-  (StyleSheet.flatten(node.props.style) as { color?: string }).color
+const styleOf = (node: { props: { style: unknown } }) =>
+  StyleSheet.flatten(node.props.style) as { color?: string; fontSize?: number; lineHeight?: number }
+const colorOf = (node: { props: { style: unknown } }) => styleOf(node).color
 
 describe('BrandedTabButton (renders the label react-navigation could not fit)', () => {
   it('renders the visible label text', () => {
@@ -33,6 +39,15 @@ describe('BrandedTabButton (renders the label react-navigation could not fit)', 
     expect(colorOf(getByText('Savings'))).toBe(NAV_ACTIVE_INK)
     expect(getByTestId('branded-tab-glyph-savings')).toBeTruthy()
     expect(getByTestId('branded-tab-indicator-savings')).toBeTruthy()
+  })
+
+  it('label uses the explicit nav font size + lineHeight (so it is not clipped)', () => {
+    const { getByText } = render(
+      <BrandedTabButton name="home" label="Home" aria-selected={false} testID="tab-home" />,
+    )
+    const s = styleOf(getByText('Home'))
+    expect(s.fontSize).toBe(NAV_LABEL_FONT_SIZE)
+    expect(s.lineHeight).toBe(NAV_LABEL_LINE_HEIGHT)
   })
 
   it('forwards press to navigation (onPress)', () => {
