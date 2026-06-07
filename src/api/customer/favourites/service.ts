@@ -61,7 +61,9 @@ export async function listFavouriteMerchants(
 
   const [rows, total] = await Promise.all([
     prisma.favouriteMerchant.findMany({
-      where: { userId },
+      // SEC-C3 (Gate-PR-4b): drop favourites pointing at seed/demo merchants
+      // so they never render as real supply tiles. List + count share the filter.
+      where: { userId, merchant: { isTestData: false } },
       select: {
         createdAt: true,
         merchant: {
@@ -70,11 +72,11 @@ export async function listFavouriteMerchants(
             logoUrl: true, bannerUrl: true, status: true,
             primaryCategory: { select: { id: true, name: true } },
             vouchers: {
-              where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+              where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false },
               select: { estimatedSaving: true },
             },
             branches: {
-              where: { isActive: true },
+              where: { isActive: true, isTestData: false },
               orderBy: { isMainBranch: 'desc' },
               take: 1,
               select: {
@@ -90,7 +92,7 @@ export async function listFavouriteMerchants(
       },
       orderBy: { createdAt: 'desc' },
     }),
-    prisma.favouriteMerchant.count({ where: { userId } }),
+    prisma.favouriteMerchant.count({ where: { userId, merchant: { isTestData: false } } }),
   ])
 
   // Compute ratings via branch groupBy (same pattern as discovery service)
@@ -281,7 +283,9 @@ export async function listFavouriteVouchers(
   // given an N-keyed global sort; spec §6.3 "Cost model" caps real-world
   // N ≤ 200 per user and accepts the per-request enrichment overhead.
   const rows = await prisma.favouriteVoucher.findMany({
-    where: { userId },
+    // SEC-C3 (Gate-PR-4b): drop favourites pointing at seed/demo vouchers (or
+    // vouchers under a seed/demo merchant). `total` derives from these rows.
+    where: { userId, voucher: { isTestData: false, merchant: { isTestData: false } } },
     select: {
       createdAt: true,
       voucher: {
@@ -444,7 +448,9 @@ export async function listFavouriteBranches(
 
   const [rows, total] = await Promise.all([
     prisma.favouriteBranch.findMany({
-      where: { userId },
+      // SEC-C3 (Gate-PR-4b): drop favourites pointing at seed/demo branches (or
+      // branches under a seed/demo merchant). List + count share the filter.
+      where: { userId, branch: { isTestData: false, merchant: { isTestData: false } } },
       select: {
         createdAt: true,
         branch: {
@@ -461,7 +467,7 @@ export async function listFavouriteBranches(
                 logoUrl: true, bannerUrl: true, status: true,
                 primaryCategory: { select: { id: true, name: true } },
                 vouchers: {
-                  where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+                  where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false },
                   select: { estimatedSaving: true },
                 },
               },
@@ -471,7 +477,7 @@ export async function listFavouriteBranches(
       },
       orderBy: { createdAt: 'desc' },
     }),
-    prisma.favouriteBranch.count({ where: { userId } }),
+    prisma.favouriteBranch.count({ where: { userId, branch: { isTestData: false, merchant: { isTestData: false } } } }),
   ])
 
   // Branch-keyed ratings (NOT a merchant rollup — Phase 3C.1g + the

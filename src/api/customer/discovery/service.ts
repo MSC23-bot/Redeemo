@@ -331,11 +331,11 @@ const MERCHANT_TILE_SELECT = {
     take: 3,
   },
   vouchers: {
-    where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+    where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false },
     select: { id: true, estimatedSaving: true },
   },
   branches: {
-    where: { isActive: true },
+    where: { isActive: true, isTestData: false },
     // Branch fields used by:
     //   - exposeBranchPosition / hasExactPosition (PR #81 redaction)
     //   - legacy classifyTier (city match)
@@ -353,7 +353,7 @@ const MERCHANT_TILE_SELECT = {
   _count: {
     select: {
       vouchers: {
-        where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+        where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false },
       },
     },
   },
@@ -981,7 +981,7 @@ export const BRANCH_TILE_SELECT = {
         take: 3,
       },
       vouchers: {
-        where:  { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+        where:  { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false },
         select: {
           id:              true,
           estimatedSaving: true,
@@ -1000,7 +1000,7 @@ export const BRANCH_TILE_SELECT = {
       _count: {
         select: {
           vouchers: {
-            where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+            where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false },
           },
         },
       },
@@ -1347,7 +1347,10 @@ async function enrichBranchTiles(
   //    Must complete first — call 4 (redundant highlights) needs the
   //    primaryCategoryId values pulled off each raw branch's merchant.
   const rawBranches = await prisma.branch.findMany({
-    where:  { id: { in: branchIds } },
+    // SEC-C3 (Gate-PR-4b): defensive seed/demo exclusion at the universal
+    // branch-tile choke point — every branch-first surface enriches here, so
+    // even if an upstream candidate query forgot its filter, test rows drop.
+    where:  { id: { in: branchIds }, isTestData: false, merchant: { isTestData: false } },
     select: BRANCH_TILE_SELECT,
   })
 
@@ -1527,7 +1530,7 @@ export async function getHomeFeed(
       isActive:  true,
       startDate: { lte: now },
       endDate:   { gte: now },
-      merchant:  { status: MerchantStatus.ACTIVE },
+      merchant:  { status: MerchantStatus.ACTIVE, isTestData: false },
     },
     select: {
       id: true, radiusMiles: true,
@@ -1561,7 +1564,7 @@ export async function getHomeFeed(
 
   const trendingMerchants = trendingMerchantIds.length > 0
     ? await prisma.merchant.findMany({
-        where: { id: { in: trendingMerchantIds }, status: MerchantStatus.ACTIVE },
+        where: { id: { in: trendingMerchantIds }, status: MerchantStatus.ACTIVE, isTestData: false },
         select: MERCHANT_TILE_SELECT as any,
       })
     : []
@@ -1587,9 +1590,11 @@ export async function getHomeFeed(
     ? await prisma.merchant.findMany({
         where: {
           status: MerchantStatus.ACTIVE,
+          isTestData: false,
           branches: {
             some: {
               isActive: true,
+              isTestData: false,
               ...(locationCtx.city ? { city: { equals: locationCtx.city, mode: 'insensitive' } } : {}),
             },
           },
@@ -1896,8 +1901,11 @@ export async function getCustomerMerchant(
   userId: string | null,   // null for guest — returns isFavourited: false
   opts: { lat?: number; lng?: number; branchId?: string } = {},
 ) {
-  const merchant = await prisma.merchant.findUnique({
-    where: { id: merchantId },
+  // SEC-C3 (Gate-PR-4b): findFirst (not findUnique) so isTestData, a non-unique
+  // field, can gate the query. A seed/demo merchant resolves to null → the
+  // existing `!merchant` guard throws MERCHANT_UNAVAILABLE, same as a missing id.
+  const merchant = await prisma.merchant.findFirst({
+    where: { id: merchantId, isTestData: false },
     select: {
       // phone + email intentionally omitted — they live on Branch (per
       // privacy-review note in CLAUDE.md). Customer-facing /merchants/:id
@@ -1941,6 +1949,8 @@ export async function getCustomerMerchant(
       branches: {
         // No isActive filter — P2 branch picker needs suspended branches (greyed out).
         // Legacy distance/nearest/rating logic filters to activeBranches locally.
+        // SEC-C3 (Gate-PR-4b): still exclude seed/demo branches from the picker.
+        where: { isTestData: false },
         select: {
           id: true, name: true, isMainBranch: true, isActive: true,
           addressLine1: true, addressLine2: true, city: true, postcode: true, country: true,
@@ -2372,8 +2382,9 @@ export async function getCustomerMerchant(
 // ─── Branch List (for branch selector in redemption flow) ────────────────────
 
 export async function getCustomerMerchantBranches(prisma: PrismaClient, merchantId: string) {
-  const merchant = await prisma.merchant.findUnique({
-    where: { id: merchantId },
+  // SEC-C3 (Gate-PR-4b): findFirst + isTestData gate (see getCustomerMerchant).
+  const merchant = await prisma.merchant.findFirst({
+    where: { id: merchantId, isTestData: false },
     select: { status: true },
   })
   if (!merchant || merchant.status !== MerchantStatus.ACTIVE) {
@@ -2381,7 +2392,7 @@ export async function getCustomerMerchantBranches(prisma: PrismaClient, merchant
   }
 
   const branches = await prisma.branch.findMany({
-    where: { merchantId, isActive: true },
+    where: { merchantId, isActive: true, isTestData: false, merchant: { isTestData: false } },
     select: {
       id: true, name: true, isMainBranch: true,
       addressLine1: true, addressLine2: true, city: true, postcode: true,
@@ -2404,8 +2415,11 @@ export async function getCustomerVoucher(
   voucherId: string,
   userId: string | null,   // null for guest — returns isRedeemedThisCycle: false
 ) {
-  const voucher = await prisma.voucher.findUnique({
-    where: { id: voucherId },
+  // SEC-C3 (Gate-PR-4b): findFirst so isTestData (voucher + parent merchant)
+  // can gate. A seed/demo voucher — or a real voucher under a demo merchant —
+  // resolves to null → existing VOUCHER_NOT_FOUND guard fires.
+  const voucher = await prisma.voucher.findFirst({
+    where: { id: voucherId, isTestData: false, merchant: { isTestData: false } },
     select: {
       id: true, title: true, type: true, description: true,
       terms: true, imageUrl: true, estimatedSaving: true,
@@ -2705,7 +2719,7 @@ export async function searchMerchants(
     throw new AppError('SEARCH_QUERY_REQUIRED')
   }
 
-  const where: Prisma.MerchantWhereInput = { status: MerchantStatus.ACTIVE }
+  const where: Prisma.MerchantWhereInput = { status: MerchantStatus.ACTIVE, isTestData: false }
 
   if (normalizedQ) {
     const tags = await prisma.merchantSuggestedTag.findMany({
@@ -2854,7 +2868,7 @@ export async function searchMerchants(
   if (openNow) {
     const finalIds = final.map((m: any) => m.id)
     const merchantsWithHours = await prisma.merchant.findMany({
-      where: { id: { in: finalIds } },
+      where: { id: { in: finalIds }, isTestData: false },
       select: {
         id: true,
         branches: {
@@ -3316,6 +3330,10 @@ export async function searchBranches(
           where: {
             status:         VoucherStatus.ACTIVE,
             approvalStatus: ApprovalStatus.APPROVED,
+            // SEC-C3 (Gate-PR-4b): seed/demo vouchers must not pull their
+            // merchant into search results via a keyword match.
+            isTestData:     false,
+            merchant:       { isTestData: false },
             OR: [
               { title: { contains: normalizedQ, mode: 'insensitive' as const } },
               ...(includeDescriptionMatchForVoucher
@@ -3336,7 +3354,8 @@ export async function searchBranches(
   // ── 2. Build branch-level predicate.
   const where: Prisma.BranchWhereInput = {
     isActive: true,
-    merchant: { status: MerchantStatus.ACTIVE },
+    isTestData: false,
+    merchant: { status: MerchantStatus.ACTIVE, isTestData: false },
   }
 
   // Only run the text fuzzy when NO place matched.  When a place matched,
@@ -3995,6 +4014,7 @@ export async function getCategoryMerchants(
   // 2. Fetch UK-wide matching merchants (raw, with branches)
   const where: Prisma.MerchantWhereInput = {
     status: MerchantStatus.ACTIVE,
+    isTestData: false,
     OR: [
       { primaryCategoryId: categoryId },
       { categories: { some: { categoryId } } },
@@ -4204,6 +4224,7 @@ export async function getInAreaMerchants(
   // 2. Fetch UK-wide matching merchants (categoryId filter only — NO bbox at SQL)
   const where: Prisma.MerchantWhereInput = {
     status: MerchantStatus.ACTIVE,
+    isTestData: false,
     ...(options.categoryId
       ? { OR: [
           { primaryCategoryId: options.categoryId },
@@ -4381,8 +4402,10 @@ export async function getInAreaBranches(
   //    contract + Spec §4.1.1 list-vs-map asymmetry).
   const where: Prisma.BranchWhereInput = {
     isActive: true,
+    isTestData: false,
     merchant: {
       status: MerchantStatus.ACTIVE,
+      isTestData: false,
       ...(categoryId
         ? { OR: [
             { primaryCategoryId: categoryId },
@@ -4622,6 +4645,7 @@ export async function getCampaignMerchants(
     endDate:   { gte: now },
     merchant: {
       status: MerchantStatus.ACTIVE,
+      isTestData: false,
       ...(params.categoryId ? {
         OR: [
           { primaryCategoryId: params.categoryId },
@@ -4719,6 +4743,7 @@ export async function getCampaignBranches(
       endDate:   { gte: now },
       merchant:  {
         status: MerchantStatus.ACTIVE,
+        isTestData: false,
         ...(params.categoryId ? {
           OR: [
             { primaryCategoryId: params.categoryId },
@@ -4732,7 +4757,7 @@ export async function getCampaignBranches(
         select: {
           id:       true,
           branches: {
-            where: { isActive: true },
+            where: { isActive: true, isTestData: false },
             select: {
               id:                 true,
               latitude:           true,
