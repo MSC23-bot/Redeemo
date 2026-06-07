@@ -6,6 +6,8 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   useAnimatedScrollHandler,
+  useAnimatedReaction,
+  runOnJS,
   Easing,
 } from 'react-native-reanimated'
 import { useMotionScale } from '@/design-system/useMotionScale'
@@ -704,15 +706,32 @@ export function MerchantProfileScreen({ id }: Props) {
   const insets = useSafeAreaInsets()
   const tabPinPoint = insets.top + COMPACT_BAR_HEIGHT
 
-  const [tabBarHeight, setTabBarHeight] = useState(0)
-  const handleTabBarLayout = useCallback((event: LayoutChangeEvent) => {
-    setTabBarHeight(event.nativeEvent.layout.height)
-  }, [])
+  // §HSH.7(b) — the in-flow TabBar reserves its own height now (it's a real
+  // scroll child, not a measured spacer), so the old tabBarHeight measurement is
+  // gone. pinThresholdY derives from identityZoneEnd + tabPinPoint only.
 
-  const tabBarAnimatedStyle = useAnimatedStyle(() => {
+  // §HSH.7(b) — the tab strip was an absolute "fake sticky" repositioned every
+  // frame by `translateY: Math.max(tabPinPoint, identityZoneEnd - scrollY)`,
+  // which lags the native scroll by a frame and visibly WIGGLES. It is now an
+  // in-flow real TabBar (scrolls natively, zero lag) plus a constant-position
+  // pinned clone (opacity only — never a scroll-driven translateY). A single
+  // `tabPinned` flag gates exactly ONE live + accessible strip at a time.
+  const pinThresholdY = Math.max(0, identityZoneEnd - tabPinPoint)
+  // Binary flip (NOT a fade) so the a11y tree never exposes two tab strips at the
+  // crossover — exactly one strip is touchable + reachable by VoiceOver/TalkBack.
+  const [tabPinned, setTabPinned] = useState(false)
+  useAnimatedReaction(
+    () => scrollY.value >= pinThresholdY,
+    (pinned, prev) => { if (pinned !== prev) runOnJS(setTabPinned)(pinned) },
+    [pinThresholdY],
+  )
+  // Pinned-clone OPACITY only (NO positional tracking → no scroll-lag wiggle).
+  // The clone's `top` is the CONSTANT tabPinPoint (set in the JSX). The in-flow
+  // bar and the clone are co-located at pinThresholdY, so the crossfade is
+  // visually invisible. No reduced-motion branch needed (no decorative motion).
+  const pinnedTabBarStyle = useAnimatedStyle(() => {
     'worklet'
-    const inFlowY = identityZoneEnd - scrollY.value
-    return { transform: [{ translateY: Math.max(tabPinPoint, inFlowY) }] }
+    return { opacity: scrollY.value >= pinThresholdY ? 1 : 0 }
   })
   useEffect(() => {
     // Skip first render (initial profile load) and any state where the
@@ -943,11 +962,19 @@ export function MerchantProfileScreen({ id }: Props) {
           />
         </View>
 
-        {/* M2.1 — TabBarSpacer. Reserves the same height the TabBar
-            occupies in flow, so the tab-content body's Y position is
-            unchanged from before. The actual <TabBar /> is mounted
-            below as an absolute sibling driven by scrollY. */}
-        <View style={{ height: tabBarHeight }} testID="tab-bar-spacer" />
+        {/* §HSH.7(b) — in-flow tab strip (was a worklet-positioned fake-sticky
+            + a separate `tab-bar-spacer`). It scrolls naturally with the content
+            (zero lag, no wiggle) and reserves its own height. The pinned clone
+            below takes over at tabPinPoint. When pinned, this strip is hidden
+            from touch + screen readers so exactly ONE strip is ever live. */}
+        <View
+          testID="merchant-tabbar-inline"
+          pointerEvents={tabPinned ? 'none' : 'box-none'}
+          accessibilityElementsHidden={tabPinned}
+          importantForAccessibility={tabPinned ? 'no-hide-descendants' : 'auto'}
+        >
+          <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
+        </View>
 
         {/* Round 6 follow-up: tab-content entrance upgraded from
             a 180ms pure fade to a 280ms fade + 8pt Y-settle.
@@ -1075,22 +1102,19 @@ export function MerchantProfileScreen({ id }: Props) {
         }
       />
 
-      {/* M2.1 — Floating TabBar layer. Mounted as an absolute sibling
-          of the scrollWrap, between HeroNav (z=10) and CollapsedHeader
-          (z=20). When expanded, sits at its natural in-flow Y (=
-          identityZoneEnd in scroll coords, translated by scrollY);
-          when scrolled enough, pins at screen-y = `tabPinPoint`
-          (= insets.top + COMPACT_BAR_HEIGHT, directly below the
-          collapsed header). The cream-on-cream seam at that boundary
-          is invisible (TabBar's gradient top stop = #FFF9F5 = the
-          collapsed header's solid bg).
-          The matching <View testID="tab-bar-spacer"> inside the
-          ScrollView reserves the same vertical space so tab-content
-          body Y is unchanged. */}
+      {/* §HSH.7(b) — pinned tab-strip clone. CONSTANT top (tabPinPoint) → zero
+          lag, rock-steady. Worklet OPACITY reveals it exactly when the in-flow
+          bar reaches this position; below that it is invisible AND
+          non-interactive AND hidden from screen readers (the in-flow strip is
+          the live one then), and vice-versa — so VoiceOver/TalkBack only ever
+          encounter ONE tab strip. Same tabs/activeTab/onTabPress props as the
+          in-flow bar → perfectly synced labels/indicator/counts. */}
       <Animated.View
-        pointerEvents="box-none"
-        onLayout={handleTabBarLayout}
-        style={[styles.floatingTabBar, tabBarAnimatedStyle]}
+        testID="merchant-tabbar-pinned"
+        pointerEvents={tabPinned ? 'box-none' : 'none'}
+        accessibilityElementsHidden={!tabPinned}
+        importantForAccessibility={!tabPinned ? 'no-hide-descendants' : 'auto'}
+        style={[styles.pinnedTabBar, { top: tabPinPoint }, pinnedTabBarStyle]}
       >
         <TabBar tabs={tabs} activeTab={activeTab} onTabPress={setActiveTab} />
       </Animated.View>
@@ -1190,7 +1214,9 @@ const styles = StyleSheet.create({
   // (10) and CollapsedHeader (20) — TabBar is "below" the header
   // in z so the cream collapsed header always paints over the
   // bar's top edge cleanly when collapsed.
-  floatingTabBar: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 15 },
+  // §HSH.7(b) — pinned tab-strip clone. zIndex above the scroll content, below
+  // the CollapsedHeader (20). `top` is set inline to the CONSTANT tabPinPoint.
+  pinnedTabBar: { position: 'absolute', left: 0, right: 0, zIndex: 15 },
   identityZone: { backgroundColor: '#FFF9F5', position: 'relative' },
   content:      { backgroundColor: '#FFF9F5', minHeight: 460, padding: 20 },
   errorScreen:  { flex: 1, backgroundColor: '#FFF9F5', padding: 16 },
