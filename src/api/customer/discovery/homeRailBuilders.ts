@@ -170,7 +170,8 @@ export async function buildFeaturedRail(
       isActive:  true,
       startDate: { lte: now },
       endDate:   { gte: now },
-      merchant:  { status: MerchantStatus.ACTIVE },
+      // SEC-C3 (Gate-PR-4b): exclude seed/demo merchants from Featured.
+      merchant:  { status: MerchantStatus.ACTIVE, isTestData: false },
     },
     orderBy: { startDate: 'asc' },
     take:    50,
@@ -182,7 +183,7 @@ export async function buildFeaturedRail(
   // ── 2. Fetch active branches under the featured merchants with the
   //    extended select rankBranchesV3 needs.
   const allBranches = await prisma.branch.findMany({
-    where:  { merchantId: { in: merchantIds }, isActive: true },
+    where:  { merchantId: { in: merchantIds }, isActive: true, isTestData: false, merchant: { isTestData: false } },
     select: RANK_BRANCH_SELECT,
   }) as RankBranchRow[]
 
@@ -372,6 +373,7 @@ export async function buildTrendingRail(
     JOIN "User"              u ON r."userId"   = u.id
     WHERE r."redeemedAt" >= $1
       AND r."isTestData" = false
+      AND b."isTestData" = false
       AND ${emailNotInClause}
       AND ${domainClauses}
   `, windowStart, ...qaEmailsList)
@@ -388,7 +390,7 @@ export async function buildTrendingRail(
 
   // ── 2. Fetch active branches under the top merchants.
   const allBranches = await prisma.branch.findMany({
-    where:  { merchantId: { in: topMerchantIds }, isActive: true, merchant: { status: MerchantStatus.ACTIVE } },
+    where:  { merchantId: { in: topMerchantIds }, isActive: true, isTestData: false, merchant: { status: MerchantStatus.ACTIVE, isTestData: false } },
     select: RANK_BRANCH_SELECT,
   }) as RankBranchRow[]
   if (allBranches.length === 0) return { branches: [], meta: null }
@@ -528,6 +530,7 @@ async function computePopularityScores(
     JOIN "User"              u ON r."userId"   = u.id
     WHERE r."redeemedAt" >= $1
       AND r."isTestData" = false
+      AND b."isTestData" = false
       AND ${emailNotInClause}
       AND ${domainClauses}
     GROUP BY b."merchantId"
@@ -569,7 +572,8 @@ export async function buildPopularRail(
   const allBranches = await prisma.branch.findMany({
     where:  {
       isActive: true,
-      merchant: { status: MerchantStatus.ACTIVE },
+      isTestData: false,
+      merchant: { status: MerchantStatus.ACTIVE, isTestData: false },
     },
     select: RANK_BRANCH_SELECT,
   }) as RankBranchRow[]
@@ -824,9 +828,11 @@ export async function buildNearbyByCategoryRails(
   const BBOX_DEGREES = 0.3
   const merchantWhere = {
     status: MerchantStatus.ACTIVE,
+    isTestData: false,
     branches: {
       some: {
         isActive:  true,
+        isTestData: false,
         latitude:  { gte: effLoc.lat - BBOX_DEGREES, lte: effLoc.lat + BBOX_DEGREES },
         longitude: { gte: effLoc.lng - BBOX_DEGREES, lte: effLoc.lng + BBOX_DEGREES },
       },
@@ -882,7 +888,7 @@ export async function buildNearbyByCategoryRails(
   const allMerchantIds = groupedCategories.flatMap(([, merchants]) => merchants.map(m => m.id))
   const allBranches = allMerchantIds.length > 0
     ? await prisma.branch.findMany({
-        where: { merchantId: { in: allMerchantIds }, isActive: true },
+        where: { merchantId: { in: allMerchantIds }, isActive: true, isTestData: false, merchant: { isTestData: false } },
         select: RANK_BRANCH_SELECT,
       }) as RankBranchRow[]
     : []
@@ -1036,7 +1042,8 @@ export async function buildNearbyByCategoryRails(
     const topUpPool = await prisma.merchant.findMany({
       where: {
         status:   MerchantStatus.ACTIVE,
-        branches: { some: { isActive: true } },
+        isTestData: false,
+        branches: { some: { isActive: true, isTestData: false } },
         primaryCategory: {
           OR: [
             { id:       { in: topUpParentIds } },
@@ -1086,7 +1093,7 @@ export async function buildNearbyByCategoryRails(
       // Fetch branches for the eligible merchants.
       const eligibleMerchantIds = eligibleMerchants.map(m => m.id)
       const fillerBranches = await prisma.branch.findMany({
-        where:  { merchantId: { in: eligibleMerchantIds }, isActive: true },
+        where:  { merchantId: { in: eligibleMerchantIds }, isActive: true, isTestData: false, merchant: { isTestData: false } },
         select: RANK_BRANCH_SELECT,
       }) as RankBranchRow[]
 
@@ -1173,7 +1180,8 @@ export async function buildNearbyByCategoryRails(
     const cascadePool = await prisma.merchant.findMany({
       where: {
         status:   MerchantStatus.ACTIVE,
-        branches: { some: { isActive: true } },
+        isTestData: false,
+        branches: { some: { isActive: true, isTestData: false } },
       },
       select: {
         id:                true,
@@ -1206,7 +1214,7 @@ export async function buildNearbyByCategoryRails(
     if (cascadeCategories.length > 0) {
       const cascadeMerchantIds = cascadeCategories.flatMap(([, ms]) => ms.map(m => m.id))
       const cascadeBranches = await prisma.branch.findMany({
-        where:  { merchantId: { in: cascadeMerchantIds }, isActive: true },
+        where:  { merchantId: { in: cascadeMerchantIds }, isActive: true, isTestData: false, merchant: { isTestData: false } },
         select: RANK_BRANCH_SELECT,
       }) as RankBranchRow[]
 
