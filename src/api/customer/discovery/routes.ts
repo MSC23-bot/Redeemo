@@ -45,13 +45,14 @@ const searchQuery = z.object({
 
 export async function discoveryRoutes(app: FastifyInstance) {
   // GET /api/v1/customer/home — home feed (no auth)
-  // Optional bearer token decoded (not verified) to extract userId for personalisation.
+  // Optional bearer token is signature-verified via optionalUserId() (SEC-C1)
+  // to extract userId for personalisation; invalid/missing tokens resolve to guest.
   app.get('/api/v1/customer/home', async (req: FastifyRequest, reply) => {
     const query = z.object({
       lat: z.coerce.number().optional(),
       lng: z.coerce.number().optional(),
     }).parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     const lat    = query.lat ?? null
     const lng    = query.lng ?? null
     // §DF-v2-j Task 2 — route-level `locationContext` resolution (variant
@@ -65,12 +66,13 @@ export async function discoveryRoutes(app: FastifyInstance) {
   })
 
   // GET /api/v1/customer/merchants/:id — merchant profile (no auth)
-  // Optional bearer token decoded (not verified) to derive isFavourited for authenticated users.
+  // Optional bearer token is signature-verified via optionalUserId() (SEC-C1)
+  // to derive isFavourited for the signed-in user; invalid/missing tokens resolve to guest.
   // Optional ?branch=<id> forwarded to selectedBranch resolution (P1.3).
   app.get('/api/v1/customer/merchants/:id', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
     const { lat, lng, branch } = locationQuery.parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     // §DF-v2-j Task 6 — route-level `locationContext` resolution.  Per
     // spec D5: Merchant Profile receives the additive emit even though
     // <LocationStatusLabel> is NOT mounted on this surface in v2-j (D4
@@ -96,10 +98,11 @@ export async function discoveryRoutes(app: FastifyInstance) {
   })
 
   // GET /api/v1/customer/vouchers/:id — voucher detail (no auth required)
-  // Optional bearer token decoded (not verified) to derive isRedeemedThisCycle.
+  // Optional bearer token is signature-verified via optionalUserId() (SEC-C1)
+  // to derive isRedeemedThisCycle; invalid/missing tokens resolve to guest.
   app.get('/api/v1/customer/vouchers/:id', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     const voucher = await getCustomerVoucher(app.prisma, id, userId)
     return reply.send(voucher)
   })
@@ -129,7 +132,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // deferred-followups §BX index.
   app.get('/api/v1/customer/search', async (req: FastifyRequest, reply) => {
     const params = searchQuery.parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     // §DF-v2-j Task 4 — route-level `locationContext` resolution (variant
     // (a) per Task 0 audit).  Resolve once, strip to the 3-field wire
     // envelope, inject at the response root.  Pure service helpers
@@ -173,8 +176,9 @@ export async function discoveryRoutes(app: FastifyInstance) {
 
   // GET /api/v1/customer/categories/:id/merchants — paginated merchants for a
   // single category id (top-level OR subcategory) with the same scope/meta
-  // envelope used by /search. No auth; bearer token decoded (not verified) to
-  // extract userId for profile-city resolution.
+  // envelope used by /search. No auth gate; an optional bearer token is
+  // signature-verified via optionalUserId() (SEC-C1) for profile-city
+  // resolution; invalid/missing tokens resolve to guest.
   app.get('/api/v1/customer/categories/:id/merchants', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
     const query = z.object({
@@ -184,7 +188,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
       limit:  z.coerce.number().int().min(1).max(50).default(20),
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
     // `branches` + `totalBranches` fields additively alongside the legacy
     // `merchants` + `total` response. Consumers continue reading legacy until
@@ -240,8 +244,9 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // at the application level (post-rank) so tier counts reflect UK-wide
   // supply, not the viewport slice (Plan 1.5 invariant). Meta envelope is a
   // SUBSET of search/category meta — `scope` and `scopeExpanded` are dropped
-  // because in-area has no scope cascade. No auth; bearer token decoded (not
-  // verified) to extract userId for profile-city resolution.
+  // because in-area has no scope cascade. No auth gate; an optional bearer
+  // token is signature-verified via optionalUserId() (SEC-C1) for profile-city
+  // resolution; invalid/missing tokens resolve to guest.
   app.get('/api/v1/customer/discovery/in-area', async (req: FastifyRequest, reply) => {
     const query = z.object({
       minLat:     z.coerce.number().min(-90).max(90),
@@ -256,7 +261,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
     if (query.minLat > query.maxLat || query.minLng > query.maxLng) {
       return reply.status(400).send({ error: { code: 'INVALID_BBOX', message: 'minLat/minLng must be ≤ maxLat/maxLng' } })
     }
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     // §DF-v2-j Task 5 — route-level `locationContext` resolution.  Note
     // that this describes the USER's effective location identity — it is
     // intentionally separate from `meta.effectiveLocality` (the viewport
@@ -327,7 +332,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
       limit:  z.coerce.number().int().min(1).max(100).default(20),
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     const [merchantResult, branchResult] = await Promise.all([
       getCampaignMerchants(app.prisma, id, { ...query, userId }),
       getCampaignBranches(app.prisma, id, { ...query, userId }),

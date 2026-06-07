@@ -36,7 +36,7 @@ export async function reviewOpenRoutes(app: FastifyInstance) {
   app.get('/api/v1/customer/merchants/:id/reviews', async (req: FastifyRequest, reply) => {
     const { id }                      = idParam.parse(req.params)
     const { limit, offset, branchId } = paginationQuery.parse(req.query)
-    const requestingUserId            = optionalUserId(req)
+    const requestingUserId            = await optionalUserId(req)
     const result = await listMerchantReviews(app.prisma, id, { branchId, limit, offset, requestingUserId })
     return reply.send(result)
   })
@@ -44,7 +44,7 @@ export async function reviewOpenRoutes(app: FastifyInstance) {
   app.get('/api/v1/customer/branches/:branchId/reviews', async (req: FastifyRequest, reply) => {
     const { branchId }      = branchIdParam.parse(req.params)
     const { limit, offset } = paginationQuery.parse(req.query)
-    const requestingUserId  = optionalUserId(req)
+    const requestingUserId  = await optionalUserId(req)
     const result = await listBranchReviews(app.prisma, branchId, { limit, offset, requestingUserId })
     return reply.send(result)
   })
