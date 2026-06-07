@@ -4577,7 +4577,11 @@ export async function listActiveCategories(prisma: PrismaClient) {
     where: {
       parentId:  { not: null },
       isActive:  true,
-      merchants: { some: { merchant: { status: MerchantStatus.ACTIVE } } },
+      // SEC-C3 (Gate-PR-4b): a subcategory is "live" only if it has a real
+      // active merchant — a seed/demo-only subcategory must not surface in the
+      // All-Categories list (tapping it hits the filtered getCategoryMerchants,
+      // which would return empty).
+      merchants: { some: { merchant: { status: MerchantStatus.ACTIVE, isTestData: false } } },
     },
     select: {
       id:               true,
