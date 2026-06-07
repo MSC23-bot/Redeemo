@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useEffect, useRef, useState } from 'react'
-import { View, StyleSheet, Pressable, Alert, Platform } from 'react-native'
+import { View, StyleSheet, Pressable, Alert, Platform, type LayoutChangeEvent } from 'react-native'
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BlurView } from 'expo-blur'
@@ -615,25 +615,34 @@ export function VoucherDetailScreen() {
     !promptDismissed &&
     !suppressPrompt
 
-  // Hero anchoring during overscroll — round-7 fix #2. Replaces the
-  // round-6 overscroll bg gradient (which the user perceived as a
-  // "green banner anchored at the top" during normal scroll). New
-  // behaviour: when the user pulls DOWN at the top (scrollY < 0),
-  // the hero's translateY compensates by moving UP an equal amount,
-  // keeping the hero anchored at screen y=0. The body content below
-  // the perforation (top card + body card + merchant row + how-it-
-  // works) still moves DOWN with the gesture as a normal ScrollView
-  // overscroll, opening a cream gap at the perforation boundary that
-  // the user sees as "the coupon tearing at the perforation".
-  //
-  // During NORMAL scroll (scrollY >= 0), translateY = 0 — hero
-  // scrolls away with content as before. Math.min ensures the
-  // anchoring only kicks in for negative scrollY values.
-  const heroAnchorStyle = useAnimatedStyle(() => {
+  // §HSH.7 fix — the hero (CouponHeader + outer perforation) is now an ABSOLUTE
+  // overlay pinned at the top, NOT a scroll child. Previously it was anchored
+  // during overscroll by `translateY: Math.min(scrollY.value, 0)` — a
+  // compensation transform that LAGS the native rubber-band by a frame, so on a
+  // forceful pull-down the hero briefly rode the bounce DOWN before snapping
+  // back, exposing the cream PAGE_BG above it (the twitch + white/cream top
+  // flash). As an absolute overlay it is physically pinned: during overscroll it
+  // cannot move (translateY stays 0), so the top never exposes cream. It only
+  // translates UP to scroll away on downward scroll. The body cards stay in the
+  // ScrollView (with a matching paddingTop = measured hero height), so they
+  // still rubber-band on overscroll and open the cream gap at the PERFORATION
+  // boundary below the hero — the "coupon tearing at the perforation" feel is
+  // preserved; only the top flash/twitch is removed. (Same principle as the Home
+  // §HSH.1 fix: pin by position, not by a lagging scroll transform.)
+  const heroScrollAwayStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ translateY: Math.min(scrollY.value, 0) }],
+      transform: [{ translateY: -Math.max(scrollY.value, 0) }],
     }
   })
+  // Measured hero height → reserves the matching paddingTop on the scroll content
+  // so the body starts just below the absolute hero. Guarded so a stable
+  // re-measure can't trigger extra re-renders. 0 until measured (one-frame
+  // settle at cold start, like Home; imperceptible in QA).
+  const [heroHeight, setHeroHeight] = useState(0)
+  const handleHeroLayout = useCallback((e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height
+    setHeroHeight((prev) => (Math.abs(prev - h) > 0.5 ? h : prev))
+  }, [])
 
   // ── State derivation (M4b-8) ────────────────────────────────────────
   //
@@ -1517,7 +1526,9 @@ export function VoucherDetailScreen() {
       <AnimatedScrollView
         ref={scrollViewRef}
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        // §HSH.7 — paddingTop reserves the absolute hero overlay's space so the
+        // body cards start just below it (the hero is no longer an in-flow child).
+        contentContainerStyle={[styles.scrollContent, { paddingTop: heroHeight }]}
         showsVerticalScrollIndicator={false}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
@@ -1535,74 +1546,12 @@ export function VoucherDetailScreen() {
               outside this wrapper so they still rubber-band with
               the gesture, opening the cream gap below the
               perforation. */}
-          <Animated.View style={heroAnchorStyle}>
-            {/* Hero treatment when redeemed (locked 2026-05-09 from
-                PR #49 device QA wave 4 — owner direction):
-                  • Dimmed hero (opacity 0.55) — applied SELECTIVELY
-                    to the voucher visual layer (gradient + content +
-                    saveBadge) via the CouponHeader `dimmed` prop.
-                    The nav row (back / share / favourite) stays at
-                    full opacity per PR-B T8h owner direction
-                    "navigation buttons are washed out".
-                  • RedeemedSeal moved ONTO the hero as an absolute
-                    overlay, like a physical stamp on the voucher
-                    itself, instead of sitting as a standalone block
-                    between the voucher and the merchant card.
-                  • Sized to overlap the title/saving area so the
-                    voucher reads as visibly "stamped redeemed".
-                  • Owner direction: "It is okay if it overlaps the
-                    voucher text slightly, as long as the text is
-                    still somewhat readable."
-                Defers full washed-out coupon visual + polished SVG
-                stamp to §Q1.
-
-                M4d Phase G — HeroStatusBlock wiring:
-                For TIME_LIMITED vouchers the description slot inside
-                <CouponHeader> is replaced (per spec D6(C) + C.1
-                contract) by the <HeroStatusBlock> element derived in
-                the screen body above (`heroStatusBlock`). `now: new
-                Date()` is captured at parent render so the visible
-                tick advances alongside useTimeLimited's internal 60s
-                / sub-1h second tick — each setState in the hook
-                re-renders this screen, re-evaluating `new Date()` and
-                the derived ms-to-close / ms-to-open inputs. For non-TL
-                voucher types `heroStatusBlock` is null and
-                <CouponHeader> renders the original description copy
-                unchanged. */}
-            <View style={styles.heroSealWrap}>
-              <CouponHeader
-                type={voucher.type}
-                title={voucher.title}
-                description={voucher.description}
-                estimatedSaving={voucher.estimatedSaving}
-                insetTop={insets.top}
-                onBack={handleBack}
-                onShare={handleShare}
-                voucherId={voucher.id}
-                voucherIsFavourited={voucher.isFavourited}
-                scrollY={scrollY}
-                fadeStart={FADE_START}
-                fadeEnd={FADE_END}
-                collapsedActive={collapsedActive}
-                dimmed={showRedeemedSeal}
-                statusBlock={heroStatusBlock}
-              />
-              {showRedeemedSeal ? (
-                <View
-                  style={[styles.heroSealOverlay, { top: insets.top + 96 }]}
-                  pointerEvents="none"
-                  testID="voucher-detail-hero-seal"
-                >
-                  <RedeemedSeal
-                    voucherType={voucher.type}
-                    availableAgainAt={voucher.availableAgainAt ?? null}
-                    nextWindowStartsAt={voucher.nextWindow?.startsAt ?? null}
-                  />
-                </View>
-              ) : null}
-            </View>
-            <PerforationLine pageBg={PAGE_BG} variant="outer" />
-          </Animated.View>
+          {/* §HSH.7 — hero (CouponHeader + outer perforation) is rendered as an
+              ABSOLUTE overlay AFTER the ScrollView (pinned at the top so a
+              force-pull overscroll can't move it / expose the cream top gap).
+              Its space here is reserved by contentContainerStyle paddingTop =
+              heroHeight, so the body cards below still rubber-band on overscroll
+              and open the cream tear at the perforation. */}
 
           {/* RedemptionDetailsCard — sits BETWEEN the hero (CouponHeader
               + outer perforation) AND the coupon body card on
@@ -1981,6 +1930,59 @@ export function VoucherDetailScreen() {
             during normal reading drops from ~104pt → ~64pt. */}
         <View style={{ height: insets.bottom + 30 }} />
       </AnimatedScrollView>
+
+      {/* §HSH.7 — Hero overlay (CouponHeader + outer perforation), pinned at the
+          top as an ABSOLUTE sibling of the ScrollView. `heroScrollAwayStyle`
+          translates it UP to scroll away on downward scroll (-max(scrollY,0));
+          during a force-pull overscroll it stays put (translateY 0), so the top
+          can never expose the cream PAGE_BG and the header never twitches — the
+          body cards inside the ScrollView still rubber-band and open the cream
+          "tear" at the perforation below. Touches are gated off once collapsed
+          (the CollapsedHeader takes over the back/nav); box-none otherwise so the
+          nav buttons stay tappable and drags fall through to the ScrollView.
+          zIndex sits below the CollapsedHeader (40) and above the scroll
+          content. onLayout feeds the measured height back as the scroll
+          content's paddingTop. */}
+      <Animated.View
+        testID="voucher-detail-hero-overlay"
+        style={[styles.heroOverlay, heroScrollAwayStyle]}
+        onLayout={handleHeroLayout}
+        pointerEvents={collapsedActive ? 'none' : 'box-none'}
+      >
+        <View style={styles.heroSealWrap}>
+          <CouponHeader
+            type={voucher.type}
+            title={voucher.title}
+            description={voucher.description}
+            estimatedSaving={voucher.estimatedSaving}
+            insetTop={insets.top}
+            onBack={handleBack}
+            onShare={handleShare}
+            voucherId={voucher.id}
+            voucherIsFavourited={voucher.isFavourited}
+            scrollY={scrollY}
+            fadeStart={FADE_START}
+            fadeEnd={FADE_END}
+            collapsedActive={collapsedActive}
+            dimmed={showRedeemedSeal}
+            statusBlock={heroStatusBlock}
+          />
+          {showRedeemedSeal ? (
+            <View
+              style={[styles.heroSealOverlay, { top: insets.top + 96 }]}
+              pointerEvents="none"
+              testID="voucher-detail-hero-seal"
+            >
+              <RedeemedSeal
+                voucherType={voucher.type}
+                availableAgainAt={voucher.availableAgainAt ?? null}
+                nextWindowStartsAt={voucher.nextWindow?.startsAt ?? null}
+              />
+            </View>
+          ) : null}
+        </View>
+        <PerforationLine pageBg={PAGE_BG} variant="outer" />
+      </Animated.View>
 
       {/* CollapsedHeader overlay — pinned at top, cream-gradient
           surface, opacity scroll-driven, single-threshold
@@ -2428,6 +2430,17 @@ const styles = StyleSheet.create({
   // so it lands over the title/saving area regardless of safe-area
   // device variance. `pointerEvents=none` so the seal doesn't
   // intercept hero taps.
+  // §HSH.7 — the hero, pinned at the top as an absolute overlay (was an in-flow
+  // scroll child). zIndex below the CollapsedHeader (40) + sticky CTA, above the
+  // scroll content, so it emerges/recedes cleanly and the collapsed bar fades in
+  // over it.
+  heroOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
   heroSealWrap: {
     position: 'relative',
   },
