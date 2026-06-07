@@ -51,7 +51,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
       lat: z.coerce.number().optional(),
       lng: z.coerce.number().optional(),
     }).parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     const lat    = query.lat ?? null
     const lng    = query.lng ?? null
     // §DF-v2-j Task 2 — route-level `locationContext` resolution (variant
@@ -70,7 +70,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
   app.get('/api/v1/customer/merchants/:id', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
     const { lat, lng, branch } = locationQuery.parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     // §DF-v2-j Task 6 — route-level `locationContext` resolution.  Per
     // spec D5: Merchant Profile receives the additive emit even though
     // <LocationStatusLabel> is NOT mounted on this surface in v2-j (D4
@@ -99,7 +99,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // Optional bearer token decoded (not verified) to derive isRedeemedThisCycle.
   app.get('/api/v1/customer/vouchers/:id', async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     const voucher = await getCustomerVoucher(app.prisma, id, userId)
     return reply.send(voucher)
   })
@@ -129,7 +129,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // deferred-followups §BX index.
   app.get('/api/v1/customer/search', async (req: FastifyRequest, reply) => {
     const params = searchQuery.parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     // §DF-v2-j Task 4 — route-level `locationContext` resolution (variant
     // (a) per Task 0 audit).  Resolve once, strip to the 3-field wire
     // envelope, inject at the response root.  Pure service helpers
@@ -184,7 +184,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
       limit:  z.coerce.number().int().min(1).max(50).default(20),
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     // Discovery Rebaseline Phase 1 Task 1.10 — attaches the new branch-themed
     // `branches` + `totalBranches` fields additively alongside the legacy
     // `merchants` + `total` response. Consumers continue reading legacy until
@@ -256,7 +256,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
     if (query.minLat > query.maxLat || query.minLng > query.maxLng) {
       return reply.status(400).send({ error: { code: 'INVALID_BBOX', message: 'minLat/minLng must be ≤ maxLat/maxLng' } })
     }
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     // §DF-v2-j Task 5 — route-level `locationContext` resolution.  Note
     // that this describes the USER's effective location identity — it is
     // intentionally separate from `meta.effectiveLocality` (the viewport
@@ -327,7 +327,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
       limit:  z.coerce.number().int().min(1).max(100).default(20),
       offset: z.coerce.number().int().min(0).default(0),
     }).parse(req.query)
-    const userId = optionalUserId(req)
+    const userId = await optionalUserId(req)
     const [merchantResult, branchResult] = await Promise.all([
       getCampaignMerchants(app.prisma, id, { ...query, userId }),
       getCampaignBranches(app.prisma, id, { ...query, userId }),

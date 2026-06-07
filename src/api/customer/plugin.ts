@@ -8,22 +8,28 @@ import { savingsRoutes } from './savings/routes'
 import { postcodeRoutes } from './postcode/routes'
 
 /**
- * Attempts to extract the `sub` (userId) from an Authorization: Bearer <token>
- * header without verifying the signature. This is intentionally insecure and is
- * used only for personalisation (e.g. isFavourited) in open-scope routes — it
- * is NOT a security boundary.
+ * Extracts the customer `sub` (userId) from an Authorization: Bearer <token>
+ * header IF the token's signature verifies — using the same @fastify/jwt
+ * 'customer' verifier (secret JWT_SECRET_CUSTOMER) the authenticated scope's
+ * preHandler uses. Open-scope routes call this for per-user personalisation
+ * (isFavourited, the owner's own lastRedemption, etc.).
+ *
+ * SEC-C1 (Gate-PR-5): a missing, malformed, expired, or FORGED token returns
+ * null (guest). It NEVER trusts an unverified payload, so a caller cannot
+ * impersonate another user by crafting a token with someone else's `sub`. This
+ * replaced an earlier helper that base64-decoded the payload WITHOUT verifying
+ * the signature — which let a forged token leak the victim's redemption code
+ * and other per-user state on open reads.
  */
-export function optionalUserId(req: FastifyRequest): string | null {
+export async function optionalUserId(req: FastifyRequest): Promise<string | null> {
   const authHeader = req.headers.authorization
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null
-  const parts = authHeader.split('.')
-  if (parts.length !== 3) return null
   try {
-    // Decode the payload section (index 1) without verifying the signature
-    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-    const payloadJson = Buffer.from(payloadBase64, 'base64').toString('utf-8')
-    const payload = JSON.parse(payloadJson)
-    return typeof payload.sub === 'string' ? payload.sub : null
+    // Signature check against JWT_SECRET_CUSTOMER (throws on missing/invalid/
+    // forged/expired); populates req.user from the verified claims.
+    await (req as unknown as { customerVerify: () => Promise<unknown> }).customerVerify()
+    const sub = (req.user as { sub?: string } | undefined)?.sub
+    return typeof sub === 'string' ? sub : null
   } catch {
     return null
   }
@@ -32,8 +38,8 @@ export function optionalUserId(req: FastifyRequest): string | null {
 async function customerPlugin(app: FastifyInstance) {
   // ------------------------------------------------------------------
   // Open scope — no authentication required
-  // A bearer token may be present and is decoded (without verification)
-  // for personalisation purposes only via optionalUserId().
+  // A bearer token may be present; optionalUserId() VERIFIES its signature
+  // (SEC-C1) and yields a userId only for a valid customer token, else guest.
   // ------------------------------------------------------------------
   app.register(async (open) => {
     // Health check — useful for tests and monitoring
