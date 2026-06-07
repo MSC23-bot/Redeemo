@@ -144,7 +144,8 @@ export async function registerCustomer(
 
   const token = generateSecureToken(32)
   await redis.set(RedisKey.emailVerify(token), user.id, 'EX', EMAIL_VERIFY_TTL)
-  console.info(`[dev] Email verify token for ${user.email}: ${token}`)
+  // TODO Phase 6: deliver the verification link via Resend. The token is never
+  // logged (SEC-H1). Dev: use prisma/set-auth-state.ts to mark an account verified.
 
   const issued = await issueCustomerTokens(prisma, redis, app, {
     id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName,
@@ -405,8 +406,8 @@ export async function forgotPasswordCustomer(
   const token = generateSecureToken(32)
   await redis.set(RedisKey.passwordReset('customer', token), user.id, 'EX', PWD_RESET_TTL)
 
-  // TODO Phase 3: send email via Resend
-  console.info(`[dev] Password reset token for ${user.email}: ${token}`)
+  // TODO Phase 6: deliver the reset link via Resend. The token is never logged
+  // (SEC-H1). Dev: use prisma/issue-reset-token.ts to obtain a token.
 }
 
 export async function resetPasswordCustomer(

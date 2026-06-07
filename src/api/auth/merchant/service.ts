@@ -55,8 +55,8 @@ export async function loginMerchant(
       JSON.stringify({ adminId: admin.id, deviceId: data.deviceId, deviceType: data.deviceType }),
       'EX', OTP_CHALLENGE_TTL
     )
-    // TODO Phase 3: send OTP via Twilio
-    console.info(`[dev] OTP challenge created for ${admin.email}: ${challenge}`)
+    // TODO Phase 3: send the OTP code via Twilio. The session challenge is
+    // returned to the client below; the OTP code is never logged (SEC-H1).
     return { status: 'OTP_REQUIRED', sessionChallenge: challenge }
   }
 
@@ -218,7 +218,8 @@ export async function forgotPasswordMerchant(
 
   const token = generateSecureToken(32)
   await redis.set(RedisKey.passwordReset('merchant', token), admin.id, 'EX', PWD_RESET_TTL)
-  console.info(`[dev] Merchant password reset token for ${admin.email}: ${token}`)
+  // TODO Phase 6: deliver the reset link via Resend. The token is never logged
+  // (SEC-H1). Dev: use prisma/issue-reset-token.ts to obtain a token.
 }
 
 export async function resetPasswordMerchant(
