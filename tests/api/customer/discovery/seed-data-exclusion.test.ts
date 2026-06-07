@@ -30,6 +30,7 @@ const prisma = new PrismaClient({ adapter })
 const PREFIX = 'sec-c3-'
 const USER_PREFIX = 'sec-c3-user-'
 const TOKEN = 'zqxwvtest' // rare token so q=TOKEN matches only these fixtures
+const TOKEN2 = 'mixedtoken' // for the real-merchant-with-test-voucher cases
 const HUD = { lat: 53.6463, lng: -1.7809 }
 
 const ID = {
@@ -39,9 +40,16 @@ const ID = {
   testMerchant: `${PREFIX}m-test`,
   testBranch: `${PREFIX}b-test`,
   testVoucher: `${PREFIX}v-test`,
+  // A REAL merchant carrying BOTH a real voucher and a test voucher (Codex
+  // mixed-case findings): the test voucher must not appear on merchant detail,
+  // and its high saving must not pull the merchant into a minSaving search.
+  mixedMerchant: `${PREFIX}m-mixed`,
+  mixedBranch: `${PREFIX}b-mixed`,
+  mixedRealVoucher: `${PREFIX}v-mixed-real`,
+  mixedTestVoucher: `${PREFIX}v-mixed-test`,
 }
 
-function branchData(suffix: 'real' | 'test', isTestData: boolean) {
+function branchData(suffix: string, isTestData: boolean) {
   return {
     id: `${PREFIX}b-${suffix}`,
     name: 'SEC-C3 Branch',
@@ -111,6 +119,45 @@ beforeAll(async () => {
       ...(primaryCategoryId ? { primaryCategoryId } : {}),
       branches: { create: [branchData('test', true)] },
       vouchers: { create: [voucherData('test', true)] },
+    },
+  })
+
+  // REAL merchant with a MIXED voucher set: one real voucher (saving 5) + one
+  // test voucher (saving 99). Proves (1) merchant detail hides the test voucher,
+  // and (2) the test voucher's high saving does NOT pull the merchant into a
+  // minSaving=50 search (only the real saving-5 voucher counts).
+  await prisma.merchant.create({
+    data: {
+      id: ID.mixedMerchant,
+      businessName: `${PREFIX}${TOKEN2} Mixed Co`,
+      status: 'ACTIVE',
+      isTestData: false,
+      ...(primaryCategoryId ? { primaryCategoryId } : {}),
+      branches: { create: [branchData('mixed', false)] },
+      vouchers: {
+        create: [
+          {
+            id: ID.mixedRealVoucher,
+            code: `${PREFIX}V-mixed-real`,
+            title: `${TOKEN2} real voucher`,
+            type: 'FREEBIE',
+            estimatedSaving: 5,
+            status: 'ACTIVE',
+            approvalStatus: 'APPROVED',
+            isTestData: false,
+          },
+          {
+            id: ID.mixedTestVoucher,
+            code: `${PREFIX}V-mixed-test`,
+            title: `${TOKEN2} TEST voucher`,
+            type: 'FREEBIE',
+            estimatedSaving: 99,
+            status: 'ACTIVE',
+            approvalStatus: 'APPROVED',
+            isTestData: true,
+          },
+        ],
+      },
     },
   })
 
@@ -193,5 +240,33 @@ describe('SEC-C3 — seed/test supply excluded from customer-facing discovery AP
     // covers Featured / Trending / Popular / NearbyByCategory rails + legacy fields.
     expect(res.body).not.toContain(ID.testMerchant)
     expect(res.body).not.toContain(ID.testBranch)
+  })
+
+  it('Codex Finding 1 — merchant detail of a REAL merchant returns its real voucher but NOT its test voucher', { timeout: 30_000 }, async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/v1/customer/merchants/${ID.mixedMerchant}` })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain(ID.mixedRealVoucher)       // real voucher surfaces
+    expect(res.body).not.toContain(ID.mixedTestVoucher)   // test voucher must NOT
+  })
+
+  it('Codex Finding 2 — a REAL merchant is not pulled into a minSaving search by its TEST voucher', { timeout: 30_000 }, async () => {
+    // Findable by name with no saving filter (it is a real merchant).
+    const found = await app.inject({
+      method: 'GET',
+      url: `/api/v1/customer/search?q=${TOKEN2}&lat=${HUD.lat}&lng=${HUD.lng}`,
+    })
+    expect(found.statusCode).toBe(200)
+    const foundIds = (JSON.parse(found.body).branches ?? []).map((b: any) => b.merchant?.id)
+    expect(foundIds).toContain(ID.mixedMerchant)
+
+    // minSaving=50: the only voucher >= 50 is the TEST one (saving 99, excluded);
+    // the real voucher is saving 5. The merchant must NOT match the saving filter.
+    const filtered = await app.inject({
+      method: 'GET',
+      url: `/api/v1/customer/search?q=${TOKEN2}&minSaving=50&lat=${HUD.lat}&lng=${HUD.lng}`,
+    })
+    expect(filtered.statusCode).toBe(200)
+    const filteredIds = (JSON.parse(filtered.body).branches ?? []).map((b: any) => b.merchant?.id)
+    expect(filteredIds).not.toContain(ID.mixedMerchant)
   })
 })

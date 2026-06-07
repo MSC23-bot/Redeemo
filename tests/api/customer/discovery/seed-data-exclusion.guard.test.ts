@@ -141,6 +141,40 @@ describe('SEC-C3 guard — discovery service supply queries exclude seed/test da
   })
 })
 
+describe('SEC-C3 guard — nested voucher/branch includes/predicates carry isTestData', () => {
+  // Codex review (Gate-PR-4b): the entity-query check above passes if isTestData
+  // appears ANYWHERE in the call — so a top-level where with isTestData masked a
+  // nested `vouchers: { where: { ACTIVE, APPROVED } }` include that lacked it
+  // (getCustomerMerchant returned a real merchant's test voucher). This stricter
+  // check requires EVERY plural `vouchers:`/`branches:` relation block — whether a
+  // SELECT include or a `some:` filter predicate — to carry isTestData itself.
+  for (const file of [DISCOVERY, HOME_RAILS, FAVOURITES]) {
+    for (const rel of ['vouchers', 'branches'] as const) {
+      it(`${file}: every nested \`${rel}: { … }\` block carries isTestData`, () => {
+        const src = read(file)
+        const re = new RegExp(`\\b${rel}:\\s*\\{`, 'g')
+        let m: RegExpExecArray | null
+        let count = 0
+        while ((m = re.exec(src)) !== null) {
+          const block = balancedObjectAfter(src, m.index)
+          // Only Prisma FILTER blocks matter — a relation `where:` (include) or a
+          // `some:`/`every:`/`none:` predicate. TypeScript type annotations like
+          // `vouchers: { id: string }` and pure-select includes carry no filter.
+          if (!/\b(where|some|every|none):/.test(block)) continue
+          count++
+          expect(
+            block.includes('isTestData'),
+            `${file}: nested \`${rel}\` filter block at index ${m.index} must carry isTestData:false ` +
+              `(relation where include or some-predicate). Block:\n${block.slice(0, 220)}`,
+          ).toBe(true)
+        }
+        // homeRailBuilders has no voucher includes — a 0-count pass is valid there.
+        expect(count).toBeGreaterThanOrEqual(0)
+      })
+    }
+  }
+})
+
 describe('SEC-C3 guard — favourites supply queries exclude seed/test data', () => {
   it('every favourite{Merchant,Branch,Voucher}.{findMany,count} excludes isTestData', () => {
     const src = read(FAVOURITES)

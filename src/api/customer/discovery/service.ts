@@ -1928,7 +1928,10 @@ export async function getCustomerMerchant(
       },
       categories: { select: { category: { select: { id: true, name: true, parentId: true } } } },
       vouchers: {
-        where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED },
+        // SEC-C3 (Gate-PR-4b, Codex Finding 1): this is getCustomerMerchant's
+        // OWN voucher select (not MERCHANT_TILE_SELECT) — a real merchant must
+        // not return a seed/demo voucher on /merchants/:id.
+        where: { status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false },
         select: {
           id: true, title: true, type: true, description: true,
           terms: true, imageUrl: true, estimatedSaving: true, expiryDate: true,
@@ -2766,7 +2769,7 @@ export async function searchMerchants(
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       { vouchers: { some: {
-        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED,
+        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false,
         estimatedSaving: { gte: minSaving },
       }}},
     ]
@@ -2776,7 +2779,7 @@ export async function searchMerchants(
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       { vouchers: { some: {
-        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED,
+        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false,
         type: { in: voucherTypes as any },
       }}},
     ]
@@ -2786,7 +2789,7 @@ export async function searchMerchants(
     for (const amenityId of amenityIds) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
-        { branches: { some: { isActive: true, amenities: { some: { amenityId } } } } },
+        { branches: { some: { isActive: true, isTestData: false, amenities: { some: { amenityId } } } } },
       ]
     }
   }
@@ -2824,6 +2827,7 @@ export async function searchMerchants(
       // the bbox would surface on the map with an exact-pin position.
       { branches: { some: {
         isActive: true,
+        isTestData: false,
         locationConfidence: 'MANUALLY_CONFIRMED',
         latitude:  { gte: minLat, lte: maxLat },
         longitude: { gte: minLng, lte: maxLng },
@@ -2872,7 +2876,7 @@ export async function searchMerchants(
       select: {
         id: true,
         branches: {
-          where: { isActive: true },
+          where: { isActive: true, isTestData: false },
           select: {
             openingHours: {
               select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
@@ -3513,7 +3517,7 @@ export async function searchBranches(
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       { merchant: { vouchers: { some: {
-        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED,
+        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false,
         estimatedSaving: { gte: minSaving },
       }}}},
     ]
@@ -3523,7 +3527,7 @@ export async function searchBranches(
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       { merchant: { vouchers: { some: {
-        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED,
+        status: VoucherStatus.ACTIVE, approvalStatus: ApprovalStatus.APPROVED, isTestData: false,
         type: { in: voucherTypes as any },
       }}}},
     ]
