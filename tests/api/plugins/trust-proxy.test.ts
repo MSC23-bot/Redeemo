@@ -27,6 +27,14 @@ describe('resolveTrustProxy — TRUST_PROXY env mapping', () => {
     else process.env.TRUST_PROXY = env as string
     expect(resolveTrustProxy()).toEqual(expected)
   })
+
+  it.each(['yes', 'on', 'tru', 'garbage', '1.2.3', '10.0.0.0/8,nope'])(
+    'rejects an invalid value %s with a CLEAR boot error (fails closed, not silently)',
+    (env) => {
+      process.env.TRUST_PROXY = env
+      expect(() => resolveTrustProxy()).toThrow(/Invalid TRUST_PROXY/)
+    },
+  )
 })
 
 async function whoamiApp(trustProxy: boolean | number | string) {
