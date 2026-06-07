@@ -362,6 +362,9 @@ model Merchant {
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   deletedAt              DateTime?
+  // SEC-C3: seed/demo data flag. Customer-facing queries exclude isTestData=true
+  // rows (PR-4b); prisma/seed.ts marks all seeded rows true. Default false = real.
+  isTestData             Boolean            @default(false)
 
   admin                MerchantAdmin?
   branches             Branch[]
@@ -383,6 +386,7 @@ model Merchant {
   @@index([status])
   @@index([primaryCategoryId])
   @@index([primaryDescriptorTagId])
+  @@index([isTestData])
 }
 
 // ─────────────────────────────────────────
@@ -438,6 +442,8 @@ model Branch {
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  // SEC-C3: seed/demo data flag (see Merchant.isTestData).
+  isTestData    Boolean  @default(false)
 
   // Plan 4a location snapshot — see spec §3.5.
   // NOTE: `locationCountry` is the resolved NATION (England/Scotland/Wales/NI).
@@ -482,6 +488,7 @@ model Branch {
   @@index([latitude, longitude])
   @@index([isActive])
   @@index([localityId])
+  @@index([isTestData])
 }
 
 model BranchOpeningHours {
@@ -894,6 +901,8 @@ model Voucher {
   publishedAt     DateTime?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
+  // SEC-C3: seed/demo data flag (see Merchant.isTestData).
+  isTestData      Boolean        @default(false)
 
   merchant            Merchant                    @relation(fields: [merchantId], references: [id])
   redemptions         VoucherRedemption[]
@@ -907,6 +916,7 @@ model Voucher {
   @@index([approvalStatus])
   @@index([code])
   @@index([isRmv])
+  @@index([isTestData])
 }
 
 // TIME_LIMITED voucher availability windows (M4 — recurring weekly only).

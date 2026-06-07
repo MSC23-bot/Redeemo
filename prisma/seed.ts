@@ -2251,6 +2251,19 @@ async function main() {
   await recomputeTagCounts(prisma)
   console.log('✓ Recomputed merchantCountByCity for categories and tags')
 
+  // ── SEC-C3 (Gate-PR-4a): mark ALL seeded marketplace rows as test data ──
+  // The seed is the SOLE source of merchant/branch/voucher data in dev, so every
+  // row it created is demo/test data. Customer-facing APIs exclude isTestData=true
+  // (Gate-PR-4b) so this fake supply can never render as real pre-launch. Bulk
+  // updateMany is correct here because the dev DB contains only seeded rows; the
+  // seed is never run against production.
+  const [mt, bt, vt] = await Promise.all([
+    prisma.merchant.updateMany({ data: { isTestData: true } }),
+    prisma.branch.updateMany({ data: { isTestData: true } }),
+    prisma.voucher.updateMany({ data: { isTestData: true } }),
+  ])
+  console.log(`✓ Marked seed data as test: ${mt.count} merchants, ${bt.count} branches, ${vt.count} vouchers`)
+
   console.log('✅ Seed complete.')
 }
 
