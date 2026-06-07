@@ -11,7 +11,8 @@
 // (which calls useQueryClient).
 
 import React from 'react'
-import { fireEvent, render, waitFor, act } from '@testing-library/react-native'
+import { StyleSheet } from 'react-native'
+import { fireEvent, render, waitFor, act, within } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
@@ -928,8 +929,12 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     expect(idx('voucher-type-explainer')).toBeGreaterThanOrEqual(0)
     expect(idx('how-it-works')).toBeGreaterThanOrEqual(0)
 
+    // §HSH.7 — the hero (`coupon-header`) is now a pinned ABSOLUTE overlay,
+    // rendered AFTER the scroll content, so it is visually first but DOM-LAST;
+    // its visual-top position is enforced by the absolute heroOverlay style, not
+    // by DOM order. DOM order therefore pins only the in-flow body-card chain
+    // below (which is unchanged). The hero is still asserted present above.
     // Locked order (each greater-than relation pins one boundary).
-    expect(idx('redemption-details-card')).toBeGreaterThan(idx('coupon-header'))
     expect(idx('cycle-rules')).toBeGreaterThan(idx('redemption-details-card'))
     expect(idx('coupon-top-card')).toBeGreaterThan(idx('cycle-rules'))
     expect(idx('merchant-row')).toBeGreaterThan(idx('coupon-top-card'))
@@ -969,12 +974,33 @@ describe('Voucher Detail M2 — state-3 (already redeemed)', () => {
     expect(idx('voucher-type-explainer')).toBeGreaterThanOrEqual(0)
     expect(idx('how-it-works')).toBeGreaterThanOrEqual(0)
 
+    // §HSH.7 — `coupon-header` (hero) is now a pinned ABSOLUTE overlay (visually
+    // first, DOM-last); DOM order pins only the in-flow body-card chain below.
     // Locked order.
-    expect(idx('coupon-top-card')).toBeGreaterThan(idx('coupon-header'))
     expect(idx('cycle-rules')).toBeGreaterThan(idx('coupon-top-card'))
     expect(idx('merchant-row')).toBeGreaterThan(idx('cycle-rules'))
     expect(idx('voucher-type-explainer')).toBeGreaterThan(idx('merchant-row'))
     expect(idx('how-it-works')).toBeGreaterThan(idx('voucher-type-explainer'))
+  })
+
+  it('§HSH.7 — hero is a position-pinned absolute overlay (not the lagging overscroll anchor)', () => {
+    // The force-pull overscroll twitch + cream/white top-flash came from
+    // anchoring the IN-SCROLL hero with `translateY: Math.min(scrollY,0)`, a
+    // compensation transform that lags the native rubber-band. The hero is now
+    // an ABSOLUTE overlay pinned at the top (a sibling of the ScrollView), so
+    // overscroll cannot move it. Pin that structurally — a regression back to an
+    // in-flow / lagging-transform hero would drop the overlay or its absolute
+    // positioning.
+    mockVoucherData = baseVoucher({ isRedeemedThisCycle: false })
+    mockParams = { id: 'v1', branch: 'b1' }
+
+    const { getByTestId } = wrap(<VoucherDetailScreen />)
+    const overlay = getByTestId('voucher-detail-hero-overlay')
+    const flat = StyleSheet.flatten(overlay.props.style)
+    expect(flat.position).toBe('absolute')
+    expect(flat.top).toBe(0)
+    // The hero (coupon-header) lives INSIDE the pinned overlay.
+    expect(within(overlay).queryByTestId('coupon-header')).toBeTruthy()
   })
 
   it('non-redeemed renders cycle-rules exactly ONCE (not double-mounted)', () => {
