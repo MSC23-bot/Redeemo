@@ -20,10 +20,15 @@ import subscriptionPlugin from './subscription/plugin'
 import { webhookRoutes } from './subscription/webhook'
 import redemptionPlugin from './redemption/plugin'
 import customerPlugin from './customer/plugin'
+import { resolveTrustProxy } from './shared/trustProxy'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: process.env.NODE_ENV !== 'test',
+    // SEC-H2: resolve req.ip to the real client behind the hosting proxy so
+    // IP-based rate limits don't collapse onto one shared proxy bucket.
+    // Config-driven (TRUST_PROXY); defaults OFF for local dev. See trustProxy.ts.
+    trustProxy: resolveTrustProxy(),
   })
 
   // Security headers
