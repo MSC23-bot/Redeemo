@@ -2,10 +2,11 @@ import fp from 'fastify-plugin'
 import { FastifyInstance } from 'fastify'
 import jwt from '@fastify/jwt'
 import { getActiveMobileSessionId } from '../../shared/session'
+import { requireSecret } from '../../shared/env'
 
 async function customerAuthPlugin(app: FastifyInstance) {
   await app.register(jwt, {
-    secret: process.env.JWT_SECRET_CUSTOMER ?? 'dev-customer-secret',
+    secret: requireSecret('JWT_SECRET_CUSTOMER'),
     namespace: 'customer',
     jwtVerify: 'customerVerify',
     jwtSign: 'customerSign',

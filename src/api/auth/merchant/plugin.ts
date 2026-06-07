@@ -1,10 +1,11 @@
 import fp from 'fastify-plugin'
 import { FastifyInstance } from 'fastify'
 import jwt from '@fastify/jwt'
+import { requireSecret } from '../../shared/env'
 
 async function merchantAuthPlugin(app: FastifyInstance) {
   await app.register(jwt, {
-    secret: process.env.JWT_SECRET_MERCHANT ?? 'dev-merchant-secret',
+    secret: requireSecret('JWT_SECRET_MERCHANT'),
     namespace: 'merchant',
     jwtVerify: 'merchantVerify',
     jwtSign: 'merchantSign',
