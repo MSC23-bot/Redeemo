@@ -5,6 +5,9 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // Supplies deterministic TEST secrets for vars that previously had
+    // source-visible fallbacks (removed in the Security Stabilisation Gate).
+    setupFiles: ['./tests/setup.ts'],
     // cap workers to avoid hammering Neon with parallel cold connections
     maxWorkers: 4,
     coverage: {

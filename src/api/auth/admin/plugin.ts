@@ -1,10 +1,11 @@
 import fp from 'fastify-plugin'
 import { FastifyInstance } from 'fastify'
 import jwt from '@fastify/jwt'
+import { requireSecret } from '../../shared/env'
 
 async function adminAuthPlugin(app: FastifyInstance) {
   await app.register(jwt, {
-    secret: process.env.JWT_SECRET_ADMIN ?? 'dev-admin-secret',
+    secret: requireSecret('JWT_SECRET_ADMIN'),
     namespace: 'admin',
     jwtVerify: 'adminVerify',
     jwtSign: 'adminSign',

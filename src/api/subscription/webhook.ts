@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { stripe } from '../shared/stripe'
+import { requireSecret } from '../shared/env'
 import { AppError } from '../shared/errors'
 import { writeAuditLog } from '../shared/audit'
 import { resetVoucherCycleForUser } from './cycle'
@@ -13,7 +14,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
   app.post('/api/v1/stripe/webhook', async (req, reply) => {
     const sig = req.headers['stripe-signature'] as string | undefined
-    const secret = process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_placeholder'
+    const secret = requireSecret('STRIPE_WEBHOOK_SECRET')
 
     let event: ReturnType<typeof stripe.webhooks.constructEvent>
     try {
