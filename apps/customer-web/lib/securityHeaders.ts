@@ -21,7 +21,9 @@
 //   - style-src 'unsafe-inline' is unavoidable: 300+ inline style attributes +
 //     framer-motion set styles imperatively; nonces do not cover style ATTRs.
 //   - Stripe (subscribe flow): js.stripe.com (script + Elements frame),
-//     hooks.stripe.com (3DS frame), *.stripe.com (api/telemetry, connect).
+//     hooks.stripe.com + m.stripe.network (3DS / Radar frames), and
+//     *.stripe.com + m.stripe.network (api + Radar/telemetry, connect). Note
+//     m.stripe.network is a .network TLD — NOT covered by *.stripe.com.
 //   - Images: self-origin /_next/image plus the raw <img> avatar hosts (R2/S3);
 //     unsplash + placehold.co are seed/demo only and can be dropped post-scrub.
 //   - connect-src: the backend API origin (NEXT_PUBLIC_API_URL) + api.postcodes.io
@@ -37,6 +39,8 @@ export interface SecurityHeaderOptions {
   cspReportOnly: boolean
   /** ENABLE_HSTS === 'true' → emit a conservative Strict-Transport-Security (staged; default off). */
   enableHsts: boolean
+  /** HSTS max-age in seconds (HSTS_MAX_AGE). Short default for the staged ramp; raise once verified. */
+  hstsMaxAge: number
 }
 
 export interface ResponseHeader {
@@ -65,6 +69,7 @@ export function buildContentSecurityPolicy(opts: SecurityHeaderOptions): string 
   const imgSrc = [
     "'self'",
     'data:',
+    'blob:', // client-side image previews (e.g. avatar upload via createObjectURL)
     'https://*.r2.cloudflarestorage.com', // R2 — merchant/profile images (prod)
     'https://*.amazonaws.com', // S3 — merchant/profile images (prod)
     'https://images.unsplash.com', // seed/demo only — droppable post seed-scrub
@@ -75,16 +80,19 @@ export function buildContentSecurityPolicy(opts: SecurityHeaderOptions): string 
     ...(api ? [api] : []), // backend API (NEXT_PUBLIC_API_URL)
     'https://api.postcodes.io', // UK postcode lookup (registration)
     'https://*.stripe.com', // Stripe api + telemetry (api/m/r/q.stripe.com)
+    'https://m.stripe.network', // Stripe Radar/3DS telemetry (.network — not matched by *.stripe.com)
     ...(opts.isProduction ? [] : ['ws:']), // dev: Next.js HMR websocket
   ]
-  const frameSrc = ['https://js.stripe.com', 'https://hooks.stripe.com'] // Stripe Elements + 3DS
+  const frameSrc = ['https://js.stripe.com', 'https://hooks.stripe.com', 'https://m.stripe.network'] // Stripe Elements + 3DS / Radar
 
   return [
     "default-src 'self'",
     "base-uri 'self'",
     "object-src 'none'",
     "frame-ancestors 'none'", // clickjacking — the site is never framed
-    "form-action 'self'",
+    // No `form-action`: Stripe redirect-based 3DS can auto-submit a form POST to
+    // a bank ACS URL, which `form-action 'self'` would block. Re-add only after
+    // verifying the 3DS flow tolerates it.
     `script-src ${scriptSrc.join(' ')}`,
     `style-src ${styleSrc.join(' ')}`,
     `img-src ${imgSrc.join(' ')}`,
@@ -109,9 +117,10 @@ export function buildSecurityHeaders(opts: SecurityHeaderOptions): ResponseHeade
 
   if (opts.enableHsts) {
     // Staged rollout (audit-locked): only when ENABLE_HSTS=true, at custom-domain
-    // cutover. Conservative — 2y max-age, NO includeSubDomains / NO preload until
-    // every subdomain (api/admin/merchant/staging) is confirmed HTTPS-only.
-    headers.push({ key: 'Strict-Transport-Security', value: 'max-age=63072000' })
+    // cutover. max-age is env-driven (HSTS_MAX_AGE) so the ramp — short to verify,
+    // then long — is a config change, not a code change. NO includeSubDomains /
+    // NO preload until every subdomain (api/admin/merchant/staging) is HTTPS-only.
+    headers.push({ key: 'Strict-Transport-Security', value: `max-age=${opts.hstsMaxAge}` })
   }
 
   return headers

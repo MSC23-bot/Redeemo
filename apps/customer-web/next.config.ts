@@ -34,6 +34,8 @@ const nextConfig: NextConfig = {
           isProduction: process.env.NODE_ENV === 'production',
           cspReportOnly: process.env.CSP_REPORT_ONLY === 'true',
           enableHsts: process.env.ENABLE_HSTS === 'true',
+          // Staged ramp: short default to verify, raise once every subdomain is HTTPS-only.
+          hstsMaxAge: Number(process.env.HSTS_MAX_AGE) || 604800,
         }),
       },
     ]

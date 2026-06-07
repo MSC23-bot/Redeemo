@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import { buildContentSecurityPolicy, buildSecurityHeaders } from '../lib/securityHeaders'
 
-const prod = { apiUrl: 'https://api.redeemo.com', isProduction: true, cspReportOnly: false, enableHsts: false }
+const prod = { apiUrl: 'https://api.redeemo.com', isProduction: true, cspReportOnly: false, enableHsts: false, hstsMaxAge: 604800 }
 
 let passed = 0
 function check(name: string, fn: () => void): void {
@@ -29,6 +29,16 @@ check('prod connect-src has the API origin + postcodes.io + Stripe', () => {
   assert.match(csp, /connect-src[^;]*https:\/\/api\.redeemo\.com/)
   assert.match(csp, /connect-src[^;]*https:\/\/api\.postcodes\.io/)
   assert.match(csp, /connect-src[^;]*https:\/\/\*\.stripe\.com/)
+})
+
+check('Stripe Radar/3DS telemetry (m.stripe.network) allowlisted in connect-src AND frame-src', () => {
+  const csp = buildContentSecurityPolicy(prod)
+  assert.match(csp, /connect-src[^;]*https:\/\/m\.stripe\.network/)
+  assert.match(csp, /frame-src[^;]*https:\/\/m\.stripe\.network/)
+})
+
+check('no form-action directive (avoids blocking Stripe redirect-based 3DS)', () => {
+  assert.doesNotMatch(buildContentSecurityPolicy(prod), /form-action/)
 })
 
 check('connect-src uses the ORIGIN of NEXT_PUBLIC_API_URL (not the full path)', () => {
@@ -52,9 +62,10 @@ check('clickjacking: CSP frame-ancestors none + X-Frame-Options DENY', () => {
   assert.equal(buildSecurityHeaders(prod).find((h) => h.key === 'X-Frame-Options')?.value, 'DENY')
 })
 
-check('img-src allows self, data:, and the R2/S3 avatar hosts', () => {
+check('img-src allows self, data:, blob:, and the R2/S3 avatar hosts', () => {
   const csp = buildContentSecurityPolicy(prod)
   assert.match(csp, /img-src[^;]*data:/)
+  assert.match(csp, /img-src[^;]*blob:/)
   assert.match(csp, /img-src[^;]*https:\/\/\*\.r2\.cloudflarestorage\.com/)
   assert.match(csp, /img-src[^;]*https:\/\/\*\.amazonaws\.com/)
 })
@@ -78,10 +89,10 @@ check('CSP_REPORT_ONLY flips the header key to -Report-Only (no enforcing CSP)',
   assert.ok(!report.some((x) => x.key === 'Content-Security-Policy'))
 })
 
-check('HSTS is OFF by default, and conservative (no includeSubDomains/preload) when enabled', () => {
+check('HSTS off by default; when enabled, max-age is env-driven, no includeSubDomains/preload', () => {
   assert.ok(!buildSecurityHeaders(prod).some((x) => x.key === 'Strict-Transport-Security'))
-  const hsts = buildSecurityHeaders({ ...prod, enableHsts: true }).find((x) => x.key === 'Strict-Transport-Security')
-  assert.equal(hsts?.value, 'max-age=63072000')
+  const hsts = buildSecurityHeaders({ ...prod, enableHsts: true, hstsMaxAge: 31536000 }).find((x) => x.key === 'Strict-Transport-Security')
+  assert.equal(hsts?.value, 'max-age=31536000')
   assert.doesNotMatch(hsts?.value ?? '', /includeSubDomains|preload/)
 })
 
