@@ -1473,10 +1473,10 @@ describe('Popular rail — §DG location-aware ranking', () => {
 // M2.4. §DF locks the locked PLACE_QUERY > GPS > SAVED_PROFILE > null
 // precedence + the wire-envelope mapping at `resolveLocationContext`.
 //
-// Auth pattern: Discovery routes are OPEN scope; `optionalUserId()` decodes
-// the bearer token WITHOUT verifying the signature so the authenticated pins
-// just need a properly-formed JWT containing a `sub` claim. `app.jwt.customer.sign`
-// is the canonical helper (mirrors the unit-style profile.routes.test.ts pattern).
+// Auth pattern: Discovery routes are OPEN scope; `optionalUserId()` now
+// signature-verifies the bearer token (SEC-C1) so the authenticated pins need
+// a VALIDLY-SIGNED JWT with a `sub` claim. `app.jwt.customer.sign` mints one
+// with the real customer secret (mirrors the profile.routes.test.ts pattern).
 //
 // Concurrency safety: unique fixture prefixes (`df-<pin>-<ts>`) and per-pin
 // afterEach cleanup. Pins use Huddersfield/London coords; user fixtures
@@ -1494,8 +1494,8 @@ describe('§DF — effectiveLocation + locationContext envelope (spec §9.1)', (
   })
 
   // Sign a JWT for the given userId. Returns a bearer-ready string. The
-  // signature is irrelevant because Discovery uses `optionalUserId()` (decode
-  // without verify); we still use the JWT plugin for shape correctness.
+  // signature MUST be valid: `optionalUserId()` signature-verifies the token
+  // (SEC-C1), so we sign with the real customer secret via the JWT plugin.
   function signCustomerToken(userId: string): string {
     const jwtAny = app.jwt as any
     return jwtAny.customer.sign(

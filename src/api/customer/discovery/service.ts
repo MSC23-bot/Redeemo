@@ -2011,7 +2011,7 @@ export async function getCustomerMerchant(
   const avgRating   = totalCount > 0 ? Math.round((totalRating / totalCount) * 10) / 10 : null
   const reviewCount = totalCount
 
-  // isFavourited — optional-auth pattern: token decoded (not verified), not a security boundary.
+  // isFavourited — optional-auth pattern: userId is signature-verified upstream via optionalUserId() (SEC-C1), not trusted on raw decode.
   // Merchant-level (kept additively through Phase 3C.1g v1 — cleanup PR removes it).
   let isFavourited = false
   if (userId) {
