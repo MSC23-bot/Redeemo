@@ -152,7 +152,8 @@ export async function customerAuthRoutes(app: FastifyInstance) {
       const { RedisKey } = await import('../../shared/redis-keys')
       const token = generateSecureToken(32)
       await app.redis.set(RedisKey.emailVerify(token), user.id, 'EX', 86400)
-      console.info(`[dev] Resend email verify token for ${user.email}: ${token}`)
+      // TODO Phase 6: deliver the verification link via Resend. The token is never
+      // logged (SEC-H1). Dev: use prisma/set-auth-state.ts to mark verified.
     }
     return reply.send({ message: 'If your email is unverified, a new link has been sent.' })
   })

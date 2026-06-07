@@ -38,9 +38,9 @@ export async function loginAdmin(
     'EX', OTP_CHALLENGE_TTL
   )
 
-  // TODO Phase 3: send OTP via Twilio to admin's phone
-  console.info(`[dev] Admin OTP challenge for ${admin.email}: ${challenge}`)
-
+  // TODO Phase 3: send the OTP code via Twilio to admin's phone.
+  // (The session challenge is returned to the client below; the OTP code itself
+  // is never logged — SEC-H1.)
   return { status: 'OTP_REQUIRED', sessionChallenge: challenge }
 }
 
@@ -155,7 +155,8 @@ export async function forgotPasswordAdmin(
 
   const token = generateSecureToken(32)
   await redis.set(RedisKey.passwordReset('admin', token), admin.id, 'EX', 3600)
-  console.info(`[dev] Admin password reset token for ${admin.email}: ${token}`)
+  // TODO Phase 6: deliver the reset link via Resend. The token is never logged
+  // (SEC-H1). Dev: use prisma/issue-reset-token.ts to obtain a token.
 }
 
 export async function resetPasswordAdmin(

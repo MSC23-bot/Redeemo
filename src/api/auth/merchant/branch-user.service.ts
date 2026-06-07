@@ -88,7 +88,7 @@ export async function resetBranchUserPassword(
     ipAddress: string
     userAgent: string
   }
-): Promise<{ message: string }> {
+): Promise<{ message: string; temporaryPassword: string }> {
   await assertBranchOwnership(prisma, data.merchantAdminId, data.branchId)
 
   const branchUser = await prisma.branchUser.findFirst({ where: { branchId: data.branchId } })
@@ -106,8 +106,6 @@ export async function resetBranchUserPassword(
   await revokeAllUserSessionRecords(prisma, { entityId: branchUser.id, entityType: 'branch', reason: 'ADMIN_PASSWORD_RESET' })
   await redis.del(RedisKey.authBranch(branchUser.id))
 
-  console.info(`[dev] Branch user ${branchUser.email} temp password: ${tempPassword}`)
-
   writeAuditLog(prisma, {
     entityId:   data.merchantAdminId,
     entityType: 'merchant',
@@ -117,7 +115,13 @@ export async function resetBranchUserPassword(
     metadata:   { branchUserId: branchUser.id, branchId: data.branchId },
   })
 
-  return { message: 'Password reset. Branch user must set a new password on next login.' }
+  // SEC-H1: the temp password is returned to the authenticated merchant admin
+  // who owns the branch (the one-time delivery to relay to the staff member) —
+  // it is NEVER written to logs. Proper email delivery is a later comms phase.
+  return {
+    message: 'Password reset. Branch user must set a new password on next login.',
+    temporaryPassword: tempPassword,
+  }
 }
 
 export async function deactivateBranchUser(
