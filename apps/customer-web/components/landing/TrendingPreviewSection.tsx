@@ -25,6 +25,14 @@ async function getTrending(): Promise<{ city: string | null; merchants: Merchant
 
 
 export async function TrendingPreviewSection() {
+  // SEC-C3 (Gate-PR-4a): pre-launch, do not fetch or render live marketplace
+  // supply on the public landing page — otherwise seeded/demo merchants show as
+  // real. The strip (and its fetch) returns only when the marketplace is live
+  // (NEXT_PUBLIC_MARKETPLACE_LIVE === 'true', set at launch after the seed
+  // scrub). The surrounding marketing sections carry the page on their own.
+  // Mirrors the gate in apps/customer-web/middleware.ts.
+  if (process.env.NEXT_PUBLIC_MARKETPLACE_LIVE !== 'true') return null
+
   const { city, merchants } = await getTrending()
   const heading = city ? `Trending in ${city}` : 'Trending near you'
 
