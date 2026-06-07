@@ -507,32 +507,37 @@ describe('MerchantProfileScreen (M2)', () => {
   // <CollapsedHeader> sits. The header covered the sticky TabBar,
   // leaving deep-scrolled users with no tab navigation.
   //
-  // M2.1 architecture:
-  //   • TabBar moved OUT of the ScrollView, mounted as an absolute
-  //     sibling of scrollWrap with translateY driven by scrollY.
-  //   • A no-op <View testID="tab-bar-spacer"> at scroll index 3
-  //     reserves the same height TabBar would occupy in flow, so
-  //     tab-content body Y is unchanged.
-  //   • ScrollView no longer declares stickyHeaderIndices.
+  // §HSH.7(b) architecture (replaces the M2.1 worklet fake-sticky):
+  //   • The worklet-positioned absolute TabBar (translateY driven by
+  //     scrollY → wiggle) AND its no-op `tab-bar-spacer` are REMOVED.
+  //   • The real <TabBar> is now an IN-FLOW scroll child
+  //     (testID `merchant-tabbar-inline`) — scrolls natively (zero lag),
+  //     reserves its own height. A constant-position pinned CLONE
+  //     (testID `merchant-tabbar-pinned`, opacity-only, never a
+  //     scroll-driven translateY) takes over at tabPinPoint.
+  //   • ScrollView still does NOT declare stickyHeaderIndices (fallback
+  //     F keeps the faded-overlay CollapsedHeader; native sticky was
+  //     abandoned in the spike — see the §HSH.7(b) plan).
   //
   // ScrollView children are now:
   //   [0] SuspendedBranchBanner (wrapped in onLayout View for SBB-
   //       height capture)
   //   [1] HeroBannerSpacer
   //   [2] identityZone wrapper (with onLayout for fadeEnd capture)
-  //   [3] TabBarSpacer (height = measured TabBar height)
+  //   [3] in-flow TabBar (merchant-tabbar-inline, measures own height)
   //   [4] Animated.View (tab content)
-  it('does not declare stickyHeaderIndices on the ScrollView (TabBar is now floating)', async () => {
+  it('does not declare stickyHeaderIndices on the ScrollView (fallback F keeps it non-sticky)', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
     const { findByTestId } = wrap(<MerchantProfileScreen id="m1" />)
     const scroll = await findByTestId('merchant-profile-scroll')
     expect(scroll.props.stickyHeaderIndices).toBeUndefined()
   })
 
-  it('renders the in-flow tab-bar-spacer that reserves the floating TabBar height', async () => {
+  it('renders the in-flow TabBar in scroll flow (replaces the old worklet fake-sticky + tab-bar-spacer)', async () => {
     ;(merchantApi.getProfile as jest.Mock).mockResolvedValueOnce(merchant)
-    const { findByTestId } = wrap(<MerchantProfileScreen id="m1" />)
-    expect(await findByTestId('tab-bar-spacer')).toBeTruthy()
+    const { findByTestId, queryByTestId } = wrap(<MerchantProfileScreen id="m1" />)
+    expect(await findByTestId('merchant-tabbar-inline')).toBeTruthy()
+    expect(queryByTestId('tab-bar-spacer', { includeHiddenElements: true })).toBeNull()
   })
 
   // Spec §4.7 — switching branch must close any open sheets (state-preservation
