@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword, validatePasswordPolicy } from '../../shar
 import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecureToken } from '../../shared/tokens'
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
+import { assertPwdResetAllowed, recordPwdResetRequest } from '../../shared/pwdResetLimiter'
 import {
   storeRefreshToken,
   revokeAllSessionsForEntity,
@@ -396,8 +397,15 @@ export async function logoutCustomer(
 export async function forgotPasswordCustomer(
   prisma: PrismaClient,
   redis: Redis,
-  email: string
+  email: string,
+  ip?: string | null
 ): Promise<void> {
+  // SEC-H4: rate-limit BEFORE the lookup and for EVERY request, so existing and
+  // non-existing emails are treated identically (no enumeration) and both count
+  // toward the per-email / per-IP caps.
+  await assertPwdResetAllowed(redis, { email, ip })
+  await recordPwdResetRequest(redis, { email, ip })
+
   const user = await prisma.user.findUnique({ where: { email } })
   if (!user) return // no enumeration — silently return
 

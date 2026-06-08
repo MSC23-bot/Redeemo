@@ -26,6 +26,9 @@ export const ERROR_DEFINITIONS = {
   SESSION_REPLACED:               { statusCode: 401, message: 'Your account was signed in on another device, so this session has ended.' },
   RESET_TOKEN_INVALID:            { statusCode: 400, message: 'This password reset link is invalid.' },
   RESET_TOKEN_EXPIRED:            { statusCode: 400, message: 'This password reset link has expired.' },
+  // SEC-H4 (Gate-PR-8): password-reset request abuse control. details.retryAfter (seconds).
+  // Generic by design — never reveals whether the email belongs to a real account.
+  PWD_RESET_RATE_LIMITED:         { statusCode: 429, message: 'Too many password reset requests. Please try again later.' },
   MERCHANT_SUSPENDED:             { statusCode: 403, message: 'This merchant account is suspended.' },
   MERCHANT_NOT_APPROVED:          { statusCode: 403, message: 'This merchant account is not yet approved.' },
   MERCHANT_DEACTIVATED:           { statusCode: 403, message: 'This merchant account is deactivated.' },

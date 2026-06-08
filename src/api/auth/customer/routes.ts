@@ -118,7 +118,7 @@ export async function customerAuthRoutes(app: FastifyInstance) {
     config: { rateLimit: routeRateLimit('forgotPassword') },
   }, async (req, reply) => {
     const { email } = z.object({ email: emailSchema }).parse(req.body)
-    await forgotPasswordCustomer(app.prisma, app.redis, email)
+    await forgotPasswordCustomer(app.prisma, app.redis, email, req.ip)
     return reply.send({ message: 'If that email is registered, a reset link has been sent.' })
   })
 
