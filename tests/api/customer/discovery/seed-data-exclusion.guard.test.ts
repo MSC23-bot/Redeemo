@@ -216,7 +216,12 @@ describe('F5/SEC-C3 guard — unauthenticated review queries exclude seed/test d
 
   it('every review `where` filters BOTH the branch arm and the merchant arm', () => {
     const src = read(REVIEWS)
-    const merchantArm = /merchant:\s*\{\s*isTestData:\s*false\s*\}/g
+    // NON-global for the stateless `.test()` below (a `g` regex makes `.test()`
+    // carry lastIndex across blocks). A SEPARATE global copy is used only for
+    // `.replace()`, which must strip ALL merchant arms (the summary's ternary
+    // has two) so the remaining branch-level isTestData:false can be checked.
+    const merchantArm = /merchant:\s*\{\s*isTestData:\s*false\s*\}/
+    const merchantArmAll = /merchant:\s*\{\s*isTestData:\s*false\s*\}/g
     const re = /const where:\s*Prisma\.ReviewWhereInput\s*=/g
     let m: RegExpExecArray | null
     let n = 0
@@ -230,7 +235,7 @@ describe('F5/SEC-C3 guard — unauthenticated review queries exclude seed/test d
       ).toBe(true)
       // ...and a SEPARATE branch-level isTestData:false remains after removing it.
       expect(
-        /isTestData:\s*false/.test(block.replace(merchantArm, '')),
+        /isTestData:\s*false/.test(block.replace(merchantArmAll, '')),
         `${REVIEWS}: review where #${n} is missing the branch-level \`isTestData: false\`. Block:\n${block.slice(0, 240)}`,
       ).toBe(true)
     }
