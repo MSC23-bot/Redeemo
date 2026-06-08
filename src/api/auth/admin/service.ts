@@ -15,6 +15,13 @@ import { writeAuditLog } from '../../shared/audit'
 const OTP_CHALLENGE_TTL = 600
 const ACCESS_TOKEN_TTL  = '15m'
 
+// SEC F1: the admin OTP dev bypass is allowed ONLY in these explicit dev-like
+// envs. An allowlist (not `NODE_ENV !== 'production'`) so that an unset / typo'd /
+// `staging` NODE_ENV fails CLOSED — appropriate for an auth path. Real Twilio
+// Verify is not wired yet (Phase 3); until then production has NO valid code.
+const ADMIN_OTP_DEV_BYPASS_ENVS = new Set(['development', 'test'])
+const ADMIN_DEV_OTP_BYPASS_CODE = '000000'
+
 export async function loginAdmin(
   prisma: PrismaClient,
   redis: Redis,
@@ -60,8 +67,16 @@ export async function verifyAdminOtp(
   const admin = await prisma.adminUser.findUnique({ where: { id: adminId } })
   if (!admin) throw new AppError('INVALID_CREDENTIALS')
 
-  // TODO Phase 3: verify OTP via Twilio — for now accept any 6-digit code in dev
-  if (process.env.NODE_ENV !== 'development' && data.code !== '000000') {
+  // Admin OTP second factor. Real Twilio Verify is not wired yet (Phase 3), so
+  // there is no real code to check against. Until it is:
+  //   - dev/test ONLY: accept the documented bypass code so local admin QA works.
+  //   - production / staging / unset / any other env: FAIL CLOSED — no constant
+  //     code is ever accepted (closes the SEC-H4/F1 `000000` production backdoor).
+  // Phase 3 replaces this block with a real verification check.
+  if (
+    !ADMIN_OTP_DEV_BYPASS_ENVS.has(process.env.NODE_ENV ?? '') ||
+    data.code !== ADMIN_DEV_OTP_BYPASS_CODE
+  ) {
     throw new AppError('OTP_INVALID')
   }
 
