@@ -5,6 +5,7 @@ import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecu
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import { assertPwdResetAllowed, recordPwdResetRequest } from '../../shared/pwdResetLimiter'
+import { TERMS_VERSION } from '../../shared/legal'
 import {
   storeRefreshToken,
   revokeAllSessionsForEntity,
@@ -138,7 +139,7 @@ export async function registerCustomer(
       emailVerified:      false,
       phoneVerified:      false,
       status:             'ACTIVE',
-      tcConsentVersion:   '1.0',
+      tcConsentVersion:   TERMS_VERSION,
       tcConsentAt:        new Date(),
     },
   })
