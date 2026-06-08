@@ -219,6 +219,8 @@ The **static customer-web legal pages** are the launch source of truth: `apps/cu
 
 A **static guard test** (`tests/api/legal/legal-content.guard.test.ts`) fails the build if the legal pages contain placeholder markers, if the pages or the customer-app legal links use the wrong domain, or if the backend consent version drifts from the published web legal version. The guard makes this gate **enforceable**; it **cannot close it**.
 
+> **Guard scope (intentional):** the placeholder check covers the legal-document pages only — `/terms`, `/privacy`, `/cookies` — **not** `/about` or `/faq`, because those can legitimately carry non-legal marketing copy (e.g. "coming soon"). This does **not** weaken the gate: the domain check still applies to the `/about` + `/faq` **links**, and the legal-link / domain / version-parity / `CmsContent`-unwired checks all still apply. Owner/legal sign-off on the actual content remains the true launch gate.
+
 **Owner/legal must do (the true hard gate — cannot be closed by code):**
 - [ ] Provide + insert into the static pages: registered **company number**, **registered office address**, place of registration, **ICO registration reference** (register at ico.org.uk + pay the data-protection fee), **VAT number** (if registered), support/DPO contact, final **effective date** (`apps/customer-web/lib/legal.ts` → `LEGAL_EFFECTIVE_DATE`).
 - [ ] Have a **solicitor or legal-template provider** review Terms (consumer + subscription cancellation/refund — Consumer Rights Act, Consumer Contracts Regs, the DMCCA 2024 auto-renew rules for the £6.99/£69.99 plans), Privacy (UK GDPR / DPA 2018), and Cookies (PECR).
