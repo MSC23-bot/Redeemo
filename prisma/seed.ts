@@ -20,6 +20,10 @@ import {
   seedAmenities,
   seedCategoryAmenities,
   seedLocalities,
+  seedSubscriptionPlans,
+  seedRmvTemplates,
+  seedInterests,
+  seedCmsContent,
   topLevelIdByName,
   subcategoryIdByNameAndParent,
   tagIdByLabelAndType,
@@ -1563,34 +1567,7 @@ async function main() {
   console.log('Created admin user:', adminUser.email)
 
   // ── Subscription plans ──
-  const monthlyPlan = await prisma.subscriptionPlan.upsert({
-    where: { stripePriceId: 'price_monthly_dev' },
-    update: {},
-    create: {
-      name: 'Monthly',
-      description: 'Unlimited voucher redemptions, billed monthly',
-      priceGbp: 6.99,
-      billingInterval: 'MONTHLY',
-      stripePriceId: 'price_monthly_dev',
-      isActive: true,
-      sortOrder: 1,
-    },
-  })
-
-  const annualPlan = await prisma.subscriptionPlan.upsert({
-    where: { stripePriceId: 'price_annual_dev' },
-    update: {},
-    create: {
-      name: 'Annual',
-      description: 'Unlimited voucher redemptions, billed annually (~2 months free)',
-      priceGbp: 69.99,
-      billingInterval: 'ANNUAL',
-      stripePriceId: 'price_annual_dev',
-      isActive: true,
-      sortOrder: 2,
-    },
-  })
-  console.log('Created subscription plans:', monthlyPlan.name, annualPlan.name)
+  await seedSubscriptionPlans(prisma)
 
   // ── Categories + Tags + Joins (taxonomy) ──
   await seedCategories(prisma)
@@ -1627,101 +1604,10 @@ async function main() {
   }
 
   // ── RMV Templates ──
-  // Food & Drink — suitable for restaurants, cafes, bars
-  const rmvFoodTemplates = [
-    {
-      voucherType: 'BOGO' as const,
-      title: 'Buy One Get One Free',
-      description: 'Customer gets a second item free when they purchase one at full price.',
-      allowedFields: ['terms', 'expiryDate'],
-      minimumSaving: 5.00,
-    },
-    {
-      voucherType: 'DISCOUNT_PERCENT' as const,
-      title: '25% Off Your Total Bill',
-      description: 'Customer receives 25% off their total food/drink bill.',
-      allowedFields: ['terms', 'expiryDate'],
-      minimumSaving: 5.00,
-    },
-  ]
-  for (const t of rmvFoodTemplates) {
-    await prisma.rmvTemplate.upsert({
-      where: { categoryId_title: { categoryId: foodCatId, title: t.title } },
-      update: {},
-      create: { ...t, categoryId: foodCatId, isActive: true },
-    })
-  }
-
-  // Beauty & Wellness — suitable for salons, spas, nail bars
-  const rmvBeautyTemplates = [
-    {
-      voucherType: 'DISCOUNT_PERCENT' as const,
-      title: '20% Off Your First Visit',
-      description: 'New customers receive 20% off any service on their first visit.',
-      allowedFields: ['terms', 'expiryDate'],
-      minimumSaving: 5.00,
-    },
-    {
-      voucherType: 'FREEBIE' as const,
-      title: 'Free Treatment with Any Booking',
-      description: 'Customer receives a complimentary add-on treatment with any full-price booking.',
-      allowedFields: ['terms', 'expiryDate'],
-      minimumSaving: 5.00,
-    },
-  ]
-  for (const t of rmvBeautyTemplates) {
-    await prisma.rmvTemplate.upsert({
-      where: { categoryId_title: { categoryId: beautyCatId, title: t.title } },
-      update: {},
-      create: { ...t, categoryId: beautyCatId, isActive: true },
-    })
-  }
-
-  // Generic fallback templates for remaining top-level categories.
-  // Note: top-level names changed in this seed (Retail & Shopping → Shopping,
-  // Entertainment → Out & About, Professional Services → Home & Local Services).
-  const otherCats = await prisma.category.findMany({
-    where: {
-      name: { in: ['Health & Fitness', 'Shopping', 'Out & About', 'Home & Local Services'] },
-      parentId: null,
-    },
-  })
-  for (const cat of otherCats) {
-    const genericTemplates = [
-      {
-        voucherType: 'DISCOUNT_PERCENT' as const,
-        title: '20% Off',
-        description: 'Customer receives 20% off any product or service.',
-        allowedFields: ['terms', 'expiryDate'],
-        minimumSaving: 5.00,
-      },
-      {
-        voucherType: 'SPEND_AND_SAVE' as const,
-        title: 'Spend £30, Save £10',
-        description: 'Customer saves £10 when they spend £30 or more.',
-        allowedFields: ['terms', 'expiryDate'],
-        minimumSaving: 10.00,
-      },
-    ]
-    for (const t of genericTemplates) {
-      await prisma.rmvTemplate.upsert({
-        where: { categoryId_title: { categoryId: cat.id, title: t.title } },
-        update: {},
-        create: { ...t, categoryId: cat.id, isActive: true },
-      })
-    }
-  }
-  console.log('Created RMV templates')
+  await seedRmvTemplates(prisma, foodCatId, beautyCatId)
 
   // ── Interests ──
-  for (const name of ['Food & Dining', 'Beauty & Skincare', 'Fitness & Sport', 'Shopping', 'Entertainment & Events', 'Travel & Leisure', 'Health & Wellbeing', 'Professional Development']) {
-    await prisma.interest.upsert({
-      where: { name },
-      update: {},
-      create: { name, isActive: true },
-    })
-  }
-  console.log('Created interests')
+  await seedInterests(prisma)
 
   // ── Dev customer ──
   const customer = await prisma.user.upsert({
@@ -1879,14 +1765,7 @@ async function main() {
   console.log('Created dev vouchers')
 
   // ── CMS content placeholders ──
-  for (const key of ['terms_and_conditions', 'privacy_policy', 'about_us', 'help_faq']) {
-    await prisma.cmsContent.upsert({
-      where: { key },
-      update: {},
-      create: { key, content: `[${key.replace(/_/g, ' ').toUpperCase()} — to be filled by admin]` },
-    })
-  }
-  console.log('Created CMS content placeholders')
+  await seedCmsContent(prisma)
 
   // ── Test merchants exercising taxonomy descriptor + highlight scenarios ──
   await seedTaxonomyTestMerchants()
