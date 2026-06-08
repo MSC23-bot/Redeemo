@@ -2,12 +2,14 @@ import type { Prisma, PrismaClient } from '../../../generated/prisma/client'
 
 export interface RecomputeOptions {
   /**
-   * Exclude `isTestData=true` merchants from the counts.
+   * Exclude `isTestData=true` merchants AND their test/demo main branches from
+   * the counts.
    *
    * Default `false` — preserves the full-seed / dev behaviour (the seed counts
    * everything it just created). The standalone production-safe recompute runner
    * (`prisma/recompute-counts.ts`) passes `true` so the denormalized counts match
-   * the customer-facing lists, which exclude test data everywhere (SEC-C3 / F5).
+   * the customer-facing lists, which exclude test merchants AND test branches
+   * everywhere (SEC-C3 / F5).
    */
   excludeTestData?: boolean
 }
@@ -42,6 +44,19 @@ export function tagMerchantWhere(tagId: string, opts: RecomputeOptions = {}): Pr
 }
 
 /**
+ * Main-branch filter for the per-merchant city lookup. Excludes test/demo
+ * branches when `excludeTestData` is set, so a real merchant whose main branch
+ * is a test branch does NOT contribute a city count — matching discovery, which
+ * excludes test branches. Pure + exported for unit testing.
+ */
+export function mainBranchWhere(opts: RecomputeOptions = {}): Prisma.BranchWhereInput {
+  return {
+    isMainBranch: true,
+    ...(opts.excludeTestData ? { isTestData: false } : {}),
+  }
+}
+
+/**
  * Returns a city key for a merchant, derived from its main branch.
  * Branch.city is a non-null string set during merchant onboarding.
  */
@@ -66,7 +81,7 @@ export async function recomputeCategoryCounts(prisma: PrismaClient, opts: Recomp
     const merchants = await prisma.merchant.findMany({
       where: categoryMerchantWhere(cat.id, opts),
       include: {
-        branches: { where: { isMainBranch: true }, select: { city: true } },
+        branches: { where: mainBranchWhere(opts), select: { city: true } },
       },
     })
 
@@ -99,7 +114,7 @@ export async function recomputeTagCounts(prisma: PrismaClient, opts: RecomputeOp
     const merchants = await prisma.merchant.findMany({
       where: tagMerchantWhere(tag.id, opts),
       include: {
-        branches: { where: { isMainBranch: true }, select: { city: true } },
+        branches: { where: mainBranchWhere(opts), select: { city: true } },
       },
     })
 

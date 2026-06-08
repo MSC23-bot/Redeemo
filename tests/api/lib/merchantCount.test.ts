@@ -7,6 +7,7 @@ import {
   recomputeTagCounts,
   categoryMerchantWhere,
   tagMerchantWhere,
+  mainBranchWhere,
 } from '../../../src/api/lib/merchantCount'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
@@ -39,6 +40,15 @@ describe('excludeTestData where-builders', () => {
     expect((categoryMerchantWhere('c1').OR as unknown[]).length).toBe(2)
     expect((tagMerchantWhere('t1').OR as unknown[]).length).toBe(3)
     expect((tagMerchantWhere('t1', { excludeTestData: true }).OR as unknown[]).length).toBe(3)
+  })
+
+  // The main-branch city lookup must ALSO drop test branches when excludeTestData
+  // is set — otherwise a real merchant with a test main branch contributes a city
+  // count that discovery never shows.
+  it('mainBranchWhere omits isTestData by default, adds it when excludeTestData is true', () => {
+    expect(mainBranchWhere()).toEqual({ isMainBranch: true })
+    expect(mainBranchWhere({ excludeTestData: false })).toEqual({ isMainBranch: true })
+    expect(mainBranchWhere({ excludeTestData: true })).toEqual({ isMainBranch: true, isTestData: false })
   })
 })
 
