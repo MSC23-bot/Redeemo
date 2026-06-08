@@ -46,11 +46,34 @@ export function routeRateLimit(tier: keyof typeof TIERS) {
 
 async function rateLimitPlugin(app: FastifyInstance) {
   const g = RELAX ? GLOBAL.dev : GLOBAL.prod
+
+  // F2 (SEC): back the edge rate-limit store with the SHARED Redis client so the
+  // limits are shared across API instances and survive restarts/deploys. The
+  // @fastify/rate-limit default is an in-process store — per-instance and reset
+  // on every restart — which multiplies the effective limit by the instance
+  // count and wipes counters on deploy (weakening login/abuse protection).
+  //
+  // Fall back to the in-memory store when app.redis is absent — notably under
+  // NODE_ENV=test, where redisPlugin is not registered (see app.ts) — so the
+  // test suite needs no Redis.
+  //
+  // skipOnError: true — FAIL OPEN on a Redis outage. This limiter is global:true,
+  // so failing closed would error EVERY request and take the entire API down
+  // whenever Redis blips. We accept a brief un-throttled window over a full
+  // outage; auth/session flows are already Redis-dependent (logins can't complete
+  // without it), so fail-open here exposes little the outage isn't already
+  // causing. The durable per-account login lockout (F7 / SEC-M5) is the intended
+  // backstop for that window.
+  const store = app.hasDecorator('redis')
+    ? { redis: app.redis, skipOnError: true }
+    : {}
+
   await app.register(rateLimit, {
     global: true,
     max: g.max,
     timeWindow: g.timeWindow,
     keyGenerator: (req) => req.ip,
+    ...store,
   })
 
   if (RELAX) {
