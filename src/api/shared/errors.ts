@@ -11,6 +11,11 @@ export const ERROR_DEFINITIONS = {
   OTP_INVALID:                    { statusCode: 400, message: 'The code you entered is incorrect.' },
   OTP_EXPIRED:                    { statusCode: 400, message: 'This code has expired. Please request a new one.' },
   OTP_MAX_ATTEMPTS:               { statusCode: 429, message: 'Too many incorrect attempts. Please try again in 5 minutes.' },
+  // SEC-H3 (Gate-PR-7): SMS/OTP toll-fraud controls. Details may carry `retryAfter` (seconds).
+  SMS_DESTINATION_NOT_ALLOWED:    { statusCode: 400, message: "We can't send a verification code to this number." },
+  OTP_RESEND_COOLDOWN:            { statusCode: 429, message: 'Please wait a moment before requesting another code.' },
+  SMS_RATE_LIMITED:               { statusCode: 429, message: 'Too many code requests. Please try again later.' },
+  SMS_GLOBAL_LIMIT:               { statusCode: 429, message: 'Verification codes are temporarily unavailable. Please try again later.' },
   REFRESH_TOKEN_INVALID:          { statusCode: 401, message: 'Your session has expired. Please log in again.' },
   // Distinct from REFRESH_TOKEN_INVALID — fired when the previous mobile
   // session was deliberately superseded by a newer login on another

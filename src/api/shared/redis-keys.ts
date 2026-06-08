@@ -35,10 +35,19 @@ export const RedisKey = {
   // Merchant OTP session challenge
   otpChallenge:        (role: string, token: string) => `otp-challenge:${role}:${token}`,
 
-  // Rate limiting counters
-  rateLimitOtpSend:    (phone: string)            => `rl:otp:${phone}`,
-  rateLimitOtpSendUser:(userId: string)           => `rl:otp:user:${userId}`,
-  rateLimitPwdReset:   (email: string)            => `rl:pwd-reset:${email}`,
+  // Rate limiting counters.
+  // SEC-H3 (Gate-PR-7): per-phone keys take a HASHED phone (see smsLimiter.hashPhone)
+  // so raw phone numbers never appear in Redis key listings or logs.
+  rateLimitOtpSend:        (phoneHash: string)        => `rl:otp:${phoneHash}`,         // per-phone hourly
+  rateLimitOtpSendDay:     (phoneHash: string)        => `rl:otp:day:${phoneHash}`,     // per-phone daily
+  rateLimitOtpSendUser:    (userId: string)           => `rl:otp:user:${userId}`,       // per-user hourly
+  rateLimitOtpSendUserDay: (userId: string)           => `rl:otp:user:day:${userId}`,   // per-user daily
+  rateLimitOtpIp:          (ip: string)               => `rl:otp:ip:${ip}`,             // per-IP hourly
+  rateLimitOtpIpDay:       (ip: string)               => `rl:otp:ip:day:${ip}`,         // per-IP daily
+  rateLimitOtpCooldown:    (phoneHash: string)        => `rl:otp:cooldown:${phoneHash}`,// per-phone resend cooldown
+  rateLimitSmsGlobalDay:   ()                         => `rl:sms:global:day`,           // global daily circuit-breaker
+  rateLimitBranchPinDay:   (branchId: string)         => `rl:sms:branchpin:day:${branchId}`, // per-branch PIN daily
+  rateLimitPwdReset:       (email: string)            => `rl:pwd-reset:${email}`,
 
   // PIN brute-force counter — keyed per (userId, branchId) so failures at one branch
   // don't block the user at a different branch

@@ -10,13 +10,17 @@ vi.mock('../../../src/api/shared/otp', async () => {
     ...actual,
     sendOtp: vi.fn().mockResolvedValue(undefined),
     verifyOtp: vi.fn().mockResolvedValue({ success: true, locked: false, attemptsRemaining: 3 }),
-    checkOtpRateLimit: vi.fn().mockResolvedValue(true),
-    recordOtpSend: vi.fn().mockResolvedValue(undefined),
-    checkOtpUserRateLimit: vi.fn().mockResolvedValue(true),
-    recordOtpUserSend: vi.fn().mockResolvedValue(undefined),
     clearOtpAttempts: vi.fn().mockResolvedValue(undefined),
   }
 })
+
+// SEC-H3 (Gate-PR-7): the SMS toll-fraud limiter is mocked so these route tests
+// don't exercise Redis-backed limits; the limiter logic is covered by
+// tests/api/shared/sms-limiter.test.ts.
+vi.mock('../../../src/api/shared/smsLimiter', () => ({
+  assertSmsSendAllowed: vi.fn().mockResolvedValue(undefined),
+  recordSmsSend: vi.fn().mockResolvedValue(undefined),
+}))
 
 const DEVICE = {
   deviceId:   '550e8400-e29b-41d4-a716-446655440000',
@@ -366,9 +370,10 @@ describe('customer auth routes', () => {
     expect(JSON.parse(res.body).error.code).toBe('PHONE_ALREADY_EXISTS')
   })
 
-  it('POST /verify-phone/send returns 429 when per-user OTP rate limit is exceeded', async () => {
-    const otp = await import('../../../src/api/shared/otp')
-    ;(otp.checkOtpUserRateLimit as any).mockResolvedValueOnce(false)
+  it('POST /verify-phone/send returns 429 when the SMS rate limit is exceeded', async () => {
+    const { AppError } = await import('../../../src/api/shared/errors')
+    const sms = await import('../../../src/api/shared/smsLimiter')
+    ;(sms.assertSmsSendAllowed as any).mockRejectedValueOnce(new AppError('SMS_RATE_LIMITED'))
 
     app.prisma.user.findUnique = vi.fn().mockResolvedValue({
       id: 'u1', phone: '+447700900000', phoneVerified: false,
@@ -381,7 +386,7 @@ describe('customer auth routes', () => {
       headers: { authorization: `Bearer ${customerToken}` },
     })
     expect(res.statusCode).toBe(429)
-    expect(JSON.parse(res.body).error.code).toBe('OTP_MAX_ATTEMPTS')
+    expect(JSON.parse(res.body).error.code).toBe('SMS_RATE_LIMITED')
   })
 
   // ── Verify phone — confirm ────────────────────────────────────────────────

@@ -190,7 +190,8 @@ export async function sendPhoneVerification(
   prisma: PrismaClient,
   redis: Redis,
   userId: string,
-  phoneOverride?: string
+  phoneOverride?: string,
+  ip?: string | null
 ): Promise<{ message: string; phone: string }> {
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) throw new AppError('INVALID_CREDENTIALS')
@@ -209,19 +210,16 @@ export async function sendPhoneVerification(
     if (existing && existing.id !== userId) throw new AppError('PHONE_ALREADY_EXISTS')
   }
 
-  // Rate limits: per-destination (anti-spam on a single number) AND per-user
-  // (closes the number-swapping bypass — swapping numbers still counts against the user budget).
-  const { checkOtpRateLimit, recordOtpSend, checkOtpUserRateLimit, recordOtpUserSend, sendOtp } =
-    await import('../../shared/otp')
+  // SEC-H3 (Gate-PR-7): toll-fraud controls — country allowlist + per-phone/user/IP
+  // hourly+daily caps + resend cooldown + global circuit-breaker. Count the attempt
+  // before the send (Twilio bills attempts).
+  const { assertSmsSendAllowed, recordSmsSend } = await import('../../shared/smsLimiter')
+  const { sendOtp } = await import('../../shared/otp')
 
-  const [destAllowed, userAllowed] = await Promise.all([
-    checkOtpRateLimit(redis, phone),
-    checkOtpUserRateLimit(redis, userId),
-  ])
-  if (!destAllowed || !userAllowed) throw new AppError('OTP_MAX_ATTEMPTS')
-
+  const smsCtx = { phone, userId, ip: ip ?? null, scope: 'otp' as const }
+  await assertSmsSendAllowed(redis, smsCtx)
+  await recordSmsSend(redis, smsCtx)
   await sendOtp(phone)
-  await Promise.all([recordOtpSend(redis, phone), recordOtpUserSend(redis, userId)])
 
   // Pending-phone Redis key commits the destination; confirm flips user.phone to this value on success
   await redis.set(RedisKey.phoneVerifyPending(userId), phone, 'EX', 600)

@@ -184,7 +184,7 @@ export async function branchRoutes(app: FastifyInstance) {
   // POST /api/v1/merchant/branches/:id/pin/send — send PIN to branch staff via SMS / email
   app.post(`${prefix}/:id/pin/send`, async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
-    const result = await sendBranchPin(app.prisma, req.user.sub, id, {
+    const result = await sendBranchPin(app.prisma, app.redis, req.user.sub, id, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     })
     return reply.send(result)

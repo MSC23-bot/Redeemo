@@ -1,4 +1,5 @@
 import { PrismaClient } from '../../../../generated/prisma/client'
+import type Redis from 'ioredis'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
 import { resolveAdminMerchant } from '../shared'
@@ -493,6 +494,7 @@ export async function setBranchPin(
 
 export async function sendBranchPin(
   prisma: PrismaClient,
+  redis: Redis,
   adminId: string,
   branchId: string,
   ctx: { ipAddress: string; userAgent: string }
@@ -507,16 +509,24 @@ export async function sendBranchPin(
 
   const pin = decrypt(branch.redemptionPin)
 
-  // SMS via Twilio (fire-and-forget — errors are logged, not thrown)
+  // SMS via Twilio — SEC-H3 (Gate-PR-7): toll-fraud controls (E.164 check +
+  // country allowlist + per-phone/IP/branch caps + cooldown + global circuit-
+  // breaker). branch.phone MUST be stored as E.164 (+44…) — a non-E.164 number
+  // is rejected with SMS_DESTINATION_NOT_ALLOWED, never silently sent. The send
+  // is AWAITED so the rate-limit recording + the route response reflect the
+  // actual attempt.
   if (branch.phone) {
-    import('twilio').then(({ default: twilio }) => {
-      const client = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
-      client.messages.create({
-        to:   branch.phone!,
-        from: process.env.TWILIO_FROM_NUMBER!,
-        body: `Your Redeemo branch PIN for ${branch.name} is: ${pin}. Keep this secure.`,
-      }).catch((err: unknown) => console.error('[pin-send] SMS failed:', err))
-    }).catch((err: unknown) => console.error('[pin-send] Twilio import failed:', err))
+    const { assertSmsSendAllowed, recordSmsSend } = await import('../../shared/smsLimiter')
+    const smsCtx = { phone: branch.phone, ip: ctx.ipAddress, scope: 'branchPin' as const, branchId }
+    await assertSmsSendAllowed(redis, smsCtx)
+    await recordSmsSend(redis, smsCtx)
+    const { default: twilio } = await import('twilio')
+    const client = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
+    await client.messages.create({
+      to:   branch.phone,
+      from: process.env.TWILIO_FROM_NUMBER!,
+      body: `Your Redeemo branch PIN for ${branch.name} is: ${pin}. Keep this secure.`,
+    })
   }
 
   // Email via Resend (Phase 3 — log for now)
