@@ -35,24 +35,25 @@ export function requireReferenceSeedOptIn(env: EnvLike): void {
  * the value (it can contain credentials). Returns the (trimmed) URL on success.
  */
 export function requireDatabaseUrl(env: EnvLike): string {
+  // Caller-neutral messages: this helper is shared (reference seed + recompute
+  // runner), so it does not name a specific caller.
   const url = env.DATABASE_URL?.trim()
   if (!url) {
-    throw new Error('DATABASE_URL is not set. The reference seed requires a target database connection string.')
+    throw new Error('DATABASE_URL is not set. A target database connection string is required.')
   }
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
-    throw new Error('DATABASE_URL is not a valid connection URL. Refusing to run the reference seed.')
+    throw new Error('DATABASE_URL is not a valid connection URL. Refusing.')
   }
   if (parsed.protocol !== 'postgresql:' && parsed.protocol !== 'postgres:') {
     throw new Error(
-      'DATABASE_URL must be a postgres connection URL (postgresql:// or postgres://). ' +
-        'Refusing to run the reference seed.',
+      'DATABASE_URL must be a postgres connection URL (postgresql:// or postgres://). Refusing.',
     )
   }
   if (!parsed.hostname) {
-    throw new Error('DATABASE_URL has no database host. Refusing to run the reference seed.')
+    throw new Error('DATABASE_URL has no database host. Refusing.')
   }
   return url
 }

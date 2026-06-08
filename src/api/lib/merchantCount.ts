@@ -1,4 +1,45 @@
-import type { PrismaClient } from '../../../generated/prisma/client'
+import type { Prisma, PrismaClient } from '../../../generated/prisma/client'
+
+export interface RecomputeOptions {
+  /**
+   * Exclude `isTestData=true` merchants from the counts.
+   *
+   * Default `false` — preserves the full-seed / dev behaviour (the seed counts
+   * everything it just created). The standalone production-safe recompute runner
+   * (`prisma/recompute-counts.ts`) passes `true` so the denormalized counts match
+   * the customer-facing lists, which exclude test data everywhere (SEC-C3 / F5).
+   */
+  excludeTestData?: boolean
+}
+
+/**
+ * Merchant filter for a category's count. Pure + exported so the `excludeTestData`
+ * behaviour is unit-testable without a database. With the default options this
+ * returns exactly the filter the seed has always used.
+ */
+export function categoryMerchantWhere(categoryId: string, opts: RecomputeOptions = {}): Prisma.MerchantWhereInput {
+  return {
+    OR: [
+      { primaryCategoryId: categoryId },
+      { categories: { some: { categoryId } } },
+    ],
+    status: 'ACTIVE',
+    ...(opts.excludeTestData ? { isTestData: false } : {}),
+  }
+}
+
+/** Merchant filter for a tag's count (primary descriptor / tag join / highlight join). Pure + exported. */
+export function tagMerchantWhere(tagId: string, opts: RecomputeOptions = {}): Prisma.MerchantWhereInput {
+  return {
+    OR: [
+      { primaryDescriptorTagId: tagId },
+      { tags: { some: { tagId } } },
+      { highlights: { some: { highlightTagId: tagId } } },
+    ],
+    status: 'ACTIVE',
+    ...(opts.excludeTestData ? { isTestData: false } : {}),
+  }
+}
 
 /**
  * Returns a city key for a merchant, derived from its main branch.
@@ -17,19 +58,13 @@ function cityFor(branch: { city: string } | null): string | null {
  * this ever becomes hot-path (e.g. on every merchant write), rewrite as a
  * single SQL aggregate keyed on Branch.city (GROUP BY) and a bulk update.
  */
-export async function recomputeCategoryCounts(prisma: PrismaClient): Promise<void> {
+export async function recomputeCategoryCounts(prisma: PrismaClient, opts: RecomputeOptions = {}): Promise<void> {
   const categories = await prisma.category.findMany({ select: { id: true } })
 
   for (const cat of categories) {
     // Count merchants per city for this category
     const merchants = await prisma.merchant.findMany({
-      where: {
-        OR: [
-          { primaryCategoryId: cat.id },
-          { categories: { some: { categoryId: cat.id } } },
-        ],
-        status: 'ACTIVE',
-      },
+      where: categoryMerchantWhere(cat.id, opts),
       include: {
         branches: { where: { isMainBranch: true }, select: { city: true } },
       },
@@ -56,20 +91,13 @@ export async function recomputeCategoryCounts(prisma: PrismaClient): Promise<voi
  * recompute (262 tags). If made hot-path, batch into one SQL aggregate keyed
  * on Branch.city and a bulk update (same shape as recomputeCategoryCounts).
  */
-export async function recomputeTagCounts(prisma: PrismaClient): Promise<void> {
+export async function recomputeTagCounts(prisma: PrismaClient, opts: RecomputeOptions = {}): Promise<void> {
   const tags = await prisma.tag.findMany({ select: { id: true } })
 
   for (const tag of tags) {
     // Tag is carried via either MerchantTag or MerchantHighlight or Merchant.primaryDescriptorTagId
     const merchants = await prisma.merchant.findMany({
-      where: {
-        OR: [
-          { primaryDescriptorTagId: tag.id },
-          { tags: { some: { tagId: tag.id } } },
-          { highlights: { some: { highlightTagId: tag.id } } },
-        ],
-        status: 'ACTIVE',
-      },
+      where: tagMerchantWhere(tag.id, opts),
       include: {
         branches: { where: { isMainBranch: true }, select: { city: true } },
       },
