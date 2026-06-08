@@ -13,8 +13,9 @@ import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import * as crypto from 'crypto'
 import { encrypt } from '../src/api/shared/encryption'
+import { requireSeedEncryptionKey } from './seed-data/requireEncryptionKey'
 
-process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
+requireSeedEncryptionKey() // F8: require the REAL ENCRYPTION_KEY (no repo-public fallback) before encrypting branch PINs
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })

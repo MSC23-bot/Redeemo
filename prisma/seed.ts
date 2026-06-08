@@ -1,3 +1,5 @@
+import 'dotenv/config' // F8: load .env so ENCRYPTION_KEY / DATABASE_URL are available regardless of invocation
+import { requireSeedEncryptionKey } from './seed-data/requireEncryptionKey'
 import { PrismaClient, TagType, TagCreatedBy, VoucherType } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import * as crypto from 'crypto'
@@ -22,7 +24,7 @@ import { findOrCreateLocality } from '../src/api/lib/findOrCreateLocality'
 import { DEMO_MERCHANT_ENRICHMENT, DEV_QA_PIN, REAL_MERCHANT_PIN_BRANCH_IDS } from './seed-data/demoMerchantEnrichment'
 import { FEATURED_MERCHANT_FIXTURES, CAMPAIGN_FIXTURES } from './seed-data/homeFeedFixtures'
 
-process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'a'.repeat(64)
+requireSeedEncryptionKey() // F8: require the REAL ENCRYPTION_KEY (no repo-public fallback) before encrypting branch PINs
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
