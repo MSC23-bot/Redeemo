@@ -29,6 +29,28 @@ export function requireReferenceSeedOptIn(env: EnvLike): void {
   }
 }
 
+/**
+ * The target DATABASE_URL must be set, parseable, and have a host. FAIL CLOSED
+ * before the Prisma adapter / client is constructed. Error messages never echo
+ * the value (it can contain credentials). Returns the (trimmed) URL on success.
+ */
+export function requireDatabaseUrl(env: EnvLike): string {
+  const url = env.DATABASE_URL?.trim()
+  if (!url) {
+    throw new Error('DATABASE_URL is not set. The reference seed requires a target database connection string.')
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error('DATABASE_URL is not a valid connection URL. Refusing to run the reference seed.')
+  }
+  if (!parsed.hostname) {
+    throw new Error('DATABASE_URL has no database host. Refusing to run the reference seed.')
+  }
+  return url
+}
+
 /** Host + database name from DATABASE_URL, with credentials removed. Never throws. */
 export function redactedTarget(databaseUrl: string | undefined): string {
   if (!databaseUrl) return '(DATABASE_URL not set)'

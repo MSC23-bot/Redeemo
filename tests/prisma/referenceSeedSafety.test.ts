@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   requireReferenceSeedOptIn,
+  requireDatabaseUrl,
   redactedTarget,
   requireReferenceSeedConfirm,
   resolveReferenceStripePriceIds,
@@ -22,6 +23,30 @@ describe('referenceSeedSafety (PR2b) — fail-closed gates', () => {
       expect(() => requireReferenceSeedOptIn({ ALLOW_REFERENCE_SEED: '1' })).toThrow(/ALLOW_REFERENCE_SEED/)
       expect(() => requireReferenceSeedOptIn({ ALLOW_REFERENCE_SEED: 'TRUE' })).toThrow(/ALLOW_REFERENCE_SEED/)
       expect(() => requireReferenceSeedOptIn({ ALLOW_REFERENCE_SEED: 'true' })).not.toThrow()
+    })
+  })
+
+  describe('requireDatabaseUrl', () => {
+    it('throws on missing / blank DATABASE_URL', () => {
+      expect(() => requireDatabaseUrl({})).toThrow(/DATABASE_URL is not set/)
+      expect(() => requireDatabaseUrl({ DATABASE_URL: '   ' })).toThrow(/DATABASE_URL is not set/)
+    })
+    it('throws on an unparseable DATABASE_URL', () => {
+      expect(() => requireDatabaseUrl({ DATABASE_URL: 'not a url' })).toThrow(/not a valid connection URL/)
+    })
+    it('throws on a URL with no host', () => {
+      expect(() => requireDatabaseUrl({ DATABASE_URL: 'postgresql:///neondb' })).toThrow(/no database host/)
+    })
+    it('does NOT echo the connection string (no credential leak) on failure', () => {
+      try {
+        requireDatabaseUrl({ DATABASE_URL: 'not a url' })
+      } catch (e) {
+        expect(String((e as Error).message)).not.toContain('not a url')
+      }
+    })
+    it('returns the trimmed URL when valid', () => {
+      const url = 'postgresql://user:secret@db.example.neon.tech/neondb?sslmode=require'
+      expect(requireDatabaseUrl({ DATABASE_URL: `  ${url}  ` })).toBe(url)
     })
   })
 

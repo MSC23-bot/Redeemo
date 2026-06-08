@@ -44,4 +44,19 @@ describe.runIf(hasDb)('referenceWriteGuard — bounded integration (real client,
     const n = await (guarded as PrismaClient).category.count()
     expect(typeof n).toBe('number')
   })
+
+  // Proves the runtime hook lets an ALLOWED (and tricky-cased) write THROUGH: the
+  // empty payload is rejected by Prisma's CLIENT-SIDE validation (required fields
+  // missing), NOT by the guard — so nothing is written, and we confirm the guard
+  // did not block CmsContent / RmvTemplate (the PascalCase allow-list matches).
+  it('does NOT guard-block allowed-model writes (cmsContent / rmvTemplate reach Prisma validation)', async () => {
+    for (const attempt of [
+      () => (guarded as PrismaClient).cmsContent.create({ data: {} as never }),
+      () => (guarded as PrismaClient).rmvTemplate.create({ data: {} as never }),
+    ]) {
+      const err = await attempt().then(() => null).catch((e: unknown) => e)
+      expect(err, 'empty create should be rejected (by Prisma validation, not the DB)').toBeInstanceOf(Error)
+      expect(String((err as Error).message), 'the guard must NOT block an allow-listed write').not.toMatch(/reference-seed-guard/)
+    }
+  })
 })

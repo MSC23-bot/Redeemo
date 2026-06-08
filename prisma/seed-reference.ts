@@ -36,6 +36,7 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import { referenceWriteGuard } from './seed-data/referenceWriteGuard'
 import {
   requireReferenceSeedOptIn,
+  requireDatabaseUrl,
   redactedTarget,
   requireReferenceSeedConfirm,
   resolveReferenceStripePriceIds,
@@ -61,8 +62,9 @@ import { seedMarkets } from './seed-data/markets'
 async function main() {
   // ── Safety gates (all fail closed, before any database connection) ──
   requireReferenceSeedOptIn(process.env)
+  const databaseUrl = requireDatabaseUrl(process.env) // fail closed on missing/unparseable BEFORE building the client
 
-  const target = redactedTarget(process.env.DATABASE_URL)
+  const target = redactedTarget(databaseUrl)
   console.log('────────────────────────────────────────────────────────')
   console.log('  Redeemo REFERENCE seed (reference/config data only)')
   console.log(`  Target database: ${target}`)
@@ -72,7 +74,7 @@ async function main() {
   const stripePriceIds = resolveReferenceStripePriceIds(process.env)
 
   // ── Guarded client: default-deny on any non-reference write ──
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
+  const adapter = new PrismaPg({ connectionString: databaseUrl })
   const base = new PrismaClient({ adapter })
   // The extension changes the client's type; the reference phases are typed
   // `(prisma: PrismaClient)`. The cast is type-only — at runtime the guard hook
