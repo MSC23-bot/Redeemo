@@ -1567,7 +1567,12 @@ async function main() {
   console.log('Created admin user:', adminUser.email)
 
   // ── Subscription plans ──
-  await seedSubscriptionPlans(prisma)
+  // Dev seed uses the dev placeholder price ids. The production-safe reference
+  // seed (prisma/seed-reference.ts) passes REAL env-validated Stripe price ids.
+  await seedSubscriptionPlans(prisma, {
+    monthlyPriceId: 'price_monthly_dev',
+    annualPriceId: 'price_annual_dev',
+  })
 
   // ── Categories + Tags + Joins (taxonomy) ──
   await seedCategories(prisma)

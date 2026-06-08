@@ -6,10 +6,11 @@
 
 > **Open dependency:** the API host (Railway vs Render) is still an owner decision. This runbook is written platform-agnostically; wherever it says "set env var X," do it in that platform's project settings (and in Vercel for customer-web). The exact `TRUST_PROXY` hop count depends on the chosen host + any edge (e.g. Cloudflare) — see §2.
 
-> ## ⛔ TWO OPEN PRE-LAUNCH TASKS (must be resolved before going live)
-> These are **not yet solved** anywhere in the codebase. Do not treat the launch sequence as complete until both exist:
-> 1. **A production-safe reference-data seed/import path** that loads ONLY categories / tags / localities — **never the full demo seed** (which also creates demo merchants and, after F8, refuses to run with `NODE_ENV=production`). See §4 step 2 and §8.
-> 2. **A standalone recompute-count runner** to run after any seed/test scrub, so category/tag merchant counts don't include removed seed merchants. The recompute helpers exist but are currently only invoked *by the seed*. See §4 step 4.
+> ## ⛔ ONE OPEN PRE-LAUNCH TASK (must be resolved before going live)
+> 1. ✅ **RESOLVED (PR2b) — production-safe reference-data seed.** `prisma/seed-reference.ts` loads ONLY reference/config data (taxonomy / localities / markets / subscription plans / CMS placeholders), **never** demo merchants, and is safe with `NODE_ENV=production`. A default-deny write guard blocks any non-reference write. See §4 step 2 and §8.
+> 2. 🔴 **OPEN — a standalone recompute-count runner** to run after any seed/test scrub, so category/tag merchant counts don't include removed seed merchants. The recompute helpers exist but are currently only invoked *by the seed*. See §4 step 4.
+>
+> **HARD LAUNCH GATE (not a task above, but blocks go-live):** the reference seed writes CMS keys with **placeholder** legal copy — real Terms / Privacy / legal content MUST be filled before launch (§4 step 2, §9).
 
 ---
 
@@ -98,7 +99,14 @@ Generate the JWT/ENCRYPTION secrets with the `randomBytes` command above. **Avoi
 Run **in this exact order**. Keep `NEXT_PUBLIC_MARKETPLACE_LIVE=false` until the very end.
 
 1. **Apply DB migrations** to prod: `prisma migrate deploy` (the `isTestData` migration and all others are additive — safe, no drops).
-2. **Ensure reference data exists** (categories, tags, localities). 🔴 **OPEN PRE-LAUNCH TASK #1 (unsolved):** the full seed both seeds reference data *and* creates demo merchants, and after F8 it refuses to run with `NODE_ENV=production`. Production must **not** run the full seed. You need a **production-safe reference-only seed/import path** (categories/tags/localities, no demo supply). Build/resolve this before launch.
+2. **Seed reference data** (categories, tags, localities, markets, subscription plans, CMS placeholders) via the production-safe reference seed — ✅ **RESOLVED (PR2b):**
+   ```bash
+   ALLOW_REFERENCE_SEED=true \
+   REFERENCE_SEED_CONFIRM=<target-db-host-or-name> \
+   STRIPE_PRICE_ID_MONTHLY=price_… STRIPE_PRICE_ID_ANNUAL=price_… \
+   npx tsx prisma/seed-reference.ts
+   ```
+   Loads ONLY reference/config data (**never** demo merchants), is safe with `NODE_ENV=production`, and needs **no `ENCRYPTION_KEY`**. It prints the redacted target DB and refuses to run unless `ALLOW_REFERENCE_SEED=true` **and** `REFERENCE_SEED_CONFIRM` matches the printed target (guards against the wrong DB). A default-deny Prisma write guard throws on any non-reference write. Stripe price ids must be **REAL** — it rejects `price_monthly_dev` / placeholder / malformed values (fail closed). The catchment/markets step can be slow (one-time). 🔴 **HARD LAUNCH GATE:** CMS keys are seeded with **placeholder** content — real Terms / Privacy / legal copy MUST be filled in before launch (§9). Do **not** run the full dev/demo seed in production (§8).
 3. **Scrub any seed/test supply** from prod (only if any exists): delete every `isTestData=true` Merchant/Branch/Voucher **and their dependents**, including seed **reviews** (F5 excludes them at read time, but the launch contract is to physically remove them). Do this inside a transaction, **take a backup first** (§7), and follow FK order (reviews/redemptions → vouchers/branches → merchant). Best practice: **prod should never have contained demo merchants** — if step 2 is reference-only, there is nothing to scrub.
 4. **Recompute denormalized counts** after any scrub: run the category/tag count recompute (`recomputeCategoryCounts` / `recomputeTagCounts`) so `AllCategories` counts don't include removed seed merchants. 🔴 **OPEN PRE-LAUNCH TASK #2 (unsolved):** these helpers are currently only invoked *by the seed* — running them standalone in prod needs a **small one-off recompute runner**. Build this before launch.
 5. **Confirm the backend excludes seed data regardless of the flag** (defense-in-depth — already shipped): even if a seed row slipped through, discovery/search/reviews exclude `isTestData=true`. This is a safety net, not a substitute for steps 3–4.
@@ -148,8 +156,9 @@ The customer-web CSP is **enforcing by default**, tuned for Stripe + self-hosted
 
 ## 8. Seed script rules (after F8)
 
-> ⚠️ **Do NOT run the full demo seed (`prisma/seed.ts` or `prisma/seed-demo.ts`) against production.** Production gets reference data only, via the (still-open) reference-only path in §4 step 2.
+> ⚠️ **Do NOT run the full dev/demo seed (`prisma/seed.ts` or `prisma/seed-demo.ts`) against production.** Production gets reference data only, via the production-safe reference seed `prisma/seed-reference.ts` (§4 step 2).
 
+- **Reference seed (`prisma/seed-reference.ts`) is the ONLY seed allowed near production.** It writes only reference/config models (enforced by a default-deny Prisma write guard — taxonomy / localities / catchment / markets / subscription plans / RMV templates / interests / CMS), requires `ALLOW_REFERENCE_SEED=true` plus a matching `REFERENCE_SEED_CONFIRM`, requires REAL Stripe price ids (rejects dev/placeholder), needs **no** `ENCRYPTION_KEY`, and creates **no** demo data. It does **not** recompute denormalized counts (that is the standalone recompute runner, §4 step 4 / Task #2).
 - **A real `ENCRYPTION_KEY` is now required** to run any seed — the repo-public fallback is gone. The dev's `.env` must contain the real key (the same one the app uses), or the seed fails fast with a clear message.
 - **Never seed production.** The seed refuses to run with `NODE_ENV=production` (defense-in-depth), and the real protection is that it requires a valid key anyway.
 - **Re-seed dev safely:** with the real `ENCRYPTION_KEY` in `.env`, run `npx prisma db seed`. **One-time action recommended now:** re-seed dev so any branch PINs previously encrypted with the old `'a'×64` fallback are regenerated with the real key (they're currently undecryptable by the real-key app).
@@ -196,4 +205,4 @@ Track these. **None gates public exposure as long as the related feature stays d
 
 ---
 
-*This is a living document. Update it whenever an env var, control, or launch step changes. The two 🔴 open pre-launch tasks in §4 must be closed before production go-live.*
+*This is a living document. Update it whenever an env var, control, or launch step changes. The one 🔴 open pre-launch task in §4 (the standalone recompute-count runner) plus the CMS legal-content launch gate must be closed before production go-live.*
