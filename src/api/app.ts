@@ -21,6 +21,7 @@ import { webhookRoutes } from './subscription/webhook'
 import redemptionPlugin from './redemption/plugin'
 import customerPlugin from './customer/plugin'
 import { resolveTrustProxy } from './shared/trustProxy'
+import { smsCountryCodeConfigWarning } from './shared/smsLimiter'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -41,6 +42,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   }
   await app.register(corsPlugin)
   await app.register(rateLimitPlugin)
+
+  // F4 (SEC): surface SMS_ALLOWED_COUNTRY_CODES typos at boot so an operator sees
+  // e.g. "+4" was dropped (not silently degraded to the UK fallback). One-time,
+  // backend-only; no-op when the config is clean or unset.
+  const smsAllowlistWarning = smsCountryCodeConfigWarning()
+  if (smsAllowlistWarning) app.log.warn(`[sms] ${smsAllowlistWarning}`)
 
   // Global error handler — must be set before route plugins so it covers their scope
   app.setErrorHandler((error: FastifyError | AppError | Error, _req, reply) => {

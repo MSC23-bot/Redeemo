@@ -17,7 +17,11 @@ vi.mock('../../../src/api/shared/otp', async () => {
 // SEC-H3 (Gate-PR-7): the SMS toll-fraud limiter is mocked so these route tests
 // don't exercise Redis-backed limits; the limiter logic is covered by
 // tests/api/shared/sms-limiter.test.ts.
-vi.mock('../../../src/api/shared/smsLimiter', () => ({
+// Keep the module's real (pure) exports — e.g. smsCountryCodeConfigWarning, which
+// app.ts calls at boot (F4) — and override only the two Redis-touching functions
+// so these route tests don't exercise the Redis-backed limiter.
+vi.mock('../../../src/api/shared/smsLimiter', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/shared/smsLimiter')>()),
   assertSmsSendAllowed: vi.fn().mockResolvedValue(undefined),
   recordSmsSend: vi.fn().mockResolvedValue(undefined),
 }))

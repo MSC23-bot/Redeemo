@@ -23,21 +23,56 @@ import crypto from 'node:crypto'
 import type Redis from 'ioredis'
 import { AppError } from './errors'
 import { RedisKey } from './redis-keys'
+import { isAssignedCallingCode } from './countryCallingCodes'
 
 // RATE_LIMIT_RELAX only takes effect outside production (mirrors plugins/rate-limit.ts).
 const RELAX = process.env.RATE_LIMIT_RELAX === 'true' && process.env.NODE_ENV !== 'production'
 
 // ── Country allowlist — env-driven, default UK. NEVER relaxed by RATE_LIMIT_RELAX. ──
-// A valid prefix is '+' followed by at least one digit (e.g. +44, +447). A bare
-// '+', empty entries, or garbage are dropped — so a typo (e.g. "+") can never
-// allow ALL destinations. If the configured list yields no valid prefix, fall
-// back to the UK default (never allow-all, never block-all on a misconfig).
-export function allowedSmsCountryCodes(): string[] {
-  const parsed = (process.env.SMS_ALLOWED_COUNTRY_CODES ?? '')
+// Each entry MUST be a COMPLETE assigned E.164 country code (e.g. +44, +353, +1).
+// The allowlist matches destinations by prefix, so a PARTIAL like "+4" — which is
+// not a real country code — would match the entire +40…+49 region; partials,
+// bare "+", and garbage are therefore dropped (F4 — see countryCallingCodes.ts).
+// If the configured list yields no valid code, fall back to the UK default
+// (never allow-all, never block-all on a misconfig).
+//
+// NOTE: this is a single SHARED allowlist for every SMS path (customer OTP +
+// branch PIN). Future route-specific policy — merchant/business SMS staying
+// UK-only while customer/traveller OTP allows more countries — can be layered on
+// later WITHOUT loosening the merchant surface by reading a per-scope env
+// (e.g. SMS_ALLOWED_COUNTRY_CODES_OTP / _BRANCHPIN) keyed off SmsSendContext.scope,
+// each falling back to this global value. Not built here (YAGNI until needed).
+function parseSmsCountryCodeConfig(): { valid: string[]; dropped: string[] } {
+  const entries = (process.env.SMS_ALLOWED_COUNTRY_CODES ?? '')
     .split(',')
     .map((s) => s.trim())
-    .filter((s) => /^\+\d+$/.test(s))
-  return parsed.length > 0 ? parsed : ['+44']
+    .filter((s) => s.length > 0)
+  const valid: string[] = []
+  const dropped: string[] = []
+  for (const entry of entries) {
+    if (isAssignedCallingCode(entry)) valid.push(entry)
+    else dropped.push(entry)
+  }
+  return { valid, dropped }
+}
+
+export function allowedSmsCountryCodes(): string[] {
+  const { valid } = parseSmsCountryCodeConfig()
+  return valid.length > 0 ? valid : ['+44']
+}
+
+// Returns a one-line operator warning naming any dropped (invalid) entries, or
+// null when the config is clean. Logged once at boot (see app.ts) so a typo like
+// "+4" is visible at startup instead of silently degrading to the UK fallback.
+export function smsCountryCodeConfigWarning(): string | null {
+  const { valid, dropped } = parseSmsCountryCodeConfig()
+  if (dropped.length === 0) return null
+  const effective = valid.length > 0 ? valid : ['+44']
+  return (
+    `Ignored invalid SMS_ALLOWED_COUNTRY_CODES ${dropped.length === 1 ? 'entry' : 'entries'}: ` +
+    `${dropped.join(', ')}. Allowing: ${effective.join(', ')}. Each value must be a full E.164 ` +
+    `country code (e.g. +44, +353), not a partial prefix.`
+  )
 }
 
 export function isAllowedSmsDestination(phone: string): boolean {
