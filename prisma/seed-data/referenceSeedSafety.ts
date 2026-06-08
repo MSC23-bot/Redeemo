@@ -45,6 +45,12 @@ export function requireDatabaseUrl(env: EnvLike): string {
   } catch {
     throw new Error('DATABASE_URL is not a valid connection URL. Refusing to run the reference seed.')
   }
+  if (parsed.protocol !== 'postgresql:' && parsed.protocol !== 'postgres:') {
+    throw new Error(
+      'DATABASE_URL must be a postgres connection URL (postgresql:// or postgres://). ' +
+        'Refusing to run the reference seed.',
+    )
+  }
   if (!parsed.hostname) {
     throw new Error('DATABASE_URL has no database host. Refusing to run the reference seed.')
   }
@@ -72,8 +78,8 @@ export function requireReferenceSeedConfirm(env: EnvLike, target: string): void 
   const confirm = env.REFERENCE_SEED_CONFIRM?.trim()
   if (!confirm) {
     throw new Error(
-      `Refusing to run the reference seed: set REFERENCE_SEED_CONFIRM to the target ` +
-        `database identifier shown above (host or db name) to confirm. Target: ${target}`,
+      `Refusing to run the reference seed: set REFERENCE_SEED_CONFIRM to confirm the ` +
+        `target database shown above (prefer the unique host). Target: ${target}`,
     )
   }
   if (!target.includes(confirm)) {

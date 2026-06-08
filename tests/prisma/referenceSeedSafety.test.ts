@@ -34,6 +34,14 @@ describe('referenceSeedSafety (PR2b) — fail-closed gates', () => {
     it('throws on an unparseable DATABASE_URL', () => {
       expect(() => requireDatabaseUrl({ DATABASE_URL: 'not a url' })).toThrow(/not a valid connection URL/)
     })
+    it('throws on a non-postgres scheme (e.g. http, mysql)', () => {
+      expect(() => requireDatabaseUrl({ DATABASE_URL: 'http://foo/db' })).toThrow(/postgres connection URL/)
+      expect(() => requireDatabaseUrl({ DATABASE_URL: 'mysql://user:pass@host/db' })).toThrow(/postgres connection URL/)
+    })
+    it('accepts both postgres:// and postgresql:// schemes', () => {
+      expect(requireDatabaseUrl({ DATABASE_URL: 'postgres://u:p@h.example/db' })).toBe('postgres://u:p@h.example/db')
+      expect(requireDatabaseUrl({ DATABASE_URL: 'postgresql://u:p@h.example/db' })).toBe('postgresql://u:p@h.example/db')
+    })
     it('throws on a URL with no host', () => {
       expect(() => requireDatabaseUrl({ DATABASE_URL: 'postgresql:///neondb' })).toThrow(/no database host/)
     })

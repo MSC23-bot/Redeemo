@@ -59,6 +59,12 @@ describe('referenceWriteGuard (PR2b) — default-deny write guard', () => {
   // new model write (or a schema rename changes the accessor) without updating
   // the allow-list, the default-deny guard would silently block the reference
   // seed's own write — this test fails first.
+  //
+  // NOTE: this is an intentionally SIMPLE source scan. It may false-positive on a
+  // commented-out `prisma.x.create(...)` or miss an unusual multi-line write.
+  // That trade-off is acceptable: it fails LOUDLY (an easy-to-diagnose test break)
+  // rather than silently weakening the guard, and the runtime integration test
+  // backs it up by exercising real blocked + allowed writes.
   it('allow-list covers every Prisma model WRITE in the reference seed path', () => {
     const REFERENCE_MODULES = [
       'prisma/seed-data/referencePhases.ts',
