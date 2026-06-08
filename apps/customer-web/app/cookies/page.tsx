@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { LegalShell } from '@/components/shared/LegalShell'
+import { LEGAL_EFFECTIVE_DATE } from '@/lib/legal'
 
 export const metadata: Metadata = {
   title: 'Cookie Policy',
@@ -18,7 +19,7 @@ export default function CookiesPage() {
     <LegalShell
       eyebrow="Legal"
       title="Cookie Policy"
-      updated="15 April 2026"
+      updated={LEGAL_EFFECTIVE_DATE}
       siblings={SIBLINGS}
     >
       <h2>What are cookies?</h2>

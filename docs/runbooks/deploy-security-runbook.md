@@ -10,7 +10,7 @@
 > 1. ✅ **RESOLVED (PR2b) — production-safe reference-data seed.** `prisma/seed-reference.ts` loads ONLY reference/config data (taxonomy / localities / markets / subscription plans / CMS placeholders), **never** demo merchants, and is safe with `NODE_ENV=production`. A default-deny write guard blocks any non-reference write. See §4 step 2 and §8.
 > 2. ✅ **RESOLVED — standalone recompute-count runner.** `prisma/recompute-counts.ts` recomputes the category/tag count maps from current merchant state (**excluding test data**), behind opt-in + target-confirm gates and a Category/Tag-only default-deny write guard, safe with `NODE_ENV=production`. See §4 step 4.
 >
-> **HARD LAUNCH GATE (still blocks go-live):** the reference seed writes CMS keys with **placeholder** legal copy — real Terms / Privacy / legal content MUST be filled before launch (§4 step 2, §9).
+> **HARD LAUNCH GATE (still blocks go-live):** the **static customer-web legal pages** (`/terms`, `/privacy`, `/cookies`, `/about`, `/faq`) are the launch source of truth and MUST be **owner/legal-reviewed and complete** (company number, registered office, ICO reference, effective date) before go-live. The seeded `CmsContent` keys are **unwired** (nothing reads them) — not the source of truth. See the Legal launch gate (**§12**).
 
 ---
 
@@ -106,7 +106,7 @@ Run **in this exact order**. Keep `NEXT_PUBLIC_MARKETPLACE_LIVE=false` until the
    STRIPE_PRICE_ID_MONTHLY=price_… STRIPE_PRICE_ID_ANNUAL=price_… \
    npx tsx prisma/seed-reference.ts
    ```
-   Loads ONLY reference/config data (**never** demo merchants), is safe with `NODE_ENV=production`, and needs **no `ENCRYPTION_KEY`**. It validates `DATABASE_URL`, prints the redacted target DB, and refuses to run unless `ALLOW_REFERENCE_SEED=true` **and** `REFERENCE_SEED_CONFIRM` appears in the printed target (guards against the wrong DB). **Set `REFERENCE_SEED_CONFIRM` to the UNIQUE Neon host** (e.g. `ep-xxxx.eu-west-2.aws.neon.tech`), not a generic db name like `neondb` that several environments may share. A default-deny Prisma write guard throws on any non-reference write. Stripe price ids must be **REAL** — it rejects `price_monthly_dev` / placeholder / malformed values (fail closed). The catchment/markets step can be slow (one-time). 🔴 **HARD LAUNCH GATE:** CMS keys are seeded with **placeholder** content — real Terms / Privacy / legal copy MUST be filled in before launch (§9). Do **not** run the full dev/demo seed in production (§8).
+   Loads ONLY reference/config data (**never** demo merchants), is safe with `NODE_ENV=production`, and needs **no `ENCRYPTION_KEY`**. It validates `DATABASE_URL`, prints the redacted target DB, and refuses to run unless `ALLOW_REFERENCE_SEED=true` **and** `REFERENCE_SEED_CONFIRM` appears in the printed target (guards against the wrong DB). **Set `REFERENCE_SEED_CONFIRM` to the UNIQUE Neon host** (e.g. `ep-xxxx.eu-west-2.aws.neon.tech`), not a generic db name like `neondb` that several environments may share. A default-deny Prisma write guard throws on any non-reference write. Stripe price ids must be **REAL** — it rejects `price_monthly_dev` / placeholder / malformed values (fail closed). The catchment/markets step can be slow (one-time). 🔴 **HARD LAUNCH GATE:** the seeded CMS keys are **unwired placeholders** (nothing reads them); the real legal launch gate is the **static customer-web legal pages** being owner/legal-reviewed and complete — see **§12**. Do **not** run the full dev/demo seed in production (§8).
 3. **Scrub any seed/test supply** from prod (only if any exists): delete every `isTestData=true` Merchant/Branch/Voucher **and their dependents**, including seed **reviews** (F5 excludes them at read time, but the launch contract is to physically remove them). Do this inside a transaction, **take a backup first** (§7), and follow FK order (reviews/redemptions → vouchers/branches → merchant). Best practice: **prod should never have contained demo merchants** — if step 2 is reference-only, there is nothing to scrub.
 4. **Recompute denormalized counts** after any scrub or real merchant import — ✅ **RESOLVED:**
    ```bash
@@ -183,7 +183,7 @@ Run against staging after every deploy, and against prod right after the marketp
 - [ ] **Auth — email verification & password reset (FUTURE, once Resend is enabled):** the in-app token flows exist, but **email delivery is not wired today** (Phase 6 / Resend). Test these end-to-end only **where wired**; until then they're verified via the dev token scripts, not live email.
 - [ ] **Subscribe — Stripe:** **staging uses Stripe TEST MODE with test cards** (including a 3DS test card) under the enforcing CSP. **Production live-payment testing must be controlled and minimal** (a single small real charge by a known operator, refunded) — do not run broad live-payment tests.
 - [ ] **Discovery has no seed leak:** search / home / a merchant page / a branch's **reviews** return only real supply (no Covelum/Karaara/demo names).
-- [ ] **CMS legal content is real, not placeholder** (closes the §4 step 2 hard launch gate): Terms, Privacy, and any other legal/FAQ CMS keys show finalized copy, **not** the reference-seed placeholder text (`[… — to be filled by admin]`).
+- [ ] **Static legal pages are real + complete** (the launch gate — see §12): open `/terms`, `/privacy`, `/cookies` on the prod domain → finalized, owner/legal-reviewed content with the real **company number + registered office + effective date**; the customer-app Profile → Terms / Privacy / FAQ links open the correct prod pages (canonical domain, **not** a dead `.com`).
 - [ ] **Rate limiting works:** repeated logins from one IP get a 429; it's Redis-backed (survives a redeploy). (Use a staging test account; expect throttle/audit noise.)
 - [ ] **Marketplace gate:** with the flag `false`, marketplace routes redirect to the landing page; `/account` stays auth-gated.
 - [ ] **Admin login** is appropriately gated (the `000000` OTP bypass is closed; admin OTP fails closed in prod until real Twilio admin OTP is wired — confirm this matches your intent for launch).
@@ -213,4 +213,23 @@ Track these. **None gates public exposure as long as the related feature stays d
 
 ---
 
-*This is a living document. Update it whenever an env var, control, or launch step changes. Both pre-launch seed/count tasks in §4 are resolved; the CMS legal-content launch gate must still be closed before production go-live.*
+## 12. Legal launch gate (owner + legal — the remaining hard gate)
+
+The **static customer-web legal pages** are the launch source of truth: `apps/customer-web/app/{terms,privacy,cookies,about,faq}/page.tsx`. The seeded `CmsContent` keys (`terms_and_conditions` / `privacy_policy` / `about_us` / `help_faq`) are **unwired** — nothing reads them — so their placeholders are never shown to users. Leave `CmsContent` as a deferred future-CMS stub; **do not wire it for launch** and **do not** treat editing it as closing this gate.
+
+A **static guard test** (`tests/api/legal/legal-content.guard.test.ts`) fails the build if the legal pages contain placeholder markers, if the pages or the customer-app legal links use the wrong domain, or if the backend consent version drifts from the published web legal version. The guard makes this gate **enforceable**; it **cannot close it**.
+
+> **Guard scope (intentional):** the placeholder check covers the legal-document pages only — `/terms`, `/privacy`, `/cookies` — **not** `/about` or `/faq`, because those can legitimately carry non-legal marketing copy (e.g. "coming soon"). This does **not** weaken the gate: the domain check still applies to the `/about` + `/faq` **links**, and the legal-link / domain / version-parity / `CmsContent`-unwired checks all still apply. Owner/legal sign-off on the actual content remains the true launch gate.
+
+**Owner/legal must do (the true hard gate — cannot be closed by code):**
+- [ ] Provide + insert into the static pages: registered **company number**, **registered office address**, place of registration, **ICO registration reference** (register at ico.org.uk + pay the data-protection fee), **VAT number** (if registered), support/DPO contact, final **effective date** (`apps/customer-web/lib/legal.ts` → `LEGAL_EFFECTIVE_DATE`).
+- [ ] Have a **solicitor or legal-template provider** review Terms (consumer + subscription cancellation/refund — Consumer Rights Act, Consumer Contracts Regs, the DMCCA 2024 auto-renew rules for the £6.99/£69.99 plans), Privacy (UK GDPR / DPA 2018), and Cookies (PECR).
+- [ ] Confirm the register/subscribe consent UX wording maps to the published version. The consent version is single-sourced: backend `src/api/shared/legal.ts` → `TERMS_VERSION` **must equal** customer-web `apps/customer-web/lib/legal.ts` → `LEGAL_VERSION` (the guard enforces this); the value recorded at signup is `User.tcConsentVersion`.
+
+**Cookies / PECR — current state (no banner needed at launch):** the code sets only a **strictly-necessary** auth/session flag cookie (`redeemo_auth`, `apps/customer-web/lib/auth.ts`, read by `middleware.ts`) plus localStorage auth tokens; there is **no analytics, tracking, or advertising**. Strictly-necessary cookies are PECR-exempt, so a cookie-consent banner is **not required at launch**, and the Cookie Policy already states this. ⚠️ **Trigger:** introducing **any** analytics / tracking / advertising / session-replay / A-B-testing / third-party-cookie tool later makes a **cookie-consent banner + a Cookie Policy update a launch blocker for that change** (PECR consent before non-essential cookies are set).
+
+**Deferred (not this gate):** broader `redeemo.com` → canonical-domain alignment for app **universal links / password-reset deep links** (`app.config.ts`), **merchant share URLs** (`MerchantProfileScreen`), and the **merchant-portal subdomain** — these need the canonical-domain decision and touch domain-hosted files (AASA / assetlinks), so they are a separate follow-up.
+
+---
+
+*This is a living document. Update it whenever an env var, control, or launch step changes. Both pre-launch seed/count tasks in §4 are resolved; the **legal launch gate (§12) — real, owner/legal-reviewed static legal pages — is the remaining hard gate** before production go-live.*

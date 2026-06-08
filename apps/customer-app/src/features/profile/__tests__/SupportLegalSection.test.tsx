@@ -8,10 +8,10 @@ jest.mock('expo-web-browser', () => ({
 
 jest.mock('@/lib/config/links', () => ({
   LINKS: {
-    about: 'https://redeemo.com/about',
-    faq: 'https://redeemo.com/faq',
-    terms: 'https://redeemo.com/terms',
-    privacy: 'https://redeemo.com/privacy',
+    about: 'https://redeemo.co.uk/about',
+    faq: 'https://redeemo.co.uk/faq',
+    terms: 'https://redeemo.co.uk/terms',
+    privacy: 'https://redeemo.co.uk/privacy',
   },
 }))
 
