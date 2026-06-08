@@ -47,7 +47,12 @@ export const RedisKey = {
   rateLimitOtpCooldown:    (phoneHash: string)        => `rl:otp:cooldown:${phoneHash}`,// per-phone resend cooldown
   rateLimitSmsGlobalDay:   ()                         => `rl:sms:global:day`,           // global daily circuit-breaker
   rateLimitBranchPinDay:   (branchId: string)         => `rl:sms:branchpin:day:${branchId}`, // per-branch PIN daily
-  rateLimitPwdReset:       (email: string)            => `rl:pwd-reset:${email}`,
+  // SEC-H4 (Gate-PR-8): password-reset request limiter. Per-email keys take a
+  // HASHED email (see pwdResetLimiter.hashEmail) so raw emails never appear in
+  // Redis key listings or logs.
+  rateLimitPwdReset:       (emailHash: string)        => `rl:pwd-reset:${emailHash}`,        // per-email hourly
+  rateLimitPwdResetDay:    (emailHash: string)        => `rl:pwd-reset:day:${emailHash}`,    // per-email daily
+  rateLimitPwdResetIpDay:  (ip: string)               => `rl:pwd-reset:ip:day:${ip}`,        // per-IP daily ceiling
 
   // PIN brute-force counter — keyed per (userId, branchId) so failures at one branch
   // don't block the user at a different branch
