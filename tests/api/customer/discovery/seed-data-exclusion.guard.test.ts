@@ -40,6 +40,7 @@ const read = (rel: string) => readFileSync(join(REPO_ROOT, rel), 'utf8')
 const DISCOVERY = 'src/api/customer/discovery/service.ts'
 const HOME_RAILS = 'src/api/customer/discovery/homeRailBuilders.ts'
 const FAVOURITES = 'src/api/customer/favourites/service.ts'
+const REVIEWS = 'src/api/customer/reviews/service.ts'
 
 // Brace-balanced slice starting at the first `{` at or after `fromIdx`.
 function balancedObjectAfter(src: string, fromIdx: number): string {
@@ -193,5 +194,52 @@ describe('SEC-C3 guard — favourites supply queries exclude seed/test data', ()
     // All three list queries + the two paginated counts (favouriteVoucher
     // derives total from rows, so no separate count).
     expect(found.length).toBeGreaterThanOrEqual(5)
+  })
+})
+
+describe('F5/SEC-C3 guard — unauthenticated review queries exclude seed/test data', () => {
+  // Review has no isTestData of its own, so the exclusion goes through the
+  // related branch + merchant: every customer-facing review query must carry
+  // `branch: { … isTestData: false, merchant: { isTestData: false } }`.
+  it('every prisma.review.{findMany,count,aggregate,groupBy} excludes isTestData', () => {
+    const src = read(REVIEWS)
+    const calls = scanCalls(src, 'review', 'findMany|count|aggregate|groupBy')
+    expect(calls.length, 'expected to find review queries in the reviews service').toBeGreaterThan(0)
+    for (const c of calls) {
+      expect(
+        excludesTestData(src, c),
+        `${REVIEWS}: prisma.review.${c.method} at index ${c.idx} does NOT exclude isTestData ` +
+          `(checked inline args + preceding \`const where\`). Args:\n${c.args.slice(0, 200)}`,
+      ).toBe(true)
+    }
+  })
+
+  it('every review `where` filters BOTH the branch arm and the merchant arm', () => {
+    const src = read(REVIEWS)
+    // NON-global for the stateless `.test()` below (a `g` regex makes `.test()`
+    // carry lastIndex across blocks). A SEPARATE global copy is used only for
+    // `.replace()`, which must strip ALL merchant arms (the summary's ternary
+    // has two) so the remaining branch-level isTestData:false can be checked.
+    const merchantArm = /merchant:\s*\{\s*isTestData:\s*false\s*\}/
+    const merchantArmAll = /merchant:\s*\{\s*isTestData:\s*false\s*\}/g
+    const re = /const where:\s*Prisma\.ReviewWhereInput\s*=/g
+    let m: RegExpExecArray | null
+    let n = 0
+    while ((m = re.exec(src)) !== null) {
+      n++
+      const block = balancedObjectAfter(src, m.index)
+      // merchant arm present...
+      expect(
+        merchantArm.test(block),
+        `${REVIEWS}: review where #${n} is missing \`merchant: { isTestData: false }\`. Block:\n${block.slice(0, 240)}`,
+      ).toBe(true)
+      // ...and a SEPARATE branch-level isTestData:false remains after removing it.
+      expect(
+        /isTestData:\s*false/.test(block.replace(merchantArmAll, '')),
+        `${REVIEWS}: review where #${n} is missing the branch-level \`isTestData: false\`. Block:\n${block.slice(0, 240)}`,
+      ).toBe(true)
+    }
+    // listMerchantReviews + listBranchReviews + getReviewSummary.
+    expect(n, 'expected exactly 3 review where-clauses to be guarded').toBe(3)
   })
 })

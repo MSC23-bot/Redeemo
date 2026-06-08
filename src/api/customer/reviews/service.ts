@@ -91,7 +91,9 @@ export async function listMerchantReviews(
 ) {
   const where: Prisma.ReviewWhereInput = {
     isHidden: false,
-    branch: { merchantId, isActive: true },
+    // F5/SEC-C3: exclude seed/test supply via the related branch + merchant
+    // (Review has no isTestData of its own). Mirrors the discovery posture.
+    branch: { merchantId, isActive: true, isTestData: false, merchant: { isTestData: false } },
     ...(params.branchId ? { branchId: params.branchId } : {}),
   }
 
@@ -133,7 +135,12 @@ export async function listBranchReviews(
   branchId: string,
   params: { limit: number; offset: number; requestingUserId: string | null },
 ) {
-  const where: Prisma.ReviewWhereInput = { isHidden: false, branchId }
+  // F5/SEC-C3: exclude seed/test supply via the related branch + merchant.
+  const where: Prisma.ReviewWhereInput = {
+    isHidden: false,
+    branchId,
+    branch: { isTestData: false, merchant: { isTestData: false } },
+  }
 
   const [reviews, total] = await Promise.all([
     prisma.review.findMany({
@@ -464,11 +471,14 @@ export async function getReviewSummary(
   // Every other review-aggregation site in the codebase already uses
   // `isHidden: false` (discovery service, ranking helper, list endpoints);
   // this brings the summary into line with that contract.
+  // F5/SEC-C3: exclude seed/test supply via the related branch + merchant. The
+  // SAME `where` drives count + _avg + groupBy below, so total / average /
+  // distribution stay mutually consistent and aligned with the list endpoints.
   const where: Prisma.ReviewWhereInput = {
     isHidden: false,
     branch: opts.branchId
-      ? { id: opts.branchId, merchantId, isActive: true }
-      : { merchantId, isActive: true },
+      ? { id: opts.branchId, merchantId, isActive: true, isTestData: false, merchant: { isTestData: false } }
+      : { merchantId, isActive: true, isTestData: false, merchant: { isTestData: false } },
   }
 
   const [total, avgAgg, dist] = await Promise.all([
