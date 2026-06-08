@@ -15,8 +15,11 @@ const REF = 'prisma/seed-data/referencePhases.ts'
 const SEED = 'prisma/seed.ts'
 
 const REFERENCE_PHASES = [
+  // PR1 — taxonomy / locality phases
   'seedCategories', 'seedTags', 'seedSubcategoryTags', 'seedRedundantHighlights',
   'seedAmenities', 'seedCategoryAmenities', 'seedLocalities',
+  // PR2a — extracted inline reference/config blocks
+  'seedSubscriptionPlans', 'seedRmvTemplates', 'seedInterests', 'seedCmsContent',
 ] as const
 
 // Marketplace / activity models that must NEVER be written by the reference module.
@@ -27,7 +30,7 @@ const DEMO_MODELS =
 const WRITE = 'create|createMany|upsert|update|updateMany|delete|deleteMany'
 
 describe('PR1 reference-phase extraction — guards', () => {
-  it('referencePhases.ts exports the 7 reference phases + the 5 shared maps', () => {
+  it('referencePhases.ts exports all reference phases/blocks + the 5 shared maps', () => {
     const src = read(REF)
     for (const fn of REFERENCE_PHASES)
       expect(src, `referencePhases must export ${fn}`).toMatch(new RegExp(`export async function ${fn}\\(`))
@@ -65,6 +68,7 @@ describe('PR1 reference-phase extraction — guards', () => {
     const seed = read(SEED)
     expect(seed).toContain("from './seed-data/referencePhases'")
     for (const fn of REFERENCE_PHASES)
-      expect(seed, `seed.ts must call ${fn}(prisma)`).toMatch(new RegExp(`await ${fn}\\(prisma\\)`))
+      // `(prisma)` for most; `(prisma, foodCatId, beautyCatId)` for seedRmvTemplates.
+      expect(seed, `seed.ts must call ${fn}(prisma…)`).toMatch(new RegExp(`await ${fn}\\(prisma[,)]`))
   })
 })
