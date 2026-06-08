@@ -65,7 +65,7 @@ describe('sendBranchPin', () => {
     prisma.merchantAdmin.findUnique.mockResolvedValue({ id: 'ma1', merchantId: 'm1' })
     prisma.branch.findFirst.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: null, email: null, phone: null })
 
-    await expect(sendBranchPin(prisma, 'ma1', 'b1', { ipAddress: '1.2.3.4', userAgent: 'test' }))
+    await expect(sendBranchPin(prisma, {} as any, 'ma1', 'b1', { ipAddress: '1.2.3.4', userAgent: 'test' }))
       .rejects.toThrow('PIN_NOT_CONFIGURED')
   })
 
@@ -74,7 +74,7 @@ describe('sendBranchPin', () => {
     prisma.merchantAdmin.findUnique.mockResolvedValue({ id: 'ma1', merchantId: 'm1' })
     prisma.branch.findFirst.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: 'enc:1234', name: 'Main', email: null, phone: null })
 
-    await expect(sendBranchPin(prisma, 'ma1', 'b1', { ipAddress: '1.2.3.4', userAgent: 'test' }))
+    await expect(sendBranchPin(prisma, {} as any, 'ma1', 'b1', { ipAddress: '1.2.3.4', userAgent: 'test' }))
       .resolves.toEqual({ message: 'PIN sent to branch staff' })
   })
 })

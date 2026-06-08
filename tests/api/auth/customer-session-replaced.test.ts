@@ -28,10 +28,6 @@ vi.mock('../../../src/api/shared/otp', async () => {
     ...actual,
     sendOtp:               vi.fn().mockResolvedValue(undefined),
     verifyOtp:             vi.fn().mockResolvedValue({ success: true, locked: false, attemptsRemaining: 3 }),
-    checkOtpRateLimit:     vi.fn().mockResolvedValue(true),
-    recordOtpSend:         vi.fn().mockResolvedValue(undefined),
-    checkOtpUserRateLimit: vi.fn().mockResolvedValue(true),
-    recordOtpUserSend:     vi.fn().mockResolvedValue(undefined),
     clearOtpAttempts:      vi.fn().mockResolvedValue(undefined),
   }
 })
