@@ -396,30 +396,38 @@ export async function seedLocalities(prisma: PrismaClient): Promise<void> {
 // in env-driven Stripe IDs and real CMS content.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function seedSubscriptionPlans(prisma: PrismaClient): Promise<void> {
+// The Stripe price ids are passed in by the caller: the full dev seed passes the
+// dev placeholders ('price_monthly_dev' / 'price_annual_dev'); the production-safe
+// reference seed passes REAL, env-validated Stripe price ids. The upsert key is
+// stripePriceId, so dev and prod databases hold their own plan rows without
+// conflict (different databases, different ids).
+export async function seedSubscriptionPlans(
+  prisma: PrismaClient,
+  priceIds: { monthlyPriceId: string; annualPriceId: string },
+): Promise<void> {
   const monthlyPlan = await prisma.subscriptionPlan.upsert({
-    where: { stripePriceId: 'price_monthly_dev' },
+    where: { stripePriceId: priceIds.monthlyPriceId },
     update: {},
     create: {
       name: 'Monthly',
       description: 'Unlimited voucher redemptions, billed monthly',
       priceGbp: 6.99,
       billingInterval: 'MONTHLY',
-      stripePriceId: 'price_monthly_dev',
+      stripePriceId: priceIds.monthlyPriceId,
       isActive: true,
       sortOrder: 1,
     },
   })
 
   const annualPlan = await prisma.subscriptionPlan.upsert({
-    where: { stripePriceId: 'price_annual_dev' },
+    where: { stripePriceId: priceIds.annualPriceId },
     update: {},
     create: {
       name: 'Annual',
       description: 'Unlimited voucher redemptions, billed annually (~2 months free)',
       priceGbp: 69.99,
       billingInterval: 'ANNUAL',
-      stripePriceId: 'price_annual_dev',
+      stripePriceId: priceIds.annualPriceId,
       isActive: true,
       sortOrder: 2,
     },

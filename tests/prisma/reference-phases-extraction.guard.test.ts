@@ -51,8 +51,34 @@ describe('PR1 reference-phase extraction — guards', () => {
     expect(src).not.toContain('requireSeedEncryptionKey')
   })
 
-  it('the reference-only entrypoint prisma/seed-reference.ts is NOT added yet (PR2)', () => {
-    expect(existsSync(join(root, 'prisma/seed-reference.ts'))).toBe(false)
+  it('the reference-only entrypoint prisma/seed-reference.ts exists and is production-safe (PR2b)', () => {
+    const path = 'prisma/seed-reference.ts'
+    expect(existsSync(join(root, path)), `${path} must exist (PR2b)`).toBe(true)
+    const src = read(path)
+    // Safety gates: opt-in + target confirmation + default-deny write guard.
+    expect(src, 'must require ALLOW_REFERENCE_SEED opt-in').toContain('requireReferenceSeedOptIn')
+    expect(src, 'must require REFERENCE_SEED_CONFIRM').toContain('requireReferenceSeedConfirm')
+    expect(src, 'must apply the default-deny write guard').toContain('referenceWriteGuard')
+    // Stripe ids come from env validation, never hardcoded dev placeholders.
+    expect(src, 'must resolve Stripe ids from env').toContain('resolveReferenceStripePriceIds')
+    expect(src, 'must NOT hardcode the dev Stripe price ids').not.toContain('price_monthly_dev')
+    expect(src, 'must NOT hardcode the dev Stripe price ids').not.toContain('price_annual_dev')
+    // Must NOT import the full seed or reach any demo phase.
+    expect(src, 'must not import prisma/seed.ts').not.toMatch(/from ['"]\.\/seed['"]/)
+    for (const demo of ['seedTaxonomyTestMerchants', 'seedDemoMerchantEnrichment', 'seedHomeFeedFixtures'])
+      expect(src, `${demo} must not be reachable from the reference seed`).not.toContain(demo)
+    // Must NOT run the recompute runner — that is the separate Task #2.
+    expect(src, 'recompute runner is Task #2, not in the reference seed').not.toContain('recomputeCategoryCounts')
+  })
+
+  it('the reference seed writes ONLY reference/config models (guard allow-list excludes demo)', () => {
+    const src = read('prisma/seed-data/referenceWriteGuard.ts')
+    // The allow-list must contain the reference/config models the seed writes…
+    for (const m of ['Category', 'Locality', 'LocalityCatchmentEdge', 'Market', 'SubscriptionPlan', 'RmvTemplate', 'Interest', 'CmsContent'])
+      expect(src, `allow-list must include ${m}`).toContain(`'${m}'`)
+    // …and must NOT allow-list any demo/marketplace model.
+    for (const m of ['Merchant', 'Branch', 'Voucher', 'Review', 'VoucherRedemption'])
+      expect(src, `allow-list must NOT include ${m}`).not.toContain(`'${m}'`)
   })
 
   it('demo/supply phases still run only from the full seed, not the reference module', () => {
