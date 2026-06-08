@@ -509,9 +509,12 @@ export async function sendBranchPin(
 
   const pin = decrypt(branch.redemptionPin)
 
-  // SMS via Twilio — SEC-H3 (Gate-PR-7): toll-fraud controls (country allowlist +
-  // per-branch daily cap + global circuit-breaker), and the send is now AWAITED so
-  // the rate-limit recording + the route response reflect the actual attempt.
+  // SMS via Twilio — SEC-H3 (Gate-PR-7): toll-fraud controls (E.164 check +
+  // country allowlist + per-phone/IP/branch caps + cooldown + global circuit-
+  // breaker). branch.phone MUST be stored as E.164 (+44…) — a non-E.164 number
+  // is rejected with SMS_DESTINATION_NOT_ALLOWED, never silently sent. The send
+  // is AWAITED so the rate-limit recording + the route response reflect the
+  // actual attempt.
   if (branch.phone) {
     const { assertSmsSendAllowed, recordSmsSend } = await import('../../shared/smsLimiter')
     const smsCtx = { phone: branch.phone, ip: ctx.ipAddress, scope: 'branchPin' as const, branchId }

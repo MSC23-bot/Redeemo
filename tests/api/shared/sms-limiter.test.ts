@@ -4,6 +4,7 @@ import {
   assertSmsSendAllowed,
   recordSmsSend,
   isAllowedSmsDestination,
+  isE164Format,
   hashPhone,
 } from '../../../src/api/shared/smsLimiter'
 import { RedisKey } from '../../../src/api/shared/redis-keys'
@@ -48,6 +49,26 @@ describe('country allowlist', () => {
     process.env.SMS_ALLOWED_COUNTRY_CODES = '+44,+353'
     expect(isAllowedSmsDestination('+353871234567')).toBe(true)
     expect(isAllowedSmsDestination(US)).toBe(false)
+  })
+  it('a bare "+" or garbage does NOT allow all destinations — falls back to UK', () => {
+    process.env.SMS_ALLOWED_COUNTRY_CODES = '+'
+    expect(isAllowedSmsDestination(US)).toBe(false)
+    expect(isAllowedSmsDestination(UK)).toBe(true)
+    process.env.SMS_ALLOWED_COUNTRY_CODES = '+44,+' // bare + dropped, +44 kept
+    expect(isAllowedSmsDestination(US)).toBe(false)
+    expect(isAllowedSmsDestination(UK)).toBe(true)
+    process.env.SMS_ALLOWED_COUNTRY_CODES = 'garbage'
+    expect(isAllowedSmsDestination(US)).toBe(false)
+    expect(isAllowedSmsDestination(UK)).toBe(true)
+  })
+})
+
+describe('isE164Format', () => {
+  it('accepts E.164, rejects national / malformed', () => {
+    expect(isE164Format('+447700900000')).toBe(true)
+    expect(isE164Format('07700900000')).toBe(false)
+    expect(isE164Format('+44abc')).toBe(false)
+    expect(isE164Format('+0123456789')).toBe(false) // leading 0 after +
   })
 })
 
@@ -109,6 +130,19 @@ describe('assertSmsSendAllowed', () => {
     const redis = mockRedis({ counts: { [RedisKey.rateLimitBranchPinDay('b1')]: '10' } })
     await expect(assertSmsSendAllowed(redis, { phone: UK, scope: 'branchPin', branchId: 'b1' })).rejects.toThrow('SMS_RATE_LIMITED')
   })
+
+  it('branchPin is ALSO gated by the per-phone and per-IP caps (billable SMS path)', async () => {
+    const byPhone = mockRedis({ counts: { [RedisKey.rateLimitOtpSend(hashPhone(UK))]: '3' } })
+    await expect(assertSmsSendAllowed(byPhone, { phone: UK, ip: '1.2.3.4', scope: 'branchPin', branchId: 'b1' })).rejects.toThrow('SMS_RATE_LIMITED')
+    const byIp = mockRedis({ counts: { [RedisKey.rateLimitOtpIp('1.2.3.4')]: '10' } })
+    await expect(assertSmsSendAllowed(byIp, { phone: UK, ip: '1.2.3.4', scope: 'branchPin', branchId: 'b1' })).rejects.toThrow('SMS_RATE_LIMITED')
+  })
+
+  it('rejects a non-E.164 number before any Redis call', async () => {
+    const redis = mockRedis()
+    await expect(assertSmsSendAllowed(redis, otpCtx({ phone: '07700900000' }))).rejects.toThrow('SMS_DESTINATION_NOT_ALLOWED')
+    expect(redis.get).not.toHaveBeenCalled()
+  })
 })
 
 describe('recordSmsSend', () => {
@@ -126,8 +160,8 @@ describe('recordSmsSend', () => {
   it('sets a TTL only on the first increment (fixed window)', async () => {
     const redis = mockRedis()
     await recordSmsSend(redis, { phone: UK, scope: 'branchPin', branchId: 'b1' })
-    // branchPin: global + branchPinDay = 2 incrs, each first → 2 expires
-    expect((redis.expire as any).mock.calls.length).toBe(2)
+    // branchPin (no IP): global + phoneHour + phoneDay + branchPinDay = 4 incrs → 4 expires
+    expect((redis.expire as any).mock.calls.length).toBe(4)
   })
 })
 

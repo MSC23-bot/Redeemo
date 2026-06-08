@@ -28,14 +28,28 @@ import { RedisKey } from './redis-keys'
 const RELAX = process.env.RATE_LIMIT_RELAX === 'true' && process.env.NODE_ENV !== 'production'
 
 // ── Country allowlist — env-driven, default UK. NEVER relaxed by RATE_LIMIT_RELAX. ──
+// A valid prefix is '+' followed by at least one digit (e.g. +44, +447). A bare
+// '+', empty entries, or garbage are dropped — so a typo (e.g. "+") can never
+// allow ALL destinations. If the configured list yields no valid prefix, fall
+// back to the UK default (never allow-all, never block-all on a misconfig).
 export function allowedSmsCountryCodes(): string[] {
-  const raw = process.env.SMS_ALLOWED_COUNTRY_CODES?.trim()
-  const list = raw && raw.length > 0 ? raw.split(',') : ['+44']
-  return list.map((s) => s.trim()).filter((s) => s.startsWith('+'))
+  const parsed = (process.env.SMS_ALLOWED_COUNTRY_CODES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => /^\+\d+$/.test(s))
+  return parsed.length > 0 ? parsed : ['+44']
 }
 
 export function isAllowedSmsDestination(phone: string): boolean {
   return allowedSmsCountryCodes().some((cc) => phone.startsWith(cc))
+}
+
+// E.164 format (matches phoneSchema). Non-E.164 destinations are rejected before
+// any send: a national-format number (e.g. 07700…) or a malformed "+44abc" would
+// fail at Twilio anyway, and we must never silently send to a non-E.164 number.
+// Branch phones MUST be stored as E.164 to receive PIN SMS.
+export function isE164Format(phone: string): boolean {
+  return /^\+[1-9]\d{7,14}$/.test(phone)
 }
 
 // ── Phone hashing — keep raw phone numbers out of Redis keys / logs. ──
@@ -92,21 +106,29 @@ export interface SmsSendContext {
 function volumeKeys(ctx: SmsSendContext): Array<{ key: string; cap: Cap }> {
   const c = caps()
   const out: Array<{ key: string; cap: Cap }> = []
-  if (ctx.scope === 'otp') {
-    const ph = hashPhone(ctx.phone)
-    out.push({ key: RedisKey.rateLimitOtpSend(ph), cap: c.phoneHour })
-    out.push({ key: RedisKey.rateLimitOtpSendDay(ph), cap: c.phoneDay })
-    if (ctx.userId) {
-      out.push({ key: RedisKey.rateLimitOtpSendUser(ctx.userId), cap: c.userHour })
-      out.push({ key: RedisKey.rateLimitOtpSendUserDay(ctx.userId), cap: c.userDay })
-    }
-    if (ctx.ip) {
-      out.push({ key: RedisKey.rateLimitOtpIp(ctx.ip), cap: c.ipHour })
-      out.push({ key: RedisKey.rateLimitOtpIpDay(ctx.ip), cap: c.ipDay })
-    }
-  } else if (ctx.branchId) {
+
+  // Per-destination-phone caps apply to EVERY billable SMS (OTP + branch PIN).
+  const ph = hashPhone(ctx.phone)
+  out.push({ key: RedisKey.rateLimitOtpSend(ph), cap: c.phoneHour })
+  out.push({ key: RedisKey.rateLimitOtpSendDay(ph), cap: c.phoneDay })
+
+  // Per-IP caps apply whenever the caller IP is known (OTP + branch PIN).
+  if (ctx.ip) {
+    out.push({ key: RedisKey.rateLimitOtpIp(ctx.ip), cap: c.ipHour })
+    out.push({ key: RedisKey.rateLimitOtpIpDay(ctx.ip), cap: c.ipDay })
+  }
+
+  // Per-user caps — OTP only (branch PIN has no end-user).
+  if (ctx.scope === 'otp' && ctx.userId) {
+    out.push({ key: RedisKey.rateLimitOtpSendUser(ctx.userId), cap: c.userHour })
+    out.push({ key: RedisKey.rateLimitOtpSendUserDay(ctx.userId), cap: c.userDay })
+  }
+
+  // Per-branch daily cap — branch PIN only (additional branch-specific control).
+  if (ctx.scope === 'branchPin' && ctx.branchId) {
     out.push({ key: RedisKey.rateLimitBranchPinDay(ctx.branchId), cap: c.branchPinDay })
   }
+
   return out
 }
 
@@ -122,6 +144,12 @@ async function ttlOr(redis: Redis, key: string, fallback: number): Promise<numbe
  * next, then perform the actual send.
  */
 export async function assertSmsSendAllowed(redis: Redis, ctx: SmsSendContext): Promise<void> {
+  // 0. Must be a valid E.164 number (branch phones MUST be stored as E.164).
+  //    Never send silently to a non-E.164 / malformed number.
+  if (!isE164Format(ctx.phone)) {
+    throw new AppError('SMS_DESTINATION_NOT_ALLOWED')
+  }
+
   // 1. Country allowlist — always enforced.
   if (!isAllowedSmsDestination(ctx.phone)) {
     throw new AppError('SMS_DESTINATION_NOT_ALLOWED')
