@@ -6,11 +6,11 @@
 
 > **Open dependency:** the API host (Railway vs Render) is still an owner decision. This runbook is written platform-agnostically; wherever it says "set env var X," do it in that platform's project settings (and in Vercel for customer-web). The exact `TRUST_PROXY` hop count depends on the chosen host + any edge (e.g. Cloudflare) — see §2.
 
-> ## ⛔ ONE OPEN PRE-LAUNCH TASK (must be resolved before going live)
+> ## ⛔ ONE HARD LAUNCH GATE REMAINS (both pre-launch seed/count tasks resolved)
 > 1. ✅ **RESOLVED (PR2b) — production-safe reference-data seed.** `prisma/seed-reference.ts` loads ONLY reference/config data (taxonomy / localities / markets / subscription plans / CMS placeholders), **never** demo merchants, and is safe with `NODE_ENV=production`. A default-deny write guard blocks any non-reference write. See §4 step 2 and §8.
-> 2. 🔴 **OPEN — a standalone recompute-count runner** to run after any seed/test scrub, so category/tag merchant counts don't include removed seed merchants. The recompute helpers exist but are currently only invoked *by the seed*. See §4 step 4.
+> 2. ✅ **RESOLVED — standalone recompute-count runner.** `prisma/recompute-counts.ts` recomputes the category/tag count maps from current merchant state (**excluding test data**), behind opt-in + target-confirm gates and a Category/Tag-only default-deny write guard, safe with `NODE_ENV=production`. See §4 step 4.
 >
-> **HARD LAUNCH GATE (not a task above, but blocks go-live):** the reference seed writes CMS keys with **placeholder** legal copy — real Terms / Privacy / legal content MUST be filled before launch (§4 step 2, §9).
+> **HARD LAUNCH GATE (still blocks go-live):** the reference seed writes CMS keys with **placeholder** legal copy — real Terms / Privacy / legal content MUST be filled before launch (§4 step 2, §9).
 
 ---
 
@@ -108,7 +108,13 @@ Run **in this exact order**. Keep `NEXT_PUBLIC_MARKETPLACE_LIVE=false` until the
    ```
    Loads ONLY reference/config data (**never** demo merchants), is safe with `NODE_ENV=production`, and needs **no `ENCRYPTION_KEY`**. It validates `DATABASE_URL`, prints the redacted target DB, and refuses to run unless `ALLOW_REFERENCE_SEED=true` **and** `REFERENCE_SEED_CONFIRM` appears in the printed target (guards against the wrong DB). **Set `REFERENCE_SEED_CONFIRM` to the UNIQUE Neon host** (e.g. `ep-xxxx.eu-west-2.aws.neon.tech`), not a generic db name like `neondb` that several environments may share. A default-deny Prisma write guard throws on any non-reference write. Stripe price ids must be **REAL** — it rejects `price_monthly_dev` / placeholder / malformed values (fail closed). The catchment/markets step can be slow (one-time). 🔴 **HARD LAUNCH GATE:** CMS keys are seeded with **placeholder** content — real Terms / Privacy / legal copy MUST be filled in before launch (§9). Do **not** run the full dev/demo seed in production (§8).
 3. **Scrub any seed/test supply** from prod (only if any exists): delete every `isTestData=true` Merchant/Branch/Voucher **and their dependents**, including seed **reviews** (F5 excludes them at read time, but the launch contract is to physically remove them). Do this inside a transaction, **take a backup first** (§7), and follow FK order (reviews/redemptions → vouchers/branches → merchant). Best practice: **prod should never have contained demo merchants** — if step 2 is reference-only, there is nothing to scrub.
-4. **Recompute denormalized counts** after any scrub: run the category/tag count recompute (`recomputeCategoryCounts` / `recomputeTagCounts`) so `AllCategories` counts don't include removed seed merchants. 🔴 **OPEN PRE-LAUNCH TASK #2 (unsolved):** these helpers are currently only invoked *by the seed* — running them standalone in prod needs a **small one-off recompute runner**. Build this before launch.
+4. **Recompute denormalized counts** after any scrub or real merchant import — ✅ **RESOLVED:**
+   ```bash
+   ALLOW_RECOMPUTE_COUNTS=true \
+   RECOMPUTE_CONFIRM=<unique-db-host> \
+   npx tsx prisma/recompute-counts.ts
+   ```
+   Recomputes `Category.merchantCountByCity` / `Tag.merchantCountByCity` from current merchant state so `AllCategories` counts match what customers see. It **excludes test data** (`excludeTestData: true`), so counts stay correct even if a scrub left an `isTestData` merchant behind. Same gate style as the reference seed: validates `DATABASE_URL` (postgres), prints the redacted target, and refuses unless `ALLOW_RECOMPUTE_COUNTS=true` **and** `RECOMPUTE_CONFIRM` matches the printed target (use the **unique host**). A default-deny write guard restricts writes to **Category/Tag only**; needs **no `ENCRYPTION_KEY`** and no Stripe config. It is a *full* recompute (idempotent, **safe to re-run** after an interruption); the serial per-category/per-tag scan can take a few minutes on large data.
 5. **Confirm the backend excludes seed data regardless of the flag** (defense-in-depth — already shipped): even if a seed row slipped through, discovery/search/reviews exclude `isTestData=true`. This is a safety net, not a substitute for steps 3–4.
 6. **Flip the flag:** set `NEXT_PUBLIC_MARKETPLACE_LIVE=true` in **Vercel build-time env**, then **trigger a fresh production build/redeploy** (it's inlined at build — a runtime change does nothing). Until this, the marketplace routes redirect to the landing page (safe default).
 7. **Smoke-test** (§9) before announcing.
@@ -207,4 +213,4 @@ Track these. **None gates public exposure as long as the related feature stays d
 
 ---
 
-*This is a living document. Update it whenever an env var, control, or launch step changes. The one 🔴 open pre-launch task in §4 (the standalone recompute-count runner) plus the CMS legal-content launch gate must be closed before production go-live.*
+*This is a living document. Update it whenever an env var, control, or launch step changes. Both pre-launch seed/count tasks in §4 are resolved; the CMS legal-content launch gate must still be closed before production go-live.*
