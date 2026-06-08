@@ -18,6 +18,17 @@
 //   - RATE_LIMIT_RELAX loosens the caps in dev/test ONLY (never in production).
 //   - Counting happens BEFORE the user lookup and for EVERY request, so a probe
 //     for a non-existent account is rate-limited exactly like a real request.
+//
+// FOLLOW-UP (before Resend / email delivery goes live): assertPwdResetAllowed
+// (a read) and recordPwdResetRequest (an incr) are NOT atomic, so a burst of
+// concurrent requests for the same email/IP can overshoot the cap by up to the
+// concurrency count. This is harmless TODAY because forgot-password only writes
+// a Redis reset token — no email is actually sent yet (see the "TODO Phase 6:
+// deliver the reset link via Resend" notes in the forgotPassword* services).
+// Before reset emails are actually delivered, make counting atomic (incr-first:
+// `const n = await redis.incr(key); if (n === 1) await expire(...); if (n > limit)
+// throw`, or a small Lua script) so a concurrent burst can't bomb a victim's
+// inbox. Tracked as a Security Stabilisation Gate follow-up.
 
 import crypto from 'node:crypto'
 import type Redis from 'ioredis'

@@ -124,4 +124,24 @@ describe('RATE_LIMIT_RELAX', () => {
 
     vi.resetModules()
   })
+
+  it('does NOT loosen caps in production even when RATE_LIMIT_RELAX=true (guardrail)', async () => {
+    vi.resetModules()
+    const origNodeEnv = process.env.NODE_ENV
+    process.env.NODE_ENV = 'production'
+    process.env.RATE_LIMIT_RELAX = 'true' // must be IGNORED when NODE_ENV==='production'
+    try {
+      const mod = await import('../../../src/api/shared/pwdResetLimiter')
+      const keys = await import('../../../src/api/shared/redis-keys')
+
+      // A per-email count of 3 (the prod cap) STILL throws — relax is disabled in prod,
+      // so RATE_LIMIT_RELAX can never weaken the limiter on a production deployment.
+      const atCap = mockRedis({ counts: { [keys.RedisKey.rateLimitPwdReset(mod.hashEmail(EMAIL))]: '3' } })
+      await expect(mod.assertPwdResetAllowed(atCap, { email: EMAIL, ip: IP }))
+        .rejects.toThrow('PWD_RESET_RATE_LIMITED')
+    } finally {
+      process.env.NODE_ENV = origNodeEnv // restore so other tests/files see the original env
+      vi.resetModules()
+    }
+  })
 })
