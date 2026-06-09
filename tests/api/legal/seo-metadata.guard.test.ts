@@ -55,6 +55,16 @@ describe('SEO metadata guard (§SEC.6)', () => {
     expect(layout.includes('www.redeemo.co.uk')).toBe(false)
   })
 
+  it('root layout does NOT set a static/global canonical (would force every page to canonicalise to one URL)', () => {
+    // A root-level alternates.canonical is inherited by every child route, so
+    // /pricing, /faq, etc. would canonicalise to the homepage. Pages self-
+    // canonicalise when no canonical tag is present; per-page canonicals (if ever
+    // needed) belong in the page files, not the root layout.
+    const layout = read(`${WEB}/app/layout.tsx`)
+    const code = layout.replace(/\/\/[^\n]*/g, '') // strip line comments first
+    expect(code).not.toMatch(/\bcanonical:/)
+  })
+
   it('CANONICAL_ORIGIN is the apex', () => {
     expect(CANONICAL_ORIGIN).toBe('https://redeemo.co.uk')
   })

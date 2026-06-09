@@ -20,7 +20,10 @@ export const metadata: Metadata = {
   },
   description: DEFAULT_DESCRIPTION,
   applicationName: 'Redeemo',
-  alternates: { canonical: '/' },
+  // No root-level `alternates.canonical`: it would be inherited by every child
+  // route, canonicalising /pricing, /faq, /for-businesses, etc. to the homepage.
+  // With no canonical tag each page self-canonicalises to its own apex URL
+  // (www->apex 308 handles the host). Per-page canonicals can be added later.
   icons: {
     icon: [
       { url: '/favicon.ico' },
