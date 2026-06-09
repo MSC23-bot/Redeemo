@@ -1,5 +1,5 @@
 export const LINKS = {
-  merchantPortal:  'https://merchant.redeemo.com',
+  merchantPortal:  'https://merchant.redeemo.co.uk',
   about:           'https://redeemo.co.uk/about',
   faq:             'https://redeemo.co.uk/faq',
   terms:           'https://redeemo.co.uk/terms',
