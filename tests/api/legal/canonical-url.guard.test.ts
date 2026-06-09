@@ -3,9 +3,10 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 // We do NOT own redeemo.com — only redeemo.co.uk (owner decision D-A, 2026-06-08).
-// Any user-visible / externally-sent redeemo.com link points at a domain we do not
-// control (a launch/trust risk), so this guard fails the build if one is
-// (re)introduced in customer-app source.
+// Any user-visible / externally-sent redeemo.com link or email points at a domain
+// we do not control (a launch/trust risk), so this guard fails the build if one is
+// (re)introduced in customer-app source OR customer-web user-visible source
+// (incl. `mailto:` contact links — the merchant-pitch emails were a missed surface).
 //
 // Intentionally NOT covered here (PAUSED on owner decisions — these are tracked
 // holdouts, not regressions; see deferred-followups §SEC.3):
@@ -22,6 +23,11 @@ const SRC = 'apps/customer-app/src'
 const ALLOWLIST: ReadonlySet<string> = new Set([
   `${SRC}/lib/config/links.ts`, // merchantPortal — decision-blocked (D-C)
 ])
+
+// Customer-web user-visible source. No allow-list: customer-web has no
+// decision-blocked redeemo.com (merchantPortal is customer-app only). The walk
+// skips tests; scripts/ (dev tooling) is intentionally not user-visible source.
+const CUSTOMER_WEB_ROOTS = ['apps/customer-web/app', 'apps/customer-web/components', 'apps/customer-web/lib']
 
 function walkTs(rel: string): string[] {
   const out: string[] = []
@@ -51,6 +57,16 @@ describe('canonical-url guard — no user-visible redeemo.com in customer-app sr
     expect(
       offenders,
       `redeemo.com is a domain Redeemo does NOT own — use redeemo.co.uk. Offending file(s): ${offenders.join(', ')}`,
+    ).toEqual([])
+  })
+
+  it('no redeemo.com link or email in customer-web user-visible source (app / components / lib)', () => {
+    const offenders = CUSTOMER_WEB_ROOTS
+      .flatMap((rootDir) => walkTs(rootDir))
+      .filter((f) => read(f).includes('redeemo.com'))
+    expect(
+      offenders,
+      `redeemo.com (link or @email) is a domain Redeemo does NOT own — use redeemo.co.uk. Offending file(s): ${offenders.join(', ')}`,
     ).toEqual([])
   })
 })

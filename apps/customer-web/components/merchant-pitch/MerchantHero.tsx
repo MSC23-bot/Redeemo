@@ -70,7 +70,7 @@ export function MerchantHero() {
             className="flex flex-wrap gap-4 items-center"
           >
             <Link
-              href="mailto:merchants@redeemo.com"
+              href="mailto:merchants@redeemo.co.uk"
               className="inline-block text-white font-bold text-base px-10 py-[18px] rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #E2000C, #E84A00)', boxShadow: '0 0 32px rgba(226,0,12,0.35)' }}
             >
