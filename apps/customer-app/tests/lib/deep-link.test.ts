@@ -5,7 +5,7 @@ describe('parseResetPasswordUrl', () => {
     expect(parseResetPasswordUrl('redeemo://reset-password?token=abc')).toBe('abc')
   })
   it('parses the https universal link', () => {
-    expect(parseResetPasswordUrl('https://redeemo.com/reset-password?token=xyz')).toBe('xyz')
+    expect(parseResetPasswordUrl('https://redeemo.co.uk/reset-password?token=xyz')).toBe('xyz')
   })
   it('returns null for unrelated urls', () => {
     expect(parseResetPasswordUrl('redeemo://welcome')).toBeNull()

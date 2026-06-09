@@ -552,7 +552,7 @@ export function MerchantProfileScreen({ id }: Props) {
     // Web canonical lives at `/merchants/:id` (see apps/customer-web). iOS uses
     // `url` directly; Android only reads `message`, so the URL is also embedded
     // inline so recipients on either platform get a clickable link.
-    const shareUrl = `https://redeemo.com/merchants/${merchant.id}`
+    const shareUrl = `https://redeemo.co.uk/merchants/${merchant.id}`
     await Share.share({
       message: `Check out ${merchant.businessName} on Redeemo! ${shareUrl}`,
       url: shareUrl,
