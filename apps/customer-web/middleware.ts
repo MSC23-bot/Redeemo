@@ -17,6 +17,16 @@ function matchesPrefix(pathname: string, prefixes: string[]): boolean {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Temporary (pre-marketplace-launch): the bare /merchants route still renders
+  // merchant-pitch content that duplicates /for-businesses. Send it to the
+  // canonical pitch page until /merchants is rebuilt as the customer directory.
+  // Exact match only — /merchants/<id> (the customer merchant profile) must fall
+  // through to the marketplace gate below. 307 temporary, not permanent: the path
+  // will be reclaimed for the directory, so the redirect must not be cached as final.
+  if (pathname === '/merchants') {
+    return NextResponse.redirect(new URL('/for-businesses', request.url), 307)
+  }
+
   // Marketplace flag-gate — redirect to the landing page when the marketplace
   // is not yet live. NEXT_PUBLIC_MARKETPLACE_LIVE is inlined at build time, so
   // flipping it requires a rebuild/redeploy (a deliberate launch action).
