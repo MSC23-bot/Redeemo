@@ -19,12 +19,12 @@ const PHASE_1_STEPS: Step[] = [
   {
     n: 1,
     title: 'Download the Redeemo app',
-    body: 'Available free on the App Store and Google Play. Create your account with your email. You can browse all merchants and vouchers immediately on the free plan — no card needed.',
+    body: 'Available free on the App Store and Google Play. Create your account with your email. You can browse all merchants and vouchers immediately on the free plan. No card needed.',
     badges: true,
   },
   {
     n: 2,
-    title: 'Subscribe to unlock redemption',
+    title: 'Subscribe to redeem',
     body: 'Browsing is free. To redeem a voucher at any merchant, you need an active subscription. Monthly is £6.99. Annual is £69.99, roughly two months free. You can also subscribe here on the website before you go.',
     note: 'You can browse every merchant and every voucher on the website or app without subscribing. No card needed to browse.',
   },
@@ -39,7 +39,7 @@ const PHASE_2_STEPS: Step[] = [
   {
     n: 4,
     title: 'Tap Redeem on your voucher',
-    body: "When you're at the venue and ready, open the Redeemo app, find the voucher, and tap Redeem. The app will ask you to enter the branch PIN — a short code held by the merchant that confirms you're physically present.",
+    body: "When you're at the venue and ready, open the Redeemo app, find the voucher, and tap Redeem. The app will ask you to enter the branch PIN, a short code held by the merchant that confirms you're physically present.",
     note: 'Ask a member of staff for the branch PIN when you are ready to redeem. It changes periodically and is not shared outside the venue.',
   },
   {
@@ -415,7 +415,7 @@ export function HowItWorksContent() {
           >
             {[
               { n: '①', label: 'Download & browse' },
-              { n: '②', label: 'Subscribe to unlock' },
+              { n: '②', label: 'Subscribe to redeem' },
               { n: '③', label: 'Show code at venue' },
             ].map((item, i) => (
               <div key={i} className="flex items-center gap-3">
@@ -474,7 +474,7 @@ export function HowItWorksContent() {
               className="font-display text-[#010C35] leading-[1.1] mt-1"
               style={{ fontSize: 'clamp(22px, 2.8vw, 32px)', letterSpacing: '-0.3px' }}
             >
-              Getting started — takes about 2 minutes.
+              Getting started. Takes about 2 minutes.
             </h2>
           </motion.div>
 
@@ -524,7 +524,7 @@ export function HowItWorksContent() {
               className="font-display text-white leading-[1.1] mt-1"
               style={{ fontSize: 'clamp(22px, 2.8vw, 32px)', letterSpacing: '-0.3px' }}
             >
-              Redeeming a voucher — in the app, at the venue.
+              Redeeming a voucher. In the app, at the venue.
             </h2>
           </motion.div>
 

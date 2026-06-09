@@ -78,14 +78,14 @@ export function VerificationBanners() {
           <div className="flex-1 leading-snug">
             {emailResent ? (
               <span>
-                Verification email sent — check your inbox at{' '}
+                Verification email sent. Check your inbox at{' '}
                 <strong className="font-semibold">{user.email}</strong>.
               </span>
             ) : emailError ? (
               <span className="text-[#B91C1C]">{emailError}</span>
             ) : (
               <span>
-                Verify your email to unlock savings updates and receipts. We sent a link to{' '}
+                Verify your email to get savings updates and receipts. We sent a link to{' '}
                 <strong className="font-semibold">{user.email}</strong>.
               </span>
             )}

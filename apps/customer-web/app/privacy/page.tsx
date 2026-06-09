@@ -38,7 +38,7 @@ export default function PrivacyPage() {
       <ul>
         <li>First name and last name</li>
         <li>Email address</li>
-        <li>Password (stored as a one-way hash — we cannot read it)</li>
+        <li>Password (stored as a one-way hash, we cannot read it)</li>
         <li>Date of birth (used for age verification and personalisation)</li>
         <li>Gender (optional)</li>
         <li>Postcode and address (used to surface nearby merchants)</li>
@@ -49,7 +49,7 @@ export default function PrivacyPage() {
 
       <h3>Subscription and billing data</h3>
       <p>
-        When you subscribe, we use Stripe to process your payment. Stripe handles and stores your card details directly — Redeemo never sees or stores your full card number, CVC, or expiry date. We store your Stripe customer ID to manage your subscription and a reference to your payment method.
+        When you subscribe, we use Stripe to process your payment. Stripe handles and stores your card details directly. Redeemo never sees or stores your full card number, CVC, or expiry date. We store your Stripe customer ID to manage your subscription and a reference to your payment method.
       </p>
       <p>We record your subscription plan, billing dates, and payment history.</p>
 

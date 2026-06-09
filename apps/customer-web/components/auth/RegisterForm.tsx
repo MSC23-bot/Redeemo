@@ -9,7 +9,7 @@ import { saveTokens, saveUser } from '@/lib/auth'
 /* ── Constants ─────────────────────────────────────────────────────────────── */
 
 const STEP_HEADINGS = [
-  { heading: 'Create your account.', sub: 'Join free — no credit card required.' },
+  { heading: 'Create your account.', sub: 'Join free, no credit card required.' },
   { heading: 'About you.', sub: 'A few details to personalise your experience.' },
   { heading: 'What are you into?', sub: 'We\'ll tailor your feed to what you love.' },
 ] as const
@@ -711,7 +711,7 @@ export function RegisterForm() {
                       className="flex items-center gap-1.5 text-[12px] text-green-600 mt-2"
                     >
                       <MapPin size={11} strokeWidth={2} />
-                      {postcode} — {postcodeArea}
+                      {postcode} · {postcodeArea}
                     </motion.p>
                   )}
                   {postcodeState === 'invalid' && (

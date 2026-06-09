@@ -108,7 +108,7 @@ export function VouchersSection({ vouchers }: { vouchers: Voucher[] }) {
               You can see every voucher. Subscribe to redeem them.
             </h3>
             <p className="text-[13.5px] text-[#4B5563] leading-[1.6]">
-              Redeemo membership starts at £6.99 a month. One subscription unlocks every voucher at every merchant.
+              Redeemo membership starts at £6.99 a month. One subscription covers every voucher at every merchant.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 md:flex-shrink-0 relative">

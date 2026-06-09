@@ -27,7 +27,7 @@ export default function TermsPage() {
         By creating a Redeemo account or using the Redeemo website or mobile application, you agree to these Terms of Service. If you do not agree, do not use the service. These terms are governed by the laws of England and Wales.
       </p>
       <p>
-        These terms apply to all users of Redeemo, including free members, paid subscribers, and merchants. Separate terms apply to merchant accounts — see the Merchant Terms during merchant onboarding.
+        These terms apply to all users of Redeemo, including free members, paid subscribers, and merchants. Separate terms apply to merchant accounts. See the Merchant Terms during merchant onboarding.
       </p>
 
       <h2>Your account</h2>

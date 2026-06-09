@@ -69,7 +69,7 @@ const COMPARISONS = [
   {
     claim: 'Full audit trail. No disputes.',
     detail:
-      'Every redemption generates a unique digital code tied to the member\'s account. Staff validate it in the merchant app. You see every redemption — when, which offer, which branch. No card sharing, no guesswork.',
+      'Every redemption generates a unique digital code tied to the member\'s account. Staff validate it in the merchant app. You see every redemption: when, which offer, which branch. No card sharing, no guesswork.',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -463,7 +463,7 @@ export function ForBusinessesContent() {
                 Your offers, your terms.
               </h3>
               <p className="text-[14.5px] text-[#4B5563] leading-[1.7]">
-                On top of your standard offers, create as many custom vouchers as you want. Seasonal promotions, specific products or services — you design them, set the terms, time windows, and quantity limits.
+                On top of your standard offers, create as many custom vouchers as you want. Seasonal promotions, specific products or services. You design them, set the terms, time windows, and quantity limits.
               </p>
             </motion.article>
           </div>

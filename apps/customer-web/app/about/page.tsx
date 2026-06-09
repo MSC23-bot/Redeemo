@@ -51,7 +51,7 @@ export default function AboutPage() {
             <span className="gradient-text">discover local.</span>
           </h1>
           <p className="text-[16px] md:text-[17px] text-white/70 leading-[1.65] max-w-[620px] mx-auto">
-            No commission on merchants. No card-show schemes. No deal-chasing. Just a clean platform that pays local businesses properly and gives members a reason to visit somewhere new.
+            No commission on merchants. No card-show schemes. No coupon-chasing. Just a clean way to pay local businesses properly and give members a reason to visit somewhere new.
           </p>
         </div>
       </NavyAtmosphereSection>
@@ -97,7 +97,7 @@ export default function AboutPage() {
               Redeemo started from a simple frustration. The best local restaurants, gyms, and shops rarely have a way to reward loyal customers, while big chains run endless promotions. The tools that exist for independent businesses, like Tastecard and Groupon, take a cut of every transaction and offer merchants no control over their own offers.
             </p>
             <p>
-              We built Redeemo differently. Merchants set their own vouchers. Redeemo takes no commission, ever. Members pay a modest monthly subscription to unlock those offers. One redemption per merchant per cycle means the economics work for everyone. The member saves money on a real visit. The merchant acquires a new customer at full price the next time.
+              We built Redeemo differently. Merchants set their own vouchers. Redeemo takes no commission, ever. Members pay a modest monthly subscription to use those vouchers. One redemption per merchant per cycle means the economics work for everyone. The member saves money on a real visit. The merchant acquires a new customer at full price the next time.
             </p>
             <p>
               We are UK-based and UK-focused. Every design decision, every policy, every feature exists to serve local businesses and the people who live near them.

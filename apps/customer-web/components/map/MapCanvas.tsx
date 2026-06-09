@@ -17,7 +17,7 @@ export function MapCanvas() {
     <div
       className="relative flex-1 overflow-hidden bg-[#010C35]"
       role="img"
-      aria-label="Map view — coming soon"
+      aria-label="Map view, coming soon"
     >
       {/* Topographic line pattern as atmospheric backdrop */}
       <svg

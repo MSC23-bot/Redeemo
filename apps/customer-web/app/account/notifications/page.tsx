@@ -87,7 +87,7 @@ function EmptyState() {
           No notifications yet
         </h2>
         <p className="text-[14px] text-navy/45 leading-relaxed max-w-[340px] mx-auto mb-8">
-          Activity and messages will appear here — subscription updates, voucher cycle resets, new offers, and more.
+          Activity and messages will appear here: subscription updates, voucher cycle resets, new offers, and more.
         </p>
       </motion.div>
 

@@ -248,7 +248,7 @@ export default function SubscribePage() {
                   href="/discover"
                   className="inline-block bg-gradient-to-br from-red to-orange-red text-white font-bold text-[16px] px-10 py-4 rounded-xl no-underline shadow-[0_4px_24px_rgba(226,0,12,0.25)] hover:shadow-[0_4px_32px_rgba(226,0,12,0.4)] transition-shadow"
                 >
-                  Discover local deals
+                  Find local places
                 </Link>
                 <Link
                   href="/account"
