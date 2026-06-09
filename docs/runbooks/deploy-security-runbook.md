@@ -20,6 +20,8 @@ Set these **separately per environment** (staging and production each get their 
 
 > **Where each value comes from:** only **Redeemo-generated** secrets are created with `randomBytes` — that is the **4 JWT secrets** and **`ENCRYPTION_KEY`**. Everything else is a **provider** value copied from that provider's dashboard: `DATABASE_URL` (Neon), `REDIS_URL` (your Redis provider), `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` (Stripe dashboard), `TWILIO_*` (Twilio console), and later Resend / R2 (their dashboards). Do **not** invent provider secrets.
 
+> **API host (custom domain) — D-B decided:** the backend API is served at **`https://api.redeemo.co.uk`** in production, and **`https://api-staging.redeemo.co.uk`** in staging (or the Railway-provided `*.up.railway.app` URL until staging DNS is ready). This is set via **Railway's custom-domain settings, NOT an env var** (Railway provisions the TLS cert). The web app and API are **cross-origin** (web at `redeemo.co.uk`, API at `api.redeemo.co.uk`), so `CORS_ORIGIN` (below) must list the exact web origins. `redeemo.com` is **not owned** — never use it.
+
 ### API (Railway/Render) — secrets (boot-validated; the API refuses to start if any is missing or a placeholder)
 | Variable | Source | Notes |
 |---|---|---|
@@ -52,12 +54,17 @@ Generate the JWT/ENCRYPTION secrets with the `randomBytes` command above. **Avoi
 ### customer-web (Vercel)
 | Variable | Source | Notes |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | your prod API origin | **build-time** — must exist before the build, or `connect-src` falls back to `localhost:3000` and all API calls are CSP-blocked |
+| `NEXT_PUBLIC_API_URL` | **`https://api.redeemo.co.uk`** (prod) / staging API host | **build-time** — must exist before the build, or `connect-src` falls back to `localhost:3000` and all API calls are CSP-blocked. The CSP `connect-src` is **derived** from this value (`lib/securityHeaders.ts`), so **rebuild/redeploy Vercel after changing it**. |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe dashboard | live publishable key in prod |
 | `NEXT_PUBLIC_MARKETPLACE_LIVE` | set by you | **`false`** until launch (§4); build-time inlined |
 | `CSP_REPORT_ONLY` | set by you | `true` for the first prod deploy, then remove/`false` to enforce (§5) |
 | `ENABLE_HSTS` | set by you | off until the custom domain is confirmed HTTPS-only, then `true` (§5) |
 | `HSTS_MAX_AGE` | set by you | start `604800` (1 week), raise to `63072000` after verification (§5) |
+
+### customer-app (EAS / Expo)
+| Variable | Source | Notes |
+|---|---|---|
+| `EXPO_PUBLIC_API_URL` | **`https://api.redeemo.co.uk`** (prod) / staging API host | the mobile app's backend base URL (read at build via `app.config.ts` → `expo.extra.apiUrl` → `src/lib/api.ts`). Set per **EAS build profile** (`eas.json` env): a production build points at the prod API, a preview/staging build at the staging API. Default if unset is `http://localhost:3000` (dev only). |
 
 *(Resend + R2/S3 credentials come from their provider dashboards and are added in their own Phase-0 steps; Resend email isn't wired yet.)*
 
