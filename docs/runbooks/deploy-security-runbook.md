@@ -22,6 +22,8 @@ Set these **separately per environment** (staging and production each get their 
 
 > **API host (custom domain) — D-B decided:** the backend API is served at **`https://api.redeemo.co.uk`** in production, and **`https://api-staging.redeemo.co.uk`** in staging (or the Railway-provided `*.up.railway.app` URL until staging DNS is ready). This is set via **Railway's custom-domain settings, NOT an env var** (Railway provisions the TLS cert). The web app and API are **cross-origin** (web at `redeemo.co.uk`, API at `api.redeemo.co.uk`), so `CORS_ORIGIN` (below) must list the exact web origins. `redeemo.com` is **not owned** — never use it.
 
+> **Web canonical domain — D-E decided:** the public website canonical is the **apex `https://redeemo.co.uk`**; **`www.redeemo.co.uk` permanently redirects (308) to the apex**. This is a **Vercel domain config, not code** (customer-web links are relative/host-agnostic; the middleware redirects are host-relative — no source change). **Vercel:** add both `redeemo.co.uk` and `www.redeemo.co.uk`, set **apex as the primary/production domain**, and Vercel auto-redirects `www` → apex (TLS provisioned for both). **DNS:** apex `redeemo.co.uk` → Vercel (A/ALIAS or Vercel's apex method) + `www` CNAME → Vercel. **Verify** `https://www.redeemo.co.uk` 308-redirects to `https://redeemo.co.uk` **before** any aggressive HSTS (§5). Keep **both** apex + `www` in `CORS_ORIGIN` during the rollout. (The actual Vercel/DNS setup is a deploy-time owner/devops task — not done here.)
+
 ### API (Railway/Render) — secrets (boot-validated; the API refuses to start if any is missing or a placeholder)
 | Variable | Source | Notes |
 |---|---|---|
@@ -46,7 +48,7 @@ Generate the JWT/ENCRYPTION secrets with the `randomBytes` command above. **Avoi
 |---|---|---|
 | `NODE_ENV` | `production` | |
 | `TRUST_PROXY` | `1` (single proxy) | **must set** — see §2. Do **not** use `true`. |
-| `CORS_ORIGIN` | `https://redeemo.co.uk,https://www.redeemo.co.uk` | HTTPS prod web origin(s); must agree with the CSP `connect-src` (§5). Default if unset is `localhost:3001` (breaks the real frontend). |
+| `CORS_ORIGIN` | `https://redeemo.co.uk,https://www.redeemo.co.uk` | HTTPS prod web origin(s); must agree with the CSP `connect-src` (§5). **Keep BOTH apex + `www` during the www→apex rollout (D-E)** so an in-flight `www`-origin request isn't blocked before the redirect lands. Default if unset is `localhost:3001` (breaks the real frontend). |
 | `SMS_ALLOWED_COUNTRY_CODES` | `+44` | full E.164 codes only; default UK if unset (§6) |
 | `SMS_GLOBAL_DAILY_CAP` | `500` (tune to volume) | hard daily Twilio cost ceiling (§6) |
 | `RATE_LIMIT_RELAX` | **must be absent** | never set in prod; the code also neutralizes it when `NODE_ENV=production`, but keep it out of the env entirely |
@@ -134,7 +136,7 @@ The customer-web CSP is **enforcing by default**, tuned for Stripe + self-hosted
 
 1. **First prod deploy: `CSP_REPORT_ONLY=true`.** Then exercise the real flows — register, login, **subscribe (including a 3DS card)**, password reset (where wired). **There is no CSP reporting endpoint configured** (no `report-uri` / `report-to`), so violations will **not** appear in a server feed — **watch the browser developer console, the deployed app logs, and direct QA observations** for blocked resources / broken behaviour. The 3DS step is the one most likely to surface a missing origin.
 2. **Enforce:** once clean, remove `CSP_REPORT_ONLY` (or set `false`) and redeploy. The `Content-Security-Policy` header now blocks.
-3. **HSTS ramp** (only on the **custom domain**, after confirming *every* subdomain — api/admin/merchant — is HTTPS-only):
+3. **HSTS ramp** (only on the **custom domain**, after confirming *every* host — apex, `www`, api, merchant, future admin/staging — is HTTPS-only):
    - Set `ENABLE_HSTS=true` with `HSTS_MAX_AGE=604800` (1 week — short, so a misconfig recovers fast).
    - After it's stable for a while, raise `HSTS_MAX_AGE=63072000` (2 years).
    - `includeSubDomains` / `preload` are intentionally **not** enabled (would require a code change) — only add them once you're certain.
