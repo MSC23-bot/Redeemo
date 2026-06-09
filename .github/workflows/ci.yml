@@ -1,0 +1,55 @@
+name: CI
+
+# Always-run on PRs and on push to main (no path filter). The job is low-cost,
+# and always-running avoids the branch-protection gotcha where a path-filtered
+# required check is skipped and leaves unrelated PRs stuck "waiting". Optimise
+# with path filters or a skip-job later, once CI is established.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  customer-web:
+    name: customer-web (typecheck / lint / build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc # repo-level source of truth (root .nvmrc)
+          cache: npm
+
+      - name: Install (root install — hoists workspaces)
+        run: npm ci
+
+      - name: Typecheck (customer-web)
+        working-directory: apps/customer-web
+        run: npm run typecheck
+
+      # Default `next lint` (no --max-warnings): existing warnings do NOT fail the
+      # job; only ESLint errors do. Reliable today (lint exits 0).
+      - name: Lint (customer-web)
+        working-directory: apps/customer-web
+        run: npm run lint
+
+      - name: Build (customer-web)
+        working-directory: apps/customer-web
+        env:
+          # NEXT_PUBLIC_* are public-by-design (never secrets). The build fails
+          # soft on API calls with these dummies, so CI needs no network/DB.
+          NEXT_PUBLIC_API_URL: http://localhost:3000
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci_dummy
+          # NEXT_PUBLIC_MARKETPLACE_LIVE intentionally unset (marketplace gated).
+        run: npm run build
+
+      # Advisory only — NEVER fails the job (continue-on-error + always()). Scoped
+      # to the customer-web workspace so the Expo / React-Native dev-tooling tree
+      # adds no noise. Dependabot opens the structured update PRs; dependency
+      # version remediation is a separate PR.
+      - name: Dependency audit (advisory, customer-web high+)
+        if: ${{ always() }}
+        continue-on-error: true
+        run: npm audit --workspace=@redeemo/customer-web --audit-level=high
