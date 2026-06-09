@@ -15,7 +15,7 @@ jest.mock('@/design-system/motion/Toast', () => ({
 
 jest.mock('@/lib/config/links', () => ({
   LINKS: {
-    merchantPortal: 'https://merchant.redeemo.com',
+    merchantPortal: 'https://merchant.redeemo.co.uk',
     appStoreIos: 'https://apps.apple.com/app/redeemo/id0000000000',
     appStoreAndroid: 'https://play.google.com/store/apps/details?id=com.redeemo',
   },
