@@ -6,6 +6,7 @@ import { LoginForm } from '@/components/auth/LoginForm'
 export const metadata: Metadata = {
   title: 'Sign in',
   description: 'Sign in to your Redeemo account.',
+  robots: { index: false, follow: false },
 }
 
 export default function LoginPage() {

@@ -7,7 +7,7 @@ import { MerchantSignupCta } from '@/components/merchant-pitch/MerchantSignupCta
 
 export const metadata: Metadata = {
   title: 'For Merchants',
-  description: 'List your local business on Redeemo for free. Reach thousands of local subscribers actively looking for deals near them.',
+  description: 'Bring local customers in at the times that suit your business. You set the offer. No commission. Every redemption verified.',
 }
 
 export default function MerchantsPage() {

@@ -27,8 +27,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const category = await getCategory(slug)
   if (!category) return { title: 'Category not found' }
   return {
-    title: `${category.name} — Discover local`,
-    description: `Browse independent ${category.name.toLowerCase()} businesses near you on Redeemo. Subscribe to unlock exclusive vouchers.`,
+    title: `${category.name}: local places, member vouchers`,
+    description: `Browse independent ${category.name.toLowerCase()} businesses near you on Redeemo. Member vouchers included with your subscription.`,
   }
 }
 
