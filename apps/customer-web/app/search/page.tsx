@@ -1,6 +1,6 @@
 'use client'
 import { useSearchParams } from 'next/navigation'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { discoveryApi } from '@/lib/api'
 import { SearchBar } from '@/components/search/SearchBar'
 import { SearchResults } from '@/components/search/SearchResults'
@@ -15,7 +15,7 @@ const DEFAULT_FILTERS: FilterState = {
 
 const PAGE_SIZE = 20
 
-export default function SearchPage() {
+function SearchContent() {
   const searchParams = useSearchParams()
 
   const [results, setResults] = useState<MerchantTileData[]>([])
@@ -101,5 +101,16 @@ export default function SearchPage() {
         />
       </div>
     </div>
+  )
+}
+
+// useSearchParams must sit under a Suspense boundary or Next 15 fails the
+// static prerender of this route (CSR bailout). SearchContent (and the
+// SearchBar it renders) both read useSearchParams, so one boundary covers both.
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#FAF8F5]" />}>
+      <SearchContent />
+    </Suspense>
   )
 }
