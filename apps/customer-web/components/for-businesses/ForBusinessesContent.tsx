@@ -13,15 +13,15 @@ const VALUE_PROPS = [
   },
   {
     title: 'Reach customers already looking for you.',
-    body: 'Redeemo members browse by location and category. When someone near you searches for a restaurant, gym, or salon, your business appears. Targeted visibility with no upfront ad spend.',
+    body: 'Local customers browse by location and category. When someone near you searches for a restaurant, gym, or salon, your business appears. Targeted visibility with no upfront ad spend.',
   },
   {
     title: 'Increase footfall.',
-    body: 'Members come in specifically because your voucher drew them. That visit often converts into a regular customer. The voucher gets them through the door. Your business keeps them.',
+    body: 'Customers come in specifically because your voucher drew them. That visit often converts into a regular customer. The voucher gets them through the door. Your business keeps them.',
   },
   {
-    title: 'Cost only when revenue is guaranteed.',
-    body: 'Unlike paid ads, you only give a discount when a customer actually shows up and spends money. Your marketing cost is tied directly to revenue. You cannot lose on a Redeemo redemption.',
+    title: 'You only spend when a customer turns up.',
+    body: 'Unlike paid ads, the only cost is the offer you set, and only when a customer actually visits and spends. Your spend is tied to a real visit, not a click.',
   },
   {
     title: 'One voucher per member per month.',
@@ -36,8 +36,8 @@ const VALUE_PROPS = [
     body: 'See every redemption by offer, date, and branch. Understand what is working. Export your data. No guesswork, no manual tallying.',
   },
   {
-    title: 'Quality subscribers, not deal chasers.',
-    body: 'Redeemo members pay a monthly subscription for access to quality businesses. They are not hunting for the cheapest option. They are your kind of customer.',
+    title: 'Quality local customers, not bargain hunters.',
+    body: 'These are local customers who plan to spend on a good experience, not chase the cheapest option. They are your kind of customer.',
   },
 ]
 
