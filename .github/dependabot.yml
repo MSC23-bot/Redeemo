@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Single root lockfile (npm workspaces). Dependabot reads the root manifest +
+  # the workspace package.json files (apps/*) and opens PRs that update the root
+  # package-lock.json, so one "/" entry covers backend + customer-web + customer-app.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # Keep the GitHub Actions used by the CI workflow current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
