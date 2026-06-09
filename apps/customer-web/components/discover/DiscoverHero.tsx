@@ -95,7 +95,7 @@ export function DiscoverHero({
           transition={{ duration: 0.45, delay: 0.18 }}
           className="text-[14.5px] text-white/55 leading-[1.65] max-w-[500px] mb-8"
         >
-          Independent restaurants, cafes, gyms, and studios with exclusive vouchers. Browse freely — subscribe to redeem.
+          Independent restaurants, cafes, gyms, and studios with exclusive vouchers. Browse freely. Subscribe to redeem.
         </motion.p>
 
         {/* ── Search row ── */}

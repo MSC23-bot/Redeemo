@@ -76,7 +76,7 @@ export function SubscriptionNudge() {
     >
       <Sparkles size={16} strokeWidth={1.8} className="flex-shrink-0 text-[#D97706]" />
       <div className="flex-1 leading-snug">
-        Unlock exclusive vouchers from local businesses — subscribe from <strong className="font-semibold">£6.99/month</strong>.
+        Get exclusive vouchers from local businesses. Subscribe from <strong className="font-semibold">£6.99/month</strong>.
       </div>
       <Link
         href="/subscribe"

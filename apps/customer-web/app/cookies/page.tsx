@@ -55,7 +55,7 @@ export default function CookiesPage() {
 
       <h3>Analytics cookies</h3>
       <p>
-        We may use privacy-friendly analytics tools to understand how visitors use the site — which pages are visited most, where users come from, and where they encounter difficulties. Any analytics data we collect is aggregated and does not identify you individually. We do not currently use Google Analytics.
+        We may use privacy-friendly analytics tools to understand how visitors use the site: which pages are visited most, where users come from, and where they encounter difficulties. Any analytics data we collect is aggregated and does not identify you individually. We do not currently use Google Analytics.
       </p>
 
       <h2>Third-party cookies</h2>
@@ -73,8 +73,8 @@ export default function CookiesPage() {
 
       <h2>How long do cookies last?</h2>
       <ul>
-        <li><strong>Session cookies</strong> — deleted automatically when you close your browser.</li>
-        <li><strong>Persistent cookies</strong> — remain on your device for a set period (typically 30–90 days) or until you clear them. Your authentication cookie is persistent so that you stay logged in across sessions.</li>
+        <li><strong>Session cookies</strong>: deleted automatically when you close your browser.</li>
+        <li><strong>Persistent cookies</strong>: remain on your device for a set period (typically 30–90 days) or until you clear them. Your authentication cookie is persistent so that you stay logged in across sessions.</li>
       </ul>
 
       <h2>How to manage cookies</h2>

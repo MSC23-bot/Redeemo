@@ -24,7 +24,7 @@ const PLANS: Plan[] = [
     href: '/register',
     tone: 'neutral',
     features: [
-      'Discover all merchants',
+      'Browse all merchants',
       'View every voucher',
       'Read member reviews',
       'Save favourites',

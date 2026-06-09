@@ -276,7 +276,7 @@ export default function SavingsPage() {
               {summary?.byMerchant && summary.byMerchant.length > 0 && (
                 <div>
                   <p className="font-mono text-[11px] tracking-[0.1em] uppercase text-navy/35 mb-4">
-                    Top merchants — this month
+                    Top merchants this month
                   </p>
                   <div className="bg-white border border-navy/[0.07] rounded-2xl overflow-hidden">
                     {summary.byMerchant.map((m, i) => {
@@ -337,7 +337,7 @@ export default function SavingsPage() {
                     Redemption history
                     {totalRedemptions > 0 && (
                       <span className="ml-2 normal-case font-sans text-[11px] text-navy/30">
-                        — {totalRedemptions} total
+                        · {totalRedemptions} total
                       </span>
                     )}
                   </p>

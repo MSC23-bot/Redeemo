@@ -111,7 +111,7 @@ function CampaignCard({
           </p>
         )}
         <span className="mt-4 inline-flex items-center gap-1 text-[13px] font-semibold text-white no-underline group-hover:gap-2 transition-all self-start">
-          Explore deals <span aria-hidden="true">&rarr;</span>
+          Explore offers <span aria-hidden="true">&rarr;</span>
         </span>
       </div>
     </Link>

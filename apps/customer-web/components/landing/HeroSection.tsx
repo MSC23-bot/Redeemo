@@ -23,7 +23,7 @@ const FLOAT_CARDS = [
   },
   {
     label: 'DISCOUNT',
-    title: '50% Off — First Class',
+    title: '50% Off · First Class',
     merchant: 'FitZone Studio · Leeds',
     saving: 'Save £15',
     stripe: '#E20C04',
@@ -140,7 +140,7 @@ export function HeroSection() {
               transition={{ duration: 0.45, delay: 0.18 }}
               className="text-[16px] text-white/52 leading-[1.65] mb-9 max-w-[490px]"
             >
-              Independent restaurants, cafes, gyms, and studios — each with exclusive vouchers. Subscribe from £6.99/mo to unlock them all.
+              Independent restaurants, cafes, gyms, and studios, each with exclusive vouchers. Subscribe from £6.99/mo to use them all.
             </motion.p>
 
             {/* CTAs */}
@@ -158,7 +158,7 @@ export function HeroSection() {
                   boxShadow: '0 4px 24px rgba(226,12,4,0.38)',
                 }}
               >
-                Start exploring — it&apos;s free
+                Start browsing. It&apos;s free.
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="5" y1="12" x2="19" y2="12" />
                   <polyline points="12 5 19 12 12 19" />
@@ -296,7 +296,7 @@ export function HeroSection() {
           className="mt-14 pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row sm:items-center gap-4"
         >
           <p className="text-[11.5px] text-white/30 uppercase tracking-[0.14em] font-semibold flex-shrink-0">
-            Redeem in the app — Download free
+            Redeem in the app · Download free
           </p>
           <div className="flex gap-3 flex-wrap">
             <AppStoreBadge />

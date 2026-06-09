@@ -449,7 +449,7 @@ export function ProfileForm({ profile }: Props) {
           />
         </div>
         <p className="text-[11px] text-navy/35 mt-1.5">
-          Complete all fields to reach 100% — profile photo, interests, address and phone all count.
+          Complete all fields to reach 100%: profile photo, interests, address and phone all count.
         </p>
       </div>
 

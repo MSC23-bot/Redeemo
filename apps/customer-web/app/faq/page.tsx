@@ -64,7 +64,7 @@ const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         q: "What's the difference between monthly and annual?",
-        a: 'Same features. Annual costs £69.99 for the year, equivalent to roughly £5.83 a month, about two months free compared to paying monthly. Annual subscribers also get priority customer support.',
+        a: 'Same features. Annual costs £69.99 for the year, equivalent to roughly £5.83 a month, about two months free compared to paying monthly. Annual members also get priority customer support.',
       },
     ],
   },

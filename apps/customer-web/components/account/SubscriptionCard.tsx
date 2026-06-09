@@ -45,7 +45,7 @@ export function SubscriptionCard({ subscription }: { subscription: MySubscriptio
         <p className="text-[14px] text-navy/50 mb-5">
           {cancelled && subscription
             ? `Access continues until ${new Date(subscription.currentPeriodEnd).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.`
-            : 'Subscribe to unlock voucher redemption in the app.'}
+            : 'Subscribe to redeem vouchers in the app.'}
         </p>
         {!cancelled && (
           <Link

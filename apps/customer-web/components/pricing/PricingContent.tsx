@@ -94,11 +94,11 @@ const FAQS = [
   },
   {
     q: 'Is there a free trial?',
-    a: "We occasionally offer free trial periods via promo codes. These are not listed publicly but may be available through promotions and partnerships. Browse everything for free on the free plan — no trial needed to see what's available near you.",
+    a: "We occasionally offer free trial periods via promo codes. These are not listed publicly but may be available through promotions and partnerships. Browse everything for free on the free plan. No trial needed to see what's available near you.",
   },
   {
     q: "What's the difference between monthly and annual?",
-    a: 'Same features. Annual costs £69.99 for the year — roughly £5.83 a month, about two months free compared to paying monthly. Annual subscribers also get priority customer support.',
+    a: 'Same features. Annual costs £69.99 for the year, roughly £5.83 a month, about two months free compared to paying monthly. Annual members also get priority customer support.',
   },
 ]
 
