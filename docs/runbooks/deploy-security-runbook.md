@@ -68,7 +68,7 @@ Generate the JWT/ENCRYPTION secrets with the `randomBytes` command above. **Avoi
 |---|---|---|
 | `EXPO_PUBLIC_API_URL` | **`https://api.redeemo.co.uk`** (prod) / staging API host | the mobile app's backend base URL (read at build via `app.config.ts` → `expo.extra.apiUrl` → `src/lib/api.ts`). Set per **EAS build profile** (`eas.json` env): a production build points at the prod API, a preview/staging build at the staging API. Default if unset is `http://localhost:3000` (dev only). |
 
-*(Resend + R2/S3 credentials come from their provider dashboards and are added in their own Phase-0 steps; Resend email isn't wired yet.)*
+*(Resend + R2/S3 credentials come from their provider dashboards and are added in their own Phase-0 steps; **Resend email isn't wired yet — the decided sender policy + pre-send HARD gates are in §6 (D-F)**.)*
 
 ---
 
@@ -152,10 +152,33 @@ The customer-web CSP is **enforcing by default**, tuned for Stripe + self-hosted
 - Per-phone / per-IP / per-user caps + the resend cooldown are already enforced (and dev-relaxed only via `RATE_LIMIT_RELAX`, which is absent in prod).
 - **Twilio console:** set a usage trigger / spending alert + a low-balance alert; consider a geo-permissions restriction in Twilio itself (belt-and-braces over the app allowlist).
 
-**Resend (NOT wired yet — Phase 6):** when it's added, **before enabling it**:
-- Close **§SEC.1** (make the SMS *and* password-reset counters atomic — today they're best-effort under concurrency; a burst can slightly overshoot). This becomes a victim-inbox-bombing vector once real emails send.
-- Add a per-route limiter to `resend-verification-email` (currently un-throttled because it's a no-op).
-- Add a Resend send-volume / spend alert at that time.
+**Resend / email (NOT wired yet — Phase 6; sender policy DECIDED — D-F, 2026-06-09):** the `resend` SDK is in `package.json` but **unimported**; email delivery is unwired (`console.info` placeholders only — `src/api/merchant/branch/service.ts`, `src/api/auth/merchant/branch-user.service.ts`; customer OTP is SMS/Twilio, not email). The schema is already email-ready — `CommunicationLog` (with `externalId` + `status SENT/FAILED/BOUNCED`) + `User.newsletterConsent`/`marketingConsentAt` — so **no schema change is needed**. Future env vars are documented as **commented** placeholders in `.env.example` (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_REPLY_TO`, `EMAIL_SANDBOX`); the backend does **not** require them yet.
+
+*Production sender policy (decided):*
+- Transactional **From**: `Redeemo <noreply@redeemo.co.uk>`
+- **Reply-To** / support: `support@redeemo.co.uk` (alias → a monitored inbox)
+- Merchant enquiries: `merchants@redeemo.co.uk` (already published on the merchant-pitch pages)
+- Legal / DSAR / privacy contact: **keep `info@redeemo.co.uk`** — already published in the static legal pages; do **not** switch to `privacy@` unless owner/legal updates those pages.
+- Optional later (not required now): `security@redeemo.co.uk` + a `/.well-known/security.txt`.
+- Every From / Reply-To / published contact must be a **real, monitored inbox** before launch (Resend is send-only; receiving needs a mailbox provider, e.g. Zoho Mail). An unmonitored `info@` = missed DSARs (UK GDPR 30-day breach).
+
+*Staging policy:*
+- **Separate Resend API key per environment** (staging never uses the prod key).
+- `EMAIL_SANDBOX=true` (or equivalent) on staging → **redirect/allowlist all recipients** so no test email reaches a real customer (mirror the SMS allowlist pattern, SEC-H3 / F4).
+- Mark the staging sender visibly, e.g. `Redeemo (staging) <noreply@redeemo.co.uk>`.
+
+*Pre-send HARD gates — do NOT send real email until ALL are done:*
+- [ ] **§SEC.1 atomic limiter** complete (SMS *and* password-reset counters atomic — today best-effort under concurrency; a burst can overshoot → victim-inbox-bombing once real emails send).
+- [ ] Resend **sending domain verified** + **SPF, DKIM, DMARC** configured. Verify the apex `redeemo.co.uk` (Resend auto-provisions a `send.` Return-Path subdomain for DMARC alignment); stage DMARC `p=none` → `quarantine` → `reject` (like the HSTS rollout, §5), aggregate reports to `dmarc@redeemo.co.uk`. Keep apex inbound MX (mailbox provider) distinct from Resend's `send.` bounce subdomain — no conflict, but confirm together.
+- [ ] **Monitored inbound mailboxes/aliases** live for `support@` / `info@` / `merchants@` (+ `privacy@` / `security@` if used).
+- [ ] **Bounce / complaint / delivery webhooks** wired to `CommunicationLog` (status `BOUNCED` / `FAILED`, `externalId`) + **suppress** hard-bounced/complained addresses from future sends.
+- [ ] Add a per-route limiter to `resend-verification-email` (currently un-throttled because it's a no-op).
+- [ ] **Provider spend/budget alert** (Resend send-volume) + **app-level** send caps + **queue / bounded retries (≤3, backoff) / idempotency keys** (per §W production-resilience — enqueue, don't send in the request path).
+
+*Compliance (UK GDPR + PECR):*
+- **Transactional** (verification, password reset, redemption receipts, account/security notices) is **not** marketing → no consent / unsubscribe required; must carry no marketing content.
+- **Marketing** (newsletter / promotions) requires **PECR consent** (`newsletterConsent` already captured) + a working **unsubscribe** + sender identity. Not built today. The privacy policy already names Resend for *both* transactional and marketing, so the disclosure is in place; enforcement is the Phase-6 obligation.
+- **Keep transactional and marketing streams separate** (distinct Resend audiences, ideally distinct subdomains) so a marketing unsubscribe never blocks transactional mail and marketing reputation can't degrade transactional deliverability.
 
 ---
 
@@ -237,7 +260,7 @@ A **static guard test** (`tests/api/legal/legal-content.guard.test.ts`) fails th
 
 **Cookies / PECR — current state (no banner needed at launch):** the code sets only a **strictly-necessary** auth/session flag cookie (`redeemo_auth`, `apps/customer-web/lib/auth.ts`, read by `middleware.ts`) plus localStorage auth tokens; there is **no analytics, tracking, or advertising**. Strictly-necessary cookies are PECR-exempt, so a cookie-consent banner is **not required at launch**, and the Cookie Policy already states this. ⚠️ **Trigger:** introducing **any** analytics / tracking / advertising / session-replay / A-B-testing / third-party-cookie tool later makes a **cookie-consent banner + a Cookie Policy update a launch blocker for that change** (PECR consent before non-essential cookies are set).
 
-**Domain alignment (post-gate):** `redeemo.co.uk` is canonical (we do **not** own `redeemo.com`). The safe non-DNS source refs — **merchant share URLs** (`MerchantProfileScreen`) + the dev header-test example + the deletion-placeholder email + customer-web merchant-pitch emails — are aligned to `redeemo.co.uk` (**PR #172**), and the **merchant-portal link** is now `https://merchant.redeemo.co.uk` (**D-C, PR #173**). **Still deferred (DNS/app-store coupled, D-D):** app **universal links / password-reset deep links** (`app.config.ts`) — these touch domain-hosted files (AASA / assetlinks) and need an app rebuild/resubmit. (The `merchant.redeemo.co.uk` subdomain DNS + hosting + the Merchant Portal itself are **Phase 4**.)
+**Domain alignment (post-gate):** `redeemo.co.uk` is canonical (we do **not** own `redeemo.com`). The safe non-DNS source refs — **merchant share URLs** (`MerchantProfileScreen`) + the dev header-test example + the deletion-placeholder email + customer-web merchant-pitch emails — are aligned to `redeemo.co.uk` (**PR #172**), and the **merchant-portal link** is now `https://merchant.redeemo.co.uk` (**D-C, PR #173**). **D-F ✅ DECIDED (2026-06-09): Phase-6 email sender policy** — From `Redeemo <noreply@redeemo.co.uk>`, Reply-To `support@redeemo.co.uk`, merchant `merchants@redeemo.co.uk`, legal/DSAR keeps `info@redeemo.co.uk`; real email stays **unwired/not live** until the §6 pre-send HARD gates are met. **D-D is now the only remaining domain decision (DNS/app-store coupled):** app **universal links / password-reset deep links** (`app.config.ts`) — these touch domain-hosted files (AASA / assetlinks) and need an app rebuild/resubmit. (The `merchant.redeemo.co.uk` subdomain DNS + hosting + the Merchant Portal itself are **Phase 4**.)
 
 ---
 
