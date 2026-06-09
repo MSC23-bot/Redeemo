@@ -38,7 +38,7 @@ export default function PrivacyPage() {
       <ul>
         <li>First name and last name</li>
         <li>Email address</li>
-        <li>Password (stored as a one-way hash, we cannot read it)</li>
+        <li>Password (stored as a one-way hash that we cannot read)</li>
         <li>Date of birth (used for age verification and personalisation)</li>
         <li>Gender (optional)</li>
         <li>Postcode and address (used to surface nearby merchants)</li>

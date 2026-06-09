@@ -39,7 +39,7 @@ const PHASE_2_STEPS: Step[] = [
   {
     n: 4,
     title: 'Tap Redeem on your voucher',
-    body: "When you're at the venue and ready, open the Redeemo app, find the voucher, and tap Redeem. The app will ask you to enter the branch PIN, a short code held by the merchant that confirms you're physically present.",
+    body: "When you're at the venue and ready, open the Redeemo app, find the voucher, and tap Redeem. The app will ask you to enter the branch PIN. This is a short code held by the merchant that confirms you're physically present.",
     note: 'Ask a member of staff for the branch PIN when you are ready to redeem. It changes periodically and is not shared outside the venue.',
   },
   {

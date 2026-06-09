@@ -51,7 +51,7 @@ export default function AboutPage() {
             <span className="gradient-text">discover local.</span>
           </h1>
           <p className="text-[16px] md:text-[17px] text-white/70 leading-[1.65] max-w-[620px] mx-auto">
-            No commission on merchants. No card-show schemes. No coupon-chasing. Just a clean way to pay local businesses properly and give members a reason to visit somewhere new.
+            No commission on merchants. No card-show schemes. No coupon-chasing. Just a cleaner way to support local businesses properly and give members a reason to visit somewhere new.
           </p>
         </div>
       </NavyAtmosphereSection>
