@@ -9,6 +9,16 @@ on:
   push:
     branches: [main]
 
+# Least-privilege GITHUB_TOKEN: this job only reads code and runs build/audit.
+permissions:
+  contents: read
+
+# Cancel superseded runs when new commits land on the same ref (saves minutes,
+# avoids stale statuses). One in-flight run per branch/PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   customer-web:
     name: customer-web (typecheck / lint / build)
