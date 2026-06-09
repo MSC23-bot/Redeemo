@@ -4,7 +4,8 @@ import { RegisterForm } from '@/components/auth/RegisterForm'
 
 export const metadata: Metadata = {
   title: 'Create account',
-  description: 'Join Redeemo free and discover exclusive vouchers from local businesses near you.',
+  description: 'Join Redeemo free to find local places and use member vouchers from independent businesses near you.',
+  robots: { index: false, follow: false },
 }
 
 export default function RegisterPage() {

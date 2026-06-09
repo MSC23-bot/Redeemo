@@ -4,7 +4,7 @@ import { ForBusinessesContent } from '@/components/for-businesses/ForBusinessesC
 export const metadata: Metadata = {
   title: 'List your business on Redeemo',
   description:
-    'Bring in new customers. Keep your margins. List your business on Redeemo for free. No commission. No listing fees.',
+    'Reach local customers without paying commission. Set your own offer, choose when it runs, and track every redemption.',
 }
 
 export default function ForBusinessesPage() {

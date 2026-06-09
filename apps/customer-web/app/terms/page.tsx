@@ -5,7 +5,7 @@ import { LEGAL_EFFECTIVE_DATE } from '@/lib/legal'
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
-  description: 'The terms that govern your use of Redeemo — membership, vouchers, and your rights.',
+  description: 'The terms that govern your use of Redeemo: membership, vouchers, and your rights.',
 }
 
 const SIBLINGS = [
