@@ -206,7 +206,7 @@ export async function customerAuthRoutes(app: FastifyInstance) {
     if (!storedToken || storedToken !== actionToken) throw new AppError('ACTION_TOKEN_INVALID')
     await app.redis.del(RedisKey.otpAction(req.user.sub, 'ACCOUNT_DELETION'))
 
-    const anonymisedEmail = `deleted_${req.user.sub}@deleted.redeemo.com`
+    const anonymisedEmail = `deleted_${req.user.sub}@deleted.redeemo.co.uk`
     await app.prisma.user.update({
       where: { id: req.user.sub },
       data: {

@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import { buildContentSecurityPolicy, buildSecurityHeaders } from '../lib/securityHeaders'
 
-const prod = { apiUrl: 'https://api.redeemo.com', isProduction: true, cspReportOnly: false, enableHsts: false, hstsMaxAge: 604800 }
+const prod = { apiUrl: 'https://api.redeemo.co.uk', isProduction: true, cspReportOnly: false, enableHsts: false, hstsMaxAge: 604800 }
 
 let passed = 0
 function check(name: string, fn: () => void): void {
@@ -26,7 +26,7 @@ check('prod CSP allowlists Stripe (script + Elements/3DS frames)', () => {
 
 check('prod connect-src has the API origin + postcodes.io + Stripe', () => {
   const csp = buildContentSecurityPolicy(prod)
-  assert.match(csp, /connect-src[^;]*https:\/\/api\.redeemo\.com/)
+  assert.match(csp, /connect-src[^;]*https:\/\/api\.redeemo\.co\.uk/)
   assert.match(csp, /connect-src[^;]*https:\/\/api\.postcodes\.io/)
   assert.match(csp, /connect-src[^;]*https:\/\/\*\.stripe\.com/)
 })
@@ -42,9 +42,9 @@ check('no form-action directive (avoids blocking Stripe redirect-based 3DS)', ()
 })
 
 check('connect-src uses the ORIGIN of NEXT_PUBLIC_API_URL (not the full path)', () => {
-  const csp = buildContentSecurityPolicy({ ...prod, apiUrl: 'https://api.redeemo.com/api/v1/customer' })
-  assert.match(csp, /connect-src[^;]*https:\/\/api\.redeemo\.com(?:\s|;)/)
-  assert.doesNotMatch(csp, /api\.redeemo\.com\/api\/v1/)
+  const csp = buildContentSecurityPolicy({ ...prod, apiUrl: 'https://api.redeemo.co.uk/api/v1/customer' })
+  assert.match(csp, /connect-src[^;]*https:\/\/api\.redeemo\.co\.uk(?:\s|;)/)
+  assert.doesNotMatch(csp, /api\.redeemo\.co\.uk\/api\/v1/)
 })
 
 check('prod CSP has NO unsafe-eval (dev-only)', () => {

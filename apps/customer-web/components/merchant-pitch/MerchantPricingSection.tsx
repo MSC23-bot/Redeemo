@@ -73,7 +73,7 @@ export function MerchantPricingSection() {
               ))}
             </ul>
             <a
-              href="mailto:merchants@redeemo.com"
+              href="mailto:merchants@redeemo.co.uk"
               className="block text-center text-white font-semibold text-[15px] py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #E2000C, #EE6904)' }}
             >

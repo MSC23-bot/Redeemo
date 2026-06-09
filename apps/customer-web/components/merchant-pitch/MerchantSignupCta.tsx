@@ -133,7 +133,7 @@ export function MerchantSignupCta() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
             <a
-              href="mailto:merchants@redeemo.com"
+              href="mailto:merchants@redeemo.co.uk"
               className="inline-block text-white font-bold text-[20px] px-14 py-5 rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #E2000C, #E84A00)', boxShadow: '0 0 48px rgba(226,0,12,0.4)' }}
             >
@@ -148,7 +148,7 @@ export function MerchantSignupCta() {
             transition={{ duration: 0.4, delay: 0.35 }}
             className="mt-6 text-[13px] text-white/25 font-mono"
           >
-            merchants@redeemo.com
+            merchants@redeemo.co.uk
           </motion.p>
         </div>
       </section>
