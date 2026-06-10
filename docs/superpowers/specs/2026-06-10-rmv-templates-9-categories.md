@@ -24,7 +24,7 @@
 
 > Each template below gives the **schema-now block** (seed-ready) + **guidance** (future-UI). `RECOMMENDED` = the sector default. Floors are starting points. **Fixed-£ titles use a concrete amount = the floor** (the schema fixes the title and merchants edit only terms/expiry); these are the prime candidates for the **future guided-builder**, where the merchant sets the amount (richer `allowedFields`).
 
-> **Terms of use — superseded by design-spec §20 (curated clause system).** The per-template `terms:` lines below are **illustrative only**. Real terms come from the **admin-managed curated clause library** (merchants SELECT pre-approved clauses, NOT free-text), with **real-time guardrails at voucher creation** that block conflicting / banned / over-restrictive combinations. The illustrative terms **exclude** platform-given rules ("one per cycle" — automatic) and unenforceable ones ("new customers" — can't verify); treat any such phrases below as removed. Per template, the default clauses are noted by intent (e.g. dine-in/takeaway, show-before-ordering); the live clause set comes from §20.
+> **Terms of use — superseded by design-spec §20 (curated clause system).** The per-template **`default clauses:`** lines below are **illustrative defaults written as §20.7 clause keys** — NOT written terms, NOT merchant free-text. Real voucher terms come from the **admin-managed curated clause library** (merchants SELECT pre-approved clauses), with **real-time guardrails at voucher creation** that block conflicting / banned / over-restrictive combinations. Platform-given rules ("one per cycle" — automatic) and unenforceable ones ("new customers" — can't verify) are excluded entirely. Non-clause notes (medical disclaimers, sector constraints) are labelled `guidance:`, not clauses.
 
 ---
 
@@ -33,26 +33,26 @@
 
 **T1 · RECOMMENDED · `hf-free-intro` · FREEBIE**
 - **Title:** Free Intro Class or Day Pass · **Description:** A free taster class or day pass to try the gym. · **minimumSaving:** 12.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£15 · terms: "Booking recommended." · banner: bright class-in-action / studio shot, energetic + welcoming · rationale: the proven gym hook — gets a new face through the door, most convert at full price · margin: near-zero on a spare class slot; protects membership revenue · appeal: low-commitment, high perceived value · constraints: don't apply to 1:1 PT (high labour). RMV defaults open — for day/time-limited access use an optional TIME_LIMITED voucher, not this RMV · fallback: T3 (waived join fee) for pure weights gyms.
+- *Guidance:* est. saving ~£15 · default clauses: `booking-recommended` · banner: bright class-in-action / studio shot, energetic + welcoming · rationale: the proven gym hook — gets a new face through the door, most convert at full price · margin: near-zero on a spare class slot; protects membership revenue · appeal: low-commitment, high perceived value · constraints: don't apply to 1:1 PT (high labour). RMV defaults open — for day/time-limited access use an optional TIME_LIMITED voucher, not this RMV · fallback: T3 (waived join fee) for pure weights gyms.
 
 **T2 · `hf-starter-pack` · PACKAGE_DEAL**
 - **Title:** 3-Class Starter Pack · **Description:** Three classes for one low price — try before you commit. · **minimumSaving:** 15.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£18 · terms: "Valid 30 days from first class. Booking recommended." · banner: a small grid of class types · rationale: a pack builds a habit → higher conversion than a single class · margin: controlled (you set the pack price) · appeal: "try the range" · constraints: cap classes per pack · fallback: T1.
+- *Guidance:* est. saving ~£18 · default clauses: `expiry(30d)`, `booking-recommended` · banner: a small grid of class types · rationale: a pack builds a habit → higher conversion than a single class · margin: controlled (you set the pack price) · appeal: "try the range" · constraints: cap classes per pack · fallback: T1.
 
 **T3 · `hf-no-joining-fee` · DISCOUNT_FIXED (waived fee)**
 - **Title:** Join With No Sign-Up Fee · **Description:** Start a new membership with the joining fee waived. · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£25 · terms: "On a new monthly or annual membership." · rationale: removes the #1 barrier to signing up · margin: a one-off fee waiver, not recurring · constraints: applies when joining · fallback: T1.
+- *Guidance:* est. saving ~£25 · default clauses: none · guidance: applies when joining a membership · rationale: removes the #1 barrier to signing up · margin: a one-off fee waiver, not recurring · constraints: applies when joining · fallback: T1.
 
 ## 4. Out & About
 *Covers attractions, bowling, escape rooms, mini-golf, museums, cinemas, soft-adventure. **BOGO is ideal here** (the Entertainer's core) — fills off-peak capacity with pairs/groups.*
 
 **T1 · RECOMMENDED · `oa-2for1-entry` · BOGO**
 - **Title:** 2-for-1 Entry · **Description:** Buy one entry/ticket/game and get a second free. · **minimumSaving:** 8.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£10 · terms: "Not valid with other offers. Booking recommended at peak times." · banner: the venue full + lively (people enjoying it) · rationale: 2-for-1 entry brings a pair/group and fills quiet sessions · margin: a free second entry on under-used capacity is near-zero cost · appeal: "bring a friend free" · constraints: RMV defaults open — for off-peak-only redemption use an optional TIME_LIMITED voucher (a Redeemo-approved sector exception), not this RMV · fallback: T2 if entry prices vary a lot.
+- *Guidance:* est. saving ~£10 · default clauses: `not-with-other-offers`, `booking-recommended` · banner: the venue full + lively (people enjoying it) · rationale: 2-for-1 entry brings a pair/group and fills quiet sessions · margin: a free second entry on under-used capacity is near-zero cost · appeal: "bring a friend free" · constraints: RMV defaults open — for off-peak-only redemption use an optional TIME_LIMITED voucher (a Redeemo-approved sector exception), not this RMV · fallback: T2 if entry prices vary a lot.
 
 **T2 · `oa-amount-off-two` · DISCOUNT_FIXED**
 - **Title:** £6 Off Entry for Two · **Description:** Save £6 when two people visit together. · **minimumSaving:** 6.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* terms: "Two people, one transaction." · rationale: reads clean when ticket prices vary · fallback: T1.
+- *Guidance:* default clauses: `group-size(2)` · rationale: reads clean when ticket prices vary · fallback: T1.
 
 **T3 · `oa-free-extra` · FREEBIE**
 - **Title:** Free Extra Game/Round with Entry · **Description:** A free extra activity on top of paid entry. · **minimumSaving:** 5.00 · **allowedFields:** terms, expiryDate
@@ -63,7 +63,7 @@
 
 **T1 · RECOMMENDED · `sh-spend-save` · SPEND_AND_SAVE**
 - **Title:** Spend £30, Save £8 · **Description:** Save £8 when you spend £30 or more in-store. · **minimumSaving:** 8.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving £8 · terms: "Valid in-store on orders over £30 (basket amount checked at validation)." · banner: an attractive product flat-lay / shelf shot · rationale: lifts average basket rather than cutting margin on a small buy; self-funding above your average sale · margin: protected — only triggers above a threshold you set · appeal: "reward for a proper shop" · constraints: min-spend is a SYSTEM_GATE only if the basket amount is captured at validation, otherwise displayed-advisory · fallback: T2.
+- *Guidance:* est. saving £8 · default clauses: `min-spend(£30)` (only where basket captured) · guidance: in-store · banner: an attractive product flat-lay / shelf shot · rationale: lifts average basket rather than cutting margin on a small buy; self-funding above your average sale · margin: protected — only triggers above a threshold you set · appeal: "reward for a proper shop" · constraints: min-spend is a SYSTEM_GATE only if the basket amount is captured at validation, otherwise displayed-advisory · fallback: T2.
 
 **T2 · `sh-gift-with-purchase` · FREEBIE**
 - **Title:** Free Gift When You Spend £30 · **Description:** A complimentary gift with any £30+ purchase. · **minimumSaving:** 8.00 · **allowedFields:** terms, expiryDate
@@ -78,11 +78,11 @@
 
 **T1 · RECOMMENDED · `hl-amount-off-first` · DISCOUNT_FIXED**
 - **Title:** £20 Off Your First Booking · **Description:** £20 off your first job over £100. · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving £20 · terms: "On bookings over £100." · banner: a clean before/after or a tradesperson at work · rationale: a **real, concrete saving** that converts a new customer who then returns at full price · margin: a fixed amount off a high-ticket job · appeal: removes the "what will it cost?" barrier with a tangible discount · constraints: set the qualifying job value · fallback: T3.
+- *Guidance:* est. saving £20 · default clauses: `min-spend(£100)` (booking value; only where captured) · banner: a clean before/after or a tradesperson at work · rationale: a **real, concrete saving** that converts a new customer who then returns at full price · margin: a fixed amount off a high-ticket job · appeal: removes the "what will it cost?" barrier with a tangible discount · constraints: set the qualifying job value · fallback: T3.
 
 **T2 · CONDITIONAL · `hl-free-assessment` · FREEBIE** *(only where the assessment is normally CHARGED)*
 - **Title:** Free Assessment / Consultation · **Description:** A free assessment, survey, or consultation for new customers. · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* **⚠ use ONLY where the merchant normally CHARGES for the assessment/diagnostic/survey/consultation** (e.g. a surveyor, a diagnostic call-out). If quotes are already free this is **not a real saving** and weakens the value standard — use T1 instead. terms: "Where the assessment is normally chargeable." · rationale: a genuine saving only when the assessment has a real price · fallback: T1.
+- *Guidance:* **⚠ use ONLY where the merchant normally CHARGES for the assessment/diagnostic/survey/consultation** (e.g. a surveyor, a diagnostic call-out). If quotes are already free this is **not a real saving** and weakens the value standard — use T1 instead. guidance: only where the assessment is normally chargeable (not a clause) · rationale: a genuine saving only when the assessment has a real price · fallback: T1.
 
 **T3 · `hl-spend-save` · SPEND_AND_SAVE**
 - **Title:** Spend £150, Save £25 · **Description:** Save £25 on larger jobs. · **minimumSaving:** 25.00 · **allowedFields:** terms, expiryDate
@@ -93,7 +93,7 @@
 
 **T1 · RECOMMENDED · `th-2for1-night` · BOGO**
 - **Title:** 2-for-1 Room Night · **Description:** Buy one night, get the second free. · **minimumSaving:** 60.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£80 · terms: "Advance booking required (subject to confirmation). Blackout dates only where explicitly listed." · banner: a styled room / the property exterior at dusk · rationale: fills mid-week rooms that would otherwise sit empty · margin: marginal cost of an empty room is low (housekeeping only) · appeal: a genuine "weekend away for less" · constraints: hotels are the prime case for a **Redeemo-APPROVED off-peak exception** (the margin reality) — routed via an admin-approved RMV exception or a TIME_LIMITED window, NOT a silent default off-peak; defaults = advance booking + listed/capped blackout dates · fallback: T2 (package) if 2-for-1 nights aren't viable.
+- *Guidance:* est. saving ~£80 · default clauses: `booking-required`, `booking-confirmation`, `blackout-dates(listed/capped)` · banner: a styled room / the property exterior at dusk · rationale: fills mid-week rooms that would otherwise sit empty · margin: marginal cost of an empty room is low (housekeeping only) · appeal: a genuine "weekend away for less" · constraints: hotels are the prime case for a **Redeemo-APPROVED off-peak exception** (the margin reality) — routed via an admin-approved RMV exception or a TIME_LIMITED window, NOT a silent default off-peak; defaults = advance booking + listed/capped blackout dates · fallback: T2 (package) if 2-for-1 nights aren't viable.
 
 **T2 · `th-stay-breakfast` · PACKAGE_DEAL**
 - **Title:** Stay + Breakfast Package · **Description:** A night's stay with breakfast included. · **minimumSaving:** 50.00 · **allowedFields:** terms, expiryDate
@@ -108,18 +108,18 @@
 
 **T1 · RECOMMENDED · `hm-free-check` · FREEBIE**
 - **Title:** Free Check-Up / Consultation · **Description:** A complimentary check-up, consultation, or eye test for new patients. · **minimumSaving:** 25.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£30 · terms: "Clinically appropriate only. Not a substitute for medical advice. Booking required." · banner: a calm, clean, professional clinic shot (no clinical/graphic imagery) · rationale: the compliant, low-cost hook — brings a new patient in without incentivising unnecessary treatment · margin: practitioner time only · appeal: removes the cost barrier to a first visit · constraints: **no incentivising clinical treatment**; comply with the relevant regulator's advertising rules · fallback: T2.
+- *Guidance:* est. saving ~£30 · default clauses: `booking-required` · guidance (medical disclaimer): clinically appropriate only; not a substitute for medical advice · banner: a calm, clean, professional clinic shot (no clinical/graphic imagery) · rationale: the compliant, low-cost hook — brings a new patient in without incentivising unnecessary treatment · margin: practitioner time only · appeal: removes the cost barrier to a first visit · constraints: **no incentivising clinical treatment**; comply with the relevant regulator's advertising rules · fallback: T2.
 
 **T2 · `hm-amount-off-elective` · DISCOUNT_FIXED**
 - **Title:** £20 Off Your First Hygiene Visit · **Description:** £20 off a first elective/non-urgent service (e.g. hygiene, whitening). · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* terms: "On elective/non-urgent services only." · warning: **elective/cosmetic only — never urgent or clinically-indicated treatment** · constraints: compliance review required · fallback: T1.
+- *Guidance:* default clauses: none · guidance: elective/non-urgent services only (compliance scope, not a clause) · warning: **elective/cosmetic only — never urgent or clinically-indicated treatment** · constraints: compliance review required · fallback: T1.
 
 ## 9. Family & Kids *(no templates today)*
 *Covers soft play, kids' activities/classes, party venues, trampoline parks. **2-for-1 entry** works well (siblings/friends come together, fills off-peak). Keep copy family-appropriate.*
 
 **T1 · RECOMMENDED · `fk-2for1-entry` · BOGO**
 - **Title:** 2-for-1 Child Entry · **Description:** Buy one child's entry/session and get a second free. · **minimumSaving:** 6.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£8 · terms: "Booking recommended at peak times. Supervision/age rules apply." · banner: kids happily playing (consent-cleared imagery) · rationale: a family-friendly hook — siblings/friends come together, filling quiet sessions · margin: near-zero on spare session capacity · appeal: "bring a friend free" for parents · constraints: RMV defaults open — for off-peak-only redemption use an optional TIME_LIMITED voucher, not this RMV · fallback: T2.
+- *Guidance:* est. saving ~£8 · default clauses: `booking-recommended` · guidance: supervision/age rules apply · banner: kids happily playing (consent-cleared imagery) · rationale: a family-friendly hook — siblings/friends come together, filling quiet sessions · margin: near-zero on spare session capacity · appeal: "bring a friend free" for parents · constraints: RMV defaults open — for off-peak-only redemption use an optional TIME_LIMITED voucher, not this RMV · fallback: T2.
 
 **T2 · `fk-free-extra` · FREEBIE**
 - **Title:** Free Activity with a Session · **Description:** A free extra (a turn on a ride, a snack, a craft) with any session. · **minimumSaving:** 5.00 · **allowedFields:** terms, expiryDate
@@ -134,7 +134,7 @@
 
 **T1 · RECOMMENDED · `ag-free-healthcheck` · FREEBIE**
 - **Title:** Free Vehicle Health Check · **Description:** A free multi-point health/safety check with any service or MOT (or standalone). · **minimumSaving:** 25.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£30 · terms: "By appointment. With a paid service/MOT or standalone." · banner: a clean workshop / car on a ramp · rationale: costs you minutes but is valued at ~£30 — gets the car on your ramp and surfaces work · margin: technician time only · appeal: peace of mind, no commitment · constraints: by appointment · fallback: T2.
+- *Guidance:* est. saving ~£30 · default clauses: `booking-required` · guidance: with a paid service/MOT, or standalone · banner: a clean workshop / car on a ramp · rationale: costs you minutes but is valued at ~£30 — gets the car on your ramp and surfaces work · margin: technician time only · appeal: peace of mind, no commitment · constraints: by appointment · fallback: T2.
 
 **T2 · `ag-service-mot-bundle` · PACKAGE_DEAL**
 - **Title:** Service + MOT Bundle · **Description:** A full service and MOT together at a bundled price. · **minimumSaving:** 25.00 · **allowedFields:** terms, expiryDate
@@ -149,11 +149,11 @@
 
 **T1 · RECOMMENDED · `ps-free-addon` · FREEBIE**
 - **Title:** Free Add-On with Any Groom · **Description:** A complimentary nail trim, teeth check, or add-on with any grooming session. · **minimumSaving:** 8.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£12 · terms: "With any full-price groom. Booking recommended." · banner: a happy, well-groomed pet · rationale: low-cost add-on that drives rebooking · margin: a few minutes of groomer time · appeal: a little extra care for their pet · constraints: grooming only (not clinical) · fallback: T2.
+- *Guidance:* est. saving ~£12 · default clauses: `booking-recommended` · guidance: with any full-price groom · banner: a happy, well-groomed pet · rationale: low-cost add-on that drives rebooking · margin: a few minutes of groomer time · appeal: a little extra care for their pet · constraints: grooming only (not clinical) · fallback: T2.
 
 **T2 · `ps-amount-off-first` · DISCOUNT_FIXED**
 - **Title:** £8 Off Your First Groom or Daycare Day · **Description:** £8 off a first grooming session or daycare day. · **minimumSaving:** 8.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* terms: "Booking recommended." · rationale: converts a new regular · fallback: T1.
+- *Guidance:* default clauses: `booking-recommended` · rationale: converts a new regular · fallback: T1.
 
 **T3 · `ps-daycare-pack` · PACKAGE_DEAL**
 - **Title:** 5-Day Daycare Pack · **Description:** Five daycare days at a pack price. · **minimumSaving:** 10.00 · **allowedFields:** terms, expiryDate

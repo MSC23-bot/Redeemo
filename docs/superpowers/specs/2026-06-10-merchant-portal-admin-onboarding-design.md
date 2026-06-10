@@ -163,6 +163,7 @@ Reasons/comments on `AdminApproval.comment`; history in `AuditLog`.
 - **Guidance, not restriction:** per-sector research-backed "why" tips (live with the template) + visible shortlist + "propose your own" escape.
 - **Copy:** "your offer · your margin · your control"; never "discount"/"deal-seeker"; sell footfall/reviews/analytics. 2 permanent RMVs = the core flagship; custom RCVs = the bonus tier.
 - **Terms of use = curated clause selection, NOT free-text — with real-time guardrails at voucher creation (§20).** Merchants pick from the admin-managed clause library (scoped by category + voucher type); the rules engine **blocks conflicting / banned / over-restrictive combinations at save**; templates pre-select sensible defaults. Platform-given rules (one-per-cycle) and unenforceable ones (new-customers) are excluded.
+- **Type-specific assisted voucher builder, NOT one generic form (§21).** Each `VoucherType` has a different commercial shape → a guided, type-aware builder with a live customer-app preview, plain-language value/margin logic, and fields+terms validated together. Voucher creation is the single biggest merchant-creation drop-off risk.
 
 ---
 
@@ -429,4 +430,74 @@ The customer-favourable rule applies **most strictly to RMVs** (they are the off
 
 ---
 
-*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session. §18 lists remaining open gaps; §19 resolves the top three; §20 is the curated voucher terms-of-use system.)*
+---
+
+## 21. Type-specific assisted voucher builder (offer-engine UI; attacks creation drop-off)
+
+**Decision (owner, 2026-06-10): voucher creation is NOT one generic form.** Each `VoucherType` has a different commercial shape, so the portal uses a **type-specific assisted builder** — voucher creation is the single biggest merchant-creation drop-off risk. **Low-friction is the overriding goal: minimise free typing — prefer dropdowns / select / tap / pre-filled template defaults / vetted bands; the platform supplies the value/margin info and sensible defaults FOR the merchant; the merchant supplies the least possible (often just confirm + tweak).**
+
+### 21.1 Code reality (inspected)
+- `VoucherType` = BOGO, SPEND_AND_SAVE, DISCOUNT_FIXED, DISCOUNT_PERCENT, FREEBIE, PACKAGE_DEAL, TIME_LIMITED, REUSABLE.
+- `Voucher` has **`merchantFields Json?`** — the home for structured per-type data (currently under-used).
+- `createVoucher` accepts type/title/description/estimatedSaving (+ terms/expiry); per-type structure isn't enforced today.
+- **Customer app renders per-type COPY (deterministic, keyed off `type` in `productCopy.ts`) + title/description/estimatedSaving + parsed terms — but NOT structured per-type fields.** The offer specifics (the £30 threshold, the qualifying item) live in free-text title/description today. → To "map cleanly to display," the app must render from structured `merchantFields` (the deferred §A3 swap).
+
+### 21.2 The builder flow
+1. **Pick / be recommended a type** (from the offer engine / RmvTemplate; RMVs come pre-typed).
+2. **Type-specific fields — low-friction inputs:** show only the fields that type needs (§21.3), as **dropdowns / selects / tappable options / vetted bands**, pre-filled with the template defaults; free-text is the exception, not the norm.
+3. **Plain-language value + margin logic** — "the customer saves £Y; you absorb ~£X per redemption" (from the offer-engine guidance + the `minimumSaving` floor).
+4. **Live customer-app preview** — render the voucher exactly as it will appear in the customer app (coupon card + detail), updating as fields change.
+5. **Validate fields + terms together** — per-type field validation + the §20 clause rules + the value floor, as one unit.
+6. **Output maps cleanly to display** — structured fields → `merchantFields` → the customer-app per-type rendering.
+
+### 21.3 Per-type field schemas (→ `merchantFields`)
+| Type | Structured fields | estimatedSaving | notes |
+|---|---|---|---|
+| `SPEND_AND_SAVE` | threshold (£), saveAmount (£) | = saveAmount | "Spend £30, save £8"; min-spend captured at validation (§20) |
+| `BOGO` | qualifyingItem, freeItem, cheaperItemApplies (bool) | = value of free item | the cheaper-item rule must be explicit |
+| `FREEBIE` | freeItem/service, triggerPurchase? | = value of free item | **min-spend BANNED** (§20) |
+| `PACKAGE_DEAL` | includedItems[], packageValue (£), packagePrice (£) | = packageValue − packagePrice | |
+| `DISCOUNT_FIXED` | amount (£), eligibleScope | = amount | clean for high-ticket |
+| `DISCOUNT_PERCENT` | percentage (%), eligibleScope | derived from typical spend | **de-emphasised + floor-policed** (§7) |
+| `TIME_LIMITED` | validDays, validTimes (+ the underlying offer) | = the underlying offer's | **optional / non-RMV** (§20.10) — generally NOT a mandatory flagship |
+| `REUSABLE` | cooldownSeconds (+ the underlying offer) | per the underlying offer | platform-default cooldown if null |
+
+### 21.4 Connection to the curated terms system (§20)
+- **The selected voucher type controls which terms clauses are offerable** (clause `voucherTypeScope`).
+- **Conflicting fields/terms blocked in real time** at save (§20.6 + per-type field rules) — e.g. FREEBIE + min-spend; BOGO + group-size-1.
+- **RMVs stay customer-favourable by default**; **time/day limits are NOT the normal path for mandatory vouchers** (→ optional `TIME_LIMITED`, §20.10).
+
+### 21.5 Schema + customer-app implications
+- Use **`merchantFields Json?`** for the structured per-type data (validated server-side per type) — connects to deferred §A3.
+- **Replace `RmvTemplate.allowedFields = ['terms','expiryDate']`** with a **per-type editable field set** (the builder config) + clause selection (§20).
+- **Customer-app:** extend the per-type rendering to read structured `merchantFields` (not parse title/description) so the live builder preview and the real card match — the §A3 customer-app swap.
+- **MVP vs fast-follow:** MVP = the type-specific builder for the core types + live preview + structured `merchantFields` + the §20 terms validation. Fast-follow = the richer conversational "help me build" builder + AI suggestions.
+
+---
+
+---
+
+## 22. Admin-panel management of the curated engines (owner direction, 2026-06-10)
+
+**Decision: every curated/config engine in this spec is MANAGED FROM THE REDEEMO ADMIN PANEL — add / edit / remove / version, with audit, and NO code deploy required to evolve it.** Redeemo can tune offers, terms, rules, and mappings per category / voucher type as the marketplace learns.
+
+### 22.1 What is admin-managed
+- **RmvTemplate library (§7):** add/edit/remove/version templates per category/subcategory — offer type, copy, `minimumSaving` floor, guidance tip, recommended flag, default clauses.
+- **Terms clause library `TermsClause` (§20):** add/edit/remove/version clauses — displayCopy, category + voucher-type scope, severity, enforcement class, `conflictsWith`/`requires`, value-erosion weight, parameter bounds.
+- **Terms rules-engine config (§20.6):** conflict pairs, type-bans, the value-erosion threshold + the restrictive-clause cap, the trading-hours floor — all tunable.
+- **Per-type voucher field config (§21):** the field model per `VoucherType` + the **type↔clause compatibility** matrix (`voucherTypeScope`). (The `VoucherType` *enum* stays code/schema; the field config + compatibility is admin-config.)
+- **Category taxonomy + mappings (§7):** add/edit/approve categories + subcategories (incl. merchant `MerchantSuggestedTag` requests); the category→template and category→clause-scope bindings; intent/ladder profiles.
+- **Fair Use / disclaimer lines (§A1):** the admin-managed policy lines (e.g. medical disclaimers).
+
+### 22.2 How
+- **CONTENT (+ SUPER_ADMIN) capability** (§9) owns these via `requireAdminCapability('manage_content')`. Changes to `minimumSaving` floors / commercial value may be gated higher where sensitive.
+- **Versioned + audited (§11):** every add/edit/remove is **versioned** (live vouchers keep the version they were created against) and written to the platform-wide audit (actor=admin, before/after, reason).
+- **Live-merchant safety:** editing/removing a template or clause must **NOT retroactively break or alter LIVE vouchers** — changes apply to NEW vouchers (and to drafts on next edit); existing vouchers keep their captured config until re-edited + re-approved. Remove = **`isActive: false` soft-retire**, never a hard delete that orphans live vouchers.
+
+### 22.3 MVP vs fast-follow
+- **MVP:** the engines exist and are **seeded** via `seed-data` (templates, clauses, rules config) — and the **schema is built management-ready** (`RmvTemplate`, `TermsClause`, `VoucherTermsClause`, all with `isActive` + `version`), so no later migration.
+- **Fast-follow:** the in-app **admin-panel CRUD UI** (the CONTENT management surface) for editing these without a seed/redeploy.
+
+---
+
+*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session. §18 lists remaining open gaps; §19 resolves the top three; §20 = curated voucher terms-of-use; §21 = type-specific voucher builder; §22 = admin-panel management of the curated engines.)*
