@@ -65,9 +65,37 @@ export const REQUIRED_SECRETS = [
 ] as const
 
 /**
+ * Secrets that are required ONLY when their feature flag is switched on. The
+ * hard `REQUIRED_SECRETS` above stay minimal so dev/CI boot without R2/Resend,
+ * while a deploy that turns a feature ON still fails closed if its secret is
+ * missing. PR-0.5 adds the `STORAGE_ENABLED` → `R2_*` gate here.
+ */
+export const FEATURE_GATED_SECRETS: ReadonlyArray<{
+  flag: string
+  enabledValue: string
+  secrets: readonly string[]
+}> = [{ flag: 'EMAIL_ENABLED', enabledValue: 'true', secrets: ['RESEND_API_KEY'] }]
+
+/**
+ * If `process.env[flagVar] === enabledValue`, every named secret must be present
+ * and non-placeholder (throws on the first that isn't). If the flag is off, this
+ * is a no-op. Use for feature-gated secrets that are only needed when a feature
+ * is enabled (e.g. RESEND_API_KEY only when EMAIL_ENABLED=true).
+ */
+export function requireSecretWhenEnabled(
+  flagVar: string,
+  enabledValue: string,
+  ...secretNames: string[]
+): void {
+  if ((process.env[flagVar] ?? '') !== enabledValue) return
+  for (const name of secretNames) requireSecret(name)
+}
+
+/**
  * Validates every required secret up front and throws ONE error listing all
  * that are missing or placeholder. Call at process start (before building the
- * app) so a misconfigured deploy fails fast with the complete list.
+ * app) so a misconfigured deploy fails fast with the complete list. Also checks
+ * the feature-gated secrets whose flags are currently ON.
  */
 export function validateRequiredEnv(): void {
   const problems: string[] = []
@@ -76,6 +104,22 @@ export function validateRequiredEnv(): void {
       requireSecret(name)
     } catch (err) {
       problems.push('  - ' + (err as Error).message.replace(/^\[env\] /, ''))
+    }
+  }
+  // Feature-gated secrets: required only when their flag is on. Check each named
+  // secret individually so EVERY missing one is reported, not just the first.
+  for (const gate of FEATURE_GATED_SECRETS) {
+    if ((process.env[gate.flag] ?? '') !== gate.enabledValue) continue
+    for (const name of gate.secrets) {
+      try {
+        requireSecret(name)
+      } catch (err) {
+        problems.push(
+          '  - ' +
+            (err as Error).message.replace(/^\[env\] /, '') +
+            ` (required when ${gate.flag}=${gate.enabledValue})`,
+        )
+      }
     }
   }
   if (problems.length > 0) {
