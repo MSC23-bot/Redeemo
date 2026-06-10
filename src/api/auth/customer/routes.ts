@@ -164,14 +164,14 @@ export async function customerAuthRoutes(app: FastifyInstance) {
     const user = await app.prisma.user.findUnique({ where: { id: req.user.sub } })
     if (!user?.phone) return reply.status(400).send({ error: { code: 'PHONE_NOT_VERIFIED', message: 'No verified phone on file.', statusCode: 400 } })
 
-    // SEC-H3 (Gate-PR-7): full toll-fraud controls (country allowlist + per-phone/user/IP
-    // hourly+daily + resend cooldown + global cap). Count the attempt before the send.
-    const { assertSmsSendAllowed, recordSmsSend } = await import('../../shared/smsLimiter')
+    // SEC-H3 (Gate-PR-7) + §SEC.1: full toll-fraud controls (country allowlist +
+    // per-phone/user/IP hourly+daily + resend cooldown + global cap) as ONE
+    // atomic check-and-count before the send.
+    const { consumeSmsSend } = await import('../../shared/smsLimiter')
     const { sendOtp } = await import('../../shared/otp')
     const { RedisKey } = await import('../../shared/redis-keys')
     const smsCtx = { phone: user.phone, userId: req.user.sub, ip: req.ip, scope: 'otp' as const }
-    await assertSmsSendAllowed(app.redis, smsCtx)
-    await recordSmsSend(app.redis, smsCtx)
+    await consumeSmsSend(app.redis, smsCtx)
     await sendOtp(user.phone)
     await app.redis.set(RedisKey.otp('customer', req.user.sub), action, 'EX', 600)
     return reply.send({ message: 'Code sent to your verified phone number.' })

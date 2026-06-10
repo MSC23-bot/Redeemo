@@ -1,29 +1,43 @@
 // src/api/shared/smsLimiter.ts
 //
-// SEC-H3 (Gate-PR-7): SMS/OTP toll-fraud controls. Every customer-facing path
-// that bills a Twilio SMS routes through assertSmsSendAllowed() (checks) then
-// recordSmsSend() (counts the attempt), before the actual send.
+// SEC-H3 (Gate-PR-7) + §SEC.1 (Phase 0 PR-0.2): SMS/OTP toll-fraud controls.
+// Every customer-facing path that bills a Twilio SMS routes through
+// consumeSmsSend() — ONE atomic check-and-count — before the actual send.
 //
 // Controls:
 //   - Country allowlist (default UK +44) — the primary anti-toll-fraud control.
-//   - Global daily circuit-breaker — hard cost ceiling.
-//   - Per-phone / per-user / per-IP hourly + daily caps.
-//   - Per-phone resend cooldown (atomic SET NX; also serialises concurrent sends).
-//   - Per-branch daily cap for branch-PIN SMS.
+//   - Global daily circuit-breaker — hard cost ceiling. Checked first among the
+//     counted caps (a platform-wide block reports as SMS_GLOBAL_LIMIT), counted
+//     ONLY on allowed attempts: it caps what Twilio can bill, so blocked
+//     requests must never consume it (otherwise an attacker could trip the
+//     platform-wide breaker with requests that cost nothing).
+//   - Per-phone / per-user / per-branch caps — VICTIM keys: checked first,
+//     counted only when the attempt is allowed. A blocked attempt can't burn a
+//     target's quota or extend their window.
+//   - Per-IP hourly + daily caps — ABUSER keys: every attempt counts, allowed
+//     or blocked, so a hammering requester trips their own limit.
+//   - Per-phone resend cooldown — SET NX inside the same atomic script, after
+//     the volume checks (volume errors take precedence) and before the victim
+//     counting (a rapid double-tap on "resend" doesn't burn the hourly quota).
+//     Also serialises concurrent sends to the same number.
 //
 // Guardrails:
 //   - Raw phone numbers are NEVER used in Redis keys — only hashPhone(phone).
 //   - RATE_LIMIT_RELAX loosens the VOLUME caps in dev only. It does NOT relax the
 //     country allowlist or the global cost cap (both are env-driven and always on,
 //     so production can never accidentally disable them).
-//   - Counting happens on the ATTEMPT (recordSmsSend before the send), because
-//     Twilio bills attempts, not just successes.
+//   - Counting happens on the allowed ATTEMPT (before the send), because Twilio
+//     bills attempts, not just successes — a send that passes the limiter but
+//     fails at Twilio is still counted.
+//   - Atomic (§SEC.1): check + count run as one Lua script (shared/atomicLimiter)
+//     — a concurrent burst can no longer overshoot any cap.
 
 import crypto from 'node:crypto'
 import type Redis from 'ioredis'
 import { AppError } from './errors'
 import { RedisKey } from './redis-keys'
 import { isAssignedCallingCode } from './countryCallingCodes'
+import { consume, type LimitSpec } from './atomicLimiter'
 
 // RATE_LIMIT_RELAX only takes effect outside production (mirrors plugins/rate-limit.ts).
 const RELAX = process.env.RATE_LIMIT_RELAX === 'true' && process.env.NODE_ENV !== 'production'
@@ -138,47 +152,25 @@ export interface SmsSendContext {
   branchId?: string | null
 }
 
-function volumeKeys(ctx: SmsSendContext): Array<{ key: string; cap: Cap }> {
-  const c = caps()
-  const out: Array<{ key: string; cap: Cap }> = []
-
-  // Per-destination-phone caps apply to EVERY billable SMS (OTP + branch PIN).
-  const ph = hashPhone(ctx.phone)
-  out.push({ key: RedisKey.rateLimitOtpSend(ph), cap: c.phoneHour })
-  out.push({ key: RedisKey.rateLimitOtpSendDay(ph), cap: c.phoneDay })
-
-  // Per-IP caps apply whenever the caller IP is known (OTP + branch PIN).
-  if (ctx.ip) {
-    out.push({ key: RedisKey.rateLimitOtpIp(ctx.ip), cap: c.ipHour })
-    out.push({ key: RedisKey.rateLimitOtpIpDay(ctx.ip), cap: c.ipDay })
-  }
-
-  // Per-user caps — OTP only (branch PIN has no end-user).
-  if (ctx.scope === 'otp' && ctx.userId) {
-    out.push({ key: RedisKey.rateLimitOtpSendUser(ctx.userId), cap: c.userHour })
-    out.push({ key: RedisKey.rateLimitOtpSendUserDay(ctx.userId), cap: c.userDay })
-  }
-
-  // Per-branch daily cap — branch PIN only (additional branch-specific control).
-  if (ctx.scope === 'branchPin' && ctx.branchId) {
-    out.push({ key: RedisKey.rateLimitBranchPinDay(ctx.branchId), cap: c.branchPinDay })
-  }
-
-  return out
-}
-
-async function ttlOr(redis: Redis, key: string, fallback: number): Promise<number> {
-  const t = await redis.ttl(key)
-  return t > 0 ? t : fallback
-}
+const toSpec = (key: string, cap: Cap): LimitSpec => ({ key, limit: cap.limit, windowSec: cap.windowSec })
 
 /**
- * Throws an AppError (with `retryAfter` where useful) if the send must be
- * blocked. On success it has consumed the per-phone resend cooldown (SET NX),
- * which also serialises concurrent sends to the same number. Call recordSmsSend
- * next, then perform the actual send.
+ * Atomically check-and-count one SMS send attempt. Call BEFORE the actual
+ * Twilio send — an allowed attempt is already counted (Twilio bills attempts).
+ *
+ * Throws (with `retryAfter` where useful):
+ *   - SMS_DESTINATION_NOT_ALLOWED — non-E.164 or country not allowlisted
+ *     (checked in JS before any Redis call).
+ *   - SMS_GLOBAL_LIMIT — the platform-wide daily cost cap is exhausted.
+ *   - SMS_RATE_LIMITED — a per-phone / per-user / per-IP / per-branch cap.
+ *   - OTP_RESEND_COOLDOWN — the per-phone resend cooldown is held.
+ *
+ * §SEC.1 semantics: per-IP = abuser keys (every attempt counts); global +
+ * per-phone/user/branch = victim/cost keys (counted only on allowed attempts);
+ * cooldown acquired in-script after the volume checks. On success the cooldown
+ * is held, which also serialises concurrent sends to the same number.
  */
-export async function assertSmsSendAllowed(redis: Redis, ctx: SmsSendContext): Promise<void> {
+export async function consumeSmsSend(redis: Redis, ctx: SmsSendContext): Promise<void> {
   // 0. Must be a valid E.164 number (branch phones MUST be stored as E.164).
   //    Never send silently to a non-E.164 / malformed number.
   if (!isE164Format(ctx.phone)) {
@@ -190,42 +182,46 @@ export async function assertSmsSendAllowed(redis: Redis, ctx: SmsSendContext): P
     throw new AppError('SMS_DESTINATION_NOT_ALLOWED')
   }
 
-  // 2. Global circuit-breaker — always enforced, hard block (cost protection).
+  const c = caps()
+  const ph = hashPhone(ctx.phone)
   const globalKey = RedisKey.rateLimitSmsGlobalDay()
-  const globalCount = await redis.get(globalKey)
-  if (globalCount !== null && parseInt(globalCount, 10) >= globalDailyCap()) {
-    throw new AppError('SMS_GLOBAL_LIMIT', { retryAfter: await ttlOr(redis, globalKey, GLOBAL_WINDOW_SEC) })
+
+  // Per-IP caps — ABUSER keys (every attempt counts), whenever the IP is known.
+  const abuserKeys: LimitSpec[] = []
+  if (ctx.ip) {
+    abuserKeys.push(toSpec(RedisKey.rateLimitOtpIp(ctx.ip), c.ipHour))
+    abuserKeys.push(toSpec(RedisKey.rateLimitOtpIpDay(ctx.ip), c.ipDay))
   }
 
-  // 3. Volume caps (per-phone / per-user / per-IP hourly+daily, or per-branch).
-  for (const { key, cap } of volumeKeys(ctx)) {
-    const count = await redis.get(key)
-    if (count !== null && parseInt(count, 10) >= cap.limit) {
-      throw new AppError('SMS_RATE_LIMITED', { retryAfter: await ttlOr(redis, key, cap.windowSec) })
-    }
-  }
-
-  // 4. Resend cooldown (per-phone) — atomic SET NX; blocks rapid/concurrent resends.
-  const cdKey = RedisKey.rateLimitOtpCooldown(hashPhone(ctx.phone))
-  const cooldownSec = caps().cooldownSec
-  const acquired = await redis.set(cdKey, '1', 'EX', cooldownSec, 'NX')
-  if (acquired === null) {
-    throw new AppError('OTP_RESEND_COOLDOWN', { retryAfter: await ttlOr(redis, cdKey, cooldownSec) })
-  }
-}
-
-/**
- * Record one send ATTEMPT against the global cap and every applicable volume
- * counter. Call AFTER assertSmsSendAllowed and BEFORE the actual send, so an
- * attempt that fails at Twilio is still counted (Twilio bills attempts).
- */
-export async function recordSmsSend(redis: Redis, ctx: SmsSendContext): Promise<void> {
-  const ops: Array<{ key: string; windowSec: number }> = [
-    { key: RedisKey.rateLimitSmsGlobalDay(), windowSec: GLOBAL_WINDOW_SEC },
-    ...volumeKeys(ctx).map(({ key, cap }) => ({ key, windowSec: cap.windowSec })),
+  // Victim/cost keys — counted only on allowed attempts. The global breaker
+  // goes FIRST so a platform-wide exhaustion reports as SMS_GLOBAL_LIMIT
+  // (not a generic rate-limit) regardless of the other counters.
+  const victimKeys: LimitSpec[] = [
+    { key: globalKey, limit: globalDailyCap(), windowSec: GLOBAL_WINDOW_SEC },
+    toSpec(RedisKey.rateLimitOtpSend(ph), c.phoneHour),
+    toSpec(RedisKey.rateLimitOtpSendDay(ph), c.phoneDay),
   ]
-  for (const { key, windowSec } of ops) {
-    const n = await redis.incr(key)
-    if (n === 1) await redis.expire(key, windowSec) // fixed window — set TTL on first incr only
+  if (ctx.scope === 'otp' && ctx.userId) {
+    victimKeys.push(toSpec(RedisKey.rateLimitOtpSendUser(ctx.userId), c.userHour))
+    victimKeys.push(toSpec(RedisKey.rateLimitOtpSendUserDay(ctx.userId), c.userDay))
+  }
+  if (ctx.scope === 'branchPin' && ctx.branchId) {
+    victimKeys.push(toSpec(RedisKey.rateLimitBranchPinDay(ctx.branchId), c.branchPinDay))
+  }
+
+  const result = await consume(redis, {
+    abuserKeys,
+    victimKeys,
+    cooldown: { key: RedisKey.rateLimitOtpCooldown(ph), ttlSec: c.cooldownSec },
+  })
+
+  if (!result.ok) {
+    if (result.scope === 'cooldown') {
+      throw new AppError('OTP_RESEND_COOLDOWN', { retryAfter: result.retryAfter })
+    }
+    if (result.blockedKey === globalKey) {
+      throw new AppError('SMS_GLOBAL_LIMIT', { retryAfter: result.retryAfter })
+    }
+    throw new AppError('SMS_RATE_LIMITED', { retryAfter: result.retryAfter })
   }
 }
