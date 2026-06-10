@@ -186,6 +186,15 @@ export async function consumeSmsSend(redis: Redis, ctx: SmsSendContext): Promise
   const ph = hashPhone(ctx.phone)
   const globalKey = RedisKey.rateLimitSmsGlobalDay()
 
+  // Global daily circuit-breaker — a GATE key: checked FIRST (highest
+  // precedence, so a platform-wide exhaustion always reports as
+  // SMS_GLOBAL_LIMIT, the ops signal) and counted ONLY on an allowed send (a
+  // burst of blocked attempts must not be able to drain the platform breaker
+  // and deny SMS to every legitimate user — anti-DoS on the cost cap).
+  const gateKeys: LimitSpec[] = [
+    { key: globalKey, limit: globalDailyCap(), windowSec: GLOBAL_WINDOW_SEC },
+  ]
+
   // Per-IP caps — ABUSER keys (every attempt counts), whenever the IP is known.
   const abuserKeys: LimitSpec[] = []
   if (ctx.ip) {
@@ -193,11 +202,8 @@ export async function consumeSmsSend(redis: Redis, ctx: SmsSendContext): Promise
     abuserKeys.push(toSpec(RedisKey.rateLimitOtpIpDay(ctx.ip), c.ipDay))
   }
 
-  // Victim/cost keys — counted only on allowed attempts. The global breaker
-  // goes FIRST so a platform-wide exhaustion reports as SMS_GLOBAL_LIMIT
-  // (not a generic rate-limit) regardless of the other counters.
+  // Per-phone / per-user / per-branch — VICTIM keys, counted only on allowed.
   const victimKeys: LimitSpec[] = [
-    { key: globalKey, limit: globalDailyCap(), windowSec: GLOBAL_WINDOW_SEC },
     toSpec(RedisKey.rateLimitOtpSend(ph), c.phoneHour),
     toSpec(RedisKey.rateLimitOtpSendDay(ph), c.phoneDay),
   ]
@@ -210,6 +216,7 @@ export async function consumeSmsSend(redis: Redis, ctx: SmsSendContext): Promise
   }
 
   const result = await consume(redis, {
+    gateKeys,
     abuserKeys,
     victimKeys,
     cooldown: { key: RedisKey.rateLimitOtpCooldown(ph), ttlSec: c.cooldownSec },
@@ -219,7 +226,7 @@ export async function consumeSmsSend(redis: Redis, ctx: SmsSendContext): Promise
     if (result.scope === 'cooldown') {
       throw new AppError('OTP_RESEND_COOLDOWN', { retryAfter: result.retryAfter })
     }
-    if (result.blockedKey === globalKey) {
+    if (result.scope === 'gate') {
       throw new AppError('SMS_GLOBAL_LIMIT', { retryAfter: result.retryAfter })
     }
     throw new AppError('SMS_RATE_LIMITED', { retryAfter: result.retryAfter })

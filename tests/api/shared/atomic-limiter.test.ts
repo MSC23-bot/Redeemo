@@ -152,6 +152,40 @@ describe('atomicLimiter.consume — real Redis (db 15)', () => {
     expect(await redis!.get(cd)).toBeNull() // cooldown was never acquired
   })
 
+  it('GATE precedence: a capped gate wins the error over a simultaneously-capped abuser, and is NOT burned by the blocked attempt', async (ctx) => {
+    requireRedis(ctx)
+    const gate = k('global')
+    const abuser = k('ip')
+    await redis!.set(gate, '500', 'EX', 3600) // platform breaker exhausted
+    await redis!.set(abuser, '10', 'EX', 3600) // this IP also at cap
+    const r = await consume(redis!, {
+      gateKeys: [spec(gate, 500)],
+      abuserKeys: [spec(abuser, 10)],
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.scope).toBe('gate') // gate precedence — not 'abuser'
+      expect(r.blockedKey).toBe(gate)
+    }
+    expect(await redis!.get(gate)).toBe('500') // gate NOT incremented on a block (anti-DoS)
+    expect(await redis!.get(abuser)).toBe('10') // abuser NOT incremented either — gate returns before the abuser phase
+  })
+
+  it('GATE counted on allowed; an abuser block does NOT count the gate (anti-DoS on the cost cap)', async (ctx) => {
+    requireRedis(ctx)
+    const gate = k('global')
+    const abuser = k('ip')
+    // First send allowed → gate counts to 1.
+    expect((await consume(redis!, { gateKeys: [spec(gate, 500)], abuserKeys: [spec(abuser, 1)] })).ok).toBe(true)
+    // Second send: abuser now over its cap → blocked at the abuser phase, AFTER the gate check
+    // but BEFORE the gate increment, so the gate stays at 1 (a blocked attempt can't drain it).
+    const r = await consume(redis!, { gateKeys: [spec(gate, 500)], abuserKeys: [spec(abuser, 1)] })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.scope).toBe('abuser')
+    expect(await redis!.get(gate)).toBe('1') // gate counted only the allowed send
+    expect(await redis!.get(abuser)).toBe('2') // abuser counted both attempts
+  })
+
   it('victim check order = declaration order (first blocking victim key reported)', async (ctx) => {
     requireRedis(ctx)
     const first = k('global')
@@ -264,6 +298,25 @@ describe('shimEval ≡ Lua (differential, via real consume())', () => {
   it('cooldown sequence', async (ctx) => {
     requireRedis(ctx)
     await differential('cooldown', { victimKeys: [spec(k('v'), 10)], cooldown: { key: k('cd'), ttlSec: 60 } }, 3)
+  })
+
+  it('gate + abuser + victim + cooldown sequence (all four classes)', async (ctx) => {
+    requireRedis(ctx)
+    await differential(
+      'all-classes',
+      {
+        gateKeys: [spec(k('g'), 4)],
+        abuserKeys: [spec(k('a'), 100)],
+        victimKeys: [spec(k('v'), 2)],
+        cooldown: { key: k('cd'), ttlSec: 60 },
+      },
+      6,
+    )
+  })
+
+  it('gate cap sequence (gate precedence + count-on-allowed)', async (ctx) => {
+    requireRedis(ctx)
+    await differential('gate-cap', { gateKeys: [spec(k('g'), 2)], abuserKeys: [spec(k('a'), 100)] }, 5)
   })
 
   it('pre-seeded at-cap victim', async (ctx) => {
