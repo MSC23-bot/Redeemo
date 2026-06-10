@@ -4,7 +4,7 @@ import { verifyPassword, validatePasswordPolicy, hashPassword } from '../../shar
 import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecureToken } from '../../shared/tokens'
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
-import { assertPwdResetAllowed, recordPwdResetRequest } from '../../shared/pwdResetLimiter'
+import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
 import {
   storeRefreshToken, revokeRefreshToken, revokeAllSessionsForEntity,
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
@@ -215,11 +215,10 @@ export async function forgotPasswordMerchant(
   email: string,
   ip?: string | null
 ): Promise<void> {
-  // SEC-H4: rate-limit BEFORE the lookup and for EVERY request, so existing and
-  // non-existing emails are treated identically (no enumeration) and both count
-  // toward the per-email / per-IP caps.
-  await assertPwdResetAllowed(redis, { email, ip })
-  await recordPwdResetRequest(redis, { email, ip })
+  // SEC-H4 + §SEC.1: rate-limit BEFORE the lookup and for EVERY request, so
+  // existing and non-existing emails are treated identically (no enumeration).
+  // One ATOMIC check-and-count (victim = per-email caps, abuser = per-IP cap).
+  await consumePwdResetAttempt(redis, { email, ip })
 
   const admin = await prisma.merchantAdmin.findUnique({ where: { email } })
   if (!admin) return

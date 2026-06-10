@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest'
 import Redis from 'ioredis'
-import { consume, luaConsumeShim, type LimitSpec } from '../../../src/api/shared/atomicLimiter'
+import { consume, shimEval, type LimitSpec } from '../../../src/api/shared/atomicLimiter'
 
 // §SEC.1 (Phase 0 PR-0.2): the atomic limiter's THREE load-bearing properties,
 // proven against REAL Redis (a fake cannot prove server-side atomicity):
@@ -174,19 +174,28 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
   })
 })
 
-// ── Differential suite: luaConsumeShim must behave EXACTLY like the Lua. ──────
+// ── Differential suite: the shim must behave EXACTLY like the Lua. ────────────
 // The shim backs the stateful fake-Redis in service-level tests (e.g.
-// tests/api/auth/pwd-reset-limit.test.ts). If you change the Lua, this suite
-// forces the shim to follow — fakes can never drift from production semantics.
+// tests/api/auth/pwd-reset-limit.test.ts). We run the REAL consume() over a
+// shim-backed fake here, so packing + unpacking + semantics are ALL pinned
+// against real Redis — fakes can never drift from production behaviour.
 
-describe.skipIf(!available)('luaConsumeShim ≡ Lua (differential)', () => {
+describe.skipIf(!available)('shimEval ≡ Lua (differential, via real consume())', () => {
   beforeEach(async () => {
     seq++
     await redis!.flushdb()
   })
 
-  // Drive the same scenario through real consume() and the shim; compare outcome
-  // sequences AND final counter states.
+  /** A fake ioredis exposing only `eval`, backed by shimEval over a Map. */
+  function shimRedis(store: Map<string, string>) {
+    return {
+      eval: async (_lua: string, numKeys: number, ...rest: Array<string | number>) =>
+        shimEval(store, rest.slice(0, numKeys) as string[], rest.slice(numKeys)),
+    } as unknown as Redis
+  }
+
+  // Drive the same scenario through consume()-on-real-Redis and
+  // consume()-on-shim-fake; compare outcome sequences AND final counter states.
   async function differential(
     label: string,
     input: Parameters<typeof consume>[1],
@@ -198,10 +207,11 @@ describe.skipIf(!available)('luaConsumeShim ≡ Lua (differential)', () => {
     const realResults = []
     for (let i = 0; i < attempts; i++) realResults.push(await consume(redis!, input))
 
-    // Shim side over a fresh Map.
+    // Shim side over a fresh Map, through the SAME consume() code path.
     const store = new Map<string, string>(Object.entries(preset ?? {}))
+    const fake = shimRedis(store)
     const shimResults = []
-    for (let i = 0; i < attempts; i++) shimResults.push(luaConsumeShim(store, input))
+    for (let i = 0; i < attempts; i++) shimResults.push(await consume(fake, input))
 
     expect(shimResults.map((r) => ({ ok: r.ok, scope: r.ok ? null : r.scope, blockedKey: r.ok ? null : r.blockedKey })))
       .toEqual(realResults.map((r) => ({ ok: r.ok, scope: r.ok ? null : r.scope, blockedKey: r.ok ? null : r.blockedKey })))

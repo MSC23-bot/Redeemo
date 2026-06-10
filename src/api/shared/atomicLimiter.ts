@@ -187,3 +187,34 @@ export function luaConsumeShim(
   }
   return { ok: true }
 }
+
+/**
+ * Wire-level adapter for stateful fake-Redis objects in tests: implements the
+ * `eval` call surface (KEYS/ARGV exactly as consume() packs them) on top of
+ * luaConsumeShim, returning the same tuple shape the Lua returns. Lets a fake
+ * expose `eval: (lua, n, ...rest) => shimEval(store, rest.slice(0,n), rest.slice(n))`
+ * so service-level tests exercise the REAL consume() packing + mapping code.
+ */
+export function shimEval(
+  store: Map<string, string>,
+  keys: string[],
+  argv: Array<string | number>,
+  opts: { ttlOf?: (key: string) => number } = {},
+): [number] | [number, number, string, string] {
+  const nA = Number(argv[0])
+  const nV = Number(argv[1])
+  let i = 2
+  const abuserKeys: LimitSpec[] = []
+  for (let a = 0; a < nA; a++, i += 2) {
+    abuserKeys.push({ key: keys[a], limit: Number(argv[i]), windowSec: Number(argv[i + 1]) })
+  }
+  const victimKeys: LimitSpec[] = []
+  for (let v = 0; v < nV; v++, i += 2) {
+    victimKeys.push({ key: keys[nA + v], limit: Number(argv[i]), windowSec: Number(argv[i + 1]) })
+  }
+  const cooldown = keys.length > nA + nV ? { key: keys[nA + nV], ttlSec: Number(argv[i]) } : undefined
+
+  const r = luaConsumeShim(store, { abuserKeys, victimKeys, cooldown }, opts)
+  // retryAfter is already fallback-resolved (>0), so consume()'s ttl>0 path passes it through.
+  return r.ok ? [1] : [0, r.retryAfter, r.scope, r.blockedKey]
+}
