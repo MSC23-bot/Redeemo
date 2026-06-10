@@ -411,8 +411,25 @@ export async function forgotPasswordCustomer(
   const token = generateSecureToken(32)
   await redis.set(RedisKey.passwordReset('customer', token), user.id, 'EX', PWD_RESET_TTL)
 
-  // TODO Phase 6: deliver the reset link via Resend. The token is never logged
-  // (SEC-H1). Dev: use prisma/issue-reset-token.ts to obtain a token.
+  // PR-0.4: deliver the reset link through the outbox (dark by default). The
+  // token is never logged (SEC-H1) — it travels only in the email link + the
+  // Redis record above. Best-effort: an email-path failure must not change the
+  // anti-enumeration behaviour (this function always returns void either way).
+  try {
+    const { notify } = await import('../../shared/notify')
+    const { passwordResetEmail, buildPasswordResetLink } = await import('../../shared/emailTemplates')
+    await notify(prisma, redis, {
+      to: email,
+      recipientType: 'USER',
+      recipientId: user.id,
+      userId: user.id,
+      type: 'password_reset',
+      email: passwordResetEmail(buildPasswordResetLink('customer', token)),
+      ip: ip ?? null,
+    })
+  } catch {
+    // swallow — never reveal a delivery failure to the caller (no enumeration)
+  }
 }
 
 export async function resetPasswordCustomer(

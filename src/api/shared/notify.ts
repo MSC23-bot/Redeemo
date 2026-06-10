@@ -25,14 +25,18 @@
 
 import type { Redis } from 'ioredis'
 import type { PrismaClient } from '../../../generated/prisma/client'
-import { NotificationType, NotificationChannel } from '../../../generated/prisma/enums'
+import { NotificationType, NotificationChannel, NotificationRecipientType } from '../../../generated/prisma/enums'
 import { EMAIL_QUEUE, enqueue } from '../queues'
 import { RedisKey } from './redis-keys'
 import { hashEmail } from './pwdResetLimiter'
 import { consume } from './atomicLimiter'
 
 export type NotifyCategory = 'transactional' | 'marketing'
-export type NotifyRecipientType = 'USER' | 'MERCHANT_ADMIN' | 'BRANCH_USER'
+// CommunicationLog.recipientType is a free string, so 'ADMIN' (AdminUser, which
+// has no in-app feed) is valid for an email-only send. Only USER/MERCHANT_ADMIN/
+// BRANCH_USER are valid Notification.recipientType values — pairing 'ADMIN' with
+// `inApp` is a caller error (Prisma rejects the enum at runtime).
+export type NotifyRecipientType = 'USER' | 'MERCHANT_ADMIN' | 'BRANCH_USER' | 'ADMIN'
 
 /** The rendered email the delivery worker sends. Persisted in CommunicationLog.payload. */
 export interface NotifyEmailContent {
@@ -160,7 +164,7 @@ export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyIn
     if (input.inApp) {
       await tx.notification.create({
         data: {
-          recipientType: input.recipientType,
+          recipientType: input.recipientType as NotificationRecipientType,
           userId: input.userId ?? null,
           title: input.inApp.title,
           body: input.inApp.body,

@@ -528,9 +528,24 @@ export async function sendBranchPin(
     })
   }
 
-  // Email via Resend (Phase 3 — log for now)
+  // Email via the PR-0.4 outbox (dark by default). Supplementary to the SMS —
+  // best-effort, so an email-path hiccup never fails the PIN send. The PIN is
+  // never logged: it travels only inside the rendered email payload.
   if (branch.email) {
-    console.info(`[dev] Branch PIN email queued for ${branch.email} [PIN redacted]`)
+    try {
+      const { notify } = await import('../../shared/notify')
+      const { branchPinEmail } = await import('../../shared/emailTemplates')
+      await notify(prisma, redis, {
+        to: branch.email,
+        recipientType: 'BRANCH_USER',
+        recipientId: branchId,
+        type: 'branch_pin',
+        email: branchPinEmail(branch.name, pin),
+        ip: ctx.ipAddress,
+      })
+    } catch (err) {
+      console.warn('[branch-pin] email dispatch failed (non-fatal):', err instanceof Error ? err.message : String(err))
+    }
   }
 
   writeAuditLog(prisma, {
