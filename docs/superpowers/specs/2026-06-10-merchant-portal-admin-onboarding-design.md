@@ -225,7 +225,7 @@ Reasons/comments on `AdminApproval.comment`; history in `AuditLog`.
 
 - **Atomic go-live transaction** (on approve): `MerchantStatus → ACTIVE` · `VerificationStatus → VERIFIED` · `OnboardingStep → LIVE` · mandatory vouchers `ACTIVE`/`APPROVED` · **transactional audit** · **no server cache invalidation at MVP** (discovery is uncached — queries DB live → merchant eligible on next query/client refetch).
 - **Future requirement (recorded):** when Redis/server discovery caching is added, the actioner must invalidate affected merchant/locality/category/tag caches on go-live / suspension / voucher activation-deactivation / branch-location change.
-- **Go-live gates:** `isTestData=false` · review approved · **contract accepted by the merchant themselves** · ≥ required mandatory vouchers approved+active · ≥1 valid/main branch · **locality-bound** · **`locationConfidence ∈ {MANUALLY_CONFIRMED, ADDRESS_GEOCODED}` — POSTCODE_CENTROID insufficient** (fallback: **admin pin-drop `confirmPin` surfaced in the actioner**; no merchant permanently blocked, but a human confirms the pin) · admin-co-built material vouchers confirmed by merchant.
+- **Go-live gates:** `isTestData=false` · review approved · **contract accepted by the merchant themselves** · ≥ required mandatory vouchers approved+active · ≥1 valid/main branch · **locality-bound** · **`locationConfidence ∈ {MANUALLY_CONFIRMED, ADDRESS_GEOCODED}` — POSTCODE_CENTROID insufficient** (fallback: **admin pin-drop `confirmPin` surfaced in the actioner**; no merchant permanently blocked, but a human confirms the pin) · **per-branch visibility follows the §19.1 predicate (merchant-level approval + branch-level discovery eligibility)** · admin-co-built material vouchers confirmed by merchant.
 - **Day-2 portal:** OWNER = whole account · BRANCH_MANAGER = assigned branch ops/details · STAFF = validate + recent assigned-branch activity · new/edited vouchers → VOUCHER approval · admin corrections → direct + transactional audit.
 - **Day-2 edit tiering (v1.1) — the gate is identity/integrity risk, NOT mere visibility.** (The Christmas-hours problem: gating *every* customer-visible change is an admin bottleneck + merchant friction — 30 merchants updating holiday hours = 30 approvals, none visible until clicked.)
   - **Instant publish + audited + REVERTIBLE (operational/marketing):** opening hours, phone, email, website, description, photos, operational toggles. Published immediately; the platform-wide audit records who/before/after; the **admin can REVERT** with one click.
@@ -245,7 +245,8 @@ Reasons/comments on `AdminApproval.comment`; history in `AuditLog`.
 - `MerchantContract += userAgent` (+ store immutable accepted-version copy).
 - `AdminApproval += claimedById, claimedAt` (+ a pre-score snapshot field/JSON).
 - `AuditLog += actorId, actorType` (+ before/after, reason in structured metadata).
-- `RmvTemplate` seed data per category (+ optional `guidanceTip`). Branch field re-classification (visible-vs-operational) for pending-edit.
+- `RmvTemplate`: seed data per category + the **offer-engine migration** — `+ guidanceTip, imageGuidance, isRecommended, defaultEstimatedSaving, isActive, version`; replace `allowedFields` `['terms','expiryDate'] → ['selectedClauses','expiryDate']` + add the per-type editable field set (§20.8 / §21.5 / §22.3). Branch field re-classification (visible-vs-operational) for pending-edit.
+- **Curated terms (§20) + type-builder (§21) — new schema:** `TermsClause` model (the clause library) + `VoucherTermsClause` join (selected clauses + parameter values), **both with `isActive` + `version`**; rules-engine config (conflicts / bans / value-erosion weights / threshold) in code/config. `Voucher.merchantFields Json?` becomes the validated structured per-type data home (server-side per-type validation); the composed clause output renders into `Voucher.terms` (display-only). Every curated engine is admin-managed + versioned + audited (§22).
 - `VerificationStatus` wiring (no new values). `Voucher` enqueue fix (post-launch VOUCHER approvals).
 - Migrate `MerchantAdmin` single-admin → `MerchantMembership` (expand-contract; OWNER membership backfill).
 
@@ -257,8 +258,8 @@ Resend + `shared/notify.ts` (writes `Notification` + `CommunicationLog`) · R2 u
 ---
 
 ## 15. MVP vs fast-follow vs deferred
-- **MVP:** the full loop §1–§12 — self-register + scoped lead/claim · `MerchantMembership` (OWNER/BRANCH_MANAGER/STAFF) · 3-gate onboarding + verification (Google Places/FHRS/CH/dup) + clickwrap + offer engine + 5-rung ladder · unified actioner + admin RBAC (SUPER_ADMIN/ADMIN/OPERATIONS/+SALES) + module-grant-ready model + platform-wide audit · go-live + day-2 + redemption feed + manual validation.
-- **Fast-follow:** full lead CRM · view-as-merchant · AI offer suggestions · admin template/tip editor · richer analytics/statements/exports · grant-management UI · FINANCE/MARKETING/SUPPORT/CONTENT roles.
+- **MVP:** the full loop §1–§12 **+ the curated-terms / builder / admin-management foundations (§20–§22)** — self-register + scoped lead/claim · `MerchantMembership` (OWNER/BRANCH_MANAGER/STAFF) · 3-gate onboarding + verification (Google Places/FHRS/CH/dup) + clickwrap + offer engine + 5-rung ladder · **the §20 curated-terms clause system (seeded `TermsClause` library + real-time guardrails at voucher creation) + the §21 type-specific assisted builder (live preview + structured `merchantFields`) + the §22 engines seeded & schema management-ready** · unified actioner + admin RBAC (SUPER_ADMIN/ADMIN/OPERATIONS/+SALES) + module-grant-ready model + platform-wide audit · go-live + day-2 + redemption feed + manual validation.
+- **Fast-follow:** full lead CRM · view-as-merchant · AI offer suggestions · **the admin-panel CRUD UI for the curated engines (templates / clauses / rules-config / per-type field config — §22.3)** · richer analytics/statements/exports · grant-management UI · FINANCE/MARKETING/SUPPORT/CONTENT roles.
 - **Deferred:** Phase-5 billing/campaigns/featured (own brainstorm) · multi-merchant-per-person · QR/mobile validation (Phase 4) · Plan 3 PC3 migration.
 
 ---
@@ -276,7 +277,7 @@ Resend + `shared/notify.ts` (writes `Notification` + `CommunicationLog`) · R2 u
 ## 17. Implementation phasing (feeds `writing-plans`)
 1. **Phase 0 — foundations** (§14): email/notify + R2 + §SEC.1 + job runner + staging.
 2. **Phase 2 — actioner + merchant creation** (the chokepoint): `MerchantMembership` + self-register + the actioner + atomic transitions + `VerificationStatus` wiring + verification pre-score + go-live + platform-wide audit + admin RBAC/bootstrap. *(A lead-sourced merchant onboarded with docs + 2 RMVs is approved and appears in discovery.)*
-3. **Phase 3 — merchant portal MVP**: the onboarding workspace UI + day-2 management + redemption feed + the offer-engine UI (5-rung ladder).
+3. **Phase 3 — merchant portal MVP**: the onboarding workspace UI + day-2 management + redemption feed + the offer-engine UI = the **§21 type-specific assisted builder** (live customer-app preview + structured `merchantFields`) with **§20 curated-clause selection + real-time guardrails** (the 5-rung ladder). *(The §20 `TermsClause` library + §22 rules config are **seeded in Phase 2** so the actioner can re-validate terms at approval; the in-app admin CRUD UI for the engines is fast-follow per §22.3.)*
 4. **Fast-follow / Phase 4 / Phase 5** per §15.
 
 ---
@@ -455,7 +456,7 @@ The customer-favourable rule applies **most strictly to RMVs** (they are the off
 |---|---|---|---|
 | `SPEND_AND_SAVE` | threshold (£), saveAmount (£) | = saveAmount | "Spend £30, save £8"; min-spend captured at validation (§20) |
 | `BOGO` | qualifyingItem, freeItem, cheaperItemApplies (bool) | = value of free item | the cheaper-item rule must be explicit |
-| `FREEBIE` | freeItem/service, triggerPurchase? | = value of free item | **min-spend BANNED** (§20) |
+| `FREEBIE` | freeItem/service, triggerPurchase? | = value of free item | **min-spend *clause* BANNED** (§20) — a spend-to-unlock amount is the structured `triggerPurchase` field, NOT the `min-spend` clause (so "free gift when you spend £30" is valid) |
 | `PACKAGE_DEAL` | includedItems[], packageValue (£), packagePrice (£) | = packageValue − packagePrice | |
 | `DISCOUNT_FIXED` | amount (£), eligibleScope | = amount | clean for high-ticket |
 | `DISCOUNT_PERCENT` | percentage (%), eligibleScope | derived from typical spend | **de-emphasised + floor-policed** (§7) |
