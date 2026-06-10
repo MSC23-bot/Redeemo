@@ -45,7 +45,7 @@ async function setTerminal(
   data: { status: 'SENT' | 'FAILED'; externalId?: string },
 ): Promise<void> {
   // updateMany WHERE status = QUEUED so a concurrent BOUNCED/SENT is never clobbered.
-  await prisma.communicationLog.updateMany({
+  const res = await prisma.communicationLog.updateMany({
     where: { id, status: 'QUEUED' },
     data: {
       status: data.status,
@@ -53,6 +53,15 @@ async function setTerminal(
       ...(data.externalId ? { externalId: data.externalId, sentAt: new Date() } : {}),
     },
   })
+  // A 0-count means the row was no longer QUEUED — already terminal (e.g. BOUNCED
+  // by the webhook, or a concurrent twin job won). Surface it: it should be rare,
+  // and if it's frequent it signals a race or unexpected state worth seeing.
+  if (res.count === 0) {
+    console.warn(
+      `[worker:email] terminal ${data.status} write matched 0 rows for ${id} — ` +
+        `row already terminal or concurrently mutated`,
+    )
+  }
 }
 
 /**

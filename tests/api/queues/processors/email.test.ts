@@ -44,6 +44,17 @@ describe('processEmailJob — happy path', () => {
   })
 })
 
+describe('processEmailJob — guarded-write observability', () => {
+  it('warns when the terminal write matches 0 rows (race / already-terminal)', async () => {
+    const { prisma, updateMany } = fakePrisma({ id: 'clog-1', status: 'QUEUED', payload: PAYLOAD })
+    updateMany.mockResolvedValueOnce({ count: 0 }) // a concurrent twin / webhook flipped it first
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await processEmailJob(prisma, { communicationLogId: 'clog-1' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('matched 0 rows'))
+    warn.mockRestore()
+  })
+})
+
 describe('processEmailJob — §4.1 skip-terminal idempotency', () => {
   it('does NOT resend a row that is already terminal (SENT) — acks', async () => {
     const { prisma, updateMany } = fakePrisma({ id: 'clog-1', status: 'SENT', payload: PAYLOAD })

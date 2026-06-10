@@ -138,6 +138,21 @@ describe('notify — marketing consent', () => {
   })
 })
 
+describe('notify — programming-error guard', () => {
+  it('throws (before any side effect) when inApp is paired with a non-Notification recipientType (ADMIN)', async () => {
+    const { prisma, createLog } = fakePrisma()
+    await expect(
+      notify(prisma, fakeRedis(), {
+        ...BASE,
+        recipientType: 'ADMIN',
+        inApp: { notificationType: NotificationType.ADMIN_BROADCAST, title: 'x', body: 'y' },
+      }),
+    ).rejects.toThrow(/inApp.*not supported.*ADMIN/i)
+    expect(createLog).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('notify — pre-send guards', () => {
   it('declines a MARKETING send to a suppressed (bounced/complained) recipient', async () => {
     const { prisma, createLog } = fakePrisma({ consent: true })

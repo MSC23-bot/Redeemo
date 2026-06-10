@@ -60,7 +60,9 @@ export const RedisKey = {
   rateLimitEmailSend:      (type: string, emailHash: string) => `rl:email:${type}:${emailHash}`, // per-(type,recipient) hourly
   rateLimitEmailIpDay:     (ip: string)               => `rl:email:ip:day:${ip}`,      // per-IP daily abuser ceiling
   // Suppression: existence ⇒ provider reported a hard bounce / spam complaint for
-  // this recipient; future transactional sends to it are skipped (notify guard).
+  // this recipient; future MARKETING sends to it are skipped (notify guard).
+  // Transactional sends (password reset, branch PIN) are NEVER suppressed —
+  // account recovery must not be denied by a complaint / transient bounce.
   emailSuppression:        (emailHash: string)        => `email:suppress:${emailHash}`,
 
   // PIN brute-force counter — keyed per (userId, branchId) so failures at one branch

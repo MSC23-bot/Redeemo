@@ -70,7 +70,8 @@ export async function handleResendWebhookEvent(
           data: { status: 'BOUNCED' },
         })
       }
-      // Suppress the recipient(s) so future transactional sends are skipped.
+      // Suppress the recipient(s) so future MARKETING sends are skipped.
+      // (Transactional sends are never suppressed — see notify().)
       for (const r of recipientsOf(event)) {
         await redis.set(
           RedisKey.emailSuppression(hashEmail(r)),

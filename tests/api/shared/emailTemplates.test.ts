@@ -60,4 +60,18 @@ describe('branchPinEmail', () => {
     expect(email.html).not.toContain('<script>')
     expect(email.html).toContain('&lt;script&gt;')
   })
+
+  it('strips control chars (CR/LF) from the SUBJECT — header-injection defence', () => {
+    const CR = String.fromCharCode(13)
+    const LF = String.fromCharCode(10)
+    const email = branchPinEmail(`Soho${CR}${LF}Bcc: evil@example.com`, '1234')
+    // no CR/LF survives in the subject header
+    const hasControl = [...email.subject].some((c) => {
+      const code = c.charCodeAt(0)
+      return code === 10 || code === 13
+    })
+    expect(hasControl).toBe(false)
+    expect(email.subject).toContain('redemption PIN')
+    expect(email.subject).toContain('Soho Bcc: evil@example.com') // flattened to one line
+  })
 })

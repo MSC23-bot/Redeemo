@@ -88,6 +88,11 @@ export type NotifyResult =
 const EMAIL_PER_RECIPIENT_PER_HOUR = { limit: 5, windowSec: 3600 }
 const EMAIL_PER_IP_PER_DAY = { limit: 200, windowSec: 86_400 }
 
+// The recipient types that map to a valid NotificationRecipientType (i.e. can
+// carry an in-app Notification). 'ADMIN' is intentionally NOT here — an AdminUser
+// has no in-app feed, so it is email-only.
+const NOTIFICATION_RECIPIENT_TYPES: readonly NotifyRecipientType[] = ['USER', 'MERCHANT_ADMIN', 'BRANCH_USER']
+
 /**
  * Dispatch a transactional notification: commit a QUEUED CommunicationLog outbox
  * row (+ optional in-app Notification) then best-effort enqueue delivery. Never
@@ -96,6 +101,17 @@ const EMAIL_PER_IP_PER_DAY = { limit: 200, windowSec: 86_400 }
  * consent / rate-limit) declines the send.
  */
 export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyInput): Promise<NotifyResult> {
+  // Programming-error guard (fail fast, BEFORE any side effect — no quota burned,
+  // no half-written transaction): an in-app Notification requires a recipientType
+  // that exists in NotificationRecipientType. Catch a misuse here with a clear
+  // message instead of a confusing Prisma enum failure mid-$transaction.
+  if (input.inApp && !NOTIFICATION_RECIPIENT_TYPES.includes(input.recipientType)) {
+    throw new Error(
+      `[notify] inApp notification is not supported for recipientType '${input.recipientType}' ` +
+        `(valid: ${NOTIFICATION_RECIPIENT_TYPES.join(', ')})`,
+    )
+  }
+
   const category: NotifyCategory = input.category ?? 'transactional'
   const emailHash = hashEmail(input.to)
 

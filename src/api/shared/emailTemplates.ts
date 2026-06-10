@@ -21,6 +21,21 @@ function escapeHtml(s: string): string {
 }
 
 /**
+ * Sanitize a value interpolated into an email SUBJECT (a header). Replace every
+ * control character (CR/LF, tab, DEL, etc.) with a space and collapse runs, so a
+ * merchant-controlled string can never inject extra header lines — defence-in-
+ * depth even though the current Resend JSON transport already neutralises this.
+ * Implemented with char codes (no control-char literals in source).
+ */
+function sanitizeHeader(s: string): string {
+  const cleaned = Array.from(s, (ch) => {
+    const code = ch.charCodeAt(0)
+    return code < 0x20 || code === 0x7f ? ' ' : ch
+  }).join('')
+  return cleaned.replace(/ {2,}/g, ' ').trim()
+}
+
+/**
  * Build the role-appropriate password-reset link. Bases are env-driven with dev
  * defaults; production sets WEB_APP_URL / MERCHANT_PORTAL_URL / ADMIN_PANEL_URL.
  * The token is the hex reset token (already URL-safe; encoded defensively).
@@ -58,12 +73,13 @@ export function passwordResetEmail(link: string): RenderedEmail {
   }
 }
 
-/** Branch staff redemption-PIN email. branchName is merchant-controlled ⇒ escaped. */
+/** Branch staff redemption-PIN email. branchName is merchant-controlled ⇒ escaped/sanitized. */
 export function branchPinEmail(branchName: string, pin: string): RenderedEmail {
   const safeName = escapeHtml(branchName)
   const safePin = escapeHtml(pin)
   return {
-    subject: `${BRAND} redemption PIN for ${branchName}`,
+    // Subject is a header — strip control chars from the merchant-controlled name.
+    subject: `${BRAND} redemption PIN for ${sanitizeHeader(branchName)}`,
     text:
       `The staff redemption PIN for ${branchName} is ${pin}.\n\n` +
       `Staff enter this PIN in the app to confirm a customer is in-store before validating a voucher. Keep it confidential.`,
