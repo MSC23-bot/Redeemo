@@ -102,7 +102,11 @@ describe('queues — BullMQ foundation', () => {
     const j2 = await enqueue(name, { foo: 2 }, { jobId: 'fixed-id' })
     expect(j1.id).toBe('fixed-id')
     expect(j2.id).toBe('fixed-id')
-    const counts = await makeQueue(name).getJobCounts('waiting', 'active', 'delayed', 'completed', 'failed')
+    // getJobCounts() with no args returns EVERY state (waiting/active/delayed/
+    // completed/failed/prioritized/paused/waiting-children) so the "exactly one
+    // job" invariant is total — it can't false-pass if a default job option
+    // (e.g. priority/delay) later routes the job to an uncounted state.
+    const counts = await makeQueue(name).getJobCounts()
     const total = Object.values(counts).reduce((a, b) => a + b, 0)
     expect(total).toBe(1) // the second add deduped on jobId — no duplicate
   })
