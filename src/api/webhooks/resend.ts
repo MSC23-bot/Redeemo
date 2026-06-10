@@ -3,10 +3,13 @@
 // Phase 0 PR-0.4: the Resend bounce/complaint/delivery WEBHOOK. It keeps the
 // outbox honest about what the provider actually did with a message:
 //   - email.bounced / email.complained → flip the CommunicationLog row to
-//     BOUNCED and add the recipient to a Redis suppression set, so notify()
-//     stops sending to a dead/complaining address.
-//   - email.delivered → confirm SENT (a backstop if the worker crashed after the
-//     provider accepted but before it flipped the row).
+//     BOUNCED (by the provider's email id = externalId) and add the recipient to
+//     a Redis suppression set, so notify() stops sending MARKETING to a
+//     dead/complaining address.
+//   - email.delivered → informational only, intentionally ignored. It cannot
+//     recover the "worker accepted-but-didn't-flip" window: externalId is
+//     written ONLY together with the SENT flip, so a still-QUEUED row never has
+//     one for a delivered event to match. That window is the reconciler's job.
 //
 // Gating (locked): the route is registered iff RESEND_WEBHOOK_SECRET is set —
 // independently of EMAIL_ENABLED. Bounce/complaint events for already-sent mail
@@ -78,18 +81,10 @@ export async function handleResendWebhookEvent(
       }
       break
     }
-    case 'email.delivered': {
-      // Backstop: confirm a still-QUEUED row as SENT (worker normally did this).
-      if (emailId) {
-        await prisma.communicationLog.updateMany({
-          where: { externalId: emailId, status: 'QUEUED' },
-          data: { status: 'SENT' },
-        })
-      }
-      break
-    }
+    // email.delivered + every other event: informational — acknowledge + ignore.
+    // (The worker owns QUEUED→SENT; a delivered event can't reach a QUEUED row,
+    // see the module note above.)
     default:
-      // Unrecognised event — acknowledge and ignore.
       break
   }
 }

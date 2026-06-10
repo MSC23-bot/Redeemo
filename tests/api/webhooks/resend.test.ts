@@ -61,14 +61,11 @@ describe('handleResendWebhookEvent — bounce / complaint', () => {
 })
 
 describe('handleResendWebhookEvent — delivered + unknown', () => {
-  it('email.delivered confirms a still-QUEUED row as SENT (backstop)', async () => {
+  it('email.delivered is informational — no DB write, no suppression (worker owns QUEUED→SENT)', async () => {
     const { prisma, updateMany } = fakePrisma()
     const { redis, set } = fakeRedis()
     await handleResendWebhookEvent(prisma, redis, { type: 'email.delivered', data: { email_id: 're_2' } })
-    expect(updateMany).toHaveBeenCalledWith({
-      where: { externalId: 're_2', status: 'QUEUED' },
-      data: { status: 'SENT' },
-    })
+    expect(updateMany).not.toHaveBeenCalled()
     expect(set).not.toHaveBeenCalled()
   })
 

@@ -99,14 +99,12 @@ export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyIn
   const category: NotifyCategory = input.category ?? 'transactional'
   const emailHash = hashEmail(input.to)
 
-  // (a) Suppression — never send to an address the provider hard-bounced / that
-  // raised a spam complaint (set by the Resend webhook). Existence ⇒ suppressed.
-  if (await redis.exists(RedisKey.emailSuppression(emailHash))) {
-    return { queued: false, reason: 'suppressed' }
-  }
-
-  // (b) Marketing consent — transactional always sends; marketing requires an
-  // opted-in User. (PR-0.4 sends no marketing; this guards future callers.)
+  // Marketing-only gates: consent + suppression. Transactional email (password
+  // reset, branch PIN) is user-requested AND account-critical, so it is NEVER
+  // suppressed — a spam complaint or a transient bounce must not deny account
+  // recovery. Suppression (set by the Resend webhook) protects only MARKETING
+  // from being sent to a complainer / a known-bad address. (PR-0.4 sends no
+  // marketing; these guards are for future callers + the populated set.)
   if (category === 'marketing') {
     if (!input.userId) return { queued: false, reason: 'no-consent' }
     const user = await prisma.user.findUnique({
@@ -114,6 +112,9 @@ export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyIn
       select: { newsletterConsent: true },
     })
     if (!user?.newsletterConsent) return { queued: false, reason: 'no-consent' }
+    if (await redis.exists(RedisKey.emailSuppression(emailHash))) {
+      return { queued: false, reason: 'suppressed' }
+    }
   }
 
   // (c) Send rate-limit (atomic). victim = per-(type,recipient); abuser = per-IP.

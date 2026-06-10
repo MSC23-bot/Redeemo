@@ -139,12 +139,18 @@ describe('notify — marketing consent', () => {
 })
 
 describe('notify — pre-send guards', () => {
-  it('declines when the recipient is on the suppression list (bounced/complained)', async () => {
-    const { prisma, createLog } = fakePrisma()
-    const res = await notify(prisma, fakeRedis({ suppressed: true }), BASE)
+  it('declines a MARKETING send to a suppressed (bounced/complained) recipient', async () => {
+    const { prisma, createLog } = fakePrisma({ consent: true })
+    const res = await notify(prisma, fakeRedis({ suppressed: true }), { ...BASE, category: 'marketing' })
     expect(res).toEqual({ queued: false, reason: 'suppressed' })
     expect(createLog).not.toHaveBeenCalled()
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('STILL sends TRANSACTIONAL email to a suppressed recipient (account recovery is never denied)', async () => {
+    const { prisma } = fakePrisma()
+    const res = await notify(prisma, fakeRedis({ suppressed: true }), BASE) // BASE is transactional
+    expect(res).toMatchObject({ queued: true })
   })
 
   it('declines + writes nothing when the send rate-limit is exhausted', async () => {

@@ -8,8 +8,9 @@
 const lastLoggedAt = new Map<string, number>()
 
 export function shouldLog(key: string, intervalMs = 30_000, now: number = Date.now()): boolean {
-  const prev = lastLoggedAt.get(key) ?? 0
-  if (now - prev < intervalMs) return false
+  const prev = lastLoggedAt.get(key)
+  // First log for a key always fires; afterwards, at most once per window.
+  if (prev !== undefined && now - prev < intervalMs) return false
   lastLoggedAt.set(key, now)
   return true
 }

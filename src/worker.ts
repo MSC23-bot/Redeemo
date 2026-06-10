@@ -15,25 +15,13 @@
 
 import 'dotenv/config'
 import type { Worker } from 'bullmq'
+import type IORedis from 'ioredis'
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { validateRequiredEnv } from './api/shared/env'
-import { closeQueues } from './api/queues'
+import { closeQueues, makeQueueConnection } from './api/queues'
 import { startEmailWorker } from './api/queues/processors/email'
 import { startReconcileWorker, scheduleReconcile } from './api/queues/processors/outboxReconciler'
-
-/**
- * Register the BullMQ workers this process runs, returning their handles for
- * graceful shutdown. Each Worker opens its own connection inside its factory.
- */
-async function registerProcessors(prisma: PrismaClient): Promise<Worker[]> {
-  const emailWorker = startEmailWorker(prisma)
-  const reconcileWorker = startReconcileWorker(prisma)
-  // Idempotent: the stable jobId means exactly one repeatable sweep exists.
-  await scheduleReconcile()
-  // (photo-moderation worker → PR-0.6)
-  return [emailWorker, reconcileWorker]
-}
 
 async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
@@ -44,43 +32,55 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient({ adapter })
   await prisma.$connect()
 
-  const workers = await registerProcessors(prisma)
+  // Each Worker gets its OWN Redis connection for its blocking reads — created +
+  // OWNED here so shutdown can quit them. (Passing an ioredis INSTANCE makes
+  // BullMQ treat the base connection as `shared`, so worker.close() will NOT
+  // quit it; we own the lifecycle explicitly to avoid leaking the socket.)
+  const workerConnections: IORedis[] = [makeQueueConnection(), makeQueueConnection()]
+  const emailWorker = startEmailWorker(prisma, workerConnections[0])
+  const reconcileWorker = startReconcileWorker(prisma, workerConnections[1])
+  // Idempotent: the stable jobId means exactly one repeatable sweep exists.
+  await scheduleReconcile()
+  const workers: Worker[] = [emailWorker, reconcileWorker]
+  // (photo-moderation worker → PR-0.6)
   console.info(`[worker] started — ${workers.length} processor(s) registered (email + outbox-reconciler)`)
 
   let shuttingDown = false
-  const shutdown = async (signal: string): Promise<void> => {
+  const shutdown = async (signal: string, exitCode: number): Promise<void> => {
     if (shuttingDown) return
     shuttingDown = true
     console.info(`[worker] ${signal} received — shutting down`)
     try {
-      // Stop accepting/finishing jobs first, then close the producer queues
-      // (the reconcile scheduler) and the DB.
+      // Stop accepting/finishing jobs first; then quit the OWNED worker
+      // connections, close the producer queues (the reconcile scheduler), and
+      // disconnect the DB.
       await Promise.all(workers.map((w) => w.close()))
+      await Promise.all(workerConnections.map((c) => c.quit().catch(() => undefined)))
       await closeQueues()
       await prisma.$disconnect()
     } catch (err) {
       console.error('[worker] shutdown error:', err instanceof Error ? err.message : String(err))
     } finally {
-      process.exit(0)
+      process.exit(exitCode)
     }
   }
 
-  process.on('SIGTERM', () => void shutdown('SIGTERM'))
-  process.on('SIGINT', () => void shutdown('SIGINT'))
+  process.on('SIGTERM', () => void shutdown('SIGTERM', 0))
+  process.on('SIGINT', () => void shutdown('SIGINT', 0))
 
   // Crash policy (carry-over): a worker must not die silently on an unhandled
   // async error, nor limp on after a truly unexpected one.
   //   - unhandledRejection: LOG and keep running. A processor's own failures are
   //     already handled (BullMQ retries → FAILED row); a stray rejection
   //     elsewhere should be visible but must not take the whole worker down.
-  //   - uncaughtException: LOG and exit non-zero so the supervisor restarts a
+  //   - uncaughtException: LOG and exit NON-ZERO (1) so the supervisor restarts a
   //     process left in an unknown state (fail-fast over corrupt-state).
   process.on('unhandledRejection', (reason) => {
     console.error('[worker] unhandledRejection:', reason instanceof Error ? reason.message : String(reason))
   })
   process.on('uncaughtException', (err) => {
     console.error('[worker] uncaughtException — exiting for restart:', err instanceof Error ? err.message : String(err))
-    void shutdown('uncaughtException')
+    void shutdown('uncaughtException', 1)
   })
 }
 

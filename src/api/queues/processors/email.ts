@@ -85,8 +85,13 @@ export async function processEmailJob(prisma: PrismaClient, data: EmailJobData):
 
   if (result.skipped) {
     // Dark mode (EMAIL_ENABLED off) or sandbox-no-allowlist: intentionally not
-    // delivered. Record FAILED so the row doesn't sit QUEUED + get reconciled
-    // forever; a production deploy with EMAIL_ENABLED=true sends → SENT instead.
+    // delivered. Record FAILED (terminal) so the row doesn't sit QUEUED and get
+    // reconciled forever. This is a DELIBERATE choice, not a held backlog: a
+    // transactional message (a reset link / PIN) flushed hours later when email
+    // is finally switched on would be STALE (the reset token already expired), so
+    // we do NOT want a dark-window backlog to deliver on enable. A production
+    // deploy with EMAIL_ENABLED=true sends → SENT. (Operationally the worker need
+    // not even run while dark — nothing to deliver — which avoids this entirely.)
     await setTerminal(prisma, row.id, { status: 'FAILED' })
     return 'skipped-disabled'
   }
