@@ -8,6 +8,17 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    # Expo / React Native SDK-managed packages must be upgraded TOGETHER via the
+    # official Expo SDK upgrade flow (`npx expo install` / the SDK upgrade guide),
+    # never as one-off bumps. Every Expo package peers on `expo: "*"`, so a
+    # cross-SDK bump (e.g. an SDK-56 `expo-router` into this SDK-54 app) passes
+    # npm/Dependabot checks but breaks the customer-app Metro/EAS build — see the
+    # closed PRs #186 / #188 / #190. These names exist ONLY in apps/customer-app,
+    # so ignoring them does NOT affect backend or customer-web dependency updates.
+    ignore:
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
+      - dependency-name: "react-native"
 
   # Keep the GitHub Actions used by the CI workflow current.
   - package-ecosystem: "github-actions"
