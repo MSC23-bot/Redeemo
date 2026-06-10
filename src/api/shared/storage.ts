@@ -65,6 +65,18 @@ export const GET_URL_TTL_SECONDS = 300 // 5 min to open a private document
 
 const OWNER_ID_RE = /^[A-Za-z0-9_-]+$/
 
+// A well-formed key is EXACTLY `kind/ownerId/<random>.<ext>` and nothing else.
+// Matching the whole string rejects traversal (`..`), a leading `/`, extra
+// segments, and unsafe characters — so consumers (presignGet, publicUrl) never
+// trust a caller-shaped key. `presignPut` only ever mints keys of this form.
+const KEY_RE = /^(document|logo|banner|photo)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.(pdf|jpg|png|webp)$/
+
+function assertValidKey(key: string): void {
+  if (!KEY_RE.test(key)) {
+    throw new Error(`[storage] invalid object key "${key}"`)
+  }
+}
+
 const isStorageEnabled = (): boolean => (process.env.STORAGE_ENABLED ?? '') === 'true'
 
 function assertStorageEnabled(): void {
@@ -140,6 +152,12 @@ export async function presignPut(input: PresignPutInput): Promise<PresignPutResu
 
   const key = `${input.kind}/${input.ownerId}/${crypto.randomBytes(16).toString('hex')}.${ext}`
 
+  // NOTE: we sign ContentType (so the uploaded object's type is enforced) but
+  // NOT ContentLength — so the per-kind `sizeBytes` cap above is a PRE-FLIGHT
+  // check on a client-declared value, not a hard server-side limit. A client
+  // holding the presigned URL could PUT more bytes. PR-0.6 / the Phase-2 upload
+  // route must enforce the real cap (sign ContentLength, an R2 bucket policy, or
+  // a server-proxied upload).
   const url = await getSignedUrl(
     s3(),
     new PutObjectCommand({ Bucket: bucket(), Key: key, ContentType: input.contentType }),
@@ -159,6 +177,7 @@ export interface PresignGetResult {
  */
 export async function presignGet(key: string): Promise<PresignGetResult> {
   assertStorageEnabled()
+  assertValidKey(key) // reject malformed / traversal keys before signing
   const url = await getSignedUrl(s3(), new GetObjectCommand({ Bucket: bucket(), Key: key }), {
     expiresIn: GET_URL_TTL_SECONDS,
   })
@@ -170,6 +189,7 @@ export async function presignGet(key: string): Promise<PresignGetResult> {
  * (document) key — those must be accessed via presignGet.
  */
 export function publicUrl(key: string): string {
+  assertValidKey(key) // full-shape check first — a traversal key can't sneak past the kind prefix
   const kind = key.split('/')[0] as StorageKind
   const policy = KIND_POLICIES[kind]
   if (!policy || policy.visibility !== 'public') {

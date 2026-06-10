@@ -185,6 +185,13 @@ describe('storage — presignGet (private docs)', () => {
     expect(getCmd.input).toMatchObject({ Bucket: 'redeemo-test', Key: 'document/owner/abc.pdf' })
     expect(opts).toMatchObject({ expiresIn: res.expiresIn })
   })
+
+  it('rejects a malformed / traversal key before signing', async () => {
+    for (const bad of ['logo/../document/o/x.pdf', '/document/o/x.pdf', 'document/o/x.exe', 'foo/o/x.pdf', 'document/o/x', '../etc/passwd']) {
+      await expect(storage.presignGet(bad)).rejects.toThrow(/invalid object key/i)
+    }
+    expect(getSignedUrlMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('storage — publicUrl', () => {
@@ -201,6 +208,13 @@ describe('storage — publicUrl', () => {
 
   it('REFUSES a public URL for a private document key (documents are not public)', () => {
     expect(() => storage.publicUrl('document/owner/secret.pdf')).toThrow(/private|document|public/i)
+  })
+
+  it('REFUSES a traversal key that tries to escape a public prefix into a private path', () => {
+    // logo/../document/... must NOT pass — the kind-prefix check alone is bypassable,
+    // so publicUrl validates the FULL key shape and rejects it.
+    expect(() => storage.publicUrl('logo/../document/owner/secret.pdf')).toThrow(/invalid object key/i)
+    expect(() => storage.publicUrl('/logo/owner/x.png')).toThrow(/invalid object key/i)
   })
 })
 
