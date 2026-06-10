@@ -7,7 +7,7 @@
 // processors write CommunicationLog), then registers the BullMQ workers:
 //   - email-delivery (EMAIL_QUEUE)        → sends QUEUED outbox rows
 //   - outbox-reconciler (MAINTENANCE_QUEUE, repeatable 60 s) → re-enqueues stale QUEUED rows
-//   - photo-moderation (MODERATION_QUEUE) → PR-0.6
+//   - photo-moderation (MODERATION_QUEUE) → scans a BranchPhoto, gates it APPROVED/FLAGGED
 //
 // Each Worker gets its OWN Redis connection (makeQueueConnection) for its
 // blocking reads — the PR-0.1 single "heartbeat" connection is gone now that the
@@ -22,6 +22,7 @@ import { validateRequiredEnv } from './api/shared/env'
 import { closeQueues, makeQueueConnection } from './api/queues'
 import { startEmailWorker } from './api/queues/processors/email'
 import { startReconcileWorker, scheduleReconcile } from './api/queues/processors/outboxReconciler'
+import { startModerationWorker } from './api/queues/processors/moderation'
 
 async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
@@ -36,14 +37,14 @@ async function main(): Promise<void> {
   // OWNED here so shutdown can quit them. (Passing an ioredis INSTANCE makes
   // BullMQ treat the base connection as `shared`, so worker.close() will NOT
   // quit it; we own the lifecycle explicitly to avoid leaking the socket.)
-  const workerConnections: IORedis[] = [makeQueueConnection(), makeQueueConnection()]
+  const workerConnections: IORedis[] = [makeQueueConnection(), makeQueueConnection(), makeQueueConnection()]
   const emailWorker = startEmailWorker(prisma, workerConnections[0])
   const reconcileWorker = startReconcileWorker(prisma, workerConnections[1])
+  const moderationWorker = startModerationWorker(prisma, workerConnections[2])
   // Idempotent: the stable jobId means exactly one repeatable sweep exists.
   await scheduleReconcile()
-  const workers: Worker[] = [emailWorker, reconcileWorker]
-  // (photo-moderation worker → PR-0.6)
-  console.info(`[worker] started — ${workers.length} processor(s) registered (email + outbox-reconciler)`)
+  const workers: Worker[] = [emailWorker, reconcileWorker, moderationWorker]
+  console.info(`[worker] started — ${workers.length} processor(s) registered (email + outbox-reconciler + photo-moderation)`)
 
   let shuttingDown = false
   const shutdown = async (signal: string, exitCode: number): Promise<void> => {

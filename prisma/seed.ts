@@ -1269,12 +1269,14 @@ async function seedDemoMerchantEnrichment(reviewerLocation: CustomerLocationSnap
   // would duplicate — clear and recreate scoped to the branch is the
   // simplest idempotency.
   await prisma.branchPhoto.deleteMany({ where: { branchId: COVELUM_MAIN_BRANCH_ID } })
+  // PR-0.6: curated reference photos are pre-moderated → APPROVED, so they stay
+  // visible under the discovery APPROVED filter (matches the migration backfill).
   await prisma.branchPhoto.createMany({
     data: [
-      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=900&q=80', sortOrder: 0 }, // dosa
-      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=900&q=80', sortOrder: 1 }, // thali plate
-      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=900&q=80', sortOrder: 2 }, // restaurant interior
-      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=900&q=80', sortOrder: 3 }, // street view
+      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=900&q=80', sortOrder: 0, moderationStatus: 'APPROVED' }, // dosa
+      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=900&q=80', sortOrder: 1, moderationStatus: 'APPROVED' }, // thali plate
+      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=900&q=80', sortOrder: 2, moderationStatus: 'APPROVED' }, // restaurant interior
+      { branchId: COVELUM_MAIN_BRANCH_ID, url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=900&q=80', sortOrder: 3, moderationStatus: 'APPROVED' }, // street view
     ],
   })
 
