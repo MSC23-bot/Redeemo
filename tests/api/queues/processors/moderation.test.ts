@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { PrismaClient } from '../../../../generated/prisma/client'
 
 // Phase 0 PR-0.6: the MODERATION_QUEUE scan worker. Pins the status transitions
@@ -19,6 +19,7 @@ vi.mock('../../../../src/api/queues', () => ({
 import {
   processModerationJob,
   enqueuePhotoModeration,
+  workerConcurrency,
 } from '../../../../src/api/queues/processors/moderation'
 
 function fakePrisma(photo: { id: string; url: string; moderationStatus: string } | null) {
@@ -93,5 +94,35 @@ describe('enqueuePhotoModeration', () => {
   it('enqueues to MODERATION_QUEUE with jobId = photo id (dedup-safe)', async () => {
     await enqueuePhotoModeration('p1')
     expect(enqueueMock).toHaveBeenCalledWith('moderation', { branchPhotoId: 'p1' }, { jobId: 'p1' })
+  })
+})
+
+describe('workerConcurrency — positive-integer guard', () => {
+  let saved: string | undefined
+  beforeEach(() => {
+    saved = process.env.WORKER_CONCURRENCY
+    delete process.env.WORKER_CONCURRENCY
+  })
+  afterEach(() => {
+    if (saved === undefined) delete process.env.WORKER_CONCURRENCY
+    else process.env.WORKER_CONCURRENCY = saved
+  })
+
+  it('defaults to 5 when unset', () => {
+    expect(workerConcurrency()).toBe(5)
+  })
+  it('honours a positive integer', () => {
+    process.env.WORKER_CONCURRENCY = '8'
+    expect(workerConcurrency()).toBe(8)
+  })
+  it('falls back to 5 for negative / zero / non-numeric (never reaches BullMQ as invalid)', () => {
+    for (const bad of ['-1', '0', 'abc', '']) {
+      process.env.WORKER_CONCURRENCY = bad
+      expect(workerConcurrency()).toBe(5)
+    }
+  })
+  it('floors a float to its positive integer part', () => {
+    process.env.WORKER_CONCURRENCY = '3.9'
+    expect(workerConcurrency()).toBe(3)
   })
 })

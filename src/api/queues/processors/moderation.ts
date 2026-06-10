@@ -61,6 +61,9 @@ export async function processModerationJob(
     data: {
       moderationStatus: status,
       moderationCheckedAt: new Date(),
+      // Phase 2 TODO: when a real provider (Rekognition / Sightengine, D1) is
+      // wired, scanImage() should return the provider's reason/categories/scores
+      // and that detail should be stored here instead of this generic string.
       moderationDetail: verdict === 'FLAGGED' ? 'flagged by automated scan' : null,
     },
   })
@@ -69,6 +72,13 @@ export async function processModerationJob(
   // outcome did not apply) rather than the stale verdict.
   if (res.count === 0) return 'skipped-terminal'
   return status === 'APPROVED' ? 'approved' : 'flagged'
+}
+
+/** WORKER_CONCURRENCY parsed to a POSITIVE INTEGER (default 5). Guards against a
+ *  negative / zero / NaN / float env value reaching BullMQ. Exported for tests. */
+export function workerConcurrency(): number {
+  const n = Math.floor(Number(process.env.WORKER_CONCURRENCY))
+  return Number.isInteger(n) && n > 0 ? n : 5
 }
 
 /**
@@ -82,7 +92,7 @@ export function startModerationWorker(prisma: PrismaClient, connection?: IORedis
     {
       connection: (connection ?? makeQueueConnection()) as unknown as ConnectionOptions,
       prefix: BULLMQ_PREFIX,
-      concurrency: Number(process.env.WORKER_CONCURRENCY) || 5,
+      concurrency: workerConcurrency(),
     },
   )
   worker.on('error', (err) => {
@@ -90,5 +100,10 @@ export function startModerationWorker(prisma: PrismaClient, connection?: IORedis
       console.error('[worker:moderation] worker error:', err instanceof Error ? err.message : String(err))
     }
   })
+  // No 'failed' handler ON PURPOSE (unlike the email worker, which flips a row to
+  // FAILED on retries-exhausted). If a future scanner throws and BullMQ exhausts
+  // its retries, the photo is simply LEFT PENDING — which is the safe outcome: a
+  // PENDING photo is never public and falls to admin review / manual intervention.
+  // We never want a scan failure to auto-resolve a photo (e.g. mark it APPROVED).
   return worker
 }
