@@ -141,3 +141,46 @@ describe('validateRequiredEnv — EMAIL_ENABLED gate', () => {
     expect(() => validateRequiredEnv()).not.toThrow()
   })
 })
+
+describe('validateRequiredEnv — STORAGE_ENABLED gate (PR-0.5)', () => {
+  const R2_SECRETS = ['R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT', 'R2_BUCKET', 'R2_PUBLIC_BASE_URL']
+  let saved: Record<string, string | undefined>
+  beforeEach(() => {
+    saved = {}
+    for (const k of [...REQUIRED_SECRETS, 'STORAGE_ENABLED', ...R2_SECRETS]) saved[k] = process.env[k]
+    for (const k of REQUIRED_SECRETS) process.env[k] = `real-${k}-value`
+    for (const k of R2_SECRETS) delete process.env[k]
+  })
+  afterEach(() => {
+    for (const k of [...REQUIRED_SECRETS, 'STORAGE_ENABLED', ...R2_SECRETS]) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  })
+
+  it('does NOT require the R2 secrets when STORAGE_ENABLED is off (dark deploy boots)', () => {
+    delete process.env.STORAGE_ENABLED
+    expect(() => validateRequiredEnv()).not.toThrow()
+  })
+
+  it('requires EVERY R2 secret (aggregated) when STORAGE_ENABLED=true', () => {
+    process.env.STORAGE_ENABLED = 'true'
+    let message = ''
+    try {
+      validateRequiredEnv()
+    } catch (err) {
+      message = (err as Error).message
+    }
+    expect(message).toMatch(/Refusing to start/)
+    for (const k of R2_SECRETS) {
+      expect(message).toContain(k)
+    }
+    expect(message).toContain('required when STORAGE_ENABLED=true')
+  })
+
+  it('passes when STORAGE_ENABLED=true and all R2 secrets are set', () => {
+    process.env.STORAGE_ENABLED = 'true'
+    for (const k of R2_SECRETS) process.env[k] = `real-${k}`
+    expect(() => validateRequiredEnv()).not.toThrow()
+  })
+})
