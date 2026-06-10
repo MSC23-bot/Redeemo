@@ -13,7 +13,10 @@ import { consume, shimEval, type LimitSpec } from '../../../src/api/shared/atomi
 // stateful fake-Redis used by service-level unit tests) behaves EXACTLY like the
 // real Lua — so those fakes can never drift from production semantics.
 //
-// Real Redis on an isolated db (15; the dev app uses db 0). Availability is
+// Real Redis on an isolated db (15; the dev app uses db 0). NOTE: queue.test.ts
+// uses db 14 — these two real-Redis test files MUST stay on SEPARATE dbs because
+// both call flushdb() and vitest runs files in parallel (a shared db flakes).
+// Availability is
 // probed in beforeAll (no top-level await under module:CommonJS); when no Redis
 // is reachable every test dynamically skips (honest skip — never a false green),
 // mirroring app.ts's NODE_ENV-gated redis wiring. Once backend CI runs vitest it

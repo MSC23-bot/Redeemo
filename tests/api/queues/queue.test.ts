@@ -17,13 +17,16 @@ import {
 //   - enqueue() is idempotent by `jobId` (same id ⇒ one job — the §4.1 outbox precondition);
 //   - the EMAIL_QUEUE / MODERATION_QUEUE names exist (processors land in PR-0.4 / PR-0.6).
 //
-// Real Redis on an isolated db (15). REDIS_URL is redirected to db 15 in beforeAll
-// so makeQueueConnection() (which reads REDIS_URL at call time) connects there;
-// vitest isolates env per test FILE, and it's restored in afterAll. Skips cleanly
-// when no Redis is reachable.
+// Real Redis on an isolated db (14). MUST stay SEPARATE from
+// atomic-limiter.test.ts (db 15): both files flushdb(), and vitest runs test
+// FILES in parallel against the one Redis, so sharing a db lets one file's
+// flushdb() wipe the other's keys mid-assertion (a flaky cross-file collision).
+// REDIS_URL is redirected to db 14 in beforeAll so makeQueueConnection() (which
+// reads REDIS_URL at call time) connects there; vitest isolates env per test
+// FILE, and it's restored in afterAll. Skips cleanly when no Redis is reachable.
 
 const BASE_URL = (process.env.REDIS_URL ?? 'redis://localhost:6379').replace(/\/\d+$/, '')
-const TEST_URL = `${BASE_URL}/15`
+const TEST_URL = `${BASE_URL}/14`
 
 let probe: IORedis | null = null
 let available = false
@@ -32,7 +35,7 @@ let seq = 0
 
 beforeAll(async () => {
   origUrl = process.env.REDIS_URL
-  process.env.REDIS_URL = TEST_URL // makeQueueConnection() → db 15
+  process.env.REDIS_URL = TEST_URL // makeQueueConnection() → db 14
   const c = new IORedis(TEST_URL, { lazyConnect: true, maxRetriesPerRequest: 1, connectTimeout: 1000 })
   c.on('error', () => {})
   try {
