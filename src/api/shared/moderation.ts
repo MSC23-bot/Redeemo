@@ -57,6 +57,12 @@ export function photoCountCap(): number {
  * rows do NOT count toward the cap (they are invisible + removable), so the cap
  * governs the rows that can occupy a real slot (PENDING + APPROVED). Exported for
  * the Phase-2 upload route to call BEFORE creating a new BranchPhoto.
+ *
+ * PHASE-2 NOTES (no caller exists yet): (1) this check + the subsequent create are
+ * separate statements, so the route must run them in a transaction / under a
+ * per-branch advisory lock to close the count-then-create TOCTOU; (2) because
+ * FLAGGED rows are excluded, the route should also purge / cap FLAGGED rows so a
+ * repeatedly-flagging uploader can't grow them without bound.
  */
 export async function assertPhotoCapNotExceeded(prisma: PrismaClient, branchId: string): Promise<void> {
   const cap = photoCountCap()

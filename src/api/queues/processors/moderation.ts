@@ -56,7 +56,7 @@ export async function processModerationJob(
   if (verdict === 'UNAVAILABLE') return 'unavailable' // leave PENDING → admin review (no DB write)
 
   const status = verdict === 'CLEAN' ? 'APPROVED' : 'FLAGGED'
-  await prisma.branchPhoto.updateMany({
+  const res = await prisma.branchPhoto.updateMany({
     where: { id: photo.id, moderationStatus: 'PENDING' }, // race-safe: only flip a still-PENDING row
     data: {
       moderationStatus: status,
@@ -64,6 +64,10 @@ export async function processModerationJob(
       moderationDetail: verdict === 'FLAGGED' ? 'flagged by automated scan' : null,
     },
   })
+  // 0 rows ⇒ an admin / earlier decision flipped the row off PENDING between our
+  // read and write. We correctly did NOT override it — report the truth (the scan
+  // outcome did not apply) rather than the stale verdict.
+  if (res.count === 0) return 'skipped-terminal'
   return status === 'APPROVED' ? 'approved' : 'flagged'
 }
 

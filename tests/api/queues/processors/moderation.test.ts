@@ -64,6 +64,14 @@ describe('processModerationJob — status transitions (PENDING only)', () => {
     expect(await processModerationJob(prisma, { branchPhotoId: 'p1' })).toBe('unavailable')
     expect(updateMany).not.toHaveBeenCalled()
   })
+
+  it('reports skipped-terminal when the race-safe write matches 0 rows (admin flipped it concurrently)', async () => {
+    scanImageMock.mockResolvedValue('FLAGGED')
+    const { prisma, updateMany } = fakePrisma({ id: 'p1', url: 'u', moderationStatus: 'PENDING' })
+    updateMany.mockResolvedValueOnce({ count: 0 }) // row left PENDING-state between read + write
+    // outcome reflects that the scan did NOT apply (admin decision preserved), not the stale verdict
+    expect(await processModerationJob(prisma, { branchPhotoId: 'p1' })).toBe('skipped-terminal')
+  })
 })
 
 describe('processModerationJob — guards', () => {
