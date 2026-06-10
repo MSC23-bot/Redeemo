@@ -285,6 +285,8 @@ The locked design covers the happy path well. These are the holes and edge cases
 
 ### 18.1 HIGH — real design holes to close before/within Phase 2
 
+*(#1, #5, #8 are RESOLVED in §19 below; the rest remain open for the plans.)*
+
 1. **Multi-branch go-live granularity (chains).** Go-live is specified merchant-level, but a chain may have 20 branches where only some are pin-confirmed/valid. **Decide: per-branch eligibility** — a merchant goes ACTIVE, but each branch appears in discovery only when *it* is locality-bound + pin-confirmed (`MANUALLY_CONFIRMED`/`ADDRESS_GEOCODED`) + active. Unconfirmed branches stay hidden until resolved (don't block the whole merchant). The `Branch.isActive` + `locationConfidence` gates already exist per-branch; the spec must state branch-level visibility, not merchant-level.
 2. **Duplicate / already-existing business at registration.** A merchant self-registers for a business that is **already on Redeemo** (already claimed/live, or a second person from the same business). Need a duplicate-business check (name+address / Google `placeId` / company number) → a "this business already exists — request access / contact us" path, distinct from the fraud dup-screen.
 3. **Category change after RMV configuration.** Category drives the `RmvTemplate`s; changing it mid-onboarding invalidates the configured mandatory vouchers. Define behaviour: warn + re-provision RMVs from the new category's templates (code has `handleCategoryChange` — extend it); block category change after go-live (or route via identity-edit approval).
@@ -318,4 +320,42 @@ The locked design covers the happy path well. These are the holes and edge cases
 
 ---
 
-*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session. §18 gaps are open items to resolve in the plans.)*
+---
+
+## 19. Resolved HIGH gaps — architecture decisions (2026-06-10)
+
+### 19.1 Multi-branch go-live granularity (resolves §18.1 #1)
+**Model: merchant-level approval + per-branch visibility eligibility.**
+- `Merchant.status = ACTIVE` is the merchant-level gate (approved, verified, contract-signed, ≥2 mandatory vouchers active, ≥1 valid+confirmed main branch). "The business is approved to operate on Redeemo."
+- A branch is **discovery-visible + redeemable** iff the **per-branch predicate** holds: `merchant.status === ACTIVE AND branch.isActive AND branch.locationConfidence ∈ {MANUALLY_CONFIRMED, ADDRESS_GEOCODED} AND branch.localityId != null AND branch.isTestData === false AND branch.deletedAt == null`.
+  - **Change from current (verified):** discovery today filters branches on `isActive + isTestData` only and **shows `POSTCODE_CENTROID` branches with redacted position** (`discovery/service.ts:338`). We **add the confirmed-pin `locationConfidence` gate** to *visibility* so an unconfirmed branch is **hidden** (not shown without distance) — consistent with the Q7 go-live decision + the distance-trust requirement. Safe: no real (non-test) merchant branches exist yet.
+  - **Reconcile the exact-position predicate set:** `hasExactPosition` in `discovery/service.ts` currently keys on `MANUALLY_CONFIRMED` while `ranking.ts` accepts both `MANUALLY_CONFIRMED` + `ADDRESS_GEOCODED` — unify the "confirmed" set across visibility + ranking + the go-live gate.
+- **One branch live while another blocked:** YES. A chain goes `ACTIVE` once its main branch is confirmed; each additional branch appears **independently** as its pin is confirmed (merchant self-confirm via Google Places, or admin pin-drop `confirmPin`). 5 confirmed branches show; 15 pending stay hidden under one ACTIVE merchant. No branch blocks the merchant or the others.
+- **New branches added day-2** are created **hidden** (pending) and go through a per-branch BRANCH approval + pin-confirmation before becoming visible (identity/integrity tier — a new location is high-risk).
+- **Fields:** existing `Branch.{isActive, locationConfidence, localityId, isTestData, deletedAt}` suffice for the predicate. Surface a per-branch **readiness state** in the portal (derived: *live / pending-pin / under-review*) so the OWNER sees which branches are live; add an explicit branch lifecycle field only if the derived view proves insufficient.
+- **Effects:** Discovery = already branch-first (one tile/branch), gated per-branch. **Vouchers stay merchant-wide** → available at every *visible* branch automatically (no per-branch voucher config). **Redemption** = branch-attributed; only visible+active branches are selectable, and the redeem/verify guards require branch active + merchant ACTIVE (live). **Portal** = per-branch status list.
+
+### 19.2 Suspension cascade + SEC-M1/M2 (resolves §18.1 #5)
+**Model: atomic suspend + immediate live-status enforcement + session revocation.**
+- **On suspend (admin, one transaction):** `Merchant.status → SUSPENDED` + transactional audit (actor=admin, reason) + **revoke the merchant's cached Redis auth sessions** (`authMerchant` + every `authBranch` for its branch users) so no cached snapshot survives.
+- **Immediate effects:**
+  - **Discovery:** merchant + all branches vanish instantly (discovery filters `status===ACTIVE` against the live DB — uncached → immediate).
+  - **New redemptions:** blocked (the redeem guard already checks merchant ACTIVE).
+  - **Validation (staff-verify):** **SEC-M1 FIX — re-check merchant + branch status from the DB (live) on the verify path, not the cached session.** Today `redemption/routes.ts:140,153` reads `session.isActive` / `merchantSession.isSuspended` from the Redis login snapshot (≤1hr stale). The suspended/active gate must be **live-DB**; the cached session may stay for identity but not for that decision. (Session revocation above = defense-in-depth.)
+  - **Merchant portal:** **SEC-M2 FIX — `resolveAdminMerchant` + token refresh must re-check `merchant.status` live.** A suspended OWNER drops to a **read-only SUSPENDED state** ("Your account is suspended. [reason]. Contact Redeemo."), not full access until token expiry.
+- **Customers mid-cycle:** an in-flight redemption (code created, not yet validated) → validation now fails (merchant suspended); the customer sees "temporarily unavailable." **Refinement (recommend): do NOT consume the cycle-state for an un-validated in-flight redemption** (cycle refund) so the customer isn't penalised if the merchant returns. An already-validated redemption stays historical.
+- **Must be live-DB / immediate:** merchant status on (1) the redemption-**verify** path (SEC-M1), (2) **merchant-admin resolve + refresh** (SEC-M2), (3) discovery (already live). **SEC-M1 + SEC-M2 are HARD go-live prerequisites** — a suspended merchant must be unable to operate within seconds, not ~1hr.
+
+### 19.3 Verification degraded mode (resolves §18.1 #8)
+**Principle: auto-checks INFORM a findings pre-score; the human admin is always the final arbiter; missing/unavailable signals are "neutral/unavailable," never "fail"; thin/mismatched cases escalate to manual evidence — never a permanent auto-block.**
+- **New / unlisted business (not on Google):** autofill unavailable → manual entry; verify via whatever exists (FHRS if food, CH if Ltd, website/social, email-domain, OTP-to-public-contact) + **admin requests light evidence** (proof of address / business-rates bill / a photo of the premises with signage) and reviews. Absence of Google ≠ block.
+- **Sole trader, no company number:** CH N/A — **neutral, never a flag**. Lean on Google/FHRS/website/email/OTP.
+- **Google/FHRS/CH API down or quota-hit:** the signal shows **"unavailable — retry,"** not "fail"; the submission is **not blocked**; the actioner can **re-run the check** when the API is back (a `merchant_onboarding` budget + a retry action).
+- **Name/address mismatch:** **soft (amber) finding**, surfaced verbatim ("entered 'X' vs Google/CH 'Y'"); the human judges (trading names legitimately differ); ask for docs only if genuinely suspicious.
+- **No public phone/email match:** weaker **authority** signal (amber) → escalate to officer/PSC match, OTP, docs, or a call-back to the publicly-listed number. Not a block.
+- **Food vs non-food:** food gets the strong free **FHRS** premises signal; non-food has one fewer free signal → may need slightly more manual evidence. The layered model degrades gracefully.
+- **Anti-impersonation preserved:** nothing goes live without **human approval**; **in-house dup-detection** runs regardless of external APIs; **thin/mismatched cases get MORE scrutiny** (evidence + call-back), not less. The actioner surfaces a **"could not auto-verify — manual review required"** state (→ request-changes for evidence + re-review); the merchant sees "we're reviewing your application," never a silent permanent block.
+
+---
+
+*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session. §18 lists remaining open gaps; §19 resolves the top three.)*
