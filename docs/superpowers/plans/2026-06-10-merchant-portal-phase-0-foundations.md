@@ -10,7 +10,7 @@
 
 **Source of truth:** the merged PR #197 spec — `docs/superpowers/specs/2026-06-10-merchant-portal-admin-onboarding-design.md` (§0 scope, §5 documents, §12 photo safeguards, §14 Phase-0 prerequisites) + `docs/runbooks/deploy-security-runbook.md` (§1 env, §6 email pre-send gates, §4 launch sequence).
 
-**Plan version:** v1.1 — patched 2026-06-10 after review. Patch log: (1) `CommunicationLog` gains `QUEUED` (no "SENT before delivery"); (2) cut `MerchantDocument.verificationStatus` (Phase 2); (3) storage = library-only, no exposed route; (4) Resend webhook gated on its own secret, independent of outbound; (5) limiter victim-vs-abuser counter semantics; (6) BullMQ/Redis topology made explicit; (7) moderation-default consequence stated plainly. Decisions D1–D6 recorded (§13).
+**Plan version:** v1.2 — patched 2026-06-10 after review. Patch log: (1) `CommunicationLog` gains `QUEUED` (no "SENT before delivery"); (2) cut `MerchantDocument.verificationStatus` (Phase 2); (3) storage = library-only, no exposed route; (4) Resend webhook gated on its own secret, independent of outbound; (5) limiter victim-vs-abuser counter semantics; (6) BullMQ/Redis topology made explicit; (7) moderation-default consequence stated plainly; (8) **delivery reliability — `CommunicationLog(QUEUED)` is a durable outbox with best-effort post-commit enqueue + a deterministic-`jobId` reconciler sweep (§4.1), so a committed `QUEUED` row can never be silently undelivered.** Decisions D1–D6 recorded (§13).
 
 ---
 
@@ -70,7 +70,7 @@
 
 **New shared libs** (`src/api/shared/`):
 - `email.ts` — Resend client wrapper (send, sandbox redirect, From/Reply-To policy, idempotency key).
-- `notify.ts` — the dispatcher (writes `Notification` + `CommunicationLog` status `QUEUED`, enqueues delivery).
+- `notify.ts` — the dispatcher (writes `Notification` + `CommunicationLog` status `QUEUED`; best-effort enqueue AFTER commit; outbox-reconciled — §4.1).
 - `storage.ts` — R2 (S3-compatible) client: **presigned PUT/GET + key scheme + content-type/size validation. No route.**
 - `moderation.ts` — provider-agnostic image-moderation hook (`scanImage()` → `CLEAN | FLAGGED | UNAVAILABLE`); default provider `none`.
 - `atomicLimiter.ts` — a Lua-backed `consume(redis, { abuserKeys, victimKeys })` helper (the §SEC.1 core, victim-vs-abuser semantics) that the password-reset + SMS limiters call.
@@ -78,7 +78,8 @@
 **New queue infra** (`src/api/queues/`):
 - `connection.ts` — a dedicated BullMQ `ioredis` connection (`maxRetriesPerRequest: null`).
 - `index.ts` — queue factory + key prefix + the `email` / `moderation` queue definitions + enqueue helpers.
-- `processors/email.ts` — email-delivery worker (calls `shared/email.ts`, transitions `CommunicationLog` `QUEUED → SENT/FAILED`).
+- `processors/email.ts` — email-delivery worker (calls `shared/email.ts`, transitions `CommunicationLog` `QUEUED → SENT`; `→ FAILED` only on exhausted retries).
+- `processors/outboxReconciler.ts` — the repeatable `reconcile-outbox` sweep: re-enqueues stale `QUEUED` `CommunicationLog` rows by deterministic `jobId` (§4.1).
 - `processors/moderation.ts` — moderation-scan worker (calls `shared/moderation.ts`, transitions `BranchPhoto.moderationStatus`).
 
 **New process entrypoint:** `src/worker.ts`.
@@ -116,9 +117,10 @@ enum CommunicationStatus {
   BOUNCED       // provider bounce/complaint webhook
 }
 // CommunicationLog.status @default(QUEUED)   // was @default(SENT)
+// CommunicationLog @@index([status, sentAt]) // supports the §4.1 outbox reconciler sweep
 ```
 - **Why (patch 1):** `SENT` must mean "the provider accepted/sent it." Writing `SENT` before the worker runs would misreport every queued message as delivered. `notify.ts` writes `QUEUED`; the email worker flips `QUEUED → SENT/FAILED`; the webhook flips `→ BOUNCED`.
-- Additive enum value + a default change. **Safe:** `CommunicationLog` has zero existing writers (audit), so no rows or callers depend on the old default.
+- Additive enum value + a default change + a new `@@index([status, sentAt])`. **Safe:** `CommunicationLog` has zero existing writers (audit), so no rows or callers depend on the old default. The index supports the outbox reconciler (§4.1).
 
 **Migration B — photo-moderation gate (in PR-0.6):**
 ```prisma
@@ -139,6 +141,20 @@ model BranchPhoto {
 - **`MerchantDocument` is NOT changed (patch 2):** storage only needs to write the file + the existing `fileUrl`. A document *verification/review* status is a Phase-2 onboarding/actioner concern (the admin reviews docs at the verify tier, spec §5) — building it here would pull Phase-2 review state into a storage PR. Cut.
 - Additive + backfilled; `migrate dev` → `migrate deploy` (runbook §4). No destructive change.
 - **No** `TermsClause`/`MerchantMembership`/`MerchantLead`/`AdminApproval`-reader here (Phase 2). **Deferred to Phase 2:** `PhotoReport`, the `MerchantDocument` verification-review model, `NotificationType` merchant-onboarding enum values.
+
+### 4.1 Delivery reliability — `CommunicationLog(QUEUED)` as a durable outbox (patch v1.2)
+
+**Problem:** `notify.ts` commits `CommunicationLog(QUEUED)` then enqueues the BullMQ job *after* the transaction (you cannot enqueue inside a Postgres transaction — Redis isn't in it; enqueuing before commit would orphan a job if the tx rolls back). If the commit succeeds but the enqueue fails (Redis blip, or the process dies between commit and enqueue), the row is `QUEUED` with no job — a silently undelivered message.
+
+**Rule (transactional-outbox-lite — deliberately NOT a message bus):**
+1. **`CommunicationLog(status=QUEUED)` IS the durable outbox.** The committed row is the single source of truth that "this message must be delivered." A message is delivered-for-real only once a worker flips it off `QUEUED`.
+2. **Deterministic `jobId = CommunicationLog.id`.** BullMQ dedups by `jobId`: enqueuing the same row id while a job exists (waiting / active / delayed / retrying) is a no-op, so **re-enqueue is always safe** — that is what makes the reconciler idempotent.
+3. **Enqueue is best-effort, AFTER commit.** `notify.ts` enqueues outside the transaction; on enqueue error it **logs a controlled warning with the row id, leaves the row `QUEUED`, and does NOT throw to the caller or roll the row back** (the outbox guarantees eventual delivery — a transient queue failure must neither fail the user's request nor lose the record).
+4. **Reconciler sweep (the safety net).** A repeatable worker job `reconcile-outbox` (every 60 s) selects `CommunicationLog WHERE status = QUEUED AND sentAt < now() − GRACE` (`GRACE` ≥ the max retry-backoff window, e.g. 2 min) `ORDER BY sentAt LIMIT N`, and re-enqueues each by `jobId = id`. A row that still has a live job is deduped (no-op); a row whose original enqueue was lost gets a fresh job. Bounded `LIMIT` per run avoids a thundering herd; the `@@index([status, sentAt])` keeps the scan cheap.
+5. **Worker terminal states.** The email worker flips `QUEUED → SENT` on provider-accept; on **retries exhausted** it flips `QUEUED → FAILED` (so the reconciler stops re-trying it). A row only *stays* `QUEUED` while genuinely undelivered — which is exactly what the reconciler looks for.
+6. **Double-send backstop.** Delivery is at-least-once (a worker can crash *after* the provider accepted but *before* the row flips to `SENT`, and BullMQ will re-run the stalled job). The Resend **`idempotencyKey = CommunicationLog.id`** (PR-0.3 / PR-0.4) makes a duplicate send a provider-side no-op — so at-least-once enqueue ⇒ effectively at-most-once delivery.
+
+**Deliberately NOT built (no overbuild):** no separate outbox table (the existing `CommunicationLog` is reused); no intermediate `SENDING` state (jobId dedup + the idempotency key already cover the in-flight window); no DLQ beyond BullMQ's `removeOnFail` retention + the `FAILED` row state. If production telemetry later shows real double-send or stuck-`FAILED` volume, an intermediate `SENDING` state + a DLQ view are the next step — out of Phase 0 scope.
 
 ---
 
@@ -293,19 +309,21 @@ Backend tests: `npx vitest run`, under `tests/api/…`. Frequent commits per ste
 - [ ] **Step 4: Implement `email.ts`** — lazy `new Resend(requireSecret('RESEND_API_KEY'))`; honour `EMAIL_ENABLED` (skip+log when off), `EMAIL_SANDBOX` (redirect), From/Reply-To/merchant-From; accept `idempotencyKey`; return `{ externalId, status }`. Never throw on a disabled send.
 - [ ] **Step 5: Run — expect PASS.** **Step 6:** `.env.example` email block. **Step 7: Commit** — `feat(email): Resend client wrapper with sandbox + D-F sender policy`
 
-### PR-0.4 — `shared/notify.ts` + email worker + bounce webhook + QUEUED migration
+### PR-0.4 — `shared/notify.ts` + email worker + outbox reconciler + bounce webhook + QUEUED migration
 
-**Files:** Create `src/api/shared/notify.ts`, `src/api/queues/processors/email.ts`, `src/api/webhooks/resend.ts`, migration, tests; Modify `src/worker.ts`, `src/api/app.ts`, `prisma/schema.prisma`, the email placeholders
+**Files:** Create `src/api/shared/notify.ts`, `src/api/queues/processors/email.ts`, `src/api/queues/processors/outboxReconciler.ts`, `src/api/webhooks/resend.ts`, migration, tests; Modify `src/worker.ts`, `src/api/app.ts`, `prisma/schema.prisma`, the email placeholders
 
-- [ ] **Step 1: `CommunicationStatus.QUEUED` migration** — add the enum value + flip `@default(QUEUED)` (§4 Migration A). `npx prisma migrate dev --name comms_status_queued`.
-- [ ] **Step 2: Write the failing `notify.test.ts`** — `notify({ recipient, type, channels, inApp, template })`: (a) writes one `CommunicationLog` row per external channel with **`status: QUEUED`**; (b) a `Notification` row iff `inApp`; (c) enqueues an `EMAIL_QUEUE` job with the `CommunicationLog` id as `jobId`; (d) marketing-type respects `newsletterConsent`, transactional always sends.
+- [ ] **Step 1: `CommunicationStatus.QUEUED` migration** — add the enum value + flip `@default(QUEUED)` + add `@@index([status, sentAt])` (§4 Migration A, for the §4.1 reconciler). `npx prisma migrate dev --name comms_status_queued`.
+- [ ] **Step 2: Write the failing `notify.test.ts`** — `notify({ recipient, type, channels, inApp, template })`: (a) writes one `CommunicationLog` row per external channel with **`status: QUEUED`**; (b) a `Notification` row iff `inApp`; (c) enqueues an `EMAIL_QUEUE` job with **`jobId = CommunicationLog.id`** (deterministic); (d) marketing-type respects `newsletterConsent`, transactional always sends; (e) **enqueue-failure path (§4.1): when the queue `add` throws, the `CommunicationLog` row is STILL committed as `QUEUED`, the call logs + does NOT throw, and the row is left for the reconciler.**
 - [ ] **Step 3: Run — expect FAIL.**
-- [ ] **Step 4: Implement `notify.ts`** — rows in a `prisma.$transaction`, then enqueue. Transactional vs marketing split. PUSH = write the `Notification` row only (FCM deferred).
-- [ ] **Step 5: Implement `processors/email.ts`** — consume `EMAIL_QUEUE`: load the `CommunicationLog`, call `email.sendEmail`, transition **`QUEUED → SENT`** (or `FAILED`, letting BullMQ retry on throw, `attempts:3`). Register in `src/worker.ts`.
-- [ ] **Step 6: Implement `webhooks/resend.ts`** — verify `RESEND_WEBHOOK_SECRET`; `email.bounced`/`email.complained` → `CommunicationLog.status = BOUNCED` + Redis suppression set; `email.delivered` → confirm `SENT`. **Register in `app.ts` gated on `RESEND_WEBHOOK_SECRET` presence (NOT `EMAIL_ENABLED`)** so bounces are received even when outbound is paused (patch 4).
-- [ ] **Step 7: Replace the placeholders** — `merchant/branch/service.ts:532–535` (PIN), `auth/merchant/branch-user.service.ts`, the three `forgotPassword*` "TODO Phase 6" → `notify(...)`. Token NEVER logged.
-- [ ] **Step 8: Per-route limiter on transactional email** (§14-A/B) — reuse `atomicLimiter.consume` with `rl:email:<type>:<recipient>` as a victim key + per-IP abuser key.
-- [ ] **Step 9: Run — expect PASS.** **Step 10: Commit** — `feat(notify): dispatcher (QUEUED→SENT) + email worker + bounce webhook (own gate)`
+- [ ] **Step 4: Implement `notify.ts`** — write the rows in a `prisma.$transaction` (commit first), THEN enqueue best-effort **outside** the transaction with `jobId = communicationLog.id`. Wrap the enqueue in try/catch: on failure, `log.warn({ communicationLogId }, 'enqueue failed; left QUEUED for reconciler')` and return normally — **never throw to the caller, never roll the row back** (§4.1 rule 3). Transactional vs marketing split. PUSH = write the `Notification` row only (FCM deferred).
+- [ ] **Step 5: Implement `processors/email.ts`** — consume `EMAIL_QUEUE`: load the `CommunicationLog`; **idempotency guard — if it is already `SENT`/`BOUNCED`, ack and return** (a reconciler/stalled re-run must not resend a delivered row); else call `email.sendEmail({ ..., idempotencyKey: communicationLog.id })`; on success transition **`QUEUED → SENT`**. On throw, let BullMQ retry (`attempts:3`); **on the final attempt failing, transition `QUEUED → FAILED`** (so the reconciler stops re-trying it) — via an `on('failed')` handler checking `job.attemptsMade >= attempts`. Register in `src/worker.ts`.
+- [ ] **Step 6: Implement the outbox reconciler (§4.1)** — `processors/outboxReconciler.ts`: select `CommunicationLog WHERE status = QUEUED AND sentAt < now() − GRACE_MS ORDER BY sentAt LIMIT N`, and for each re-`enqueue(EMAIL_QUEUE, { id }, { jobId: id })` (dedup-safe). Register a **repeatable** `reconcile-outbox` job (every 60 s) in `src/worker.ts` (`GRACE_MS = 120_000`, `N = 200`).
+- [ ] **Step 7: Write + run the reliability tests** — (a) **stale-QUEUED recovery:** insert a `QUEUED` row with `sentAt` older than `GRACE`, no live job → run the reconciler → asserts `enqueue` called with `jobId = id`; (b) **idempotent re-enqueue:** running the reconciler twice (or against a row that still has a job) does not double-send — assert dedup via `jobId` and that a `SENT` row is never re-enqueued; (c) **fresh row skipped:** a `QUEUED` row newer than `GRACE` is left alone. Expect PASS.
+- [ ] **Step 8: Implement `webhooks/resend.ts`** — verify `RESEND_WEBHOOK_SECRET`; `email.bounced`/`email.complained` → `CommunicationLog.status = BOUNCED` + Redis suppression set; `email.delivered` → confirm `SENT`. **Register in `app.ts` gated on `RESEND_WEBHOOK_SECRET` presence (NOT `EMAIL_ENABLED`)** so bounces are received even when outbound is paused (patch 4).
+- [ ] **Step 9: Replace the placeholders** — `merchant/branch/service.ts:532–535` (PIN), `auth/merchant/branch-user.service.ts`, the three `forgotPassword*` "TODO Phase 6" → `notify(...)`. Token NEVER logged.
+- [ ] **Step 10: Per-route limiter on transactional email** (§14-A/B) — reuse `atomicLimiter.consume` with `rl:email:<type>:<recipient>` as a victim key + per-IP abuser key.
+- [ ] **Step 11: Run full suite — expect PASS.** **Step 12: Commit** — `feat(notify): outbox dispatcher (QUEUED→SENT) + reconciler + email worker + bounce webhook`
 
 ### PR-0.5 — R2 storage **library** (no route)
 
@@ -349,7 +367,8 @@ Backend tests: `npx vitest run`, under `tests/api/…`. Frequent commits per ste
 ## 9. Test strategy
 
 - **Unit (Vitest):** every new shared lib with mocked I/O. The §SEC.1 test is load-bearing — it must prove **no overshoot**, **victim-not-burned**, and **abuser-counts** (three distinct assertions).
-- **State transitions:** `CommunicationLog` `QUEUED → SENT/FAILED` (worker) and `→ BOUNCED` (webhook); `BranchPhoto` `PENDING → APPROVED/FLAGGED` (processor).
+- **State transitions:** `CommunicationLog` `QUEUED → SENT` (worker success), `→ FAILED` (retries exhausted), `→ BOUNCED` (webhook); `BranchPhoto` `PENDING → APPROVED/FLAGGED` (processor).
+- **Outbox reliability (§4.1) — load-bearing:** enqueue-failure leaves the row `QUEUED` and does NOT throw; the reconciler re-enqueues stale `QUEUED` rows by deterministic `jobId`; re-enqueue is idempotent (no double-send, `SENT`/`BOUNCED` rows are never re-enqueued); fresh rows (< `GRACE`) are skipped. This proves "DB says queued ⇒ the message is eventually delivered, exactly once effective."
 - **Integration:** the Resend webhook (active on secret, independent of `EMAIL_ENABLED`); the discovery photo-gate (only `APPROVED` returned); notify → rows + enqueue.
 - **Migration:** apply on a Neon test branch; assert backfill set seed photos `APPROVED`; assert the `QUEUED` default.
 - **Regression gate:** `npx vitest run` stays green; `npx tsc --noEmit` zero **new** errors (the 4 pre-existing `savings.service.test.ts` baseline errors documented in CLAUDE.md remain).
@@ -374,6 +393,7 @@ Backend tests: `npx vitest run`, under `tests/api/…`. Frequent commits per ste
 - **PII in `CommunicationLog`:** store type + subject + status only — **never email bodies**. Retention/access policy aligns with spec §18.1 #10 / §18.2.
 - **Email auth:** unverified domain ⇒ spoofing + deliverability failure — owner gate (§13).
 - **Bounce suppression:** the webhook + suppression set prevent sending to hard-bounced addresses (reputation protection), and keep working independent of the outbound switch.
+- **No silently-lost message (§4.1):** `CommunicationLog(QUEUED)` is the durable outbox — a post-commit enqueue failure or a crash-in-the-gap cannot lose the message (the reconciler re-enqueues stale rows by deterministic `jobId`), and the Resend `idempotencyKey = CommunicationLog.id` stops the at-least-once retry from double-sending. Not a full message bus — just "DB says queued ⇒ no job missing."
 - **Secrets:** R2 + Resend keys fail-closed when their flag is on, never logged, never client-exposed.
 
 ---
@@ -421,7 +441,7 @@ Backend tests: `npx vitest run`, under `tests/api/…`. Frequent commits per ste
 ## 15. Self-review (writing-plans)
 
 - **Spec coverage:** the 7 owner-scoped items map to PRs (G1→0.3/0.4, G2→0.4, G3→0.5, G4→0.6, G5→0.2, G6→0.1, G7→0.7). ✓
-- **Patch coverage:** all 7 review patches integrated (status QUEUED ✓ §4/PR-0.4; MerchantDocument cut ✓ §3/§4/§14; storage library-only ✓ §3/PR-0.5; webhook own-gate ✓ §6/PR-0.4/§10; victim/abuser ✓ PR-0.2/§11; Redis topology ✓ §5/PR-0.1; moderation consequence ✓ PR-0.6/§12). ✓
+- **Patch coverage:** all 8 review patches integrated (status QUEUED ✓ §4/PR-0.4; MerchantDocument cut ✓ §3/§4/§14; storage library-only ✓ §3/PR-0.5; webhook own-gate ✓ §6/PR-0.4/§10; victim/abuser ✓ PR-0.2/§11; Redis topology ✓ §5/PR-0.1; moderation consequence ✓ PR-0.6/§12; **outbox reliability ✓ §4.1 + PR-0.4 steps 4–7 + §9 + §11**). ✓
 - **Placeholder scan:** no "TBD"/"add validation"/"similar to" — every PR names files, code shapes, run commands. ✓
 - **Type/name consistency:** `EMAIL_QUEUE`/`MODERATION_QUEUE`, `PhotoModerationStatus`, `CommunicationStatus.QUEUED`, `consume({abuserKeys,victimKeys})`, `requireSecretWhenEnabled()`, `notify()` consistent. ✓
 - **Scope discipline:** zero Phase-2/3 surfaces; storage is library-only; the two boundary touches (BranchPhoto field, discovery filter) are the resolved §14 items. ✓
