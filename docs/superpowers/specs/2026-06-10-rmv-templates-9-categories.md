@@ -22,7 +22,7 @@
 
 **(3) Would require SCHEMA CHANGES to support directly:** a `guidanceTip` column · an `imageGuidance` column · an `isRecommended` flag · a default/editable `estimatedSaving` · richer `allowedFields` so the merchant can set the **qualifying item**, the **actual value**, and a **day/time window** (today they can only edit terms+expiry, which is too restrictive for the guided builder). Recommend a small additive `RmvTemplate` migration in the offer-engine phase: `+ guidanceTip, imageGuidance, isRecommended, defaultEstimatedSaving`; and widen `allowedFields` options.
 
-> Each template below gives the **schema-now block** (seed-ready) + **guidance** (future-UI). `RECOMMENDED` = the sector default. Floors are starting points.
+> Each template below gives the **schema-now block** (seed-ready) + **guidance** (future-UI). `RECOMMENDED` = the sector default. Floors are starting points. **Fixed-£ titles use a concrete amount = the floor** (the schema fixes the title and merchants edit only terms/expiry); these are the prime candidates for the **future guided-builder**, where the merchant sets the amount (richer `allowedFields`).
 
 ---
 
@@ -72,15 +72,15 @@
 - *Guidance:* warning: only on **high-margin / stockable** lines; "half price on the cheaper item" protects margin · fallback: T1.
 
 ## 6. Home & Local Services *(REPLACE the generic placeholder)*
-*Covers tradespeople, cleaners, gardeners, decorators, removals, locksmiths. **Avoid BOGO** (services aren't 2-for-1). High-ticket → fixed-£ beats %.*
+*Covers tradespeople, cleaners, gardeners, decorators, removals, locksmiths. **Avoid BOGO** (services aren't 2-for-1). High-ticket → fixed-£ beats %. **Note:** many trades already give free quotes, so a "free quote" is only a real member benefit where the assessment is normally charged.*
 
-**T1 · RECOMMENDED · `hl-free-quote` · FREEBIE**
-- **Title:** Free Quote & Assessment · **Description:** A free, no-obligation quote or assessment. · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* est. saving ~£25 · terms: "Within [service area]. One per member per cycle. No obligation." · banner: a clean before/after or a tradesperson at work · rationale: low cost to you, and the first step to winning the job · margin: your time only · appeal: removes the "what will it cost?" barrier · constraints: define the service area · fallback: T2.
-
-**T2 · `hl-amount-off-first` · DISCOUNT_FIXED**
+**T1 · RECOMMENDED · `hl-amount-off-first` · DISCOUNT_FIXED**
 - **Title:** £20 Off Your First Booking · **Description:** £20 off your first job over £100. · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
-- *Guidance:* terms: "New customers. On bookings over £100. One per member per cycle." · rationale: converts a new customer who then returns at full price · fallback: T1.
+- *Guidance:* est. saving £20 · terms: "New customers. On bookings over £100. One per member per cycle." · banner: a clean before/after or a tradesperson at work · rationale: a **real, concrete saving** that converts a new customer who then returns at full price · margin: a fixed amount off a high-ticket job · appeal: removes the "what will it cost?" barrier with a tangible discount · constraints: set the qualifying job value · fallback: T3.
+
+**T2 · CONDITIONAL · `hl-free-assessment` · FREEBIE** *(only where the assessment is normally CHARGED)*
+- **Title:** Free Assessment / Consultation · **Description:** A free assessment, survey, or consultation for new customers. · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
+- *Guidance:* **⚠ use ONLY where the merchant normally CHARGES for the assessment/diagnostic/survey/consultation** (e.g. a surveyor, a diagnostic call-out). If quotes are already free this is **not a real saving** and weakens the value standard — use T1 instead. terms: "New customers. Where assessment is normally chargeable. One per member per cycle." · rationale: a genuine saving only when the assessment has a real price · fallback: T1.
 
 **T3 · `hl-spend-save` · SPEND_AND_SAVE**
 - **Title:** Spend £150, Save £25 · **Description:** Save £25 on larger jobs. · **minimumSaving:** 25.00 · **allowedFields:** terms, expiryDate
@@ -109,7 +109,7 @@
 - *Guidance:* est. saving ~£30 · terms: "New patients. One per member per cycle. Clinically appropriate only. Not a substitute for medical advice." · banner: a calm, clean, professional clinic shot (no clinical/graphic imagery) · rationale: the compliant, low-cost hook — brings a new patient in without incentivising unnecessary treatment · margin: practitioner time only · appeal: removes the cost barrier to a first visit · constraints: **no incentivising clinical treatment**; comply with the relevant regulator's advertising rules · fallback: T2.
 
 **T2 · `hm-amount-off-elective` · DISCOUNT_FIXED**
-- **Title:** £X Off Your First Hygiene Visit · **Description:** A fixed amount off a first elective/non-urgent service (e.g. hygiene, whitening). · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
+- **Title:** £20 Off Your First Hygiene Visit · **Description:** £20 off a first elective/non-urgent service (e.g. hygiene, whitening). · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
 - *Guidance:* terms: "New patients. On elective/non-urgent services only." · warning: **elective/cosmetic only — never urgent or clinically-indicated treatment** · constraints: compliance review required · fallback: T1.
 
 ## 9. Family & Kids *(no templates today)*
@@ -124,7 +124,7 @@
 - *Guidance:* rationale: adds value without discounting entry · fallback: T1.
 
 **T3 · `fk-amount-off-party` · DISCOUNT_FIXED**
-- **Title:** £X Off a Party Package · **Description:** A fixed amount off a party package or a block of classes. · **minimumSaving:** 15.00 · **allowedFields:** terms, expiryDate
+- **Title:** £15 Off a Party Package · **Description:** £15 off a party package or a block of classes. · **minimumSaving:** 15.00 · **allowedFields:** terms, expiryDate
 - *Guidance:* rationale: drives the higher-value booking (party / class block) · fallback: T1.
 
 ## 10. Auto & Garage *(no templates today)*
@@ -139,7 +139,7 @@
 - *Guidance:* rationale: the classic garage value play — protects margin via volume · margin: controlled (you set the bundle price) · fallback: T3.
 
 **T3 · `ag-amount-off-service` · DISCOUNT_FIXED**
-- **Title:** £X Off Your Next Service · **Description:** A fixed amount off a service, MOT, or set of tyres. · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
+- **Title:** £20 Off Your Next Service · **Description:** £20 off a service, MOT, or set of tyres. · **minimumSaving:** 20.00 · **allowedFields:** terms, expiryDate
 - *Guidance:* rationale: a fixed £ off a high-ticket job reads cleaner than a % · fallback: T1.
 
 ## 11. Pet Services *(no templates today)*
@@ -150,7 +150,7 @@
 - *Guidance:* est. saving ~£12 · terms: "One per member per cycle. With any full-price groom." · banner: a happy, well-groomed pet · rationale: low-cost add-on that drives rebooking · margin: a few minutes of groomer time · appeal: a little extra care for their pet · constraints: grooming only (not clinical) · fallback: T2.
 
 **T2 · `ps-amount-off-first` · DISCOUNT_FIXED**
-- **Title:** £X Off Your First Groom / Daycare Day · **Description:** A fixed amount off a first grooming session or daycare day. · **minimumSaving:** 8.00 · **allowedFields:** terms, expiryDate
+- **Title:** £8 Off Your First Groom or Daycare Day · **Description:** £8 off a first grooming session or daycare day. · **minimumSaving:** 8.00 · **allowedFields:** terms, expiryDate
 - *Guidance:* terms: "New customers. One per member per cycle." · rationale: converts a new regular · fallback: T1.
 
 **T3 · `ps-daycare-pack` · PACKAGE_DEAL**
