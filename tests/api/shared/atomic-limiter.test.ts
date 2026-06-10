@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
+import type { TestContext } from 'vitest'
 import Redis from 'ioredis'
 import { consume, shimEval, type LimitSpec } from '../../../src/api/shared/atomicLimiter'
 
@@ -8,37 +9,45 @@ import { consume, shimEval, type LimitSpec } from '../../../src/api/shared/atomi
 //   2. VICTIM NOT BURNED — once a victim key is at cap, blocked attempts do NOT increment it.
 //   3. ABUSER COUNTS — every attempt (allowed or blocked) increments the abuser keys.
 // Plus: cooldown-in-script precedence, retryAfter, blockedKey reporting, fixed-window
-// TTL, and a DIFFERENTIAL suite pinning luaConsumeShim ≡ the real Lua (the shim backs
-// the stateful fake-Redis used by service-level tests; drift here breaks those fakes).
+// TTL, and a DIFFERENTIAL suite proving shimEval (the pure-JS mirror behind the
+// stateful fake-Redis used by service-level unit tests) behaves EXACTLY like the
+// real Lua — so those fakes can never drift from production semantics.
 //
-// Runs on Redis db 15 (isolated keyspace; the dev app uses db 0). Skips cleanly
-// when no Redis is reachable (mirrors the app.ts NODE_ENV==='test' redis gating).
+// Real Redis on an isolated db (15; the dev app uses db 0). Availability is
+// probed in beforeAll (no top-level await under module:CommonJS); when no Redis
+// is reachable every test dynamically skips (honest skip — never a false green),
+// mirroring app.ts's NODE_ENV-gated redis wiring. Once backend CI runs vitest it
+// must provide a Redis service, or these skip.
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
 
 let redis: Redis | null = null
 let available = false
-try {
-  redis = new Redis(REDIS_URL, {
-    db: 15,
-    lazyConnect: true,
-    connectTimeout: 1000,
-    maxRetriesPerRequest: 1,
-  })
-  await redis.connect()
-  await redis.ping()
-  available = true
-} catch {
-  redis?.disconnect()
-  redis = null
-}
+
+beforeAll(async () => {
+  const client = new Redis(REDIS_URL, { db: 15, lazyConnect: true, connectTimeout: 1000, maxRetriesPerRequest: 1 })
+  try {
+    await client.connect()
+    await client.ping()
+    redis = client
+    available = true
+  } catch {
+    client.disconnect()
+    redis = null
+    available = false
+  }
+})
 
 afterAll(async () => {
   if (redis) {
-    await redis.flushdb()
-    await redis.quit()
+    try { await redis.flushdb() } finally { redis.disconnect() }
   }
 })
+
+/** Dynamically skip the current test when Redis is unreachable. */
+function requireRedis(ctx: TestContext): void {
+  if (!available) ctx.skip()
+}
 
 let seq = 0
 function k(name: string): string {
@@ -47,13 +56,14 @@ function k(name: string): string {
 
 const spec = (key: string, limit: number, windowSec = 3600): LimitSpec => ({ key, limit, windowSec })
 
-describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () => {
+describe('atomicLimiter.consume — real Redis (db 15)', () => {
   beforeEach(async () => {
     seq++
-    await redis!.flushdb()
+    if (available && redis) await redis.flushdb()
   })
 
-  it('PROPERTY 1 — no overshoot: 50 concurrent attempts at limit 5 ⇒ exactly 5 allowed', async () => {
+  it('PROPERTY 1 — no overshoot: 50 concurrent attempts at limit 5 ⇒ exactly 5 allowed', async (ctx) => {
+    requireRedis(ctx)
     const victim = k('victim')
     const results = await Promise.all(
       Array.from({ length: 50 }, () => consume(redis!, { victimKeys: [spec(victim, 5)] })),
@@ -63,7 +73,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     expect(await redis!.get(victim)).toBe('5') // counter is exactly the allowed count
   })
 
-  it('PROPERTY 2 — victim not burned: blocked attempts do not increment the victim counter', async () => {
+  it('PROPERTY 2 — victim not burned: blocked attempts do not increment the victim counter', async (ctx) => {
+    requireRedis(ctx)
     const victim = k('victim')
     const input = { victimKeys: [spec(victim, 2)] }
     expect((await consume(redis!, input)).ok).toBe(true)
@@ -76,7 +87,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     expect(await redis!.get(victim)).toBe('2') // still exactly at cap — window not extended, quota not burned
   })
 
-  it('PROPERTY 3 — abuser counts: every attempt increments the abuser key, even when victim-blocked', async () => {
+  it('PROPERTY 3 — abuser counts: every attempt increments the abuser key, even when victim-blocked', async (ctx) => {
+    requireRedis(ctx)
     const abuser = k('abuser')
     const victim = k('victim')
     const input = { abuserKeys: [spec(abuser, 100)], victimKeys: [spec(victim, 1)] }
@@ -87,7 +99,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     expect(await redis!.get(victim)).toBe('1') // only the allowed one counted
   })
 
-  it('abuser cap blocks with scope=abuser and keeps counting (self-harm only)', async () => {
+  it('abuser cap blocks with scope=abuser and keeps counting (self-harm only)', async (ctx) => {
+    requireRedis(ctx)
     const abuser = k('abuser')
     const input = { abuserKeys: [spec(abuser, 3)] }
     const results = []
@@ -102,7 +115,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     expect(await redis!.get(abuser)).toBe('5')
   })
 
-  it('cooldown: acquired on pass; blocks the rapid second attempt WITHOUT burning the victim', async () => {
+  it('cooldown: acquired on pass; blocks the rapid second attempt WITHOUT burning the victim', async (ctx) => {
+    requireRedis(ctx)
     const abuser = k('abuser')
     const victim = k('victim')
     const cd = k('cooldown')
@@ -124,7 +138,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     expect(await redis!.get(abuser)).toBe('2') // ...but DID count the attempt against the abuser
   })
 
-  it('volume errors take precedence over the cooldown (cooldown not consumed on a victim block)', async () => {
+  it('volume errors take precedence over the cooldown (cooldown not consumed on a victim block)', async (ctx) => {
+    requireRedis(ctx)
     const victim = k('victim')
     const cd = k('cooldown')
     await redis!.set(victim, '5', 'EX', 3600) // already at cap
@@ -137,7 +152,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     expect(await redis!.get(cd)).toBeNull() // cooldown was never acquired
   })
 
-  it('victim check order = declaration order (first blocking victim key reported)', async () => {
+  it('victim check order = declaration order (first blocking victim key reported)', async (ctx) => {
+    requireRedis(ctx)
     const first = k('global')
     const second = k('phone')
     await redis!.set(first, '500', 'EX', 3600)
@@ -149,7 +165,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     if (!r.ok) expect(r.blockedKey).toBe(first) // e.g. SMS_GLOBAL_LIMIT precedence over SMS_RATE_LIMITED
   })
 
-  it('fixed window: TTL set on first increment for victim + abuser keys', async () => {
+  it('fixed window: TTL set on first increment for victim + abuser keys', async (ctx) => {
+    requireRedis(ctx)
     const abuser = k('abuser')
     const victim = k('victim')
     await consume(redis!, { abuserKeys: [spec(abuser, 10, 1234)], victimKeys: [spec(victim, 10, 5678)] })
@@ -161,7 +178,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     expect(vt).toBeLessThanOrEqual(5678)
   })
 
-  it('retryAfter falls back to the blocked key windowSec when the key has no TTL', async () => {
+  it('retryAfter falls back to the blocked key windowSec when the key has no TTL', async (ctx) => {
+    requireRedis(ctx)
     const victim = k('victim')
     await redis!.set(victim, '3') // at cap, NO TTL (TTL → -1)
     const r = await consume(redis!, { victimKeys: [spec(victim, 3, 1800)] })
@@ -169,7 +187,8 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
     if (!r.ok) expect(r.retryAfter).toBe(1800)
   })
 
-  it('no keys at all ⇒ allowed (degenerate input is a no-op pass)', async () => {
+  it('no keys at all ⇒ allowed (degenerate input is a no-op pass)', async (ctx) => {
+    requireRedis(ctx)
     expect((await consume(redis!, {})).ok).toBe(true)
   })
 })
@@ -180,10 +199,10 @@ describe.skipIf(!available)('atomicLimiter.consume — real Redis (db 15)', () =
 // shim-backed fake here, so packing + unpacking + semantics are ALL pinned
 // against real Redis — fakes can never drift from production behaviour.
 
-describe.skipIf(!available)('shimEval ≡ Lua (differential, via real consume())', () => {
+describe('shimEval ≡ Lua (differential, via real consume())', () => {
   beforeEach(async () => {
     seq++
-    await redis!.flushdb()
+    if (available && redis) await redis.flushdb()
   })
 
   /** A fake ioredis exposing only `eval`, backed by shimEval over a Map. */
@@ -227,23 +246,28 @@ describe.skipIf(!available)('shimEval ≡ Lua (differential, via real consume())
     }
   }
 
-  it('fresh pass-through', async () => {
+  it('fresh pass-through', async (ctx) => {
+    requireRedis(ctx)
     await differential('fresh', { abuserKeys: [spec(k('a'), 10)], victimKeys: [spec(k('v'), 10)] }, 3)
   })
 
-  it('victim cap sequence', async () => {
+  it('victim cap sequence', async (ctx) => {
+    requireRedis(ctx)
     await differential('victim-cap', { abuserKeys: [spec(k('a'), 100)], victimKeys: [spec(k('v'), 2)] }, 6)
   })
 
-  it('abuser cap sequence', async () => {
+  it('abuser cap sequence', async (ctx) => {
+    requireRedis(ctx)
     await differential('abuser-cap', { abuserKeys: [spec(k('a'), 3)] }, 6)
   })
 
-  it('cooldown sequence', async () => {
+  it('cooldown sequence', async (ctx) => {
+    requireRedis(ctx)
     await differential('cooldown', { victimKeys: [spec(k('v'), 10)], cooldown: { key: k('cd'), ttlSec: 60 } }, 3)
   })
 
-  it('pre-seeded at-cap victim', async () => {
+  it('pre-seeded at-cap victim', async (ctx) => {
+    requireRedis(ctx)
     const key = k('v')
     await differential('preseeded', { victimKeys: [spec(key, 3)] }, 2, { [key]: '3' })
   })
