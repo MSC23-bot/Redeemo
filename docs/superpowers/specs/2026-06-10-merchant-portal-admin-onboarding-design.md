@@ -373,13 +373,14 @@ The locked design covers the happy path well. These are the holes and edge cases
 `{ id, key, displayCopy, categoryScope[], voucherTypeScope[], severity (EXPECTED|CAUTION|RESTRICTIVE), enforcement (SYSTEM_GATE|DISPLAYED_ADVISORY), parameter? (bounded: min-spend band / day-time window / date list), conflictsWith[], requires[], valueErosionWeight, isActive, version }`.
 
 ### 20.3 Two enforcement classes
-- **SYSTEM_GATE (app hard-enforces at redemption/validation):** valid days, valid times, expiry, blackout dates, min-spend *if captured at validation*.
+- **SYSTEM_GATE (app hard-enforces at redemption/validation):** valid days, valid times, expiry, blackout dates, and **min-spend ONLY where the transaction/basket amount is captured at validation** — if it isn't captured, min-spend is **displayed-advisory** (the merchant applies it), never silently "enforced."
 - **DISPLAYED_ADVISORY (merchant honours at point of sale; app displays prominently, does NOT gate):** dine-in/takeaway, advance-booking, show-before-ordering, group-size. Per CAP, stated clearly on the voucher; fulfilment is the merchant's.
 
 ### 20.4 EXCLUDED from the library (never selectable)
 - **Platform-given (automatic):** one-redemption-per-cycle, subscription-required → surfaced as **platform context** ("Use once this cycle"), NOT a merchant term (restating them is noise per §8.23 and misframes the benefit).
 - **Unenforceable + bait:** **"new customers only" / "existing-members-only"** — the system can't verify customer history, and on intro offers it reads as bait (DMCC risk). A genuinely first-visit offer is framed in the OFFER (the template), not a term.
 - **Clawback-feel:** service-charge/gratuity-excluded — de-prioritised.
+- **Vague catch-alls:** **"subject to availability" is NOT a selectable clause** — per CAP §8.9 it doesn't relieve the promoter of the duty to avoid disappointing customers. Capacity is expressed via **bounded** clauses instead: `booking-required`, `limited-slots-shown-before-booking`, `booking-confirmation-required`, and `blackout-dates` (only where explicitly listed + capped). No catch-all that lets a merchant refuse redemption unpredictably.
 
 ### 20.5 Severity, prominence, parameters
 - **CAUTION + RESTRICTIVE clauses render as visible badges on the voucher card at preview** (not a collapsed drawer) — the antidote to "buried fine print" + CAP §8.17.
@@ -403,10 +404,12 @@ The locked design covers the happy path well. These are the holes and edge cases
 | `show-before-ordering` | Show before ordering | all | EXPECTED | DISPLAYED | |
 | `booking-recommended` | Booking recommended | services/experiences/hotels | EXPECTED | DISPLAYED | conflicts: booking-required |
 | `booking-required` | Advance booking required | services/experiences/hotels | CAUTION | DISPLAYED | conflicts: booking-recommended |
+| `booking-confirmation` | Booking confirmation required | services/experiences/hotels | CAUTION | DISPLAYED | bounded; no unpredictable refusal |
+| `limited-slots` | Limited slots — shown before booking | services/experiences/hotels | CAUTION | DISPLAYED | replaces vague "subject to availability" |
 | `valid-days` | Valid [days] | all | CAUTION | SYSTEM_GATE | picker rejects majority-blocking |
 | `valid-times` | Valid [time window] | all | CAUTION | SYSTEM_GATE | e.g. weekday lunch |
 | `blackout-dates` | Excludes [dates] | all | CAUTION | SYSTEM_GATE | bounded count |
-| `min-spend` | Valid on orders over £[band] | food/retail/services (NOT freebie) | RESTRICTIVE | SYSTEM_GATE (if captured) | vetted bands; BANNED on FREEBIE |
+| `min-spend` | Valid on orders over £[band] | food/retail/services (NOT freebie) | RESTRICTIVE | SYSTEM_GATE only if basket captured, else DISPLAYED | vetted bands; BANNED on FREEBIE |
 | `group-size` | Up to [N] people | experiences/family/food | CAUTION | DISPLAYED | size-1 BANNED on BOGO |
 | `expiry` | Valid until [date] | all | EXPECTED | SYSTEM_GATE | the existing `expiryDate` |
 
@@ -416,6 +419,13 @@ The locked design covers the happy path well. These are the holes and edge cases
 
 ### 20.9 Customer-favourable default
 The cycle cap is the merchant's protection, so the library **defaults open** — a voucher with only EXPECTED clauses (dine-in/takeaway, show-before-ordering, not-with-other-offers) is the norm. RESTRICTIVE/CAUTION clauses are opt-in, capped, badged. Members get vouchers that **actually work on arrival** — Redeemo's edge over the fine-print-laden incumbents, turned into a trust signal.
+
+### 20.10 RMV-specific guardrails (the mandatory flagship)
+The customer-favourable rule applies **most strictly to RMVs** (they are the offers Redeemo promotes):
+- **Mandatory (RMV) vouchers default OPEN.**
+- **`valid-days` / `valid-times` are BLOCKED on RMVs by default** — a merchant who wants day/time-limited redemption uses an **optional `TIME_LIMITED` voucher**, not the flagship.
+- **Capacity on RMVs** is expressed via `booking-required` / `booking-recommended` or **bounded, explicitly-listed, capped `blackout-dates`** — never broad off-peak / day-blocking.
+- **Exceptions require Redeemo/admin approval** and must still preserve customer value (e.g. **hotels' off-peak room-nights** — approved per sector, routed via a `TIME_LIMITED` window or an admin-approved RMV exception, never a silent default).
 
 ---
 
