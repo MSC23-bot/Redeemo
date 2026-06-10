@@ -74,7 +74,16 @@ export const FEATURE_GATED_SECRETS: ReadonlyArray<{
   flag: string
   enabledValue: string
   secrets: readonly string[]
-}> = [{ flag: 'EMAIL_ENABLED', enabledValue: 'true', secrets: ['RESEND_API_KEY'] }]
+}> = [
+  { flag: 'EMAIL_ENABLED', enabledValue: 'true', secrets: ['RESEND_API_KEY'] },
+  // R2 storage (PR-0.5): the credentials + config the storage library needs to
+  // presign. R2_ACCOUNT_ID is documented but not gated (the endpoint embeds it).
+  {
+    flag: 'STORAGE_ENABLED',
+    enabledValue: 'true',
+    secrets: ['R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT', 'R2_BUCKET', 'R2_PUBLIC_BASE_URL'],
+  },
+]
 
 /**
  * If `process.env[flagVar] === enabledValue`, every named secret must be present
