@@ -362,6 +362,8 @@ Backend tests: `npx vitest run`, under `tests/api/…`. Frequent commits per ste
 - [ ] **Step 4: Build check** — `npm run build` ⇒ assert `dist/src/worker.js` + `dist/src/index.js` exist.
 - [ ] **Step 5: Commit** — `chore(deploy): staging two-process Procfile + Phase-0 env manifest + runbook`
 
+> **As-built correction (PR-0.7):** Step 4 surfaced that the bare `build: tsc` was **not deployable** — it (a) exited non-zero because `tsc` compiled the test files (the 4 known savings-baseline type errors), which a platform build would reject, and (b) `generated/prisma` is gitignored so a clean checkout has no Prisma client to compile against. Fix shipped in PR-0.7 (a tiny build-config change, no runtime code): `build` → `prisma generate && tsc -p tsconfig.build.json`, plus a new **`tsconfig.build.json`** compiling only `src/` + `generated/`. The default `tsc --noEmit` type-check (all files, incl. tests) is unchanged. Also noted: `svix` is a phantom (transitive-only) dependency directly imported by the Resend webhook — documented as a follow-up, not changed here (no dependency remediation in this PR).
+
 ---
 
 ## 9. Test strategy

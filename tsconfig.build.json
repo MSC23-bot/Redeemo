@@ -1,0 +1,14 @@
+{
+  // Production build config (Phase 0 PR-0.7). Compiles ONLY the runtime code —
+  // src/ (the API + worker) and generated/ (the Prisma client) — so:
+  //   1. `npm run build` does NOT fail on test-only type errors (the base
+  //      tsconfig includes tests via "**/*.ts"; a deploy that checks the build
+  //      exit code would otherwise reject the release).
+  //   2. dist/ stays lean — no compiled tests / prisma dev-scripts the Procfile
+  //      never runs.
+  // Type-checking everything (incl. tests) stays the job of the default
+  // `tsc --noEmit` against ./tsconfig.json — this config is build-only.
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "generated/**/*.ts"],
+  "exclude": ["node_modules", "dist", "apps", "tests"]
+}

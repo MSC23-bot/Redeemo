@@ -72,6 +72,58 @@ Generate the JWT/ENCRYPTION secrets with the `randomBytes` command above. **Avoi
 
 ---
 
+## 1.5 Phase 0 backend foundations — two-process deploy + feature gates
+
+Phase 0 (PRs 0.1–0.6) added a transactional-email/notification dispatcher, a
+BullMQ job runner (a **second process**), an R2 storage library, a photo-
+moderation gate, and the §SEC.1 atomic limiter. Everything ships **dark** — it is
+inert until its feature flag is intentionally flipped. This section is the staging
+deploy manifest; the env vars themselves are in `.env.example` (every Phase-0 var
+is documented there).
+
+### Two-process model
+The backend is now **two processes off the same codebase + the same env**:
+
+| Process | Procfile entry | Command | Role |
+|---|---|---|---|
+| **web** | `web` | `node dist/src/index.js` | the Fastify API (HTTP) |
+| **worker** | `worker` | `node dist/src/worker.js` | BullMQ workers: email delivery, outbox reconciler (repeatable 60 s), photo moderation |
+
+A root **`Procfile`** declares both. On Railway (assumed host, D2) point the service at this repo; it builds once and runs the two process types. The **worker needs the SAME env as the API** (DB, Redis, the feature flags) — set the env at the service/project level so both processes inherit it. The worker can **scale to zero** without affecting the API (jobs queue in Redis until it returns).
+
+### Build + release (IMPORTANT — the build is not bare `tsc`)
+- **`npm run build`** = `prisma generate && tsc -p tsconfig.build.json`. It MUST run `prisma generate` first because `generated/prisma` is **gitignored** (absent on a fresh checkout), and it uses **`tsconfig.build.json`** (compiles only `src/` + `generated/`, excludes `tests/`) so the build does not fail on test-only type errors and `dist/` stays lean. Output: `dist/src/index.js` + `dist/src/worker.js` (the Procfile targets). The default `tsc --noEmit` (type-check, all files incl. tests) is unchanged.
+- **Migrations:** run **`npx prisma migrate deploy`** against the environment's DB **before** the new code serves traffic (it applies committed migrations, never generates new ones). On a platform with a release phase, wire it as the release command; otherwise run it as a pre-deploy step (see §4). The two Phase-0 migrations (`CommunicationStatus += QUEUED` + `BranchPhoto` moderation fields) are **additive** — a code rollback leaves harmless extra columns/values, no data loss (§10).
+- **Node:** pinned by `.nvmrc` (**20.19.4**); the host should honour it (Nixpacks/Railway read `.nvmrc`).
+
+### Staging manifest
+| Component | Staging setup | Phase-0 expectation |
+|---|---|---|
+| **Postgres (Neon)** | a **separate Neon branch/project** (never share with prod, §7) | `migrate deploy` on deploy |
+| **Redis** | one instance for staging | **`maxmemory-policy noeviction`** (BullMQ requires it — a dropped job key = a lost job); sessions + TTL'd limiter keys are unaffected. BullMQ shares this instance with its own connection + `BULLMQ_PREFIX=redeemo` |
+| **Stripe** | **test** keys + a staging webhook secret | |
+| **Resend (email)** | `EMAIL_ENABLED=true` **only with a SEPARATE staging key** + `EMAIL_SANDBOX=true` + `EMAIL_SANDBOX_ALLOWLIST` so **no test mail reaches a real address**. Production email stays **dark until §6 (D-F) gates close.** `RESEND_WEBHOOK_SECRET` self-gates the bounce webhook independently of `EMAIL_ENABLED`. | dark by default |
+| **R2 (storage)** | `STORAGE_ENABLED=false` (no upload route exists until Phase 2) | dark; flip + provide a staging bucket only when a Phase-2 caller lands |
+| **Photo moderation** | `MODERATION_ENABLED=false` / `MODERATION_PROVIDER=none` | dark → photos default `PENDING` (admin review); never auto-publish |
+| **Worker queues** | `WORKER_CONCURRENCY=5`, `BULLMQ_PREFIX=redeemo` | both processes deployed |
+
+### Feature-gate model (dark by default — the safety net)
+`EMAIL_ENABLED`, `STORAGE_ENABLED`, `MODERATION_ENABLED` all default **`false`**; the corresponding feature is wired but inert. Each gate's secret is **required only when the gate is on** (`RESEND_API_KEY` ⇐ `EMAIL_ENABLED`; the five `R2_*` ⇐ `STORAGE_ENABLED`) — so a dark deploy boots without them. Flip a flag to enable; flip it back to instantly disable (no redeploy — §10). **Always flip on staging first** (Resend sandbox, R2 staging bucket) before any prod flag.
+
+### Seed / recompute on staging — what is safe vs destructive
+| Script | Run on staging? | Run on production? | Why |
+|---|---|---|---|
+| `prisma/seed.ts` (`npm run seed` / `prisma db seed`) | dev/staging-demo only | **NEVER** | creates demo/test merchants + fixtures; needs the real `ENCRYPTION_KEY`; no NODE_ENV guard |
+| `prisma/seed-reference.ts` | ✅ yes | ✅ yes | reference/config data ONLY (taxonomy / localities / plans / CMS); default-deny write guard + `ALLOW_REFERENCE_SEED` + `REFERENCE_SEED_CONFIRM=<db-host>` + real Stripe price ids; fails closed (§4 step 2, §8) |
+| `prisma/recompute-counts.ts` | ✅ yes | ✅ yes | recomputes denormalized Category/Tag counts only; `ALLOW_RECOMPUTE_COUNTS` + `RECOMPUTE_CONFIRM=<db-host>`; default-deny guard; no encryption/Stripe needed (§8) |
+
+**Do NOT run the full dev seed against staging-as-a-prod-mirror or production.** Use the reference seed (+ recompute) for a clean environment; both fail closed unless you pass the explicit opt-in + the confirm-target var.
+
+### Known follow-up (NOT a launch blocker)
+`src/api/webhooks/resend.ts` imports `svix` directly, but `svix` is only present **transitively** (`resend → svix@1.90.0`), not declared in `package.json`. It resolves today because npm hoists it, and a clean `npm ci` installs it (it's in the lockfile), so the current deploy works. It is a latent **phantom-dependency** risk (a future `resend` change or a strict-hoisting package manager could break the import). Recommended tiny follow-up: add `svix` to `package.json` `dependencies` to declare it explicitly. (Left out of this PR to keep it dependency-change-free.)
+
+---
+
 ## 2. TRUST_PROXY setup + verifying `req.ip`
 
 **Why it matters:** behind a proxy (Railway/Render/Vercel), `req.ip` defaults to the *proxy's* address unless `TRUST_PROXY` is set. If it's wrong, **every IP-based control collapses onto one shared bucket** — the edge rate limits (login/forgot-password/global), the SMS per-IP caps, and the password-reset per-IP cap all break at once (simultaneously over-throttling all real users and under-throttling attackers).
