@@ -93,7 +93,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       )
       return { skipped: true, reason: 'sandbox-no-allowlist' }
     }
-    console.info(`[email] sandbox redirect — ${JSON.stringify(input.to)} → ${allow.join(', ')}`)
+    console.info(`[email] sandbox redirect — ${Array.isArray(input.to) ? input.to.length : 1} recipient(s) redirected to ${allow.join(', ')}`)
     to = allow
   }
 

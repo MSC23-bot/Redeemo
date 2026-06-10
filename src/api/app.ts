@@ -18,6 +18,7 @@ import { adminAuthRoutes } from './auth/admin/routes'
 import merchantManagementPlugin from './merchant/plugin'
 import subscriptionPlugin from './subscription/plugin'
 import { webhookRoutes } from './subscription/webhook'
+import { resendWebhookRoutes } from './webhooks/resend'
 import redemptionPlugin from './redemption/plugin'
 import customerPlugin from './customer/plugin'
 import { resolveTrustProxy } from './shared/trustProxy'
@@ -88,6 +89,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(merchantManagementPlugin)
   await app.register(subscriptionPlugin)
   await app.register(webhookRoutes)
+  // Resend bounce/complaint webhook — self-gates on RESEND_WEBHOOK_SECRET
+  // presence (independent of EMAIL_ENABLED), so bounces are received even when
+  // outbound sending is paused. Own encapsulated scope ⇒ its raw-body parser
+  // doesn't collide with the Stripe webhook's.
+  await app.register(resendWebhookRoutes)
   await app.register(redemptionPlugin)
   await app.register(customerPlugin)
 

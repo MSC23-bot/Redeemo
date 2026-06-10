@@ -54,6 +54,15 @@ export const RedisKey = {
   rateLimitPwdResetDay:    (emailHash: string)        => `rl:pwd-reset:day:${emailHash}`,    // per-email daily
   rateLimitPwdResetIpDay:  (ip: string)               => `rl:pwd-reset:ip:day:${ip}`,        // per-IP daily ceiling
 
+  // PR-0.4: transactional-email send limiter + bounce suppression. Per-recipient
+  // keys take a HASHED email (pwdResetLimiter.hashEmail) so raw addresses never
+  // appear in Redis key listings or logs.
+  rateLimitEmailSend:      (type: string, emailHash: string) => `rl:email:${type}:${emailHash}`, // per-(type,recipient) hourly
+  rateLimitEmailIpDay:     (ip: string)               => `rl:email:ip:day:${ip}`,      // per-IP daily abuser ceiling
+  // Suppression: existence ⇒ provider reported a hard bounce / spam complaint for
+  // this recipient; future transactional sends to it are skipped (notify guard).
+  emailSuppression:        (emailHash: string)        => `email:suppress:${emailHash}`,
+
   // PIN brute-force counter — keyed per (userId, branchId) so failures at one branch
   // don't block the user at a different branch
   pinFailCount:        (userId: string, branchId: string) => `pin:fail:${userId}:${branchId}`,
