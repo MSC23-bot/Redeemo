@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword, validatePasswordPolicy } from '../../shar
 import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecureToken } from '../../shared/tokens'
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
-import { assertPwdResetAllowed, recordPwdResetRequest } from '../../shared/pwdResetLimiter'
+import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
 import { TERMS_VERSION } from '../../shared/legal'
 import {
   storeRefreshToken,
@@ -212,15 +212,14 @@ export async function sendPhoneVerification(
     if (existing && existing.id !== userId) throw new AppError('PHONE_ALREADY_EXISTS')
   }
 
-  // SEC-H3 (Gate-PR-7): toll-fraud controls — country allowlist + per-phone/user/IP
-  // hourly+daily caps + resend cooldown + global circuit-breaker. Count the attempt
-  // before the send (Twilio bills attempts).
-  const { assertSmsSendAllowed, recordSmsSend } = await import('../../shared/smsLimiter')
+  // SEC-H3 (Gate-PR-7) + §SEC.1: toll-fraud controls — country allowlist +
+  // per-phone/user/IP hourly+daily caps + resend cooldown + global circuit-
+  // breaker, as ONE atomic check-and-count before the send (Twilio bills attempts).
+  const { consumeSmsSend } = await import('../../shared/smsLimiter')
   const { sendOtp } = await import('../../shared/otp')
 
   const smsCtx = { phone, userId, ip: ip ?? null, scope: 'otp' as const }
-  await assertSmsSendAllowed(redis, smsCtx)
-  await recordSmsSend(redis, smsCtx)
+  await consumeSmsSend(redis, smsCtx)
   await sendOtp(phone)
 
   // Pending-phone Redis key commits the destination; confirm flips user.phone to this value on success
@@ -401,11 +400,10 @@ export async function forgotPasswordCustomer(
   email: string,
   ip?: string | null
 ): Promise<void> {
-  // SEC-H4: rate-limit BEFORE the lookup and for EVERY request, so existing and
-  // non-existing emails are treated identically (no enumeration) and both count
-  // toward the per-email / per-IP caps.
-  await assertPwdResetAllowed(redis, { email, ip })
-  await recordPwdResetRequest(redis, { email, ip })
+  // SEC-H4 + §SEC.1: rate-limit BEFORE the lookup and for EVERY request, so
+  // existing and non-existing emails are treated identically (no enumeration).
+  // One ATOMIC check-and-count (victim = per-email caps, abuser = per-IP cap).
+  await consumePwdResetAttempt(redis, { email, ip })
 
   const user = await prisma.user.findUnique({ where: { email } })
   if (!user) return // no enumeration — silently return

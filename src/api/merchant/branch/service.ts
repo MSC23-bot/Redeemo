@@ -509,17 +509,16 @@ export async function sendBranchPin(
 
   const pin = decrypt(branch.redemptionPin)
 
-  // SMS via Twilio — SEC-H3 (Gate-PR-7): toll-fraud controls (E.164 check +
-  // country allowlist + per-phone/IP/branch caps + cooldown + global circuit-
-  // breaker). branch.phone MUST be stored as E.164 (+44…) — a non-E.164 number
-  // is rejected with SMS_DESTINATION_NOT_ALLOWED, never silently sent. The send
-  // is AWAITED so the rate-limit recording + the route response reflect the
-  // actual attempt.
+  // SMS via Twilio — SEC-H3 (Gate-PR-7) + §SEC.1: toll-fraud controls (E.164
+  // check + country allowlist + per-phone/IP/branch caps + cooldown + global
+  // circuit-breaker) as ONE atomic check-and-count. branch.phone MUST be stored
+  // as E.164 (+44…) — a non-E.164 number is rejected with
+  // SMS_DESTINATION_NOT_ALLOWED, never silently sent. The send is AWAITED so
+  // the rate-limit counting + the route response reflect the actual attempt.
   if (branch.phone) {
-    const { assertSmsSendAllowed, recordSmsSend } = await import('../../shared/smsLimiter')
+    const { consumeSmsSend } = await import('../../shared/smsLimiter')
     const smsCtx = { phone: branch.phone, ip: ctx.ipAddress, scope: 'branchPin' as const, branchId }
-    await assertSmsSendAllowed(redis, smsCtx)
-    await recordSmsSend(redis, smsCtx)
+    await consumeSmsSend(redis, smsCtx)
     const { default: twilio } = await import('twilio')
     const client = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
     await client.messages.create({

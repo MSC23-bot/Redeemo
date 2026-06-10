@@ -14,12 +14,11 @@ vi.mock('twilio', () => ({
   default: vi.fn(() => ({ messages: { create: messagesCreate } })),
 }))
 vi.mock('../../../../src/api/shared/smsLimiter', () => ({
-  assertSmsSendAllowed: vi.fn().mockResolvedValue(undefined),
-  recordSmsSend: vi.fn().mockResolvedValue(undefined),
+  consumeSmsSend: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { getBranchPin, setBranchPin, sendBranchPin } from '../../../../src/api/merchant/branch/service'
-import { assertSmsSendAllowed, recordSmsSend } from '../../../../src/api/shared/smsLimiter'
+import { consumeSmsSend } from '../../../../src/api/shared/smsLimiter'
 
 const mockPrisma = () => ({
   merchantAdmin: { findUnique: vi.fn() },
@@ -102,8 +101,7 @@ describe('sendBranchPin — SMS path (branch.phone present)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(assertSmsSendAllowed as any).mockResolvedValue(undefined)
-    ;(recordSmsSend as any).mockResolvedValue(undefined)
+    ;(consumeSmsSend as any).mockResolvedValue(undefined)
     messagesCreate.mockResolvedValue({ sid: 'SM1' })
   })
 
@@ -114,11 +112,10 @@ describe('sendBranchPin — SMS path (branch.phone present)', () => {
     const result = await sendBranchPin(prisma, {} as any, 'ma1', 'b1', { ipAddress: '1.2.3.4', userAgent: 'test' })
 
     // Limiter runs BEFORE Twilio, scoped to branchPin with the branch phone + IP.
-    expect(assertSmsSendAllowed).toHaveBeenCalledWith(
+    expect(consumeSmsSend).toHaveBeenCalledWith(
       {},
       expect.objectContaining({ phone: '+447700900000', ip: '1.2.3.4', scope: 'branchPin', branchId: 'b1' }),
     )
-    expect(recordSmsSend).toHaveBeenCalled()
     expect(messagesCreate).toHaveBeenCalledTimes(1)
     expect(messagesCreate).toHaveBeenCalledWith(expect.objectContaining({ to: '+447700900000' }))
     expect(prisma.auditLog.create).toHaveBeenCalled() // BRANCH_PIN_SENT
@@ -128,7 +125,7 @@ describe('sendBranchPin — SMS path (branch.phone present)', () => {
   it('limiter blocks → Twilio is never called', async () => {
     const prisma = mockPrisma()
     branchWithPhone(prisma)
-    ;(assertSmsSendAllowed as any).mockRejectedValueOnce(new AppError('SMS_RATE_LIMITED'))
+    ;(consumeSmsSend as any).mockRejectedValueOnce(new AppError('SMS_RATE_LIMITED'))
 
     await expect(sendBranchPin(prisma, {} as any, 'ma1', 'b1', { ipAddress: '1.2.3.4', userAgent: 'test' }))
       .rejects.toThrow('SMS_RATE_LIMITED')

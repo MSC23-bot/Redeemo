@@ -7,6 +7,7 @@ import { forgotPasswordMerchant } from '../../../src/api/auth/merchant/service'
 import { forgotPasswordAdmin } from '../../../src/api/auth/admin/service'
 import { RedisKey } from '../../../src/api/shared/redis-keys'
 import { hashEmail } from '../../../src/api/shared/pwdResetLimiter'
+import { shimEval } from '../../../src/api/shared/atomicLimiter'
 
 // SEC-H4 (Gate-PR-8): the password-reset limiter wired into all three
 // reset-request services + routes. The limiter's own logic is unit-tested in
@@ -20,7 +21,9 @@ const EXISTING = 'real@example.com'
 const MISSING = 'ghost@example.com'
 const IP = '9.9.9.9'
 
-/** Stateful in-memory Redis so fixed-window counters accumulate across calls. */
+/** Stateful in-memory Redis so fixed-window counters accumulate across calls.
+ *  `eval` is backed by shimEval — the §SEC.1 atomic-limiter JS mirror, pinned
+ *  ≡ the real Lua by tests/api/shared/atomic-limiter.test.ts. */
 function fakeRedis() {
   const store = new Map<string, string>()
   const redis = {
@@ -36,6 +39,8 @@ function fakeRedis() {
     ttl: vi.fn(async () => 1800),
     del: vi.fn(async (k: string) => { store.delete(k); return 1 }),
     keys: vi.fn(async () => []),
+    eval: vi.fn(async (_lua: string, numKeys: number, ...rest: Array<string | number>) =>
+      shimEval(store, rest.slice(0, numKeys) as string[], rest.slice(numKeys), { ttlOf: () => 1800 })),
   }
   return redis as unknown as Redis & { _store: Map<string, string> }
 }

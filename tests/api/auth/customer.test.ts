@@ -22,8 +22,7 @@ vi.mock('../../../src/api/shared/otp', async () => {
 // so these route tests don't exercise the Redis-backed limiter.
 vi.mock('../../../src/api/shared/smsLimiter', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/shared/smsLimiter')>()),
-  assertSmsSendAllowed: vi.fn().mockResolvedValue(undefined),
-  recordSmsSend: vi.fn().mockResolvedValue(undefined),
+  consumeSmsSend: vi.fn().mockResolvedValue(undefined),
 }))
 
 const DEVICE = {
@@ -377,7 +376,7 @@ describe('customer auth routes', () => {
   it('POST /verify-phone/send returns 429 when the SMS rate limit is exceeded', async () => {
     const { AppError } = await import('../../../src/api/shared/errors')
     const sms = await import('../../../src/api/shared/smsLimiter')
-    ;(sms.assertSmsSendAllowed as any).mockRejectedValueOnce(new AppError('SMS_RATE_LIMITED'))
+    ;(sms.consumeSmsSend as any).mockRejectedValueOnce(new AppError('SMS_RATE_LIMITED'))
 
     app.prisma.user.findUnique = vi.fn().mockResolvedValue({
       id: 'u1', phone: '+447700900000', phoneVerified: false,
