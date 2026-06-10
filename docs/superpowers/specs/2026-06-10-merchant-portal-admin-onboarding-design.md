@@ -162,6 +162,7 @@ Reasons/comments on `AdminApproval.comment`; history in `AuditLog`.
 - **Taxonomy governance:** curated/closed; merchants **pick-closest + suggest new** (admin-approved, `MerchantSuggestedTag` pattern); unmatched niches **inherit parent-category flagships**. Never free merchant-added categories (would break discovery + the engine).
 - **Guidance, not restriction:** per-sector research-backed "why" tips (live with the template) + visible shortlist + "propose your own" escape.
 - **Copy:** "your offer · your margin · your control"; never "discount"/"deal-seeker"; sell footfall/reviews/analytics. 2 permanent RMVs = the core flagship; custom RCVs = the bonus tier.
+- **Terms of use = curated clause selection, NOT free-text — with real-time guardrails at voucher creation (§20).** Merchants pick from the admin-managed clause library (scoped by category + voucher type); the rules engine **blocks conflicting / banned / over-restrictive combinations at save**; templates pre-select sensible defaults. Platform-given rules (one-per-cycle) and unenforceable ones (new-customers) are excluded.
 
 ---
 
@@ -358,4 +359,64 @@ The locked design covers the happy path well. These are the holes and edge cases
 
 ---
 
-*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session. §18 lists remaining open gaps; §19 resolves the top three.)*
+---
+
+## 20. Voucher terms-of-use — curated clause system (owner direction, 2026-06-10; fleshes out deferred §A2/A3)
+
+**Decision: NO merchant free-text terms.** Merchants **SELECT** from a global, admin-managed, versioned **clause library**, scoped by category + voucher type, with a **criteria/rules engine** that prevents conflicting or over-restrictive combinations. **These rules are real-time GUARDRAILS enforced at voucher creation/save** — a merchant cannot save a voucher with conflicting, banned, or over-restrictive terms (an inline explanation tells them why), and the actioner re-validates at approval. **Customer-favourable by default** — Redeemo's once-per-cycle cap already protects merchants (vs Tastecard/Groupon unlimited), so vouchers default OPEN; restrictions are opt-in, capped, and prominently displayed. Research-grounded (ASA/CAP §8, DMCC Act 2024, CRA 2015; competitor friction analysis).
+
+### 20.1 Why
+- **Compliance asset:** a curated, plain-language, pre-approved clause set satisfies **CAP §8.17** (state significant conditions clearly + upfront; **§8.23** not "too complex") and reduces **DMCC-2024** misleading-omission + **CRA-2015** unfair-term risk — far better than free-text, which invites both non-compliant fine print and customer-hostile terms.
+- **Trust asset:** the biggest source of voucher disputes across Tastecard/Groupon/Entertainer/Wowcher is **restrictions that weren't salient upfront** (buried fine print, hidden blackouts/booking limits, surprise min-spend, service-charge clawback). Redeemo's structural edge is squandered if merchants over-restrict.
+
+### 20.2 Clause model
+`{ id, key, displayCopy, categoryScope[], voucherTypeScope[], severity (EXPECTED|CAUTION|RESTRICTIVE), enforcement (SYSTEM_GATE|DISPLAYED_ADVISORY), parameter? (bounded: min-spend band / day-time window / date list), conflictsWith[], requires[], valueErosionWeight, isActive, version }`.
+
+### 20.3 Two enforcement classes
+- **SYSTEM_GATE (app hard-enforces at redemption/validation):** valid days, valid times, expiry, blackout dates, min-spend *if captured at validation*.
+- **DISPLAYED_ADVISORY (merchant honours at point of sale; app displays prominently, does NOT gate):** dine-in/takeaway, advance-booking, show-before-ordering, group-size. Per CAP, stated clearly on the voucher; fulfilment is the merchant's.
+
+### 20.4 EXCLUDED from the library (never selectable)
+- **Platform-given (automatic):** one-redemption-per-cycle, subscription-required → surfaced as **platform context** ("Use once this cycle"), NOT a merchant term (restating them is noise per §8.23 and misframes the benefit).
+- **Unenforceable + bait:** **"new customers only" / "existing-members-only"** — the system can't verify customer history, and on intro offers it reads as bait (DMCC risk). A genuinely first-visit offer is framed in the OFFER (the template), not a term.
+- **Clawback-feel:** service-charge/gratuity-excluded — de-prioritised.
+
+### 20.5 Severity, prominence, parameters
+- **CAUTION + RESTRICTIVE clauses render as visible badges on the voucher card at preview** (not a collapsed drawer) — the antidote to "buried fine print" + CAP §8.17.
+- **Cap:** ≤1 `RESTRICTIVE` clause per voucher.
+- **Bounded parameters, not open ranges:** min-spend = a dropdown of **vetted bands**; day/time = a picker that **rejects blocking the majority of trading hours**; blackout = bounded count.
+
+### 20.6 Criteria/rules engine (validated at save + admin approval)
+1. **Scope:** offerable only if `categoryScope` + `voucherTypeScope` match.
+2. **Conflict:** mutually-exclusive clauses can't co-exist (`conflictsWith`) — e.g. dine-in-only vs takeaway-only; booking-required vs booking-recommended.
+3. **Dependency:** `requires`.
+4. **Type bans (value-protection):** **min-spend BANNED on FREEBIE/free-item offers** (the freebie isn't free); **group-size-1 BANNED on BOGO** (impossible); "existing-members-only" BANNED on intro offers.
+5. **Value-erosion cap:** sum `valueErosionWeight`; over threshold → **reject** ("too restrictive to be worth it to a paying member"). Don't rely on merchant rationality.
+6. **Trading-hours floor:** valid-days + valid-times can't restrict to a tiny window.
+
+### 20.7 Starter clause library (first pass)
+| key | displayCopy | scope | severity | enforcement | rule notes |
+|---|---|---|---|---|---|
+| `dine-in-only` | Dine-in only | food | EXPECTED | DISPLAYED | conflicts: takeaway-eligible |
+| `takeaway-eligible` | Valid on takeaway | food | EXPECTED | DISPLAYED | conflicts: dine-in-only |
+| `not-with-other-offers` | Not valid with other offers | all | EXPECTED | DISPLAYED | universally expected |
+| `show-before-ordering` | Show before ordering | all | EXPECTED | DISPLAYED | |
+| `booking-recommended` | Booking recommended | services/experiences/hotels | EXPECTED | DISPLAYED | conflicts: booking-required |
+| `booking-required` | Advance booking required | services/experiences/hotels | CAUTION | DISPLAYED | conflicts: booking-recommended |
+| `valid-days` | Valid [days] | all | CAUTION | SYSTEM_GATE | picker rejects majority-blocking |
+| `valid-times` | Valid [time window] | all | CAUTION | SYSTEM_GATE | e.g. weekday lunch |
+| `blackout-dates` | Excludes [dates] | all | CAUTION | SYSTEM_GATE | bounded count |
+| `min-spend` | Valid on orders over £[band] | food/retail/services (NOT freebie) | RESTRICTIVE | SYSTEM_GATE (if captured) | vetted bands; BANNED on FREEBIE |
+| `group-size` | Up to [N] people | experiences/family/food | CAUTION | DISPLAYED | size-1 BANNED on BOGO |
+| `expiry` | Valid until [date] | all | EXPECTED | SYSTEM_GATE | the existing `expiryDate` |
+
+### 20.8 Schema implications
+- New **`TermsClause`** model (the library) + **`VoucherTermsClause`** join (selected clauses + parameter values); admin-managed + versioned (deferred §A2). Rules-engine config (conflicts/bans/weights/threshold) in code/config (deferred §A3).
+- **`terms` is no longer free-text:** today `RmvTemplate.allowedFields = ['terms','expiryDate']`. Now the merchant **selects clauses**; the rendered `Voucher.terms` string becomes the **composed output of the selected clauses** (display only). `allowedFields` → `['selectedClauses','expiryDate']`. Templates pre-select sensible default clauses per category/type.
+
+### 20.9 Customer-favourable default
+The cycle cap is the merchant's protection, so the library **defaults open** — a voucher with only EXPECTED clauses (dine-in/takeaway, show-before-ordering, not-with-other-offers) is the norm. RESTRICTIVE/CAUTION clauses are opt-in, capped, badged. Members get vouchers that **actually work on arrival** — Redeemo's edge over the fine-print-laden incumbents, turned into a trust signal.
+
+---
+
+*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session. §18 lists remaining open gaps; §19 resolves the top three; §20 is the curated voucher terms-of-use system.)*

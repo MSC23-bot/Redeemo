@@ -24,6 +24,8 @@
 
 > Each template below gives the **schema-now block** (seed-ready) + **guidance** (future-UI). `RECOMMENDED` = the sector default. Floors are starting points. **Fixed-£ titles use a concrete amount = the floor** (the schema fixes the title and merchants edit only terms/expiry); these are the prime candidates for the **future guided-builder**, where the merchant sets the amount (richer `allowedFields`).
 
+> **Terms of use — superseded by design-spec §20 (curated clause system).** The per-template `terms:` lines below are **illustrative only**. Real terms come from the **admin-managed curated clause library** (merchants SELECT pre-approved clauses, NOT free-text), with **real-time guardrails at voucher creation** that block conflicting / banned / over-restrictive combinations. The illustrative terms **exclude** platform-given rules ("one per cycle" — automatic) and unenforceable ones ("new customers" — can't verify); treat any such phrases below as removed. Per template, the default clauses are noted by intent (e.g. dine-in/takeaway, show-before-ordering); the live clause set comes from §20.
+
 ---
 
 ## 3. Health & Fitness
