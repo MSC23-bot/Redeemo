@@ -504,6 +504,16 @@ model BranchOpeningHours {
   @@unique([branchId, dayOfWeek])
 }
 
+// Photo-moderation gate (Phase 0 PR-0.6). A branch photo is publicly visible
+// ONLY when APPROVED (scanner CLEAN or admin-approved). New photos default
+// PENDING; the discovery read-path filters to APPROVED so an unmoderated or
+// flagged photo can never reach a customer surface.
+enum PhotoModerationStatus {
+  PENDING // awaiting a scan / admin review — NOT public
+  APPROVED // scanner CLEAN or admin-approved — the ONLY public state
+  FLAGGED // scanner / admin flagged — NOT public
+}
+
 model BranchPhoto {
   id        String   @id @default(uuid())
   branchId  String
@@ -511,9 +521,17 @@ model BranchPhoto {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
 
+  // PR-0.6 moderation gate. Default PENDING ⇒ a freshly-uploaded photo is never
+  // public until something (scanner or admin) moves it to APPROVED.
+  moderationStatus    PhotoModerationStatus @default(PENDING)
+  moderationCheckedAt DateTime? // when a scan resolved it (CLEAN/FLAGGED); null ⇒ never scanned
+  moderationDetail    String? // optional reason / provider note when FLAGGED
+
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
+  // Discovery filters by (branchId, moderationStatus); cap counts per branch.
+  @@index([branchId, moderationStatus])
 }
 
 // ─────────────────────────────────────────
