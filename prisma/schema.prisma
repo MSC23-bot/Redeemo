@@ -1423,6 +1423,11 @@ enum CommunicationChannel {
 }
 
 enum CommunicationStatus {
+  // QUEUED is the durable-outbox state (Phase 0 PR-0.4): notify() commits a
+  // QUEUED row, then enqueues delivery; a worker flips it off QUEUED. A row only
+  // stays QUEUED while genuinely undelivered — which is what the reconciler
+  // looks for. SENT/FAILED/BOUNCED are terminal.
+  QUEUED
   SENT
   FAILED
   BOUNCED
@@ -1487,10 +1492,18 @@ model CommunicationLog {
   channel       CommunicationChannel
   type          String
   subject       String?
-  status        CommunicationStatus  @default(SENT)
+  status        CommunicationStatus  @default(QUEUED)
   externalId    String?
   sentAt        DateTime             @default(now())
   userId        String?
+
+  // The rendered message the delivery worker / outbox reconciler sends. It is
+  // the ONLY way a reconciler-re-enqueued job (which carries just the row id)
+  // can reconstruct the email, so it makes CommunicationLog a true outbox. It
+  // can contain delivery-sensitive content (a reset link, a branch PIN), so the
+  // worker NULLS it the moment the row reaches a terminal state — the payload
+  // exists only during the brief QUEUED delivery window, never long-term.
+  payload Json?
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -1498,6 +1511,10 @@ model CommunicationLog {
   @@index([channel])
   @@index([type])
   @@index([sentAt])
+  // Outbox reconciler scan: WHERE status = QUEUED AND sentAt < now() − GRACE.
+  @@index([status, sentAt])
+  // Bounce/complaint webhook resolves the row by the provider's email id.
+  @@index([externalId])
 }
 
 // ─────────────────────────────────────────

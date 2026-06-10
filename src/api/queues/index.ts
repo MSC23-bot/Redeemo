@@ -21,9 +21,11 @@ import type IORedis from 'ioredis'
 export const BULLMQ_PREFIX = process.env.BULLMQ_PREFIX || 'redeemo'
 
 // Queue name constants. The PROCESSORS that consume these land in later PRs:
-//   EMAIL_QUEUE       → PR-0.4 (notify dispatcher + email delivery worker)
-//   MODERATION_QUEUE  → PR-0.6 (photo moderation scan worker)
+//   EMAIL_QUEUE        → PR-0.4 (notify dispatcher + email delivery worker)
+//   MAINTENANCE_QUEUE  → PR-0.4 (repeatable outbox-reconciler sweep)
+//   MODERATION_QUEUE   → PR-0.6 (photo moderation scan worker)
 export const EMAIL_QUEUE = 'email'
+export const MAINTENANCE_QUEUE = 'maintenance'
 export const MODERATION_QUEUE = 'moderation'
 
 // Default job options: bounded exponential retries + completed/failed retention

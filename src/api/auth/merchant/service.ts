@@ -225,8 +225,25 @@ export async function forgotPasswordMerchant(
 
   const token = generateSecureToken(32)
   await redis.set(RedisKey.passwordReset('merchant', token), admin.id, 'EX', PWD_RESET_TTL)
-  // TODO Phase 6: deliver the reset link via Resend. The token is never logged
-  // (SEC-H1). Dev: use prisma/issue-reset-token.ts to obtain a token.
+
+  // PR-0.4: deliver the reset link through the outbox (dark by default). Token
+  // never logged (SEC-H1). userId is null — a MerchantAdmin is not a User.
+  // Best-effort so a delivery failure can't change the anti-enumeration return.
+  try {
+    const { notify } = await import('../../shared/notify')
+    const { passwordResetEmail, buildPasswordResetLink } = await import('../../shared/emailTemplates')
+    await notify(prisma, redis, {
+      to: email,
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: admin.id,
+      userId: null,
+      type: 'password_reset',
+      email: passwordResetEmail(buildPasswordResetLink('merchant', token)),
+      ip: ip ?? null,
+    })
+  } catch {
+    // swallow — never reveal a delivery failure (no enumeration)
+  }
 }
 
 export async function resetPasswordMerchant(

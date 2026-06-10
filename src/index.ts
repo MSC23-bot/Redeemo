@@ -15,6 +15,29 @@ bootstrap()
         process.exit(1)
       }
     })
+
+    // Graceful shutdown. PR-0.4 makes the API a queue PRODUCER (notify() enqueues
+    // email jobs), so the producer queue connection must be closed on the way out
+    // alongside Fastify's onClose hooks (prisma.$disconnect, redis.quit). The
+    // import stays DYNAMIC so the static graph here remains app-module-free (the
+    // aggregated env-validation contract above).
+    let shuttingDown = false
+    const shutdown = async (signal: string): Promise<void> => {
+      if (shuttingDown) return
+      shuttingDown = true
+      app.log.info(`[api] ${signal} received — shutting down`)
+      try {
+        await app.close()
+        const { closeQueues } = await import('./api/queues')
+        await closeQueues()
+      } catch (err) {
+        app.log.error(err)
+      } finally {
+        process.exit(0)
+      }
+    }
+    process.on('SIGTERM', () => void shutdown('SIGTERM'))
+    process.on('SIGINT', () => void shutdown('SIGINT'))
   })
   .catch((err: unknown) => {
     // Env-validation failure (or any boot failure) surfaces here. Print just the
