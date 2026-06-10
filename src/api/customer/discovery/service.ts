@@ -1968,6 +1968,11 @@ export async function getCustomerMerchant(
             select: { amenity: { select: { id: true, name: true, iconUrl: true } } },
           },
           photos: {
+            // PR-0.6 gate: customers see ONLY moderation-APPROVED photos. This
+            // single relation filter covers both selectedBranch.photos AND the
+            // merchant-gallery fallback (which flattens this same b.photos array)
+            // — a PENDING/FLAGGED photo can never reach a customer surface.
+            where: { moderationStatus: 'APPROVED' },
             select: { url: true, sortOrder: true },
             orderBy: { sortOrder: 'asc' },
           },

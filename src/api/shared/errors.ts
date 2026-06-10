@@ -46,6 +46,7 @@ export const ERROR_DEFINITIONS = {
   MERCHANT_NOT_FOUND:             { statusCode: 404, message: 'Merchant not found.' },
   BRANCH_NOT_FOUND:               { statusCode: 404, message: 'Branch not found.' },
   BRANCH_UNAVAILABLE:             { statusCode: 404, message: 'This branch is no longer available.' },
+  PHOTO_LIMIT_REACHED:            { statusCode: 409, message: 'This branch has reached its photo limit. Remove a photo before adding another.' },
   VOUCHER_NOT_FOUND:              { statusCode: 404, message: 'Voucher not found.' },
   USER_NOT_FOUND:                 { statusCode: 404, message: 'User not found.' },
   PENDING_EDIT_EXISTS:            { statusCode: 409, message: 'A pending edit already exists. Withdraw it before submitting a new one.' },

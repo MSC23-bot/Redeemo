@@ -87,7 +87,8 @@ async function seedMultiBranchMerchant(): Promise<SeededMerchant> {
               ],
             },
             photos: {
-              create: [{ url: 'https://example.com/p1.jpg', sortOrder: 0 }],
+              // PR-0.6: APPROVED so it survives the discovery moderation filter.
+              create: [{ url: 'https://example.com/p1.jpg', sortOrder: 0, moderationStatus: 'APPROVED' }],
             },
           },
           {
@@ -433,5 +434,52 @@ describe('GET /api/v1/customer/merchants/:id — selectedBranch (P1)', () => {
     // Should fall back to the merchant gallery (Brightlingsea's photo)
     expect(Array.isArray(body.selectedBranch!.photos)).toBe(true)
     expect((body.selectedBranch!.photos as string[]).length).toBeGreaterThan(0)
+  })
+
+  it('PR-0.6: surfaces ONLY moderation-APPROVED photos (PENDING/FLAGGED filtered out)', async () => {
+    const merchant = await prisma.merchant.create({
+      data: {
+        businessName: `P1Test-mod-${Date.now()}`,
+        status: 'ACTIVE',
+        branches: {
+          create: [
+            {
+              name: 'ModBranch',
+              isMainBranch: true,
+              isActive: true,
+              addressLine1: '1 Gate St',
+              city: 'Brightlingsea',
+              postcode: 'CO7 0AA',
+              latitude: 51.81,
+              longitude: 1.02,
+              photos: {
+                create: [
+                  { url: 'https://example.com/approved.jpg', sortOrder: 0, moderationStatus: 'APPROVED' },
+                  { url: 'https://example.com/pending.jpg', sortOrder: 1, moderationStatus: 'PENDING' },
+                  { url: 'https://example.com/flagged.jpg', sortOrder: 2, moderationStatus: 'FLAGGED' },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      include: { branches: true },
+    })
+    createdMerchantIds.push(merchant.id)
+    const branchId = merchant.branches[0].id
+
+    const body = await getCustomerMerchant(prisma, merchant.id, null, { branchId })
+
+    // Merchant gallery (legacy flatten) — only the APPROVED url survives.
+    const gallery = body.photos as string[]
+    expect(gallery).toContain('https://example.com/approved.jpg')
+    expect(gallery).not.toContain('https://example.com/pending.jpg')
+    expect(gallery).not.toContain('https://example.com/flagged.jpg')
+
+    // selectedBranch.photos — same single filtered source.
+    const branchUrls = (body.selectedBranch!.photos as Array<{ url: string } | string>).map((p) =>
+      typeof p === 'string' ? p : p.url,
+    )
+    expect(branchUrls).toEqual(['https://example.com/approved.jpg'])
   })
 })
