@@ -1,0 +1,269 @@
+# Merchant Portal + Admin Actioner + Onboarding — Design Spec
+
+**Status:** Design / brainstorm-locked (grill-me Q1–Q7 complete). NOT yet planned or implemented.
+**Date:** 2026-06-10
+**Owner:** Redeemo
+**Tier:** 3 (new architecture + backend contracts + schema changes + infra) — requires this spec → `writing-plans` → implementation.
+**Scope of this doc:** The complete design for the **"first live merchant" loop** — register → onboard → verify → approve → go-live → day-2 management. Captures every decision locked in the grill-me brainstorm (2026-06-10). The Phase-5 commercial layer (merchant billing / campaigns / featured) is explicitly OUT and gets its own brainstorm later.
+
+**Builds on (does not re-derive):**
+- `docs/superpowers/specs/2026-06-07-merchant-admin-platform-strategy.md` — the umbrella strategy/audit (the chokepoint diagnosis, phased roadmap).
+- `docs/superpowers/specs/2026-05-14-merchant-exact-pin-confirmation-design.md` — Google Places pin confirmation (`confirmPin`).
+- `docs/superpowers/specs/2026-04-28-category-taxonomy-design.md` — the category taxonomy + `RmvTemplate` system.
+- `docs/runbooks/deploy-security-runbook.md` + the Security/Legal/Domain gate (mostly code-complete) — the foundations this builds on.
+
+---
+
+## 0. Goal, scope boundary, key principle
+
+**Goal:** make a merchant go **lead/register → ACTIVE and redeemable through the product** (not seed-only). The binding constraint today is that `AdminApproval` has writers but **zero readers** — no actioner exists, so no merchant can reach `ACTIVE` through the product.
+
+**Governing principle (locked):** **An admin may act FOR a merchant, never AS a merchant.** And: **the merchant always owns their credentials, their legal acceptance, and their commercial offer.**
+
+**Scope boundary:**
+- **IN (this spec):** lifecycle state model · entry/identity + self-register + `MerchantLead`/claim · merchant RBAC (`MerchantMembership`) · onboarding workspace + verification + contract + mandatory-voucher offer engine · admin actioner + admin RBAC + platform-wide audit + admin-edit-on-behalf · go-live + day-2 portal + redemption visibility + validation.
+- **PREREQUISITE (Phase 0 foundations — separate plan, this loop depends on them):** Resend email + `shared/notify.ts` dispatcher (writes `Notification` + `CommunicationLog`) · R2 file upload (multipart + presigned) · §SEC.1 atomic password-reset limiter · background-job runner (BullMQ on Redis) · staging environment.
+- **FAST-FOLLOW:** full `MerchantLead` CRM (Kanban/rep-assignment/coverage) · admin-create-lead + claim if not pulled into MVP · read-only view-as-merchant · AI offer suggestions · admin RmvTemplate/tip editor · richer analytics/statements/exports · grant-management UI.
+- **DEFERRED:** merchant billing / campaigns / featured (Phase-5 commercial — its own brainstorm) · FINANCE payment capabilities · multi-user merchant roles beyond OWNER/BRANCH_MANAGER/STAFF · QR-scan + dedicated merchant mobile app (Phase 4) · Plan 3 PC3-interests migration.
+
+---
+
+## 1. Merchant lifecycle state model (the backbone)
+
+**Decision (Q2): adopt the existing 4-axis model and CONSTRAIN it — do NOT collapse/rename/remove enums. Additive changes only.** The actioner is the SINGLE atomic writer of approval/review transitions; the four axes must never drift.
+
+**Four axes + source-of-truth:**
+- `MerchantStatus` — **ops/customer-visibility truth** (`REGISTERED → PENDING_APPROVAL → ACTIVE / INACTIVE / SUSPENDED / DELETED`). Discovery + redemption gate on `ACTIVE`.
+- `OnboardingStep` — **merchant-facing journey** (primary source for the portal status label).
+- `VerificationStatus` — **review outcome** (`NOT_SUBMITTED → PENDING → VERIFIED / REJECTED`).
+- `ContractStatus` — **sub-fact** (`NOT_SIGNED → SIGNED`).
+
+**Additive enum changes (locked):**
+- `OnboardingStep += REJECTED` (terminal, distinct from `NEEDS_CHANGES`) `+= UNDER_REVIEW` (claim-to-review). **No `INVITED`** — invite/claim-pending lives on `MerchantLead`.
+- **Wire `VerificationStatus`** (currently inert — never written): submit → `PENDING`, approve → `VERIFIED`, reject → `REJECTED`.
+- **Deferred** (add later only if proven needed): `WITHDRAWN`, merchant self-pause, explicit verified-but-not-live.
+
+**Current code reality (verified):** `onboardingStep` is only ever written as `SUBMITTED` (granular steps unused; progress is *derived* from the checklist); `MerchantStatus` only `REGISTERED→PENDING_APPROVAL` through product (ACTIVE seed-only); `verificationStatus` **never written**; `contractStatus` `NOT_SIGNED→SIGNED` is the only complete transition. Two latent incoherences (submit leaves verificationStatus=NOT_SUBMITTED; seed jumps to ACTIVE) — the actioner-as-single-writer + the transition table fix these.
+
+**Merchant-facing status = a derived projection**, primarily from `OnboardingStep`, with `MerchantStatus` overriding for hard ops states (suspended/deleted).
+
+**State-transition table (the spec backbone — each row: current state · allowed actor · action · resulting MerchantStatus/OnboardingStep/VerificationStatus · side effects · audit/event/email · portal capability delta):**
+
+| State (projection) | MerchantStatus | OnboardingStep | VerificationStatus | Contract | Driver | Visible | Redeemable | Portal edit |
+|---|---|---|---|---|---|---|---|---|
+| Draft/preparing | REGISTERED | REGISTERED (sub-progress derived) | NOT_SUBMITTED | →SIGNED | system+merchant | No | No | full draft edit |
+| Submitted | PENDING_APPROVAL | SUBMITTED | PENDING | SIGNED | merchant | No | No | locked |
+| Under review | PENDING_APPROVAL | UNDER_REVIEW | PENDING | SIGNED | admin claims | No | No | locked |
+| Changes requested | PENDING_APPROVAL | NEEDS_CHANGES | PENDING | SIGNED | admin | No | No | re-opened |
+| Resubmitted | PENDING_APPROVAL | SUBMITTED | PENDING | SIGNED | merchant | No | No | locked |
+| Active/live | ACTIVE | LIVE | VERIFIED | SIGNED | admin approve | **Yes** | **Yes** | cosmetic-live + pending-edit |
+| Suspended | SUSPENDED | SUSPENDED | VERIFIED | SIGNED | admin | No | No | read/limited |
+| Rejected (terminal) | REGISTERED/INACTIVE | REJECTED | REJECTED | SIGNED | admin (reopenable) | No | No | read-only |
+| Deleted/archived | DELETED | — | — | — | admin/merchant | No | No | none |
+
+Reasons/comments on `AdminApproval.comment`; history in `AuditLog`.
+
+---
+
+## 2. Entry & identity
+
+**Decision (Q3): MVP primary = self-register; `MerchantLead` is a separate CRM object (NOT a shell `Merchant`); token-based claim (never temp-passwords); admin-create-lead + claim is IN scope for MVP (scoped Option 2).**
+
+**Five acquisition channels:**
+1. Organic self-service → self-register (`source=ORGANIC`)
+2. Rep-assisted in person → self-register, merchant sets own credentials (`source=REP`)
+3. Email campaign → self-register + campaign/UTM (`source=EMAIL_CAMPAIGN`)
+4. Social media / paid ads → self-register + campaign/UTM (`source=SOCIAL`)
+5. Phone-assisted → `MerchantLead` + tokenised claim (`source=PHONE`)
+
+**Mechanics:**
+- **Self-register** creates `Merchant` (`REGISTERED`) + first `MerchantAdmin`/OWNER membership in **one transaction**; merchant sets own password, verifies email/phone, accepts terms themselves.
+- **`MerchantLead`** (separate model): businessName, contact, `source`, repId, status (`NEW → CONTACTED → AGREED → INVITED → CONVERTED/DEAD`), notes, campaign/UTM, `claimToken`, `claimTokenExpiry`, `convertedMerchantId`. Real `Merchant` created only at register/claim.
+- **Phone-assisted/admin-create:** admin creates a `MerchantLead` → **tokenised claim link emailed** → merchant clicks, sets own password, verifies, accepts terms → creates `Merchant`+`MerchantAdmin`, links `convertedMerchantId`. **No `OnboardingStep.INVITED`.** Hard-scoped: lead model + one "create lead → invite" admin action + the claim page. Full CRM = fast-follow.
+- **Admin operations capability:** admin can create leads, update business details, correct info, manage status (all audited) — but **never** owns the account, knows the password, or accepts terms.
+- **Hard constraints:** staff never create/know/read the owner's password (reset-link only, sent to the merchant's verified contact, admin never sees the token); staff never accept terms/sign on the merchant's behalf.
+
+**Attribution:** new `MerchantSource` enum (`ORGANIC / REP / EMAIL_CAMPAIGN / SOCIAL / PHONE`) + optional campaign/UTM detail on `Merchant` (and reused on `MerchantLead`). (Currently no attribution field exists.)
+
+---
+
+## 3. Merchant RBAC
+
+**Decision (Q4): scoped Option B — build the `MerchantMembership` foundation in MVP** (because chains/franchises/multi-branch may be launch targets; building portal/actioner against single-admin then migrating is the slower, riskier path).
+
+- **Identity separate from membership:** a person (login/credentials) vs their membership (merchant + role + branch-scope), so one person can later belong to multiple merchants (franchise networks) **without a second migration**.
+- **`MerchantMembership`** = `(merchantId, userId, role, scope { allBranches | branchIds[] }, status, invitedBy?, ...)`. Register/claim creates the first **OWNER** membership. Replaces the `MerchantAdmin.merchantId @unique` single-admin constraint.
+- **MVP roles:** **OWNER** (full merchant control), **BRANCH_MANAGER** (assigned branch(es); **vouchers are NOT branch-scoped — merchant-wide, OWNER/Redeemo-Admin only**; customer-visible branch edits queue for approval), **STAFF** = existing `BranchUser` (validate-only; redemption-integrated, kept as-is; fold into membership later).
+- **Design now, build as needed:** MANAGER, FINANCE/REPORTING, READ_ONLY, MARKETING/VOUCHER_MANAGER + the full capability matrix + branch-scope enforcement.
+- **OWNER-only forever:** accept/sign legal terms + contract; ownership transfer; billing/payment ownership; destructive (delete/suspend); manage high-permission users; change registered legal identity.
+- **Vouchers are merchant-wide** → created/edited/submitted by OWNER (and Redeemo Admin where appropriate); never by BRANCH_MANAGER/STAFF.
+- **Customer-visible changes require Redeemo Admin approval before publishing** (BRANCH_MANAGER + OWNER edits; admin edits publish directly).
+
+---
+
+## 4. Onboarding workspace (3 gates, low-friction)
+
+**Decision (Q5, research-backed): progressive "account-first" onboarding — three gates, never one wall.** Supply-side onboarding must be low-friction; the mandatory-voucher step must never cause drop-off.
+
+- **Gate 1 — Create account (~60s):** email + password + business name + phone + **OTP verify** + **category** (drives templates + personalisation + discovery).
+- **Gate 2 — Portal + resumable guided checklist (5–7 items):** profile · main branch · documents (optional at submit) · 2 mandatory vouchers (the offer engine, §7) · contract. Pre-seeded ~20% (endowed progress), save-and-continue, resume nudges, "why" beside each step, **"you're not live until we approve — nothing is public yet"** reassurance, specific CTAs ("List your business free"), no urgency theatre. **Capability-gated:** unverified can prepare/edit drafts/upload/submit-vouchers/see-status/respond-to-changes; cannot publish/redeem/appear/full-analytics until approved (already enforced by the `MerchantStatus===ACTIVE` discovery + redemption gates).
+- **Gate 3 — Submit → admin review → live.**
+- **Concierge lane** for chains/high-value (admin co-builds, capability exists at MVP via the actioner; dedicated console = fast-follow).
+- **Subcategory** captured at the profile step.
+
+---
+
+## 5. Verification (low-friction, free-API-led, human-final)
+
+**Decision (Q5a): minimal submit gate; documents at the verify tier (not a hard submit wall); auto-checks pre-score a human-reviewed queue; auto-approve nothing.** This satisfies business rule #7's *intent* with far less friction.
+
+**Submit-gate tiers:**
+| Tier | Required |
+|---|---|
+| Create account | email + password + business name + phone + **OTP** + category |
+| **Submit for review** | profile + main branch (address/location) + **2 mandatory vouchers** + **contract signed (OWNER-only)** + light evidence (website/social/photos) + **optional proactive document upload** |
+| **Verify (pre-approval)** | free-API checks + email-domain + duplicate screen → pre-scored; **formal docs/ID only if risk-flagged** |
+| Go live | admin approve (atomic actioner) |
+
+**Verification signals (layered; pre-score green/amber/red on the `AdminApproval` card):**
+- **Google Places — the universal lead verifier** (covers companies AND sole traders): existence + **phone/address/website cross-check** + business status + review-count legitimacy + **autofill** (pick-your-listing → pre-fill name/address/phone/website + capture `placeId`) + **pin confirmation** (upgrades `POSTCODE_CENTROID → ADDRESS_GEOCODED/MANUALLY_CONFIRMED`) + the **OTP-to-public-contact** authority check. Wrapper exists (`src/api/lib/googlePlaces.ts`, cost-capped); extend Text-Search → Place Details for phone/website/status/rating; add a `merchant_onboarding` usage source; re-check TOS for stored/displayed fields.
+- **FHRS** (food, free, no key, searchable by name+address) — strongest free "premises trades here" signal (Just Eat 3+, Deliveroo 2+).
+- **Companies House** (Ltd/LLP only — **optional, never a gate**; sole traders aren't listed): status (active/dissolved) · registered name (soft) · registered office (soft) · **officers/PSC vs registrant (authority signal)** · SIC vs category.
+- **Email-domain match + in-house duplicate-detection** (company#/address/phone/email/IP across applications — highest-leverage, zero-cost anti-fraud).
+- **Human admin final approval** — pre-scored card, heavy asks (ID/proof-of-address/call-back) only on amber/red.
+
+**Limits (honest):** Google Places/CH prove the business is real + partial authority; full authority confidence = layered (officer/listing match + business-domain email + OTP to the public contact + the signed contract). Phone *match* = legitimacy; **OTP to the listed contact** = authority.
+
+---
+
+## 6. Contract (clickwrap, MVP-sufficient)
+
+**Decision (Q5, research-backed, NOT legal advice): clickwrap is legally sufficient for a 12-month B2B commercial agreement — no Zoho Sign/DocuSign at MVP.** (*Parker-Grennan v Camelot* [2024] EWCA Civ 185; ECA 2000 s.7; retained UK eIDAS Art. 25; Law Commission 2019.)
+
+- **Capture for evidential weight:** un-pre-ticked checkbox + commitment-labelled button · **immutable copy of the exact version accepted** · signatory identity + **authority-to-bind warranty** · timestamp · IP · **`userAgent` (currently NOT persisted — add it)** · immutable audit log · email the merchant a copy.
+- **Onerous-term signposting** (the 12-month lock-in, auto-renewal, termination penalty) — extra notice per Interfoto "red-hand", or they may not bind.
+- **Structurally safe:** `acceptContract` is merchant-session-context-bound → an admin cannot invoke it. Never add an admin path.
+- **SOLICITOR-REVIEW (not product):** draft the Merchant Agreement; onerous-term signposting; authority-to-bind wording; lock-in remedy (penalty doctrine); CRA/unfair-terms; UK GDPR/PECR for IP capture + retention; sign-off the acceptance UX.
+
+---
+
+## 7. Mandatory-voucher / offer engine
+
+**Decision (Q5c): anchor on 2-for-1, sector-flexible via the existing `RmvTemplate` engine; fairness by per-category customer-value FLOOR (not uniform type); 5-rung anti-drop-off ladder; "mandatory to go live, never a blocker to progress."**
+
+- **Engine = seeded `RmvTemplate`s** (model exists: `categoryId`, `voucherType`, `title`, `description`, `allowedFields`, **`minimumSaving` = the value floor**). Per **category** by default; **subcategory override only where economics differ** (mirrors `ladderProfileOverride`). `VoucherType` already complete (BOGO/FREEBIE/PACKAGE_DEAL/SPEND_AND_SAVE/DISCOUNT_FIXED/PERCENT/TIME_LIMITED/REUSABLE).
+- **Anchor:** 2-for-1 as one merchant-scoped primitive ("buy one *[qualifying item]*, get one free" — the Entertainer mechanism). **Once-per-cycle cap + merchant-set margin + no commission makes it safer than Tastecard/Groupon** (regulars stay full-price; the deal is a hook, not a leak).
+- **Sector fallback ladder** where 2-for-1 doesn't fit (garage can't BOGO): free add-on/health-check, package/bundle, fixed-£ off, spend-&-save, intro class/trial. **Fairness = `minimumSaving` floor**, calibrated per sector — a garage's free health-check (~£30) is *equivalently fair* to a restaurant 2-for-1 (~£12).
+- **Offer-type hierarchy (recommendation, NOT a restriction):** Freebie/BOGO/Package > Spend&Save > Fixed-£ > **% (lowest, included but de-emphasised)**. **No type removed** — all available; % is floor-policed (a weak % that doesn't clear `minimumSaving` is flagged/blocked).
+- **Anti-drop-off 5-rung ladder** ("Choose your flagship offer," not "create a voucher"): (1) pick a pre-built sector template (£-value + "what you absorb per visit" shown) → (2) recommended default (one tap) → (3) "help me build this" guided builder → (4) submit non-standard for admin approval (and keep moving) → (5) park + concierge co-build. **The mandatory voucher is mandatory to GO LIVE but never a hard BLOCKER to PROGRESS.** Park-rate = friction signal.
+- **Taxonomy governance:** curated/closed; merchants **pick-closest + suggest new** (admin-approved, `MerchantSuggestedTag` pattern); unmatched niches **inherit parent-category flagships**. Never free merchant-added categories (would break discovery + the engine).
+- **Guidance, not restriction:** per-sector research-backed "why" tips (live with the template) + visible shortlist + "propose your own" escape.
+- **Copy:** "your offer · your margin · your control"; never "discount"/"deal-seeker"; sell footfall/reviews/analytics. 2 permanent RMVs = the core flagship; custom RCVs = the bonus tier.
+
+---
+
+## 8. Admin actioner (the chokepoint)
+
+**Decision (Q6a): one unified `AdminApproval` inbox; claim-to-review; atomic + idempotent actions.**
+
+- **Unified inbox** over all 5 `ApprovalType`s (MERCHANT_ONBOARDING, VOUCHER, MERCHANT_PROFILE_EDIT, MERCHANT_IDENTITY_EDIT, BRANCH_IDENTITY_EDIT), filterable by type/status/risk/claim/admin, **one operational queue**. Type-specific cards: onboarding (submission + checklist + **pre-score signals**); voucher (offer + `minimumSaving` floor + sector context); merchant/branch edits (**before/after diff** + customer-visible flag).
+- **Pre-score** (Google Places/FHRS/CH/dup) runs at submit (async), stored as a snapshot on/beside the `AdminApproval` for fast + auditable triage; **auto-approve nothing**.
+- **Claim-to-review:** add `claimedById` + `claimedAt` to `AdminApproval`; claim moves onboarding to `UNDER_REVIEW`; Release supported; prevents double-handling.
+- **Atomic + idempotent actions** (reuse `prisma.$transaction`, established in redemption): each of Approve / Request-Changes (reason) / Reject (reason) runs in ONE transaction that checks still-actionable → flips `AdminApproval` (status/actionedAt/actor) → applies the entity transition (4-axis merchant flip / voucher status / **pending-edit apply**) → **transactional `AuditLog`** → reason. Safe conflict/no-op on double-action (reuse the `StripeWebhookEvent` idempotency precedent).
+- **Holistic onboarding approval (Q6a-1):** the `MERCHANT_ONBOARDING` card reviews the **whole** submission **including the 2 mandatory vouchers inline**; one approve flips merchant `ACTIVE` + activates the mandatory vouchers together. `VOUCHER` approval type is for **post-launch** voucher submissions/edits (**fix the submit-doesn't-enqueue bug** there).
+- **Additions:** pre-score storage; **queue SLA/aging** (stale onboarding = supply drop-off); **resubmission continuity** (NEEDS_CHANGES → resubmit reopens the same thread with history, routed back to the requesting admin); **notifications enqueued on every transition** ("you're live"/"changes needed: <reason>"/"rejected: <reason>" via the job runner); **reject is reopenable** (admin-only, audited); **no bulk-approve** (deliberate decisions).
+- **Pending-edit applier:** `MerchantPendingEdit`/`BranchPendingEdit` have merchant-scoped readers but **no admin applier** — the actioner is that applier. **Field re-classification needed:** the current SENSITIVE/DIRECT split doesn't match "customer-visible → approval" (opening hours + branch contact are currently DIRECT/live but are customer-visible) → re-derive around visible-vs-operational.
+
+---
+
+## 9. Admin RBAC + bootstrap
+
+**Decision (Q6b): three capability CLASSES + the ADMIN (Platform Manager) role + capability-based enforcement + module-grants.**
+
+- **Three classes:** **operational** (broadly delegable) · **financial** (money — separation of duties) · **platform-critical** ("don't break it": admin/role management, feature flags + kill-switches, hard-delete/purge, secrets/integrations, legal/pricing config) — **SUPER_ADMIN-only, never delegated by default**.
+- **Role ladder:** OWNER/SUPER_ADMIN (all + platform-critical) → **ADMIN / Platform Manager** (all operational + financial, can manage department staff, **NO platform-critical**, can't mint admins) → OPERATIONS (approvals + merchant lifecycle) · SALES/MERCHANT_SUCCESS (recruiters: leads + onboarding assist + relationships, **no payments**) · FINANCE (billing/payments/refunds) · MARKETING (campaigns/featured ops, no payment) · SUPPORT (assist/request-changes, no approve/money) · CONTENT (CMS/categories/templates).
+- **Capability-based enforcement:** keep `AdminRole` enum (expand: add `ADMIN` + `SALES`/`MERCHANT_SUCCESS` + `MARKETING`), but gate every route with **`requireAdminCapability('cap')`** + a code-level role→capability map (NOT role-hardcoded). Currently `AdminRole` is defined but **never enforced** (SEC-M3) — enforce the moment any admin-ops route ships.
+- **Module-based per-user grants:** effective access = role's modules ∪ granted − revoked. Platform-critical module **SUPER_ADMIN-only to grant**; can't-grant-what-you-don't-hold; all grants **audited + reviewable** ("who has Finance?"). Grants for *exceptions*, roles for *patterns*. Build the **grant-ready data model** (`AdminCapabilityGrant`) + enforcement at MVP; grant-management UI = thin fast-follow.
+- **Separation of duties for money:** SALES *initiates* a campaign sale; FINANCE *processes* payments/refunds.
+- **MVP build:** SUPER_ADMIN + ADMIN + OPERATIONS (+ SALES if reps at launch); design the rest; FINANCE payments with Phase-5 billing.
+- **Bootstrap:** env-gated one-time first `SUPER_ADMIN` (refuses if any admin exists) + in-app **tokenised admin invites** thereafter (admin sets own password — never admin-set); every admin create/role-change audited.
+
+---
+
+## 10. Admin-edit-on-behalf
+
+**Decision (Q6c): "act FOR, never AS."**
+
+- **Can (audited as the admin):** correct merchant/branch business data (**direct publish + audit**, before/after + reason) · co-build vouchers (concierge) · status/lifecycle (actioner) · trigger a password-reset link (sent only to the merchant's verified contact; admin never sees the token).
+- **Forbidden day one:** set/know/**read-out** the password · accept terms/sign/click legal acceptance on behalf · **write-impersonation** (never logged in as the merchant) · self-grant capabilities.
+- **ADMIN/SUPER_ADMIN only (high-risk):** legal/registered identity changes · ownership transfer · replace/remove OWNER · hard-delete — reason-required + confirmation-gated + audited.
+- **Edit asymmetry:** merchant/branch-manager customer-visible edit → **pending-edit → approval**; admin customer-visible edit → **direct publish + audit** (admin = authority, no self-approval loop).
+- **Admin co-built / materially-changed vouchers** (value/terms/eligibility/redemption-rules/dates/branches/limits/economics — NOT minor typos) require **lightweight merchant confirmation** before go-live ("Approve — this is my offer / Request a change"). Unconfirmed → stays blocked (don't publish an offer they never agreed to; don't force-live an unengaged merchant).
+- **Read-only view-as-merchant = fast-follow** (read-only + audited + reason when built).
+
+---
+
+## 11. Platform-wide audit (standing requirement)
+
+**Decision: audit is platform-wide, not admin-only.** Every **meaningful state-changing or security/commercially-sensitive** action records **who · what affected · what changed · when · from where**. **Not** ordinary browsing/navigation.
+
+- **Polymorphic ACTOR** (`actorId` + `actorType` ∈ `ADMIN · MERCHANT_ADMIN · BRANCH_MANAGER · BRANCH_STAFF · CUSTOMER · SYSTEM`) **separate from the affected ENTITY** (`entityId`/`entityType`). *(Current `AuditLog` has entity + ip/ua/device/session/metadata but NO explicit actor — this is the key gap. `writeAuditLog` is fire-and-forget.)*
+- **Add:** `actorId`/`actorType` · **before/after** (where relevant) · **reason/comment** (where relevant). Keep when (timestamp) + where (ip/ua/device/session).
+- **Transactional** for state-changing/sensitive actions (actioner, status changes, payments, role grants); fire-and-forget acceptable only for low-stakes telemetry.
+- **What-to-audit reference (anchors):** admin (approve/reject/suspend/grants/refunds/exports/settings) · owner (contract-accept/profile-edit/voucher-submit/user-changes/PIN) · branch-manager (visible edits/hours/photos/PIN/staff) · staff (validation attempts + suspicious repeats) · customer (security/OTP/subscription/redemption) · system (status sweeps/cache). NOT clicks.
+
+---
+
+## 12. Go-live + day-2 portal
+
+**Decision (Q7):**
+
+- **Atomic go-live transaction** (on approve): `MerchantStatus → ACTIVE` · `VerificationStatus → VERIFIED` · `OnboardingStep → LIVE` · mandatory vouchers `ACTIVE`/`APPROVED` · **transactional audit** · **no server cache invalidation at MVP** (discovery is uncached — queries DB live → merchant eligible on next query/client refetch).
+- **Future requirement (recorded):** when Redis/server discovery caching is added, the actioner must invalidate affected merchant/locality/category/tag caches on go-live / suspension / voucher activation-deactivation / branch-location change.
+- **Go-live gates:** `isTestData=false` · review approved · **contract accepted by the merchant themselves** · ≥ required mandatory vouchers approved+active · ≥1 valid/main branch · **locality-bound** · **`locationConfidence ∈ {MANUALLY_CONFIRMED, ADDRESS_GEOCODED}` — POSTCODE_CENTROID insufficient** (fallback: **admin pin-drop `confirmPin` surfaced in the actioner**; no merchant permanently blocked, but a human confirms the pin) · admin-co-built material vouchers confirmed by merchant.
+- **Day-2 portal:** OWNER = whole account · BRANCH_MANAGER = assigned branch ops/details (customer-visible edits **queue** for approval) · STAFF = validate + recent assigned-branch activity · new/edited vouchers → VOUCHER approval · admin corrections → direct + transactional audit · merchant customer-visible edits → pending-edit → approval.
+- **Redemption visibility — MVP:** role-scoped **counts + recent/live feed** from `VoucherRedemption` (who/what/branch/time/method/validating-staff — model fully supports it). OWNER all branches · BRANCH_MANAGER assigned · STAFF assigned/recent. **Fast-follow:** trends, savings totals, exports, statements.
+- **Validation — MVP:** existing **`POST /redemption/verify` with `method: 'MANUAL'`** (code entry). **Phase 4:** QR scan + dedicated merchant mobile app.
+
+---
+
+## 13. Schema-change summary (all additive)
+
+- `OnboardingStep += REJECTED, UNDER_REVIEW`. `AdminRole += ADMIN, SALES/MERCHANT_SUCCESS, MARKETING`. New `MerchantSource` enum.
+- New models: `MerchantMembership`, `MerchantLead`, `AdminCapabilityGrant`.
+- `Merchant += source` (+ optional campaign/UTM detail) `+= leadId?`.
+- `MerchantContract += userAgent` (+ store immutable accepted-version copy).
+- `AdminApproval += claimedById, claimedAt` (+ a pre-score snapshot field/JSON).
+- `AuditLog += actorId, actorType` (+ before/after, reason in structured metadata).
+- `RmvTemplate` seed data per category (+ optional `guidanceTip`). Branch field re-classification (visible-vs-operational) for pending-edit.
+- `VerificationStatus` wiring (no new values). `Voucher` enqueue fix (post-launch VOUCHER approvals).
+- Migrate `MerchantAdmin` single-admin → `MerchantMembership` (expand-contract; OWNER membership backfill).
+
+---
+
+## 14. Phase-0 prerequisites (separate plan)
+Resend + `shared/notify.ts` (writes `Notification` + `CommunicationLog`) · R2 upload (multipart + presigned + content-type/size validation) · §SEC.1 atomic password-reset limiter · BullMQ job runner (email retries, notifications, sweeps) · staging env (Neon branch + secrets + seed).
+
+---
+
+## 15. MVP vs fast-follow vs deferred
+- **MVP:** the full loop §1–§12 — self-register + scoped lead/claim · `MerchantMembership` (OWNER/BRANCH_MANAGER/STAFF) · 3-gate onboarding + verification (Google Places/FHRS/CH/dup) + clickwrap + offer engine + 5-rung ladder · unified actioner + admin RBAC (SUPER_ADMIN/ADMIN/OPERATIONS/+SALES) + module-grant-ready model + platform-wide audit · go-live + day-2 + redemption feed + manual validation.
+- **Fast-follow:** full lead CRM · view-as-merchant · AI offer suggestions · admin template/tip editor · richer analytics/statements/exports · grant-management UI · FINANCE/MARKETING/SUPPORT/CONTENT roles.
+- **Deferred:** Phase-5 billing/campaigns/featured (own brainstorm) · multi-merchant-per-person · QR/mobile validation (Phase 4) · Plan 3 PC3 migration.
+
+---
+
+## 16. Open decisions / owner + solicitor input
+- **Solicitor:** the Merchant Agreement itself + onerous-term signposting + authority-to-bind + lock-in remedy + CRA/GDPR/PECR (see §6).
+- **Owner/ops:** is phone/admin-assisted day-one-critical (confirmed: scoped Option 2 in MVP)? · chain/franchise in the first cohort (affects BRANCH_MANAGER build timing)? · launch-readiness threshold (concrete Huddersfield supply metric) · whether SALES ships at MVP.
+- **Q8 (separate brainstorm):** merchant billing / campaigns / featured.
+
+---
+
+## 17. Implementation phasing (feeds `writing-plans`)
+1. **Phase 0 — foundations** (§14): email/notify + R2 + §SEC.1 + job runner + staging.
+2. **Phase 2 — actioner + merchant creation** (the chokepoint): `MerchantMembership` + self-register + the actioner + atomic transitions + `VerificationStatus` wiring + verification pre-score + go-live + platform-wide audit + admin RBAC/bootstrap. *(A lead-sourced merchant onboarded with docs + 2 RMVs is approved and appears in discovery.)*
+3. **Phase 3 — merchant portal MVP**: the onboarding workspace UI + day-2 management + redemption feed + the offer-engine UI (5-rung ladder).
+4. **Fast-follow / Phase 4 / Phase 5** per §15.
+
+*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session.)*
