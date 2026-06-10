@@ -227,8 +227,9 @@ Reasons/comments on `AdminApproval.comment`; history in `AuditLog`.
 - **Day-2 portal:** OWNER = whole account · BRANCH_MANAGER = assigned branch ops/details · STAFF = validate + recent assigned-branch activity · new/edited vouchers → VOUCHER approval · admin corrections → direct + transactional audit.
 - **Day-2 edit tiering (v1.1) — the gate is identity/integrity risk, NOT mere visibility.** (The Christmas-hours problem: gating *every* customer-visible change is an admin bottleneck + merchant friction — 30 merchants updating holiday hours = 30 approvals, none visible until clicked.)
   - **Instant publish + audited + REVERTIBLE (operational/marketing):** opening hours, phone, email, website, description, photos, operational toggles. Published immediately; the platform-wide audit records who/before/after; the **admin can REVERT** with one click.
+  - **Photos — special handling within the instant tier (v1.1, owner-flagged):** a per-branch **photo count cap** (configurable, ~10–20); each upload runs an **automated image-moderation scan** (nudity/violence/inappropriate → **block or quarantine for admin review** so flagged content never goes live); **admin can remove/revert** any photo; a **report-photo** mechanism for staff/customers. Clean photos publish instantly; only flagged ones wait. *MVP:* count cap + audit + admin-remove + report; *automated scan:* fast-follow, or MVP if cheap to wire into the R2 upload pipeline.
   - **Approve-before-publish (identity/integrity):** business name, trading name, registered identity, **address, postcode, map location (lat/lng)**, logo/banner (brand identity / impersonation risk). Queue as pending-edits.
-  - Roughly matches the current `DIRECT`/`SENSITIVE` code split — **moving photos to instant + adding revert** — and **reverses** the earlier 'all customer-visible → approval' lean. **Owner to confirm the borderline placement** of photos + description (recommend instant + audit + light post-hoc moderation) and logo/banner (recommend approval — impersonation risk).
+  - **Owner-confirmed (2026-06-10):** photos + description = instant (photos with the count-cap + moderation + remove/report safeguards above); logo/banner = approval (impersonation risk). Roughly matches the current `DIRECT`/`SENSITIVE` code split, moving photos to instant + adding revert, and reverses the earlier 'all customer-visible → approval' lean.
 - **Redemption visibility — MVP:** role-scoped **counts + recent/live feed** from `VoucherRedemption` (who/what/branch/time/method/validating-staff — model fully supports it). OWNER all branches · BRANCH_MANAGER assigned · STAFF assigned/recent. **Fast-follow:** trends, savings totals, exports, statements.
 - **Validation — MVP:** existing **`POST /redemption/verify` with `method: 'MANUAL'`** (code entry). **Phase 4:** QR scan + dedicated merchant mobile app.
 
@@ -249,7 +250,7 @@ Reasons/comments on `AdminApproval.comment`; history in `AuditLog`.
 ---
 
 ## 14. Phase-0 prerequisites (separate plan)
-Resend + `shared/notify.ts` (writes `Notification` + `CommunicationLog`) · R2 upload (multipart + presigned + content-type/size validation) · §SEC.1 atomic password-reset limiter · BullMQ job runner (email retries, notifications, sweeps) · staging env (Neon branch + secrets + seed).
+Resend + `shared/notify.ts` (writes `Notification` + `CommunicationLog`) · R2 upload (multipart + presigned + content-type/size validation **+ a photo count cap + an image-moderation scan hook**, §12) · §SEC.1 atomic password-reset limiter · BullMQ job runner (email retries, notifications, sweeps) · staging env (Neon branch + secrets + seed).
 
 ---
 
@@ -264,7 +265,8 @@ Resend + `shared/notify.ts` (writes `Notification` + `CommunicationLog`) · R2 u
 - **Solicitor:** the Merchant Agreement itself + onerous-term signposting + authority-to-bind + lock-in remedy + CRA/GDPR/PECR (see §6).
 - **Owner/ops:** is phone/admin-assisted day-one-critical (confirmed: scoped Option 2 in MVP)? · chain/franchise in the first cohort (affects BRANCH_MANAGER build timing)? · launch-readiness threshold (concrete Huddersfield supply metric) · whether SALES ships at MVP.
 - **Content/research WORK ITEM (v1.1):** author RmvTemplate seed for the **9 remaining categories** (§7) — blocks the offer engine for them (sector flagships + `minimumSaving` floors + guidance tips).
-- **Owner to confirm (v1.1):** day-2 borderline field placement — photos + description (recommend instant + audit + revert) and logo/banner (recommend approval) — §12.
+- **Owner-confirmed (2026-06-10):** day-2 borderline placement — photos + description = instant (photos with count-cap + automated moderation + admin-remove + report); logo/banner = approval. §12.
+- **RmvTemplate content (v1.1):** the 9 remaining categories are drafted (first pass) in `docs/superpowers/specs/2026-06-10-rmv-templates-9-categories.md` — owner to review; `minimumSaving` floors are starting points; Health & Medical / Vets need a healthcare-advertising compliance sanity-check.
 - **Q8 (separate brainstorm):** merchant billing / campaigns / featured.
 
 ---
@@ -275,4 +277,45 @@ Resend + `shared/notify.ts` (writes `Notification` + `CommunicationLog`) · R2 u
 3. **Phase 3 — merchant portal MVP**: the onboarding workspace UI + day-2 management + redemption feed + the offer-engine UI (5-rung ladder).
 4. **Fast-follow / Phase 4 / Phase 5** per §15.
 
-*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session.)*
+---
+
+## 18. Gaps & edge cases (adversarial review, 2026-06-10) — resolve during `writing-plans`
+
+The locked design covers the happy path well. These are the holes and edge cases a hard pass surfaced; each must be resolved (or explicitly deferred with a reason) in the phased plans.
+
+### 18.1 HIGH — real design holes to close before/within Phase 2
+
+1. **Multi-branch go-live granularity (chains).** Go-live is specified merchant-level, but a chain may have 20 branches where only some are pin-confirmed/valid. **Decide: per-branch eligibility** — a merchant goes ACTIVE, but each branch appears in discovery only when *it* is locality-bound + pin-confirmed (`MANUALLY_CONFIRMED`/`ADDRESS_GEOCODED`) + active. Unconfirmed branches stay hidden until resolved (don't block the whole merchant). The `Branch.isActive` + `locationConfidence` gates already exist per-branch; the spec must state branch-level visibility, not merchant-level.
+2. **Duplicate / already-existing business at registration.** A merchant self-registers for a business that is **already on Redeemo** (already claimed/live, or a second person from the same business). Need a duplicate-business check (name+address / Google `placeId` / company number) → a "this business already exists — request access / contact us" path, distinct from the fraud dup-screen.
+3. **Category change after RMV configuration.** Category drives the `RmvTemplate`s; changing it mid-onboarding invalidates the configured mandatory vouchers. Define behaviour: warn + re-provision RMVs from the new category's templates (code has `handleCategoryChange` — extend it); block category change after go-live (or route via identity-edit approval).
+4. **Last-OWNER / last-SUPER_ADMIN protection.** Prevent removing the last OWNER of a merchant (orphaned account) and deactivating the last SUPER_ADMIN (platform lockout). Hard guards + clear errors.
+5. **Suspension cascade + mid-cycle customers (SEC-M1/M2).** Suspend merchant → all vouchers inactive immediately (rule #8). The strategy spec's SEC-M1/M2 (Redis-cached status → ~1hr stale on the staff-verify path; suspended admin keeps access) are **go-live prerequisites** for this loop — reference + require the immediate-revocation fix. Define what a customer mid-redemption-cycle sees when a merchant is suspended.
+6. **Post-live ongoing monitoring.** Re-verification policy: FHRS rating drops below threshold (food), business marked CLOSED on Google, location goes stale, or active-voucher count drops below the R1 floor (≥1 active approved voucher per visible branch). Decide which trigger an alert / flag / auto-suspend vs a passive admin signal.
+7. **Partial approval granularity.** Holistic onboarding approval (§8) approves the whole submission at once. If 1 of the 2 mandatory vouchers is sub-standard but everything else is fine → the admin must **request-changes on the submission** (no partial approve). Confirm this is acceptable, or add per-item approve within the onboarding card.
+8. **Verification fallback / degraded mode.** Google Places **no-match** (new/unlisted business) or **API down/quota-exceeded** (the wrapper caps) → graceful fallback to manual entry + admin review; the **thinnest case** (sole trader, no company number, not on Google, not food) → minimum evidence + mandatory human review. Pre-score must degrade, not block.
+9. **Claim-token edge cases.** Expiry, single-use enforcement, claiming an **already-claimed** lead, the same person separately self-registering then receiving a claim link (collision → merge/reject), claim email to the wrong contact. Define token lifecycle + collision resolution.
+10. **Merchant GDPR — DSAR / deletion / retention.** Customer deletion exists; extend to **merchants** (+ leads, verification docs, audit). Reconcile right-to-erasure with the 12-month contract evidence + the immutable audit trail (retention schedule per data class; verification docs encrypted + short-retention).
+
+### 18.2 MEDIUM — handle in implementation
+
+- **Email collision:** registrant email already a `MerchantAdmin`, or the same as a customer account — define cross-account policy.
+- **Abandoned registrations:** stale `REGISTERED` accounts that never submit — nudge + cleanup policy.
+- **Contract version drift:** merchant accepted v1.0 as a draft, v1.1 publishes before go-live → re-acceptance rule.
+- **Resubmission / edit while admin mid-review** (race): lock or re-queue cleanly; orphaned claim when the claiming admin is deactivated → auto-release/reassign.
+- **Stale pre-score:** verification ran at submit, admin reviews days later → re-run on demand.
+- **Voucher edit/deactivate mid-customer-cycle:** a user already redeemed (or is about to) a voucher the merchant edits/deactivates — cycle-state interaction.
+- **Distinct mandatory vouchers:** must the 2 RMVs differ, or can both be the same offer type? + mandatory-voucher interaction with `expiryDate` (RMVs are permanent), `REUSABLE` (cooldown), `TIME_LIMITED` (windows).
+- **Capability-grant persistence on role change:** when a user's base role changes, do per-user module grants persist or reset? (Recommend: explicit, reviewed.)
+- **Admin acting on their own merchant** (if an admin also owns a merchant): conflict-of-interest guard + audit flag.
+- **Audit PII:** before/after on a phone/email change stores PII → retention + access policy on the audit trail.
+- **Notification delivery failure / email change mid-onboarding:** bounce handling via `CommunicationLog`; where comms route when the merchant changes their email.
+- **Registration API cost/abuse:** Google Places/FHRS/CH calls + OTP at registration scale → rate-limit registration + CAPTCHA/honeypot (the `smsLimiter` + the public-form protections already exist; extend to the verification calls).
+
+### 18.3 LOW / noted
+- OTP-to-public-contact authority when the listed number is a shared/reception line (weaker signal — fall back to other layers).
+- FHRS "awaiting inspection" for new food businesses (allow, per research).
+- The `MerchantAdmin → MerchantMembership` expand-contract migration edge cases (merchant with no admin / duplicate) — handle in the migration step.
+
+---
+
+*(This is a design spec; implementation requires approved phased plans via `writing-plans`. Decisions here are brainstorm-locked from the 2026-06-10 grill-me session. §18 gaps are open items to resolve in the plans.)*
