@@ -32,6 +32,28 @@ async function getMerchantOwner(
     : null
 }
 
+/**
+ * Actioner-notify best-effort hardening (spec §11). A lifecycle notification is
+ * sent AFTER the actioner transaction commits; a notify/enqueue failure must
+ * NEVER fail the already-committed action (the merchant is approved / rejected /
+ * has changes requested regardless). Log + swallow. Used by approve/go-live,
+ * reject, and request-changes.
+ */
+async function safeNotify(
+  prisma: PrismaClient,
+  redis: Redis,
+  input: Parameters<typeof notify>[2],
+): Promise<void> {
+  try {
+    await notify(prisma, redis, input)
+  } catch (err) {
+    console.warn(
+      `[actioner] best-effort notify '${input.type}' (recipient ${input.recipientId}) failed — action committed, NOT rolled back:`,
+      err
+    )
+  }
+}
+
 export interface ListApprovalsFilters {
   type?: ApprovalType
   status?: ApprovalStatus
@@ -241,7 +263,7 @@ export async function requestChanges(
 
   const owner = await getMerchantOwner(prisma, merchantId)
   if (owner) {
-    await notify(prisma, redis, {
+    await safeNotify(prisma, redis, {
       to: owner.email,
       recipientType: 'MERCHANT_ADMIN',
       recipientId: owner.adminId,
@@ -319,7 +341,7 @@ export async function rejectApproval(
 
   const owner = await getMerchantOwner(prisma, merchantId)
   if (owner) {
-    await notify(prisma, redis, {
+    await safeNotify(prisma, redis, {
       to: owner.email,
       recipientType: 'MERCHANT_ADMIN',
       recipientId: owner.adminId,
@@ -428,16 +450,25 @@ export async function approveApproval(
 
     const now = new Date()
 
-    // Activate the mandatory RMVs (status→ACTIVE, approvalStatus→APPROVED).
+    // Win the go-live flip EXACTLY ONCE (spec §12 — concurrency-safe idempotency).
+    // Atomic compare-and-set: if a concurrent approve already flipped the merchant
+    // to ACTIVE, this matches 0 rows → we lost the race → return the idempotent
+    // already-live response BEFORE any RMV / approval / audit writes, so the
+    // transition + its side effects run exactly once. (Mirrors the `claim` action's
+    // conditional `WHERE … IS NULL` pattern.) The earlier `status === 'ACTIVE'`
+    // guard is the sequential fast-path; this is the truly-concurrent net.
+    const won = await tx.merchant.updateMany({
+      where: { id: merchant.id, status: { not: 'ACTIVE' } },
+      data: { status: 'ACTIVE', onboardingStep: 'LIVE', verificationStatus: 'VERIFIED' },
+    })
+    if (won.count === 0) {
+      return { merchantId: merchant.id, businessName: merchant.businessName, alreadyLive: true as const }
+    }
+
+    // (winner only) Activate the mandatory RMVs (status→ACTIVE, approvalStatus→APPROVED).
     await tx.voucher.updateMany({
       where: { merchantId: merchant.id, isRmv: true, status: { in: ['PENDING_APPROVAL', 'ACTIVE'] } },
       data: { status: 'ACTIVE', approvalStatus: 'APPROVED', approvedBy: adminId, approvedAt: now },
-    })
-
-    // Merchant go-live (4-axis).
-    await tx.merchant.update({
-      where: { id: merchant.id },
-      data: { status: 'ACTIVE', onboardingStep: 'LIVE', verificationStatus: 'VERIFIED' },
     })
 
     // Approval resolved.
@@ -479,7 +510,7 @@ export async function approveApproval(
   // After commit (best-effort): notify the merchant OWNER they are live.
   const owner = await getMerchantOwner(prisma, result.merchantId)
   if (owner) {
-    await notify(prisma, redis, {
+    await safeNotify(prisma, redis, {
       to: owner.email,
       recipientType: 'MERCHANT_ADMIN',
       recipientId: owner.adminId,

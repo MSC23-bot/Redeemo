@@ -222,6 +222,29 @@ describe('M5 — approve → atomic go-live (real DB)', () => {
     expect(m?.status).toBe('ACTIVE')
   })
 
+  it('CONCURRENT double-approve: exactly one wins — single MERCHANT_GO_LIVE audit row, no duplicate transition (finding 1)', async () => {
+    const { merchantId, approvalId } = await makePreparedMerchant()
+    // Fire both approves "simultaneously". The atomic compare-and-set must let
+    // exactly one win; the loser returns alreadyLive before any RMV/audit/notify.
+    const [r1, r2] = await Promise.all([
+      approveApproval(prisma, dummyRedis, approvalId, ADMIN_ID, ctx),
+      approveApproval(prisma, dummyRedis, approvalId, ADMIN_ID, ctx),
+    ])
+    // one winner, one idempotent no-op (order non-deterministic).
+    expect([r1, r2].filter((r) => r.alreadyLive === false)).toHaveLength(1)
+    expect([r1, r2].filter((r) => r.alreadyLive === true)).toHaveLength(1)
+    // the transition + its audit ran EXACTLY ONCE — no duplicate go-live rows.
+    expect(await prisma.auditLog.count({ where: { entityId: merchantId, event: 'MERCHANT_GO_LIVE' } })).toBe(1)
+    expect(await prisma.auditLog.count({ where: { entityId: merchantId, event: 'MERCHANT_APPROVAL_APPROVED' } })).toBe(1)
+    // only the winner notified.
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+    const m = await prisma.merchant.findUnique({ where: { id: merchantId } })
+    expect(m?.status).toBe('ACTIVE')
+    // RMVs activated exactly once (no double-stamp anomaly).
+    const rmvs = await prisma.voucher.findMany({ where: { merchantId, isRmv: true } })
+    expect(rmvs.every((v) => v.status === 'ACTIVE' && v.approvalStatus === 'APPROVED')).toBe(true)
+  })
+
   it('approve on a non-existent approval → APPROVAL_NOT_FOUND', async () => {
     await expect(approveApproval(prisma, dummyRedis, 'no-such-approval-id', ADMIN_ID, ctx)).rejects.toThrow('APPROVAL_NOT_FOUND')
   })
