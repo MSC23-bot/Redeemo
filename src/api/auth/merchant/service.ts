@@ -22,6 +22,21 @@ function otpRequired(admin: any, deviceId: string, knownDevices: string[]): bool
   return false
 }
 
+/**
+ * M6b (D-1): resolve a merchant-admin's merchant via the MerchantMembership
+ * source of truth — replaces the dropped MerchantAdmin.merchant relation /
+ * merchantId column. Throws INVALID_CREDENTIALS when the admin has no active
+ * OWNER membership (or its joined merchant is absent).
+ */
+async function resolveMerchantInfo(
+  prisma: PrismaClient,
+  adminId: string
+): Promise<{ merchantId: string; status: string; businessName: string }> {
+  const membership = await getOwnerMembership(prisma, adminId)
+  if (!membership?.merchant) throw new AppError('INVALID_CREDENTIALS')
+  return { merchantId: membership.merchantId, status: membership.merchant.status, businessName: membership.merchant.businessName }
+}
+
 export async function loginMerchant(
   prisma: PrismaClient,
   redis: Redis,
@@ -29,8 +44,7 @@ export async function loginMerchant(
   data: { email: string; password: string; deviceId: string; deviceType: string; deviceName?: string; ipAddress: string; userAgent: string }
 ): Promise<{ accessToken?: string; refreshToken?: string; merchant?: object; status?: string; sessionChallenge?: string }> {
   const admin = await prisma.merchantAdmin.findUnique({
-    where:   { email: data.email },
-    include: { merchant: true },
+    where: { email: data.email },
   })
 
   if (!admin || !admin.passwordHash) throw new AppError('INVALID_CREDENTIALS')
@@ -41,9 +55,13 @@ export async function loginMerchant(
     throw new AppError('INVALID_CREDENTIALS')
   }
 
+  // M6b (D-1): resolve the merchant via the MerchantMembership source of truth,
+  // NOT the (dropped) MerchantAdmin.merchant relation / merchantId column.
+  const merchantInfo = await resolveMerchantInfo(prisma, admin.id)
+
   // Status checks after password verification
-  if ((admin.merchant as any).status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
-  if ((admin.merchant as any).status === 'INACTIVE')  throw new AppError('MERCHANT_DEACTIVATED')
+  if (merchantInfo.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
+  if (merchantInfo.status === 'INACTIVE')  throw new AppError('MERCHANT_DEACTIVATED')
   if (admin.status === 'SUSPENDED') throw new AppError('ACCOUNT_SUSPENDED')
 
   // Check known devices (stored as JSON list in Redis)
@@ -62,7 +80,7 @@ export async function loginMerchant(
     return { status: 'OTP_REQUIRED', sessionChallenge: challenge }
   }
 
-  return completeMerchantLogin(prisma, redis, app, admin, data, knownDevices)
+  return completeMerchantLogin(prisma, redis, app, admin, merchantInfo, data, knownDevices)
 }
 
 export async function verifyMerchantOtp(
@@ -78,7 +96,7 @@ export async function verifyMerchantOtp(
   await redis.del(RedisKey.otpChallenge('merchant', data.sessionChallenge))
 
   const admin = await prisma.merchantAdmin.findUnique({
-    where: { id: adminId }, include: { merchant: true },
+    where: { id: adminId },
   })
   if (!admin) throw new AppError('INVALID_CREDENTIALS')
 
@@ -103,7 +121,9 @@ export async function verifyMerchantOtp(
   if (!knownDevices.includes(deviceId)) knownDevices.push(deviceId)
   await redis.set(`known-devices:merchant:${admin.id}`, JSON.stringify(knownDevices), 'EX', 7776000)
 
-  return completeMerchantLogin(prisma, redis, app, admin, {
+  // M6b (D-1): resolve the merchant via membership (NOT admin.merchant).
+  const merchantInfo = await resolveMerchantInfo(prisma, admin.id)
+  return completeMerchantLogin(prisma, redis, app, admin, merchantInfo, {
     deviceId, deviceType, ipAddress: data.ipAddress, userAgent: data.userAgent,
   }, knownDevices)
 }
@@ -113,6 +133,9 @@ async function completeMerchantLogin(
   redis: Redis,
   app: any,
   admin: any,
+  // M6b (D-1): the merchant is resolved via MerchantMembership by the caller
+  // (login/OTP), NOT the dropped MerchantAdmin.merchant relation / merchantId.
+  merchantInfo: { merchantId: string; status: string; businessName: string },
   data: { deviceId: string; deviceType: string; deviceName?: string; ipAddress: string; userAgent: string },
   _knownDevices: string[]
 ): Promise<{ accessToken: string; refreshToken: string; merchant: object }> {
@@ -134,9 +157,9 @@ async function completeMerchantLogin(
   await redis.set(
     RedisKey.authMerchant(admin.id),
     JSON.stringify({
-      merchantId: admin.merchantId,
-      approvalStatus: (admin.merchant as any).status,
-      isSuspended: (admin.merchant as any).status === 'SUSPENDED',
+      merchantId: merchantInfo.merchantId,
+      approvalStatus: merchantInfo.status,
+      isSuspended: merchantInfo.status === 'SUSPENDED',
     }),
     'EX', 3600
   )
@@ -155,9 +178,9 @@ async function completeMerchantLogin(
     accessToken,
     refreshToken: rawRefresh,
     merchant: {
-      id: admin.merchantId,
-      businessName: (admin.merchant as any).businessName,
-      approvalStatus: (admin.merchant as any).status,
+      id: merchantInfo.merchantId,
+      businessName: merchantInfo.businessName,
+      approvalStatus: merchantInfo.status,
     },
   }
 }

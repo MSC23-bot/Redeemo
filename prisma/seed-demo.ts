@@ -679,7 +679,7 @@ async function seedDemo() {
       where: { email: m.adminEmail },
       update: {},
       create: {
-        merchantId: m.id,
+        // M6b (D-1): no merchantId — the OWNER membership below is the sole link.
         email: m.adminEmail,
         passwordHash: devHash('DemoMerchant1!'),
         firstName: 'Demo',
@@ -951,8 +951,19 @@ async function clearDemo() {
   await del('branch rows',
     () => prisma.branch.deleteMany({ where: { merchantId: { in: merchantIds } } }))
 
+  // M6b (D-1): MerchantAdmin links to its merchant via MerchantMembership now.
+  // Capture the demo admin ids via their memberships, drop the memberships
+  // (the FK references both admin + merchant), then delete the admins by id.
+  const demoAdminIds = (
+    await prisma.merchantMembership.findMany({
+      where: { merchantId: { in: merchantIds } },
+      select: { merchantAdminId: true },
+    })
+  ).map((r) => r.merchantAdminId)
+  await del('merchantMembership rows',
+    () => prisma.merchantMembership.deleteMany({ where: { merchantId: { in: merchantIds } } }))
   await del('merchantAdmin rows',
-    () => prisma.merchantAdmin.deleteMany({ where: { merchantId: { in: merchantIds } } }))
+    () => prisma.merchantAdmin.deleteMany({ where: { id: { in: demoAdminIds } } }))
   await del('merchantCategory rows',
     () => prisma.merchantCategory.deleteMany({ where: { merchantId: { in: merchantIds } } }))
 

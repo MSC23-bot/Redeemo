@@ -57,7 +57,8 @@ export async function createMerchantDraft(
 
     const admin = await tx.merchantAdmin.create({
       data: {
-        merchantId: merchant.id,
+        // M6b (D-1): MerchantAdmin.merchantId is dropped — the OWNER membership
+        // created just below is the sole link from this admin to the merchant.
         email: input.ownerEmail,
         firstName: input.ownerFirstName,
         lastName: input.ownerLastName,

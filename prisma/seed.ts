@@ -1683,7 +1683,7 @@ async function main() {
     where: { email: 'merchant@redeemo.com' },
     update: {},
     create: {
-      merchantId: merchant.id,
+      // M6b (D-1): no merchantId — the OWNER membership below is the sole link.
       email: 'merchant@redeemo.com',
       passwordHash: devHash('Merchant1234!'),
       firstName: 'John',

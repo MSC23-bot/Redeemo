@@ -5,11 +5,11 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import { getOwnerMembership, assertNotLastOwner } from '../../../src/api/shared/merchantMembership'
 import { resolveAdminMerchant } from '../../../src/api/merchant/shared'
 
-// Phase 2 Slice 1 M1 — additive MerchantMembership foundation.
+// Phase 2 Slice 1 M1 — MerchantMembership foundation (D-1 contract completed in M6b).
 // Unit tests (mocked) pin the helper + reroute logic; the real-DB block proves
-// the additive schema works against Neon AND that the auth-flow read shape
-// (MerchantAdmin.merchantId + the merchant relation) is KEPT — the M1 auth
-// non-regression pin (the auth flow is intentionally NOT rerouted until M6).
+// the schema works against Neon AND that — after M6b dropped the transitional
+// MerchantAdmin.merchantId column + merchant relation — the OWNER membership is
+// the sole admin→merchant link the auth flow resolves through.
 
 describe('M1 — MerchantMembership helpers (mocked)', () => {
   describe('getOwnerMembership', () => {
@@ -25,7 +25,9 @@ describe('M1 — MerchantMembership helpers (mocked)', () => {
         where: { merchantAdminId: 'ma1', role: 'OWNER', status: 'ACTIVE' },
         // M6a (SEC-M2): the joined merchant.status lets resolveAdminMerchant /
         // token-refresh block a SUSPENDED merchant without a second query.
-        select: { id: true, merchantId: true, merchantAdminId: true, merchant: { select: { status: true } } },
+        // M6b (D-1): + businessName so the auth login/OTP response builds from the
+        // membership instead of the dropped MerchantAdmin.merchant relation.
+        select: { id: true, merchantId: true, merchantAdminId: true, merchant: { select: { status: true, businessName: true } } },
       })
     })
 
@@ -84,7 +86,6 @@ describe('M1 — MerchantMembership end-to-end (real DB)', () => {
     merchantId = m.id
     const a = await prisma.merchantAdmin.create({
       data: {
-        merchantId,
         email: `m1-membership-${Date.now()}@example.com`,
         passwordHash: 'p',
         firstName: 'T',
@@ -98,8 +99,9 @@ describe('M1 — MerchantMembership end-to-end (real DB)', () => {
   })
 
   afterAll(async () => {
+    const adminIds = (await prisma.merchantMembership.findMany({ where: { merchantId }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
     await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-    await prisma.merchantAdmin.deleteMany({ where: { merchantId } })
+    await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
     await prisma.merchant.delete({ where: { id: merchantId } })
     await prisma.$disconnect()
   })
@@ -114,13 +116,15 @@ describe('M1 — MerchantMembership end-to-end (real DB)', () => {
     await expect(assertNotLastOwner(prisma, merchantId, membership!.id)).rejects.toThrow('LAST_OWNER_PROTECTED')
   })
 
-  it('AUTH NON-REGRESSION: MerchantAdmin.merchantId + the merchant relation are KEPT (M1 additive)', async () => {
-    // The merchant auth flow (login/OTP/refresh/reactivate) reads these directly
-    // and is NOT rerouted in M1. Proving they still exist proves M1 did not drop
-    // the column or the relation.
-    const admin = await prisma.merchantAdmin.findUnique({ where: { id: adminId }, include: { merchant: true } })
-    expect(admin?.merchantId).toBe(merchantId) // column kept
-    expect(admin?.merchant?.id).toBe(merchantId) // relation kept
-    expect(admin?.merchant?.status).toBe('ACTIVE')
+  it('M6b (D-1): MerchantAdmin.merchantId + the merchant relation are DROPPED — membership is the sole link', async () => {
+    // The merchant auth flow (login/OTP/refresh/reactivate) was rerouted through
+    // MerchantMembership in M6b; the transitional column + relation were then
+    // dropped. The admin row still exists but carries no merchantId field and no
+    // merchant relation — the OWNER membership is the only admin→merchant link.
+    const admin = await prisma.merchantAdmin.findUnique({ where: { id: adminId } })
+    expect(admin).not.toBeNull()
+    expect((admin as Record<string, unknown>).merchantId).toBeUndefined() // column dropped
+    const membership = await getOwnerMembership(prisma, adminId)
+    expect(membership?.merchantId).toBe(merchantId) // link is via the membership now
   })
 })

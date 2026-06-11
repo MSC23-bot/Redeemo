@@ -15,8 +15,9 @@ const createdMerchantIds: string[] = []
 
 async function cleanupMerchant(merchantId: string) {
   await prisma.auditLog.deleteMany({ where: { entityId: merchantId } })
+  const adminIds = (await prisma.merchantMembership.findMany({ where: { merchantId }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
   await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-  await prisma.merchantAdmin.deleteMany({ where: { merchantId } })
+  await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
   await prisma.merchant.delete({ where: { id: merchantId } }).catch(() => {})
 }
 
@@ -53,7 +54,8 @@ describe('M2 — createMerchantDraft (service, real DB)', () => {
     const admin = await prisma.merchantAdmin.findUnique({ where: { id: result.ownerAdminId } })
     expect(admin?.passwordHash).toBeNull()
     expect(admin?.mustChangePassword).toBe(true)
-    expect(admin?.merchantId).toBe(result.merchantId)
+    // M6b (D-1): the admin→merchant link is the OWNER membership (asserted below),
+    // not a MerchantAdmin.merchantId column (dropped).
 
     const membership = await prisma.merchantMembership.findFirst({
       where: { merchantAdminId: result.ownerAdminId, role: 'OWNER', status: 'ACTIVE' },

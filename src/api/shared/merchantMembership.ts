@@ -6,9 +6,11 @@ export type OwnerMembership = {
   merchantId: string
   merchantAdminId: string
   // M6a (SEC-M2): joined merchant status so live suspended-checks don't need a
-  // separate query. Optional — a loosely-typed prisma mock may omit it; callers
-  // read `merchant?.status` defensively.
-  merchant?: { status: string } | null
+  // separate query. M6b adds businessName so the merchant auth flow (login/OTP)
+  // can build its response from the membership instead of the dropped
+  // MerchantAdmin.merchant relation. Optional — a loosely-typed prisma mock may
+  // omit it; callers read `merchant?.<field>` defensively.
+  merchant?: { status: string; businessName: string } | null
 }
 
 /**
@@ -26,7 +28,7 @@ export async function getOwnerMembership(
 ): Promise<OwnerMembership | null> {
   return prisma.merchantMembership.findFirst({
     where: { merchantAdminId: adminId, role: 'OWNER', status: 'ACTIVE' },
-    select: { id: true, merchantId: true, merchantAdminId: true, merchant: { select: { status: true } } },
+    select: { id: true, merchantId: true, merchantAdminId: true, merchant: { select: { status: true, businessName: true } } },
   })
 }
 
