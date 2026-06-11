@@ -38,6 +38,9 @@ export const ERROR_DEFINITIONS = {
   BRANCH_USER_NOT_FOUND:          { statusCode: 404, message: 'No user is assigned to this branch.' },
   BRANCH_NOT_OWNED:               { statusCode: 403, message: 'You do not have access to this branch.' },
   INSUFFICIENT_PERMISSIONS:       { statusCode: 403, message: 'You do not have permission to perform this action.' },
+  // Phase 2 Slice 1 M1: ownership-integrity guard. A merchant must always
+  // retain at least one ACTIVE OWNER membership.
+  LAST_OWNER_PROTECTED:           { statusCode: 409, message: 'This is the only owner of the merchant account and cannot be removed or deactivated.' },
   ACTION_TOKEN_INVALID:           { statusCode: 400, message: 'This action has expired. Please start again.' },
   PASSWORD_POLICY_VIOLATION:      { statusCode: 400, message: 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.' },
   PASSWORD_CHANGE_REQUIRED:       { statusCode: 403, message: 'You must set a new password before continuing.' },

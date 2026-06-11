@@ -22,6 +22,8 @@ import { consumeSmsSend } from '../../../../src/api/shared/smsLimiter'
 
 const mockPrisma = () => ({
   merchantAdmin: { findUnique: vi.fn() },
+  // M1: resolveAdminMerchant resolves via MerchantMembership (default OWNER of m1).
+  merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
   branch:        { findFirst: vi.fn(), update: vi.fn() },
   branchUser:    { findMany: vi.fn() },
   auditLog:      { create: vi.fn().mockResolvedValue({}) },

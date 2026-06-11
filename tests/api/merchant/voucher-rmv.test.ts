@@ -23,6 +23,7 @@ describe('merchant RMV voucher routes', () => {
     app = await buildApp()
     app.decorate('prisma', {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
+      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
       voucher: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       rmvTemplate: { findMany: vi.fn() },
       merchant: { findUnique: vi.fn(), update: vi.fn() },
