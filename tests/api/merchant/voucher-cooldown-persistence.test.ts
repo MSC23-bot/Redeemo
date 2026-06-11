@@ -62,6 +62,7 @@ describe('merchant voucher service — cooldownSeconds persistence (M5 Task 12.5
     app = await buildApp()
     app.decorate('prisma', {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
+      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
       voucher: {
         findMany:  vi.fn(),
         findFirst: vi.fn().mockResolvedValue({ ...mockVoucher }),

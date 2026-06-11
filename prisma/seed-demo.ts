@@ -675,7 +675,7 @@ async function seedDemo() {
     }
 
     // Merchant admin (one per merchant)
-    await prisma.merchantAdmin.upsert({
+    const demoAdmin = await prisma.merchantAdmin.upsert({
       where: { email: m.adminEmail },
       update: {},
       create: {
@@ -685,6 +685,19 @@ async function seedDemo() {
         firstName: 'Demo',
         lastName: m.tradingName,
         jobTitle: 'Owner',
+        status: 'ACTIVE',
+      },
+    })
+
+    // OWNER membership (Phase 2 Slice 1 M1 — ownership source of truth)
+    await prisma.merchantMembership.upsert({
+      where: { merchantId_merchantAdminId: { merchantId: m.id, merchantAdminId: demoAdmin.id } },
+      update: {},
+      create: {
+        merchantId: m.id,
+        merchantAdminId: demoAdmin.id,
+        role: 'OWNER',
+        allBranches: true,
         status: 'ACTIVE',
       },
     })

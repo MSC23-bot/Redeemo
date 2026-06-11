@@ -1679,7 +1679,7 @@ async function main() {
   })
 
   // ── Dev merchant admin ──
-  await prisma.merchantAdmin.upsert({
+  const merchantAdmin = await prisma.merchantAdmin.upsert({
     where: { email: 'merchant@redeemo.com' },
     update: {},
     create: {
@@ -1689,6 +1689,23 @@ async function main() {
       firstName: 'John',
       lastName: 'Doe',
       jobTitle: 'Owner',
+      status: 'ACTIVE',
+    },
+  })
+
+  // ── Dev merchant OWNER membership (Phase 2 Slice 1 M1) ──
+  // MerchantMembership is the ownership source of truth for management-side
+  // resolution (resolveAdminMerchant). Created alongside the admin so a freshly
+  // seeded DB resolves correctly — the migration backfill only covers admins
+  // that existed when it ran. MerchantAdmin.merchantId is KEPT (transitional).
+  await prisma.merchantMembership.upsert({
+    where: { merchantId_merchantAdminId: { merchantId: merchant.id, merchantAdminId: merchantAdmin.id } },
+    update: {},
+    create: {
+      merchantId: merchant.id,
+      merchantAdminId: merchantAdmin.id,
+      role: 'OWNER',
+      allBranches: true,
       status: 'ACTIVE',
     },
   })

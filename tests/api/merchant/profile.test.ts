@@ -11,6 +11,7 @@ describe('merchant profile routes', () => {
     // Decorate before ready() so plugins don't conflict in test mode
     app.decorate('prisma', {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
+      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
       merchant: { findUnique: vi.fn(), update: vi.fn() },
       merchantPendingEdit: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
       branch: { count: vi.fn() },

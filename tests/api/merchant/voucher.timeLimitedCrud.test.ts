@@ -22,11 +22,16 @@ beforeAll(async () => {
     },
   })
   merchantAdminUserId = admin.id
+  // Phase 2 Slice 1 M1: resolveAdminMerchant now resolves via MerchantMembership.
+  await prisma.merchantMembership.create({
+    data: { merchantId, merchantAdminId: admin.id, role: 'OWNER', allBranches: true, status: 'ACTIVE' },
+  })
 })
 
 afterAll(async () => {
   await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucher: { merchantId } } })
   await prisma.voucher.deleteMany({ where: { merchantId } })
+  await prisma.merchantMembership.deleteMany({ where: { merchantId } })
   await prisma.merchantAdmin.deleteMany({ where: { merchantId } })
   await prisma.merchant.delete({ where: { id: merchantId } })
   await prisma.$disconnect()

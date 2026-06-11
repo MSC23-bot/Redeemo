@@ -197,9 +197,64 @@ model MerchantAdmin {
   otpVerifiedAt      DateTime?
   mustChangePassword Boolean    @default(false)
 
-  merchant Merchant @relation(fields: [merchantId], references: [id])
+  // KEPT as a transitional compatibility field (Phase 2 Slice 1 M1). The
+  // merchant auth flow (login/OTP/refresh/reactivate) + branch-user management
+  // read merchantId + this relation DIRECTLY; M1 is additive and does NOT drop
+  // them. The drop (D-1 contract step) lands in M6 after those auth reads are
+  // rerouted through MerchantMembership. resolveAdminMerchant already resolves
+  // via MerchantMembership (the management-side reroute).
+  merchant    Merchant             @relation(fields: [merchantId], references: [id])
+  memberships MerchantMembership[]
 
   @@index([email])
+}
+
+// ─────────────────────────────────────────
+// MERCHANT MEMBERSHIP (Phase 2 Slice 1 M1 — ownership foundation)
+// Additive ownership model: a MerchantAdmin person holds one or more
+// memberships of a Merchant. Slice 1 creates OWNER memberships only
+// (allBranches=true, no join rows). MerchantMembershipBranch is built now
+// (D-2/D-7 franchise-ready) but populated only when a BRANCH_MANAGER is
+// scoped to branches in a later slice.
+// ─────────────────────────────────────────
+
+enum MerchantRole {
+  OWNER
+  BRANCH_MANAGER
+  STAFF
+}
+
+model MerchantMembership {
+  id              String       @id @default(uuid())
+  merchantId      String
+  merchantAdminId String
+  role            MerchantRole
+  allBranches     Boolean      @default(true)
+  status          UserStatus   @default(ACTIVE)
+  invitedById     String? // forward-compat: who invited this member (no FK yet)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  merchant      Merchant                   @relation(fields: [merchantId], references: [id])
+  merchantAdmin MerchantAdmin              @relation(fields: [merchantAdminId], references: [id])
+  branches      MerchantMembershipBranch[]
+
+  @@unique([merchantId, merchantAdminId])
+  @@index([merchantId])
+  @@index([merchantAdminId])
+}
+
+model MerchantMembershipBranch {
+  id           String   @id @default(uuid())
+  membershipId String
+  branchId     String
+  createdAt    DateTime @default(now())
+
+  membership MerchantMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  branch     Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, branchId])
+  @@index([branchId])
 }
 
 // ─────────────────────────────────────────
@@ -367,6 +422,7 @@ model Merchant {
   isTestData             Boolean            @default(false)
 
   admin                MerchantAdmin?
+  memberships          MerchantMembership[]
   branches             Branch[]
   documents            MerchantDocument[]
   contract             MerchantContract?
@@ -474,15 +530,16 @@ model Branch {
   // Opposite relation for Plan 4b Campaign.branchAnchor — see Step 8 below
   anchoredCampaigns Campaign[] @relation("CampaignBranchAnchor")
 
-  merchant     Merchant             @relation(fields: [merchantId], references: [id])
-  openingHours BranchOpeningHours[]
-  photos       BranchPhoto[]
-  users        BranchUser[]
-  amenities    BranchAmenity[]
-  redemptions  VoucherRedemption[]
-  reviews      Review[]
-  pendingEdits BranchPendingEdit[]
-  favouritedBy FavouriteBranch[]
+  merchant           Merchant                   @relation(fields: [merchantId], references: [id])
+  openingHours       BranchOpeningHours[]
+  photos             BranchPhoto[]
+  users              BranchUser[]
+  amenities          BranchAmenity[]
+  redemptions        VoucherRedemption[]
+  reviews            Review[]
+  pendingEdits       BranchPendingEdit[]
+  favouritedBy       FavouriteBranch[]
+  membershipBranches MerchantMembershipBranch[]
 
   @@index([merchantId])
   @@index([latitude, longitude])
@@ -986,7 +1043,7 @@ model VoucherRedemption {
   // so the popularity signal reflects real customers.  Default false →
   // every existing row defaults to real-customer; only seed/QA paths
   // explicitly set true going forward.
-  isTestData       Boolean           @default(false)
+  isTestData Boolean @default(false)
 
   user             User                        @relation(fields: [userId], references: [id])
   voucher          Voucher                     @relation(fields: [voucherId], references: [id])

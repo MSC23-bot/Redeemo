@@ -68,6 +68,10 @@ function buildPrismaMock() {
     merchantAdmin: {
       findUnique: vi.fn().mockResolvedValue({ id: ADMIN_ID, merchantId: MERCHANT_ID, status: 'ACTIVE' }),
     },
+    // M1: resolveAdminMerchant resolves via MerchantMembership (OWNER).
+    merchantMembership: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: MERCHANT_ID, merchantAdminId: ADMIN_ID }),
+    },
     branch: {
       count:     vi.fn().mockResolvedValue(0),
       findFirst: vi.fn().mockResolvedValue({ id: BRANCH_ID, merchantId: MERCHANT_ID }),

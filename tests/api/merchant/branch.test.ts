@@ -17,6 +17,7 @@ describe('merchant branch routes', () => {
     app = await buildApp()
     app.decorate('prisma', {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
+      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
       merchant: { findUnique: vi.fn() },
       branch: {
         findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(),
