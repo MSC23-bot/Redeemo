@@ -141,6 +141,16 @@ SEC-M1 + SEC-M2 are **hard go-live prerequisites** — bundled here deliberately
 
 ## 8. Branch visibility / location-confidence gate (§19.1, E5)
 
+> **⚠️ RECONCILED — Option A (owner-approved 2026-06-11, as built in M4).** This section was written assuming discovery had only a *merchant-level* visibility gate. Code inspection found discovery **already** enforces a branch-level location-confidence model from **PR #81 (Plan 4 M1)**, spec `2026-05-18-discovery-rebaseline-branch-first.md §4.1.1` — a deliberately-tested **list-vs-map asymmetry**:
+> - `MANUALLY_CONFIRMED` → list + map, real coordinates
+> - `ADDRESS_GEOCODED` → **list-visible, coordinates redacted + excluded from the map**
+> - `POSTCODE_CENTROID` → **list-visible (null coords), excluded from the map**
+> - `NEEDS_REVIEW` → excluded
+>
+> The §8 model below (per-branch predicate that hides `POSTCODE_CENTROID` from lists; D-5 exposing `ADDRESS_GEOCODED` on the map) directly **reverses** that locked, tested contract. **Owner decision: Option A** — M4 ships only the shared `CONFIRMED_LOCATION_SET` / `isBranchLocationConfirmed` helper (the cross-cutting confidence set ranking + discovery already inline, and that M5's go-live gate will consume) **plus** the admin confirm-location pin-drop, and **leaves the PR #81 discovery list-vs-map behaviour authoritative**. The position-exposure helpers (`hasExactPosition` / `exposeBranchPosition`) are **not** re-pointed (D-5 is **not** implemented). Any future tightening of discovery visibility — hiding `POSTCODE_CENTROID` from lists, exposing `ADDRESS_GEOCODED` on the map, or requiring `localityId` — is a **separate product/spec decision**. The original §8 prose is retained below for the record.
+>
+> Note: the predicate below lists `branch.deletedAt==null`, but `Branch` has **no `deletedAt` column** (§BRANCHDEL) — that clause is void.
+
 **Decision (E5):** include, kept tight + tested (it touches customer discovery).
 
 - **Per-branch visibility predicate** (replaces the merchant-level-only gate): a branch is discovery-visible + redeemable iff `merchant.status===ACTIVE AND branch.isActive AND branch.locationConfidence ∈ CONFIRMED_SET AND branch.localityId != null AND branch.isTestData===false AND branch.deletedAt==null`.
