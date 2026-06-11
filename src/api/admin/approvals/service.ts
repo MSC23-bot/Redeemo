@@ -4,8 +4,9 @@ import { ApprovalType, ApprovalStatus } from '../../../../generated/prisma/enums
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import { notify } from '../../shared/notify'
-import { merchantChangesRequestedEmail, merchantRejectedEmail } from '../../shared/merchantEmails'
+import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail } from '../../shared/merchantEmails'
 import { computeOnboardingChecklist } from '../../merchant/onboarding/service'
+import { isBranchLocationConfirmed } from '../../shared/location'
 
 // Phase 2 Slice 1 M3 — the AdminApproval actioner (review loop; NO approve/
 // go-live — that is M5). Every state-changing action is atomic + idempotent and
@@ -341,4 +342,162 @@ export async function rejectApproval(
     )
   }
   return { rejected: true }
+}
+
+/**
+ * Approve a merchant onboarding submission → atomic go-live (Phase 2 Slice 1
+ * M5, spec §6). One transaction re-validates the go-live gates SERVER-SIDE
+ * (never trusts the submit-time snapshot), flips the merchant to ACTIVE/LIVE/
+ * VERIFIED, activates its mandatory RMVs, marks the approval APPROVED, and
+ * writes two transactional audit rows (MERCHANT_APPROVAL_APPROVED +
+ * MERCHANT_GO_LIVE, with before/after). After commit it best-effort notifies
+ * the merchant OWNER ("you're live"). Idempotent: a merchant that is already
+ * ACTIVE is a safe no-op (no re-activation, no re-notify) — spec §12.
+ */
+export async function approveApproval(
+  prisma: PrismaClient,
+  redis: Redis,
+  id: string,
+  adminId: string,
+  ctx: AuditCtx
+) {
+  const result = await prisma.$transaction(async (tx) => {
+    const approval = await tx.adminApproval.findUnique({
+      where: { id },
+      select: { id: true, type: true, status: true, referenceId: true },
+    })
+    if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
+    if (approval.type !== 'MERCHANT_ONBOARDING') throw new AppError('APPROVAL_NOT_ACTIONABLE')
+
+    const merchant = await tx.merchant.findUnique({
+      where: { id: approval.referenceId },
+      select: {
+        id: true,
+        businessName: true,
+        status: true,
+        onboardingStep: true,
+        verificationStatus: true,
+        contractStatus: true,
+        isTestData: true,
+      },
+    })
+    if (!merchant) throw new AppError('APPROVAL_NOT_ACTIONABLE')
+
+    // Idempotency (spec §12): a merchant that already went live is a safe
+    // no-op — do NOT re-activate, re-stamp, or re-notify. This guard precedes
+    // the actionable-status check so a duplicate/concurrent approve returns
+    // cleanly instead of erroring on the now-APPROVED approval.
+    if (merchant.status === 'ACTIVE') {
+      return { merchantId: merchant.id, businessName: merchant.businessName, alreadyLive: true as const }
+    }
+
+    // Defence-in-depth: never go-live a seed/demo (test-data) merchant through
+    // the actioner. (Discovery already filters isTestData, so this is belt-and-
+    // braces.) Real merchants created via createMerchantDraft are isTestData=false.
+    if (merchant.isTestData) throw new AppError('APPROVAL_NOT_ACTIONABLE')
+
+    if (!ACTIONABLE_STATUSES.includes(approval.status)) throw new AppError('APPROVAL_NOT_ACTIONABLE')
+
+    // Re-validate the onboarding completeness gates server-side. Mirrors
+    // computeOnboardingChecklist (contract SIGNED, >=1 branch, >=2 RMVs present)
+    // but runs inside this transaction against live state. The error carries the
+    // per-gate checklist so the caller can see exactly what is missing.
+    const branchCount = await tx.branch.count({ where: { merchantId: merchant.id } })
+    const rmvCount = await tx.voucher.count({
+      where: { merchantId: merchant.id, isRmv: true, status: { in: ['PENDING_APPROVAL', 'ACTIVE'] } },
+    })
+    const checklist = {
+      branch_created: branchCount >= 1,
+      contract_signed: merchant.contractStatus === 'SIGNED',
+      rmv_configured: rmvCount >= 2,
+    }
+    if (!(checklist.branch_created && checklist.contract_signed && checklist.rmv_configured)) {
+      throw new AppError('ONBOARDING_GATES_INCOMPLETE', { checklist })
+    }
+
+    // Go-live location gate (M5 consumes the M4 CONFIRMED_LOCATION_SET helper):
+    // the main branch must exist + be confirmed (locationConfidence ∈ the set).
+    const mainBranch = await tx.branch.findFirst({
+      where: { merchantId: merchant.id, isMainBranch: true, isActive: true },
+      select: { id: true, locationConfidence: true },
+    })
+    if (!mainBranch) {
+      throw new AppError('ONBOARDING_GATES_INCOMPLETE', { checklist: { ...checklist, branch_created: false } })
+    }
+    if (!isBranchLocationConfirmed(mainBranch)) throw new AppError('MAIN_BRANCH_LOCATION_UNCONFIRMED')
+
+    const now = new Date()
+
+    // Activate the mandatory RMVs (status→ACTIVE, approvalStatus→APPROVED).
+    await tx.voucher.updateMany({
+      where: { merchantId: merchant.id, isRmv: true, status: { in: ['PENDING_APPROVAL', 'ACTIVE'] } },
+      data: { status: 'ACTIVE', approvalStatus: 'APPROVED', approvedBy: adminId, approvedAt: now },
+    })
+
+    // Merchant go-live (4-axis).
+    await tx.merchant.update({
+      where: { id: merchant.id },
+      data: { status: 'ACTIVE', onboardingStep: 'LIVE', verificationStatus: 'VERIFIED' },
+    })
+
+    // Approval resolved.
+    await tx.adminApproval.update({
+      where: { id },
+      data: { status: 'APPROVED', adminUserId: adminId, actionedAt: now, claimedById: null, claimedAt: null },
+    })
+
+    await writeAuditLogTx(tx, {
+      entityId: merchant.id,
+      entityType: 'merchant',
+      event: 'MERCHANT_APPROVAL_APPROVED',
+      actorId: adminId,
+      actorType: 'ADMIN',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+    await writeAuditLogTx(tx, {
+      entityId: merchant.id,
+      entityType: 'merchant',
+      event: 'MERCHANT_GO_LIVE',
+      actorId: adminId,
+      actorType: 'ADMIN',
+      before: {
+        status: merchant.status,
+        onboardingStep: merchant.onboardingStep,
+        verificationStatus: merchant.verificationStatus,
+      },
+      after: { status: 'ACTIVE', onboardingStep: 'LIVE', verificationStatus: 'VERIFIED' },
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+
+    return { merchantId: merchant.id, businessName: merchant.businessName, alreadyLive: false as const }
+  })
+
+  if (result.alreadyLive) return { approved: true, alreadyLive: true as const }
+
+  // After commit (best-effort): notify the merchant OWNER they are live.
+  const owner = await getMerchantOwner(prisma, result.merchantId)
+  if (owner) {
+    await notify(prisma, redis, {
+      to: owner.email,
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: owner.adminId,
+      type: 'merchant_live',
+      email: { ...merchantLiveEmail(result.businessName), sender: 'merchant' },
+      inApp: {
+        notificationType: 'MERCHANT_VERIFICATION_UPDATE',
+        title: "You're live on Redeemo",
+        body: 'Your business is now live. Members can find you and redeem your offers from today.',
+        referenceId: result.merchantId,
+        referenceType: 'merchant',
+      },
+      ip: ctx.ipAddress,
+    })
+  } else {
+    console.warn(
+      `[actioner] approve/go-live committed for merchant ${result.merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`
+    )
+  }
+  return { approved: true, alreadyLive: false as const }
 }
