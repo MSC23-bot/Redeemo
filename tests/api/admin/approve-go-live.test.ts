@@ -245,6 +245,17 @@ describe('M5 — approve → atomic go-live (real DB)', () => {
     expect(rmvs.every((v) => v.status === 'ACTIVE' && v.approvalStatus === 'APPROVED')).toBe(true)
   })
 
+  it('best-effort notify: a notify failure does NOT fail go-live (finding 2)', async () => {
+    const { merchantId, approvalId } = await makePreparedMerchant()
+    notifyMock.mockRejectedValueOnce(new Error('redis down')) // simulate enqueue failure
+    const res = await approveApproval(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)
+    // go-live still succeeds — safeNotify swallows + warns, never rolls back the committed action.
+    expect(res).toMatchObject({ approved: true, alreadyLive: false })
+    const m = await prisma.merchant.findUnique({ where: { id: merchantId } })
+    expect(m?.status).toBe('ACTIVE')
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+  })
+
   it('approve on a non-existent approval → APPROVAL_NOT_FOUND', async () => {
     await expect(approveApproval(prisma, dummyRedis, 'no-such-approval-id', ADMIN_ID, ctx)).rejects.toThrow('APPROVAL_NOT_FOUND')
   })
