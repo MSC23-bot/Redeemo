@@ -15,8 +15,10 @@ describe('merchant onboarding routes', () => {
       merchantContract: { findUnique: vi.fn(), create: vi.fn() },
       branch: { count: vi.fn() },
       voucher: { count: vi.fn() },
-      adminApproval: { create: vi.fn().mockResolvedValue({}) },
+      adminApproval: { create: vi.fn().mockResolvedValue({}), findFirst: vi.fn().mockResolvedValue(null), update: vi.fn().mockResolvedValue({}) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      // M3: submitForApproval now runs in a $transaction; run the callback with the same mock.
+      $transaction: vi.fn().mockImplementation(async (cb: any) => cb((app as any).prisma)),
     } as any)
     app.decorate('redis', {
       get: vi.fn().mockResolvedValue(null),
@@ -125,9 +127,34 @@ describe('merchant onboarding routes', () => {
     })
 
     expect(res.statusCode).toBe(200)
+    // M3 fix: verificationStatus becomes PENDING on submit (was inert).
     expect(app.prisma.merchant.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED' }) })
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED', verificationStatus: 'PENDING' }) })
     )
     expect(app.prisma.adminApproval.create).toHaveBeenCalled()
+  })
+
+  it('POST /submit RESUBMITS (reopens the same approval) when merchant is PENDING_APPROVAL + NEEDS_CHANGES', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', status: 'PENDING_APPROVAL', onboardingStep: 'NEEDS_CHANGES', contractStatus: 'SIGNED' })
+    app.prisma.branch.count = vi.fn().mockResolvedValue(1)
+    app.prisma.voucher.count = vi.fn().mockResolvedValue(2)
+    app.prisma.merchant.update = vi.fn().mockResolvedValue({ id: 'm1' })
+    app.prisma.adminApproval.findFirst = vi.fn().mockResolvedValue({ id: 'ap1' }) // existing approval
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/onboarding/submit',
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.merchant.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED', verificationStatus: 'PENDING' }) })
+    )
+    // Reopens the SAME approval (no duplicate thread); clears the prior claim.
+    expect(app.prisma.adminApproval.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'ap1' }, data: expect.objectContaining({ status: 'PENDING', claimedById: null }) })
+    )
+    expect(app.prisma.adminApproval.create).not.toHaveBeenCalled()
   })
 })

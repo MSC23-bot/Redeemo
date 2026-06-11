@@ -940,6 +940,7 @@ enum ApprovalStatus {
   PENDING
   APPROVED
   REJECTED
+  CHANGES_REQUESTED // M3: admin requested changes; the merchant edits + resubmits (reopens the same approval)
 }
 
 enum ValidationMethod {
@@ -961,10 +962,12 @@ enum OnboardingStep {
   CONTRACT_SIGNED
   RMV_CONFIGURED
   SUBMITTED
+  UNDER_REVIEW // M3: an admin claimed the submission to review it
   APPROVED
   LIVE
   SUSPENDED
   NEEDS_CHANGES
+  REJECTED // M3: admin rejected the submission (reopenable)
 }
 
 // ─────────────────────────────────────────
@@ -1538,16 +1541,23 @@ model AdminApproval {
   referenceId   String
   referenceType String
   status        ApprovalStatus @default(PENDING)
-  adminUserId   String?
+  adminUserId   String? // the admin who ACTIONED it (approve/reject)
   comment       String?
   submittedAt   DateTime       @default(now())
   actionedAt    DateTime?
+  // M3 claim-to-review. Bare id (no FK relation) keeps the migration purely
+  // additive — a claimedBy FK would force naming the existing adminUser/approvals
+  // relation (Prisma 2-relation disambiguation). claimedById is set from the
+  // authenticated admin's id; admins are not hard-deleted.
+  claimedById   String? // the admin currently reviewing it
+  claimedAt     DateTime?
 
   adminUser AdminUser? @relation(fields: [adminUserId], references: [id])
 
   @@index([type])
   @@index([status])
   @@index([referenceId])
+  @@index([claimedById])
 }
 
 // ─────────────────────────────────────────
