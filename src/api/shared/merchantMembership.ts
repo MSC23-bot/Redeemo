@@ -5,6 +5,10 @@ export type OwnerMembership = {
   id: string
   merchantId: string
   merchantAdminId: string
+  // M6a (SEC-M2): joined merchant status so live suspended-checks don't need a
+  // separate query. Optional — a loosely-typed prisma mock may omit it; callers
+  // read `merchant?.status` defensively.
+  merchant?: { status: string } | null
 }
 
 /**
@@ -12,7 +16,9 @@ export type OwnerMembership = {
  *
  * Phase 2 Slice 1 M1 — `MerchantMembership` is the source of truth for
  * merchant-management ownership resolution. Returns null when the admin has no
- * active OWNER membership.
+ * active OWNER membership. The joined `merchant.status` (M6a) lets
+ * `resolveAdminMerchant` / token-refresh enforce SEC-M2 (block a SUSPENDED
+ * merchant) without a second query.
  */
 export async function getOwnerMembership(
   prisma: PrismaClient,
@@ -20,7 +26,7 @@ export async function getOwnerMembership(
 ): Promise<OwnerMembership | null> {
   return prisma.merchantMembership.findFirst({
     where: { merchantAdminId: adminId, role: 'OWNER', status: 'ACTIVE' },
-    select: { id: true, merchantId: true, merchantAdminId: true },
+    select: { id: true, merchantId: true, merchantAdminId: true, merchant: { select: { status: true } } },
   })
 }
 

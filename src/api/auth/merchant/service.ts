@@ -5,6 +5,7 @@ import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecu
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
+import { getOwnerMembership } from '../../shared/merchantMembership'
 import {
   storeRefreshToken, revokeRefreshToken, revokeAllSessionsForEntity,
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
@@ -173,6 +174,16 @@ export async function refreshMerchantToken(
   if (!stored || !validateRefreshToken(stored, data.refreshToken)) {
     writeAuditLog(prisma, { entityId: data.entityId, entityType: 'merchant', event: 'AUTH_REFRESH_FAILED', ipAddress: data.ipAddress, userAgent: data.userAgent })
     throw new AppError('REFRESH_TOKEN_INVALID')
+  }
+
+  // SEC-M2 (M6a): refuse to renew a SUSPENDED merchant's session — live DB read
+  // via the membership source of truth (NOT the MerchantAdmin.merchantId column;
+  // that reroute is M6b). Lenient: only an explicitly suspended merchant is
+  // refused. Status is joined by getOwnerMembership — no extra query.
+  const ownerMembership = await getOwnerMembership(prisma, data.entityId)
+  if (ownerMembership?.merchant?.status === 'SUSPENDED') {
+    writeAuditLog(prisma, { entityId: data.entityId, entityType: 'merchant', event: 'AUTH_REFRESH_FAILED', ipAddress: data.ipAddress, userAgent: data.userAgent })
+    throw new AppError('MERCHANT_SUSPENDED')
   }
 
   const parsed     = JSON.parse(stored)

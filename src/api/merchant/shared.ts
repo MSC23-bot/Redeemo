@@ -14,5 +14,11 @@ export async function resolveAdminMerchant(
   // M6, where the column is dropped (D-1 contract step).
   const membership = await getOwnerMembership(prisma, adminId)
   if (!membership) throw new AppError('INVALID_CREDENTIALS')
+  // SEC-M2 (M6a): block a SUSPENDED merchant from ALL management endpoints (this
+  // helper gates every merchant-management read/write). Lenient by design — only
+  // an EXPLICITLY suspended merchant throws; a missing/ACTIVE merchant (incl. a
+  // mock that omits the joined status) passes, so existing call sites are
+  // unaffected. Status is joined by getOwnerMembership — no extra query.
+  if (membership.merchant?.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
   return { adminId, merchantId: membership.merchantId }
 }
