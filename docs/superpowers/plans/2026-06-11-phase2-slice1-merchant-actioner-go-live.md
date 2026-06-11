@@ -167,9 +167,18 @@ The original M4 plan added a WHERE-level visibility gate (`locationConfidence: {
 
 ## M5 — Atomic approve / go-live + RMV activation + lifecycle notifications
 
-**PR scope:** the approve action — the merchant goes live; re-uses M4's `CONFIRMED_LOCATION_SET` for the go-live gate.
+> **AS BUILT (2026-06-11) — corrections from code inspection:**
+> - **No `src/api/shared/auditEvents.ts`** — the `AuditEvent` union is inline in `src/api/shared/audit.ts` (same correction as M2/M3). Added `MERCHANT_APPROVAL_APPROVED` + `MERCHANT_GO_LIVE` there.
+> - **Gate re-validation is inline inside the `$transaction`** (sequential reads, not `computeOnboardingChecklist` — that helper isn't tx-scoped and uses `Promise.all`). The inline reads mirror its conditions exactly (contract `SIGNED`, ≥1 branch, ≥2 `isRmv` vouchers with `status ∈ {PENDING_APPROVAL, ACTIVE}`), then add the **main-branch `isBranchLocationConfirmed`** check (M4 helper) + the `isTestData` guard.
+> - **Error codes:** contract/branch/RMV failure → existing **`ONBOARDING_GATES_INCOMPLETE`** carrying a `details.checklist` (per-gate booleans, so the caller sees exactly what's missing — the "distinct error" requirement met via code + details). Main-branch unconfirmed → new **`MAIN_BRANCH_LOCATION_UNCONFIRMED`** (409). A **test-data** merchant → `APPROVAL_NOT_ACTIONABLE` (defence-in-depth; **note:** partly redundant with discovery's existing `isTestData` filter — kept per spec §6; a 1-line removal if owner prefers).
+> - **Idempotency** is a **merchant-already-ACTIVE no-op guard placed BEFORE the actionable-status check** — so a double/concurrent approve returns `{ approved: true, alreadyLive: true }` cleanly instead of erroring on the now-`APPROVED` approval.
+> - **Draft-owner claim path stays DEFERRED** — M5's notify is the OWNER "you're live" only; the M2 draft owner still claims their account via the existing password-reset flow (separate concern, not in M5).
+> - **The "appears in discovery after go-live" assertion is OMITTED** from the automated M5 suite (it's the flaky DB-backed discovery layer; the confidence-visibility model is already pinned by M4's `location-confidence-redaction.test.ts`). M5 deterministically pins the go-live **state transition** + RMV activation + audit + notify.
+> - **Route-gate cases** were added to the existing `tests/api/admin/approvals-routes.test.ts` (the approve route lives in the same module) rather than a new file.
 
-**Files — Create/Modify:** `src/api/admin/approvals/{routes,service}.ts` (add approve); **extend** `src/api/shared/merchantEmails.ts` (created in M3) with the approve / "you're live" template; tests `tests/api/admin/approve-go-live.test.ts` + extend `tests/api/shared/merchant-emails.test.ts` with the go-live template case. **Modify:** `src/api/shared/auditEvents.ts`.
+**PR scope:** the approve action — the merchant goes live; re-uses M4's `CONFIRMED_LOCATION_SET` / `isBranchLocationConfirmed` for the go-live gate.
+
+**Files — Create/Modify:** `src/api/admin/approvals/{routes,service}.ts` (add `approveApproval` + the approve route); **extend** `src/api/shared/merchantEmails.ts` with `merchantLiveEmail()`; tests `tests/api/admin/approve-go-live.test.ts` (real-DB) + extend `tests/api/shared/merchant-emails.test.ts` + `tests/api/admin/approvals-routes.test.ts`. **Modify:** `src/api/shared/audit.ts` (2 new events) + `src/api/shared/errors.ts` (`MAIN_BRANCH_LOCATION_UNCONFIRMED`).
 
 **Schema:** none.
 
