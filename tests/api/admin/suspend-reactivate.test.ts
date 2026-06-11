@@ -74,20 +74,20 @@ const cycleConsumed = (userId: string, voucherId: string) =>
 beforeEach(() => { seq += 100 })
 
 afterAll(async () => {
-  for (const merchantId of createdMerchantIds) {
-    await prisma.voucherRedemption.deleteMany({ where: { voucher: { merchantId } } })
-    await prisma.userVoucherCycleState.deleteMany({ where: { voucher: { merchantId } } })
-    await prisma.voucher.deleteMany({ where: { merchantId } })
-    await prisma.branchUser.deleteMany({ where: { branch: { merchantId } } })
-    await prisma.branch.deleteMany({ where: { merchantId } })
-    await prisma.auditLog.deleteMany({ where: { entityId: merchantId } })
-    await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-    await prisma.merchantAdmin.deleteMany({ where: { merchantId } })
-    await prisma.merchant.delete({ where: { id: merchantId } }).catch(() => {})
-  }
-  for (const userId of createdUserIds) await prisma.user.delete({ where: { id: userId } }).catch(() => {})
+  // Bulk prefix-sweep (FK-safe order) — far faster than a per-merchant loop.
+  const M = { businessName: { startsWith: PREFIX } }
+  await prisma.voucherRedemption.deleteMany({ where: { voucher: { merchant: M } } })
+  await prisma.userVoucherCycleState.deleteMany({ where: { voucher: { merchant: M } } })
+  await prisma.voucher.deleteMany({ where: { merchant: M } })
+  await prisma.branchUser.deleteMany({ where: { branch: { merchant: M } } })
+  await prisma.branch.deleteMany({ where: { merchant: M } })
+  if (createdMerchantIds.length) await prisma.auditLog.deleteMany({ where: { entityId: { in: createdMerchantIds } } })
+  await prisma.merchantMembership.deleteMany({ where: { merchant: M } })
+  await prisma.merchantAdmin.deleteMany({ where: { merchant: M } })
+  await prisma.merchant.deleteMany({ where: M })
+  if (createdUserIds.length) await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
   await prisma.$disconnect()
-})
+}, 30_000)
 
 describe('M6a — admin suspend / reactivate (real DB)', () => {
   it('suspend → SUSPENDED/SUSPENDED + transactional MERCHANT_SUSPENDED audit (actor, reason, before/after)', async () => {
@@ -159,6 +159,21 @@ describe('M6a — admin suspend / reactivate (real DB)', () => {
     expect(m?.onboardingStep).toBe('LIVE')
     const audit = await prisma.auditLog.findFirst({ where: { entityId: merchantId, event: 'MERCHANT_REACTIVATED' } })
     expect(audit?.actorId).toBe(ADMIN_ID)
+  })
+
+  it('reactivate: an already-ACTIVE merchant is an idempotent no-op', async () => {
+    const { merchantId } = await makeActiveMerchant()
+    const res = await reactivateMerchant(prisma, ADMIN_ID, merchantId, ctx)
+    expect(res).toMatchObject({ reactivated: true, alreadyActive: true })
+    expect((await prisma.merchant.findUnique({ where: { id: merchantId } }))?.status).toBe('ACTIVE')
+  })
+
+  it('reactivate: an existing-but-not-SUSPENDED merchant (INACTIVE) → MERCHANT_NOT_SUSPENDED, not MERCHANT_NOT_FOUND (finding 1)', async () => {
+    const m = await prisma.merchant.create({ data: { businessName: `${PREFIX}Inactive ${seq++}`, status: 'INACTIVE', onboardingStep: 'REGISTERED', isTestData: true } })
+    createdMerchantIds.push(m.id)
+    await expect(reactivateMerchant(prisma, ADMIN_ID, m.id, ctx)).rejects.toThrow('MERCHANT_NOT_SUSPENDED')
+    // never force-activated a non-approved merchant.
+    expect((await prisma.merchant.findUnique({ where: { id: m.id } }))?.status).toBe('INACTIVE')
   })
 
   it('suspend / reactivate on an unknown merchant → MERCHANT_NOT_FOUND', async () => {

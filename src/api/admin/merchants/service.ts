@@ -144,12 +144,22 @@ async function revokeMerchantSessions(prisma: PrismaClient, redis: Redis, mercha
 
 /**
  * D-α cycle-refund (suspend-time sweep). When a merchant is suspended, an
- * in-flight (un-validated) redemption can no longer be validated — so the
- * customer should not stay penalised for having consumed their voucher cycle.
- * Reset `UserVoucherCycleState.isRedeemedInCurrentCycle` for each NORMAL-type
- * in-flight redemption that is still the LATEST redemption for that
- * (user, voucher) pair (the `newer` guard skips rolled-over / superseded
- * consumption so we never un-do a more recent, legitimate redemption).
+ * in-flight (un-validated) redemption can no longer be validated (its staff
+ * session is revoked + SEC-M1 blocks verify), so the customer should not stay
+ * penalised for having consumed their voucher cycle. For each NORMAL-type
+ * in-flight redemption we reset the consumed per-cycle flag
+ * (`UserVoucherCycleState.isRedeemedInCurrentCycle → false`).
+ *
+ * The `newer` guard skips a redemption that has been SUPERSEDED — if a later
+ * redemption for the same (user, voucher) exists, IT owns the cycle-state (the
+ * user redeemed again, e.g. across a cycle rollover), so we must NOT un-do that
+ * newer, legitimate consumption. Only the latest in-flight redemption resets.
+ *
+ * Scope note (finding-2): we do NOT recompute the user's exact subscription
+ * cycle window here. That's intentional + safe — the redeem-time gate is
+ * `cycleState.cycleStartDate >= currentCycleStart`, so a stale OLD-cycle flag
+ * never blocks a NEW cycle anyway; resetting it is at worst a harmless no-op.
+ * The common case (suspend with recent in-flight redemptions) IS current-cycle.
  *
  * SCOPE: TIME_LIMITED + REUSABLE vouchers are EXCLUDED — they bypass
  * `UserVoucherCycleState` (their truth is the window-occurrence / cooldown on
@@ -256,9 +266,13 @@ export async function reactivateMerchant(
       select: { id: true, status: true, onboardingStep: true },
     })
     if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
+    // Idempotent: an already-ACTIVE merchant is a no-op (reactivating twice is safe).
     if (merchant.status === 'ACTIVE') return { reactivated: true as const, alreadyActive: true }
-    // Reactivate is the reverse of suspend — only a SUSPENDED merchant qualifies.
-    if (merchant.status !== 'SUSPENDED') throw new AppError('MERCHANT_NOT_FOUND')
+    // Reactivate is the strict reverse of suspend — it only acts on a SUSPENDED
+    // merchant. For any other state (INACTIVE self-deactivation, REGISTERED,
+    // PENDING_APPROVAL, …) refuse with a CLEAR error rather than the misleading
+    // MERCHANT_NOT_FOUND — and never force-activate a non-approved merchant.
+    if (merchant.status !== 'SUSPENDED') throw new AppError('MERCHANT_NOT_SUSPENDED')
 
     await tx.merchant.update({
       where: { id: merchantId },
