@@ -182,7 +182,6 @@ model UserSsoProvider {
 
 model MerchantAdmin {
   id                 String     @id @default(uuid())
-  merchantId         String     @unique
   email              String     @unique
   phone              String?
   phoneCountryCode   String?
@@ -197,13 +196,9 @@ model MerchantAdmin {
   otpVerifiedAt      DateTime?
   mustChangePassword Boolean    @default(false)
 
-  // KEPT as a transitional compatibility field (Phase 2 Slice 1 M1). The
-  // merchant auth flow (login/OTP/refresh/reactivate) + branch-user management
-  // read merchantId + this relation DIRECTLY; M1 is additive and does NOT drop
-  // them. The drop (D-1 contract step) lands in M6 after those auth reads are
-  // rerouted through MerchantMembership. resolveAdminMerchant already resolves
-  // via MerchantMembership (the management-side reroute).
-  merchant    Merchant             @relation(fields: [merchantId], references: [id])
+  // Phase 2 Slice 1 M6b (D-1): MerchantAdmin.merchantId + the `merchant` relation
+  // were DROPPED — MerchantMembership is now the sole source of truth linking an
+  // admin to a merchant (resolveAdminMerchant / getOwnerMembership).
   memberships MerchantMembership[]
 
   @@index([email])
@@ -441,7 +436,8 @@ model Merchant {
   // rows (PR-4b); prisma/seed.ts marks all seeded rows true. Default false = real.
   isTestData             Boolean            @default(false)
 
-  admin                MerchantAdmin?
+  // M6b (D-1): the `admin MerchantAdmin?` back-relation was dropped with
+  // MerchantAdmin.merchantId — admins link via MerchantMembership now.
   memberships          MerchantMembership[]
   branches             Branch[]
   documents            MerchantDocument[]

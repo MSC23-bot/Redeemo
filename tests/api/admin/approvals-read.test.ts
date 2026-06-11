@@ -22,7 +22,7 @@ beforeAll(async () => {
   })
   merchantId = m.id
   const admin = await prisma.merchantAdmin.create({
-    data: { merchantId: m.id, email: `m3-read-${Date.now()}@example.com`, firstName: 'R', lastName: 'D' },
+    data: { email: `m3-read-${Date.now()}@example.com`, firstName: 'R', lastName: 'D' },
   })
   await prisma.merchantMembership.create({
     data: { merchantId: m.id, merchantAdminId: admin.id, role: 'OWNER', allBranches: true, status: 'ACTIVE' },
@@ -35,8 +35,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.adminApproval.deleteMany({ where: { referenceId: merchantId } })
+  const adminIds = (await prisma.merchantMembership.findMany({ where: { merchantId }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
   await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-  await prisma.merchantAdmin.deleteMany({ where: { merchantId } })
+  await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
   await prisma.merchant.delete({ where: { id: merchantId } }).catch(() => {})
   await prisma.$disconnect()
 })

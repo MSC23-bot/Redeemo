@@ -86,7 +86,7 @@ async function makePreparedMerchant(opts: PrepareOpts = {}) {
   }
 
   const admin = await prisma.merchantAdmin.create({
-    data: { merchantId: m.id, email: `${PREFIX}${Date.now()}-${n}@example.com`, firstName: 'O', lastName: 'W' },
+    data: { email: `${PREFIX}${Date.now()}-${n}@example.com`, firstName: 'O', lastName: 'W' },
   })
   await prisma.merchantMembership.create({
     data: { merchantId: m.id, merchantAdminId: admin.id, role: 'OWNER', allBranches: true, status: 'ACTIVE' },
@@ -112,15 +112,21 @@ beforeEach(() => {
 })
 
 afterAll(async () => {
+  // M6b (D-1): owner admins link via MerchantMembership now. Capture every owner
+  // admin id in ONE query up front (before the memberships are deleted) so the
+  // per-merchant loop adds no extra round-trips vs the pre-M6b cleanup.
+  const adminIds = createdMerchantIds.length
+    ? (await prisma.merchantMembership.findMany({ where: { merchantId: { in: createdMerchantIds } }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
+    : []
   for (const merchantId of createdMerchantIds) {
     await prisma.voucher.deleteMany({ where: { merchantId } })
     await prisma.branch.deleteMany({ where: { merchantId } })
     await prisma.auditLog.deleteMany({ where: { entityId: merchantId } })
     await prisma.adminApproval.deleteMany({ where: { referenceId: merchantId } })
     await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-    await prisma.merchantAdmin.deleteMany({ where: { merchantId } })
     await prisma.merchant.delete({ where: { id: merchantId } }).catch(() => {})
   }
+  if (adminIds.length) await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
   if (ADMIN_ID) await prisma.adminUser.delete({ where: { id: ADMIN_ID } }).catch(() => {})
   await prisma.$disconnect()
 })

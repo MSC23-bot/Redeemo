@@ -17,7 +17,7 @@ beforeAll(async () => {
   merchantId = m.id
   const admin = await prisma.merchantAdmin.create({
     data: {
-      merchantId, email: `m4a7-${Date.now()}@example.com`, passwordHash: 'p',
+      email: `m4a7-${Date.now()}@example.com`, passwordHash: 'p',
       firstName: 'T', lastName: 'M4a7',
     },
   })
@@ -31,8 +31,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucher: { merchantId } } })
   await prisma.voucher.deleteMany({ where: { merchantId } })
+  const adminIds = (await prisma.merchantMembership.findMany({ where: { merchantId }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
   await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-  await prisma.merchantAdmin.deleteMany({ where: { merchantId } })
+  await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
   await prisma.merchant.delete({ where: { id: merchantId } })
   await prisma.$disconnect()
 })

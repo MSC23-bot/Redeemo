@@ -21,15 +21,16 @@ async function makeOwner(status: 'ACTIVE' | 'SUSPENDED') {
   const n = seq++
   const m = await prisma.merchant.create({ data: { businessName: `${PREFIX}Co ${n}`, status, onboardingStep: status === 'ACTIVE' ? 'LIVE' : 'SUSPENDED', isTestData: true } })
   merchantIds.push(m.id)
-  const admin = await prisma.merchantAdmin.create({ data: { merchantId: m.id, email: `${PREFIX}${Date.now()}-${n}@example.com`, firstName: 'O', lastName: 'W' } })
+  const admin = await prisma.merchantAdmin.create({ data: { email: `${PREFIX}${Date.now()}-${n}@example.com`, firstName: 'O', lastName: 'W' } })
   await prisma.merchantMembership.create({ data: { merchantId: m.id, merchantAdminId: admin.id, role: 'OWNER', allBranches: true, status: 'ACTIVE' } })
   return { merchantId: m.id, adminId: admin.id }
 }
 
 afterAll(async () => {
   for (const merchantId of merchantIds) {
+    const adminIds = (await prisma.merchantMembership.findMany({ where: { merchantId }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
     await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-    await prisma.merchantAdmin.deleteMany({ where: { merchantId } })
+    await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
     await prisma.merchant.delete({ where: { id: merchantId } }).catch(() => {})
   }
   await prisma.$disconnect()
