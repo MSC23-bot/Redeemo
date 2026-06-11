@@ -15,6 +15,7 @@ import branchAuthPlugin from './auth/branch/plugin'
 import { branchAuthRoutes } from './auth/branch/routes'
 import adminAuthPlugin from './auth/admin/plugin'
 import { adminAuthRoutes } from './auth/admin/routes'
+import adminManagementPlugin from './admin/plugin'
 import merchantManagementPlugin from './merchant/plugin'
 import subscriptionPlugin from './subscription/plugin'
 import { webhookRoutes } from './subscription/webhook'
@@ -85,6 +86,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(adminAuthPlugin)
   await app.register(adminAuthRoutes)
+  await app.register(adminManagementPlugin)
 
   await app.register(merchantManagementPlugin)
   await app.register(subscriptionPlugin)

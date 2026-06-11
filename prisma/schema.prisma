@@ -311,8 +311,22 @@ model UserSession {
 // AUDIT LOG
 // ─────────────────────────────────────────
 
+// Phase 2 Slice 1 M2 — platform-wide audit actor (additive). actorId/actorType
+// record WHO performed the action (distinct from entityId/entityType = the
+// TARGET); before/after capture state for state-changing actioner ops; reason
+// carries admin-supplied justification. All nullable — existing fire-and-forget
+// writeAuditLog rows leave them null.
+enum ActorType {
+  ADMIN
+  MERCHANT_ADMIN
+  BRANCH_MANAGER
+  BRANCH_STAFF
+  CUSTOMER
+  SYSTEM
+}
+
 model AuditLog {
-  id         String   @id @default(cuid())
+  id         String     @id @default(cuid())
   entityId   String
   entityType String // 'customer' | 'merchant' | 'branch' | 'admin'
   event      String
@@ -321,11 +335,17 @@ model AuditLog {
   deviceId   String?
   sessionId  String?
   metadata   Json?
-  createdAt  DateTime @default(now())
+  actorId    String? // M2 audit-actor: who performed the action
+  actorType  ActorType?
+  before     Json? // state before (state-changing actioner ops)
+  after      Json? // state after
+  reason     String? // admin-supplied justification
+  createdAt  DateTime   @default(now())
 
   @@index([entityId, entityType])
   @@index([event])
   @@index([createdAt])
+  @@index([actorId])
 }
 
 // ─────────────────────────────────────────

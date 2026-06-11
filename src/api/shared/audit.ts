@@ -65,6 +65,9 @@ export type AuditEvent =
   | 'BRANCH_PIN_SENT'
   | 'PROFILE_UPDATED'
   | 'PASSWORD_CHANGED'
+  // Phase 2 Slice 1 M2 — admin actioner foundation
+  | 'MERCHANT_DRAFT_CREATED'
+  | 'MEMBERSHIP_CREATED'
 
 export interface AuditContext {
   entityId: string
@@ -92,5 +95,62 @@ export function writeAuditLog(prisma: PrismaClient, ctx: AuditContext): void {
     },
   }).catch((err: unknown) => {
     console.error('[audit] Failed to write audit log:', err)
+  })
+}
+
+// ── Phase 2 Slice 1 M2 — transactional audit with actor ─────────────────────
+
+export type ActorType =
+  | 'ADMIN'
+  | 'MERCHANT_ADMIN'
+  | 'BRANCH_MANAGER'
+  | 'BRANCH_STAFF'
+  | 'CUSTOMER'
+  | 'SYSTEM'
+
+export interface AuditActorContext {
+  /** The TARGET of the action (e.g. the merchant being created). */
+  entityId: string
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin'
+  event: AuditEvent
+  /** WHO performed the action. */
+  actorId: string
+  actorType: ActorType
+  before?: unknown
+  after?: unknown
+  reason?: string
+  ipAddress: string
+  userAgent: string
+  metadata?: Record<string, unknown>
+}
+
+// Accepts the Prisma `$transaction` client (or a mock) — structural so the
+// helper stays decoupled from the generated client type and is easy to test.
+// `args: any` lets the real (stricter-typed) tx client satisfy this shape; the
+// runtime client still validates the `data` fields.
+type AuditTxClient = {
+  auditLog: { create: (args: any) => Promise<unknown> }
+}
+
+/**
+ * Write an audit row INSIDE the caller's transaction, awaited — so the audit
+ * record commits/rolls back atomically with the state change it documents.
+ * (Contrast `writeAuditLog`, which is fire-and-forget telemetry.)
+ */
+export async function writeAuditLogTx(tx: AuditTxClient, ctx: AuditActorContext): Promise<void> {
+  await tx.auditLog.create({
+    data: {
+      entityId:   ctx.entityId,
+      entityType: ctx.entityType,
+      event:      ctx.event,
+      actorId:    ctx.actorId,
+      actorType:  ctx.actorType,
+      before:     ctx.before as unknown,
+      after:      ctx.after as unknown,
+      reason:     ctx.reason,
+      ipAddress:  ctx.ipAddress,
+      userAgent:  ctx.userAgent,
+      metadata:   ctx.metadata as unknown,
+    },
   })
 }
