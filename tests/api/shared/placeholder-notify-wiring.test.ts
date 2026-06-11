@@ -92,6 +92,8 @@ describe('sendBranchPin → notify (branch PIN, type=branch_pin)', () => {
   const branchPinPrisma = (email: string | null) =>
     ({
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
+      // PR #214 (M1): resolveAdminMerchant now resolves via MerchantMembership.
+      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
       branch: {
         findFirst: vi.fn().mockResolvedValue({ redemptionPin: 'enc:1234', name: 'Soho', email, phone: null }),
       },
