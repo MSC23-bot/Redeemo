@@ -68,6 +68,12 @@ export type AuditEvent =
   // Phase 2 Slice 1 M2 — admin actioner foundation
   | 'MERCHANT_DRAFT_CREATED'
   | 'MEMBERSHIP_CREATED'
+  // Phase 2 Slice 1 M3 — actioner review loop
+  | 'MERCHANT_APPROVAL_CLAIMED'
+  | 'MERCHANT_APPROVAL_RELEASED'
+  | 'MERCHANT_CHANGES_REQUESTED'
+  | 'MERCHANT_APPROVAL_REJECTED'
+  | 'MERCHANT_RESUBMITTED'
 
 export interface AuditContext {
   entityId: string

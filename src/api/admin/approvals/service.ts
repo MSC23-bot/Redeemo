@@ -1,0 +1,344 @@
+import { PrismaClient } from '../../../../generated/prisma/client'
+import type { Redis } from 'ioredis'
+import { ApprovalType, ApprovalStatus } from '../../../../generated/prisma/enums'
+import { AppError } from '../../shared/errors'
+import { writeAuditLogTx } from '../../shared/audit'
+import { notify } from '../../shared/notify'
+import { merchantChangesRequestedEmail, merchantRejectedEmail } from '../../shared/merchantEmails'
+import { computeOnboardingChecklist } from '../../merchant/onboarding/service'
+
+// Phase 2 Slice 1 M3 — the AdminApproval actioner (review loop; NO approve/
+// go-live — that is M5). Every state-changing action is atomic + idempotent and
+// writes a transactional audit; request-changes/reject notify the merchant
+// owner after commit. The merchant stays PENDING_APPROVAL through the loop
+// (spec §2) — only reject (here) or approve (M5) leaves it.
+
+type AuditCtx = { ipAddress: string; userAgent: string }
+
+const ACTIONABLE_STATUSES: ApprovalStatus[] = ['PENDING', 'CHANGES_REQUESTED']
+
+/** Resolve a merchant's ACTIVE OWNER (id + email) for lifecycle notifications. */
+async function getMerchantOwner(
+  prisma: PrismaClient,
+  merchantId: string
+): Promise<{ adminId: string; email: string } | null> {
+  const membership = await prisma.merchantMembership.findFirst({
+    where: { merchantId, role: 'OWNER', status: 'ACTIVE' },
+    select: { merchantAdmin: { select: { id: true, email: true } } },
+  })
+  return membership?.merchantAdmin
+    ? { adminId: membership.merchantAdmin.id, email: membership.merchantAdmin.email }
+    : null
+}
+
+export interface ListApprovalsFilters {
+  type?: ApprovalType
+  status?: ApprovalStatus
+  claimedById?: string
+  /** Only approvals submitted more than N minutes ago (queue-age filter). */
+  olderThanMinutes?: number
+  page?: number
+  pageSize?: number
+}
+
+/** Paginated unified queue. MERCHANT_ONBOARDING rows carry a merchant summary. */
+export async function listApprovals(prisma: PrismaClient, filters: ListApprovalsFilters) {
+  const page = Math.max(1, filters.page ?? 1)
+  const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20))
+
+  const where = {
+    ...(filters.type ? { type: filters.type } : {}),
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.claimedById ? { claimedById: filters.claimedById } : {}),
+    ...(filters.olderThanMinutes
+      ? { submittedAt: { lt: new Date(Date.now() - filters.olderThanMinutes * 60_000) } }
+      : {}),
+  }
+
+  const [total, approvals] = await Promise.all([
+    prisma.adminApproval.count({ where }),
+    prisma.adminApproval.findMany({
+      where,
+      orderBy: { submittedAt: 'asc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ])
+
+  const merchantIds = approvals.filter((a) => a.type === 'MERCHANT_ONBOARDING').map((a) => a.referenceId)
+  const merchants = merchantIds.length
+    ? await prisma.merchant.findMany({
+        where: { id: { in: merchantIds } },
+        select: {
+          id: true,
+          businessName: true,
+          status: true,
+          onboardingStep: true,
+          verificationStatus: true,
+          contractStatus: true,
+        },
+      })
+    : []
+  const merchantById = new Map(merchants.map((m) => [m.id, m]))
+
+  return {
+    page,
+    pageSize,
+    total,
+    approvals: approvals.map((a) => ({
+      ...a,
+      merchant: a.type === 'MERCHANT_ONBOARDING' ? (merchantById.get(a.referenceId) ?? null) : null,
+    })),
+  }
+}
+
+/** One approval + target detail. For MERCHANT_ONBOARDING: merchant + checklist + the 2 RMVs. */
+export async function getApproval(prisma: PrismaClient, id: string) {
+  const approval = await prisma.adminApproval.findUnique({ where: { id } })
+  if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
+
+  if (approval.type !== 'MERCHANT_ONBOARDING') {
+    return { ...approval, merchant: null, checklist: null, rmvs: [] as unknown[] }
+  }
+
+  const merchantId = approval.referenceId
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: {
+      id: true,
+      businessName: true,
+      tradingName: true,
+      status: true,
+      onboardingStep: true,
+      verificationStatus: true,
+      contractStatus: true,
+      createdAt: true,
+    },
+  })
+  if (!merchant) return { ...approval, merchant: null, checklist: null, rmvs: [] as unknown[] }
+
+  const [checklist, rmvs] = await Promise.all([
+    computeOnboardingChecklist(prisma, merchantId),
+    prisma.voucher.findMany({
+      where: { merchantId, isRmv: true },
+      select: { id: true, title: true, type: true, status: true, approvalStatus: true, estimatedSaving: true },
+    }),
+  ])
+
+  return { ...approval, merchant, checklist, rmvs }
+}
+
+/** Claim-to-review: single-winner conditional claim; merchant → UNDER_REVIEW. */
+export async function claimApproval(prisma: PrismaClient, id: string, adminId: string, ctx: AuditCtx) {
+  return prisma.$transaction(async (tx) => {
+    const approval = await tx.adminApproval.findUnique({
+      where: { id },
+      select: { id: true, type: true, referenceId: true },
+    })
+    if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
+
+    // Conditional update = single winner under concurrency. Claimable only when
+    // PENDING (submitted/resubmitted) and not already claimed.
+    const claimed = await tx.adminApproval.updateMany({
+      where: { id, claimedById: null, status: 'PENDING' },
+      data: { claimedById: adminId, claimedAt: new Date() },
+    })
+    if (claimed.count === 0) throw new AppError('APPROVAL_ALREADY_CLAIMED')
+
+    if (approval.type === 'MERCHANT_ONBOARDING') {
+      await tx.merchant.update({ where: { id: approval.referenceId }, data: { onboardingStep: 'UNDER_REVIEW' } })
+    }
+
+    await writeAuditLogTx(tx, {
+      entityId: approval.referenceId,
+      entityType: 'merchant',
+      event: 'MERCHANT_APPROVAL_CLAIMED',
+      actorId: adminId,
+      actorType: 'ADMIN',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+    return { claimed: true }
+  })
+}
+
+/** Release a claim; merchant → SUBMITTED (back from UNDER_REVIEW). */
+export async function releaseApproval(prisma: PrismaClient, id: string, adminId: string, ctx: AuditCtx) {
+  return prisma.$transaction(async (tx) => {
+    const approval = await tx.adminApproval.findUnique({
+      where: { id },
+      select: { id: true, type: true, referenceId: true, claimedById: true },
+    })
+    if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
+    if (!approval.claimedById) throw new AppError('APPROVAL_NOT_ACTIONABLE')
+
+    await tx.adminApproval.update({ where: { id }, data: { claimedById: null, claimedAt: null } })
+    if (approval.type === 'MERCHANT_ONBOARDING') {
+      await tx.merchant.update({ where: { id: approval.referenceId }, data: { onboardingStep: 'SUBMITTED' } })
+    }
+
+    await writeAuditLogTx(tx, {
+      entityId: approval.referenceId,
+      entityType: 'merchant',
+      event: 'MERCHANT_APPROVAL_RELEASED',
+      actorId: adminId,
+      actorType: 'ADMIN',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+    return { released: true }
+  })
+}
+
+/** Request changes: approval → CHANGES_REQUESTED, merchant → NEEDS_CHANGES; notify owner. */
+export async function requestChanges(
+  prisma: PrismaClient,
+  redis: Redis,
+  id: string,
+  adminId: string,
+  reason: string,
+  ctx: AuditCtx
+) {
+  const merchantId = await prisma.$transaction(async (tx) => {
+    const approval = await tx.adminApproval.findUnique({
+      where: { id },
+      select: { id: true, type: true, status: true, referenceId: true },
+    })
+    if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
+    if (approval.type !== 'MERCHANT_ONBOARDING' || !ACTIONABLE_STATUSES.includes(approval.status)) {
+      throw new AppError('APPROVAL_NOT_ACTIONABLE')
+    }
+    const merchant = await tx.merchant.findUnique({ where: { id: approval.referenceId }, select: { status: true } })
+    if (!merchant || merchant.status === 'ACTIVE') throw new AppError('APPROVAL_NOT_ACTIONABLE')
+
+    await tx.adminApproval.update({
+      where: { id },
+      data: {
+        status: 'CHANGES_REQUESTED',
+        comment: reason,
+        claimedById: null,
+        claimedAt: null,
+        adminUserId: adminId,
+        actionedAt: new Date(),
+      },
+    })
+    // status stays PENDING_APPROVAL (spec §2); only the onboardingStep moves.
+    await tx.merchant.update({ where: { id: approval.referenceId }, data: { onboardingStep: 'NEEDS_CHANGES' } })
+
+    await writeAuditLogTx(tx, {
+      entityId: approval.referenceId,
+      entityType: 'merchant',
+      event: 'MERCHANT_CHANGES_REQUESTED',
+      actorId: adminId,
+      actorType: 'ADMIN',
+      reason,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+    return approval.referenceId
+  })
+
+  const owner = await getMerchantOwner(prisma, merchantId)
+  if (owner) {
+    await notify(prisma, redis, {
+      to: owner.email,
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: owner.adminId,
+      type: 'merchant_changes_requested',
+      email: { ...merchantChangesRequestedEmail(reason), sender: 'merchant' },
+      inApp: {
+        notificationType: 'MERCHANT_VERIFICATION_UPDATE',
+        title: 'Changes requested on your application',
+        body: 'We need a few changes before we can approve your Redeemo application. Open the portal to see what to update.',
+        referenceId: merchantId,
+        referenceType: 'merchant',
+      },
+      ip: ctx.ipAddress,
+    })
+  } else {
+    // Action committed but the merchant has no ACTIVE OWNER membership to notify.
+    // Keep the action successful (do NOT block on notification); log so the
+    // data-invariant breach is diagnosable (every merchant should have an OWNER).
+    console.warn(
+      `[actioner] request-changes committed for merchant ${merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`
+    )
+  }
+  return { changesRequested: true }
+}
+
+/** Reject (reopenable): merchant → INACTIVE/REJECTED/REJECTED, approval → REJECTED; notify owner. */
+export async function rejectApproval(
+  prisma: PrismaClient,
+  redis: Redis,
+  id: string,
+  adminId: string,
+  reason: string,
+  ctx: AuditCtx
+) {
+  const merchantId = await prisma.$transaction(async (tx) => {
+    const approval = await tx.adminApproval.findUnique({
+      where: { id },
+      select: { id: true, type: true, status: true, referenceId: true },
+    })
+    if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
+    if (approval.type !== 'MERCHANT_ONBOARDING' || !ACTIONABLE_STATUSES.includes(approval.status)) {
+      throw new AppError('APPROVAL_NOT_ACTIONABLE')
+    }
+    const merchant = await tx.merchant.findUnique({ where: { id: approval.referenceId }, select: { status: true } })
+    if (!merchant || merchant.status === 'ACTIVE') throw new AppError('APPROVAL_NOT_ACTIONABLE')
+
+    await tx.adminApproval.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        comment: reason,
+        claimedById: null,
+        claimedAt: null,
+        adminUserId: adminId,
+        actionedAt: new Date(),
+      },
+    })
+    await tx.merchant.update({
+      where: { id: approval.referenceId },
+      data: { status: 'INACTIVE', onboardingStep: 'REJECTED', verificationStatus: 'REJECTED' },
+    })
+
+    await writeAuditLogTx(tx, {
+      entityId: approval.referenceId,
+      entityType: 'merchant',
+      event: 'MERCHANT_APPROVAL_REJECTED',
+      actorId: adminId,
+      actorType: 'ADMIN',
+      reason,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+    return approval.referenceId
+  })
+
+  const owner = await getMerchantOwner(prisma, merchantId)
+  if (owner) {
+    await notify(prisma, redis, {
+      to: owner.email,
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: owner.adminId,
+      type: 'merchant_rejected',
+      email: { ...merchantRejectedEmail(reason), sender: 'merchant' },
+      inApp: {
+        notificationType: 'MERCHANT_VERIFICATION_UPDATE',
+        title: 'Update on your application',
+        body: 'We were unable to approve your Redeemo application. Open the portal for details.',
+        referenceId: merchantId,
+        referenceType: 'merchant',
+      },
+      ip: ctx.ipAddress,
+    })
+  } else {
+    // See request-changes: keep the action successful, log the missing-OWNER
+    // data-invariant breach (merchant not notified). No block on notification.
+    console.warn(
+      `[actioner] reject committed for merchant ${merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`
+    )
+  }
+  return { rejected: true }
+}
