@@ -10,19 +10,24 @@ import {
 } from '../../shared/session'
 import { writeAuditLog } from '../../shared/audit'
 import { generateSecureToken } from '../../shared/tokens'
+import { resolveAdminMerchant } from '../../merchant/shared'
 
 async function assertBranchOwnership(
   prisma: PrismaClient,
   merchantAdminId: string,
   branchId: string
 ): Promise<string> {
-  const admin = await prisma.merchantAdmin.findUnique({ where: { id: merchantAdminId } })
-  if (!admin) throw new AppError('INVALID_CREDENTIALS')
+  // M6b (D-1): resolve ownership via resolveAdminMerchant (MerchantMembership
+  // source of truth, NOT the dropped MerchantAdmin.merchantId). This also extends
+  // the M6a SEC-M2 suspended-merchant block to branch-user management — branch-user
+  // mgmt IS merchant management, so a suspended owner must not manage via a cached
+  // token (it throws MERCHANT_SUSPENDED). No session-revocation change here.
+  const { merchantId } = await resolveAdminMerchant(prisma, merchantAdminId)
 
   const branch = await prisma.branch.findUnique({ where: { id: branchId } })
-  if (!branch || branch.merchantId !== admin.merchantId) throw new AppError('BRANCH_NOT_OWNED')
+  if (!branch || branch.merchantId !== merchantId) throw new AppError('BRANCH_NOT_OWNED')
 
-  return admin.merchantId
+  return merchantId
 }
 
 export async function createBranchUser(

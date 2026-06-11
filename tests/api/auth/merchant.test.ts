@@ -9,6 +9,9 @@ describe('merchant auth routes', () => {
     app = await buildApp()
     app.decorate('prisma', {
       merchantAdmin: { findUnique: vi.fn(), update: vi.fn() },
+      // M6b (D-1): login/OTP resolve the merchant via MerchantMembership, not the
+      // dropped MerchantAdmin.merchant relation.
+      merchantMembership: { findFirst: vi.fn() },
       userSession: { create: vi.fn(), updateMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
     } as any)
@@ -49,7 +52,9 @@ describe('merchant auth routes', () => {
       passwordHash: hash,
       otpVerifiedAt: null,
       status: 'ACTIVE',
-      merchant: { id: 'm1', status: 'ACTIVE', businessName: 'Test Co' },
+    })
+    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue({
+      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'ACTIVE', businessName: 'Test Co' },
     })
 
     const res = await app.inject({
@@ -72,7 +77,9 @@ describe('merchant auth routes', () => {
 
     app.prisma.merchantAdmin.findUnique = vi.fn().mockResolvedValue({
       id: 'ma1', passwordHash: hash, otpVerifiedAt: new Date(), status: 'ACTIVE',
-      merchant: { id: 'm1', status: 'SUSPENDED', businessName: 'Test Co' },
+    })
+    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue({
+      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'SUSPENDED', businessName: 'Test Co' },
     })
 
     const res = await app.inject({

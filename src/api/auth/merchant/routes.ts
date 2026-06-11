@@ -8,6 +8,7 @@ import {
   loginMerchant, verifyMerchantOtp, refreshMerchantToken,
   logoutMerchant, forgotPasswordMerchant, resetPasswordMerchant,
 } from './service'
+import { getOwnerMembership } from '../../shared/merchantMembership'
 
 export async function merchantAuthRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/auth'
@@ -77,11 +78,13 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
 
   // Soft-deactivate merchant (self-service)
   app.post(`${prefix}/deactivate`, { preHandler: [app.authenticateMerchant] }, async (req: any, reply) => {
-    const admin = await app.prisma.merchantAdmin.findUnique({ where: { id: req.user.sub } })
-    if (!admin) throw new AppError('INVALID_CREDENTIALS')
+    // M6b (D-1): resolve the merchant via MerchantMembership (not admin.merchantId).
+    // Behaviour-neutral self-service deactivate (D-δ — no session revocation here).
+    const membership = await getOwnerMembership(app.prisma, req.user.sub)
+    if (!membership) throw new AppError('INVALID_CREDENTIALS')
 
     await app.prisma.merchant.update({
-      where: { id: (admin as any).merchantId },
+      where: { id: membership.merchantId },
       data:  { status: 'INACTIVE' },
     })
 
@@ -94,18 +97,16 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
 
   // Reactivate merchant (self-service)
   app.post(`${prefix}/reactivate`, { preHandler: [app.authenticateMerchant] }, async (req: any, reply) => {
-    const admin = await app.prisma.merchantAdmin.findUnique({
-      where: { id: req.user.sub }, include: { merchant: true },
-    })
-    if (!admin) throw new AppError('INVALID_CREDENTIALS')
+    // M6b (D-1): resolve the merchant via MerchantMembership (not admin.merchant).
+    const membership = await getOwnerMembership(app.prisma, req.user.sub)
+    if (!membership?.merchant) throw new AppError('INVALID_CREDENTIALS')
 
-    const merchant = (admin as any).merchant
-    if (merchant.status !== 'INACTIVE') {
+    if (membership.merchant.status !== 'INACTIVE') {
       return reply.send({ message: 'Merchant account is already active.' })
     }
 
     await app.prisma.merchant.update({
-      where: { id: (admin as any).merchantId },
+      where: { id: membership.merchantId },
       data:  { status: 'ACTIVE' },
     })
 

@@ -25,7 +25,9 @@ describe('M1 — MerchantMembership helpers (mocked)', () => {
         where: { merchantAdminId: 'ma1', role: 'OWNER', status: 'ACTIVE' },
         // M6a (SEC-M2): the joined merchant.status lets resolveAdminMerchant /
         // token-refresh block a SUSPENDED merchant without a second query.
-        select: { id: true, merchantId: true, merchantAdminId: true, merchant: { select: { status: true } } },
+        // M6b (D-1): + businessName so the auth login/OTP response builds from the
+        // membership instead of the dropped MerchantAdmin.merchant relation.
+        select: { id: true, merchantId: true, merchantAdminId: true, merchant: { select: { status: true, businessName: true } } },
       })
     })
 
