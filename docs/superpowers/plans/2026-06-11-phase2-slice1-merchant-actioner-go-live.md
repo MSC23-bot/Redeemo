@@ -139,22 +139,29 @@
 
 ---
 
-## M4 — Location-confidence: discovery visibility gate + position unification + admin confirm-location
+## M4 — Location-confidence: shared confirmed-set helper + admin confirm-location (Option-A reconciliation)
 
-**PR scope:** the §8 / §19.1 location-confidence semantics, landed **before** go-live consumes them. Touches customer discovery — test tightly.
+> **AS BUILT — Option A (owner-approved 2026-06-11).** Pre-code inspection found that discovery already enforces a branch-level location-confidence model shipped in **PR #81 (Plan 4 M1)** under spec `2026-05-18-discovery-rebaseline-branch-first.md §4.1.1` — a deliberately-tested **list-vs-map asymmetry**, NOT the merchant-level-only gate §8 assumed. The §8 stricter model (hide `POSTCODE_CENTROID` from lists; expose `ADDRESS_GEOCODED` on the map via D-5) directly **reverses** that locked contract and would rewrite ~6 passing PR #81 tests + change customer-visible discovery. The owner chose **Option A**: ship only the genuinely-new, non-conflicting M4 deliverables (the shared helper + the admin pin-drop) and **preserve the PR #81 discovery contract as authoritative**. Tightening discovery visibility or exposing `ADDRESS_GEOCODED` on the map is deferred to a **separate product/spec decision**. The original §8/D-5 plan text is retained below under "Superseded".
 
-**Files — Create:** `src/api/shared/location.ts`; `src/api/admin/merchants/confirm-location` (extend `admin/merchants/{routes,service}.ts`); tests `tests/api/customer/discovery/location-confidence-gate.test.ts`, `tests/api/admin/confirm-location.test.ts`. **Modify:** `src/api/customer/discovery/service.ts`, `src/api/lib/ranking.ts` (unify the confirmed set if it diverges), `src/api/shared/errors.ts`.
+**PR scope (as built):** extract the shared confirmed-location constant/helper that ranking + discovery partitions already inline, and add the admin confirm-location pin-drop. **No customer-facing behaviour change.** Lands before M5 go-live consumes the helper.
 
-**Schema:** **none** (uses existing `Branch.{isActive, locationConfidence, localityId, isTestData, deletedAt, latitude, longitude}`).
+**Files — Create:** `src/api/shared/location.ts`; `src/api/admin/branches/{routes,service}.ts` (new admin module, mirrors `admin/merchants` + `admin/approvals`); tests `tests/api/shared/location.test.ts`, `tests/api/admin/confirm-location.test.ts` (real-DB) + `tests/api/admin/confirm-location-routes.test.ts` (mock gate). **Modify:** `src/api/lib/ranking.ts`, `src/api/customer/discovery/{service.ts,homeRailBuilders.ts}` (replace the inline `{MC,AG}` literal with the helper), `src/api/shared/audit.ts` (add `BRANCH_LOCATION_CONFIRMED`), `src/api/admin/plugin.ts` (register the new module), `tests/api/lib/classifyRung.test.ts` (parity pin).
 
-**Contracts:**
-- `src/api/shared/location.ts`: `export const CONFIRMED_LOCATION_SET = ['MANUALLY_CONFIRMED','ADDRESS_GEOCODED'] as const;` + `isBranchLocationConfirmed(b)` + `hasExactPosition(b)` re-pointed to the set (D-5 — `ADDRESS_GEOCODED` exposes geocoded coordinates).
-- **Discovery (`discovery/service.ts`):** the branch visibility predicate gains `locationConfidence: { in: CONFIRMED_LOCATION_SET }` + `localityId: { not: null }` (where branches are selected for customer surfaces — `:338` and the per-branch reads); the position-exposure helper (`:74`/`:98`) uses the same set. Unify with `ranking.ts`'s confirmed set into the one constant.
-- **Admin confirm-location:** `POST /api/v1/admin/branches/:id/confirm-location` (cap `branch:confirm-location`, body `{ latitude, longitude }`) — sets `branch.latitude/longitude` + `locationConfidence='MANUALLY_CONFIRMED'`; transactional audit `BRANCH_LOCATION_CONFIRMED` (before/after). This is the Q7 fallback so a `POSTCODE_CENTROID` main branch is never a permanent go-live blocker.
+**Schema:** **none.** (`Branch` has **no `deletedAt` column** — the §8 predicate's `deletedAt==null` clause is dropped, consistent with the §BRANCHDEL deferral surfaced in M3. `errors.ts` already has `BRANCH_NOT_FOUND`; no new error needed.)
 
-**Tests (TDD):** a merchant (forced ACTIVE in the fixture) with one `MANUALLY_CONFIRMED` + one `ADDRESS_GEOCODED` + one `POSTCODE_CENTROID` branch → discovery shows the first two, hides the third; the `ADDRESS_GEOCODED` branch exposes its geocoded position (not redacted); chain partial-visibility; `confirm-location` flips a `POSTCODE_CENTROID` branch to visible + audits before/after; `CONFIRMED_LOCATION_SET` is the single source (no duplicate literal in ranking/discovery).
+**Contracts (as built):**
+- `src/api/shared/location.ts`: `export const CONFIRMED_LOCATION_SET = ['MANUALLY_CONFIRMED','ADDRESS_GEOCODED'] as const;` + `isBranchLocationConfirmed(b)`. This is the **discovery/go-live confidence set only**. `hasExactPosition` / `exposeBranchPosition` (the stricter `MANUALLY_CONFIRMED`-only map-pin/exact-distance rule) are **NOT re-pointed** — the PR #81 list-vs-map asymmetry stays authoritative. The `{MC,AG}` literal is replaced at **8 call sites** (the `classifyRung` discoverability gate + the 6 rail/search rankable partitions — Featured / Trending / Popular / NearbyByCategory-primary / NearbyByCategory-cascade / Search — + the v1.7 filler distance filter); the `{POSTCODE_CENTROID, NEEDS_REVIEW}` non-rankable complement stays an explicit discovery-local literal (zero behaviour change, no complement-semantics risk).
+- **Admin confirm-location:** `POST /api/v1/admin/branches/:id/confirm-location` (cap `branch:confirm-location`, body `{ latitude, longitude }`) — sets `branch.latitude/longitude` + `locationConfidence='MANUALLY_CONFIRMED'`; transactional audit `BRANCH_LOCATION_CONFIRMED` (actor + before/after). Idempotent. This is the Q7 fallback so a `POSTCODE_CENTROID` main branch is never a permanent go-live blocker (flipping it to `MANUALLY_CONFIRMED` is exactly how it earns a map pin under the existing PR #81 contract — no separate discovery change needed).
 
-**Safety/rollback:** customer-facing, but **safe** — no real (non-test) merchant branches are ACTIVE yet, so the stricter gate hides nothing live; pure predicate change, revertible. **Idempotency:** confirm-location is idempotent (setting the same coords/confidence twice = same state). **Checkpoint:** discovery integration tests green; the constant is shared.
+**Tests (as built):** `location.test.ts` pins the helper + the 4-value partition (locks `CONFIRMED_LOCATION_SET` so it can't silently widen/narrow its discovery/ranking consumers); `classifyRung.test.ts` adds a cross-module parity pin (gate ⟺ helper across the full enum); the existing PR #81 `location-confidence-redaction.test.ts` + `classifyRung.test.ts` + `rankBranchesV3.test.ts` staying green is the behaviour-preserving proof; admin tests cover the auth/capability gate (401/403/OPERATIONS+SUPER_ADMIN pass/Zod 400) + real-DB service (PC→MC flip, audit before/after, idempotency, BRANCH_NOT_FOUND).
+
+**Safety/rollback:** **no customer-facing behaviour change** — pure DRY refactor + an admin-only additive route. confirm-location is idempotent. **Checkpoint:** ranking + PR #81 discovery suites green; the constant is shared and M5's go-live gate can consume `isBranchLocationConfirmed`.
+
+<details><summary><b>Superseded — original §8/D-5 stricter-gate plan (NOT built; deferred to a separate product/spec decision)</b></summary>
+
+The original M4 plan added a WHERE-level visibility gate (`locationConfidence: { in: CONFIRMED_LOCATION_SET }` + `localityId: { not: null }`) that hid `POSTCODE_CENTROID` from list views, and re-pointed `hasExactPosition`/`exposeBranchPosition` to the set so `ADDRESS_GEOCODED` branches exposed geocoded coordinates on the map (D-5). Inspection showed both reverse the locked PR #81 §4.1.1 list-vs-map asymmetry. Deferred per Option A.
+
+</details>
 
 ---
 

@@ -2,6 +2,7 @@ import fp from 'fastify-plugin'
 import { FastifyInstance } from 'fastify'
 import { adminMerchantRoutes } from './merchants/routes'
 import { adminApprovalRoutes } from './approvals/routes'
+import { adminBranchRoutes } from './branches/routes'
 
 // Phase 2 Slice 1 M2 — admin-management surface. Mirrors merchant/plugin.ts:
 // a scoped sub-plugin applies the `authenticateAdmin` preHandler to all
@@ -13,6 +14,7 @@ async function adminManagementPlugin(app: FastifyInstance) {
 
     await scoped.register(adminMerchantRoutes)
     await scoped.register(adminApprovalRoutes)
+    await scoped.register(adminBranchRoutes)
   })
 }
 

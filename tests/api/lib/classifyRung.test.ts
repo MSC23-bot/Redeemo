@@ -14,6 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { classifyRung } from '../../../src/api/lib/ranking'
+import { isBranchLocationConfirmed } from '../../../src/api/shared/location'
 import type { EffectiveLocation } from '../../../src/api/lib/effectiveLocation'
 
 // Helper — build an EffectiveLocation around a partial Locality.
@@ -262,6 +263,38 @@ describe('classifyRung — null-safe admin-rung handling', () => {
     })
     expect(classifyRung(branch, eff, 1.5, [])).toBe('LAD')
   })
+})
+
+// Phase 2 Slice 1 M4 — cross-module parity pin.
+//
+// M4 refactored classifyRung's discoverability gate from an inline
+// `=== 'MANUALLY_CONFIRMED' || === 'ADDRESS_GEOCODED'` literal to the shared
+// `isBranchLocationConfirmed` helper. This pins that the gate and the helper
+// stay in lockstep across the FULL LocationConfidence enum, so a future edit
+// to CONFIRMED_LOCATION_SET can't silently desync the ranking gate from the
+// helper the M5 go-live path will share.
+describe('classifyRung — discoverability tracks isBranchLocationConfirmed (M4 helper parity)', () => {
+  const ALL_CONFIDENCES = [
+    'MANUALLY_CONFIRMED',
+    'ADDRESS_GEOCODED',
+    'POSTCODE_CENTROID',
+    'NEEDS_REVIEW',
+  ] as const
+
+  it.each(ALL_CONFIDENCES)(
+    'confidence %s: classifyRung returns a rung iff isBranchLocationConfirmed is true',
+    (confidence) => {
+      // NEARBY-eligible coords so a confirmed branch resolves to a rung and an
+      // unconfirmed branch is the ONLY reason a null comes back.
+      const branch = makeBranch({
+        latitude: 51.501,
+        longitude: -0.101,
+        locationConfidence: confidence,
+      })
+      const rung = classifyRung(branch, buildEffLoc(), 1.5, [])
+      expect(rung !== null).toBe(isBranchLocationConfirmed({ locationConfidence: confidence }))
+    },
+  )
 })
 
 describe('classifyRung — branch with no coordinates', () => {

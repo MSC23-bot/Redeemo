@@ -1,4 +1,5 @@
 import { haversineMetres } from '../shared/haversine'
+import { isBranchLocationConfirmed } from '../shared/location'
 import type { PrismaClient } from '../../../generated/prisma/client'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -324,11 +325,11 @@ export function classifyRung(
    */
   outgoingCatchmentTargetIds: readonly string[],
 ): SupplyRung | null {
-  // Discoverability gate.
+  // Discoverability gate. CONFIRMED_LOCATION_SET (shared M4 helper) — only
+  // MANUALLY_CONFIRMED / ADDRESS_GEOCODED branches are rankable; an approximate
+  // postcode-centroid pin can never produce a NEARBY match (PR #81 contract).
   if (!branch.isActive) return null
-  if (branch.locationConfidence !== 'MANUALLY_CONFIRMED' && branch.locationConfidence !== 'ADDRESS_GEOCODED') {
-    return null
-  }
+  if (!isBranchLocationConfirmed(branch)) return null
 
   // NEARBY — distance check via reused shared/haversine helper.
   if (branch.latitude !== null && branch.longitude !== null) {
