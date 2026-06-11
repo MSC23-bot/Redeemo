@@ -8,7 +8,7 @@ import { CONFIRMED_LOCATION_SET, isBranchLocationConfirmed } from '../../../src/
 // 4-value partition pin is the load-bearing one: it locks
 // CONFIRMED_LOCATION_SET to exactly { MANUALLY_CONFIRMED, ADDRESS_GEOCODED }
 // across the whole LocationConfidence enum, so the constant can't silently
-// widen/narrow and change all six consumers at once.
+// widen/narrow and change every discovery/ranking consumer at once.
 
 describe('M4 — CONFIRMED_LOCATION_SET / isBranchLocationConfirmed', () => {
   it('CONFIRMED_LOCATION_SET is exactly { MANUALLY_CONFIRMED, ADDRESS_GEOCODED }', () => {

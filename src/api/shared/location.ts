@@ -4,9 +4,10 @@
 // location is confirmed enough to (a) rank/surface it in discovery list views
 // and (b) [M5] let its merchant go live". Discovery ranking (`classifyRung`)
 // and the home/search rail partitions previously inlined this exact
-// { MANUALLY_CONFIRMED, ADDRESS_GEOCODED } literal at six sites; they now
-// consume this constant/helper. The M5 go-live gate will read the same helper
-// so visibility-classification and go-live can never drift apart.
+// { MANUALLY_CONFIRMED, ADDRESS_GEOCODED } literal at every rail/search
+// partition + the ranking gate; they now consume this constant/helper. The M5
+// go-live gate will read the same helper so visibility-classification and
+// go-live can never drift apart.
 //
 // IMPORTANT — this is the DISCOVERY/GO-LIVE confidence set, NOT the stricter
 // "exact position" rule. Map pins + exact-distance derivations stay
