@@ -1,8 +1,8 @@
 // src/api/shared/merchantEmails.ts
 //
 // Phase 2 Slice 1 M3 — merchant onboarding lifecycle email templates for the
-// actioner review loop: changes-requested + rejected. The "you're live"
-// approval template lands in M5 (it owns the action that fires it). Plain,
+// actioner review loop: changes-requested + rejected. M5 adds the "you're
+// live" approval template (it owns the action that fires it). Plain,
 // accessible HTML; the admin-supplied `reason` is merchant-facing and escaped.
 
 import { escapeHtml, type RenderedEmail } from './emailTemplates'
@@ -46,5 +46,33 @@ export function merchantRejectedEmail(reason: string): RenderedEmail {
       `<p><strong>Reason:</strong></p>` +
       `<blockquote>${safeReason}</blockquote>` +
       `<p>If you believe this was a mistake or would like to discuss it, please contact our merchant support team.</p>`,
+  }
+}
+
+/**
+ * Admin approved a merchant's onboarding and the merchant is now live. M5 owns
+ * this template. `businessName` is the merchant's own name shown back to them;
+ * HTML-escaped defensively so a name with markup can't break the body.
+ */
+export function merchantLiveEmail(businessName: string): RenderedEmail {
+  const safeName = escapeHtml(businessName)
+  return {
+    subject: `You're live on ${BRAND}`,
+    text:
+      `Your business is now live on ${BRAND}. Members can find ${businessName} and redeem your offers from today.\n\n` +
+      `What happens now:\n` +
+      `- Your offers are visible to members in your area.\n` +
+      `- Staff validate every redemption in the ${BRAND} merchant app by QR scan or code entry.\n` +
+      `- You can see each redemption, with full reconciliation data, in your merchant portal.\n\n` +
+      `Sign in to your portal any time to manage your offers, branches, and team.`,
+    html:
+      `<p>Your business is now live on ${BRAND}. Members can find ${safeName} and redeem your offers from today.</p>` +
+      `<p><strong>What happens now:</strong></p>` +
+      `<ul>` +
+      `<li>Your offers are visible to members in your area.</li>` +
+      `<li>Staff validate every redemption in the ${BRAND} merchant app by QR scan or code entry.</li>` +
+      `<li>You can see each redemption, with full reconciliation data, in your merchant portal.</li>` +
+      `</ul>` +
+      `<p>Sign in to your portal any time to manage your offers, branches, and team.</p>`,
   }
 }

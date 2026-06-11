@@ -8,6 +8,7 @@ import {
   releaseApproval,
   requestChanges,
   rejectApproval,
+  approveApproval,
 } from './service'
 
 // Phase 2 Slice 1 M3 — actioner review-loop routes. `authenticateAdmin` is
@@ -53,5 +54,11 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
 
   app.post(`${prefix}/:id/reject`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
     return rejectApproval(app.prisma, app.redis, idParam(req), req.user.sub, reasonBody(req), auditCtx(req))
+  })
+
+  // M5 — approve → atomic go-live (no reason body). Same capability as the
+  // other state-changing actions.
+  app.post(`${prefix}/:id/approve`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
+    return approveApproval(app.prisma, app.redis, idParam(req), req.user.sub, auditCtx(req))
   })
 }

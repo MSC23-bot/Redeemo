@@ -50,4 +50,20 @@ describe('M3 — /admin/approvals route auth + capability gate', () => {
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error.code).toBe('ADMIN_CAPABILITY_DENIED')
   })
+
+  // M5 — approve route shares the approval:action gate.
+  it('401 when unauthenticated (POST approve)', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/admin/approvals/some-id/approve' })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('403 for a role without approval:action (SUPPORT, POST approve)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/approvals/some-id/approve',
+      headers: { authorization: `Bearer ${signAdmin('SUPPORT')}` },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('ADMIN_CAPABILITY_DENIED')
+  })
 })

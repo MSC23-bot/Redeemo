@@ -70,6 +70,10 @@ export const ERROR_DEFINITIONS = {
   CATEGORY_CHANGE_BLOCKED:        { statusCode: 409, message: 'Category cannot be changed after RMV vouchers have been submitted. Contact support.' },
   ONBOARDING_GATES_INCOMPLETE:    { statusCode: 409, message: 'Not all onboarding requirements are complete. Check your onboarding checklist.' },
   ALREADY_SUBMITTED:              { statusCode: 409, message: 'This merchant has already been submitted for approval.' },
+  // Phase 2 Slice 1 M5: go-live gate — the merchant's main branch location is
+  // not yet confirmed (locationConfidence not in CONFIRMED_LOCATION_SET). The
+  // admin resolves it via POST /admin/branches/:id/confirm-location (M4).
+  MAIN_BRANCH_LOCATION_UNCONFIRMED: { statusCode: 409, message: 'The main branch location is not confirmed yet. Confirm the branch location before approving.' },
   CONTRACT_ALREADY_SIGNED:        { statusCode: 409, message: 'The contract has already been accepted.' },
   NO_RMV_TEMPLATE:                { statusCode: 422, message: 'No RMV template found for this category. Please contact Redeemo support.' },
   NO_SENSITIVE_FIELDS:            { statusCode: 400, message: 'No editable sensitive fields were provided. Use PATCH /profile for non-sensitive fields.' },

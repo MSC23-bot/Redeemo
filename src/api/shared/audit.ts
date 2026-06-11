@@ -76,6 +76,9 @@ export type AuditEvent =
   | 'MERCHANT_RESUBMITTED'
   // Phase 2 Slice 1 M4 — admin location-confidence pin-drop
   | 'BRANCH_LOCATION_CONFIRMED'
+  // Phase 2 Slice 1 M5 — atomic approve / go-live
+  | 'MERCHANT_APPROVAL_APPROVED'
+  | 'MERCHANT_GO_LIVE'
 
 export interface AuditContext {
   entityId: string
