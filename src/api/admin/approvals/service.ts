@@ -255,6 +255,13 @@ export async function requestChanges(
       },
       ip: ctx.ipAddress,
     })
+  } else {
+    // Action committed but the merchant has no ACTIVE OWNER membership to notify.
+    // Keep the action successful (do NOT block on notification); log so the
+    // data-invariant breach is diagnosable (every merchant should have an OWNER).
+    console.warn(
+      `[actioner] request-changes committed for merchant ${merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`
+    )
   }
   return { changesRequested: true }
 }
@@ -326,6 +333,12 @@ export async function rejectApproval(
       },
       ip: ctx.ipAddress,
     })
+  } else {
+    // See request-changes: keep the action successful, log the missing-OWNER
+    // data-invariant breach (merchant not notified). No block on notification.
+    console.warn(
+      `[actioner] reject committed for merchant ${merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`
+    )
   }
   return { rejected: true }
 }
