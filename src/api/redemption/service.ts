@@ -522,7 +522,8 @@ export async function verifyRedemption(
   const redemption = await prisma.voucherRedemption.findUnique({
     where: { redemptionCode: code },
     include: {
-      voucher: { select: { merchantId: true } },
+      voucher: { select: { merchantId: true, merchant: { select: { status: true } } } },
+      branch:  { select: { isActive: true } },
       user:    { select: { firstName: true, lastName: true } },
     },
   })
@@ -535,6 +536,12 @@ export async function verifyRedemption(
   } else {
     if (redemption.voucher.merchantId !== actor.merchantId) throw new AppError('MERCHANT_MISMATCH')
   }
+
+  // SEC-M1 (M6a): decide active/suspended from the LIVE DB, never the cached
+  // login-snapshot session. A merchant suspended (or a branch deactivated) AFTER
+  // the actor's session was cached must NOT be able to validate a redemption.
+  if (redemption.voucher.merchant.status !== MerchantStatus.ACTIVE) throw new AppError('MERCHANT_SUSPENDED')
+  if (!redemption.branch.isActive) throw new AppError('BRANCH_UNAVAILABLE')
 
   const updated = await prisma.voucherRedemption.update({
     where: { id: redemption.id },

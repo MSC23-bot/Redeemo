@@ -79,6 +79,8 @@ export type AuditEvent =
   // Phase 2 Slice 1 M5 — atomic approve / go-live
   | 'MERCHANT_APPROVAL_APPROVED'
   | 'MERCHANT_GO_LIVE'
+  // Phase 2 Slice 1 M6a — admin suspend (reactivate reuses MERCHANT_REACTIVATED)
+  | 'MERCHANT_SUSPENDED'
 
 export interface AuditContext {
   entityId: string

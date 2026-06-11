@@ -23,7 +23,9 @@ describe('M1 — MerchantMembership helpers (mocked)', () => {
       expect(r).toEqual({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' })
       expect(prisma.merchantMembership.findFirst).toHaveBeenCalledWith({
         where: { merchantAdminId: 'ma1', role: 'OWNER', status: 'ACTIVE' },
-        select: { id: true, merchantId: true, merchantAdminId: true },
+        // M6a (SEC-M2): the joined merchant.status lets resolveAdminMerchant /
+        // token-refresh block a SUSPENDED merchant without a second query.
+        select: { id: true, merchantId: true, merchantAdminId: true, merchant: { select: { status: true } } },
       })
     })
 

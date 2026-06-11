@@ -74,6 +74,9 @@ export const ERROR_DEFINITIONS = {
   // not yet confirmed (locationConfidence not in CONFIRMED_LOCATION_SET). The
   // admin resolves it via POST /admin/branches/:id/confirm-location (M4).
   MAIN_BRANCH_LOCATION_UNCONFIRMED: { statusCode: 409, message: 'The main branch location is not confirmed yet. Confirm the branch location before approving.' },
+  // Phase 2 Slice 1 M6a: admin reactivate is the reverse of suspend — it only
+  // acts on a SUSPENDED merchant (never force-activates a non-approved one).
+  MERCHANT_NOT_SUSPENDED:         { statusCode: 409, message: 'This merchant is not suspended, so it cannot be reactivated.' },
   CONTRACT_ALREADY_SIGNED:        { statusCode: 409, message: 'The contract has already been accepted.' },
   NO_RMV_TEMPLATE:                { statusCode: 422, message: 'No RMV template found for this category. Please contact Redeemo support.' },
   NO_SENSITIVE_FIELDS:            { statusCode: 400, message: 'No editable sensitive fields were provided. Use PATCH /profile for non-sensitive fields.' },

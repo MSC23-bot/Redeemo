@@ -440,7 +440,7 @@ describe('verifyRedemption', () => {
     const prisma = mockPrisma()
     prisma.voucherRedemption.findUnique.mockResolvedValue({
       id: 'r1', isValidated: false, branchId: 'b1',
-      voucher: { merchantId: 'm1' },
+      voucher: { merchantId: 'm1', merchant: { status: 'ACTIVE' } }, branch: { isActive: true },
       user: { firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com', phone: '07700900000' },
     })
     prisma.voucherRedemption.update.mockResolvedValue({
@@ -467,7 +467,7 @@ describe('verifyRedemption', () => {
     const prisma = mockPrisma()
     prisma.voucherRedemption.findUnique.mockResolvedValue({
       id: 'r1', isValidated: false, branchId: 'b-any',
-      voucher: { merchantId: 'm1' },
+      voucher: { merchantId: 'm1', merchant: { status: 'ACTIVE' } }, branch: { isActive: true },
       user: { firstName: 'Bob', lastName: 'Smith' },
     })
     prisma.voucherRedemption.update.mockResolvedValue({

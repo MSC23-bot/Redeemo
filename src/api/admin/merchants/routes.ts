@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
-import { createMerchantDraft } from './service'
+import { createMerchantDraft, suspendMerchant, reactivateMerchant } from './service'
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/merchants'
@@ -27,5 +27,19 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       userAgent: req.headers['user-agent'] ?? '',
     })
     return reply.status(201).send(result)
+  })
+
+  const idParam = (req: any) => z.object({ id: z.string().min(1) }).parse(req.params).id
+  const auditCtx = (req: any) => ({ ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' })
+
+  // M6a — admin suspend (safe takedown). Cap `merchant:suspend`.
+  app.post(`${prefix}/:id/suspend`, { preHandler: [requireAdminCapability('merchant:suspend')] }, async (req: any) => {
+    const { reason } = z.object({ reason: z.string().min(1).max(2000) }).parse(req.body)
+    return suspendMerchant(app.prisma, app.redis, req.user.sub, idParam(req), reason, auditCtx(req))
+  })
+
+  // M6a — admin reactivate (reverse of suspend). Same capability.
+  app.post(`${prefix}/:id/reactivate`, { preHandler: [requireAdminCapability('merchant:suspend')] }, async (req: any) => {
+    return reactivateMerchant(app.prisma, req.user.sub, idParam(req), auditCtx(req))
   })
 }
