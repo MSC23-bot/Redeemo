@@ -31,6 +31,7 @@ import { rankBranchesV3, type RankableBranchInputV3 } from '../../lib/ranking'
 import type { LadderProfile, SupplyRung, ProximityBand } from '../../lib/ladderProfiles'
 import type { EffectiveLocation } from '../../lib/effectiveLocation'
 import { haversineMetres } from '../../shared/haversine'
+import { isBranchLocationConfirmed } from '../../shared/location'
 import {
   resolveScopeForHomeRail,
   appendStrictLocalityTail,
@@ -190,10 +191,9 @@ export async function buildFeaturedRail(
   if (allBranches.length === 0) return { branches: [], meta: null }
 
   // ── 3. Partition by locationConfidence (spec §4.1.1 list-view admission).
-  const rankable = allBranches.filter(b =>
-    b.locationConfidence === 'MANUALLY_CONFIRMED'
-    || b.locationConfidence === 'ADDRESS_GEOCODED'
-  )
+  //    rankable = CONFIRMED_LOCATION_SET (shared M4 helper); nonRankable is its
+  //    discovery-local complement (POSTCODE_CENTROID + NEEDS_REVIEW tail).
+  const rankable = allBranches.filter(isBranchLocationConfirmed)
   const nonRankable = allBranches.filter(b =>
     b.locationConfidence === 'POSTCODE_CENTROID'
     || b.locationConfidence === 'NEEDS_REVIEW'
@@ -395,11 +395,9 @@ export async function buildTrendingRail(
   }) as RankBranchRow[]
   if (allBranches.length === 0) return { branches: [], meta: null }
 
-  // ── 3. Partition by locationConfidence (mirrors buildFeaturedRail).
-  const rankable = allBranches.filter(b =>
-    b.locationConfidence === 'MANUALLY_CONFIRMED'
-    || b.locationConfidence === 'ADDRESS_GEOCODED'
-  )
+  // ── 3. Partition by locationConfidence (mirrors buildFeaturedRail —
+  //    rankable = CONFIRMED_LOCATION_SET via the shared M4 helper).
+  const rankable = allBranches.filter(isBranchLocationConfirmed)
   const nonRankable = allBranches.filter(b =>
     b.locationConfidence === 'POSTCODE_CENTROID'
     || b.locationConfidence === 'NEEDS_REVIEW'
@@ -638,10 +636,7 @@ export async function buildPopularRail(
 
   // ── 4. With-effLoc branch (a): §DG step 3b — rank via V3 with
   //    sortBy='popularity' + popularityMap.
-  const rankable = allBranches.filter((b) =>
-    b.locationConfidence === 'MANUALLY_CONFIRMED'
-    || b.locationConfidence === 'ADDRESS_GEOCODED'
-  )
+  const rankable = allBranches.filter(isBranchLocationConfirmed)
   const nonRankable = allBranches.filter((b) =>
     b.locationConfidence === 'POSTCODE_CENTROID'
     || b.locationConfidence === 'NEEDS_REVIEW'
@@ -907,10 +902,7 @@ export async function buildNearbyByCategoryRails(
     const categoryBranches = merchants.flatMap(m => branchesByMerchant.get(m.id) ?? [])
     if (categoryBranches.length === 0) continue
 
-    const rankable = categoryBranches.filter(b =>
-      b.locationConfidence === 'MANUALLY_CONFIRMED'
-      || b.locationConfidence === 'ADDRESS_GEOCODED'
-    )
+    const rankable = categoryBranches.filter(isBranchLocationConfirmed)
     const nonRankable = categoryBranches.filter(b =>
       b.locationConfidence === 'POSTCODE_CENTROID'
       || b.locationConfidence === 'NEEDS_REVIEW'
@@ -1107,7 +1099,7 @@ export async function buildNearbyByCategoryRails(
       const withDistance = fillerBranches
         .filter(b =>
           b.latitude !== null && b.longitude !== null
-          && (b.locationConfidence === 'MANUALLY_CONFIRMED' || b.locationConfidence === 'ADDRESS_GEOCODED'),
+          && isBranchLocationConfirmed(b),
         )
         .map(b => ({
           branch:   b,
@@ -1229,10 +1221,7 @@ export async function buildNearbyByCategoryRails(
         const categoryBranches = merchants.flatMap(m => cascadeBranchesByMerchant.get(m.id) ?? [])
         if (categoryBranches.length === 0) continue
 
-        const rankable = categoryBranches.filter(b =>
-          b.locationConfidence === 'MANUALLY_CONFIRMED'
-          || b.locationConfidence === 'ADDRESS_GEOCODED'
-        )
+        const rankable = categoryBranches.filter(isBranchLocationConfirmed)
         const nonRankable = categoryBranches.filter(b =>
           b.locationConfidence === 'POSTCODE_CENTROID'
           || b.locationConfidence === 'NEEDS_REVIEW'

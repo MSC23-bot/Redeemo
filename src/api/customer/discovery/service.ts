@@ -6,6 +6,7 @@ import {
 } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { haversineMetres } from '../../shared/haversine'
+import { isBranchLocationConfirmed } from '../../shared/location'
 import { isOpenNow } from '../../shared/isOpenNow'
 import { resolveProfileCity } from '../../lib/userCity'
 import { getCurrentCycleWindow } from '../../subscription/cycle'
@@ -3578,11 +3579,10 @@ export async function searchBranches(
     },
   })
 
-  // ── 4. Partition by locationConfidence (Spec §4.1.1).
-  const rankable    = candidateBranches.filter(b =>
-    b.locationConfidence === 'MANUALLY_CONFIRMED'
-    || b.locationConfidence === 'ADDRESS_GEOCODED'
-  )
+  // ── 4. Partition by locationConfidence (Spec §4.1.1). rankable =
+  //    CONFIRMED_LOCATION_SET (shared M4 helper); nonRankable is its
+  //    discovery-local complement (POSTCODE_CENTROID + NEEDS_REVIEW).
+  const rankable    = candidateBranches.filter(isBranchLocationConfirmed)
   const nonRankable = candidateBranches.filter(b =>
     b.locationConfidence === 'POSTCODE_CENTROID'
     || b.locationConfidence === 'NEEDS_REVIEW'
