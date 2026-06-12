@@ -514,6 +514,13 @@ model Branch {
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  // §BRANCHDEL: soft-delete marker. DISTINCT from `isActive` (the merchant's
+  // reversible open/closed toggle) — `deletedAt != null` means the branch was
+  // permanently removed by the merchant. `softDeleteBranch` sets BOTH
+  // deletedAt + isActive=false; all branch-management reads filter `deletedAt:null`;
+  // customer discovery already excludes it via `isActive:false`. History
+  // (redemptions/reviews) is preserved by FK. Mirrors User/Merchant soft-delete.
+  deletedAt     DateTime?
   // SEC-C3: seed/demo data flag (see Merchant.isTestData).
   isTestData    Boolean  @default(false)
 
